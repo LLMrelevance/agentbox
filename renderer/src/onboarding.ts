@@ -1333,9 +1333,10 @@ export const COPY = {
    a condition inside a component, so the rule can be tested without a window.
 
    THE GATE ONLY EVER CLOSES ON A CERTAIN ANSWER, and that is the safety of it.
-   `missing` is true only after `main/claude-bin.mjs` has looked in fifteen
-   places, read the version manager folders, asked up to three shells and had
-   every one of them exit properly, and found no trace of Claude Code anywhere
+   `missing` is true only after `main/engine-bin.mjs` has asked up to three
+   login shells and had every one of them exit properly, looked in sixteen
+   places, read the version manager folders, looked inside the Claude desktop
+   app, and found no trace of Claude Code anywhere
    on the Mac — `installEvidence` vetoes certainty on so much as a
    `~/.claude.json` or a dangling symlink. A search that merely failed leaves
    `missing` false and this card is the approved ending, untouched.
