@@ -172,7 +172,7 @@ export class MemoryGate {
     for (const w of [...this.waiting.values()]) {
       if (now - w.arrived >= this.maxWaitMs) {
         this.waiting.delete(w.id);
-        for (const r of w.replies) r({ allow: false, reason: refusal(now - w.arrived) });
+        for (const r of w.replies) r({ allow: false, reason: refusal(now - w.arrived), cls: w.cls, waitedMs: now - w.arrived });
       }
     }
     if (this.pressure === 'critical') return;
@@ -199,7 +199,9 @@ export class MemoryGate {
     this.waiting.delete(w.id);
     this.running.set(w.id, {
       id: w.id, item: w.item, product: w.product, command: w.command, cls: w.cls,
-      background: w.background, startedAt: now, peakMb: null,
+      // How long it queued is kept so the coordinator can write it down when
+      // the command ends (w-0af52d5c86); nothing else reads it.
+      background: w.background, startedAt: now, peakMb: null, waitedMs: now - w.arrived,
     });
     for (const r of w.replies) r({ allow: true, cls: w.cls });
   }

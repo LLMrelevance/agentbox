@@ -95,6 +95,13 @@ export class MemoryGateServer {
     socketPath = defaultSocketPath(),
     historyFile = null,
     history = null,
+    // WHAT EVERY GRANT COST, WRITTEN DOWN (w-0af52d5c86). The gate knew each
+    // command's peak and its wait and kept neither past the command, so the
+    // question "is two slots right" had to be answered off agent transcripts,
+    // which hold waiting and running added together and cannot separate them.
+    // One appended line per grant makes the next answer a number.
+    grantLogFile = null,
+    grantLogMaxBytes = 4 * 1024 * 1024,
     gate = {},
     scoreFor = null,
     // WHOSE CODEX THREAD IS THIS (w-e5225b62ba). A Claude worker carries its row
@@ -124,6 +131,8 @@ export class MemoryGateServer {
   } = {}) {
     this.socketPath = socketPath;
     this.historyFile = historyFile;
+    this.grantLogFile = grantLogFile;
+    this.grantLogMaxBytes = grantLogMaxBytes;
     this.history = history ?? loadHistory(historyFile);
     this.clock = clock;
     this.idleReleaseMs = idleReleaseMs;
@@ -331,6 +340,7 @@ export class MemoryGateServer {
         res.end('');
       } else {
         this.counts.refused++;
+        this._writeGrant({ refused: true, cls: decision.cls, waitMs: decision.waitedMs, ranMs: null, peakMb: null, command });
         res.end(denyOutput(decision.reason));
       }
     });
@@ -355,6 +365,15 @@ export class MemoryGateServer {
     // as light on that alone, so `onlyIfLight` files that verdict and nothing
     // else. Before this, Codex taught the history almost nothing and rode on
     // what Claude workers taught it.
+    this._writeGrant({
+      refused: false,
+      cls: was.cls,
+      waitMs: was.waitedMs ?? 0,
+      ranMs: this.clock() - was.startedAt,
+      peakMb: grant?.ambiguous ? null : was.peakMb,
+      shared: !!grant?.ambiguous,
+      command: was.command,
+    });
     const filed = this.history.record(was.command, {
       peakMb: grant?.ambiguous ? null : was.peakMb,
       durationMs: Number(hook.duration_ms) || null,
@@ -471,6 +490,48 @@ export class MemoryGateServer {
       }
     }
     this.lastPids = new Set(procs.map((p) => p.pid));
+  }
+
+  /**
+   * One line per grant: what it was, how long it queued, how long it ran and
+   * the peak that was measured (w-0af52d5c86).
+   *
+   * `shared` MATTERS MORE THAN IT LOOKS. Two commands on one agent process are
+   * measured together and neither may claim the figure, so their peak is null
+   * and the line says why. Without that, a week of this reads as two commands
+   * of 900 MB where there was one.
+   *
+   * A LOG THAT CANNOT BE WRITTEN COSTS A LINE AND NOTHING ELSE. This runs on
+   * the path every shell command on the Mac goes through, so a full disk or an
+   * unwritable folder must never reach the agent waiting for an answer.
+   */
+  _writeGrant({ refused, cls, waitMs, ranMs, peakMb, shared = false, command }) {
+    if (!this.grantLogFile) return;
+    try {
+      if (this.grantBytes === undefined) {
+        try { this.grantBytes = fs.statSync(this.grantLogFile).size; } catch { this.grantBytes = 0; }
+      }
+      // Bounded, and the one before it is kept, so a week is still readable
+      // across the two even when a busy day fills one.
+      if (this.grantBytes >= this.grantLogMaxBytes) {
+        fs.renameSync(this.grantLogFile, `${this.grantLogFile}.1`);
+        this.grantBytes = 0;
+      }
+      const line = `${JSON.stringify({
+        t: this.clock(),
+        cls: cls ?? null,
+        waitMs: Number.isFinite(waitMs) ? waitMs : null,
+        ranMs: Number.isFinite(ranMs) ? ranMs : null,
+        peakMb: Number.isFinite(peakMb) ? peakMb : null,
+        ...(shared ? { shared: true } : {}),
+        ...(refused ? { refused: true } : {}),
+        cmd: String(command ?? '').slice(0, 300),
+      })}\n`;
+      fs.appendFileSync(this.grantLogFile, line);
+      this.grantBytes += Buffer.byteLength(line);
+    } catch (err) {
+      this.log(`memory gate: could not write the grant log: ${err.message}`);
+    }
   }
 
   _saveHistory() {

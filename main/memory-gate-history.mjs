@@ -238,11 +238,33 @@ export class CommandHistory {
       if (v === 'heavy' || verdict === 'heavy') verdict = 'heavy';
       else if (v === 'unknown') verdict = 'unknown';
     };
-    if (keys.length > 1 || opaque) {
-      const chain = this.keys.get(chainKey(keys, opaque));
-      if (chain?.slice(-5).includes('h')) return 'heavy';
-      if (opaque) worse('unknown');
-    }
+    // A COMMAND'S OWN RECORD OUTRANKS THE RECORDS OF ITS PARTS (w-0af52d5c86).
+    // Its own record is the only one that ever covered everything the command
+    // starts. Its parts are judged on a sample `record` feeds them only when a
+    // chain came out light, so they drift light: `npx vitest` stood at ten
+    // light runs while `npx vitest && tail` stood at `hmllllmmlm`, and the
+    // suite was called light because the 'h' had aged past five and both parts
+    // looked light.
+    //
+    // THIS KEY IS COARSER THAN THE COMMAND, and that is the price (Codex's
+    // review). A key is `program firstArg`, so a full suite and one test file
+    // are both `npx vitest`, and a chain keeps its segments but not which
+    // separator joined them. An old heavy run therefore holds back the cheap
+    // variants that share the key. Measured on this Mac's own history: of 86
+    // keys the old rule had settled as light, the wider window newly holds
+    // one, and that one is `npm run`, which earns it.
+    //
+    // A heavy run makes it heavy. A middling one (150-400 MB) only keeps it out
+    // of `light`, which is the lane where `lightLane` of them run at once: four
+    // middling runs in ten is not a reason to hold a command for minutes, and
+    // is every reason not to let eight of it start together. `unknown` is that
+    // answer, and `_holdsSlot` hands the slot back after `specWindowMs` once a
+    // run has been measured under `heavyMb` — so it staggers when middling work
+    // starts and does not cap how much of it runs at once.
+    const own = measured(this.keys.get(keys.length > 1 || opaque ? chainKey(keys, opaque) : keys[0]));
+    if (own.includes('h')) return 'heavy';
+    if (own.includes('m')) worse('unknown');
+    if (opaque) worse('unknown');
     for (const key of keys) worse(this._classifyKey(key));
     return verdict;
   }
