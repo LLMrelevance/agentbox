@@ -1,10 +1,39 @@
 import path from 'node:path';
 
+/**
+ * THE COMMAND LINE THAT STARTS A WORKER, BUILT FROM THE DEFINITION'S `run`.
+ *
+ * Every flag name here used to be a literal in main/supervisor.mjs, so the
+ * supervisor knew one engine's CLI by heart and a second one of the same family
+ * could not be added without editing it. The order is the order that shipped,
+ * and `tests/a-second-stream-json-engine-is-only-a-definition` holds it there,
+ * because flag order is the kind of thing a refactor silently rewrites.
+ *
+ * ABSENT MEANS CANNOT, not "default". An engine whose `run` has no `effort` is
+ * handed no effort word even when the task names one, which is how a harness
+ * says it lacks a capability without the call site asking who it is. `fork` is
+ * the one pair: a fork is a fork OF something, so it needs a resume as well.
+ */
+export function workerArgsFrom(run, { prompt, grants = [], effort = null, system = null, resumeId = null, fork = false } = {}) {
+  if (!run) return [];
+  const args = [];
+  if (run.print) args.push(run.print, prompt);
+  if (run.outputFormat) args.push(run.outputFormat.flag, run.outputFormat.value);
+  if (run.stream) args.push(...run.stream);
+  args.push(...grants);
+  if (run.effort && effort) args.push(run.effort, effort);
+  if (run.system && system) args.push(run.system, system);
+  if (run.resume && resumeId) args.push(run.resume, resumeId);
+  if (run.fork && fork && resumeId) args.push(run.fork);
+  return args;
+}
+
 export function definitionMethods(definition) {
   const scrub = definition.scrubPatterns.map(pattern => new RegExp(pattern));
   return {
     ...definition,
     binary: config => config?.[definition.binKey] ?? null,
+    workerArgs: options => workerArgsFrom(definition.run, options),
     install: () => ({ file: definition.installer.shell, args: ['-c', `curl -fsSL ${definition.installer.url} | ${definition.installer.pipe}`] }),
     signIn: bin => ({ file: bin, args: [...definition.loginArgs] }),
     signInStatus: bin => ({ file: bin, args: [...definition.statusArgs] }),

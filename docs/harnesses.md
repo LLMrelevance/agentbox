@@ -24,6 +24,17 @@ interchangeable. Existing settings snapshots and the two-engine admission gate
 remain compatible. A registry test proves dispatch with an offline third
 adapter; it does not claim a third provider is integrated or runnable.
 
+## The command line is data
+
+A definition's `run` block holds the flags that start a worker: the print flag,
+the output format, the streaming flags, and the effort, system, resume, fork and
+streaming-input flags. `workerArgsFrom` builds the line from it in a fixed
+order, and a key left out means the engine does not take that flag rather than
+that a default applies. An engine driven over RPC has no `run` and is handed no
+command line. So an engine that speaks a command line we already parse — Grok
+Build emits Claude Code's stream-json — is a definition entry, not an edit to
+the supervisor.
+
 ## Adding a harness
 
 Add a definition and an adapter, then explicitly wire discovery and enrollment.

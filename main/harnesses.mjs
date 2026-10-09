@@ -4,7 +4,7 @@ import { claudeHarness } from './harnesses/claude.mjs';
 import { codexHarness } from './harnesses/codex.mjs';
 
 export const HARNESS_OPERATIONS = Object.freeze([
-  'discover', 'binary', 'install', 'signIn', 'signInStatus', 'signInFiles',
+  'discover', 'binary', 'workerArgs', 'install', 'signIn', 'signInStatus', 'signInFiles',
   'workerEnv', 'profileEnv', 'profiles', 'signedIn', 'accountKey',
   'models', 'defaultModel', 'workspaceModel', 'profileHome', 'effortLevels', 'usage', 'spawn', 'readers',
   'subscribe', 'attachInput', 'tooling', 'transcript', 'change', 'release',
