@@ -221,8 +221,15 @@ describe('the door is on both surfaces, and the picker opens in main', () => {
     expect(settings).toMatch(/Choose/);
   });
 
-  it('is offered on the last card of the walk too, where somebody is stuck', () => {
-    expect(onboarding).toMatch(/gatePoint/);
+  // AND ON THE PLAN QUESTION, WHICH IS WHERE IT REALLY BELONGS (w-ce8c1a9275,
+  // 2026-10-09). It was a third button on the walk's last card; the founder
+  // called that rough and pointed at the component the walk already has for
+  // choosing a harness, so it is a row on the plan question and the last card
+  // draws the same list. tests/already-have-one-is-an-answer-to-which-plan
+  // holds the shape of both.
+  it('is offered in the walk too, where somebody is stuck', () => {
+    expect(onboarding).toMatch(/gateRows/);
+    expect(read('renderer/src/plan-setup.ts')).toMatch(/haveOne/);
   });
 
   it('is reachable from the window at all, which is the bridge', () => {

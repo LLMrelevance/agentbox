@@ -7,61 +7,44 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import {
-  COPY, afterCheck, enginesFor, planName, setupLede, setupRows,
-  type Engine, type EngineSetupState, type Plan, type StepRow,
+  COPY, afterCheck, enginesFor, planName, planRows, setupLede, setupRows,
+  type AskRow, type Engine, type EngineSetupState, type Plan, type StepRow,
 } from '../plan-setup';
 import { Cap } from './Onboarding';
 
 const Mark = ({ letter }: { letter: string }) => <span className="ps-mark" aria-hidden="true">{letter}</span>;
 
-const RowIcon = ({ state }: { state: StepRow['state'] }) => (
-  state === 'done' ? (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" /></svg>
-  ) : state === 'now' ? (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" fill="currentColor" /></svg>
-  ) : (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><circle cx="8" cy="8" r="5" /></svg>
-  )
-);
-
 /**
- * WHICH AI PLAN DO YOU PAY FOR. Four rows, the same list the folder screen is:
- *  arrows move, Enter or a click answers, and there is no Submit.
+ * A CARD OF ANSWERS: a mark, a name, a sentence, arrows and Enter, no Submit.
+ *
+ *  Lifted out of `PlanQuestion` on 2026-10-09 (w-ce8c1a9275) so the walk's last
+ *  card can be the same thing. The founder, on a photograph of that card drawn
+ *  as three buttons in a row: "In onboarding we already have a component for
+ *  geting setup/selecting your harness I feel like that's a better design an
+ *  dpossibly placement." It was a second vocabulary for one moment, on the one
+ *  screen in the app that will not let anybody past it.
+ *
+ *  THE ROWS ARE DATA, from ../plan-setup, so what a card offers is read by a
+ *  test rather than eyeballed. `other` is the separated group at the foot: the
+ *  ways out, as opposed to the things somebody pays for.
  */
-export function PlanQuestion({ onPick, onReady }: {
-  onPick: (plan: Plan) => void;
-  /** "Check this Mac" found something already set up. */
-  onReady: () => void;
+export function AskList({ rows, label, onPick, busy = false }: {
+  rows: AskRow[];
+  label: string;
+  onPick: (key: string) => void;
+  /** Something is already happening, so a second press would start a race. */
+  busy?: boolean;
 }) {
-  const rows: Array<{ key: Plan | 'check'; mark?: string; name: string; sub?: string }> = [
-    { key: 'claude', mark: 'C', name: COPY.claude, sub: COPY.claudePlans },
-    { key: 'codex', mark: 'G', name: COPY.chatgpt, sub: COPY.chatgptPlans },
-    { key: 'both', mark: '+', name: COPY.both, sub: COPY.bothPlans },
-    { key: 'check', name: COPY.notSure },
-  ];
   const [lit, setLit] = useState(0);
-  const [note, setNote] = useState<string | null>(null);
-  const [checking, setChecking] = useState(false);
-
-  const check = useCallback(async () => {
-    setChecking(true);
-    setNote(COPY.checking);
-    const found = await Promise.all((['claude', 'codex'] as Engine[]).map((e) => api.engineSetup('ready', e)));
-    setChecking(false);
-    const next = afterCheck(found.map((f) => ({ engine: f.engine, found: !!f.found, signedIn: !!f.signedIn })));
-    if (next.t === 'ready') { setNote(null); onReady(); }
-    else if (next.t === 'setup') { setNote(null); onPick(next.plan); }
-    else setNote(COPY.nothingHere);
-  }, [onPick, onReady]);
-
+  // A row that leaves the app is its own anchor, so a CLICK on one is the
+  // browser's to handle and never reaches here; this is the keyboard's copy of
+  // that, and the only place `href` is opened by hand.
   const choose = useCallback((i: number) => {
     const row = rows[i];
-    if (!row || checking) return;
-    if (row.key === 'check') void check();
+    if (!row || busy) return;
+    if (row.href) window.open(row.href, '_blank', 'noreferrer');
     else onPick(row.key);
-    // rows is rebuilt each render from constants; its identity does not matter
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [check, checking, onPick]);
+  }, [busy, onPick, rows]);
 
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
@@ -74,20 +57,10 @@ export function PlanQuestion({ onPick, onReady }: {
   }, [choose, lit, rows.length]);
 
   return (
-    <div className="fr-stack fr-stack-folders">
-      <h1 className="fr-page">{COPY.planHead}</h1>
-      <p className="fr-lede">{COPY.planLede}</p>
-      <div className="fr-card fr-folders" role="listbox" aria-label={COPY.planHead}>
-        {rows.map((row, i) => (
-          <button
-            key={row.key}
-            type="button"
-            role="option"
-            aria-selected={lit === i}
-            className={`fr-folder${row.key === 'check' ? ' fr-folder-other' : ''}${lit === i ? ' lit' : ''}`}
-            onMouseEnter={() => setLit(i)}
-            onClick={() => choose(i)}
-          >
+    <div className="fr-card fr-folders" role="listbox" aria-label={label}>
+      {rows.map((row, i) => {
+        const inside = (
+          <>
             <span className="fr-fold">
               {row.mark ? <Mark letter={row.mark} /> : (
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 8h9M8.5 4.5L12 8l-3.5 3.5" /></svg>
@@ -97,9 +70,116 @@ export function PlanQuestion({ onPick, onReady }: {
             {row.sub && <span className="fr-folder-path">{row.sub}</span>}
             {row.sub && <span className="fr-folder-via" />}
             <span className="fr-folder-key">{lit === i && <Cap cap="↵" />}</span>
-          </button>
-        ))}
-      </div>
+          </>
+        );
+        const className = `fr-folder${row.other ? ' fr-folder-other' : ''}${lit === i ? ' lit' : ''}`;
+        // A ROW THAT LEAVES THE APP IS AN ANCHOR, so the address is in the page
+        // and can be copied or opened in a new window. Everything else is a
+        // button, because it does something here.
+        return row.href ? (
+          <a
+            key={row.key}
+            role="option"
+            aria-selected={lit === i}
+            className={className}
+            href={row.href}
+            target="_blank"
+            rel="noreferrer"
+            onMouseEnter={() => setLit(i)}
+          >{inside}</a>
+        ) : (
+          <button
+            key={row.key}
+            type="button"
+            role="option"
+            aria-selected={lit === i}
+            className={className}
+            onMouseEnter={() => setLit(i)}
+            onClick={() => choose(i)}
+          >{inside}</button>
+        );
+      })}
+    </div>
+  );
+}
+
+const RowIcon = ({ state }: { state: StepRow['state'] }) => (
+  state === 'done' ? (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" /></svg>
+  ) : state === 'now' ? (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="4.5" fill="currentColor" /></svg>
+  ) : (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><circle cx="8" cy="8" r="5" /></svg>
+  )
+);
+
+/**
+ * WHICH AI PLAN DO YOU PAY FOR. Five rows now, the same list the folder screen
+ *  is: arrows move, Enter or a click answers, and there is no Submit.
+ *
+ *  THE FIFTH IS "I ALREADY HAVE ONE" (w-ce8c1a9275). It is an answer to this
+ *  question and not a screen of its own: the search asks their own login shell
+ *  first and then looks in sixteen places, and when it still misses, the only
+ *  thing left is to be shown. It sits with "check this computer for me" because
+ *  both are ways out rather than things somebody pays for, and it sits AFTER
+ *  it because asking the computer costs nothing.
+ */
+export function PlanQuestion({ onPick, onReady }: {
+  onPick: (plan: Plan) => void;
+  /** "Check this Mac" found something already set up. */
+  onReady: () => void;
+}) {
+  const rows = planRows();
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const check = useCallback(async () => {
+    setBusy(true);
+    setNote(COPY.checking);
+    const found = await Promise.all((['claude', 'codex'] as Engine[]).map((e) => api.engineSetup('ready', e)));
+    setBusy(false);
+    const next = afterCheck(found.map((f) => ({ engine: f.engine, found: !!f.found, signedIn: !!f.signedIn })));
+    if (next.t === 'ready') { setNote(null); onReady(); }
+    else if (next.t === 'setup') { setNote(null); onPick(next.plan); }
+    else setNote(COPY.nothingHere);
+  }, [onPick, onReady]);
+
+  /*
+   * SHOW IT WHERE ONE IS. The panel opens in the main process and the choice is
+   * applied there in the same call, so no path off anybody's disk crosses the
+   * bridge (main/ipc.mjs, `zero:engine-bin`). A file that is not something
+   * agents can run comes back as words, here, where the press was.
+   *
+   * Claude Code is what is asked for, because that is the one the app will not
+   * open an inbox without; somebody whose only agent is Codex is answered by
+   * `check` above, which finds it.
+   */
+  const mine = useCallback(async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const r = await api.engineBin('claude');
+      if (r?.refused) { setNote(COPY.notThatOne); return; }
+      if (r?.canceled) return;
+      // It landed, so the same read that answers "check this computer" decides
+      // what happens next rather than this press assuming it worked.
+      await check();
+    } finally {
+      setBusy(false);
+    }
+  }, [check]);
+
+  const choose = useCallback((key: string) => {
+    if (key === 'check') void check();
+    else if (key === 'mine') void mine();
+    else onPick(key as Plan);
+  }, [check, mine, onPick]);
+
+  return (
+    <div className="fr-stack fr-stack-folders">
+      <h1 className="fr-page">{COPY.planHead}</h1>
+      <p className="fr-lede">{COPY.planLede}</p>
+      <AskList rows={rows} label={COPY.planHead} onPick={choose} busy={busy} />
       <p className={note && note !== COPY.checking ? 'fr-note fr-refused' : 'fr-note'}>{note ?? COPY.privacy}</p>
     </div>
   );

@@ -7526,26 +7526,22 @@ a.set-ghost { text-decoration: none; display: inline-block; }
   gap: 14px; text-align: left;
 }
 
-/* It looked wrong because it WAS wrong. A footnote is what you use for
-   something the reader may ignore, and this is the one thing on the card they
-   cannot ignore. So on the rare Mac that gets here the whole card changes job:
-   the missing sentence stops being a footnote in faint ink under a button and
-   becomes the card's own line, at the card's own size, directly under a
-   headline that names it. There is nothing else on the card to compete with it,
-   no confetti behind it and no way past it. Nothing here is a new shape. Same
-   card, same corner, same width, same headline and line sizes; only what is IN
-   it changes.
-*/
-.fr-finish.gate .fr-finish-line { margin-bottom: 6px; color: var(--text); }
-.fr-gate-do {
-  margin: 0 0 22px; font-size: 13px; line-height: 1.55; color: var(--text-faint);
-}
-/* THE TWO MOVES, SIDE BY SIDE, WITH THE ONE THAT SOLVES IT FIRST. Get Claude
-   Code wears the button the ending wore, because it is now the thing this card
-   is for; check again is the quieter of the two, because pressing it before
-   installing anything changes nothing. */
-.fr-gate-acts { display: flex; align-items: center; justify-content: center; gap: 10px; }
-.fr-gate-acts .fr-finish-go { text-decoration: none; display: inline-block; }
+/* THE GATE IS A QUESTION SCREEN NOW (w-ce8c1a9275, 2026-10-09). It was the
+   ending's 520px card with three buttons in a row, and four rules here dressed
+   that up: `.fr-finish.gate`, `.fr-gate-do`, `.fr-gate-acts` and
+   `.fr-gate-still`. The founder, on a photograph of it: "UI wise this is very
+   rough. In onboarding we already have a component for geting setup/selecting
+   your harness I feel like that's a better design an dpossibly placement."
+
+   So it wears `.fr-stack-folders` like the plan question and the folder screen,
+   and those four are deleted rather than left to be found by somebody grepping
+   for a class nothing renders.
+
+   `.fr-gate-again` STAYS, and it is the one that nearly went with them: it was
+   named for the gate and it is worn by the setup card's own two buttons, Open
+   the sign-in page again and Skip for now (components/PlanSetup.tsx). Deleting
+   it would have left those two unstyled on the one screen a brand new person
+   meets when a sign-in has gone wrong. */
 .fr-gate-again {
   font: inherit; font-size: 13.5px;
   padding: 9px 16px; border-radius: var(--radius); cursor: pointer;
@@ -7553,12 +7549,10 @@ a.set-ghost { text-decoration: none; display: inline-block; }
 }
 .fr-gate-again:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
 .fr-gate-again:disabled { cursor: default; opacity: 0.6; }
-/* AFTER A CHECK THAT FOUND NOTHING. Reserved space is not worth it: this line
-   only ever appears after a press, and the card is centred on the window, so it
-   grows downward from a fixed middle rather than shifting the buttons. */
-.fr-gate-still {
-  margin: 16px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text-faint);
-}
+/* A ROW THAT IS A LINK IS STILL A ROW. `.fr-folder` is a <button> everywhere
+   else; the gate's install row is an <a>, so the browser would underline it and
+   paint it link-coloured in the middle of a list where nothing else is. */
+.fr-folder[href] { text-decoration: none; color: inherit; }
 /* ==========================================================================
    THE CHANGE THE AGENT MADE —, 2026-08-23.Nothing here is a new surface. The
    change is a third kind of file in the pane that already opens markdown and

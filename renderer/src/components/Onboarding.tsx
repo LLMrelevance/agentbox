@@ -18,7 +18,7 @@ import { TeamContext } from '../team/people';
 import {
   ALSO, ANCHOR, BOUNDS, BREATHE_AFTER_MS, COACHED, COPY, FLOOR, FLOOR_OF, TEAM_TAB_NAMES, TEXT_MAX, TEXT_MIN, teamTab,
   HELD_EVENTS, LINE_H, NOT_THE_APP, SLAB_OF, TEXT_GAP, UNDER,
-  anyAgents, clearOf, finishCard, forgetAgentsWhileLookingAgain,
+  anyAgents, clearOf, finishCard, forgetAgentsWhileLookingAgain, gateRows,
   forgetFoldersWhileLookingAgain, keepSecondRead, keyName, keyToken, padFor,
   practising, pressAtWrongRow, pressCounts, readAgentsAgain, roomFor, strayClick,
   swallowPress, wrongPress,
@@ -31,7 +31,7 @@ import FolderPicker from './FolderPicker';
 import { PRACTICE_NAME, PRACTICE_ROWS, PRACTICE_TASK } from '../../../shared/first-run-practice.mjs';
 import { AppMark } from './AppMark';
 import { SidebarIcon } from './SidebarIcon';
-import { PlanQuestion, PlanSetupCard } from './PlanSetup';
+import { AskList, PlanQuestion, PlanSetupCard } from './PlanSetup';
 import { needsPlan, type Plan } from '../plan-setup';
 import { NAME, Name } from '../../../shared/product-name.mjs';
 import { foundOnThisMac, type RunsOn } from '../../../shared/runs-on.mjs';
@@ -1318,62 +1318,59 @@ function Finished({
       </>
     );
   }
-  return (
-    <>
-      <Veil box={null} />
-      <div className={card.blocked ? 'fr-finish gate' : 'fr-finish'} role="status">
-        <h1 className="fr-finish-head">{card.head}</h1>
-        {/* ONE LINE, AND IT IS THE ONE `finishCard` PICKED. The card used to fork here
-           between two lessons about inbox zero; both of them are on the landing now, where
-           they are true of what is behind them, and what is left is the sentence that says
-           where these names came from.
-         */}
-        <p className="fr-finish-line">{card.line}</p>
-        {/* HER AGENTS USED TO BE DRAWN HERE, under a two-sided switch, and they
-            are on <ImportAgents> above now. See the note on this component. What
-            is left below is the gate, which is the one state of this card that
-            is about Claude Code rather than about agents. */}
-        {/* THE WAY INTO THE INBOX IS NOT DRAWN HERE AT ALL, because this card is now only
-           ever the gate.
-         */}
-        {/* AND WHEN IT IS BLOCKED, THE TWO REAL MOVES. Get it, which opens the
-            install page, and check again, which really searches again: the
-            remembered shell answer is thrown away first, so somebody who
-            installs Claude Code and presses this straight away is answered by a
-            search and not by a thirty second old memory (main/settings.mjs,
-            `recheckClaude`).
+  /*
+   * THE GATE IS A QUESTION SCREEN, NOT A CARD (w-ce8c1a9275, 2026-10-09).
+   *
+   * It used to be the ending's own 520px panel with three buttons crammed in a
+   * row. The founder, on a photograph of that: "UI wise this is very rough. In
+   * onboarding we already have a component for geting setup/selecting your
+   * harness I feel like that's a better design an dpossibly placement."
+   *
+   * So it wears what the walk's other full-stop screens wear -- `fr-stack
+   * fr-stack-folders`, a title, a line, one card of rows, one quiet note -- and
+   * it is the plan question's twin, which is what it has always been in
+   * substance: nothing can run an agent here, so how would you like to get one.
+   *
+   * AND IT IS THE WHOLE OF WHAT IS LEFT HERE. The branch above returns the
+   * import card for every unblocked Mac, so the `fr-finish` panel under this
+   * was only ever drawn when blocked -- it was the gate, wearing the ending's
+   * clothes, which is exactly the roughness that was reported. There is no
+   * ending card to fall through to any more and `fr-finish` keeps its one real
+   * user, the practice band's sibling further down this file.
+   */
+  if (card.blocked) {
+    return (
+      <>
+        <Veil box={null} />
+        <div className="fr-stack fr-stack-folders" role="status">
+          <h1 className="fr-page">{card.head}</h1>
+          <p className="fr-lede">{card.line}</p>
+          {/* Get it opens the install page, and is a real link so the address
+              is in the page. Check again really searches again: the remembered
+              shell answer is thrown away first, so somebody who installs Claude
+              Code and presses this straight away is answered by a search and
+              not by a thirty second old memory (main/settings.mjs,
+              `recheckClaude`). Show me where it is opens the panel in the main
+              process, which is the half that means nobody waits for a release. */}
+          <AskList
+            rows={gateRows(claude.url, { checking, pointing })}
+            label={card.head}
+            busy={checking || pointing}
+            onPick={(key) => { if (key === 'check') void recheck(); else void point(); }}
+          />
+          {/* ONE LINE UNDERNEATH, the way the plan question has one. What it
+              says is the newest true thing: the panel's refusal, then "still
+              nothing here" after a search that missed, and otherwise the
+              reassurance. Repeating the headline's own sentence at somebody who
+              has just pressed something reads as a screen that did not notice. */}
+          <p className={refused ? 'fr-note fr-refused' : 'fr-note'}>
+            {refused ?? (tried && !checking ? COPY.gateStill : COPY.gateDo)}
+          </p>
+        </div>
+      </>
+    );
+  }
 
-            The line under them appears only after a press. Repeating the
-            headline's own sentence at somebody who has just pressed a button
-            reads as a screen that did not notice. */}
-        {card.blocked && (
-          <>
-            <p className="fr-gate-do">{COPY.gateDo}</p>
-            <div className="fr-gate-acts">
-              <a
-                className="fr-finish-go"
-                href={claude.url}
-                target="_blank"
-                rel="noreferrer"
-                autoFocus
-              >{COPY.missingLink}</a>
-              <button className="fr-gate-again" onClick={recheck} disabled={checking}>
-                {checking ? COPY.gateChecking : COPY.gateCheck}
-              </button>
-              {/* AND FOR SOMEBODY WHO HAS IT SOMEWHERE WE DID NOT LOOK. Third,
-                  because installing it is what most people here need and
-                  pointing at a file they do not have yet is no use to them. */}
-              <button className="fr-gate-again" onClick={point} disabled={pointing}>
-                {pointing ? COPY.gatePointing : COPY.gatePoint}
-              </button>
-            </div>
-            {refused && !pointing && <p className="fr-gate-still">{refused}</p>}
-            {tried && !checking && <p className="fr-gate-still">{COPY.gateStill}</p>}
-          </>
-        )}
-      </div>
-    </>
-  );
 }
 
 /**
