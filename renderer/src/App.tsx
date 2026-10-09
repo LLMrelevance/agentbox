@@ -5499,6 +5499,7 @@ export default function App() {
                   artifactView={openDoc ? artifactView : undefined}
                   onOpenArtifact={(src, mode) => { setArtifactReturnBeside(false); setArtifactMode(mode); setOpenDoc({product: focused.product, src}); }}
                   item={focused}
+                  referenceItems={items}
                   resumeAt={resumeAt}
                   onScrolled={(top) => {
                     const at = Date.now();

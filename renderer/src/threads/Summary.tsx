@@ -31,6 +31,7 @@ import { findPeople, teammates } from './composer-rules';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
 import { rowTitle } from '../list-rules';
 import { SharedMark } from './Pages';
+import { TicketText } from '../components/TicketReference';
 import './summary.css';
 
 /* ------------------------------------------------------------------ pieces */
@@ -185,7 +186,7 @@ const SHOWN_FIELDS: SummaryField[] = ['problem', 'progress'];
 function DoneTrail({ steps }: { steps: string[] }) {
   return (
     <ol className="ts-trail">
-      {steps.map((s, i) => <li key={i} className={`ts-step${i === steps.length - 1 ? ' ts-step-last' : ''}`}>{s}</li>)}
+      {steps.map((s, i) => <li key={i} className={`ts-step${i === steps.length - 1 ? ' ts-step-last' : ''}`}><TicketText text={s} /></li>)}
     </ol>
   );
 }
@@ -406,7 +407,7 @@ export function SummaryPanel({ item, team, onFinish, onClose }: {
               title="Click to edit"
               onClick={() => begin(f)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); begin(f); } }}
-            >{f === 'progress' ? <DoneTrail steps={doneSteps(stood[f])} /> : stood[f]}<Pen /></div>
+            >{f === 'progress' ? <DoneTrail steps={doneSteps(stood[f])} /> : <TicketText text={stood[f]} />}<Pen /></div>
           )}
         </div>
       ))}

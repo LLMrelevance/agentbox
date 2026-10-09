@@ -3,6 +3,8 @@ import {DirectReview} from './DirectReview';
 import {MessageFiles} from './MessageFiles';
 import {reviewLabEnabled, reviewContextDraft} from '../review-lab';
 import { sourceReference } from '../source-reference.mjs';
+import { remarkTicketReferences, resolveTicket, ticketReference, TICKET_HREF } from '../ticket-references';
+import { TicketLink, TicketNavigation } from './TicketReference';
 import { TaskTerminal } from './TaskTerminal';
 import { isLocalPreview } from '../artifact-layout';
 import { watchCommandCatalog } from '../command-catalog';
@@ -425,7 +427,7 @@ function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onRejectFiled, onNotice, onHandToAgent, onAddPeople }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], referenceItems = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onRejectFiled, onNotice, onHandToAgent, onAddPeople }: {
   previewSample?: string;
   /**
    * A MESSAGE FROM A PERSON IS NOT WORK UNTIL SHE SAYS SO. The one line under
@@ -488,6 +490,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // empty draws nothing.
   filed?: Array<MadeRow & { item: WorkItem }>;
   onOpenItem: (item: WorkItem) => void;
+  referenceItems?: WorkItem[];
   // SAYING GO TO ONE OF THEM FROM HERE (w-9cf2b43110), on the rows whose
   // `approve` says they are waiting on it. The same approval ⌘K makes on the
   // row itself, except that it does not take you off the thread you are
@@ -594,6 +597,11 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const made = trouble || update;
   // The door into a thread this one filed, wherever that list ends up drawn.
   const openFiled = (id: string) => { const hit = filed.find((r) => r.id === id); if (hit) onOpenItem(hit.item); };
+  const openTicket = (id: string) => {
+    const hit = resolveTicket(referenceItems, id, item.product);
+    if (hit) onOpenItem(hit);
+    else onNotice(`Ticket ${id} is not available in your threads.`);
+  };
   const approveFiled = (id: string) => { const hit = filed.find((r) => r.id === id); if (hit) onApproveFiled?.(hit.item); };
   const rejectFiled = (id: string) => { const hit = filed.find((r) => r.id === id); if (hit) onRejectFiled?.(hit.item); };
   // ONE REASON THERE IS NO REPLY BOX, and it is a box. There was not one. A
@@ -930,6 +938,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     const mdComponents = {
       pre: ({ children }: { children?: ReactNode }) => <CodePre>{children}</CodePre>,
       a: ({ href, children }: { href?: string; children?: ReactNode }) => {
+        const ticket = href?.startsWith(TICKET_HREF)
+          ? ticketReference(href.slice(TICKET_HREF.length)) : ticketReference(href ?? '');
+        if (ticket) return <TicketLink id={ticket}>{children}</TicketLink>;
         // AN AGENT MENTIONED IN A CONVERSATION is drawn as the mention it is;
         // its address is for the app, which draws the answer under the message
         // (w-7b9cb8636a, ../team/agent-mentions.ts).
@@ -956,6 +967,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       img: ({ src, alt }: { src?: string; alt?: string }) => <ArtifactImg key={src} src={src} alt={alt} roots={roots} onOpen={openHref} find={find} />,
       code: ({ children, className }: { children?: ReactNode; className?: string }) => {
         const value = String(children ?? '');
+        if (!className && ticketReference(value)) return <code>{children}</code>;
         const source = !className && sourceReference(value);
         if (source) return <ArtifactLink product={product} src={source} fallback={resolveSrc(source)} onOpen={() => openHref(source)}><code>{value}</code></ArtifactLink>;
         // Written out in full into this product's folder counts as the short
@@ -980,7 +992,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   }, [product, productDir, repoDir, item.id, item.result, item.note, item.body, item.answer]);
 
   const mdPlugins = useMemo(
-    () => [remarkGfm, [remarkArtifactPaths, { dir: productDir ?? null }]] as NonNullable<Parameters<typeof ReactMarkdown>[0]['remarkPlugins']>,
+    () => [remarkGfm, remarkTicketReferences, [remarkArtifactPaths, { dir: productDir ?? null }]] as NonNullable<Parameters<typeof ReactMarkdown>[0]['remarkPlugins']>,
     [productDir],
   );
 
@@ -1235,6 +1247,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // away with the words. An earlier cut of folded state into the className and
   // turned that guard off silently.
   return (
+    <TicketNavigation.Provider value={openTicket}>
     <div className="focus-pane" ref={paneRef} data-summary={summaryShown ? 'open' : summaryOffered ? 'rail' : undefined}>
     {/* THERE IS NO WAY-OUT CONTROL ON AN OPENED TASK ANY MORE.
 
@@ -1779,6 +1792,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     {summaryOffered && !summaryOpen && <SummaryRail item={item} team={teamCtx} onOpen={toggleSummary} />}
     {!direct && <TaskTerminal key={`${item.product}:${item.id}`} product={item.product} id={item.id} onOpenChange={setTerminalOpen}/>}
     </div>
+    </TicketNavigation.Provider>
   );
 }
 
