@@ -1098,6 +1098,12 @@ export function fixtureEngineSettings(world: FixtureEngineWorld | null): Partial
   if (world === 'nowhere') {
     return {
       claudeFound: false, claudeCertain: true, claudeBin: '/Users/you/.local/bin/claude',
+      // THE THREE FLAT KEYS THE WALK'S LAST CARD READS, which no fixture world
+      // had set before. `codexFoundState` in main/settings.mjs sends them
+      // alongside the `codex` object below, and App.tsx reads THEM rather than
+      // the object -- so a world that set only the object left `codexCertain`
+      // undefined, `noCodingAgent` false, and the gate undrawable in fixtures.
+      codexFound: false, codexCertain: true, codexInstallUrl: CODEX_INSTALL_URL,
       codex: { found: false, certain: true, bin: '', url: CODEX_INSTALL_URL, trouble: null },
     };
   }
