@@ -25,7 +25,7 @@ import { readPlan } from './claude-plan.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { machineSlots, machineNote, autoAgents, MAX_SLOTS } from './machine.mjs';
 import { shortPath } from './agent-files.mjs';
-import { NAME } from '../shared/product-name.mjs';
+import { NAME, Name } from '../shared/product-name.mjs';
 import { autoSlots } from './memory-gate.mjs';
 import { accountIdentity, claudeLoginCommand, duplicateAccountNote, linkAccountTooling, makeClaudeHome } from './account-tooling.mjs';
 import { isEngine } from '../shared/engines.mjs';
@@ -256,6 +256,11 @@ export function claudeState(config) {
     // Whether the search got an answer at all.
     claudeCertain: found.certain !== false,
     claudeInstallUrl: INSTALL_URL,
+    // WHETHER SOMEBODY POINTED AT THIS FILE THEMSELVES, which is the one thing
+    // the card cannot work out from the path alone. A chosen path is never
+    // searched around, so the row that offers the search back has to know
+    // (`pointAtEngineBin` below).
+    claudeChosen: found.from === 'settings',
   };
 }
 
@@ -323,6 +328,8 @@ export function codexState(config, where = {}) {
     // Whether the search got an answer at all.
     certain: found.certain !== false,
     url: CODEX_INSTALL_URL,
+    // Whether somebody pointed at this file themselves. See `claudeState`.
+    chosen: found.from === 'settings',
   };
 }
 
@@ -347,6 +354,87 @@ export function recheckCodex(config) {
   const opened = codexChoiceToOpen(config, state.found);
   if (opened && config.appDir) saveConfig(config, { engineChoice: opened });
   return state;
+}
+
+/* ------------------- POINTING AT IT YOURSELF, AND BACK -------------------- */
+/**
+ * THE WAY OUT OF A SEARCH THAT MISSED, AND IT IS NOT A RELEASE (w-ce8c1a9275).
+ *
+ * The note this came from: "It has a really hard time finding the install on the
+ * person's computer, and we keep having bug reports and then patching that
+ * specific case." Asking the login shell first (main/engine-bin.mjs) covers
+ * every installer a person's own PATH knows about, which is most of them. It
+ * cannot cover a wrapper script somewhere nobody would guess, a tool on a
+ * volume, or a machine whose login shell will not start at all -- and for those,
+ * every fix used to be a path WE ship and a release THEY wait for.
+ *
+ * `claudeBin` in zero.config.json already won over the search and always has.
+ * What was missing is that nobody is told about that file and the app gave no
+ * way to edit it. These two functions are that door, and the second one matters
+ * as much as the first: a wrong choice that could only be undone by hand-editing
+ * a file nobody has heard of is not a door, it is a trap.
+ *
+ * THE REFUSALS ARE MOST OF THE WORK. Each thing refused here was possible by
+ * hand before and each one becomes a spawn that fails once per row, naming a
+ * file nobody meant to name. The sentence comes back to the screen instead.
+ *
+ * NO PATH FROM THE WINDOW IS EVER TRUSTED: main/ipc.mjs opens the picker and
+ * calls this in the same trip, so the only path that reaches here is one the
+ * open panel itself produced. The sibling rule is
+ * tests/where-codex-runs-from-is-not-a-file-a-worker-can-write.test.mjs.
+ */
+const BIN_KEY = { claude: 'claudeBin', codex: 'codexBin' };
+
+/** The sentence, or null when the file really is one we could run. */
+function whyNotAnAgent(chosen) {
+  if (typeof chosen !== 'string' || !path.isAbsolute(chosen)) {
+    return `${Name} needs the file itself, picked from your computer.`;
+  }
+  let stat;
+  try { stat = fs.statSync(chosen); } catch { stat = null; }
+  if (!stat) return `${Name} could not find anything there. It may have moved since.`;
+  if (stat.isDirectory()) return 'That is a folder. Open it and pick the file inside.';
+  try { fs.accessSync(chosen, fs.constants.X_OK); } catch {
+    return 'That file cannot be run, so it is not the one.';
+  }
+  return null;
+}
+
+/**
+ * Take a file somebody picked for one coding agent.
+ *
+ * Written to zero.config.json so it survives a restart AND set on the live
+ * config, because every consumer reads `config.*` per call and a setting that
+ * waits for a relaunch is the same failure as a fix that is not running. The
+ * recheck afterwards is what puts the path the fleet spawns from in step with
+ * it, the same way the Check again button does.
+ */
+export function pointAtEngineBin(config, engine, chosen) {
+  const key = BIN_KEY[engine];
+  if (!key) return { ok: false, say: `${Name} does not know a coding agent called that.` };
+  const why = whyNotAnAgent(chosen);
+  if (why) return { ok: false, say: why };
+  if (!config.appDir) return { ok: false, say: `${Name} has nowhere to save that.` };
+  saveConfig(config, { [key]: chosen });
+  config[`${engine}BinConfigured`] = chosen;
+  const state = engine === 'claude' ? recheckClaude(config) : recheckCodex(config);
+  return { ok: true, state };
+}
+
+/**
+ * Give the choice back, so the search is in charge again. The key is REMOVED
+ * from the file rather than emptied: `saveConfig` reads an explicit undefined as
+ * a deletion, and an empty string left behind would read as a setting that means
+ * something else (main/config.mjs only treats a non-empty string as chosen).
+ */
+export function searchForEngineBin(config, engine) {
+  const key = BIN_KEY[engine];
+  if (!key) return { ok: false, say: `${Name} does not know a coding agent called that.` };
+  if (!config.appDir) return { ok: false, say: `${Name} has nowhere to save that.` };
+  saveConfig(config, { [key]: undefined });
+  config[`${engine}BinConfigured`] = null;
+  const state = engine === 'claude' ? recheckClaude(config) : recheckCodex(config);
+  return { ok: true, state };
 }
 
 export function readSettings({ config, supervisor, store }) {

@@ -40,7 +40,7 @@ import { readDoc, writeDoc } from './doc-file.mjs';
 import { readChange } from './code-change.mjs';
 import { findFile, readCodeFile, writeCodeFile } from './code-file.mjs';
 import { readNote, writeNote } from './rail-note.mjs';
-import { addClaudeAccount, addCodexAccount, outsideAgentsMode, permissionMode, readSettings, recheckClaude, recheckCodex, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
+import { addClaudeAccount, addCodexAccount, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, recheckClaude, recheckCodex, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
 import { ICON_KINDS, clearProjectIcon, setProjectIcon, setProjectName } from './project-identity.mjs';
 import { ClaudeUsage } from './claude-usage.mjs';
 import { usageEngine } from '../shared/usage.mjs';
@@ -1353,6 +1353,53 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   ipcMain.handle('zero:codex-recheck', () => {
     try {
       return { ok: true, workspace: recheckCodex(config) };
+    } catch (err) {
+      return { ok: false, error: String(err.message) };
+    }
+  });
+
+  /*
+   * AND WHEN NEITHER BUTTON CAN FIND IT: POINT AT THE FILE YOURSELF
+   * (w-ce8c1a9275). The search asks the login shell first now, which covers
+   * every installer a person's own PATH knows about -- but a wrapper script
+   * somewhere nobody would guess, a tool on a volume, or a machine whose login
+   * shell will not start at all still used to mean a path WE ship and a release
+   * THEY wait for. This is the half that ends that.
+   *
+   * ONE ROUND TRIP, like `zero:project-icon` below and for the same reason: the
+   * panel opens in this process and the choice is applied in the same call, so
+   * the only path that ever reaches `pointAtEngineBin` is one the open panel
+   * itself produced. The window says WHICH coding agent it is asking about and
+   * nothing else, which is the whole of what it is trusted with -- `codexBin`
+   * is a path that gets spawned, and every worker on this machine has a broad
+   * Bash allow (tests/where-codex-runs-from-is-not-a-file-a-worker-can-write).
+   *
+   * THE REFUSAL IS A SENTENCE AND NOT AN ERROR. Picking a folder, or a file
+   * that cannot be run, is an ordinary mistake at a file panel; it comes back
+   * as words the row prints, the way `zero:choose-folder` already does.
+   */
+  ipcMain.handle('zero:engine-bin', async (_e, { engine, action } = {}) => {
+    if (engine !== 'claude' && engine !== 'codex') return { ok: false, error: 'Unknown coding agent.' };
+    try {
+      // Handing the choice back needs no panel: it is the row saying "look for
+      // it again", and the search takes over from there.
+      if (action === 'search') {
+        const gave = searchForEngineBin(config, engine);
+        if (!gave.ok) return { ok: false, refused: gave.say };
+        return { ok: true, ...readSettings({ config, supervisor, store }) };
+      }
+      const { dialog } = await import('electron');
+      const r = await dialog.showOpenDialog(window, {
+        title: engine === 'codex' ? 'Where is Codex?' : 'Where is Claude Code?',
+        buttonLabel: 'Use this one',
+        properties: ['openFile', 'showHiddenFiles', 'treatPackageAsDirectory'],
+      });
+      // Cancelling is not a failure and must not draw one. `ok` with nothing
+      // changed is the honest answer: they opened the panel and closed it again.
+      if (r.canceled || !r.filePaths?.length) return { ok: true, canceled: true };
+      const took = pointAtEngineBin(config, engine, r.filePaths[0]);
+      if (!took.ok) return { ok: false, refused: took.say };
+      return { ok: true, ...readSettings({ config, supervisor, store }) };
     } catch (err) {
       return { ok: false, error: String(err.message) };
     }

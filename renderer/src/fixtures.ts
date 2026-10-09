@@ -974,9 +974,9 @@ export const fixtureSettings = {
 //   ?engines=codex    two agents, workspace moved to Codex. The screen the
 //                     shipped bug was on.
 
-export type FixtureEngineWorld = 'missing' | 'claude' | 'codex';
+export type FixtureEngineWorld = 'missing' | 'claude' | 'codex' | 'nowhere' | 'chosen';
 
-const ENGINE_WORLDS: FixtureEngineWorld[] = ['missing', 'claude', 'codex'];
+const ENGINE_WORLDS: FixtureEngineWorld[] = ['missing', 'claude', 'codex', 'nowhere', 'chosen'];
 
 /**
  * The world one url asks for, or null for the Mac she has. A word nothing
@@ -1083,6 +1083,40 @@ export function fixtureEngineSettings(world: FixtureEngineWorld | null): Partial
       codex: { found: false, certain: true, bin: '', url: CODEX_INSTALL_URL, trouble: null },
     };
   }
+  /*
+   * THE TWO MACHINES "POINT AT IT YOURSELF" EXISTS FOR (w-ce8c1a9275).
+   *
+   * `nowhere` is the one the bug reports came from: the search asked their login
+   * shell and looked in sixteen places and came back sure about both agents. It
+   * is the only world where the walk's last card shuts the inbox, so it is also
+   * the only one that can photograph that card's three buttons.
+   *
+   * `chosen` is what that machine looks like afterwards: both paths are ones
+   * somebody pointed at, and the row that offers the search back is the only
+   * thing standing between them and a choice they cannot undo.
+   */
+  if (world === 'nowhere') {
+    return {
+      claudeFound: false, claudeCertain: true, claudeBin: '/Users/you/.local/bin/claude',
+      codex: { found: false, certain: true, bin: '', url: CODEX_INSTALL_URL, trouble: null },
+    };
+  }
+  if (world === 'chosen') {
+    return {
+      claudeFound: true, claudeCertain: true, claudeChosen: true,
+      claudeBin: '/Volumes/work/tools/claude',
+      engineChoices: ENGINES,
+      codexModels: fixtureCodexModels,
+      codexModelDefault: fixtureCodexModelDefault,
+      codexModel: null,
+      codexMode: CODEX_DEFAULT_MODE,
+      codex: {
+        found: true, certain: true, chosen: true, bin: '/Volumes/work/tools/codex',
+        url: CODEX_INSTALL_URL, trouble: null,
+        accounts: [{ profile: 'default', email: 'you@example.com', name: null, plan: 'Plus', accountId: null, signedIn: true, chosen: false }],
+      },
+    };
+  }
   return {
     engine: world,
     engineChoices: ENGINES,
@@ -1113,7 +1147,11 @@ export function fixtureEngineSettings(world: FixtureEngineWorld | null): Partial
 export function fixtureSecondEngine(snap: Snapshot, world: FixtureEngineWorld | null): Snapshot {
   // `missing` is one coding agent, so the snapshot is the one she already has.
   // Everything it changes is in Settings.
-  if (!world || world === 'missing') return snap;
+  //
+  // `nowhere` and `chosen` are the same: they are about WHERE the agents are,
+  // not about which one a row runs on, so the rows they describe are the ones
+  // already up (w-ce8c1a9275).
+  if (!world || world === 'missing' || world === 'nowhere' || world === 'chosen') return snap;
   const byItem = OFF_THE_WORKSPACE[world];
   const engineOf = (id: string) => byItem[id] ?? world;
   return {

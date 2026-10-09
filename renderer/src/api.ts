@@ -858,6 +858,29 @@ export const api = {
     }
   },
 
+  /* * POINT AT THE CODING AGENT YOURSELF, when neither search can find it
+     (w-ce8c1a9275). The picker opens in the main process and the choice is
+     applied in the same call, so this call hands over WHICH agent and nothing
+     else: no path off anybody's disk is ever passed back to be trusted.
+
+     `search` is the way out of a wrong choice, and it needs no picker: it takes
+     the path out of the config and lets the search have it again.
+
+     A refusal is WORDS, not an error. Picking a folder, or a file that cannot
+     be run, is an ordinary mistake at a file panel and the row prints what came
+     back. Cancelling the panel is neither: `ok` with nothing changed.
+  */
+  async engineBin(engine: 'claude' | 'codex', action?: 'search'): Promise<Settings & { canceled?: boolean; refused?: string }> {
+    if (useFixtures) return { ...emptySettings, ok: true, canceled: true };
+    const zero = window.zero as any;
+    if (!zero?.engineBin) return { ...emptySettings, ok: false, error: RESTART_NOTE };
+    try {
+      return await zero.engineBin({ engine, ...(action ? { action } : {}) });
+    } catch (err) {
+      return { ...emptySettings, ok: false, error: String((err as Error)?.message ?? err) };
+    }
+  },
+
   // SETTING UP THEIR PLAN FOR THEM (w-9f6975906c): install a coding agent and
   // start its own sign-in. A page that cannot reach the main process answers
   // READY, because a walk that asks a question it can do nothing about is a

@@ -1321,6 +1321,13 @@ export const COPY = {
   gateDo: `Install either one, then check again. Your inbox opens as soon as ${NAME} can see it.`,
   gateCheck: 'Check again',
   gateChecking: 'Looking',
+  // AND THE THIRD MOVE, FOR SOMEBODY WHO HAS IT AND IS STILL STUCK HERE
+  // (w-ce8c1a9275). This card is the one screen that will not let anybody past
+  // it, so it is the worst place in the app to have no answer except "wait for
+  // a release". The search asks your own login shell first and then looks in
+  // sixteen places; if it is still wrong, show it the file.
+  gatePoint: 'Show me where it is',
+  gatePointing: 'Choosing',
   // AFTER A CHECK THAT FOUND NOTHING. It is a different sentence from the one
   // above it, because repeating the first sentence at somebody who has just
   // pressed a button reads as a screen that did not notice the press.

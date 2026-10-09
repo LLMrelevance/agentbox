@@ -1242,8 +1242,38 @@ function Finished({
   const recheck = async () => {
     if (checking) return;
     setChecking(true);
+    setRefused(null); // whatever the panel said is about a press before this one
     try { setTried(await onRecheck()); }
     finally { setChecking(false); }
+  };
+  // AND THE THIRD MOVE: SHOW IT WHERE THE FILE IS (w-ce8c1a9275). This card is
+  // the one screen in the app that will not let anybody past it, so it is the
+  // worst place to have no answer except "wait for a release". The panel opens
+  // in the main process and the choice is applied there in the same call, so no
+  // path off anybody's disk crosses the bridge (main/ipc.mjs, `zero:engine-bin`).
+  //
+  // A REFUSAL IS WORDS. Picking a folder by mistake at a file panel is ordinary,
+  // and it replaces the "still nothing here" line rather than adding a row to a
+  // card that is already the only thing standing in somebody's way.
+  const [pointing, setPointing] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  const point = async () => {
+    if (pointing) return;
+    setPointing(true);
+    setRefused(null);
+    try {
+      const { api } = await import('../api');
+      const r = await api.engineBin('claude');
+      // ONE LINE UNDER THE BUTTONS, NEVER TWO. "Still nothing here" is about the
+      // last search and the refusal is about the panel just now, so the newest
+      // one replaces the other rather than stacking under it on a card that is
+      // already the only thing standing in somebody's way.
+      if (r?.refused) { setRefused(r.refused); setTried(false); }
+      // Cancelling changed nothing, so there is nothing to look at again.
+      if (!r?.canceled && !r?.refused) setTried(await onRecheck());
+    } finally {
+      setPointing(false);
+    }
   };
   // THE STRAIGHT-IN IS GONE. A Mac with no agent files used to end the walk
   // here with no card at all, and MEASURED on that Mac it meant the person with
@@ -1330,7 +1360,14 @@ function Finished({
               <button className="fr-gate-again" onClick={recheck} disabled={checking}>
                 {checking ? COPY.gateChecking : COPY.gateCheck}
               </button>
+              {/* AND FOR SOMEBODY WHO HAS IT SOMEWHERE WE DID NOT LOOK. Third,
+                  because installing it is what most people here need and
+                  pointing at a file they do not have yet is no use to them. */}
+              <button className="fr-gate-again" onClick={point} disabled={pointing}>
+                {pointing ? COPY.gatePointing : COPY.gatePoint}
+              </button>
             </div>
+            {refused && !pointing && <p className="fr-gate-still">{refused}</p>}
             {tried && !checking && <p className="fr-gate-still">{COPY.gateStill}</p>}
           </>
         )}
