@@ -21,13 +21,24 @@ export function createHarnessRegistry(adapters) {
       if (typeof value !== 'boolean') throw Error(`${adapter.id}.${name} must be a boolean.`);
     }
     if (adapter.capabilities?.remoteControl && typeof adapter.attachInput !== 'function') throw Error(`${adapter.id}.remoteControl requires attachInput.`);
+    if (adapter.available != null && typeof adapter.available !== 'function') throw Error(`${adapter.id}.available must be a function or absent.`);
+    // WHAT IT CAN DO IS WHAT IT SAYS, NOT WHAT IT HAS A METHOD FOR. Having the
+    // method was the whole truth while every adapter was written by hand for
+    // one tool. One adapter serving several tools over a shared protocol
+    // breaks it: it implements every operation for all of them, and what THIS
+    // tool can do is what it negotiated when the session opened. So an adapter
+    // may declare an operation unavailable, and a declined one is refused
+    // exactly as a missing one is — before it does anything.
+    const declines = name => adapter.available ? adapter.available(name) !== true : false;
     const complete = { ...adapter };
     for (const name of HARNESS_OPERATIONS) {
       if (adapter[name] != null && typeof adapter[name] !== 'function') throw Error(`${adapter.id}.${name} must be a function or absent.`);
-      complete[name] ??= (..._args) => {
+      const absent = (..._args) => {
         if (OPTIONAL_READS.has(name)) return { supported: false, engine: adapter.id, capability: name };
         throw Error(`${adapter.label} does not support ${name}.`);
       };
+      const own = complete[name];
+      complete[name] = own ? ((...args) => declines(name) ? absent(...args) : own(...args)) : absent;
     }
     entries.set(adapter.id, { adapter, complete: Object.freeze(complete) });
   }
@@ -37,7 +48,11 @@ export function createHarnessRegistry(adapters) {
       if (!entry) throw Error(`Unknown coding agent: ${String(id)}`);
       return entry.complete;
     },
-    supports(id, capability) { return typeof entries.get(id)?.adapter[capability] === 'function'; },
+    supports(id, capability) {
+      const adapter = entries.get(id)?.adapter;
+      if (typeof adapter?.[capability] !== 'function') return false;
+      return adapter.available ? adapter.available(capability) === true : true;
+    },
   });
 }
 const registry = createHarnessRegistry([claudeHarness, codexHarness]);

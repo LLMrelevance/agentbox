@@ -44,6 +44,77 @@ delivery against the provider's native transport. A provider is not offered
 until that path works. Never infer permission from terminal text or mark missing
 usage as zero. Capability declarations must describe what the adapter can do.
 
+## What a harness can do is what it says
+
+`createHarnessRegistry` used to answer `supports()` by asking whether the
+adapter had a function of that name. That was the whole truth while every
+adapter was written by hand for one tool. One adapter serving several tools
+over a shared protocol breaks it, because it implements every operation for all
+of them. So an adapter may also declare availability: `available(name)` returns
+false for an operation this tool did not negotiate, `supports()` believes it,
+and a declined operation is refused exactly as a missing one is — before it
+does anything, and reported as absent rather than as zero.
+
+## The Agent Client Protocol, and what it settles
+
+`main/acp.mjs` is one transport for every agent that speaks ACP: JSON-RPC 2.0
+over stdio, one object per line. It holds the wire and no opinion about which
+tool is on the other end. Decided while building it, with Codex reviewing:
+
+- ONE ADAPTER, BUT NOT EVERYTHING AS DATA. Binary arguments, install and login
+  commands, profile paths and supported version ranges are data. Authentication
+  parsing, session lifecycle, permission handling, cancellation and replay stay
+  code. Speaking ACP does not make a tool resumable: `session/load` is optional,
+  so resume is read off what the agent advertised, never assumed.
+- ONE PROCESS PER ACTIVE ITEM to begin with, so a crash, a leak or a forced
+  cancellation is contained to one item. Codex's shared app-server per profile
+  is proven and stays as it is. Pooling ACP is a later change and needs a
+  measurement of the whole process tree first, not an estimate.
+- EVENTS STAY NATIVE, presentation is normalised. `session/update` is kept as
+  the tool sent it and read through the same capture, stream, summarize, trace
+  and activity readers as every other engine, so no protocol knowledge reaches
+  the renderer and nothing is translated into pretend Claude stream-json.
+  Replaying a loaded session must not re-deliver an answer, and a prompt's
+  `stopReason` decides delivery: cancellation, a limit or a dead transport is
+  not a success because text happened to arrive.
+- APPROVALS REUSE THE SPOOL, not a third approval system. ACP returns the exact
+  `optionId` the agent offered, so Allow can never land as `allow_always`. A
+  denial picks an offered rejection option; if the agent offered none, the turn
+  is cancelled rather than an id invented. A cancelled turn answers `cancelled`,
+  every question is answered exactly once, and reading continues while one
+  waits. The failure to design against first is a denial that is not enforced:
+  a well-formed refusal on the wire proves nothing about what the tool then did.
+
+## Credentials: the line, decided
+
+A worker never receives a provider API key in its environment, and moving one
+to disk is the same violation by another route. The line is a subscription-
+backed authentication mode, managed by the tool itself, with no API-key
+fallback. A bring-your-own-key tool is not supported as an engine; it is not
+half-supported.
+
+So an ACP worker gets a minimal environment with every vendor's provider keys
+removed, not only its own engine's prefix, and the same constraint applies to
+any MCP server or child process it is configured to start. Before a tool is
+offered at all, a readiness check runs in that exact worker environment and
+profile: resolve a supported binary and version, read the tool's own
+authentication status, negotiate ACP, confirm the required capabilities, and
+open a session without submitting work. It answers with one of "Ready", "Sign
+in", "Subscription authentication unsupported" or "Installed version
+unsupported". A credential file existing is not readiness, and authentication
+that expires later is surfaced on the item rather than spent on retries.
+
+## Offering an engine: two levels
+
+Required before a tool is offered to anyone: subscription authentication, our
+standing instructions actually reaching it, store access, start, durable resume
+across a real process death, cancel, an enforced approval and denial,
+transcript capture, and delivery. Optional, and drawn as unavailable when
+missing: usage meters, model choice beyond a verified default, compaction,
+command menus and automatic updates. Unknown usage is never zero usage, and a
+tool without compaction is acceptable only if running out of context is a
+recoverable outcome someone can understand.
+
 ## Hermes integration direction
 
 The proposed first integration is an optional local task session over Hermes'
