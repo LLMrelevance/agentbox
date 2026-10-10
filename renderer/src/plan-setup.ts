@@ -36,7 +36,6 @@ export const COPY = {
   chatgptPlans: 'A paid ChatGPT plan',
   both: 'Both',
   bothPlans: 'Agents use whichever has room left',
-  notSure: 'I am not sure, check this computer for me',
   /*
    * THE ANSWER FOR SOMEBODY WHO ALREADY HAS ONE (w-ce8c1a9275). The search asks
    * their own login shell first and then looks in sixteen places, which between
@@ -155,21 +154,48 @@ export interface AskRow {
 }
 
 /**
- * WHICH AI PLAN DO YOU PAY FOR, and the two answers that are not a plan.
+ * WHICH AI PLAN DO YOU PAY FOR, and the one answer that is not a plan.
  *
- * The three plans are what somebody pays for. Under the rule are the two ways
- * out, in the order they are worth trying: ask the COMPUTER first, because it
- * costs nothing and answers for most of the people who would otherwise go
- * hunting for a file, and only then ask the PERSON.
+ * THE COMPUTER IS ASKED BY THE SCREEN ITSELF, NOT BY A ROW (w-ce8c1a9275,
+ * 2026-10-09). There used to be a fourth row, "I am not sure, check this
+ * computer for me". The founder: "I would think this step is actually better
+ * fit also checking first at the same time. Otherwise they may select something
+ * we cant run. Best to figure it out now."
+ *
+ * So `afterCheck` runs when the screen opens, against the reading the welcome
+ * step already took, and the question is only asked when asking is honest --
+ * see `planNote` below for what the screen says while that is happening. A row
+ * that re-runs something the screen has already done is a button that cannot
+ * change its own answer.
+ *
+ * WHAT NO AMOUNT OF LOOKING CAN REPLACE stays: a copy somewhere nobody would
+ * guess is exactly the case the search cannot reach, so "I already have one"
+ * is still an answer somebody can give.
  */
 export function planRows(): AskRow[] {
   return [
     { key: 'claude', plan: 'claude', mark: 'C', name: COPY.claude, sub: COPY.claudePlans },
     { key: 'codex', plan: 'codex', mark: 'G', name: COPY.chatgpt, sub: COPY.chatgptPlans },
     { key: 'both', plan: 'both', mark: '+', name: COPY.both, sub: COPY.bothPlans },
-    { key: 'check', name: COPY.notSure, other: true },
     { key: 'mine', name: COPY.haveOne, other: true },
   ];
+}
+
+/**
+ * THE ONE LINE UNDER THE CARD, at this moment, and whether it is a complaint.
+ *
+ * Four states and the newest one wins. A refusal is about the press just made,
+ * so it beats everything; then the look, while it is running; then its answer,
+ * which is that the computer is empty -- NOT an error, because an empty
+ * computer is the ordinary case for this screen and the question above it is
+ * exactly the right question to be asking. The resting line is the promise
+ * about passwords, which is what this screen said before any of this.
+ */
+export function planNote(s: { looking?: boolean; looked?: boolean; refused?: boolean }): { text: string; bad: boolean } {
+  if (s.refused) return { text: COPY.notThatOne, bad: true };
+  if (s.looking) return { text: COPY.checking, bad: false };
+  if (s.looked) return { text: COPY.nothingHere, bad: false };
+  return { text: COPY.privacy, bad: false };
 }
 
 export interface StepRow {

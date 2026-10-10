@@ -887,6 +887,16 @@ export const api = {
   // walk that traps somebody; the inbox's own checks still stand behind it.
   async engineSetup(action: 'ready' | 'start' | 'status' | 'again' | 'cancel', engine: 'claude' | 'codex'): Promise<EngineSetupState> {
     const assumeReady: EngineSetupState = { engine, phase: 'ready', error: null, log: '', found: true, signedIn: true };
+    /*
+     * A FIXTURE WORLD THAT SAYS THE COMPUTER IS EMPTY IS ANSWERED THAT WAY
+     * (w-ce8c1a9275, 2026-10-09). The plan question runs this probe on arrival
+     * now, so `assumeReady` below walked every fixture copy straight past the
+     * one screen a brand new person meets and there was no url that could draw
+     * it. `engines=nowhere` is exactly the machine it is for.
+     */
+    if (useFixtures && engineFixtures === 'nowhere') {
+      return { engine, phase: 'idle', error: null, log: '', found: false, signedIn: false };
+    }
     const zero = window.zero as any;
     if (!zero?.engineSetup) return assumeReady;
     try {

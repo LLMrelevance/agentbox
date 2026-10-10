@@ -1947,13 +1947,31 @@ export function Onboarding({
   // welcome is on screen, because each tool's own status check takes a few
   // seconds and the welcome is where there is time to spare. Null until it
   // answers; Get started waits for it only if it has not.
-  const asked = useRef<Promise<boolean> | null>(null);
-  const askMac = () => {
-    if (!asked.current) {
+  //
+  // IT KEEPS THE READINGS, NOT THE BOOLEAN (w-ce8c1a9275, 2026-10-09). It used
+  // to reduce the two to `needsPlan` here and throw the rest away, and the
+  // plan question was then asked with no idea what was on the machine. The
+  // founder: "I would think this step is actually better fit also checking
+  // first at the same time. Otherwise they may select something we cant run."
+  // `afterCheck` tells three cases apart from these same two readings, and
+  // only one of them is a question worth asking -- so the readings are what is
+  // cached, `begin` reduces them where it needs a yes or no, and the question
+  // is handed the whole thing as `look`.
+  //
+  // `fresh` THROWS THE CACHE AWAY, for the one caller that has just changed
+  // what it is a reading of: pointing at a file on the plan question. Reading
+  // the cached answer after that press would report the machine as it was
+  // before it.
+  const asked = useRef<Promise<Array<{ engine: 'claude' | 'codex'; found: boolean; signedIn: boolean }>> | null>(null);
+  const askMac = (fresh = false) => {
+    if (fresh || !asked.current) {
       asked.current = import('../api').then(({ api }) => Promise.all([
         api.engineSetup('ready', 'claude'), api.engineSetup('ready', 'codex'),
-      ])).then((r) => needsPlan(r.map((x) => ({ found: !!x.found, signedIn: !!x.signedIn }))))
-        .catch(() => false);
+      ])).then((r) => r.map((x) => ({ engine: x.engine, found: !!x.found, signedIn: !!x.signedIn })))
+        // A probe that could not run says nothing about this machine, and the
+        // walk must not stop on it: an empty reading sends them to the
+        // question, which is the screen that can still get them out.
+        .catch(() => []);
     }
     return asked.current;
   };
@@ -1961,7 +1979,7 @@ export function Onboarding({
   // The plan they picked, once they have. Null on the question.
   const [plan, setPlan] = useState<Plan | null>(null);
   const begin = async () => {
-    if (await askMac()) { setPlan(null); onStep('plan'); }
+    if (needsPlan(await askMac())) { setPlan(null); onStep('plan'); }
     else onEvent({ t: 'start' });
   };
   const [now, setNow] = useState(() => Date.now());
@@ -2506,7 +2524,7 @@ export function Onboarding({
           screen, and so does Skip, because a walk that traps somebody without
           a plan is worse than one that lets them look around. */}
       {run.step === 'plan' && !plan && (
-        <PlanQuestion onPick={setPlan} onReady={() => onStep('folder')} />
+        <PlanQuestion onPick={setPlan} onReady={() => onStep('folder')} look={askMac} />
       )}
       {run.step === 'plan' && plan && (
         <PlanSetupCard plan={plan} onDone={() => onStep('folder')} onSkip={() => onStep('folder')} />

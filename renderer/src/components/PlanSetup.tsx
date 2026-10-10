@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import {
-  COPY, afterCheck, enginesFor, planName, planRows, setupLede, setupRows,
+  COPY, afterCheck, enginesFor, planName, planNote, planRows, setupLede, setupRows,
   type AskRow, type Engine, type EngineSetupState, type Plan, type StepRow,
 } from '../plan-setup';
 import { Cap } from './Onboarding';
@@ -117,32 +117,86 @@ const RowIcon = ({ state }: { state: StepRow['state'] }) => (
  * WHICH AI PLAN DO YOU PAY FOR. Five rows now, the same list the folder screen
  *  is: arrows move, Enter or a click answers, and there is no Submit.
  *
- *  THE FIFTH IS "I ALREADY HAVE ONE" (w-ce8c1a9275). It is an answer to this
+ *  THE FOURTH IS "I ALREADY HAVE ONE" (w-ce8c1a9275). It is an answer to this
  *  question and not a screen of its own: the search asks their own login shell
  *  first and then looks in sixteen places, and when it still misses, the only
- *  thing left is to be shown. It sits with "check this computer for me" because
- *  both are ways out rather than things somebody pays for, and it sits AFTER
- *  it because asking the computer costs nothing.
+ *  thing left is to be shown.
+ *
+ *  AND THE SCREEN LOOKS AT THE COMPUTER WHILE IT ASKS. The founder: "I would
+ *  think this step is actually better fit also checking first at the same time.
+ *  Otherwise they may select something we cant run. Best to figure it out now."
+ *
+ *  They are right, and the gap was in the data rather than the drawing. The
+ *  walk probes both engines at the welcome step and then reduces the two
+ *  readings to `needsPlan`, one boolean; `afterCheck` can tell three cases
+ *  apart from the very same readings, and only one of them is a question worth
+ *  asking. A machine with Codex on the disk signed out was being shown three
+ *  plans, and somebody picking Claude there sent us off to install Claude Code
+ *  -- which is the "select something we cant run" in their note.
+ *
+ *  So `look()` runs on arrival. It is the walk's own cached probe, so this
+ *  costs nothing on top of what the welcome step already paid, and the three
+ *  answers go to the three things that handle them: ready ends the step, a
+ *  tool-on-the-disk goes straight to signing THAT one in, and only an empty
+ *  computer leaves the question standing.
  */
-export function PlanQuestion({ onPick, onReady }: {
+export function PlanQuestion({ onPick, onReady, look }: {
   onPick: (plan: Plan) => void;
-  /** "Check this Mac" found something already set up. */
+  /** Something already set up, so there is no question to ask. */
   onReady: () => void;
+  /**
+   * The two readings, from whoever has them. The walk hands in `askMac`, which
+   * is cached, so the answer is usually here the instant this is drawn; a copy
+   * opened straight onto this step takes its own.
+   *
+   * `fresh` THROWS THAT CACHE AWAY, and it is not optional. Pointing at a file
+   * changes the very thing the cache is a reading of, so asking the cached
+   * answer afterwards would report the machine as it was before the press.
+   */
+  look?: (fresh?: boolean) => Promise<Array<Pick<EngineSetupState, 'engine' | 'found' | 'signedIn'>>>;
 }) {
   const rows = planRows();
-  const [note, setNote] = useState<string | null>(null);
+  const [looking, setLooking] = useState(true);
+  const [looked, setLooked] = useState(false);
+  const [refused, setRefused] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const check = useCallback(async () => {
-    setBusy(true);
-    setNote(COPY.checking);
+  const readings = useCallback(async (fresh: boolean) => {
+    if (look) return look(fresh);
     const found = await Promise.all((['claude', 'codex'] as Engine[]).map((e) => api.engineSetup('ready', e)));
-    setBusy(false);
-    const next = afterCheck(found.map((f) => ({ engine: f.engine, found: !!f.found, signedIn: !!f.signedIn })));
-    if (next.t === 'ready') { setNote(null); onReady(); }
-    else if (next.t === 'setup') { setNote(null); onPick(next.plan); }
-    else setNote(COPY.nothingHere);
-  }, [onPick, onReady]);
+    return found.map((f) => ({ engine: f.engine, found: !!f.found, signedIn: !!f.signedIn }));
+  }, [look]);
+
+  const check = useCallback(async (fresh = false) => {
+    setLooking(true);
+    setRefused(false);
+    let next: ReturnType<typeof afterCheck>;
+    try { next = afterCheck(await readings(fresh)); }
+    // A probe that could not run is not a machine with something on it, and
+    // this screen's question is the right one either way. Saying "nothing is
+    // set up" is the honest summary of a look that came back with nothing.
+    catch { next = { t: 'nothing' }; }
+    setLooking(false);
+    setLooked(true);
+    if (next.t === 'ready') onReady();
+    else if (next.t === 'setup') onPick(next.plan);
+  }, [onPick, onReady, readings]);
+
+  /*
+   * ON ARRIVAL, beside the question rather than instead of it: the card is on
+   * the screen and answerable from the first frame, and the look lands under it.
+   *
+   * ONCE, AND THE REF IS LOAD-BEARING. `onReady` is written inline at the call
+   * site, so it is a new function on every render of the walk; without this the
+   * effect would re-fire on each one and the step would probe the machine in a
+   * loop for as long as somebody sat on it.
+   */
+  const asked = useRef(false);
+  useEffect(() => {
+    if (asked.current) return;
+    asked.current = true;
+    void check();
+  }, [check]);
 
   /*
    * SHOW IT WHERE ONE IS. The panel opens in the main process and the choice is
@@ -152,35 +206,40 @@ export function PlanQuestion({ onPick, onReady }: {
    *
    * Claude Code is what is asked for, because that is the one the app will not
    * open an inbox without; somebody whose only agent is Codex is answered by
-   * `check` above, which finds it.
+   * the look on arrival, which finds it.
    */
   const mine = useCallback(async () => {
     setBusy(true);
-    setNote(null);
+    setRefused(false);
     try {
       const r = await api.engineBin('claude');
-      if (r?.refused) { setNote(COPY.notThatOne); return; }
+      if (r?.refused) { setRefused(true); return; }
       if (r?.canceled) return;
-      // It landed, so the same read that answers "check this computer" decides
-      // what happens next rather than this press assuming it worked.
-      await check();
+      // It landed, so the same look that opened this screen decides what
+      // happens next rather than this press assuming it worked -- and it looks
+      // AGAIN rather than reading back the answer it cached before the press,
+      // which is the one thing this press has just changed.
+      await check(true);
     } finally {
       setBusy(false);
     }
   }, [check]);
 
   const choose = useCallback((key: string) => {
-    if (key === 'check') void check();
-    else if (key === 'mine') void mine();
+    if (key === 'mine') void mine();
     else onPick(key as Plan);
-  }, [check, mine, onPick]);
+  }, [mine, onPick]);
 
+  const note = planNote({ looking, looked, refused });
   return (
     <div className="fr-stack fr-stack-folders">
       <h1 className="fr-page">{COPY.planHead}</h1>
       <p className="fr-lede">{COPY.planLede}</p>
+      {/* ANSWERABLE WHILE THE LOOK RUNS. The card is not held back behind it:
+          somebody who knows which plan they pay for should not wait on a probe
+          about a machine they already know the answer for. */}
       <AskList rows={rows} label={COPY.planHead} onPick={choose} busy={busy} />
-      <p className={note && note !== COPY.checking ? 'fr-note fr-refused' : 'fr-note'}>{note ?? COPY.privacy}</p>
+      <p className={note.bad ? 'fr-note fr-refused' : 'fr-note'}>{note.text}</p>
     </div>
   );
 }

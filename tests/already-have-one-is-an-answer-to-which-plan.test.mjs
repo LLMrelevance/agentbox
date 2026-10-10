@@ -52,24 +52,22 @@ describe('the plan question takes one more answer', () => {
     expect(planRows().filter((r) => r.plan).map((r) => r.name)).toEqual(['Claude', 'ChatGPT', 'Both']);
   });
 
-  // THE NEW ANSWER. Not a plan, so it sits with the other way out rather than
-  // among the things somebody pays for.
-  it('offers "I already have one" beside "check this computer for me"', () => {
+  // THE NEW ANSWER. Not a plan, so it sits under the rule rather than among
+  // the things somebody pays for.
+  it('offers "I already have one" as the one answer that is not a plan', () => {
     const rows = planRows();
     const mine = rows.find((r) => r.key === 'mine');
     expect(mine).toBeTruthy();
     expect(mine.plan).toBeUndefined();
     expect(mine.name).toBe(COPY.haveOne);
-    // Both ways out are the separated group at the foot of the card.
-    expect(rows.filter((r) => r.other).map((r) => r.key)).toEqual(['check', 'mine']);
+    expect(rows.filter((r) => r.other).map((r) => r.key)).toEqual(['mine']);
   });
 
-  // CHECKING THIS COMPUTER COMES FIRST of the two, because it costs nothing and
-  // answers for most of the people who would otherwise go hunting for a file.
-  it('asks the computer before it asks the person', () => {
-    const keys = planRows().map((r) => r.key);
-    expect(keys.indexOf('check')).toBeLessThan(keys.indexOf('mine'));
-    expect(keys).toEqual(['claude', 'codex', 'both', 'check', 'mine']);
+  // THE COMPUTER IS ASKED BY THE SCREEN, NOT BY A ROW, since 2026-10-09: the
+  // look runs on arrival, so by the time anybody reads these rows it has
+  // already happened. tests/the-plan-question-looks-while-it-asks holds that.
+  it('asks the computer itself, and only then asks the person', () => {
+    expect(planRows().map((r) => r.key)).toEqual(['claude', 'codex', 'both', 'mine']);
   });
 
   // THE CASE THAT MUST NOT MATCH, and it cost a round: a row in the separated
