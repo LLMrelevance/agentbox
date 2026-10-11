@@ -84,6 +84,23 @@ describe('on a phone', () => {
     expect(crumb).not.toMatch(/font-family:[^;]*Mono/);
   });
 
+  // A PAGE OPENED FROM A THREAD HAD NO WAY BACK ON A PHONE (2026-10-11). The
+  // desktop takes the bar to nothing over a full-screen page and shows its
+  // buttons only while the pointer reaches for the corner; a thumb never
+  // hovers, so the design page filled the screen with nothing to press.
+  it('a page opened from a thread keeps a bar with a way back and its name', () => {
+    const focus = '.workspace-layout[data-artifact-layout="focus"]:not(.workspace-settings)';
+    expect(bodiesFor(`${focus} > .topbar`)).toMatch(/height:\s*var\(--phone-top\)/);
+    const marks = bodiesFor(`${focus} .workspace-artifact-header .doc-marks`);
+    expect(marks).toMatch(/opacity:\s*1/);
+    expect(marks).toMatch(/pointer-events:\s*auto/);
+    expect(marks).toMatch(/position:\s*static/);
+    expect(hidden(`${focus} .workspace-artifact-header .doc-crumb`)).toBe(false);
+    expect(bodiesFor(`${focus} .workspace-artifact-header .doc-crumb`)).toMatch(/display:\s*block/);
+    // "Open outside Agentbox" would open the file on the Mac, not the phone.
+    expect(hidden(`${focus} .workspace-artifact-header .doc-mark`)).toBe(true);
+  });
+
   it('the desktop window\'s chrome stays off a phone: no corner marks, no keyboard underline, no tick boxes', () => {
     expect(bodiesFor('.workspace-layout::before')).toMatch(/background:\s*var\(--skin-pane/);
     expect(hidden('.row .mark')).toBe(true);

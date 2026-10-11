@@ -141,6 +141,39 @@
   :root:root:root .thread-crumb-from, :root:root:root .thread-crumb-sep { display: none; }
   :root:root:root .thread-crumb, :root:root:root .thread-crumb * { font-family: 'Geist', 'Avenir Next', -apple-system, sans-serif; text-transform: none; letter-spacing: 0; font-size: 15px; }
   :root:root:root .thread-crumb-name { color: var(--text); }
+
+  /* A PAGE OPENED FROM A THREAD KEEPS A BAR ON A PHONE: a back arrow and the
+     file's name. The desktop takes the bar to nothing over a full-screen page
+     and shows its buttons only while the pointer reaches for the corner, and a
+     thumb never hovers, so the page filled the screen with nothing to press
+     (2026-10-11). The selectors copy the desktop's own shape, which carries the
+     attribute and the :not, or they lose to it. */
+  :root:root:root .workspace-layout[data-artifact-layout="focus"]:not(.workspace-settings) > .topbar {
+    height: var(--phone-top); min-height: var(--phone-top); flex-basis: var(--phone-top);
+    padding: 0 16px 0 8px; border-bottom: 1px solid var(--line); overflow: hidden;
+  }
+  :root:root:root .workspace-layout[data-artifact-layout="focus"]:not(.workspace-settings) .workspace-artifact-header .doc-head {
+    display: flex; align-items: center; gap: 4px; min-height: var(--phone-top); flex-direction: row;
+  }
+  :root:root:root .workspace-layout[data-artifact-layout="focus"]:not(.workspace-settings) .workspace-artifact-header .doc-crumb {
+    display: block; flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; color: var(--text);
+  }
+  :root:root:root .workspace-layout[data-artifact-layout="focus"]:not(.workspace-settings) .workspace-artifact-header .doc-marks {
+    position: static; order: -1; opacity: 1; transform: none; pointer-events: auto;
+    padding: 0; background: none; border: 0; box-shadow: none;
+  }
+  /* "Open outside Agentbox" would open the file on the Mac, not the phone. */
+  :root:root:root .workspace-layout[data-artifact-layout="focus"]:not(.workspace-settings) .workspace-artifact-header .doc-mark { display: none; }
+  /* Leaving the page is the way back to its thread, so it wears a back arrow. */
+  :root:root:root .workspace-layout[data-artifact-layout="focus"]:not(.workspace-settings) .workspace-artifact-header .artifact-expand {
+    width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; color: var(--text-dim);
+  }
+  :root:root:root .workspace-layout[data-artifact-layout="focus"]:not(.workspace-settings) .workspace-artifact-header .artifact-expand svg { display: none; }
+  :root:root:root .workspace-layout[data-artifact-layout="focus"]:not(.workspace-settings) .workspace-artifact-header .artifact-expand::before {
+    content: ''; width: 16px; height: 16px; background: currentColor;
+    -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='m15 5-7 7 7 7'/></svg>") center / contain no-repeat;
+    mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='m15 5-7 7 7 7'/></svg>") center / contain no-repeat;
+  }
   :root:root:root .focus { padding: 8px 16px 32px; max-width: none; }
   :root:root:root .focus-body { font-size: 16px; overflow-wrap: anywhere; }
   :root:root:root .focus-dock-inner { padding: 0 12px; max-width: none; width: auto; margin: 0; }
