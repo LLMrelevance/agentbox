@@ -49,6 +49,7 @@ import * as agents from './agents.mjs';
 import { findAgentFolders, readAgentFiles, readFolderAgents } from './agent-files.mjs';
 import { readSessionThreads } from './agent-sessions.mjs';
 import { readCodexThreads } from './codex-threads.mjs';
+import { sessionFolders } from './agent-homes.mjs';
 import { markImported } from '../shared/agent-import.mjs';
 import { codexIdOf, importChoice, isCodexImportRow, isNotImportedRow } from '../shared/codex-import.mjs';
 import { checkProjectFolder } from '../shared/project-folder-check.mjs';
@@ -604,7 +605,10 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
         if (choice) {
           let thread = null;
           if (choice === 'yes') {
-            try { thread = readCodexThreads({}).threads.find((t) => t.id === codexIdOf(row)) ?? null; } catch { thread = null; }
+            try {
+              const { codexDirs } = sessionFolders({ codexHomes: supervisor._codexProfiles().map((p) => supervisor._codexProfileHome(p)) });
+              thread = readCodexThreads({ codexDirs }).threads.find((t) => t.id === codexIdOf(row)) ?? null;
+            } catch { thread = null; }
           }
           const out = store.answerCodexImport(product, id, choice, { thread });
           push();
@@ -1140,11 +1144,23 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // 'codex'`, land under the project whose folder they ran in exactly as the
   // Claude Code ones do, and the ones the user said not now to are here too, so
   // there is a way back to them.
+  // EVERY FOLDER EITHER TOOL KEEPS SESSIONS IN (main/agent-homes.mjs), not only
+  // ~/.claude and ~/.codex, which is where the import used to look and nothing
+  // else (w-e46f2e9cea).
+  const folders = () => {
+    try {
+      return sessionFolders({
+        claudeProfiles: config.authProfiles ?? [],
+        codexHomes: supervisor._codexProfiles().map((p) => supervisor._codexProfileHome(p)),
+      });
+    } catch { return {}; }
+  };
   const readAllThreads = () => {
     let claude = [];
     let codex = [];
-    try { ({ threads: claude } = readSessionThreads({})); } catch { claude = []; }
-    try { ({ threads: codex } = readCodexThreads({})); } catch { codex = []; }
+    const { dirs, codexDirs } = folders();
+    try { ({ threads: claude } = readSessionThreads(dirs ? { dirs } : {})); } catch { claude = []; }
+    try { ({ threads: codex } = readCodexThreads(codexDirs ? { codexDirs } : {})); } catch { codex = []; }
     return [...claude, ...codex].sort((a, b) => (b.when ?? 0) - (a.when ?? 0));
   };
   ipcMain.handle('zero:agent-threads', () => {
