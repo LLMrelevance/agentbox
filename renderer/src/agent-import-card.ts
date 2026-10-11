@@ -193,7 +193,7 @@ export interface Destination {
  *  everything on this card is ticked by path. */
 export interface SessionThread {
   id: string;
-  source: 'terminal' | 'desktop' | 'codex';
+  source: 'terminal' | 'editor' | 'desktop' | 'codex';
   folder: string;
   folderName: string;
   short: string;
