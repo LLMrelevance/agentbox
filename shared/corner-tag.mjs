@@ -46,19 +46,18 @@ export function tagSays({ ready = 0, working = 0 } = {}) {
   return null;
 }
 
-/** How far back "ready" reaches. Older than this is the inbox's business. */
-export const RECENT_MS = 24 * 60 * 60_000;
-
 /**
- * What the tag counts and lists: what became ready in the last day, newest
- * first. The whole inbox was the first version's answer, and it put threads
- * from weeks ago, ones nobody was thinking about, at the top of a tag meant
- * to say what just finished. Something with no moment it became ready (an
- * agent stopped on a yes, right now) always counts.
+ * What the tag counts and lists: everything waiting on you, newest first.
+ * The first version put threads from weeks ago at the top of the list; the
+ * second cut everything older than a day, and then a Needs you of 58 read
+ * "3 waiting" in the corner (w-0961e5523b). So the count is the whole of it,
+ * the same number the app shows, and only the order keeps the old ones out
+ * of the way: the list shows the newest three and folds the rest into "and N
+ * more". Something with no moment it became ready (an agent stopped on a
+ * yes, right now) sorts as now.
  */
-export function readyNow(ready, now, within = RECENT_MS) {
-  return (ready ?? [])
-    .filter((r) => !Number.isFinite(r.since) || now - r.since <= within)
+export function readyNow(ready, now) {
+  return [...(ready ?? [])]
     .sort((a, b) => (Number.isFinite(b.since) ? b.since : now) - (Number.isFinite(a.since) ? a.since : now));
 }
 

@@ -35,7 +35,7 @@
 //
 // What the tag counts is not decided here. Only the page knows what the inbox
 // is, so it hands over what is ready and how many are working on
-// `zero:corner-tag`; shared/corner-tag.mjs keeps what is fresh, newest first.
+// `zero:corner-tag`; shared/corner-tag.mjs puts it newest first.
 
 import { cardPlacement, hiddenUntil, keepCorner, readyNow, restingSpot, tagShows, HIDE_CHOICES } from '../shared/corner-tag.mjs';
 

@@ -32,7 +32,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { type AgentFile } from '../onboarding';
 import {
-  CARD, LIST, SECTION, canBring, destinations, folderOfProject, countKinds, importLines, nameOfProject,
+  CARD, LIST, SECTION, canBring, listLine, destinations, folderOfProject, countKinds, importLines, nameOfProject,
   projectAtOpen,
   type AgentFolder, type Project, type SessionThread,
 } from '../agent-import-card';
@@ -436,7 +436,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
         <div className="ia-top">
           <h1 className="ia-head">{read && !some ? (alreadyIn > 0 ? CARD.headAllIn : CARD.headNone) : LIST.head}</h1>
         </div>
-        {read && some && <p className="ia-line">{LIST.line}</p>}
+        {read && some && <p className="ia-line">{listLine(threads ?? [])}</p>}
 
         {!read && <div className="ia-empty">{CARD.reading}</div>}
 
