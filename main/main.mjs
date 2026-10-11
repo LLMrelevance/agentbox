@@ -33,7 +33,7 @@ import { installCrashReports, reportFromRenderer, pending as pendingCrashes, set
 import { createAnalytics, createDailyCount } from './analytics.mjs';
 import { createUpdater } from './updater.mjs';
 import { createSourceUpdater } from './source-updater.mjs';
-import { recoverShellPath } from './shell-path.mjs';
+import { learnShellDataDirs, recoverShellPath } from './shell-path.mjs';
 import { installNotifier } from './notify.mjs';
 import { createCornerTag } from './corner-tag.mjs';
 import { DOC_SCHEMES, DocGrants, docPath } from './doc-scheme.mjs';
@@ -283,6 +283,10 @@ async function createWindow() {
   const shellPath = await recoverShellPath();
   process.env.PATH = shellPath.path;
   if (shellPath.error) console.warn('agentbox: could not load your shell PATH; using the inherited PATH:', shellPath.error);
+  // Where the shell says Claude Code and Codex keep their sessions, for the
+  // import only and never into this environment (main/shell-path.mjs). Not
+  // waited for: it lands long before setup reaches its last card.
+  void learnShellDataDirs();
   const config = loadConfig(dataDir);
   // The store modules read the app's own home variable at call time; setting it
   // here points auth session files, sync, and every store path at its root.
