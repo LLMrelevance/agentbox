@@ -27,7 +27,7 @@ import type { PendingSaid } from './item-thread';
 import { DocPane, type OpenDoc } from './components/DocPane';
 import { docKind, EVEN_SPLIT, escapeClosesDoc, escapeInTheFileClosesIt, focusIsInTheFile, readSplit, writeSplit } from './doc-pane';
 import { changeOwnsKey } from './code-keys';
-import { askStillStands, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO } from './undo-window';
+import { askStillStands, bringsBack, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO } from './undo-window';
 import { addUndoMark, UNDO_MARKS_EVENT, type UndidSpec } from './undo-marks';
 import { whatTheFileSentUp } from '../../shared/artifact-keys.mjs';
 import { type Place, placeIsSomewhere, readPlace, writePlace, writeScroll } from './where-she-was';
@@ -132,7 +132,7 @@ import { Face, TeamContext, firstName, teamView } from './team/people';
 import { FaceHover } from './team/status';
 import { TeamPage } from './team/TeamPage';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
-import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, StateTabs, WaitingContext, WaitingOnThreadContext } from './threads/Pages';
+import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, StateTabs, WaitingContext } from './threads/Pages';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
@@ -1749,42 +1749,11 @@ export default function App() {
   // not on her, so In progress reading "Shipping" and out of Needs you until
   // they have shipped or gone back to their agent.
   const shippingIds = useMemo(() => new Set(snap?.supervisor.shipping ?? []), [snap?.supervisor.shipping]);
-  // AND THE THREADS A THREAD IS WAITING ON (w-fe48447cab). `blockedBy` has been
-  // on the ledger since the team version landed and every worker's brief asks
-  // for it, and no list had ever read it, so a thread whose own agent had
-  // written down that it cannot move sat in Needs you next to the ones that
-  // genuinely needed a decision.
-  //
-  // The window is the only place that can answer this, because the question is
-  // about ANOTHER row: `stillWaitingOn` throws away every blocker that has
-  // finished and every blocker this window cannot see, so nothing is ever
-  // hidden behind a row that is not on the screen.
-  //
-  // AND EVERY BLOCKER THAT ONLY WAITS BACK ON IT (w-5244c90c33). A wait sits
-  // in Later and resumes by itself when what it waits on finishes; a loop of
-  // waits never would, so `waitsThatCanEnd` drops it and the thread is yours.
-  // AND THE RUN QUEUE'S OWN REPORT, which it has always made and no list has
-  // read: the rows it is about to spawn on, and the ones pushed with Run now.
-  // `nextMove` keeps it UNDER its reading of the row rather than over it, so
-  // this can only ever add a worker nobody had promised, never take one away.
-  const queuedIds = useMemo(
-    () => new Set([...(snap?.supervisor.queued ?? []), ...(snap?.supervisor.runNow ?? [])]),
-    [snap?.supervisor.queued, snap?.supervisor.runNow],
-  );
+  // AND THE THREADS A THREAD IS WAITING ON (w-5244c90c33). A waiting thread is
+  // in Later and resumes by itself when they finish; only the window can see
+  // the other rows, so it works this out and hands it to each list.
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
-  const claimsOf = useCallback((i: WorkItem) => ({
-    now, deferredUntil: dueAt(i), hiddenUntil: hiddenAt(i),
-    live: liveIds.has(i.id), shipping: shippingIds.has(i.id), queued: queuedIds.has(i.id),
-  }), [now, dueAt, hiddenAt, liveIds, shippingIds, queuedIds]);
   const waitingOn = useCallback((i: WorkItem) => waitsThatCanEnd(i, byId), [byId]);
-  // The same answer as a set, for every surface that draws a row, so the list's
-  // word, the table row's word and the pane's sentence cannot come from three
-  // readings of it. `waitingIds` is the array the list prop wants.
-  const waitingSet = useMemo(
-    () => new Set(items.filter((i) => waitingOn(i).length).map((i) => i.id)),
-    [items, waitingOn],
-  );
-  const waitingIds = useMemo(() => [...waitingSet], [waitingSet]);
 
   const inboxCandidates = useMemo(() => items.filter((i) => {
     if (i.id === pendingId) return false; // action held in the grace window: already sent, as far as the inbox is concerned
@@ -1806,9 +1775,9 @@ export default function App() {
     // (w-9cf2b43110). The team branch answers before the rule below does, so
     // without this line the agent-to-agent rows came back the moment a project
     // was shared with somebody.
-    if (shared === true) return i.status !== 'done' && !(hiddenAt(i) > now) && !isProposal(i);
-    return belongsInInbox(i, { deliveredThrough, hiddenUntil: hiddenAt(i), now, waitingOn: waitingOn(i), queued: queuedIds.has(i.id) });
-  }), [items, hiddenAt, scope, now, pendingId, teamInbox, liveIds, shippingIds, waitingOn, queuedIds]);
+    if (shared === true) return i.status !== 'done' && !(hiddenAt(i) > now) && !isProposal(i) && !waitsInLater(i, waitingOn(i));
+    return belongsInInbox(i, { deliveredThrough, hiddenUntil: hiddenAt(i), now, waitingOn: waitingOn(i) });
+  }), [items, hiddenAt, scope, now, pendingId, teamInbox, liveIds, shippingIds, waitingOn]);
 
   // WHAT MATTERS MOST, ONE COPY, read by every list that claims to be in an
   // order. A product's place in her running order is worth a hundred item
@@ -2005,7 +1974,7 @@ export default function App() {
       if (isDirect(snap?.products.find((p) => p.slug === i.product))) return false;
       // A task you gave a teammate is moving, for you, until it is done.
       if (team && heldByAPerson(i) && isShared(team.products.get(i.product))) return i.status !== 'done';
-      return belongsInProgress(i, { deferredUntil, now, live: liveIds.has(i.id), shipping: shippingIds.has(i.id), waitingOn: waitingOn(i), queued: queuedIds.has(i.id) });
+      return belongsInProgress(i, { deferredUntil, now, live: liveIds.has(i.id), shipping: shippingIds.has(i.id) });
     }),
     ...agentList.filter((r) => r.agent && progressAfterReply(r.agent, now, agentMode)),
     // IN THE ORDER THEY WILL RUN IN, which is the one thing this list is for.
@@ -2018,7 +1987,7 @@ export default function App() {
     // Same score as the inbox and as the supervisor, so the top of this list is
     // what the fleet takes next. Recency only breaks a tie now.
   ].sort(byRunningOrder(score)),
-  [items, agentList, agentMode, scope, pendingId, dueAt, hiddenAt, score, now, team, teamProgress, liveIds, shippingIds, waitingOn, queuedIds]);
+  [items, agentList, agentMode, scope, pendingId, dueAt, hiddenAt, score, now, team, teamProgress, liveIds, shippingIds]);
 
   // NOT A ROW THAT STILL NEEDS HER (2026-10-01): an agent's done on her own
   // thread waits in Needs you until she closes it, and Done counted it too,
@@ -2051,26 +2020,23 @@ export default function App() {
   // AND SINCE w-afb66e6661 IT HOLDS A THIRD THING, which is why the tab is
   // called Later: a thread added to Later has no moment at all. It waits for a
   // person, so it sorts after everything with a clock rather than before it.
-  // AND A FIFTH (w-5244c90c33): a thread waiting on another one something is
-  // moving. No moment either, so it sorts at the end with them.
-  const waitsLater = useCallback(
-    (i: WorkItem) => waitsInLater(i, { ...claimsOf(i), waitingOn: waitingOn(i) }),
-    [claimsOf, waitingOn],
-  );
   const whenShown = useCallback(
-    (i: WorkItem) => (notStarted(i) || waitingSet.has(i.id) ? Number.MAX_SAFE_INTEGER : hiddenAt(i)),
-    [hiddenAt, waitingSet],
+    (i: WorkItem) => (notStarted(i) || waitsInLater(i, waitingOn(i)) ? Number.MAX_SAFE_INTEGER : hiddenAt(i)),
+    [hiddenAt, waitingOn],
   );
   // AND SINCE w-9cf2b43110 A FOURTH: what an agent PROPOSED and nobody has
   // answered. Same shape as the third — written down, waiting on a person
   // rather than a clock — so it sorts with them at the end, and it is out of
   // the inbox, which is the whole point: "I only see things that need me."
   const snoozed = useMemo(() => [
-    ...items.filter((i) => (notStarted(i) || isProposal(i) || hiddenAt(i) > now || waitsLater(i))
+    // AND A FIFTH (w-5244c90c33): a thread waiting on another one, unless a
+    // session or the ship queue has it, which is In progress.
+    ...items.filter((i) => (notStarted(i) || isProposal(i) || hiddenAt(i) > now
+        || (waitsInLater(i, waitingOn(i)) && !liveIds.has(i.id) && !shippingIds.has(i.id)))
       && (i.status !== 'done' || i.wrote?.status?.source !== 'founder')
       && (!scope || i.product === scope)),
     ...agentList.filter((r) => (r.runAt ?? 0) > now),
-  ].sort((a, b) => whenShown(a) - whenShown(b)), [items, agentList, hiddenAt, whenShown, waitsLater, scope, now]);
+  ].sort((a, b) => whenShown(a) - whenShown(b)), [items, agentList, hiddenAt, whenShown, waitingOn, liveIds, shippingIds, scope, now]);
 
   // Repeating tasks. They are RULES, on their own channel, which is why nothing
   // in the item list rules has to know they exist. They are read up here, ahead
@@ -2834,8 +2800,8 @@ export default function App() {
     window.zero?.badge?.(inbox.length);
 
     // THE CORNER TAG (w-dafae58a23) says the same thing as the inbox, from
-    // over whatever app she is in: what is ready for her, longest wait first,
-    // and how many are working. Working agents are only a count, because
+    // over whatever app she is in: everything in Needs you, newest first, and
+    // how many are working. Working agents are only a count, because
     // twenty running is ordinary and only what is ready is worth a line.
     const productName = (slug: string) => snap.products.find((p) => p.slug === slug)?.name ?? slug;
     window.zero?.cornerTag?.({
@@ -3181,7 +3147,7 @@ export default function App() {
     const tasks = items
       .filter((i) => i.product === slug && i.id !== pendingId)
       .filter((i) => belongsOnTheRail(i, {
-        deliveredThrough, hiddenUntil: hiddenAt(i), deferredUntil: dueAt(i), now, live: liveIds.has(i.id), shipping: shippingIds.has(i.id), waitingOn: waitingOn(i), queued: queuedIds.has(i.id),
+        deliveredThrough, hiddenUntil: hiddenAt(i), deferredUntil: dueAt(i), now, live: liveIds.has(i.id), shipping: shippingIds.has(i.id), waitingOn: waitingOn(i),
       }))
       .map((i) => ({
         key: i.id,
@@ -3448,7 +3414,7 @@ export default function App() {
     const through = agent.lastActiveAt || agent.startedAt || Date.now();
     await deferCommit(item, async () => {
       await api.closeAgent({ key, through });
-      pushUndo({ label: `Back in your inbox: ${agent.name}`, undoes: `put ${agent.name} back in your inbox`, run: async () => {
+      pushUndo({ label: `Back in your inbox: ${agent.name}`, undoes: `put ${agent.name} back in your inbox`, brings: item, run: async () => {
         await api.closeAgent({ key, through: 0 });
       } });
     }, `Closed: ${agent.name}`);
@@ -4119,7 +4085,10 @@ export default function App() {
     showToast(picked.length > 1 ? `${picked.length} snoozed. Back ${label.toLowerCase()}` : `Snoozed. Back ${label.toLowerCase()}`);
     // Undo restores only inbox reminders. Execution schedules stay intact.
     const prior = new Map(list.map((i) => [i.id, (i.agent ? i.runAt : i.snoozedUntil) ?? 0]));
-    pushUndo({ label: 'Snooze undone', undoes: 'undo that snooze', undid: list.filter((i) => !i.agent).map((i) => ({ product: i.product, id: i.id, words: 'Undid the snooze' })), run: async () => {
+    // AND THE TASK IT PUTS BACK IS OPENED (w-874411cc63). Without `brings` the
+    // Z put the task back in the inbox out of sight, read as doing nothing, and
+    // the next Z took back the reply under it instead.
+    pushUndo({ label: 'Snooze undone', undoes: 'undo that snooze', brings: bringsBack(picked), undid: list.filter((i) => !i.agent).map((i) => ({ product: i.product, id: i.id, words: 'Undid the snooze' })), run: async () => {
       for (const item of list) await writeMoment(item, prior.get(item.id) ?? 0);
       refresh();
     } });
@@ -4197,7 +4166,7 @@ export default function App() {
       if (item.agent) await api.closeAgent({ key: agentKey(item.agent), through: item.agent.lastActiveAt || item.agent.startedAt || Date.now() });
       else await api.answer({ product: item.product, id: item.id, status: 'done' });
     }
-    pushUndo({ label: `Reopened ${targets.length} items`, undoes: `reopen those ${targets.length} tasks`, undid: targets.filter((i) => !i.agent).map((i) => ({ product: i.product, id: i.id, words: 'Undid closing it' })), run: async () => {
+    pushUndo({ label: `Reopened ${targets.length} items`, undoes: `reopen those ${targets.length} tasks`, brings: bringsBack(targets), undid: targets.filter((i) => !i.agent).map((i) => ({ product: i.product, id: i.id, words: 'Undid closing it' })), run: async () => {
       for (const item of targets) {
         if (item.agent) await api.closeAgent({ key: agentKey(item.agent), through: 0 });
         else await api.answer({ product: item.product, id: item.id, status: 'open' });
@@ -4313,13 +4282,9 @@ export default function App() {
     // that the row goes back to her inbox, and there is no row: the session
     // belongs to whatever started it, and Agentbox killing somebody's terminal
     // is not a thing this build does.
-    (item: WorkItem) => !item.agent && stoppable(item, { deferredUntil: dueAt(item), now, live: liveIds.has(item.id), shipping: shippingIds.has(item.id), waitingOn: waitingOn(item), queued: queuedIds.has(item.id) }),
-    [dueAt, now, liveIds, shippingIds, waitingOn, queuedIds],
+    (item: WorkItem) => !item.agent && stoppable(item, { deferredUntil: dueAt(item), now, live: liveIds.has(item.id) }),
+    [dueAt, now, liveIds],
   );
-  // THE TWO MOVERS A STOP CANNOT REACH are both handed in above and both
-  // refused in `stoppable` itself, which is the only place that judgement is
-  // made: stopping the row does not stop a push in flight, and it does not
-  // finish the other thread this one waits on.
 
   // Resume: `ids` for the rows she ticked, null for everything stranded.
   const resumeAgents = useCallback(async (ids: string[] | null) => {
@@ -5214,7 +5179,6 @@ export default function App() {
     <TeamContext.Provider value={team}>
     <ChatAgentsContext.Provider value={chatAgents}>
     <LiveContext.Provider value={liveIds}>
-    <WaitingOnThreadContext.Provider value={waitingSet}>
     <WaitingContext.Provider value={waitingByThread}>
     <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${workspaceCollapsed ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}`}>
       {signInGate && <SignInPage signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
@@ -5879,12 +5843,8 @@ export default function App() {
                     paused: snap.supervisor.paused,
                     running: snap.supervisor.running.length,
                     capacity: snap.supervisor.capacity,
-                    inProgress: belongsInProgress(focused, { deferredUntil: dueAt(focused), now, live: liveIds.has(focused.id), shipping: shippingIds.has(focused.id), waitingOn: waitingOn(focused), queued: queuedIds.has(focused.id) }),
+                    inProgress: belongsInProgress(focused, { deferredUntil: dueAt(focused), now, live: liveIds.has(focused.id), shipping: shippingIds.has(focused.id) }),
                     shipping: shippingIds.has(focused.id),
-                    // AND WHAT IT IS WAITING ON (w-fe48447cab). It is why this
-                    // row is in In progress at all, so it is the one thing the
-                    // line there has to be able to say.
-                    waitingOn: waitingOn(focused),
                     // A run ended on this row and wrote nothing down. The pane
                     // says so wherever the row is sitting, which is why this one
                     // fact is read above the In progress test in live-line.
@@ -5976,7 +5936,6 @@ export default function App() {
                   queued={snap.supervisor.queued}
                   signInNeeded={snap.supervisor.signInNeeded}
                   shipping={snap.supervisor.shipping}
-                  waitingOnThread={waitingIds}
                   silent={snap.supervisor.silent}
                   paused={snap.supervisor.paused}
                   multiSel={multiSel}
@@ -6262,7 +6221,7 @@ export default function App() {
                 session: snap.supervisor.running.find((r) => r.itemId === target.id) ?? null,
                 queued: snap.supervisor.queued,
                 runNow: snap.supervisor.runNow,
-                inProgress: belongsInProgress(target, { deferredUntil: dueAt(target), now, live: liveIds.has(target.id), shipping: shippingIds.has(target.id), waitingOn: waitingOn(target), queued: queuedIds.has(target.id) }),
+                inProgress: belongsInProgress(target, { deferredUntil: dueAt(target), now, live: liveIds.has(target.id) }),
               }, () => { setModal(null); void runNow(target); }),
               { id: 'done', label: target.agent ? DONE.verb : `${DONE.verb} Task`, keyHint: 'E', run: () => { setModal(null); markDone(target); } },
               { id: 'reply', label: 'Reply', keyHint: 'R', run: () => { open(); setModal('reply'); } },
@@ -6945,7 +6904,6 @@ export default function App() {
       <FindBar />
     </div>
     </WaitingContext.Provider>
-    </WaitingOnThreadContext.Provider>
     </LiveContext.Provider>
     </ChatAgentsContext.Provider>
     </TeamContext.Provider>
