@@ -62,13 +62,15 @@ describe('on a phone', () => {
     expect(gear).toMatch(/circle/);
   });
 
-  it('a new thread is one orange button floating under the thumb', () => {
+  it('a new thread is one round button floating under the thumb, and not orange', () => {
     const fab = bodiesFor('.topbar .th-new');
     expect(fab).toMatch(/position:\s*fixed/);
     expect(fab).toMatch(/border-radius:\s*50%/);
-    expect(fab).toMatch(/background:\s*var\(--accent\)/);
+    // Orange was "a bit much" (2026-10-11).
+    expect(fab).toMatch(/background:\s*#/);
+    expect(fab).not.toMatch(/background:\s*var\(--accent\)/);
     // The last row is not left under it.
-    expect(bodiesFor('.list.th-table')).toMatch(/padding-bottom:\s*\d+px/);
+    expect(bodiesFor('.list.th-table')).toMatch(/padding-bottom:\s*calc\([^;]*\d+px\)/);
   });
 
   it('inside a thread, Settings and the new-thread button step aside', () => {
@@ -105,6 +107,69 @@ describe('on a phone', () => {
     expect(bodiesFor('.workspace-layout::before')).toMatch(/background:\s*var\(--skin-pane/);
     expect(hidden('.row .mark')).toBe(true);
     expect(bodiesFor('.row.selected .subject')).toMatch(/text-decoration:\s*none/);
+  });
+});
+
+// THEN THE SUPERHUMAN PASS (2026-10-11): "look at how superhuman mail
+// approaches it ... diff inboxes accessible on bottom not top ... I find their
+// little icons incomprehensible", and every screen shown, the new thread and
+// its pickers included. Measured at 393 by 852 on the sample inbox: the
+// composer was a desktop card with Send hanging off the right edge and a ⌘↵,
+// each picker a narrow box pinned to its chip, and the permission card hung off
+// the left edge.
+describe('on a phone, the Superhuman way', () => {
+  it('the inboxes are words along the bottom, on a solid ground', () => {
+    const bar = bodiesFor('.list-pane > .th-bar');
+    expect(bar).toMatch(/position:\s*fixed/);
+    expect(bar).toMatch(/bottom:\s*0/);
+    expect(bar).toMatch(/background:\s*var\(--bg\)/);
+    const tab = bodiesFor('.tm-tab');
+    expect(tab).toMatch(/text-transform:\s*none/);
+    expect(tab).toMatch(/font-family:\s*inherit/);
+  });
+
+  it('the new-thread button and the last row sit above the inboxes, not under them', () => {
+    expect(bodiesFor('.topbar .th-new')).toMatch(/bottom:\s*calc\(var\(--phone-tabs/);
+    expect(bodiesFor('.list.th-table')).toMatch(/var\(--phone-tabs/);
+  });
+
+  it('a new thread is a whole page: Cancel, its name, Send at the top, then a row each for To, Model, Project and Priority', () => {
+    expect(bodiesFor('.tc-veil::before')).toMatch(/content:\s*'Cancel'/);
+    expect(bodiesFor('.tc-veil::after')).toMatch(/content:\s*'New thread'/);
+    const card = bodiesFor('.tc-veil > .tc-card');
+    expect(card).toMatch(/position:\s*fixed/);
+    expect(card).toMatch(/left:\s*0/);
+    expect(card).toMatch(/right:\s*0/);
+    expect(card).toMatch(/background:\s*var\(--bg\)/);
+    expect(bodiesFor('.tc-card > .tc-bar > .tc-anchor:nth-child(1)::before')).toMatch(/content:\s*'Project'/);
+    expect(bodiesFor('.tc-card > .tc-bar > .tc-anchor:nth-child(2)::before')).toMatch(/content:\s*'Priority'/);
+    expect(bodiesFor('.tc-card .tc-send')).toMatch(/position:\s*fixed/);
+    expect(hidden('.tc-card .tc-send-main kbd')).toBe(true);
+    expect(bodiesFor('.tc-card > .tc-bar > .tc-icon::after')).toMatch(/content:\s*'Attach/);
+  });
+
+  it('every picker, and View and filters, is a full-width sheet from the bottom', () => {
+    for (const sheet of ['.tc-menu', '.th-pop']) {
+      const body = bodiesFor(sheet);
+      expect([sheet, body]).toEqual([sheet, expect.stringMatching(/bottom:\s*0/)]);
+      expect(body).toMatch(/left:\s*0/);
+      expect(body).toMatch(/right:\s*0/);
+    }
+  });
+
+  it('a permission card spans the screen above the inboxes, without keys a phone lacks', () => {
+    const card = bodiesFor('.approvals');
+    expect(card).toMatch(/left:\s*8px/);
+    expect(card).toMatch(/right:\s*8px/);
+    expect(card).toMatch(/var\(--phone-tabs/);
+    expect(hidden('.approvals .approval-hint')).toBe(true);
+  });
+
+  it('Settings leaves out what is about the Mac\'s own screen', () => {
+    expect(hidden('.set-group[data-find="keys"]')).toBe(true);
+    expect(hidden('.set-group[data-find="corner-tag"]')).toBe(true);
+    // The phone's own Settings page is not among them.
+    expect(hidden('.set-group[data-find="phone"]')).toBe(false);
   });
 });
 
