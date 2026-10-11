@@ -128,26 +128,25 @@ const READY = (now) => ({ ready: [
 ], working: 18 });
 
 describe('it shows up when something needs you, and only then', () => {
-  it('appears once its page is ready, when something fresh is ready and you are in another app', () => {
+  it('appears once its page is ready, when something is ready and you are in another app', () => {
     const r = rig();
-    r.call('zero:corner-tag', READY(1_000_000));
+    r.call('zero:corner-tag', READY(1_000_000_000));
     expect(r.win().visible).toBe(false);
     r.call('corner-tag:ready', { part: 'tag' });
     expect(r.win().visible).toBe(true);
     const state = r.win().sent.filter((s) => s[0] === 'corner-tag:state').at(-1)[1];
-    expect(state.ready.map((x) => x.id)).toEqual(['w-1']);
+    expect(state.ready.map((x) => x.id)).toEqual(['w-1', 'w-old']);
   });
 
-  it('counts nothing from an inbox of only old threads, and says how many are working instead', () => {
-    const r = rig();
+  // A day-old cut once made a Needs you of 58 read "3 waiting" (w-0961e5523b).
+  it('counts an old thread as waiting too, rather than saying how many are working', () => {
     const now = 1_000_000_000;
     const rr = rig({ at: now });
     rr.call('zero:corner-tag', { ready: [{ id: 'old', title: 'x', says: 'y', since: now - 3 * 24 * 3600_000 }], working: 4 });
     rr.call('corner-tag:ready', { part: 'tag' });
     const state = rr.win().sent.filter((s) => s[0] === 'corner-tag:state').at(-1)[1];
-    expect(state.ready).toEqual([]);
-    expect(state.working).toBe(4);
-    expect(r.windows).toHaveLength(0);
+    expect(state.ready.map((x) => x.id)).toEqual(['old']);
+    expect(rr.win().visible).toBe(true);
   });
 
   // The system's frosted material only comes with the system's own rounded

@@ -2820,8 +2820,8 @@ export default function App() {
     window.zero?.badge?.(inbox.length);
 
     // THE CORNER TAG (w-dafae58a23) says the same thing as the inbox, from
-    // over whatever app she is in: what is ready for her, longest wait first,
-    // and how many are working. Working agents are only a count, because
+    // over whatever app she is in: everything in Needs you, newest first, and
+    // how many are working. Working agents are only a count, because
     // twenty running is ordinary and only what is ready is worth a line.
     const productName = (slug: string) => snap.products.find((p) => p.slug === slug)?.name ?? slug;
     window.zero?.cornerTag?.({
