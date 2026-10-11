@@ -7,17 +7,32 @@
 // Every folder either tool keeps sessions in (main/agent-homes.mjs), both
 // readers, newest first. A reader that throws costs its own half, never the
 // other one.
+//
+// AND WHEN THE LAST TEN DAYS HOLD NOTHING, THE NEWEST OLDER ONES. Setup skips
+// its last card when it has nothing to offer, so somebody whose newest session
+// was eleven days old was never told importing exists. The ten days stay the
+// list whenever they hold anything; only an empty one reaches back, ninety days
+// at most and the twenty newest, and the card says so (`listLine` in
+// renderer/src/agent-import-card.ts).
 
 import os from 'node:os';
 import { appSessionFolders } from './agent-homes.mjs';
-import { readSessionThreads } from './agent-sessions.mjs';
+import { RECENT_DAYS, readSessionThreads } from './agent-sessions.mjs';
 import { readCodexThreads } from './codex-threads.mjs';
 
-export function readImportableThreads({ config = null, supervisor = null, env = process.env, home = os.homedir(), now = Date.now() } = {}) {
-  let claude = [];
-  let codex = [];
-  const { dirs, codexDirs } = appSessionFolders({ config, supervisor, env, home });
-  try { ({ threads: claude } = readSessionThreads({ home, dirs, now })); } catch { claude = []; }
-  try { ({ threads: codex } = readCodexThreads({ home, codexDirs, now })); } catch { codex = []; }
-  return [...claude, ...codex].sort((a, b) => (b.when ?? 0) - (a.when ?? 0));
+export const OLDER_DAYS = 90;
+export const OLDER_MOST = 20;
+
+export function readImportableThreads({ config = null, supervisor = null, env = process.env, shellEnv, home = os.homedir(), now = Date.now() } = {}) {
+  const { dirs, codexDirs } = appSessionFolders({ config, supervisor, env, home, ...(shellEnv ? { shellEnv } : {}) });
+  const read = (days, max) => {
+    let claude = [];
+    let codex = [];
+    try { ({ threads: claude } = readSessionThreads({ home, dirs, now, days, ...(max ? { max } : {}) })); } catch { claude = []; }
+    try { ({ threads: codex } = readCodexThreads({ home, codexDirs, now, days })); } catch { codex = []; }
+    return [...claude, ...codex].sort((a, b) => (b.when ?? 0) - (a.when ?? 0));
+  };
+  const recent = read(RECENT_DAYS);
+  if (recent.length) return recent;
+  return read(OLDER_DAYS, OLDER_MOST).slice(0, OLDER_MOST);
 }

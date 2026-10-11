@@ -12,12 +12,13 @@
 // their agents, as a brand new user has it: no agent files, nothing imported.
 //
 // What it does NOT cover, written down so nobody reads this as 100%:
-//   - a machine whose newest session is older than ten days gets no card
-//     (asserted below, because the card says "From the last 10 days");
-//   - a CLAUDE_CONFIG_DIR somewhere other than ~/.claude-<name>, when the app
-//     was opened from the Dock and so never saw the variable;
+//   - a machine whose newest session is older than ninety days;
+//   - a CLAUDE_CONFIG_DIR set somewhere neither the app nor the login shell
+//     sees (a per-project direnv file, a wrapper script);
 //   - sessions run through other tools built on Claude's SDK (Conductor, Zed),
 //     which look the same as the app's own workers.
+// The first version of this file also pinned "older than ten days" and "a
+// CLAUDE_CONFIG_DIR only the shell knows" as gaps; both are closed below.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -63,9 +64,9 @@ function codexSession(codexDir, { id = 'x1', originator = 'codex_cli_rs', when =
 }
 
 /** What setup's last card decides, given the app as a brand new user has it. */
-async function setupCard({ env = {}, config = {}, supervisor = { _codexProfiles: () => ['default'], _codexProfileHome: () => path.join(home, '.codex') } } = {}) {
+async function setupCard({ env = {}, shellEnv = {}, config = {}, supervisor = { _codexProfiles: () => ['default'], _codexProfileHome: () => path.join(home, '.codex') } } = {}) {
   const { finishCard } = await import('../renderer/src/onboarding.ts');
-  const threads = markImported(readImportableThreads({ config, supervisor, env, home, now: NOW }), []);
+  const threads = markImported(readImportableThreads({ config, supervisor, env, shellEnv, home, now: NOW }), []);
   return { threads, card: finishCard({ missing: false }, { read: true, some: false }, threads) };
 }
 
@@ -149,13 +150,27 @@ describe('setup goes straight on, and the card stays off', () => {
     expect((await setupCard()).card.skip).toBe(true);
   });
 
-  it('KNOWN GAP: when the newest session is eleven days old, because the card offers the last ten days', async () => {
-    claudeSession(path.join(home, '.claude'), { when: NOW - 11 * DAY });
+  it('when the only session is older than ninety days', async () => {
+    claudeSession(path.join(home, '.claude'), { when: NOW - 91 * DAY });
     expect((await setupCard()).card.skip).toBe(true);
   });
 
-  it('KNOWN GAP: when CLAUDE_CONFIG_DIR points outside ~/.claude-<name> and the app cannot see it', async () => {
+  it('when CLAUDE_CONFIG_DIR points elsewhere and neither the app nor the login shell names it', async () => {
     claudeSession(path.join(away, 'claude'));
-    expect((await setupCard({ env: {} })).card.skip).toBe(true);
+    expect((await setupCard({ env: {}, shellEnv: {} })).card.skip).toBe(true);
+  });
+});
+
+// THE TWO GAPS THIS FILE FIRST PINNED, CLOSED on the founder's pick
+// (2026-10-11): main/importable-threads.mjs and main/shell-path.mjs.
+describe('setup also shows the import card', () => {
+  it('when the newest session is eleven days old', async () => {
+    claudeSession(path.join(home, '.claude'), { when: NOW - 11 * DAY });
+    expect(shown((await setupCard()).card)).toBe(true);
+  });
+
+  it('when CLAUDE_CONFIG_DIR points outside ~/.claude-<name> and only the login shell knows it', async () => {
+    claudeSession(path.join(away, 'claude'));
+    expect(shown((await setupCard({ env: {}, shellEnv: { CLAUDE_CONFIG_DIR: path.join(away, 'claude') } })).card)).toBe(true);
   });
 });

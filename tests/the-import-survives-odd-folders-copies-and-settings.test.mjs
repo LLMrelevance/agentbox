@@ -299,6 +299,6 @@ it('the import card, the import "yes" and the Codex watch all take their folders
   // folders with appSessionFolders; the import "yes" calls it directly.
   expect(ipcText).toMatch(/const readAllThreads = \(\) => readImportableThreads\(\{ config, supervisor \}\)/);
   expect(ipcText.match(/appSessionFolders\(\{ config, supervisor \}\)/g)).toHaveLength(1);
-  expect(fs.readFileSync(new URL('../main/importable-threads.mjs', import.meta.url), 'utf8')).toMatch(/appSessionFolders\(\{ config, supervisor, env, home \}\)/);
+  expect(fs.readFileSync(new URL('../main/importable-threads.mjs', import.meta.url), 'utf8')).toMatch(/appSessionFolders\(\{ config, supervisor, env, home[,\s}]/);
   expect(mainText).toMatch(/readThreads: \(opts\) => readCodexThreads\(\{ \.\.\.opts, codexDirs: appSessionFolders\(\{ config, supervisor \}\)\.codexDirs \}\)/);
 });
