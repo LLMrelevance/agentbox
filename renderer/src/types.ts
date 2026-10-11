@@ -330,6 +330,7 @@ export interface Usage {
   engine: string;
   limits: UsageLimit[];
   at: number;
+  profile?: string;
 }
 
 export interface SupervisorStatus {
@@ -531,6 +532,8 @@ export interface AgentTurn {
 // others there were.
 export interface AgentWork {
   kind: 'work';
+  // Thread status is a separate event, never part of a group of tool calls.
+  standalone?: true;
   at: number;
   verb: string;
   subject: string;
@@ -1003,10 +1006,31 @@ export interface RepeatRule {
   lastOccurrence?: string;
 }
 
+/** Which address the phone QR code carries (main/phone-link.mjs). */
+export type PhoneRoute = 'wifi' | 'tailscale';
+export type PhoneDevice = { id: string; name: string; ip: string | null; firstSeen: number; lastSeen: number; live: boolean; alerts: boolean; alertError: string | null };
+export type PhoneLink = {
+  on: boolean;
+  listening: boolean;
+  error: string | null;
+  port: number;
+  /** The code carries an https address (Tailscale's certificate). */
+  secure: boolean;
+  /** Tailscale is still putting the https address up. */
+  settingUp: boolean;
+  via: PhoneRoute | null;
+  routes: Array<{ via: PhoneRoute; host: string }>;
+  url: string | null;
+  /** The QR code as an svg document. */
+  qr: string | null;
+  devices: PhoneDevice[];
+};
+
 declare global {
   interface Window {
     zero?: {
       snapshot(): Promise<Snapshot>;
+      refreshUsage?(): Promise<{ ok: boolean; reading?: Usage; error?: string }>;
       // Whether a screen reader is running, which is what decides xterm's
       // accessibility tree. Optional: a preload from before this channel
       // existed has no such function, and `api.assistiveTech` reads that as no.
@@ -1020,7 +1044,7 @@ declare global {
       agentReveal(p: { pid: number }): Promise<{ ok: boolean; name?: string; reason?: string }>;
       agentConversation(p: { pid: number; sessionId: string | null; cwd: string }): Promise<AgentConversation>;
       dashboard(slug: string): Promise<any>;
-      terminal(p: {product:string;id:string;action:'open'|'read'|'write'|'resize'|'close';data?:string;cols?:number;rows?:number;offset?:number}): Promise<any>;
+      terminal(p: {product:string;id:string;action:'open'|'read'|'write'|'resize'|'close';data?:string;cols?:number;rows?:number;offset?:number;wait?:number}): Promise<any>;
       agentUpdate?(p:{engine:string;action:'check'|'recheck'|'start'|'status'|'refresh'}):Promise<any>;
       commandCatalog(p: {product: string; id: string}): Promise<string[]>;
       command(p: {product: string; id: string; text: string}): Promise<{state: string; at: number; text?: string; name?: string}>;

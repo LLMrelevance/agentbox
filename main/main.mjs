@@ -21,6 +21,9 @@ import { storeRootEnv } from './store/home.mjs';
 import { Supervisor } from './supervisor.mjs';
 import { startCodexWatch } from './codex-watch.mjs';
 import { registerIpc } from './ipc.mjs';
+import { createPhoneLink } from './phone-link.mjs';
+import { atTheApp } from '../shared/notify-rules.mjs';
+import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
 import * as approvals from './approvals.mjs';
 import { recoveryToast } from '../shared/recovery.mjs';
@@ -31,10 +34,12 @@ import { installCrashReports, reportFromRenderer, pending as pendingCrashes, set
 import { createAnalytics, createDailyCount } from './analytics.mjs';
 import { createUpdater } from './updater.mjs';
 import { createSourceUpdater } from './source-updater.mjs';
+import { recoverShellPath } from './shell-path.mjs';
 import { installNotifier } from './notify.mjs';
 import { createCornerTag } from './corner-tag.mjs';
 import { DOC_SCHEMES, DocGrants, docPath } from './doc-scheme.mjs';
 import { quietTheFramesScrollbars } from './frame-scrollbars.mjs';
+import { letLocalAppsShowInThePane } from './local-app-frames.mjs';
 import { IMG_SCHEMES, imgPath, mediaResponse, mediaType, servable } from './img-scheme.mjs';
 import { hotWindowVerdict, storeHasWork } from './dev-window.mjs';
 import { writeHeldThenReload } from './write-before-reload.mjs';
@@ -276,6 +281,9 @@ function reloadRenderer() {
 }
 
 async function createWindow() {
+  const shellPath = await recoverShellPath();
+  process.env.PATH = shellPath.path;
+  if (shellPath.error) console.warn('agentbox: could not load your shell PATH; using the inherited PATH:', shellPath.error);
   const config = loadConfig(dataDir);
   // The store modules read the app's own home variable at call time; setting it
   // here points auth session files, sync, and every store path at its root.
@@ -677,9 +685,25 @@ async function createWindow() {
 
   // The desktop door. `main/serve.mjs` is the other one and hands over plain
   // Node stand-ins for these three; everything else about the call is the same.
+  // THE PHONE DOOR (main/phone-link.mjs) answers with these same handlers, so
+  // each one is filed in a Map as Electron gets it. And every push the window
+  // gets is handed to the phones' event streams too.
+  const phoneChannels = new Map();
+  const phoneListeners = new Set();
+  const filingIpcMain = {
+    handle(channel, fn) { ipcMain.handle(channel, fn); phoneChannels.set(channel, fn); },
+  };
+  const filingHost = { ipcMain: filingIpcMain, app, dialog };
+  const sendToWindow = window.webContents.send.bind(window.webContents);
+  window.webContents.send = (channel, ...args) => {
+    sendToWindow(channel, ...args);
+    for (const send of phoneListeners) {
+      try { send({ channel, args }); } catch { /* a closed phone is not an error */ }
+    }
+  };
   const ipc = registerIpc({
     store, supervisor, config, window, analytics, docGrants, updater,
-    host: { ipcMain, app, dialog },
+    host: filingHost,
     team,
   });
   pushUpdate = ipc.push;
@@ -687,6 +711,26 @@ async function createWindow() {
   // See the `installMenu` call above for what writing the file instead did to a
   // Codex card.
   answerApproval = ipc.answerApproval;
+  // What the window answers itself (badge, boot info) a phone gets the plain
+  // stand-ins for, as a browser tab does.
+  answerWhatOnlyTheWindowAnswered({ handle: (channel, fn) => { if (!phoneChannels.has(channel)) phoneChannels.set(channel, fn); } });
+  const phone = createPhoneLink({
+    file: path.join(userDir, 'phone-link.json'),
+    channels: phoneChannels,
+    listeners: phoneListeners,
+    dist: path.join(appDir, 'renderer', 'dist'),
+    onChange: () => { if (!window.isDestroyed()) sendToWindow('zero:phone-changed'); },
+    // The phone stays quiet while she is at the desktop app, by the same rule
+    // the desktop's own notifications use (shared/notify-rules.mjs).
+    atDesk: () => {
+      try { return atTheApp({ focused: !window.isDestroyed() && window.isFocused(), idleMs: powerMonitor.getSystemIdleTime() * 1000 }); } catch { return false; }
+    },
+  });
+  window.on('focus', () => phone.seen());
+  // Settings' own channel, on the window only: a phone does not get to turn
+  // the phone door off or hand out its key.
+  ipcMain.handle('zero:phone-link', (_e, payload) => phone.act(payload ?? {}));
+  app.on('before-quit', () => phone.close());
   updater.start();
   // A task the app just shipped moved main: look now rather than in half an
   // hour, so the restart is offered while she still remembers the task.
@@ -859,6 +903,7 @@ async function createWindow() {
   // Unread badge + notification on new inbox arrivals are driven by the
   // renderer (it owns the definition of "inbox"), through the badge API.
   ipcMain.handle('zero:badge', (_e, count) => {
+    phone.count(count);
     if (process.platform === 'darwin') app.dock.setBadge(count > 0 ? String(count) : '');
   });
   // WHETHER to speak, and what to say, is not the renderer's call: only this
@@ -867,7 +912,7 @@ async function createWindow() {
   // a locked screen all read the same from in there). The renderer says what
   // arrived; main/notify.mjs decides. tell me when I am in another app, never
   // while I am in Agentbox.
-  installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage });
+  installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage, onArrivals: (arrivals) => phone.arrivals(arrivals) });
   // THE CORNER TAG (w-dafae58a23): what is ready for her, floating over
   // whatever app she is in. Its page is built beside the app's own, and comes
   // from the dev server only when the app's own page does.
@@ -924,6 +969,11 @@ async function createWindow() {
   // A page in the pane hides its scrollbar until you scroll, like the app's own
   // (frame-scrollbars.mjs). Without it, a mouse on macOS gets a white track.
   quietTheFramesScrollbars(window.webContents);
+
+  // A local app a worker names (http://localhost:3006) draws in the pane even
+  // when it refuses to be framed, and its sign-in cookie sticks there
+  // (main/local-app-frames.mjs).
+  letLocalAppsShowInThePane(window.webContents);
 
   // Escape must ALWAYS leave the junk browser, even when the guest page has
   // focus and would otherwise swallow the key. Intercept it below the page.

@@ -4,7 +4,7 @@ import {updateFixture} from './agent-update-fixture';
 // bridge; fixtures mode (?fixtures=1) serves canned data so the UI can be
 // developed, reviewed, and screenshotted without a live store or any agents.
 
-import type { AgentConversation, AnswerMode, DemoOpened, FolderListing, FreshUser, PermissionMode, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, ThreadEditPatch, UpdateState, WorkItem } from './types';
+import type { AgentConversation, AnswerMode, DemoOpened, FolderListing, FreshUser, PermissionMode, PhoneLink, PhoneRoute, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, ThreadEditPatch, UpdateState, Usage, WorkItem } from './types';
 import type { LedgerLine } from './thread-history';
 import type { AgentFile as AgentFileRow } from './onboarding';
 import type { AgentFolder, SessionThread } from './agent-import-card';
@@ -278,6 +278,16 @@ export const api = {
       return fixtureSecondEngine(base, engineFixtures);
     }
     return window.zero!.snapshot();
+  },
+
+  async refreshUsage(): Promise<{ ok: boolean; reading?: Usage; error?: string }> {
+    if (useFixtures) {
+      const reading = fixtureSnapshot.usageByEngine?.find(r => r.engine === 'claude') ?? (fixtureSnapshot.usage?.engine === 'claude' ? fixtureSnapshot.usage : null);
+      return reading ? { ok: true, reading: { ...structuredClone(reading), profile: 'default', at: Date.now() } } : { ok: false, error: 'No usage reading yet.' };
+    }
+    if (!window.zero?.refreshUsage) return { ok: false, error: RESTART_NOTE };
+    try { return await window.zero.refreshUsage(); }
+    catch { return { ok: false, error: 'Could not refresh usage. Try again.' }; }
   },
 
   // THE NEXT PAGE OF FINISHED THREADS THE SNAPSHOT LEFT OUT (w-fda2165ec6),
@@ -1193,5 +1203,20 @@ export const api = {
   onChanged(fn: () => void): () => void {
     if (useFixtures) return () => {};
     return window.zero!.onChanged(fn);
+  },
+
+  /** The phone door (main/phone-link.mjs). Null where there is none: the
+   *  fixtures, and a browser tab, whose server has no such channel. */
+  async phoneLink(p: { action: 'status' | 'on' | 'off' | 'reset' | 'via' | 'stop-alerts'; via?: PhoneRoute; device?: string }): Promise<PhoneLink | null> {
+    if (useFixtures) return null;
+    const zero = window.zero as any;
+    if (!zero?.phoneLink) return null;
+    try { return await zero.phoneLink(p); } catch { return null; }
+  },
+
+  onPhoneChanged(fn: () => void): () => void {
+    const zero = window.zero as any;
+    if (useFixtures || !zero?.onPhoneChanged) return () => {};
+    return zero.onPhoneChanged(fn);
   },
 };
