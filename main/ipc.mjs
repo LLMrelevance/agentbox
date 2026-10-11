@@ -49,7 +49,7 @@ import * as agents from './agents.mjs';
 import { findAgentFolders, readAgentFiles, readFolderAgents } from './agent-files.mjs';
 import { readSessionThreads } from './agent-sessions.mjs';
 import { readCodexThreads } from './codex-threads.mjs';
-import { sessionFolders } from './agent-homes.mjs';
+import { appSessionFolders } from './agent-homes.mjs';
 import { markImported } from '../shared/agent-import.mjs';
 import { codexIdOf, importChoice, isCodexImportRow, isNotImportedRow } from '../shared/codex-import.mjs';
 import { checkProjectFolder } from '../shared/project-folder-check.mjs';
@@ -606,7 +606,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
           let thread = null;
           if (choice === 'yes') {
             try {
-              const { codexDirs } = sessionFolders({ codexHomes: supervisor._codexProfiles().map((p) => supervisor._codexProfileHome(p)) });
+              const { codexDirs } = appSessionFolders({ config, supervisor });
               thread = readCodexThreads({ codexDirs }).threads.find((t) => t.id === codexIdOf(row)) ?? null;
             } catch { thread = null; }
           }
@@ -1147,20 +1147,12 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // EVERY FOLDER EITHER TOOL KEEPS SESSIONS IN (main/agent-homes.mjs), not only
   // ~/.claude and ~/.codex, which is where the import used to look and nothing
   // else (w-e46f2e9cea).
-  const folders = () => {
-    try {
-      return sessionFolders({
-        claudeProfiles: config.authProfiles ?? [],
-        codexHomes: supervisor._codexProfiles().map((p) => supervisor._codexProfileHome(p)),
-      });
-    } catch { return {}; }
-  };
   const readAllThreads = () => {
     let claude = [];
     let codex = [];
-    const { dirs, codexDirs } = folders();
-    try { ({ threads: claude } = readSessionThreads(dirs ? { dirs } : {})); } catch { claude = []; }
-    try { ({ threads: codex } = readCodexThreads(codexDirs ? { codexDirs } : {})); } catch { codex = []; }
+    const { dirs, codexDirs } = appSessionFolders({ config, supervisor });
+    try { ({ threads: claude } = readSessionThreads({ dirs })); } catch { claude = []; }
+    try { ({ threads: codex } = readCodexThreads({ codexDirs })); } catch { codex = []; }
     return [...claude, ...codex].sort((a, b) => (b.when ?? 0) - (a.when ?? 0));
   };
   ipcMain.handle('zero:agent-threads', () => {

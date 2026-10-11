@@ -21,7 +21,7 @@ import { storeRootEnv } from './store/home.mjs';
 import { Supervisor } from './supervisor.mjs';
 import { startCodexWatch } from './codex-watch.mjs';
 import { readCodexThreads } from './codex-threads.mjs';
-import { sessionFolders } from './agent-homes.mjs';
+import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
 import * as approvals from './approvals.mjs';
@@ -410,10 +410,7 @@ async function createWindow() {
   const codexWatch = startCodexWatch({
     store,
     count: (name, props) => analytics.track(name, props),
-    readThreads: (opts) => readCodexThreads({
-      ...opts,
-      codexDirs: sessionFolders({ codexHomes: supervisor._codexProfiles().map((p) => supervisor._codexProfileHome(p)) }).codexDirs,
-    }),
+    readThreads: (opts) => readCodexThreads({ ...opts, codexDirs: appSessionFolders({ config, supervisor }).codexDirs }),
   });
   app.on('before-quit', () => codexWatch.stop());
   // Whatever is still queued goes with the app rather than dying in memory.

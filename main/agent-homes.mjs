@@ -104,6 +104,37 @@ export function sessionFolders({ claudeProfiles = [], codexHomes = [], env = pro
 }
 
 /**
+ * THE CODEX HOMES THE SUPERVISOR RUNS ON, or as many of them as can be named.
+ *  Each profile is resolved on its own, so one that throws costs that one home
+ *  and not the list (found by Codex's review of this change, 2026-10-11). */
+export function codexHomesOf(supervisor) {
+  let profiles = [];
+  try { profiles = supervisor?._codexProfiles?.() ?? []; } catch { profiles = []; }
+  if (!Array.isArray(profiles)) return [];
+  const out = [];
+  for (const p of profiles) {
+    try {
+      const h = supervisor._codexProfileHome(p);
+      if (typeof h === 'string' && h.trim()) out.push(h);
+    } catch { /* that one home is unknown; the rest still count */ }
+  }
+  return out;
+}
+
+/**
+ * WHAT THE RUNNING APP HANDS EVERY READER: its own config and supervisor, made
+ *  safe. A missing config, a supervisor without the Codex methods, or a home
+ *  that will not resolve each lose only their own part. The first draft built
+ *  both lists inside one try, so any one of those left the import reading
+ *  nothing beyond the defaults, and without the app's own CLAUDE_CONFIG_DIR or
+ *  CODEX_HOME either. */
+export function appSessionFolders({ config = null, supervisor = null, env = process.env, home = os.homedir() } = {}) {
+  let claudeProfiles = [];
+  try { claudeProfiles = config?.authProfiles ?? []; } catch { claudeProfiles = []; }
+  return sessionFolders({ claudeProfiles, codexHomes: codexHomesOf(supervisor), env, home });
+}
+
+/**
  * EVERY CODEX DATA FOLDER ON THIS MACHINE THAT HOLDS SESSIONS. Same rule:
  *  `CODEX_HOME`, whatever the app was configured with, `~/.codex` and every
  *  `~/.codex-<name>`. */

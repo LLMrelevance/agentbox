@@ -267,9 +267,11 @@ export function readTranscriptHead(file, bytes = HEAD_BYTES, most = FIRST_TURN_B
     const n = fs.readSync(fd, buf, 0, bytes, 0);
     const text = buf.slice(0, n).toString('utf8');
     // The last line of a fixed read is usually cut in half. Dropping it costs
-    // nothing, because what is wanted is at the top.
+    // nothing, because what is wanted is at the top. UNLESS THE WHOLE FILE FIT:
+    // then the last line is complete, and a file whose one row has no newline
+    // after it lost that row (found by Codex's review, 2026-10-11).
     const lines = text.split('\n');
-    const cut = lines.pop();
+    const cut = n < bytes ? null : lines.pop();
     let cwd = null;
     let entrypoint = null;
     const said = [];
@@ -294,7 +296,7 @@ export function readTranscriptHead(file, bytes = HEAD_BYTES, most = FIRST_TURN_B
     // only when nothing she said was found and the session is not already
     // known to be the app's own, so the thousands of worker transcripts are
     // never read past their head.
-    if (!said.length && n === bytes && cut && /"type":"user"/.test(cut.slice(0, 2048))
+    if (!said.length && n === bytes && cut && /"type"\s*:\s*"user"/.test(cut.slice(0, 2048))
       && (!entrypoint || startedByHand(entrypoint))) {
       const rest = restOfLine(fd, n, most - n);
       if (rest) take(Buffer.concat([buf.subarray(buf.lastIndexOf(0x0a, n - 1) + 1, n), rest]).toString('utf8'));
@@ -400,8 +402,10 @@ function readTerminalThreads({ home, dirs, cutoff, max, skipIds = new Set() }) {
     // wrote a real title into it and this side would have to guess one.
     if (skipIds.has(id)) { skipped.desktopDupe += 1; continue; }
     if (seenIds.has(id)) { skipped.copy += 1; continue; }
-    seenIds.add(id);
     const { cwd, entrypoint, said } = readTranscriptHead(file);
+    // A copy is only the copy once it could be read. A damaged newer one, cut
+    // off mid-write, would otherwise hide the good older one in another folder.
+    if (cwd || entrypoint) seenIds.add(id);
     if (!startedByHand(entrypoint)) { skipped.started += 1; continue; }
     if (isScratchFolder(cwd, home)) { skipped.scratch += 1; continue; }
     const title = threadTitle(said);
