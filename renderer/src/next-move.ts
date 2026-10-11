@@ -24,7 +24,7 @@
 //
 //   'agent'   a session is on it right now, or a worker is coming
 //   'app'     the app itself owes it something (the ship queue)
-//   'thread'  it waits on another thread that something is moving
+//   'thread'  it waits on another thread, and resumes when that one finishes
 //   'clock'   you put it away until a moment
 //   'later'   written down and deliberately not begun
 //   'filed'   nothing is owed and nothing is news: it is history
@@ -269,35 +269,29 @@ export function stillWaitingOn(
 }
 
 /**
- * WHICH OF THOSE WAITS IS ON SOMETHING THAT IS ACTUALLY MOVING (w-5244c90c33).
+ * WHICH OF THOSE WAITS CAN EVER END (w-5244c90c33).
  *
- * A live blocker is not the same as a moving one. Two threads sat in In
- * progress reading "waiting" for days: they waited on OpenCode and the engine
- * interface, which were agent proposals parked in Later for a yes. Nothing in
- * the chain was going to move without a person, and the only rows that said
- * so were in the tab that promises something is.
+ * "Something that's waiting should be logically in the backlog and then it
+ * should automatically resume without the user needing to know otherwise." So
+ * a wait sits in Later, and the supervisor puts a worker back on it when the
+ * last thread it names finishes (`resumeFinishedWaits`, main/supervisor.mjs).
  *
- * So a blocker counts only when its own next move is an agent, the app, or a
- * wait that itself moves, followed down the chain. Anything else (Needs you,
- * Later, the clock) is a person's move, so the thread waiting on it is stuck,
- * and stuck is yours. A thread already on the path is a cycle and moves
- * nobody.
- *
- * `claimsOf` is every claim the window holds for a row except the wait, which
- * this works out.
+ * The one wait that never ends is a loop: threads that only wait on each
+ * other. Nothing will ever finish there, so nothing resumes, and in Later it
+ * would be lost. A blocker counts when it is not itself waiting, or when one of
+ * its own waits counts, followed down the chain; a thread already on the path
+ * is the loop and does not.
  */
-export function movingWaits<T extends InboxItem & { id: string }>(
+export function waitsThatCanEnd<T extends InboxItem & { id: string }>(
   i: T,
   byId: ReadonlyMap<string, T>,
-  claimsOf: (row: T) => Claims,
   path: ReadonlySet<string> = new Set([i.id]),
 ): string[] {
   return stillWaitingOn(i, byId).filter((id) => {
     if (path.has(id)) return false;
     const blocker = byId.get(id)!;
-    const deeper = new Set(path).add(id);
-    const move = nextMove(blocker, { ...claimsOf(blocker), waitingOn: movingWaits(blocker, byId, claimsOf, deeper) });
-    return move === 'agent' || move === 'app' || move === 'thread';
+    if (!stillWaitingOn(blocker, byId).length) return true;
+    return waitsThatCanEnd(blocker, byId, new Set(path).add(id)).length > 0;
   });
 }
 
@@ -336,10 +330,11 @@ export function nextMove(i: InboxItem, claims: Claims = {}): Mover {
   // saying nothing all stay exactly as loud as they were.
   if (isCleanRun(i)) return 'filed';
   // ANOTHER THREAD HAS IT (w-fe48447cab). The caller has already thrown away
-  // every blocker that is finished, that it cannot see, or that nothing is
-  // moving (`movingWaits`), so anything left here is a thread something is
-  // working on and this one is genuinely behind. It sits in Later, never In
-  // progress: In progress is running or queued, and a wait is neither.
+  // every blocker that is finished, that it cannot see, or that only waits
+  // back on this one (`waitsThatCanEnd`), so anything left here is a thread
+  // this one is genuinely behind. It sits in Later, never In progress: In
+  // progress is running or queued, and a wait is neither. The supervisor
+  // resumes it when the wait clears (`resumeFinishedWaits`).
   //
   // It is under the three above and over everything below for one reason: a
   // session, a ship and your own schedule are all facts about THIS row, and

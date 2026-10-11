@@ -29,7 +29,7 @@ import type { Claims, InboxItem, Mover } from './next-move';
 // so every caller in the window still reads its rules from this file.
 export type { Claims, InboxItem, Mover } from './next-move';
 export {
-  answeredHerAsk, hiddenUntil, isProposal, movingWaits, nextMove, notStarted, parkedByAgent, stillWaitingOn,
+  answeredHerAsk, hiddenUntil, isProposal, nextMove, notStarted, parkedByAgent, stillWaitingOn, waitsThatCanEnd,
 } from './next-move';
 
 const hers = (i: InboxItem) => (i.labels ?? []).includes('founder');
@@ -137,9 +137,9 @@ export function threadsOwedAnAnswer<T extends InboxItem & { id: string; parent?:
 //
 // AND A WAIT IS NOT IN IT (w-5244c90c33). "In progress is either running or
 // queued." A thread waiting on another one is neither, and two of them sat
-// here for days behind threads nothing was moving. A wait on something that
-// moves is in Later (`waitsInLater`); a wait on something that does not is
-// stuck, and is in Needs you (`movingWaits` in ./next-move.ts).
+// here for days. A wait is in Later (`waitsInLater`) and resumes by itself
+// when what it waits on finishes; only a loop of waits, which never can, is in
+// Needs you (`waitsThatCanEnd` in ./next-move.ts).
 export function belongsInProgress(i: InboxItem, claims: Claims = {}): boolean {
   const move = nextMove(i, claims);
   return move === 'agent' || move === 'app';

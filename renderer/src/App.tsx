@@ -63,7 +63,7 @@ import { approvalReads } from './approval-card';
 // one it took went. Only the second is raised from here, because by the time
 // there is anything to confirm the card has closed.
 import { sentLine } from './compose-says';
-import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, movingWaits, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stoppable, threadsOwedAnAnswer, waitsInLater, withdrawReply } from './list-rules';
+import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
 import { opensATextField } from './keys';
 import { sidebarFits, useRoomyToggle, useWindowWidth } from './room';
@@ -1760,10 +1760,9 @@ export default function App() {
   // finished and every blocker this window cannot see, so nothing is ever
   // hidden behind a row that is not on the screen.
   //
-  // AND EVERY BLOCKER NOTHING IS MOVING (w-5244c90c33). Two threads sat in In
-  // progress for days waiting on proposals parked in Later. `movingWaits`
-  // keeps a blocker only when an agent, the app or a moving wait has it, so a
-  // stuck wait is no wait at all and lands in Needs you.
+  // AND EVERY BLOCKER THAT ONLY WAITS BACK ON IT (w-5244c90c33). A wait sits
+  // in Later and resumes by itself when what it waits on finishes; a loop of
+  // waits never would, so `waitsThatCanEnd` drops it and the thread is yours.
   // AND THE RUN QUEUE'S OWN REPORT, which it has always made and no list has
   // read: the rows it is about to spawn on, and the ones pushed with Run now.
   // `nextMove` keeps it UNDER its reading of the row rather than over it, so
@@ -1773,11 +1772,11 @@ export default function App() {
     [snap?.supervisor.queued, snap?.supervisor.runNow],
   );
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
-  const blockerClaims = useCallback((b: WorkItem) => ({
-    now, deferredUntil: dueAt(b), hiddenUntil: hiddenAt(b),
-    live: liveIds.has(b.id), shipping: shippingIds.has(b.id), queued: queuedIds.has(b.id),
+  const claimsOf = useCallback((i: WorkItem) => ({
+    now, deferredUntil: dueAt(i), hiddenUntil: hiddenAt(i),
+    live: liveIds.has(i.id), shipping: shippingIds.has(i.id), queued: queuedIds.has(i.id),
   }), [now, dueAt, hiddenAt, liveIds, shippingIds, queuedIds]);
-  const waitingOn = useCallback((i: WorkItem) => movingWaits(i, byId, blockerClaims), [byId, blockerClaims]);
+  const waitingOn = useCallback((i: WorkItem) => waitsThatCanEnd(i, byId), [byId]);
   // The same answer as a set, for every surface that draws a row, so the list's
   // word, the table row's word and the pane's sentence cannot come from three
   // readings of it. `waitingIds` is the array the list prop wants.
@@ -2055,8 +2054,8 @@ export default function App() {
   // AND A FIFTH (w-5244c90c33): a thread waiting on another one something is
   // moving. No moment either, so it sorts at the end with them.
   const waitsLater = useCallback(
-    (i: WorkItem) => waitsInLater(i, { ...blockerClaims(i), waitingOn: waitingOn(i) }),
-    [blockerClaims, waitingOn],
+    (i: WorkItem) => waitsInLater(i, { ...claimsOf(i), waitingOn: waitingOn(i) }),
+    [claimsOf, waitingOn],
   );
   const whenShown = useCallback(
     (i: WorkItem) => (notStarted(i) || waitingSet.has(i.id) ? Number.MAX_SAFE_INTEGER : hiddenAt(i)),
