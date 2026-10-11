@@ -33,7 +33,7 @@ import { fileURLToPath } from 'node:url';
 import QRCode from 'qrcode';
 import webpush from 'web-push';
 import { banner, shouldSpeak } from '../shared/notify-rules.mjs';
-import { createHandler } from './serve.mjs';
+import { createHandler, sameKey } from './serve.mjs';
 import { Name } from '../shared/product-name.mjs';
 
 export const PHONE_PORT = 41745;
@@ -109,6 +109,21 @@ export function phoneAddresses(interfaces = os.networkInterfaces()) {
   return out.sort((a, b) => rank(a) - rank(b));
 }
 
+/**
+ * WHO MAY KNOCK. This computer, a private network (a home or office Wi-Fi,
+ * an iPhone's hotspot at 172.20.10.x) and Tailscale's own range. Never a
+ * public address: the key is the whole computer, and a Mac on a network that
+ * hands it a public address must not answer the world with it.
+ */
+export function fromThisNetwork(address) {
+  const a = String(address ?? '').replace(/^::ffff:/, '');
+  if (a === '::1') return true;
+  const m = a.match(/^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
+  if (!m) return false;
+  const [x, y] = [Number(m[1]), Number(m[2])];
+  return x === 127 || x === 10 || (x === 172 && y >= 16 && y <= 31) || (x === 192 && y === 168) || (x === 100 && y >= 64 && y <= 127);
+}
+
 /** "iPhone · Safari" from a user agent string. */
 export function deviceName(ua = '') {
   const what = /iPhone/.test(ua) ? 'iPhone'
@@ -178,10 +193,11 @@ export function createPhoneLink({ file, channels, listeners, dist, port = PHONE_
   }
 
   async function handle(req, res) {
+    if (!fromThisNetwork(req.socket?.remoteAddress)) { res.writeHead(403).end(); return; }
     const url = new URL(req.url, 'http://phone');
     const guarded = url.pathname === '/events' || url.pathname.startsWith('/api/') || url.pathname === '/manifest.webmanifest';
     const given = req.headers['x-agentbox-token'] || url.searchParams.get('token');
-    const ok = given === saved.key;
+    const ok = sameKey(given, saved.key);
 
     // THE HOME-SCREEN ICON. Its start address carries the key, so the icon
     // opens straight into the inbox. Asked for with the key, like the api.
@@ -252,9 +268,18 @@ export function createPhoneLink({ file, channels, listeners, dist, port = PHONE_
     return inner(req, res);
   }
 
+  // WHERE IT LISTENS. Over Tailscale the phone arrives through `tailscale
+  // serve`, which hands each request on to 127.0.0.1, so the door listens on
+  // this computer only and no network the Mac joins can reach it in plain
+  // http. Over Wi-Fi the phone is on the network, so it listens on every
+  // address and `fromThisNetwork` turns away anyone who is not.
+  const wantedHost = () => (secureWanted() ? '127.0.0.1' : '0.0.0.0');
+  let host = null;
+
   function start() {
     if (server) return;
     error = null;
+    host = wantedHost();
     server = http.createServer(handle);
     server.on('error', (err) => {
       error = err.code === 'EADDRINUSE'
@@ -264,7 +289,14 @@ export function createPhoneLink({ file, channels, listeners, dist, port = PHONE_
       server = null;
       onChange();
     });
-    server.listen(port, '0.0.0.0', () => onChange());
+    server.listen(port, host, () => onChange());
+  }
+
+  /** Listening on the wrong addresses for the route picked: listen again. */
+  function rebind() {
+    if (!server || host === wantedHost()) return;
+    stop();
+    start();
   }
 
   // ON WHEN PHONES ARE LET IN OVER TAILSCALE, OFF OTHERWISE. Only the one
@@ -301,7 +333,11 @@ export function createPhoneLink({ file, channels, listeners, dist, port = PHONE_
     if (!server) return;
     for (const d of devices.values()) for (const r of d.streams) r.destroy();
     server.close();
+    // A phone's kept-alive connection would otherwise go on being answered
+    // by a door that is shut.
+    server.closeAllConnections?.();
     server = null;
+    host = null;
     devices.clear();
   }
 
@@ -413,6 +449,8 @@ export function createPhoneLink({ file, channels, listeners, dist, port = PHONE_
     return {
       on: !!saved.on,
       listening: !!server?.listening,
+      /** 127.0.0.1 over Tailscale, 0.0.0.0 over Wi-Fi. */
+      host: server?.listening ? host : null,
       error: error ?? (pick?.via === 'tailscale' ? secure.error : null),
       port,
       secure: !!safe,
@@ -435,7 +473,7 @@ export function createPhoneLink({ file, channels, listeners, dist, port = PHONE_
     if (action === 'on') { saved.on = true; save(); start(); await settleSecure(); }
     else if (action === 'off') { saved.on = false; save(); stop(); await settleSecure(); }
     else if (action === 'reset') { saved.key = newKey(); save(); dropEveryPhone(); }
-    else if (action === 'via' && (via === 'wifi' || via === 'tailscale')) { saved.via = via; save(); await settleSecure(); }
+    else if (action === 'via' && (via === 'wifi' || via === 'tailscale')) { saved.via = via; save(); await settleSecure(); rebind(); }
     else if (action === 'stop-alerts' && typeof device === 'string') { delete saved.alerts[device]; save(); }
     else if (action !== 'status') throw new Error(`Unknown phone action ${action}`);
     onChange();

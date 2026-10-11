@@ -248,7 +248,7 @@ export function createHandler({ channels, token, listeners = new Set(), dist = p
     // "Wrong or missing token" on every reload (tests/a-browser-tab-survives-a-reload).
     const guarded = url.pathname === '/events' || url.pathname.startsWith('/api/');
     const given = req.headers['x-agentbox-token'] || url.searchParams.get('token');
-    if (guarded && given !== (typeof token === 'function' ? token() : token)) {
+    if (guarded && !sameKey(given, typeof token === 'function' ? token() : token)) {
       res.writeHead(403, { 'content-type': 'text/plain' });
       res.end('Wrong or missing token. Use the url the terminal printed.');
       return;
@@ -329,6 +329,18 @@ export function createHandler({ channels, token, listeners = new Set(), dist = p
       res.end(buf);
     });
   };
+}
+
+/**
+ * The key a request carries against the real one, in the same time whatever
+ * it gets right, so nobody can learn the key a character at a time by timing
+ * the refusals. Both sides are hashed first because a length that differs is
+ * itself a thing `timingSafeEqual` would refuse at once.
+ */
+export function sameKey(given, key) {
+  if (typeof given !== 'string' || typeof key !== 'string' || !given || !key) return false;
+  const digest = (s) => crypto.createHash('sha256').update(s).digest();
+  return crypto.timingSafeEqual(digest(given), digest(key));
 }
 
 function readBody(req) {
