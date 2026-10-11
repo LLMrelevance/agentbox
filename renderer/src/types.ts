@@ -407,7 +407,9 @@ export interface SupervisorStatus {
 // turned off. It is apart from 'signed-out' because the remedy has a different
 // person in it: no login she can type will end it, and being told to type one
 // can cost an afternoon.
-export type TroubleCause = 'signed-out' | 'org-blocked' | 'at-limit' | 'workspace' | 'interrupted' | 'unknown';
+// 'model-not-on-plan' is a Codex login whose plan lacks the model the task asks
+// for; the fix is another model or another login, not this login.
+export type TroubleCause = 'signed-out' | 'org-blocked' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'unknown';
 
 // A worker frozen mid-action, waiting on the user's allow/deny.
 export interface Approval {

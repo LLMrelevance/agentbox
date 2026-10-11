@@ -20,6 +20,8 @@ import { Store } from './store.mjs';
 import { storeRootEnv } from './store/home.mjs';
 import { Supervisor } from './supervisor.mjs';
 import { startCodexWatch } from './codex-watch.mjs';
+import { readCodexThreads } from './codex-threads.mjs';
+import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
 import * as approvals from './approvals.mjs';
@@ -408,7 +410,13 @@ async function createWindow() {
   // AND IT IS WHERE A CODEX AGENT IS COUNTED, because it is the one thing that
   // already reads them (main/codex-watch.mjs). The switch is checked by
   // `analytics.track` itself, so this hands it over unconditionally.
-  const codexWatch = startCodexWatch({ store, count: (name, props) => analytics.track(name, props) });
+  // Every Codex folder on the machine, read fresh each minute so a login made
+  // while the app is open is followed too (main/agent-homes.mjs).
+  const codexWatch = startCodexWatch({
+    store,
+    count: (name, props) => analytics.track(name, props),
+    readThreads: (opts) => readCodexThreads({ ...opts, codexDirs: appSessionFolders({ config, supervisor }).codexDirs }),
+  });
   app.on('before-quit', () => codexWatch.stop());
   // Whatever is still queued goes with the app rather than dying in memory.
   app.on('will-quit', () => { analytics.flush(); });
