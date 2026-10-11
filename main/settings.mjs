@@ -21,7 +21,7 @@ import { forgetClaudeBin, INSTALL_URL } from './claude-bin.mjs';
 import { AGENT_MODES } from '../shared/agents.mjs';
 import { analyticsKey, diagnosticsOn } from './analytics.mjs';
 import { CLAUDE_PERMISSION_MODES } from '../shared/work-items.mjs';
-import { accountSentence, engineTroubleNote } from '../shared/spawn-trouble.mjs';
+import { accountSentence, engineTroubleNote, refineCause } from '../shared/spawn-trouble.mjs';
 import { readPlan } from './claude-plan.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { machineSlots, machineNote, autoAgents, MAX_SLOTS } from './machine.mjs';
@@ -381,7 +381,11 @@ export function readSettings({ config, supervisor, store }) {
   // waiting, because a page she chose to open interrupts nobody.
   const troubles = status.accountTrouble ?? {};
   const accounts = (profiles.length ? profiles : ['default']).map((profile) => {
-    const trouble = troubles[profile] ?? null;
+    const plan = readPlan(profile);
+    // A reason filed before an ended subscription had its own name still reads
+    // as an admin's block; the login's file says which it is.
+    const filed = troubles[profile] ?? null;
+    const trouble = filed ? { ...filed, cause: refineCause(filed.cause, plan) } : null;
     const resting = (supervisor._profileCooldown?.[profile] ?? 0) >= now;
     // WHOSE SUBSCRIPTION THIS ROW IS, not merely which folder it lives in.
     // The page named its rows after folders, so nothing on it could tell a
@@ -423,7 +427,7 @@ export function readSettings({ config, supervisor, store }) {
       // Read here rather than kept, because Claude Code refreshes its own
       // profile as it runs and this page is opened by hand a few times a day.
       // `null` when the file cannot be read, and then no screen says anything.
-      plan: (() => { const p = readPlan(profile); return p.known ? { label: p.label, max: p.max } : null; })(),
+      plan: plan.known ? { label: plan.label, max: plan.max } : null,
     };
   });
 

@@ -73,7 +73,8 @@ import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
 import { writeChangeForRun, changePath } from './code-change.mjs';
 import { snapshotRepo, changeFromRepo } from './git-change.mjs';
 import { importedAgentBrief, importedAgentName } from '../shared/agent-import.mjs';
-import { troubleCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
+import { readPlan } from './claude-plan.mjs';
+import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
 import { readDeadRunTrace, traceShowsASilentDeath } from '../shared/dead-run-trace.mjs';
 import { commandPrompt } from '../shared/claude-commands.mjs';
 import { machineryPath, storeRootEnv } from './store/home.mjs';
@@ -3351,7 +3352,10 @@ export class Supervisor {
   // time. A fact about one account now stays on that account.
   _noteProfileTrouble(profile, raw) {
     if (!profile) return 'unknown';
-    const cause = troubleCause(raw);
+    // An ended subscription is refused in an admin's words; the login's own
+    // file says which it is (refineCause). Codex keeps no such file.
+    const plan = profile.startsWith('codex:') ? null : readPlan(profile, { home: this.config.home || os.homedir() });
+    const cause = refineCause(troubleCause(raw), plan);
     this._profileTrouble = this._profileTrouble ?? {};
     const had = this._profileTrouble[profile];
     this._profileTrouble[profile] = { since: had?.since ?? Date.now(), at: Date.now(), cause, raw: String(raw ?? '').slice(0, 300) };
@@ -3391,6 +3395,25 @@ export class Supervisor {
       const resetsAt = trouble.resetsAt ?? limitResetMoment(trouble.raw, trouble.at);
       if (!resetsAt || now < resetsAt + LIMIT_RESET_GRACE_MS) continue;
       delete this._profileTrouble[key];
+      forgot = true;
+    }
+    if (forgot) this._saveState();
+    return forgot;
+  }
+
+  /**
+   * A SUBSCRIPTION RENEWED IS LET BACK IN. An ended one leaves the rotation at
+   * once, like anything waiting on a person, and nothing would start on it to
+   * prove it works again. Its own file says so: once its billing is no longer
+   * "none", the trouble goes and the next run on it is the proof.
+   */
+  _forgetRenewedSubscriptions() {
+    let forgot = false;
+    const home = this.config.home || os.homedir();
+    for (const [key, trouble] of Object.entries(this._profileTrouble ?? {})) {
+      if (trouble?.cause !== 'subscription-ended') continue;
+      if (readPlan(key, { home }).ended) continue;
+      this._clearProfileTrouble(key);
       forgot = true;
     }
     if (forgot) this._saveState();
@@ -4315,6 +4338,7 @@ export class Supervisor {
     // brake below, which would otherwise hold the fleet past the sign-in.
     try { this._noticeSignIns(); } catch (e) { console.warn('zero: could not look for a sign-in:', e.message); }
     try { this._forgetResetLimits(); } catch (e) { console.warn('zero: could not let a reset limit go:', e.message); }
+    try { this._forgetRenewedSubscriptions(); } catch (e) { console.warn('zero: could not let a renewed subscription back in:', e.message); }
     // A COOLDOWN STOPS THE SPAWNING AND IT MUST NOT STOP THE TELLING. The brake
     // goes on when there is no healthy account left anywhere, for up to half an
     // hour, which is precisely the half hour her tasks are all stuck and the

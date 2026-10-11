@@ -114,14 +114,20 @@ const fixtureSettingsState: any = structuredClone(fixtureSettings);
 // she runs, which leaves the object exactly as ./fixtures wrote it.
 const engineSettings = fixtureEngineSettings(engineFixtures);
 if (engineSettings) Object.assign(fixtureSettingsState.workspace, structuredClone(engineSettings));
-// ?account=org-blocked: the second account picked as In use, with its
-// organization having Claude Code off, so the usage box that says so can be seen.
-if (params.get('account') === 'org-blocked') {
+// ?account=org-blocked or ?account=subscription-ended: the second account
+// picked as In use and unable to run, so the usage box that says why can be seen.
+const accountTroubleNotes: Record<string, string> = {
+  'org-blocked': 'Signed in, but its organization has turned Claude Code off. Only an admin of that workspace can turn it back on.',
+  'subscription-ended': 'Signed in, but its Claude subscription has ended. Renew it at claude.ai to use this account again.',
+};
+const accountTrouble = params.get('account') ?? '';
+if (accountTroubleNotes[accountTrouble]) {
   const [first, second] = fixtureSettingsState.workspace.accounts;
   if (first) first.chosen = false;
   if (second) Object.assign(second, {
-    chosen: true, live: false, state: 'org-blocked',
-    trouble: { cause: 'org-blocked', since: Date.now(), note: 'Signed in, but its organization has turned Claude Code off. Only an admin of that workspace can turn it back on.' },
+    chosen: true, live: false, state: accountTrouble,
+    trouble: { cause: accountTrouble, since: Date.now(), note: accountTroubleNotes[accountTrouble] },
+    ...(accountTrouble === 'subscription-ended' ? { plan: { label: 'Subscription ended', max: false } } : {}),
   });
 }
 

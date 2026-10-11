@@ -188,6 +188,16 @@ export function troubleCause(raw) {
   return 'unknown';
 }
 
+// A SUBSCRIPTION THAT HAS ENDED IS REFUSED IN AN ADMIN'S WORDS. Claude Code
+// 2.1.293 told a lapsed personal Max login "Your organization has disabled
+// Claude subscription access for Claude Code" (2026-10-11), the same line a
+// workspace policy prints, so the text alone cannot tell them apart. The
+// login's own file can: `plan` is main/claude-plan.mjs's reading of it, and
+// `ended` is its billing gone to "none". Anything else keeps its cause.
+export function refineCause(cause, plan) {
+  return cause === 'org-blocked' && plan?.ended ? 'subscription-ended' : cause;
+}
+
 // WHEN THE LIMIT LETS GO, straight off the line the CLI printed.
 //
 // carries the one thing she actually wants to know, and we were throwing it
@@ -241,7 +251,7 @@ export function needsHerHands(cause) {
   // same person: one is her, in a terminal; one is an admin of a workspace she
   // may not run. What they share is the only thing this question asks — trying
   // again in thirty minutes cannot possibly help.
-  return cause === 'signed-out' || cause === 'org-blocked';
+  return cause === 'signed-out' || cause === 'org-blocked' || cause === 'subscription-ended';
 }
 
 // WHAT SHE READS WHEN NOT ONE AGENT CAN START ANYWHERE.
@@ -250,6 +260,7 @@ export function needsHerHands(cause) {
 export function troubleSentence(cause) {
   if (cause === 'signed-out') return 'No agents can start. Your Claude login has run out.';
   if (cause === 'org-blocked') return 'No agents can start. Your organization has turned Claude Code off.';
+  if (cause === 'subscription-ended') return 'No agents can start. Your Claude subscription has ended.';
   if (cause === 'at-limit') return 'No agents can start. Your Claude plan is at its limit.';
   if (cause === 'workspace') return 'No agents can start. Claude will not run in this folder.';
   if (cause === 'interrupted') return 'No agents can start. The connection to Claude keeps dropping.';
@@ -264,6 +275,7 @@ export function troubleRemedy(cause) {
   // thing to type.
   if (cause === 'signed-out') return 'Open Claude in a terminal, type /login, and they pick straight back up.';
   if (cause === 'org-blocked') return 'Ask an admin of that Claude workspace to turn Claude Code back on.';
+  if (cause === 'subscription-ended') return 'Renew it at claude.ai, or pick another account in Settings.';
   if (cause === 'at-limit') return 'They start again on their own when it resets.';
   if (cause === 'workspace') return 'Open the folder in Claude once and say yes to trusting it.';
   if (cause === 'interrupted') return `Nothing to do. ${Name} tries them again on its own.`;
@@ -293,6 +305,7 @@ export function accountSentence(cause, dir) {
   if (cause === 'org-blocked') {
     return 'Signed in, but its organization has turned Claude Code off. Only an admin of that workspace can turn it back on.';
   }
+  if (cause === 'subscription-ended') return 'Signed in, but its Claude subscription has ended. Renew it at claude.ai to use this account again.';
   if (cause === 'at-limit') return 'At its limit. It rejoins on its own when the limit resets.';
   if (cause === 'workspace') return 'Claude would not run in the folder this was asked to work in.';
   if (cause === 'interrupted') return `Its runs keep getting cut off. ${Name} is trying them again.`;
@@ -441,6 +454,7 @@ const DEAD_RUN_OPENERS = {
   workspace: "would not start in this project's folder, so nothing has been done here.",
   'signed-out': 'could not sign in, so nothing has been done on this task.',
   'org-blocked': 'is switched off for that account by its organization, so nothing has been done.',
+  'subscription-ended': "cannot run because that account's Claude subscription has ended, so nothing has been done.",
   'at-limit': 'is at its usage limit, so nothing has been done on this task.',
   interrupted: 'was cut off in the middle, so nothing has been done on this task.',
   unknown: 'stopped before it did anything, so this task has not been started.',
@@ -457,7 +471,9 @@ const DEAD_RUN_OPENERS = {
  */
 const RUN_STOPPED = {
   'signed-out': 'This run stopped because the account was signed out.',
-  'org-blocked': 'This run stopped because that account is switched off by its organization.',
+  // Same refusal text for an admin's block and an ended subscription, and this
+  // line has only the text, so it says what is true of both.
+  'org-blocked': 'This run stopped because Claude Code will not run on that account.',
   'at-limit': 'This run stopped because the account hit its usage limit.',
   workspace: "This run stopped because it would not start in this project's folder.",
   interrupted: 'This run was cut off in the middle.',
@@ -480,6 +496,8 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
     ? ' Sign that account back in and it picks straight up.'
     : cause === 'org-blocked'
       ? ' Only an admin of that Claude workspace can turn it back on.'
+      : cause === 'subscription-ended'
+      ? ' Renew it at claude.ai, or pick another account in Settings.'
       : cause === 'at-limit'
       ? (resetsAt ? ` It starts again on its own at ${resetsAt}.` : ' It starts again on its own when the limit resets.')
       : cause === 'interrupted'
@@ -563,6 +581,7 @@ export function deadRunCause(text) {
 export function causeWord(cause) {
   if (cause === 'signed-out') return 'a signed-out login';
   if (cause === 'org-blocked') return 'an organization that blocks Claude Code';
+  if (cause === 'subscription-ended') return 'an ended Claude subscription';
   if (cause === 'at-limit') return 'your Claude limit';
   if (cause === 'workspace') return 'a folder Claude will not run in';
   if (cause === 'interrupted') return 'runs getting cut off';
@@ -576,6 +595,7 @@ export function causeWhat(cause, count) {
   const n = Math.max(0, Math.trunc(count ?? 0));
   if (cause === 'signed-out') return `${n} stopped by a signed-out Claude login`;
   if (cause === 'org-blocked') return `${n} stopped by an organization that blocks Claude Code`;
+  if (cause === 'subscription-ended') return `${n} stopped by an ended Claude subscription`;
   if (cause === 'at-limit') return `${n} waiting on your Claude limit`;
   if (cause === 'workspace') return `${n} in a folder Claude will not run in`;
   if (cause === 'interrupted') return `${n} cut off mid-run`;
@@ -587,6 +607,7 @@ export function causeWhat(cause, count) {
 export function causeNext(cause, resetsAt = null) {
   if (cause === 'signed-out') return 'Type /login in a terminal and they pick straight up.';
   if (cause === 'org-blocked') return 'Ask an admin of that Claude workspace to turn Claude Code back on.';
+  if (cause === 'subscription-ended') return 'Renew it at claude.ai, or pick another account in Settings.';
   if (cause === 'at-limit') return resetsAt ? `They start again on their own at ${resetsAt}.` : 'They start again on their own when it resets.';
   if (cause === 'workspace') return 'Open the folder in Claude once and say yes to trusting it.';
   if (cause === 'interrupted') return `Nothing to do. ${Name} is trying them again.`;
