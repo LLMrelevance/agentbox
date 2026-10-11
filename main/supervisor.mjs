@@ -2509,7 +2509,10 @@ export class Supervisor {
    */
   _onlyWeSpokeForAnAccount(item) {
     const seen = this._fruitless[`${item.product}:${item.id}`];
-    if (!seen?.saidTs || !(needsHerHands(seen.saidWhy) || seen.saidWhy === 'at-limit')) return false;
+    // A plan without the model counts only when another login has it, which
+    // is when `noteExitForBackoff` names the account (w-f1c00e679d).
+    const planWithout = seen?.saidWhy === 'model-not-on-plan' && !!seen.account;
+    if (!seen?.saidTs || !(needsHerHands(seen.saidWhy) || seen.saidWhy === 'at-limit' || planWithout)) return false;
     return (item.wrote?.result?.ts ?? 0) <= seen.saidTs;
   }
 
@@ -2690,6 +2693,7 @@ export class Supervisor {
         cause,
         runs,
         resetsAt,
+        elsewhere: session.accountFault?.cause === 'model-not-on-plan',
       });
       const written = this.store.recordSessionResult(item.product, item.id, { result, status: 'open' });
       // REMEMBER THAT WE SAID IT, keyed on the run we said it about. The pass
@@ -3289,7 +3293,7 @@ export class Supervisor {
   // are: one shared counter would have a Codex spawn advance the rotation
   // across the Claude subscriptions, so a run of Codex tasks could leave
   // one of them doing all the Claude work.
-  _pickProfile(engine = DEFAULT_ENGINE) {
+  _pickProfile(engine = DEFAULT_ENGINE, { model = null } = {}) {
     const which = engineOf(engine);
     // SOMEWHERE HAS TO BE TRIED. `_liveProfilesFor` is allowed to answer
     // nothing now, which is the honest answer to "what could run" and no answer
@@ -3302,10 +3306,42 @@ export class Supervisor {
     // lists the new home before its sign-in finishes, and the round-robin
     // handed it the very first thread while the signed-in one sat idle.
     const signedIn = live.filter(p => harnessFor(which).signedIn(this, p));
-    const pool = signedIn.length ? signedIn : live.length ? live : ['default'];
+    let pool = signedIn.length ? signedIn : live.length ? live : ['default'];
+    // AND NOT A LOGIN WHOSE PLAN LACKS THE MODEL (w-f1c00e679d). A weekend's
+    // sprint on gpt-6.1-sol was handed to a free-plan Codex login twice, died
+    // in two seconds both times, and the Pro login sat idle all weekend. When
+    // no login has it, the rotation stands and `codexModelRefusal` says why.
+    const able = pool.filter((p) => !this._planLacksModel(which, p, model));
+    if (able.length) pool = able;
     this._rr = this._rr ?? {};
     this._rr[which] = ((this._rr[which] ?? 0) + 1) % pool.length;
     return pool[this._rr[which]];
+  }
+
+  /**
+   * WHETHER ONE LOGIN'S PLAN IS KNOWN NOT TO INCLUDE A MODEL.
+   *
+   * Two facts say so: Codex refused that model on that login this session
+   * (`_modelRefused`, written by `noteExitForBackoff`), or the login's own model
+   * list, which Codex keeps per CODEX_HOME and fills from the plan, does not
+   * carry it. A login with no list cannot be judged and is not ruled out.
+   * Claude Code keeps no per-login list, so it is never ruled out here.
+   */
+  _planLacksModel(engine, profile, model) {
+    const word = typeof model === 'string' ? model.trim() : '';
+    if (!word || engineOf(engine) !== 'codex') return false;
+    if (this._modelRefused?.[this._accountKey('codex', profile)]?.includes(word)) return true;
+    const known = codexKnownSlugs({ home: this._codexProfileHome(profile) });
+    return known.size > 0 && !known.has(word);
+  }
+
+  // Another Codex login the pick could take that has the model: the same pool
+  // `_pickProfile` draws from, less the one that refused.
+  _codexLoginWithModel(model, except) {
+    const live = this._liveProfilesFor('codex');
+    const signedIn = live.filter((p) => this._codexSignedIn(p));
+    return (signedIn.length ? signedIn : live).some((p) => this._accountKey('codex', p) !== except
+      && !this._planLacksModel('codex', p, model));
   }
 
   /**
@@ -3361,7 +3397,40 @@ export class Supervisor {
       const stamp = signInStamp(this._signInFilesFor(profile));
       this._profileTrouble[profile].stamp = Math.max(stamp, had?.stamp ?? 0);
     }
+    // When the limit says it resets, so `_forgetResetLimits` can let it go then.
+    if (cause === 'at-limit') {
+      const resetsAt = limitResetMoment(raw);
+      if (resetsAt) this._profileTrouble[profile].resetsAt = resetsAt;
+    }
     return cause;
+  }
+
+  /**
+   * A LIMIT THAT HAS RESET IS NOT A LIMIT ANY MORE.
+   *
+   * Trouble is cleared by a session surviving on the account, and for a limit
+   * that can never come when she has picked another account to run: nothing
+   * starts on this one again. The Accounts page then said "At its limit" about
+   * a login whose weekly limit had reset two days before. So a limit that named
+   * its reset is believed until that moment and no longer. If it is in fact
+   * still capped, the next run on it dies in seconds and files it again.
+   *
+   * A limit with no reset in it, and anything waiting on a person, is left
+   * alone: the clock says nothing about those.
+   */
+  _forgetResetLimits(now = Date.now()) {
+    let forgot = false;
+    for (const [key, trouble] of Object.entries(this._profileTrouble ?? {})) {
+      if (trouble?.cause !== 'at-limit') continue;
+      // A record saved before `resetsAt` was kept is read from its own words,
+      // at the moment it was last seen.
+      const resetsAt = trouble.resetsAt ?? limitResetMoment(trouble.raw, trouble.at);
+      if (!resetsAt || now < resetsAt + LIMIT_RESET_GRACE_MS) continue;
+      delete this._profileTrouble[key];
+      forgot = true;
+    }
+    if (forgot) this._saveState();
+    return forgot;
   }
 
   _clearProfileTrouble(profile) {
@@ -3735,6 +3804,25 @@ export class Supervisor {
     // its three tries. The error result names its cause whatever the length.
     const lastFailure = (session.tail ?? []).filter((l) => l && !l.startsWith('session exited') && !l.startsWith('fast exit')).slice(-1)[0];
     const refusedBy = session.resultIsError ? troubleCause(session.result) : null;
+    // THE LOGIN'S PLAN DOES NOT INCLUDE THE MODEL (w-f1c00e679d). Nothing is
+    // wrong with the login, which still runs every other model, so it is not
+    // struck, benched or filed as trouble. The model is struck off it instead,
+    // and when another login has the model the death is the account's, not the
+    // row's: the row wakes at once and the pick takes it there.
+    const planRefused = refusedBy === 'model-not-on-plan' || troubleCause(lastFailure) === 'model-not-on-plan';
+    if (planRefused && engine === 'codex') {
+      const account = this._accountKey(engine, session.profile);
+      const said = `${session.result ?? ''}\n${lastFailure ?? ''}`;
+      const model = session.model || /'([^']+)' model is not supported/i.exec(said)?.[1] || /on "([^"]+)"/.exec(said)?.[1] || null;
+      if (model) {
+        this._modelRefused = this._modelRefused ?? {};
+        const struck = this._modelRefused[account] ?? [];
+        if (!struck.includes(model)) this._modelRefused[account] = [...struck, model];
+        if (this._codexLoginWithModel(model, account)) session.accountFault = { cause: 'model-not-on-plan', account };
+      }
+      this._saveState();
+      return;
+    }
     const limitHit = refusedBy === 'at-limit' || needsHerHands(refusedBy);
     // A dropped provider connection is a transport failure too, even when
     // the local process and its pipe stayed up. It must not spend a reply's
@@ -4281,6 +4369,7 @@ export class Supervisor {
     // Has a login landed since an account was found signed out? Ahead of the
     // brake below, which would otherwise hold the fleet past the sign-in.
     try { this._noticeSignIns(); } catch (e) { console.warn('zero: could not look for a sign-in:', e.message); }
+    try { this._forgetResetLimits(); } catch (e) { console.warn('zero: could not let a reset limit go:', e.message); }
     // A COOLDOWN STOPS THE SPAWNING AND IT MUST NOT STOP THE TELLING. The brake
     // goes on when there is no healthy account left anywhere, for up to half an
     // hour, which is precisely the half hour her tasks are all stuck and the
@@ -5902,7 +5991,8 @@ export class Supervisor {
     // is recorded under and the same one `transcriptFile` will look for its
     // rollout with. One app-server per home, so a second Codex login is a
     // second process rather than a bigger number on the Settings screen.
-    const { client, handshake } = this._codexServer(this._codexProfileHome(profile));
+    const home = this._codexProfileHome(profile);
+    const { client, handshake } = this._codexServer(home);
     const storeServer = this._codexStoreServer(item);
     // THIS WORKER'S OWN CARDS, SO THEY CAN DIE WITH IT.
     //
@@ -5931,7 +6021,7 @@ export class Supervisor {
       // thread already running cannot un-launch them. Read fresh for THIS start
       // rather than once per app-server, and never caught: see `_codexIsolation`.
       ready: this._codexIsolation(client, handshake),
-      threadParams: (mcpServers) => this.codexThreadParamsFor(plan, cwd, mcpServers, storeServer),
+      threadParams: (mcpServers) => this.codexThreadParamsFor(plan, cwd, mcpServers, storeServer, home),
       turnParams: this.codexTurnParamsFor(plan),
       resumeThreadId: plan.resumeId,
       // The card, which is the other half of what a worker needs to be able to
@@ -6069,25 +6159,26 @@ export class Supervisor {
    *     did, and so her terminal and her fleet follow the same file when she
    *     changes it.
    */
-  codexThreadParamsFor(plan, cwd, mcpServers, storeServer) {
+  // `home` is the login this thread runs on. Its own list is the one checked:
+  // reading the main login's let a free-plan login be handed gpt-6.1-sol.
+  codexThreadParamsFor(plan, cwd, mcpServers, storeServer, home = this._codexHome()) {
     // ASKED HERE RATHER THAN CARRIED ON THE PLAN. A precomputed field would be
     // a second copy of this decision that a caller can forget to set, and the
     // way it fails is a word Codex cannot read reaching `thread/start` -- which
     // is exactly the bug. The one place that builds the params is the one place
     // that decides.
     const onRow = typeof plan?.model === 'string' ? plan.model.trim() : '';
-    const workspace = this._codexWorkspaceModel();
-    const word = onRow || workspace || '';
+    const word = this._codexModelWord(plan) ?? '';
     // WHICH SETTING IS BEING REFUSED, because the sentence is the only thing
     // she can act on and it has to send her to the right screen.
-    const refusal = this.codexModelRefusal(word, onRow ? 'row' : 'workspace');
+    const refusal = this.codexModelRefusal(word, onRow ? 'row' : 'workspace', home);
     if (refusal) throw new Error(refusal);
     // AND THE LEVEL IS JUDGED HERE TOO, against the model that will actually
     // run, for the same reason and with the same outcome: a level the model
     // does not advertise stops the run before the thread, with the sentence on
     // the pipe `troubleCause` reads, rather than reaching `turn/start` as a
     // protocol error or running at a level she did not pick.
-    const level = this.codexEffortRefusal(word, plan?.effort);
+    const level = this.codexEffortRefusal(word, plan?.effort, home);
     if (level) throw new Error(level);
     return workerThreadParams({
       cwd,
@@ -6148,10 +6239,9 @@ export class Supervisor {
    * for that word. We refuse on a fact or not at all; with no list, the word
    * goes to Codex as written and Codex answers for it in its own words.
    */
-  codexEffortRefusal(model, effort) {
+  codexEffortRefusal(model, effort, home = this._codexHome()) {
     const level = typeof effort === 'string' ? effort.trim() : '';
     if (!level) return null;
-    const home = this._codexHome();
     const slug = (typeof model === 'string' && model.trim()) || this._codexWorkspaceModel() || codexDefaultModel({ home }) || '';
     if (!slug) return null;
     const levels = codexModelLevels(slug, { home });
@@ -6175,6 +6265,13 @@ export class Supervisor {
   _codexWorkspaceModel() {
     const word = typeof this.config.codexModel === 'string' ? this.config.codexModel.trim() : '';
     return word || null;
+  }
+
+  // The model a Codex run asks for: the row's, else the workspace's, else null
+  // (her config.toml decides). `codexThreadParamsFor` says why in that order.
+  _codexModelWord(plan) {
+    const onRow = typeof plan?.model === 'string' ? plan.model.trim() : '';
+    return onRow || this._codexWorkspaceModel() || null;
   }
 
   /**
@@ -6226,10 +6323,9 @@ export class Supervisor {
    * word that is not on it. Where to go and fix it is the other half of what
    * she can act on.
    */
-  codexModelRefusal(model, from = 'row') {
+  codexModelRefusal(model, from = 'row', home = this._codexHome()) {
     const word = typeof model === 'string' ? model.trim() : '';
     if (!word) return null;
-    const home = this._codexHome();
     const known = codexKnownSlugs({ home });
     if (!known.size || known.has(word)) return null;
     const offered = codexModels({ home }).map((m) => m.id);
@@ -6237,6 +6333,14 @@ export class Supervisor {
     const asked = from === 'workspace'
       ? `every Codex agent here is set to run on "${word}"`
       : `this row asks to run on "${word}"`;
+    // ANOTHER LOGIN KNOWS IT: then the word is fine and this login's plan is
+    // what lacks it, which is a different fix (another model, or another
+    // login) and a different cause for `troubleCause` (w-f1c00e679d).
+    const elsewhere = this._codexProfiles().some((p) => {
+      const other = this._codexProfileHome(p);
+      return other !== home && codexKnownSlugs({ home: other }).has(word);
+    });
+    if (elsewhere) return `${asked}, which is not a model the plan of the Codex account this run was given includes.${instead} Nothing here will pick a stand-in for her, so this run is stopping rather than doing her work on a model she did not choose`;
     return `${asked}, which is not a model the Codex on this computer knows.${instead} Nothing here will pick a stand-in for her, so this run is stopping rather than doing her work on a model she did not choose`;
   }
 
@@ -6675,7 +6779,8 @@ export class Supervisor {
     // `forcedProfile` or a `resumeProfile` that disagreed with the tie has
     // already had its session id taken off it, so this is not a resume pointed
     // at the wrong home, it is a fresh brief on the account the project named.
-    const profile = pinned ?? forcedProfile ?? plan.resumeProfile ?? this._pickProfile(engine);
+    const model = engineOf(engine) === 'codex' ? this._codexModelWord(plan) : null;
+    const profile = pinned ?? forcedProfile ?? plan.resumeProfile ?? this._pickProfile(engine, { model });
     // A SECOND ACCOUNT ARRIVES EMPTY, AND THIS IS WHERE IT STOPS BEING EMPTY.
     // Our own Accounts page tells a person to log in with a brand new folder,
     // and Claude Code reads a session's skills, commands and subagents out of
@@ -6713,6 +6818,8 @@ export class Supervisor {
     const session = {
       child, itemId: item.id, product: item.product, startedAt: Date.now(), tail: [], profile,
       command: !!plan.command, engine,
+      // Which model, so a plan that refuses it strikes that model off this login.
+      ...(model ? { model } : {}),
       // AND THE FOLDER IT IS RUNNING IN, which is now the row's own rather than
       // the product's checkout. Everything that asks a live session where it
       // works reads it from here rather than deriving it from the product a
@@ -6974,6 +7081,7 @@ export class Supervisor {
       if (exited) return;
       exited = true;
       if (how?.transportFault) session.transportFault = true;
+      this.memoryGateTurnEnded(session);
       session.exitFailed = !!(signal || code !== 0 || session.transportFault || session.resultIsError || session.result == null);
       this.count?.('run_finished', runEndedProps(session, Date.now()));
       onLine(`session exited (${code})`);
@@ -7738,6 +7846,29 @@ export class Supervisor {
     } catch { return null; }
   }
 
+  /**
+   * Is this HER urgent row, for the memory gate (w-713aba0c89)? Read live, so a
+   * row raised to Urgent jumps the queue on its next command. A row that cannot
+   * be read is not urgent.
+   */
+  memoryGateUrgent(product, itemId) {
+    if (!product || !itemId) return false;
+    try {
+      const item = this.store.readItem?.(product, itemId);
+      return item ? isUrgent(item) : false;
+    } catch { return false; }
+  }
+
+  /**
+   * A Codex worker's turn is over, so the gate lets go of every slot its thread
+   * still holds (w-713aba0c89). Codex sends no "after" report for a command that
+   * failed; a Claude worker's grants go with its own process instead.
+   */
+  memoryGateTurnEnded(session) {
+    if (session?.engine !== 'codex' || !session.sessionId) return;
+    try { this._memoryGate?.releaseSession(session.sessionId); } catch { /* the gate is going too */ }
+  }
+
   memoryGateSlots() {
     const n = Number(this.config.memoryGateSlots);
     return Number.isFinite(n) && n >= 1 ? Math.round(n) : autoSlots(os.totalmem());
@@ -7802,6 +7933,7 @@ export class Supervisor {
       gate: { slots: this.memoryGateSlots() },
       scoreFor: (product, itemId) => this.memoryGateScore(product, itemId),
       ownerOf: (sessionId) => this.memoryGateOwner(sessionId),
+      urgentFor: (product, itemId) => this.memoryGateUrgent(product, itemId),
       log: (line) => console.log(`zero: ${line}`),
     });
     this._memoryGate = server;
