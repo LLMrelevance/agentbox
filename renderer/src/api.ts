@@ -14,6 +14,7 @@ import { fixtureEngineWorld, fixtureEngineSettings, fixtureSecondEngine } from '
 import { fixtureFolders } from './fixtures';
 import { NAME, Name } from '../../shared/product-name.mjs';
 import { checkProjectFolder } from '../../shared/project-folder-check.mjs';
+import { USAGE_UNREADABLE } from '../../shared/usage.mjs';
 // THE SECOND FRONT DOOR, AND IT HAS TO BE BUILT BEFORE THE LINE BELOW RUNS.
 // `useFixtures` reads `window.zero` once, at module load, and on the desktop
 // preload.cjs has already put it there. In a browser tab nothing has, so this
@@ -120,7 +121,14 @@ const accountTroubleNotes: Record<string, string> = {
   'org-blocked': 'Signed in, but its organization has turned Claude Code off. Only an admin of that workspace can turn it back on.',
   'subscription-ended': 'Signed in, but its Claude subscription has ended. Renew it at claude.ai to use this account again.',
 };
+// ?account=unreadable: the second account in use with nothing known wrong, and
+// every Refresh coming back empty, for the sentence a cause we cannot name gets.
 const accountTrouble = params.get('account') ?? '';
+if (accountTrouble === 'unreadable') {
+  const [first, second] = fixtureSettingsState.workspace.accounts;
+  if (first) first.chosen = false;
+  if (second) second.chosen = true;
+}
 if (accountTroubleNotes[accountTrouble]) {
   const [first, second] = fixtureSettingsState.workspace.accounts;
   if (first) first.chosen = false;
@@ -298,12 +306,13 @@ export const api = {
 
   async refreshUsage(): Promise<{ ok: boolean; reading?: Usage; error?: string }> {
     if (useFixtures) {
+      if (params.get('account') === 'unreadable') return { ok: false, error: USAGE_UNREADABLE };
       const reading = fixtureSnapshot.usageByEngine?.find(r => r.engine === 'claude') ?? (fixtureSnapshot.usage?.engine === 'claude' ? fixtureSnapshot.usage : null);
       return reading ? { ok: true, reading: { ...structuredClone(reading), profile: 'default', at: Date.now() } } : { ok: false, error: 'No usage reading yet.' };
     }
     if (!window.zero?.refreshUsage) return { ok: false, error: RESTART_NOTE };
     try { return await window.zero.refreshUsage(); }
-    catch { return { ok: false, error: 'Could not refresh usage. Try again.' }; }
+    catch { return { ok: false, error: USAGE_UNREADABLE }; }
   },
 
   // THE NEXT PAGE OF FINISHED THREADS THE SNAPSHOT LEFT OUT (w-fda2165ec6),

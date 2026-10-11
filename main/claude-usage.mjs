@@ -34,7 +34,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { readUsage } from '../shared/claude-usage.mjs';
-import { localZone } from '../shared/usage.mjs';
+import { localZone, USAGE_UNREADABLE } from '../shared/usage.mjs';
 
 // WHERE THE READING RUNS, AND WHY IT IS NOT "WHEREVER THE APP IS". An app
 // opened from Finder has `/` as its working directory, and this used to spawn
@@ -164,7 +164,7 @@ export class ClaudeUsage {
     const profile = this._syncProfile();
     const generation = this._generation;
     const bin = (() => { try { return this._bin(); } catch { return null; } })();
-    const failure = () => ({ ok: false, error: 'Could not refresh usage. Try again.' });
+    const failure = () => ({ ok: false, error: USAGE_UNREADABLE });
     if (!bin) { this._missed(); return Promise.resolve(failure()); }
     this._busy = true;
     this._pendingGeneration = generation;

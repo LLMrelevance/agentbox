@@ -33,7 +33,7 @@ import { updateLook } from '../update-row';
 import { InstructionSettings, sizeLabel } from './InstructionSettings';
 import { EVERY } from '../instruction-scope';
 import type {Usage, WorkspaceSettings} from '../types';
-import { limitRows } from '../../../shared/usage.mjs';
+import { limitRows, USAGE_UNREADABLE } from '../../../shared/usage.mjs';
 import { LOOKS, lookMeans, SKINS, TUNE_DEFAULT, TUNE_LIMITS, type Look, type SkinId, type SkinTune } from '../skins';
 import { readySkin } from '../look-switch';
 import { MatchMark } from './MatchMark';
@@ -390,13 +390,13 @@ export function ClaudeUsageSection({ reading, profile, email, now, trouble = nul
       if (selected.current !== account) return;
       if (result.ok && result.reading && (result.reading.profile ?? 'default') === account) setFresh(result.reading);
       else setError(result.error ?? 'The account changed. Refresh usage again.');
-    } catch { if (selected.current === account) setError('Could not refresh usage. Try again.'); }
+    } catch { if (selected.current === account) setError(USAGE_UNREADABLE); }
     finally { waiting.current = false; setBusy(false); }
   };
   return (
     <Group id="usage" label="Usage" action={<button type="button" className="set-ghost" disabled={busy} onClick={() => void refresh()}>{busy ? 'Refreshing…' : 'Refresh'}</button>}>
       <Row label={email || 'Claude Code'} desc={busy ? 'Checking usage…' : usageCheckedAt(current?.at, now) || undefined} />
-      <UsageRows reading={current} now={now} trouble={trouble} />
+      <UsageRows reading={current} now={now} trouble={trouble ?? error} />
       {trouble
         ? <div className="set-row set-row-warn" role="alert">{trouble}</div>
         : error && <div className="set-row set-row-warn" role="alert">{error}</div>}

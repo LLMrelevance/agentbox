@@ -309,7 +309,8 @@ export function accountSentence(cause, dir) {
   if (cause === 'at-limit') return 'At its limit. It rejoins on its own when the limit resets.';
   if (cause === 'workspace') return 'Claude would not run in the folder this was asked to work in.';
   if (cause === 'interrupted') return `Its runs keep getting cut off. ${Name} is trying them again.`;
-  return `Its sessions are dying on arrival. ${Name} is keeping the other one busy.`;
+  // A cause we cannot name points at the account, not at the app (2026-10-11).
+  return 'Claude Code would not start on this account. Check that its plan is active at claude.ai.';
 }
 
 /* ------------------ the same fact about a whole ENGINE -------------------- */
