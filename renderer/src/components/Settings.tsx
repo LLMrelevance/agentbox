@@ -333,9 +333,9 @@ type Agent = ReturnType<typeof agentStory>;
 /**
  * THE METERS, one row each: the window's name, when it resets, and how much of
  *  it is spent. Same `usage-meter` markup the sidebar's usage corner draws. */
-function UsageRows({ reading, now }: { reading: Usage | null; now: number }) {
+function UsageRows({ reading, now, trouble = null }: { reading: Usage | null; now: number; trouble?: string | null }) {
   const rows = reading?.limits?.length ? limitRows(reading.limits, now) : [];
-  if (!rows.length) return <Row label="No usage reading yet" />;
+  if (!rows.length) return trouble ? null : <Row label="No usage reading yet" />;
   return (
     <>
       {rows.map((r) => (
@@ -359,9 +359,16 @@ export function usageCheckedAt(at: number | null | undefined, now: number): stri
   return `Checked ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
 }
 
-/** A reading names its account; switching cannot reuse the old account's meter. */
-export function ClaudeUsageSection({ reading, profile, email, now }: {
-  reading: Usage | null; profile: string; email?: string | null; now: number;
+/** A reading names its account; switching cannot reuse the old account's meter.
+ *
+ *  AN ACCOUNT THAT CANNOT RUN HAS NO USAGE TO READ, AND "TRY AGAIN" IS A LIE
+ *  ABOUT IT. One whose organization has Claude Code off prints no limits from
+ *  `/usage` at all (2026-10-11, Claude Code 2.1.293), so the box said "No usage
+ *  reading yet" and every Refresh "Could not refresh usage. Try again." The
+ *  account row already carried main's sentence for it; `trouble` is that
+ *  sentence, and it stands in for both. */
+export function ClaudeUsageSection({ reading, profile, email, now, trouble = null }: {
+  reading: Usage | null; profile: string; email?: string | null; now: number; trouble?: string | null;
 }) {
   const [fresh, setFresh] = useState<Usage | null>(null);
   const [busy, setBusy] = useState(false);
@@ -389,8 +396,10 @@ export function ClaudeUsageSection({ reading, profile, email, now }: {
   return (
     <Group id="usage" label="Usage" action={<button type="button" className="set-ghost" disabled={busy} onClick={() => void refresh()}>{busy ? 'Refreshing…' : 'Refresh'}</button>}>
       <Row label={email || 'Claude Code'} desc={busy ? 'Checking usage…' : usageCheckedAt(current?.at, now) || undefined} />
-      <UsageRows reading={current} now={now} />
-      {error && <div className="set-row set-row-warn" role="alert">{error}</div>}
+      <UsageRows reading={current} now={now} trouble={trouble} />
+      {trouble
+        ? <div className="set-row set-row-warn" role="alert">{trouble}</div>
+        : error && <div className="set-row set-row-warn" role="alert">{error}</div>}
     </Group>
   );
 }
@@ -1300,7 +1309,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
         {agent.found && (
           <>
             {engine === 'claude' ? (
-              <ClaudeUsageSection key={usageAccount?.profile ?? 'default'} reading={agent.reading} profile={usageAccount?.profile ?? 'default'} email={usageAccount?.email} now={now} />
+              <ClaudeUsageSection key={usageAccount?.profile ?? 'default'} reading={agent.reading} profile={usageAccount?.profile ?? 'default'} email={usageAccount?.email} trouble={usageAccount?.trouble ?? null} now={now} />
             ) : (
               <Group id="usage" label="Usage"><UsageRows reading={agent.reading} now={now} /></Group>
             )}

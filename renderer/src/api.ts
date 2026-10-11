@@ -114,6 +114,16 @@ const fixtureSettingsState: any = structuredClone(fixtureSettings);
 // she runs, which leaves the object exactly as ./fixtures wrote it.
 const engineSettings = fixtureEngineSettings(engineFixtures);
 if (engineSettings) Object.assign(fixtureSettingsState.workspace, structuredClone(engineSettings));
+// ?account=org-blocked: the second account picked as In use, with its
+// organization having Claude Code off, so the usage box that says so can be seen.
+if (params.get('account') === 'org-blocked') {
+  const [first, second] = fixtureSettingsState.workspace.accounts;
+  if (first) first.chosen = false;
+  if (second) Object.assign(second, {
+    chosen: true, live: false, state: 'org-blocked',
+    trouble: { cause: 'org-blocked', since: Date.now(), note: 'Signed in, but its organization has turned Claude Code off. Only an admin of that workspace can turn it back on.' },
+  });
+}
 
 function fixtureWrite(scope: 'project' | 'workspace', p: any): Settings {
   const w = fixtureSettingsState.workspace;
