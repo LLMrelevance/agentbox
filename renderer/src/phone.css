@@ -3,9 +3,10 @@
    width. The desktop window cannot get this narrow (its minimum is 980), so
    nothing here ever reaches it.
 
-   The shape: the frame goes edge to edge, the side rail becomes a bar along the
-   bottom, a list row is its title with the project and age under it, and an
-   open task loses its right-hand rail. Everything is prefixed with
+   The shape: the frame goes edge to edge, everything you press sits in the top
+   bar, a new thread is one orange button under the thumb, a list row is its
+   title with the project and age under it, and an open task loses its
+   right-hand rail. Everything is prefixed with
    `:root:root:root` so it outranks the component sheets, which load after this
    one, and the tab and skin rules, which are `:root[data-shell="tab"] …` and
    `:root[data-skin] …`. Plain `html` lost to the tab rule that pins the side
@@ -26,59 +27,108 @@
      2026-10-09). Pinned here, and put back after a turn by the bridge. */
   :root, :root body { overscroll-behavior: none; overflow: hidden; height: 100%; }
 
-  /* The frame, edge to edge, with room for the notch and the bottom bar. */
+  /* The frame, edge to edge, with room for the notch. There is no bar along
+     the bottom: "not a fan of that bar at the bottom entirely ... all that
+     stuff is best placed at the top" (2026-10-11). */
   :root:root:root .app.workspace-layout {
     --workspace-left: 0px;
-    --phone-bar: 56px;
+    --phone-bar: 0px;
+    --phone-top: 56px;
     /* Sideways, the notch is on the left or the right. */
-    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) calc(var(--phone-bar) + env(safe-area-inset-bottom, 0px)) env(safe-area-inset-left, 0px);
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   }
-  :root:root:root .workspace-layout::before { top: 0; left: 0; right: 0; bottom: 0; border-radius: 0; }
+  /* The desktop window's four corner marks (the Ember Grid look) sat on the
+     bar and the title on a phone, whose screen is the frame already. */
+  :root:root:root .workspace-layout::before { top: 0; left: 0; right: 0; bottom: 0; border-radius: 0; background: var(--skin-pane, var(--surface)); box-shadow: none; }
 
-  /* The side rail, laid along the bottom. */
+  /* THE SIDE RAIL ON A PHONE IS SETTINGS, AT THE RIGHT OF THE TOP BAR. The
+     rest of it has no place here: the logo opened a sidebar ("idek what menu
+     means"), Threads is the page you are on, and Feedback and Instructions are
+     not worth a button on a phone. */
   :root:root:root .workspace-navigation {
-    position: fixed; top: auto; left: 0; right: 0; bottom: 0; width: auto;
-    height: calc(var(--phone-bar) + env(safe-area-inset-bottom, 0px));
-    padding: 0 calc(12px + env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) calc(12px + env(safe-area-inset-left, 0px));
-    flex-direction: row; align-items: center; justify-content: space-around;
-    background: var(--skin-pane, var(--surface)); border-top: 1px solid var(--line);
+    position: fixed; top: env(safe-area-inset-top, 0px); right: calc(4px + env(safe-area-inset-right, 0px)); left: auto; bottom: auto;
+    width: auto; height: var(--phone-top); padding: 0; margin: 0;
+    flex-direction: row; align-items: center;
+    background: none; border: 0; box-shadow: none;
     z-index: 50;
   }
   :root:root:root .workspace-navigation .th-team,
   :root:root:root .workspace-navigation .workspace-tabs,
-  :root:root:root .workspace-navigation .workspace-bottom,
-  :root:root:root .workspace-navigation .workspace-utilities { display: flex; flex-direction: row; align-items: center; gap: 4px; margin: 0; padding: 0; position: static; }
-  :root:root:root .workspace-navigation .workspace-bottom { margin-left: auto; }
-  :root:root:root .workspace-navigation button { height: 44px; min-width: 44px; width: auto; margin: 0; padding: 0 12px; justify-content: center; }
-  :root:root:root .workspace-navigation button > span:not(.th-mark):not(.tm-av) { display: none; }
+  :root:root:root .workspace-navigation button[aria-label="Feedback"],
+  :root:root:root .workspace-navigation button[aria-label="Instructions"],
+  :root:root:root .workspace-navigation .workspace-usage,
   :root:root:root .workspace-navigation .sb-update, :root:root:root .workspace-navigation .th-me { display: none; }
+  :root:root:root .workspace-navigation .workspace-bottom,
+  :root:root:root .workspace-navigation .workspace-utilities { display: flex; flex-direction: row; align-items: center; gap: 0; margin: 0; padding: 0; position: static; border: 0; }
+  :root:root:root .workspace-navigation button[aria-label="Settings"] {
+    display: flex; align-items: center; justify-content: center;
+    width: 40px; min-width: 40px; height: 40px; margin: 0; padding: 0;
+    border: 0; background: none; box-shadow: none; color: var(--text-dim);
+  }
+  :root:root:root .workspace-navigation button > span:not(.th-mark):not(.tm-av) { display: none; }
+  /* SETTINGS WORE THE SAME SLIDERS AS "VIEW AND FILTERS", side by side in one
+     bar. On a phone it wears a gear. */
+  :root:root:root .workspace-navigation button[aria-label="Settings"] svg { display: none; }
+  :root:root:root .workspace-navigation button[aria-label="Settings"]::before {
+    content: ''; width: 17px; height: 17px; background: currentColor;
+    -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z'/></svg>") center / contain no-repeat;
+    mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z'/></svg>") center / contain no-repeat;
+  }
 
-  /* The top bar: the title and the buttons, without their words. */
-  :root:root:root .workspace-layout > .topbar { padding: 0 8px 0 16px; height: 52px; min-height: 52px; flex-basis: 52px; }
-  :root:root:root .workspace-layout > .topbar .workspace-title { font-size: 18px; }
-  :root:root:root .th-right { gap: 6px; }
+  /* The top bar: the title, then search, filters and (the side rail's)
+     Settings as three plain icons of one size, no boxes. */
+  :root:root:root .workspace-layout > .topbar { padding: 0 48px 0 16px; height: var(--phone-top); min-height: var(--phone-top); flex-basis: var(--phone-top); }
+  :root:root:root .workspace-layout > .topbar .workspace-title { font-size: 22px; }
+  :root:root:root .th-right { gap: 0; }
   :root:root:root .th-search > span, :root:root:root .th-new > span, :root:root:root .th-new { font-size: 0; }
-  :root:root:root .th-search, :root:root:root .th-new { min-width: 40px; height: 40px; padding: 0 10px; justify-content: center; }
+  :root:root:root .topbar button { border-color: transparent; background: none; box-shadow: none; }
+  :root:root:root .topbar .th-search, :root:root:root .topbar .th-disp { width: 40px; min-width: 40px; height: 40px; padding: 0; justify-content: center; color: var(--text-dim); }
   :root:root:root .th-search kbd, :root:root:root .th-new kbd { display: none; }
+
+  /* A NEW THREAD IS ONE ORANGE BUTTON UNDER THE THUMB ("big fan of the new
+     thread button", 2026-10-11). */
+  :root:root:root .topbar .th-new {
+    position: fixed; z-index: 70;
+    right: calc(20px + env(safe-area-inset-right, 0px)); bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    width: 56px; min-width: 56px; height: 56px; padding: 0; justify-content: center;
+    border: 0; border-radius: 50%; background: var(--accent); color: #fff;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+  }
+  :root:root:root .topbar .th-new svg { width: 22px; height: 22px; }
+  /* Inside a thread the reply box is the thing to press, and Settings is not
+     what anybody came for. */
+  :root:root:root .app:has(.workspace-task-header) .workspace-navigation,
+  :root:root:root .app:has(.workspace-task-header) .th-new { display: none; }
 
   /* The tabs scroll sideways rather than wrap. */
   :root:root:root .th-bar { padding: 8px 16px 4px; gap: 12px; overflow-x: auto; scrollbar-width: none; }
   :root:root:root .th-bar::-webkit-scrollbar { display: none; }
   :root:root:root .tm-tabs { gap: 18px; flex-wrap: nowrap; white-space: nowrap; }
-  :root:root:root .tm-tab { white-space: nowrap; flex: none; }
+  :root:root:root .tm-tab { white-space: nowrap; flex: none; font-size: 11px; letter-spacing: .06em; }
 
-  /* A row: its title over two lines, the project and the age under it. */
+  /* A row: its title over two lines, then the project and the age together
+     on one quiet line under it. */
   :root:root:root .list { --text-x: 16px; --row-r: 12px; --gutter: 0px; }
+  /* The last row is never left under the new-thread button. */
+  :root:root:root .list.th-table { padding-bottom: 96px; }
   :root:root:root .th-table .th-head { display: none; }
   :root:root:root .th-grid, :root:root:root .th-grid.with-person {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-auto-rows: auto; row-gap: 2px; column-gap: 10px;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-auto-rows: auto; row-gap: 4px; column-gap: 8px;
   }
-  :root:root:root .th-grid > :nth-child(1) { grid-column: 1 / -1; white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.3; }
-  :root:root:root .th-grid > :nth-child(2) { grid-column: 1; font-size: 12px; opacity: .75; }
-  :root:root:root .th-grid > :last-child { grid-column: 2; font-size: 12px; text-align: right; }
+  :root:root:root .th-grid > :nth-child(1) { grid-column: 1 / -1; white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 16px; line-height: 1.35; }
+  :root:root:root .th-grid > :nth-child(2) { grid-column: 1; font-size: 11px; color: var(--text-dim); }
+  :root:root:root .th-grid > :last-child { grid-column: 2; font-size: 11px; text-align: left; color: var(--text-faint, var(--text-dim)); }
+  :root:root:root .th-grid > :last-child::before { content: '·'; margin-right: 8px; }
   :root:root:root .th-grid > :not(:first-child):not(:nth-child(2)):not(:last-child) { display: none; }
-  :root:root:root .th-table .row { height: auto; min-height: 64px; padding-top: 10px; padding-bottom: 10px; }
+  :root:root:root .th-table .row { height: auto; min-height: 64px; padding-top: 14px; padding-bottom: 14px; }
+  /* The desktop's keyboard cursor underlines the picked row; under a thumb it
+     only looked like a stray line. The tick boxes for picking several rows
+     are the desktop's too. */
+  :root:root:root .row.selected .subject { text-decoration: none; box-shadow: none; border-bottom-color: transparent; }
+  :root:root:root .row.selected { background: transparent; box-shadow: none; }
+  :root:root:root .row.selected::before, :root:root:root .row.selected::after { display: none; }
+  :root:root:root .row .mark { display: none; }
 
   /* The board has four columns; a phone shows them one under another. */
   :root:root:root .th-board { grid-template-columns: minmax(0, 1fr); padding: 8px 12px 24px; width: auto; }
@@ -86,6 +136,11 @@
   /* An open task: the words take the width, the right-hand rail goes. */
   :root:root:root .focus-pane { --ts-rail-w: 0px; --ts-panel-w: 0px; --read-w: 100%; }
   :root:root:root .ts-rail { display: none; }
+  /* Its top bar is a back arrow and the thread's name in the reading type,
+     not the desktop's "NEEDS YOU / NAME" crumb in capitals. */
+  :root:root:root .thread-crumb-from, :root:root:root .thread-crumb-sep { display: none; }
+  :root:root:root .thread-crumb, :root:root:root .thread-crumb * { font-family: 'Geist', 'Avenir Next', -apple-system, sans-serif; text-transform: none; letter-spacing: 0; font-size: 15px; }
+  :root:root:root .thread-crumb-name { color: var(--text); }
   :root:root:root .focus { padding: 8px 16px 32px; max-width: none; }
   :root:root:root .focus-body { font-size: 16px; overflow-wrap: anywhere; }
   :root:root:root .focus-dock-inner { padding: 0 12px; max-width: none; width: auto; margin: 0; }
