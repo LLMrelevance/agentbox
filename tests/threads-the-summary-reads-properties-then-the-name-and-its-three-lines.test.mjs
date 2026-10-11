@@ -84,9 +84,14 @@ describe('Blocked by and Blocks are gone from the panel', () => {
   it('draws none of it on a thread with no links either', () => {
     expect(text(draw(item({ blockedBy: undefined, blocks: undefined })))).not.toMatch(/Linked|Blocked by|Blocks|None/);
   });
-  it('has no code left that would draw or write a link from the panel', () => {
+  // The rows came back on w-5244c90c33, but only on a thread that has one,
+  // read-only, from what the window hands in (`links`): "Tasks without
+  // dependencies should not show 'dependency,' 'blocked by,' or 'blocking'."
+  // The two tests above still hold because nothing is handed in there.
+  // What stays gone is the panel WRITING a link, which is what the menus did.
+  it('has no code left that would write a link from the panel', () => {
     const panel = src.slice(src.indexOf('export function SummaryPanel'), src.indexOf('a teammate\'s */'));
-    expect(panel).not.toMatch(/blockedBy|'blocks'|linkRow|ts-link/);
+    expect(panel).not.toMatch(/save\(\{\s*(blockedBy|blocks)|'blocks'|linkRow/);
   });
   it('must not touch a teammate’s card, which still says what blocks it', () => {
     const card = text(renderToStaticMarkup(React.createElement(TeammateCard, {

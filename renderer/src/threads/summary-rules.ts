@@ -152,6 +152,33 @@ export function linkedThreads(
   });
 }
 
+type Linkable = Pick<WorkItem, 'id' | 'product' | 'status' | 'title' | 'label'> & { blockedBy?: string[]; blocks?: string[] };
+export interface Dependency<T> { id: string; title: string; item: T }
+
+/**
+ * WHAT A THREAD WAITS ON AND WHAT WAITS ON IT, for the summary's two rows
+ * (w-5244c90c33). Only threads still open count, on both sides, and only ones
+ * this window can see: a finished link is history, not a dependency, and an
+ * empty list means the row is not drawn at all. "Tasks without dependencies
+ * should not show 'dependency,' 'blocked by,' or 'blocking'."
+ *
+ * Blocking reads both ways a link can be written: the other thread naming
+ * this one in its `blockedBy`, and this one naming it in `blocks`.
+ */
+export function dependencies<T extends Linkable>(item: Linkable, items: readonly T[]): { blockedBy: Dependency<T>[]; blocking: Dependency<T>[] } {
+  const open = (i: T | undefined): i is T => !!i && i.status !== 'done' && !(i.id === item.id && i.product === item.product);
+  const find = (id: string) => items.find((i) => i.id === id && i.product === item.product) ?? items.find((i) => i.id === id);
+  const link = (i: T): Dependency<T> => ({ id: i.id, title: (i.label ?? '').trim() || i.title, item: i });
+  const ids = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+
+  const blockedBy = [...new Set(ids(item.blockedBy))].map(find).filter(open).map(link);
+  if (item.status === 'done') return { blockedBy, blocking: [] };
+  const named = ids(item.blocks).map(find).filter(open);
+  const waiting = items.filter((i) => open(i) && ids(i.blockedBy).includes(item.id));
+  const blocking = [...new Map([...waiting, ...named].map((i) => [`${i.product}/${i.id}`, i])).values()].map(link);
+  return { blockedBy, blocking };
+}
+
 /**
  * The threads the link menu offers: her other open threads, newest first.
  * Never this one, one already in the list, a finished one, a running agent's

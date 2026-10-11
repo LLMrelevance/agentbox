@@ -132,6 +132,7 @@ import { Face, TeamContext, firstName, teamView } from './team/people';
 import { FaceHover } from './team/status';
 import { TeamPage } from './team/TeamPage';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
+import { dependencies } from './threads/summary-rules';
 import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, StateTabs, WaitingContext, WaitingOnThreadContext } from './threads/Pages';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
@@ -5778,6 +5779,7 @@ export default function App() {
                   })}
                   parent={focused.parent ? items.find((i) => i.id === focused.parent && i.product === focused.product) ?? null : null}
                   blockedBy={items.find((i) => i.parent === focused.id && i.product === focused.product && i.status !== 'done') ?? null}
+                  links={dependencies(focused, items)}
                   filed={threadsMade(items, focused).map((i) => ({ id: i.id, title: i.label || i.title, state: stateOfMine(i), approve: approvableFiled(i, stateOfMine(i)), item: i }))}
                   onOpenItem={(item) => { setFocused(item); markSeen(item); }}
                   /*

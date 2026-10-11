@@ -26,7 +26,7 @@ import {
 } from './summary-rules';
 import { crumbName } from './crumb-rules';
 import { summaryFits, useRoomyToggle } from '../room';
-import { VISIBILITY_WORD, chosenNames, whoSees, type Seen } from './summary-rules';
+import { VISIBILITY_WORD, chosenNames, whoSees, type Dependency, type Seen } from './summary-rules';
 import { findPeople, teammates } from './composer-rules';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
 import { rowTitle } from '../list-rules';
@@ -190,18 +190,33 @@ function DoneTrail({ steps }: { steps: string[] }) {
   );
 }
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+const NO_LINKS = { blockedBy: [], blocking: [] };
+
+/** One linked thread per line, each a press that opens it. */
+function LinkList({ links, onOpen }: { links: Dependency<WorkItem>[]; onOpen?: (item: WorkItem) => void }) {
+  return (
+    <span className="ts-value ts-links">
+      {links.map((l) => (
+        <button key={l.id} type="button" className="ts-link" title={l.title} onClick={() => onOpen?.(l.item)}>{l.title}</button>
+      ))}
+    </span>
+  );
+}
 
 /**
  * The summary beside the conversation: the properties, a hairline, then the
  * thread's name over problem, progress and solution, each line editable in
- * place. The panel draws no "Blocked by" or "Blocks" (w-b38e975e2c); the row
- * still carries them and a teammate's card still shows them.
+ * place. "Blocked by" and "Blocking" came out on w-b38e975e2c because they drew
+ * on every thread; they are back ONLY on a thread that has one (w-5244c90c33).
  *
  * `team` is null on a Mac nobody has signed into, where every thread is yours.
  */
-export function SummaryPanel({ item, team, onFinish, onClose }: {
+export function SummaryPanel({ item, team, links = NO_LINKS, onOpenItem, onFinish, onClose }: {
   item: WorkItem;
   team: TeamView | null;
+  /** What this thread waits on and what waits on it, still open (`dependencies`). */
+  links?: { blockedBy: Dependency<WorkItem>[]; blocking: Dependency<WorkItem>[] };
+  onOpenItem?: (item: WorkItem) => void;
   /** FOLD IT BACK TO THE RAIL, from the icon at the top of the summary (w-a3482b8c2c). */
   onClose?: () => void;
   /**
@@ -556,6 +571,17 @@ export function SummaryPanel({ item, team, onFinish, onClose }: {
             </span>
           )}
         </span>
+        </>}
+        {/* THE DEPENDENCIES, AND ONLY WHEN THERE ARE ANY (w-5244c90c33). A
+            thread with none draws neither row: "that would get far too
+            cluttered for no reason." */}
+        {links.blockedBy.length > 0 && <>
+          <span className="ts-label">Blocked by</span>
+          <LinkList links={links.blockedBy} onOpen={onOpenItem} />
+        </>}
+        {links.blocking.length > 0 && <>
+          <span className="ts-label">Blocking</span>
+          <LinkList links={links.blocking} onOpen={onOpenItem} />
         </>}
         {/* WHEN THE THREE LINES WERE LAST WRITTEN, and only when: "Just now",
             "6 min ago" (summary-rules.ts updatedWord). No row before they
