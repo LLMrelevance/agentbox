@@ -63,7 +63,7 @@ import { approvalReads } from './approval-card';
 // one it took went. Only the second is raised from here, because by the time
 // there is anything to confirm the card has closed.
 import { sentLine } from './compose-says';
-import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stillWaitingOn, stoppable, threadsOwedAnAnswer, withdrawReply } from './list-rules';
+import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, movingWaits, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stoppable, threadsOwedAnAnswer, waitsInLater, withdrawReply } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
 import { opensATextField } from './keys';
 import { sidebarFits, useRoomyToggle, useWindowWidth } from './room';
@@ -1759,16 +1759,11 @@ export default function App() {
   // about ANOTHER row: `stillWaitingOn` throws away every blocker that has
   // finished and every blocker this window cannot see, so nothing is ever
   // hidden behind a row that is not on the screen.
-  const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
-  const waitingOn = useCallback((i: WorkItem) => stillWaitingOn(i, byId), [byId]);
-  // The same answer as a set, for every surface that draws a row, so the list's
-  // word, the table row's word and the pane's sentence cannot come from three
-  // readings of it. `waitingIds` is the array the list prop wants.
-  const waitingSet = useMemo(
-    () => new Set(items.filter((i) => stillWaitingOn(i, byId).length).map((i) => i.id)),
-    [items, byId],
-  );
-  const waitingIds = useMemo(() => [...waitingSet], [waitingSet]);
+  //
+  // AND EVERY BLOCKER NOTHING IS MOVING (w-5244c90c33). Two threads sat in In
+  // progress for days waiting on proposals parked in Later. `movingWaits`
+  // keeps a blocker only when an agent, the app or a moving wait has it, so a
+  // stuck wait is no wait at all and lands in Needs you.
   // AND THE RUN QUEUE'S OWN REPORT, which it has always made and no list has
   // read: the rows it is about to spawn on, and the ones pushed with Run now.
   // `nextMove` keeps it UNDER its reading of the row rather than over it, so
@@ -1777,6 +1772,20 @@ export default function App() {
     () => new Set([...(snap?.supervisor.queued ?? []), ...(snap?.supervisor.runNow ?? [])]),
     [snap?.supervisor.queued, snap?.supervisor.runNow],
   );
+  const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  const blockerClaims = useCallback((b: WorkItem) => ({
+    now, deferredUntil: dueAt(b), hiddenUntil: hiddenAt(b),
+    live: liveIds.has(b.id), shipping: shippingIds.has(b.id), queued: queuedIds.has(b.id),
+  }), [now, dueAt, hiddenAt, liveIds, shippingIds, queuedIds]);
+  const waitingOn = useCallback((i: WorkItem) => movingWaits(i, byId, blockerClaims), [byId, blockerClaims]);
+  // The same answer as a set, for every surface that draws a row, so the list's
+  // word, the table row's word and the pane's sentence cannot come from three
+  // readings of it. `waitingIds` is the array the list prop wants.
+  const waitingSet = useMemo(
+    () => new Set(items.filter((i) => waitingOn(i).length).map((i) => i.id)),
+    [items, waitingOn],
+  );
+  const waitingIds = useMemo(() => [...waitingSet], [waitingSet]);
 
   const inboxCandidates = useMemo(() => items.filter((i) => {
     if (i.id === pendingId) return false; // action held in the grace window: already sent, as far as the inbox is concerned
@@ -2043,20 +2052,26 @@ export default function App() {
   // AND SINCE w-afb66e6661 IT HOLDS A THIRD THING, which is why the tab is
   // called Later: a thread added to Later has no moment at all. It waits for a
   // person, so it sorts after everything with a clock rather than before it.
+  // AND A FIFTH (w-5244c90c33): a thread waiting on another one something is
+  // moving. No moment either, so it sorts at the end with them.
+  const waitsLater = useCallback(
+    (i: WorkItem) => waitsInLater(i, { ...blockerClaims(i), waitingOn: waitingOn(i) }),
+    [blockerClaims, waitingOn],
+  );
   const whenShown = useCallback(
-    (i: WorkItem) => (notStarted(i) ? Number.MAX_SAFE_INTEGER : hiddenAt(i)),
-    [hiddenAt],
+    (i: WorkItem) => (notStarted(i) || waitingSet.has(i.id) ? Number.MAX_SAFE_INTEGER : hiddenAt(i)),
+    [hiddenAt, waitingSet],
   );
   // AND SINCE w-9cf2b43110 A FOURTH: what an agent PROPOSED and nobody has
   // answered. Same shape as the third — written down, waiting on a person
   // rather than a clock — so it sorts with them at the end, and it is out of
   // the inbox, which is the whole point: "I only see things that need me."
   const snoozed = useMemo(() => [
-    ...items.filter((i) => (notStarted(i) || isProposal(i) || hiddenAt(i) > now)
+    ...items.filter((i) => (notStarted(i) || isProposal(i) || hiddenAt(i) > now || waitsLater(i))
       && (i.status !== 'done' || i.wrote?.status?.source !== 'founder')
       && (!scope || i.product === scope)),
     ...agentList.filter((r) => (r.runAt ?? 0) > now),
-  ].sort((a, b) => whenShown(a) - whenShown(b)), [items, agentList, hiddenAt, whenShown, scope, now]);
+  ].sort((a, b) => whenShown(a) - whenShown(b)), [items, agentList, hiddenAt, whenShown, waitsLater, scope, now]);
 
   // Repeating tasks. They are RULES, on their own channel, which is why nothing
   // in the item list rules has to know they exist. They are read up here, ahead

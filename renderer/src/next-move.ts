@@ -24,7 +24,7 @@
 //
 //   'agent'   a session is on it right now, or a worker is coming
 //   'app'     the app itself owes it something (the ship queue)
-//   'thread'  it waits on another thread that is still alive
+//   'thread'  it waits on another thread that something is moving
 //   'clock'   you put it away until a moment
 //   'later'   written down and deliberately not begun
 //   'filed'   nothing is owed and nothing is news: it is history
@@ -268,6 +268,39 @@ export function stillWaitingOn(
   });
 }
 
+/**
+ * WHICH OF THOSE WAITS IS ON SOMETHING THAT IS ACTUALLY MOVING (w-5244c90c33).
+ *
+ * A live blocker is not the same as a moving one. Two threads sat in In
+ * progress reading "waiting" for days: they waited on OpenCode and the engine
+ * interface, which were agent proposals parked in Later for a yes. Nothing in
+ * the chain was going to move without a person, and the only rows that said
+ * so were in the tab that promises something is.
+ *
+ * So a blocker counts only when its own next move is an agent, the app, or a
+ * wait that itself moves, followed down the chain. Anything else (Needs you,
+ * Later, the clock) is a person's move, so the thread waiting on it is stuck,
+ * and stuck is yours. A thread already on the path is a cycle and moves
+ * nobody.
+ *
+ * `claimsOf` is every claim the window holds for a row except the wait, which
+ * this works out.
+ */
+export function movingWaits<T extends InboxItem & { id: string }>(
+  i: T,
+  byId: ReadonlyMap<string, T>,
+  claimsOf: (row: T) => Claims,
+  path: ReadonlySet<string> = new Set([i.id]),
+): string[] {
+  return stillWaitingOn(i, byId).filter((id) => {
+    if (path.has(id)) return false;
+    const blocker = byId.get(id)!;
+    const deeper = new Set(path).add(id);
+    const move = nextMove(blocker, { ...claimsOf(blocker), waitingOn: movingWaits(blocker, byId, claimsOf, deeper) });
+    return move === 'agent' || move === 'app' || move === 'thread';
+  });
+}
+
 /* ------------------------- WHO HAS THE NEXT MOVE ------------------------- */
 /**
  * The one fact, worked out once. Every holder is asked in turn and the FIRST
@@ -303,8 +336,10 @@ export function nextMove(i: InboxItem, claims: Claims = {}): Mover {
   // saying nothing all stay exactly as loud as they were.
   if (isCleanRun(i)) return 'filed';
   // ANOTHER THREAD HAS IT (w-fe48447cab). The caller has already thrown away
-  // every blocker that is finished or that it cannot see (`stillWaitingOn`),
-  // so anything left here is a live thread this one is genuinely behind.
+  // every blocker that is finished, that it cannot see, or that nothing is
+  // moving (`movingWaits`), so anything left here is a thread something is
+  // working on and this one is genuinely behind. It sits in Later, never In
+  // progress: In progress is running or queued, and a wait is neither.
   //
   // It is under the three above and over everything below for one reason: a
   // session, a ship and your own schedule are all facts about THIS row, and

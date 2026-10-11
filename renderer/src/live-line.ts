@@ -292,7 +292,9 @@ export function liveLine(item: WorkItem, facts: LiveFacts = {}): LiveLine | null
     };
   }
 
-  if (!inProgress) return null;
+  // A wait is in Later now, not In progress (w-5244c90c33), and it still has
+  // to say what it is behind.
+  if (!inProgress && !waitingOn.length) return null;
 
   // THE APP IS SHIPPING IT (w-0c1ba766eb). No agent is on it and none is
   // coming, so "Nothing running" would read as forgotten. The sentence says

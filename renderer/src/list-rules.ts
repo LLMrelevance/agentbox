@@ -29,7 +29,7 @@ import type { Claims, InboxItem, Mover } from './next-move';
 // so every caller in the window still reads its rules from this file.
 export type { Claims, InboxItem, Mover } from './next-move';
 export {
-  answeredHerAsk, hiddenUntil, isProposal, nextMove, notStarted, parkedByAgent, stillWaitingOn,
+  answeredHerAsk, hiddenUntil, isProposal, movingWaits, nextMove, notStarted, parkedByAgent, stillWaitingOn,
 } from './next-move';
 
 const hers = (i: InboxItem) => (i.labels ?? []).includes('founder');
@@ -134,9 +134,24 @@ export function threadsOwedAnAnswer<T extends InboxItem & { id: string; parent?:
 // Friday could still run it Monday at 6am. That is now what the picker is for:
 // a reply cancels the schedule (`replyClearsSchedule` below), because the
 // silence it bought was indistinguishable from being ignored.
+//
+// AND A WAIT IS NOT IN IT (w-5244c90c33). "In progress is either running or
+// queued." A thread waiting on another one is neither, and two of them sat
+// here for days behind threads nothing was moving. A wait on something that
+// moves is in Later (`waitsInLater`); a wait on something that does not is
+// stuck, and is in Needs you (`movingWaits` in ./next-move.ts).
 export function belongsInProgress(i: InboxItem, claims: Claims = {}): boolean {
   const move = nextMove(i, claims);
-  return move === 'agent' || move === 'app' || move === 'thread';
+  return move === 'agent' || move === 'app';
+}
+
+/**
+ * A THREAD WAITING ON ANOTHER THAT IS MOVING: "Later is things that are
+ * happening later or can be processed later." It comes back to Needs you by
+ * itself once the thread it waits on is finished, or stops moving.
+ */
+export function waitsInLater(i: InboxItem, claims: Claims = {}): boolean {
+  return nextMove(i, claims) === 'thread';
 }
 
 // WHAT IS IN PROGRESS CAN BE STOPPED, EXCEPT WHAT A STOP CANNOT REACH. It is

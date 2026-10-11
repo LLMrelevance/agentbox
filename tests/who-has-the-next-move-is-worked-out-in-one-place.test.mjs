@@ -35,7 +35,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hiddenUntil, nextMove, stillWaitingOn } from '../renderer/src/next-move.ts';
-import { belongsInInbox, belongsInProgress, belongsOnTheRail } from '../renderer/src/list-rules.ts';
+import { belongsInInbox, belongsInProgress, belongsOnTheRail, waitsInLater } from '../renderer/src/list-rules.ts';
 import { liveLine, shortWord } from '../renderer/src/live-line.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -111,11 +111,15 @@ describe('every holder gets asked, and the answer is one word', () => {
 
 /* ------------------- the case the inbox had never read ------------------- */
 describe('a thread waiting on another thread is not Needs you', () => {
-  it('belongs to that other thread while it is still open', () => {
+  // `waitingOn` here is what the window hands in, which since w-5244c90c33 is
+  // only blockers something is moving (`movingWaits`). Such a wait is in
+  // Later, never In progress: "in progress is either running or queued".
+  it('belongs to that other thread while it is still moving', () => {
     const i = handedBack({ blockedBy: ['w-other'] });
     expect(move(i, { waitingOn: ['w-other'] })).toBe('thread');
     expect(belongsInInbox(i, { now: NOW, waitingOn: ['w-other'] })).toBe(false);
-    expect(belongsInProgress(i, { now: NOW, waitingOn: ['w-other'] })).toBe(true);
+    expect(belongsInProgress(i, { now: NOW, waitingOn: ['w-other'] })).toBe(false);
+    expect(waitsInLater(i, { now: NOW, waitingOn: ['w-other'] })).toBe(true);
   });
 
   it('is still somewhere you can reach it', () => {
