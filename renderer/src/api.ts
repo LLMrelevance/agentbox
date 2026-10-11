@@ -114,6 +114,20 @@ const fixtureSettingsState: any = structuredClone(fixtureSettings);
 // she runs, which leaves the object exactly as ./fixtures wrote it.
 const engineSettings = fixtureEngineSettings(engineFixtures);
 if (engineSettings) Object.assign(fixtureSettingsState.workspace, structuredClone(engineSettings));
+// &memory=held draws the Running page the way it read when memory ran out on
+// 2026-10-11 (w-ec27ff1a51): six running, memory tight, commands waiting, and
+// new agents held. &memory=fine is the same page with memory back to normal.
+if (params.get('memory')) {
+  const held = params.get('memory') === 'held';
+  Object.assign(fixtureSettingsState.workspace, { running: 6, capacity: 6, agentsTotal: 6, agentsAuto: true });
+  fixtureSettingsState.workspace.memoryGate = {
+    ...fixtureSettingsState.workspace.memoryGate, on: true,
+    reading: {
+      heavy: held ? 0 : 1, waiting: held ? 3 : 0, pressure: held ? 'tight' : 'normal', usedPct: held ? 74 : 48,
+      asked: 488, waited: 36, refused: 0, holding: held,
+    },
+  } as any;
+}
 
 function fixtureWrite(scope: 'project' | 'workspace', p: any): Settings {
   const w = fixtureSettingsState.workspace;
