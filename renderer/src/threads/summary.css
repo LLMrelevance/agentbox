@@ -137,9 +137,6 @@
 .ts-label { color: var(--text-faint); font-size: 13px; }
 .ts-value { color: var(--text); display: flex; align-items: center; min-width: 0; }
 .ts-value .tm-av { margin-right: 8px; }
-.ts-links { flex-direction: column; align-items: stretch; gap: 4px; }
-.ts-link { all: unset; cursor: pointer; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline; text-decoration-color: var(--border-strong, var(--text-faint)); text-underline-offset: 3px; }
-.ts-link:hover { text-decoration-color: var(--text); }
 .ts-menu-anchor { position: relative; }
 /* A FIELD SHE CAN CHANGE ANSWERS THE POINTER (2026-10-01). A dotted underline
    on hover was the only sign Priority could be changed, and it took a
