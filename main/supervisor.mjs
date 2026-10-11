@@ -112,7 +112,8 @@ import { LEVELS, latestMessage, sortMessage, wantsPriority } from './message-pri
 import { NAME, Name, envName, nameSlug, isOurSlug } from '../shared/product-name.mjs';
 import { signInFiles, signInStamp } from './sign-in-files.mjs';
 import { runsOn } from './runs-on.mjs';
-import { MemoryGateServer, defaultSocketPath as memoryGateSocketPath } from './memory-gate-server.mjs';
+import { MemoryGateServer, defaultSocketPath as memoryGateSocketPath, readMacPressure } from './memory-gate-server.mjs';
+import { startDecision, readMacPressureNow } from './start-hold.mjs';
 import { autoSlots, DEFAULTS as MEMORY_GATE } from './memory-gate.mjs';
 import { LeftoverCleaner } from './leftovers.mjs';
 import { syncCodexMemoryGate } from './codex-memory-gate.mjs';
@@ -596,6 +597,10 @@ export class Supervisor {
     // the moment their lease lapses and puts a FRESH session on them, which is
     // the restart she ruled out. The sweep gets there first and hands each row
     // back to the session that was doing it.
+    // A READING BEFORE THE RESTART WAVE, so the sessions a restart brings back
+    // meet the memory hold too rather than all arriving before the first
+    // reading does (main/start-hold.mjs). One sysctl, a few milliseconds.
+    if (this.config.memoryGate) this._memReading = readMacPressureNow();
     try { this.recoverInterrupted('startup'); } catch (e) { console.warn('zero: startup recovery:', e.message); }
     if (this.config.memoryGate) this.setMemoryGate(true).catch((e) => console.warn('zero: memory gate:', e.message));
     this.setLeftoverCleanup(!!this.config.cleanupLeftovers).catch((e) => console.warn('zero: leftovers:', e.message));
@@ -801,7 +806,7 @@ export class Supervisor {
       // rest the fleet earned on it exactly as it outranks the attempt cap.
       delete this._fruitless[`${item.product}:${item.id}`];
 
-      if (this._hasSlotFor(this._engineFor(item))) {
+      if (this._hasSlotFor(this._engineFor(item)) && this._memoryLetsStart(item, { asked: true })) {
         this._spawnResume(item);
         out.resumed += 1;
       } else {
@@ -980,7 +985,7 @@ export class Supervisor {
       // nothing again. Only one of the two facts ever changes on its own, so
       // only one of them is worth queueing for.
       const engine = engineOf(rec.engine);
-      if (this._engineCanRun(engine) && !this._hasSlotFor(engine)) {
+      if (this._engineCanRun(engine) && !(this._hasSlotFor(engine) && this._memoryLetsStart(item))) {
         out.queued += 1;
         this._recoverPending = true;
         continue;
@@ -3657,6 +3662,67 @@ export class Supervisor {
     return this._loadFor(which) < this._capacityFor(which) && this._load() < this._capacity();
   }
 
+  /**
+   * MAY ONE MORE AGENT START, AS FAR AS MEMORY GOES (w-ec27ff1a51). The rule
+   * and every way out of it are in main/start-hold.mjs; this only gathers the
+   * facts and remembers when the current hold began. `item` is the row that
+   * would start (null for a digest), `asked` is a row she resumed by name.
+   */
+  _memoryLetsStart(item, { asked = false } = {}) {
+    const now = Date.now();
+    const swap = !!item && [...this._preempted.values()].some((p) => p.forItem === item.id);
+    const d = startDecision({
+      on: !!this.config.memoryGate,
+      reading: this._memReading,
+      now,
+      running: this._load(),
+      urgent: !!item && (isUrgent(item) || this._runNow.has(item.id)),
+      asked,
+      swap,
+      lastStartAt: this._lastStartAt ?? 0,
+      heldSince: this._memHeldSince ?? null,
+    });
+    if (d.start) {
+      if (d.why === 'off' || d.why === 'normal' || d.why === 'no-reading') this._memHeldSince = null;
+      // The one let through after ten minutes restarts the wait from now, even
+      // if its spawn takes a while to register a session.
+      if (d.why === 'overdue') this._lastStartAt = now;
+    } else {
+      this._memHeldSince ??= now;
+      this._memHeldAt = now;
+      this._memHeldWhy = d.why;
+    }
+    return d.start;
+  }
+
+  /** What the Running page says about the hold: whether a start was held in
+   *  the last pass, how short memory is, and since when. */
+  startHoldStatus() {
+    const holding = !!this._memHeldSince && Date.now() - (this._memHeldAt ?? 0) < 2 * POLL_MS;
+    return { holding, pressure: holding ? this._memHeldWhy : null, since: holding ? this._memHeldSince : null };
+  }
+
+  /** The kernel's memory pressure, asked at most every ten seconds and never
+   *  awaited by the pass. A read that never answers is given up on after
+   *  thirty, and its silence ages the last reading out (STALE_MS), which
+   *  lifts the hold rather than freezing it. */
+  _refreshMemoryReading() {
+    if (!this.config.memoryGate) return;
+    const now = Date.now();
+    if (this._memReading && now - this._memReading.at < 10_000) return;
+    if (this._memReadingSince && now - this._memReadingSince < 30_000) return;
+    this._memReadingSince = now;
+    const asked = now;
+    Promise.resolve().then(() => this._readPressure()).then((r) => {
+      if (this._memReadingSince !== asked) return;
+      this._memReading = { level: r?.level ?? null, freePct: r?.freePct ?? null, at: Date.now() };
+    }, () => {}).finally(() => {
+      if (this._memReadingSince === asked) this._memReadingSince = null;
+    });
+  }
+
+  _readPressure() { return readMacPressure(); }
+
   /** The fleet-wide brake, as a clock rather than a state. */
   _spawnBraked() {
     return !!this._spawnCooldownUntil && Date.now() < this._spawnCooldownUntil;
@@ -4310,6 +4376,7 @@ export class Supervisor {
 
   async _tick() {
     if (this.paused) return;
+    this._refreshMemoryReading();
     if (this.firstRunHolding()) return;
     // Has a login landed since an account was found signed out? Ahead of the
     // brake below, which would otherwise hold the fleet past the sign-in.
@@ -4395,6 +4462,7 @@ export class Supervisor {
       // `spent` note describes: she asked for these out loud, so a resume that
       // waits behind the OTHER subscription is a resume that never happens.
       if (!this._hasSlotFor(this._engineFor(item))) continue;
+      if (!this._memoryLetsStart(item, { asked: true })) continue;
       this._resumeQueue.delete(id);
       this._spawnResume(item);
     }
@@ -4660,7 +4728,9 @@ export class Supervisor {
       // reading `item.engine` here instead would be a second one that could
       // disagree with it.
       const engine = this._engineFor(item);
-      if (!this._hasSlotFor(engine)) {
+      // MEMORY SHORT READS AS NO SLOT (main/start-hold.mjs), so an Urgent row
+      // still takes a lesser session's slot below: a swap, which adds nothing.
+      if (!this._hasSlotFor(engine) || !this._memoryLetsStart(item)) {
         // an Urgent row takes a slot rather than queueing behind work that
         // matters less. At most ONE session is interrupted per engine per
         // tick, and the urgent row spawns on the next one — the child has to
@@ -4711,7 +4781,7 @@ export class Supervisor {
       // A DIGEST RUNS ON THIS MAC'S HOME ENGINE: Claude Code, or Codex on a Mac
       // with nothing else. It carries a synthetic row with no engine on it, so
       // the slot it checks and the engine `spawnDigest` forces are one answer.
-      if (!this._hasSlotFor(this._homeEngine())) break;
+      if (!this._hasSlotFor(this._homeEngine()) || !this._memoryLetsStart(null)) break;
       const owed = this._digestOwed(items, product.slug, now);
       if (!owed) continue;
       this.lastDigestTry[product.slug] = now;
@@ -6750,6 +6820,7 @@ export class Supervisor {
       spawnFiles,
     };
     this.sessions.set(item.id, session);
+    if (!session.command) this._lastStartAt = session.startedAt;
     // THAT an agent started work, and on which engine; nothing about the task.
     // `count` is set by main.mjs and is absent wherever nothing is sent.
     this.count?.('run_started', { engine });
