@@ -473,7 +473,9 @@ export function readSettings({ config, supervisor, store }) {
     archivedProjects,
     workspace: {
       agentsRunning: !supervisor.paused,
-      sessionsAtOnce: config.maxConcurrentSessions,
+      // The number picked on the menu, for the whole computer, or what is
+      // running as the limit now when nothing was picked.
+      sessionsAtOnce: typeof config.agentsAtOnce === 'number' ? config.agentsAtOnce : status.capacity,
       // AUTOMATIC, AND WHAT IT WORKS OUT TO (w-e5225b62ba). `agentsAuto` is who
       // is deciding; `agentsTotal` is what the whole Mac is running at once,
       // which is the number the page shows, because the per-account one is
@@ -1013,7 +1015,9 @@ export function setWorkspaceSetting({ config, supervisor }, { key, value }) {
       const n = Math.max(1, Math.min(MAX_SLOTS, Math.round(Number(value) || 1)));
       // Setting a number by hand IS taking the decision back, so the page never
       // shows a stepper that the supervisor is quietly ignoring.
-      saveConfig(config, { maxConcurrentSessions: n, agentsAuto: false });
+      // FOR THE WHOLE COMPUTER (w-ec27ff1a51), under its own key, so a number
+      // written per login before 5 Oct can never be read as this choice.
+      saveConfig(config, { agentsAtOnce: n, agentsAuto: false });
       // An explicit choice replaces the startup plan suggestion for BOTH
       // engines. Leaving this marker set makes Codex ignore the new number
       // until loadConfig runs again at restart. It is derived, not persisted.

@@ -117,7 +117,7 @@ import { startDecision, readMacPressureNow } from './start-hold.mjs';
 import { autoSlots, DEFAULTS as MEMORY_GATE } from './memory-gate.mjs';
 import { LeftoverCleaner } from './leftovers.mjs';
 import { syncCodexMemoryGate } from './codex-memory-gate.mjs';
-import { autoAgents, perAccountAgents } from './machine.mjs';
+import { autoAgents } from './machine.mjs';
 import { runEndedProps } from './analytics.mjs';
 
 const POLL_MS = 15_000;
@@ -3496,7 +3496,28 @@ export class Supervisor {
   _capacityFor(engine) {
     const which = engineOf(engine);
     if (!this.engineChoices().some((e) => e.id === which)) return 0;
-    return this._slotsPerAccount(which) * this._liveProfilesFor(which).length;
+    const perLogin = this._slotsPerAccount(which) * this._liveProfilesFor(which).length;
+    // A NUMBER FOR THE WHOLE COMPUTER IS RUN EXACTLY (w-ec27ff1a51). Shared out
+    // a login at a time it rounds up, so 7 on two logins is four and four, and
+    // the computer's number is what stops it at 7 rather than 8.
+    const total = this._machineTotalFor(which);
+    return total === null ? perLogin : Math.min(total, perLogin);
+  }
+
+  /**
+   * THE NUMBER FOR THE WHOLE COMPUTER, or null when the number is still a
+   * per-login one (a Claude plan that allows one at a time, or a config
+   * written before `agentsAtOnce` existed and never loaded through
+   * main/config.mjs). Automatic's own answer, or the one picked on the menu.
+   */
+  _machineTotalFor(engine = DEFAULT_ENGINE) {
+    const planSpokeForClaude = engineOf(engine) !== DEFAULT_ENGINE && !!this.config.planSlotsFrom;
+    if (this.config.agentsAuto && !planSpokeForClaude) {
+      return autoAgents({ ...this._machine(), gated: !!this.config.memoryGate, nudge: this.config.agentsNudge });
+    }
+    const picked = Number(this.config.agentsAtOnce);
+    if (!this.config.agentsAuto && Number.isFinite(picked) && picked >= 1) return Math.floor(picked);
+    return null;
   }
 
   /**
@@ -3563,14 +3584,14 @@ export class Supervisor {
     // A SMALL PLAN STILL WINS. `slotsForPlans` answers one at a time for a
     // subscription that is not Max; that is a fact about the subscription and
     // not about this Mac, so Automatic may only ever come out at or under it.
-    if (this.config.agentsAuto && !planSpokeForClaude) {
-      const total = autoAgents({
-        ...this._machine(),
-        gated: !!this.config.memoryGate,
-        nudge: this.config.agentsNudge,
-      });
-      const per = perAccountAgents(total, this._liveProfilesFor(engineOf(engine)).length);
-      const plan = this.config.planSlotsFrom ? Number(this.config.maxConcurrentSessions) : null;
+    //
+    // AND THE NUMBER PICKED ON THE MENU IS THE COMPUTER'S TOO (w-ec27ff1a51),
+    // shared out the same way. A login's share rounds UP here, so an odd number
+    // is not rounded away; `_capacityFor` holds the total to the number itself.
+    const total = this._machineTotalFor(engine);
+    if (total !== null) {
+      const per = Math.ceil(total / Math.max(1, this._liveProfilesFor(engineOf(engine)).length));
+      const plan = this.config.agentsAuto && this.config.planSlotsFrom ? Number(this.config.maxConcurrentSessions) : null;
       return Number.isFinite(plan) && plan >= 1 ? Math.min(Math.floor(plan), per) : per;
     }
     const set = Number(planSpokeForClaude ? DEFAULT_SESSIONS_AT_ONCE : this.config.maxConcurrentSessions);

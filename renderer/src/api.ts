@@ -120,7 +120,8 @@ function fixtureWrite(scope: 'project' | 'workspace', p: any): Settings {
   if (scope === 'workspace') {
     if (p.key === 'sessionsAtOnce') {
       w.sessionsAtOnce = Math.max(1, Math.min(w.slotsMax ?? 12, Number(p.value) || 1));
-      w.capacity = w.sessionsAtOnce * Math.max(1, w.accounts.length);
+      w.capacity = w.sessionsAtOnce;
+      w.agentsAuto = false;
     } else if (p.key === 'memoryGate' && w.memoryGate) {
       w.memoryGate = { ...w.memoryGate, on: !!p.value, now: p.value ? 'Memory is fine. Nothing heavy running.' : null };
     } else if (p.key === 'cleanupLeftovers' && w.leftovers) {

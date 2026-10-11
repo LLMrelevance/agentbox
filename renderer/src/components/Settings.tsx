@@ -521,7 +521,6 @@ const Group = ({ id, label, warn, action, children }: { id?: string; label?: str
 export function agentCountOptions(w: {
   accounts?: unknown[]; agentsTotal?: number; capacity?: number; slotsMax?: number; sessionsAtOnce?: number;
 }) {
-  const accounts = Math.max(1, w.accounts?.length ?? 1);
   const auto = w.agentsTotal ?? w.capacity ?? 1;
   const say = (n: number) => `${n} ${n === 1 ? 'agent' : 'agents'}`;
   // NO DASH BETWEEN THE TWO HALVES. This read "Automatic — 6 agents" until she
@@ -530,7 +529,10 @@ export function agentCountOptions(w: {
   // is read exactly as a sentence is, so the rule covers it too. A bracket is
   // what the rest of this file reaches for when a label carries a second fact.
   const options = [{ value: 'auto', label: `Automatic (${say(auto)})` }];
-  for (let n = 1; n <= (w.slotsMax ?? 12); n++) options.push({ value: String(n), label: say(n * accounts) });
+  // EVERY NUMBER IS FOR THE WHOLE COMPUTER AND IS STORED AS ITSELF
+  // (w-ec27ff1a51). The label used to multiply a per-login number by the
+  // logins, so a 7 read "14 agents" and nobody had picked 14.
+  for (let n = 1; n <= (w.slotsMax ?? 12); n++) options.push({ value: String(n), label: say(n) });
   return options;
 }
 
