@@ -840,6 +840,8 @@ export interface WorkspaceSettings {
     reading?: {
       heavy: number | null; waiting: number | null; pressure: string | null; usedPct: number | null;
       asked: number | null; waited: number | null; refused: number | null;
+      /** New agents are waiting for memory to free up (main/start-hold.mjs). */
+      holding?: boolean;
     };
   };
   /**

@@ -114,6 +114,7 @@ import { signInFiles, signInStamp } from './sign-in-files.mjs';
 import { runsOn } from './runs-on.mjs';
 import { MemoryGateServer, defaultSocketPath as memoryGateSocketPath, readMacPressure } from './memory-gate-server.mjs';
 import { startDecision, readMacPressureNow } from './start-hold.mjs';
+import { MemoryLog } from './memory-log.mjs';
 import { autoSlots, DEFAULTS as MEMORY_GATE } from './memory-gate.mjs';
 import { LeftoverCleaner } from './leftovers.mjs';
 import { syncCodexMemoryGate } from './codex-memory-gate.mjs';
@@ -606,6 +607,20 @@ export class Supervisor {
     this.setLeftoverCleanup(!!this.config.cleanupLeftovers).catch((e) => console.warn('zero: leftovers:', e.message));
     this._timer = setInterval(() => this.tick().catch((e) => console.warn('supervisor:', e.message)), POLL_MS);
     this.tick().catch(() => {});
+    this.startMemoryLog();
+  }
+
+  /** A line a minute of memory by task, kept a week in the app's own folder
+   *  (main/memory-log.mjs), so the next time memory runs out it points at a
+   *  task instead of leaving it to a guess. */
+  startMemoryLog() {
+    clearInterval(this._memoryLogTimer);
+    this._memoryLog ??= new MemoryLog({
+      dir: path.join(this.userDir, 'memory-log'),
+      facts: () => ({ running: this._load(), capacity: this._capacity(), holding: this.startHoldStatus().holding }),
+    });
+    this._memoryLogTimer = setInterval(() => this._memoryLog.tick(), 60_000);
+    this._memoryLogTimer.unref?.();
   }
 
   // EVERY KILL OF OURS GOES THROUGH HERE, because the exit that follows cannot
@@ -699,6 +714,7 @@ export class Supervisor {
 
   stop() {
     clearInterval(this._timer);
+    clearInterval(this._memoryLogTimer);
     // The shared `codex app-server` goes with them. An orphaned one keeps every
     // thread it is holding alive after the supervisor that answers their
     // approvals has gone, which is the 2026-08-06 orphan incident in the other
@@ -754,6 +770,7 @@ export class Supervisor {
     this._closeCodex(`${Name} is quitting`);
     this.stopMemoryGate();
     clearInterval(this._leftoverTimer);
+    clearInterval(this._memoryLogTimer);
   }
 
   // PUT A WORKER BACK ON THESE ROWS, WHATEVER STATE THEY ARE IN.

@@ -90,6 +90,7 @@ describe('what must not change', () => {
   // Hers is 4, set by hand, and it stays 4 whatever any plan says. This is the
   // test that keeps a settings screen honest: a stepper she moved may never be
   // moved back by the app.
+  //
   // THE NUMBER SHE SETS IS FOR THE WHOLE COMPUTER NOW (w-ec27ff1a51), under
   // `agentsAtOnce`, and that one still always wins over the plan. A per-login
   // `maxConcurrentSessions` left by the old stepper is not a choice any more,
@@ -109,8 +110,5 @@ describe('what must not change', () => {
     const config = loadConfig(appDir, { home });
     expect(config.maxConcurrentSessions).toBe(1);
     expect(config.planSlotsFrom).not.toBe(null);
-  });
-});
-    expect(loadConfig(appDir, { home }).maxConcurrentSessions).toBe(3);
   });
 });

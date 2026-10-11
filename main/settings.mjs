@@ -899,6 +899,9 @@ export function memoryGateSettings({ config, supervisor }) {
 export function memoryReading({ config, supervisor }) {
   const out = { heavy: null, waiting: null, pressure: null, usedPct: null, asked: null, waited: null, refused: null };
   if (!config.memoryGate) return out;
+  // The supervisor's own hold on new agents (main/start-hold.mjs), which does
+  // not depend on which copy of the app is coordinating the command queue.
+  try { out.holding = !!supervisor.startHoldStatus?.()?.holding; } catch { out.holding = false; }
   let s = null;
   try { s = supervisor.memoryGateStatus?.() ?? null; } catch { return out; }
   if (!s || s.role === 'standby') return out;

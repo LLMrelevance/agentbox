@@ -552,7 +552,7 @@ export function agentCountOptions(w: {
  */
 function Reading({ running, capacity, gate }: {
   running?: number; capacity?: number;
-  gate?: { on: boolean; reading?: { heavy: number | null; waiting: number | null; pressure: string | null; usedPct: number | null; asked: number | null; waited: number | null; refused: number | null } };
+  gate?: { on: boolean; reading?: { heavy: number | null; waiting: number | null; pressure: string | null; usedPct: number | null; asked: number | null; waited: number | null; refused: number | null; holding?: boolean } };
 }) {
   const r = gate?.on ? gate.reading : null;
   if (!r) return null;
@@ -568,7 +568,10 @@ function Reading({ running, capacity, gate }: {
   const tally = r.asked
     ? `Today: ${r.asked} commands asked, ${r.waited ?? 0} waited, ${r.refused ? `${r.refused} turned away` : 'none turned away'}.`
     : null;
-  if (!cells.length && !tally) return null;
+  // NEW AGENTS HELD FOR MEMORY (w-ec27ff1a51) is said while it is happening,
+  // because a queue that is not moving and says nothing reads as broken.
+  const holding = r.holding ? 'New agents wait until memory frees up. Urgent tasks still start.' : null;
+  if (!cells.length && !tally && !holding) return null;
   return (
     <div className="set-group">
       <div className="set-plate">
@@ -582,6 +585,7 @@ function Reading({ running, capacity, gate }: {
             <i className="set-bar"><i className={r.pressure === 'normal' ? '' : 'hot'} style={{ width: `${r.usedPct}%` }} /></i>
           </div>
         )}
+        {holding && <div className="set-row set-row-warn">{holding}</div>}
         {tally && <div className="set-row set-row-warn">{tally}</div>}
       </div>
     </div>
@@ -1616,7 +1620,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
               {w.memoryGate && (
                 <Row
                   label="Hold heavy work when memory is short"
-                  desc={`Tests and builds take turns, urgent first. Everything else runs as normal.${twoEngines ? ' Claude Code and Codex both.' : ''}`}
+                  desc={`Tests and builds take turns, urgent first, and new agents wait to start until memory frees up.${twoEngines ? ' Claude Code and Codex both.' : ''}`}
                 >
                   <Switch label="Hold heavy work when memory is short" on={w.memoryGate.on} onChange={(v) => setWorkspace('memoryGate', v)} />
                 </Row>

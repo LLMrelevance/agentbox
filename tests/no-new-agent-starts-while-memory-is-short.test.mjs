@@ -17,6 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { startDecision, STALE_MS, MAX_HOLD_MS } from '../main/start-hold.mjs';
 import { Supervisor } from '../main/supervisor.mjs';
+import { memoryReading } from '../main/settings.mjs';
 
 const NOW = 1_800_000_000_000;
 const read = (freePct, { level = 1, age = 0 } = {}) => ({ level, freePct, at: NOW - age });
@@ -174,5 +175,19 @@ describe('the fleet', () => {
     setFree(40);
     await sup.tick();
     expect(sup.startHoldStatus()).toMatchObject({ holding: false });
+  });
+});
+
+describe('the Running page', () => {
+  it('reads the hold off the supervisor, and only with the memory switch on', () => {
+    const supervisor = { startHoldStatus: () => ({ holding: true }), memoryGateStatus: () => null };
+    expect(memoryReading({ config: { memoryGate: true }, supervisor }).holding).toBe(true);
+    expect(memoryReading({ config: { memoryGate: false }, supervisor }).holding).toBeUndefined();
+  });
+
+  it('says so in a sentence, and the switch no longer promises everything else runs as normal', () => {
+    const pane = fs.readFileSync(new URL('../renderer/src/components/Settings.tsx', import.meta.url), 'utf8');
+    expect(pane).toContain('New agents wait until memory frees up. Urgent tasks still start.');
+    expect(pane).not.toContain('Everything else runs as normal');
   });
 });
