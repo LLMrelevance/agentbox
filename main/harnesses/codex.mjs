@@ -24,6 +24,11 @@ export const codexHarness = {
   signedIn: (sup, profile) => sup._codexSignedIn(profile),
   profileEnv: (env, profile, sup) => ({ ...env, [definition.homeEnv]: sup._codexProfileHome(profile) }),
   tooling: () => null,
+  // Codex carries the person's standing instructions as a thread's
+  // `developerInstructions`, so it needs neither a flag nor a file. It says so
+  // rather than inheriting the refusal meant for an engine that has nowhere to
+  // put them (main/harnesses/instructions-file.mjs).
+  instructions: () => ({ by: 'thread' }),
   spawn: (sup, plan, context) => sup._spawnCodexWorker(plan, context),
   readers: () => ({ capture: captureCodexEvent, stream: codexStreamingText, summarize: summarizeCodexEvent, trace: traceCodexEvent, activity: codexActivity }),
   subscribe(child, session, absorb) {

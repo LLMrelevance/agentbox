@@ -8,7 +8,7 @@ import { storeRootEnv } from '../store/home.mjs';
 import { resolveClaudeBin } from '../claude-bin.mjs';
 import { claudeModelRows } from '../claude-models.mjs';
 import { linkAccountTooling } from '../account-tooling.mjs';
-import { claudeStreamArgs, attachClaudeInput } from '../claude-input.mjs';
+import { streamInputArgs, attachClaudeInput } from '../claude-input.mjs';
 import { claudeActivity } from '../agent-activity.mjs';
 import { captureStream, streamingText, summarizeStreamLine, traceStreamLine } from './claude-stream.mjs';
 import { definitionMethods, commonUpdatePlan } from './common.mjs';
@@ -32,10 +32,12 @@ export const claudeHarness = {
   },
   tooling: profile => linkAccountTooling(profile),
   spawn(sup, plan, { cwd, item, profile, env }) {
-    return spawn(sup.config.claudeBin, claudeStreamArgs(plan.args), {
+    // The binary is the one this definition names, not a field spelled out
+    // here: that is the last place an engine of this family needed code.
+    return spawn(sup.config[definition.binKey], streamInputArgs(definition.run, plan.args), {
       cwd,
       env: { ...env, STORE_ACCOUNT_ID: sup.config.accountId, ...storeRootEnv(sup.config.storeRoot),
-        ...(profile !== 'default' ? { CLAUDE_CONFIG_DIR: profile } : {}),
+        ...(profile !== 'default' ? { [definition.homeEnv]: profile } : {}),
         ZERO_PRODUCT: item.product, ZERO_ITEM: item.id, ...sup.memoryGateEnv(item) },
       stdio: ['pipe', 'pipe', 'pipe'],
     });

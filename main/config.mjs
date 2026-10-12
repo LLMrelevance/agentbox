@@ -63,6 +63,11 @@ const DEFAULTS = {
   // many times "Something felt slow" has been pressed, and only ever subtracts.
   agentsAuto: true,
   agentsNudge: 0,
+  // THE NUMBER PICKED ON THE MENU, FOR THE WHOLE COMPUTER (w-ec27ff1a51). Null
+  // until somebody picks one. It replaced `maxConcurrentSessions` as the thing
+  // the menu writes, because that one was per login: two logins turned a 7 into
+  // 14 agents on a 16 GB Mac, which then ran out of memory.
+  agentsAtOnce: null,
   // HOLD HEAVY WORK WHEN MEMORY IS SHORT (w-3958c3753d). Off until somebody
   // turns it on from the Agents page. With it on, every shell command a worker
   // runs asks main/memory-gate-server.mjs first, and heavy ones wait their turn
@@ -281,10 +286,18 @@ export function loadConfig(appDir, { home = os.homedir() } = {}) {
   // same thing said out loud and kept up to date. An explicit `agentsAuto`
   // outranks the guess, because turning Automatic back on after setting a number
   // has to be possible.
-  if (typeof overrides.agentsAuto !== 'boolean') {
-    config.agentsAuto = typeof overrides.maxConcurrentSessions !== 'number';
-  }
-  if (typeof overrides.maxConcurrentSessions !== 'number') {
+  //
+  // ONLY A NUMBER FOR THE WHOLE COMPUTER IS A CHOICE (w-ec27ff1a51). A
+  // `maxConcurrentSessions` in the file was written per login, by the stepper
+  // that was here before 5 Oct, and reading it as "you set this" is what ran
+  // 14 agents on a Mac Automatic would have run 6 on, with nobody having picked
+  // 14. So that install goes back to Automatic, even with `agentsAuto: false`
+  // written beside it, and a number picked on today's menu (`agentsAtOnce`)
+  // is kept as picked unless Automatic was chosen after it.
+  config.agentsAuto = typeof overrides.agentsAtOnce !== 'number' || overrides.agentsAuto === true;
+  // And the plan is read whenever the number is Automatic's, old per-login
+  // number or not, so a plan that allows one at a time still says so.
+  if (typeof overrides.agentsAtOnce !== 'number') {
     const plans = readPlans(effectiveProfiles(config.authProfiles, { home }), { home });
     const slots = slotsForPlans(plans, config.machineSlots);
     config.maxConcurrentSessions = slots;
