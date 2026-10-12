@@ -619,7 +619,7 @@ const PHONE_ROUTE_OPTIONS: Array<{ value: PhoneRoute; label: string }> = [
 ];
 
 /** The Phone page as the phone itself draws it: this phone's alerts. */
-function PhoneAlertsPage() {
+function PhoneAlertsPage({ onFeedback }: { onFeedback?: () => void }) {
   const [state, setState] = useState<AlertsState | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -642,11 +642,21 @@ function PhoneAlertsPage() {
           </Row>
         )}
       </Group>
+      {/* FEEDBACK FROM A PHONE. Its corner has no Feedback button, by choice
+          ("not important to be big for mobile"), which left no way to send any
+          ("not sure how to give feedback on mobile", 2026-10-12). */}
+      {onFeedback && (
+        <Group id="phone-feedback" label="Feedback">
+          <Row label="Send feedback" desc="Tell us what works and what does not. It goes straight to the people who make Agentbox.">
+            <button type="button" className="set-ghost" onClick={onFeedback}>Send feedback</button>
+          </Row>
+        </Group>
+      )}
     </Page>
   );
 }
 
-function PhonePage() {
+function PhonePage({ onFeedback }: { onFeedback?: () => void }) {
   const [link, setLink] = useState<PhoneLink | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -666,7 +676,7 @@ function PhonePage() {
   if (link === null) {
     // On the phone itself: its own alerts. Anywhere else (a browser tab on
     // the computer) there is nothing to set here.
-    if (document.documentElement.dataset.door === 'phone') return <PhoneAlertsPage />;
+    if (document.documentElement.dataset.door === 'phone') return <PhoneAlertsPage onFeedback={onFeedback} />;
     return (
       <Page title="Phone">
         <Group>
@@ -1341,7 +1351,10 @@ function paneFrom(want: string, has: { team: boolean }): Pane {
 
 /* --------------------------------- screen --------------------------------- */
 
-export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, projectShare, projectWho, account, update = null, onClose }: {
+export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, projectShare, projectWho, account, update = null, onClose, onFeedback }: {
+  /** Opens the feedback card. A phone has no Feedback button in its corner,
+   *  so its own Settings page offers it (2026-10-12). */
+  onFeedback?: () => void;
   // ONE control for the three of them. Light, dark and each picture are one
   // list, because a picture IS dark (skins.ts) and asking her to set a theme
   // and then a background is two decisions for one choice.
@@ -2044,7 +2057,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             is what a person actually presses, grouped by the moment they would
             want it; ../shortcuts.ts holds the list. Every key on it works today
             (`tests/the-shortcuts-page-lists-keys-that-work.test.mjs`). */}
-        {pane === 'phone' && <PhonePage />}
+        {pane === 'phone' && <PhonePage onFeedback={onFeedback} />}
         {pane === 'shortcuts' && (
           <div className="set-inner set-keys-page">
             <h1 className="set-title">Shortcuts</h1>

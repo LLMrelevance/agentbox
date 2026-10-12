@@ -6349,6 +6349,7 @@ export default function App() {
       {settingsOpen && (
         <Settings
           key={`${settingsPane ?? 'general'}:${settingsVisit}`}
+          onFeedback={() => setFeedbackOpen(true)}
           embedded={workspaceNavigation}
           usageReadings={snap.usageByEngine ?? (snap.usage ? [snap.usage] : [])}
           now={now}

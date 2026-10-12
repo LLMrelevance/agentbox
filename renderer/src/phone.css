@@ -33,7 +33,13 @@
      shrinks only the visual viewport, and the reply box at the foot of a
      100%-tall page sat under it ("the chat field is blocked by the keyboard",
      2026-10-11). --vvh is the visual viewport's height (phone-screen.ts). */
-  :root, :root body { overscroll-behavior: none; overflow: hidden; height: var(--vvh, 100%); }
+  :root, :root body { overscroll-behavior: none; overflow: hidden; }
+  /* PINNED TO WHAT SHOWS, ITS PLACE AS WELL AS ITS HEIGHT. Held to the height
+     alone, the page still slid when iOS scrolled the window to keep the caret
+     in view, leaving a band under the reply box that grew as she typed
+     ("the white space expands when I'm typing", 2026-10-12). --vvtop and --vvh
+     are the visual viewport's top and height (phone-screen.ts). */
+  :root body { position: fixed; left: 0; right: 0; top: var(--vvtop, 0px); height: var(--vvh, 100%); }
 
   /* The frame, edge to edge, with room for the notch. There is no bar along
      the bottom: "not a fan of that bar at the bottom entirely ... all that
@@ -287,6 +293,15 @@
   :root:root:root .doc-rich .ProseMirror table { display: block; max-width: 100%; overflow-x: auto; touch-action: pan-x pan-y; }
   :root:root:root .doc-rich .ProseMirror pre { max-width: 100%; touch-action: pan-x pan-y; }
   :root:root:root .doc-rich .ProseMirror img { max-width: 100%; height: auto; }
+  /* A PICTURE TAKES THE FINGERS ITSELF: pinch, pan once enlarged, and double
+     tap (phone-screen.ts installPictureZoom). Left to the page, a pinch did
+     nothing and a drag scrolled ("I can't zoom in on them", 2026-10-12). */
+  :root:root:root .doc-picture { touch-action: none; transform-origin: center center; transition: transform .05s linear; }
+  /* The reply box's attach button, an icon like the box's others. */
+  :root:root:root .compose-attach {
+    flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; margin: 0 4px 0 -6px;
+    border: 0; background: none; color: var(--text-dim); box-shadow: none;
+  }
 
   /* The hint plates teach keys a phone does not have. */
   :root:root:root .hint-plate, :root:root:root .row-keys, :root:root:root .dock-card kbd { display: none !important; }
@@ -301,7 +316,13 @@
   /* Settings: the page list is one sideways strip above the page, not a
      column beside it. Stacked with its desktop size it spilled over the page
      on a real phone (2026-10-09). */
-  :root:root:root .settings-screen { flex-direction: column; padding-top: env(safe-area-inset-top, 0px); }
+  /* No top padding of its own: the app around it already keeps the status
+     bar's room, and the two together left a band of nothing above Back to
+     app on an iPhone (measured 2026-10-12, 59px twice). */
+  :root:root:root .settings-screen { flex-direction: column; padding-top: 0; }
+  /* The feedback card's desktop words: a phone neither pastes a file nor
+     drops one, and has no ⌘↵. Attach is still there. */
+  :root:root:root .fb-hint, :root:root:root .dock-send kbd { display: none; }
   :root:root:root .settings-screen .set-nav { position: static; inset: auto; width: auto; flex: none; padding: 6px 0 0; border-right: 0; border-bottom: 1px solid var(--line); }
   /* Settings hides the bottom bar, so it gets that room back. */
   :root:root:root .app.workspace-layout.workspace-settings { padding-bottom: env(safe-area-inset-bottom, 0px); }
@@ -349,7 +370,7 @@
      beside the card always has. It is drawn over the card, which covers
      everything else, so nothing but the cross closes the page. */
   :root:root:root .tc-veil::before {
-    content: ''; position: fixed; z-index: 3; top: env(safe-area-inset-top, 0px); left: calc(4px + env(safe-area-inset-left, 0px));
+    content: ''; position: fixed; z-index: 3; top: calc(env(safe-area-inset-top, 0px) + var(--vvtop, 0px)); left: calc(4px + env(safe-area-inset-left, 0px));
     width: 44px; height: var(--phone-top, 56px); background: var(--text-dim);
     -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'><path d='M6 6l12 12M18 6 6 18'/></svg>") center / 18px no-repeat;
     mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'><path d='M6 6l12 12M18 6 6 18'/></svg>") center / 18px no-repeat;
@@ -360,7 +381,7 @@
   /* It stops where the keyboard starts (--kb), so the attach row and the end
      of the message are never under it. */
   :root:root:root .tc-veil > .tc-card {
-    position: fixed; top: env(safe-area-inset-top, 0px); left: 0; right: 0; bottom: var(--kb, 0px); padding-top: var(--phone-top, 56px);
+    position: fixed; top: calc(env(safe-area-inset-top, 0px) + var(--vvtop, 0px)); left: 0; right: 0; bottom: var(--kb, 0px); padding-top: var(--phone-top, 56px);
     width: auto; max-width: none; margin: 0; border: 0; border-radius: 0; box-shadow: none;
     display: flex; flex-direction: column; background: var(--bg); transform: none;
   }
@@ -401,7 +422,7 @@
      top bar: at 12px from the edge it sat "touching the top corner of the
      app" (2026-10-11). */
   :root:root:root .tc-card .tc-send {
-    position: fixed; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + 12px); right: calc(16px + env(safe-area-inset-right, 0px));
+    position: fixed; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + var(--vvtop, 0px) + 12px); right: calc(16px + env(safe-area-inset-right, 0px));
   }
   :root:root:root .tc-card .tc-send-main { height: 32px; padding: 0 14px; border-radius: var(--radius) 0 0 var(--radius); font-size: 15px; font-weight: 500; }
   :root:root:root .tc-card .tc-send.solo .tc-send-main { border-radius: var(--radius); }

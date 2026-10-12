@@ -107,9 +107,13 @@ export const frameAad = (nonce, seq) => `res:${nonce}:${seq}`;
 // ON THE MAC'S SOCKET TO THE RELAY one byte says what a message is, then eight
 // bytes of request number, then whatever it carries:
 //   to the Mac     0x01 a request (the sealed bytes)   0x02 the phone gave up
+//                  0x03 a piece of a request too big for one message; the
+//                       0x01 that follows carries the last piece
 //   from the Mac   0x10 one sealed frame of the answer  0x11 done
 //                  0x12 refused: it would not open, or it was a replay
-export const TO_MAC = Object.freeze({ REQUEST: 0x01, CANCEL: 0x02 });
+export const TO_MAC = Object.freeze({ REQUEST: 0x01, CANCEL: 0x02, PART: 0x03 });
+/** The most the relay puts in one socket message to the Mac. Cloudflare's limit is 1 MB. */
+export const PART_BYTES = 512 * 1024;
 export const FROM_MAC = Object.freeze({ FRAME: 0x10, DONE: 0x11, REFUSED: 0x12 });
 export const ID_BYTES = 8;
 

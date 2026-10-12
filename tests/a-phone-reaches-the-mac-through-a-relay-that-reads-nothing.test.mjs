@@ -146,6 +146,27 @@ describe('through the relay, the phone gets what it gets on the Wi-Fi', () => {
     expect(await until(() => listeners.size === 0)).toBe(true);
   });
 
+  it('an upload bigger than one socket message, whole: a photo the phone attaches', async () => {
+    // A phone posts a picture whole, as base64 (renderer/src/attachments.ts).
+    // Cloudflare's sockets carry a message of 1 MB at most, so the room sends
+    // a big request to the computer in pieces (2026-10-12).
+    const sent = [];
+    const fromRoom = [];
+    const mac = room.mac;
+    const spy = { send: (b) => { fromRoom.push(b.length); mac.send(b); }, close: () => mac.close() };
+    room.mac = spy;
+    try {
+      const photo = 'x'.repeat(3_000_000);
+      const res = await ask('/api/zero:snapshot', { method: 'POST', headers: { 'content-type': 'application/json', 'x-agentbox-token': key }, body: JSON.stringify({ photo }) }, sent);
+      expect(res.status).toBe(200);
+      expect((await res.json()).asked.photo.length).toBe(3_000_000);
+      expect(Math.max(...fromRoom)).toBeLessThanOrEqual(600 * 1024);
+      expect(fromRoom.length).toBeGreaterThan(4);
+    } finally {
+      room.mac = mac;
+    }
+  });
+
   it('a picture bigger than one message, whole', async () => {
     const kr = await ask('/file-key', { headers: { 'x-agentbox-token': key } });
     const { key: fk } = await kr.json();

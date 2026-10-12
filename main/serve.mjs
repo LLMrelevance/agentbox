@@ -418,9 +418,12 @@ function readBody(req) {
     let body = '';
     req.on('data', (c) => {
       body += c;
-      // A screen never posts anything large; the uploads go through their own
-      // channels. This is here so a stuck client cannot eat the process.
-      if (body.length > 8 * 1024 * 1024) reject(new Error('Body too large'));
+      // This is here so a stuck client cannot eat the process. A PHONE'S
+      // UPLOADS DO COME THROUGH HERE, though: it has no file paths, so a
+      // picture is posted whole, as base64, to zero:stage-attachment. 8 MB of
+      // that was a 6 MB photo; an iPhone's is often more (2026-10-12). The
+      // relay passes up to 32 MB (relay/worker.mjs).
+      if (body.length > 32 * 1024 * 1024) reject(new Error('Body too large'));
     });
     req.on('end', () => resolve(body));
     req.on('error', reject);

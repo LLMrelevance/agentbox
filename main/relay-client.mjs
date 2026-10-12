@@ -17,6 +17,8 @@ import {
 const SKEW_MS = 5 * 60_000;
 /** One sealed frame's most. Cloudflare takes up to 1MB per socket message. */
 const CHUNK = 256 * 1024;
+/** The most one request may carry, as the relay allows (relay/worker.mjs). */
+const MAX_REQUEST = 32 * 1024 * 1024;
 /** What a phone's request may carry on to the phone server. */
 const PASS = ['accept', 'content-type', 'range', 'user-agent', 'if-none-match', 'x-agentbox-token', 'x-agentbox-device'];
 /** What the phone does not want back: the relay's stream is its own framing. */
@@ -43,6 +45,8 @@ export function createRelayClient({
   const answered = new Map();
   /** Answers being sent, so a phone that gives up stops them. */
   const live = new Map();
+  /** Pieces of requests too big for one message, until their last piece. */
+  const parts = new Map();
 
   async function ready() {
     const k = key();
@@ -131,11 +135,29 @@ export function createRelayClient({
         : new Uint8Array(await data.arrayBuffer());
     if (bytes.length < 1 + ID_BYTES) return;
     const id = bytes.slice(1, 1 + ID_BYTES);
+    const idh = hex(id);
     if (bytes[0] === TO_MAC.CANCEL) {
-      live.get(hex(id))?.abort();
-      live.delete(hex(id));
+      live.get(idh)?.abort();
+      live.delete(idh);
+      parts.delete(idh);
+    } else if (bytes[0] === TO_MAC.PART) {
+      // A big request comes in pieces (relay/room.mjs); keep them until the
+      // last, within a limit, so a stream of pieces cannot fill memory.
+      const held = parts.get(idh) ?? { chunks: [], size: 0 };
+      held.chunks.push(bytes.slice(1 + ID_BYTES));
+      held.size += bytes.length - 1 - ID_BYTES;
+      if (held.size > MAX_REQUEST) { parts.delete(idh); send(sock, tag(FROM_MAC.REFUSED, id)); return; }
+      parts.set(idh, held);
     } else if (bytes[0] === TO_MAC.REQUEST) {
-      await answer(sock, id, bytes.slice(1 + ID_BYTES));
+      const held = parts.get(idh);
+      parts.delete(idh);
+      const last = bytes.slice(1 + ID_BYTES);
+      if (!held) { await answer(sock, id, last); return; }
+      const whole = new Uint8Array(held.size + last.length);
+      let at = 0;
+      for (const c of held.chunks) { whole.set(c, at); at += c.length; }
+      whole.set(last, at);
+      await answer(sock, id, whole);
     }
   }
 
