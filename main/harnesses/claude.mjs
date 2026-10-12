@@ -9,6 +9,7 @@ import { resolveClaudeBin } from '../claude-bin.mjs';
 import { claudeModelRows } from '../claude-models.mjs';
 import { linkAccountTooling } from '../account-tooling.mjs';
 import { claudeStreamArgs, attachClaudeInput } from '../claude-input.mjs';
+import { claudeLaunchEnv } from '../claude-launch-env.mjs';
 import { claudeActivity } from '../agent-activity.mjs';
 import { captureStream, streamingText, summarizeStreamLine, traceStreamLine } from './claude-stream.mjs';
 import { definitionMethods, commonUpdatePlan } from './common.mjs';
@@ -17,6 +18,7 @@ const definition = harnessDefinition('claude');
 export const claudeHarness = {
   ...definitionMethods(definition),
   discover: resolveClaudeBin,
+  launchEnv: claudeLaunchEnv,
   models: ({ bin } = {}) => claudeModelRows({ bin: bin ?? null }).map(m => ({ id: m.alias, label: m.label })),
   defaultModel: () => null,
   workspaceModel: () => null,
@@ -34,7 +36,7 @@ export const claudeHarness = {
   spawn(sup, plan, { cwd, item, profile, env }) {
     return spawn(sup.config.claudeBin, claudeStreamArgs(plan.args), {
       cwd,
-      env: { ...env, STORE_ACCOUNT_ID: sup.config.accountId, ...storeRootEnv(sup.config.storeRoot),
+      env: { ...claudeLaunchEnv(sup.config.claudeBin, env), STORE_ACCOUNT_ID: sup.config.accountId, ...storeRootEnv(sup.config.storeRoot),
         ...(profile !== 'default' ? { CLAUDE_CONFIG_DIR: profile } : {}),
         ZERO_PRODUCT: item.product, ZERO_ITEM: item.id, ...sup.memoryGateEnv(item) },
       stdio: ['pipe', 'pipe', 'pipe'],

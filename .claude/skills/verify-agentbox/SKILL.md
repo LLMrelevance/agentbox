@@ -175,11 +175,10 @@ A claim or shape with `known` set is a product bug filed on its own thread.
 It still runs; it prints `KNOWN`, does not fail the run, and prints a reminder
 when it starts holding so the marker can come off.
 
-- `new-thread`: a thread you type yourself says "An agent opened this" when
-  nobody is signed in (w-f73f5e8e15).
-- `claude-old-npm-under-nvm-lazy`: an npm Claude Code from before the native
-  binary is a node script, and Claude workers get no node on PATH (Codex
-  workers do) (w-c36e160ac1).
+None today. The first two the check found (a thread you typed reading "An
+agent opened this" with nobody signed in, and an old npm Claude Code that
+could not start as a worker from the Dock) were fixed in the change that
+added the check.
 
 ## Not covered yet
 

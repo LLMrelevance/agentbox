@@ -112,8 +112,7 @@ export const SHAPES = [
   },
   {
     name: 'claude-old-npm-under-nvm-lazy',
-    why: 'An npm Claude Code from before the native binary: bin/claude is `#!/usr/bin/env node`. Codex gets the node beside it put on PATH (main/codex-launch-env.mjs); Claude Code does not.',
-    known: 'w-c36e160ac1. Claude workers get no node fix-up (main/harnesses/common.mjs launchEnv passes the environment through). Only installs that never updated past the node-script package are affected; `claude update` moves them to the native binary.',
+    why: 'An npm Claude Code from before the native binary: bin/claude is `#!/usr/bin/env node`, and nothing puts node on a Dock launch\'s PATH. The worker needs the node beside it (main/claude-launch-env.mjs).',
     files: [
       { at: '~/.nvm/versions/node/v20.11.1/bin/node', kind: 'node' },
       { at: '~/.nvm/versions/node/v20.11.1/lib/node_modules/@anthropic-ai/claude-code/cli.js', kind: 'npm', engine: 'claude' },

@@ -120,8 +120,10 @@ export const DRIVES = {
         const shown = await tab.until(`document.body.innerText.includes(${JSON.stringify(String(answered.result).trim().split('\n')[0].slice(0, 40))})`, { why: 'the answer to show in the open thread', ms: 15_000 }).catch(() => false);
         claim(shown, 'the open thread shows the answer');
       }
-      const opened = await tab.evaluate(`/You opened this/.test(document.body.innerText) ? 'You opened this' : /An agent opened this/.test(document.body.innerText) ? 'An agent opened this' : null`);
-      claim(opened === 'You opened this', 'the thread says you opened it', opened ?? 'neither line on screen', { known: 'w-f73f5e8e15' });
+      // The page draws the person's birth as "Opened this" beside their mark,
+      // and an agent's as "An agent opened this".
+      const opened = await tab.evaluate(`(() => { const t = document.body.innerText; return /An agent opened this/.test(t) ? 'An agent opened this' : /\\bOpened this|You opened this/.test(t) ? 'Opened this' : null; })()`);
+      claim(opened === 'Opened this', 'the thread says you opened it, not an agent', opened ?? 'neither line on screen');
       await tab.wait(600);
       await capture('thread');
     },

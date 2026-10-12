@@ -9,7 +9,7 @@ it up in a folder of its own, works, and its answer appears in the thread.
 - `send` ⌘↵ files the thread; it appears in In progress with its project.
 - `worker` a worker starts on it in its own worktree, told which thread it is on, with no API key.
 - `answer` the worker's closing message is written onto the thread and shows when it is opened.
-- `opened-by` the thread's history says the person opened it (known gap, w-f73f5e8e15).
+- `opened-by` the thread's history says the person opened it, signed in or not.
 
 ## How to get to it (user POV)
 
