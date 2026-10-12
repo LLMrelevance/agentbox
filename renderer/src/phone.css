@@ -29,7 +29,11 @@
      iOS left the whole page scrolled by the status bar's height, the title
      under the clock and the bottom bar under the frame (an iPhone,
      2026-10-09). Pinned here, and put back after a turn by the bridge. */
-  :root, :root body { overscroll-behavior: none; overflow: hidden; height: 100%; }
+  /* AND IT IS AS TALL AS WHAT SHOWS, not as the layout: an iPhone's keyboard
+     shrinks only the visual viewport, and the reply box at the foot of a
+     100%-tall page sat under it ("the chat field is blocked by the keyboard",
+     2026-10-11). --vvh is the visual viewport's height (phone-screen.ts). */
+  :root, :root body { overscroll-behavior: none; overflow: hidden; height: var(--vvh, 100%); }
 
   /* The frame, edge to edge, with room for the notch. There is no bar along
      the bottom: "not a fan of that bar at the bottom entirely ... all that
@@ -41,6 +45,8 @@
     /* Sideways, the notch is on the left or the right. */
     padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   }
+  /* With the keyboard up the home bar is under it, so its room goes. */
+  :root[data-keyboard="up"]:root:root .app.workspace-layout { padding-bottom: 0; }
   /* The desktop window's four corner marks (the Ember Grid look) sat on the
      bar and the title on a phone, whose screen is the frame already. */
   :root:root:root .workspace-layout::before { top: 0; left: 0; right: 0; bottom: 0; border-radius: 0; background: var(--skin-pane, var(--surface)); box-shadow: none; }
@@ -90,6 +96,10 @@
   :root:root:root .th-search > span, :root:root:root .th-new > span, :root:root:root .th-new { font-size: 0; }
   :root:root:root .topbar button { border-color: transparent; background: none; box-shadow: none; }
   :root:root:root .topbar .th-search, :root:root:root .topbar .th-disp { width: 40px; min-width: 40px; height: 40px; padding: 0; justify-content: center; color: var(--text-dim); }
+  /* On a team the button also wears the faces of whose threads are shown;
+     in 40px they lay over the sliders and the gear ("icons in the top corner
+     are bunched up", 2026-10-11). The choice is the first line of its menu. */
+  :root:root:root .th-disp .th-faces { display: none; }
   :root:root:root .th-search kbd, :root:root:root .th-new kbd { display: none; }
 
   /* A NEW THREAD IS ONE ORANGE BUTTON UNDER THE THUMB ("big fan of the new
@@ -121,9 +131,10 @@
     height: calc(var(--phone-tabs) + var(--phone-foot));
     padding: 0 calc(16px + env(safe-area-inset-right, 0px)) var(--phone-foot) calc(16px + env(safe-area-inset-left, 0px));
     align-items: center; gap: 12px; overflow-x: auto; scrollbar-width: none;
-    /* The look's own ground, solid: the pane colour is see-through, and the
-       rows scrolled visibly under the words. */
-    background: var(--bg); border-top: 1px solid var(--line);
+    /* Solid, or the rows scroll visibly under the words, and the same colour
+       as the list: the pane's wash laid over the base, as the page is. On the
+       base alone it read "a tad bit different" (2026-10-11). */
+    background: linear-gradient(var(--skin-pane, transparent), var(--skin-pane, transparent)), var(--bg); border-top: 1px solid var(--line);
   }
   :root:root:root .th-bar::-webkit-scrollbar { display: none; }
   :root:root:root .tm-tabs { gap: 22px; flex-wrap: nowrap; white-space: nowrap; height: 100%; align-items: center; }
@@ -159,13 +170,38 @@
   :root:root:root .row.selected { background: transparent; box-shadow: none; }
   :root:root:root .row.selected::before, :root:root:root .row.selected::after { display: none; }
   :root:root:root .row .mark { display: none; }
+  /* NOTHING ON A ROW WAITS FOR A HOVER. A tap leaves :hover on the row it
+     touched, so the desktop's Share or Unshare stayed on screen, hid that
+     row's age and underlined its title ("the unshare button just stays
+     visible", 2026-10-11). Sharing is in the thread's summary. */
+  :root:root:root .th-row-act { display: none; }
+  :root:root:root .th-table .row .has-act .th-when { visibility: visible; }
+  :root:root:root .row .subject { text-decoration: none; }
 
   /* The board has four columns; a phone shows them one under another. */
   :root:root:root .th-board { grid-template-columns: minmax(0, 1fr); padding: 8px 12px 24px; width: auto; }
 
   /* An open task: the words take the width, the right-hand rail goes. */
   :root:root:root .focus-pane { --ts-rail-w: 0px; --ts-panel-w: 0px; --read-w: 100%; }
-  :root:root:root .ts-rail { display: none; }
+  /* THE SUMMARY OPENS FROM AN ICON AT THE RIGHT OF THE THREAD'S TOP BAR. The
+     desktop's rail down the right edge took a quarter of a phone's width, so
+     it was hidden, and with it the only way in ("not sure how to open the
+     summary on mobile", 2026-10-11). Its marks stay in the summary itself. */
+  :root:root:root .focus-pane .ts-rail {
+    /* Beside the thread's ⋯, which keeps the corner. */
+    position: fixed; top: calc(env(safe-area-inset-top, 0px) + 6px); right: calc(50px + env(safe-area-inset-right, 0px)); bottom: auto; left: auto;
+    width: 44px; height: 44px; padding: 0; gap: 0; justify-content: center; align-items: center;
+    border: 0; background: none; z-index: 60;
+  }
+  :root:root:root .focus-pane .ts-rail .ts-rail-mark { display: none; }
+  /* Open, it is a page of its own over the thread, under the same top bar,
+     closed from its own icon at its top right. */
+  :root:root:root .focus-pane .ts-panel {
+    position: fixed; top: calc(env(safe-area-inset-top, 0px) + var(--phone-top, 56px)); left: 0; right: 0; bottom: 0;
+    width: auto; z-index: 60; padding: 20px 16px calc(40px + env(safe-area-inset-bottom, 0px));
+    border-left: 0; border-top: 1px solid var(--line);
+    background: linear-gradient(var(--skin-pane, transparent), var(--skin-pane, transparent)), var(--bg);
+  }
   /* Its top bar is a back arrow and the thread's name in the reading type,
      not the desktop's "NEEDS YOU / NAME" crumb in capitals. */
   :root:root:root .thread-crumb-from, :root:root:root .thread-crumb-sep { display: none; }
@@ -281,8 +317,10 @@
   /* The name used to be drawn here, on the backdrop, where a tap on it
      closed the page. */
   :root:root:root .tc-veil::after { content: none; }
+  /* It stops where the keyboard starts (--kb), so the attach row and the end
+     of the message are never under it. */
   :root:root:root .tc-veil > .tc-card {
-    position: fixed; top: env(safe-area-inset-top, 0px); left: 0; right: 0; bottom: 0; padding-top: var(--phone-top, 56px);
+    position: fixed; top: env(safe-area-inset-top, 0px); left: 0; right: 0; bottom: var(--kb, 0px); padding-top: var(--phone-top, 56px);
     width: auto; max-width: none; margin: 0; border: 0; border-radius: 0; box-shadow: none;
     display: flex; flex-direction: column; background: var(--bg); transform: none;
   }

@@ -731,6 +731,10 @@ async function createWindow() {
     channels: phoneChannels,
     listeners: phoneListeners,
     dist: path.join(appDir, 'renderer', 'dist'),
+    // Pictures and design pages, under the same two rules the window's own
+    // schemes use below: a page the pane was granted, and a picture inside a
+    // root the app owns (main/serve.mjs answerFile).
+    files: { allows: (kind, f) => (kind === 'doc' ? docGrants.allows(f) : servable(f, imageRoots())) },
     onChange: () => { if (!window.isDestroyed()) sendToWindow('zero:phone-changed'); },
     // The phone stays quiet while she is at the desktop app, by the same rule
     // the desktop's own notifications use (shared/notify-rules.mjs).
