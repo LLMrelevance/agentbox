@@ -791,9 +791,11 @@ export class Supervisor {
     const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
     const me = process.env.AGENTBOX_PERSON_ID || null;
 
-    for (const item of this.store.listItems(Date.now())) {
-      if (!only.has(item.id)) continue;
-      only.delete(item.id);
+    // In her running order, so the free slots go to the top of it rather
+    // than to whichever folder comes first on disk. The first row by an id
+    // is the one asked for, as it was when this walked the store directly.
+    const asked = this.store.listItems(Date.now()).filter((item) => only.delete(item.id));
+    for (const item of this._inRunningOrder(asked)) {
       if (!mayRunHere(item, productBySlug.get(item.product), me)) continue;
       // A row with a worker on it is already resumed. Saying so is the honest
       // answer; killing the session to restart it would throw away the work in
@@ -860,6 +862,33 @@ export class Supervisor {
     }
     if (resumed.length) this._saveState();
     return resumed;
+  }
+
+  // The rows resumed by name that had no slot, taken IN HER RUNNING ORDER as
+  // slots free. A Set drains in the order rows went in, which was the order
+  // they sat on disk (w-6165eb69b4).
+  _drainResumeQueue(items) {
+    const waiting = [];
+    for (const id of [...this._resumeQueue]) {
+      const item = items.find((i) => i.id === id);
+      // A row that has gone or is already running is not waiting for a slot; it
+      // leaves the queue whatever capacity says.
+      if (!item || this.sessions.has(id)) {
+        this._resumeQueue.delete(id);
+        continue;
+      }
+      waiting.push(item);
+    }
+    for (const item of this._inRunningOrder(waiting)) {
+      // NO SLOT ON ITS ENGINE MEANS IT KEEPS ITS PLACE, and the scan goes on to
+      // the next one, which may be on the engine that is idle. This used to
+      // break out of the loop, which was the same starvation the main queue's
+      // `spent` note describes: she asked for these out loud, so a resume that
+      // waits behind the OTHER subscription is a resume that never happens.
+      if (!this._hasSlotFor(this._engineFor(item))) continue;
+      this._resumeQueue.delete(item.id);
+      this._spawnResume(item);
+    }
   }
 
   // A resumed row spawns as a continuation when she has words on it that the
@@ -947,7 +976,15 @@ export class Supervisor {
     let items;
     try { items = this.store.listItems(Date.now()); } catch { return out; }
     let dirty = false;
-    for (const [itemId, rec] of Object.entries(this._liveSessions)) {
+    // IN HER RUNNING ORDER, so when slots are short after a restart the top of
+    // it gets its session back first rather than whatever started first
+    // (w-6165eb69b4). A record whose row is gone sorts anywhere; it is only
+    // forgotten below.
+    const rowOf = ([itemId, rec]) => items.find((i) => i.id === itemId && i.product === rec.product);
+    const remembered = Object.entries(this._liveSessions).map((entry) => ({ entry, row: rowOf(entry) }));
+    const ranked = new Map(this._inRunningOrder(remembered.filter((r) => r.row).map((r) => r.row)).map((row, at) => [row, at]));
+    remembered.sort((a, b) => (ranked.get(a.row) ?? -1) - (ranked.get(b.row) ?? -1));
+    for (const { entry: [itemId, rec] } of remembered) {
       // A worker is on it. Nothing is stranded and killing it to resume it
       // would throw away the work in flight, which is never what resume meant.
       // A resume that STUCK also re-arms the announcement: the next time this
@@ -3152,6 +3189,17 @@ export class Supervisor {
     return placedScore(this.threadPlaces[item.id], productRankScore(this.productOrder, item.product) + itemPriority(item));
   }
 
+  // THE SAME ORDER FOR EVERY PATH THAT PUTS MANY ROWS BACK AT ONCE
+  // (w-6165eb69b4). Resuming ticked rows, the queue of the ones that found no
+  // slot, and the sweep after a restart each walked rows in the order they sat
+  // on disk, so ⌘A and "Resume Agents" started Agentbox Team's Low and Medium
+  // while Personal and an Urgent waited. Highest score first, oldest first in
+  // a tie, as in the fresh-work queue.
+  _inRunningOrder(rows) {
+    return rows.slice().sort((a, b) =>
+      this._score(b) - this._score(a) || (a.createdAt ?? 0) - (b.createdAt ?? 0));
+  }
+
   // Places as a patch: a number sets one, null forgets it. Kept here beside
   // the project order, on this Mac, because both are one person's running
   // order and a teammate's list must not move when you drag yours.
@@ -4509,23 +4557,7 @@ export class Supervisor {
     // next free slot, ahead of everything: she asked for these out loud, and a
     // resume that quietly never happens is the failure this whole path exists
     // to end.
-    for (const id of [...this._resumeQueue]) {
-      const item = items.find((i) => i.id === id);
-      // A row that has gone or is already running is not waiting for a slot; it
-      // leaves the queue whatever capacity says.
-      if (!item || this.sessions.has(id)) {
-        this._resumeQueue.delete(id);
-        continue;
-      }
-      // NO SLOT ON ITS ENGINE MEANS IT KEEPS ITS PLACE, and the scan goes on to
-      // the next one, which may be on the engine that is idle. This used to
-      // break out of the loop, which was the same starvation the main queue's
-      // `spent` note describes: she asked for these out loud, so a resume that
-      // waits behind the OTHER subscription is a resume that never happens.
-      if (!this._hasSlotFor(this._engineFor(item))) continue;
-      this._resumeQueue.delete(id);
-      this._spawnResume(item);
-    }
+    this._drainResumeQueue(items);
 
     // ONE QUEUE, ONE ORDER. Everything spawnable this tick is scored by the
     // same rule and the slots go to the top of that one list.
