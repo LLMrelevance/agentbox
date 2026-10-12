@@ -73,7 +73,8 @@ import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
 import { writeChangeForRun, changePath } from './code-change.mjs';
 import { snapshotRepo, changeFromRepo } from './git-change.mjs';
 import { importedAgentBrief, importedAgentName } from '../shared/agent-import.mjs';
-import { troubleCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
+import { readPlan } from './claude-plan.mjs';
+import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
 import { readDeadRunTrace, traceShowsASilentDeath } from '../shared/dead-run-trace.mjs';
 import { commandPrompt } from '../shared/claude-commands.mjs';
 import { machineryPath, storeRootEnv } from './store/home.mjs';
@@ -370,6 +371,10 @@ export class Supervisor {
       // Persisted: an in-memory-only set re-spawned a continuation for every
       // still-open answered item on every app restart.
       this._handledAnswers = new Set(state.handledAnswers ?? []);
+      // Waits already picked back up, and when that rule first ran here
+      // (`resumeFinishedWaits`).
+      this._resumedWaits = new Set(state.resumedWaits ?? []);
+      this._waitsSince = Number.isFinite(state.waitsSince) ? state.waitsSince : Date.now();
       // A crash cannot run stop() to return replies whose workers were still
       // being prepared. Only these exact reply keys are owed again; a later
       // delivered reply on the same task keeps its own mark.
@@ -457,6 +462,8 @@ export class Supervisor {
       this.threadPlaces = Object.fromEntries(Object.entries(state.threadPlaces ?? {}).filter(([, v]) => Number.isFinite(v)));
     } catch {
       this._handledAnswers = new Set();
+      this._resumedWaits = new Set();
+      this._waitsSince = Date.now();
       this._heardAnswers = {};
       this._liveSessions = {};
       this._rowSessions = {};
@@ -815,6 +822,44 @@ export class Supervisor {
     out.missing = only.size;
     this._saveState();
     return out;
+  }
+
+  // A WAITING THREAD PICKS ITSELF BACK UP (w-5244c90c33). A thread an agent
+  // parked behind others (`blockedBy`) sits in Later, and when the last thread
+  // it names finishes, nothing used to put a worker back on it: a blocked row
+  // is invisible to every spawn pass, so it fell into Needs you for a person
+  // to restart by hand. Their words: "something that's waiting should be
+  // logically in the backlog and then it should automatically resume without
+  // the user needing to know otherwise."
+  //
+  // So it resumes once per finish, reopened and queued exactly like a resume
+  // by name. Only when every named thread is visible and done, the last of
+  // them finished after the wait was written AND after this rule first ran on
+  // this Mac (`_waitsSince`, so the waits that cleared long ago do not all
+  // start at once on the first tick), and never on a row she stopped.
+  // Anything this refuses stays where the lists put it, which is Needs you.
+  resumeFinishedWaits(items) {
+    const byId = new Map(items.map((i) => [`${i.product}:${i.id}`, i]));
+    const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
+    const me = process.env.AGENTBOX_PERSON_ID || null;
+    const resumed = [];
+    for (const item of items) {
+      if (item.status !== 'blocked' || !Array.isArray(item.blockedBy) || !item.blockedBy.length) continue;
+      if (this.sessions.has(item.id) || stoppedByHer(item)) continue;
+      const blockers = item.blockedBy.map((id) => byId.get(`${item.product}:${id}`));
+      if (blockers.some((b) => !b || b.status !== 'done')) continue;
+      const cleared = Math.max(...blockers.map((b) => b.wrote?.status?.ts ?? 0));
+      if (cleared <= (item.wrote?.blockedBy?.ts ?? 0) || cleared <= this._waitsSince) continue;
+      const key = `${item.product}:${item.id}:${cleared}`;
+      if (this._resumedWaits.has(key)) continue;
+      if (!mayRunHere(item, productBySlug.get(item.product), me)) continue;
+      this._resumedWaits.add(key);
+      this.store.answerItem(item.product, item.id, { status: 'open' });
+      this._resumeQueue.add(item.id);
+      resumed.push(item.id);
+    }
+    if (resumed.length) this._saveState();
+    return resumed;
   }
 
   // A resumed row spawns as a continuation when she has words on it that the
@@ -3387,7 +3432,10 @@ export class Supervisor {
   // time. A fact about one account now stays on that account.
   _noteProfileTrouble(profile, raw) {
     if (!profile) return 'unknown';
-    const cause = troubleCause(raw);
+    // An ended subscription is refused in an admin's words; the login's own
+    // file says which it is (refineCause). Codex keeps no such file.
+    const plan = profile.startsWith('codex:') ? null : readPlan(profile, { home: this.config.home || os.homedir() });
+    const cause = refineCause(troubleCause(raw), plan);
     this._profileTrouble = this._profileTrouble ?? {};
     const had = this._profileTrouble[profile];
     this._profileTrouble[profile] = { since: had?.since ?? Date.now(), at: Date.now(), cause, raw: String(raw ?? '').slice(0, 300) };
@@ -3427,6 +3475,25 @@ export class Supervisor {
       const resetsAt = trouble.resetsAt ?? limitResetMoment(trouble.raw, trouble.at);
       if (!resetsAt || now < resetsAt + LIMIT_RESET_GRACE_MS) continue;
       delete this._profileTrouble[key];
+      forgot = true;
+    }
+    if (forgot) this._saveState();
+    return forgot;
+  }
+
+  /**
+   * A SUBSCRIPTION RENEWED IS LET BACK IN. An ended one leaves the rotation at
+   * once, like anything waiting on a person, and nothing would start on it to
+   * prove it works again. Its own file says so: once its billing is no longer
+   * "none", the trouble goes and the next run on it is the proof.
+   */
+  _forgetRenewedSubscriptions() {
+    let forgot = false;
+    const home = this.config.home || os.homedir();
+    for (const [key, trouble] of Object.entries(this._profileTrouble ?? {})) {
+      if (trouble?.cause !== 'subscription-ended') continue;
+      if (readPlan(key, { home }).ended) continue;
+      this._clearProfileTrouble(key);
       forgot = true;
     }
     if (forgot) this._saveState();
@@ -3927,6 +3994,8 @@ export class Supervisor {
     try {
       fs.writeFileSync(this._stateFile, JSON.stringify({
         handledAnswers: [...this._handledAnswers].slice(-500),
+        resumedWaits: [...this._resumedWaits].slice(-500),
+        waitsSince: this._waitsSince,
         // The mark was made before setup, not before an agent actually ran.
         // Persist the distinction for a quit that never reaches stop().
         preparingAnswers: [...(this._preparing?.values() ?? [])]
@@ -4370,6 +4439,7 @@ export class Supervisor {
     // brake below, which would otherwise hold the fleet past the sign-in.
     try { this._noticeSignIns(); } catch (e) { console.warn('zero: could not look for a sign-in:', e.message); }
     try { this._forgetResetLimits(); } catch (e) { console.warn('zero: could not let a reset limit go:', e.message); }
+    try { this._forgetRenewedSubscriptions(); } catch (e) { console.warn('zero: could not let a renewed subscription back in:', e.message); }
     // A COOLDOWN STOPS THE SPAWNING AND IT MUST NOT STOP THE TELLING. The brake
     // goes on when there is no healthy account left anywhere, for up to half an
     // hour, which is precisely the half hour her tasks are all stuck and the
@@ -4431,6 +4501,9 @@ export class Supervisor {
     if (this._recoverPending) {
       try { this.recoverInterrupted('capacity'); } catch (e) { console.warn('zero: recovery:', e.message); }
     }
+
+    // Threads whose wait has just cleared go into the same queue (w-5244c90c33).
+    try { this.resumeFinishedWaits(items); } catch (e) { console.warn('zero: could not resume a finished wait:', e.message); }
 
     // Rows she resumed by name that had no slot at the time. First call on the
     // next free slot, ahead of everything: she asked for these out loud, and a

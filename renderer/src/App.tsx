@@ -63,7 +63,7 @@ import { approvalReads } from './approval-card';
 // one it took went. Only the second is raised from here, because by the time
 // there is anything to confirm the card has closed.
 import { sentLine } from './compose-says';
-import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stoppable, threadsOwedAnAnswer, withdrawReply } from './list-rules';
+import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
 import { opensATextField } from './keys';
 import { sidebarFits, useRoomyToggle, useWindowWidth } from './room';
@@ -1749,6 +1749,11 @@ export default function App() {
   // not on her, so In progress reading "Shipping" and out of Needs you until
   // they have shipped or gone back to their agent.
   const shippingIds = useMemo(() => new Set(snap?.supervisor.shipping ?? []), [snap?.supervisor.shipping]);
+  // AND THE THREADS A THREAD IS WAITING ON (w-5244c90c33). A waiting thread is
+  // in Later and resumes by itself when they finish; only the window can see
+  // the other rows, so it works this out and hands it to each list.
+  const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  const waitingOn = useCallback((i: WorkItem) => waitsThatCanEnd(i, byId), [byId]);
 
   const inboxCandidates = useMemo(() => items.filter((i) => {
     if (i.id === pendingId) return false; // action held in the grace window: already sent, as far as the inbox is concerned
@@ -1770,9 +1775,9 @@ export default function App() {
     // (w-9cf2b43110). The team branch answers before the rule below does, so
     // without this line the agent-to-agent rows came back the moment a project
     // was shared with somebody.
-    if (shared === true) return i.status !== 'done' && !(hiddenAt(i) > now) && !isProposal(i);
-    return belongsInInbox(i, { deliveredThrough, hiddenUntil: hiddenAt(i), now });
-  }), [items, hiddenAt, scope, now, pendingId, teamInbox, liveIds, shippingIds]);
+    if (shared === true) return i.status !== 'done' && !(hiddenAt(i) > now) && !isProposal(i) && !waitsInLater(i, waitingOn(i));
+    return belongsInInbox(i, { deliveredThrough, hiddenUntil: hiddenAt(i), now, waitingOn: waitingOn(i) });
+  }), [items, hiddenAt, scope, now, pendingId, teamInbox, liveIds, shippingIds, waitingOn]);
 
   // WHAT MATTERS MOST, ONE COPY, read by every list that claims to be in an
   // order. A product's place in her running order is worth a hundred item
@@ -2016,19 +2021,22 @@ export default function App() {
   // called Later: a thread added to Later has no moment at all. It waits for a
   // person, so it sorts after everything with a clock rather than before it.
   const whenShown = useCallback(
-    (i: WorkItem) => (notStarted(i) ? Number.MAX_SAFE_INTEGER : hiddenAt(i)),
-    [hiddenAt],
+    (i: WorkItem) => (notStarted(i) || waitsInLater(i, waitingOn(i)) ? Number.MAX_SAFE_INTEGER : hiddenAt(i)),
+    [hiddenAt, waitingOn],
   );
   // AND SINCE w-9cf2b43110 A FOURTH: what an agent PROPOSED and nobody has
   // answered. Same shape as the third — written down, waiting on a person
   // rather than a clock — so it sorts with them at the end, and it is out of
   // the inbox, which is the whole point: "I only see things that need me."
   const snoozed = useMemo(() => [
-    ...items.filter((i) => (notStarted(i) || isProposal(i) || hiddenAt(i) > now)
+    // AND A FIFTH (w-5244c90c33): a thread waiting on another one, unless a
+    // session or the ship queue has it, which is In progress.
+    ...items.filter((i) => (notStarted(i) || isProposal(i) || hiddenAt(i) > now
+        || (waitsInLater(i, waitingOn(i)) && !liveIds.has(i.id) && !shippingIds.has(i.id)))
       && (i.status !== 'done' || i.wrote?.status?.source !== 'founder')
       && (!scope || i.product === scope)),
     ...agentList.filter((r) => (r.runAt ?? 0) > now),
-  ].sort((a, b) => whenShown(a) - whenShown(b)), [items, agentList, hiddenAt, whenShown, scope, now]);
+  ].sort((a, b) => whenShown(a) - whenShown(b)), [items, agentList, hiddenAt, whenShown, waitingOn, liveIds, shippingIds, scope, now]);
 
   // Repeating tasks. They are RULES, on their own channel, which is why nothing
   // in the item list rules has to know they exist. They are read up here, ahead
@@ -3139,7 +3147,7 @@ export default function App() {
     const tasks = items
       .filter((i) => i.product === slug && i.id !== pendingId)
       .filter((i) => belongsOnTheRail(i, {
-        deliveredThrough, hiddenUntil: hiddenAt(i), deferredUntil: dueAt(i), now, live: liveIds.has(i.id), shipping: shippingIds.has(i.id),
+        deliveredThrough, hiddenUntil: hiddenAt(i), deferredUntil: dueAt(i), now, live: liveIds.has(i.id), shipping: shippingIds.has(i.id), waitingOn: waitingOn(i),
       }))
       .map((i) => ({
         key: i.id,
@@ -3158,7 +3166,7 @@ export default function App() {
         open: () => openAgent(a.pid),
       }));
     return [...tasks, ...sessions].sort((x, y) => y.at - x.at);
-  }, [railItem?.product, items, snap?.agents, pendingId, deliveredThrough, hiddenAt, dueAt, now, markSeen, openAgent, liveIds, shippingIds]);
+  }, [railItem?.product, items, snap?.agents, pendingId, deliveredThrough, hiddenAt, dueAt, now, markSeen, openAgent, liveIds, shippingIds, waitingOn]);
 
   // (legal/privacy.html, 5.1). One place, on the id changing, rather than a
   // call beside each of the dozen things that open a task: a count added at

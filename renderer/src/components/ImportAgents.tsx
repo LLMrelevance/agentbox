@@ -428,8 +428,9 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
 
   return (
     // A BACKDROP THAT CLOSES IS A WAY OUT, so inside the walk it is not one.
-    // Same scrim, same card, and a click beside it does nothing.
-    <div className="modal-backdrop compose-backdrop" onClick={walk ? undefined : onClose}>
+    // Same scrim, same card, and a click beside it does nothing. `in-walk` lifts
+    // it over setup's veil, which otherwise lay on top of it and dimmed it.
+    <div className={`modal-backdrop compose-backdrop${walk ? ' in-walk' : ''}`} onClick={walk ? undefined : onClose}>
       <div className={`modal ia-card ia-one${walk ? ' in-walk' : ''}`} onClick={(e) => e.stopPropagation()}>
         {/* THE HEADLINE SAYS WHICH CARD THIS IS (2026-08-28): the offer when
             there is something to bring, the plain answer when there is not. */}
