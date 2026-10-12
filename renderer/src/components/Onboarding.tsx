@@ -1263,10 +1263,11 @@ function Finished({
   // Everything below it is the import, empty or full, and the import card owns
   // the keyboard while it is up — ⌘↵ is its first door, or the way on when there
   // is no door, and Escape steps back off its second screen.
+  // NO VEIL UNDER IT. The card's own backdrop dims the app, as it does from ⌘K;
+  // a veil as well dimmed it twice, and at 299 it was drawn over the card.
   if (!card.blocked) {
     return (
       <>
-        <Veil box={null} />
         <ImportAgents
           products={products}
           filter={project}
