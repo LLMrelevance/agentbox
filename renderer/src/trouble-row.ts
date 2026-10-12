@@ -55,6 +55,7 @@ export function shortNext(c: Cause): string {
   if (c.cause === 'subscription-ended') return 'need a renewed subscription';
   if (c.cause === 'workspace') return 'need the folder trusted';
   if (c.cause === 'interrupted') return 'retrying on their own';
+  if (c.cause === 'model-not-on-plan') return 'need another model';
   return 'stopped, still trying';
 }
 

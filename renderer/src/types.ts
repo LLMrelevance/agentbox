@@ -409,7 +409,9 @@ export interface SupervisorStatus {
 // can cost an afternoon. 'subscription-ended' is refused in the same words as
 // 'org-blocked', and told apart by the login's own file (refineCause in
 // shared/spawn-trouble.mjs): its owner renews it, no admin is involved.
-export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'unknown';
+// 'model-not-on-plan' is a Codex login whose plan lacks the model the task asks
+// for; the fix is another model or another login, not this login.
+export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'unknown';
 
 // A worker frozen mid-action, waiting on the user's allow/deny.
 export interface Approval {

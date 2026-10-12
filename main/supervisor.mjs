@@ -371,6 +371,10 @@ export class Supervisor {
       // Persisted: an in-memory-only set re-spawned a continuation for every
       // still-open answered item on every app restart.
       this._handledAnswers = new Set(state.handledAnswers ?? []);
+      // Waits already picked back up, and when that rule first ran here
+      // (`resumeFinishedWaits`).
+      this._resumedWaits = new Set(state.resumedWaits ?? []);
+      this._waitsSince = Number.isFinite(state.waitsSince) ? state.waitsSince : Date.now();
       // A crash cannot run stop() to return replies whose workers were still
       // being prepared. Only these exact reply keys are owed again; a later
       // delivered reply on the same task keeps its own mark.
@@ -458,6 +462,8 @@ export class Supervisor {
       this.threadPlaces = Object.fromEntries(Object.entries(state.threadPlaces ?? {}).filter(([, v]) => Number.isFinite(v)));
     } catch {
       this._handledAnswers = new Set();
+      this._resumedWaits = new Set();
+      this._waitsSince = Date.now();
       this._heardAnswers = {};
       this._liveSessions = {};
       this._rowSessions = {};
@@ -816,6 +822,44 @@ export class Supervisor {
     out.missing = only.size;
     this._saveState();
     return out;
+  }
+
+  // A WAITING THREAD PICKS ITSELF BACK UP (w-5244c90c33). A thread an agent
+  // parked behind others (`blockedBy`) sits in Later, and when the last thread
+  // it names finishes, nothing used to put a worker back on it: a blocked row
+  // is invisible to every spawn pass, so it fell into Needs you for a person
+  // to restart by hand. Their words: "something that's waiting should be
+  // logically in the backlog and then it should automatically resume without
+  // the user needing to know otherwise."
+  //
+  // So it resumes once per finish, reopened and queued exactly like a resume
+  // by name. Only when every named thread is visible and done, the last of
+  // them finished after the wait was written AND after this rule first ran on
+  // this Mac (`_waitsSince`, so the waits that cleared long ago do not all
+  // start at once on the first tick), and never on a row she stopped.
+  // Anything this refuses stays where the lists put it, which is Needs you.
+  resumeFinishedWaits(items) {
+    const byId = new Map(items.map((i) => [`${i.product}:${i.id}`, i]));
+    const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
+    const me = process.env.AGENTBOX_PERSON_ID || null;
+    const resumed = [];
+    for (const item of items) {
+      if (item.status !== 'blocked' || !Array.isArray(item.blockedBy) || !item.blockedBy.length) continue;
+      if (this.sessions.has(item.id) || stoppedByHer(item)) continue;
+      const blockers = item.blockedBy.map((id) => byId.get(`${item.product}:${id}`));
+      if (blockers.some((b) => !b || b.status !== 'done')) continue;
+      const cleared = Math.max(...blockers.map((b) => b.wrote?.status?.ts ?? 0));
+      if (cleared <= (item.wrote?.blockedBy?.ts ?? 0) || cleared <= this._waitsSince) continue;
+      const key = `${item.product}:${item.id}:${cleared}`;
+      if (this._resumedWaits.has(key)) continue;
+      if (!mayRunHere(item, productBySlug.get(item.product), me)) continue;
+      this._resumedWaits.add(key);
+      this.store.answerItem(item.product, item.id, { status: 'open' });
+      this._resumeQueue.add(item.id);
+      resumed.push(item.id);
+    }
+    if (resumed.length) this._saveState();
+    return resumed;
   }
 
   // A resumed row spawns as a continuation when she has words on it that the
@@ -2510,7 +2554,10 @@ export class Supervisor {
    */
   _onlyWeSpokeForAnAccount(item) {
     const seen = this._fruitless[`${item.product}:${item.id}`];
-    if (!seen?.saidTs || !(needsHerHands(seen.saidWhy) || seen.saidWhy === 'at-limit')) return false;
+    // A plan without the model counts only when another login has it, which
+    // is when `noteExitForBackoff` names the account (w-f1c00e679d).
+    const planWithout = seen?.saidWhy === 'model-not-on-plan' && !!seen.account;
+    if (!seen?.saidTs || !(needsHerHands(seen.saidWhy) || seen.saidWhy === 'at-limit' || planWithout)) return false;
     return (item.wrote?.result?.ts ?? 0) <= seen.saidTs;
   }
 
@@ -2691,6 +2738,7 @@ export class Supervisor {
         cause,
         runs,
         resetsAt,
+        elsewhere: session.accountFault?.cause === 'model-not-on-plan',
       });
       const written = this.store.recordSessionResult(item.product, item.id, { result, status: 'open' });
       // REMEMBER THAT WE SAID IT, keyed on the run we said it about. The pass
@@ -3290,7 +3338,7 @@ export class Supervisor {
   // are: one shared counter would have a Codex spawn advance the rotation
   // across the Claude subscriptions, so a run of Codex tasks could leave
   // one of them doing all the Claude work.
-  _pickProfile(engine = DEFAULT_ENGINE) {
+  _pickProfile(engine = DEFAULT_ENGINE, { model = null } = {}) {
     const which = engineOf(engine);
     // SOMEWHERE HAS TO BE TRIED. `_liveProfilesFor` is allowed to answer
     // nothing now, which is the honest answer to "what could run" and no answer
@@ -3303,10 +3351,42 @@ export class Supervisor {
     // lists the new home before its sign-in finishes, and the round-robin
     // handed it the very first thread while the signed-in one sat idle.
     const signedIn = live.filter(p => harnessFor(which).signedIn(this, p));
-    const pool = signedIn.length ? signedIn : live.length ? live : ['default'];
+    let pool = signedIn.length ? signedIn : live.length ? live : ['default'];
+    // AND NOT A LOGIN WHOSE PLAN LACKS THE MODEL (w-f1c00e679d). A weekend's
+    // sprint on gpt-6.1-sol was handed to a free-plan Codex login twice, died
+    // in two seconds both times, and the Pro login sat idle all weekend. When
+    // no login has it, the rotation stands and `codexModelRefusal` says why.
+    const able = pool.filter((p) => !this._planLacksModel(which, p, model));
+    if (able.length) pool = able;
     this._rr = this._rr ?? {};
     this._rr[which] = ((this._rr[which] ?? 0) + 1) % pool.length;
     return pool[this._rr[which]];
+  }
+
+  /**
+   * WHETHER ONE LOGIN'S PLAN IS KNOWN NOT TO INCLUDE A MODEL.
+   *
+   * Two facts say so: Codex refused that model on that login this session
+   * (`_modelRefused`, written by `noteExitForBackoff`), or the login's own model
+   * list, which Codex keeps per CODEX_HOME and fills from the plan, does not
+   * carry it. A login with no list cannot be judged and is not ruled out.
+   * Claude Code keeps no per-login list, so it is never ruled out here.
+   */
+  _planLacksModel(engine, profile, model) {
+    const word = typeof model === 'string' ? model.trim() : '';
+    if (!word || engineOf(engine) !== 'codex') return false;
+    if (this._modelRefused?.[this._accountKey('codex', profile)]?.includes(word)) return true;
+    const known = codexKnownSlugs({ home: this._codexProfileHome(profile) });
+    return known.size > 0 && !known.has(word);
+  }
+
+  // Another Codex login the pick could take that has the model: the same pool
+  // `_pickProfile` draws from, less the one that refused.
+  _codexLoginWithModel(model, except) {
+    const live = this._liveProfilesFor('codex');
+    const signedIn = live.filter((p) => this._codexSignedIn(p));
+    return (signedIn.length ? signedIn : live).some((p) => this._accountKey('codex', p) !== except
+      && !this._planLacksModel('codex', p, model));
   }
 
   /**
@@ -3791,6 +3871,25 @@ export class Supervisor {
     // its three tries. The error result names its cause whatever the length.
     const lastFailure = (session.tail ?? []).filter((l) => l && !l.startsWith('session exited') && !l.startsWith('fast exit')).slice(-1)[0];
     const refusedBy = session.resultIsError ? troubleCause(session.result) : null;
+    // THE LOGIN'S PLAN DOES NOT INCLUDE THE MODEL (w-f1c00e679d). Nothing is
+    // wrong with the login, which still runs every other model, so it is not
+    // struck, benched or filed as trouble. The model is struck off it instead,
+    // and when another login has the model the death is the account's, not the
+    // row's: the row wakes at once and the pick takes it there.
+    const planRefused = refusedBy === 'model-not-on-plan' || troubleCause(lastFailure) === 'model-not-on-plan';
+    if (planRefused && engine === 'codex') {
+      const account = this._accountKey(engine, session.profile);
+      const said = `${session.result ?? ''}\n${lastFailure ?? ''}`;
+      const model = session.model || /'([^']+)' model is not supported/i.exec(said)?.[1] || /on "([^"]+)"/.exec(said)?.[1] || null;
+      if (model) {
+        this._modelRefused = this._modelRefused ?? {};
+        const struck = this._modelRefused[account] ?? [];
+        if (!struck.includes(model)) this._modelRefused[account] = [...struck, model];
+        if (this._codexLoginWithModel(model, account)) session.accountFault = { cause: 'model-not-on-plan', account };
+      }
+      this._saveState();
+      return;
+    }
     const limitHit = refusedBy === 'at-limit' || needsHerHands(refusedBy);
     // A dropped provider connection is a transport failure too, even when
     // the local process and its pipe stayed up. It must not spend a reply's
@@ -3895,6 +3994,8 @@ export class Supervisor {
     try {
       fs.writeFileSync(this._stateFile, JSON.stringify({
         handledAnswers: [...this._handledAnswers].slice(-500),
+        resumedWaits: [...this._resumedWaits].slice(-500),
+        waitsSince: this._waitsSince,
         // The mark was made before setup, not before an agent actually ran.
         // Persist the distinction for a quit that never reaches stop().
         preparingAnswers: [...(this._preparing?.values() ?? [])]
@@ -4400,6 +4501,9 @@ export class Supervisor {
     if (this._recoverPending) {
       try { this.recoverInterrupted('capacity'); } catch (e) { console.warn('zero: recovery:', e.message); }
     }
+
+    // Threads whose wait has just cleared go into the same queue (w-5244c90c33).
+    try { this.resumeFinishedWaits(items); } catch (e) { console.warn('zero: could not resume a finished wait:', e.message); }
 
     // Rows she resumed by name that had no slot at the time. First call on the
     // next free slot, ahead of everything: she asked for these out loud, and a
@@ -5955,7 +6059,8 @@ export class Supervisor {
     // is recorded under and the same one `transcriptFile` will look for its
     // rollout with. One app-server per home, so a second Codex login is a
     // second process rather than a bigger number on the Settings screen.
-    const { client, handshake } = this._codexServer(this._codexProfileHome(profile));
+    const home = this._codexProfileHome(profile);
+    const { client, handshake } = this._codexServer(home);
     const storeServer = this._codexStoreServer(item);
     // THIS WORKER'S OWN CARDS, SO THEY CAN DIE WITH IT.
     //
@@ -5984,7 +6089,7 @@ export class Supervisor {
       // thread already running cannot un-launch them. Read fresh for THIS start
       // rather than once per app-server, and never caught: see `_codexIsolation`.
       ready: this._codexIsolation(client, handshake),
-      threadParams: (mcpServers) => this.codexThreadParamsFor(plan, cwd, mcpServers, storeServer),
+      threadParams: (mcpServers) => this.codexThreadParamsFor(plan, cwd, mcpServers, storeServer, home),
       turnParams: this.codexTurnParamsFor(plan),
       resumeThreadId: plan.resumeId,
       // The card, which is the other half of what a worker needs to be able to
@@ -6122,25 +6227,26 @@ export class Supervisor {
    *     did, and so her terminal and her fleet follow the same file when she
    *     changes it.
    */
-  codexThreadParamsFor(plan, cwd, mcpServers, storeServer) {
+  // `home` is the login this thread runs on. Its own list is the one checked:
+  // reading the main login's let a free-plan login be handed gpt-6.1-sol.
+  codexThreadParamsFor(plan, cwd, mcpServers, storeServer, home = this._codexHome()) {
     // ASKED HERE RATHER THAN CARRIED ON THE PLAN. A precomputed field would be
     // a second copy of this decision that a caller can forget to set, and the
     // way it fails is a word Codex cannot read reaching `thread/start` -- which
     // is exactly the bug. The one place that builds the params is the one place
     // that decides.
     const onRow = typeof plan?.model === 'string' ? plan.model.trim() : '';
-    const workspace = this._codexWorkspaceModel();
-    const word = onRow || workspace || '';
+    const word = this._codexModelWord(plan) ?? '';
     // WHICH SETTING IS BEING REFUSED, because the sentence is the only thing
     // she can act on and it has to send her to the right screen.
-    const refusal = this.codexModelRefusal(word, onRow ? 'row' : 'workspace');
+    const refusal = this.codexModelRefusal(word, onRow ? 'row' : 'workspace', home);
     if (refusal) throw new Error(refusal);
     // AND THE LEVEL IS JUDGED HERE TOO, against the model that will actually
     // run, for the same reason and with the same outcome: a level the model
     // does not advertise stops the run before the thread, with the sentence on
     // the pipe `troubleCause` reads, rather than reaching `turn/start` as a
     // protocol error or running at a level she did not pick.
-    const level = this.codexEffortRefusal(word, plan?.effort);
+    const level = this.codexEffortRefusal(word, plan?.effort, home);
     if (level) throw new Error(level);
     return workerThreadParams({
       cwd,
@@ -6201,10 +6307,9 @@ export class Supervisor {
    * for that word. We refuse on a fact or not at all; with no list, the word
    * goes to Codex as written and Codex answers for it in its own words.
    */
-  codexEffortRefusal(model, effort) {
+  codexEffortRefusal(model, effort, home = this._codexHome()) {
     const level = typeof effort === 'string' ? effort.trim() : '';
     if (!level) return null;
-    const home = this._codexHome();
     const slug = (typeof model === 'string' && model.trim()) || this._codexWorkspaceModel() || codexDefaultModel({ home }) || '';
     if (!slug) return null;
     const levels = codexModelLevels(slug, { home });
@@ -6228,6 +6333,13 @@ export class Supervisor {
   _codexWorkspaceModel() {
     const word = typeof this.config.codexModel === 'string' ? this.config.codexModel.trim() : '';
     return word || null;
+  }
+
+  // The model a Codex run asks for: the row's, else the workspace's, else null
+  // (her config.toml decides). `codexThreadParamsFor` says why in that order.
+  _codexModelWord(plan) {
+    const onRow = typeof plan?.model === 'string' ? plan.model.trim() : '';
+    return onRow || this._codexWorkspaceModel() || null;
   }
 
   /**
@@ -6279,10 +6391,9 @@ export class Supervisor {
    * word that is not on it. Where to go and fix it is the other half of what
    * she can act on.
    */
-  codexModelRefusal(model, from = 'row') {
+  codexModelRefusal(model, from = 'row', home = this._codexHome()) {
     const word = typeof model === 'string' ? model.trim() : '';
     if (!word) return null;
-    const home = this._codexHome();
     const known = codexKnownSlugs({ home });
     if (!known.size || known.has(word)) return null;
     const offered = codexModels({ home }).map((m) => m.id);
@@ -6290,6 +6401,14 @@ export class Supervisor {
     const asked = from === 'workspace'
       ? `every Codex agent here is set to run on "${word}"`
       : `this row asks to run on "${word}"`;
+    // ANOTHER LOGIN KNOWS IT: then the word is fine and this login's plan is
+    // what lacks it, which is a different fix (another model, or another
+    // login) and a different cause for `troubleCause` (w-f1c00e679d).
+    const elsewhere = this._codexProfiles().some((p) => {
+      const other = this._codexProfileHome(p);
+      return other !== home && codexKnownSlugs({ home: other }).has(word);
+    });
+    if (elsewhere) return `${asked}, which is not a model the plan of the Codex account this run was given includes.${instead} Nothing here will pick a stand-in for her, so this run is stopping rather than doing her work on a model she did not choose`;
     return `${asked}, which is not a model the Codex on this computer knows.${instead} Nothing here will pick a stand-in for her, so this run is stopping rather than doing her work on a model she did not choose`;
   }
 
@@ -6728,7 +6847,8 @@ export class Supervisor {
     // `forcedProfile` or a `resumeProfile` that disagreed with the tie has
     // already had its session id taken off it, so this is not a resume pointed
     // at the wrong home, it is a fresh brief on the account the project named.
-    const profile = pinned ?? forcedProfile ?? plan.resumeProfile ?? this._pickProfile(engine);
+    const model = engineOf(engine) === 'codex' ? this._codexModelWord(plan) : null;
+    const profile = pinned ?? forcedProfile ?? plan.resumeProfile ?? this._pickProfile(engine, { model });
     // A SECOND ACCOUNT ARRIVES EMPTY, AND THIS IS WHERE IT STOPS BEING EMPTY.
     // Our own Accounts page tells a person to log in with a brand new folder,
     // and Claude Code reads a session's skills, commands and subagents out of
@@ -6766,6 +6886,8 @@ export class Supervisor {
     const session = {
       child, itemId: item.id, product: item.product, startedAt: Date.now(), tail: [], profile,
       command: !!plan.command, engine,
+      // Which model, so a plan that refuses it strikes that model off this login.
+      ...(model ? { model } : {}),
       // AND THE FOLDER IT IS RUNNING IN, which is now the row's own rather than
       // the product's checkout. Everything that asks a live session where it
       // works reads it from here rather than deriving it from the product a

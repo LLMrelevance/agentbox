@@ -168,6 +168,18 @@ const WORKSPACE = [
   /skip-git-repo-check/i,
 ];
 
+// A MODEL THE LOGIN'S PLAN DOES NOT INCLUDE. Not the account being out and not
+// the model being unknown: the same login runs every other model, and another
+// login on a bigger plan runs this one. Codex's own words, off two dead runs on
+// 2026-10-09 and 2026-10-11 (codex-cli 0.160.0, a free-plan login handed
+// gpt-6.1-sol): "The 'gpt-6.1-sol' model is not supported when using Codex with
+// a ChatGPT account." The second line is ours, thrown before the thread starts
+// by `codexModelRefusal` when the login's own list already says so.
+const MODEL_NOT_ON_PLAN = [
+  /model is not supported when using codex with a chatgpt account/i,
+  /not a model the plan of the codex account/i,
+];
+
 // WHICH OF THE THREE THINGS WENT WRONG, from whatever the tool printed.
 // 'unknown' is a first-class answer, not a failure: an honest generic sentence
 // beats a confident wrong one.
@@ -177,6 +189,8 @@ export function troubleCause(raw) {
   // FIRST, because an organization's refusal mentions the subscription and
   // reads as a signed-out login to the list below.
   if (ORG_BLOCKED.some((re) => re.test(text))) return 'org-blocked';
+  // BEFORE SIGNED-OUT, because Codex's sentence says "ChatGPT account".
+  if (MODEL_NOT_ON_PLAN.some((re) => re.test(text))) return 'model-not-on-plan';
   if (SIGNED_OUT.some((re) => re.test(text))) return 'signed-out';
   if (AT_LIMIT.some((re) => re.test(text))) return 'at-limit';
   if (WORKSPACE.some((re) => re.test(text))) return 'workspace';
@@ -458,6 +472,7 @@ const DEAD_RUN_OPENERS = {
   'subscription-ended': "cannot run because that account's Claude subscription has ended, so nothing has been done.",
   'at-limit': 'is at its usage limit, so nothing has been done on this task.',
   interrupted: 'was cut off in the middle, so nothing has been done on this task.',
+  'model-not-on-plan': "could not use this task's model on that account's plan, so nothing has been done.",
   unknown: 'stopped before it did anything, so this task has not been started.',
 };
 
@@ -478,6 +493,7 @@ const RUN_STOPPED = {
   'at-limit': 'This run stopped because the account hit its usage limit.',
   workspace: "This run stopped because it would not start in this project's folder.",
   interrupted: 'This run was cut off in the middle.',
+  'model-not-on-plan': "This run stopped because that account's plan does not include the model.",
   unknown: 'This run stopped before it finished.',
 };
 
@@ -485,7 +501,9 @@ export function runStoppedLine(raw) {
   return RUN_STOPPED[troubleCause(raw)] ?? RUN_STOPPED.unknown;
 }
 
-export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null } = {}) {
+// `elsewhere` is only read for 'model-not-on-plan': whether another signed-in
+// login's plan has the model, so the task moves there rather than waiting on her.
+export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, elsewhere = false } = {}) {
   const opener = `${engineWord} ${DEAD_RUN_OPENERS[cause] ?? DEAD_RUN_OPENERS.unknown}`;
 
   const again = runs > 1 ? ` This has happened ${runs} times on this task.` : '';
@@ -503,6 +521,10 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
       ? (resetsAt ? ` It starts again on its own at ${resetsAt}.` : ' It starts again on its own when the limit resets.')
       : cause === 'interrupted'
         ? ` ${Name} runs it again on its own.`
+        : cause === 'model-not-on-plan'
+          ? (elsewhere
+            ? ` ${Name} runs it again on a Codex account whose plan has it.`
+            : ' Pick another model for this task, or sign in a Codex account whose plan has it.')
         : ` ${Name} keeps trying, and it will keep failing the same way until this is fixed.`;
 
   return `${opener}${again}${next}`;
@@ -586,6 +608,7 @@ export function causeWord(cause) {
   if (cause === 'at-limit') return 'your Claude limit';
   if (cause === 'workspace') return 'a folder Claude will not run in';
   if (cause === 'interrupted') return 'runs getting cut off';
+  if (cause === 'model-not-on-plan') return "a model the account's plan does not include";
   return 'something we cannot name';
 }
 
@@ -600,6 +623,7 @@ export function causeWhat(cause, count) {
   if (cause === 'at-limit') return `${n} waiting on your Claude limit`;
   if (cause === 'workspace') return `${n} in a folder Claude will not run in`;
   if (cause === 'interrupted') return `${n} cut off mid-run`;
+  if (cause === 'model-not-on-plan') return `${n} asking for a model no signed-in Codex plan includes`;
   return `${n} stopped for a reason we cannot name`;
 }
 
@@ -612,6 +636,7 @@ export function causeNext(cause, resetsAt = null) {
   if (cause === 'at-limit') return resetsAt ? `They start again on their own at ${resetsAt}.` : 'They start again on their own when it resets.';
   if (cause === 'workspace') return 'Open the folder in Claude once and say yes to trusting it.';
   if (cause === 'interrupted') return `Nothing to do. ${Name} is trying them again.`;
+  if (cause === 'model-not-on-plan') return 'Pick another model on each, or sign in a Codex account whose plan has it.';
   return `${Name} keeps trying on its own.`;
 }
 
@@ -640,7 +665,7 @@ export function causeBreakdown(rows = [], resetsAt = null) {
       what: causeWhat(cause, count),
       next: causeNext(cause, cause === 'at-limit' ? resetsAt : null),
       act: causeAct(cause),
-      hers: needsHerHands(cause) || cause === 'workspace',
+      hers: needsHerHands(cause) || cause === 'workspace' || cause === 'model-not-on-plan',
     }))
     .sort((a, b) => (b.hers - a.hers) || (b.count - a.count) || a.cause.localeCompare(b.cause));
 }
