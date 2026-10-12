@@ -19,6 +19,8 @@
 import { REQUEST_CHANNELS, PUSH_CHANNELS, WRAPPED_ARGS, DESKTOP_ONLY } from '../../shared/bridge-map.mjs';
 import { Name } from '../../shared/product-name.mjs';
 import { setIconCount, startPhoneAlerts } from './phone-alerts';
+import { installPhoneFiles } from './phone-files';
+import { installPhoneScreen } from './phone-screen';
 
 type Push = (payload: unknown) => void;
 
@@ -70,7 +72,10 @@ function showLockedOut() {
 
 function takeToken(): string | null {
   const url = new URL(location.href);
-  const fromUrl = url.searchParams.get('token');
+  // THROUGH THE RELAY the key is after the # (relay/phone/), which a browser
+  // never sends, so the relay never sees it.
+  const fromHash = onPhoneDoor() ? /(?:^#|&)k=([A-Za-z0-9_-]{24,})/.exec(url.hash)?.[1] ?? null : null;
+  const fromUrl = url.searchParams.get('token') ?? fromHash;
   if (fromUrl && onPhoneDoor()) {
     try { localStorage.setItem(TOKEN_KEY, fromUrl); } catch { /* private mode */ }
     return fromUrl;
@@ -110,6 +115,15 @@ export function installBrowserBridge(): boolean {
     addEventListener('orientationchange', () => { unscroll(); setTimeout(unscroll, 350); });
     addEventListener('resize', unscroll);
     visualViewport?.addEventListener('resize', unscroll);
+    // The keyboard, the colour Safari paints round the page, and the
+    // home-screen swipe back (phone-screen.ts).
+    installPhoneScreen();
+    // Pictures and design pages, from this computer under the file key, which
+    // reads files and nothing else (main/serve.mjs fileKey).
+    fetch('/file-key', { headers: { [TOKEN_HEADER]: token } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((said) => { if (said?.key) installPhoneFiles(said.key); })
+      .catch(() => { /* pictures stay blank; everything else still works */ });
   }
 
   const ask = async (channel: string, payload?: unknown) => {

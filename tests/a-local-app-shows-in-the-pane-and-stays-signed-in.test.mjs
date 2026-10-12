@@ -101,7 +101,9 @@ describe('what it leaves alone', () => {
 describe('the frame a local app is drawn in', () => {
   it('lets the app post a form, open a dialog and hand a link to the browser, as in a tab', () => {
     const pane = fs.readFileSync(new URL('../renderer/src/components/DocPane.tsx', import.meta.url), 'utf8');
-    expect(pane).toContain("sandbox={app.local ? LOCAL_APP_SANDBOX : 'allow-scripts allow-same-origin'}");
+    // A design page on a phone loses same-origin (a-phone-draws-pictures-and-pages-from-the-computer);
+    // a local app is decided first, everywhere.
+    expect(pane).toContain("sandbox={app.local ? LOCAL_APP_SANDBOX : onPhone() ? 'allow-scripts' : 'allow-scripts allow-same-origin'}");
     const preview = fs.readFileSync(new URL('../renderer/src/local-preview.ts', import.meta.url), 'utf8');
     expect(preview).toMatch(/LOCAL_APP_SANDBOX = 'allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-downloads'/);
   });

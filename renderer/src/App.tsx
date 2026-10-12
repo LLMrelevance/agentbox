@@ -1,4 +1,5 @@
 import { previewFocus } from './preview-focus';
+import { usePhoneBack } from './phone-screen';
 import type {FocusControlStyle} from './focus-control';
 import {reviewLabEnabled} from './review-lab';
 import { deliverReply } from './deliver-reply.mjs';
@@ -338,6 +339,9 @@ export default function App() {
     if (!v) { setHoveredId(null); setPointedHint(null); hints.current?.stop(); }
   }, []);
   const [focused, setFocused] = useState<WorkItem | null>(null);
+  // ON A PHONE AN OPEN THREAD IS A STEP IN THE HISTORY, so swiping back from
+  // the left edge returns to the inbox (phone-screen.ts).
+  usePhoneBack(!!focused, () => setFocused(null));
   // Which row is open NOW, for callbacks that settle minutes after the render
   // that made them. A failed live reply reads it to decide whether she is
   // still on that conversation or has gone somewhere else.

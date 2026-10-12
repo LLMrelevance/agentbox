@@ -919,12 +919,50 @@ export const api = {
     }
   },
 
+  /* * POINT AT THE CODING AGENT YOURSELF, when neither search can find it
+     (w-ce8c1a9275). The picker opens in the main process and the choice is
+     applied in the same call, so this call hands over WHICH agent and nothing
+     else: no path off anybody's disk is ever passed back to be trusted.
+
+     `search` is the way out of a wrong choice, and it needs no picker: it takes
+     the path out of the config and lets the search have it again.
+
+     A refusal is WORDS, not an error. Picking a folder, or a file that cannot
+     be run, is an ordinary mistake at a file panel and the row prints what came
+     back. Cancelling the panel is neither: `ok` with nothing changed.
+  */
+  async engineBin(engine: 'claude' | 'codex', action?: 'search'): Promise<Settings & { canceled?: boolean; refused?: string }> {
+    if (useFixtures) return { ...emptySettings, ok: true, canceled: true };
+    const zero = window.zero as any;
+    if (!zero?.engineBin) return { ...emptySettings, ok: false, error: RESTART_NOTE };
+    try {
+      return await zero.engineBin({ engine, ...(action ? { action } : {}) });
+    } catch (err) {
+      return { ...emptySettings, ok: false, error: String((err as Error)?.message ?? err) };
+    }
+  },
+
   // SETTING UP THEIR PLAN FOR THEM (w-9f6975906c): install a coding agent and
   // start its own sign-in. A page that cannot reach the main process answers
   // READY, because a walk that asks a question it can do nothing about is a
   // walk that traps somebody; the inbox's own checks still stand behind it.
   async engineSetup(action: 'ready' | 'start' | 'status' | 'again' | 'cancel', engine: 'claude' | 'codex'): Promise<EngineSetupState> {
     const assumeReady: EngineSetupState = { engine, phase: 'ready', error: null, log: '', found: true, signedIn: true };
+    /*
+     * A FIXTURE WORLD THAT SAYS THE COMPUTER IS EMPTY IS ANSWERED THAT WAY
+     * (w-ce8c1a9275, 2026-10-09). The plan question runs this probe on arrival
+     * now, so `assumeReady` below walked every fixture copy straight past the
+     * one screen a brand new person meets and there was no url that could draw
+     * it. `engines=nowhere` is exactly the machine it is for.
+     */
+    if (useFixtures && engineFixtures === 'nowhere') {
+      return { engine, phase: 'idle', error: null, log: '', found: false, signedIn: false };
+    }
+    // AND THE MACHINE THE QUESTION MUST NOT ASK: Codex on the disk, signed out.
+    // `afterCheck` reads this as "we already know which plan they have".
+    if (useFixtures && engineFixtures === 'signedout') {
+      return { engine, phase: 'idle', error: null, log: '', found: engine === 'codex', signedIn: false };
+    }
     const zero = window.zero as any;
     if (!zero?.engineSetup) return assumeReady;
     try {

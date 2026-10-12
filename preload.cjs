@@ -156,6 +156,12 @@ contextBridge.exposeInMainWorld('zero', {
   // it is also what makes the Coding agent row appear, because the path the
   // search lands on is the one that row is drawn from.
   codexRecheck: () => ipcRenderer.invoke('zero:codex-recheck'),
+  // AND WHEN NEITHER SEARCH CAN FIND IT: point at the file yourself, or hand
+  // the choice back so the search takes over again. `{ engine }` opens the
+  // picker in main and applies what it produced in the same trip, so no path
+  // off anybody's disk crosses this bridge in the direction of being trusted;
+  // `{ engine, action: 'search' }` needs no picker at all.
+  engineBin: (payload) => ipcRenderer.invoke('zero:engine-bin', payload),
   // Install a coding agent and start its own sign-in, for somebody who has a
   // plan and nothing installed. Actions: ready, start, status, again, cancel.
   engineSetup: (payload) => ipcRenderer.invoke('zero:engine-setup', payload),

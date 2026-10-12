@@ -29,6 +29,8 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 import { spawn } from 'node:child_process';
+import { Readable } from 'node:stream';
+import { mediaResponse, mediaType } from './img-scheme.mjs';
 import { loadConfig } from './config.mjs';
 import { Store } from './store.mjs';
 import { Supervisor } from './supervisor.mjs';
@@ -203,17 +205,70 @@ export async function bootHeadless({ dataDir = repoRoot, appDir = repoRoot, user
 /** A token in the url, because the port alone is not a door key. */
 export const newToken = () => crypto.randomBytes(24).toString('base64url');
 
+/**
+ * THE KEY THAT ONLY READS FILES. A design page runs its own scripts and can
+ * read its own address, so the address a phone loads it from must not carry
+ * the phone's key, which starts agents and approves their requests. This is
+ * made from that key, changes when it is reset, and opens nothing but /f/.
+ */
+export const fileKey = (token) => crypto.createHmac('sha256', String(token ?? '')).update('agentbox-files').digest('base64url').slice(0, 32);
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
+  '.htm': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
   '.webp': 'image/webp',
+  '.avif': 'image/avif',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/plain; charset=utf-8',
   '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
   '.map': 'application/json; charset=utf-8',
 };
+
+/**
+ * One file off this computer, for the phone: /f/<file key>/<doc|img>/<path>.
+ * `files.allows(kind, file)` is the same rule the desktop's two schemes use
+ * (main/main.mjs passes it in), checked after the path is made whole, so a
+ * `..` cannot climb out of what it allows. Never from memory, for the reason
+ * the desktop's schemes give: a picture an agent redraws keeps its name.
+ */
+async function answerFile(req, res, url, { token, files }) {
+  const [, , key, kind, ...rest] = url.pathname.split('/');
+  if (kind !== 'doc' && kind !== 'img') { res.writeHead(404).end('No such kind of file.'); return; }
+  if (!sameKey(key, fileKey(typeof token === 'function' ? token() : token))) { res.writeHead(403).end('Wrong key.'); return; }
+  let file;
+  try { file = path.normalize('/' + rest.map(decodeURIComponent).join('/')); } catch { res.writeHead(400).end('Bad path.'); return; }
+  if (!path.isAbsolute(file) || !files.allows(kind, file)) { res.writeHead(403).end('Not available.'); return; }
+  let stat;
+  try { stat = await fs.promises.stat(file); } catch { res.writeHead(404).end('Not there.'); return; }
+  if (!stat.isFile()) { res.writeHead(404).end('Not there.'); return; }
+  const media = mediaType(file);
+  if (media) {
+    const out = await mediaResponse(file, req.headers.range);
+    res.writeHead(out.status, { ...Object.fromEntries(out.headers), 'cache-control': 'no-store' });
+    if (out.body) Readable.fromWeb(out.body).pipe(res); else res.end();
+    return;
+  }
+  res.writeHead(200, {
+    'content-type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': String(stat.size),
+    'cache-control': 'no-store',
+  });
+  fs.createReadStream(file).pipe(res);
+}
 
 /**
  * Serve one built renderer and one channel endpoint.
@@ -234,9 +289,17 @@ export function createServer(options) {
  * own server in front of it. `token` may be a function, read on every request,
  * so a key that is reset stops working at once.
  */
-export function createHandler({ channels, token, listeners = new Set(), dist = path.join(repoRoot, 'renderer', 'dist') }) {
+export function createHandler({ channels, token, listeners = new Set(), dist = path.join(repoRoot, 'renderer', 'dist'), files = null }) {
   return async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
+
+    // A file for the phone, behind the file key rather than the phone's own.
+    // Only a server that was handed `files` has any to give.
+    if (url.pathname.startsWith('/f/')) {
+      if (!files) { res.writeHead(404).end('No files here.'); return; }
+      await answerFile(req, res, url, { token, files });
+      return;
+    }
 
     // The token rides in a header on api calls and in the query on the event
     // stream, because a browser cannot put a header on either a navigation or
@@ -246,11 +309,18 @@ export function createHandler({ channels, token, listeners = new Set(), dist = p
     // NOR DOES THE PAGE ITSELF ASK: the tab takes the token out of its address
     // bar on load, so a reload asks for `/` bare, and refusing that drew
     // "Wrong or missing token" on every reload (tests/a-browser-tab-survives-a-reload).
-    const guarded = url.pathname === '/events' || url.pathname.startsWith('/api/');
+    const guarded = url.pathname === '/events' || url.pathname.startsWith('/api/') || url.pathname === '/file-key';
     const given = req.headers['x-agentbox-token'] || url.searchParams.get('token');
     if (guarded && !sameKey(given, typeof token === 'function' ? token() : token)) {
       res.writeHead(403, { 'content-type': 'text/plain' });
       res.end('Wrong or missing token. Use the url the terminal printed.');
+      return;
+    }
+
+    // The phone asks for its file key once, with its own key.
+    if (url.pathname === '/file-key') {
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(JSON.stringify({ key: fileKey(typeof token === 'function' ? token() : token) }));
       return;
     }
 

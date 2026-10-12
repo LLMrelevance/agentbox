@@ -1,0 +1,207 @@
+// THE MAC'S END OF THE RELAY (relay/worker.mjs is the middle, relay/phone/ the
+// far end). With phones let in from "Anywhere", the Mac holds one socket open
+// out to the relay, so nothing has to reach in to it: no port opened, no
+// router touched, nothing installed on the phone.
+//
+// Each request that arrives is opened with the key only the Mac and the phone
+// have (shared/relay-crypto.mjs), checked for a replay, and then asked of this
+// Mac's own phone server on 127.0.0.1, exactly as a phone on the Wi-Fi would
+// ask it. So the token, the files and every channel are guarded by the same
+// code either way. The answer goes back sealed, a frame at a time, so the
+// live event stream and a large picture both work.
+import {
+  relayIds, relayKeys, open, seal, unpackRequest, FRAME, frameAad, TO_MAC, FROM_MAC, ID_BYTES, tag,
+} from '../shared/relay-crypto.mjs';
+
+/** How far a phone's clock may be from this Mac's before a request is stale. */
+const SKEW_MS = 5 * 60_000;
+/** One sealed frame's most. Cloudflare takes up to 1MB per socket message. */
+const CHUNK = 256 * 1024;
+/** What a phone's request may carry on to the phone server. */
+const PASS = ['accept', 'content-type', 'range', 'user-agent', 'if-none-match', 'x-agentbox-token', 'x-agentbox-device'];
+/** What the phone does not want back: the relay's stream is its own framing. */
+const DROP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'content-length', 'content-encoding']);
+
+const enc = new TextEncoder();
+const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+
+export function createRelayClient({
+  relayUrl, key, port, WebSocketImpl = globalThis.WebSocket, fetchImpl = (...a) => globalThis.fetch(...a),
+  log = console, onChange = () => {},
+}) {
+  let ws = null;
+  let want = false;
+  let connected = false;
+  let error = null;
+  let retry = 1000;
+  let timer = null;
+  let gen = 0;
+  let forKey = null;
+  let ids = null;
+  let keys = null;
+  /** Requests answered lately, by nonce, so a recorded one sent again is refused. */
+  const answered = new Map();
+  /** Answers being sent, so a phone that gives up stops them. */
+  const live = new Map();
+
+  async function ready() {
+    const k = key();
+    if (k === forKey) return;
+    ids = await relayIds(k);
+    keys = await relayKeys(k);
+    forKey = k;
+    answered.clear();
+  }
+
+  function fresh(head) {
+    const now = Date.now();
+    for (const [n, at] of answered) if (now - at > 2 * SKEW_MS) answered.delete(n);
+    if (typeof head?.nonce !== 'string' || head.nonce.length < 16) return false;
+    if (!Number.isFinite(head.ts) || Math.abs(now - head.ts) > SKEW_MS) return false;
+    if (answered.has(head.nonce)) return false;
+    answered.set(head.nonce, now);
+    return true;
+  }
+
+  const send = (sock, bytes) => { try { sock.send(bytes); } catch { /* the socket went; the phone hears from the relay */ } };
+
+  async function answer(sock, id, sealed) {
+    const k = keys;
+    let head;
+    let body;
+    try {
+      ({ head, body } = unpackRequest(await open(k.up, sealed, 'req')));
+    } catch {
+      send(sock, tag(FROM_MAC.REFUSED, id));
+      return;
+    }
+    if (!fresh(head) || typeof head.path !== 'string' || !head.path.startsWith('/')) {
+      send(sock, tag(FROM_MAC.REFUSED, id));
+      return;
+    }
+    const ctl = new AbortController();
+    const idh = hex(id);
+    live.set(idh, ctl);
+    let seq = 0;
+    const frame = async (type, payload) => {
+      const plain = new Uint8Array(1 + payload.length);
+      plain[0] = type;
+      plain.set(payload, 1);
+      send(sock, tag(FROM_MAC.FRAME, id, await seal(k.down, plain, frameAad(head.nonce, seq++))));
+    };
+    try {
+      const headers = { 'x-agentbox-relay': '1', 'x-forwarded-for': 'relay' };
+      for (const name of PASS) if (head.headers?.[name]) headers[name] = String(head.headers[name]);
+      const method = String(head.method || 'GET').toUpperCase();
+      const res = await fetchImpl(`http://127.0.0.1:${port()}${head.path}`, {
+        method, headers, body: method === 'GET' || method === 'HEAD' ? undefined : body, signal: ctl.signal,
+      });
+      const out = {};
+      res.headers.forEach((v, name) => { if (!DROP.has(name)) out[name] = v; });
+      await frame(FRAME.HEAD, enc.encode(JSON.stringify({ status: res.status, headers: out })));
+      if (res.body) {
+        const reader = res.body.getReader();
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          for (let i = 0; i < value.length; i += CHUNK) await frame(FRAME.DATA, value.subarray(i, i + CHUNK));
+        }
+      }
+      await frame(FRAME.END, new Uint8Array(0));
+      send(sock, tag(FROM_MAC.DONE, id));
+    } catch (err) {
+      if (ctl.signal.aborted) return;
+      log.warn?.('[relay] answering failed:', err?.message ?? err);
+      try {
+        if (seq === 0) {
+          await frame(FRAME.HEAD, enc.encode(JSON.stringify({ status: 502, headers: { 'content-type': 'application/json' } })));
+          await frame(FRAME.DATA, enc.encode(JSON.stringify({ error: 'Your computer could not answer that.' })));
+        }
+        await frame(FRAME.END, new Uint8Array(0));
+      } catch { /* nothing more to say */ }
+      send(sock, tag(FROM_MAC.DONE, id));
+    } finally {
+      live.delete(idh);
+    }
+  }
+
+  async function onMessage(sock, data) {
+    const bytes = data instanceof ArrayBuffer ? new Uint8Array(data)
+      : data instanceof Uint8Array ? data
+        : new Uint8Array(await data.arrayBuffer());
+    if (bytes.length < 1 + ID_BYTES) return;
+    const id = bytes.slice(1, 1 + ID_BYTES);
+    if (bytes[0] === TO_MAC.CANCEL) {
+      live.get(hex(id))?.abort();
+      live.delete(hex(id));
+    } else if (bytes[0] === TO_MAC.REQUEST) {
+      await answer(sock, id, bytes.slice(1 + ID_BYTES));
+    }
+  }
+
+  function schedule() {
+    if (!want || timer) return;
+    timer = setTimeout(() => { timer = null; void connect(); }, retry);
+    retry = Math.min(retry * 2, 30_000);
+  }
+
+  async function connect() {
+    const mine = ++gen;
+    try { await ready(); } catch (err) { error = String(err?.message ?? err); onChange(); schedule(); return; }
+    if (!want || mine !== gen) return;
+    const url = `${relayUrl.replace(/^http/, 'ws').replace(/\/+$/, '')}/mac/${ids.room}?proof=${encodeURIComponent(ids.proof)}`;
+    let sock;
+    try { sock = new WebSocketImpl(url); } catch (err) { error = `Could not reach the relay: ${err?.message ?? err}`; onChange(); schedule(); return; }
+    ws = sock;
+    sock.binaryType = 'arraybuffer';
+    sock.onopen = () => {
+      if (ws !== sock) return;
+      connected = true;
+      error = null;
+      retry = 1000;
+      onChange();
+    };
+    sock.onmessage = (event) => { if (ws === sock) void onMessage(sock, event.data); };
+    sock.onerror = () => { if (ws === sock && !connected) error = 'Could not reach the relay.'; };
+    sock.onclose = (event) => {
+      if (ws !== sock) return;
+      ws = null;
+      const was = connected;
+      connected = false;
+      for (const c of live.values()) c.abort();
+      live.clear();
+      if (event?.code === 4001) error = 'The relay turned this computer away.';
+      else if (was) error = null;
+      onChange();
+      schedule();
+    };
+  }
+
+  return {
+    start() {
+      if (want) return;
+      want = true;
+      retry = 1000;
+      void connect();
+    },
+    stop() {
+      want = false;
+      gen += 1;
+      if (timer) { clearTimeout(timer); timer = null; }
+      const sock = ws;
+      ws = null;
+      connected = false;
+      for (const c of live.values()) c.abort();
+      live.clear();
+      try { sock?.close(1000, 'Phones from anywhere turned off.'); } catch { /* already */ }
+      onChange();
+    },
+    /** The key was reset: the room is a new one. */
+    restart() {
+      if (!want) return;
+      this.stop();
+      this.start();
+    },
+    state: () => ({ connected, error, connecting: want && !connected && !error }),
+  };
+}

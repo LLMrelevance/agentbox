@@ -58,7 +58,17 @@ describe('setup does not dim the app twice under it', () => {
     expect(importBranch).not.toMatch(/<Veil\b/);
   });
 
+  // THE GATE STOPPED WEARING THE ENDING'S PANEL, AND THE VEIL IS STILL ITS OWN
+  // (w-ce8c1a9275). This read for `card.blocked ? 'fr-finish gate'`, the ternary
+  // that used to pick between the gate and an ending card in one div. The gate
+  // is now its own question screen -- `fr-stack fr-stack-folders`, like the
+  // walk's other full-stop screens -- and there is no ending card left to
+  // choose against, so that ternary is gone on purpose. What this test is for
+  // is unchanged and still checked: the gate dims the app with setup's veil,
+  // because unlike the import card it has no backdrop of its own, and it dims
+  // it exactly once.
   it('still draws the veil under the gate card, which has no backdrop of its own', () => {
-    expect(gateBranch).toMatch(/<Veil box=\{null\} \/>\s*<div className=\{card\.blocked \? 'fr-finish gate'/);
+    expect(gateBranch).toMatch(/<Veil box=\{null\} \/>\s*<div className="fr-stack fr-stack-folders"/);
+    expect(gateBranch.match(/<Veil\b/g)).toHaveLength(1);
   });
 });
