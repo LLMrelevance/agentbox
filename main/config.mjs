@@ -10,6 +10,7 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { resolveClaudeBin, candidatePaths } from './claude-bin.mjs';
+import { warmShellAnswers } from './engine-bin.mjs';
 import { resolveCodexBin } from './codex-bin.mjs';
 import { defaultStoreRoot } from './store/home.mjs';
 import { readPlans, slotsForPlans } from './claude-plan.mjs';
@@ -210,6 +211,14 @@ export function loadConfig(appDir, { home = os.homedir() } = {}) {
   config.claudeBinConfigured = typeof overrides.claudeBin === 'string' && overrides.claudeBin
     ? overrides.claudeBin
     : null;
+  // ONE LOGIN SHELL FOR BOTH ENGINES, ASKED BEFORE EITHER SEARCH RUNS. This is
+  // on the boot path -- main/main.mjs calls loadConfig inside createWindow and
+  // before the window exists -- and a login shell costs about 0.7 s to start
+  // whether it is asked about one program or six. Measured on this Mac
+  // 2026-10-11, the two searches together took 1.4 s cold and the shell was all
+  // of it. It seeds only what it positively found, so a shell that will not
+  // start leaves both searches exactly as they were (main/engine-bin.mjs).
+  warmShellAnswers();
   const claude = resolveClaudeBin(config.claudeBinConfigured);
   config.claudeBin = claude.path ?? candidatePaths()[0];
   config.claudeFound = claude.found;

@@ -908,6 +908,8 @@ export interface WorkspaceSettings {
    *  altogether when nobody is signed in (main/codex-account.mjs). */
   codex?: {
     found: boolean; certain: boolean; bin: string; url: string; trouble: string | null;
+    /** Whether somebody pointed at this file themselves. See `claudeChosen`. */
+    chosen?: boolean;
     account?: { email: string | null; name: string | null; plan: string | null; planNamed?: boolean; mode: string | null; accountId: string | null } | null;
     /**
      * EVERY Codex login on this Mac, one per `codexProfiles` word. The
@@ -950,8 +952,12 @@ export interface WorkspaceSettings {
   // Whether the search for Claude Code got an answer at all, as opposed to
   // failing to reach the machine. Nothing may say "missing" without it.
   claudeCertain: boolean;
-  // Where to send someone who does not have it. One copy, in main/claude-bin.mjs.
+  // Where to send someone who does not have it. One copy, in main/engine-bin.mjs.
   claudeInstallUrl: string;
+  // Whether somebody pointed at this file themselves rather than it being
+  // found. A chosen path is never searched around, so the row that offers the
+  // search back has to know. Optional so an older main process typechecks.
+  claudeChosen?: boolean;
   // The same two facts about Codex. Either engine is enough to run the app, so
   // the walk's last card shuts the inbox only when both are missing for sure.
   // Optional so an older main process still typechecks.
