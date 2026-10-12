@@ -3,6 +3,7 @@ import {createPortal} from 'react-dom';
 import {api} from '../api';
 import {commandRunning,whenACommandFinishes} from '../../../shared/terminal-state.mjs';
 import {linksAtRow} from '../../../shared/terminal-links.mjs';
+import {guardInvalidRange} from '../../../shared/xterm-invalid-range.mjs';
 import {CrossIcon} from './CrossIcon';
 import '@xterm/xterm/css/xterm.css';
 import './task-terminal.css';
@@ -72,6 +73,14 @@ export function TaskTerminal({product,id,headerTarget,startOpen=false,commandSes
         const style=getComputedStyle(host.current);
         const terminal=new Terminal({cursorBlink:true,screenReaderMode:assistive,allowTransparency:true,fontFamily:'Menlo, Monaco, monospace',fontSize:12,scrollback:5000,allowProposedApi:false,theme:{background:'#00000000',foreground:style.color},convertEol:false});
         const fit=new FitAddon();const serializer=new SerializeAddon();terminal.loadAddon(serializer);terminal.loadAddon(fit);terminal.open(host.current);
+        // AND THE CRASH THAT TREE CAN STILL THROW, now that it is only built
+        // for the people using it. xterm's AccessibilityManager throws its own
+        // 'invalid range' when a selection maps onto no cells, which three
+        // ordinary selections do; shared/xterm-invalid-range.mjs catches that
+        // one message off the instance and clears the selection. Only has
+        // anything to wrap when `assistive` is true, and only after open(),
+        // which is when the manager exists.
+        guardInvalidRange(terminal);
         // A WEB ADDRESS OPENS IN THE BROWSER on click, wrapped over rows or not
         // (shared/terminal-links.mjs). window.open is the app's one door out:
         // main's window-open handler hands http(s) to the real browser.
