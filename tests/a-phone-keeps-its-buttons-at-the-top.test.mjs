@@ -2,7 +2,7 @@
 // rail along the bottom of a phone: the app's logo as a "Menu" nobody could
 // name, a Threads tab for the page you are already on, Feedback, and Settings
 // wearing the same sliders as "View and filters" one row above it. Three
-// directions were drawn on the real app; the pick, in her words: "tidy wins",
+// directions were drawn on the real app; the pick, in the founder's words: "tidy wins",
 // "not a fan of that bar at the bottom entirely ... all that stuff is best
 // placed at the top", "big fan of the new thread button", and the open thread
 // as drawn in the chips direction.
@@ -155,7 +155,7 @@ describe('on a phone, the Superhuman way', () => {
     expect(body).toMatch(/right:\s*0/);
   });
 
-  // THE SECOND ROUND OF HER NOTES (2026-10-11): "the filters should come from
+  // THE SECOND ROUND OF NOTES (2026-10-11): "the filters should come from
   // the top not bottom", "send button should be square corners", Settings'
   // search "better to just have a search icon", and the title "looks ugly".
   it('View and filters drops down from the top bar, each section named above its choices', () => {

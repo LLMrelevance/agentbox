@@ -108,7 +108,7 @@
 
   /* THE INBOXES ARE WORDS ALONG THE BOTTOM, under the thumb, the way
      Superhuman's phone app keeps its split inboxes ("Important 3 · Calendar 6
-     · Docs 8") and not its icons, which she found "incomprehensible"
+     · Docs 8") and not its icons, which read as "incomprehensible"
      (2026-10-11). Sentence case with the count after the word, the picked one
      underlined, scrolling sideways when they do not fit. */
   :root:root:root .app.workspace-layout { --phone-tabs: 52px; }
