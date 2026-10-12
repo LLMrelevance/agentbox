@@ -230,6 +230,17 @@ const PREEMPTION_HOLD_MS = 15 * 60_000;
 // hundred and sixty.
 const FRUITLESS_RESTS_MS = [15 * 60_000, 60 * 60_000, 4 * 3_600_000, 12 * 3_600_000, 24 * 3_600_000];
 
+// HOW LONG A WORKER'S DEATH BY A STOP SIGNAL WAITS TO BE JUDGED, so a Control-C
+// that reached it first is still seen as the app being stopped. Half a second
+// is far longer than the gap measured (the app's own handler runs within
+// milliseconds) and far shorter than anything a person would notice.
+export const QUIT_GRACE_MS = 500;
+
+/** SIGINT, SIGTERM or SIGHUP, as a signal or as the CLI's own exit code for one (130, 143, 129). */
+export function diedOfAStopSignal(code, signal) {
+  return ['SIGINT', 'SIGTERM', 'SIGHUP'].includes(signal) || [129, 130, 143].includes(code);
+}
+
 // THE FIRST RUN'S TWO MARKS (w-0b60195a14). The label is on the walk's own
 // example task and means one thing: no session, ever. It is answered by the app
 // itself out of the folder she just chose, so a worker picking it up would be a
@@ -752,6 +763,9 @@ export class Supervisor {
   // approval cards no new spawn would produce (2026-08-06). Items respawn on
   // next boot; an orphan just misbehaves invisibly.
   killAll() {
+    // Read by a worker's exit that is still inside its grace (QUIT_GRACE_MS):
+    // the app is going, so that death was ours.
+    this._quitting = true;
     for (const session of this.sessions.values()) this._kill(session);
     this._closeCodex(`${Name} is quitting`);
     this.stopMemoryGate();
@@ -2567,6 +2581,12 @@ export class Supervisor {
     if (!runs) return 0;
     // Rested because its ACCOUNT refused it: awake as soon as the account is.
     if (seen?.account && !this._profileResting(seen.account)) return 0;
+    // OR AS SOON AS ANOTHER LOGIN CAN TAKE IT. One login out of usage is not
+    // the task's fault and says nothing about the others: with a second login
+    // free, the task slept its 15-minute rest while its row promised the reset
+    // hours away (tests/a-task-moves-to-a-free-login-when-its-login-runs-out).
+    // Only fresh work rests here, so a run on another login loses nothing.
+    if (seen?.account && this._anotherLoginIsFree(item, seen.account)) return 0;
     // AN URGENT ROW NEVER CLIMBS THE LADDER. Urgent outranks High, and is
     // even meant to INTERRUPT High and below, so it must never end up waiting
     // behind them.
@@ -3418,6 +3438,19 @@ export class Supervisor {
   // `codex:` key. That is the right scope for its two callers -- the fleet-wide
   // brake and the sentence above her list -- because both are about having
   // nowhere left to run, and Claude Code is what every row falls back to.
+  /**
+   * WHETHER A LOGIN OTHER THAN `account`, ON THE TASK'S OWN ENGINE, COULD RUN IT
+   * NOW: not resting, and carrying no trouble of its own (signed out, blocked).
+   * A free Claude login says nothing about a Codex task, and the other way round.
+   */
+  _anotherLoginIsFree(item, account) {
+    const engine = this._engineFor(item);
+    return this._liveProfilesFor(engine).some((p) => {
+      const key = this._accountKey(engine, p);
+      return key !== account && !this._profileTrouble?.[key];
+    });
+  }
+
   _healthyProfiles() {
     const now = Date.now();
     return this._profiles().filter((p) => (this._profileCooldown?.[p] ?? 0) < now && !this._profileTrouble?.[p]);
@@ -7145,9 +7178,7 @@ export class Supervisor {
     // item. Written onto the session because that is what `settleDelivery`
     // reads, and read there rather than here so the decision stays in the one
     // method that owns it. See `onClosed` in main/codex-session.mjs.
-    child.on('exit', (code, signal, how) => {
-      if (exited) return;
-      exited = true;
+    const settleExit = (code, signal, how) => {
       if (how?.transportFault) session.transportFault = true;
       this.memoryGateTurnEnded(session);
       session.exitFailed = !!(signal || code !== 0 || session.transportFault || session.resultIsError || session.result == null);
@@ -7325,6 +7356,28 @@ export class Supervisor {
       harness.release(this, profile);
       // The item's own status was written by the worker through the MCP; if it
       // died without writing, the lease expires and the next tick re-pulls it.
+    };
+    child.on('exit', (code, signal, how) => {
+      if (exited) return;
+      exited = true;
+      // A WORKER THAT DIED OF A STOP SIGNAL WE DID NOT SEND is judged a moment
+      // later, not at once. Control-C in a terminal reaches the whole process
+      // group, so the worker can die of it before this process has even run
+      // its own handler and marked it stopped by us; judged at once, that
+      // death was a failed run ("it will keep failing the same way until this
+      // is fixed") and the task rested 15 minutes after the app came back
+      // (tests/a-worker-stopped-with-the-app-is-not-a-failed-run). If the app
+      // starts quitting within the grace, the person stopped it, not the task.
+      if (!session.stoppedByUs && !this._quitting && diedOfAStopSignal(code, signal)) {
+        const t = setTimeout(() => {
+          if (this._quitting) session.stoppedByUs = true;
+          settleExit(code, signal, how);
+        }, QUIT_GRACE_MS);
+        t.unref?.();
+        return;
+      }
+      if (this._quitting) session.stoppedByUs = true;
+      settleExit(code, signal, how);
     });
     this.onChange?.();
   }

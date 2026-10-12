@@ -195,6 +195,13 @@ export async function bootHeadless({ dataDir = repoRoot, appDir = repoRoot, user
     stateFile: teamStateFile(config.storeRoot),
     onChange: () => ipc?.push?.(),
   }) : null;
+  // AND IT STOPS ITS OWN WORKERS ON THE WAY OUT, as main/main.mjs does for the
+  // desktop. Control-C reaches the whole process group, so without this each
+  // worker died of the signal itself and was written down as a run that failed
+  // on its own: a Claude task stopped that way read "it will keep failing the
+  // same way until this is fixed" and rested 15 minutes after the copy came
+  // back (tests/control-c-on-the-browser-copy-does-not-fail-its-agents).
+  host.app.on('before-quit', () => supervisor.killAll());
   ipc = registerIpc({ store, supervisor, config, window, host, team });
   answerWhatOnlyTheWindowAnswered(host.ipcMain);
   return { config, store, supervisor, window, host, ipc, team, channels: host.ipcMain.handlers };

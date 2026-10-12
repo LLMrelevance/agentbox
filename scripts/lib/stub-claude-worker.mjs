@@ -162,6 +162,66 @@ async function askTheFounder({ tool_name: toolName, input }) {
 }
 
 let said = plan.say ?? 'the stub worker ran';
+
+// WHAT THE TASK ITSELF ASKS OF THE STAND-IN. A proof that runs several threads
+// at once needs each worker to behave differently, and one plan file is shared
+// by all of them, so the task's own words carry the script:
+//
+//   [[tok:abc]]          answer with "abc" in the result, so a proof can tell
+//                        whose answer landed on which thread
+//   [[stub:slow:4000]]   take 4 s before answering (several running at once)
+//   [[stub:hang]]        never answer, until stopped
+//   [[stub:limit]]       run out of usage, as Claude Code says it
+//   [[stub:limit-first]] run out on the first attempt only, so a retry or a
+//                        second login can finish it
+//
+// The words a limit is reported in are the CLI's own ("You've hit your session
+// limit · resets …"), which is what shared/spawn-trouble.mjs reads.
+const promptText = (() => {
+  const c = firstUserLine?.message?.content;
+  const fromStdin = typeof c === 'string' ? c : Array.isArray(c) ? c.map((b) => b?.text ?? '').join('\n') : '';
+  const at = argv.indexOf('-p');
+  const fromArg = at >= 0 && argv[at + 1] && !argv[at + 1].startsWith('--') ? argv[at + 1] : '';
+  return `${fromStdin}\n${fromArg}`;
+})();
+const directive = (name) => promptText.match(new RegExp(`\\[\\[${name}(?::([^\\]]*))?\\]\\]`));
+const token = directive('tok')?.[1];
+if (token) said = `${said} [${token}]`;
+const attemptsFile = plan.receipts && process.env.ZERO_ITEM ? path.join(plan.receipts, `${process.env.ZERO_ITEM}.attempts`) : null;
+const attempt = (() => {
+  if (!attemptsFile) return 1;
+  let n = 0;
+  try { n = Number(fs.readFileSync(attemptsFile, 'utf8')) || 0; } catch { /* first */ }
+  try { fs.writeFileSync(attemptsFile, String(n + 1)); } catch { /* best effort */ }
+  return n + 1;
+})();
+// One line per start, so a proof can see which login each attempt ran on and when.
+if (plan.receipts && process.env.ZERO_ITEM) {
+  try {
+    fs.appendFileSync(path.join(plan.receipts, `${process.env.ZERO_ITEM}.spawns.jsonl`), `${JSON.stringify({
+      at: Date.now(), attempt, login: process.env.CLAUDE_CONFIG_DIR ?? 'default', resume: argv.includes('--resume'), pid: process.pid,
+    })}\n`);
+  } catch { /* a receipt is never worth the run */ }
+}
+// [[stub:limit-on:.claude-second]] runs out only on the login whose folder has
+// that name ('default' for the main one), so a proof can put one login out of
+// time and leave another free.
+const loginName = process.env.CLAUDE_CONFIG_DIR ? path.basename(process.env.CLAUDE_CONFIG_DIR) : 'default';
+const limitOn = directive('stub:limit-on')?.[1];
+if (directive('stub:limit') || (directive('stub:limit-first') && attempt === 1) || (limitOn && limitOn === loginName)) {
+  say({ type: 'result', subtype: 'success', result: "You've hit your session limit · resets 11:59pm", is_error: true, session_id: sessionId });
+  await Promise.race([inputEnded, wait(2000)]);
+  process.exit(1);
+}
+if (directive('stub:hang')) {
+  while (!stopping) await wait(100);
+}
+const slow = Number(directive('stub:slow')?.[1]);
+if (slow > 0) {
+  const until = Date.now() + slow;
+  while (!stopping && Date.now() < until) await wait(50);
+}
+
 try {
   if (plan.approval) {
     const decision = await askTheFounder(plan.approval);

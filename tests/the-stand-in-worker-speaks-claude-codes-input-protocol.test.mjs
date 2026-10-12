@@ -77,6 +77,36 @@ describe('the stand-in worker, under the app\'s own input handling', () => {
     expect(await exited).toBe(0);
   });
 
+  it('answers with the token the task carries, so a proof can tell whose answer is whose', async () => {
+    const { child, frames, exited } = start(STREAM);
+    child.stdin.write(`${JSON.stringify({ type: 'user', uuid: 'u-t', message: { role: 'user', content: 'Do it [[tok:abc123]]' } })}\n`);
+    expect(await until(() => frames.some((f) => f.type === 'result'))).toBe(true);
+    expect(frames.find((f) => f.type === 'result').result).toContain('[abc123]');
+    child.stdin.end();
+    await exited;
+  });
+
+  it('runs out of usage only on the login the task names, in the words Claude Code uses', async () => {
+    const run = async (configDir) => {
+      const child = spawn(process.execPath, [STUB, ...STREAM], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, STUB_CLAUDE_PLAN: '', ...(configDir ? { CLAUDE_CONFIG_DIR: configDir } : {}) },
+      });
+      let out = '';
+      child.stdout.on('data', (d) => { out += d; });
+      child.stdin.write(`${JSON.stringify({ type: 'user', uuid: 'u-l', message: { role: 'user', content: 'x [[stub:limit-on:.claude-second]]' } })}\n`);
+      const code = await new Promise((r) => child.on('exit', r));
+      return { code, result: out.split('\n').filter(Boolean).map((l) => JSON.parse(l)).find((f) => f.type === 'result') };
+    };
+    const second = await run('/tmp/somewhere/.claude-second');
+    expect(second.code).toBe(1);
+    expect(second.result).toMatchObject({ is_error: true });
+    expect(second.result.result).toMatch(/hit your session limit/);
+    const main = await run(null);
+    expect(main.code).toBe(0);
+    expect(main.result.is_error).toBe(false);
+  });
+
   it('without streamed input, still answers and exits on its own (the old proofs\' shape)', async () => {
     const { child, frames, exited } = start(['-p', 'say hello', '--output-format', 'stream-json']);
     child.stdin.end();

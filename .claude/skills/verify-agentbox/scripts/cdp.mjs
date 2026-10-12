@@ -28,22 +28,43 @@ const KEYS = {
 };
 const MODIFIERS = { alt: 1, ctrl: 2, meta: 4, shift: 8 };
 
-/** Open `url` in a fresh headless Chrome. Returns the handful of verbs a drive needs. */
-export async function openTab(url, { width = 1440, height = 900 } = {}) {
+/**
+ * Start a headless Chrome on a throwaway profile and wait for its devtools
+ * address. `detached` leaves it running after this process ends (the breaker's
+ * browser, which lives across many short commands); then its profile should sit
+ * inside the instance folder, so `live.mjs down` finds and stops it.
+ */
+export async function launchChrome({ width = 1440, height = 900, profile, detached = false } = {}) {
   if (!fs.existsSync(CHROME)) throw new Error(`No Google Chrome at ${CHROME}. The live drive needs it.`);
-  sweep();
-  const profile = fs.mkdtempSync('/tmp/shot-profile-');
   const chrome = spawn(CHROME, [
     '--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
     '--force-device-scale-factor=2', '--hide-scrollbars', '--no-first-run',
     `--window-size=${width},${height}`, 'about:blank',
-  ], { stdio: ['ignore', 'ignore', 'pipe'] });
-  const cleanup = guard(chrome, profile);
+  ], { stdio: ['ignore', 'ignore', 'pipe'], detached });
   const wsUrl = await new Promise((resolve, reject) => {
     let buf = '';
     const timer = setTimeout(() => reject(new Error('chrome never printed a devtools url')), 20_000);
     chrome.stderr.on('data', (d) => { buf += d; const m = buf.match(/ws:\/\/\S+/); if (m) { clearTimeout(timer); resolve(m[0]); } });
   });
+  if (detached) { chrome.stderr.destroy(); chrome.unref(); }
+  return { chrome, wsUrl };
+}
+
+/** Open `url` in a fresh headless Chrome. Returns the handful of verbs a drive needs. */
+export async function openTab(url, { width = 1440, height = 900 } = {}) {
+  sweep();
+  const profile = fs.mkdtempSync('/tmp/shot-profile-');
+  const { chrome, wsUrl } = await launchChrome({ width, height, profile });
+  const cleanup = guard(chrome, profile);
+  const tab = await connect(wsUrl, { width, height });
+  return { ...tab, close: () => { tab.detach(); cleanup(); } };
+}
+
+/**
+ * Drive a page of a Chrome that is already running. With `targetId` it takes
+ * over that page (the breaker's next command); without, it opens a new one.
+ */
+export async function connect(wsUrl, { width = 1440, height = 900, targetId: existing = null } = {}) {
   const ws = new WebSocket(wsUrl);
   await new Promise((r) => { ws.onopen = r; });
   let nextId = 1;
@@ -55,12 +76,21 @@ export async function openTab(url, { width = 1440, height = 900 } = {}) {
     if (m.method === 'Runtime.exceptionThrown') events.push(`exception: ${m.params.exceptionDetails?.exception?.description ?? m.params.exceptionDetails?.text}`);
     if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') events.push(`console.error: ${m.params.args.map((a) => a.value ?? a.description).join(' ')}`);
   };
+  // A Chrome that goes away answers nothing; every call waiting on it fails
+  // with that fact instead of hanging the drive forever.
+  let gone = null;
+  ws.onclose = () => {
+    gone = new Error('headless Chrome closed the connection');
+    for (const settle of pending.values()) settle({ error: { message: gone.message } });
+    pending.clear();
+  };
   const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
+    if (gone) return reject(gone);
     const id = nextId++;
     pending.set(id, (m) => (m.error ? reject(new Error(`${method}: ${m.error.message}`)) : resolve(m.result)));
     ws.send(JSON.stringify({ id, method, params, sessionId }));
   });
-  const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
+  const targetId = existing ?? (await send('Target.createTarget', { url: 'about:blank' })).targetId;
   const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
   const call = (m, p) => send(m, p, sessionId);
   await call('Page.enable');
@@ -115,7 +145,8 @@ export async function openTab(url, { width = 1440, height = 900 } = {}) {
   const text = () => evaluate('document.body.innerText');
 
   return {
-    call, evaluate, goto, press, type, capture, until, wait, text, errors: events,
-    close: () => { try { ws.close(); } catch { /* gone */ } cleanup(); },
+    call, evaluate, goto, press, type, capture, until, wait, text, errors: events, targetId,
+    // Lets go of the page and leaves Chrome running.
+    detach: () => { try { ws.close(); } catch { /* gone */ } },
   };
 }

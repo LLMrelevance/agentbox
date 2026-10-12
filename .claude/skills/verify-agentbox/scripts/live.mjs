@@ -83,6 +83,237 @@ export function cleanEnv(base = process.env) {
   return out;
 }
 
+export const PROJECTS = [PRODUCT, { slug: 'second', name: 'Second' }];
+
+/** The Codex this Mac has, found the way the app finds it, or null. */
+async function realCodex() {
+  const { findCodexBin } = await import(path.join(REPO, 'main', 'codex-bin.mjs'));
+  try { const f = findCodexBin({}); return f.found ? f.path : null; } catch { return null; }
+}
+
+/**
+ * EVERYTHING THE COPY NEEDS ON DISK, MADE ONCE PER INSTANCE.
+ *
+ * STAND-IN MODE (the default) gives the copy a HOME of its own, so what it
+ * finds there is the same on every Mac and every run: two Claude logins
+ * (`.claude` and `.claude-second`, each a `.claude.json` naming an account,
+ * which is all main/account-discovery.mjs reads), the Claude stand-in behind a
+ * tiny wrapper, and the real `codex` binary pointed at a scripted model on a
+ * loopback port. REAL MODE keeps this Mac's own home, so the copy finds and
+ * runs the Claude Code and Codex installed here, signed in as they are.
+ */
+async function prepare(real) {
+  const data = path.join(INSTANCE, 'data');
+  const storeRoot = path.join(INSTANCE, 'store');
+  const accountRoot = path.join(storeRoot, 'accounts', ACCOUNT);
+  const receipts = path.join(INSTANCE, 'receipts');
+  const home = real ? null : path.join(INSTANCE, 'home');
+  for (const d of [data, receipts]) fs.mkdirSync(d, { recursive: true });
+
+  // Two projects with a real git repo behind each, so a worker has somewhere
+  // to stand, a thread can be checked to land under the right one, and the
+  // first-run walk (which a store with no projects gets) is skipped.
+  const repos = {};
+  for (const p of PROJECTS) {
+    const repo = path.join(INSTANCE, 'repos', p.slug);
+    fs.mkdirSync(repo, { recursive: true });
+    fs.mkdirSync(path.join(accountRoot, p.slug), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'README.md'), `# ${p.name}\n\nA throwaway project for verifying Agentbox.\n`);
+    const git = (...a) => execFileSync('git', a, { cwd: repo, stdio: 'ignore' });
+    git('init', '-q', '-b', 'main');
+    git('add', '-A');
+    git('-c', 'user.email=verify@agentbox.invalid', '-c', 'user.name=verify', 'commit', '-qm', 'seed');
+    fs.writeFileSync(path.join(accountRoot, p.slug, 'project.json'), `${JSON.stringify({
+      schemaVersion: 2, id: p.slug, name: p.name, repoPath: repo, oneLiner: 'a throwaway project for verification',
+    }, null, 1)}\n`);
+    repos[p.slug] = repo;
+  }
+
+  const plan = path.join(INSTANCE, 'stub-plan.json');
+  fs.writeFileSync(plan, `${JSON.stringify({ say: 'The verify stand-in ran and answered.', receipts }, null, 1)}\n`);
+
+  let claudeBin = null;
+  let codexBin = null;
+  let codexHome = null;
+  if (!real) {
+    for (const [dir, n] of [['.claude', 'one'], ['.claude-second', 'two']]) {
+      fs.mkdirSync(path.join(home, dir), { recursive: true });
+      fs.writeFileSync(path.join(home, dir, '.claude.json'), `${JSON.stringify({ oauthAccount: { emailAddress: `${n}@verify.invalid`, accountUuid: `verify-account-${n}` } })}\n`);
+    }
+    // A wrapper, so the stand-in starts with an absolute node and does not
+    // depend on what PATH the copy's shell recovers from an empty home.
+    claudeBin = path.join(INSTANCE, 'bin', 'claude');
+    fs.mkdirSync(path.dirname(claudeBin), { recursive: true });
+    fs.writeFileSync(claudeBin, `#!/bin/sh\nexec "${process.execPath}" "${STUB}" "$@"\n`, { mode: 0o755 });
+    codexBin = await realCodex();
+    if (codexBin) {
+      codexHome = path.join(INSTANCE, 'codex-home');
+      fs.mkdirSync(codexHome, { recursive: true });
+    }
+  }
+  const state = {
+    repoRoot: REPO, instance: INSTANCE, data, storeRoot, accountRoot, repo: repos[PRODUCT.slug], repos, receipts, plan, home,
+    log: path.join(INSTANCE, 'app.log'), engine: real ? 'real' : 'stub', claudeBin, codexBin, codexHome,
+  };
+  return state;
+}
+
+/*
+ * THE INSTALLED APP, AS A STRANGER GETS IT.
+ *
+ * Eleven of the 36 bugs that reached people lived only in the packaged app:
+ * paths inside app.asar, a worker started with its cwd inside the bundle, a
+ * Finder launch whose cwd is `/`, a keychain prompt, a bundle id. None of that
+ * exists in `bin/agentbox.mjs`. So `up --installed` builds the real .app (this
+ * Mac's chip only, no installer image, unsigned, which keeps it to a minute or
+ * two) under its own bundle id, `ac.astral.verify`, so macOS never confuses it
+ * with the Agentbox somebody uses, and opens it with `open`, the way the Dock
+ * does: launchd's bare environment, cwd `/`, a throwaway home. The drives then
+ * run against its window through Electron's debugging port.
+ */
+const PRODUCT_NAME = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8')).build?.productName ?? 'Agentbox';
+export const BUILD = path.join(ROOT, `build-${KEY}`);
+export const APP = path.join(BUILD, process.arch === 'arm64' ? 'mac-arm64' : 'mac', `${PRODUCT_NAME}.app`);
+const APP_BIN = path.join(APP, 'Contents', 'MacOS', PRODUCT_NAME);
+
+export function appIsStale() {
+  const plist = path.join(APP, 'Contents', 'Info.plist');
+  if (!fs.existsSync(plist)) return 'not built';
+  const built = fs.statSync(plist).mtimeMs;
+  const src = Math.max(...['main', 'shared', 'bin', path.join('renderer', 'src'), 'mcp'].map((d) => newest(path.join(REPO, d))),
+    fs.statSync(path.join(REPO, 'package.json')).mtimeMs);
+  return src > built ? 'older than its source' : null;
+}
+
+function buildInstalled() {
+  say('building the installed app (npm run build, then electron-builder for this Mac only; a minute or two)');
+  const b = spawnSync('npm', ['run', 'build'], { cwd: REPO, stdio: 'inherit' });
+  if (b.status !== 0) stop('npm run build failed, so there is no app to install.');
+  const arch = process.arch === 'arm64' ? '--arm64' : '--x64';
+  const e = spawnSync('npx', ['electron-builder', '--mac', 'dir', arch, '--publish', 'never',
+    '-c.appId=ac.astral.verify', `-c.directories.output=${BUILD}`], {
+    cwd: REPO, stdio: 'inherit', env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: 'false' },
+  });
+  if (e.status !== 0 || !fs.existsSync(APP_BIN)) stop(`electron-builder did not produce ${APP}.`);
+}
+
+async function freePort() {
+  const net = await import('node:net');
+  return new Promise((resolve) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); }); });
+}
+
+/** Open the installed app on the instance's throwaway home and wait for its window. */
+async function startInstalled(state) {
+  const userData = path.join(state.home, 'Library', 'Application Support', PRODUCT_NAME);
+  fs.mkdirSync(userData, { recursive: true });
+  const env = { [FRESH_USER_ENV]: '1', HOME: state.home, CFFIXED_USER_HOME: state.home, STUB_CLAUDE_PLAN: state.plan };
+  if (state.codexHome) {
+    const server = spawn(process.execPath, [path.join(here, 'stub-codex-server.mjs'), INSTANCE], { detached: true, stdio: 'ignore' });
+    server.unref();
+    const file = path.join(INSTANCE, 'codex-model.json');
+    try { fs.rmSync(file); } catch { /* none yet */ }
+    const deadline = Date.now() + 10_000;
+    while (!fs.existsSync(file) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+    const { url } = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const { stubCodexHome } = await import(path.join(REPO, 'scripts', 'lib', 'codex-stub-model.mjs'));
+    stubCodexHome(state.codexHome, { url });
+    env.ASTRAL_STUB_KEY = process.env.ASTRAL_STUB_KEY;
+  }
+  const file = path.join(userData, 'zero.config.json');
+  let had = {};
+  try { had = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* first start */ }
+  fs.writeFileSync(file, `${JSON.stringify({
+    ...had, storeRoot: state.storeRoot, accountId: ACCOUNT, claudeBin: state.claudeBin,
+    ...(state.codexBin ? { codexBin: state.codexBin, codexHome: state.codexHome } : {}),
+    engineChoice: '2026-01-01T00:00:00.000Z', maxConcurrentSessions: 2,
+  }, null, 2)}\n`);
+  const port = await freePort();
+  const open = spawnSync('open', ['-n', '-a', APP, ...Object.entries(env).flatMap(([k, v]) => ['--env', `${k}=${v}`]),
+    '--args', `--remote-debugging-port=${port}`], { encoding: 'utf8' });
+  if (open.status !== 0) stop(`open could not start the installed app: ${open.stderr}`);
+  const deadline = Date.now() + 60_000;
+  let page = null;
+  while (!page && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+      page = list.find((t) => t.type === 'page' && /index\.html|^app:|^file:/.test(t.url));
+    } catch { /* not up yet */ }
+  }
+  if (!page) stop(`the installed app never opened a window on port ${port}.`);
+  const { webSocketDebuggerUrl } = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
+  const pid = Number(execFileSync('pgrep', ['-n', '-f', APP_BIN], { encoding: 'utf8' }).trim());
+  const next = { ...state, installed: true, pid, cdpPort: port, browserWs: webSocketDebuggerUrl, targetId: page.id, url: null, userData, startedAt: new Date().toISOString() };
+  fs.writeFileSync(STATE, `${JSON.stringify(next, null, 1)}\n`);
+  return next;
+}
+
+/** Start the copy over an instance that is already on disk, and wait for its address. */
+async function start(state) {
+  if (state.installed) return startInstalled(state);
+  const env = { ...cleanEnv(), STUB_CLAUDE_PLAN: state.plan,
+    // The fresh-user flag is the app's own word for "this copy is nobody": no
+    // team cloud even on a Mac that has a team key (so no sign-in screen and
+    // nothing written to the shared project), and any counts go under the one
+    // id that names itself as not a person (shared/fresh-user-home.mjs).
+    [FRESH_USER_ENV]: '1' };
+  if (state.engine === 'stub') {
+    // HOME and CFFIXED_USER_HOME together: macOS asks Core Foundation, not the
+    // environment, for some paths (scripts/fresh-user.mjs says why).
+    Object.assign(env, { HOME: state.home, CFFIXED_USER_HOME: state.home });
+    if (state.codexHome) {
+      // A new scripted model on each start; the old one died with the copy.
+      const server = spawn(process.execPath, [path.join(here, 'stub-codex-server.mjs'), INSTANCE], { detached: true, stdio: 'ignore' });
+      server.unref();
+      const deadline = Date.now() + 10_000;
+      const file = path.join(INSTANCE, 'codex-model.json');
+      try { fs.rmSync(file); } catch { /* none yet */ }
+      while (!fs.existsSync(file) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+      const { url } = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const { stubCodexHome } = await import(path.join(REPO, 'scripts', 'lib', 'codex-stub-model.mjs'));
+      stubCodexHome(state.codexHome, { url });
+      env.ASTRAL_STUB_KEY = process.env.ASTRAL_STUB_KEY;
+    }
+  }
+  const config = {
+    storeRoot: state.storeRoot,
+    accountId: ACCOUNT,
+    ...(state.claudeBin ? { claudeBin: state.claudeBin } : {}),
+    ...(state.codexBin ? { codexBin: state.codexBin } : {}),
+    ...(state.codexHome ? { codexHome: state.codexHome } : {}),
+    // A first launch writes this itself; set here so the copy is the same on
+    // every run and Codex may be picked from the composer.
+    engineChoice: '2026-01-01T00:00:00.000Z',
+    maxConcurrentSessions: 2,
+  };
+  // The app writes its account id back into this file, so keep what it added.
+  const file = path.join(state.data, 'zero.config.json');
+  let had = {};
+  try { had = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* first start */ }
+  fs.writeFileSync(file, `${JSON.stringify({ ...had, ...config }, null, 2)}\n`);
+
+  const fd = fs.openSync(state.log, 'a');
+  const before = fs.existsSync(state.log) ? fs.statSync(state.log).size : 0;
+  const child = spawn(process.execPath, [path.join(REPO, 'bin', 'agentbox.mjs'), '--dir', state.data, '--no-open'], {
+    cwd: REPO, detached: true, stdio: ['ignore', fd, fd], env,
+  });
+  child.unref();
+  const deadline = Date.now() + 30_000;
+  let url = null;
+  while (!url && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 200));
+    url = fs.readFileSync(state.log, 'utf8').slice(before).match(/http:\/\/127\.0\.0\.1:\d+\/\?token=\S+/)?.[0] ?? null;
+    if (!alive(child.pid)) break;
+  }
+  if (!url) {
+    try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ }
+    stop(`the copy never printed its address. Its log:\n${fs.readFileSync(state.log, 'utf8').slice(-3000)}`);
+  }
+  const next = { ...state, pid: child.pid, url, startedAt: new Date().toISOString() };
+  fs.writeFileSync(STATE, `${JSON.stringify(next, null, 1)}\n`);
+  return next;
+}
+
 async function up(args) {
   const state = readState();
   if (state && alive(state.pid)) { say(`already up: ${state.url}`); return; }
@@ -94,69 +325,30 @@ async function up(args) {
     const b = spawnSync('npx', ['vite', 'build', 'renderer', '--logLevel', 'warn'], { cwd: REPO, stdio: 'inherit' });
     if (b.status !== 0) stop('the screen did not build, so there is nothing to drive.');
   }
-
-  const real = args.includes('--real-claude');
-  const data = path.join(INSTANCE, 'data');
-  const storeRoot = path.join(INSTANCE, 'store');
-  const accountRoot = path.join(storeRoot, 'accounts', ACCOUNT);
-  const repo = path.join(INSTANCE, 'repos', PRODUCT.slug);
-  const receipts = path.join(INSTANCE, 'receipts');
-  for (const d of [data, path.join(accountRoot, PRODUCT.slug), repo, receipts]) fs.mkdirSync(d, { recursive: true });
-
-  // A project with a real git repo behind it, so a worker has somewhere to stand
-  // and the first-run walk (which a store with no projects gets) is skipped.
-  fs.writeFileSync(path.join(repo, 'README.md'), '# Sandbox\n\nA throwaway project for verifying Agentbox.\n');
-  const git = (...a) => execFileSync('git', a, { cwd: repo, stdio: 'ignore' });
-  git('init', '-q', '-b', 'main');
-  git('add', '-A');
-  git('-c', 'user.email=verify@agentbox.invalid', '-c', 'user.name=verify', 'commit', '-qm', 'seed');
-  fs.writeFileSync(path.join(accountRoot, PRODUCT.slug, 'project.json'), `${JSON.stringify({
-    schemaVersion: 2, id: PRODUCT.slug, name: PRODUCT.name, repoPath: repo, oneLiner: 'a throwaway project for verification',
-  }, null, 1)}\n`);
-
-  const plan = path.join(INSTANCE, 'stub-plan.json');
-  fs.writeFileSync(plan, `${JSON.stringify({ say: 'The verify stand-in ran and answered.', receipts }, null, 1)}\n`);
-  fs.writeFileSync(path.join(data, 'zero.config.json'), `${JSON.stringify({
-    storeRoot,
-    accountId: ACCOUNT,
-    ...(real ? {} : { claudeBin: STUB }),
-    // A first launch writes this itself; set here so the copy is the same on
-    // every run and Codex may be picked from the composer.
-    engineChoice: '2026-01-01T00:00:00.000Z',
-    maxConcurrentSessions: 2,
-  }, null, 2)}\n`);
-
-  const log = path.join(INSTANCE, 'app.log');
-  const fd = fs.openSync(log, 'a');
-  const child = spawn(process.execPath, [path.join(REPO, 'bin', 'agentbox.mjs'), '--dir', data, '--no-open'], {
-    cwd: REPO,
-    detached: true,
-    stdio: ['ignore', fd, fd],
-    // The fresh-user flag is the app's own word for "this copy is nobody": no
-    // team cloud even on a Mac that has a team key (so no sign-in screen and
-    // nothing written to the shared project), and any counts go under the one
-    // id that names itself as not a person (shared/fresh-user-home.mjs).
-    env: { ...cleanEnv(), STUB_CLAUDE_PLAN: plan, [FRESH_USER_ENV]: '1' },
-  });
-  child.unref();
-
-  const deadline = Date.now() + 30_000;
-  let url = null;
-  while (!url && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 200));
-    url = fs.readFileSync(log, 'utf8').match(/http:\/\/127\.0\.0\.1:\d+\/\?token=\S+/)?.[0] ?? null;
-    if (!alive(child.pid)) break;
+  const real = args.includes('--real') || args.includes('--real-claude');
+  const installed = args.includes('--installed');
+  if (installed && real) stop('--installed runs on the stand-ins; use --real with the browser copy.');
+  if (installed) {
+    const old = appIsStale();
+    if (old) buildInstalled(); else say('the installed app is newer than its source; using the one already built');
   }
-  if (!url) {
-    try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ }
-    stop(`the copy never printed its address. Its log:\n${fs.readFileSync(log, 'utf8').slice(-3000)}`);
-  }
-  const next = { pid: child.pid, url, repoRoot: REPO, instance: INSTANCE, data, storeRoot, accountRoot, repo, receipts, plan, log, engine: real ? 'real-claude' : 'stub', startedAt: new Date().toISOString() };
-  fs.writeFileSync(STATE, `${JSON.stringify(next, null, 1)}\n`);
-  say(`up: ${url}`);
-  say(`worker: ${real ? 'the Claude Code this Mac has (billed to its subscription)' : 'the stand-in (scripts/lib/stub-claude-worker.mjs)'}`);
-  say(`store: ${storeRoot}`);
+  const prepared = await prepare(real);
+  const next = await start(installed ? { ...prepared, installed: true } : prepared);
+  say(installed ? `up: the installed app, pid ${next.pid}, window on debugging port ${next.cdpPort}` : `up: ${next.url}`);
+  say(real
+    ? 'workers: the Claude Code and Codex this Mac has, on their own subscriptions'
+    : `workers: the Claude stand-in on two fake logins${next.codexBin ? ', and real codex on a scripted model' : '; no codex on this Mac, so Codex drives are skipped'}`);
+  say(`store: ${next.storeRoot}`);
   say('next: live.mjs doctor');
+}
+
+/** Stop the copy and start it again on the same store: what a person's restart does to running agents. */
+export async function restart(how = 'quit') {
+  const state = readState();
+  if (!state) stop('nothing to restart. Run: live.mjs up');
+  await stopProcesses(state, { how });
+  const next = await start(state);
+  say(`restarted: ${next.url}`);
 }
 
 /** Is this instance worth driving? Read-only. Returns the list of what is wrong. */
@@ -168,6 +360,17 @@ export async function doctor({ quiet = false } = {}) {
   if (!state) { bad('no instance for this checkout. Run: live.mjs up'); return wrong; }
   if (alive(state.pid)) ok(`process ${state.pid} is running`); else bad(`process ${state.pid} is gone. Run: live.mjs down, then up`);
   const cmd = commandOf(state.pid);
+  if (state.installed) {
+    if (cmd.includes(APP_BIN)) ok('it is our build of the installed app'); else if (alive(state.pid)) bad(`pid ${state.pid} is something else now: ${cmd}`);
+    try {
+      const list = await (await fetch(`http://127.0.0.1:${state.cdpPort}/json/list`)).json();
+      if (list.some((t) => t.id === state.targetId)) ok('its window answers on the debugging port'); else bad('its window is gone from the debugging port');
+    } catch (err) { bad(`its debugging port does not answer: ${err.message}`); }
+    const old = appIsStale();
+    if (old) bad(`the installed app is ${old}, so a drive would test old code. Run: live.mjs down, then up --installed`);
+    else ok('the installed app is newer than its source');
+    return wrong;
+  }
   if (cmd.includes('bin/agentbox.mjs') && cmd.includes(state.data)) ok('it is our copy (bin/agentbox.mjs on our data folder)');
   else if (alive(state.pid)) bad(`pid ${state.pid} is something else now: ${cmd}`);
   try {
@@ -191,13 +394,33 @@ export async function doctor({ quiet = false } = {}) {
   return wrong;
 }
 
-async function down() {
-  const state = readState();
-  if (!state) { say('nothing to take down for this checkout.'); fs.rmSync(INSTANCE, { recursive: true, force: true }); return; }
-  // Only what we started: the process group `up` made, then anything still
-  // running out of this instance's folder (a worker the group missed).
-  if (alive(state.pid) && commandOf(state.pid).includes(state.data)) {
-    try { process.kill(-state.pid, 'SIGTERM'); } catch { /* gone */ }
+/**
+ * Stop only what we started: the copy's process group (SIGTERM first, which is
+ * a person quitting: the app stops its own workers), then anything still
+ * running out of this instance's folder (a worker the group missed, the
+ * scripted Codex model). Returns how many strays it had to kill.
+ */
+async function stopProcesses(state, { how = 'quit' } = {}) {
+  if (state?.installed) {
+    // The installed app: quit it as a person does, then anything still running
+    // out of this checkout's build of it (its helpers).
+    if (state.pid && alive(state.pid) && commandOf(state.pid).includes(APP_BIN)) {
+      try { process.kill(state.pid, 'SIGTERM'); } catch { /* gone */ }
+      const deadline = Date.now() + 8000;
+      while (alive(state.pid) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+    }
+    const left = execFileSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' }).split('\n')
+      .map((l) => l.trim().match(/^(\d+)\s+(.*)$/)).filter((m) => m && m[2].includes(APP));
+    for (const m of left) { try { process.kill(Number(m[1]), 'SIGKILL'); } catch { /* gone */ } }
+  }
+  if (state?.pid && !state.installed && alive(state.pid) && commandOf(state.pid).includes(state.data)) {
+    // HOW it is stopped is part of what a restart tests. 'quit' signals the
+    // app alone, as ⌘Q or a restart for an update does, and the app stops its
+    // own workers. 'ctrl-c' signals the whole process group at once, which is
+    // what Control-C in the terminal running `npx agentbox-app` does: the
+    // workers get the signal at the same moment as the app.
+    if (how === 'ctrl-c') { try { process.kill(-state.pid, 'SIGINT'); } catch { /* gone */ } }
+    else { try { process.kill(state.pid, 'SIGTERM'); } catch { /* gone */ } }
     const deadline = Date.now() + 5000;
     while (alive(state.pid) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
     try { process.kill(-state.pid, 'SIGKILL'); } catch { /* gone */ }
@@ -205,8 +428,16 @@ async function down() {
   const strays = execFileSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' }).split('\n')
     .map((l) => l.trim().match(/^(\d+)\s+(.*)$/)).filter((m) => m && m[2].includes(INSTANCE) && Number(m[1]) !== process.pid);
   for (const m of strays) { try { process.kill(Number(m[1]), 'SIGKILL'); } catch { /* gone */ } }
+  return strays.length;
+}
+
+async function down() {
+  const state = readState();
+  const strays = await stopProcesses(state);
   fs.rmSync(INSTANCE, { recursive: true, force: true });
-  say(`down: stopped the copy${strays.length ? ` and ${strays.length} stray process(es)` : ''}, removed ${INSTANCE}. Evidence in ${RUNS} is kept.`);
+  say(state
+    ? `down: stopped the copy${strays ? ` and ${strays} stray process(es)` : ''}, removed ${INSTANCE}. Evidence in ${RUNS} is kept.`
+    : 'nothing to take down for this checkout.');
 }
 
 async function drive(args) {
@@ -215,12 +446,25 @@ async function drive(args) {
   if (!name || !DRIVES[name]) stop(`which drive? ${Object.keys(DRIVES).join(', ')}`, 2);
   const wrong = await doctor({ quiet: true });
   if (wrong.length) stop(`the instance is not worth driving:\n  ${wrong.join('\n  ')}`);
+  if (DRIVES[name].stubOnly && readState().engine !== 'stub') {
+    say(`drive ${name}: skipped on real tools (${DRIVES[name].stubOnly}).`);
+    process.exit(0);
+  }
   const at = args.indexOf('--out');
   const out = at >= 0 ? path.resolve(args[at + 1]) : path.join(RUNS, `${new Date().toISOString().replace(/[:.]/g, '-')}-${name}`);
   fs.mkdirSync(out, { recursive: true });
-  const { openTab } = await import('./cdp.mjs');
+  const { openTab, connect } = await import('./cdp.mjs');
   const state = readState();
-  const tab = await openTab(state.url);
+  if (DRIVES[name].notInstalled && state.installed) {
+    say(`drive ${name}: skipped on the installed app (${DRIVES[name].notInstalled}).`);
+    process.exit(0);
+  }
+  // The installed app's own window, through its debugging port; otherwise a
+  // headless Chrome on the browser copy's address.
+  const tab = state.installed
+    ? await connect(state.browserWs, { targetId: state.targetId })
+    : await openTab(state.url);
+  if (state.installed) tab.goto = async () => { await tab.evaluate('location.reload()').catch(() => {}); await tab.wait(1500); };
   const claims = [];
   // `known` names the thread a product gap is filed on. The claim still runs
   // and still prints; a failure reads KNOWN instead of FAIL, so the drive stays
@@ -237,13 +481,22 @@ async function drive(args) {
   say(`drive ${name}: ${DRIVES[name].what}`);
   try {
     await tab.goto(state.url);
-    await DRIVES[name].run({ tab, state, claim, capture, out });
+    // `live` is handed in rather than imported: a drive importing this file
+    // while it is still running as the command waits on itself forever.
+    // And every drive has a deadline, so a hang is a failed claim with a
+    // picture, not a run that never ends (real tools get longer).
+    const budget = DRIVES[name].budgetMs ?? (state.engine === 'real' ? 15 * 60_000 : 6 * 60_000);
+    let timer;
+    await Promise.race([
+      DRIVES[name].run({ tab, state, claim, capture, out, live: { restart, readState } }),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`the drive ran past its ${Math.round(budget / 60_000)} minutes`)), budget); }),
+    ]).finally(() => clearTimeout(timer));
   } catch (err) {
     claim(false, `the drive finished without throwing`, String(err?.message ?? err).split('\n')[0]);
     await capture('when-it-failed').catch(() => {});
   } finally {
     claim(tab.errors.length === 0, 'the page threw no errors', tab.errors.slice(0, 3).join(' | '));
-    tab.close();
+    (tab.close ?? tab.detach)();
   }
   fs.writeFileSync(path.join(out, 'report.json'), `${JSON.stringify({ drive: name, at: new Date().toISOString(), engine: state.engine, claims, errors: tab.errors }, null, 1)}\n`);
   const failed = claims.filter((c) => !c.ok && !c.known).length;
@@ -260,6 +513,7 @@ if (isMain) {
   else if (verb === 'doctor') { const w = await doctor(); process.exit(w.length ? 1 : 0); }
   else if (verb === 'drive') await drive(args);
   else if (verb === 'down') await down();
+  else if (verb === 'restart') await restart(args.includes('--ctrl-c') ? 'ctrl-c' : 'quit');
   else if (verb === 'drives') { const { DRIVES } = await import('./drives.mjs'); for (const [k, d] of Object.entries(DRIVES)) say(`${k.padEnd(20)} ${d.what}`); }
-  else stop('usage: live.mjs up [--real-claude] | doctor | drive <name> [--out dir] | down | drives', 2);
+  else stop('usage: live.mjs up [--real] | doctor | drive <name> [--out dir] | restart | down | drives', 2);
 }
