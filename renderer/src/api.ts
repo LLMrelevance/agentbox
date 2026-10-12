@@ -115,6 +115,20 @@ const fixtureSettingsState: any = structuredClone(fixtureSettings);
 // she runs, which leaves the object exactly as ./fixtures wrote it.
 const engineSettings = fixtureEngineSettings(engineFixtures);
 if (engineSettings) Object.assign(fixtureSettingsState.workspace, structuredClone(engineSettings));
+// &memory=held draws the Running page the way it read when memory ran out on
+// 2026-10-11 (w-ec27ff1a51): six running, memory tight, commands waiting, and
+// new agents held. &memory=fine is the same page with memory back to normal.
+if (params.get('memory')) {
+  const held = params.get('memory') === 'held';
+  Object.assign(fixtureSettingsState.workspace, { running: 6, capacity: 6, agentsTotal: 6, agentsAuto: true });
+  fixtureSettingsState.workspace.memoryGate = {
+    ...fixtureSettingsState.workspace.memoryGate, on: true,
+    reading: {
+      heavy: held ? 0 : 1, waiting: held ? 3 : 0, pressure: held ? 'tight' : 'normal', usedPct: held ? 74 : 48,
+      asked: 488, waited: 36, refused: 0, holding: held,
+    },
+  } as any;
+}
 // ?account=org-blocked or ?account=subscription-ended: the second account
 // picked as In use and unable to run, so the usage box that says why can be seen.
 const accountTroubleNotes: Record<string, string> = {
@@ -144,7 +158,8 @@ function fixtureWrite(scope: 'project' | 'workspace', p: any): Settings {
   if (scope === 'workspace') {
     if (p.key === 'sessionsAtOnce') {
       w.sessionsAtOnce = Math.max(1, Math.min(w.slotsMax ?? 12, Number(p.value) || 1));
-      w.capacity = w.sessionsAtOnce * Math.max(1, w.accounts.length);
+      w.capacity = w.sessionsAtOnce;
+      w.agentsAuto = false;
     } else if (p.key === 'memoryGate' && w.memoryGate) {
       w.memoryGate = { ...w.memoryGate, on: !!p.value, now: p.value ? 'Memory is fine. Nothing heavy running.' : null };
     } else if (p.key === 'cleanupLeftovers' && w.leftovers) {
