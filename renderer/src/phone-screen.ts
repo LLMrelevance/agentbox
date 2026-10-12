@@ -121,10 +121,18 @@ export function installPhoneScreen() {
     meta!.content = groundColour(base, wash);
   };
   paint();
-  // The look can change, and the layout is drawn after this runs.
+  // The look can change.
   new MutationObserver(paint).observe(root, { attributes: true, attributeFilter: ['data-theme', 'data-skin', 'class', 'style'] });
-  setTimeout(paint, 500);
-  setTimeout(paint, 2000);
+  // AND THE INBOX IS DRAWN AFTER THIS RUNS, however long that takes. Two
+  // timers of 0.5 and 2 seconds were not enough through the relay, where the
+  // page comes from the computer: the colour behind the clock stayed the
+  // first guess (2026-10-12). So it is set again when the layout appears.
+  const drawn = new MutationObserver(() => {
+    if (!document.querySelector('.workspace-layout')) return;
+    drawn.disconnect();
+    paint();
+  });
+  drawn.observe(document.body, { childList: true, subtree: true });
 
   // THE HOME-SCREEN APP HAS NO SWIPE BACK OF ITS OWN; Safari does, so this
   // only listens where Safari's would not fire.

@@ -50,7 +50,9 @@ describe('on a phone, View and filters', () => {
 
 describe('on a phone, the inboxes along the bottom', () => {
   it('stand on the same ground as the list above them', () => {
-    expect(last('.list-pane > .th-bar', 'background')).toMatch(/linear-gradient\(var\(--skin-pane/);
+    // The list stands on the wall itself since 2026-10-12, with no card wash
+    // (a-phone-shows-the-wall-scrolls-documents-straight-and-keeps-its-corner-clear).
+    expect(last('.list-pane > .th-bar', 'background')).toBe('var(--bg)');
   });
 });
 

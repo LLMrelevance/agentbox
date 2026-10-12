@@ -104,7 +104,10 @@ describe('on a phone', () => {
   });
 
   it('the desktop window\'s chrome stays off a phone: no corner marks, no keyboard underline, no tick boxes', () => {
-    expect(bodiesFor('.workspace-layout::before')).toMatch(/background:\s*var\(--skin-pane/);
+    // No corner marks: the background is replaced outright (since 2026-10-12
+    // by none, so the wall shows), never left wearing --grid-ticks.
+    expect(bodiesFor('.workspace-layout::before')).toMatch(/background:\s*(none|var\(--skin-pane)/);
+    expect(bodiesFor('.workspace-layout::before')).not.toMatch(/grid-ticks/);
     expect(hidden('.row .mark')).toBe(true);
     expect(bodiesFor('.row.selected .subject')).toMatch(/text-decoration:\s*none/);
   });
@@ -122,8 +125,8 @@ describe('on a phone, the Superhuman way', () => {
     const bar = bodiesFor('.list-pane > .th-bar');
     expect(bar).toMatch(/position:\s*fixed/);
     expect(bar).toMatch(/bottom:\s*0/);
-    // Solid: whatever wash it wears is laid over the base colour.
-    expect(bar).toMatch(/background:[^;]*,\s*var\(--bg\)/);
+    // Solid: the base colour, with or without a wash laid over it.
+    expect(bar).toMatch(/background:[^;]*var\(--bg\)/);
     const tab = bodiesFor('.tm-tab');
     expect(tab).toMatch(/text-transform:\s*none/);
     expect(tab).toMatch(/font-family:\s*inherit/);
