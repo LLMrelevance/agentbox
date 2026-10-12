@@ -78,7 +78,10 @@
   /* The top bar: the title, then search, filters and (the side rail's)
      Settings as three plain icons of one size, no boxes. */
   :root:root:root .workspace-layout > .topbar { padding: 0 48px 0 16px; height: var(--phone-top); min-height: var(--phone-top); flex-basis: var(--phone-top); }
-  :root:root:root .workspace-layout > .topbar .workspace-title { font-size: 22px; }
+  /* The title at the desktop's 400 weight and tight spacing read thin and
+     stretched at phone size ("the threads title looks a little weird",
+     2026-10-11): a phone's bar title is smaller and a step heavier. */
+  :root:root:root .workspace-layout > .topbar .workspace-title { font-size: 19px; font-weight: 500; letter-spacing: -.01em; line-height: 1; }
   :root:root:root .th-right { gap: 0; }
   :root:root:root .th-search > span, :root:root:root .th-new > span, :root:root:root .th-new { font-size: 0; }
   :root:root:root .topbar button { border-color: transparent; background: none; box-shadow: none; }
@@ -220,7 +223,22 @@
   :root:root:root .settings-screen .set-nav { position: static; inset: auto; width: auto; flex: none; padding: 6px 0 0; border-right: 0; border-bottom: 1px solid var(--line); }
   /* Settings hides the bottom bar, so it gets that room back. */
   :root:root:root .app.workspace-layout.workspace-settings { padding-bottom: env(safe-area-inset-bottom, 0px); }
-  :root:root:root .settings-screen .set-nav-top { padding: 4px 16px 6px; }
+  /* SETTINGS' SEARCH IS AN ICON at the right of the Back row, not a box
+     always open over the tabs ("probs better to just have a search icon",
+     2026-10-11). The box is the label around the field, so tapping the icon
+     focuses the field, and while it has the focus it opens across the row. */
+  :root:root:root .settings-screen .set-nav-top { position: relative; display: flex; align-items: center; height: var(--phone-top, 56px); padding: 0 8px 0 16px; }
+  :root:root:root .settings-screen .set-nav-back { flex: 1; height: 40px; margin: 0; }
+  :root:root:root .settings-screen .set-search {
+    flex: none; width: 40px; height: 40px; margin: 0; padding: 0; justify-content: center;
+    border: 0; background: none; box-shadow: none; color: var(--text-dim); cursor: pointer;
+  }
+  :root:root:root .settings-screen .set-search input { width: 0; min-width: 0; padding: 0; opacity: 0; }
+  :root:root:root .settings-screen .set-search:focus-within {
+    position: absolute; left: 12px; right: 12px; top: 8px; width: auto; justify-content: flex-start; gap: 10px; padding: 0 12px;
+    border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--bg);
+  }
+  :root:root:root .settings-screen .set-search:focus-within input { width: auto; flex: 1; opacity: 1; font-size: 16px; }
   :root:root:root .settings-screen .set-nav-esc { display: none; }
   :root:root:root .settings-screen .set-nav-scroll { display: flex; flex-direction: row; align-items: center; gap: 4px; flex: none; overflow-x: auto; overflow-y: hidden; padding: 0 12px 8px; scrollbar-width: none; }
   :root:root:root .settings-screen .set-nav-scroll::-webkit-scrollbar { display: none; }
@@ -282,9 +300,11 @@
   :root:root:root .tc-card .tc-send {
     position: fixed; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + 10px); right: calc(12px + env(safe-area-inset-right, 0px));
   }
-  :root:root:root .tc-card .tc-send-main { height: 36px; padding: 0 16px; border-radius: 18px 0 0 18px; font-size: 15px; font-weight: 500; }
-  :root:root:root .tc-card .tc-send.solo .tc-send-main { border-radius: 18px; }
-  :root:root:root .tc-card .tc-send-caret { height: 36px; border-radius: 0 18px 18px 0; }
+  /* Square corners, as the look's own buttons are ("send button should be
+     square corners", 2026-10-11). */
+  :root:root:root .tc-card .tc-send-main { height: 36px; padding: 0 16px; border-radius: var(--radius) 0 0 var(--radius); font-size: 15px; font-weight: 500; }
+  :root:root:root .tc-card .tc-send.solo .tc-send-main { border-radius: var(--radius); }
+  :root:root:root .tc-card .tc-send-caret { height: 36px; border-radius: 0 var(--radius) var(--radius) 0; }
   :root:root:root .tc-card .tc-send-main kbd { display: none; }
   :root:root:root:has(.tc-veil) .workspace-navigation,
   :root:root:root:has(.tc-veil) .topbar .th-new { display: none; }
@@ -306,13 +326,26 @@
   :root:root:root .tc-menu .tc-menu-head { font-size: 12px; padding: 6px 14px 8px; }
   :root:root:root .tc-menu .tc-effort button { min-height: 40px; font-size: 15px; }
 
-  /* "View and filters" is a sheet from the bottom too, like every picker. */
+  /* "VIEW AND FILTERS" DROPS DOWN FROM THE BUTTON THAT OPENED IT ("the
+     filters should come from the top not bottom", 2026-10-11), the width of
+     the screen, each section's name above its choices. Side by side at phone
+     width the capitals' column squeezed the choices, and Low and Thicket
+     wrapped onto lines of their own. */
   :root:root:root .th-pop {
-    top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 75vh; overflow-y: auto; z-index: 120;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-    border-radius: 16px 16px 0 0; border: 0; border-top: 1px solid var(--line-strong);
+    top: calc(env(safe-area-inset-top, 0px) + var(--phone-top, 56px)); bottom: auto; left: 0; right: 0; width: auto;
+    max-height: 75vh; overflow-y: auto; z-index: 120; padding: 6px 0 14px;
+    border-radius: 0; border: 0; border-bottom: 1px solid var(--line-strong); background: var(--bg-raised, var(--pop));
     box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .55);
   }
+  :root:root:root .th-pop .line { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 16px; }
+  :root:root:root .th-pop .lab { font-family: inherit; text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--text-dim); width: auto; }
+  :root:root:root .th-pop .opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  :root:root:root .th-pop .opts button {
+    height: 36px; padding: 0 14px; font-size: 15px; border: 1px solid var(--line-strong); border-radius: var(--radius);
+    background: none; color: var(--text-dim);
+  }
+  :root:root:root .th-pop .opts button.on { background: var(--text); border-color: var(--text); color: var(--bg); }
+  :root:root:root .th-pop .rule { margin: 4px 16px; }
 
   /* Searching takes the whole top bar, so Settings steps out of its way. */
   :root:root:root:has(.topbar input) .workspace-navigation { display: none; }

@@ -148,13 +148,39 @@ describe('on a phone, the Superhuman way', () => {
     expect(bodiesFor('.tc-card > .tc-bar > .tc-icon::after')).toMatch(/content:\s*'Attach/);
   });
 
-  it('every picker, and View and filters, is a full-width sheet from the bottom', () => {
-    for (const sheet of ['.tc-menu', '.th-pop']) {
-      const body = bodiesFor(sheet);
-      expect([sheet, body]).toEqual([sheet, expect.stringMatching(/bottom:\s*0/)]);
-      expect(body).toMatch(/left:\s*0/);
-      expect(body).toMatch(/right:\s*0/);
-    }
+  it('every picker is a full-width sheet from the bottom', () => {
+    const body = bodiesFor('.tc-menu');
+    expect(body).toMatch(/bottom:\s*0/);
+    expect(body).toMatch(/left:\s*0/);
+    expect(body).toMatch(/right:\s*0/);
+  });
+
+  // THE SECOND ROUND OF HER NOTES (2026-10-11): "the filters should come from
+  // the top not bottom", "send button should be square corners", Settings'
+  // search "better to just have a search icon", and the title "looks ugly".
+  it('View and filters drops down from the top bar, each section named above its choices', () => {
+    const body = rules.filter((r) => r.selector.split(',').some((s) => s.trim().endsWith('.th-pop'))).map((r) => r.body).pop();
+    expect(body).toMatch(/top:\s*calc\([^;]*var\(--phone-top/);
+    expect(body).toMatch(/bottom:\s*auto/);
+    expect(bodiesFor('.th-pop .line')).toMatch(/flex-direction:\s*column/);
+    expect(bodiesFor('.th-pop .lab')).toMatch(/text-transform:\s*none/);
+  });
+
+  it('Send has square corners, in the look\'s own radius', () => {
+    expect(bodiesFor('.tc-card .tc-send-main')).toMatch(/border-radius:\s*var\(--radius\) 0 0 var\(--radius\)/);
+    expect(bodiesFor('.tc-card .tc-send-main')).not.toMatch(/18px/);
+  });
+
+  it('Settings\' search is an icon that opens into a field only while it has the focus', () => {
+    expect(bodiesFor('.settings-screen .set-search')).toMatch(/width:\s*40px/);
+    expect(bodiesFor('.settings-screen .set-search input')).toMatch(/opacity:\s*0/);
+    expect(bodiesFor('.settings-screen .set-search:focus-within input')).toMatch(/opacity:\s*1/);
+  });
+
+  it('the bar title is smaller and a step heavier than the desktop\'s', () => {
+    const title = bodiesFor('.workspace-layout > .topbar .workspace-title');
+    expect(title).toMatch(/font-size:\s*19px/);
+    expect(title).toMatch(/font-weight:\s*500/);
   });
 
   it('a permission card spans the screen above the inboxes, without keys a phone lacks', () => {
