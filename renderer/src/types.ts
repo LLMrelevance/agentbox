@@ -620,6 +620,14 @@ export interface UpdateState {
   changes?: string[];
   behind?: number | null;
   installing?: boolean;
+  // WHERE THIS COPY IS RUNNING FROM, when that is a place macOS will not let
+  // it update itself (shared/where-it-runs-from.mjs). `canMove` is the one
+  // question the screens ask, `place` is which read-only place it is, and
+  // `moveError` is why the last move did not work. All absent, and `canMove`
+  // false, on every copy that can update itself, which is nearly all of them.
+  canMove?: boolean;
+  place?: string | null;
+  moveError?: string | null;
 }
 
 export interface Snapshot {
@@ -1177,6 +1185,7 @@ declare global {
       // onto the version that already downloaded itself.
       updateCheck(): Promise<UpdateState>;
       updateInstall(): Promise<{ started: boolean }>;
+      updateMove(): Promise<{ moved: boolean; error: string | null }>;
       // The window moved to a screen that wants the other set.
       onScreenDetail?(fn: (s: { detail: string }) => void): () => void;
       // The wake sweep's one line: agents put back on the work the lid
