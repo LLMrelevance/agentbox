@@ -85,6 +85,25 @@ tool is on the other end. Decided while building it, with Codex reviewing:
   waits. The failure to design against first is a denial that is not enforced:
   a well-formed refusal on the wire proves nothing about what the tool then did.
 
+## Standing instructions, on an engine with no system prompt
+
+Claude Code takes them on `--append-system-prompt`; Codex takes them as a
+thread's `developerInstructions`. ACP has no system prompt in the protocol and
+OpenCode's server takes none, so for anything else they go into the file the
+tool itself reads, named in the definition — `instructions: { file, in }`,
+AGENTS.md for most and GEMINI.md for Gemini CLI. `instructions()` answers how
+this engine carries them and throws for an engine that carries them neither
+way, because that engine would answer against rules it was never given and
+nothing on screen would say so. It is on the required list for offering a tool.
+
+The file goes in the tool's own config directory, which is per task and ours.
+A definition may ask for the working folder instead, but a path the person's
+repository tracks is refused rather than written: a task folder is a worktree
+of their repo, AGENTS.md is often committed in one, and this codebase has
+already paid once for writing a tracked file. What is in the file stays; only
+the block between our two markers is rewritten, however many times a thread
+resumes.
+
 ## Credentials: the line, decided
 
 A worker never receives a provider API key in its environment, and moving one

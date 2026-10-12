@@ -10,7 +10,7 @@ export const HARNESS_OPERATIONS = Object.freeze([
   'models', 'defaultModel', 'workspaceModel', 'profileHome', 'effortLevels', 'usage', 'spawn', 'readers',
   'subscribe', 'attachInput', 'tooling', 'transcript', 'change', 'release',
   'compact', 'settleApproval', 'approvalChanged', 'memoryGate', 'updatePlan',
-  'smallModelArgs', 'updateSettings', 'runCommand',
+  'smallModelArgs', 'updateSettings', 'runCommand', 'instructions',
 ]);
 const OPTIONAL_READS = new Set(['usage', 'models', 'effortLevels']);
 export function createHarnessRegistry(adapters) {

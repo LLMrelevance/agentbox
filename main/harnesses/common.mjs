@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { instructionsFor } from './instructions-file.mjs';
 
 /**
  * THE COMMAND LINE THAT STARTS A WORKER, BUILT FROM THE DEFINITION'S `run`.
@@ -34,6 +35,12 @@ export function definitionMethods(definition) {
     ...definition,
     binary: config => config?.[definition.binKey] ?? null,
     workerArgs: options => workerArgsFrom(definition.run, options),
+    // WHERE THE PERSON'S STANDING INSTRUCTIONS GO on this engine. A flag for
+    // the one that has one, a file named in the definition for the ones that
+    // do not, and a refusal for an engine with neither — because that engine
+    // would answer against rules it was never given, and nothing on screen
+    // would say so.
+    instructions: context => instructionsFor(definition, context),
     launchEnv: (_bin, env) => ({ ...env }),
     install: () => ({ file: definition.installer.shell, args: ['-c', `curl -fsSL ${definition.installer.url} | ${definition.installer.pipe}`] }),
     signIn: bin => ({ file: bin, args: [...definition.loginArgs] }),
