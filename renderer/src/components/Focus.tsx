@@ -54,6 +54,8 @@ import { sameRule, type RepeatShape as RepeatRuleValue } from '../../../shared/r
 import { collectFiles, fromPaste, persistAttachments, type PendingAttachment } from '../attachments';
 import { pictureUrl } from '../picture';
 import { handleCopyOut, blockCopyText } from '../copy-out';
+import { diagramSource } from '../diagram-fence';
+import { DiagramBlock } from './DiagramBlock';
 import { referencedFiles, isImagePath } from '../referenced-files';
 import { pictureRoots } from '../message-folders';
 import { changePathFor } from '../code-artifact';
@@ -934,7 +936,14 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     };
 
     const mdComponents = {
-      pre: ({ children }: { children?: ReactNode }) => <CodePre>{children}</CodePre>,
+      pre: ({ children }: { children?: ReactNode }) => {
+        // A MERMAID CHART IS DRAWN, with its source as the fallback (DiagramBlock).
+        const code = (Array.isArray(children) ? children[0] : children) as { props?: { className?: string; children?: ReactNode } } | undefined;
+        const lang = /language-([\w-]+)/.exec(code?.props?.className ?? '')?.[1];
+        const source = diagramSource(lang, String(code?.props?.children ?? ''));
+        if (source) return <DiagramBlock source={source} fallback={<CodePre>{children}</CodePre>} />;
+        return <CodePre>{children}</CodePre>;
+      },
       a: ({ href, children }: { href?: string; children?: ReactNode }) => {
         // AN AGENT MENTIONED IN A CONVERSATION is drawn as the mention it is;
         // its address is for the app, which draws the answer under the message
