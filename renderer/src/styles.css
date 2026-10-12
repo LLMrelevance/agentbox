@@ -1986,7 +1986,7 @@ body {
 .inline-media { display: block; margin: 8px 0; }
 .inline-media-name {
   display: block; padding: 0; border: 0; background: none; cursor: pointer;
-  font: inherit; color: var(--accent); text-align: left; margin-bottom: 4px;
+  font: inherit; color: var(--text); text-align: left; margin-bottom: 4px;
 }
 .inline-media audio { display: block; width: min(420px, 100%); height: 36px; }
 .inline-media-missing .inline-media-name { display: inline; margin: 0; }
@@ -1995,13 +1995,21 @@ body {
 /* A folder a worker named on its own line: its name, then its newest pictures,
    three across (FolderPreview in Focus.tsx). Spans, because it sits in a <p>. */
 .folder-preview { display: block; margin: 8px 0 4px; }
+/* Its name is a folder icon and what the folder goes by, in the text colour
+   rather than the accent (w-a3a7d1a1ec); hover firms an underline in. */
 .folder-preview-name {
-  display: inline-flex; align-items: baseline; gap: 10px; padding: 0; border: 0;
-  background: none; cursor: pointer; font: inherit; text-align: left;
+  display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0;
+  background: none; cursor: pointer; font: inherit; text-align: left; color: var(--text);
 }
-.folder-preview-path { color: var(--accent); font-family: var(--mono, ui-monospace, monospace); font-size: 0.9em; }
-.folder-preview-count { color: var(--text-faint); font-size: 0.86em; }
-.folder-preview-name:hover .folder-preview-path { text-decoration: underline; }
+.folder-preview-name .mention-icon { width: 15px; height: 15px; margin: 0; vertical-align: 0; }
+.folder-preview-name:hover .mention-icon { color: var(--text); transition-duration: 120ms; }
+.folder-preview-path {
+  font-weight: 500;
+  text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 4px;
+  transition: text-decoration-color 200ms cubic-bezier(.2, 0, 0, 1);
+}
+.folder-preview-count { color: var(--text-faint); font-size: 0.9em; margin-left: 2px; }
+.folder-preview-name:hover .folder-preview-path { text-decoration-color: var(--text-faint); transition-duration: 120ms; }
 .folder-preview-grid {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 8px;
 }
