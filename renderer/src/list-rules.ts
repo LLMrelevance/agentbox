@@ -319,6 +319,13 @@ export const PROPOSAL_PATIENCE = 24 * 3_600_000;
  * archive rule, returning one Done thread after eight closes (2026-10-07).
  * An agent finishing is still news; your closure settles the reminder without
  * answering or deleting its proposals. Reopening deliberately enables it again.
+ *
+ * AND A THREAD THAT IS NOT QUIET IS LEFT WHERE IT IS (2026-10-11). Replying
+ * on one that had a day-old proposal under it changed nothing on screen: this
+ * pulled it into Needs you, which wins over In progress, so it read Waiting
+ * for the seven minutes before an agent started and the reply was sent twice
+ * more. While a reply is on its way to an agent, or one is on the thread, the
+ * reminder waits; once the agent has answered, the thread comes back.
  */
 export function threadsOwedAnAnswer<T extends InboxItem & { id: string; parent?: string }>(
   items: readonly T[],
@@ -332,6 +339,7 @@ export function threadsOwedAnAnswer<T extends InboxItem & { id: string; parent?:
     const parent = i.parent ? byId.get(i.parent) : undefined;
     if (!parent) continue;
     if (parent.status === 'done' && parent.wrote?.status?.source === 'founder') continue;
+    if (parent.status === 'claimed' || (liveAnswer(parent) && !answerSettled(parent))) continue;
     owed.add(parent.id);
   }
   return owed;
