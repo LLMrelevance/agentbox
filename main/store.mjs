@@ -482,7 +482,7 @@ export class Store {
   // Put the existing thread back in the person's inbox later. This never
   // changes its execution schedule, answer, status, claim or delivery marks.
   snoozeItem(slug, id, snoozedUntil) {
-    if (!Number.isFinite(snoozedUntil)) throw new Error('Snooze needs a valid time');
+    if (!Number.isFinite(snoozedUntil)) throw new Error('Later needs a valid time');
     return this.modules.workItemsDisk.updateWorkItem(
       this.productDir(slug), id, { snoozedUntil: Math.max(0, Math.trunc(snoozedUntil)) }, { source: 'founder' },
     );

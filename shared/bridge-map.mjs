@@ -81,6 +81,7 @@ export const REQUEST_CHANNELS = {
   bootInfo: 'zero:boot-info',
   updateCheck: 'zero:update-check',
   updateInstall: 'zero:update-install',
+  updateMove: 'zero:update-move',
   notify: 'zero:notify',
   stopSession: 'zero:stop-session',
   runNow: 'zero:run-now',
@@ -96,6 +97,10 @@ export const REQUEST_CHANNELS = {
   settingsRead: 'zero:settings-read',
   claudeRecheck: 'zero:claude-recheck',
   codexRecheck: 'zero:codex-recheck',
+  // Point at the coding agent yourself, or hand the choice back to the search.
+  // The browser tab has no file panel, so main answers it ok-with-nothing-done
+  // there (main/serve.mjs stubs showOpenDialog) and the row stays honest.
+  engineBin: 'zero:engine-bin',
   engineSetup: 'zero:engine-setup',
   codexAddAccount: 'zero:codex-add-account',
   claudeAddAccount: 'zero:claude-add-account',

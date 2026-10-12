@@ -1,4 +1,5 @@
 import { previewFocus } from './preview-focus';
+import { usePhoneBack } from './phone-screen';
 import type {FocusControlStyle} from './focus-control';
 import {reviewLabEnabled} from './review-lab';
 import { deliverReply } from './deliver-reply.mjs';
@@ -46,11 +47,12 @@ import { Palette } from './components/Palette';
 import { Standing, STANDING } from './components/Standing';
 import { Settings } from './components/Settings';
 import { Snooze } from './components/Snooze';
+import { LATER_KEYWORDS } from './palette-rows';
 /* The line, the toast and the dot on the cog were the other three drawn for that round and
  are gone; their copy is in decisions.md and their photographs on
  `astral/w-86452550e5-looks`.
 */
-import { announcesUpdate, isUpdateRow, CHECK_SAY, updateLook } from './update-row';
+import { announcesMove, announcesUpdate, isUpdateRow, CHECK_SAY, updateLook } from './update-row';
 // Inbox zero is `IdlePage`.
 import { IdlePage } from './components/IdlePage';
 import { ago, closesTheTask, itemOptions, offerIsLive, parseRepeat } from './format';
@@ -337,6 +339,9 @@ export default function App() {
     if (!v) { setHoveredId(null); setPointedHint(null); hints.current?.stop(); }
   }, []);
   const [focused, setFocused] = useState<WorkItem | null>(null);
+  // ON A PHONE AN OPEN THREAD IS A STEP IN THE HISTORY, so swiping back from
+  // the left edge returns to the inbox (phone-screen.ts).
+  usePhoneBack(!!focused, () => setFocused(null));
   // Which row is open NOW, for callbacks that settle minutes after the render
   // that made them. A failed live reply reads it to decide whether she is
   // still on that conversation or has gone somewhere else.
@@ -4069,7 +4074,7 @@ export default function App() {
     try {
       for (const item of list) await writeMoment(item, ts);
     } catch (err) {
-      showToast(`Could not snooze: ${(err as Error)?.message ?? 'the store refused the write'}`);
+      showToast(`Could not move it to Later: ${(err as Error)?.message ?? 'the store refused the write'}`);
       refresh();
       return;
     }
@@ -4083,13 +4088,13 @@ export default function App() {
     // The COUNT IS WHAT SHE PICKED. A thread she moved as one row is one row to
     // her, so saying 13 after she selected 12 would report the repair as a
     // miscount and put the old doubt back in different words.
-    showToast(picked.length > 1 ? `${picked.length} snoozed. Back ${label.toLowerCase()}` : `Snoozed. Back ${label.toLowerCase()}`);
+    showToast(picked.length > 1 ? `${picked.length} moved to Later. Back ${label.toLowerCase()}` : `Moved to Later. Back ${label.toLowerCase()}`);
     // Undo restores only inbox reminders. Execution schedules stay intact.
     const prior = new Map(list.map((i) => [i.id, (i.agent ? i.runAt : i.snoozedUntil) ?? 0]));
     // AND THE TASK IT PUTS BACK IS OPENED (w-874411cc63). Without `brings` the
     // Z put the task back in the inbox out of sight, read as doing nothing, and
     // the next Z took back the reply under it instead.
-    pushUndo({ label: 'Snooze undone', undoes: 'undo that snooze', brings: bringsBack(picked), undid: list.filter((i) => !i.agent).map((i) => ({ product: i.product, id: i.id, words: 'Undid the snooze' })), run: async () => {
+    pushUndo({ label: 'Back in your inbox', undoes: 'undo moving it to Later', brings: bringsBack(picked), undid: list.filter((i) => !i.agent).map((i) => ({ product: i.product, id: i.id, words: 'Undid moving it to Later' })), run: async () => {
       for (const item of list) await writeMoment(item, prior.get(item.id) ?? 0);
       refresh();
     } });
@@ -5206,6 +5211,11 @@ export default function App() {
       {workspaceNavigation && <WorkspaceNavigation
         update={announcesUpdate(snap?.update, { walking, closed: '' }) ? { installing: !!snap?.update?.installing, version: snap?.update?.newVersion, changes: snap?.update?.changes, behind: snap?.update?.behind, error: snap?.update?.error } : null}
         onUpdate={() => { void api.updateInstall(); }}
+        /* AND THE COPY THAT CANNOT UPDATE ITSELF FROM WHERE IT IS
+           (shared/where-it-runs-from.mjs): the same card, in the same place,
+           offering the move. Null on every copy that can. */
+        move={announcesMove(snap?.update, { walking, closed: '' }) ? { place: snap?.update?.place ?? null, error: snap?.update?.moveError ?? null } : null}
+        onMove={() => { void api.updateMove(); }}
         page={settingsOpen ? 'settings' : null} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
@@ -6146,6 +6156,15 @@ export default function App() {
             showToast(CHECK_SAY.looking);
             void api.updateCheck().then((got) => showToast(updateLook(got).sentence));
           }}
+          /* AND THE MOVE, for a copy that cannot update itself from where it
+             is. A successful move relaunches the app, so there is nothing to
+             draw after it; a failure answers with its own reason and the
+             sidebar and Settings go on offering the press. */
+          moveToApplications={announcesMove(snap.update, { walking, closed: '' })}
+          onMoveToApplications={() => {
+            setModal(null);
+            void api.updateMove().then((got) => { if (!got.moved && got.error) showToast(got.error); });
+          }}
           panelUp={panelShownNow}
           onTogglePanel={() => { setModal(null); togglePanel(); }}
           boardUp={inboxDisplay.view === 'board'}
@@ -6167,7 +6186,7 @@ export default function App() {
                 ...(view !== 'snoozed'
                   ? [{ id: 'done', label: `Close (${n} selected)`, keyHint: 'E', run: () => { setModal(null); batchDone(multiSel); } }]
                   : []),
-                { id: 'snooze', label: `Remind Me (Snooze ${n} selected)`, keyHint: 'L', run: () => openSnooze(sel) },
+                { id: 'snooze', label: `Later (${n} selected)`, keywords: LATER_KEYWORDS, keyHint: 'L', run: () => openSnooze(sel) },
                 ...(sel.some((i) => returnAt(i) > Date.now())
                   ? [{ id: 'unsnooze', label: `Back to Inbox (${n} selected)`, run: () => unsnooze(sel) }]
                   : []),
@@ -6252,7 +6271,7 @@ export default function App() {
                     run: () => unsnooze(target),
                   }]
                 : []),
-              { id: 'snooze', label: 'Remind Me (Snooze)', keyHint: 'L', run: () => openSnooze(target) },
+              { id: 'snooze', label: 'Later', keywords: LATER_KEYWORDS, keyHint: 'L', run: () => openSnooze(target) },
               // THE FIRST PLACE SHE LOOKED. It asked `supervisor.running`, so on
               // a task she had just composed there was no Stop in ⌘K at all —
               // and, because nothing was running, the one agent command that DID

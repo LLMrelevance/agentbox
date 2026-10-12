@@ -344,6 +344,10 @@ export function useRowDrag(
   }, []);
 
   const onPointerDown = (id: string, e: ReactPointerEvent<HTMLElement>) => {
+    // A FINGER SCROLLS; IT NEVER CARRIES. Its first points of a scroll arrive
+    // here before the browser takes the gesture, past the carry threshold, so
+    // every scroll on a phone picked a thread up (2026-10-12).
+    if (e.pointerType === 'touch') return;
     if (!dropNow.current || e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey) return;
     // The select box and the row's own buttons keep their press. A board
     // card is itself a button, and is the thing being carried.

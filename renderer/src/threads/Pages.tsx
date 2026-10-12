@@ -655,6 +655,9 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
   const markNow = useRef(onMark);
   markNow.current = onMark;
   const startBand = (e: ReactPointerEvent) => {
+    // A finger on the ground scrolls the board; the preventDefault below
+    // would stop that scroll outright (2026-10-12).
+    if (e.pointerType === 'touch') return;
     if (!onMark || e.button !== 0) return;
     // Cards open and headings carry their column; only the ground draws a box.
     if ((e.target as Element).closest('.th-card, .th-col-h, button, a, input, textarea')) return;

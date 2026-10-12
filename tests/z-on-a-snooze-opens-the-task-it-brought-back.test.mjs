@@ -45,7 +45,7 @@ describe('which task an undo hands back', () => {
 
 describe('the app names the task on every undo that puts one back', () => {
   it('a snooze names the task it put off', () => {
-    expect(app).toMatch(/label: 'Snooze undone', undoes: 'undo that snooze', brings: bringsBack\(picked\),/);
+    expect(app).toMatch(/label: 'Back in your inbox', undoes: 'undo moving it to Later', brings: bringsBack\(picked\),/);
   });
 
   it('closing an outside agent names its row', () => {
