@@ -273,11 +273,90 @@ const APPROVAL_SHAPE = new Map([
   ['item/fileChange/requestApproval', 'decision'],
   ['item/permissions/requestApproval', 'grant'],
   ['mcpServer/elicitation/request', 'elicitation'],
+  // THE SAME TWO APPROVALS UNDER THEIR v1 NAMES (w-36c51443df). These are the
+  // older spellings of the first two rows, and they used to fall through to a
+  // protocol error -- so a Codex speaking v1 on any path would have had every
+  // command refused rather than carded. Their answer is `{ decision:
+  // ReviewDecision }` and that vocabulary is NOT the v2 one, which is why they
+  // get a shape of their own rather than sharing `decision`. See
+  // LEGACY_DECISIONS.
+  ['execCommandApproval', 'legacy'],
+  ['applyPatchApproval', 'legacy'],
+]);
+
+/**
+ * THE v1 WORD FOR EACH OF OUR FOUR, read off `ExecCommandApprovalResponse.json`
+ * in the 0.160.0 schema dump, 2026-10-09.
+ *
+ * `ReviewDecision` is `approved` | `approved_for_session` |
+ * `approved_mcp_policy_amendment` | `timed_out` | `abort` as bare words, plus
+ * `{denied:{rejection}}` and two amendment objects. NOTE THAT `decline` IS NOT
+ * IN IT: forwarding our own v2 word would have been refused by the server, and
+ * the refusal is an OBJECT here rather than a word, which is exactly the kind of
+ * difference that a shared mapping hides. The amendments are left out for the
+ * reason APPROVAL_DECISIONS gives: they are standing policy changes rather than
+ * an answer to the question asked, and nothing here can produce one.
+ */
+export const LEGACY_DECISIONS = Object.freeze({
+  accept: 'approved',
+  acceptForSession: 'approved_for_session',
+  cancel: 'abort',
+  // The one place a refusal gets to say why, so it says why.
+  decline: { denied: { rejection: `${Name} did not approve this. Carry on with what you are already allowed to do and leave the rest for her to look at.` } },
+});
+
+/**
+ * EVERY REQUEST THE SERVER MAY SEND A CLIENT, so the list lives somewhere a
+ * reader can check it against the schema rather than inferring it from which
+ * branch happens to catch what.
+ *
+ * Read off every `method` const in `ServerRequest.json`, codex-cli 0.160.0,
+ * 2026-10-09. Six raise a card (APPROVAL_SHAPE above) and four cannot be served
+ * at all (CANNOT_SERVE below). A method in neither list is NEW, and `onUnknownRequest`
+ * exists so that it is news rather than a silence.
+ */
+export const SERVER_REQUESTS = Object.freeze([
+  'account/chatgptAuthTokens/refresh',
+  'applyPatchApproval',
+  'attestation/generate',
+  'execCommandApproval',
+  'item/commandExecution/requestApproval',
+  'item/fileChange/requestApproval',
+  'item/permissions/requestApproval',
+  'item/tool/call',
+  'item/tool/requestUserInput',
+  'mcpServer/elicitation/request',
+]);
+
+/**
+ * THE FOUR THAT ARE REFUSED ON PURPOSE, each with the reason in its own words.
+ *
+ * They used to share one anonymous error with the approvals, which is how
+ * nobody noticed they existed. All four ask the CLIENT to do something rather
+ * than asking a person to decide something, and there is no answer here to
+ * invent for any of them.
+ */
+const CANNOT_SERVE = new Map([
+  ['item/tool/call', `it asks this app to run a tool of its own, and ${Name} offers the model no such tool`],
+  ['account/chatgptAuthTokens/refresh', `it asks this app to mint a fresh ChatGPT login token, which ${Name} does not hold and must not forge`],
+  ['attestation/generate', `it asks this app to sign an attestation, which ${Name} cannot produce`],
+  // THE ONE THAT IS A QUESTION FOR A PERSON, and the one worth coming back to.
+  // Its answer is a map of question id to typed answers
+  // (`ToolRequestUserInputResponse`), Agentbox has no form to put on screen, and a
+  // question may be flagged `isSecret` -- so an invented answer would be worse
+  // than a no. Pointing the model at its reply is the road that does reach her.
+  ['item/tool/requestUserInput', `it asks a question that needs a typed answer and ${Name} has no way to put that question on screen; ask it in your reply instead, where she will read it`],
 ]);
 
 const REFUSAL_ERROR = Object.freeze({
   code: -32001,
   message: `${Name} did not approve this request. Continue with what you are already allowed to do, and leave the rest for the founder to look at.`,
+});
+
+/** A refusal that names what was asked, so it is one somebody can act on. */
+const cannotServe = (method, why) => Object.freeze({
+  code: -32001,
+  message: `${Name} cannot answer ${method}: ${why}.`,
 });
 
 const plain = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -303,6 +382,12 @@ export function createCodexAppServer({
   spawn = null,
   clientInfo = CLIENT_INFO,
   onNotification = null,
+  // A SERVER REQUEST THIS FILE HAS NEVER HEARD OF (w-36c51443df). Six known
+  // methods once shared one anonymous refusal, so a NEW one would have been
+  // indistinguishable from them and from nothing at all. Handed up rather than
+  // logged here, because what to do with it -- a line on the row, a report --
+  // belongs to the caller.
+  onUnknownRequest = null,
   approvalTimeoutMs = APPROVAL_TIMEOUT_MS,
   requestTimeoutMs = REQUEST_TIMEOUT_MS,
   maxFrameLength = MAX_FRAME_LENGTH,
@@ -493,8 +578,23 @@ export function createCodexAppServer({
     if (openCards.has(msg.id)) {
       return fail('protocol', { note: `codex app-server raised a second request on id ${msg.id} while the first was still open, and one answer cannot settle two` });
     }
+    // THREE ROADS NOW, AND A REQUEST TAKES ONE OF THEM BY DECISION (w-36c51443df).
+    //
+    // There used to be two: a card, or one anonymous error for everything else.
+    // Six of the ten requests the schema allows took the second, with nothing
+    // anywhere naming which -- so the only way to learn that
+    // `account/chatgptAuthTokens/refresh` was being refused was to read the
+    // schema by hand. Now a refusal says what it refused, and a method in
+    // neither table is REPORTED, because a new one arriving in silence is how
+    // this lasted.
+    const cannot = CANNOT_SERVE.get(msg.method);
+    if (cannot) return write({ jsonrpc: '2.0', id: msg.id, error: cannotServe(msg.method, cannot) });
+
     const shape = APPROVAL_SHAPE.get(msg.method);
-    if (!shape) return write({ jsonrpc: '2.0', id: msg.id, error: { ...REFUSAL_ERROR } });
+    if (!shape) {
+      call(() => onUnknownRequest?.(msg.method, msg.params));
+      return write({ jsonrpc: '2.0', id: msg.id, error: cannotServe(msg.method, `${Name} does not recognise this request, so it is refused rather than guessed at`) });
+    }
 
     const id = threadOf(msg.params);
     const handler = id === null ? null : threads.get(id)?.onApproval;
@@ -540,6 +640,10 @@ export function createCodexAppServer({
   const refusal = (shape) => {
     if (shape === 'decision') return { result: { decision: REFUSAL_DECISION } };
     if (shape === 'elicitation') return { result: { action: REFUSAL_DECISION } };
+    // v1 SAYS NO WITH AN OBJECT, NOT A WORD. `decline` is not in its
+    // vocabulary at all, so a timed-out or unowned legacy card answered in our
+    // own word would be a protocol error on a question the server is waiting on.
+    if (shape === 'legacy') return { result: { decision: LEGACY_DECISIONS.decline } };
     return { error: { ...REFUSAL_ERROR } };
   };
 
@@ -563,6 +667,13 @@ export function createCodexAppServer({
     }
     if (shape === 'elicitation') {
       return ELICITATION_ACTIONS.includes(answered) ? { result: { action: answered } } : null;
+    }
+    if (shape === 'legacy') {
+      // Our word in, Codex's older word out. A word that is not one of our four
+      // answers null, which lands on the deny-by-default rule exactly as it
+      // does for every other shape.
+      const said = Object.hasOwn(LEGACY_DECISIONS, answered) ? LEGACY_DECISIONS[answered] : null;
+      return said ? { result: { decision: said } } : null;
     }
     const grant = grantFrom(answered);
     return grant ? { result: grant } : null;

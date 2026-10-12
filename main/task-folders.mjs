@@ -96,6 +96,55 @@ function tryGit(cwd, args) {
   catch (error) { return { ok: false, out: String(error?.stderr ?? error?.message ?? '').trim() }; }
 }
 
+/**
+ * DOES THIS FAILED `worktree add` MEAN SOMEBODY ELSE IS MAKING THE FOLDER?
+ *
+ * Git's own two wordings for "something is already at that path", measured on
+ * git 2.39.5 on 2026-10-09:
+ *
+ *   fatal: '<staging>' already exists
+ *   fatal: '<staging>' is already registered
+ *
+ * THE NARROWNESS IS THE POINT. Everything else `worktree add` can fail with --
+ * a full disk, an invalid ref, a branch collision -- is a real failure with a
+ * different answer, and reporting one of those as "another session has this"
+ * would send whoever reads the row hunting for a session that does not exist.
+ * So this matches the path words and nothing else, and the tests that matter
+ * are the ones asserting it says NO.
+ *
+ * A branch collision is deliberately not matched: `a branch named ... already
+ * exists` has its own road a few lines above (ask again, then attach), and that
+ * road is the 2026-10-07 fix which must not be routed around.
+ */
+export function somebodyIsBuilding(out) {
+  const said = String(out ?? '');
+  if (!said) return false;
+  // A BRANCH THAT ALREADY EXISTS IS NOT A FOLDER THAT ALREADY EXISTS, and it
+  // shares the words. It has its own road a few lines above `addOwned`'s caller
+  // -- ask again, then attach -- and that road is the 2026-10-07 fix, so routing
+  // around it would hand a session the shared checkout. Checked first, because
+  // the phrase it carries would otherwise match the clause below it.
+  if (/a branch named/i.test(said)) return false;
+  return /already exists/i.test(said)
+    || /already registered/i.test(said)
+    // THE OTHER TWO WORDINGS, BOTH ABOUT THE BRANCH BEING TAKEN rather than the
+    // path. They turn up in the same race: the winner's `worktree add -b` has
+    // checked the branch out into its staging copy, so the loser's attach is
+    // refused with one of these instead. Caught 2026-10-09 by running the
+    // six-process race five times -- `already exists` appeared on most runs and
+    // `is already checked out at` on one, which is why this is a list and not
+    // the one phrase the first measurement happened to show.
+    //
+    // Said plainly: if the branch is checked out in a FINISHED task folder
+    // rather than a staging one, "building" is a shade off -- somebody has it,
+    // but they are not mid-build. The earlier `fs.existsSync(folder)` check
+    // catches that case, and either way "another session has this folder" is
+    // the true and useful half; a git fatal naming a dot-prefixed path is
+    // neither.
+    || /already used by worktree/i.test(said)
+    || /already checked out/i.test(said);
+}
+
 /** `safeTaskName`'s question, asked of a folder already on the disk without throwing. */
 const couldBeATaskName = (name) => SAFE_NAME.test(name) && String(name).length <= 64;
 
@@ -344,7 +393,23 @@ export function ensureTaskFolder(dir, id, { pid = process.pid, dependencies = tr
     const add = hasBranch()
       ? addOwned(root, staging, [staging, branch], pid)
       : addOwned(root, staging, ['-b', branch, staging, baseRef(root)], pid);
-    if (!add.ok) throw Error(`Could not make a folder for ${name}: ${add.out}`);
+    if (!add.ok) {
+      // SOMEBODY GOT HERE FIRST, AND THAT IS A REFUSAL RATHER THAN A FAILURE
+      // (w-36c51443df). `clearUnfinished` above answers `building` only when
+      // staging is already REGISTERED AND LOCKED, and the window this lands in
+      // is narrower than that: between its "nothing there" and this add, another
+      // process created the directory. Measured 2026-10-09, six processes on one
+      // id: one won and five threw `fatal: '<staging>' already exists`, so the
+      // documented `building` reason could not fire in the one case it was
+      // written for.
+      //
+      // The row waited either way -- `_couldNotGetAFolder` sees the throw and
+      // says so in plain words -- so this is about what she reads, not about
+      // safety. "Another session is building this folder" is both true and
+      // something to act on; a git fatal about a dot-prefixed path is neither.
+      if (somebodyIsBuilding(add.out)) return refused({ reason: 'building', heldBy: null });
+      throw Error(`Could not make a folder for ${name}: ${add.out}`);
+    }
   }
 
   // AND THE LOCAL FILES THE REPOSITORY ASKS FOR, THE SAME WAY WHICHEVER PATH RAN.

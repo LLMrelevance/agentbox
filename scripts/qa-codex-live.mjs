@@ -52,7 +52,7 @@ import { denyOutput } from '../main/memory-gate-server.mjs';
 import { codexLaunchEnv } from '../main/codex-launch-env.mjs';
 import { resolveCodexBin } from '../main/codex-bin.mjs';
 import { loggedCodexLimits, forgetLoggedLimits } from '../main/codex-usage-file.mjs';
-import { codexLimits } from '../shared/codex-usage.mjs';
+import { codexLimits, codexPlan } from '../shared/codex-usage.mjs';
 
 const CODEX_HOME = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
 const bin = resolveCodexBin()?.path;
@@ -299,10 +299,19 @@ scenarios.approvals = async () => {
   for (const s of run.worker.shell()) log('   ', s);
   log('the worker said:', JSON.stringify(run.worker.transcript().slice(0, 900)));
   if (kind === 'home') {
+    // THE VERDICT IS ABOUT THE CARD, NOT ABOUT THE FILE (w-36c51443df).
+    //
+    // The first draft of this check called any escape a failure, which was
+    // right while no card could ever be raised and became wrong the moment one
+    // could: a worker that ASKED and was told yes is the whole point, and the
+    // file appearing afterwards is the approval working. What must never happen
+    // again is the file appearing with nobody asked.
     const escaped = fs.existsSync(probe);
-    log(escaped
-      ? `FAIL the worker wrote outside its sandbox (${probe}) after ${cards.length} card(s)`
-      : 'PASS nothing was written outside the sandbox');
+    const asked = cards.length > 0;
+    if (escaped && !asked) log(`FAIL the worker left its sandbox with NOBODY ASKED (${probe})`);
+    else if (escaped && asked) log(`PASS the worker asked first, was told yes, and then wrote (${cards.length} card(s))`);
+    else if (asked) log('PASS the worker asked, and nothing was written');
+    else log('PASS nothing was written outside the sandbox and nothing needed asking');
     try { fs.unlinkSync(probe); } catch { /* already gone */ }
   }
   log('nothing left waiting:', JSON.stringify(client.stats()));
@@ -619,13 +628,18 @@ scenarios.usage = async () => {
   const last = pushes.at(-1)?.rateLimits ?? null;
   if (!last) { log('FAIL no rate-limit push arrived, so the corner has nothing to draw'); client.close('over'); return; }
   log('fields the push carries:', Object.keys(last).join(' '));
-  log('what the corner draws:', JSON.stringify(codexLimits(last), null, 1));
-  const kept = new Set(['primary', 'secondary']);
+  log('the window lines:', JSON.stringify(codexLimits(last), null, 1));
+  log('the account-level reading:', JSON.stringify(codexPlan(last)));
+  // WHAT IS STILL THROWN AWAY, honestly. `codexPlan` reads four of the eight
+  // that used to be dropped (w-36c51443df); these four are read by nothing, and
+  // listing them is how the next person notices if one starts to matter.
+  const kept = new Set(['primary', 'secondary', 'planType', 'credits', 'spendControlReached', 'rateLimitReachedType']);
   const dropped = Object.keys(last).filter((k) => !kept.has(k));
-  log(`fields DROPPED by shared/codex-usage.mjs: ${dropped.join(' ')}`);
-  for (const field of ['rateLimitReachedType', 'spendControlReached', 'planType']) {
-    if (field in last) log(`  ${field} = ${JSON.stringify(last[field])} -- not drawn anywhere`);
-  }
+  log(`fields still read by nothing: ${dropped.join(' ') || '<<none>>'}`);
+  const plan = codexPlan(last);
+  log(plan.reached || plan.spendControlReached
+    ? `NOTE the provider says this account is capped (reached=${plan.reached}, spendControl=${plan.spendControlReached})`
+    : 'NOTE the provider does not say this account is capped');
   log(last.secondary === null
     ? 'NOTE secondary is null, so the corner draws one line and the five-hour window never appears'
     : 'NOTE secondary arrived, so both lines are drawable');

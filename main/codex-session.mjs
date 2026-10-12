@@ -64,7 +64,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Name } from '../shared/product-name.mjs';
-import { codexPosture } from '../shared/codex-modes.mjs';
+import { codexPosture, codexReviewer } from '../shared/codex-modes.mjs';
 
 /**
  * WHAT A WORKER THREAD IS ALLOWED TO DO. The sandbox is the wall; the approval
@@ -113,6 +113,25 @@ import { codexPosture } from '../shared/codex-modes.mjs';
  * rather than implied: the escape probe TOLD the model not to work around a
  * refusal, so its zero cards prove the sandbox refuses by default, not that
  * `on-request` never asks for escalation.
+ *
+ * AND THAT CAVEAT WAS THE WHOLE HOLE. It was right to write down and it was
+ * never followed up, so for a slice the file read as though `on-request` could
+ * not escape at all. Re-measured 2026-10-09 on codex-cli 0.160.0 with a probe
+ * that told the model the OPPOSITE -- ask for escalation, do not give up:
+ *
+ *     on-request, no reviewer named   0 cards, AND EVERYTHING ESCAPED. The
+ *                                     write landed in the home directory and
+ *                                     all three curls returned 0.
+ *     the same, approvalsReviewer     1 card per escalation, reason "The
+ *     'user'                          sandbox blocked this write outside the
+ *                                     workspace. Do you approve..."
+ *
+ * The sandbox still refuses first, exactly as the 0.148.0 probe found. What the
+ * old probe never reached is what happens NEXT: the model asks, and with no
+ * reviewer named the ask was answered by Codex's own subagent out of a
+ * top-level `approvals_reviewer` in her Codex home. See `workerThreadParams`,
+ * which now names the reviewer on every start, and
+ * `scripts/qa-codex-live.mjs approvals` for both runs.
  *
  * THE PATCH IS STILL CARDED WHERE IT MATTERS and that machinery is untouched:
  * `FileChangeRequestApprovalParams` carries no path and no diff, so
@@ -334,7 +353,7 @@ const plainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
  * result -- see `sayUnasked` below -- so a flag that stops working is a line on
  * the run rather than a silence.
  */
-export function workerThreadParams({ cwd, model = null, instructions = null, mcpServers = [], storeServer = null, mode = null } = {}) {
+export function workerThreadParams({ cwd, model = null, instructions = null, mcpServers = [], storeServer = null, mode = null, reviewer = null } = {}) {
   // THE MODE SHE PICKED, OR THE PAIR OF CONSTANTS. `mode` is one of the three in
   // shared/codex-modes.mjs, and it decides BOTH the sandbox and the approval
   // policy, because on this engine those two are one choice rather than two
@@ -342,14 +361,32 @@ export function workerThreadParams({ cwd, model = null, instructions = null, mcp
   // what every caller did before there was a picker, so a caller that has not
   // been updated keeps the behaviour it had.
   const posture = mode
-    ? codexPosture(mode)
-    : { approvalPolicy: WORKER_APPROVAL_POLICY, sandbox: WORKER_SANDBOX };
+    ? codexPosture(mode, { reviewer })
+    : { approvalPolicy: WORKER_APPROVAL_POLICY, sandbox: WORKER_SANDBOX, approvalsReviewer: codexReviewer(reviewer) };
   const params = {
     cwd,
     ephemeral: false,
     approvalPolicy: posture.approvalPolicy,
     sandbox: posture.sandbox,
-    ...(posture.approvalsReviewer ? { approvalsReviewer: posture.approvalsReviewer } : {}),
+    // ALWAYS SENT, NEVER CONDITIONAL, AND THAT IS THE FIX (w-36c51443df).
+    //
+    // It used to be omitted whenever the posture named nobody, which was the
+    // default posture and two of the three modes. An omitted field is not a
+    // neutral one: Codex then reads `approvals_reviewer` from the top level of
+    // whichever CODEX_HOME bills the run, and on the Mac this was found on that
+    // key said `auto_review`. Measured 2026-10-09 against a real app-server on
+    // codex-cli 0.160.0: a worker asked to write outside its workspace had the
+    // escalation approved by Codex's own subagent, wrote into the home
+    // directory, reached three external sites, and raised ZERO cards -- the
+    // wire carried no server request at all. `scripts/qa-codex-live.mjs
+    // approvals default home` is that run; add `user` as a third argument to
+    // see the card the omission was suppressing.
+    //
+    // So the isolation here was three claims where it needed to be four. It
+    // overrode `mcp_servers`, `projects` and `features` -- all of them about
+    // what a worker can REACH -- and left the one about who decides whether it
+    // may leave its sandbox to a file this app never opens.
+    approvalsReviewer: posture.approvalsReviewer,
     config: {
       mcp_servers: mcpIsolation(mcpServers, storeServer),
       projects: projectIsolation(cwd),

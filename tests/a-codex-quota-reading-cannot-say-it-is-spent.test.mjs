@@ -1,8 +1,8 @@
-// THE PANEL CANNOT SAY "YOU ARE OUT", BECAUSE THE FIELD THAT SAYS SO IS DROPPED
-// (w-36c51443df).
+// THE PANEL COULD NOT SAY "YOU ARE OUT", BECAUSE THE FIELD THAT SAYS SO WAS
+// DROPPED (w-36c51443df).
 //
 // MEASURED 2026-10-09 on codex-cli 0.160.0. A real `codex app-server` on her
-// own `~/.codex`, one real turn, and the `account/rateLimits/updated` push
+// own Codex home, one real turn, and the `account/rateLimits/updated` push
 // caught at `onNotification` -- the one channel main/codex-usage.mjs draws the
 // corner from. Repeat with `node scripts/qa-codex-live.mjs usage`.
 //
@@ -17,24 +17,25 @@
 //       "planType": "prolite",
 //       "rateLimitReachedType": null } }
 //
-// `shared/codex-usage.mjs` reads `primary` and `secondary`. The other eight
-// fields are thrown away, and two of them are the only things in the payload
-// that could ever say the limit has been REACHED rather than merely be a
-// percentage near a hundred. `planType` is the plan, which the corner has no
-// way to name. `credits` says she is carrying a balance of "0", so there is
-// nothing behind the weekly window when it goes.
+// `codexLimits` read `primary` and `secondary`. The other eight fields were
+// thrown away, and two of them -- `rateLimitReachedType` and
+// `spendControlReached` -- are the only things in the payload that can ever say
+// the limit has been REACHED rather than merely be a percentage near a hundred.
+// A payload differing ONLY in those two produced an identical reading, so there
+// was no state the corner could enter that meant "spent".
 //
-// AND A PERCENTAGE CANNOT STAND IN FOR IT, which is the point of the rounding
-// test below: 99.6% draws as "100%", so "100%" does not mean spent and nothing
-// means spent.
+// And a percentage could not stand in for it: the reading rounded, so 99.6%
+// drew as "100%". "100%" did not mean spent and nothing did.
 //
-// These are TRIPWIRES. They pin what is read and what is dropped, so that the
-// moment somebody widens the reader this file fails and says what the widening
-// was for. The fix is filed rather than taken here.
+// THE FIX IS TWO THINGS AND THEY ARE SEPARATE. `codexLimits` now marks the
+// window the provider says is exhausted, and `codexPlan` reads the
+// account-level facts the panel had no way to name. The rounding no longer
+// manufactures a hundred: a window is only drawn at 100 when it really is
+// finished.
 import { describe, expect, it } from 'vitest';
-import { codexLimits, mergeRateLimits, windowSpan } from '../shared/codex-usage.mjs';
+import { codexLimits, codexPlan, mergeRateLimits, windowSpan } from '../shared/codex-usage.mjs';
 
-/** The payload above, verbatim, as the live push delivered it. */
+/** The push above, verbatim, as it arrived. */
 const MEASURED = Object.freeze({
   limitId: 'codex',
   limitName: null,
@@ -48,13 +49,14 @@ const MEASURED = Object.freeze({
   rateLimitReachedType: null,
 });
 
-describe('what the corner is given, out of what arrived', () => {
+describe('the window lines, out of what arrived', () => {
   it('draws the weekly window the push really carried', () => {
     expect(codexLimits(MEASURED)).toEqual([{
       span: 'week',
       qualifier: null,
       name: 'This week',
       percent: 49,
+      reached: false,
       resetsText: null,
       resetsOn: null,
       resetsAt: 1792001987000,
@@ -64,59 +66,77 @@ describe('what the corner is given, out of what arrived', () => {
 
   it('draws one line and not two, because the five-hour window is never sent', () => {
     // `secondary: null` on every record of hers on disk and on every live push
-    // caught. Not a bug in this file -- a fact about this plan -- but it means
-    // the corner's second line is dead code on this account.
+    // caught. Not a defect -- a fact about this plan -- but it means the
+    // corner's second line is dead on this account.
     expect(MEASURED.secondary).toBeNull();
     expect(codexLimits(MEASURED)).toHaveLength(1);
-    expect(codexLimits(MEASURED)[0].span).toBe('week');
     expect(windowSpan(10080)).toEqual(['week', 'This week']);
   });
 
-  it('keeps nothing that could say the limit has been reached', () => {
-    // THE DEFECT, PINNED. Every window in the reading is a span and a
-    // percentage; there is no field for "spent", because the two the provider
-    // sends for it never arrive here.
-    const drawn = codexLimits(MEASURED);
-    const fields = Object.keys(drawn[0]).sort();
-    expect(fields).toEqual(['name', 'percent', 'qualifier', 'resetsAt', 'resetsOn', 'resetsText', 'span', 'zone']);
-    expect(fields).not.toContain('reached');
-    expect(fields).not.toContain('plan');
-    expect(fields).not.toContain('credits');
+  it('marks the window the provider says is exhausted, and only that one', () => {
+    // `rateLimitReachedType` NAMES the window, so it lands on that window's own
+    // line rather than on the reading as a whole.
+    const both = {
+      primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: 1 },
+      secondary: { usedPercent: 40, windowDurationMins: 10080, resetsAt: 2 },
+      rateLimitReachedType: 'primary',
+    };
+    const [session, week] = codexLimits(both);
+    expect(session.span).toBe('session');
+    expect(session.reached).toBe(true);
+    expect(week.span).toBe('week');
+    expect(week.reached).toBe(false);
   });
 
-  it('cannot name her plan, though the push did', () => {
-    expect(MEASURED.planType).toBe('prolite');
-    const drawn = JSON.stringify(codexLimits(MEASURED));
-    expect(drawn).not.toContain('prolite');
+  it('no longer draws the same line whether or not the limit was reached', () => {
+    // The whole of the old consequence, now inverted into a guard: a payload
+    // differing ONLY in the reached field must differ in the reading.
+    const spent = { ...MEASURED, rateLimitReachedType: 'primary' };
+    expect(codexLimits(spent)).not.toEqual(codexLimits(MEASURED));
+    expect(codexLimits(spent)[0].reached).toBe(true);
   });
 
-  it('cannot say there are no credits behind the window, though the push did', () => {
-    expect(MEASURED.credits).toEqual({ hasCredits: false, unlimited: false, balance: '0' });
-    const drawn = JSON.stringify(codexLimits(MEASURED));
-    expect(drawn).not.toContain('credits');
-    expect(drawn).not.toContain('balance');
+  it('believes the provider over the percentage, in both directions', () => {
+    // A window can be refused below a hundred (a spend control, a per-account
+    // limit), and a window at a hundred may still be serving. The provider's
+    // word is the authority either way; the percentage is only a picture.
+    const lowButDone = { primary: { usedPercent: 12, windowDurationMins: 10080, resetsAt: 1 }, rateLimitReachedType: 'primary' };
+    expect(codexLimits(lowButDone)[0]).toMatchObject({ percent: 12, reached: true });
+    const fullButFine = { primary: { usedPercent: 100, windowDurationMins: 10080, resetsAt: 1 } };
+    expect(codexLimits(fullButFine)[0]).toMatchObject({ percent: 100, reached: false });
   });
 
-  it('would draw the very same line if the provider said the limit was reached', () => {
-    // The whole of the consequence in one assertion: a payload that differs
-    // ONLY in the two fields that mean "you are out" produces an identical
-    // reading. There is no state the corner can enter that says so.
-    const spent = { ...MEASURED, rateLimitReachedType: 'primary', spendControlReached: true };
-    expect(codexLimits(spent)).toEqual(codexLimits(MEASURED));
+  it('ignores a reached field naming a window that is not in the payload', () => {
+    const odd = { ...MEASURED, rateLimitReachedType: 'secondary' };
+    expect(codexLimits(odd)).toHaveLength(1);
+    expect(codexLimits(odd)[0].reached).toBe(false);
   });
 });
 
 describe('the percentage at the top of its range', () => {
-  const week = (used) => codexLimits({ primary: { used_percent: used, window_minutes: 10080, resets_at: 1792001987 } })[0].percent;
+  const week = (used, rest = {}) => codexLimits({ primary: { used_percent: used, window_minutes: 10080, resets_at: 1 }, ...rest })[0].percent;
 
-  it('says a hundred before a hundred is spent', () => {
-    // 99.6% of a weekly window still has work left in it, and the corner calls
-    // it 100%. So "100%" is not a reading anybody may act on, and the honest
-    // signal has to come from `rateLimitReachedType` instead.
+  it('does not say a hundred before a hundred is spent', () => {
+    // 99.6% of a weekly window still has work left in it, and the corner used
+    // to call that 100%. A figure that cannot be acted on is worse than a
+    // blunter one, so anything short of the whole thing draws at most 99.
     expect(week(99)).toBe(99);
     expect(week(99.4)).toBe(99);
-    expect(week(99.6)).toBe(100);
+    expect(week(99.6)).toBe(99);
+    expect(week(99.99)).toBe(99);
+  });
+
+  it('says a hundred only when it really is a hundred', () => {
     expect(week(100)).toBe(100);
+  });
+
+  it('leaves the figure alone when the provider refuses the window', () => {
+    // A window capped at 99.6% by a spend control really is at 99.6%, and
+    // writing 100 over it would invent usage nobody reported -- the same sin
+    // the rounding was. `reached` carries the "stop"; `percent` carries the
+    // spend, and the two never overwrite each other.
+    expect(week(99.6, { rateLimitReachedType: 'primary' })).toBe(99);
+    expect(week(12, { rateLimitReachedType: 'primary' })).toBe(12);
   });
 
   it('never draws a figure outside nought to a hundred', () => {
@@ -128,10 +148,41 @@ describe('the percentage at the top of its range', () => {
   });
 });
 
+describe('the account-level facts the corner had no way to name', () => {
+  it('reads the plan the push carried', () => {
+    expect(codexPlan(MEASURED)).toMatchObject({ plan: 'prolite' });
+  });
+
+  it('says there is nothing behind the window when the balance is nought', () => {
+    // She was carrying `balance: "0"` and `hasCredits: false`, so when the
+    // weekly window goes there is nothing to fall back on. The corner could not
+    // say that, and "100% used" reads very differently with and without it.
+    expect(codexPlan(MEASURED)).toMatchObject({ credits: false, unlimitedCredits: false });
+  });
+
+  it('reads credits and a spend control when they are there', () => {
+    const rich = {
+      ...MEASURED,
+      credits: { hasCredits: true, unlimited: false, balance: '2500' },
+      spendControlReached: true,
+    };
+    expect(codexPlan(rich)).toMatchObject({ credits: true, spendControlReached: true });
+  });
+
+  it('answers nulls rather than guesses when the push says nothing', () => {
+    // A plan nobody reported may never be drawn as a plan, for the same reason
+    // main/codex-usage.mjs refuses to draw an unread limit as a zero.
+    expect(codexPlan({})).toEqual({ plan: null, credits: null, unlimitedCredits: null, spendControlReached: null, reached: null });
+    expect(codexPlan(null)).toEqual({ plan: null, credits: null, unlimitedCredits: null, spendControlReached: null, reached: null });
+  });
+
+  it('carries which window was refused, for anything drawing the whole reading', () => {
+    expect(codexPlan({ ...MEASURED, rateLimitReachedType: 'primary' })).toMatchObject({ reached: 'primary' });
+  });
+});
+
 describe('a rolling update folds in rather than replacing', () => {
   it('keeps the week when a push carries only the shorter window', () => {
-    // Measured behaviour this campaign relied on: her weekly figure survived
-    // every push, and the pushes never carried a secondary at all.
     const first = mergeRateLimits(null, MEASURED);
     expect(first.primary.usedPercent).toBe(49);
     const onlyShort = mergeRateLimits(first, { secondary: { usedPercent: 3, windowDurationMins: 300, resetsAt: 1 } });
@@ -144,5 +195,16 @@ describe('a rolling update folds in rather than replacing', () => {
     const empty = mergeRateLimits(both, {});
     expect(empty.primary.usedPercent).toBe(49);
     expect(empty.secondary.usedPercent).toBe(3);
+  });
+
+  it('carries the account-level fields across a fold, so a cap is not forgotten', () => {
+    // THE FOLD HAS TO COVER THESE TOO. A push carrying only a window would
+    // otherwise drop a `rateLimitReachedType` that arrived a beat earlier, and
+    // the corner would go from "spent" back to a percentage for no reason --
+    // the same failure the window fold already exists to prevent.
+    const capped = mergeRateLimits(MEASURED, { ...MEASURED, rateLimitReachedType: 'primary', planType: 'prolite' });
+    const later = mergeRateLimits(capped, { primary: { usedPercent: 100, windowDurationMins: 10080, resetsAt: 1 } });
+    expect(codexPlan(later)).toMatchObject({ reached: 'primary', plan: 'prolite' });
+    expect(codexLimits(later)[0].reached).toBe(true);
   });
 });

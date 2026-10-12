@@ -6430,6 +6430,23 @@ export class Supervisor {
       // meter. The home goes with it because there is one app-server per login
       // and a reading belongs to the one that gave it.
       onNotification: (method, params) => this._codexUsage().saw(method, params, home),
+      // A REQUEST CODEX INVENTED SINCE WE LAST READ ITS SCHEMA (w-36c51443df).
+      //
+      // The transport refuses it, which is the right answer and is not in
+      // question. What was missing is anybody finding out: six known requests
+      // shared one anonymous refusal for a slice, and the only way to learn that
+      // `account/chatgptAuthTokens/refresh` was among them was to dump the
+      // schema by hand. A new method is a new Codex release changing what it
+      // expects of a client, which is worth one line rather than a silence.
+      //
+      // Once per method per app-server, for the reason `sayUnasked` gives: a
+      // line repeated on every beat is a line nobody reads.
+      onUnknownRequest: (method) => {
+        this._unknownCodexRequests ??= new Set();
+        if (this._unknownCodexRequests.has(method)) return;
+        this._unknownCodexRequests.add(method);
+        console.warn(`zero: codex app-server asked for "${method}", which this version of ${NAME} does not recognise, so it was refused. If Codex now needs it, main/codex-app-server.mjs is where it is decided.`);
+      },
     });
     const handshake = client.initialize();
     // The rejection is kept for the workers that chain off it and ALSO swallowed
