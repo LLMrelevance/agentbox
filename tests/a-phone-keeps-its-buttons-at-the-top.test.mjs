@@ -122,7 +122,8 @@ describe('on a phone, the Superhuman way', () => {
     const bar = bodiesFor('.list-pane > .th-bar');
     expect(bar).toMatch(/position:\s*fixed/);
     expect(bar).toMatch(/bottom:\s*0/);
-    expect(bar).toMatch(/background:\s*var\(--bg\)/);
+    // Solid: whatever wash it wears is laid over the base colour.
+    expect(bar).toMatch(/background:[^;]*,\s*var\(--bg\)/);
     const tab = bodiesFor('.tm-tab');
     expect(tab).toMatch(/text-transform:\s*none/);
     expect(tab).toMatch(/font-family:\s*inherit/);

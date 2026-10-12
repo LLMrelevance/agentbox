@@ -147,7 +147,7 @@ export function deviceName(ua = '') {
  *           dist?: string, port?: number, onChange?: () => void,
  *           interfaces?: () => object, log?: { warn?: Function } }} options
  */
-export function createPhoneLink({ file, channels, listeners, dist, port = PHONE_PORT, onChange = () => {}, interfaces = () => os.networkInterfaces(), log = console, tailscale = tailscaleCli(), warm = (url) => fetch(url).catch(() => {}), send = (sub, body, opts) => webpush.sendNotification(sub, body, opts), atDesk = () => false, coalesceMs = COALESCE_MS }) {
+export function createPhoneLink({ file, channels, listeners, dist, files = null, port = PHONE_PORT, onChange = () => {}, interfaces = () => os.networkInterfaces(), log = console, tailscale = tailscaleCli(), warm = (url) => fetch(url).catch(() => {}), send = (sub, body, opts) => webpush.sendNotification(sub, body, opts), atDesk = () => false, coalesceMs = COALESCE_MS }) {
   let saved = read(file);
   let server = null;
   let error = null;
@@ -165,7 +165,7 @@ export function createPhoneLink({ file, channels, listeners, dist, port = PHONE_
   let timer = null;
   let spoke = false;
   let spokeAsk = false;
-  const inner = createHandler({ channels, token: key, listeners, dist });
+  const inner = createHandler({ channels, token: key, listeners, dist, files });
 
   function save() {
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -210,8 +210,11 @@ export function createPhoneLink({ file, channels, listeners, dist, port = PHONE_
         start_url: `/?token=${encodeURIComponent(given)}`,
         scope: '/',
         display: 'standalone',
-        background_color: '#16161a',
-        theme_color: '#16161a',
+        // The app's own warm dark. A cool grey here was what Safari painted
+        // above and below a warm page (2026-10-11); the page sets the exact
+        // colour of its look once it has drawn (renderer/src/phone-screen.ts).
+        background_color: '#1e1b1a',
+        theme_color: '#1e1b1a',
         icons: [{ src: '/phone-icon.png', sizes: '512x512', type: 'image/png', purpose: 'any' }],
       }));
       return;
