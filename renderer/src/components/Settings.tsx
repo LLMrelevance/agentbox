@@ -33,7 +33,7 @@ import { updateLook } from '../update-row';
 import { InstructionSettings, sizeLabel } from './InstructionSettings';
 import { EVERY } from '../instruction-scope';
 import type {Usage, WorkspaceSettings} from '../types';
-import { limitRows } from '../../../shared/usage.mjs';
+import { limitRows, USAGE_UNREADABLE } from '../../../shared/usage.mjs';
 import { LOOKS, lookMeans, SKINS, TUNE_DEFAULT, TUNE_LIMITS, type Look, type SkinId, type SkinTune } from '../skins';
 import { readySkin } from '../look-switch';
 import { MatchMark } from './MatchMark';
@@ -335,9 +335,9 @@ type Agent = ReturnType<typeof agentStory>;
 /**
  * THE METERS, one row each: the window's name, when it resets, and how much of
  *  it is spent. Same `usage-meter` markup the sidebar's usage corner draws. */
-function UsageRows({ reading, now }: { reading: Usage | null; now: number }) {
+function UsageRows({ reading, now, trouble = null }: { reading: Usage | null; now: number; trouble?: string | null }) {
   const rows = reading?.limits?.length ? limitRows(reading.limits, now) : [];
-  if (!rows.length) return <Row label="No usage reading yet" />;
+  if (!rows.length) return trouble ? null : <Row label="No usage reading yet" />;
   return (
     <>
       {rows.map((r) => (
@@ -352,6 +352,60 @@ function UsageRows({ reading, now }: { reading: Usage | null; now: number }) {
   );
 }
 
+export function usageCheckedAt(at: number | null | undefined, now: number): string {
+  if (at == null || !Number.isFinite(at)) return '';
+  const minutes = Math.max(0, Math.floor((now - at) / 60_000));
+  if (!minutes) return 'Checked just now';
+  if (minutes < 60) return `Checked ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`;
+  const hours = Math.floor(minutes / 60);
+  return `Checked ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+}
+
+/** A reading names its account; switching cannot reuse the old account's meter.
+ *
+ *  AN ACCOUNT THAT CANNOT RUN HAS NO USAGE TO READ, AND "TRY AGAIN" IS A LIE
+ *  ABOUT IT. One whose organization has Claude Code off prints no limits from
+ *  `/usage` at all (2026-10-11, Claude Code 2.1.293), so the box said "No usage
+ *  reading yet" and every Refresh "Could not refresh usage. Try again." The
+ *  account row already carried main's sentence for it; `trouble` is that
+ *  sentence, and it stands in for both. */
+export function ClaudeUsageSection({ reading, profile, email, now, trouble = null }: {
+  reading: Usage | null; profile: string; email?: string | null; now: number; trouble?: string | null;
+}) {
+  const [fresh, setFresh] = useState<Usage | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const waiting = useRef(false);
+  const selected = useRef(profile);
+  selected.current = profile;
+  const belongs = (r: Usage | null) => r && (r.profile ?? 'default') === profile ? r : null;
+  const incoming = belongs(reading), refreshed = belongs(fresh);
+  const current = refreshed && (!incoming || refreshed.at >= incoming.at) ? refreshed : incoming;
+  useEffect(() => { setFresh(null); setError(null); }, [profile]);
+  const refresh = async () => {
+    if (waiting.current) return;
+    waiting.current = true;
+    const account = profile;
+    setBusy(true); setError(null);
+    try {
+      const result = await api.refreshUsage();
+      if (selected.current !== account) return;
+      if (result.ok && result.reading && (result.reading.profile ?? 'default') === account) setFresh(result.reading);
+      else setError(result.error ?? 'The account changed. Refresh usage again.');
+    } catch { if (selected.current === account) setError(USAGE_UNREADABLE); }
+    finally { waiting.current = false; setBusy(false); }
+  };
+  return (
+    <Group id="usage" label="Usage" action={<button type="button" className="set-ghost" disabled={busy} onClick={() => void refresh()}>{busy ? 'Refreshing…' : 'Refresh'}</button>}>
+      <Row label={email || 'Claude Code'} desc={busy ? 'Checking usage…' : usageCheckedAt(current?.at, now) || undefined} />
+      <UsageRows reading={current} now={now} trouble={trouble ?? error} />
+      {trouble
+        ? <div className="set-row set-row-warn" role="alert">{trouble}</div>
+        : error && <div className="set-row set-row-warn" role="alert">{error}</div>}
+    </Group>
+  );
+}
+
 /**
  * THE ACCOUNTS, one row each.
  *
@@ -363,7 +417,7 @@ function UsageRows({ reading, now }: { reading: Usage | null; now: number }) {
  *  A TROUBLED ACCOUNT IS NOT SOMETHING TO PICK, IT IS SOMETHING TO FIX. It says
  *  what is wrong in main's own words and carries the command that puts it
  *  right (w-3da36a45e5). */
-function AccountRows({ agent, onChoose, onAdd }: {
+export function AccountRows({ agent, onChoose, onAdd }: {
   agent: Agent;
   onChoose: (engine: string, profile: string) => void;
   onAdd: (agent: Agent) => void;
@@ -389,7 +443,7 @@ function AccountRows({ agent, onChoose, onAdd }: {
                 {label}
                 {live && <span className="set-badge">In use</span>}
               </div>
-              <div className="set-row-desc">{a.plan ?? (a.signedIn ? 'Signed in' : 'Finish signing in to use it')}</div>
+              <div className="set-row-desc">{a.signedIn ? (a.plan ?? 'Signed in') : 'Finish signing in to use it'}</div>
             </div>
             {/* One account has nothing to choose between. */}
             {!live && accounts.length > 1 && (
@@ -455,9 +509,9 @@ function SettingsTerminal({ command, onFinished }: { command?: string; onFinishe
  *  "a lot of text under components, gets a bit ugly", so a group no longer
  *  takes one. Anything a row needs to say is in the row. A warning about the
  *  whole group is the card's first line, inside it. */
-const Group = ({ id, label, warn, children }: { id?: string; label?: string; warn?: string | null; children: React.ReactNode }) => (
+const Group = ({ id, label, warn, action, children }: { id?: string; label?: string; warn?: string | null; action?: ReactNode; children: React.ReactNode }) => (
   <div className="set-group" data-find={id}>
-    {label && <div className="set-group-label">{label}</div>}
+    {label && <div className={`set-group-label${action ? ' set-group-head' : ''}`}>{label}{action}</div>}
     <div className="set-plate">
       {warn && <div className="set-row set-row-warn" role="status">{warn}</div>}
       {children}
@@ -1331,6 +1385,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   const enginePage = (engine: 'claude' | 'codex') => {
     if (!w) return null;
     const agent = agentStory(w, usageReadings, engine);
+    const usageAccount = agent.accounts.find(a => a.chosen) ?? agent.accounts[0];
     const status = { found: agent.found, certain: agent.certain, bin: agent.bin, chosen: agent.chosen, url: agent.url, trouble: agent.trouble, onChecked: load };
     return (
       <Page title={agent.name}>
@@ -1343,9 +1398,11 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
           && (engine === 'codex' ? <CodexCli {...status} /> : <ClaudeCode {...status} />)}
         {agent.found && (
           <>
-            <Group id="usage" label="Usage">
-              <UsageRows reading={agent.reading} now={now} />
-            </Group>
+            {engine === 'claude' ? (
+              <ClaudeUsageSection key={usageAccount?.profile ?? 'default'} reading={agent.reading} profile={usageAccount?.profile ?? 'default'} email={usageAccount?.email} trouble={usageAccount?.trouble ?? null} now={now} />
+            ) : (
+              <Group id="usage" label="Usage"><UsageRows reading={agent.reading} now={now} /></Group>
+            )}
             {/* "SIGNED IN", NOT "ACCOUNTS": a heading that works at any
                 number, so one account is never shown a plural to fill. */}
             <Group

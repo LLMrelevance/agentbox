@@ -4,7 +4,7 @@ import {updateFixture} from './agent-update-fixture';
 // bridge; fixtures mode (?fixtures=1) serves canned data so the UI can be
 // developed, reviewed, and screenshotted without a live store or any agents.
 
-import type { AgentConversation, AnswerMode, DemoOpened, FolderListing, FreshUser, PermissionMode, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, ThreadEditPatch, UpdateState, WorkItem } from './types';
+import type { AgentConversation, AnswerMode, DemoOpened, FolderListing, FreshUser, PermissionMode, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, ThreadEditPatch, UpdateState, Usage, WorkItem } from './types';
 import type { LedgerLine } from './thread-history';
 import type { AgentFile as AgentFileRow } from './onboarding';
 import type { AgentFolder, SessionThread } from './agent-import-card';
@@ -14,6 +14,7 @@ import { fixtureEngineWorld, fixtureEngineSettings, fixtureSecondEngine } from '
 import { fixtureFolders } from './fixtures';
 import { NAME, Name } from '../../shared/product-name.mjs';
 import { checkProjectFolder } from '../../shared/project-folder-check.mjs';
+import { USAGE_UNREADABLE } from '../../shared/usage.mjs';
 // THE SECOND FRONT DOOR, AND IT HAS TO BE BUILT BEFORE THE LINE BELOW RUNS.
 // `useFixtures` reads `window.zero` once, at module load, and on the desktop
 // preload.cjs has already put it there. In a browser tab nothing has, so this
@@ -114,6 +115,29 @@ const fixtureSettingsState: any = structuredClone(fixtureSettings);
 // she runs, which leaves the object exactly as ./fixtures wrote it.
 const engineSettings = fixtureEngineSettings(engineFixtures);
 if (engineSettings) Object.assign(fixtureSettingsState.workspace, structuredClone(engineSettings));
+// ?account=org-blocked or ?account=subscription-ended: the second account
+// picked as In use and unable to run, so the usage box that says why can be seen.
+const accountTroubleNotes: Record<string, string> = {
+  'org-blocked': 'Signed in, but its organization has turned Claude Code off. Only an admin of that workspace can turn it back on.',
+  'subscription-ended': 'Signed in, but its Claude subscription has ended. Renew it at claude.ai to use this account again.',
+};
+// ?account=unreadable: the second account in use with nothing known wrong, and
+// every Refresh coming back empty, for the sentence a cause we cannot name gets.
+const accountTrouble = params.get('account') ?? '';
+if (accountTrouble === 'unreadable') {
+  const [first, second] = fixtureSettingsState.workspace.accounts;
+  if (first) first.chosen = false;
+  if (second) second.chosen = true;
+}
+if (accountTroubleNotes[accountTrouble]) {
+  const [first, second] = fixtureSettingsState.workspace.accounts;
+  if (first) first.chosen = false;
+  if (second) Object.assign(second, {
+    chosen: true, live: false, state: accountTrouble,
+    trouble: { cause: accountTrouble, since: Date.now(), note: accountTroubleNotes[accountTrouble] },
+    ...(accountTrouble === 'subscription-ended' ? { plan: { label: 'Subscription ended', max: false } } : {}),
+  });
+}
 
 function fixtureWrite(scope: 'project' | 'workspace', p: any): Settings {
   const w = fixtureSettingsState.workspace;
@@ -198,6 +222,17 @@ export function updateShape(wanted: string): UpdateState {
 export const api = {
   isFixtures: useFixtures,
 
+  // IS A SCREEN READER RUNNING. Asked by the terminal pane before it builds an
+  // xterm, so the accessibility tree is built for the people it is for rather
+  // than for everybody (main/ipc.mjs 'zero:assistiveTech').
+  //
+  // Every failure is "no": fixtures, a preload from before this channel
+  // existed, or a refused call. A terminal that cannot ask the question still
+  // has to open, and this is awaited inside the effect that builds one.
+  async assistiveTech(): Promise<boolean> {
+    if (useFixtures) return false;
+    try { return !!(await window.zero?.assistiveTech?.()); } catch { return false; }
+  },
   async snapshot(): Promise<Snapshot> {
     if (emptyFixtures) {
       const empty = { ...structuredClone(fixtureSnapshot), items: [], approvals: [], supervisor: { paused: false, running: [], capacity: 3 } };
@@ -267,6 +302,17 @@ export const api = {
       return fixtureSecondEngine(base, engineFixtures);
     }
     return window.zero!.snapshot();
+  },
+
+  async refreshUsage(): Promise<{ ok: boolean; reading?: Usage; error?: string }> {
+    if (useFixtures) {
+      if (params.get('account') === 'unreadable') return { ok: false, error: USAGE_UNREADABLE };
+      const reading = fixtureSnapshot.usageByEngine?.find(r => r.engine === 'claude') ?? (fixtureSnapshot.usage?.engine === 'claude' ? fixtureSnapshot.usage : null);
+      return reading ? { ok: true, reading: { ...structuredClone(reading), profile: 'default', at: Date.now() } } : { ok: false, error: 'No usage reading yet.' };
+    }
+    if (!window.zero?.refreshUsage) return { ok: false, error: RESTART_NOTE };
+    try { return await window.zero.refreshUsage(); }
+    catch { return { ok: false, error: USAGE_UNREADABLE }; }
   },
 
   // THE NEXT PAGE OF FINISHED THREADS THE SNAPSHOT LEFT OUT (w-fda2165ec6),

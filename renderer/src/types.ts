@@ -330,6 +330,7 @@ export interface Usage {
   engine: string;
   limits: UsageLimit[];
   at: number;
+  profile?: string;
 }
 
 export interface SupervisorStatus {
@@ -405,8 +406,12 @@ export interface SupervisorStatus {
 // is an account that IS signed in and whose organization has Claude Code
 // turned off. It is apart from 'signed-out' because the remedy has a different
 // person in it: no login she can type will end it, and being told to type one
-// can cost an afternoon.
-export type TroubleCause = 'signed-out' | 'org-blocked' | 'at-limit' | 'workspace' | 'interrupted' | 'unknown';
+// can cost an afternoon. 'subscription-ended' is refused in the same words as
+// 'org-blocked', and told apart by the login's own file (refineCause in
+// shared/spawn-trouble.mjs): its owner renews it, no admin is involved.
+// 'model-not-on-plan' is a Codex login whose plan lacks the model the task asks
+// for; the fix is another model or another login, not this login.
+export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'unknown';
 
 // A worker frozen mid-action, waiting on the user's allow/deny.
 export interface Approval {
@@ -531,6 +536,8 @@ export interface AgentTurn {
 // others there were.
 export interface AgentWork {
   kind: 'work';
+  // Thread status is a separate event, never part of a group of tool calls.
+  standalone?: true;
   at: number;
   verb: string;
   subject: string;
@@ -1013,6 +1020,11 @@ declare global {
   interface Window {
     zero?: {
       snapshot(): Promise<Snapshot>;
+      refreshUsage?(): Promise<{ ok: boolean; reading?: Usage; error?: string }>;
+      // Whether a screen reader is running, which is what decides xterm's
+      // accessibility tree. Optional: a preload from before this channel
+      // existed has no such function, and `api.assistiveTech` reads that as no.
+      assistiveTech?(): Promise<boolean>;
       olderItems?(p: { offset: number; limit: number }): Promise<{ items: WorkItem[]; more: boolean }>;
       crash?(p: { name: string; message: string; stack: string }): Promise<unknown>;
       // A count. The name is checked against the approved list in the main
@@ -1022,7 +1034,7 @@ declare global {
       agentReveal(p: { pid: number }): Promise<{ ok: boolean; name?: string; reason?: string }>;
       agentConversation(p: { pid: number; sessionId: string | null; cwd: string }): Promise<AgentConversation>;
       dashboard(slug: string): Promise<any>;
-      terminal(p: {product:string;id:string;action:'open'|'read'|'write'|'resize'|'close';data?:string;cols?:number;rows?:number;offset?:number}): Promise<any>;
+      terminal(p: {product:string;id:string;action:'open'|'read'|'write'|'resize'|'close';data?:string;cols?:number;rows?:number;offset?:number;wait?:number}): Promise<any>;
       agentUpdate?(p:{engine:string;action:'check'|'recheck'|'start'|'status'|'refresh'}):Promise<any>;
       commandCatalog(p: {product: string; id: string}): Promise<string[]>;
       command(p: {product: string; id: string; text: string}): Promise<{state: string; at: number; text?: string; name?: string}>;

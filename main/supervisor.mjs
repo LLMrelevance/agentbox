@@ -1,15 +1,15 @@
-import { claudeActivity, codexActivity, currentActivity } from './agent-activity.mjs';
+import { currentActivity } from './agent-activity.mjs';
+import { harnessFor, supportsHarnessOperation } from './harnesses.mjs';
+import { streamingText, countHelpers, saidNothingSheCanUse } from './harnesses/claude-stream.mjs';
+export { streamingText, countHelpers, saidNothingSheCanUse } from './harnesses/claude-stream.mjs';
 import { taskRemoteControl } from './task-remote-control.mjs';
 import { taskFolderPath, real, restoreTaskFolder } from './task-folders.mjs';
 import { SHIP_LABEL, ShipQueue, readShipSettings, shipScriptFor } from './ship-queue.mjs';
 import { folderJob } from './task-folders-offthread.mjs';
 import { gitJob } from './git-change-offthread.mjs';
 import { queuedReplyText } from './live-replies.mjs';
-import { attachClaudeInput, claudeStreamArgs } from './claude-input.mjs';
-import { hookFailure } from '../shared/hook-failure.mjs';
 import { taskCommand } from './task-commands.mjs';
 import { providerCommand, reviewTarget, nativeCommandNames } from '../shared/provider-commands.mjs';
-import { compactCodexThread } from './codex-compaction.mjs';
 import {agentInstructionsUnified, readSystemTemplate, writeInstruction} from './instruction-settings.mjs';
 import {fillName} from '../shared/product-name.mjs';
 // The supervisor: deterministic, boring, and the only part of the app that talks
@@ -67,13 +67,14 @@ function whoHasIt(made) {
 }
 import { agentSpokeSince, answerSettled, answerTs, stoppedByHer } from '../shared/answers.mjs';
 import { DEFAULT_SESSIONS_AT_ONCE } from './config.mjs';
-import { linkAccountTooling, toolingLine } from './account-tooling.mjs';
+import { toolingLine } from './account-tooling.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
 import { writeChangeForRun, changePath } from './code-change.mjs';
 import { snapshotRepo, changeFromRepo } from './git-change.mjs';
 import { importedAgentBrief, importedAgentName } from '../shared/agent-import.mjs';
-import { troubleCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
+import { readPlan } from './claude-plan.mjs';
+import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
 import { readDeadRunTrace, traceShowsASilentDeath } from '../shared/dead-run-trace.mjs';
 import { commandPrompt } from '../shared/claude-commands.mjs';
 import { machineryPath, storeRootEnv } from './store/home.mjs';
@@ -99,19 +100,10 @@ import {
   availableEngines, isEngine, modelForEngine, homeEngine,
   ENGINE_CHOICE_ENABLED, DEFAULT_ENGINE, ENGINE_IDS,
 } from '../shared/engines.mjs';
-// SAYING_CAP LIVES THERE AND NOT HERE. It was a module-private const in this
-// file and a second copy in that one, because the slice that wrote the Codex
-// readers could not edit this file. Two engines capping the live sentence
-// differently would leave one of them sitting under its own traced copy on her
-// screen forever, so there is one number and this is the file that moved.
-import {
-  captureCodexEvent, changeFromCodexTurn, codexStreamingText, rememberCodexChange,
-  summarizeCodexEvent, traceCodexEvent, SAYING_CAP,
-} from './codex.mjs';
 import { createCodexAppServer } from './codex-app-server.mjs';
 import { codexLaunchEnv } from './codex-launch-env.mjs';
 import { CodexUsage } from './codex-usage.mjs';
-import { createCodexWorker, codexTranscriptFile, mcpServerNames, workerThreadParams } from './codex-session.mjs';
+import { createCodexWorker, mcpServerNames, workerThreadParams } from './codex-session.mjs';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
 import { createCodexApprovals } from './codex-approvals.mjs';
 import { approvalPublicKey } from './approvals.mjs';
@@ -321,7 +313,7 @@ export function storeGrantUnderAnyOfOurNames(args, storeServer = STORE_SERVER) {
 // engine, because of a name nobody recognises is worse than one that treats an
 // unknown name as the engine she is actually running.
 function engineOf(engine) {
-  return engine === 'codex' ? 'codex' : DEFAULT_ENGINE;
+  return isEngine(engine) ? engine : DEFAULT_ENGINE;
 }
 
 export class Supervisor {
@@ -379,6 +371,10 @@ export class Supervisor {
       // Persisted: an in-memory-only set re-spawned a continuation for every
       // still-open answered item on every app restart.
       this._handledAnswers = new Set(state.handledAnswers ?? []);
+      // Waits already picked back up, and when that rule first ran here
+      // (`resumeFinishedWaits`).
+      this._resumedWaits = new Set(state.resumedWaits ?? []);
+      this._waitsSince = Number.isFinite(state.waitsSince) ? state.waitsSince : Date.now();
       // A crash cannot run stop() to return replies whose workers were still
       // being prepared. Only these exact reply keys are owed again; a later
       // delivered reply on the same task keeps its own mark.
@@ -466,6 +462,8 @@ export class Supervisor {
       this.threadPlaces = Object.fromEntries(Object.entries(state.threadPlaces ?? {}).filter(([, v]) => Number.isFinite(v)));
     } catch {
       this._handledAnswers = new Set();
+      this._resumedWaits = new Set();
+      this._waitsSince = Date.now();
       this._heardAnswers = {};
       this._liveSessions = {};
       this._rowSessions = {};
@@ -824,6 +822,44 @@ export class Supervisor {
     out.missing = only.size;
     this._saveState();
     return out;
+  }
+
+  // A WAITING THREAD PICKS ITSELF BACK UP (w-5244c90c33). A thread an agent
+  // parked behind others (`blockedBy`) sits in Later, and when the last thread
+  // it names finishes, nothing used to put a worker back on it: a blocked row
+  // is invisible to every spawn pass, so it fell into Needs you for a person
+  // to restart by hand. Their words: "something that's waiting should be
+  // logically in the backlog and then it should automatically resume without
+  // the user needing to know otherwise."
+  //
+  // So it resumes once per finish, reopened and queued exactly like a resume
+  // by name. Only when every named thread is visible and done, the last of
+  // them finished after the wait was written AND after this rule first ran on
+  // this Mac (`_waitsSince`, so the waits that cleared long ago do not all
+  // start at once on the first tick), and never on a row she stopped.
+  // Anything this refuses stays where the lists put it, which is Needs you.
+  resumeFinishedWaits(items) {
+    const byId = new Map(items.map((i) => [`${i.product}:${i.id}`, i]));
+    const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
+    const me = process.env.AGENTBOX_PERSON_ID || null;
+    const resumed = [];
+    for (const item of items) {
+      if (item.status !== 'blocked' || !Array.isArray(item.blockedBy) || !item.blockedBy.length) continue;
+      if (this.sessions.has(item.id) || stoppedByHer(item)) continue;
+      const blockers = item.blockedBy.map((id) => byId.get(`${item.product}:${id}`));
+      if (blockers.some((b) => !b || b.status !== 'done')) continue;
+      const cleared = Math.max(...blockers.map((b) => b.wrote?.status?.ts ?? 0));
+      if (cleared <= (item.wrote?.blockedBy?.ts ?? 0) || cleared <= this._waitsSince) continue;
+      const key = `${item.product}:${item.id}:${cleared}`;
+      if (this._resumedWaits.has(key)) continue;
+      if (!mayRunHere(item, productBySlug.get(item.product), me)) continue;
+      this._resumedWaits.add(key);
+      this.store.answerItem(item.product, item.id, { status: 'open' });
+      this._resumeQueue.add(item.id);
+      resumed.push(item.id);
+    }
+    if (resumed.length) this._saveState();
+    return resumed;
   }
 
   // A resumed row spawns as a continuation when she has words on it that the
@@ -1476,24 +1512,7 @@ export class Supervisor {
     // login was searched for in the first and answered null -- and a null here
     // is `resumeStopped` writing the row off as a session that no longer
     // exists.
-    if (rec.engine === 'codex') {
-      return codexTranscriptFile(rec.sessionId, { home: this._codexProfileHome(rec.profile) });
-    }
-    const home = rec.profile && rec.profile !== 'default' ? rec.profile : path.join(os.homedir(), '.claude');
-    const projects = path.join(home, 'projects');
-    const slug = String(rec.cwd ?? '').replace(/[^a-zA-Z0-9]/g, '-');
-    const direct = path.join(projects, slug, `${rec.sessionId}.jsonl`);
-    if (fs.existsSync(direct)) return direct;
-    // The slug rule is the CLI's and it may change under us, so a miss is
-    // answered by looking rather than by writing off a session that is plainly
-    // sitting on disk.
-    try {
-      for (const dir of fs.readdirSync(projects)) {
-        const candidate = path.join(projects, dir, `${rec.sessionId}.jsonl`);
-        if (fs.existsSync(candidate)) return candidate;
-      }
-    } catch {}
-    return null;
+    return harnessFor(engineOf(rec.engine)).transcript(this, rec);
   }
 
   /* `rememberPersonalSession` and `personalSessionFor` were a pair here: one
@@ -2535,7 +2554,10 @@ export class Supervisor {
    */
   _onlyWeSpokeForAnAccount(item) {
     const seen = this._fruitless[`${item.product}:${item.id}`];
-    if (!seen?.saidTs || !(needsHerHands(seen.saidWhy) || seen.saidWhy === 'at-limit')) return false;
+    // A plan without the model counts only when another login has it, which
+    // is when `noteExitForBackoff` names the account (w-f1c00e679d).
+    const planWithout = seen?.saidWhy === 'model-not-on-plan' && !!seen.account;
+    if (!seen?.saidTs || !(needsHerHands(seen.saidWhy) || seen.saidWhy === 'at-limit' || planWithout)) return false;
     return (item.wrote?.result?.ts ?? 0) <= seen.saidTs;
   }
 
@@ -2716,6 +2738,7 @@ export class Supervisor {
         cause,
         runs,
         resetsAt,
+        elsewhere: session.accountFault?.cause === 'model-not-on-plan',
       });
       const written = this.store.recordSessionResult(item.product, item.id, { result, status: 'open' });
       // REMEMBER THAT WE SAID IT, keyed on the run we said it about. The pass
@@ -2849,10 +2872,9 @@ export class Supervisor {
    */
   async _askSmall(ask, { product = null } = {}) {
     const home = this._homeEngine();
-    const other = home === 'codex' ? DEFAULT_ENGINE : 'codex';
     const engines = this._projectProfile(product)
       ? [DEFAULT_ENGINE]
-      : [home, ...(this.engineChoices().some((e) => e.id === other) ? [other] : [])];
+      : [home, ...this.engineChoices().map(e => e.id).filter(id => id !== home)];
     for (const engine of engines) {
       for (const env of this._smallModelEnvs(engine, product)) {
         const answer = await ask({ claudeBin: this.config?.claudeBin, codexBin: this.config?.codexBin, engine, env });
@@ -2876,8 +2898,7 @@ export class Supervisor {
     const pinned = this._projectProfile(product, engine);
     const all = pinned ? [pinned] : this._profilesFor(engine);
     return [...all.filter((p) => !resting(p)), ...all.filter(resting)].map((p) => {
-      if (engine === 'codex') return { ...env, CODEX_HOME: this._codexProfileHome(p) };
-      return p === 'default' ? env : { ...env, CLAUDE_CONFIG_DIR: p };
+      return harnessFor(engine).profileEnv(env, p, this);
     });
   }
 
@@ -3212,7 +3233,7 @@ export class Supervisor {
   }
 
   _profilesFor(engine) {
-    const all = engineOf(engine) === 'codex' ? this._codexProfiles() : this._profiles();
+    const all = harnessFor(engineOf(engine)).profiles(this);
     return this._narrowToChosen(engine, all);
   }
 
@@ -3317,7 +3338,7 @@ export class Supervisor {
   // are: one shared counter would have a Codex spawn advance the rotation
   // across the Claude subscriptions, so a run of Codex tasks could leave
   // one of them doing all the Claude work.
-  _pickProfile(engine = DEFAULT_ENGINE) {
+  _pickProfile(engine = DEFAULT_ENGINE, { model = null } = {}) {
     const which = engineOf(engine);
     // SOMEWHERE HAS TO BE TRIED. `_liveProfilesFor` is allowed to answer
     // nothing now, which is the honest answer to "what could run" and no answer
@@ -3329,11 +3350,43 @@ export class Supervisor {
     // A CODEX ACCOUNT STILL BEING ADDED IS NOT WHERE WORK GOES. Add account
     // lists the new home before its sign-in finishes, and the round-robin
     // handed it the very first thread while the signed-in one sat idle.
-    const signedIn = which === 'codex' ? live.filter((p) => this._codexSignedIn(p)) : live;
-    const pool = signedIn.length ? signedIn : live.length ? live : ['default'];
+    const signedIn = live.filter(p => harnessFor(which).signedIn(this, p));
+    let pool = signedIn.length ? signedIn : live.length ? live : ['default'];
+    // AND NOT A LOGIN WHOSE PLAN LACKS THE MODEL (w-f1c00e679d). A weekend's
+    // sprint on gpt-6.1-sol was handed to a free-plan Codex login twice, died
+    // in two seconds both times, and the Pro login sat idle all weekend. When
+    // no login has it, the rotation stands and `codexModelRefusal` says why.
+    const able = pool.filter((p) => !this._planLacksModel(which, p, model));
+    if (able.length) pool = able;
     this._rr = this._rr ?? {};
     this._rr[which] = ((this._rr[which] ?? 0) + 1) % pool.length;
     return pool[this._rr[which]];
+  }
+
+  /**
+   * WHETHER ONE LOGIN'S PLAN IS KNOWN NOT TO INCLUDE A MODEL.
+   *
+   * Two facts say so: Codex refused that model on that login this session
+   * (`_modelRefused`, written by `noteExitForBackoff`), or the login's own model
+   * list, which Codex keeps per CODEX_HOME and fills from the plan, does not
+   * carry it. A login with no list cannot be judged and is not ruled out.
+   * Claude Code keeps no per-login list, so it is never ruled out here.
+   */
+  _planLacksModel(engine, profile, model) {
+    const word = typeof model === 'string' ? model.trim() : '';
+    if (!word || engineOf(engine) !== 'codex') return false;
+    if (this._modelRefused?.[this._accountKey('codex', profile)]?.includes(word)) return true;
+    const known = codexKnownSlugs({ home: this._codexProfileHome(profile) });
+    return known.size > 0 && !known.has(word);
+  }
+
+  // Another Codex login the pick could take that has the model: the same pool
+  // `_pickProfile` draws from, less the one that refused.
+  _codexLoginWithModel(model, except) {
+    const live = this._liveProfilesFor('codex');
+    const signedIn = live.filter((p) => this._codexSignedIn(p));
+    return (signedIn.length ? signedIn : live).some((p) => this._accountKey('codex', p) !== except
+      && !this._planLacksModel('codex', p, model));
   }
 
   /**
@@ -3350,7 +3403,7 @@ export class Supervisor {
    * second engine existed still names the account it always named.
    */
   _accountKey(engine, profile) {
-    return engineOf(engine) === 'codex' ? `codex:${profile}` : profile;
+    return harnessFor(engineOf(engine)).accountKey(profile);
   }
 
   // ACCOUNTS THAT CAN ACTUALLY RUN SOMETHING RIGHT NOW, and unlike
@@ -3379,7 +3432,10 @@ export class Supervisor {
   // time. A fact about one account now stays on that account.
   _noteProfileTrouble(profile, raw) {
     if (!profile) return 'unknown';
-    const cause = troubleCause(raw);
+    // An ended subscription is refused in an admin's words; the login's own
+    // file says which it is (refineCause). Codex keeps no such file.
+    const plan = profile.startsWith('codex:') ? null : readPlan(profile, { home: this.config.home || os.homedir() });
+    const cause = refineCause(troubleCause(raw), plan);
     this._profileTrouble = this._profileTrouble ?? {};
     const had = this._profileTrouble[profile];
     this._profileTrouble[profile] = { since: had?.since ?? Date.now(), at: Date.now(), cause, raw: String(raw ?? '').slice(0, 300) };
@@ -3389,7 +3445,59 @@ export class Supervisor {
       const stamp = signInStamp(this._signInFilesFor(profile));
       this._profileTrouble[profile].stamp = Math.max(stamp, had?.stamp ?? 0);
     }
+    // When the limit says it resets, so `_forgetResetLimits` can let it go then.
+    if (cause === 'at-limit') {
+      const resetsAt = limitResetMoment(raw);
+      if (resetsAt) this._profileTrouble[profile].resetsAt = resetsAt;
+    }
     return cause;
+  }
+
+  /**
+   * A LIMIT THAT HAS RESET IS NOT A LIMIT ANY MORE.
+   *
+   * Trouble is cleared by a session surviving on the account, and for a limit
+   * that can never come when she has picked another account to run: nothing
+   * starts on this one again. The Accounts page then said "At its limit" about
+   * a login whose weekly limit had reset two days before. So a limit that named
+   * its reset is believed until that moment and no longer. If it is in fact
+   * still capped, the next run on it dies in seconds and files it again.
+   *
+   * A limit with no reset in it, and anything waiting on a person, is left
+   * alone: the clock says nothing about those.
+   */
+  _forgetResetLimits(now = Date.now()) {
+    let forgot = false;
+    for (const [key, trouble] of Object.entries(this._profileTrouble ?? {})) {
+      if (trouble?.cause !== 'at-limit') continue;
+      // A record saved before `resetsAt` was kept is read from its own words,
+      // at the moment it was last seen.
+      const resetsAt = trouble.resetsAt ?? limitResetMoment(trouble.raw, trouble.at);
+      if (!resetsAt || now < resetsAt + LIMIT_RESET_GRACE_MS) continue;
+      delete this._profileTrouble[key];
+      forgot = true;
+    }
+    if (forgot) this._saveState();
+    return forgot;
+  }
+
+  /**
+   * A SUBSCRIPTION RENEWED IS LET BACK IN. An ended one leaves the rotation at
+   * once, like anything waiting on a person, and nothing would start on it to
+   * prove it works again. Its own file says so: once its billing is no longer
+   * "none", the trouble goes and the next run on it is the proof.
+   */
+  _forgetRenewedSubscriptions() {
+    let forgot = false;
+    const home = this.config.home || os.homedir();
+    for (const [key, trouble] of Object.entries(this._profileTrouble ?? {})) {
+      if (trouble?.cause !== 'subscription-ended') continue;
+      if (readPlan(key, { home }).ended) continue;
+      this._clearProfileTrouble(key);
+      forgot = true;
+    }
+    if (forgot) this._saveState();
+    return forgot;
   }
 
   _clearProfileTrouble(profile) {
@@ -3763,6 +3871,25 @@ export class Supervisor {
     // its three tries. The error result names its cause whatever the length.
     const lastFailure = (session.tail ?? []).filter((l) => l && !l.startsWith('session exited') && !l.startsWith('fast exit')).slice(-1)[0];
     const refusedBy = session.resultIsError ? troubleCause(session.result) : null;
+    // THE LOGIN'S PLAN DOES NOT INCLUDE THE MODEL (w-f1c00e679d). Nothing is
+    // wrong with the login, which still runs every other model, so it is not
+    // struck, benched or filed as trouble. The model is struck off it instead,
+    // and when another login has the model the death is the account's, not the
+    // row's: the row wakes at once and the pick takes it there.
+    const planRefused = refusedBy === 'model-not-on-plan' || troubleCause(lastFailure) === 'model-not-on-plan';
+    if (planRefused && engine === 'codex') {
+      const account = this._accountKey(engine, session.profile);
+      const said = `${session.result ?? ''}\n${lastFailure ?? ''}`;
+      const model = session.model || /'([^']+)' model is not supported/i.exec(said)?.[1] || /on "([^"]+)"/.exec(said)?.[1] || null;
+      if (model) {
+        this._modelRefused = this._modelRefused ?? {};
+        const struck = this._modelRefused[account] ?? [];
+        if (!struck.includes(model)) this._modelRefused[account] = [...struck, model];
+        if (this._codexLoginWithModel(model, account)) session.accountFault = { cause: 'model-not-on-plan', account };
+      }
+      this._saveState();
+      return;
+    }
     const limitHit = refusedBy === 'at-limit' || needsHerHands(refusedBy);
     // A dropped provider connection is a transport failure too, even when
     // the local process and its pipe stayed up. It must not spend a reply's
@@ -3867,6 +3994,8 @@ export class Supervisor {
     try {
       fs.writeFileSync(this._stateFile, JSON.stringify({
         handledAnswers: [...this._handledAnswers].slice(-500),
+        resumedWaits: [...this._resumedWaits].slice(-500),
+        waitsSince: this._waitsSince,
         // The mark was made before setup, not before an agent actually ran.
         // Persist the distinction for a quit that never reaches stop().
         preparingAnswers: [...(this._preparing?.values() ?? [])]
@@ -4309,6 +4438,8 @@ export class Supervisor {
     // Has a login landed since an account was found signed out? Ahead of the
     // brake below, which would otherwise hold the fleet past the sign-in.
     try { this._noticeSignIns(); } catch (e) { console.warn('zero: could not look for a sign-in:', e.message); }
+    try { this._forgetResetLimits(); } catch (e) { console.warn('zero: could not let a reset limit go:', e.message); }
+    try { this._forgetRenewedSubscriptions(); } catch (e) { console.warn('zero: could not let a renewed subscription back in:', e.message); }
     // A COOLDOWN STOPS THE SPAWNING AND IT MUST NOT STOP THE TELLING. The brake
     // goes on when there is no healthy account left anywhere, for up to half an
     // hour, which is precisely the half hour her tasks are all stuck and the
@@ -4370,6 +4501,9 @@ export class Supervisor {
     if (this._recoverPending) {
       try { this.recoverInterrupted('capacity'); } catch (e) { console.warn('zero: recovery:', e.message); }
     }
+
+    // Threads whose wait has just cleared go into the same queue (w-5244c90c33).
+    try { this.resumeFinishedWaits(items); } catch (e) { console.warn('zero: could not resume a finished wait:', e.message); }
 
     // Rows she resumed by name that had no slot at the time. First call on the
     // next free slot, ahead of everything: she asked for these out loud, and a
@@ -5037,8 +5171,8 @@ export class Supervisor {
      * `assistant` text event carrying the table and then result/success, so the
      * trace this app already
      * keeps puts it in the thread with nothing new written to show it. */
-    const review = continuation && engine === 'codex' && providerCommand(item.answer, engine)?.name === 'review' ? providerCommand(item.answer, engine) : null;
-    const command = continuation && engine === DEFAULT_ENGINE ? commandPrompt(item.answer, this._nativeCommands?.[item.id]) : review ? item.answer.trim() : null;
+    const review = continuation && harnessFor(engine).capabilities.nativeReview && providerCommand(item.answer, engine)?.name === 'review' ? providerCommand(item.answer, engine) : null;
+    const command = continuation && harnessFor(engine).capabilities.nativeCommands ? commandPrompt(item.answer, this._nativeCommands?.[item.id]) : review ? item.answer.trim() : null;
     if (command) prompt = command;
     // WHICH MODEL. A model named on the task wins; absent that, the workspace
     // setting, which lives in the `--model` flag inside sessionArgs. A PERSONAL
@@ -5070,7 +5204,7 @@ export class Supervisor {
     // `codexEffortRefusal` judges it against the model at `thread/start`, the
     // same place and the same shape as the model refusal.
     const effort = isEffortWord(item?.effort) ? item.effort : null;
-    const claudeEffort = engine === DEFAULT_ENGINE && isEffort(effort) ? effort : null;
+    const claudeEffort = harnessFor(engine).capabilities.claudeEffort && isEffort(effort) ? effort : null;
     // Without it the CLI emits ONE `assistant` event per finished message, so
     // a sentence exists nowhere until the model has written the last word of
     // it. Measured over her 1,664 traces on 2026-08-25: the median wait before
@@ -5167,7 +5301,7 @@ export class Supervisor {
 
   commandCatalog(product, id) {
     const item = this.store.readItem(product, id);
-    return item && this._engineFor(item) !== 'codex' ? this._nativeCommands?.[id] ?? [] : [];
+    return item && harnessFor(this._engineFor(item)).capabilities.nativeCommands ? this._nativeCommands?.[id] ?? [] : [];
   }
 
   remoteControl(product, id, action) { return taskRemoteControl(this, product, id, action); }
@@ -5212,7 +5346,9 @@ export class Supervisor {
       return value;
     };
     const item = this.store.readItem(productSlug, id);
-    if (!item || this._engineFor(item) !== 'codex') return publish('unavailable');
+    const engine = item ? this._engineFor(item) : null;
+    if (!item || !supportsHarnessOperation(engine, 'compact')) return publish('unavailable');
+    const harness = harnessFor(engine);
     if (this.sessions.has(id)) return publish('busy');
     const product = this.store.listProducts().find(p => p.slug === productSlug);
     if (!product) return publish('missing');
@@ -5223,16 +5359,13 @@ export class Supervisor {
     this._compactionJobs.set(key, { threadId: rec.sessionId, profile: rec.profile });
     const initial = publish('running');
     Promise.resolve().then(async () => {
-      const { client, handshake } = this._codexServer(this._codexProfileHome(rec.profile ?? 'default'));
-      const mcpServers = await this._codexIsolation(client, handshake);
       const cwd = product.repoPath && fs.existsSync(product.repoPath) ? product.repoPath : product.dir;
       // Same isolated configuration as a worker, with no store tool needed:
       // compaction summarizes the existing thread and never starts an agent turn.
-      const params = workerThreadParams({ cwd, mcpServers, storeServer: null });
-      return compactCodexThread({ server: client, threadId: rec.sessionId, threadParams: params });
+      return harness.compact(this, rec, cwd);
     }).then(publish, () => publish('failed')).finally(() => {
       this._compactionJobs.delete(key);
-      this._releaseIdleCodex(rec.profile ?? 'default');
+      harness.release(this, rec.profile ?? 'default');
     });
     return initial;
   }
@@ -5910,13 +6043,7 @@ export class Supervisor {
    * second engine reads exactly as it did.
    */
   _workerEnv(engine = DEFAULT_ENGINE) {
-    const anthropic = (k) => /^ANTHROPIC_/.test(k) || /^CLAUDE_CODE_/.test(k)
-      || k === 'CLAUDECODE' || k === 'CLAUDE_PID' || k === 'CLAUDE_EFFORT' || k === 'CLAUDE_CONFIG_DIR';
-    const openai = (k) => /^OPENAI_/.test(k) || /^CODEX_/.test(k);
-    const forCodex = engineOf(engine) !== DEFAULT_ENGINE;
-    const env = { ...process.env };
-    for (const k of Object.keys(env)) if (anthropic(k) || (forCodex && openai(k))) delete env[k];
-    return env;
+    return harnessFor(engineOf(engine)).workerEnv(process.env);
   }
 
   /**
@@ -5932,7 +6059,8 @@ export class Supervisor {
     // is recorded under and the same one `transcriptFile` will look for its
     // rollout with. One app-server per home, so a second Codex login is a
     // second process rather than a bigger number on the Settings screen.
-    const { client, handshake } = this._codexServer(this._codexProfileHome(profile));
+    const home = this._codexProfileHome(profile);
+    const { client, handshake } = this._codexServer(home);
     const storeServer = this._codexStoreServer(item);
     // THIS WORKER'S OWN CARDS, SO THEY CAN DIE WITH IT.
     //
@@ -5961,7 +6089,7 @@ export class Supervisor {
       // thread already running cannot un-launch them. Read fresh for THIS start
       // rather than once per app-server, and never caught: see `_codexIsolation`.
       ready: this._codexIsolation(client, handshake),
-      threadParams: (mcpServers) => this.codexThreadParamsFor(plan, cwd, mcpServers, storeServer),
+      threadParams: (mcpServers) => this.codexThreadParamsFor(plan, cwd, mcpServers, storeServer, home),
       turnParams: this.codexTurnParamsFor(plan),
       resumeThreadId: plan.resumeId,
       // The card, which is the other half of what a worker needs to be able to
@@ -6099,25 +6227,26 @@ export class Supervisor {
    *     did, and so her terminal and her fleet follow the same file when she
    *     changes it.
    */
-  codexThreadParamsFor(plan, cwd, mcpServers, storeServer) {
+  // `home` is the login this thread runs on. Its own list is the one checked:
+  // reading the main login's let a free-plan login be handed gpt-6.1-sol.
+  codexThreadParamsFor(plan, cwd, mcpServers, storeServer, home = this._codexHome()) {
     // ASKED HERE RATHER THAN CARRIED ON THE PLAN. A precomputed field would be
     // a second copy of this decision that a caller can forget to set, and the
     // way it fails is a word Codex cannot read reaching `thread/start` -- which
     // is exactly the bug. The one place that builds the params is the one place
     // that decides.
     const onRow = typeof plan?.model === 'string' ? plan.model.trim() : '';
-    const workspace = this._codexWorkspaceModel();
-    const word = onRow || workspace || '';
+    const word = this._codexModelWord(plan) ?? '';
     // WHICH SETTING IS BEING REFUSED, because the sentence is the only thing
     // she can act on and it has to send her to the right screen.
-    const refusal = this.codexModelRefusal(word, onRow ? 'row' : 'workspace');
+    const refusal = this.codexModelRefusal(word, onRow ? 'row' : 'workspace', home);
     if (refusal) throw new Error(refusal);
     // AND THE LEVEL IS JUDGED HERE TOO, against the model that will actually
     // run, for the same reason and with the same outcome: a level the model
     // does not advertise stops the run before the thread, with the sentence on
     // the pipe `troubleCause` reads, rather than reaching `turn/start` as a
     // protocol error or running at a level she did not pick.
-    const level = this.codexEffortRefusal(word, plan?.effort);
+    const level = this.codexEffortRefusal(word, plan?.effort, home);
     if (level) throw new Error(level);
     return workerThreadParams({
       cwd,
@@ -6178,10 +6307,9 @@ export class Supervisor {
    * for that word. We refuse on a fact or not at all; with no list, the word
    * goes to Codex as written and Codex answers for it in its own words.
    */
-  codexEffortRefusal(model, effort) {
+  codexEffortRefusal(model, effort, home = this._codexHome()) {
     const level = typeof effort === 'string' ? effort.trim() : '';
     if (!level) return null;
-    const home = this._codexHome();
     const slug = (typeof model === 'string' && model.trim()) || this._codexWorkspaceModel() || codexDefaultModel({ home }) || '';
     if (!slug) return null;
     const levels = codexModelLevels(slug, { home });
@@ -6205,6 +6333,13 @@ export class Supervisor {
   _codexWorkspaceModel() {
     const word = typeof this.config.codexModel === 'string' ? this.config.codexModel.trim() : '';
     return word || null;
+  }
+
+  // The model a Codex run asks for: the row's, else the workspace's, else null
+  // (her config.toml decides). `codexThreadParamsFor` says why in that order.
+  _codexModelWord(plan) {
+    const onRow = typeof plan?.model === 'string' ? plan.model.trim() : '';
+    return onRow || this._codexWorkspaceModel() || null;
   }
 
   /**
@@ -6256,10 +6391,9 @@ export class Supervisor {
    * word that is not on it. Where to go and fix it is the other half of what
    * she can act on.
    */
-  codexModelRefusal(model, from = 'row') {
+  codexModelRefusal(model, from = 'row', home = this._codexHome()) {
     const word = typeof model === 'string' ? model.trim() : '';
     if (!word) return null;
-    const home = this._codexHome();
     const known = codexKnownSlugs({ home });
     if (!known.size || known.has(word)) return null;
     const offered = codexModels({ home }).map((m) => m.id);
@@ -6267,6 +6401,14 @@ export class Supervisor {
     const asked = from === 'workspace'
       ? `every Codex agent here is set to run on "${word}"`
       : `this row asks to run on "${word}"`;
+    // ANOTHER LOGIN KNOWS IT: then the word is fine and this login's plan is
+    // what lacks it, which is a different fix (another model, or another
+    // login) and a different cause for `troubleCause` (w-f1c00e679d).
+    const elsewhere = this._codexProfiles().some((p) => {
+      const other = this._codexProfileHome(p);
+      return other !== home && codexKnownSlugs({ home: other }).has(word);
+    });
+    if (elsewhere) return `${asked}, which is not a model the plan of the Codex account this run was given includes.${instead} Nothing here will pick a stand-in for her, so this run is stopping rather than doing her work on a model she did not choose`;
     return `${asked}, which is not a model the Codex on this computer knows.${instead} Nothing here will pick a stand-in for her, so this run is stopping rather than doing her work on a model she did not choose`;
   }
 
@@ -6705,7 +6847,8 @@ export class Supervisor {
     // `forcedProfile` or a `resumeProfile` that disagreed with the tie has
     // already had its session id taken off it, so this is not a resume pointed
     // at the wrong home, it is a fresh brief on the account the project named.
-    const profile = pinned ?? forcedProfile ?? plan.resumeProfile ?? this._pickProfile(engine);
+    const model = engineOf(engine) === 'codex' ? this._codexModelWord(plan) : null;
+    const profile = pinned ?? forcedProfile ?? plan.resumeProfile ?? this._pickProfile(engine, { model });
     // A SECOND ACCOUNT ARRIVES EMPTY, AND THIS IS WHERE IT STOPS BEING EMPTY.
     // Our own Accounts page tells a person to log in with a brand new folder,
     // and Claude Code reads a session's skills, commands and subagents out of
@@ -6720,35 +6863,15 @@ export class Supervisor {
     // account folder to put them in, so running it there would be three
     // symlinks made into a Claude home on behalf of a session that will never
     // open them.
-    const tooling = engine === 'codex' ? null : linkAccountTooling(profile);
+    const harness = harnessFor(engine);
+    const tooling = harness.tooling(profile);
     // A RUN IS STARTING ON THIS ROW, said before the worker exists and in the
     // same turn of the event loop as the spawn, so the cleaner can never stop
     // this task's programs between its last check and this agent arriving
     // (main/leftovers.mjs, agreed with Codex).
     this._leftoverCleaner?.starting(item.id);
     const env = this._workerEnv(engine);
-    const child = engine === 'codex'
-      ? this._spawnCodexWorker(plan, { cwd, item, profile })
-      : spawn(this.config.claudeBin, claudeStreamArgs(args), {
-        cwd,
-        env: {
-          ...env,
-          STORE_ACCOUNT_ID: this.config.accountId,
-          // This app's own store, and the only one there is. Exported under
-          // every name this app has had, so a store server or a script written
-          // against an older name still finds it.
-          ...storeRootEnv(this.config.storeRoot),
-          // Which subscription bills this worker. 'default' means the CLI's
-          // own home; anything else is a second logged-in profile.
-          ...(profile !== 'default' ? { CLAUDE_CONFIG_DIR: profile } : {}),
-          // So approval cards can say who is asking and about what.
-          ZERO_PRODUCT: item.product,
-          ZERO_ITEM: item.id,
-          // Where its shell commands ask about memory, when that is on.
-          ...this.memoryGateEnv(item),
-        },
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+    const child = harness.spawn(this, plan, { cwd, item, profile, env });
 
     // `command` RIDES ON THE SESSION so the cap can leave it out (`_load`).
     // The exit handler already needed the same fact from `plan`; this is that
@@ -6763,6 +6886,8 @@ export class Supervisor {
     const session = {
       child, itemId: item.id, product: item.product, startedAt: Date.now(), tail: [], profile,
       command: !!plan.command, engine,
+      // Which model, so a plan that refuses it strikes that model off this login.
+      ...(model ? { model } : {}),
       // AND THE FOLDER IT IS RUNNING IN, which is now the row's own rather than
       // the product's checkout. Everything that asks a live session where it
       // works reads it from here rather than deriving it from the product a
@@ -6776,8 +6901,8 @@ export class Supervisor {
     this.count?.('run_started', { engine });
     // Its worker, so a run left "running" by a crash can later be told ended.
     if (Number.isInteger(child?.pid)) this._leftoverCleaner?.worker(item.id, child.pid);
-    if (engine !== 'codex') {
-      attachClaudeInput(child);
+    if (harness.capabilities.remoteControl) {
+      harness.attachInput(child);
       if (remoteOnly) { child.holdInput(true); session.remoteIdle = true; session.remoteHeld = true; }
       child.on('input-turn', () => {
         if (!session.remoteHeld) return;
@@ -6928,8 +7053,7 @@ export class Supervisor {
     // the real camelCase/snake_case divergence between app-server and the
     // `codex exec` stream the removed August build parsed, which is exactly the
     // difference a future reader has to be able to see.
-    const { capture, stream, summarize, trace: traceOne } = readersFor(engine);
-    const activity = engine === 'codex' ? codexActivity : claudeActivity;
+    const { capture, stream, summarize, trace: traceOne, activity } = harness.readers();
     // One frame of a session, whatever a frame is on this engine: a line of
     // stdout, or a method and its params.
     const absorb = (...frame) => {
@@ -6942,7 +7066,7 @@ export class Supervisor {
         this._noteHeard(item, session.sessionId);
       }
       if (activity(session, ...frame)) this.onChange?.();
-      if (session.remoteHeld && engine === DEFAULT_ENGINE) {
+      if (session.remoteHeld && harness.capabilities.remoteControl) {
         try {
           const event = JSON.parse(frame[0]);
           if (event.type === 'result') {
@@ -6960,7 +7084,7 @@ export class Supervisor {
           }
         } catch(error) { console.warn('zero: remote turn writeback failed:',error.message); }
       }
-      if (engine === DEFAULT_ENGINE) {
+      if (harness.capabilities.nativeCommands) {
         try {
           const names = nativeCommandNames(JSON.parse(frame[0]));
           if (names) { this._nativeCommands ??= {}; this._nativeCommands[item.id] = names; this._saveState(); }
@@ -7007,29 +7131,7 @@ export class Supervisor {
     // A Codex worker has no stdout of ours to read: main/codex-session.mjs
     // emits the server's own notifications rather than faking a pipe. See the
     // note at the top of that file for why.
-    if (engine === 'codex') {
-      child.on('event', (method, params) => {
-        // THE CONVERSATION HALF OF THE ARTIFACT, KEPT AS IT GOES PAST. The
-        // other engine's is on disk and read once at the exit; this one is
-        // delivered as notifications and is gone the moment they are handled,
-        // so a Codex card had only the disk half until this line existed.
-        rememberCodexChange(session, method, params);
-        absorb(method, params);
-      });
-    }
-    else {
-      let buffer = '';
-      child.stdout.on('data', (d) => {
-        buffer += d.toString();
-        let idx;
-        while ((idx = buffer.indexOf('\n')) >= 0) {
-          const line = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + 1);
-          if (!line.trim()) continue;
-          absorb(line);
-        }
-      });
-    }
+    harness.subscribe(child, session, absorb);
     child.stderr.on('data', (d) => {
       onLine(`stderr: ${String(d).slice(0, 500)}`);
       try { trace?.write(`stderr: ${String(d).slice(0, 1000)}\n`); } catch {}
@@ -7047,6 +7149,7 @@ export class Supervisor {
       if (exited) return;
       exited = true;
       if (how?.transportFault) session.transportFault = true;
+      this.memoryGateTurnEnded(session);
       session.exitFailed = !!(signal || code !== 0 || session.transportFault || session.resultIsError || session.result == null);
       this.count?.('run_finished', runEndedProps(session, Date.now()));
       onLine(`session exited (${code})`);
@@ -7089,9 +7192,7 @@ export class Supervisor {
           // the agent's own sentences beside them. The frames were kept as they
           // went past (`rememberCodexChange`), with the same roots this call
           // uses, so the two halves are read against one set of spellings.
-          change: engine === 'codex'
-            ? changeFromCodexTurn(session.codexChange ?? [], { roots, since: session.startedAt ?? 0 })
-            : null,
+          change: harness.change(session, { roots, since: session.startedAt ?? 0 }),
           docsDir: product.dir,
           itemId: item.id,
           roots,
@@ -7221,7 +7322,7 @@ export class Supervisor {
       if (session.lastLiveReply && session.exitFailed)
         this.redeliverAnswer(session.lastLiveReply, session.lastLiveReply.answer);
       if (!session.stoppedByUs) this.deliverMidflightReply(item, answerAtSpawn);
-      if (engine === 'codex') this._releaseIdleCodex(profile);
+      harness.release(this, profile);
       // The item's own status was written by the worker through the MCP; if it
       // died without writing, the lease expires and the next tick re-pulls it.
     });
@@ -7331,9 +7432,7 @@ export class Supervisor {
         // looking for something that does not exist. Codex is handed the
         // picture in the turn instead (`codexTurnParamsFor`), so the honest
         // instruction is that it is already in front of it.
-        engine === 'codex'
-          ? 'Each one is attached to this message as an image, and is also on disk at the absolute path below.'
-          : 'Open each one with the Read tool, at the absolute path below.',
+        harnessFor(engine).imageInstruction,
         '',
         ...pictures.map((f) => `- ${f.abs}`),
       );
@@ -7815,6 +7914,29 @@ export class Supervisor {
     } catch { return null; }
   }
 
+  /**
+   * Is this HER urgent row, for the memory gate (w-713aba0c89)? Read live, so a
+   * row raised to Urgent jumps the queue on its next command. A row that cannot
+   * be read is not urgent.
+   */
+  memoryGateUrgent(product, itemId) {
+    if (!product || !itemId) return false;
+    try {
+      const item = this.store.readItem?.(product, itemId);
+      return item ? isUrgent(item) : false;
+    } catch { return false; }
+  }
+
+  /**
+   * A Codex worker's turn is over, so the gate lets go of every slot its thread
+   * still holds (w-713aba0c89). Codex sends no "after" report for a command that
+   * failed; a Claude worker's grants go with its own process instead.
+   */
+  memoryGateTurnEnded(session) {
+    if (session?.engine !== 'codex' || !session.sessionId) return;
+    try { this._memoryGate?.releaseSession(session.sessionId); } catch { /* the gate is going too */ }
+  }
+
   memoryGateSlots() {
     const n = Number(this.config.memoryGateSlots);
     return Number.isFinite(n) && n >= 1 ? Math.round(n) : autoSlots(os.totalmem());
@@ -7879,6 +8001,7 @@ export class Supervisor {
       gate: { slots: this.memoryGateSlots() },
       scoreFor: (product, itemId) => this.memoryGateScore(product, itemId),
       ownerOf: (sessionId) => this.memoryGateOwner(sessionId),
+      urgentFor: (product, itemId) => this.memoryGateUrgent(product, itemId),
       log: (line) => console.log(`zero: ${line}`),
     });
     this._memoryGate = server;
@@ -8077,212 +8200,6 @@ export function awaitingHer(item) {
   return wrote.ts > lastFounderWrite(item);
 }
 
-// The stream's own metadata, kept on the session object: the session id (what
-// a personal reply resumes) and the final result message (what the founder
-// reads). Recorded for every session because it is one parse we are already
-// paying for; acted on where someone needs it.
-function captureStream(session, line) {
-  try {
-    const obj = JSON.parse(line);
-    if (obj.session_id) session.sessionId = obj.session_id;
-    if (obj.type === 'result') {
-      session.result = String(obj.result ?? '');
-      session.resultIsError = !!obj.is_error;
-      // A run cannot end with helpers still out. Cleared here as well as on
-      // exit so the number can never outlive the thing it counts. Unless
-      // something is still out in the background: then this was a turn
-      // ending, not the run, and the session stays open for it.
-      if (!session.child?.waitingOn?.().length) session.helperIds?.clear();
-    }
-    noteClaimAnswer(session, obj);
-    countHelpers(session, obj);
-  } catch {}
-}
-
-// Whether this run was refused its own row, off the claim call and its reply.
-// `closingMessageIsTheAnswer` reads it: a refused worker is told to end saying
-// nothing, and whatever it does say must not land on a row someone else holds.
-// A later claim that succeeds clears it.
-function noteClaimAnswer(session, obj) {
-  const blocks = Array.isArray(obj?.message?.content) ? obj.message.content : [];
-  for (const b of blocks) {
-    if (obj.type === 'assistant' && b?.type === 'tool_use' && /claim_work_item$/.test(b.name ?? '')
-      && (!b.input?.id || b.input.id === session.itemId)) {
-      (session.claimCalls ??= new Set()).add(b.id);
-    }
-    if (obj.type === 'user' && b?.type === 'tool_result' && session.claimCalls?.has(b.tool_use_id)) {
-      const text = typeof b.content === 'string' ? b.content
-        : (b.content ?? []).map((c) => c?.text ?? '').join('');
-      if (/"claimed"\s*:\s*false/.test(text)) session.claimRefused = true;
-      else if (/"claimed"\s*:\s*true/.test(text)) session.claimRefused = false;
-    }
-  }
-}
-
-/**
- * `--include-partial-messages` puts `stream_event` frames on the same stdout
- * the finished messages come down. This keeps the CURRENT text block on the
- * session as it grows, and nothing else: no thinking, no tool arguments, and
- * nothing written to disk. It dies with the process, exactly like `tail`.
- *
- * ONE BLOCK AT A TIME, AND THAT IS THE POINT. A finished message becomes ONE
- * trace line per text block (`traceStreamLine`), so holding exactly one block
- * here means the live string and the traced string are the same string, and
- * the thread can drop the live copy the moment the traced one arrives without
- * guessing (`itemThread`, renderer/src/item-thread.ts).
- *
- * IT IS NOT CLEARED WHEN THE MESSAGE FINISHES, and that is deliberate. The
- * trace is written on one channel and read on another, so clearing it here
- * would blink the sentence off her screen for however long the read takes and
- * then put it back. The renderer suppresses it the moment the thread has it,
- * which is a comparison rather than a race.
- *
- * Returns true when the string moved, which is what earns a push.
- */
-export function streamingText(session, line) {
-  try {
-    const obj = JSON.parse(line);
-    if (obj.type !== 'stream_event') return false;
-    const event = obj.event ?? {};
-    // A new message. Whatever the last one ended on is the last one's, and the
-    // trace has it by now.
-    if (event.type === 'message_start') {
-      session.saying = '';
-      session.sayingAt = 0;
-      return true;
-    }
-    if (event.type === 'content_block_start') {
-      // Only a text block resets it. A tool call or a thought starting means
-      // this message has moved on from prose, and the block already typed
-      // stays on screen until the trace delivers the same words.
-      if (event.content_block?.type !== 'text') return false;
-      session.saying = '';
-      session.sayingAt = Date.now();
-      return true;
-    }
-    if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-      const piece = String(event.delta.text ?? '');
-      if (!piece) return false;
-      if (!session.sayingAt) session.sayingAt = Date.now();
-      const next = (session.saying ?? '') + piece;
-      // Past the cap this stops being a sentence she is reading. Dropped
-      // rather than cut, because a cut string never matches the traced one and
-      // would sit under it on her screen forever.
-      session.saying = next.length > SAYING_CAP ? '' : next;
-      return true;
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-// HOW MANY HELPERS THIS SESSION HAS OUT RIGHT NOW.
-//
-// THE ONLY TWO EVENTS THAT MATTER, and they bracket a helper exactly. Measured
-// on Claude Code 2.1.246 over a real four-helper run (the probe is written up
-// in decisions.md, 08-26): `task_started` carries a fresh `task_id`, and
-// `task_updated` carries a `patch.status` of `completed` for that same id. Four
-// starts, four completions, no id seen twice and none left open. So a set of
-// live ids, and its size is the number.
-//
-// A SET AND NOT A COUNTER, because a counter cannot survive a duplicate: the
-// stream is read line by line off a pipe, and one repeated line would leave the
-// page saying five helpers are working for the rest of the run with nothing
-// able to correct it. Adding an id twice is free.
-//
-// NESTED HELPERS ARE COUNTED THE SAME. `spawn_depth` says how deep a helper
-// sits, and this deliberately ignores it: a helper's helper is still a
-// subagent working on her task.
-//
-// THE LEAD IS NOT IN THIS NUMBER AND NEVER HAS BEEN, which is what the line
-// drawn off it was getting wrong until 2026-08-27. Only a `task_started` id is
-// ever added, and the lead has no `task_started` of its own.It is, so
-// `shortWord` in renderer/src/live-line.ts now says Subagents, unhyphenated on
-// her call of 2026-08-27 and on a count of the spelling in the Claude Code
-// build she runs. If this ever starts counting the lead as well, that word has
-// to move with it. DID THIS RUN LEAVE HER ANYTHING TO READ?
-//
-// The rule that divides the two writers, kept in one named place because
-// getting it wrong is silence, and silence is the failure that matters most:
-//
-//   - said nothing at all   -> the supervisor speaks for it (sayTheRunDied)
-//   - said something wrong  -> the supervisor speaks for it, in OUR words
-//   - said something real   -> it speaks for itself, untouched
-//
-// The middle line is the one that was missing. Both writers used to exclude an
-// error result: `speaksForTheSession` because raw CLI text must never reach her
-// row, and this one because it only looked for a result that was absent. Each
-// was right on its own and together they left the case that matters most with
-// no writer at all.
-export function saidNothingSheCanUse(session) {
-  return session?.result == null || !!session.resultIsError;
-}
-
-export function countHelpers(session, obj) {
-  if (obj?.type !== 'system') return;
-  if (obj.subtype === 'task_started' && obj.task_id) {
-    (session.helperIds ??= new Set()).add(obj.task_id);
-  } else if (obj.subtype === 'task_updated' && obj.task_id) {
-    // Anything that is not still running ends it. The measured value is
-    // `completed`, and a helper that fails or is cancelled has equally stopped
-    // working, so the test is what it is NOT rather than a list of endings we
-    // would have to keep in step with the CLI.
-    const status = obj.patch?.status;
-    if (status && status !== 'in_progress' && status !== 'running') session.helperIds?.delete(obj.task_id);
-  }
-}
-
-// The persisted trace line: fuller than the tail. Tool calls carry their key
-// input (the file written, the command run), because "tool: Bash" answers
-// nothing when the founder asks what a session actually did.
-function traceStreamLine(line) {
-  try {
-    const obj = JSON.parse(line);
-    const at = new Date().toISOString().slice(11, 19);
-    const hook = hookFailure(obj);
-    if (hook) return `${at}  ${hook}`;
-    if (obj.type === 'assistant' && obj.message?.content) {
-      const parts = [];
-      for (const c of obj.message.content) {
-        if (c.type === 'text' && c.text?.trim()) parts.push(c.text.trim());
-        if (c.type === 'tool_use') {
-          const input = c.input ?? {};
-          const hint = input.file_path ?? input.path ?? input.command ?? input.title ?? input.description ?? input.id ?? '';
-          parts.push(`[${c.name}] ${String(hint).slice(0, 200)}`);
-        }
-      }
-      return parts.length ? parts.map((p) => `${at}  ${p}`).join('\n') : null;
-    }
-    if (obj.type === 'result') {
-      const flavor = `${obj.subtype ?? 'ok'}${obj.is_error ? ' ERROR' : ''} · ${obj.num_turns ?? '?'} turns`;
-      return `\n${at}  == RESULT (${flavor}) ==\n${String(obj.result ?? '').slice(0, 4000)}`;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-// Stream-json lines are verbose; the In Progress tail wants the gist.
-function summarizeStreamLine(line) {
-  try {
-    const obj = JSON.parse(line);
-    const hook = hookFailure(obj);
-    if (hook) return hook;
-    if (obj.type === 'assistant' && obj.message?.content) {
-      const text = obj.message.content.filter((c) => c.type === 'text').map((c) => c.text).join(' ');
-      const tools = obj.message.content.filter((c) => c.type === 'tool_use').map((c) => c.name);
-      if (tools.length) return `tool: ${tools.join(', ')}`;
-      if (text) return text.slice(0, 300);
-    }
-    if (obj.type === 'result') return `done: ${String(obj.result ?? '').slice(0, 200)}`;
-    return null;
-  } catch {
-    return line.slice(0, 200);
-  }
-}
-
 /**
  * THE FOUR READERS OF ONE ENGINE'S OUTPUT, PICKED ONCE PER SESSION.
  *
@@ -8306,17 +8223,6 @@ function summarizeStreamLine(line) {
  * worse than one that reads a stream with the default engine's eyes.
  */
 export function readersFor(engine) {
-  return engine === 'codex'
-    ? {
-      capture: captureCodexEvent,
-      stream: codexStreamingText,
-      summarize: summarizeCodexEvent,
-      trace: traceCodexEvent,
-    }
-    : {
-      capture: captureStream,
-      stream: streamingText,
-      summarize: summarizeStreamLine,
-      trace: traceStreamLine,
-    };
+  const { capture, stream, summarize, trace } = harnessFor(engineOf(engine)).readers();
+  return { capture, stream, summarize, trace };
 }

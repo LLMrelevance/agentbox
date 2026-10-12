@@ -13,14 +13,15 @@
 // the project they belong to instead of in a text editor.
 
 import fs from 'node:fs';
+import { harnessFor } from './harnesses.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { codexChoiceToOpen, saveConfig } from './config.mjs';
-import { resolveClaudeBin, forgetClaudeBin, INSTALL_URL } from './claude-bin.mjs';
+import { forgetClaudeBin, INSTALL_URL } from './claude-bin.mjs';
 import { AGENT_MODES } from '../shared/agents.mjs';
 import { analyticsKey, diagnosticsOn } from './analytics.mjs';
 import { CLAUDE_PERMISSION_MODES } from '../shared/work-items.mjs';
-import { accountSentence, engineTroubleNote } from '../shared/spawn-trouble.mjs';
+import { accountSentence, engineTroubleNote, refineCause } from '../shared/spawn-trouble.mjs';
 import { readPlan } from './claude-plan.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { machineSlots, machineNote, autoAgents, MAX_SLOTS } from './machine.mjs';
@@ -33,7 +34,7 @@ import { codexAccount, codexLoginCommand, makeCodexHome } from './codex-account.
 import { codexDefaultModel, codexModels } from './codex-models.mjs';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
 import { claudeModels } from './claude-models.mjs';
-import { resolveCodexBin, forgetCodexBin, INSTALL_URL as CODEX_INSTALL_URL } from './codex-bin.mjs';
+import { forgetCodexBin, INSTALL_URL as CODEX_INSTALL_URL } from './codex-bin.mjs';
 
 // Her Claude Code sessions in her inbox: all of them, only the ones stopped on
 // a question, or none. One reader, here, so the settings screen and the
@@ -249,7 +250,7 @@ const lineCount = (text) => (text.trim() ? text.trim().split('\n').length : 0);
 // Claude Code: the path, whether it is really there, and where to get it when
 // it is not. One reader, here, so the screen and the config cannot disagree.
 export function claudeState(config) {
-  const found = resolveClaudeBin(config.claudeBinConfigured ?? null);
+  const found = harnessFor('claude').discover(config.claudeBinConfigured ?? null);
   return {
     claudeBin: found.path ?? config.claudeBin,
     claudeFound: found.found,
@@ -316,7 +317,7 @@ export function recheckClaude(config) {
  * whose unsure state is not checked. Nothing in the app passes it.
  */
 export function codexState(config, where = {}) {
-  const found = resolveCodexBin(config.codexBinConfigured ?? null, where);
+  const found = harnessFor('codex').discover(config.codexBinConfigured ?? null, where);
   return {
     // Empty rather than a path when there is nothing there, which is the same
     // asymmetry `config.codexBin` already keeps (main/config.mjs): a configured
@@ -468,7 +469,11 @@ export function readSettings({ config, supervisor, store }) {
   // waiting, because a page she chose to open interrupts nobody.
   const troubles = status.accountTrouble ?? {};
   const accounts = (profiles.length ? profiles : ['default']).map((profile) => {
-    const trouble = troubles[profile] ?? null;
+    const plan = readPlan(profile);
+    // A reason filed before an ended subscription had its own name still reads
+    // as an admin's block; the login's file says which it is.
+    const filed = troubles[profile] ?? null;
+    const trouble = filed ? { ...filed, cause: refineCause(filed.cause, plan) } : null;
     const resting = (supervisor._profileCooldown?.[profile] ?? 0) >= now;
     // WHOSE SUBSCRIPTION THIS ROW IS, not merely which folder it lives in.
     // The page named its rows after folders, so nothing on it could tell a
@@ -510,7 +515,7 @@ export function readSettings({ config, supervisor, store }) {
       // Read here rather than kept, because Claude Code refreshes its own
       // profile as it runs and this page is opened by hand a few times a day.
       // `null` when the file cannot be read, and then no screen says anything.
-      plan: (() => { const p = readPlan(profile); return p.known ? { label: p.label, max: p.max } : null; })(),
+      plan: plan.known ? { label: plan.label, max: plan.max } : null,
     };
   });
 

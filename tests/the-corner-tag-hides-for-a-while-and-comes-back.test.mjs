@@ -3,8 +3,13 @@
 // pretend windows, a pretend screen and a pretend cursor. What broke without
 // it: nothing outside the app said an agent was waiting, so agents sat idle.
 // What it must not become: a nag you close once and never see again, a tag
-// that pulls the app forward when you touch it, a list that opens every time
-// the pointer crosses the corner, or a tag that forgets where you put it.
+// that pulls the app forward when you only meant to move it, a list that opens
+// every time the pointer crosses the corner, or a tag that forgets where you
+// put it.
+//
+// Pointing at the tag opens the list and a click opens the app (her ask,
+// 2026-10-08: "if there's 16 waiting, I should go into the app" without
+// clicking through the list first). It used to be the other way round.
 //
 // Measured by driving the controller exactly as the app does: the app's page
 // hands over what is ready, the app's window gains and loses focus and closes,
@@ -14,7 +19,7 @@
 // showed a press on a window that could not take focus pulled the app's main
 // window to the front, and the reworked version passed 12 of 12 real checks.
 import { describe, expect, it } from 'vitest';
-import { createCornerTag, CLOSE_AFTER_MS, DRAG_FROM_PX } from '../main/corner-tag.mjs';
+import { createCornerTag, CLOSE_AFTER_MS, DRAG_FROM_PX, OPEN_AFTER_MS } from '../main/corner-tag.mjs';
 
 function rig({ config = {}, focused = false, at = 1_000_000 } = {}) {
   const handlers = {};
@@ -111,8 +116,10 @@ function rig({ config = {}, focused = false, at = 1_000_000 } = {}) {
     advance(32);
   };
   const click = () => { onTag(); call('corner-tag:press'); call('corner-tag:release', { cancelled: false }); };
+  // The pointer comes onto the tag and rests there long enough to mean it.
+  const point = () => { onTag(); call('corner-tag:hover', { part: 'tag', inside: true }); advance(OPEN_AFTER_MS + 10); };
   const pendingTimers = () => timers.length;
-  return { tag, call, windows, win, main, mainListeners, config, saved, advance, showTag, listUp, click, pressAndMove, onTag, removed, screenListeners, power, area, cursor, pendingTimers, clock: () => clock };
+  return { tag, call, windows, win, main, mainListeners, config, saved, advance, showTag, listUp, click, point, pressAndMove, onTag, removed, screenListeners, power, area, cursor, pendingTimers, clock: () => clock };
 }
 
 const READY = (now) => ({ ready: [
@@ -121,26 +128,25 @@ const READY = (now) => ({ ready: [
 ], working: 18 });
 
 describe('it shows up when something needs you, and only then', () => {
-  it('appears once its page is ready, when something fresh is ready and you are in another app', () => {
+  it('appears once its page is ready, when something is ready and you are in another app', () => {
     const r = rig();
-    r.call('zero:corner-tag', READY(1_000_000));
+    r.call('zero:corner-tag', READY(1_000_000_000));
     expect(r.win().visible).toBe(false);
     r.call('corner-tag:ready', { part: 'tag' });
     expect(r.win().visible).toBe(true);
     const state = r.win().sent.filter((s) => s[0] === 'corner-tag:state').at(-1)[1];
-    expect(state.ready.map((x) => x.id)).toEqual(['w-1']);
+    expect(state.ready.map((x) => x.id)).toEqual(['w-1', 'w-old']);
   });
 
-  it('counts nothing from an inbox of only old threads, and says how many are working instead', () => {
-    const r = rig();
+  // A day-old cut once made a Needs you of 58 read "3 waiting" (w-0961e5523b).
+  it('counts an old thread as waiting too, rather than saying how many are working', () => {
     const now = 1_000_000_000;
     const rr = rig({ at: now });
     rr.call('zero:corner-tag', { ready: [{ id: 'old', title: 'x', says: 'y', since: now - 3 * 24 * 3600_000 }], working: 4 });
     rr.call('corner-tag:ready', { part: 'tag' });
     const state = rr.win().sent.filter((s) => s[0] === 'corner-tag:state').at(-1)[1];
-    expect(state.ready).toEqual([]);
-    expect(state.working).toBe(4);
-    expect(r.windows).toHaveLength(0);
+    expect(state.ready.map((x) => x.id)).toEqual(['old']);
+    expect(rr.win().visible).toBe(true);
   });
 
   // The system's frosted material only comes with the system's own rounded
@@ -156,7 +162,10 @@ describe('it shows up when something needs you, and only then', () => {
     expect(o.vibrancy).toBeUndefined();
     expect(o.transparent).toBe(true);
     expect(o.roundedCorners).toBe(false);
-    expect(o.hasShadow).toBe(true);
+    // No system shadow: with one, macOS also draws its window outline (a black
+    // hairline and a light band) around the glass, which on her screen made a
+    // strong border the pictures never showed. The page draws its own edge.
+    expect(o.hasShadow).toBe(false);
     expect(r.win().top).toEqual([true, 'floating']);
     expect(r.win().everywhere[1]).toMatchObject({ visibleOnFullScreen: true, skipTransformProcessType: true });
   });
@@ -199,12 +208,12 @@ describe('it shows up when something needs you, and only then', () => {
   });
 });
 
-describe('a click opens the list; a press that moves is a drag', () => {
-  it('a click (press and let go, not moving) opens the list beside the tag, and the tag does not move', () => {
+describe('pointing opens the list, a click opens the app, a press that moves is a drag', () => {
+  it('pointing at the tag for a moment opens the list beside it, and the tag does not move', () => {
     const r = rig();
     r.showTag();
     const before = { ...r.win().bounds };
-    r.click();
+    r.point();
     r.listUp();
     const card = r.win('card');
     expect(card.visible).toBe(true);
@@ -213,20 +222,38 @@ describe('a click opens the list; a press that moves is a drag', () => {
     expect(card.bounds.y + card.bounds.height).toBe(before.y - 8);
   });
 
-  it('a second click shuts it', () => {
+  it('a pointer passing over the tag on its way somewhere else opens nothing', () => {
     const r = rig();
     r.showTag();
-    r.click();
-    r.listUp();
-    r.click();
-    expect(r.win('card').visible).toBe(false);
+    r.onTag();
+    r.call('corner-tag:hover', { part: 'tag', inside: true });
+    r.advance(OPEN_AFTER_MS - 50);
+    r.cursor.x = 10; r.cursor.y = 10;
+    r.call('corner-tag:hover', { part: 'tag', inside: false });
+    r.advance(OPEN_AFTER_MS);
+    expect(r.win('card')).toBeUndefined();
+    expect(r.pendingTimers()).toBe(0);
   });
 
-  it('pointing at the tag opens nothing', () => {
+  it('a pointer whose leaving the page missed opens nothing either', () => {
     const r = rig();
     r.showTag();
+    r.onTag();
     r.call('corner-tag:hover', { part: 'tag', inside: true });
+    r.cursor.x = 10; r.cursor.y = 10;
+    r.advance(OPEN_AFTER_MS + 10);
     expect(r.win('card')).toBeUndefined();
+  });
+
+  it('a click brings the app forward to the inbox and shuts the list', () => {
+    const r = rig();
+    r.showTag();
+    r.point();
+    r.listUp();
+    r.click();
+    expect(r.main.shown).toBe(1);
+    expect(r.main.sent.filter((m) => m[0] === 'zero:open-item')).toEqual([]);
+    expect(r.win('card').visible).toBe(false);
   });
 
   it('a press that moves follows the real cursor, opens nothing and is remembered where it lands', () => {
@@ -239,6 +266,7 @@ describe('a click opens the list; a press that moves is a drag', () => {
     expect(r.win().sent).toContainEqual(['corner-tag:dragging', true]);
     r.call('corner-tag:release', { cancelled: false });
     expect(r.win('card')).toBeUndefined();
+    expect(r.main.shown).toBe(0);
     expect(r.config.cornerTagSpot).toEqual({ x: before.x - 300, y: before.y - 200 });
     expect(r.win().sent).toContainEqual(['corner-tag:dragging', false]);
     expect(r.pendingTimers()).toBe(0);
@@ -251,7 +279,7 @@ describe('a click opens the list; a press that moves is a drag', () => {
     r.pressAndMove(DRAG_FROM_PX - 2, 1);
     r.call('corner-tag:release', { cancelled: false });
     expect(r.win().bounds).toEqual(before);
-    expect(r.win('card')).toBeDefined();
+    expect(r.main.shown).toBe(1);
   });
 
   it('a press just over the threshold is a drag', () => {
@@ -259,7 +287,7 @@ describe('a click opens the list; a press that moves is a drag', () => {
     r.showTag();
     r.pressAndMove(DRAG_FROM_PX + 1, 0);
     r.call('corner-tag:release', { cancelled: false });
-    expect(r.win('card')).toBeUndefined();
+    expect(r.main.shown).toBe(0);
     expect(r.saved.some((p) => p.cornerTagSpot)).toBe(true);
   });
 
@@ -297,12 +325,13 @@ describe('a click opens the list; a press that moves is a drag', () => {
     r.call('corner-tag:press');
     r.call('corner-tag:release', { cancelled: true });
     expect(r.win('card')).toBeUndefined();
+    expect(r.main.shown).toBe(0);
   });
 
   it('a drag shuts an open list and cannot be dragged off the screen', () => {
     const r = rig();
     r.showTag();
-    r.click();
+    r.point();
     r.listUp();
     r.pressAndMove(900, 900);
     expect(r.win('card').visible).toBe(false);
@@ -328,6 +357,30 @@ describe('a click opens the list; a press that moves is a drag', () => {
     expect(r.win().bounds.x).toBe(mid.x);
   });
 
+  it('a drag does not open the list again under the pointer until it has left and come back', () => {
+    const r = rig();
+    r.showTag();
+    r.point();
+    r.listUp();
+    r.pressAndMove(-200, -100);
+    r.call('corner-tag:release', { cancelled: false });
+    r.call('corner-tag:hover', { part: 'tag', inside: true });
+    r.advance(OPEN_AFTER_MS + 10);
+    expect(r.win('card').visible).toBe(false);
+    r.cursor.x = 10; r.cursor.y = 10;
+    r.call('corner-tag:hover', { part: 'tag', inside: false });
+    r.point();
+    expect(r.win('card').visible).toBe(true);
+  });
+
+  it('grows from its outer edge when it widens under the pointer, so it never slides off the corner', () => {
+    const r = rig();
+    r.showTag(undefined, { width: 80, height: 26 });
+    const before = { ...r.win().bounds };
+    r.call('corner-tag:size', { part: 'tag', width: 102, height: 26 });
+    expect(r.win().bounds.x + r.win().bounds.width).toBe(before.x + before.width);
+  });
+
   it('lands exactly where you left it after a restart, even near the right edge', () => {
     const spot = { x: 1500, y: 200 };
     const r = rig({ config: { cornerTagSpot: spot } });
@@ -345,7 +398,7 @@ describe('the list shuts when the pointer has gone', () => {
   it('stays open while the pointer crosses from the tag to the list, and shuts once it has left both', () => {
     const r = rig();
     r.showTag();
-    r.click();
+    r.point();
     r.listUp();
     r.call('corner-tag:hover', { part: 'tag', inside: false });
     r.cursor.x = null;
@@ -361,7 +414,7 @@ describe('the list shuts when the pointer has gone', () => {
   it('does not shut the list under a pointer that came back without the page noticing', () => {
     const r = rig();
     r.showTag();
-    r.click();
+    r.point();
     r.listUp();
     away(r);
     r.call('corner-tag:hover', { part: 'tag', inside: false });
@@ -374,7 +427,7 @@ describe('the list shuts when the pointer has gone', () => {
   it('shuts a list whose pointer had already left when it opened, and stops checking after', () => {
     const r = rig();
     r.showTag();
-    r.click();
+    r.point();
     away(r);
     r.call('corner-tag:hover', { part: 'tag', inside: false });
     r.listUp();
@@ -393,7 +446,7 @@ describe('the list shuts when the pointer has gone', () => {
   it('comes back shut after it was hidden with the list open', () => {
     const r = rig();
     r.showTag();
-    r.click();
+    r.point();
     r.listUp();
     r.main.focused = true;
     r.mainListeners.focus();
@@ -417,7 +470,7 @@ describe('the list shuts when the pointer has gone', () => {
   it('the list opening for the first time is not mistaken for a reload', () => {
     const r = rig();
     r.showTag();
-    r.click();
+    r.point();
     r.win('card').wcListeners['did-start-loading']();
     r.listUp();
     expect(r.win('card').visible).toBe(true);
@@ -431,7 +484,7 @@ describe('the list shuts when the pointer has gone', () => {
     expect(r.pendingTimers()).toBe(0);
     r.call('corner-tag:ready', { part: 'tag' });
     r.click();
-    expect(r.win('card')).toBeDefined();
+    expect(r.main.shown).toBe(1);
   });
 });
 
@@ -496,10 +549,10 @@ describe('turning it off, and opening things', () => {
     expect(r.main.sent).toContainEqual(['zero:open-settings', { pane: 'general' }]);
   });
 
-  it('a line in the list is what brings the app forward, on that thread', () => {
+  it('a line in the list brings the app forward on that thread', () => {
     const r = rig();
     r.showTag();
-    r.click();
+    r.point();
     r.listUp();
     r.call('corner-tag:go', 'w-1');
     expect(r.main.shown).toBe(1);
@@ -507,10 +560,9 @@ describe('turning it off, and opening things', () => {
     expect(r.win('card').visible).toBe(false);
   });
 
-  it('neither a click nor a drag on the tag brings the app forward', () => {
+  it('a drag on the tag never brings the app forward', () => {
     const r = rig();
     r.showTag();
-    r.click();
     r.pressAndMove(-80, -40);
     r.call('corner-tag:release', { cancelled: false });
     expect(r.main.shown).toBe(0);
@@ -521,7 +573,7 @@ describe('the app window closing, and screens changing', () => {
   it('takes the tag and its list with it, so the app can quit', () => {
     const r = rig();
     r.showTag();
-    r.click();
+    r.point();
     r.listUp();
     r.main.destroyed = true;
     r.mainListeners.closed();
@@ -533,7 +585,7 @@ describe('the app window closing, and screens changing', () => {
   it('is pulled back onto a screen when the one it was on changes, and shuts its list', () => {
     const r = rig();
     r.showTag();
-    r.click();
+    r.point();
     r.listUp();
     r.area.width = 1200;
     r.area.height = 800;
