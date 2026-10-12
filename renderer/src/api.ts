@@ -765,7 +765,7 @@ export const api = {
 
   async snooze(p: { product: string; id: string; snoozedUntil: number }): Promise<WorkItem | null> {
     if (useFixtures) return null;
-    if (!window.zero?.snooze) throw new Error('Restart the app to use inbox snooze');
+    if (!window.zero?.snooze) throw new Error('Restart the app to use Later');
     return window.zero.snooze(p);
   },
 

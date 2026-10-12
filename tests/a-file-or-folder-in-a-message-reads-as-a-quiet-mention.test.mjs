@@ -18,7 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createElement as h } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { mentionKind, mentionName, folderTitle } from '../renderer/src/mentions.ts';
+import { mentionKind, mentionName, mentionLabel, folderTitle } from '../renderer/src/mentions.ts';
 import { Mention } from '../renderer/src/components/Mention.tsx';
 import { TicketLink, TicketNavigation } from '../renderer/src/components/TicketReference.tsx';
 
@@ -72,6 +72,33 @@ describe('the name a mention shows', () => {
     expect(mentionName('https://tailscale.com/kb/1153/')).toBe('tailscale.com/kb/1153');
     expect(mentionName('http://localhost:3000')).toBe('localhost:3000');
     expect(mentionName('mailto:someone@example.com')).toBe('someone@example.com');
+  });
+});
+
+// 2026-10-12, her second screenshot: four films named by their full path,
+// `/Users/…/astral-video-agent/designs/w-bddbdfe747/agenttray-intro-version-1.mp4`,
+// each drawn as a plain black line over its player. The player draws its own
+// name and the first round only took that name's orange away, so a film read as
+// a reference nobody had detected.
+describe('the words a mention shows in place of what the worker wrote', () => {
+  const film = 'designs/w-bddbdfe747/agenttray-intro-version-1.mp4';
+  it('shortens a film written out in full to its file name', () => {
+    expect(mentionLabel(film, `/Users/you/Zero/accounts/acct/astral-video-agent/${film}`)).toBe('agenttray-intro-version-1.mp4');
+    expect(mentionLabel(film, film)).toBe('agenttray-intro-version-1.mp4');
+    expect(mentionLabel(film, undefined)).toBe('agenttray-intro-version-1.mp4');
+  });
+  it('keeps a file name that has a space in it whole', () => {
+    expect(mentionLabel('Sample Film.mp4', 'Sample Film.mp4')).toBe('Sample Film.mp4');
+    expect(mentionLabel('renders/Final Film.mp4', '/Users/you/renders/Final Film.mp4')).toBe('Final Film.mp4');
+  });
+  it('names an address by the address, even when the words were its bare form', () => {
+    expect(mentionLabel('http://localhost:3002', 'localhost:3002')).toBe('localhost:3002');
+    expect(mentionLabel('http://www.example.com/a/b', 'www.example.com/a/b')).toBe('www.example.com/a/b');
+  });
+  it('leaves words the worker chose alone', () => {
+    expect(mentionLabel('designs/demo.html', 'the page')).toBeNull();
+    expect(mentionLabel('missing.pdf', 'the missing file')).toBeNull();
+    expect(mentionLabel('https://example.com', 'here')).toBeNull();
   });
 });
 
@@ -148,5 +175,14 @@ describe('the message pane', () => {
   });
   it('gives the folder its icon and a name instead of its path', () => {
     expect(focus).toMatch(/folderTitle\(folder/);
+  });
+  it('draws a film or a sound\'s name over its player as a mention too', () => {
+    const media = focus.slice(focus.indexOf('export function ArtifactMedia'), focus.indexOf('// A FOLDER A WORKER NAMES'));
+    expect(media).toMatch(/className="inline-media-name mention mention-media"/);
+    expect(media).toMatch(/<MentionIcon kind="media" \/>/);
+    expect(media).toMatch(/mentionLabel\(rel/);
+  });
+  it('no longer draws a film\'s name in the message\'s own code box', () => {
+    expect(focus).not.toMatch(/<ArtifactMedia[^\n]*label=\{<code>/);
   });
 });

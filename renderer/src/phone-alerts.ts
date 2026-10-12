@@ -84,7 +84,7 @@ export const ALERTS_SAY: Record<AlertsState, string> = {
   off: 'Get an alert when an agent needs you, and a count on the icon.',
   blocked: 'Alerts are blocked for this app. Turn them on in the phone\'s Settings, under Notifications.',
   'needs-home-screen': 'To get alerts, add this page to your home screen (Share, then Add to Home Screen) and open it from there.',
-  'needs-secure': 'Alerts need the secure address. On the computer, open Settings, then Phone, and pick Tailscale.',
+  'needs-secure': 'Alerts need a secure connection. On the computer, open Settings, then Phone, pick Anywhere, and scan the new code.',
   unsupported: 'This browser cannot show alerts from a web app.',
 };
 

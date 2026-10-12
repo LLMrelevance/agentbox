@@ -32,6 +32,21 @@ export function mentionName(target: string): string {
   return parts[parts.length - 1] || value;
 }
 
+// What a mention shows in place of what the worker wrote. A path or an address
+// written out, in full or in part, is shortened to the name it goes by; words
+// the worker chose ("the page") come back null and stay theirs. A file name
+// with a space in it counts as written out when the words end with it.
+export function mentionLabel(target: string, text: string | null | undefined): string | null {
+  const name = mentionName(target);
+  const words = text?.trim();
+  if (!words || words === target) return name;
+  if (mentionKind(target) === 'link') {
+    return !/\s/.test(words) && /[/.:]/.test(words) ? name : null;
+  }
+  if (words.endsWith(name)) return name;
+  return !/\s/.test(words) && /[/.]/.test(words) ? mentionName(words) : null;
+}
+
 // A design folder named after a thread goes by that thread: its own thread's
 // folder is "Designs for this thread", another thread's carries that thread's
 // title, and anything else keeps its own name.

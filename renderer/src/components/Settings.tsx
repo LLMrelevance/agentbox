@@ -30,6 +30,7 @@ import type { ReactNode } from 'react';
 import type { AgentMode, CodexModeId, PermissionMode, PhoneLink, PhoneRoute, ProjectSettings, Settings as SettingsModel, UpdateState } from '../types';
 import { ago } from '../format';
 import { ALERTS_SAY, alertsState, testAlert, turnOffAlerts, turnOnAlerts, type AlertsState } from '../phone-alerts';
+import { onPhone } from '../phone-screen';
 import { api, RESTART_NOTE } from '../api';
 import { updateLook } from '../update-row';
 import { InstructionSettings, sizeLabel } from './InstructionSettings';
@@ -1393,8 +1394,11 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   // ?settings=claude, or ?settings=project:kestrel. Anything else (including the
   // bare ?settings=1 that only means "open") lands on General. `startPane` is
   // the same question asked from inside the app, and it wins.
+  // ON A PHONE IT OPENS ON THE PHONE'S OWN PAGE, its alerts: "we probably need
+  // a way in Settings for me to configure [notifications]" (2026-10-12). The
+  // page was there, a tab along a strip that opened on General.
   const [pane, setPane] = useState<Pane>(() => paneFrom(
-    startPane || new URLSearchParams(location.search).get('settings') || '',
+    startPane || new URLSearchParams(location.search).get('settings') || (onPhone() ? 'phone' : ''),
     { team: !!teamPane },
   ));
   // WHICH PAGE IS UP, for the window around this screen.

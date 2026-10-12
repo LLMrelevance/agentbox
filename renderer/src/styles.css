@@ -1984,12 +1984,13 @@ body {
 /* A sound or a film a worker named: its name, then the player, one per line
    even when five were written on one line (ArtifactMedia in Focus.tsx). */
 .inline-media { display: block; margin: 8px 0; }
-.inline-media-name {
-  display: block; padding: 0; border: 0; background: none; cursor: pointer;
-  font: inherit; color: var(--text); text-align: left; margin-bottom: 4px;
+/* Its name is a mention (mention.css) on a line of its own above the player. */
+.inline-media-name.mention {
+  display: inline-block; border: 0; background: transparent; text-align: left;
+  margin: 0 -3px 6px;
 }
 .inline-media audio { display: block; width: min(420px, 100%); height: 36px; }
-.inline-media-missing .inline-media-name { display: inline; margin: 0; }
+.inline-media-missing .inline-media-name.mention { display: inline; margin: 0 -3px; }
 .inline-media video { display: block; max-width: 100%; max-height: 360px; border: 1px solid var(--line); }
 
 /* A folder a worker named on its own line: its name, then its newest pictures,
