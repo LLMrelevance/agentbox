@@ -1963,6 +1963,12 @@ body {
 .code-wrap:hover .code-copy, .code-wrap .code-copy.copied { opacity: 1; }
 .code-wrap .code-copy:hover { color: var(--text); border-color: var(--text-faint); }
 .code-wrap .code-copy.copied { color: var(--chip-review); }
+/* A Mermaid chart sits on the same surface a code block does. */
+.diagram { background: var(--bg-raised); padding: 18px 14px; border-radius: var(--radius); margin: 10px 0; overflow-x: auto; text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+/* The library's drop shadow reads as a glow on a dark surface. */
+.diagram svg * { filter: none !important; }
+.diagram-pending { min-height: 120px; }
 .markdown blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(--text-dim); margin: 8px 0; }
 .markdown strong { font-weight: 650; }
 .inline-image { max-width: 100%; border-radius: 0; border: 1px solid var(--line); margin: 8px 0; }
