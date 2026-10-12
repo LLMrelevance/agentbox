@@ -23,6 +23,7 @@ import { List } from './components/List';
 import { isTroubleRow, troubleRow } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
 import { Focus } from './components/Focus';
+import { TicketItems } from './components/TicketReference';
 import type { PendingSaid } from './item-thread';
 import { DocPane, type OpenDoc } from './components/DocPane';
 import { docKind, EVEN_SPLIT, escapeClosesDoc, escapeInTheFileClosesIt, focusIsInTheFile, readSplit, writeSplit } from './doc-pane';
@@ -5478,6 +5479,7 @@ export default function App() {
                   }}
                 />
               ) : focused ? (
+                <TicketItems.Provider value={items}>
                 <Focus
                   // A message from a person can be handed to an agent from
                   // its page.
@@ -5499,7 +5501,6 @@ export default function App() {
                   artifactView={openDoc ? artifactView : undefined}
                   onOpenArtifact={(src, mode) => { setArtifactReturnBeside(false); setArtifactMode(mode); setOpenDoc({product: focused.product, src}); }}
                   item={focused}
-                  referenceItems={items}
                   resumeAt={resumeAt}
                   onScrolled={(top) => {
                     const at = Date.now();
@@ -5623,6 +5624,7 @@ export default function App() {
                   }}
                   stoppable={!walking && stoppableNow(focused)}
                 />
+                </TicketItems.Provider>
               ) : (
                 <>
                 {/* THE STATE TABS (approved 2026-10-01): Needs you, Running,

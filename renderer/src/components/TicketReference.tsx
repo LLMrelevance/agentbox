@@ -1,6 +1,9 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { ticketPieces, TICKET_HREF } from '../ticket-references';
+import type { WorkItem } from '../types';
 import './ticket-reference.css';
+
+export const TicketItems = createContext<WorkItem[]>([]);
 
 export const TicketNavigation = createContext<{
   open: (id: string) => void;

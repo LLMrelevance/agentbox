@@ -4,7 +4,7 @@ import {MessageFiles} from './MessageFiles';
 import {reviewLabEnabled, reviewContextDraft} from '../review-lab';
 import { sourceReference } from '../source-reference.mjs';
 import { remarkTicketReferences, resolveTicket, ticketReference, TICKET_HREF } from '../ticket-references';
-import { TicketLink, TicketNavigation } from './TicketReference';
+import { TicketItems, TicketLink, TicketNavigation } from './TicketReference';
 import { TaskTerminal } from './TaskTerminal';
 import { isLocalPreview } from '../artifact-layout';
 import { watchCommandCatalog } from '../command-catalog';
@@ -427,7 +427,7 @@ function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], referenceItems = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onRejectFiled, onNotice, onHandToAgent, onAddPeople }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onRejectFiled, onNotice, onHandToAgent, onAddPeople }: {
   previewSample?: string;
   /**
    * A MESSAGE FROM A PERSON IS NOT WORK UNTIL SHE SAYS SO. The one line under
@@ -490,7 +490,6 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // empty draws nothing.
   filed?: Array<MadeRow & { item: WorkItem }>;
   onOpenItem: (item: WorkItem) => void;
-  referenceItems?: WorkItem[];
   // SAYING GO TO ONE OF THEM FROM HERE (w-9cf2b43110), on the rows whose
   // `approve` says they are waiting on it. The same approval ⌘K makes on the
   // row itself, except that it does not take you off the thread you are
@@ -597,6 +596,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const made = trouble || update;
   // The door into a thread this one filed, wherever that list ends up drawn.
   const openFiled = (id: string) => { const hit = filed.find((r) => r.id === id); if (hit) onOpenItem(hit.item); };
+  const referenceItems = useContext(TicketItems);
   const openTicket = (id: string) => {
     const hit = resolveTicket(referenceItems, id, item.product);
     if (hit) onOpenItem(hit);
