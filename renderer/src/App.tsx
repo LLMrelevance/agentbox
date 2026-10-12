@@ -46,6 +46,7 @@ import { Palette } from './components/Palette';
 import { Standing, STANDING } from './components/Standing';
 import { Settings } from './components/Settings';
 import { Snooze } from './components/Snooze';
+import { LATER_KEYWORDS } from './palette-rows';
 /* The line, the toast and the dot on the cog were the other three drawn for that round and
  are gone; their copy is in decisions.md and their photographs on
  `astral/w-86452550e5-looks`.
@@ -4069,7 +4070,7 @@ export default function App() {
     try {
       for (const item of list) await writeMoment(item, ts);
     } catch (err) {
-      showToast(`Could not snooze: ${(err as Error)?.message ?? 'the store refused the write'}`);
+      showToast(`Could not move it to Later: ${(err as Error)?.message ?? 'the store refused the write'}`);
       refresh();
       return;
     }
@@ -4083,13 +4084,13 @@ export default function App() {
     // The COUNT IS WHAT SHE PICKED. A thread she moved as one row is one row to
     // her, so saying 13 after she selected 12 would report the repair as a
     // miscount and put the old doubt back in different words.
-    showToast(picked.length > 1 ? `${picked.length} snoozed. Back ${label.toLowerCase()}` : `Snoozed. Back ${label.toLowerCase()}`);
+    showToast(picked.length > 1 ? `${picked.length} moved to Later. Back ${label.toLowerCase()}` : `Moved to Later. Back ${label.toLowerCase()}`);
     // Undo restores only inbox reminders. Execution schedules stay intact.
     const prior = new Map(list.map((i) => [i.id, (i.agent ? i.runAt : i.snoozedUntil) ?? 0]));
     // AND THE TASK IT PUTS BACK IS OPENED (w-874411cc63). Without `brings` the
     // Z put the task back in the inbox out of sight, read as doing nothing, and
     // the next Z took back the reply under it instead.
-    pushUndo({ label: 'Snooze undone', undoes: 'undo that snooze', brings: bringsBack(picked), undid: list.filter((i) => !i.agent).map((i) => ({ product: i.product, id: i.id, words: 'Undid the snooze' })), run: async () => {
+    pushUndo({ label: 'Back in your inbox', undoes: 'undo moving it to Later', brings: bringsBack(picked), undid: list.filter((i) => !i.agent).map((i) => ({ product: i.product, id: i.id, words: 'Undid moving it to Later' })), run: async () => {
       for (const item of list) await writeMoment(item, prior.get(item.id) ?? 0);
       refresh();
     } });
@@ -6167,7 +6168,7 @@ export default function App() {
                 ...(view !== 'snoozed'
                   ? [{ id: 'done', label: `Close (${n} selected)`, keyHint: 'E', run: () => { setModal(null); batchDone(multiSel); } }]
                   : []),
-                { id: 'snooze', label: `Remind Me (Snooze ${n} selected)`, keyHint: 'L', run: () => openSnooze(sel) },
+                { id: 'snooze', label: `Later (${n} selected)`, keywords: LATER_KEYWORDS, keyHint: 'L', run: () => openSnooze(sel) },
                 ...(sel.some((i) => returnAt(i) > Date.now())
                   ? [{ id: 'unsnooze', label: `Back to Inbox (${n} selected)`, run: () => unsnooze(sel) }]
                   : []),
@@ -6252,7 +6253,7 @@ export default function App() {
                     run: () => unsnooze(target),
                   }]
                 : []),
-              { id: 'snooze', label: 'Remind Me (Snooze)', keyHint: 'L', run: () => openSnooze(target) },
+              { id: 'snooze', label: 'Later', keywords: LATER_KEYWORDS, keyHint: 'L', run: () => openSnooze(target) },
               // THE FIRST PLACE SHE LOOKED. It asked `supervisor.running`, so on
               // a task she had just composed there was no Stop in ⌘K at all —
               // and, because nothing was running, the one agent command that DID
