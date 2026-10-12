@@ -5,6 +5,8 @@ import {reviewLabEnabled, reviewContextDraft} from '../review-lab';
 import { sourceReference } from '../source-reference.mjs';
 import { remarkTicketReferences, resolveTicket, ticketReference, TICKET_HREF } from '../ticket-references';
 import { TicketItems, TicketLink, TicketNavigation } from './TicketReference';
+import { Mention, MentionIcon } from './Mention';
+import { folderTitle, mentionKind, mentionName, type MentionKind } from '../mentions';
 import { TaskTerminal } from './TaskTerminal';
 import { isLocalPreview } from '../artifact-layout';
 import { watchCommandCatalog } from '../command-catalog';
@@ -296,9 +298,16 @@ export function ArtifactMedia({ src, label, roots, onOpen }: { src: string; labe
 // it is pointing at, and the folder beside them also holds every older round,
 // so it stays one line rather than drawing the same pictures twice.
 const FOLDER_SHOWS = 6;
-export function FolderPreview({ product, folder, onOpen, quiet }: {
-  product: string; folder: string; onOpen: (src: string) => void; quiet?: boolean;
+//
+// ITS NAME SAYS IT IS A FOLDER (w-a3a7d1a1ec). It was an orange path,
+// `designs/w-7a670f07bb/`, that said nothing about being a folder until she
+// clicked it. Now it is a folder icon and the name the folder goes by, which
+// for a thread's own designs is "Designs for this thread" (mentions.ts); the
+// path waits in the hover title.
+export function FolderPreview({ product, folder, onOpen, quiet, thread }: {
+  product: string; folder: string; onOpen: (src: string) => void; quiet?: boolean; thread?: string;
 }) {
+  const navigation = useContext(TicketNavigation);
   const [shown, setShown] = useState<{ pictures: string[]; total: number } | null>(null);
   useEffect(() => {
     const api = (window as any).zero;
@@ -314,8 +323,9 @@ export function FolderPreview({ product, folder, onOpen, quiet }: {
   const short = folder.replace(/\/+$/, '');
   const count = shown?.total ? `${shown.total} picture${shown.total === 1 ? '' : 's'}` : null;
   const name = (
-    <button type="button" className="folder-preview-name" data-folder={short} title={short} onClick={() => onOpen(folder)}>
-      <span className="folder-preview-path">{short}/</span>
+    <button type="button" className="folder-preview-name" data-folder={short} title={`${short}/`} onClick={() => onOpen(folder)}>
+      <MentionIcon kind="folder" />
+      <span className="folder-preview-path">{folderTitle(folder, { thread, name: navigation?.name })}</span>
       {count && <span className="folder-preview-count">{count}</span>}
     </button>
   );
@@ -348,8 +358,11 @@ export function FolderPreview({ product, folder, onOpen, quiet }: {
 // A worker's link, its href corrected to the file that actually exists (the
 // main process resolves across every plausible root). Until then the naive
 // guess stands in; Copy Link must hand out a URL that works.
-function ArtifactLink({ product, src, fallback, onOpen, children }: {
-  product: string; src?: string; fallback?: string; onOpen: () => void; children: ReactNode;
+//
+// It is drawn as a quiet mention (Mention.tsx): the kind's icon and the name,
+// with the full path in the hover title rather than orange in the sentence.
+function ArtifactLink({ kind, product, src, fallback, onOpen, children }: {
+  kind: MentionKind; product: string; src?: string; fallback?: string; onOpen: () => void; children: ReactNode;
 }) {
   const [href, setHref] = useState(fallback);
   useEffect(() => {
@@ -359,7 +372,20 @@ function ArtifactLink({ product, src, fallback, onOpen, children }: {
       .then((r: { ok: boolean; opened?: string }) => { if (r?.ok && r.opened) setHref(`file://${r.opened}`); })
       .catch(() => {});
   }, [product, src]);
-  return <a href={href} onClick={(e) => { e.preventDefault(); onOpen(); }} rel="noreferrer">{children}</a>;
+  return <Mention kind={kind} href={href} title={src} onClick={(e) => { e.preventDefault(); onOpen(); }}>{children}</Mention>;
+}
+
+// What a link's own words become. A path or an address the worker wrote out
+// is shortened to the name it goes by; words the worker chose stay theirs.
+function textOf(children: ReactNode): string | null {
+  if (typeof children === 'string') return children;
+  if (Array.isArray(children) && children.every((c) => typeof c === 'string')) return children.join('');
+  return null;
+}
+function linkLabel(href: string, children: ReactNode): ReactNode {
+  const raw = textOf(children)?.trim();
+  if (!raw || /\s/.test(raw) || !/[/.:]/.test(raw)) return children;
+  return mentionName(mentionKind(href) === 'link' ? href : raw);
 }
 
 // A document a message named, shown whole under the message.
@@ -966,7 +992,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         if (href?.startsWith(AGENT_SCHEME)) return <span className="chat-at">{children}</span>;
         // A FOLDER, written on its own line, shows its pictures (FolderPreview).
         if (href && /\/$/.test(href) && !/^(https?|data|file|mailto):/i.test(href)) {
-          return <FolderPreview key={href} product={product} folder={href} onOpen={openHref} quiet={drawsPictures} />;
+          return <FolderPreview key={href} product={product} folder={href} onOpen={openHref} quiet={drawsPictures} thread={item.id} />;
         }
         // A LINK TO A PICTURE DRAWS THE PICTURE. The code span below has done
         // this since 08-29 and the bare path now does it too, so the last form
@@ -981,14 +1007,14 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         if (href && isMediaPath(href)) {
           return <ArtifactMedia key={href} src={href} label={children} roots={roots} onOpen={openHref} />;
         }
-        return <ArtifactLink product={product} src={href} fallback={resolveSrc(href)} onOpen={() => openHref(href)}>{children}</ArtifactLink>;
+        return <ArtifactLink kind={mentionKind(href ?? '')} product={product} src={href} fallback={resolveSrc(href)} onOpen={() => openHref(href)}>{href ? linkLabel(href, children) : children}</ArtifactLink>;
       },
       img: ({ src, alt }: { src?: string; alt?: string }) => <ArtifactImg key={src} src={src} alt={alt} roots={roots} onOpen={openHref} find={find} />,
       code: ({ children, className }: { children?: ReactNode; className?: string }) => {
         const value = String(children ?? '');
         if (!className && ticketReference(value)) return <code>{children}</code>;
         const source = !className && sourceReference(value);
-        if (source) return <ArtifactLink product={product} src={source} fallback={resolveSrc(source)} onOpen={() => openHref(source)}><code>{value}</code></ArtifactLink>;
+        if (source) return <ArtifactLink kind="code" product={product} src={source} fallback={resolveSrc(source)} onOpen={() => openHref(source)}>{mentionName(value)}</ArtifactLink>;
         // Written out in full into this product's folder counts as the short
         // path it names, the same rule a full path in a sentence follows.
         const shown = value.trim();
@@ -1000,7 +1026,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
           if (isMediaPath(path)) {
             return <ArtifactMedia key={path} src={path} label={<code>{shown}</code>} roots={roots} onOpen={openHref} />;
           }
-          return <ArtifactLink product={product} src={path} fallback={resolveSrc(path)} onOpen={() => openHref(path)}><code>{shown}</code></ArtifactLink>;
+          return <ArtifactLink kind={mentionKind(path)} product={product} src={path} fallback={resolveSrc(path)} onOpen={() => openHref(path)}>{mentionName(path)}</ArtifactLink>;
         }
         return <code className={className}>{children}</code>;
       },
