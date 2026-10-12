@@ -602,6 +602,10 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     if (hit) onOpenItem(hit);
     else onNotice(`Ticket ${id} is not available in your threads.`);
   };
+  const ticketName = (id: string) => {
+    const hit = resolveTicket(referenceItems, id, item.product);
+    return hit ? rowTitle(hit) : null;
+  };
   const approveFiled = (id: string) => { const hit = filed.find((r) => r.id === id); if (hit) onApproveFiled?.(hit.item); };
   const rejectFiled = (id: string) => { const hit = filed.find((r) => r.id === id); if (hit) onRejectFiled?.(hit.item); };
   // ONE REASON THERE IS NO REPLY BOX, and it is a box. There was not one. A
@@ -1247,7 +1251,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // away with the words. An earlier cut of folded state into the className and
   // turned that guard off silently.
   return (
-    <TicketNavigation.Provider value={openTicket}>
+    <TicketNavigation.Provider value={{open: openTicket, name: ticketName}}>
     <div className="focus-pane" ref={paneRef} data-summary={summaryShown ? 'open' : summaryOffered ? 'rail' : undefined}>
     {/* THERE IS NO WAY-OUT CONTROL ON AN OPENED TASK ANY MORE.
 
