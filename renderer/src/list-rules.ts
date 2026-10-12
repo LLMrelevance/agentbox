@@ -59,6 +59,8 @@ export interface InboxItem {
   start?: 'later' | 'now';
   /** The thread this one was filed under: what makes it a proposal. */
   parent?: string;
+  /** The threads this one waits on. Written by whoever set the wait. */
+  blockedBy?: string[];
   createdAt?: number;
   updatedAt?: number;
   wrote?: Record<string, { ts: number; source: string } | undefined>;
@@ -181,9 +183,12 @@ export function hiddenUntil(i: InboxItem, legacySnooze = 0): number {
 //
 // `shipping` is whether the app's ship queue still owes this row a ship (the
 // supervisor's `shipping` list), which nothing here can see either.
+//
+// `waitingOn` is the threads this one waits on that can still finish
+// (`waitsThatCanEnd` below), which only the window can see.
 export function belongsInInbox(
   i: InboxItem,
-  { deliveredThrough = 0, hiddenUntil = 0, now = Date.now(), live = false, shipping = false } = {},
+  { deliveredThrough = 0, hiddenUntil = 0, now = Date.now(), live = false, shipping = false, waitingOn = [] as readonly string[] } = {},
 ): boolean {
   // ADDED TO LATER AND NOT STARTED (w-afb66e6661). It is written down on
   // purpose and waits for a person rather than a clock, so it is in Later and
@@ -208,6 +213,13 @@ export function belongsInInbox(
   // all stay exactly as loud as they were. Required to hide, never to show,
   // because ancestry is not proof that a run was quiet.
   if (isCleanRun(i)) return false;
+  // WAITING ON ANOTHER THREAD (w-5244c90c33). "Something that's waiting should
+  // be logically in the backlog and then it should automatically resume
+  // without the user needing to know otherwise." So it is in Later, and the
+  // supervisor puts a worker back on it when the last thread it names finishes
+  // (`resumeFinishedWaits`). Only a wait that can end counts: see
+  // `waitsThatCanEnd`, which is why a loop of waits stays here.
+  if (waitsInLater(i, waitingOn)) return false;
   if (parkedByAgent(i, now)) return true; // an agent stopped: what happens next is hers
   // THE AGENT HAS FINISHED ACTING ON HER ANSWER AND THE THREAD IS STILL ALIVE.
   // The same event as an agent's `done` on her ask, and the same news: the
@@ -292,6 +304,50 @@ export function isProposal(i: InboxItem): boolean {
   if (i.status !== 'open' || hers(i) || liveAnswer(i)) return false;
   if (i.kind === 'question' || i.kind === 'review') return false;
   return Boolean(i.parent);
+}
+
+/* ------------------- the threads a thread is waiting on ------------------ */
+/**
+ * WHICH THREADS THIS ONE WAITS ON THAT CAN STILL FINISH (w-5244c90c33).
+ *
+ * A waiting thread sits in Later and resumes by itself when the last thread it
+ * names finishes (`resumeFinishedWaits` in main/supervisor.mjs). It FAILS OPEN,
+ * because hiding a thread is the dangerous direction, and every wait it drops
+ * leaves the thread wherever the rules above put it:
+ *
+ *   a blocker that is DONE, or one this window CANNOT SEE (another project,
+ *   archived, past the 8 MB read), is not a wait;
+ *
+ *   a thread naming ITSELF is not a wait;
+ *
+ *   a LOOP of threads that only wait on each other is not a wait either.
+ *   Nothing there will ever finish, so nothing would ever resume it, and in
+ *   Later it would be lost (3a6cd1d found exactly this). A blocker counts when
+ *   it is not itself waiting, or when one of its own waits counts.
+ */
+/**
+ * WAITING IN LATER, ONE RULE for the inbox, the rail and Later itself, and the
+ * same three conditions the supervisor resumes on: parked (blocked), behind a
+ * wait that can end, and not stopped by you. A row you stopped is never
+ * resumed, so it is never hidden here either; it stays in your inbox.
+ */
+export function waitsInLater(i: InboxItem, waitingOn: readonly string[]): boolean {
+  return waitingOn.length > 0 && i.status === 'blocked' && i.wrote?.status?.source !== 'founder';
+}
+
+export function waitsThatCanEnd<T extends Pick<InboxItem, 'status' | 'blockedBy'> & { id: string }>(
+  i: T,
+  byId: ReadonlyMap<string, T>,
+  path: ReadonlySet<string> = new Set([i.id]),
+): string[] {
+  const live = (row: T) => (Array.isArray(row.blockedBy) ? row.blockedBy : [])
+    .filter((id) => id && id !== row.id && byId.has(id) && byId.get(id)!.status !== 'done');
+  return live(i).filter((id) => {
+    if (path.has(id)) return false;
+    const blocker = byId.get(id)!;
+    if (!live(blocker).length) return true;
+    return waitsThatCanEnd(blocker, byId, new Set(path).add(id)).length > 0;
+  });
 }
 
 /**
@@ -431,10 +487,11 @@ export function stoppable(
 // were spawned for, which is what they already are in her inbox.
 export function belongsOnTheRail(
   i: InboxItem,
-  { deliveredThrough = 0, hiddenUntil = 0, deferredUntil = 0, now = Date.now(), live = false, shipping = false } = {},
+  { deliveredThrough = 0, hiddenUntil = 0, deferredUntil = 0, now = Date.now(), live = false, shipping = false, waitingOn = [] as readonly string[] } = {},
 ): boolean {
   if (belongsInProgress(i, { deferredUntil, now, live, shipping })) return true;
   if (hiddenUntil > now && i.status !== 'done') return true;  // the user's own, put off: Scheduled
+  if (waitsInLater(i, waitingOn)) return true; // waiting in Later, coming back by itself
   return belongsInInbox(i, { deliveredThrough, hiddenUntil, now });
 }
 

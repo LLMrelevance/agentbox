@@ -20,7 +20,12 @@ import { Store } from './store.mjs';
 import { storeRootEnv } from './store/home.mjs';
 import { Supervisor } from './supervisor.mjs';
 import { startCodexWatch } from './codex-watch.mjs';
+import { readCodexThreads } from './codex-threads.mjs';
+import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
+import { createPhoneLink } from './phone-link.mjs';
+import { atTheApp } from '../shared/notify-rules.mjs';
+import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
 import * as approvals from './approvals.mjs';
 import { recoveryToast } from '../shared/recovery.mjs';
@@ -31,7 +36,7 @@ import { installCrashReports, reportFromRenderer, pending as pendingCrashes, set
 import { createAnalytics, createDailyCount } from './analytics.mjs';
 import { createUpdater } from './updater.mjs';
 import { createSourceUpdater } from './source-updater.mjs';
-import { recoverShellPath } from './shell-path.mjs';
+import { learnShellDataDirs, recoverShellPath } from './shell-path.mjs';
 import { installNotifier } from './notify.mjs';
 import { createCornerTag } from './corner-tag.mjs';
 import { DOC_SCHEMES, DocGrants, docPath } from './doc-scheme.mjs';
@@ -281,6 +286,10 @@ async function createWindow() {
   const shellPath = await recoverShellPath();
   process.env.PATH = shellPath.path;
   if (shellPath.error) console.warn('agentbox: could not load your shell PATH; using the inherited PATH:', shellPath.error);
+  // Where the shell says Claude Code and Codex keep their sessions, for the
+  // import only and never into this environment (main/shell-path.mjs). Not
+  // waited for: it lands long before setup reaches its last card.
+  void learnShellDataDirs();
   const config = loadConfig(dataDir);
   // The store modules read the app's own home variable at call time; setting it
   // here points auth session files, sync, and every store path at its root.
@@ -408,7 +417,13 @@ async function createWindow() {
   // AND IT IS WHERE A CODEX AGENT IS COUNTED, because it is the one thing that
   // already reads them (main/codex-watch.mjs). The switch is checked by
   // `analytics.track` itself, so this hands it over unconditionally.
-  const codexWatch = startCodexWatch({ store, count: (name, props) => analytics.track(name, props) });
+  // Every Codex folder on the machine, read fresh each minute so a login made
+  // while the app is open is followed too (main/agent-homes.mjs).
+  const codexWatch = startCodexWatch({
+    store,
+    count: (name, props) => analytics.track(name, props),
+    readThreads: (opts) => readCodexThreads({ ...opts, codexDirs: appSessionFolders({ config, supervisor }).codexDirs }),
+  });
   app.on('before-quit', () => codexWatch.stop());
   // Whatever is still queued goes with the app rather than dying in memory.
   app.on('will-quit', () => { analytics.flush(); });
@@ -682,9 +697,25 @@ async function createWindow() {
 
   // The desktop door. `main/serve.mjs` is the other one and hands over plain
   // Node stand-ins for these three; everything else about the call is the same.
+  // THE PHONE DOOR (main/phone-link.mjs) answers with these same handlers, so
+  // each one is filed in a Map as Electron gets it. And every push the window
+  // gets is handed to the phones' event streams too.
+  const phoneChannels = new Map();
+  const phoneListeners = new Set();
+  const filingIpcMain = {
+    handle(channel, fn) { ipcMain.handle(channel, fn); phoneChannels.set(channel, fn); },
+  };
+  const filingHost = { ipcMain: filingIpcMain, app, dialog };
+  const sendToWindow = window.webContents.send.bind(window.webContents);
+  window.webContents.send = (channel, ...args) => {
+    sendToWindow(channel, ...args);
+    for (const send of phoneListeners) {
+      try { send({ channel, args }); } catch { /* a closed phone is not an error */ }
+    }
+  };
   const ipc = registerIpc({
     store, supervisor, config, window, analytics, docGrants, updater,
-    host: { ipcMain, app, dialog },
+    host: filingHost,
     team,
   });
   pushUpdate = ipc.push;
@@ -692,6 +723,26 @@ async function createWindow() {
   // See the `installMenu` call above for what writing the file instead did to a
   // Codex card.
   answerApproval = ipc.answerApproval;
+  // What the window answers itself (badge, boot info) a phone gets the plain
+  // stand-ins for, as a browser tab does.
+  answerWhatOnlyTheWindowAnswered({ handle: (channel, fn) => { if (!phoneChannels.has(channel)) phoneChannels.set(channel, fn); } });
+  const phone = createPhoneLink({
+    file: path.join(userDir, 'phone-link.json'),
+    channels: phoneChannels,
+    listeners: phoneListeners,
+    dist: path.join(appDir, 'renderer', 'dist'),
+    onChange: () => { if (!window.isDestroyed()) sendToWindow('zero:phone-changed'); },
+    // The phone stays quiet while she is at the desktop app, by the same rule
+    // the desktop's own notifications use (shared/notify-rules.mjs).
+    atDesk: () => {
+      try { return atTheApp({ focused: !window.isDestroyed() && window.isFocused(), idleMs: powerMonitor.getSystemIdleTime() * 1000 }); } catch { return false; }
+    },
+  });
+  window.on('focus', () => phone.seen());
+  // Settings' own channel, on the window only: a phone does not get to turn
+  // the phone door off or hand out its key.
+  ipcMain.handle('zero:phone-link', (_e, payload) => phone.act(payload ?? {}));
+  app.on('before-quit', () => phone.close());
   updater.start();
   // A task the app just shipped moved main: look now rather than in half an
   // hour, so the restart is offered while she still remembers the task.
@@ -864,6 +915,7 @@ async function createWindow() {
   // Unread badge + notification on new inbox arrivals are driven by the
   // renderer (it owns the definition of "inbox"), through the badge API.
   ipcMain.handle('zero:badge', (_e, count) => {
+    phone.count(count);
     if (process.platform === 'darwin') app.dock.setBadge(count > 0 ? String(count) : '');
   });
   // WHETHER to speak, and what to say, is not the renderer's call: only this
@@ -872,7 +924,7 @@ async function createWindow() {
   // a locked screen all read the same from in there). The renderer says what
   // arrived; main/notify.mjs decides. tell me when I am in another app, never
   // while I am in Agentbox.
-  installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage });
+  installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage, onArrivals: (arrivals) => phone.arrivals(arrivals) });
   // THE CORNER TAG (w-dafae58a23): what is ready for her, floating over
   // whatever app she is in. Its page is built beside the app's own, and comes
   // from the dev server only when the app's own page does.

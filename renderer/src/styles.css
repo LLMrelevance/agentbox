@@ -1963,6 +1963,12 @@ body {
 .code-wrap:hover .code-copy, .code-wrap .code-copy.copied { opacity: 1; }
 .code-wrap .code-copy:hover { color: var(--text); border-color: var(--text-faint); }
 .code-wrap .code-copy.copied { color: var(--chip-review); }
+/* A Mermaid chart sits on the same surface a code block does. */
+.diagram { background: var(--bg-raised); padding: 18px 14px; border-radius: var(--radius); margin: 10px 0; overflow-x: auto; text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+/* The library's drop shadow reads as a glow on a dark surface. */
+.diagram svg * { filter: none !important; }
+.diagram-pending { min-height: 120px; }
 .markdown blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(--text-dim); margin: 8px 0; }
 .markdown strong { font-weight: 650; }
 .inline-image { max-width: 100%; border-radius: 0; border: 1px solid var(--line); margin: 8px 0; }
@@ -3463,6 +3469,11 @@ img.app-mark { opacity: 1; border-radius: 0; }
   padding-top: 0;
   padding-bottom: 25vh;
 }
+
+/* THE IMPORT CARD THAT ENDS SETUP WAS DRAWN DIMMED. Setup's veil is 299 and
+   this backdrop was 40, so the veil lay over the card. It goes at 301, with
+   setup's own card, and stays under setup's way out (302, 303). */
+.modal-backdrop.in-walk { z-index: 301; }
 
 .modal-title { padding: 14px 18px 2px; font-weight: 600; }
 .modal-subtitle { padding: 0 18px 10px; color: var(--text-dim); font-size: 13px; }
@@ -8719,3 +8730,7 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 }
 .fp-use { background: var(--accent); border-color: transparent; color: var(--on-solid); }
 .fp-use:disabled { opacity: .45; cursor: default; }
+
+/* THE PHONE WHOSE KEY WAS RESET (renderer/src/browser-bridge.ts). */
+#phone-locked-out { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 32px; background: var(--surface); color: var(--text); font: 16px/1.45 system-ui, sans-serif; text-align: center; }
+#phone-locked-out p { margin-top: 8px; opacity: .8; }

@@ -3,6 +3,8 @@ import {DirectReview} from './DirectReview';
 import {MessageFiles} from './MessageFiles';
 import {reviewLabEnabled, reviewContextDraft} from '../review-lab';
 import { sourceReference } from '../source-reference.mjs';
+import { remarkTicketReferences, resolveTicket, ticketReference, TICKET_HREF } from '../ticket-references';
+import { TicketItems, TicketLink, TicketNavigation } from './TicketReference';
 import { TaskTerminal } from './TaskTerminal';
 import { isLocalPreview } from '../artifact-layout';
 import { watchCommandCatalog } from '../command-catalog';
@@ -54,6 +56,8 @@ import { sameRule, type RepeatShape as RepeatRuleValue } from '../../../shared/r
 import { collectFiles, fromPaste, persistAttachments, type PendingAttachment } from '../attachments';
 import { pictureUrl } from '../picture';
 import { handleCopyOut, blockCopyText } from '../copy-out';
+import { diagramSource } from '../diagram-fence';
+import { DiagramBlock } from './DiagramBlock';
 import { referencedFiles, isImagePath } from '../referenced-files';
 import { pictureRoots } from '../message-folders';
 import { changePathFor } from '../code-artifact';
@@ -600,6 +604,16 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const made = trouble || update;
   // The door into a thread this one filed, wherever that list ends up drawn.
   const openFiled = (id: string) => { const hit = filed.find((r) => r.id === id); if (hit) onOpenItem(hit.item); };
+  const referenceItems = useContext(TicketItems);
+  const openTicket = (id: string) => {
+    const hit = resolveTicket(referenceItems, id, item.product);
+    if (hit) onOpenItem(hit);
+    else onNotice(`Ticket ${id} is not available in your threads.`);
+  };
+  const ticketName = (id: string) => {
+    const hit = resolveTicket(referenceItems, id, item.product);
+    return hit ? rowTitle(hit) : null;
+  };
   const approveFiled = (id: string) => { const hit = filed.find((r) => r.id === id); if (hit) onApproveFiled?.(hit.item); };
   const rejectFiled = (id: string) => { const hit = filed.find((r) => r.id === id); if (hit) onRejectFiled?.(hit.item); };
   // ONE REASON THERE IS NO REPLY BOX, and it is a box. There was not one. A
@@ -934,8 +948,18 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     };
 
     const mdComponents = {
-      pre: ({ children }: { children?: ReactNode }) => <CodePre>{children}</CodePre>,
+      pre: ({ children }: { children?: ReactNode }) => {
+        // A MERMAID CHART IS DRAWN, with its source as the fallback (DiagramBlock).
+        const code = (Array.isArray(children) ? children[0] : children) as { props?: { className?: string; children?: ReactNode } } | undefined;
+        const lang = /language-([\w-]+)/.exec(code?.props?.className ?? '')?.[1];
+        const source = diagramSource(lang, String(code?.props?.children ?? ''));
+        if (source) return <DiagramBlock source={source} fallback={<CodePre>{children}</CodePre>} />;
+        return <CodePre>{children}</CodePre>;
+      },
       a: ({ href, children }: { href?: string; children?: ReactNode }) => {
+        const ticket = href?.startsWith(TICKET_HREF)
+          ? ticketReference(href.slice(TICKET_HREF.length)) : ticketReference(href ?? '');
+        if (ticket) return <TicketLink id={ticket}>{children}</TicketLink>;
         // AN AGENT MENTIONED IN A CONVERSATION is drawn as the mention it is;
         // its address is for the app, which draws the answer under the message
         // (w-7b9cb8636a, ../team/agent-mentions.ts).
@@ -962,6 +986,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       img: ({ src, alt }: { src?: string; alt?: string }) => <ArtifactImg key={src} src={src} alt={alt} roots={roots} onOpen={openHref} find={find} />,
       code: ({ children, className }: { children?: ReactNode; className?: string }) => {
         const value = String(children ?? '');
+        if (!className && ticketReference(value)) return <code>{children}</code>;
         const source = !className && sourceReference(value);
         if (source) return <ArtifactLink product={product} src={source} fallback={resolveSrc(source)} onOpen={() => openHref(source)}><code>{value}</code></ArtifactLink>;
         // Written out in full into this product's folder counts as the short
@@ -986,7 +1011,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   }, [product, productDir, repoDir, item.id, item.result, item.note, item.body, item.answer]);
 
   const mdPlugins = useMemo(
-    () => [remarkGfm, [remarkArtifactPaths, { dir: productDir ?? null }]] as NonNullable<Parameters<typeof ReactMarkdown>[0]['remarkPlugins']>,
+    () => [remarkGfm, remarkTicketReferences, [remarkArtifactPaths, { dir: productDir ?? null }]] as NonNullable<Parameters<typeof ReactMarkdown>[0]['remarkPlugins']>,
     [productDir],
   );
 
@@ -1241,6 +1266,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // away with the words. An earlier cut of folded state into the className and
   // turned that guard off silently.
   return (
+    <TicketNavigation.Provider value={{open: openTicket, name: ticketName}}>
     <div className="focus-pane" ref={paneRef} data-summary={summaryShown ? 'open' : summaryOffered ? 'rail' : undefined}>
     {/* THERE IS NO WAY-OUT CONTROL ON AN OPENED TASK ANY MORE.
 
@@ -1806,6 +1832,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     {summaryOffered && !summaryOpen && <SummaryRail item={item} team={teamCtx} onOpen={toggleSummary} />}
     {!direct && <TaskTerminal key={`${item.product}:${item.id}`} product={item.product} id={item.id} onOpenChange={setTerminalOpen}/>}
     </div>
+    </TicketNavigation.Provider>
   );
 }
 

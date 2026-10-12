@@ -406,8 +406,12 @@ export interface SupervisorStatus {
 // is an account that IS signed in and whose organization has Claude Code
 // turned off. It is apart from 'signed-out' because the remedy has a different
 // person in it: no login she can type will end it, and being told to type one
-// can cost an afternoon.
-export type TroubleCause = 'signed-out' | 'org-blocked' | 'at-limit' | 'workspace' | 'interrupted' | 'unknown';
+// can cost an afternoon. 'subscription-ended' is refused in the same words as
+// 'org-blocked', and told apart by the login's own file (refineCause in
+// shared/spawn-trouble.mjs): its owner renews it, no admin is involved.
+// 'model-not-on-plan' is a Codex login whose plan lacks the model the task asks
+// for; the fix is another model or another login, not this login.
+export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'unknown';
 
 // A worker frozen mid-action, waiting on the user's allow/deny.
 export interface Approval {
@@ -1007,6 +1011,26 @@ export interface RepeatRule {
   alerted: number;
   lastOccurrence?: string;
 }
+
+/** Which address the phone QR code carries (main/phone-link.mjs). */
+export type PhoneRoute = 'wifi' | 'tailscale';
+export type PhoneDevice = { id: string; name: string; ip: string | null; firstSeen: number; lastSeen: number; live: boolean; alerts: boolean; alertError: string | null };
+export type PhoneLink = {
+  on: boolean;
+  listening: boolean;
+  error: string | null;
+  port: number;
+  /** The code carries an https address (Tailscale's certificate). */
+  secure: boolean;
+  /** Tailscale is still putting the https address up. */
+  settingUp: boolean;
+  via: PhoneRoute | null;
+  routes: Array<{ via: PhoneRoute; host: string }>;
+  url: string | null;
+  /** The QR code as an svg document. */
+  qr: string | null;
+  devices: PhoneDevice[];
+};
 
 declare global {
   interface Window {
