@@ -47,7 +47,7 @@ import { commandDraft } from '../../../shared/claude-commands.mjs';
 import { CompactionResult, runCompaction, runCommand } from './CompactionResult';
 import { codexCommand, COMPACTION_COPY } from '../../../shared/codex-commands.mjs';
 import { DEFAULT_ENGINE } from '../../../shared/engines.mjs';
-import { ago, dayLabel, itemOptions, offerIsLive, optionsFrom, parseOptions, parseRepeat } from '../format';
+import { ago, dayLabel, itemOptions, offerIsLive, optionsFrom, parseOptions, parseRepeat, type ParsedOption } from '../format';
 import { ruleIdOf } from '../../../shared/repeats.mjs';
 import { WhenPicker } from './When';
 import { ModelPicker } from './Model';
@@ -56,6 +56,8 @@ import { sameRule, type RepeatShape as RepeatRuleValue } from '../../../shared/r
 import { collectFiles, fromPaste, persistAttachments, type PendingAttachment } from '../attachments';
 import { pictureUrl } from '../picture';
 import { handleCopyOut, blockCopyText } from '../copy-out';
+import { diagramSource } from '../diagram-fence';
+import { DiagramBlock } from './DiagramBlock';
 import { referencedFiles, isImagePath } from '../referenced-files';
 import { pictureRoots } from '../message-folders';
 import { changePathFor } from '../code-artifact';
@@ -427,7 +429,7 @@ function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onRejectFiled, onNotice, onHandToAgent, onAddPeople }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onRejectFiled, closeAsk, onNotice, onHandToAgent, onAddPeople }: {
   previewSample?: string;
   /**
    * A MESSAGE FROM A PERSON IS NOT WORK UNTIL SHE SAYS SO. The one line under
@@ -499,6 +501,12 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // is about. A proposal nobody answers brings this thread back a day later,
   // so there has to be a way to settle one without starting it.
   onRejectFiled?: (item: WorkItem) => void;
+  /**
+   * THE QUESTION A CLOSE ASKS when tasks this thread filed are still waiting
+   * (w-d2744c6daa, ../close-asks-first.ts). While it is up it stands where the
+   * thread's own options stand, and the number keys answer it (App.tsx).
+   */
+  closeAsk?: { ask: string; options: ParsedOption[]; onPick: (n: number) => void; keep: { label: string; onKeep: () => void } } | null;
   // Said out loud when a file a worker named is not in this product. Nothing
   // else on the card can tell her a chip failed.
   onNotice: (text: string) => void;
@@ -940,7 +948,14 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     };
 
     const mdComponents = {
-      pre: ({ children }: { children?: ReactNode }) => <CodePre>{children}</CodePre>,
+      pre: ({ children }: { children?: ReactNode }) => {
+        // A MERMAID CHART IS DRAWN, with its source as the fallback (DiagramBlock).
+        const code = (Array.isArray(children) ? children[0] : children) as { props?: { className?: string; children?: ReactNode } } | undefined;
+        const lang = /language-([\w-]+)/.exec(code?.props?.className ?? '')?.[1];
+        const source = diagramSource(lang, String(code?.props?.children ?? ''));
+        if (source) return <DiagramBlock source={source} fallback={<CodePre>{children}</CodePre>} />;
+        return <CodePre>{children}</CodePre>;
+      },
       a: ({ href, children }: { href?: string; children?: ReactNode }) => {
         const ticket = href?.startsWith(TICKET_HREF)
           ? ticketReference(href.slice(TICKET_HREF.length)) : ticketReference(href ?? '');
@@ -1520,7 +1535,19 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             Everywhere but full screen, where the pane's body is not on the
             screen at all and the offer keeps its old home on the reply card
             (see `offerInPane` for the whole of that). */}
-        {offerInPane && (
+        {/* AND WHILE A CLOSE IS ASKING ABOUT THE TASKS STILL WAITING, ITS
+            QUESTION STANDS HERE INSTEAD (w-d2744c6daa), on any row, offer or
+            not, because the close is what raised it. */}
+        {closeAsk && !fullScreenDoc && (
+          <OptionsOffer
+            ask={closeAsk.ask} askAll={closeAsk.ask} options={closeAsk.options}
+            peekOption={null} askPeek={false}
+            selectedOption={selectedOption} selRef={selRef}
+            onPick={closeAsk.onPick} onOptionEnter={() => {}} onAskEnter={() => {}}
+            setPeek={() => {}} setAskPeek={() => {}} keep={closeAsk.keep}
+          />
+        )}
+        {offerInPane && (closeAsk ? null : (
           <OptionsOffer
             ask={ask} askAll={askAll} options={options}
             peekOption={peekOption} askPeek={askPeek}
@@ -1528,7 +1555,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             onPick={onPick} onOptionEnter={onOptionEnter} onAskEnter={onAskEnter}
             setPeek={setPeek} setAskPeek={setAskPeek}
           />
-        )}
+        ))}
 
         {!agent && <RemoteControl key={`remote:${item.product}:${item.id}`} product={item.product} id={item.id} />}
         {!agent && <CompactionResult engine={runningEngine ?? 'claude-code'} key={`${item.product}:${item.id}`} item={item} />}
@@ -1721,7 +1748,16 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               its old terms: it comes up with the box and goes when the box
               folds. It follows nobody down a page, because in that mode there
               is no page of conversation on the screen. */}
-          {offerInDock && (
+          {closeAsk && fullScreenDoc && (
+            <OptionsOffer
+              ask={closeAsk.ask} askAll={closeAsk.ask} options={closeAsk.options}
+              peekOption={null} askPeek={false}
+              selectedOption={selectedOption} selRef={selRef}
+              onPick={closeAsk.onPick} onOptionEnter={() => {}} onAskEnter={() => {}}
+              setPeek={() => {}} setAskPeek={() => {}} keep={closeAsk.keep}
+            />
+          )}
+          {offerInDock && (closeAsk ? null : (
             <OptionsOffer
               ask={ask} askAll={askAll} options={options}
               peekOption={peekOption} askPeek={askPeek}
@@ -1729,7 +1765,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               onPick={onPick} onOptionEnter={onOptionEnter} onAskEnter={onAskEnter}
               setPeek={setPeek} setAskPeek={setAskPeek}
             />
-          )}
+          ))}
           {/* NO REPLY BOX ON THE TROUBLE ROW EITHER, and for the same reason as
               the one below: there is nobody on the other end of it. A box that
               looks like it sends is the failure this codebase cares about most.
