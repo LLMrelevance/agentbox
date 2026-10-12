@@ -24,7 +24,7 @@
      34px inset under the inboxes read as "extra padding at the bottom"
      (2026-10-11); the home bar itself is a 5px line 8px off the edge, so 20px
      clears it. Never under 8px, on a phone with no home bar. */
-  :root { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; --phone-foot: max(8px, calc(env(safe-area-inset-bottom, 0px) - 14px)); }
+  :root { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; --phone-foot: max(8px, calc(env(safe-area-inset-bottom, 0px) - 14px)); background-color: var(--bg); }
   /* THE PAGE ITSELF NEVER SCROLLS; its panes do. Turned sideways and back,
      iOS left the whole page scrolled by the status bar's height, the title
      under the clock and the bottom bar under the frame (an iPhone,
@@ -100,7 +100,13 @@
 
   /* The top bar: the title, then search, filters and (the side rail's)
      Settings as three plain icons of one size, no boxes. */
-  :root:root:root .workspace-layout > .topbar { padding: 0 48px 0 16px; height: var(--phone-top); min-height: var(--phone-top); flex-basis: var(--phone-top); }
+  /* SOLID, IN THE WALL'S COLOUR, as is the page's root (above). Safari on
+     iOS paints the band behind the clock by matching the top of the page and
+     takes no notice of theme-color: over the wall's glow it gave up and drew
+     its own grey, (19, 20, 22), against a bar of (26, 24, 23) to (34, 29, 26)
+     sampled off a screenshot (2026-10-12). A flat bar gives it one colour to
+     match, and the glow starts under the bar's line. */
+  :root:root:root .workspace-layout > .topbar { padding: 0 48px 0 16px; height: var(--phone-top); min-height: var(--phone-top); flex-basis: var(--phone-top); background: var(--bg); }
   /* The title at the desktop's 400 weight and tight spacing read thin and
      stretched at phone size ("the threads title looks a little weird",
      2026-10-11): a phone's bar title is smaller and a step heavier. */
