@@ -128,7 +128,11 @@ export function installPhoneScreen() {
 
   // THE HOME-SCREEN APP HAS NO SWIPE BACK OF ITS OWN; Safari does, so this
   // only listens where Safari's would not fire.
-  const standalone = matchMedia('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true;
+  // iPhone's own flag for the home-screen app, as phone-alerts.ts reads it.
+  // Not a media query: nothing in the window reads the machine that way
+  // (tests/theme-choice.test.mjs). Android's back gesture is the system's and
+  // already lands on the history step above, so it needs nothing from here.
+  const standalone = (navigator as { standalone?: boolean }).standalone === true;
   if (!standalone) return;
   let start: { x: number; y: number } | null = null;
   let pane: HTMLElement | null = null;

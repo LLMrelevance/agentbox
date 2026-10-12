@@ -64,6 +64,18 @@ describe('on a phone, the summary', () => {
     // The phone hid the rail outright; that rule is gone.
     expect(rules.some((r) => r.selector.trim().endsWith('.ts-rail') && /display:\s*none/.test(r.body) && !r.selector.includes('data-summary'))).toBe(false);
   });
+  // "the summary seems a bit too high" (2026-10-12). Measured in a 393x852
+  // page with a 59px status bar, the top bar's middle at 87px: the summary's
+  // glyph sat at 85, the ⋯ at 86.5, and the back arrow and the name at 91,
+  // pushed down by the desktop's 18px top margin on the header that holds them.
+  // Fixed, all four measure 86.5 to 87.
+  it('sits on one line with the ⋯, the back arrow and the name: the middle of the top bar', () => {
+    // No top margin, and room on the right for the summary icon and the ⋯.
+    expect(last('.workspace-task-header', 'margin')).toBe('0 48px 0 0');
+    expect(last('.workspace-task-header', 'align-self')).toBe('center');
+    expect(last('.focus-pane .ts-rail .ts-rail-ic', 'margin')).toBe('0');
+    expect(bodiesFor('.focus-pane .ts-rail')).toMatch(/top:\s*calc\(env\(safe-area-inset-top, 0px\) \+ \(var\(--phone-top, 56px\) - 44px\) \/ 2\)/);
+  });
   it('opens as a page of its own over the thread, with its close in reach', () => {
     const panel = bodiesFor('.focus-pane .ts-panel');
     expect(panel).toMatch(/position:\s*fixed/);

@@ -611,6 +611,8 @@ function Reading({ running, capacity, gate }: {
 // THE PHONE DOOR (main/phone-link.mjs). Off until turned on. The QR code is the
 // key, so it is drawn only on this page and only while the door is open.
 const PHONE_ROUTE_OPTIONS: Array<{ value: PhoneRoute; label: string }> = [
+  // Shown only once there is a relay to use (main/relay-address.mjs).
+  { value: 'anywhere', label: 'Anywhere' },
   { value: 'tailscale', label: 'Tailscale, secure' },
   { value: 'wifi', label: 'Same Wi-Fi, not secure' },
 ];
@@ -685,7 +687,11 @@ function PhonePage() {
         {link.on && (
           <Row
             label="Reach it over"
-            desc={link.via === 'tailscale'
+            desc={link.via === 'anywhere'
+              ? link.relay?.connected
+                ? 'Works on any Wi-Fi or mobile data, with nothing to install. Everything is locked on this computer and unlocked only on your phone, so the relay in between cannot read it.'
+                : link.error ?? 'Connecting to the relay…'
+              : link.via === 'tailscale'
               ? link.settingUp
                 ? 'Setting up a secure address with Tailscale…'
                 : link.secure
@@ -707,7 +713,7 @@ function PhonePage() {
               <div className="set-row-desc">
                 Anyone who scans this code can run agents on this computer, so treat it like a password. If it was seen by someone else, reset the key.
                 <br />
-                <code>{link.url.replace(/token=.*/, 'token=…')}</code>
+                <code>{link.url.replace(/(token=|#k=).*/, '$1…')}</code>
               </div>
             </div>
           ) : (
