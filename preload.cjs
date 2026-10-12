@@ -127,6 +127,7 @@ contextBridge.exposeInMainWorld('zero', {
   // because nothing needs to; that happens on its own in the background.
   updateCheck: () => ipcRenderer.invoke('zero:update-check'),
   updateInstall: () => ipcRenderer.invoke('zero:update-install'),
+  updateMove: () => ipcRenderer.invoke('zero:update-move'),
   // What just arrived, not what to say about it. Whether she is looking at the
   // window is a fact only the main process holds, so the page reports and does
   // not decide (main/notify.mjs).

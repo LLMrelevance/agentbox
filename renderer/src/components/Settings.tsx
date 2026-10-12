@@ -1163,6 +1163,11 @@ function Updates({ state }: { state?: UpdateState | null }) {
   const press = async () => {
     if (look.busy) return;
     if (look.restart) { void api.updateInstall(); return; }
+    // THE COPY THAT CANNOT UPDATE ITSELF FROM WHERE IT IS: the press moves the
+    // app into Applications and macOS relaunches it, so nothing after a
+    // success here is ever drawn. A refusal arrives in the state, through the
+    // snapshot, like every other failure (shared/where-it-runs-from.mjs).
+    if (look.move) { void api.updateMove(); return; }
     setChecking(true);
     try {
       const got = await api.updateCheck();
