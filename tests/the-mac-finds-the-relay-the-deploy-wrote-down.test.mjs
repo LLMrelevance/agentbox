@@ -32,9 +32,12 @@ describe('the relay a Mac uses', () => {
     expect(relayAddress({ env: { AGENTBOX_RELAY_URL: 'https://by-hand.example' }, appDir: folder({ url: 'https://agentbox-relay.someone.workers.dev' }) })).toBe('https://by-hand.example');
   });
 
-  it('is the built-in one with neither, which is none until it is deployed', () => {
+  it('is the built-in one with neither: the relay deployed for everybody', () => {
     expect(relayAddress({ env: {}, appDir: folder() })).toBe(RELAY_URL);
-    expect(typeof RELAY_URL).toBe('string');
+    // An https workers.dev address named for the app, never for a person: the
+    // first deploy came out under the account owner's email name and was not
+    // committed for that reason (2026-10-12).
+    expect(RELAY_URL).toBe('https://agentbox-relay.agentbox-app.workers.dev');
   });
 
   it('is never plain http, except on this computer', () => {
