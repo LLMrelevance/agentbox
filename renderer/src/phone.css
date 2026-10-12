@@ -277,8 +277,11 @@
     width: auto; max-width: none; margin: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; box-shadow: none;
     display: flex; flex-direction: column; background: var(--bg); transform: none;
   }
-  :root:root:root .tc-card > .tc-head { order: 0; }
+  /* Each row draws its own line under it, so the desktop's line over the
+     next field and under the head would make two. */
+  :root:root:root .tc-card > .tc-head { order: 0; border-bottom: 0; }
   :root:root:root .tc-card .tc-field { height: 52px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+  :root:root:root .tc-card .tc-field + .tc-field { border-top: 0; }
   :root:root:root .tc-card .tc-label { width: 84px; font-family: inherit; text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--text-dim); }
   :root:root:root .tc-card .tc-word { font-size: 15px; text-decoration: none; border: 0; }
   /* The bar's chips become rows like To and Model, and Send moves up top. */
@@ -298,13 +301,16 @@
   }
   :root:root:root .tc-card > .tc-bar > .tc-icon::after { content: 'Attach a file or picture'; }
   :root:root:root .tc-card .tc-send {
-    position: fixed; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + 10px); right: calc(12px + env(safe-area-inset-right, 0px));
+    position: fixed; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + 10px); right: calc(10px + env(safe-area-inset-right, 0px));
   }
-  /* Square corners, as the look's own buttons are ("send button should be
-     square corners", 2026-10-11). */
-  :root:root:root .tc-card .tc-send-main { height: 36px; padding: 0 16px; border-radius: var(--radius) 0 0 var(--radius); font-size: 15px; font-weight: 500; }
+  /* SEND IS A WORD IN THE ACCENT, as Cancel is a word in grey. As an orange
+     box it sat "touching the top corner of the app", and its weight against a
+     grey Cancel pulled the name between them off the middle ("new thread
+     doesn't feel centered", 2026-10-11). Square corners still, for focus. */
+  :root:root:root .tc-card .tc-send > button { background: none; color: var(--accent); border: 0; box-shadow: none; }
+  :root:root:root .tc-card .tc-send-main { height: 36px; padding: 0 6px; border-radius: var(--radius) 0 0 var(--radius); font-size: 16px; font-weight: 600; }
   :root:root:root .tc-card .tc-send.solo .tc-send-main { border-radius: var(--radius); }
-  :root:root:root .tc-card .tc-send-caret { height: 36px; border-radius: 0 var(--radius) var(--radius) 0; }
+  :root:root:root .tc-card .tc-send-caret { height: 36px; padding: 0 8px 0 2px; border-left: 0; border-radius: 0 var(--radius) var(--radius) 0; }
   :root:root:root .tc-card .tc-send-main kbd { display: none; }
   :root:root:root:has(.tc-veil) .workspace-navigation,
   :root:root:root:has(.tc-veil) .topbar .th-new { display: none; }
@@ -317,7 +323,9 @@
     position: fixed !important; left: 0 !important; right: 0 !important; top: auto !important; bottom: 0 !important;
     width: auto !important; max-width: none !important; max-height: 72vh; overflow-y: auto; transform: none !important;
     margin: 0; padding: 10px 8px calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 120;
-    border-radius: 16px 16px 0 0; border: 0; border-top: 1px solid var(--line-strong);
+    /* Square, like Send and the look's buttons ("square pickers wins for
+       sure", 2026-10-11). */
+    border-radius: 0; border: 0; border-top: 1px solid var(--line-strong);
     box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .55);
   }
   :root:root:root .tc-menu > button, :root:root:root .tc-menu .tc-row, :root:root:root .tc-menu .tc-col > button {
@@ -328,24 +336,33 @@
 
   /* "VIEW AND FILTERS" DROPS DOWN FROM THE BUTTON THAT OPENED IT ("the
      filters should come from the top not bottom", 2026-10-11), the width of
-     the screen, each section's name above its choices. Side by side at phone
-     width the capitals' column squeezed the choices, and Low and Thicket
-     wrapped onto lines of their own. */
+     the screen. Its choices are words, the picked one underlined in the
+     accent as the inboxes along the bottom are, each section's name beside
+     them. As boxed chips in the raised grey, the picked one a white block,
+     over a dimmed list, it took most of the screen and was "huge and [a]
+     different color bg than everything else"; this is 353px of an 852px
+     screen in the page's own colour, with nothing dimmed behind it. */
   :root:root:root .th-pop {
     top: calc(env(safe-area-inset-top, 0px) + var(--phone-top, 56px)); bottom: auto; left: 0; right: 0; width: auto;
-    max-height: 75vh; overflow-y: auto; z-index: 120; padding: 6px 0 14px;
-    border-radius: 0; border: 0; border-bottom: 1px solid var(--line-strong); background: var(--bg-raised, var(--pop));
-    box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .55);
+    max-height: 75vh; overflow-y: auto; z-index: 120; padding: 4px 0 6px;
+    border-radius: 0; border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    background: linear-gradient(var(--skin-pane, transparent), var(--skin-pane, transparent)), var(--bg);
+    box-shadow: 0 16px 32px rgba(0, 0, 0, .45);
   }
-  :root:root:root .th-pop .line { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 16px; }
-  :root:root:root .th-pop .lab { font-family: inherit; text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--text-dim); width: auto; }
-  :root:root:root .th-pop .opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  :root:root:root .th-pop .line { display: flex; flex-direction: row; align-items: flex-start; gap: 0; padding: 6px 16px; }
+  :root:root:root .th-pop .lab { flex: none; width: 76px; font-family: inherit; text-transform: none; letter-spacing: 0; font-size: 14px; line-height: 34px; color: var(--text-faint, var(--text-dim)); }
+  :root:root:root .th-pop .opts { display: flex; flex: 1; min-width: 0; flex-wrap: wrap; gap: 2px 20px; }
   :root:root:root .th-pop .opts button {
-    height: 36px; padding: 0 14px; font-size: 15px; border: 1px solid var(--line-strong); border-radius: var(--radius);
-    background: none; color: var(--text-dim);
+    flex: none; height: 34px; padding: 0; font-size: 15px; white-space: nowrap;
+    border: 0; border-radius: 0; background: none; color: var(--text-dim);
   }
-  :root:root:root .th-pop .opts button.on { background: var(--text); border-color: var(--text); color: var(--bg); }
-  :root:root:root .th-pop .rule { margin: 4px 16px; }
+  :root:root:root .th-pop .opts button svg { display: none; }
+  :root:root:root .th-pop .opts button.on {
+    background: none; color: var(--text);
+    text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 2px; text-underline-offset: 8px;
+  }
+  :root:root:root .th-pop .rule { margin: 2px 16px; }
+  :root:root:root .th-pop .foot { padding: 8px 16px 4px; font-size: 13px; }
 
   /* Searching takes the whole top bar, so Settings steps out of its way. */
   :root:root:root:has(.topbar input) .workspace-navigation { display: none; }

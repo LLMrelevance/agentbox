@@ -158,11 +158,12 @@ describe('on a phone, the Superhuman way', () => {
   // THE SECOND ROUND OF NOTES (2026-10-11): "the filters should come from
   // the top not bottom", "send button should be square corners", Settings'
   // search "better to just have a search icon", and the title "looks ugly".
-  it('View and filters drops down from the top bar, each section named above its choices', () => {
+  // Its shape inside, words beside each section's name, is the third round's:
+  // tests/the-phone-filters-match-the-page-and-send-sits-clear-of-the-corner.
+  it('View and filters drops down from the top bar, its section names in plain type', () => {
     const body = rules.filter((r) => r.selector.split(',').some((s) => s.trim().endsWith('.th-pop'))).map((r) => r.body).pop();
     expect(body).toMatch(/top:\s*calc\([^;]*var\(--phone-top/);
     expect(body).toMatch(/bottom:\s*auto/);
-    expect(bodiesFor('.th-pop .line')).toMatch(/flex-direction:\s*column/);
     expect(bodiesFor('.th-pop .lab')).toMatch(/text-transform:\s*none/);
   });
 
