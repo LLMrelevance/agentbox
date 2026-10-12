@@ -5219,8 +5219,12 @@ export class Supervisor {
     // from the finished `assistant` event only (`traceStreamLine`), so what is
     // kept is whole sentences and never a half-typed one; the pieces live on
     // the session in memory and die with it, which is what `saying` below is.
-    const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--include-partial-messages', ...claudeGrants];
-    if (claudeEffort) args.push('--effort', claudeEffort);
+    // AND THE LINE ITSELF IS THE ENGINE'S OWN, read off its `run` definition
+    // rather than spelled out here (w-380b06bf53). This method used to name six
+    // of Claude Code's flags, so an engine that speaks the same stream-json and
+    // differs by a binary and one flag value still could not be added without
+    // editing this file. It is built once, below, after the system block it
+    // carries; an engine with no command line is handed none.
     // Her standing instructions, on every session there is: workers, digests,
     // and every resumed turn of a thread that started before the user wrote the
     // rule. This is the ONE place a session's arguments are built, which is why
@@ -5257,12 +5261,13 @@ export class Supervisor {
     // buildBrief: these blocks are markdown files that cannot import it, and
     // her own copies keep the tokens so a rename reaches her edits as well.
     const system = fillName([standing, project, messages, adhd].filter(Boolean).join('\n\n'));
-    if (system) args.push('--append-system-prompt', system);
-    if (resumeId) args.push('--resume', resumeId);
-    // AND THE ONE FLAG THAT MAKES IT A FORK RATHER THAN A CONTINUATION: the
+    // `fork` IS THE FLAG THAT MAKES IT A FORK RATHER THAN A CONTINUATION: the
     // resumed conversation is written on under a NEW id, so the row it came
-    // from keeps its own thread untouched (MP-08).
-    if (forkFrom && resumeId) args.push('--fork-session');
+    // from keeps its own thread untouched (MP-08). The builder drops it when
+    // there is no resume to fork from, and when the engine cannot fork at all.
+    const args = harnessFor(engine).workerArgs({
+      prompt, grants: claudeGrants, effort: claudeEffort, system, resumeId, fork: !!forkFrom,
+    });
     /*
      * `command` GOES BACK WITH THE ARGUMENTS, because the exit handler has to
        know what this run was. A command run does not write on the row and is

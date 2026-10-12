@@ -3470,6 +3470,11 @@ img.app-mark { opacity: 1; border-radius: 0; }
   padding-bottom: 25vh;
 }
 
+/* THE IMPORT CARD THAT ENDS SETUP WAS DRAWN DIMMED. Setup's veil is 299 and
+   this backdrop was 40, so the veil lay over the card. It goes at 301, with
+   setup's own card, and stays under setup's way out (302, 303). */
+.modal-backdrop.in-walk { z-index: 301; }
+
 .modal-title { padding: 14px 18px 2px; font-weight: 600; }
 .modal-subtitle { padding: 0 18px 10px; color: var(--text-dim); font-size: 13px; }
 .modal-hint { padding: 10px 18px 12px; color: var(--text-faint); font-size: 12px; display: flex; align-items: center; gap: 10px; }
@@ -8719,3 +8724,7 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 }
 .fp-use { background: var(--accent); border-color: transparent; color: var(--on-solid); }
 .fp-use:disabled { opacity: .45; cursor: default; }
+
+/* THE PHONE WHOSE KEY WAS RESET (renderer/src/browser-bridge.ts). */
+#phone-locked-out { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 32px; background: var(--surface); color: var(--text); font: 16px/1.45 system-ui, sans-serif; text-align: center; }
+#phone-locked-out p { margin-top: 8px; opacity: .8; }
