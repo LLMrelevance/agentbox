@@ -8,7 +8,7 @@ export const TicketNavigation = createContext<{
 } | null>(null);
 
 function ThreadIcon() {
-  return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 3h14v10H8l-5 4V3z" /><path d="M7 7h6M7 10h4" /></svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true" strokeLinecap="round" strokeLinejoin="round"><path d="M5 3v14a3 3 0 0 0 3 3h3M5 7h6" /><rect x="11" y="3" width="10" height="7" rx="2" /><rect x="11" y="16" width="10" height="6" rx="2" /></svg>;
 }
 
 export function TicketLink({ id, children }: { id: string; children: ReactNode }) {
