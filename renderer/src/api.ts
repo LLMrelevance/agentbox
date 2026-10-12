@@ -897,6 +897,11 @@ export const api = {
     if (useFixtures && engineFixtures === 'nowhere') {
       return { engine, phase: 'idle', error: null, log: '', found: false, signedIn: false };
     }
+    // AND THE MACHINE THE QUESTION MUST NOT ASK: Codex on the disk, signed out.
+    // `afterCheck` reads this as "we already know which plan they have".
+    if (useFixtures && engineFixtures === 'signedout') {
+      return { engine, phase: 'idle', error: null, log: '', found: engine === 'codex', signedIn: false };
+    }
     const zero = window.zero as any;
     if (!zero?.engineSetup) return assumeReady;
     try {

@@ -974,9 +974,9 @@ export const fixtureSettings = {
 //   ?engines=codex    two agents, workspace moved to Codex. The screen the
 //                     shipped bug was on.
 
-export type FixtureEngineWorld = 'missing' | 'claude' | 'codex' | 'nowhere' | 'chosen';
+export type FixtureEngineWorld = 'missing' | 'claude' | 'codex' | 'nowhere' | 'chosen' | 'signedout';
 
-const ENGINE_WORLDS: FixtureEngineWorld[] = ['missing', 'claude', 'codex', 'nowhere', 'chosen'];
+const ENGINE_WORLDS: FixtureEngineWorld[] = ['missing', 'claude', 'codex', 'nowhere', 'chosen', 'signedout'];
 
 /**
  * The world one url asks for, or null for the Mac she has. A word nothing
@@ -1095,6 +1095,19 @@ export function fixtureEngineSettings(world: FixtureEngineWorld | null): Partial
    * somebody pointed at, and the row that offers the search back is the only
    * thing standing between them and a choice they cannot undo.
    */
+  /*
+   * THE MACHINE THE PLAN QUESTION EXISTS TO NOT ASK (w-ce8c1a9275): Codex is on
+   * the disk and signed out. `needsPlan` is true, so the walk opens this step --
+   * and `afterCheck` knows which plan they have, so the step must not ask. It
+   * had no fixture world, so that branch could not be driven in a browser.
+   */
+  if (world === 'signedout') {
+    return {
+      claudeFound: false, claudeCertain: true, claudeBin: '/Users/you/.local/bin/claude',
+      codexFound: false, codexCertain: true, codexInstallUrl: CODEX_INSTALL_URL,
+      codex: { found: true, certain: true, bin: CODEX_BIN, url: CODEX_INSTALL_URL, trouble: null },
+    };
+  }
   if (world === 'nowhere') {
     return {
       claudeFound: false, claudeCertain: true, claudeBin: '/Users/you/.local/bin/claude',
@@ -1157,7 +1170,7 @@ export function fixtureSecondEngine(snap: Snapshot, world: FixtureEngineWorld | 
   // `nowhere` and `chosen` are the same: they are about WHERE the agents are,
   // not about which one a row runs on, so the rows they describe are the ones
   // already up (w-ce8c1a9275).
-  if (!world || world === 'missing' || world === 'nowhere' || world === 'chosen') return snap;
+  if (!world || world === 'missing' || world === 'nowhere' || world === 'chosen' || world === 'signedout') return snap;
   const byItem = OFF_THE_WORKSPACE[world];
   const engineOf = (id: string) => byItem[id] ?? world;
   return {

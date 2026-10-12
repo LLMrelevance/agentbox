@@ -387,6 +387,71 @@ function shellSaid(result) {
 }
 
 /**
+ * ONE LOGIN SHELL, ASKED ONCE, ANSWERING FOR EVERY ENGINE.
+ *
+ * MEASURED ON THIS MAC 2026-10-11, against the finished shell-first finder:
+ * `findClaudeBin()` and `findCodexBin()` together took 1640, 1432 and 1435 ms
+ * cold, and 0 ms with the shell stubbed out. main/main.mjs calls `loadConfig`
+ * inside `createWindow` and BEFORE `new BrowserWindow`, so that was not time in
+ * the background: it was a second and a half of nothing on screen, added to
+ * every launch, and it was the price of asking the shell first.
+ *
+ * THE COST IS THE SHELL STARTING, NOT THE QUESTION. A login, interactive shell
+ * reads the whole profile -- which is the entire reason it can answer at all --
+ * and that costs about the same whether it is asked about one program or six.
+ * Asking it once per engine paid it once per engine.
+ *
+ * So this asks about all of them in one command and `warmShellAnswers` seeds
+ * every engine's cache from it.
+ *
+ * IT ONLY EVER ANSWERS POSITIVELY, which is what makes it safe to put in front
+ * of the probe that was already here rather than in place of it. A path is
+ * taken only when it is absolute, really on the disk, and really named after
+ * the engine that asked -- the lines come back in whatever order the shell
+ * prints them, and a path handed to the wrong engine would spawn the wrong
+ * agent. Nothing here ever records an ABSENCE: `answered` is the subtle half of
+ * this file's rules, and the per-engine probe stays the only thing allowed to
+ * settle one. So the worst a bad combined answer can do is nothing at all.
+ */
+export function askShellForAll(bins, { env = process.env, exists = fs.existsSync, run = defaultRun } = {}) {
+  for (const bin of bins) {
+    if (typeof bin !== 'string' || !PROGRAM_NAME.test(bin)) {
+      throw new Error(`askShellForAll looks up program names, and ${JSON.stringify(bin)} is not one`);
+    }
+  }
+  const command = bins.map((b) => `command -v ${b}`).join('; ');
+  for (const [shell, flags, timeout] of shellProbes(env)) {
+    let out = '';
+    try { out = run(shell, [flags, command], timeout); } catch { continue; }
+    const found = {};
+    for (const line of String(out).split('\n').map((s) => s.trim()).filter(Boolean)) {
+      // A function body, an alias line or a bare name is not a path, and a path
+      // belongs to the engine whose name it ends with or to nobody.
+      if (!line.startsWith('/') || !exists(line)) continue;
+      const bin = bins.find((b) => path.basename(line) === b);
+      if (bin && !found[bin]) found[bin] = line;
+    }
+    // A shell that ran has had its turn, whatever it did or did not print.
+    return found;
+  }
+  return {};
+}
+
+/**
+ * Seed every engine's held shell answer off one probe. Silent either way: a
+ * shell that will not start leaves each engine to its own probe, which is
+ * exactly what used to happen for all of them.
+ */
+export function warmShellAnswers({ now = Date.now(), ...how } = {}) {
+  let found = {};
+  try { found = askShellForAll(engineKeys().map((k) => ENGINES[k].bin), how); } catch { return; }
+  for (const key of engineKeys()) {
+    const where = found[ENGINES[key].bin];
+    if (where) held.set(key, { answer: { path: where, answered: true }, at: now });
+  }
+}
+
+/**
  * THE SHELL STEP, AND IT MAY NOT TAKE THE SEARCH DOWN WITH IT.
  *
  * It runs FIRST now, so it is the one step whose failure would reach everything
@@ -510,7 +575,13 @@ export function resolveEngine(key, configured = null, { now = Date.now(), shellL
   const lookup = shellLookup ?? (() => askShell({ bin: spec.bin }));
   const remembered = () => {
     const last = held.get(key);
-    if (last && now - last.at < SHELL_TTL) return last.answer;
+    // THE WINDOW HAS A FLOOR AS WELL AS A CEILING. `now - at < TTL` alone is
+    // true for any answer stamped in the FUTURE, and since `warmShellAnswers`
+    // stamps real clock time into this same map, anything asking with a
+    // synthetic `now` would read a warm answer as fresh forever. An answer from
+    // ahead of the question is not an answer; it is asked again.
+    const age = now - (last?.at ?? 0);
+    if (last && age >= 0 && age < SHELL_TTL) return last.answer;
     const answer = lookup();
     held.set(key, { answer, at: now });
     return answer;
