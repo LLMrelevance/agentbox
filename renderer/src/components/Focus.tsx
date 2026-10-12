@@ -6,7 +6,7 @@ import { sourceReference } from '../source-reference.mjs';
 import { remarkTicketReferences, resolveTicket, ticketReference, TICKET_HREF } from '../ticket-references';
 import { TicketItems, TicketLink, TicketNavigation } from './TicketReference';
 import { Mention, MentionIcon } from './Mention';
-import { folderTitle, mentionKind, mentionName, type MentionKind } from '../mentions';
+import { folderTitle, mentionKind, mentionLabel, mentionName, type MentionKind } from '../mentions';
 import { TaskTerminal } from './TaskTerminal';
 import { isLocalPreview } from '../artifact-layout';
 import { watchCommandCatalog } from '../command-catalog';
@@ -263,13 +263,19 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
 // does. The file comes on the app's own scheme, which serves sound and film
 // from the folders the app owns (main/img-scheme.mjs), because her window is
 // served over http and may not load a file:// url.
-export function ArtifactMedia({ src, label, roots, onOpen }: { src: string; label?: ReactNode; roots: string[]; onOpen?: (src: string) => void }) {
+//
+// ITS NAME IS A MENTION LIKE ANY OTHER FILE'S (w-a3a7d1a1ec, 2026-10-12). The
+// first round of mentions only took this name's orange away, so four films a
+// worker named by their full path read as plain black lines nobody had
+// detected. It carries the film icon and the file's name now; the path waits
+// in the hover title.
+export function ArtifactMedia({ src, label, roots, onOpen }: { src: string; label?: string; roots: string[]; onOpen?: (src: string) => void }) {
   const [attempt, setAttempt] = useState(0);
   const rel = src.replace(/^\.\//, '');
   const candidates = src.startsWith('/') ? [pictureUrl(src)] : roots.map((r) => pictureUrl(`${r}/${rel}`));
   const name = (
-    <button type="button" className="inline-media-name" data-copy-file={rel} title={rel} onClick={() => onOpen?.(rel)}>
-      {label ?? rel}
+    <button type="button" className="inline-media-name mention mention-media" data-copy-file={rel} title={rel} onClick={() => onOpen?.(rel)}>
+      <MentionIcon kind="media" /><span className="mention-name">{mentionLabel(rel, label) ?? label}</span>
     </button>
   );
   // Not in any root: it stays a name she can press, and the press says it is missing.
@@ -383,9 +389,9 @@ function textOf(children: ReactNode): string | null {
   return null;
 }
 function linkLabel(href: string, children: ReactNode): ReactNode {
-  const raw = textOf(children)?.trim();
-  if (!raw || /\s/.test(raw) || !/[/.:]/.test(raw)) return children;
-  return mentionName(mentionKind(href) === 'link' ? href : raw);
+  const raw = textOf(children);
+  if (raw === null) return children;
+  return mentionLabel(href, raw) ?? children;
 }
 
 // A document a message named, shown whole under the message.
@@ -1005,7 +1011,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         }
         // A SOUND OR A FILM PLAYS IN PLACE (ArtifactMedia, above).
         if (href && isMediaPath(href)) {
-          return <ArtifactMedia key={href} src={href} label={children} roots={roots} onOpen={openHref} />;
+          return <ArtifactMedia key={href} src={href} label={textOf(children) ?? undefined} roots={roots} onOpen={openHref} />;
         }
         return <ArtifactLink kind={mentionKind(href ?? '')} product={product} src={href} fallback={resolveSrc(href)} onOpen={() => openHref(href)}>{href ? linkLabel(href, children) : children}</ArtifactLink>;
       },
@@ -1024,7 +1030,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             return <ArtifactImg key={path} src={path} alt={shown} roots={roots} onOpen={openHref} find={find} />;
           }
           if (isMediaPath(path)) {
-            return <ArtifactMedia key={path} src={path} label={<code>{shown}</code>} roots={roots} onOpen={openHref} />;
+            return <ArtifactMedia key={path} src={path} label={shown} roots={roots} onOpen={openHref} />;
           }
           return <ArtifactLink kind={mentionKind(path)} product={product} src={path} fallback={resolveSrc(path)} onOpen={() => openHref(path)}>{mentionName(path)}</ArtifactLink>;
         }
