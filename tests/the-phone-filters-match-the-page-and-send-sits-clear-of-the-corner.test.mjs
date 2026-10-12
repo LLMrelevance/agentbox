@@ -56,24 +56,43 @@ describe('on a phone, View and filters', () => {
   });
 });
 
+// THE FOURTH ROUND (2026-10-11): "I would recommend the title-left approach
+// with square pickers", and "the attached file or picture is touching the
+// divider". Measured on the drawn phone with an iPhone's 34px home-bar inset:
+// the attach row was 52px tall with that 34px inside it as padding, which
+// left its words 18px of room hard under the line. The same inset sat under
+// the inboxes along the bottom in full, below an underline drawn at the foot
+// of a 52px bar ("some extra padding at the bottom").
 describe('on a phone, a new thread', () => {
-  it('has Send as an accent word, not a filled box in the corner', () => {
-    expect(last('.tc-card .tc-send > button', 'background')).toBe('none');
-    expect(last('.tc-card .tc-send > button', 'color')).toBe('var(--accent)');
+  it('has its name at the left, as Threads has, after a cross to close it', () => {
+    const name = bodiesFor('.tc-veil > .tc-card::before');
+    expect(name).toMatch(/content:\s*'New thread'/);
+    expect(name).not.toMatch(/justify-content:\s*center/);
+    expect(last('.tc-veil > .tc-card::before', 'font-size')).toBe('19px');
+    const cross = bodiesFor('.tc-veil::before');
+    expect(cross).toMatch(/mask:/);
+    expect(cross).not.toMatch(/content:\s*'Cancel'/);
   });
 
-  it('keeps Send in off the edge and below the status bar', () => {
+  it('closes only from the cross: the name is on the page, not on the backdrop that closes it', () => {
+    // The backdrop's click closes the page; anything drawn on it closes it too.
+    expect(bodiesFor('.tc-veil::after')).toMatch(/content:\s*none/);
+    expect(last('.tc-veil > .tc-card', 'top')).toBe('env(safe-area-inset-top, 0px)');
+    // The cross is drawn over the page, or the page would hide it.
+    expect(Number(last('.tc-veil::before', 'z-index'))).toBeGreaterThan(0);
+  });
+
+  it('keeps Send a square orange box, in off the edge and below the status bar', () => {
+    expect(last('.tc-card .tc-send > button', 'background')).toBeUndefined();
     expect(last('.tc-card .tc-send', 'top')).toMatch(/safe-area-inset-top/);
     const right = last('.tc-card .tc-send', 'right');
-    expect(Number.parseInt(right.match(/calc\((\d+)px/)[1], 10)).toBeGreaterThanOrEqual(10);
+    expect(Number.parseInt(right.match(/calc\((\d+)px/)[1], 10)).toBeGreaterThanOrEqual(16);
+    expect(last('.tc-card .tc-send-main', 'height')).toBe('32px');
   });
 
-  it('centres its name across the whole bar, between two words of like weight', () => {
-    expect(bodiesFor('.tc-veil::before')).toMatch(/content:\s*'Cancel'/);
-    const title = bodiesFor('.tc-veil::after');
-    expect(title).toMatch(/left:\s*0/);
-    expect(title).toMatch(/right:\s*0/);
-    expect(title).toMatch(/justify-content:\s*center/);
+  it('gives the attach row its full height above the home bar, not the home bar inside it', () => {
+    expect(last('.tc-card > .tc-bar > .tc-icon', 'height')).toMatch(/calc\(52px \+ var\(--phone-foot/);
+    expect(last('.tc-card > .tc-bar > .tc-icon', 'padding')).toMatch(/var\(--phone-foot/);
   });
 
   it('draws one line between its rows, not the desktop\'s divider as well', () => {
@@ -83,5 +102,25 @@ describe('on a phone, a new thread', () => {
 
   it('opens its pickers as square sheets', () => {
     expect(last('.tc-menu', 'border-radius')).toBe('0');
+  });
+});
+
+describe('on a phone, the inboxes along the bottom', () => {
+  it('keep only part of the home bar\'s inset under them, never less than a little', () => {
+    const foot = bodiesFor(':root').match(/--phone-foot:\s*([^;]+)/);
+    expect(foot?.[1]).toMatch(/max\(\s*\d+px,\s*calc\(env\(safe-area-inset-bottom, 0px\) - \d+px\)\s*\)/);
+    expect(last('.list-pane > .th-bar', 'padding')).toMatch(/var\(--phone-foot\)/);
+    expect(last('.list-pane > .th-bar', 'padding')).not.toMatch(/safe-area-inset-bottom/);
+  });
+
+  it('underline the picked one just under its word, not at the foot of the bar', () => {
+    expect(last('.tm-tab', 'height')).toBe('32px');
+    expect(last('.tm-tab', 'border-bottom')).toMatch(/2px solid transparent/);
+  });
+
+  it('and everything that floats above them uses the same inset', () => {
+    for (const piece of ['.topbar .th-new', '.toast', '.approvals', '#phone-alerts-ask']) {
+      expect(last(piece, 'bottom')).toMatch(/var\(--phone-foot\)/);
+    }
   });
 });

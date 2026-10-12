@@ -133,9 +133,11 @@ describe('on a phone, the Superhuman way', () => {
     expect(bodiesFor('.list.th-table')).toMatch(/var\(--phone-tabs/);
   });
 
-  it('a new thread is a whole page: Cancel, its name, Send at the top, then a row each for To, Model, Project and Priority', () => {
-    expect(bodiesFor('.tc-veil::before')).toMatch(/content:\s*'Cancel'/);
-    expect(bodiesFor('.tc-veil::after')).toMatch(/content:\s*'New thread'/);
+  // Its top bar's shape, a cross and the name at the left, is the fourth
+  // round's: tests/the-phone-filters-match-the-page-and-send-sits-clear-of-the-corner.
+  it('a new thread is a whole page: a way out, its name, Send at the top, then a row each for To, Model, Project and Priority', () => {
+    expect(bodiesFor('.tc-veil::before')).toMatch(/content:/);
+    expect(bodiesFor('.tc-veil > .tc-card::before')).toMatch(/content:\s*'New thread'/);
     const card = bodiesFor('.tc-veil > .tc-card');
     expect(card).toMatch(/position:\s*fixed/);
     expect(card).toMatch(/left:\s*0/);

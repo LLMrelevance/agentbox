@@ -20,7 +20,11 @@
 @media (max-width: 700px), (max-height: 520px) {
   /* iOS enlarges text when a page turns sideways, and keeps it when it turns
      back. Text stays the size it is set to. */
-  :root { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  /* THE ROOM LEFT UNDER THE BOTTOM BAR FOR THE HOME BAR. The iPhone's whole
+     34px inset under the inboxes read as "extra padding at the bottom"
+     (2026-10-11); the home bar itself is a 5px line 8px off the edge, so 20px
+     clears it. Never under 8px, on a phone with no home bar. */
+  :root { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; --phone-foot: max(8px, calc(env(safe-area-inset-bottom, 0px) - 14px)); }
   /* THE PAGE ITSELF NEVER SCROLLS; its panes do. Turned sideways and back,
      iOS left the whole page scrolled by the status bar's height, the title
      under the clock and the bottom bar under the frame (an iPhone,
@@ -92,7 +96,7 @@
      thread button", 2026-10-11). */
   :root:root:root .topbar .th-new {
     position: fixed; z-index: 70;
-    right: calc(20px + env(safe-area-inset-right, 0px)); bottom: calc(var(--phone-tabs, 0px) + 16px + env(safe-area-inset-bottom, 0px));
+    right: calc(20px + env(safe-area-inset-right, 0px)); bottom: calc(var(--phone-tabs, 0px) + 16px + var(--phone-foot));
     width: 56px; min-width: 56px; height: 56px; padding: 0; justify-content: center;
     border: 0; border-radius: 50%;
     /* Orange was "a bit much" (2026-10-11). Graphite while the colour is
@@ -111,23 +115,25 @@
      · Docs 8") and not its icons, which read as "incomprehensible"
      (2026-10-11). Sentence case with the count after the word, the picked one
      underlined, scrolling sideways when they do not fit. */
-  :root:root:root .app.workspace-layout { --phone-tabs: 52px; }
+  :root:root:root .app.workspace-layout { --phone-tabs: 48px; }
   :root:root:root .list-pane > .th-bar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-    height: calc(var(--phone-tabs) + env(safe-area-inset-bottom, 0px));
-    padding: 0 calc(16px + env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) calc(16px + env(safe-area-inset-left, 0px));
+    height: calc(var(--phone-tabs) + var(--phone-foot));
+    padding: 0 calc(16px + env(safe-area-inset-right, 0px)) var(--phone-foot) calc(16px + env(safe-area-inset-left, 0px));
     align-items: center; gap: 12px; overflow-x: auto; scrollbar-width: none;
     /* The look's own ground, solid: the pane colour is see-through, and the
        rows scrolled visibly under the words. */
     background: var(--bg); border-top: 1px solid var(--line);
   }
   :root:root:root .th-bar::-webkit-scrollbar { display: none; }
-  :root:root:root .tm-tabs { gap: 22px; flex-wrap: nowrap; white-space: nowrap; height: 100%; align-items: stretch; }
+  :root:root:root .tm-tabs { gap: 22px; flex-wrap: nowrap; white-space: nowrap; height: 100%; align-items: center; }
+  /* The picked one's underline sits just under its word. Drawn at the foot of
+     the whole bar it hung loose between the words and the home bar. */
   :root:root:root .tm-tab {
-    white-space: nowrap; flex: none; height: 100%; display: flex; align-items: center;
+    white-space: nowrap; flex: none; height: 32px; display: flex; align-items: center; border-bottom: 2px solid transparent;
     font-family: inherit; text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--text-dim);
   }
-  :root:root:root .tm-tab.on { color: var(--text); }
+  :root:root:root .tm-tab.on { color: var(--text); border-bottom-color: var(--accent); }
   :root:root:root .tm-tab b { font-size: 11px; font-weight: 500; margin-left: 5px; color: var(--text-faint, var(--text-dim)); }
 
   /* A row: its title over two lines, then the project and the age together
@@ -210,7 +216,7 @@
   :root:root:root .hint-plate, :root:root:root .row-keys, :root:root:root .dock-card kbd { display: none !important; }
 
   /* The toast sits above the bottom bar, across the width. */
-  :root:root:root .toast { left: 12px; right: 12px; width: auto; bottom: calc(var(--phone-tabs, 0px) + env(safe-area-inset-bottom, 0px) + 12px); }
+  :root:root:root .toast { left: 12px; right: 12px; width: auto; bottom: calc(var(--phone-tabs, 0px) + var(--phone-foot) + 12px); }
 
   /* The setup bar: its sentence over its buttons, not squeezed beside them. */
   :root:root:root .ps-bar { flex-wrap: wrap; gap: 10px; padding: 12px 16px; }
@@ -255,31 +261,40 @@
   :root:root:root .th-pop { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 56px); left: 8px; right: 8px; width: auto; max-height: calc(100% - 140px); overflow-y: auto; }
   :root:root:root .th-pop .line { grid-template-columns: 72px minmax(0, 1fr); padding: 7px 12px; }
 
-  /* A NEW THREAD IS A WHOLE PAGE ON A PHONE, as Superhuman's compose is: Cancel
-     and the page's name across the top, Send as a pill at the top right, then
-     one row each for To, Model, Project and Priority, and the message filling
-     the rest above the keyboard. The desktop draws a card in the middle of a
-     dimmed window, which on a phone left Send hanging off the right edge with
-     a ⌘↵ no phone has. */
+  /* A NEW THREAD IS A WHOLE PAGE ON A PHONE, as Superhuman's compose is: a
+     cross and the page's name at the left of the top bar, as Threads has its
+     name ("I would recommend the title-left approach", 2026-10-11), Send at
+     the right, then one row each for To, Model, Project and Priority, and the
+     message filling the rest above the keyboard. The desktop draws a card in
+     the middle of a dimmed window, which on a phone left Send hanging off the
+     right edge with a ⌘↵ no phone has. */
   :root:root:root .tc-veil { background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; padding: 0; }
-  /* Cancel is the page behind the card, so tapping it closes, as tapping
-     beside the card always has. */
+  /* The cross is the page behind the card, so tapping it closes, as tapping
+     beside the card always has. It is drawn over the card, which covers
+     everything else, so nothing but the cross closes the page. */
   :root:root:root .tc-veil::before {
-    content: 'Cancel'; position: fixed; top: env(safe-area-inset-top, 0px); left: 0; height: var(--phone-top, 56px);
-    display: flex; align-items: center; padding: 0 16px; font-size: 16px; color: var(--text-dim);
+    content: ''; position: fixed; z-index: 3; top: env(safe-area-inset-top, 0px); left: calc(4px + env(safe-area-inset-left, 0px));
+    width: 44px; height: var(--phone-top, 56px); background: var(--text-dim);
+    -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'><path d='M6 6l12 12M18 6 6 18'/></svg>") center / 18px no-repeat;
+    mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'><path d='M6 6l12 12M18 6 6 18'/></svg>") center / 18px no-repeat;
   }
-  :root:root:root .tc-veil::after {
-    content: 'New thread'; position: fixed; top: env(safe-area-inset-top, 0px); left: 0; right: 0; height: var(--phone-top, 56px);
-    display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 500; color: var(--text); pointer-events: none;
-  }
+  /* The name used to be drawn here, on the backdrop, where a tap on it
+     closed the page. */
+  :root:root:root .tc-veil::after { content: none; }
   :root:root:root .tc-veil > .tc-card {
-    position: fixed; top: calc(env(safe-area-inset-top, 0px) + var(--phone-top, 56px)); left: 0; right: 0; bottom: 0;
-    width: auto; max-width: none; margin: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; box-shadow: none;
+    position: fixed; top: env(safe-area-inset-top, 0px); left: 0; right: 0; bottom: 0; padding-top: var(--phone-top, 56px);
+    width: auto; max-width: none; margin: 0; border: 0; border-radius: 0; box-shadow: none;
     display: flex; flex-direction: column; background: var(--bg); transform: none;
   }
+  /* The name in the type the Threads title wears. */
+  :root:root:root .tc-veil > .tc-card::before {
+    content: 'New thread'; position: absolute; top: 0; left: calc(48px + env(safe-area-inset-left, 0px)); height: var(--phone-top, 56px);
+    display: flex; align-items: center; font-size: 19px; font-weight: 500; letter-spacing: -.01em; color: var(--text);
+  }
   /* Each row draws its own line under it, so the desktop's line over the
-     next field and under the head would make two. */
-  :root:root:root .tc-card > .tc-head { order: 0; border-bottom: 0; }
+     next field and under the head would make two. The line under the top bar
+     is the head's. */
+  :root:root:root .tc-card > .tc-head { order: 0; border-bottom: 0; border-top: 1px solid var(--line); }
   :root:root:root .tc-card .tc-field { height: 52px; padding: 0 16px; border-bottom: 1px solid var(--line); }
   :root:root:root .tc-card .tc-field + .tc-field { border-top: 0; }
   :root:root:root .tc-card .tc-label { width: 84px; font-family: inherit; text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--text-dim); }
@@ -294,23 +309,25 @@
   :root:root:root .tc-card > .tc-bar > .tc-anchor:nth-child(2)::before { content: 'Priority'; }
   :root:root:root .tc-card .tc-chip { border: 0; background: none; box-shadow: none; padding: 0; height: auto; font-size: 15px; color: var(--text); }
   :root:root:root .tc-card > .tc-text { order: 2; flex: 1; min-height: 0; height: auto; max-height: none; padding: 16px; font-size: 16px; resize: none; }
-  /* Attaching is one row of words at the foot, not a paperclip to decode. */
+  /* Attaching is one row of words at the foot, not a paperclip to decode. Its
+     52px is its own, with the home bar's room added under it: with the
+     iPhone's 34px inset counted inside the 52 its words had 18px, hard under
+     the line ("the attached file or picture is touching the divider",
+     2026-10-11). */
   :root:root:root .tc-card > .tc-bar > .tc-icon {
-    order: 3; align-self: stretch; width: auto; margin: 0; height: 52px; justify-content: flex-start; padding: 0 16px calc(env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line);
+    order: 3; align-self: stretch; width: auto; margin: 0; height: calc(52px + var(--phone-foot)); justify-content: flex-start; padding: 0 16px var(--phone-foot); border-top: 1px solid var(--line);
     display: flex; align-items: center; gap: 10px; color: var(--text-dim); font-size: 15px;
   }
   :root:root:root .tc-card > .tc-bar > .tc-icon::after { content: 'Attach a file or picture'; }
+  /* Send is the orange box, square, 16px in from the edge and centred on the
+     top bar: at 12px from the edge it sat "touching the top corner of the
+     app" (2026-10-11). */
   :root:root:root .tc-card .tc-send {
-    position: fixed; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + 10px); right: calc(10px + env(safe-area-inset-right, 0px));
+    position: fixed; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + 12px); right: calc(16px + env(safe-area-inset-right, 0px));
   }
-  /* SEND IS A WORD IN THE ACCENT, as Cancel is a word in grey. As an orange
-     box it sat "touching the top corner of the app", and its weight against a
-     grey Cancel pulled the name between them off the middle ("new thread
-     doesn't feel centered", 2026-10-11). Square corners still, for focus. */
-  :root:root:root .tc-card .tc-send > button { background: none; color: var(--accent); border: 0; box-shadow: none; }
-  :root:root:root .tc-card .tc-send-main { height: 36px; padding: 0 6px; border-radius: var(--radius) 0 0 var(--radius); font-size: 16px; font-weight: 600; }
+  :root:root:root .tc-card .tc-send-main { height: 32px; padding: 0 14px; border-radius: var(--radius) 0 0 var(--radius); font-size: 15px; font-weight: 500; }
   :root:root:root .tc-card .tc-send.solo .tc-send-main { border-radius: var(--radius); }
-  :root:root:root .tc-card .tc-send-caret { height: 36px; padding: 0 8px 0 2px; border-left: 0; border-radius: 0 var(--radius) var(--radius) 0; }
+  :root:root:root .tc-card .tc-send-caret { height: 32px; border-radius: 0 var(--radius) var(--radius) 0; }
   :root:root:root .tc-card .tc-send-main kbd { display: none; }
   :root:root:root:has(.tc-veil) .workspace-navigation,
   :root:root:root:has(.tc-veil) .topbar .th-new { display: none; }
@@ -372,7 +389,7 @@
      corner at its desktop width, which on a phone hung it off the left edge
      and over the inboxes; its ⌘Y / ⌘N are keys no phone has. */
   :root:root:root .approvals {
-    left: 8px; right: 8px; bottom: calc(var(--phone-tabs, 0px) + 8px + env(safe-area-inset-bottom, 0px)); top: auto;
+    left: 8px; right: 8px; bottom: calc(var(--phone-tabs, 0px) + 8px + var(--phone-foot)); top: auto;
     width: auto; max-width: none; transform: none; z-index: 90;
   }
   :root:root:root .approvals .approval-stack, :root:root:root .approvals .approval-card { width: auto; max-width: none; }
@@ -388,7 +405,7 @@
   /* THE ALERTS QUESTION (renderer/src/phone-alerts.ts), one line above the bar. */
   :root:root:root #phone-alerts-ask {
     position: fixed; left: 8px; right: 8px; z-index: 60;
-    bottom: calc(var(--phone-tabs, 0px) + env(safe-area-inset-bottom, 0px) + 8px);
+    bottom: calc(var(--phone-tabs, 0px) + var(--phone-foot) + 8px);
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 14px;
     background: var(--pop); color: var(--text); border: 1px solid var(--line-strong); border-radius: var(--radius);
     font-size: 14px; line-height: 1.35;
