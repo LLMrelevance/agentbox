@@ -80,6 +80,43 @@ process.on('SIGINT', () => { stopping = true; process.exit(143); });
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// THE INPUT PROTOCOL, WHEN AGENTBOX SPEAKS IT. A worker spawned with
+// `--input-format stream-json --replay-user-messages` (main/claude-input.mjs)
+// gets its prompt as a `user` line on stdin, and Agentbox waits for Claude Code
+// to replay that line, by uuid, before it will treat a result as the end of the
+// run. A stand-in that never replayed it left every run "unfinished": the app
+// never closed its input and never wrote the answer onto the row (found
+// 2026-10-11 by the verify-agentbox live drive). So: replay every user line, as
+// the CLI does, and wait for the first before working on it.
+const streamInput = argv.includes('--input-format');
+let firstUserLine = null;
+let stdinEnded = !streamInput;
+const inputEnded = new Promise((resolve) => {
+  if (!streamInput) return resolve();
+  let buffer = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (chunk) => {
+    buffer += chunk;
+    let at;
+    while ((at = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, at).trim();
+      buffer = buffer.slice(at + 1);
+      let msg = null;
+      try { msg = JSON.parse(line); } catch { continue; }
+      if (msg?.type !== 'user') continue;
+      say({ ...msg, session_id: sessionId });
+      firstUserLine ??= msg;
+    }
+  });
+  const end = () => { stdinEnded = true; resolve(); };
+  process.stdin.on('end', end);
+  process.stdin.on('error', end);
+});
+if (streamInput) {
+  const until = Date.now() + 10_000;
+  while (!firstUserLine && !stdinEnded && Date.now() < until) await wait(20);
+}
+
 /** The approvals server Agentbox wrote into this worker's --mcp-config, spoken to
  *  exactly the way Claude Code speaks to it: MCP over the child's stdio. */
 async function askTheFounder({ tool_name: toolName, input }) {
@@ -144,4 +181,8 @@ try {
 }
 
 say({ type: 'result', subtype: 'success', result: said, is_error: false, session_id: sessionId });
+// AND IT LEAVES WHEN IT IS LET GO, LIKE THE REAL ONE: with streamed input,
+// Claude Code does not exit at its result but when Agentbox closes its input.
+// Capped, so a stand-in nobody lets go of cannot outlive its proof.
+await Promise.race([inputEnded, wait(30_000)]);
 process.exit(0);
