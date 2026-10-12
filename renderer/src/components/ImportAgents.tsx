@@ -32,7 +32,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { type AgentFile } from '../onboarding';
 import {
-  CARD, LIST, SECTION, canBring, destinations, folderOfProject, countKinds, importLines, nameOfProject,
+  CARD, LIST, SECTION, canBring, listLine, destinations, folderOfProject, countKinds, importLines, nameOfProject,
   projectAtOpen,
   type AgentFolder, type Project, type SessionThread,
 } from '../agent-import-card';
@@ -428,15 +428,16 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
 
   return (
     // A BACKDROP THAT CLOSES IS A WAY OUT, so inside the walk it is not one.
-    // Same scrim, same card, and a click beside it does nothing.
-    <div className="modal-backdrop compose-backdrop" onClick={walk ? undefined : onClose}>
+    // Same scrim, same card, and a click beside it does nothing. `in-walk` lifts
+    // it over setup's veil, which otherwise lay on top of it and dimmed it.
+    <div className={`modal-backdrop compose-backdrop${walk ? ' in-walk' : ''}`} onClick={walk ? undefined : onClose}>
       <div className={`modal ia-card ia-one${walk ? ' in-walk' : ''}`} onClick={(e) => e.stopPropagation()}>
         {/* THE HEADLINE SAYS WHICH CARD THIS IS (2026-08-28): the offer when
             there is something to bring, the plain answer when there is not. */}
         <div className="ia-top">
           <h1 className="ia-head">{read && !some ? (alreadyIn > 0 ? CARD.headAllIn : CARD.headNone) : LIST.head}</h1>
         </div>
-        {read && some && <p className="ia-line">{LIST.line}</p>}
+        {read && some && <p className="ia-line">{listLine(threads ?? [])}</p>}
 
         {!read && <div className="ia-empty">{CARD.reading}</div>}
 
