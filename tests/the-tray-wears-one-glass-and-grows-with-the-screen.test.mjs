@@ -34,19 +34,25 @@ describe('the tag grows with the screen it rests on', () => {
     expect(tagScale(1440)).toBe(1.1);
   });
 
-  it('grows on a wide screen and again on a very wide one, like her 32 inch', () => {
-    expect(tagScale(2000)).toBe(1.2);
-    expect(tagScale(2560)).toBe(1.2);
-    expect(tagScale(2800)).toBe(1.36);
-    expect(tagScale(3413)).toBe(1.36);
+  it('climbs hard on a wide screen, because 34px on her 32 inch was far too small', () => {
+    expect(tagScale(1900)).toBe(1.3);
+    expect(tagScale(2400)).toBe(1.5);
+    expect(tagScale(3000)).toBe(1.7);
+    // her own screen, from the screenshot she sent
+    expect(tagScale(3413)).toBe(1.7);
+    expect(28 * tagScale(3413)).toBeGreaterThan(44);
   });
 
   it('holds the boundary either side and never answers with nothing', () => {
-    expect(tagScale(1999)).toBe(1.1);
-    expect(tagScale(2799)).toBe(1.2);
+    expect(tagScale(1899)).toBe(1.1);
+    expect(tagScale(2399)).toBe(1.3);
+    expect(tagScale(2999)).toBe(1.5);
     expect(tagScale(undefined)).toBe(1.1);
     expect(tagScale(NaN)).toBe(1.1);
     expect(TAG_SCALES.every((s) => s.scale > 1)).toBe(true);
+    // every step is bigger than the one below it, in order
+    const steps = TAG_SCALES.map((s) => s.scale);
+    expect([...steps].sort((a, b) => a - b)).toEqual(steps);
   });
 });
 
@@ -110,6 +116,17 @@ describe('one glass, whatever the Mac is set to', () => {
     expect(page).not.toContain('ct-half');
     expect(css).toContain('#f3a27a');
     expect(css).toContain('.ct-lat');
+  });
+
+  it('lets the screen through, so a dark one is not a white slab in the corner', () => {
+    // "a little more transparent so that, in dark mode, it doesn't look so
+    // visible/high contrast". The tag's glass is thin; the list, which is read
+    // a line at a time, is the firm one.
+    const fill = (name) => css.match(new RegExp(`--ct-tint${name}: [^;]+`))[0]
+      .match(/rgba\([^)]+\)/g).map((c) => Number(c.split(',').pop().trim().replace(')', '')));
+    expect(Math.max(...fill(''))).toBeLessThan(0.8);
+    expect(Math.max(...fill('-quiet'))).toBeLessThan(0.62);
+    expect(Math.min(...fill('-hover'))).toBeGreaterThan(0.85);
   });
 
   it('keeps its promise to anyone who asked for less motion', () => {

@@ -30,12 +30,17 @@
   --ct-faint: rgba(29, 29, 31, 0.50);
   --ct-rule: rgba(29, 29, 31, 0.12);
   --ct-press: rgba(29, 29, 31, 0.07);
-  /* The glass, and the edge that stands in for a shadow. */
-  --ct-tint: linear-gradient(180deg, rgba(252, 252, 253, 0.94), rgba(238, 240, 245, 0.92));
-  --ct-tint-quiet: linear-gradient(180deg, rgba(252, 252, 253, 0.86), rgba(238, 240, 245, 0.83));
-  --ct-tint-hover: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(246, 247, 251, 0.95));
-  --ct-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 0.5px rgba(16, 18, 24, 0.20);
-  --ct-edge-quiet: inset 0 0.5px 0 rgba(255, 255, 255, 0.85), inset 0 0 0 0.5px rgba(16, 18, 24, 0.17);
+  /* The glass, and the edge that stands in for a shadow. It is thin on
+     purpose: against a dark screen a solid white chip was "so visible/high
+     contrast" (2026-10-13), and what the screen behind lends it is exactly
+     what keeps it quiet there while it stays legible on a white page. The
+     hairline does the work the fill no longer does. */
+  --ct-tint: linear-gradient(180deg, rgba(252, 252, 253, 0.76), rgba(238, 240, 245, 0.72));
+  --ct-tint-quiet: linear-gradient(180deg, rgba(252, 252, 253, 0.58), rgba(238, 240, 245, 0.55));
+  /* Pointing at it firms the glass up, because that is when it is being read. */
+  --ct-tint-hover: linear-gradient(180deg, rgba(255, 255, 255, 0.93), rgba(246, 247, 251, 0.90));
+  --ct-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.70), inset 0 0 0 0.5px rgba(16, 18, 24, 0.22);
+  --ct-edge-quiet: inset 0 0.5px 0 rgba(255, 255, 255, 0.55), inset 0 0 0 0.5px rgba(16, 18, 24, 0.18);
   /* The mark: the launch film's soft apricot, in both states. */
   --ct-lat: #f3a27a;
   --ct-lat-rest: 0.46;
@@ -119,7 +124,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
 }
 
 /* ---- the list ---- */
+/* The list is firmer glass than the tag: it is only there while you are
+   pointing at it, and it is read a line at a time. */
 .ct-card {
+  background: var(--ct-tint-hover);
   border-radius: calc(8px * var(--ct-s)); padding: calc(9px * var(--ct-s)) calc(8px * var(--ct-s)) calc(8px * var(--ct-s));
   box-sizing: border-box; width: max-content; max-width: calc(440px * var(--ct-s)); min-width: calc(240px * var(--ct-s));
 }

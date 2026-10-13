@@ -55,12 +55,17 @@ export function tagSays({ ready = 0, working = 0 } = {}) {
  * both, worst on the big one: "a little bigger... esp on my 32 inch screen but
  * also maybe on smaller screens too". So it is a ladder off the screen's own
  * width in points, not one size for everything and not a setting to find.
- * 1 is the old 28px tag; the steps are 31px, 34px and 38px.
+ *
+ * The first ladder climbed too gently — "34 px on a 32-inch screen is still far
+ * too small so you need to scale it more with screen size" — so the steps are
+ * now 31px on a laptop, 36px, 42px, and 48px on a screen as wide as hers
+ * (3413 points). 1 would be the old 28px tag, which nothing asks for any more.
  */
 export const TAG_SCALES = [
   { from: 0, scale: 1.1 },
-  { from: 2000, scale: 1.2 },
-  { from: 2800, scale: 1.36 },
+  { from: 1900, scale: 1.3 },
+  { from: 2400, scale: 1.5 },
+  { from: 3000, scale: 1.7 },
 ];
 
 /** The scale for a screen this many points wide. */
