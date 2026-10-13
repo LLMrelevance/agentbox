@@ -124,8 +124,11 @@ describe('one glass, whatever the Mac is set to', () => {
     // a line at a time, is the firm one.
     const fill = (name) => css.match(new RegExp(`--ct-tint${name}: [^;]+`))[0]
       .match(/rgba\([^)]+\)/g).map((c) => Number(c.split(',').pop().trim().replace(')', '')));
-    expect(Math.max(...fill(''))).toBeLessThan(0.6);
-    expect(Math.max(...fill('-quiet'))).toBeLessThan(0.42);
+    // Thin, but not so thin it disappears into a white page, which is what
+    // happened when it went further (2026-10-13).
+    expect(Math.max(...fill(''))).toBeLessThan(0.8);
+    expect(Math.min(...fill(''))).toBeGreaterThan(0.65);
+    expect(Math.max(...fill('-quiet'))).toBeLessThan(0.62);
     expect(Math.min(...fill('-hover'))).toBeGreaterThan(0.85);
   });
 

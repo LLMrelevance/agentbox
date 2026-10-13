@@ -34,11 +34,15 @@
      purpose: against a dark screen a solid white chip was "so visible/high
      contrast" (2026-10-13), and what the screen behind lends it is exactly
      what keeps it quiet there while it stays legible on a white page. The
-     hairline does the work the fill no longer does. Thinned twice that day,
-     the second time to the one she called "really compelling": barely half
-     the glass while something waits, a third of it while agents work. */
-  --ct-tint: linear-gradient(180deg, rgba(252, 252, 253, 0.56), rgba(238, 240, 245, 0.52));
-  --ct-tint-quiet: linear-gradient(180deg, rgba(252, 252, 253, 0.38), rgba(238, 240, 245, 0.35));
+     hairline does the work the fill no longer does.
+
+     IT WAS THINNED ONCE, NOT TWICE. A thinner glass still looked better on a
+     dark screen, but "it's a bit hard to see in light mode... the white is
+     blending in with white backgrounds": a chip that is mostly the page
+     behind it has nothing left to be on a page that is already white. This is
+     her pick, the one she sent back in a picture of her own. */
+  --ct-tint: linear-gradient(180deg, rgba(252, 252, 253, 0.76), rgba(238, 240, 245, 0.72));
+  --ct-tint-quiet: linear-gradient(180deg, rgba(252, 252, 253, 0.58), rgba(238, 240, 245, 0.55));
   /* Pointing at it firms the glass up, because that is when it is being read. */
   --ct-tint-hover: linear-gradient(180deg, rgba(255, 255, 255, 0.93), rgba(246, 247, 251, 0.90));
   --ct-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.70), inset 0 0 0 0.5px rgba(16, 18, 24, 0.22);
