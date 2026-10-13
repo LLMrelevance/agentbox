@@ -34,6 +34,9 @@ contextBridge.exposeInMainWorld('cornerTag', {
   release: (cancelled) => ipcRenderer.invoke('corner-tag:release', { cancelled: !!cancelled }),
   go: (id) => ipcRenderer.invoke('corner-tag:go', id),
   hide: (choice) => ipcRenderer.invoke('corner-tag:hide', choice),
+  // One notch bigger or smaller, from the list's own foot, so she can see the
+  // tag change while she decides.
+  resize: (by) => ipcRenderer.invoke('corner-tag:resize', { by }),
   settings: () => ipcRenderer.invoke('corner-tag:settings'),
   menu: () => ipcRenderer.invoke('corner-tag:menu'),
 });

@@ -57,7 +57,7 @@ const HIDE_LABELS = { '5m': 'Hide for 5 minutes', '30m': 'Hide for 30 minutes', 
 const CHANNELS = [
   'zero:corner-tag', 'corner-tag:ready', 'corner-tag:size', 'corner-tag:hover', 'corner-tag:toggle',
   'corner-tag:press', 'corner-tag:release', 'corner-tag:go', 'corner-tag:hide', 'corner-tag:settings', 'corner-tag:menu',
-  'corner-tag:clickable',
+  'corner-tag:clickable', 'corner-tag:resize',
 ];
 
 export function createCornerTag({
@@ -569,6 +569,15 @@ export function createCornerTag({
     try { wins.tag.setIgnoreMouseEvents?.(!on, { forward: true }); } catch { /* an older Electron: the band stays clickable */ }
   };
   ipcMain.handle('corner-tag:clickable', (_e, p) => { letClicksThrough(!!p?.on); return null; });
+
+  // A notch bigger or smaller, from the list's foot. The list stays open and
+  // is placed again as the tag changes size, because the whole point of
+  // sizing it from there is watching the tag while you do it.
+  ipcMain.handle('corner-tag:resize', (_e, p) => {
+    const by = Number(p?.by) < 0 ? -1 : 1;
+    setZoom(zoomStep(zoom, by));
+    return null;
+  });
 
   ipcMain.handle('corner-tag:menu', () => {
     if (!alive('tag')) return null;

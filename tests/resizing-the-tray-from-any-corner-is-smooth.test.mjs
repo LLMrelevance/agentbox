@@ -64,7 +64,7 @@ function rig({ config = {} } = {}) {
     }
     clock = target;
   };
-  const win = () => windows.filter((w) => w.part === 'tag').at(-1);
+  const win = (part = 'tag') => windows.filter((w) => w.part === part).at(-1);
   // The page draws everything from the scale it is handed, so what it reports
   // back is that scale: a 28pt tag, four times as wide as it is tall.
   const scaleSent = () => win().sent.filter((s) => s[0] === 'corner-tag:state').at(-1)[1].scale;
@@ -344,5 +344,38 @@ describe('a drag with the clear band in place', () => {
       expect(r.win().bounds.height).toBe(drawnGlass + 2 * BAND);
     }
     r.call('corner-tag:release', { cancelled: false });
+  });
+});
+
+describe('the Size steps in the list', () => {
+  const open = () => {
+    const r = rig();
+    r.show();
+    r.call('corner-tag:ready', { part: 'card' });
+    r.call('corner-tag:size', { part: 'card', width: 340, height: 170 });
+    return r;
+  };
+
+  it('steps the tray one notch at a time, and remembers it', () => {
+    const r = open();
+    const before = r.scaleSent();
+    r.call('corner-tag:resize', { by: 1 });
+    expect(r.scaleSent()).toBeGreaterThan(before);
+    r.redraw();
+    r.call('corner-tag:resize', { by: -1 });
+    r.call('corner-tag:resize', { by: -1 });
+    expect(r.scaleSent()).toBeLessThan(before);
+    expect(r.saved.filter((p) => 'cornerTagZoom' in p).length).toBe(3);
+  });
+
+  it('leaves the tag in plain sight: the list never lands on top of it', () => {
+    const r = open();
+    const covers = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    for (let i = 0; i < 6; i++) {
+      r.call('corner-tag:resize', { by: 1 });
+      r.redraw();
+      const card = r.win('card')?.bounds;
+      if (card) expect(covers(card, r.win().bounds)).toBe(false);
+    }
   });
 });

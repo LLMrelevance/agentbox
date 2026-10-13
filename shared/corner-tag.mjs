@@ -308,14 +308,20 @@ export function keepCorner(bounds, size, area) {
  * screen, so it never runs off an edge, lined up with the tag's outer edge.
  */
 export function cardPlacement(tag, card, area, gap = 8) {
-  let above = inLowerHalf(tag, area);
   const alignRight = inRightHalf(tag, area);
   const x = clamp(alignRight ? tag.x + tag.width - card.width : tag.x, area.x, area.x + area.width - card.width);
-  const up = tag.y - gap - card.height;
-  const down = tag.y + tag.height + gap;
-  // A tall list near a short screen's middle may not fit the side it prefers.
-  if (above && up < area.y) above = false;
-  else if (!above && down + card.height > area.y + area.height) above = true;
-  const y = clamp(above ? up : down, area.y, area.y + area.height - card.height);
+  // Which side has the room. The list may never cover the tag: she adjusts the
+  // tray's size from this list ("you still need to see the component to be able
+  // to make those decisions"), and a list over the thing it is sizing is no
+  // use. So the side is picked by which has more room, the list is kept on
+  // that side of the tag, and only then is it brought onto the screen — a list
+  // taller than its side runs off the screen's edge rather than over the tag.
+  const room = { above: tag.y - area.y, below: area.y + area.height - (tag.y + tag.height) };
+  let above = inLowerHalf(tag, area);
+  if (above && room.above < card.height + gap && room.below > room.above) above = false;
+  else if (!above && room.below < card.height + gap && room.above > room.below) above = true;
+  const y = above
+    ? Math.min(tag.y - gap - card.height, Math.max(area.y, tag.y - gap - card.height))
+    : Math.max(tag.y + tag.height + gap, Math.min(area.y + area.height - card.height, tag.y + tag.height + gap));
   return { above, alignRight, card: { x, y, width: card.width, height: card.height } };
 }

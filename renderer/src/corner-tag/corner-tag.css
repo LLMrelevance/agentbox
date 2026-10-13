@@ -245,3 +245,26 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
 .ct-foot button { all: unset; cursor: pointer; padding: calc(2px * var(--ct-cs)) calc(6px * var(--ct-cs)); border-radius: calc(5px * var(--ct-cs)); color: var(--ct-dim); }
 .ct-foot button:hover { background: var(--ct-press); color: var(--ct-ink); }
 .ct-foot .ct-sep { flex: 1; min-width: calc(16px * var(--ct-cs)); }
+
+/* ---- sizing the tray, from the foot of its own list ----
+   Her pick over a handle on the tag itself: nothing is drawn on the tag, the
+   list only opens when she asks for it, and the tag stays in plain sight
+   beside it while she decides. Two halves of one pill, joined by a hairline,
+   with the signs drawn rather than typed — a minus and a plus as characters
+   never sit on the same baseline and that is what made it ugly. */
+.ct-foot .ct-size { display: flex; align-items: center; gap: calc(5px * var(--ct-cs)); margin-left: calc(4px * var(--ct-cs)); }
+.ct-foot .ct-size-name { color: var(--ct-faint); }
+.ct-foot .ct-steps {
+  display: flex; align-items: stretch; overflow: hidden;
+  border: 1px solid var(--ct-rule); border-radius: 999px;
+}
+.ct-foot .ct-steps button {
+  all: unset; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  width: calc(20px * var(--ct-cs)); height: calc(15px * var(--ct-cs)); color: var(--ct-dim);
+}
+.ct-foot .ct-steps button + button { border-left: 1px solid var(--ct-rule); }
+.ct-foot .ct-steps button:hover { background: var(--ct-press); color: var(--ct-ink); }
+.ct-foot .ct-steps svg {
+  width: calc(9px * var(--ct-cs)); height: calc(9px * var(--ct-cs)); display: block;
+  fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round;
+}

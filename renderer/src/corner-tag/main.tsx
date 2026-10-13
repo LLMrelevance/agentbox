@@ -38,6 +38,7 @@ type Bridge = {
   release: (cancelled?: boolean) => Promise<unknown>;
   go: (id: string | null) => Promise<unknown>;
   hide: (choice: string) => Promise<unknown>;
+  resize: (by: number) => Promise<unknown>;
   settings: () => Promise<unknown>;
   menu: () => Promise<unknown>;
 };
@@ -274,6 +275,23 @@ function CardBody({ state }: { state: State }) {
         {HIDE_CHOICES.map((c: { key: string; label: string }) => (
           <button key={c.key} onClick={() => bridge?.hide(c.key)}>{c.label}</button>
         ))}
+        {/* SIZING THE TRAY FROM THE LIST (2026-10-13, her pick). It lives here
+            because the list only opens when she asks for it, so nothing is
+            drawn on the tag itself, and because the tag stays in plain sight
+            beside it while she decides: "you still need to see the component
+            to be able to make those decisions". Two halves of one small pill
+            rather than a pair of loose characters. */}
+        <span className="ct-size">
+          <span className="ct-size-name">Size</span>
+          <span className="ct-steps">
+            <button aria-label="Smaller" title="Smaller" onClick={() => bridge?.resize(-1)}>
+              <svg viewBox="0 0 10 10" aria-hidden><path d="M2.4 5h5.2" /></svg>
+            </button>
+            <button aria-label="Bigger" title="Bigger" onClick={() => bridge?.resize(1)}>
+              <svg viewBox="0 0 10 10" aria-hidden><path d="M2.4 5h5.2M5 2.4v5.2" /></svg>
+            </button>
+          </span>
+        </span>
         <span className="ct-sep" />
         <button className="ct-off" onClick={() => bridge?.settings()}>Turn off…</button>
       </div>

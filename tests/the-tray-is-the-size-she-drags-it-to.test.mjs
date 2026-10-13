@@ -93,3 +93,27 @@ describe('the corners she drags', () => {
   });
 });
 
+
+describe('sizing it from the foot of its own list', () => {
+  // Her pick, 2026-10-13: a handle on the tag flashed and read as a glitch, so
+  // the control lives in the list, which only opens when she asks for it. Two
+  // things she asked for by name: the tag must stay in sight while she decides
+  // ("you still need to see the component"), and the pair of signs must be one
+  // small thing rather than two loose characters ("the ± UI is pretty ugly").
+  it('puts Size in the foot, beside Hide for and Turn off', () => {
+    expect(page).toContain('ct-size-name');
+    expect(page).toMatch(/aria-label="Smaller"[\s\S]*aria-label="Bigger"/);
+    expect(page).toContain("bridge?.resize(-1)");
+    expect(page).toContain('bridge?.resize(1)');
+    expect(bridge).toContain("resize: (by)");
+  });
+
+  it('draws the two signs instead of typing them, in one joined pill', () => {
+    // a minus and a plus as characters never sit on the same baseline
+    expect(page).not.toContain('−');
+    expect(page).not.toMatch(/>\s*\+\s*</);
+    expect(css).toMatch(/\.ct-foot \.ct-steps \{[^}]*border-radius: 999px/);
+    expect(css).toMatch(/\.ct-foot \.ct-steps button \+ button \{ border-left/);
+    expect(css).toMatch(/\.ct-foot \.ct-steps svg \{[^}]*stroke: currentColor/);
+  });
+});
