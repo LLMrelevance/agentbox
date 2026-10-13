@@ -16,10 +16,11 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HIDE_CHOICES, cardLines, tagSays } from '../../../shared/corner-tag.mjs';
 import { NAME } from '../../../shared/product-name.mjs';
+import { Lattice, Move, markMoves } from './lattice';
 import './corner-tag.css';
 
 type Ready = { id: string; title: string; says: string; since?: number; open?: string | null };
-type State = { ready: Ready[]; working: number; now: number; open?: boolean };
+type State = { ready: Ready[]; working: number; now: number; open?: boolean; scale?: number };
 type Part = 'tag' | 'card';
 
 type Bridge = {
@@ -44,7 +45,7 @@ const params = new URLSearchParams(location.search);
 const part: Part = params.get('part') === 'card' ? 'card' : 'tag';
 
 // For pictures and for working on the page without the app: ?demo=ready or
-// ?demo=working, with -open to show the list; ?theme=dark|light.
+// ?demo=working, with -open to show the list; ?s= draws it at a screen's scale.
 function demoState(): { state: State; open: boolean } | null {
   const demo = params.get('demo');
   if (!demo) return null;
@@ -54,26 +55,37 @@ function demoState(): { state: State; open: boolean } | null {
   const ready = demo.startsWith('ready') ? Array.from({ length: n }, (_, i) => ({
     id: `demo-${i}`, title: titles[i % titles.length], says: i === 1 ? 'needs a yes' : 'is ready for you', since: now - [2, 9, 25, 40, 70, 95, 130][i % 7] * 60_000,
   })) : [];
-  return { state: { ready, working: demo.startsWith('ready') ? 20 - n : 20, now }, open: demo.endsWith('-open') };
+  const scale = Number(params.get('s') ?? 1.1);
+  return { state: { ready, working: demo.startsWith('ready') ? 20 - n : 20, now, scale }, open: demo.endsWith('-open') };
 }
 const demo = demoState();
-const theme = params.get('theme');
 document.documentElement.classList.toggle('ct-demo', !!demo);
-if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme;
 
 function useTagState() {
   const [state, setState] = useState<State>(demo?.state ?? { ready: [], working: 0, now: Date.now() });
   useEffect(() => bridge?.onState((s) => setState(s)), []);
+  // ONE NUMBER IS THE WHOLE SIZE. The main process reads the width of the
+  // screen the tag rests on (shared/corner-tag.mjs, tagScale) and sends it
+  // here; everything in the tag and its list is written against it, so they
+  // grow together on a 32" and stay small on a laptop.
+  useEffect(() => {
+    if (state.scale) document.documentElement.style.setProperty('--ct-s', String(state.scale));
+  }, [state.scale]);
   return state;
 }
 
-function Half({ size = 11 }: { size?: number }) {
-  return (
-    <svg className="ct-half" width={size} height={size} viewBox="0 0 12 12" aria-hidden>
-      <circle cx="6" cy="6" r="5.2" fill="none" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M6 2.4a3.6 3.6 0 0 1 0 7.2z" fill="currentColor" />
-    </svg>
-  );
+// The mark, and the one place that decides when it moves: whenever the words
+// change, markMoves says whether this is news worth a turn, a count worth a
+// pop, or nothing at all.
+function Mark({ says }: { says: { kind: string; count: number } }) {
+  const before = useRef<{ kind: string; count: number } | null>(null);
+  const [beat, setBeat] = useState<{ move: Move; n: number }>({ move: 'none', n: 0 });
+  useEffect(() => {
+    const move = markMoves(before.current, says);
+    before.current = says;
+    if (move !== 'none') setBeat((b) => ({ move, n: b.n + 1 }));
+  }, [says.kind, says.count]);
+  return <Lattice lit={says.kind === 'ready'} move={beat.move} beat={beat.n} />;
 }
 
 // The way into the app, drawn at the tag's end.
@@ -155,7 +167,7 @@ function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }
       onLostPointerCapture={() => letGo(true)}
       onContextMenu={(e) => { e.preventDefault(); bridge?.menu(); }}
     >
-      {says.kind === 'ready' ? <span className="ct-dot" /> : <Half />}
+      <Mark says={{ kind: says.kind, count: says.kind === 'ready' ? counts.ready : counts.working }} />
       <span className="ct-words">{text}</span>
       <Go />
     </div>
@@ -169,7 +181,7 @@ function CardBody({ state }: { state: State }) {
     <>
       {lines.map((l) => (
         <button key={l.id} className="ct-line" onClick={() => bridge?.go(l.open === undefined ? l.id : l.open)}>
-          <span className="ct-dot" />
+          <span className="ct-pip" />
           <span className="ct-name">{l.title}</span>
           <span className="ct-says">{l.says}</span>
           <span className="ct-when">{l.waited}</span>
@@ -179,7 +191,8 @@ function CardBody({ state }: { state: State }) {
       {!lines.length && <div className="ct-quiet ct-static">Nothing is ready for you yet</div>}
       {state.working > 0 && (
         <button className="ct-line ct-quiet" onClick={() => bridge?.go(null)}>
-          <Half size={10} />{lines.length ? `${state.working} others working` : `${state.working} working`}
+          <Lattice lit={false} move="none" beat={0} />
+          {lines.length ? `${state.working} others working` : `${state.working} working`}
         </button>
       )}
       <div className="ct-foot">

@@ -47,6 +47,31 @@ export function tagSays({ ready = 0, working = 0 } = {}) {
 }
 
 /**
+ * HOW BIG THE TAG DRAWS, from the width of the screen it rests on (2026-10-13).
+ * One number: the page multiplies everything in the tag and its list by it, so
+ * the words, the chevron, the nine-dot mark and the padding grow together.
+ *
+ * She reads the tray on a 32" screen and on a laptop, and 28px was too small on
+ * both, worst on the big one: "a little bigger... esp on my 32 inch screen but
+ * also maybe on smaller screens too". So it is a ladder off the screen's own
+ * width in points, not one size for everything and not a setting to find.
+ * 1 is the old 28px tag; the steps are 31px, 34px and 38px.
+ */
+export const TAG_SCALES = [
+  { from: 0, scale: 1.1 },
+  { from: 2000, scale: 1.2 },
+  { from: 2800, scale: 1.36 },
+];
+
+/** The scale for a screen this many points wide. */
+export function tagScale(width) {
+  const w = Number.isFinite(width) ? width : 0;
+  let scale = TAG_SCALES[0].scale;
+  for (const step of TAG_SCALES) if (w >= step.from) scale = step.scale;
+  return scale;
+}
+
+/**
  * What the tag counts and lists: everything waiting on you, newest first.
  * The first version put threads from weeks ago at the top of the list; the
  * second cut everything older than a day, and then a Needs you of 58 read

@@ -37,7 +37,7 @@
 // is, so it hands over what is ready and how many are working on
 // `zero:corner-tag`; shared/corner-tag.mjs puts it newest first.
 
-import { cardPlacement, hiddenUntil, keepCorner, readyNow, restingSpot, tagShows, HIDE_CHOICES } from '../shared/corner-tag.mjs';
+import { cardPlacement, hiddenUntil, keepCorner, readyNow, restingSpot, tagScale, tagShows, HIDE_CHOICES } from '../shared/corner-tag.mjs';
 
 // How long the pointer may be off both the tag and its list before the list
 // shuts: long enough to cross the gap between them, short enough to feel like
@@ -95,8 +95,12 @@ export function createCornerTag({
   const alive = (part) => !!wins[part] && !wins[part].isDestroyed();
   const rounded = (r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) });
   const send = (part, channel, payload) => { if (alive(part) && loaded[part]) wins[part].webContents.send(channel, payload); };
+  // How big the tag draws, from the width of the screen it is resting on. The
+  // page multiplies everything by it, reports the size it came out, and this
+  // file places that. A tag dragged to another screen is measured again there.
+  const scaleNow = () => tagScale((tag ? areaOf(tag) : areas()[0] ?? { width: 0 }).width);
   const sendState = () => {
-    const s = { ready: fresh(), working, now: now(), open };
+    const s = { ready: fresh(), working, now: now(), open, scale: scaleNow() };
     send('tag', 'corner-tag:state', s);
     send('card', 'corner-tag:state', s);
   };
@@ -285,6 +289,8 @@ export function createCornerTag({
       if (alive('tag')) wins.tag.setBounds(rounded(tag));
       saveConfig(config, { cornerTagSpot: { x: Math.round(tag.x), y: Math.round(tag.y) } });
       send('tag', 'corner-tag:dragging', false);
+      // Dragged onto another screen, it draws at that screen's size.
+      sendState();
     } else if (!cancelled) {
       cancelOpen();
       goTo(null);
