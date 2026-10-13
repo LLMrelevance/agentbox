@@ -70,7 +70,35 @@ describe('the reply box in a thread', () => {
     const src = code(read('renderer/src/team/ThreadPanel.tsx'));
     expect(src).toMatch(/if \(!words && !attachments\.length\) return;/);
     expect(src).toMatch(/const ready = !!draft\.trim\(\) \|\| attachments\.length > 0;/);
-    expect(panel()).toMatch(/<button type="button" class="chat-thread-send" disabled="">Send<\/button>/);
+    expect(panel()).toMatch(/<button type="button" class="dock-send" disabled="" title="Send · ↵">Send <kbd>↵<\/kbd><\/button>/);
+  });
+});
+
+// THE BOX ITSELF, second round. Their words on a one-line box with Send in the
+// middle of it: "there's still not enough space to write your message... The
+// send button should also be in the bottom-right corner... our approach should
+// be rather similar to that of other input fields in our application."
+describe('the thread reply box is laid out like the chat\'s own', () => {
+  const html = panel();
+  const css = read('renderer/src/team/chat.css');
+
+  it('has room for three lines, growing as you write', () => {
+    expect(html).toMatch(/<textarea rows="3"/);
+    expect(css).toMatch(/\.chat-thread-box textarea \{[^}]*min-height: 82px; max-height: 240px;/);
+  });
+
+  it('ends in a footer: the chat\'s formatting bar on the left, Send last, in the corner', () => {
+    const bar = html.slice(html.indexOf('class="chat-thread-bar"'));
+    expect(bar.indexOf('class="fmt-bar"')).toBeGreaterThan(-1);
+    expect(bar.indexOf('class="dock-send"')).toBeGreaterThan(bar.indexOf('aria-label="Add an emoji"'));
+    expect(html.indexOf('class="chat-thread-bar"')).toBeGreaterThan(html.indexOf('<textarea'));
+    expect(html.lastIndexOf('</button>')).toBe(html.indexOf('Send <kbd>↵</kbd></button>') + 'Send <kbd>↵</kbd>'.length);
+  });
+
+  // THE CASE THAT MUST NOT HAPPEN: a panel dragged narrow pushing Send off the
+  // edge. The marks go; @, the paperclip and the emoji stay.
+  it('lets the formatting marks go before Send when the panel is narrow', () => {
+    expect(css).toMatch(/@container \(max-width: 400px\) \{\s*\.chat-thread-bar \.fmt-btn:has\(~ \.fmt-gap\), \.chat-thread-bar \.fmt-gap \{ display: none; \}/);
   });
 });
 
@@ -82,9 +110,9 @@ describe('a picture waiting in the thread box', () => {
   const src = code(read('renderer/src/team/ThreadPanel.tsx'));
   const css = read('renderer/src/team/chat.css');
 
-  it('sits under the line you type on, not above it', () => {
+  it('sits under the words and above the footer', () => {
     expect(src.indexOf('<AttachRow')).toBeGreaterThan(src.indexOf('placeholder="Reply in thread…"'));
-    expect(src.indexOf('<AttachRow')).toBeGreaterThan(src.indexOf('className="chat-thread-send"'));
+    expect(src.indexOf('<AttachRow')).toBeLessThan(src.indexOf('className="chat-thread-bar"'));
   });
 
   it('is drawn small there, and only there', () => {

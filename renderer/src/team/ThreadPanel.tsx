@@ -20,7 +20,7 @@ import { MessageActions, Reactions } from './ChatActions';
 import { clock } from '../thread-history';
 import { THREAD_WIDTH, threadLine } from './chat-threads';
 import { holdTheEdge } from './hold-the-edge';
-import { ClipGlyph } from './FormatBar';
+import { FormatBar } from './FormatBar';
 import { AttachRow } from '../components/AttachRow';
 import { collectFiles, fromPaste, persistAttachments, type PendingAttachment } from '../attachments';
 import type { AgentTurn } from '../types';
@@ -97,7 +97,7 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
     const el = box.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
   }, [draft]);
 
   // The words, then a link to each file, the way the chat's box sends them.
@@ -206,42 +206,44 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
             if (dropped.length) setAttachments((a) => [...a, ...dropped]);
           }}
         >
-          <div className="chat-thread-line-in">
-            <textarea
-              ref={box}
-              rows={1}
-              value={draft}
-              placeholder="Reply in thread…"
-              aria-label="Reply in thread"
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={onKey}
-              onPaste={async (e) => {
-                const pasted = await fromPaste(e);
-                if (pasted.length) { e.preventDefault(); setAttachments((a) => [...a, ...pasted]); }
-              }}
-            />
-            <input
-              ref={filePicker}
-              type="file"
-              multiple
-              style={{ display: 'none' }}
-              onChange={async (e) => {
-                const picked = await collectFiles(e.target.files ?? []);
-                if (picked.length) setAttachments((a) => [...a, ...picked]);
-                e.target.value = '';
-              }}
-            />
-            <button type="button" className="fmt-btn chat-thread-attach" title="Attach a file" aria-label="Attach a file"
-              onMouseDown={(e) => e.preventDefault()} onClick={() => filePicker.current?.click()}>
-              <ClipGlyph />
-            </button>
-            <button type="button" className="chat-thread-send" disabled={!ready} onClick={() => void send()}>Send</button>
-          </div>
-          {/* UNDER THE LINE YOU TYPE ON, SMALL, and the box grows to hold
-              them, the way the chat's own box does. Above it, at full
-              thumbnail size, a pasted picture took over most of the panel
-              ("the image takes up almost all of the thread", 2026-10-13). */}
+          {/* THE CHAT'S OWN BOX, NARROWER (w-140ac855b1, 2026-10-13). Their
+              words on a one-line box with Send beside the words: "there's
+              still not enough space to write your message... The send button
+              should also be in the bottom-right corner... our approach should
+              be rather similar to that of other input fields in our
+              application." So: room for three lines that grows, what is
+              attached under the words, then the chat's formatting bar on the
+              left of a footer and Send at its right, which is the chat's reply
+              box and Slack's thread box both. */}
+          <textarea
+            ref={box}
+            rows={3}
+            value={draft}
+            placeholder="Reply in thread…"
+            aria-label="Reply in thread"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={onKey}
+            onPaste={async (e) => {
+              const pasted = await fromPaste(e);
+              if (pasted.length) { e.preventDefault(); setAttachments((a) => [...a, ...pasted]); }
+            }}
+          />
           <AttachRow attachments={attachments} onRemove={(i) => setAttachments((x) => x.filter((_, j) => j !== i))} />
+          <input
+            ref={filePicker}
+            type="file"
+            multiple
+            style={{ display: 'none' }}
+            onChange={async (e) => {
+              const picked = await collectFiles(e.target.files ?? []);
+              if (picked.length) setAttachments((a) => [...a, ...picked]);
+              e.target.value = '';
+            }}
+          />
+          <div className="chat-thread-bar">
+            <FormatBar box={box} onChange={setDraft} onAttach={() => filePicker.current?.click()} />
+            <button type="button" className="dock-send" disabled={!ready} onClick={() => void send()} title="Send · ↵">Send <kbd>↵</kbd></button>
+          </div>
         </div>
       </div>
     </aside>
