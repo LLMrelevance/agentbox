@@ -16,7 +16,12 @@ contextBridge.exposeInMainWorld('cornerTag', {
   onReset: listen('corner-tag:reset'),
   onDragging: listen('corner-tag:dragging'),
   ready: (part) => ipcRenderer.invoke('corner-tag:ready', { part }),
-  size: (part, width, height) => ipcRenderer.invoke('corner-tag:size', { part, width, height }),
+  // frame: the clear band the tag's window keeps around the glass, so the
+  // resize arrows can hang over its edges. The window is the glass plus that.
+  size: (part, width, height, frame) => ipcRenderer.invoke('corner-tag:size', { part, width, height, frame }),
+  // Whether what is under the pointer right now belongs to the tag. In the
+  // clear band it does not, and the click must reach the app underneath.
+  clickable: (on) => ipcRenderer.invoke('corner-tag:clickable', { on: !!on }),
   hover: (part, inside) => ipcRenderer.invoke('corner-tag:hover', { part, inside }),
   toggle: () => ipcRenderer.invoke('corner-tag:toggle'),
   // The button went down on the tag, and came up (or was taken away). What

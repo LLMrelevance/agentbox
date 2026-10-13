@@ -8096,7 +8096,14 @@ export class Supervisor {
 
   // Every Claude session can ask the user, and every one of them is a worker
   // now that personal projects are gone (w-d19d6d387c).
+  //
+  // BUT NOT WITH CLAUDE CODE'S OWN QUESTION TOOL. A headless run has no screen
+  // to ask on, so AskUserQuestion went down the permission tool below and
+  // landed on the approval card as a line it could not read. Approvals go on
+  // the card and decisions go in the thread: a worker asks in its last message,
+  // under Options, as its brief already says (w-ab1f2f1d82).
   prepareClaudePermissions({ args }, product, runId, spawnFiles) {
+    args.push('--disallowedTools', 'AskUserQuestion');
     const mcpConfig = this.writeMcpConfig(runId);
     if (!mcpConfig) return;
     spawnFiles.push(mcpConfig);

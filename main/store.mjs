@@ -532,8 +532,15 @@ export class Store {
   threadEdit(slug, id, patch) {
     // `start` is how a thread leaves Later: the summary and the thread page
     // both write 'now' on it, which is what makes `isDue` true again.
-    const fields = ['problem', 'progress', 'solution', 'visibility', 'visibleTo', 'priority', 'blockedBy', 'blocks', 'start'];
+    // `label` is a rename (w-ab3d51dc7d): the name every row shows. Never
+    // `title`, which is the message the thread was started with and briefs
+    // every run. Written on her authority, it outranks the namer's.
+    const fields = ['problem', 'progress', 'solution', 'visibility', 'visibleTo', 'priority', 'blockedBy', 'blocks', 'start', 'label'];
     const allowed = Object.fromEntries(Object.entries(patch ?? {}).filter(([k]) => fields.includes(k)));
+    if ('label' in allowed) {
+      allowed.label = String(allowed.label ?? '').replace(/\s+/g, ' ').trim();
+      if (!allowed.label) throw new Error('a thread needs a name');
+    }
     if (!Object.keys(allowed).length) throw new Error('nothing to change');
     return this.modules.workItemsDisk.updateWorkItem(this.productDir(slug), id, allowed, { source: 'founder' });
   }
