@@ -15,13 +15,14 @@ import { notStarted, rowTitle } from '../list-rules';
 import { toApproveWords } from '../threads-made';
 import { DONE } from '../done-word';
 import {
-  boardColumns, columnTo, conversationSlugs, DEFAULT_COLUMN_ORDER, entryScore, filteredEmptyWords, finishedAt, isDirect, isFiltered, nextPrivacy, placesForDrop, projectChoices, slotUnder,
+  boardColumns, columnTo, conversationSlugs, DEFAULT_COLUMN_ORDER, entryScore, filteredEmptyWords, finishedAt, isDirect, isFiltered, nextPrivacy, dropWithPins, projectChoices, slotUnder,
   timeHeading, updatedWords,
   type BoardEntry, type Display, type PageId, type Privacy, type UpdatedWindow,
 } from './page-rules';
 import { messageLine, messagePriority, rowSharing, sharePatch } from './page-rules';
 import { facesOnButton, peopleWorthADot, togglePicked, whoseWord } from './people-rules';
 import { stopKey } from './walk-rules';
+import { PinMark } from './ThreadMenu';
 import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type Box } from './board-select';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
 import { api } from '../api';
@@ -365,7 +366,9 @@ export const RepeatMark = () => <svg className="th-repeat" width="13" height="13
   <path d="M13 6.5A5.5 5.5 0 0 0 3.2 4.8M3 2.5v2.6h2.6" /><path d="M3 9.5a5.5 5.5 0 0 0 9.8 1.7M13 13.5v-2.6h-2.6" />
 </svg>;
 
-export function RowCells({ live = false, lead, title, hidden = false, lock = false, shared = false, chosen = 0, held = false, aside, where, person, priority, updatedAt, when, now, action }: {
+export function RowCells({ live = false, lead, title, hidden = false, lock = false, shared = false, chosen = 0, held = false, pinned = false, aside, where, person, priority, updatedAt, when, now, action }: {
+  /** Pinned to the top of the list (w-20323283e6): a faint pin after the title. */
+  pinned?: boolean;
   /** An agent is on this thread right now: a turning mark before its name. */
   live?: boolean;
   title: ReactNode; hidden?: boolean; lock?: boolean; shared?: boolean; where: ReactNode; person?: ReactNode;
@@ -386,7 +389,7 @@ export function RowCells({ live = false, lead, title, hidden = false, lock = fal
     {/* THE MARK SAYS WHICH KIND OF SHARED, QUIETLY (w-41ff964775): the two
         people with a small count beside them for a thread only a few people
         see. The whole team, the default, carries nothing (2026-10-02). */}
-    <div className={`th-cell-title subject${hidden ? ' hidden' : ''}`}>{live ? <StateGlyph state="running" live /> : lead}{title}{aside && <span className="th-aside">{aside}</span>}{held && <span className="th-aside">not started</span>}{shared && <SharedMark label={chosen ? `Visible to ${chosen} ${chosen === 1 ? 'person' : 'people'}` : 'Visible to the team'} />}{chosen > 0 && <span className="th-shared-n" aria-hidden="true">{chosen}</span>}{lock && <LockMark />}</div>
+    <div className={`th-cell-title subject${hidden ? ' hidden' : ''}`}>{live ? <StateGlyph state="running" live /> : lead}{title}{aside && <span className="th-aside">{aside}</span>}{held && <span className="th-aside">not started</span>}{shared && <SharedMark label={chosen ? `Visible to ${chosen} ${chosen === 1 ? 'person' : 'people'}` : 'Visible to the team'} />}{chosen > 0 && <span className="th-shared-n" aria-hidden="true">{chosen}</span>}{lock && <LockMark />}{pinned && <PinMark size={13} className="th-pin" />}</div>
     <div className="th-cell-proj">{where}</div>
     {person !== undefined && <div className="th-cell-person">{person}</div>}
     <div className={`th-cell-prio${id === 'urgent' ? ' urgent' : ''}`}>{id && <><PriorityMark id={id} />{priorityLabelOf(id)}</>}</div>
@@ -454,7 +457,7 @@ export function ThreadCells({ item, product, now, person, tab }: {
   // which is why it is handed your teammates' first names.
   const said = messageLine(item, product, team?.me ?? null, (id) => firstName(team?.byId.get(id) ?? null));
   if (said) {
-    return <RowCells live={liveIds.has(item.id)} title={<MessageTitle people={said.people} fromMe={said.fromMe} text={said.text} />} where="Message" person={person}
+    return <RowCells live={liveIds.has(item.id)} title={<MessageTitle people={said.people} fromMe={said.fromMe} text={said.text} />} pinned={!!item.pinned && item.status !== 'done'} where="Message" person={person}
       priority={messagePriority(item)} updatedAt={when} now={now} action={action} />;
   }
   // ONLY THE UNUSUAL CASE WEARS A MARK (2026-10-02). Shared with the team is
@@ -467,7 +470,7 @@ export function ThreadCells({ item, product, now, person, tab }: {
   // AND HOW MANY TASKS IT FILED STILL WAIT FOR A YES (w-d2744c6daa), in the
   // faint words a repeating task uses for its schedule: "a little bit of text
   // that gives you extra information if you need to know."
-  return <RowCells live={liveIds.has(item.id)} title={rowTitle(item)} aside={toApproveWords(waiting.get(`${item.product}/${item.id}`))} shared={seen === 'people'} chosen={chosen} lock={lock} held={notStarted(item)} where={product?.name ?? ''} person={person}
+  return <RowCells live={liveIds.has(item.id)} title={rowTitle(item)} aside={toApproveWords(waiting.get(`${item.product}/${item.id}`))} shared={seen === 'people'} chosen={chosen} lock={lock} held={notStarted(item)} pinned={!!item.pinned && item.status !== 'done'} where={product?.name ?? ''} person={person}
     priority={item.priority ?? 0} updatedAt={when} now={now} action={action} />;
 }
 
@@ -494,7 +497,7 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
   projectOrder?: string[];
   /** Where a card dragged up or down its column goes to be kept
    *  (w-6e5b532a95). Absent where the order is not yours to set. */
-  onPlaces?: (places: Record<string, number>, dropped: string) => void;
+  onPlaces?: (places: Record<string, number>, dropped: string, pin?: boolean | null) => void;
   /** The threads picked for a bulk command (App.tsx's `multiSel`), and where a
    *  new pick goes: ⌘- or Shift-click on a card, or a box dragged across the
    *  board's empty space (board-select.ts, w-2e3819913c). */
@@ -617,9 +620,10 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
     if (!col) return;
     // In the order the cards were drawn, so the neighbours are the two the gap was between.
     const byId = new Map(col.rows.filter((e) => e.item).map((e) => [e.item!.id, e]));
-    const rows = drawn.flatMap((d) => { const e = byId.get(d); return e ? [{ id: d, score: entryScore(e, projectOrder, direct) }] : []; });
-    const places = placesForDrop(rows, id, beforeId);
-    if (places) onPlaces(places, id);
+    const rows = drawn.flatMap((d) => { const e = byId.get(d); return e ? [{ id: d, score: entryScore(e, projectOrder, direct), pinned: !!e.item?.pinned }] : []; });
+    // Across the line between pinned and the rest, it pins or unpins too (w-20323283e6).
+    const { places, pin } = dropWithPins(rows, id, beforeId);
+    if (places) onPlaces(places, id, pin);
   } : undefined, 'copy');
   const sharing = (it: WorkItem) => rowSharing(it, products.find((p) => p.slug === it.product), team ? { me, since } : null);
   const isSelected = (e: BoardEntry) => (e.card
@@ -655,6 +659,9 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
   const markNow = useRef(onMark);
   markNow.current = onMark;
   const startBand = (e: ReactPointerEvent) => {
+    // A finger on the ground scrolls the board; the preventDefault below
+    // would stop that scroll outright (2026-10-12).
+    if (e.pointerType === 'touch') return;
     if (!onMark || e.button !== 0) return;
     // Cards open and headings carry their column; only the ground draws a box.
     if ((e.target as Element).closest('.th-card, .th-col-h, button, a, input, textarea')) return;

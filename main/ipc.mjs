@@ -92,6 +92,9 @@ const NO_UPDATER = {
   }),
   check: async () => NO_UPDATER.state(),
   install: () => false,
+  // Nowhere to move to and nothing to move: a copy with no updater behind it
+  // is a copy run from source (shared/where-it-runs-from.mjs).
+  move: () => ({ moved: false, error: null }),
 };
 
 export function registerIpc({ store, supervisor, config, window, analytics = NO_ANALYTICS, docGrants = null, updater = NO_UPDATER, host, team = null }) {
@@ -593,6 +596,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     // same as one picked on the summary (zero:thread-edit). A reply that
     // happens to carry its row's level does not.
     if (priority != null && !answer && id) supervisor.setThreadPlaces({ [id]: null });
+    // CLOSING A THREAD IS THE END OF WHAT IT WAS PINNED FOR (w-20323283e6).
+    if (id && status === 'done') supervisor.setThreadPins({ [id]: null });
     // A REPLY IN A THREAD (w-920461cbe6) only means something in a conversation
     // between people, which is the only place a thread is drawn and the only
     // record the mark crosses to a teammate in (shared/team-rules.mjs). Anywhere
@@ -664,6 +669,13 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // places the drop worked out (`dropPlaces`, shared/rank.mjs), id to number.
   ipcMain.handle('zero:set-thread-places', (_e, { places }) => {
     supervisor.setThreadPlaces(places);
+    push();
+    return { ok: true };
+  });
+
+  // PINNED THREADS (w-20323283e6): id to true, or null to unpin.
+  ipcMain.handle('zero:set-thread-pins', (_e, { pins }) => {
+    supervisor.setThreadPins(pins);
     push();
     return { ok: true };
   });
@@ -1956,6 +1968,14 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // to decide is when the app is allowed to disappear and come back.
   ipcMain.handle('zero:update-check', async () => updater.check({ manual: true }));
   ipcMain.handle('zero:update-install', () => ({ started: updater.install() }));
+  // AND A THIRD, for the copy that cannot update itself from where it is: move
+  // the app into Applications (shared/where-it-runs-from.mjs). It is a door of
+  // its own rather than part of the install, because it is the opposite
+  // decision — nothing has been downloaded and nothing will be until the app
+  // is somewhere macOS lets it write.
+  // A copy run from source answers no to it rather than throwing: there is no
+  // bundle to move (main/source-updater.mjs).
+  ipcMain.handle('zero:update-move', () => updater.move?.() ?? { moved: false, error: null });
 
   // Handed back so the Cmd+Y/Cmd+N chord answers through the same door the
   // buttons do, rather than reaching past it into approvals.answer.

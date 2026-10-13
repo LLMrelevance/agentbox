@@ -197,6 +197,13 @@ export async function bootHeadless({ dataDir = repoRoot, appDir = repoRoot, user
     stateFile: teamStateFile(config.storeRoot),
     onChange: () => ipc?.push?.(),
   }) : null;
+  // AND IT STOPS ITS OWN WORKERS ON THE WAY OUT, as main/main.mjs does for the
+  // desktop. Control-C reaches the whole process group, so without this each
+  // worker died of the signal itself and was written down as a run that failed
+  // on its own: a Claude task stopped that way read "it will keep failing the
+  // same way until this is fixed" and rested 15 minutes after the copy came
+  // back (tests/control-c-on-the-browser-copy-does-not-fail-its-agents).
+  host.app.on('before-quit', () => supervisor.killAll());
   ipc = registerIpc({ store, supervisor, config, window, host, team });
   answerWhatOnlyTheWindowAnswered(host.ipcMain);
   return { config, store, supervisor, window, host, ipc, team, channels: host.ipcMain.handlers };
@@ -418,9 +425,12 @@ function readBody(req) {
     let body = '';
     req.on('data', (c) => {
       body += c;
-      // A screen never posts anything large; the uploads go through their own
-      // channels. This is here so a stuck client cannot eat the process.
-      if (body.length > 8 * 1024 * 1024) reject(new Error('Body too large'));
+      // This is here so a stuck client cannot eat the process. A PHONE'S
+      // UPLOADS DO COME THROUGH HERE, though: it has no file paths, so a
+      // picture is posted whole, as base64, to zero:stage-attachment. 8 MB of
+      // that was a 6 MB photo; an iPhone's is often more (2026-10-12). The
+      // relay passes up to 32 MB (relay/worker.mjs).
+      if (body.length > 32 * 1024 * 1024) reject(new Error('Body too large'));
     });
     req.on('end', () => resolve(body));
     req.on('error', reject);

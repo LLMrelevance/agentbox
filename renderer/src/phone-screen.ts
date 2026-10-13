@@ -92,6 +92,89 @@ export function groundColour(base: string, wash: string) {
   return `#${hex(mix(0))}${hex(mix(1))}${hex(mix(2))}`;
 }
 
+/* ------------------------------------------------------------ pictures */
+
+// A PICTURE ON A PHONE PINCHES, PANS AND DOUBLE TAPS ("it's hard to view
+// images like PNG's ... I can't zoom in on them", 2026-10-12). The picture
+// view fits it to the screen, and nothing enlarged it.
+const MAX_ZOOM = 6;
+
+/** The scale two fingers ask for, from where the pinch began. */
+export function pinchScale(start: { distance: number; scale: number }, distance: number) {
+  if (!(start.distance > 0)) return start.scale;
+  return Math.min(MAX_ZOOM, Math.max(1, start.scale * (distance / start.distance)));
+}
+
+/** A double tap: enlarged when fitted, fitted when enlarged at all. */
+export function doubleTapScale(scale: number) {
+  return scale > 1.01 ? 1 : 2.5;
+}
+
+/** How far the picture may move each way: as far as its enlargement reaches. */
+export function panLimit(size: number, scale: number) {
+  return Math.max(0, (size * scale - size) / 2);
+}
+
+/** Zoom for the picture view (.doc-picture), by touch. */
+export function installPictureZoom() {
+  let img: HTMLElement | null = null;
+  let scale = 1;
+  let x = 0;
+  let y = 0;
+  let pinch: { distance: number; scale: number } | null = null;
+  let drag: { px: number; py: number; x: number; y: number } | null = null;
+  let lastTap = 0;
+  const gap = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const clampAndApply = () => {
+    if (!img) return;
+    const lx = panLimit(img.clientWidth, scale);
+    const ly = panLimit(img.clientHeight, scale);
+    x = Math.max(-lx, Math.min(lx, x));
+    y = Math.max(-ly, Math.min(ly, y));
+    img.style.transform = scale === 1 ? '' : `translate(${x}px, ${y}px) scale(${scale})`;
+  };
+  addEventListener('touchstart', (e) => {
+    const hit = (e.target as Element | null)?.closest?.('.doc-picture') as HTMLElement | null;
+    if (!hit) return;
+    if (hit !== img) { img = hit; scale = 1; x = 0; y = 0; }
+    if (e.touches.length === 2) {
+      pinch = { distance: gap(e.touches), scale };
+      drag = null;
+    } else if (e.touches.length === 1) {
+      const now = Date.now();
+      if (now - lastTap < 300) {
+        scale = doubleTapScale(scale);
+        x = 0;
+        y = 0;
+        clampAndApply();
+        lastTap = 0;
+        e.preventDefault();
+        return;
+      }
+      lastTap = now;
+      drag = { px: e.touches[0].clientX, py: e.touches[0].clientY, x, y };
+    }
+  }, { passive: false });
+  addEventListener('touchmove', (e) => {
+    if (!img || !(e.target as Element | null)?.closest?.('.doc-picture')) return;
+    if (pinch && e.touches.length === 2) {
+      scale = pinchScale(pinch, gap(e.touches));
+      clampAndApply();
+      e.preventDefault();
+    } else if (drag && e.touches.length === 1 && scale > 1) {
+      x = drag.x + (e.touches[0].clientX - drag.px);
+      y = drag.y + (e.touches[0].clientY - drag.py);
+      clampAndApply();
+      e.preventDefault();
+    }
+  }, { passive: false });
+  addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) pinch = null;
+    if (e.touches.length === 0) drag = null;
+    if (scale <= 1.01) { scale = 1; x = 0; y = 0; clampAndApply(); }
+  });
+}
+
 /** Keyboard, edge colour and the home-screen swipe. Called once by the bridge. */
 export function installPhoneScreen() {
   const root = document.documentElement;
@@ -101,12 +184,18 @@ export function installPhoneScreen() {
     root.style.setProperty('--vvh', `${Math.round(vv.height)}px`);
     const kb = keyboardInset({ innerHeight: window.innerHeight, height: vv.height, offsetTop: vv.offsetTop });
     root.style.setProperty('--kb', `${kb}px`);
+    // WHERE what shows begins, as well as how tall it is. iOS scrolls the
+    // window to keep the caret in view as one types, which slid the page up
+    // and left a band under the reply box that grew with each line
+    // (2026-10-12). The page is pinned there (phone.css, `:root body`).
+    root.style.setProperty('--vvtop', `${Math.round(vv.offsetTop)}px`);
     // The home bar's room is under the keyboard while it is up.
     if (kb > 80) root.dataset.keyboard = 'up'; else delete root.dataset.keyboard;
   };
   fit();
   vv?.addEventListener('resize', fit);
   vv?.addEventListener('scroll', fit);
+  installPictureZoom();
 
   let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
   if (!meta) {

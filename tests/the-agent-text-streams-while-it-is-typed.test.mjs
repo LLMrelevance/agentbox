@@ -229,7 +229,8 @@ describe('the thread reads on the push, not only on the timer', () => {
 
   it('still keeps the timer, for the traces no push covers', () => {
     const src = read('renderer/src/components/ItemThread.tsx');
-    expect(src).toMatch(/setInterval\(read, REFRESH_MS\)/);
+    // At the phone's slower pace on a phone (renderer/src/phone-polls.ts).
+    expect(src).toMatch(/setInterval\(read, pollEvery\(REFRESH_MS, onPhone\(\)\)\)/);
   });
 
   it('hands the live block to the thread builder', () => {

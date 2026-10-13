@@ -26,7 +26,7 @@ function away(request, status, said) {
  * One request, through the relay, to the Mac and back.
  * `ctx` is { room, keys } from relayIds/relayKeys; `fetchImpl` reaches the relay.
  */
-export async function tunnelFetch(request, ctx, fetchImpl = (...a) => fetch(...a)) {
+export async function tunnelFetch(request, ctx, fetchImpl = (...a) => fetch(...a), { wait = true } = {}) {
   const url = new URL(request.url);
   const headers = {};
   for (const name of PASS) {
@@ -36,7 +36,7 @@ export async function tunnelFetch(request, ctx, fetchImpl = (...a) => fetch(...a
   const method = request.method.toUpperCase();
   const body = method === 'GET' || method === 'HEAD' ? new Uint8Array(0) : new Uint8Array(await request.arrayBuffer());
   const nonce = b64u(globalThis.crypto.getRandomValues(new Uint8Array(16)));
-  const head = { v: 1, ts: Date.now(), nonce, method, path: url.pathname + url.search, headers };
+  const head = { v: 1, ts: Date.now(), nonce, method, path: url.pathname + url.search, headers, ...(wait ? { wait: 1 } : {}) };
   const sealed = await seal(ctx.keys.up, packRequest(head, body), 'req');
 
   let res;
@@ -63,9 +63,11 @@ export async function tunnelFetch(request, ctx, fetchImpl = (...a) => fetch(...a
     return { type: plain[0], data: plain.subarray(1) };
   };
 
+  // "Still working" frames come first while the Mac waits on an agent; they
+  // say nothing else.
   let first;
   try {
-    first = await next();
+    do first = await next(); while (first.type === FRAME.WAIT);
   } catch {
     return away(request, 502, 'The answer from your computer could not be read.');
   }

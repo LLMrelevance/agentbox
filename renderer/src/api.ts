@@ -15,6 +15,7 @@ import { fixtureFolders } from './fixtures';
 import { NAME, Name } from '../../shared/product-name.mjs';
 import { checkProjectFolder } from '../../shared/project-folder-check.mjs';
 import { USAGE_UNREADABLE } from '../../shared/usage.mjs';
+import { MOVE_SAY } from '../../shared/where-it-runs-from.mjs';
 // THE SECOND FRONT DOOR, AND IT HAS TO BE BUILT BEFORE THE LINE BELOW RUNS.
 // `useFixtures` reads `window.zero` once, at module load, and on the desktop
 // preload.cjs has already put it there. In a browser tab nothing has, so this
@@ -214,6 +215,16 @@ export function updateShape(wanted: string): UpdateState {
     },
     current: { phase: 'current' },
     error: { phase: 'error', error: 'Could not reach the internet.' },
+    // A COPY THAT CANNOT UPDATE ITSELF FROM WHERE IT IS
+    // (shared/where-it-runs-from.mjs). This is the state two real installs
+    // were in for a week, and the only way to look at the card and the row
+    // without a disk image and a packaged build.
+    'disk-image': { phase: 'error', error: MOVE_SAY.cannotUpdateHere, canMove: true, place: 'disk-image' },
+    translocated: { phase: 'error', error: MOVE_SAY.cannotUpdateHere, canMove: true, place: 'translocated' },
+    'move-failed': {
+      phase: 'error', error: MOVE_SAY.cannotUpdateHere, canMove: true, place: 'disk-image',
+      moveError: 'The move did not work.',
+    },
     // WHY A COPY DOES NOT UPDATE ITSELF AT ALL, which is the state most
     // teammates' checkouts are actually in (main/source-updater.mjs SAY).
     unsupported: {
@@ -353,6 +364,19 @@ export const api = {
   async updateInstall(): Promise<{ started: boolean }> {
     if (useFixtures) return { started: true };
     return window.zero!.updateInstall();
+  },
+
+  // MOVING THE APP INTO APPLICATIONS, for a copy that cannot update itself
+  // from where it is (shared/where-it-runs-from.mjs). A real move relaunches
+  // the app, so fixtures answer the only interesting half: `?update=move-failed`
+  // is the refusal, which is the one state that has anything left to draw.
+  async updateMove(): Promise<{ moved: boolean; error: string | null }> {
+    if (useFixtures) {
+      return params.get('update') === 'move-failed'
+        ? { moved: false, error: 'The move did not work.' }
+        : { moved: true, error: null };
+    }
+    return window.zero!.updateMove();
   },
 
   // THE USER'S WORDS, INTO ONE OF THEIR OWN RUNNING AGENTS. Through the seam like
@@ -594,6 +618,12 @@ export const api = {
   async setThreadPlaces(places: Record<string, number | null>): Promise<void> {
     if (useFixtures || !window.zero?.setThreadPlaces) return;
     await window.zero.setThreadPlaces({ places });
+  },
+  // Threads pinned to the top of the list (w-20323283e6). Optional on the
+  // bridge: an older main process under a newer window has no such door.
+  async setThreadPins(pins: Record<string, true | null>): Promise<void> {
+    if (useFixtures || !window.zero?.setThreadPins) return;
+    await window.zero.setThreadPins({ pins });
   },
 
   async compose(p: { product: string; title: string; body?: string; kind?: string; priority?: number; runAt?: number; start?: 'later' | 'now'; labels?: string[]; model?: string; engine?: string; effort?: string; assignee?: string; due?: string; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[] }): Promise<WorkItem | null> {
