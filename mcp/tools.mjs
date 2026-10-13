@@ -162,7 +162,7 @@ export function buildTools({ holder } = {}) {
     },
     {
       name: 'create_work_item',
-      description: 'Record something that needs doing, on a product. kind and labels are free text and yours to choose; a question for the person you work for is a work item with kind "question". ONE JOB IS ONE THREAD: ask how many answers you need rather than how many things you found, because every extra thread is one more thing they must read, rank and either start or close. Twenty findings they would answer in one breath are one thread, and something you discovered but cannot finish usually belongs in the thread you are already on, under what is left to do. When it really is its own job, file it under the thread it came from with parent.',
+      description: 'Record something that needs doing, on a product. kind and labels are free text and yours to choose; a question for the person you work for is a work item with kind "question". ONE JOB IS ONE THREAD: ask how many answers you need rather than how many things you found, because every extra thread is one more thing they must read, rank and either start or close. Twenty findings they would answer in one breath are one thread, and one PR is one thread. Something you discovered but cannot finish usually belongs in the thread you are already on, under what is left to do, and work that can run in parallel goes to subagents inside this thread, not to new threads. When it really is its own job, file it under the thread it came from with parent.',
       schema: {
         product: z.string(),
         title: z.string(),

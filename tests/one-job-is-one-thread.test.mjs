@@ -94,6 +94,24 @@ describe('the brief tells a worker that one job is one thread', () => {
     expect(brief()).toMatch(/[Ss]ubagents are not threads/);
   });
 
+  // SAID AGAIN 2026-10-13 (w-554834e749), because the rule above had not
+  // shipped and the threads kept coming: "It tends to break down work into a
+  // bunch of different threads that logically should all be grouped together
+  // in one PR... If you need to do different things in parallel... You
+  // probably want to use subagents rather than different threads." And the
+  // handoffs: agents passing work to another thread that then cannot be found.
+  it('says one PR is one thread', () => {
+    expect(brief()).toMatch(/one PR is one\s+thread/);
+  });
+
+  it('sends parallel work to subagents in this thread, not to new threads', () => {
+    expect(brief()).toMatch(/parallel\s+work\s+as\s+subagents\s+in\s+this\s+one/);
+  });
+
+  it('says never to hand work to another thread that could be done here', () => {
+    expect(brief()).toMatch(/Never\s+hand\s+work\s+to\s+another\s+thread\s+that\s+you\s+could\s+do\s+here/);
+  });
+
   // The reason for a cap at all, kept from the rule this replaces: it is short
   // "because tokens are scarce", and a rule that grows into a page has stopped
   // being the thing that was asked for. The cap was 600 characters when the
@@ -141,6 +159,13 @@ describe('the filing tool says the same thing as the brief', () => {
     const said = `${filing().description} ${filing().schema.parent?.description ?? ''}`;
     expect(said).toMatch(/Later/);
     expect(said).toMatch(/inbox/);
+  });
+
+  // w-554834e749: the same two things the brief now says, where the session
+  // reads them at the moment it is about to file.
+  it('says one PR is one thread, and parallel work is subagents', () => {
+    expect(filing().description).toMatch(/one PR is one thread/i);
+    expect(filing().description).toMatch(/parallel.*subagents/i);
   });
 
   it('no longer sends what cannot be finished here rather than to the thread', () => {

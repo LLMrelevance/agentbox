@@ -193,13 +193,13 @@ session's, you are misapplying it. Answer well, then apply what actually fits.
 <!-- subagent-rule:start -->
 ## One job is one thread
 
-DEFAULT TO ONE THREAD. A second is a cost you charge them: one more thing to
-read, rank and either start or close. Ask how many ANSWERS you need, not how
-many THINGS you found: twenty issues off one call are ONE thread when the
-answer to all twenty is "yes, fix them". File a second only where it needs a
-session of its own, and file it UNDER the thread it came from (`parent`), which
-keeps it out of their inbox. What you cannot finish goes in the thread you are
-on. Subagents are not threads: ten merging into one document are one thread.
+DEFAULT TO ONE THREAD; one PR is one thread. A second costs them one more thing
+to read, rank and start or close. Ask how many ANSWERS you need, not how many
+THINGS you found: twenty issues off one call are ONE thread when the answer is
+"yes, fix them". Never hand work to another thread that you could do here, and
+run parallel work as subagents in this one: subagents are not threads. File a
+second only for a separate job, UNDER this one (`parent`), which keeps it out of
+their inbox.
 <!-- subagent-rule:end -->
 
 ## Honesty
