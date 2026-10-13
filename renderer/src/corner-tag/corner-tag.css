@@ -158,14 +158,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
 .ct-grip-tr { right: calc(2.5px * var(--ct-s)); top: calc(2.5px * var(--ct-s)); cursor: nesw-resize; }
 .ct-grip-bl { left: calc(2.5px * var(--ct-s)); bottom: calc(2.5px * var(--ct-s)); cursor: nesw-resize; }
 .ct-grip-br { right: calc(2.5px * var(--ct-s)); bottom: calc(2.5px * var(--ct-s)); cursor: nwse-resize; }
-/* each one points out of its own corner */
-.ct-grip-tl svg { transform: rotate(-90deg); }
-.ct-grip-bl svg { transform: rotate(180deg); }
-.ct-grip-br svg { transform: rotate(90deg); }
-/* Pointing anywhere on the tag says the corners are there; pointing at one
-   says it is the one. */
-.ct-frame:hover .ct-grip, .ct-frame:has(.ct-tag.is-open) .ct-grip { opacity: 0.3; }
-.ct-frame:hover .ct-grip:hover { opacity: 0.95; }
+/* the arrow lies along its own corner's diagonal */
+.ct-grip-tr svg, .ct-grip-bl svg { transform: rotate(90deg); }
+/* NOTHING IS DRAWN UNTIL THE POINTER IS ON THAT ONE CORNER. Showing all four
+   at once put a frame of handles round the tag — "the borders themselves look
+   a bit funky" — and a tag is not a selected object. One corner, one arrow,
+   only while the pointer is on it, exactly as a window's own corner behaves. */
+.ct-grip:hover { opacity: 1; }
 .ct-frame:has(.ct-tag.is-dragging) .ct-grip { opacity: 0; }
 
 .ct-go { display: flex; align-items: center; gap: calc(8px * var(--ct-s)); margin-left: 1px; color: var(--ct-faint); }

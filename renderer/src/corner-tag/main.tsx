@@ -131,6 +131,11 @@ function useReportSize(ref: React.RefObject<HTMLElement>, which: Part, key: unkn
   }, [key]);
 }
 
+// The two-headed diagonal arrow a window shows at its corner: one line from
+// corner to corner with a head at each end. Turned ninety degrees for the
+// other diagonal (corner-tag.css).
+const ARROW = 'M2.6 2.6 9.4 9.4M2.6 6.4V2.6H6.4M9.4 5.6V9.4H5.6';
+
 /* --------------------------------- the tag --------------------------------- */
 function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }) {
   const [open, setOpen] = useState(forceOpen);
@@ -234,12 +239,14 @@ function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }
           onPointerCancel={() => letGo(true)}
           onLostPointerCapture={() => letGo(true)}
         >
-          {/* The half that hangs outside the glass lands on whatever is on
-              the screen, so the arrow carries its own pale outline and reads
-              on a white page, a dark app or a photograph alike. */}
+          {/* THE USUAL ONE: a two-headed arrow along the corner's own diagonal,
+              the thing a window shows when you point at its corner. The half
+              that hangs outside the glass lands on whatever is on the screen,
+              so it carries a pale outline and reads on a white page, a dark
+              app or a photograph alike. */}
           <svg viewBox="0 0 12 12" aria-hidden>
-            <path d="M10.5 1.5 4.5 7.5M10.5 6V1.5H6" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M10.5 1.5 4.5 7.5M10.5 6V1.5H6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            <path d={ARROW} fill="none" stroke="rgba(255,255,255,0.92)" strokeWidth="3.6" strokeLinecap="round" strokeLinejoin="round" />
+            <path d={ARROW} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </span>
       ))}

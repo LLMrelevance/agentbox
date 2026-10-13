@@ -70,8 +70,11 @@ describe('the corners she drags', () => {
     // discover that it was actually expandable".
     for (const corner of ['tl', 'tr', 'bl', 'br']) expect(css).toContain(`.ct-grip-${corner}`);
     expect(page).toContain('GRIPS.map');
-    expect(css).toMatch(/\.ct-frame:hover \.ct-grip[^}]*opacity/);
-    expect(css).toMatch(/\.ct-grip:hover[^}]*opacity/);
+    // and nothing shows until the pointer is on that one corner: four at once
+    // read as a frame of handles round the tag, which it is not
+    expect(css).toMatch(/\.ct-grip \{[^}]*opacity: 0/);
+    expect(css).toMatch(/\.ct-grip:hover \{ opacity: 1/);
+    expect(css).not.toMatch(/\.ct-frame:hover \.ct-grip[^:]*\{/);
     // and a patch big enough to aim at, not a few pixels of ledge
     expect(css).toMatch(/\.ct-grip \{[^}]*width: calc\(18px/);
   });
@@ -95,6 +98,15 @@ describe('the arrows hang over the glass, not inside it', () => {
     for (const corner of ['tl', 'tr', 'bl', 'br']) {
       expect(css).toMatch(new RegExp(`\\.ct-grip-${corner} \\{[^}]*calc\\(2\\.5px \\* var\\(--ct-s\\)\\)`));
     }
+  });
+
+  it('draws the usual two-headed arrow, one head at each end of the diagonal', () => {
+    // "a little two-directional arrow almost comes up and that's kind of what
+    // we're looking for" — a window's own corner handle.
+    const arrow = page.match(/const ARROW = '([^']+)'/)[1];
+    expect(arrow).toMatch(/^M2\.6 2\.6 9\.4 9\.4/);
+    expect(arrow.match(/M/g)).toHaveLength(3);
+    expect(css).toContain('.ct-grip-tr svg, .ct-grip-bl svg { transform: rotate(90deg); }');
   });
 
   it('tells the main process the band, and what is under the pointer', () => {
