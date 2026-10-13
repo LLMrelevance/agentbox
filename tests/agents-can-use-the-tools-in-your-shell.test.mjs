@@ -7,8 +7,13 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { recoverShellPath } from '../main/shell-path.mjs';
 
+// This one runs a real zsh. GitHub's Linux runner has none, which kept it red
+// on every push from 2026-10-09 to 2026-10-13 ("spawn /bin/zsh ENOENT"); the
+// macOS run still runs it.
+const hasZsh = fs.existsSync('/bin/zsh');
+
 describe('agents can use the tools in your shell', () => {
-  it('loads nvm-style tools from an interactive login profile even when the profile prints text', async () => {
+  it.skipIf(!hasZsh)('loads nvm-style tools from an interactive login profile even when the profile prints text', async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shell-tools-'));
     try {
       const bin = path.join(home, '.nvm/versions/node/v22.0.0/bin');

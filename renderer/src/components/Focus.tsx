@@ -27,7 +27,7 @@ import { providerCommand } from '../../../shared/provider-commands.mjs';
 
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { TeamContext, firstName } from '../team/people';
-import { joinNames, landsIn } from '../threads/composer-rules';
+import { joinNames } from '../threads/composer-rules';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -102,7 +102,7 @@ import { TeamRouteStrip, teamHeld } from '../team/TeamFocus';
 import {
   PriorityPicker, priorityIdOf, priorityValueOf, type PriorityId,
 } from './Priority';
-import { SummaryPanel, SummaryRail, ThreadCrumb, ThreadStateMark, useSummaryOpen, useSummaryShortcut } from '../threads/Summary';
+import { SummaryPanel, SummaryRail, ThreadCrumb, ThreadStateMark, useSummaryOpen, useSummaryShortcut, type RepeatHandle } from '../threads/Summary';
 import { ThreadMenu } from '../threads/ThreadMenu';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { useChatMentions } from '../team/ChatAgents';
@@ -463,8 +463,10 @@ function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onRejectFiled, closeAsk, onNotice, onHandToAgent, onAddPeople }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onRejectFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null }: {
   previewSample?: string;
+  /** The repeating task this thread is a run of, drawn in its summary. */
+  repeat?: RepeatHandle | null;
   /**
    * A MESSAGE FROM A PERSON IS NOT WORK UNTIL SHE SAYS SO. The one line under
    *  the latest message on a message thread calls this to make it a task for
@@ -1868,7 +1870,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     {/* `onFinish` is the SAME ONE the three-dot menu's Mark done row takes
         (`canFinish ? onResolve : null` above), so the Status row's Done and
         that row and E are one action with one undo and one toast. */}
-    {summaryShown && <SummaryPanel item={item} team={teamCtx} onFinish={canFinish ? onResolve : null} onClose={toggleSummary} />}
+    {summaryShown && <SummaryPanel item={item} team={teamCtx} onFinish={canFinish ? onResolve : null} onClose={toggleSummary} repeat={repeat} />}
     {summaryOffered && !summaryOpen && <SummaryRail item={item} team={teamCtx} onOpen={toggleSummary} />}
     {!direct && <TaskTerminal key={`${item.product}:${item.id}`} product={item.product} id={item.id} onOpenChange={setTerminalOpen}/>}
     </div>
@@ -2678,15 +2680,14 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           </button>
         ) : null}
         <span className="compose-clauses">
-          {/* WHERE IT GOES, NOT WHO SEES IT (w-a8e752a9f2). The conversation's
-              own header already reads "MESSAGES · MAYA GAVE YOU THIS" with both
-              faces beside it, so "Only you and Maya see this." was the second
-              place on the screen saying the same thing. It is replaced rather
-              than deleted: a bare corner here reads as a control that failed
-              to draw, so the slot always carries a line. */}
-          {/* AN AGENT IN THE MESSAGE WITH NO PROJECT says so here, in the slot
-              that always carries a line, and Send waits (w-7b9cb8636a). */}
-          {item.agent ? <span className="dim">Goes straight into {item.agent.name}.</span> : talkTo?.length ? <span className="dim">{chat.block ?? landsIn(talkTo)}</span> : <>
+          {/* NOTHING ABOUT WHERE IT GOES (w-140ac855b1, 2026-10-13). This
+              slot read "Goes to Maya's inbox.", put there so the corner was
+              never bare; the formatting bar now sits in that corner, and the
+              person asked for the line to go. The conversation's header
+              already names who it is with. */}
+          {/* AN AGENT IN THE MESSAGE WITH NO PROJECT says so here, and Send
+              waits (w-7b9cb8636a). */}
+          {item.agent ? <span className="dim">Goes straight into {item.agent.name}.</span> : talkTo?.length ? (chat.block ? <span className="dim">{chat.block}</span> : null) : <>
           <PriorityPicker
             variant="word"
             value={shown}

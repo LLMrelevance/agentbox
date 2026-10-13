@@ -61,6 +61,7 @@ import { machineryPath } from './store/home.mjs';
 import { EVENT_NAMES } from '../shared/analytics-events.mjs';
 import { Name } from '../shared/product-name.mjs';
 import { handedOnByReply } from '../shared/team-rules.mjs';
+import { saveAttachments } from './save-attachments.mjs';
 
 // WHAT A WORKER IS TOLD WHEN HER DECISION COULD NOT BE RECORDED.
 const SPOOL_REFUSED = `${Name} could not record the founder's decision, so nothing was allowed. Finish what your grants cover and file the rest as a review.`;
@@ -759,7 +760,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   ipcMain.handle('zero:team-sync', teamCall(() => team.syncNow()));
   // A MESSAGE TO A PERSON (approved 2026-10-01: people get messages, never
   // tasks). main/team/index.mjs keeps it between the two of them.
-  ipcMain.handle('zero:team-message', teamCall(({ to, body, priority }) => team.message(to, body, priority)));
+  ipcMain.handle('zero:team-message', teamCall(({ to, body, priority, files }) => team.message(to, body, priority, files)));
   // AN EDIT TO A THREAD, MADE IN PLACE from its summary: the summary's lines,
   // who sees it, its priority and what it is linked to. Works with or without a
   // team, since every thread has a summary.
@@ -1649,29 +1650,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // in the product's attachments/ dir and come back as relative paths the
   // caller embeds in the body as markdown. Relative paths keep them readable
   // by workers through the MCP and renderable in the message view.
-  ipcMain.handle('zero:save-attachments', async (_e, { product, files }) => {
-    const fs = await import('node:fs');
-    const dir = store.productDir(product);
-    const outDir = path.join(dir, 'attachments');
-    fs.mkdirSync(outDir, { recursive: true });
-    const saved = [];
-    for (const file of files ?? []) {
-      const safe = String(file.name ?? 'file').replace(/[^\w.-]+/g, '-').slice(0, 80);
-      // A RANDOM SUFFIX, THE SAME ONE THE STAGING PATH ALREADY USES. The name
-      // was the millisecond plus the filename, so two files saved in the same
-      // millisecond with the same name overwrote each other and the message
-      // ended up with two links to one picture. Screenshots are often sent in
-      // pairs, which is exactly the shape that collides. It has never been observed
-      // happening; it is one line to make impossible.
-      const rel = `attachments/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}-${safe}`;
-      const abs = path.join(dir, rel);
-      if (file.dataBase64) fs.writeFileSync(abs, Buffer.from(file.dataBase64, 'base64'));
-      else if (file.srcPath) fs.copyFileSync(file.srcPath, abs);
-      else continue;
-      saved.push({ rel, name: safe, image: /\.(png|jpe?g|gif|webp)$/i.test(safe) });
-    }
-    return saved;
-  });
+  // The saving itself is main/save-attachments.mjs, shared with a message to a
+  // person, which saves its own once it knows which conversation it is in.
+  ipcMain.handle('zero:save-attachments', async (_e, { product, files }) => saveAttachments(store.productDir(product), files));
 
   // A PASTED SCREENSHOT GOES TO DISK THE MOMENT IT IS PASTED.
   //

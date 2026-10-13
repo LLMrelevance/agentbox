@@ -109,6 +109,9 @@ describe('what must not change', () => {
     layConfig({ maxConcurrentSessions: 3 });
     const config = loadConfig(appDir, { home });
     expect(config.maxConcurrentSessions).toBe(1);
-    expect(config.planSlotsFrom).not.toBe(null);
+    // Named only when the plan is what lowered the number, as above. GitHub's
+    // macOS runner already allows one, which kept this red on every push from
+    // 2026-10-09 to 2026-10-13.
+    expect(config.planSlotsFrom).toBe(machineSlots().slots > 1 ? 'Pro' : null);
   });
 });
