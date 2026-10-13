@@ -71,6 +71,20 @@ cloud Codex thread gets an app-server of its OWN, in its sandbox:
   does the supervisor see the run end. Exit 75 from the proxy arrives as a
   transport fault, as for Claude Code.
 
+- **The sandbox is the machine** (her decision, 2026-10-13). Codex's own
+  command sandbox (bubblewrap) cannot nest inside an AgentCore microVM:
+  measured, every write and command was refused. A `workspace-write` thread
+  therefore runs with full access inside the throwaway VM, as OpenAI's docs
+  advise for containers; read-only stays read-only, approvals are untouched.
+- **Fresh threads only.** A Codex resume runs on the Mac, whose shared
+  app-server may hold the thread loaded. A thread that started in the cloud
+  resumes on the Mac from the rollout that came home (measured: it did, and
+  remembered what it had done).
+- **Measured end to end against real AWS**, with the app's own thread settings
+  (`workerThreadParams`): Codex ran commands, wrote and committed a file,
+  called the store tool on the Mac, and the commit and rollout came home in
+  16 s; only the store tool was connected, her ChatGPT apps and plugins off.
+
 ## v1 scope, and what is deliberately left out
 
 - **Claude Code and Codex.** Other harnesses later, each a small adapter.

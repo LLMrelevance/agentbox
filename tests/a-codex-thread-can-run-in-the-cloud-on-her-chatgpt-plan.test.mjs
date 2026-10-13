@@ -172,6 +172,23 @@ describe('a cloud Codex worker\'s ending', () => {
     expect(exits).toEqual([[75, null, { transportFault: true }]]);
   });
 
+  it('treats a proxy killed before it could finish bringing the work home as work not home (Codex\'s review)', async () => {
+    for (const out of [{ code: null, signal: 'SIGKILL' }, { code: null, signal: null }, undefined]) {
+      const { worker, finish, exits } = setup();
+      worker.emit('exit', 0, null, null);
+      finish(out);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(exits, JSON.stringify(out)).toEqual([[75, null, { transportFault: true }]]);
+    }
+    // A proxy that finished and reports the remote command's own code (143,
+    // a stopped command) is a real ending, not a lost one.
+    const { worker, finish, exits } = setup();
+    worker.emit('exit', 0, null, null);
+    finish({ code: 143, signal: null });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(exits).toEqual([[0, null, null]]);
+  });
+
   it('keeps a failed or stopped turn\'s own ending once the work is home', async () => {
     const { worker, finish, exits } = setup();
     worker.emit('exit', 1, 'SIGTERM', { how: 'killed' });

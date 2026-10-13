@@ -35,11 +35,15 @@ export function holdUntilHome({ worker, client, procExit, onTurnEnd = () => {} }
     };
     try { onTurnEnd(); } catch { /* cards already gone */ }
     try { client.close('the cloud run finished its turn'); } catch { /* already closed */ }
+    // A proxy that exits with a code finished: the code is the remote's, or
+    // 75 for work it could not bring home. One that was killed, or exited with
+    // no code at all, never said, so the work is not known to be home.
+    const notHome = () => realEmit('exit', IMPORT_FAILED, null, { ...(held[2] || {}), transportFault: true });
     Promise.resolve(procExit).then((out) => {
       const code = out?.code;
-      if (code === IMPORT_FAILED) realEmit('exit', IMPORT_FAILED, null, { ...(held[2] || {}), transportFault: true });
+      if (code === IMPORT_FAILED || !Number.isInteger(code) || out?.signal) notHome();
       else realEmit('exit', ...held);
-    }, () => realEmit('exit', IMPORT_FAILED, null, { ...(held[2] || {}), transportFault: true }));
+    }, notHome);
     return true;
   };
   return worker;
