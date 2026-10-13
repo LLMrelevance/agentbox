@@ -418,7 +418,9 @@ export function SummaryPanel({ item, team, onFinish, onClose, repeat = null }: {
   // What is happening to the words right now, said under them only while it
   // is true: an edit in progress, or one that did not save. When they were
   // last written is the Updated row at the foot (w-922f66bb06).
+  // The name has no label to light up, so renaming says so here instead.
   const note = editingRule ? 'Every run after this one reads this · saves when you click away'
+    : rename.editing ? 'Renaming · Enter saves, Esc keeps the old name'
     : editing ? 'You are editing · saves as you type' : error;
   const updated = updatedWord(item, {
     me,

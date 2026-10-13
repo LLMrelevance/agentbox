@@ -100,11 +100,14 @@ describe('what you can change looks changeable, and what you cannot does not', (
     const all = draw(item({ problem: 'Terms are late.', progress: 'Drafted.', solution: 'Sent.' }));
     expect(all.match(/class="ts-line[^"]*"[^>]*>.*?ts-pen/g)).toHaveLength(2);
   });
-  it('answers the pointer on a changeable field with the wash, a pointer and its mark', () => {
+  // CHANGED 2026-10-13 (w-ab3d51dc7d): the words you type in place answer
+  // with the pencil and a text cursor, and no wash; the menus keep theirs
+  // (a-thread-can-be-renamed-and-the-crumb-goes-back-one-level.test.mjs).
+  it('answers the pointer on a changeable field with its mark, and a wash only on a menu', () => {
     expect(css).toMatch(/\.ts-prop-btn \{[^}]*cursor: pointer/);
     expect(css).toMatch(/\.ts-prop-btn:hover[^{]*\{[^}]*background: var\(--wash\)/);
-    expect(css).toMatch(/\.ts-line:hover \{[^}]*background: var\(--wash\)/);
-    expect(css).toMatch(/\.ts-line \{[^}]*cursor: pointer/);
+    expect(css).not.toMatch(/\.ts-line:hover \{[^}]*background/);
+    expect(css).toMatch(/\.ts-line \{[^}]*cursor: text/);
     expect(css).toMatch(/\.ts-caret, \.ts-pen \{[^}]*opacity: 0/);
     expect(css).toMatch(/\.ts-prop-btn:hover \.ts-caret/);
     expect(css).toMatch(/\.ts-line:hover \.ts-pen/);
@@ -114,9 +117,8 @@ describe('what you can change looks changeable, and what you cannot does not', (
   });
   // The name was read-only until w-ab3d51dc7d; it renames now, so it answers
   // the pointer the way the lines do, and only as a button.
-  it('gives the name the lines\' wash and pencil, since it renames', () => {
+  it('gives the name the lines\' pencil, since it renames', () => {
     expect(css).not.toMatch(/\.ts-title:hover/);
-    expect(css).toMatch(/\.ts-title\[role="button"\]:hover \{[^}]*background: var\(--wash\)/);
     expect(css).toMatch(/\.ts-title\[role="button"\]:hover \.ts-pen/);
   });
   it('keeps the old dotted underline off the changeable fields', () => {

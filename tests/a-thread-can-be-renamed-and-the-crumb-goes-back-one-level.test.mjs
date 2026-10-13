@@ -149,6 +149,57 @@ describe('the crumb goes back one level, and its name renames', () => {
   });
 });
 
+// THE LABEL LIGHTS UP, AND NOTHING IS FILLED OR BOXED (picked 2026-10-13).
+// The grey fill on hover and the filled box while typing, in Context and Done
+// as well as the name, were "not the best design practice". Of three looks
+// drawn on the real app (designs/w-ab3d51dc7d/edit-looks.html) the pick was
+// A: pointing shows only the pencil, and while you type the text stays where
+// it was and the field's label turns apricot and says "· editing".
+const summaryCss = fs.readFileSync(new URL('../renderer/src/threads/summary.css', import.meta.url), 'utf8');
+const ruleOf = (sel) => {
+  const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return summaryCss.match(new RegExp(`(?:^|\\n)${esc}\\s*\\{([^}]*)\\}`))?.[1] ?? null;
+};
+
+describe('editing in place: the label lights up, nothing is filled or boxed', () => {
+  it('fills nothing under the pointer on a line, the name or the crumb\'s name', () => {
+    expect(summaryCss).not.toMatch(/\.ts-line:hover \{[^}]*background/);
+    expect(summaryCss).not.toMatch(/\.ts-title\[role="button"\]:hover \{[^}]*background/);
+    expect(summaryCss).not.toMatch(/button\.thread-crumb-name:hover[^{]*\{[^}]*background/);
+  });
+  it('still shows the pencil under the pointer', () => {
+    expect(summaryCss).toMatch(/\.ts-line:hover \.ts-pen/);
+    expect(summaryCss).toMatch(/\.ts-title\[role="button"\]:hover \.ts-pen/);
+  });
+  it('draws the box you type in with no fill and no border', () => {
+    const edit = ruleOf('.ts-edit');
+    expect(edit).toMatch(/background: none/);
+    expect(edit).toMatch(/border-color: transparent/);
+    const crumb = ruleOf('.thread-crumb-edit');
+    expect(crumb).toMatch(/background: none/);
+    expect(crumb).toMatch(/border: 0/);
+  });
+  it('turns the label of the field being typed in apricot, and says so', () => {
+    expect(ruleOf('.ts-sec:has(> .ts-edit) > .ts-h')).toMatch(/color: var\(--accent\)/);
+    expect(ruleOf('.ts-sec:has(> .ts-edit) > .ts-h::after')).toMatch(/content: ' · editing'/);
+  });
+  it('lights only that label: a label over words nobody is typing in stays faint', () => {
+    expect(ruleOf('.ts-h')).toMatch(/color: var\(--text-faint\)/);
+  });
+  it('says what Enter and Esc do while the summary\'s name is being typed, since it has no label to light', () => {
+    const src = fs.readFileSync(new URL('../renderer/src/threads/Summary.tsx', import.meta.url), 'utf8');
+    expect(src).toMatch(/rename\.editing \? 'Renaming · Enter saves, Esc keeps the old name'/);
+  });
+  it('turns the crumb\'s slash apricot while its name is being typed', () => {
+    expect(ruleOf('.thread-crumb:has(.thread-crumb-edit) .thread-crumb-sep')).toMatch(/color: var\(--accent\)/);
+  });
+  it('keeps the crumb\'s capitals while you type in it, so the bar does not change shape', () => {
+    const crumb = ruleOf('.thread-crumb-edit');
+    expect(crumb).toMatch(/text-transform: uppercase/);
+    expect(crumb).toMatch(/var\(--mono\)/);
+  });
+});
+
 describe('the summary’s name renames the thread', () => {
   const item = { id: 'w-acme', product: 'northwind', productName: 'Northwind', status: 'open', kind: 'directive', labels: ['founder'],
     title: MESSAGE, label: 'Acme renewal terms', priority: 7, epoch: 0, claim: null, createdAt: 0, updatedAt: 0 };
