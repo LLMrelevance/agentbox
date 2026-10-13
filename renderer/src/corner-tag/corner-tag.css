@@ -66,10 +66,15 @@
      step deeper for the app — "the orange is a little hard to see so might
      want it to be very slightly more intense" (2026-10-13). The film's own
      #f3a27a sat on a 1400pt screen filling your view; this one has to carry
-     on a 32" from across a desk. */
-  --ct-lat: #ef9765;
-  --ct-lat-rest: 0.50;
-  --ct-lat-peak: 0.80;
+     on a 32" from across a desk.
+
+     On a dark screen the chip is a pale grey pane and a half-lit apricot
+     disappears into it ("orange is a bit hard to see in dark"), so the
+     resting dots sit high: the working mark is dim by being small and few,
+     not by being washed out. */
+  --ct-lat: #ec8d55;
+  --ct-lat-rest: 0.66;
+  --ct-lat-peak: 0.92;
 }
 
 html, body, #root { margin: 0; padding: 0; background: transparent; overflow: hidden; height: 100%; }
