@@ -34,6 +34,7 @@ export function createSandbox({
   bridgeSocket = path.join(process.env.TMPDIR || '/tmp', `agentbox-bridge-${process.pid}.sock`),
   baseEnv = pickBaseEnv(process.env),
   fetchImpl = globalThis.fetch,
+  uploadRetryMs = 5_000,
 } = {}) {
   let run = null;
   let bridge = null;
@@ -160,6 +161,10 @@ export function createSandbox({
       emit({ kind: 'exit', code, signal });
       run.state = 'exited';
       run.child = null;
+      // THE RESULTS LEAVE BY THEMSELVES. The Mac may be asleep, and AgentCore
+      // ends a session after eight hours whatever we answer, so waiting for
+      // the Mac to come and ask is how a finished run gets lost.
+      if (run.spec.results) autoCollect(run.spec.results);
     });
     setState('running');
   }
@@ -175,6 +180,50 @@ export function createSandbox({
   // The new commits on the task branch, as a bundle the Mac can fetch, and the
   // work that was never committed, as one commit on its own ref, so the Mac can
   // put the folder in exactly the state the agent left it.
+  // Three tries on its own, a little apart. A manual `collect` from the Mac
+  // (with fresh URLs, say) takes over from these rather than racing them.
+  async function autoCollect(urls) {
+    const mine = run;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      if (mine.manualCollect || mine.state === 'collected') return;
+      const r = await collectAndFinish(urls);
+      if (r.ok || mine.manualCollect) return;
+      if (attempt < 3) await new Promise((res) => setTimeout(res, uploadRetryMs * attempt));
+      else { mine.state = 'collect-failed'; emit({ kind: 'state', state: 'collect-failed', message: r.message }); }
+    }
+  }
+
+  async function manualCollect(urls) {
+    run.manualCollect = true;
+    while (collecting) await collecting.catch(() => {});
+    if (run.state === 'collected') return { ok: false, error: 'already-collected' };
+    const r = await collectAndFinish(urls);
+    if (!r.ok) { run.state = 'collect-failed'; emit({ kind: 'state', state: 'collect-failed', message: r.message }); }
+    return r;
+  }
+
+  // Collect, then the event log, then `done.json` LAST: its presence in S3 is
+  // the promise that everything before it is there too.
+  let collecting = null;
+  function collectAndFinish(urls) {
+    if (collecting) return collecting;
+    collecting = (async () => {
+      try {
+        const r = await collect(urls);
+        if (urls.eventsUrl) await upload(fetchImpl, urls.eventsUrl, Buffer.from(run.events.map((e) => JSON.stringify(e)).join('\n') + '\n'));
+        if (urls.doneUrl) await upload(fetchImpl, urls.doneUrl, Buffer.from(JSON.stringify({ ...r, runId: run.id, exitCode: run.exitCode, lastSeq: run.events.length })));
+        run.state = 'collected';
+        emit({ kind: 'state', state: 'collected' });
+        return r;
+      } catch (err) {
+        return { ok: false, error: 'collect-failed', message: err.message };
+      } finally {
+        collecting = null;
+      }
+    })();
+    return collecting;
+  }
+
   async function collect({ bundleUrl, changesUrl, bring = [] }) {
     const cwd = run.spec.cwd;
     const branch = run.spec.branch;
@@ -214,8 +263,6 @@ export function createSandbox({
       fs.rmSync(tarball, { force: true });
       brought.push(b.dir);
     }
-    run.state = 'collected';
-    emit({ kind: 'state', state: 'collected' });
     return { ok: true, startSha: run.startSha, tip, commits, uncommitted: dirty, changesRef, brought };
   }
 
@@ -286,8 +333,8 @@ export function createSandbox({
         return checkpoint(req);
       case 'collect':
         if (run.state === 'collected') return { ok: false, error: 'already-collected' };
-        if (run.state !== 'exited') return { ok: false, error: 'not-exited', state: run.state };
-        try { return await collect(req); } catch (err) { return { ok: false, error: 'collect-failed', message: err.message }; }
+        if (run.state !== 'exited' && run.state !== 'collect-failed') return { ok: false, error: 'not-exited', state: run.state };
+        return manualCollect(req);
       default:
         return { ok: false, error: 'unknown-action' };
     }
@@ -397,6 +444,6 @@ function json(res, status, body) {
 
 // Started directly (the image's entrypoint), it serves AgentCore's port.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const sandbox = createSandbox({ bridgeSocket: '/tmp/agentbox-bridge.sock' });
+  const sandbox = createSandbox({ workRoot: process.env.HOME || '/tmp', bridgeSocket: '/tmp/agentbox-bridge.sock' });
   sandbox.listen(Number(process.env.PORT) || 8080).then((a) => console.error(`agentbox sandbox listening on ${a.port}`));
 }

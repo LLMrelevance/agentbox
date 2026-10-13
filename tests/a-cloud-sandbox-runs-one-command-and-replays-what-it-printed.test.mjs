@@ -211,6 +211,59 @@ describe('a cloud sandbox', () => {
     expect(fs.readFileSync(path.join(mac, 'new.txt'), 'utf8')).toBe('untracked\n');
   });
 
+  it('uploads its results by itself the moment the command exits, so a Mac that is asleep loses nothing', async () => {
+    const { head } = packedRepo();
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
+    const configDir = path.join(tmp, 'vm', 'claude-home');
+    const work = [
+      'const fs=require("fs"),{execSync:x}=require("child_process");',
+      'x("git config user.email b@example.com && git config user.name B");',
+      'fs.writeFileSync("c.txt","three\\n");x("git add c.txt && git commit -q -m third");',
+      `fs.mkdirSync(${JSON.stringify(path.join(configDir, 'projects', 'p'))},{recursive:true});`,
+      `fs.writeFileSync(${JSON.stringify(path.join(configDir, 'projects', 'p', 's.jsonl'))},"{}\\n");`,
+      'process.stdout.write("{\\"type\\":\\"result\\"}\\n");',
+    ].join('');
+    await sandbox.handle({
+      action: 'start', runId: 'run-auto', cwd: path.join(tmp, 'vm', 'w'), branch: 'agentbox/w-1', bundleUrl: `${base}/in.bundle`,
+      argv: [process.execPath, '-e', work], env: {},
+      results: {
+        bundleUrl: `${base}/r/out.bundle`, changesUrl: `${base}/r/changes.bundle`,
+        eventsUrl: `${base}/r/events.jsonl`, doneUrl: `${base}/r/done.json`,
+        bring: [{ dir: path.join(configDir, 'projects'), url: `${base}/r/projects.tgz` }],
+      },
+    });
+    await until(() => files.has('/r/done.json'), 'the sandbox to upload its results');
+    const done = JSON.parse(files.get('/r/done.json'));
+    expect(done).toMatchObject({ ok: true, runId: 'run-auto', exitCode: 0, startSha: head, commits: 1, uncommitted: false });
+    expect(files.has('/r/out.bundle')).toBe(true);
+    expect(files.has('/r/projects.tgz')).toBe(true);
+    // The event log in S3 holds everything, through the exit, in order, so the
+    // Mac can replay what it missed from there even once the session is gone.
+    const logged = files.get('/r/events.jsonl').toString().trim().split('\n').map((l) => JSON.parse(l));
+    expect(logged.map((e) => e.seq)).toEqual(logged.map((_, i) => i + 1));
+    expect(stdoutOf(logged)).toContain('"type":"result"');
+    expect(logged.some((e) => e.kind === 'exit' && e.code === 0)).toBe(true);
+    expect(done.lastSeq).toBe(logged.at(-1).seq);
+    // Nothing is left to wait for, so AgentCore may let the session go.
+    expect(sandbox.ping().status).toBe('Healthy');
+  });
+
+  it('keeps the session alive and says so when an upload fails, so the Mac can ask again', async () => {
+    packedRepo();
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm'), uploadRetryMs: 10 });
+    await sandbox.handle({
+      action: 'start', runId: 'run-fail', cwd: path.join(tmp, 'vm', 'w'), branch: 'agentbox/w-1', bundleUrl: `${base}/in.bundle`,
+      argv: [process.execPath, '-e', 'require("fs").writeFileSync("d.txt","x")'], env: {},
+      results: { bundleUrl: 'http://127.0.0.1:1/nope', changesUrl: 'http://127.0.0.1:1/nope', eventsUrl: 'http://127.0.0.1:1/nope', doneUrl: 'http://127.0.0.1:1/nope', bring: [] },
+    });
+    await until(async () => (await sandbox.handle({ action: 'status' })).state === 'collect-failed', 'the upload to fail');
+    expect(sandbox.ping().status).toBe('HealthyBusy');
+    const again = await sandbox.handle({ action: 'collect', bundleUrl: `${base}/x/out.bundle`, changesUrl: `${base}/x/changes.bundle`, eventsUrl: `${base}/x/events.jsonl`, doneUrl: `${base}/x/done.json`, bring: [] });
+    expect(again).toMatchObject({ ok: true, uncommitted: true });
+    expect(files.has('/x/done.json')).toBe(true);
+    expect(sandbox.ping().status).toBe('Healthy');
+  });
+
   it('says plainly when it holds no run, which is what a session AgentCore restarted looks like', async () => {
     sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
     for (const action of ['events', 'stdin', 'collect', 'signal', 'mcp']) {
