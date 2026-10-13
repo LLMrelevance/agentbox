@@ -88,8 +88,20 @@
 html, body, #root { margin: 0; padding: 0; background: transparent; overflow: hidden; height: 100%; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; -webkit-font-smoothing: antialiased; user-select: none; cursor: default; color: var(--ct-ink); }
 
+/* THE CLEAR BAND AROUND THE GLASS. The window is the tag plus this, so the
+   resize arrows can sit ON its corners, half over the glass and half outside
+   it, the way a window's own corner handle does. Nothing is drawn in the band:
+   a click there is not the tag's, and main/corner-tag.mjs lets it through to
+   whatever is underneath. */
+.ct-frame {
+  position: absolute; left: 0; top: 0; display: inline-block;
+  padding: calc(10px * var(--ct-s)); box-sizing: content-box;
+}
+.ct-frame.is-demo { position: relative; }
+.ct-tag { position: relative; }
+
 .ct-glass {
-  position: absolute; left: 0; top: 0; color: var(--ct-ink); background: var(--ct-tint);
+  color: var(--ct-ink); background: var(--ct-tint);
   backdrop-filter: blur(28px) saturate(180%);
   border: 1px solid var(--ct-line); border-bottom-color: var(--ct-line-bottom);
   box-shadow: var(--ct-edge);
@@ -130,27 +142,31 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
    tucked right into the corner itself: big enough to hit, small enough that
    the words and the mark keep the middle of the tag to themselves. */
 /* A strip across the top and bottom of each end, never the middle: the mark
-   and the chevron keep their own height, so a press on either of them still
-   opens the app rather than starting a resize. */
+/* EACH ARROW IS CENTRED ON ITS CORNER, half over the glass and half over the
+   clear band around it, pointing out along that diagonal: a window's corner
+   handle rather than an icon parked inside the pill. The patch around the
+   arrow is bigger than the arrow, so there is something to aim at. */
 .ct-grip {
-  position: absolute; width: calc(16px * var(--ct-s)); height: calc(8px * var(--ct-s));
-  display: flex; padding: calc(2px * var(--ct-s)); box-sizing: border-box;
+  position: absolute; width: calc(18px * var(--ct-s)); height: calc(18px * var(--ct-s));
+  display: flex; align-items: center; justify-content: center;
   opacity: 0; transition: opacity 110ms ease; color: var(--ct-dim);
 }
-.ct-grip svg { width: calc(6px * var(--ct-s)); height: calc(6px * var(--ct-s)); display: block; }
-.ct-grip-tl { left: 0; top: 0; cursor: nwse-resize; align-items: flex-start; justify-content: flex-start; }
-.ct-grip-tr { right: 0; top: 0; cursor: nesw-resize; align-items: flex-start; justify-content: flex-end; }
-.ct-grip-bl { left: 0; bottom: 0; cursor: nesw-resize; align-items: flex-end; justify-content: flex-start; }
-.ct-grip-br { right: 0; bottom: 0; cursor: nwse-resize; align-items: flex-end; justify-content: flex-end; }
-/* the arrow points along its own diagonal, out of its own corner */
-.ct-grip-tr svg { transform: scaleX(-1); }
-.ct-grip-bl svg { transform: scaleX(-1) scaleY(-1); }
-.ct-grip-br svg { transform: scaleY(-1); }
+.ct-grip svg { width: calc(9px * var(--ct-s)); height: calc(9px * var(--ct-s)); display: block; }
+/* the band is 10 and the patch 18: at 2.5 in, the arrow's middle sits a
+   whisker inside the glass's corner, which is where the rounded edge is */
+.ct-grip-tl { left: calc(2.5px * var(--ct-s)); top: calc(2.5px * var(--ct-s)); cursor: nwse-resize; }
+.ct-grip-tr { right: calc(2.5px * var(--ct-s)); top: calc(2.5px * var(--ct-s)); cursor: nesw-resize; }
+.ct-grip-bl { left: calc(2.5px * var(--ct-s)); bottom: calc(2.5px * var(--ct-s)); cursor: nesw-resize; }
+.ct-grip-br { right: calc(2.5px * var(--ct-s)); bottom: calc(2.5px * var(--ct-s)); cursor: nwse-resize; }
+/* each one points out of its own corner */
+.ct-grip-tl svg { transform: rotate(-90deg); }
+.ct-grip-bl svg { transform: rotate(180deg); }
+.ct-grip-br svg { transform: rotate(90deg); }
 /* Pointing anywhere on the tag says the corners are there; pointing at one
    says it is the one. */
-.ct-tag:hover .ct-grip, .ct-tag.is-open .ct-grip { opacity: 0.25; }
-.ct-tag:hover .ct-grip:hover, .ct-tag.is-open .ct-grip:hover { opacity: 0.95; }
-.ct-tag.is-dragging .ct-grip { opacity: 0; }
+.ct-frame:hover .ct-grip, .ct-frame:has(.ct-tag.is-open) .ct-grip { opacity: 0.3; }
+.ct-frame:hover .ct-grip:hover { opacity: 0.95; }
+.ct-frame:has(.ct-tag.is-dragging) .ct-grip { opacity: 0; }
 
 .ct-go { display: flex; align-items: center; gap: calc(8px * var(--ct-s)); margin-left: 1px; color: var(--ct-faint); }
 .ct-go::before { content: ''; width: 1px; height: calc(14px * var(--ct-s)); background: var(--ct-rule); }
@@ -211,6 +227,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
 /* The list is firmer glass than the tag: it is only there while you are
    pointing at it, and it is read a line at a time. */
 .ct-card {
+  /* the list's window is the list, with no band around it */
+  position: absolute; left: 0; top: 0;
   background: var(--ct-tint-hover);
   border-radius: calc(8px * var(--ct-cs)); padding: calc(9px * var(--ct-cs)) calc(8px * var(--ct-cs)) calc(8px * var(--ct-cs));
   box-sizing: border-box; width: max-content; max-width: calc(440px * var(--ct-cs)); min-width: calc(240px * var(--ct-cs));

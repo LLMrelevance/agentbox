@@ -70,10 +70,10 @@ describe('the corners she drags', () => {
     // discover that it was actually expandable".
     for (const corner of ['tl', 'tr', 'bl', 'br']) expect(css).toContain(`.ct-grip-${corner}`);
     expect(page).toContain('GRIPS.map');
-    expect(css).toMatch(/\.ct-tag:hover \.ct-grip[^}]*opacity/);
+    expect(css).toMatch(/\.ct-frame:hover \.ct-grip[^}]*opacity/);
     expect(css).toMatch(/\.ct-grip:hover[^}]*opacity/);
     // and a patch big enough to aim at, not a few pixels of ledge
-    expect(css).toMatch(/\.ct-grip \{[^}]*width: calc\(16px/);
+    expect(css).toMatch(/\.ct-grip \{[^}]*width: calc\(18px/);
   });
 
   it('press through the same door as a drag, saying which corner it is', () => {
@@ -82,16 +82,25 @@ describe('the corners she drags', () => {
   });
 });
 
-describe('the corners do not steal the tag itself', () => {
-  it('leaves the middle of the tag to the mark and the chevron', () => {
-    // The grips are strips across the top and bottom of each end. If they took
-    // the full height, a press on the nine dots or on the chevron would start
-    // a resize instead of opening the app: exactly the kind of quirk she asked
-    // me to find before pushing.
+describe('the arrows hang over the glass, not inside it', () => {
+  it('centres each one on its corner, half in the clear band', () => {
+    // "It should extend over the edges and point outward... halfway inside the
+    // browser and halfway outside it." The window keeps a 10pt band around the
+    // glass and the 18pt patch starts 2.5pt into it, so the arrow's middle
+    // lands on the corner, a whisker inside where the radius rounds it off.
+    expect(css).toMatch(/\.ct-frame \{[^}]*padding: calc\(10px \* var\(--ct-s\)\)/);
     const grip = css.match(/\.ct-grip \{[^}]*\}/)[0];
-    expect(grip).toMatch(/height: calc\(8px \* var\(--ct-s\)\)/);
-    expect(grip).not.toContain('height: 50%');
-    // the strips are shorter than the mark is tall, which is 10px of a 28 tag
-    expect(8 * 2).toBeLessThan(28 - 10);
+    expect(grip).toMatch(/width: calc\(18px \* var\(--ct-s\)\)/);
+    expect(grip).toMatch(/height: calc\(18px \* var\(--ct-s\)\)/);
+    for (const corner of ['tl', 'tr', 'bl', 'br']) {
+      expect(css).toMatch(new RegExp(`\\.ct-grip-${corner} \\{[^}]*calc\\(2\\.5px \\* var\\(--ct-s\\)\\)`));
+    }
+  });
+
+  it('tells the main process the band, and what is under the pointer', () => {
+    expect(page).toContain('bridge.size(which, r.width, r.height');
+    expect(page).toContain('bridge?.clickable(overUs(e))');
+    expect(bridge).toContain('clickable: (on)');
+    expect(bridge).toContain('size: (part, width, height, frame)');
   });
 });
