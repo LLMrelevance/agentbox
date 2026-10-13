@@ -13,13 +13,16 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { Name } from '../../shared/product-name.mjs';
 
-export function cloudConfigPath(env = process.env) {
-  return env.AGENTBOX_CLOUD_CONFIG || path.join(os.homedir(), '.agentbox', 'cloud.json');
+// `home` is the supervisor's own idea of the home folder (config.home), so a
+// supervisor built for a test, with a home that is not the developer's, never
+// reads the developer's real setup.
+export function cloudConfigPath(env = process.env, home = os.homedir()) {
+  return env.AGENTBOX_CLOUD_CONFIG || path.join(home || os.homedir(), '.agentbox', 'cloud.json');
 }
 
-export function readCloudConfig(env = process.env) {
+export function readCloudConfig(env = process.env, home = os.homedir()) {
   try {
-    const c = JSON.parse(fs.readFileSync(cloudConfigPath(env), 'utf8'));
+    const c = JSON.parse(fs.readFileSync(cloudConfigPath(env, home), 'utf8'));
     return c?.bucket && c?.runtimeArn && c?.region ? c : null;
   } catch {
     return null;

@@ -3632,14 +3632,24 @@ export class Supervisor {
     return n;
   }
 
+  // On when this Mac has been set up for cloud runs, unless turned off:
+  // `cloudRuns: false` wins, and absent or null means "if set up".
   _cloudReady() {
-    if (!this.config.cloudRuns) return false;
+    if (this.config.cloudRuns === false) return false;
     const now = Date.now();
     if (!this._cloudConfigAt || now - this._cloudConfigAt > 60_000) {
-      this._cloudConfig = readCloudConfig();
+      this._cloudConfig = readCloudConfig(process.env, this.config.home);
+      this._cloudSignedIn = !!this._cloudConfig && this._hasCloudSignIn();
       this._cloudConfigAt = now;
     }
-    return !!this._cloudConfig;
+    return !!this._cloudConfig && this._cloudSignedIn;
+  }
+
+  // Set up, and at least one live account has saved its cloud sign-in. A Mac
+  // set up but never signed in offers no cloud slot at all, rather than one
+  // every tick reaches for and then turns back from.
+  _hasCloudSignIn() {
+    return this._liveProfilesFor(DEFAULT_ENGINE).some((p) => !!readClaudeToken(this._claudeConfigDir(p)));
   }
 
   _maxCloud() {

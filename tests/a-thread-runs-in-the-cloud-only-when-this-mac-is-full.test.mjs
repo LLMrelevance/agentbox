@@ -30,7 +30,7 @@ const ONE_ACCOUNT_HOME = '/nonexistent-home-with-no-second-account';
 let tmp; let repo; let folder; let product; let sup;
 const savedConfigEnv = process.env.AGENTBOX_CLOUD_CONFIG;
 
-const build = ({ cloudRuns = true, slots = 2, maxCloudSessions = 10, personal = [] } = {}) => {
+const build = ({ cloudRuns = true, slots = 2, maxCloudSessions = 10, personal = [], signedIn = true } = {}) => {
   sup = new Supervisor(
     { home: ONE_ACCOUNT_HOME, storeRoot: path.join(tmp, 'store'), maxConcurrentSessions: slots, authProfiles: ['default'], cloudRuns, maxCloudSessions, personalProducts: personal },
     { listItems: () => [], listProducts: () => [product], isDue: () => true, settleAnswer() {}, readItem: () => null },
@@ -38,6 +38,8 @@ const build = ({ cloudRuns = true, slots = 2, maxCloudSessions = 10, personal = 
   );
   sup._homesAsked = [];
   sup._bringCloudHome = (f) => sup._homesAsked.push(f);
+  // Whether an account has saved its cloud sign-in (the keychain, in the app).
+  sup._hasCloudSignIn = () => signedIn;
   return sup;
 };
 let busy = 0;
@@ -95,6 +97,22 @@ describe('where a thread runs', () => {
     build();
     fill(2);
     expect(sup._hasSlotFor('claude')).toBe(false);
+  });
+
+  it('is on by itself once this Mac is set up and signed in, with nothing in the config', () => {
+    build({ cloudRuns: undefined });
+    fill(2);
+    expect(sup._whereToRun({ item: row(), product, cwd: folder, engine: 'claude' })).toBe('cloud');
+    build({ cloudRuns: null });
+    fill(2);
+    expect(sup._whereToRun({ item: row(), product, cwd: folder, engine: 'claude' })).toBe('cloud');
+  });
+
+  it('offers no cloud slot when set up but no account has signed in for it', () => {
+    build({ signedIn: false });
+    fill(2);
+    expect(sup._hasSlotFor('claude')).toBe(false);
+    expect(sup._whereToRun({ item: row(), product, cwd: folder, engine: 'claude' })).toBe(null);
   });
 
   it('does not count a cloud run against this Mac\'s slots, and stops at the cloud\'s own cap', () => {

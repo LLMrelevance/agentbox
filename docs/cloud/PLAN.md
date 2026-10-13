@@ -149,9 +149,9 @@ the app never runs on the 12-hour `aws login`. Names and ARNs go to
 
 ### Turning it on
 
-`cloudRuns: true` in the config, after the setup script and one
-`claude setup-token` per account (stored in the macOS keychain). Off by
-default; when off the app is exactly today's app.
+On by itself once a Mac has run the setup script and saved one account's
+sign-in (`claude setup-token`, stored in the macOS keychain); a Mac that has
+done neither is exactly today's app. `cloudRuns: false` turns it off.
 
 ### What the user sees
 
@@ -161,19 +161,52 @@ divergent options before it is built.)
 ## Phases
 
 1. Spike: AgentCore measured for real. Running as w-bad6fbae78.
-2. The sandbox image and server. **Server and bridge built and tested.**
-3. `scripts/cloud-setup.mjs`, run once against the real account.
-4. The proxy, tested against the in-process sandbox and a stand-in S3.
-5. The supervisor's guards, slots and spawn switch, with fault tests (R14):
-   lost start acknowledgement, a store write whose reply is lost to sleep,
-   quit during an approval, quit after the ship label, failed import, a reply
-   arriving while the run is in the cloud, Stop while the sandbox is
-   unreachable.
-6. End to end against the real account: a thread of this repo runs in the
-   cloud, writes to the store, asks for an approval, commits, ships.
+2. **Done.** The sandbox image and server (cloud/sandbox/), with the bridge.
+3. **Done.** `scripts/cloud-setup.mjs`, run against the real account
+   2026-10-13: bucket, ECR, CodeBuild ARM build, roles, runtime, app user.
+4. **Done.** The proxy (main/cloud/run.mjs, run-cli.mjs, aws.mjs), tested end
+   to end against the real sandbox server on one machine, and against real
+   AWS with a shell command in place of Claude Code: packed, started,
+   committed in the sandbox and brought home in 11 s. The microVM measured:
+   aarch64, 2 vCPU, 8 GB, 8.8 GB disk.
+5. **Done.** The supervisor's placement, slots, guards (ship, cleanup,
+   restart) and exit-75 handling, with tests.
+6. **Waiting on one Claude sign-in** (`scripts/cloud-signin.mjs`): a real
+   Claude Code thread of this repo runs in the cloud, writes to the store,
+   asks for an approval, commits, ships.
 7. Phase 2, filed separately: Codex in the cloud, new runs while the Mac
    sleeps, replies from the phone, and a managed version for people with no
    AWS account.
+
+## How it was checked
+
+Codex reviewed the plan twice and the code twice (scripts/scratch/cloud, not
+committed); every finding is either fixed or written down above as a limit.
+Tests: tests/a-cloud-sandbox-runs-one-command-and-replays-what-it-printed,
+a-cloud-run-reaches-the-apps-tools-through-the-sandbox,
+a-cloud-run-brings-the-agents-work-home, a-cloud-run-sends-only-what-it-may,
+a-thread-runs-in-the-cloud-only-when-this-mac-is-full,
+a-thread-running-in-the-cloud-says-so.
+
+## Turning it on, for whoever runs this Mac
+
+1. `aws login --region us-east-1` (an admin), then
+   `node scripts/cloud-setup.mjs`.
+2. `node scripts/cloud-signin.mjs <account folder>` for each Claude account
+   that may run in the cloud. An account without one keeps its threads here.
+
+That is all: cloud runs are on for a Mac that has been set up, and nowhere
+else. `"cloudRuns": false` in zero.config.json turns them off.
+
+## Known limits
+
+- A cloud run waits for the Mac whenever it calls the store or asks for an
+  approval, so with the lid shut it keeps working until its next such call.
+- A run that ended on another branch, or whose folder changed on this Mac
+  while it was away, is kept on `refs/agentbox/cloud/<run>` and its folder
+  stays marked until a person looks (the app logs which folder).
+- The budget the spike made (`agentcore-sandboxes`) counts all of the
+  account's spend, not only cloud runs.
 
 ## The privacy and terms pages
 
