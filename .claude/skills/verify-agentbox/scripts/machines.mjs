@@ -86,7 +86,10 @@ export const SHAPES = [
       { at: '~/.nvm/versions/node/v22.14.0/bin/codex', kind: 'npm', engine: 'codex' },
     ],
     rc: { '.zshrc': 'export NVM_DIR="$HOME/.nvm"\nexport PATH="$NVM_DIR/versions/node/v22.14.0/bin:$PATH"\n' },
-    expect: { claude: { found: true, from: 'disk', runs: true }, codex: { found: true, from: 'disk', runs: true } },
+    // The shell, since the one finder asks the shell first (1cfdd62): this
+    // .zshrc puts Codex on its PATH. The lazy shape below is the one only the
+    // disk search can answer.
+    expect: { claude: { found: true, from: 'disk', runs: true }, codex: { found: true, from: 'shell', runs: true } },
   },
   {
     name: 'codex-npm-under-nvm-lazy',
