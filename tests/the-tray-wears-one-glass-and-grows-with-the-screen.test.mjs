@@ -124,8 +124,8 @@ describe('one glass, whatever the Mac is set to', () => {
     // a line at a time, is the firm one.
     const fill = (name) => css.match(new RegExp(`--ct-tint${name}: [^;]+`))[0]
       .match(/rgba\([^)]+\)/g).map((c) => Number(c.split(',').pop().trim().replace(')', '')));
-    expect(Math.max(...fill(''))).toBeLessThan(0.8);
-    expect(Math.max(...fill('-quiet'))).toBeLessThan(0.62);
+    expect(Math.max(...fill(''))).toBeLessThan(0.6);
+    expect(Math.max(...fill('-quiet'))).toBeLessThan(0.42);
     expect(Math.min(...fill('-hover'))).toBeGreaterThan(0.85);
   });
 
