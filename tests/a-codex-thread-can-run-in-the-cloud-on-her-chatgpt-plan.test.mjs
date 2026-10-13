@@ -79,12 +79,26 @@ describe('a line from the app to a cloud Codex', () => {
     const msg = JSON.parse(out.line);
     // Codex starts a tool with a bare environment, so the stub is told where
     // the bridge is in its own entry, and given nothing else of the original's.
-    expect(msg.params.config.mcp_servers.agentbox).toMatchObject({ command: 'node', args: ['/opt/stub.mjs', 'agentbox'], env: { AGENTBOX_BRIDGE_SOCK: '/tmp/agentbox-bridge.sock' } });
+    expect(msg.params.config.mcp_servers.agentbox).toMatchObject({ command: '/usr/local/bin/node', args: ['/opt/stub.mjs', 'agentbox'], env: { AGENTBOX_BRIDGE_SOCK: '/tmp/agentbox-bridge.sock' } });
     expect(JSON.stringify(msg.params.config.mcp_servers.agentbox)).not.toContain('ZERO_ITEM');
     expect(msg.params.config.mcp_servers.hers).toEqual({ enabled: false });
     expect(k.agentbox).toEqual({ command: '/app/mcp/agentbox-mcp.sh', args: [], env: { ZERO_ITEM: 'w-1' } });
     expect(msg.params.cwd).toBe('/Users/x/repo');
     expect(out.line.endsWith('\n')).toBe(true);
+  });
+
+  // HER DECISION, 2026-10-13: "Yes, let the cloud machine be Codex's sandbox."
+  // Measured that day: Codex's own command sandbox (bubblewrap) cannot nest in
+  // an AgentCore microVM ("bwrap: Can't mkdir parents ... Permission denied"),
+  // so every write and every command was refused. OpenAI's docs say to use
+  // full access inside a container or VM, which is then the boundary.
+  it('lets the cloud machine be the sandbox for a workspace run, and nothing else changes', () => {
+    const start = (sandbox) => JSON.parse(codexLineForTheCloud(JSON.stringify({ id: 1, method: 'thread/start', params: { cwd: '/w', sandbox, approvalPolicy: 'on-request' } }), { keep: keep() }).line).params;
+    expect(start('workspace-write')).toEqual({ cwd: '/w', sandbox: 'danger-full-access', approvalPolicy: 'on-request' });
+    // A run she set to read-only stays read-only.
+    expect(start('read-only').sandbox).toBe('read-only');
+    const resumed = JSON.parse(codexLineForTheCloud(JSON.stringify({ id: 2, method: 'thread/resume', params: { threadId: 't', sandbox: 'workspace-write' } }), { keep: keep(), findRollout: () => null }).line);
+    expect(resumed.params.sandbox).toBe('danger-full-access');
   });
 
   it('sends a resumed thread\'s rollout up first', () => {

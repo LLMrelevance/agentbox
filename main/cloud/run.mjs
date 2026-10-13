@@ -52,6 +52,9 @@ export const IMPORT_FAILED = 75;
 const STUB = '/opt/agentbox/mcp-stub.mjs';
 // Where the image's sandbox server listens for stubs (cloud/sandbox/server.mjs).
 const BRIDGE_SOCK = '/tmp/agentbox-bridge.sock';
+// The image's node, by its full path: Codex starts an MCP server with a bare
+// environment, in which a bare `node` may not be found.
+const SANDBOX_NODE = '/usr/local/bin/node';
 const WITHHELD_TOOLS = new Set(['look_at_page']);
 const MAX_ATTACHMENT = 25 * 1024 * 1024;
 const RESULTS_WAIT_MS = 3 * 60_000;
@@ -465,6 +468,8 @@ export async function cloudRun({
   async function absorb(e) {
     if (e.seq <= cursor) return;
     cursor = e.seq;
+    // AGENTBOX_CLOUD_DEBUG=1 traces the tool traffic, names and sizes only.
+    if (env.AGENTBOX_CLOUD_DEBUG && e.kind.startsWith('mcp')) say(`${e.kind} ${e.conn}${e.server ? ` ${e.server}` : ''}${e.line ? ` ${String(e.line).slice(0, 80)}` : ''}`);
     if (e.kind === 'stdout') await write(stdout, Buffer.from(e.data, 'base64'));
     else if (e.kind === 'stderr') await write(stderr, Buffer.from(e.data, 'base64'));
     else if (e.kind === 'mcp-open') openServer(e.conn, e.server);
@@ -711,11 +716,18 @@ export function codexLineForTheCloud(line, { stubPath = STUB, codexHome, keep, f
       // Codex starts an MCP server with a bare environment, so the stub is
       // told where the sandbox's bridge is in its own entry (measured
       // 2026-10-13: without it the stub never connected).
-      servers[name] = { ...s, command: 'node', args: [stubPath, name], env: { AGENTBOX_BRIDGE_SOCK: BRIDGE_SOCK } };
+      servers[name] = { ...s, command: SANDBOX_NODE, args: [stubPath, name], env: { AGENTBOX_BRIDGE_SOCK: BRIDGE_SOCK } };
     }
   }
-  // Codex's own sandbox is kept exactly as the app asked for it: the image
-  // carries bubblewrap so it works inside the microVM (cloud/sandbox/Dockerfile).
+  // THE CLOUD MACHINE IS CODEX'S SANDBOX (her decision, 2026-10-13: "Yes, let
+  // the cloud machine be Codex's sandbox"). Codex's own command sandbox
+  // (bubblewrap) cannot nest inside an AgentCore microVM: measured that day,
+  // every write and every command was refused ("bwrap: Can't mkdir parents
+  // ... Permission denied"). OpenAI's docs say to use full access inside a
+  // container or VM, which is then the boundary. This one holds only the
+  // task's folder and a Codex sign-in that cannot renew, and is thrown away
+  // after the run. A read-only run stays read-only; approvals are untouched.
+  if (msg.params && msg.params.sandbox === 'workspace-write') msg.params.sandbox = 'danger-full-access';
   if (msg.method === 'thread/resume' && msg.params?.threadId) {
     const rollout = findRollout(msg.params.threadId, { home: codexHome });
     if (rollout) files.push(rollout);

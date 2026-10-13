@@ -281,6 +281,34 @@ describe('a cloud run', () => {
     }
   });
 
+  it('carries a real MCP handshake, as Codex makes it with a bare environment, from the sandbox to the Mac and back', async () => {
+    // Measured 2026-10-13 against real AWS: Codex's store tool "timed out
+    // handshaking". This drives the official MCP client through the stub, the
+    // bridge and the proxy to the store server on the Mac.
+    const storeLog = path.join(tmp, 'store-real.log');
+    const mcpFile = path.join(tmp, 'mac', 'mcp-real.json');
+    fs.mkdirSync(path.dirname(mcpFile), { recursive: true });
+    fs.writeFileSync(mcpFile, JSON.stringify({ mcpServers: { agentbox: { command: process.execPath, args: [FAKE_STORE], env: { FAKE_STORE_LOG: storeLog } } } }));
+    let out = '';
+    const stdout = new PassThrough();
+    stdout.on('data', (d) => { out += d; });
+    const stderr = new PassThrough();
+    let err = '';
+    stderr.on('data', (d) => { err += d; });
+    const stdin = new PassThrough();
+    stdin.end();
+    const code = await cloudRun({
+      argv: [here('./fixtures/cloud/real-mcp-client.mjs'), process.execPath, STUB, 'agentbox', '--mcp-config', mcpFile],
+      env: { ...process.env, ZERO_ITEM: 'w-1', CLAUDE_CONFIG_DIR: path.join(tmp, 'mac', 'claude-home') },
+      cwd: mac, transport, storage, claudeToken: null, stdin, stdout, stderr,
+      remoteCommand: process.execPath, stubPath: STUB, pollWaitMs: 200, resultsWaitMs: 8000, watchParent: false,
+      homeDir: path.join(tmp, 'home'),
+    });
+    expect(code, err).toBe(0);
+    expect(JSON.parse(out.trim().split('\n').at(-1))).toEqual({ tools: ['note'], said: 'noted on the Mac for w-1' });
+    expect(fs.readFileSync(storeLog, 'utf8')).toContain('through the bridge');
+  });
+
   it('refuses to start a second run while an earlier one\'s own process is still bringing it home', async () => {
     writeMarker(mac, { runId: 'r-old', sessionId: 's-old-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', branch: 'agentbox/w-1', startSha: git(mac, 'rev-parse', 'HEAD'), pid: process.pid === 1 ? 2 : process.ppid, state: 'running' });
     const run = launch();
