@@ -155,6 +155,14 @@ describe('the plumbing', () => {
     expect(read('main/ipc.mjs')).toMatch(/'zero:set-thread-pins'/);
   });
 
+  // A stronger hairline under the pinned group was tried and read as a bug
+  // ("it looks unintentional right now, like a bug", 2026-10-12). The pin on
+  // each row is the only mark; the line between rows stays the ordinary one.
+  it('draws no line of its own under the pinned threads', () => {
+    expect(read('renderer/src/threads/pages.css')).not.toMatch(/after-pins/);
+    expect(read('renderer/src/components/List.tsx')).not.toMatch(/after-pins/);
+  });
+
   // Closing a thread is the end of what it was pinned for.
   it('drops the pin when a thread is closed', () => {
     expect(read('main/ipc.mjs')).toMatch(/status === 'done'\) supervisor\.setThreadPins\(\{ \[id\]: null \}\)/);

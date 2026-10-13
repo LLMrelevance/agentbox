@@ -380,10 +380,6 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 .workspace-collapsed .workspace-navigation .th-mark-btn:focus-visible > .th-mark-open { display: grid; }
 /* The heading row draws no hairline under itself, on both pages. */
 .th-table .row.th-head + .row::after { display: none; }
-/* THE EDGE OF THE PINNED THREADS (w-20323283e6): the hairline over the first
-   row under them, at full weight in the stronger line. Nothing else marks the
-   group; each pinned row already wears its pin. */
-.row + .row[data-after-pins]::after { background: var(--line-strong); opacity: 1; }
 
 /* Your row in the sidebar's foot is a button to your account page. */
 .workspace-navigation .th-me-btn { display: flex; align-items: center; gap: 9px; width: 100%; height: 38px; padding: 0 8px; margin-left: -8px; min-width: 0; text-align: left; color: var(--text); font-size: 13.5px; }

@@ -432,12 +432,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, running,
               day label's whole height and leaves a band of nothing above the
               first result. */}
           {group.label && !table && <div className="day-label">{group.label}</div>}
-          {group.items.map((entry, k) => {
-            // THE FIRST ROW UNDER THE PINNED ONES (w-20323283e6) draws its
-            // hairline a little stronger, which is the whole of the group's
-            // edge: no heading, no count.
-            const prev = k > 0 ? group.items[k - 1].item : undefined;
-            const afterPins = !!prev?.pinned && prev.status !== 'done' && !(entry.item?.pinned && entry.item.status !== 'done');
+          {group.items.map((entry) => {
             // A TEAMMATE'S THREAD: their card, opened on a click or on Enter.
             // J and K stop on it like any row (w-fb16bcaeba), but no select
             // box and no other keys, because nothing on this Mac can act on it.
@@ -445,7 +440,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, running,
               const c = entry.card;
               const key = `card/${c.personId}/${c.threadId}`;
               return (
-                <div key={key} data-after-pins={afterPins || undefined} className={`row th-their-row${selectedCard === key ? ' selected' : ''}`} onClick={() => onOpenCard?.(c)}>
+                <div key={key} className={`row th-their-row${selectedCard === key ? ' selected' : ''}`} onClick={() => onOpenCard?.(c)}>
                   <span className="mark" aria-hidden="true" />
                   <RowCells title={c.title ?? 'Private thread'} where={c.project ?? ''} person={personCell?.(c.personId)}
                     priority={c.priority} updatedAt={c.updatedAt} now={Date.now()} />
@@ -465,7 +460,6 @@ export function List({ items, view, keyView, hoveredId, selected, seen, running,
             return (
               <div
                 key={item.id}
-                data-after-pins={afterPins || undefined}
                 {...(movable ? { 'data-drag-id': item.id, onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => drag.onPointerDown(item.id, e) } : {})}
                 /*
                  * The first run points its coaching ring at the row it made
