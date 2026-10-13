@@ -26,7 +26,8 @@ export function readLedger(state, slug = 'sandbox') {
 }
 /** Every project the copy has a ledger for, by slug (the installed app adds "My workspace" of its own). */
 export function projects(state) {
-  const prefix = `${path.join(state.accountRoot, '').replace(/[^A-Za-z0-9]/g, '-')}`;
+  // The account folder and the separator after it, as machinery() spells them.
+  const prefix = `${state.accountRoot}/`.replace(/[^A-Za-z0-9]/g, '-');
   try {
     return fs.readdirSync(path.join(state.storeRoot, 'projects')).filter((d) => d.startsWith(prefix)).map((d) => d.slice(prefix.length));
   } catch { return []; }
@@ -98,7 +99,7 @@ async function interruptMidRun({ tab, state, claim, capture, live }, how) {
   claim(done, 'once it is back, every interrupted task is answered', tasks.map((t) => resultOf(t).slice(0, 70) || 'none').join(' | '));
   claim(tasks.every((t) => rows(after).filter((r) => r.title === t.title).length === 1), 'no task was duplicated');
   const listed = [];
-  for (const t of tasks) listed.push(await inNeedsYou(tab, t.title));
+  for (const t of tasks) listed.push(await inNeedsYou(tab, t.title, rows(after).find((x) => x.id === t.row.id)));
   claim(listed.every(Boolean), 'both are under Needs you');
   await capture('after-restart');
 }
@@ -179,12 +180,15 @@ export async function pickProject(tab, name) {
  * read off the screen. A finished answer that is not there is the "it never
  * came back" bug, whatever the store says.
  */
-export async function inNeedsYou(tab, title) {
+export async function inNeedsYou(tab, title, row = null) {
   await tab.press('Escape');
   await tab.press('Escape');
   // The tab, not a leaf: its count sits in a child of the same button.
   await clickTab(tab, /^needs you/i);
-  return tab.evaluate(`document.body.innerText.includes(${JSON.stringify(title.slice(0, 24))})`);
+  // The list shows the short name an agent gave the thread when it gave one
+  // (real Claude Code often does), so look for what the person sees.
+  const shown = String(row?.label || title);
+  return tab.evaluate(`document.body.innerText.includes(${JSON.stringify(shown.slice(0, 24))})`);
 }
 
 /** Compose one thread from the keyboard, optionally on a chosen engine and project. Returns its stored row. */
@@ -250,7 +254,12 @@ export const DRIVES = {
       if (receipt) {
         const leaked = Object.keys(receipt.env).filter((k) => /^(ANTHROPIC_|OPENAI_)/.test(k) || k === 'CLAUDE_CODE_USE_BEDROCK');
         claim(!leaked.length, 'the worker was handed no API key (it bills the subscription)', leaked.join(', '));
-        claim(receipt.cwd !== state.repo && receipt.cwd.includes(row.id), 'the worker runs in a folder of its own, not the project checkout', receipt.cwd.replace(state.instance, '…'));
+        // A project with code gets a folder per task. The installed app files a
+        // new thread in its own "My workspace", which has no repository, and the
+        // worker works in that project's folder, which is not anybody's checkout.
+        const repo = state.repos?.[row.product];
+        if (repo) claim(receipt.cwd !== repo && receipt.cwd.includes(row.id), 'the worker runs in a folder of its own, not the project checkout', receipt.cwd.replace(state.instance, '…'));
+        else claim(!Object.values(state.repos ?? {}).includes(receipt.cwd) && receipt.cwd.endsWith(row.product), 'a project without code: the worker runs in that project\'s own folder, not a checkout', receipt.cwd.replace(state.instance, '…'));
         claim(receipt.env.ZERO_ITEM === row.id, 'the worker is told which thread it is on', receipt.env.ZERO_ITEM);
       }
       const answered = await until(() => rows(state).find((r) => r.id === row.id && String(r.result ?? '').trim()), state.engine === 'stub' ? 30_000 : 300_000);
@@ -293,7 +302,7 @@ export const DRIVES = {
       const word = state.engine === 'stub' ? tok : 'MANGO';
       const answered = await until(() => rows(state).find((r) => r.id === row.id && String(r.result ?? '').includes(word)), state.engine === 'stub' ? 90_000 : 300_000);
       claim(answered, 'Codex\'s answer is written onto this thread', String(rows(state).find((r) => r.id === row.id)?.result ?? '(none)').slice(0, 80));
-      claim(await inNeedsYou(tab, title), 'the answered thread is under Needs you');
+      claim(await inNeedsYou(tab, title, rows(state).find((r) => r.id === row.id)), 'the answered thread is under Needs you');
       await capture('needs-you');
       claim(await openThread(tab, rows(state).find((r) => r.id === row.id) ?? row), 'the thread opens from the list');
       await capture('thread');
@@ -332,7 +341,7 @@ export const DRIVES = {
       const all = rows(state);
       claim(made.every((m) => all.filter((r) => r.title === m.title).length === 1), 'no task was duplicated');
       const listed = [];
-      for (const m of made) listed.push(await inNeedsYou(tab, m.title));
+      for (const m of made) listed.push(await inNeedsYou(tab, m.title, rows(state).find((x) => x.id === m.row?.id)));
       claim(listed.every(Boolean), 'all six are under Needs you', listed.map((x) => (x ? 'y' : 'n')).join(''));
       await capture('needs-you');
       // Workers end once answered. The Codex app-server is one long-lived
@@ -437,11 +446,24 @@ export const DRIVES = {
       await tab.wait(45_000);
       const tries = spawnsOf(state, claude.id).length;
       claim(tries >= 1 && tries <= 2, 'the Claude task was tried at most once per login, not in a loop', `${tries} attempt(s) on 2 logins`);
-      claim(await inNeedsYou(tab, claude.title), 'the stopped task is under Needs you, where the person looks');
+      claim(await inNeedsYou(tab, claude.title, rows(state).find((r) => r.id === claude.id)), 'the stopped task is under Needs you, where the person looks');
       await capture('needs-you');
       await openThread(tab, rows(state).find((r) => r.id === claude.id) ?? claude);
       claim(!/It handed this back/.test(await tab.text()), 'the thread does not claim the agent handed it back (the app wrote its own note)');
       await capture('thread');
+      if (!codex) return;
+      // A NEW Codex task while Codex is out: nothing can start it until the
+      // reset, so it must say that, not "Queued … as soon as one is free" (the
+      // breaker's finding, 2026-10-12).
+      await tab.press('Escape');
+      const next = (await compose(tab, state, `After Codex ran out [[tok:AC${Date.now().toString(36)}]]`, { engine: 'codex' })).row;
+      if (!claim(next, 'a new Codex task can still be sent')) return;
+      await tab.wait(3000);
+      await openThread(tab, rows(state).find((r) => r.id === next.id) ?? next);
+      const text = await tab.text();
+      claim(/Codex is at its usage limit, so this starts on its own when it resets/.test(text) && !/as soon as one is free/.test(text),
+        'a new Codex task says Codex is at its usage limit, not that it is queued', (text.match(/Codex is at[^\n]*|Queued[^\n]*/) ?? ['neither'])[0].slice(0, 120));
+      await capture('new-codex-task-at-limit');
     },
   },
   'reply': {

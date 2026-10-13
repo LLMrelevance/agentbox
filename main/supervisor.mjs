@@ -4188,6 +4188,13 @@ export class Supervisor {
       signInNeeded = this._waitingOnSignIn(this.store.listItems(Date.now())
         .filter((i) => mayRunHere(i, productBySlug.get(i.product), me)));
     } catch {}
+    let atLimit = {};
+    try {
+      const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
+      const me = process.env.AGENTBOX_PERSON_ID;
+      atLimit = this._waitingOnLimit(this.store.listItems(Date.now())
+        .filter((i) => mayRunHere(i, productBySlug.get(i.product), me)));
+    } catch {}
     // ROWS THE SHIP QUEUE STILL OWES A SHIP (w-0c1ba766eb). Waiting on the
     // app and not on a person, so the window keeps them in In progress until
     // they have shipped or gone back to their agent.
@@ -4200,6 +4207,11 @@ export class Supervisor {
       // tool's name. The row says so instead of "Queued", which promised an
       // agent "as soon as one is free" while none could be (2026-10-04).
       signInNeeded,
+      // ROWS NOTHING CAN START BECAUSE EVERY LOGIN OF THEIR TOOL IS OUT OF
+      // USAGE, by id, with the tool's name and when it resets. Its sibling
+      // above, for the same reason: "Queued" over a Codex task while Codex
+      // had no slot until the reset (found by the pre-deploy breaker).
+      atLimit,
       running: [...this.sessions.values()].filter(s => !s.remoteIdle).map((s) => ({
         itemId: s.itemId,
         product: s.product,
@@ -4421,6 +4433,36 @@ export class Supervisor {
       if (i.status !== 'open' || this.sessions.has(i.id)) continue;
       const engine = engineOf(this._engineFor(i));
       if (isBlocked(engine)) out[i.id] = engineLabel(engine);
+    }
+    return out;
+  }
+
+  /**
+   * Open rows held because EVERY login of their tool is resting on a usage
+   * limit, id -> { tool, until }. `_capacityFor` counts only logins that are
+   * not resting, so such a tool has no slots and nothing starts until the
+   * earliest reset; `until` is that moment, or 0 when any login did not say.
+   */
+  _waitingOnLimit(rows) {
+    const out = {};
+    const held = new Map();
+    const heldUntil = (engine) => {
+      if (!held.has(engine)) {
+        const profiles = this._profilesFor(engine);
+        const keys = profiles.map((p) => this._accountKey(engine, p));
+        const allOut = profiles.length > 0 && !this._liveProfilesFor(engine).length
+          && keys.every((k) => this._profileTrouble?.[k]?.cause === 'at-limit');
+        // The reset the tool printed, never the app's own retry clock: that is
+        // when it tries again, which is not a time the limit promised.
+        held.set(engine, allOut ? Math.min(...keys.map((k) => this._profileTrouble[k].resetsAt ?? 0)) : null);
+      }
+      return held.get(engine);
+    };
+    for (const i of rows ?? []) {
+      if (i.status !== 'open' || this.sessions.has(i.id)) continue;
+      const engine = engineOf(this._engineFor(i));
+      const until = heldUntil(engine);
+      if (until !== null) out[i.id] = { tool: engineLabel(engine), until };
     }
     return out;
   }

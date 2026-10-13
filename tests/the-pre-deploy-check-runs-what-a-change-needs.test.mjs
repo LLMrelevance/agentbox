@@ -18,6 +18,7 @@
 // one shape run below takes about a second.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { layersFor, DRIVE_ORDER, REAL_ORDER, INSTALLED_ORDER } from '../.claude/skills/verify-agentbox/scripts/verify.mjs';
 import { SHAPES, build } from '../.claude/skills/verify-agentbox/scripts/machines.mjs';
@@ -88,6 +89,30 @@ describe('which layers a branch gets', () => {
     for (const order of [DRIVE_ORDER, INSTALLED_ORDER]) {
       const i = order.indexOf('every-login-runs-out');
       if (i >= 0) expect(i, order.join(' ')).toBe(order.length - 1);
+    }
+  });
+});
+
+// Found 2026-10-12 on the first full run: `projects()` read the folder names
+// one dash short ("-sandbox"), so every drive looking for a thread across
+// projects found none and new-thread failed on a thread that was there.
+describe('reading the copy\'s store', () => {
+  it('finds each project by its own slug, and the threads in it', async () => {
+    const { projects, rows } = await import('../.claude/skills/verify-agentbox/scripts/drives.mjs');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-store-'));
+    try {
+      const state = { storeRoot: path.join(root, 'store'), accountRoot: path.join(root, 'store', 'accounts', 'verify-account') };
+      const folder = (slug) => path.join(state.storeRoot, 'projects', path.join(state.accountRoot, slug).replace(/[^A-Za-z0-9]/g, '-'));
+      for (const slug of ['sandbox', 'second']) fs.mkdirSync(folder(slug), { recursive: true });
+      fs.writeFileSync(path.join(folder('second'), 'work-items.jsonl'),
+        `${JSON.stringify({ id: 'w-0a1b2c3d4e', ts: 1, source: 'system', patch: { title: 'In second', status: 'open' } })}\n`);
+      // Another account's project beside them is not ours.
+      fs.mkdirSync(path.join(state.storeRoot, 'projects', `${path.join(root, 'store', 'accounts', 'someone')}-x`.replace(/[^A-Za-z0-9]/g, '-')), { recursive: true });
+      expect(projects(state).sort()).toEqual(['sandbox', 'second']);
+      expect(rows(state).map((r) => [r.title, r.product])).toEqual([['In second', 'second']]);
+      expect(rows(state, 'sandbox')).toEqual([]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 });

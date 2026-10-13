@@ -346,6 +346,9 @@ export interface SupervisorStatus {
   // Rows nothing can start because their tool is signed out, id -> the tool's
   // name. Said instead of "queued", which would promise an agent that cannot come.
   signInNeeded?: Record<string, string>;
+  // Rows nothing can start because every login of their tool is out of usage,
+  // id -> the tool's name and when it resets (0 when no login said).
+  atLimit?: Record<string, { tool: string; until: number }>;
   // Rows the app's ship queue still owes a ship (main/ship-queue.mjs). Waiting
   // on the app, not on a person: In progress, reading "Shipping".
   shipping?: string[];

@@ -51,7 +51,7 @@ import type { RunningSession, WorkItem } from './types';
 // would be worse than the silence it replaces.
 // `next` is a queued task she pushed with Run now (w-87ff499077): still
 // waiting, but first in line, and the word changing is how the press shows.
-export type LiveState = 'working' | 'shipping' | 'next' | 'queued' | 'signin' | 'paused' | 'silent' | 'idle';
+export type LiveState = 'working' | 'shipping' | 'next' | 'queued' | 'signin' | 'limit' | 'paused' | 'silent' | 'idle';
 
 export interface LiveLine {
   state: LiveState;
@@ -68,6 +68,11 @@ export interface LiveFacts {
    * `supervisor.signInNeeded`: rows nothing can start because the tool they run
    *  on is signed out, each with that tool's name ("Claude Code", "Codex"). */
   signInNeeded?: Record<string, string>;
+  /**
+   * `supervisor.atLimit`: rows nothing can start because every login of their
+   *  tool is out of usage, each with the tool's name and when it resets (0 when
+   *  no login said). */
+  atLimit?: Record<string, { tool: string; until: number }>;
   /** The id is on `supervisor.shipping`: the app's ship queue still owes it a ship. */
   shipping?: boolean;
   /** `supervisor.runNow`: the queued ids she pushed with Run now. */
@@ -140,6 +145,7 @@ export function shortWord(state: LiveState, helpers = 0): string {
   if (state === 'next') return 'Up next';
   if (state === 'queued') return 'Queued';
   if (state === 'signin') return 'Signed out';
+  if (state === 'limit') return 'At its limit';
   if (state === 'paused') return 'Paused';
   // "NOTHING CAME BACK", AND THE PLAINNESS IS THE POINT.
   //
@@ -203,7 +209,7 @@ export function cameBackEmpty(
 
 export function liveLine(item: WorkItem, facts: LiveFacts = {}): LiveLine | null {
   const {
-    session = null, queued = [], runNow = [], stalled = false, paused = false, silent = null, signInNeeded = {},
+    session = null, queued = [], runNow = [], stalled = false, paused = false, silent = null, signInNeeded = {}, atLimit = {},
     inProgress = false, scheduledUntil = 0, now = Date.now(), shipping = false,
   } = facts;
 
@@ -305,6 +311,19 @@ export function liveLine(item: WorkItem, facts: LiveFacts = {}): LiveLine | null
       line: tool === 'Codex'
         ? 'Codex is signed out. Open a terminal and run codex login, and this starts on its own.'
         : `${tool} is signed out. Open a terminal, run claude, and type /login, and this starts on its own.`,
+    };
+  }
+
+  // The same for a tool whose every login is out of usage: no agent is coming
+  // until the reset, so "as soon as one is free" would be the same lie.
+  const limit = atLimit[item.id];
+  if (limit) {
+    const at = limit.until > now
+      ? new Date(limit.until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s/g, '').toLowerCase()
+      : null;
+    return {
+      state: 'limit',
+      line: `${limit.tool} is at its usage limit, so this starts on its own when it resets${at ? ` at ${at}` : ''}.`,
     };
   }
 
