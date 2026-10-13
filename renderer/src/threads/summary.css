@@ -123,8 +123,18 @@
    full-window shots of 16 to 24px: the weight sets it apart from the lines
    under it, not the size. Medium since w-5391bb330f, picked from 300 to 600 in
    Dark; light read too thin. Three lines at most; the conversation beside it
-   has the rest. Read-only, so it answers no hover. */
+   has the rest. A click renames it (w-ab3d51dc7d), so it answers the pointer
+   the way the lines under it do, a wash and a pencil, and the negative margin
+   pays for that padding so the name sits exactly where it did. */
 .ts-title { margin: 0 0 22px; font-size: 16px; font-weight: 500; line-height: 22px; letter-spacing: -.01em; color: var(--text); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ts-title[role="button"], .ts-title-edit { position: relative; box-sizing: border-box; margin: -7px -8px 15px; padding: 6px 28px 6px 8px; border: 1px solid transparent; border-radius: var(--radius); cursor: pointer; transition: background-color .08s ease; }
+.ts-title[role="button"]:hover { background: var(--wash); }
+.ts-title[role="button"]:focus-visible { outline: none; border-color: var(--line-strong); }
+.ts-title[role="button"] .ts-pen { position: absolute; top: 11px; right: 8px; }
+.ts-title[role="button"]:hover .ts-pen, .ts-title[role="button"]:focus-visible .ts-pen { opacity: 1; }
+.ts-close + .ts-title[role="button"] { margin-right: 28px; }
+.ts-edit.ts-title-edit { margin: -7px -8px 15px; font-size: 16px; font-weight: 500; line-height: 22px; letter-spacing: -.01em; cursor: text; border-color: var(--line-strong); }
+.ts-close + .ts-edit.ts-title-edit { width: calc(100% - 20px); margin-right: 28px; }
 
 /* THE FOOT: the hairline and the properties, at the bottom edge. It adds no
    room of its own above the hairline (w-b51b2e1c86): under a long summary the
@@ -262,10 +272,18 @@
 .workspace-layout.workspace-task:has(.thread-crumb) > .topbar { height: 56px; min-height: 56px; flex-basis: 56px; padding-top: 0; padding-bottom: 0; }
 .workspace-layout.workspace-task:has(.thread-crumb) > .topbar > .topbar-right { top: 50%; transform: translateY(-50%); }
 .workspace-task-header:has(> .thread-crumb) { position: static; flex: 1; min-width: 0; margin: 0 64px 0 0; padding: 0; align-self: center; }
-.workspace-task-header > .back-esc.thread-crumb { position: static; display: flex; align-items: center; width: auto; max-width: 100%; height: 28px; margin: 0; padding: 4px 10px 4px 4px; font: 11px var(--mono); letter-spacing: .09em; text-transform: uppercase; color: var(--text-faint); white-space: nowrap; overflow: hidden; }
-.workspace-task-header > .back-esc.thread-crumb svg { flex: none; width: 13px; height: 13px; margin-right: 8px; }
+.workspace-task-header > .thread-crumb { display: flex; align-items: center; width: auto; max-width: 100%; height: 28px; margin: 0; font: 11px var(--mono); letter-spacing: .09em; text-transform: uppercase; color: var(--text-faint); white-space: nowrap; overflow: hidden; }
+/* TWO CONTROLS, NOT ONE (w-ab3d51dc7d): "‹ NEEDS YOU" goes back, and the name
+   renames. Each answers the pointer on its own, so it is plain which half a
+   click will do. The back half is `.back-esc` for its key and hint, put back
+   in the line rather than pinned where the old corner mark sat. The gaps
+   either side of the slash are the 13 they were. */
+.thread-crumb > .back-esc.thread-crumb-back { position: static; flex: none; height: 28px; margin: 0; padding: 4px 8px 4px 4px; gap: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; }
+.thread-crumb > .back-esc.thread-crumb-back svg { flex: none; width: 13px; height: 13px; margin-right: 8px; }
 .thread-crumb-from { flex: none; }
-.thread-crumb-sep { flex: none; margin: 0 13px; }
+.thread-crumb-sep { flex: none; margin: 0 7px 0 5px; }
 .thread-crumb-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-dim); }
-.thread-crumb:hover .thread-crumb-from, .thread-crumb:focus-visible .thread-crumb-from { color: var(--text-dim); }
-.thread-crumb:hover .thread-crumb-name, .thread-crumb:focus-visible .thread-crumb-name { color: var(--text); }
+button.thread-crumb-name { -webkit-app-region: no-drag; height: 28px; padding: 0 6px; border: 0; border-radius: var(--radius); background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; white-space: nowrap; cursor: text; }
+button.thread-crumb-name:hover, button.thread-crumb-name:focus-visible { background: var(--bg-hover); color: var(--text); outline: none; }
+/* The box she types the new name in: her own capitals, not the bar's. */
+.thread-crumb-edit { -webkit-app-region: no-drag; flex: 1; min-width: 120px; max-width: 640px; height: 28px; box-sizing: border-box; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--wash); font: 12px var(--mono); letter-spacing: .02em; text-transform: none; color: var(--text); outline: none; caret-color: var(--accent); }

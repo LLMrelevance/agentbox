@@ -48,16 +48,20 @@ describe('the panel opens with the thread’s name', () => {
   // directly over Problem, so the words read as one block.
   // CHANGED 2026-10-04 (w-922f66bb06): the name opens the panel and the
   // properties sit at its foot, Priority second. It was properties first.
+  // The heading carries a pencil since it renames the thread (w-ab3d51dc7d),
+  // so these read the name up to that pencil.
+  const named = (html) => html.match(/<h2 class="ts-title"[^>]*>([^<]*)<svg class="ts-pen"/)?.[1];
   it('says the name the row shows, the label, first and over the three lines', () => {
     const html = draw(item());
-    expect(html).toContain('<h2 class="ts-title">Acme renewal terms</h2><div class="ts-sec">');
+    expect(named(html)).toBe('Acme renewal terms');
+    expect(html).toMatch(/<\/svg><\/h2><div class="ts-sec">/);
     expect(text(html)).toMatch(/^Acme renewal terms Context .* Status In progress Priority \w+ Owner You Project Northwind/);
   });
   it('falls back to the title on a thread with no label', () => {
-    expect(draw(item({ label: undefined }))).toContain('<h2 class="ts-title">Can you send Acme their renewal terms by Thursday? Their contract ends on the 14th.</h2>');
+    expect(named(draw(item({ label: undefined })))).toBe('Can you send Acme their renewal terms by Thursday? Their contract ends on the 14th.');
   });
   it('treats a blank label as no label, the way the row does', () => {
-    expect(draw(item({ label: '   ', title: 'Pricing page' }))).toContain('<h2 class="ts-title">Pricing page</h2>');
+    expect(named(draw(item({ label: '   ', title: 'Pricing page' })))).toBe('Pricing page');
   });
 });
 
@@ -107,7 +111,13 @@ describe('what you can change looks changeable, and what you cannot does not', (
   });
   it('gives a read-only value no hover at all', () => {
     expect(css).not.toMatch(/\.ts-value:hover/);
+  });
+  // The name was read-only until w-ab3d51dc7d; it renames now, so it answers
+  // the pointer the way the lines do, and only as a button.
+  it('gives the name the lines\' wash and pencil, since it renames', () => {
     expect(css).not.toMatch(/\.ts-title:hover/);
+    expect(css).toMatch(/\.ts-title\[role="button"\]:hover \{[^}]*background: var\(--wash\)/);
+    expect(css).toMatch(/\.ts-title\[role="button"\]:hover \.ts-pen/);
   });
   it('keeps the old dotted underline off the changeable fields', () => {
     expect(css).not.toMatch(/\.ts-prop-btn:hover \{[^}]*text-decoration/);

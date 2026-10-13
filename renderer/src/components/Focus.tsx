@@ -1296,9 +1296,14 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // beside it says. It stays thin when the summary folds (w-20292d329f): the
   // crumb still names the thread, and a bar that changed shape every time the
   // summary opened or closed "looks a little weird".
-  const threadName = direct && talkFull ? talkFull : rowTitle(item);
+  // Its name renames it (w-ab3d51dc7d), except a conversation, which is named
+  // for the person in it.
+  const named = direct && talkFull;
+  const threadName = named ? talkFull : rowTitle(item);
+  const rename = named ? undefined
+    : (label: string) => api.threadEdit(item.product, item.id, { label }).then((r) => r.ok);
   const barContent = summaryOffered && crumbFrom
-    ? <ThreadCrumb from={crumbFrom} name={threadName} onBack={onClose} />
+    ? <ThreadCrumb from={crumbFrom} name={threadName} onBack={onClose} onRename={rename} threadKey={`${item.product}/${item.id}`} />
     : <>{backButton}{bandLine}</>;
 
   // ANYTHING ADDED TO THIS ELEMENT RIDES BESIDE THE LITERAL, NEVER INSIDE IT.
