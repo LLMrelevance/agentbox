@@ -648,11 +648,25 @@ export class Store {
   // An ordinary agent-filed item: a PROPOSAL, which is what puts it in her
   // inbox and keeps it there until she answers. Used for the miss alert, which
   // is news about a repeating task rather than work she asked for.
-  fileItem(slug, { title, body, kind = 'review', priority = 5, labels = [] }) {
+  // `problem` is the summary's Context, the few sentences a reader gets before
+  // they open anything. Without one the panel falls back to the first sentence
+  // of the body (summaryOf, shared/thread-cards.mjs), which on a row whose body
+  // is a list reads as that list with its line breaks taken out.
+  fileItem(slug, { title, body, problem, kind = 'review', priority = 5, labels = [] }) {
     const { workItemsDisk } = this.modules;
     return workItemsDisk.createWorkItem(
-      this.productDir(slug), { title, body, kind, priority, labels }, { source: 'agent' },
+      this.productDir(slug), { title, body, problem, kind, priority, labels }, { source: 'agent' },
     );
+  }
+
+  // NEWS THE APP ITSELF HAS, ON A ROW THAT ALREADY EXISTS. The app's own words,
+  // so 'system' and a note: the answer is theirs and the result is the agent's.
+  // A note is a thread field, so a second one reads as the next thing said on
+  // the row rather than overwriting the first. Used by main/main-went-red.mjs
+  // to say main is green again on the row that reported the red.
+  noteItem(slug, id, note) {
+    const { workItemsDisk } = this.modules;
+    return workItemsDisk.updateWorkItem(this.productDir(slug), id, { note }, { source: 'system' });
   }
 
   // New product: rare and deliberate. A directory, a project.json, and a first

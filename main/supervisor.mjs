@@ -5,6 +5,7 @@ export { streamingText, countHelpers, saidNothingSheCanUse } from './harnesses/c
 import { taskRemoteControl } from './task-remote-control.mjs';
 import { taskFolderPath, real, restoreTaskFolder } from './task-folders.mjs';
 import { SHIP_LABEL, ShipQueue, readShipSettings, shipScriptFor } from './ship-queue.mjs';
+import { MainTests } from './main-went-red.mjs';
 import { folderJob } from './task-folders-offthread.mjs';
 import { gitJob } from './git-change-offthread.mjs';
 import { queuedReplyText } from './live-replies.mjs';
@@ -365,8 +366,13 @@ export class Supervisor {
         const fresh = this.store.readItem?.(item.product, item.id) ?? item;
         this.spawnWorker(fresh, { continuation: true, shipFailure: reply });
       },
-      afterShip: () => this.onShipped(),
+      afterShip: (shipped) => { this.onShipped(); this.watchMainsTests(shipped); },
     });
+    // AND THEN SOMEBODY WATCHES THE RUN THAT SHIP STARTED. The whole suite runs
+    // on GitHub for every push and takes about five minutes, which is after the
+    // agent has ended its turn, so main was red for four days in October with
+    // nobody reading the cross (main/main-went-red.mjs).
+    this.mainTests = new MainTests({ store, userDir });
     this._compactionJobs = new Map();
     this.sessions = new Map(); // itemId -> {child, product, startedAt, tail, itemId}
     // Spawns waiting on their row's folder, and folders made for the spawn that
@@ -733,9 +739,25 @@ export class Supervisor {
     return true;
   }
 
+  /**
+   * WAIT FOR THAT COMMIT'S TESTS ON GITHUB, BESIDE EVERYTHING ELSE.
+   *
+   * Nothing waits on this: no ship, no agent, no tick. It is started and
+   * dropped, every failure inside it is quiet, and the app quitting ends it
+   * wherever it had got to (`stop` below), because the next ship starts another
+   * one and a run nobody watched costs a row rather than anything real.
+   */
+  watchMainsTests(shipped) {
+    if (!shipped?.sha || !shipped?.product) return;
+    try {
+      this.mainTests.watch(shipped).catch(() => {});
+    } catch { /* a watch that cannot start is not a ship that failed */ }
+  }
+
   stop() {
     clearInterval(this._timer);
     clearInterval(this._memoryLogTimer);
+    this.mainTests?.stop();
     // The shared `codex app-server` goes with them. An orphaned one keeps every
     // thread it is holding alive after the supervisor that answers their
     // approvals has gone, which is the 2026-08-06 orphan incident in the other

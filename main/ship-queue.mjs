@@ -280,8 +280,13 @@ export class ShipQueue {
       // Already on main: there is nothing to fix, so nobody is woken.
       const already = /There is nothing to ship/.test(out);
       if (code === 0 || already) {
-        this.store.shipped(product.slug, item.id, { sha: shippedSha(out), labels: withoutShipLabel(item) });
-        this.afterShip();
+        const sha = shippedSha(out);
+        this.store.shipped(product.slug, item.id, { sha, labels: withoutShipLabel(item) });
+        // THE COMMIT TRAVELS WITH THE NEWS. What follows a ship wants to know
+        // which commit went out: main/main-went-red.mjs waits for that
+        // commit's test run on GitHub, because nothing else is still running
+        // five minutes after the agent ended.
+        this.afterShip({ item, product, sha });
       } else {
         this.store.shipFailed(product.slug, item.id, { note: failureNote(out), labels: withoutShipLabel(item) });
         // Straight back to the session that wrote the change. Not through the
