@@ -57,7 +57,13 @@ export function createSandbox({
   fetchImpl = globalThis.fetch,
   uploadRetryMs = 5_000,
   killGraceMs = KILL_GRACE_MS,
+  // FOR TESTS ONLY: a test runs the "sandbox" on the same machine as the
+  // "Mac", so the paths a run names would land on top of the Mac's own
+  // folders. A root puts them under a scratch directory instead. In the
+  // image this is never set and every path is used exactly as sent.
+  pathRoot = null,
 } = {}) {
+  const at = (p) => (pathRoot ? path.join(pathRoot, p) : p);
   let run = null;
   let bridge = null;
   let statusChangedAt = Math.floor(Date.now() / 1000);
@@ -406,8 +412,15 @@ export function createSandbox({
       if (problem) return { ok: false, error: 'bad-start', message: problem };
       if (bridge) for (const c of bridge.conns.values()) c.sock.destroy();
       closeLog(run);
+      const spec = !pathRoot ? req : {
+        ...req,
+        cwd: at(req.cwd),
+        files: (req.files || []).map((f) => ({ ...f, path: at(f.path), ...(f.untar ? { untar: at(f.untar) } : {}) })),
+        env: { ...(req.env || {}), AGENTBOX_PATH_ROOT: pathRoot },
+        results: req.results && { ...req.results, bring: (req.results.bring || []).map((b) => ({ ...b, dir: at(b.dir) })) },
+      };
       const r = {
-        id: req.runId, spec: req, state: 'preparing', waiters: new Set(), pendingStdin: [], child: null,
+        id: req.runId, spec, state: 'preparing', waiters: new Set(), pendingStdin: [], child: null,
         exitCode: null, startSha: null, inSeq: 0, cancelled: null, manifest: null,
         dir: path.join(workRoot, '.agentbox', safe(req.runId)),
       };
@@ -448,7 +461,7 @@ export function createSandbox({
         try {
           for (const f of req.files || []) {
             if (!f?.url || !path.isAbsolute(f?.path || '')) return { ok: false, error: 'bad-file' };
-            await placeFile(f);
+            await placeFile({ ...f, path: at(f.path), ...(f.untar ? { untar: at(f.untar) } : {}) });
           }
         } catch (err) {
           return { ok: false, error: 'file-failed', message: err.message };
@@ -479,7 +492,7 @@ export function createSandbox({
       case 'collect':
         if (r.state === 'collected') return { ...r.manifest, already: true };
         if (r.state !== 'exited' && r.state !== 'collect-failed') return { ok: false, error: 'not-exited', state: r.state };
-        return manualCollect(r, req);
+        return manualCollect(r, pathRoot ? { ...req, bring: (req.bring || []).map((b) => ({ ...b, dir: at(b.dir) })) } : req);
       default:
         return { ok: false, error: 'unknown-action' };
     }
