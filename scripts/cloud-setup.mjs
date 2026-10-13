@@ -26,6 +26,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cloudConfigPath } from '../main/cloud/config.mjs';
 
 const REGION = 'us-east-1';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -40,7 +41,7 @@ const NAMES = {
   appUser: 'agentbox-cloud-app',
   profile: 'agentbox-cloud',
 };
-export const CONFIG_PATH = process.env.AGENTBOX_CLOUD_CONFIG || path.join(os.homedir(), '.agentbox', 'cloud.json');
+const CONFIG_PATH = cloudConfigPath();
 
 const say = (...a) => console.log('cloud-setup:', ...a);
 
@@ -209,6 +210,9 @@ function ensureAppUser(bucket, runtimeArn) {
     Statement: [
       { Effect: 'Allow', Action: ['bedrock-agentcore:InvokeAgentRuntime', 'bedrock-agentcore:StopRuntimeSession'], Resource: [runtimeArn, `${runtimeArn}/*`] },
       { Effect: 'Allow', Action: ['s3:GetObject', 's3:PutObject'], Resource: `arn:aws:s3:::${bucket}/runs/*` },
+      // Without list rights S3 answers a missing object with 403, not 404, and
+      // "this run uploaded no transcript" would read as a refusal.
+      { Effect: 'Allow', Action: ['s3:ListBucket'], Resource: `arn:aws:s3:::${bucket}`, Condition: { StringLike: { 's3:prefix': ['runs/*'] } } },
     ],
   };
   aws(['iam', 'put-user-policy', '--user-name', NAMES.appUser, '--policy-name', `${NAMES.appUser}-policy`, '--policy-document', JSON.stringify(policy)], { json: false });
@@ -254,7 +258,7 @@ async function main() {
       { Effect: 'Allow', Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents', 'logs:DescribeLogStreams', 'logs:DescribeLogGroups'], Resource: `arn:aws:logs:${REGION}:${account}:log-group:/aws/bedrock-agentcore/runtimes/*` },
     ],
   });
-  ensureBuildProject(bucket, buildRoleArn);
+  await retrying('build project', () => ensureBuildProject(bucket, buildRoleArn));
   const tag = imageTag(version);
   const containerUri = await buildImage(bucket, repoUri, version, tag);
   const runtime = await ensureRuntime(containerUri, runtimeRoleArn);

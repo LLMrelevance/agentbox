@@ -134,10 +134,14 @@ export async function cloudRun({
   watchParent = true,
   stubPath = STUB,
   signals = process,
+  // Only bring an earlier run home, and start nothing: what the supervisor
+  // runs for a folder whose cloud work is still outstanding.
+  importOnly = false,
 }) {
   const say = (msg) => stderr.write(`agentbox cloud: ${msg}\n`);
   const configDir = env.CLAUDE_CONFIG_DIR || path.join(homeDir, '.claude');
-  const projectsDir = path.join(configDir, 'projects', transcriptFolderName(cwd));
+  const projectsFor = (dir) => path.join(dir || configDir, 'projects', transcriptFolderName(cwd));
+  const projectsDir = projectsFor(configDir);
 
   // 1. An earlier run that never came home comes home first.
   const earlier = readMarker(cwd);
@@ -145,6 +149,7 @@ export async function cloudRun({
     const back = await bringHome(earlier, { recovering: true });
     if (!back.ok) { say(`an earlier cloud run in this folder could not be brought back yet (${back.why}); not starting another`); return IMPORT_FAILED; }
   }
+  if (importOnly) return 0;
 
   const runId = crypto.randomUUID();
   const sessionId = `agentbox-${(env.ZERO_ITEM || 'run').replace(/[^a-zA-Z0-9-]/g, '')}-${runId}`;
@@ -219,7 +224,7 @@ export async function cloudRun({
     ...(claudeToken ? { CLAUDE_CODE_OAUTH_TOKEN: claudeToken } : {}),
   };
 
-  writeMarker(cwd, { runId, sessionId, branch, startSha, pid: process.pid, state: 'starting' });
+  writeMarker(cwd, { runId, sessionId, branch, startSha, configDir, pid: process.pid, state: 'starting' });
 
   // 3. Start. Starting the same run twice is answered "already", so a start
   // whose reply was lost is simply asked again.
@@ -235,7 +240,7 @@ export async function cloudRun({
     clearMarker(cwd);
     return 1;
   }
-  writeMarker(cwd, { runId, sessionId, branch, startSha, pid: process.pid, state: 'running' });
+  writeMarker(cwd, { runId, sessionId, branch, startSha, configDir, pid: process.pid, state: 'running' });
 
   // 4. The pump.
   let cursor = 0;
@@ -378,7 +383,7 @@ export async function cloudRun({
   const back = await bringHome({ runId, sessionId, branch, startSha }, { cursor, write: (e) => absorb(e) });
   if (!back.ok) {
     say(`the cloud run's work could not be brought back (${back.why}); it is kept in the cloud for 7 days and the next run in this folder will try again`);
-    writeMarker(cwd, { runId, sessionId, branch, startSha, pid: null, state: 'import-failed' });
+    writeMarker(cwd, { runId, sessionId, branch, startSha, configDir, pid: null, state: 'import-failed' });
     return IMPORT_FAILED;
   }
   return back.exitCode ?? 1;
@@ -445,8 +450,9 @@ export async function cloudRun({
       if (record.commits > 0) gitOk(cwd, ['update-ref', '-d', `refs/agentbox/cloud/${rec.runId}`]);
       const tgz = await storage.get(k('projects.tgz'));
       if (tgz) {
-        fs.mkdirSync(projectsDir, { recursive: true });
-        execFileSync('tar', ['-xzf', '-', '-C', projectsDir], { input: tgz });
+        const into = projectsFor(rec.configDir);
+        fs.mkdirSync(into, { recursive: true });
+        execFileSync('tar', ['-xzf', '-', '-C', into], { input: tgz });
       }
     } catch (err) {
       return { ok: false, why: err.message.split('\n')[0] };

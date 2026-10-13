@@ -35,7 +35,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import http from 'node:http';
-import { spawn, execFile } from 'node:child_process';
+import { spawn, execFile, execFileSync } from 'node:child_process';
 
 // One stdout event at most this many bytes of output.
 const CHUNK = 48 * 1024;
@@ -62,6 +62,12 @@ export function createSandbox({
   // folders. A root puts them under a scratch directory instead. In the
   // image this is never set and every path is used exactly as sent.
   pathRoot = null,
+  // WHO THE COMMAND RUNS AS. In the image the server is root, because the
+  // paths it must recreate are anyone's (/Users/<name>/..., and the Mac's own
+  // temp folder for the per-run settings), and the command runs as the
+  // unprivileged `agent` user, owning only its folder and its account folder.
+  // { uid, gid, home, user }, or null to run as whoever the server is.
+  runAs = null,
 } = {}) {
   const at = (p) => (pathRoot ? path.join(pathRoot, p) : p);
   let run = null;
@@ -165,7 +171,8 @@ export function createSandbox({
       });
       sock.on('error', () => {});
     });
-    bridge.server.listen(bridgeSocket);
+    // The stubs run as the command's user, so they must be able to connect.
+    bridge.server.listen(bridgeSocket, () => { try { fs.chmodSync(bridgeSocket, 0o777); } catch { /* gone */ } });
   }
 
   /* ------------------------------- THE RUN -------------------------------- */
@@ -193,6 +200,13 @@ export function createSandbox({
       }
       for (const f of files) await placeFile(f);
       fs.rmSync(bundle, { force: true });
+      // What the command writes to becomes its own: the task folder, and the
+      // account folder its transcripts and tooling live in.
+      if (runAs) {
+        const own = [cwd];
+        if (env.CLAUDE_CONFIG_DIR) { const d = at(env.CLAUDE_CONFIG_DIR); fs.mkdirSync(d, { recursive: true }); own.push(d); }
+        for (const p of own) await sh('chown', ['-R', `${runAs.uid}:${runAs.gid}`, p], '/');
+      }
     } catch (err) {
       emit({ kind: 'error', message: `could not prepare the run: ${err.message}` }, r);
       setState('failed', {}, r);
@@ -213,10 +227,16 @@ export function createSandbox({
     try {
       child = spawn(argv[0], argv.slice(1), {
         cwd,
-        env: { ...baseEnv, ...env, AGENTBOX_BRIDGE_SOCK: bridgeSocket },
+        env: {
+          ...baseEnv,
+          ...(runAs ? { HOME: runAs.home, USER: runAs.user, LOGNAME: runAs.user, TMPDIR: '/tmp' } : {}),
+          ...env,
+          AGENTBOX_BRIDGE_SOCK: bridgeSocket,
+        },
         stdio: ['pipe', 'pipe', 'pipe'],
         // Its own process group, so a cancel reaches everything it started.
         detached: true,
+        ...(runAs ? { uid: runAs.uid, gid: runAs.gid } : {}),
       });
     } catch (err) {
       emit({ kind: 'error', message: `could not start the command: ${err.message}` }, r);
@@ -564,9 +584,14 @@ export function pickBaseEnv(env) {
 
 function safe(s) { return String(s).replace(/[^a-zA-Z0-9._-]/g, '_'); }
 
+// git refuses to work in a folder another user owns ("dubious ownership"),
+// and once the command has run, the task folder is the `agent` user's while
+// this server, collecting it, is root. Every folder here is ours.
+const TRUST_EVERY_FOLDER = { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'safe.directory', GIT_CONFIG_VALUE_0: '*' };
+
 function sh(cmd, args, cwd, extraEnv = {}, asBuffer = false, input = undefined) {
   return new Promise((resolve, reject) => {
-    const child = execFile(cmd, args, { cwd, env: { ...process.env, ...extraEnv }, maxBuffer: 256 * 1024 * 1024, encoding: asBuffer ? 'buffer' : 'utf8' }, (err, stdout, stderr) => {
+    const child = execFile(cmd, args, { cwd, env: { ...process.env, ...TRUST_EVERY_FOLDER, ...extraEnv }, maxBuffer: 256 * 1024 * 1024, encoding: asBuffer ? 'buffer' : 'utf8' }, (err, stdout, stderr) => {
       if (err) return reject(new Error(`${cmd} ${args[0]}: ${String(stderr || err.message).trim().slice(0, 500)}`));
       resolve(stdout);
     });
@@ -610,6 +635,13 @@ function json(res, status, body) {
 
 // Started directly (the image's entrypoint), it serves AgentCore's port.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const sandbox = createSandbox({ workRoot: process.env.HOME || '/tmp', bridgeSocket: '/tmp/agentbox-bridge.sock' });
+  let runAs = null;
+  const user = process.env.AGENTBOX_RUN_AS;
+  if (user && process.getuid?.() === 0) {
+    const id = (flag) => Number(execFileSync('id', [flag, user], { encoding: 'utf8' }).trim());
+    const home = execFileSync('getent', ['passwd', user], { encoding: 'utf8' }).split(':')[5];
+    runAs = { uid: id('-u'), gid: id('-g'), home, user };
+  }
+  const sandbox = createSandbox({ workRoot: '/var/lib/agentbox', bridgeSocket: '/tmp/agentbox-bridge.sock', runAs });
   sandbox.listen(Number(process.env.PORT) || 8080).then((a) => console.error(`agentbox sandbox listening on ${a.port}`));
 }

@@ -36,6 +36,9 @@ import {fillName} from '../shared/product-name.mjs';
 
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { cloudWorkPending } from './cloud/marker.mjs';
+import { readCloudConfig, readClaudeToken } from './cloud/config.mjs';
 import { buildSessionArgs, CLAUDE_MODES, permissionMode } from './settings.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -355,7 +358,11 @@ export class Supervisor {
       store,
       userDir,
       folderFor: (item, product) => { try { return taskFolderPath(this.productFolder(product), item.id); } catch { return null; } },
-      isLive: (item) => this.sessions.has(item.id),
+      // A FOLDER WHOSE CLOUD RUN HAS NOT COME HOME IS STILL LIVE. The worker
+      // adds `ship` before it exits, and its commits reach this folder only
+      // when the run's work is brought back; shipping before then would push
+      // the stale branch and call it shipped (docs/cloud/PLAN.md, R3).
+      isLive: (item) => this.sessions.has(item.id) || this._cloudWorkOutstanding(item),
       handBack: (item, reply) => {
         const fresh = this.store.readItem?.(item.product, item.id) ?? item;
         this.spawnWorker(fresh, { continuation: true, shipFailure: reply });
@@ -937,6 +944,15 @@ export class Supervisor {
       // moment the urgent row is running, and this sweep picks the row up on
       // that same tick. `_recoverPending` keeps the sweep coming back.
       if (this._preempted.has(itemId)) {
+        out.queued += 1;
+        this._recoverPending = true;
+        continue;
+      }
+      // A CLOUD RUN THE QUIT CUT OFF: its transcript arrives with its work.
+      // Bring that home and come back to this row on a later pass, rather
+      // than reading the missing transcript as a session that is gone.
+      if (rec.cloud && !this.transcriptFile(rec) && rec.cwd && cloudWorkPending(rec.cwd)) {
+        this._bringCloudHome(rec.cwd);
         out.queued += 1;
         this._recoverPending = true;
         continue;
@@ -1630,6 +1646,9 @@ export class Supervisor {
   async releaseWorkFolder(item, product) {
     if (!this._folderRow(item, product)) return null;
     const base = this.productFolder(product);
+    // NOT WHILE A CLOUD RUN'S WORK IS STILL ON ITS WAY BACK: the folder would
+    // read as clean and merged, and be removed, with the work still in S3.
+    try { if (cloudWorkPending(taskFolderPath(base, item.id))) return null; } catch { /* no folder */ }
     try {
       const out = await folderJob('releaseTaskFolder', base, item.id);
       await this.parkClosedFolders(product);
@@ -1887,6 +1906,8 @@ export class Supervisor {
       // reading it is an agent's folder deleted while it works (w-4d722ecf92).
       if (item?.claim && !item.claimExpired) continue;
       if (busy(folder.id)) continue;
+      // Nor one whose cloud run has not come home yet (main/cloud/marker.mjs).
+      if (cloudWorkPending(folder.path)) continue;
       // THE PATH WE WERE HANDED, not the row id alone. Parking used to rebuild
       // `.claude/worktrees/<id>` from the id, so the folder it committed in and
       // removed was not necessarily the one this loop looked at (w-330eea6c66).
@@ -3588,11 +3609,131 @@ export class Supervisor {
     let n = 0;
     for (const s of this.sessions.values()) {
       if (s.command || s.remoteIdle) continue;
+      // A CLOUD RUN IS NOT ON THIS MAC. Its proxy is a small process; the
+      // agent and everything it builds run in AWS. Counting it here would
+      // keep the Mac's own slots full of work that is not using them.
+      if (s.cloud) continue;
       if (engineOf(s.engine) !== which) continue;
       n += 1;
     }
     for (const p of this._preparing?.values() ?? []) if (engineOf(p.engine) === which) n += 1;
     return n;
+  }
+
+  /* ------------------------------ CLOUD RUNS ------------------------------ */
+  // docs/cloud/PLAN.md. A Claude Code thread that would wait for a slot on
+  // this Mac runs in an AWS AgentCore sandbox instead, through
+  // main/cloud/run-cli.mjs, when cloud runs are on (`cloudRuns`), set up
+  // (~/.agentbox/cloud.json) and under their own cap (`maxCloudSessions`).
+
+  _cloudLoad() {
+    let n = 0;
+    for (const s of this.sessions.values()) if (s.cloud) n += 1;
+    return n;
+  }
+
+  _cloudReady() {
+    if (!this.config.cloudRuns) return false;
+    const now = Date.now();
+    if (!this._cloudConfigAt || now - this._cloudConfigAt > 60_000) {
+      this._cloudConfig = readCloudConfig();
+      this._cloudConfigAt = now;
+    }
+    return !!this._cloudConfig;
+  }
+
+  _maxCloud() {
+    const n = Number(this.config.maxCloudSessions);
+    return Number.isFinite(n) && n >= 0 ? n : 10;
+  }
+
+  _localSlotFor(engine) {
+    const which = engineOf(engine);
+    return this._loadFor(which) < this._capacityFor(which) && this._load() < this._capacity();
+  }
+
+  // Room in the cloud: Claude Code only (Codex runs every thread inside one
+  // shared app-server, and has no cloud adapter yet), a live account to run
+  // it on, and the cloud's own cap.
+  _cloudSlotFor(engine) {
+    if (engineOf(engine) !== DEFAULT_ENGINE) return false;
+    if (!this._cloudReady()) return false;
+    return this._capacityFor(DEFAULT_ENGINE) > 0 && this._cloudLoad() < this._maxCloud();
+  }
+
+  // Which rows may go to the cloud at all. A row needs its own task folder
+  // (the cloud run is that folder's branch, packed); a personal project, a
+  // command she typed, or a Remote Control session stays on this Mac.
+  _mayRunInCloud(item, product, cwd, { remoteOnly = false, engine = DEFAULT_ENGINE } = {}) {
+    if (engineOf(engine) !== DEFAULT_ENGINE || remoteOnly) return false;
+    if (!product?.repoPath || !cwd || cwd === product.repoPath) return false;
+    if ((this.config.personalProducts || []).includes(product.slug)) return false;
+    if (item?.id?.startsWith?.('digest-')) return false;
+    return true;
+  }
+
+  // 'local', 'cloud', or null for "wait". A folder whose earlier cloud run
+  // has not come home always goes through the proxy, which brings that run
+  // home before it does anything else; otherwise the Mac first, the cloud
+  // when the Mac is full.
+  _whereToRun({ item, product, cwd, engine, continuation = false, remoteOnly = false }) {
+    const allowed = this._mayRunInCloud(item, product, cwd, { remoteOnly, engine });
+    if (cwd && cloudWorkPending(cwd)) {
+      if (allowed && this._cloudReady()) return 'cloud';
+      this._bringCloudHome(cwd);
+      return null;
+    }
+    if (this._localSlotFor(engine)) return 'local';
+    if (allowed && this._cloudSlotFor(engine)) return 'cloud';
+    return continuation ? 'local' : null;
+  }
+
+  _cloudRunPath() {
+    return fileURLToPath(new URL('./cloud/run-cli.mjs', import.meta.url));
+  }
+
+  // The Claude account folder a profile names, spelled out, because the
+  // cloud run unpacks transcripts and tooling into exactly that path.
+  _claudeConfigDir(profile) {
+    return profile && profile !== 'default' ? profile : path.join(this.config.home || os.homedir(), '.claude');
+  }
+
+  // A FOLDER'S CLOUD WORK IS STILL ON ITS WAY BACK: ask for it, and say so.
+  _cloudWorkOutstanding(item) {
+    let folder = null;
+    try {
+      const product = this.store.listProducts().find((p) => p.slug === item.product);
+      if (!product?.repoPath) return false;
+      folder = taskFolderPath(this.productFolder(product), item.id);
+    } catch { return false; }
+    if (!cloudWorkPending(folder)) return false;
+    this._bringCloudHome(folder);
+    return true;
+  }
+
+  // Brings home a cloud run that ended while nothing was there to receive it
+  // (an app that quit, an import that failed). One at a time per folder, and
+  // not more than every two minutes; a tick picks the folder up once it lands.
+  _bringCloudHome(folder) {
+    this._homecomings ??= new Map();
+    const last = this._homecomings.get(folder);
+    if (last && (last.child || Date.now() - last.at < 120_000)) return;
+    let child;
+    try {
+      child = spawn(process.execPath, [this._cloudRunPath(), '--agentbox-import-only'], {
+        cwd: folder,
+        env: { ...this._workerEnv(), ELECTRON_RUN_AS_NODE: '1' },
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+    } catch (error) {
+      console.warn(`zero: could not bring a cloud run home in ${folder}:`, error.message);
+      return;
+    }
+    const rec = { child, at: Date.now() };
+    this._homecomings.set(folder, rec);
+    child.stderr?.on('data', (d) => console.warn(String(d).trim()));
+    child.on('error', () => { rec.child = null; rec.at = Date.now(); });
+    child.on('exit', () => { rec.child = null; rec.at = Date.now(); this.wake?.(); });
   }
 
   /**
@@ -3649,7 +3790,9 @@ export class Supervisor {
   _hasSlotFor(engine) {
     const which = engineOf(engine);
     if (which === DEFAULT_ENGINE && this._spawnBraked()) return false;
-    return this._loadFor(which) < this._capacityFor(which) && this._load() < this._capacity();
+    // A slot on this Mac, or one in the cloud. Which of the two a row gets is
+    // `_whereToRun`'s answer, at the spawn, once its folder is known.
+    return this._localSlotFor(which) || this._cloudSlotFor(which);
   }
 
   /** The fleet-wide brake, as a clock rather than a state. */
@@ -4049,6 +4192,9 @@ export class Supervisor {
         // record written before the second engine existed carries nothing, and
         // every one of those was Claude Code.
         engine: engineOf(s.engine),
+        // WHERE IT IS RUNNING. Absent for a run on this Mac, so every thread
+        // that is not in the cloud reads exactly as it did before.
+        ...(s.cloud ? { where: 'cloud' } : {}),
         tail: s.tail.slice(-40),
         activity: currentActivity(s),
         // THE BLOCK OF PROSE BEING TYPED THIS SECOND, and the moment it
@@ -6675,8 +6821,18 @@ export class Supervisor {
     }
     this._gotAFolderAfterAll(item.id);
 
+    // ON THIS MAC OR IN THE CLOUD (docs/cloud/PLAN.md). Asked before the plan
+    // and the per-run files exist, so a "wait" costs nothing.
+    let where = this._whereToRun({ item, product, cwd, engine, continuation, remoteOnly });
+    if (!where) {
+      if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
+      return;
+    }
+
     const plan = this.spawnPlan(item, product, { continuation, resumeSessionId, engine, shipFailure });
     const { args } = plan;
+    // A command she typed is over in seconds and needs nothing a sandbox has.
+    if (where === 'cloud' && plan.command && !cloudWorkPending(cwd)) where = 'local';
     // ONE RUN, ONE PAIR OF FILES. The MCP config and the settings used to be a
     // fixed name each in the temp folder, fine while every spawn wrote the
     // same bytes and a race the moment the connector rules made them differ.
@@ -6706,6 +6862,22 @@ export class Supervisor {
     // already had its session id taken off it, so this is not a resume pointed
     // at the wrong home, it is a fresh brief on the account the project named.
     const profile = pinned ?? forcedProfile ?? plan.resumeProfile ?? this._pickProfile(engine);
+    // A CLOUD RUN RUNS ON THIS ACCOUNT'S OWN SUBSCRIPTION, through the sign-in
+    // scripts/cloud-signin.mjs saved for it. An account without one runs here
+    // when there is room, and otherwise waits; it never runs on another's.
+    if (where === 'cloud' && !readClaudeToken(this._claudeConfigDir(profile))) {
+      if (!this._warnedNoCloudSignIn?.has(profile)) {
+        (this._warnedNoCloudSignIn ??= new Set()).add(profile);
+        console.warn(`zero: the Claude account ${profile} has no cloud sign-in (scripts/cloud-signin.mjs), so its threads stay on this Mac`);
+      }
+      if (!cloudWorkPending(cwd) && (this._localSlotFor(engine) || continuation)) where = 'local';
+      else {
+        this.removeSpawnFiles({ spawnFiles });
+        if (cloudWorkPending(cwd)) this._bringCloudHome(cwd);
+        if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
+        return;
+      }
+    }
     // A SECOND ACCOUNT ARRIVES EMPTY, AND THIS IS WHERE IT STOPS BEING EMPTY.
     // Our own Accounts page tells a person to log in with a brand new folder,
     // and Claude Code reads a session's skills, commands and subagents out of
@@ -6729,6 +6901,27 @@ export class Supervisor {
     const env = this._workerEnv(engine);
     const child = engine === 'codex'
       ? this._spawnCodexWorker(plan, { cwd, item, profile })
+      : where === 'cloud'
+      // THE SAME ARGUMENTS, A DIFFERENT PROGRAM. main/cloud/run-cli.mjs runs
+      // Claude Code in the sandbox with exactly these arguments and is, to
+      // everything below, the worker: its stdout is the agent's stream, its
+      // stdin reaches the agent, its exit comes after the agent's work is back
+      // in `cwd`. The account folder is always named, because the run unpacks
+      // the transcript and tooling into exactly that path. No memory-gate
+      // variables: that gate is about this Mac's memory.
+      ? spawn(process.execPath, [this._cloudRunPath(), ...claudeStreamArgs(args)], {
+        cwd,
+        env: {
+          ...env,
+          ELECTRON_RUN_AS_NODE: '1',
+          STORE_ACCOUNT_ID: this.config.accountId,
+          ...storeRootEnv(this.config.storeRoot),
+          CLAUDE_CONFIG_DIR: this._claudeConfigDir(profile),
+          ZERO_PRODUCT: item.product,
+          ZERO_ITEM: item.id,
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
       : spawn(this.config.claudeBin, claudeStreamArgs(args), {
         cwd,
         env: {
@@ -6769,6 +6962,10 @@ export class Supervisor {
       // second time and getting the shared checkout back.
       cwd,
       spawnFiles,
+      // AND WHETHER IT IS RUNNING IN THE CLOUD: not counted against this
+      // Mac's slots (`_loadFor`), shown on the thread, remembered for a
+      // restart (`_liveSessions`).
+      cloud: where === 'cloud',
     };
     this.sessions.set(item.id, session);
     // THAT an agent started work, and on which engine; nothing about the task.
@@ -6987,6 +7184,10 @@ export class Supervisor {
           engine,
           continuation: !!continuation,
           startedAt: session.startedAt,
+          // A cloud run's transcript reaches this Mac only when its work is
+          // brought home, so a restart that finds none waits for that rather
+          // than leaving the row stranded (`recoverInterrupted`).
+          ...(session.cloud ? { cloud: true } : {}),
         };
         // AND THE ROW'S CHAT, written at the same instant and for the same
         // reason. A resumed session announces the id it is resuming, so this
@@ -7047,6 +7248,12 @@ export class Supervisor {
       if (exited) return;
       exited = true;
       if (how?.transportFault) session.transportFault = true;
+      // A CLOUD RUN WHOSE WORK COULD NOT BE BROUGHT BACK (main/cloud/run.mjs,
+      // exit 75). The agent may have finished and said so, but its commits are
+      // not in this folder, so it did not finish here: not a delivered reply,
+      // not an attempt spent, and its closing words are not the answer. The
+      // folder stays marked and the next tick brings the work home.
+      if (session.cloud && code === 75) { session.transportFault = true; session.resultIsError = true; }
       session.exitFailed = !!(signal || code !== 0 || session.transportFault || session.resultIsError || session.result == null);
       this.count?.('run_finished', runEndedProps(session, Date.now()));
       onLine(`session exited (${code})`);
