@@ -145,26 +145,28 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
 /* EACH ARROW IS CENTRED ON ITS CORNER, half over the glass and half over the
    clear band around it, pointing out along that diagonal: a window's corner
    handle rather than an icon parked inside the pill. The patch around the
-   arrow is bigger than the arrow, so there is something to aim at. */
+   arrow is bigger than the arrow, so there is something to aim at. It is grey
+   rather than ink and it does not come all the way up: a handle you can see
+   when you look for it and not a mark on the corner of her screen. */
 .ct-grip {
-  position: absolute; width: calc(18px * var(--ct-s)); height: calc(18px * var(--ct-s));
+  position: absolute; width: calc(20px * var(--ct-s)); height: calc(20px * var(--ct-s));
   display: flex; align-items: center; justify-content: center;
-  opacity: 0; transition: opacity 110ms ease; color: var(--ct-dim);
+  opacity: 0; transition: opacity 110ms ease; color: rgba(78, 82, 92, 0.72);
 }
-.ct-grip svg { width: calc(9px * var(--ct-s)); height: calc(9px * var(--ct-s)); display: block; }
-/* the band is 10 and the patch 18: at 2.5 in, the arrow's middle sits a
-   whisker inside the glass's corner, which is where the rounded edge is */
-.ct-grip-tl { left: calc(2.5px * var(--ct-s)); top: calc(2.5px * var(--ct-s)); cursor: nwse-resize; }
-.ct-grip-tr { right: calc(2.5px * var(--ct-s)); top: calc(2.5px * var(--ct-s)); cursor: nesw-resize; }
-.ct-grip-bl { left: calc(2.5px * var(--ct-s)); bottom: calc(2.5px * var(--ct-s)); cursor: nesw-resize; }
-.ct-grip-br { right: calc(2.5px * var(--ct-s)); bottom: calc(2.5px * var(--ct-s)); cursor: nwse-resize; }
+.ct-grip svg { width: calc(11px * var(--ct-s)); height: calc(11px * var(--ct-s)); display: block; }
+/* the band is 10 and the patch 20, flush with the window's own corner: the
+   arrow's middle lands exactly on the glass's corner, half in and half out */
+.ct-grip-tl { left: 0; top: 0; cursor: nwse-resize; }
+.ct-grip-tr { right: 0; top: 0; cursor: nesw-resize; }
+.ct-grip-bl { left: 0; bottom: 0; cursor: nesw-resize; }
+.ct-grip-br { right: 0; bottom: 0; cursor: nwse-resize; }
 /* the arrow lies along its own corner's diagonal */
 .ct-grip-tr svg, .ct-grip-bl svg { transform: rotate(90deg); }
 /* NOTHING IS DRAWN UNTIL THE POINTER IS ON THAT ONE CORNER. Showing all four
    at once put a frame of handles round the tag — "the borders themselves look
    a bit funky" — and a tag is not a selected object. One corner, one arrow,
    only while the pointer is on it, exactly as a window's own corner behaves. */
-.ct-grip:hover { opacity: 1; }
+.ct-grip:hover { opacity: 0.85; }
 .ct-frame:has(.ct-tag.is-dragging) .ct-grip { opacity: 0; }
 
 .ct-go { display: flex; align-items: center; gap: calc(8px * var(--ct-s)); margin-left: 1px; color: var(--ct-faint); }

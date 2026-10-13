@@ -72,11 +72,11 @@ describe('the corners she drags', () => {
     expect(page).toContain('GRIPS.map');
     // and nothing shows until the pointer is on that one corner: four at once
     // read as a frame of handles round the tag, which it is not
-    expect(css).toMatch(/\.ct-grip \{[^}]*opacity: 0/);
-    expect(css).toMatch(/\.ct-grip:hover \{ opacity: 1/);
+    expect(css).toMatch(/\.ct-grip \{[^}]*opacity: 0;/);
+    expect(css).toMatch(/\.ct-grip:hover \{ opacity: 0\.85/);
     expect(css).not.toMatch(/\.ct-frame:hover \.ct-grip[^:]*\{/);
     // and a patch big enough to aim at, not a few pixels of ledge
-    expect(css).toMatch(/\.ct-grip \{[^}]*width: calc\(18px/);
+    expect(css).toMatch(/\.ct-grip \{[^}]*width: calc\(20px/);
   });
 
   it('press through the same door as a drag, saying which corner it is', () => {
@@ -93,18 +93,23 @@ describe('the arrows hang over the glass, not inside it', () => {
     // lands on the corner, a whisker inside where the radius rounds it off.
     expect(css).toMatch(/\.ct-frame \{[^}]*padding: calc\(10px \* var\(--ct-s\)\)/);
     const grip = css.match(/\.ct-grip \{[^}]*\}/)[0];
-    expect(grip).toMatch(/width: calc\(18px \* var\(--ct-s\)\)/);
-    expect(grip).toMatch(/height: calc\(18px \* var\(--ct-s\)\)/);
+    // a 20pt patch flush with the window's corner, around a 10pt band: the
+    // arrow's middle lands exactly on the glass's corner, half in, half out
+    expect(grip).toMatch(/width: calc\(20px \* var\(--ct-s\)\)/);
+    expect(grip).toMatch(/height: calc\(20px \* var\(--ct-s\)\)/);
     for (const corner of ['tl', 'tr', 'bl', 'br']) {
-      expect(css).toMatch(new RegExp(`\\.ct-grip-${corner} \\{[^}]*calc\\(2\\.5px \\* var\\(--ct-s\\)\\)`));
+      expect(css).toMatch(new RegExp(`\\.ct-grip-${corner} \\{ (left|right): 0; (top|bottom): 0;`));
     }
+    // grey rather than ink, and never quite full strength
+    expect(grip).toMatch(/color: rgba\(78, 82, 92, 0\.72\)/);
+    expect(css).toMatch(/\.ct-grip:hover \{ opacity: 0\.85/);
   });
 
   it('draws the usual two-headed arrow, one head at each end of the diagonal', () => {
     // "a little two-directional arrow almost comes up and that's kind of what
     // we're looking for" — a window's own corner handle.
     const arrow = page.match(/const ARROW = '([^']+)'/)[1];
-    expect(arrow).toMatch(/^M2\.6 2\.6 9\.4 9\.4/);
+    expect(arrow).toMatch(/^M1\.6 1\.6 10\.4 10\.4/);
     expect(arrow.match(/M/g)).toHaveLength(3);
     expect(css).toContain('.ct-grip-tr svg, .ct-grip-bl svg { transform: rotate(90deg); }');
   });

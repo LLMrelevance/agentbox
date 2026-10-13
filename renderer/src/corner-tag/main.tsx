@@ -132,9 +132,10 @@ function useReportSize(ref: React.RefObject<HTMLElement>, which: Part, key: unkn
 }
 
 // The two-headed diagonal arrow a window shows at its corner: one line from
-// corner to corner with a head at each end. Turned ninety degrees for the
-// other diagonal (corner-tag.css).
-const ARROW = 'M2.6 2.6 9.4 9.4M2.6 6.4V2.6H6.4M9.4 5.6V9.4H5.6';
+// corner to corner with a head at each end, turned ninety degrees for the
+// other diagonal (corner-tag.css). It runs nearly the whole box, because a
+// short one reads as a speck rather than a handle.
+const ARROW = 'M1.6 1.6 10.4 10.4M1.6 6.1V1.6H6.1M10.4 5.9V10.4H5.9';
 
 /* --------------------------------- the tag --------------------------------- */
 function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }) {
@@ -245,8 +246,8 @@ function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }
               so it carries a pale outline and reads on a white page, a dark
               app or a photograph alike. */}
           <svg viewBox="0 0 12 12" aria-hidden>
-            <path d={ARROW} fill="none" stroke="rgba(255,255,255,0.92)" strokeWidth="3.6" strokeLinecap="round" strokeLinejoin="round" />
-            <path d={ARROW} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            <path d={ARROW} fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
+            <path d={ARROW} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </span>
       ))}

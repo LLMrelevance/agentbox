@@ -284,3 +284,64 @@ describe('the clear band around the glass', () => {
     expect(AREA.y + AREA.height - (b.y + b.height - 10)).toBe(18);
   });
 });
+
+describe('a drag with the clear band in place', () => {
+  // SHE FOUND THIS IN THE RUNNING APP: "it kind of jumps and when I try to
+  // expand it, it jumps to about three times its size." The band made the
+  // window taller than the glass, and the resize still measured the window:
+  // a 31px tag reported 51, so the first pull of the cursor already asked for
+  // two thirds more than it had. Everything the drag works from is the glass.
+  const BAND = 10;
+  const page = () => {
+    const r = rig();
+    r.call('zero:corner-tag', { ready: [{ id: 'w-1', title: 'Pricing page', says: 'is ready for you', since: r.clock() - 60_000 }], working: 3 });
+    r.call('corner-tag:ready', { part: 'tag' });
+    // the page draws the glass from the scale it is handed and reports the
+    // window: the glass plus the band on every side
+    const draw = () => {
+      const glass = Math.round(28 * r.scaleSent());
+      r.call('corner-tag:size', { part: 'tag', width: Math.round(glass * 3.9) + 2 * BAND, height: glass + 2 * BAND, frame: BAND });
+      return glass;
+    };
+    draw();
+    return { r, draw, glass: () => r.win().bounds.height - 2 * BAND };
+  };
+
+  it('follows the cursor one pixel for one, with no jump on the first move', () => {
+    const { r, draw, glass } = page();
+    const was = glass();
+    const b = r.win().bounds;
+    const grab = { x: b.x + b.width - 2, y: b.y + b.height - 2 };
+    r.cursor.x = grab.x; r.cursor.y = grab.y;
+    r.call('corner-tag:press', { x: grab.x, y: grab.y, grip: true, corner: 'br' });
+    // the first move past the drag threshold: a few pixels, not a leap
+    r.cursor.y = grab.y + 8;
+    r.advance(16);
+    draw();
+    expect(glass()).toBeGreaterThanOrEqual(was);
+    expect(glass() - was).toBeLessThanOrEqual(10);
+    // and twenty more pixels is twenty more points of tag
+    r.cursor.y = grab.y + 28;
+    r.advance(16);
+    draw();
+    expect(Math.abs(glass() - (was + 28))).toBeLessThanOrEqual(2);
+    r.call('corner-tag:release', { cancelled: false });
+  });
+
+  it('keeps the window exactly the glass plus the band, so nothing is clipped', () => {
+    const { r, draw } = page();
+    const b = r.win().bounds;
+    const grab = { x: b.x + b.width - 2, y: b.y + b.height - 2 };
+    r.cursor.x = grab.x; r.cursor.y = grab.y;
+    r.call('corner-tag:press', { x: grab.x, y: grab.y, grip: true, corner: 'br' });
+    for (const dy of [6, 14, 24, 40, 24, 10]) {
+      r.cursor.y = grab.y + dy;
+      r.advance(16);
+      const drawnGlass = Math.round(28 * r.scaleSent());
+      expect(r.win().bounds.height).toBeGreaterThanOrEqual(drawnGlass + 2 * BAND);
+      draw();
+      expect(r.win().bounds.height).toBe(drawnGlass + 2 * BAND);
+    }
+    r.call('corner-tag:release', { cancelled: false });
+  });
+});

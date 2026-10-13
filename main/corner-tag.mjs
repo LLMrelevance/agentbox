@@ -319,12 +319,13 @@ export function createCornerTag({
       // it a frame later. Shrinking waits for the page: a window smaller than
       // what is drawn in it clips, a window larger than it never does.
       if (grew) {
-        // The height the page is about to draw is the scale it was just handed
-        // (28 points times it), and everything in the tag grows together, so
-        // the width goes up by the same proportion until the page says
-        // otherwise.
-        const height = Math.ceil(28 * scaleNow());
-        resizeTo({ width: Math.ceil(tagSize.width * height / Math.max(1, tagSize.height)), height });
+        // The glass the page is about to draw is the scale it was just handed
+        // (28 points times it), and everything in it grows together, so the
+        // width goes up by the same proportion until the page says otherwise.
+        // The window is that glass plus the band on every side.
+        const was = { w: Math.max(1, tagSize.width - 2 * frame), h: Math.max(1, tagSize.height - 2 * frame) };
+        const h = Math.ceil(28 * scaleNow());
+        resizeTo({ width: Math.ceil(was.w * h / was.h) + 2 * frame, height: h + 2 * frame });
       }
       return;
     }
@@ -512,7 +513,11 @@ export function createCornerTag({
       // A press on a grip resizes instead of moving: the corner she has hold
       // of follows the cursor, and the one opposite it stays exactly where it
       // is, the way a window resizes.
-      grip: !!at?.grip, corner, fromHeight: tagSize.height,
+      // THE GLASS, NOT THE WINDOW. The window is the glass plus the band on
+      // every side; measuring the window here asked for the band's height
+      // again on the first pull of the cursor, and the tag leapt (she met it
+      // in the running app: "it jumps to about three times its size").
+      grip: !!at?.grip, corner, fromHeight: Math.max(1, tagSize.height - 2 * frame),
       anchor: {
         x: corner.endsWith('r') ? tag.x : tag.x + tag.width,
         y: corner.startsWith('b') ? tag.y : tag.y + tag.height,
