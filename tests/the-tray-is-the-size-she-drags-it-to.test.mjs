@@ -64,15 +64,63 @@ describe('the size she drags to is a multiple of the automatic one', () => {
   });
 });
 
-describe('the corner she drags', () => {
-  it('is a grip in the tag, which only shows itself when pointed at', () => {
-    expect(page).toContain('ct-grip');
-    expect(css).toContain('.ct-grip');
-    expect(css).toMatch(/\.ct-tag:hover \.ct-grip[^}]*opacity/);
+describe('the corners she drags', () => {
+  it('are all four, each with an arrow that shows itself when pointed at', () => {
+    // One ledge in one corner was not discoverable: "there was no way to
+    // discover that it was actually expandable".
+    for (const corner of ['tl', 'tr', 'bl', 'br']) expect(css).toContain(`.ct-grip-${corner}`);
+    expect(page).toContain('GRIPS.map');
+    // and nothing shows until the pointer is on that one corner: four at once
+    // read as a frame of handles round the tag, which it is not
+    expect(css).toMatch(/\.ct-grip \{[^}]*opacity: 0;/);
+    expect(css).toMatch(/\.ct-grip:hover \{ opacity: 0\.8/);
+    expect(css).not.toMatch(/\.ct-frame:hover \.ct-grip[^:]*\{/);
+    // and a patch big enough to aim at, not a few pixels of ledge
+    expect(css).toMatch(/\.ct-grip \{[^}]*width: calc\(20px/);
   });
 
-  it('presses through the same door as a drag, saying it is the grip', () => {
-    expect(bridge).toContain('press: (x, y, grip)');
-    expect(page).toContain('bridge?.press(e.screenX, e.screenY, true)');
+  it('press through the same door as a drag, saying which corner it is', () => {
+    expect(bridge).toContain('press: (x, y, grip, corner)');
+    expect(page).toContain('bridge?.press(e.screenX, e.screenY, true, corner)');
+  });
+});
+
+describe('the arrows hang over the glass, not inside it', () => {
+  it('centres each one on its corner, half in the clear band', () => {
+    // "It should extend over the edges and point outward... halfway inside the
+    // browser and halfway outside it." The window keeps a 10pt band around the
+    // glass and the 18pt patch starts 2.5pt into it, so the arrow's middle
+    // lands on the corner, a whisker inside where the radius rounds it off.
+    expect(css).toMatch(/\.ct-frame \{[^}]*padding: calc\(10px \* var\(--ct-s\)\)/);
+    const grip = css.match(/\.ct-grip \{[^}]*\}/)[0];
+    // a 20pt patch inside a 10pt band, 5pt in from the window's corner: the
+    // corner is rounded, so an arrow centred where the edges would have met
+    // sits over the notch the radius cuts away and reads as mostly outside
+    expect(grip).toMatch(/width: calc\(20px \* var\(--ct-s\)\)/);
+    expect(grip).toMatch(/height: calc\(20px \* var\(--ct-s\)\)/);
+    for (const corner of ['tl', 'tr', 'bl', 'br']) {
+      expect(css).toMatch(new RegExp(`\\.ct-grip-${corner} \\{ (left|right): calc\\(5px \\* var\\(--ct-s\\)\\); (top|bottom): calc\\(5px`));
+    }
+    // grey rather than ink, and never quite full strength
+    // low-key: a light grey at half strength, and never fully lit
+    const alpha = Number(grip.match(/color: rgba\(\d+, \d+, \d+, ([\d.]+)\)/)[1]);
+    expect(alpha).toBeLessThanOrEqual(0.55);
+    expect(css).toMatch(/\.ct-grip:hover \{ opacity: 0\.8/);
+  });
+
+  it('draws the usual two-headed arrow, one head at each end of the diagonal', () => {
+    // "a little two-directional arrow almost comes up and that's kind of what
+    // we're looking for" — a window's own corner handle.
+    const arrow = page.match(/const ARROW = '([^']+)'/)[1];
+    expect(arrow).toMatch(/^M1\.6 1\.6 10\.4 10\.4/);
+    expect(arrow.match(/M/g)).toHaveLength(3);
+    expect(css).toContain('.ct-grip-tr svg, .ct-grip-bl svg { transform: rotate(90deg); }');
+  });
+
+  it('tells the main process the band, and what is under the pointer', () => {
+    expect(page).toContain('bridge.size(which, r.width, r.height');
+    expect(page).toContain('bridge?.clickable(overUs(e))');
+    expect(bridge).toContain('clickable: (on)');
+    expect(bridge).toContain('size: (part, width, height, frame)');
   });
 });
