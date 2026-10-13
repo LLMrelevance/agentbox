@@ -593,6 +593,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     // same as one picked on the summary (zero:thread-edit). A reply that
     // happens to carry its row's level does not.
     if (priority != null && !answer && id) supervisor.setThreadPlaces({ [id]: null });
+    // CLOSING A THREAD IS THE END OF WHAT IT WAS PINNED FOR (w-20323283e6).
+    if (id && status === 'done') supervisor.setThreadPins({ [id]: null });
     // A REPLY IN A THREAD (w-920461cbe6) only means something in a conversation
     // between people, which is the only place a thread is drawn and the only
     // record the mark crosses to a teammate in (shared/team-rules.mjs). Anywhere
@@ -664,6 +666,13 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // places the drop worked out (`dropPlaces`, shared/rank.mjs), id to number.
   ipcMain.handle('zero:set-thread-places', (_e, { places }) => {
     supervisor.setThreadPlaces(places);
+    push();
+    return { ok: true };
+  });
+
+  // PINNED THREADS (w-20323283e6): id to true, or null to unpin.
+  ipcMain.handle('zero:set-thread-pins', (_e, { pins }) => {
+    supervisor.setThreadPins(pins);
     push();
     return { ok: true };
   });

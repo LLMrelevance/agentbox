@@ -11,6 +11,9 @@ export interface WorkItem {
   // it would otherwise sort by, which it replaces. Kept by the supervisor, on
   // this Mac; absent on every row nobody has dragged.
   place?: number;
+  // PINNED TO THE TOP OF THE LIST (w-20323283e6). Kept by the supervisor, on
+  // this Mac, like the place; absent on every row nobody has pinned.
+  pinned?: boolean;
   // WHAT PEOPLE PUT ON EACH MESSAGE IN A CONVERSATION (w-560647d4db): by the
   // message's line uid, then by emoji, then the people on it. Folded out of the
   // presses the ledger holds (shared/work-items.mjs); absent on every row
@@ -1069,6 +1072,7 @@ declare global {
       sendNow(p: { product: string; id: string }): Promise<{ ok: boolean; interrupted: boolean }>;
       setProductOrder(p: { order: string[] }): Promise<unknown>;
       setThreadPlaces(p: { places: Record<string, number | null> }): Promise<unknown>;
+      setThreadPins?(p: { pins: Record<string, true | null> }): Promise<unknown>;
       setProductHidden(p: { product: string; hidden: boolean }): Promise<unknown>;
       compose(p: { product: string; title: string; body?: string; kind?: string; priority?: number; runAt?: number; start?: 'later' | 'now'; labels?: string[]; model?: string; engine?: string; effort?: string; assignee?: string; due?: string; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[] }): Promise<WorkItem>;
       // Feedback to the Agentbox team (main/feedback.mjs). Optional: an older

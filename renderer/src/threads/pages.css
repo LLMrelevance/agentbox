@@ -110,6 +110,9 @@
    count beside the mark, in the mark's own faint colour. Raised 0.75px
    (2026-10-02): on the baseline it read too low, at 1.5px too high, so it
    sits halfway between. */
+/* PINNED (w-20323283e6): the same faint ink and the same plain inline box, so
+   the row's underline runs through it like the others. */
+.th-pin { display: inline; margin-left: 9px; color: var(--text-faint); vertical-align: -2px; }
 .th-shared-n { display: inline; margin-left: 3px; font: 10.5px var(--mono); color: var(--text-faint); vertical-align: 0.75px; }
 
 /* NOT STARTED, ON THE ROW (w-afb66e6661) was a boxed capital tag here. It is
@@ -377,6 +380,10 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 .workspace-collapsed .workspace-navigation .th-mark-btn:focus-visible > .th-mark-open { display: grid; }
 /* The heading row draws no hairline under itself, on both pages. */
 .th-table .row.th-head + .row::after { display: none; }
+/* THE EDGE OF THE PINNED THREADS (w-20323283e6): the hairline over the first
+   row under them, at full weight in the stronger line. Nothing else marks the
+   group; each pinned row already wears its pin. */
+.row + .row[data-after-pins]::after { background: var(--line-strong); opacity: 1; }
 
 /* Your row in the sidebar's foot is a button to your account page. */
 .workspace-navigation .th-me-btn { display: flex; align-items: center; gap: 9px; width: 100%; height: 38px; padding: 0 8px; margin-left: -8px; min-width: 0; text-align: left; color: var(--text); font-size: 13.5px; }
