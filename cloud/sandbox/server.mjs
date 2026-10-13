@@ -204,7 +204,11 @@ export function createSandbox({
       // account folder its transcripts and tooling live in.
       if (runAs) {
         const own = [cwd];
-        if (env.CLAUDE_CONFIG_DIR) { const d = at(env.CLAUDE_CONFIG_DIR); fs.mkdirSync(d, { recursive: true }); own.push(d); }
+        // The harness's own home: Claude Code's account folder, or Codex's,
+        // where it keeps its state database and writes its sessions.
+        for (const k of ['CLAUDE_CONFIG_DIR', 'CODEX_HOME']) {
+          if (env[k]) { const d = at(env[k]); fs.mkdirSync(d, { recursive: true }); own.push(d); }
+        }
         for (const p of own) await sh('chown', ['-R', `${runAs.uid}:${runAs.gid}`, p], '/');
       }
     } catch (err) {

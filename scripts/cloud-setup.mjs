@@ -72,10 +72,14 @@ async function retrying(what, fn, tries = 12) {
   }
 }
 
-function claudeVersion() {
-  const v = execFileSync('claude', ['--version'], { encoding: 'utf8' }).trim().split(/\s+/)[0];
-  if (!/^\d+\.\d+\.\d+$/.test(v)) throw new Error(`could not read the Claude Code version from "${v}"`);
-  return v;
+// The versions the image pins: exactly what this Mac runs, so a conversation
+// started in the cloud resumes here and the other way round.
+function versions() {
+  const claude = execFileSync('claude', ['--version'], { encoding: 'utf8' }).trim().split(/\s+/)[0];
+  if (!/^\d+\.\d+\.\d+$/.test(claude)) throw new Error(`could not read the Claude Code version from "${claude}"`);
+  const codex = (execFileSync('codex', ['--version'], { encoding: 'utf8' }).trim().match(/(\d+\.\d+\.\d+)/) || [])[1];
+  if (!codex) throw new Error('could not read the Codex version');
+  return { claude, codex };
 }
 
 function ensureRole(name, trustService, policy) {
@@ -119,7 +123,7 @@ phases:
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin \${REPO_URI%%/*}
   build:
     commands:
-      - docker build --build-arg CLAUDE_CODE_VERSION=$CLAUDE_CODE_VERSION -t $REPO_URI:$IMAGE_TAG .
+      - docker build --build-arg CLAUDE_CODE_VERSION=$CLAUDE_CODE_VERSION --build-arg CODEX_VERSION=$CODEX_VERSION -t $REPO_URI:$IMAGE_TAG .
   post_build:
     commands:
       - docker push $REPO_URI:$IMAGE_TAG
@@ -133,15 +137,15 @@ function ensureBuildProject(bucket, roleArn) {
   else { say(`making build project ${NAMES.build}`); aws(['codebuild', 'create-project', '--name', NAMES.build, ...args]); }
 }
 
-function imageTag(version) {
+function imageTag(v) {
   const h = crypto.createHash('sha256');
-  h.update(version);
+  h.update(`${v.claude}/${v.codex}`);
   for (const f of IMAGE_FILES) h.update(fs.readFileSync(path.join(SANDBOX, f)));
   h.update(BUILDSPEC);
-  return `cc${version}-${h.digest('hex').slice(0, 12)}`;
+  return `cc${v.claude}-cx${v.codex}-${h.digest('hex').slice(0, 10)}`;
 }
 
-async function buildImage(bucket, repoUri, version, tag) {
+async function buildImage(bucket, repoUri, v, tag) {
   const already = aws(['ecr', 'describe-images', '--repository-name', NAMES.repo, '--image-ids', `imageTag=${tag}`], { allowFail: true });
   if (already?.imageDetails?.length && !process.argv.includes('--rebuild')) { say(`image ${tag} already built`); return `${repoUri}:${tag}`; }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentbox-sandbox-src-'));
@@ -158,7 +162,8 @@ async function buildImage(bucket, repoUri, version, tag) {
     '--environment-variables-override',
     `name=REPO_URI,value=${repoUri},type=PLAINTEXT`,
     `name=IMAGE_TAG,value=${tag},type=PLAINTEXT`,
-    `name=CLAUDE_CODE_VERSION,value=${version},type=PLAINTEXT`]).build);
+    `name=CLAUDE_CODE_VERSION,value=${v.claude},type=PLAINTEXT`,
+    `name=CODEX_VERSION,value=${v.codex},type=PLAINTEXT`]).build);
   for (;;) {
     await sleep(10_000);
     const b = aws(['codebuild', 'batch-get-builds', '--ids', build.id]).builds[0];
@@ -240,7 +245,7 @@ async function main() {
   const account = who.Account;
   const bucket = `agentbox-cloud-${account}`;
   say(`account ${account}, ${REGION}`);
-  const version = claudeVersion();
+  const version = versions();
 
   ensureBucket(bucket);
   const repoUri = ensureRepo();
@@ -269,7 +274,7 @@ async function main() {
   const runtime = await ensureRuntime(containerUri, runtimeRoleArn);
   ensureAppUser(bucket, runtime.arn);
 
-  const config = { region: REGION, bucket, runtimeArn: runtime.arn, runtimeId: runtime.id, image: containerUri, claudeCodeVersion: version, profile: NAMES.profile, madeAt: new Date().toISOString() };
+  const config = { region: REGION, bucket, runtimeArn: runtime.arn, runtimeId: runtime.id, image: containerUri, claudeCodeVersion: version.claude, codexVersion: version.codex, profile: NAMES.profile, madeAt: new Date().toISOString() };
   fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', { mode: 0o600 });
   say(`done; wrote ${CONFIG_PATH}`);

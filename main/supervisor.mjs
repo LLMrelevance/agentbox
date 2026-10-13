@@ -38,7 +38,8 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, readMarker } from './cloud/marker.mjs';
-import { readCloudConfig, readClaudeToken } from './cloud/config.mjs';
+import { readCloudConfig, readClaudeToken, codexCloudAuth } from './cloud/config.mjs';
+import { holdUntilHome } from './cloud/codex-cloud.mjs';
 import { buildSessionArgs, CLAUDE_MODES, permissionMode } from './settings.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -3644,21 +3645,27 @@ export class Supervisor {
 
   // On when this Mac has been set up for cloud runs, unless turned off:
   // `cloudRuns: false` wins, and absent or null means "if set up".
-  _cloudReady() {
+  _cloudReady(engine = DEFAULT_ENGINE) {
     if (this.config.cloudRuns === false) return false;
+    const which = engineOf(engine);
     const now = Date.now();
     if (!this._cloudConfigAt || now - this._cloudConfigAt > 60_000) {
       this._cloudConfig = readCloudConfig(process.env, this.config.home);
-      this._cloudSignedIn = !!this._cloudConfig && this._hasCloudSignIn();
+      this._cloudSignedIn = new Map();
       this._cloudConfigAt = now;
     }
-    return !!this._cloudConfig && this._cloudSignedIn;
+    if (!this._cloudConfig) return false;
+    if (!this._cloudSignedIn.has(which)) this._cloudSignedIn.set(which, !!this._cloudConfig && this._hasCloudSignIn(which));
+    return this._cloudSignedIn.get(which);
   }
 
-  // Set up, and at least one live account has saved its cloud sign-in. A Mac
-  // set up but never signed in offers no cloud slot at all, rather than one
-  // every tick reaches for and then turns back from.
-  _hasCloudSignIn() {
+  // Set up, and at least one live account of THIS engine can sign in in the
+  // cloud: a Claude account with its saved sign-in, a Codex login whose
+  // access token outlasts a run (main/cloud/config.mjs). A Mac set up but
+  // never signed in offers no cloud slot at all, rather than one every tick
+  // reaches for and then turns back from.
+  _hasCloudSignIn(engine = DEFAULT_ENGINE) {
+    if (engineOf(engine) === 'codex') return this._liveProfilesFor('codex').some((p) => !!codexCloudAuth(this._codexProfileHome(p)));
     return this._liveProfilesFor(DEFAULT_ENGINE).some((p) => !!readClaudeToken(this._claudeConfigDir(p)));
   }
 
@@ -3672,20 +3679,21 @@ export class Supervisor {
     return this._loadFor(which) < this._capacityFor(which) && this._load() < this._capacity();
   }
 
-  // Room in the cloud: Claude Code only (Codex runs every thread inside one
-  // shared app-server, and has no cloud adapter yet), a live account to run
-  // it on, and the cloud's own cap.
+  // Room in the cloud: a live account on this engine that can sign in there,
+  // and the cloud's own cap, shared by both engines. Claude Code runs there as
+  // the proxy's command; Codex as its own app-server in the sandbox
+  // (main/cloud/codex-cloud.mjs).
   _cloudSlotFor(engine) {
-    if (engineOf(engine) !== DEFAULT_ENGINE) return false;
-    if (!this._cloudReady()) return false;
-    return this._capacityFor(DEFAULT_ENGINE) > 0 && this._cloudLoad() < this._maxCloud();
+    const which = engineOf(engine);
+    if (!this._cloudReady(which)) return false;
+    return this._capacityFor(which) > 0 && this._cloudLoad() < this._maxCloud();
   }
 
   // Which rows may go to the cloud at all. A row needs its own task folder
   // (the cloud run is that folder's branch, packed); a personal project, a
   // command she typed, or a Remote Control session stays on this Mac.
-  _mayRunInCloud(item, product, cwd, { remoteOnly = false, engine = DEFAULT_ENGINE } = {}) {
-    if (engineOf(engine) !== DEFAULT_ENGINE || remoteOnly) return false;
+  _mayRunInCloud(item, product, cwd, { remoteOnly = false } = {}) {
+    if (remoteOnly) return false;
     if (!product?.repoPath || !cwd || cwd === product.repoPath) return false;
     if ((this.config.personalProducts || []).includes(product.slug)) return false;
     if (item?.id?.startsWith?.('digest-')) return false;
@@ -3703,7 +3711,7 @@ export class Supervisor {
       return null;
     }
     if (!localFull && this._localSlotFor(engine)) return 'local';
-    if (this._mayRunInCloud(item, product, cwd, { remoteOnly, engine }) && this._cloudSlotFor(engine)) return 'cloud';
+    if (this._mayRunInCloud(item, product, cwd, { remoteOnly }) && this._cloudSlotFor(engine)) return 'cloud';
     return continuation ? 'local' : null;
   }
 
@@ -6117,12 +6125,18 @@ export class Supervisor {
    * reason they ride in `--append-system-prompt` over there: a rule pasted
    * above a 200-line brief is a rule that gets buried.
    */
-  _spawnCodexWorker(plan, { cwd, item, profile = 'default' }) {
+  _spawnCodexWorker(plan, { cwd, item, profile = 'default', cloud = false }) {
     // WHICH LOGIN THIS WORKER BILLS, and it is the same `profile` the session
     // is recorded under and the same one `transcriptFile` will look for its
     // rollout with. One app-server per home, so a second Codex login is a
     // second process rather than a bigger number on the Settings screen.
-    const { client, handshake } = this._codexServer(this._codexProfileHome(profile));
+    //
+    // A CLOUD RUN GETS AN APP-SERVER OF ITS OWN, in its sandbox, reached
+    // through the proxy (main/cloud/run-cli.mjs --agentbox-codex), never the
+    // shared one: that one belongs to this Mac's threads.
+    const { client, handshake, procExit } = cloud
+      ? this._cloudCodexServer({ cwd, item, home: this._codexProfileHome(profile) })
+      : this._codexServer(this._codexProfileHome(profile));
     const storeServer = this._codexStoreServer(item);
     // THIS WORKER'S OWN CARDS, SO THEY CAN DIE WITH IT.
     //
@@ -6183,6 +6197,14 @@ export class Supervisor {
     worker.once('exit', () => {
       try { cards.close('the run that asked this has stopped'); } catch (e) { console.warn('zero: could not close a codex worker cards:', e?.message ?? e); }
     });
+    // A CLOUD WORKER ENDS WHEN ITS WORK IS HOME, not when its turn ends
+    // (main/cloud/codex-cloud.mjs); its cards close at the turn's end.
+    if (cloud) {
+      holdUntilHome({
+        worker, client, procExit,
+        onTurnEnd: () => { try { cards.close('the run that asked this has stopped'); } catch { /* already closed */ } },
+      });
+    }
     // THE MODEL SHE PICKED IS NOT SAID HERE, AND THAT IS THE FIX RATHER THAN AN
     // OMISSION. There was a `worker.stderr.emit('data', refusal)` on this line,
     // and measured 2026-09-04 it reached nobody: it fired synchronously, before
@@ -6526,6 +6548,41 @@ export class Supervisor {
    * `<that dir>/sessions/YYYY/MM/DD/`. The variable is the whole of the answer,
    * which is why keying this map by it is enough to make a second login real.
    */
+  // ONE CLOUD CODEX RUN'S APP-SERVER: `codex app-server` in its sandbox,
+  // spoken to through the proxy, which is this connection's process. Its exit
+  // (after the work is home) is what `holdUntilHome` waits for. Kept apart from
+  // the shared servers, and closed with them when the app quits.
+  _cloudCodexServer({ cwd, item, home }) {
+    let resolveExit;
+    const procExit = new Promise((resolve) => { resolveExit = resolve; });
+    const client = createCodexAppServer({
+      spawn: () => {
+        const proc = spawn(process.execPath, [this._cloudRunPath(), '--agentbox-codex', 'app-server'], {
+          cwd,
+          env: {
+            ...this._workerEnv('codex'),
+            ELECTRON_RUN_AS_NODE: '1',
+            CODEX_HOME: home,
+            STORE_ACCOUNT_ID: this.config.accountId,
+            ...storeRootEnv(this.config.storeRoot),
+            ZERO_PRODUCT: item.product,
+            ZERO_ITEM: item.id,
+          },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        proc.once('exit', (code, signal) => resolveExit({ code, signal }));
+        proc.once('error', () => resolveExit({ code: 1, signal: null }));
+        return proc;
+      },
+      onNotification: (method, params) => this._codexUsage().saw(method, params, home),
+    });
+    const handshake = client.initialize();
+    handshake.catch(() => { /* the worker chains its own catch off this */ });
+    (this._cloudCodexClients ??= new Set()).add(client);
+    procExit.then(() => this._cloudCodexClients?.delete(client));
+    return { client, handshake, procExit, home };
+  }
+
   _codexServer(home = this._codexHome()) {
     this._codexServers = this._codexServers ?? new Map();
     const live = this._codexServers.get(home);
@@ -6704,7 +6761,8 @@ export class Supervisor {
   // A loaded app-server thread holds Codex's writer lock even after its turn
   // finishes. Closing an idle account returns its sessions to the native CLI.
   _releaseIdleCodex(profile = 'default') {
-    if ([...this.sessions.values()].some(s => s.engine === 'codex' && (s.profile ?? 'default') === profile)) return;
+    // A cloud Codex run is not on this login's shared server.
+    if ([...this.sessions.values()].some(s => s.engine === 'codex' && !s.cloud && (s.profile ?? 'default') === profile)) return;
     if ([...(this._compactionJobs?.values() ?? [])].some(j => (j.profile ?? 'default') === profile)) return;
     const home = this._codexProfileHome(profile);
     const entry = this._codexServers?.get(home);
@@ -6729,6 +6787,11 @@ export class Supervisor {
       try { entry.client.close(why); } catch { /* already gone */ }
     }
     this._codexServers?.clear();
+    // And every cloud Codex run's own connection: closing it stops its proxy,
+    // which cancels the remote run and brings its work home.
+    for (const client of this._cloudCodexClients ?? []) {
+      try { client.close(why); } catch { /* already gone */ }
+    }
   }
 
   spawnWorker(item, { continuation = false, resumeSessionId = null, profile: forcedProfile = null, engine: forcedEngine = null, remoteOnly = false, shipFailure = null } = {}) {
@@ -6881,6 +6944,19 @@ export class Supervisor {
     const { args } = plan;
     // A command she typed is over in seconds and needs nothing a sandbox has.
     if (where === 'cloud' && plan.command) where = 'local';
+    // A CODEX THREAD GOES TO THE CLOUD FRESH, NEVER AS A RESUME. This Mac's
+    // shared app-server may still hold that thread loaded, and a thread
+    // continued elsewhere would come back to a server reading its old state
+    // (Codex's review, 2026-10-13). A thread that started in the cloud has
+    // never been loaded here, so its replies run here and load the rollout
+    // that came home. A resume with no room here waits for room here.
+    if (where === 'cloud' && engine === 'codex' && plan.resumeId) {
+      if (!pinnedFull && (this._localSlotFor(engine) || continuation)) where = 'local';
+      else {
+        if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
+        return;
+      }
+    }
     // ONE RUN, ONE PAIR OF FILES. The MCP config and the settings used to be a
     // fixed name each in the temp folder, fine while every spawn wrote the
     // same bytes and a race the moment the connector rules made them differ.
@@ -6913,10 +6989,13 @@ export class Supervisor {
     // A CLOUD RUN RUNS ON THIS ACCOUNT'S OWN SUBSCRIPTION, through the sign-in
     // scripts/cloud-signin.mjs saved for it. An account without one runs here
     // when there is room, and otherwise waits; it never runs on another's.
-    if (where === 'cloud' && !readClaudeToken(this._claudeConfigDir(profile))) {
-      if (!this._warnedNoCloudSignIn?.has(profile)) {
-        (this._warnedNoCloudSignIn ??= new Set()).add(profile);
-        console.warn(`zero: the Claude account ${profile} has no cloud sign-in (scripts/cloud-signin.mjs), so its threads run here only`);
+    const cloudSignIn = (engine === 'codex')
+      ? !!codexCloudAuth(this._codexProfileHome(profile))
+      : !!readClaudeToken(this._claudeConfigDir(profile));
+    if (where === 'cloud' && !cloudSignIn) {
+      if (!this._warnedNoCloudSignIn?.has(`${engine}:${profile}`)) {
+        (this._warnedNoCloudSignIn ??= new Set()).add(`${engine}:${profile}`);
+        console.warn(`zero: the ${engine} account ${profile} cannot sign in in the cloud right now, so its threads run here only`);
       }
       if (!pinnedFull && (this._localSlotFor(engine) || continuation)) where = 'local';
       else {
@@ -6947,7 +7026,7 @@ export class Supervisor {
     this._leftoverCleaner?.starting(item.id);
     const env = this._workerEnv(engine);
     const child = engine === 'codex'
-      ? this._spawnCodexWorker(plan, { cwd, item, profile })
+      ? this._spawnCodexWorker(plan, { cwd, item, profile, cloud: where === 'cloud' })
       : where === 'cloud'
       // THE SAME ARGUMENTS, A DIFFERENT PROGRAM. main/cloud/run-cli.mjs runs
       // Claude Code in the sandbox with exactly these arguments and is, to

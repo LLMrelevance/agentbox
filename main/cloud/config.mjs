@@ -50,6 +50,46 @@ export function readClaudeToken(configDir, { platform = process.platform } = {})
   try { return JSON.parse(fs.readFileSync(fileStore(), 'utf8'))[account] || null; } catch { return null; }
 }
 
+/* --------------------------------- Codex ---------------------------------- */
+// A CODEX LOGIN GOES TO THE CLOUD AS A COPY THAT CANNOT RENEW ITSELF.
+//
+// Measured on this Mac, 2026-10-13, codex-cli 0.160.0, ChatGPT plan: the
+// access token in `CODEX_HOME/auth.json` lasts 240 hours and Codex renews it
+// on its own about every eight days. A copy whose refresh token is replaced
+// by a placeholder runs Codex on the access token (a real `codex exec`
+// answered, no 401s), and can never renew it; renewing would rotate the
+// login and sign the Mac out. A copy with NO refresh token at all reads as
+// not signed in ("Missing bearer authentication"), which is why there is a
+// placeholder and not a gap. The placeholder was untouched after the run and
+// both real logins still read signed in.
+//
+// A login with less than `minHours` left on its access token is not offered
+// to the cloud: an 8-hour run must not outlive its sign-in. Codex renews it
+// on the Mac in its own time, and the next run can go.
+export const CODEX_REFRESH_PLACEHOLDER = 'agentbox-cloud-cannot-refresh';
+
+export function codexCloudAuth(codexHome, { now = Date.now(), minHours = 9 } = {}) {
+  let auth;
+  try { auth = JSON.parse(fs.readFileSync(path.join(codexHome, 'auth.json'), 'utf8')); } catch { return null; }
+  const access = auth?.tokens?.access_token;
+  if (!access || !auth.tokens.refresh_token) return null;
+  const exp = jwtExpiry(access);
+  if (!exp) return null;
+  const hoursLeft = (exp * 1000 - now) / 3_600_000;
+  if (hoursLeft < minHours) return null;
+  const copy = { ...auth, tokens: { ...auth.tokens, refresh_token: CODEX_REFRESH_PLACEHOLDER } };
+  return { authJson: JSON.stringify(copy), hoursLeft };
+}
+
+function jwtExpiry(token) {
+  try {
+    const seg = String(token).split('.')[1];
+    const json = Buffer.from(seg.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+    const exp = JSON.parse(json).exp;
+    return Number.isFinite(exp) ? exp : null;
+  } catch { return null; }
+}
+
 export function saveClaudeToken(configDir, token, { platform = process.platform } = {}) {
   const account = accountKey(configDir);
   if (platform === 'darwin') {

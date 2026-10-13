@@ -31,11 +31,49 @@ order they matter:
 - A budget alarm that counts spend before credits exists (`agentcore-sandboxes`,
   made by the spike, w-bad6fbae78).
 
+## Codex in the cloud (added 2026-10-13: "a fundamental requirement")
+
+On the Mac, every Codex thread of one login runs inside one shared
+`codex app-server`, spoken to over JSON-RPC (main/codex-app-server.mjs). A
+cloud Codex thread gets an app-server of its OWN, in its sandbox:
+
+- **The connection.** `createCodexAppServer` already takes any process that
+  speaks the protocol on stdin/stdout. For a cloud thread that process is
+  `main/cloud/run-cli.mjs --agentbox-codex app-server`, the same proxy, whose
+  remote command is `codex app-server`. Approvals are server requests on the
+  same stream, so they reach the existing cards untouched; steering and
+  interrupts are client requests on it.
+- **The app's tools.** Codex is told its MCP servers inside `thread/start`
+  and `thread/resume` (`config.mcp_servers`), not on a command line. The
+  proxy reads those two messages on their way in, swaps each server's command
+  for the sandbox's stub, and keeps the original to run here, exactly as for
+  Claude Code. Entries with `enabled: false` (her own servers, switched off)
+  pass untouched.
+- **The sign-in, with nothing for her to do.** Measured 2026-10-13 on this
+  Mac: a ChatGPT-plan Codex access token lasts 240 h and Codex renews it on its
+  own about every eight days. The sandbox gets a copy of `auth.json` whose
+  refresh token is a placeholder: Codex runs on the access token (a real
+  `codex exec` answered from such a copy, no 401s) and can never renew, so it
+  can never rotate the login and sign the Mac out; the placeholder was
+  untouched after the run, and both real logins still read signed in. A login
+  whose access token has under 9 h left stays on the Mac until Codex renews it
+  there. Codex access tokens (`codex login --with-access-token`) are Business
+  and Enterprise only, and the app-server's `chatgptAuthTokens` mode is marked
+  "for OpenAI internal use only", so neither is used.
+- **The transcript.** Codex finds a thread by scanning `CODEX_HOME/sessions`.
+  The sandbox's `CODEX_HOME` is the Mac's path, holding only the sign-in and,
+  for `thread/resume`, that thread's rollout (sent when the proxy sees the
+  resume go by); its `sessions/` comes home after the run.
+- **The end.** A Codex worker ends when its turn ends, before the proxy has
+  brought the work home. So a cloud Codex worker's `exit` is held until the
+  proxy has exited: the worker's end closes the connection, which stops the
+  remote app-server; the sandbox uploads, the proxy imports, and only then
+  does the supervisor see the run end. Exit 75 from the proxy arrives as a
+  transport fault, as for Claude Code.
+
 ## v1 scope, and what is deliberately left out
 
-- **Claude Code only.** Codex runs every thread inside one shared
-  `codex app-server` per account, with approvals handled in process (R8). It
-  needs its own adapter; until then a Codex thread always runs on the Mac.
+- **Claude Code and Codex.** Other harnesses later, each a small adapter.
 - **No re-attach across an app restart (R1, R2, R5, R6, R7).** Today every app
   restart stops every local worker and `recoverInterrupted` resumes each one
   from its transcript. A cloud run does exactly the same: when the app stops a

@@ -46,9 +46,12 @@ import { StringDecoder } from 'node:string_decoder';
 import { spawn, execFileSync } from 'node:child_process';
 import { readMarker, writeMarker, clearMarker } from './marker.mjs';
 import { Name, nameSlug } from '../../shared/product-name.mjs';
+import { codexTranscriptFile } from '../codex-session.mjs';
 
 export const IMPORT_FAILED = 75;
 const STUB = '/opt/agentbox/mcp-stub.mjs';
+// Where the image's sandbox server listens for stubs (cloud/sandbox/server.mjs).
+const BRIDGE_SOCK = '/tmp/agentbox-bridge.sock';
 const WITHHELD_TOOLS = new Set(['look_at_page']);
 const MAX_ATTACHMENT = 25 * 1024 * 1024;
 const RESULTS_WAIT_MS = 3 * 60_000;
@@ -184,22 +187,39 @@ export async function cloudRun({
   // Only bring an earlier run home, and start nothing: what the supervisor
   // runs for a folder whose cloud work is still outstanding.
   importOnly = false,
+  // 'claude' or 'codex'. A Codex run is `codex app-server` in the sandbox,
+  // spoken to over stdin/stdout by the supervisor's own Codex client.
+  engine = 'claude',
+  // The Codex sign-in to send up (main/cloud/config.mjs codexCloudAuth): a
+  // copy of auth.json that cannot renew itself.
+  codexAuth = null,
 }) {
   const say = (msg) => stderr.write(`agentbox cloud: ${msg}\n`);
+  const codex = engine === 'codex';
   const configDir = env.CLAUDE_CONFIG_DIR || path.join(homeDir, '.claude');
+  const codexHome = env.CODEX_HOME || path.join(homeDir, '.codex');
   const projectsFor = (dir) => path.join(dir || configDir, 'projects', transcriptFolderName(cwd));
   const projectsDir = projectsFor(configDir);
+  // WHAT COMES HOME BESIDES THE FOLDER: the conversation, wherever the
+  // harness keeps it. Claude Code: this folder's transcripts under the
+  // account. Codex: its sessions folder, which in the sandbox holds only
+  // what this run wrote (and the one rollout a resume sent up).
+  const bringDirs = codex
+    ? [{ name: 'sessions.tgz', dir: path.join(codexHome, 'sessions') }]
+    : [{ name: 'projects.tgz', dir: projectsDir }];
   const keyOf = (runId, name) => `runs/${runId}/${name}`;
-  // The links a run uploads its results to. The transcript folder is the RUN's
-  // account's, which for a run being brought home is the one its marker
-  // names, not whichever account this process happens to have been started for.
-  const resultUrls = async (runId, accountDir = configDir) => ({
+  // The links a run uploads its results to. The folders are the RUN's, which
+  // for a run being brought home are the ones its marker names, not whichever
+  // account this process happens to have been started for.
+  const resultUrls = async (runId, dirs = bringDirs) => ({
     bundleUrl: await storage.putUrl(keyOf(runId, 'out.bundle')),
     changesUrl: await storage.putUrl(keyOf(runId, 'changes.bundle')),
     eventsUrl: await storage.putUrl(keyOf(runId, 'events.jsonl')),
     doneUrl: await storage.putUrl(keyOf(runId, 'done.json')),
-    bring: [{ dir: projectsFor(accountDir), url: await storage.putUrl(keyOf(runId, 'projects.tgz')) }],
+    bring: await Promise.all(dirs.map(async (b) => ({ dir: b.dir, url: await storage.putUrl(keyOf(runId, b.name)) }))),
   });
+  // A marker written before Codex runs existed names its account folder only.
+  const dirsOf = (rec) => rec.bringDirs || [{ name: 'projects.tgz', dir: projectsFor(rec.configDir) }];
 
   // 1. An earlier run that never came home comes home first.
   const earlier = readMarker(cwd);
@@ -254,10 +274,23 @@ export async function cloudRun({
     else say(`no transcript for ${resumeId} on this Mac; the cloud run starts without it`);
   }
   // The account's own skills, commands and agents, as real folders.
-  const tooling = path.join(homeDir, '.claude');
-  for (const sub of ['skills', 'commands', 'agents']) {
-    const dir = fs.existsSync(path.join(configDir, sub)) ? path.join(configDir, sub) : path.join(tooling, sub);
-    if (fs.existsSync(dir)) files.push(await sendFile(null, path.join(configDir, `.${sub}.tgz`), tarOf(dir), path.join(configDir, sub)));
+  if (!codex) {
+    const tooling = path.join(homeDir, '.claude');
+    for (const sub of ['skills', 'commands', 'agents']) {
+      const dir = fs.existsSync(path.join(configDir, sub)) ? path.join(configDir, sub) : path.join(tooling, sub);
+      if (fs.existsSync(dir)) files.push(await sendFile(null, path.join(configDir, `.${sub}.tgz`), tarOf(dir), path.join(configDir, sub)));
+    }
+  }
+  // Codex's sign-in, as a copy that cannot renew itself (config.mjs), and the
+  // few settings that change how it runs a turn (model, effort, tier), so a
+  // run in the cloud behaves as one here would. Nothing else of her config
+  // goes: no MCP servers, hooks, providers or sockets.
+  if (codex) {
+    if (!codexAuth) { say('this Codex login cannot go to the cloud right now'); return 1; }
+    files.push(await sendFile(null, path.join(codexHome, 'auth.json'), Buffer.from(codexAuth)));
+    let toml = '';
+    try { toml = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8'); } catch { /* none */ }
+    files.push(await sendFile(null, path.join(codexHome, 'config.toml'), Buffer.from(codexConfigForTheCloud(toml))));
   }
   const roots = [env.AGENTBOX_HOME, env.ZERO_STORE_ROOT, env.STORE_HOME].filter(Boolean).map((r) => path.resolve(r));
   const system = argValue(argv, '--append-system-prompt') || '';
@@ -269,7 +302,7 @@ export async function cloudRun({
   try { remote = remoteForTheCloud(git(cwd, ['remote', 'get-url', 'origin']).trim()); } catch { /* no origin */ }
 
   const remoteEnv = {
-    CLAUDE_CONFIG_DIR: configDir,
+    ...(codex ? { CODEX_HOME: codexHome } : { CLAUDE_CONFIG_DIR: configDir }),
     MCP_TOOL_TIMEOUT: String(8 * 60 * 60 * 1000),
     DISABLE_AUTOUPDATER: '1',
     ...(env.ZERO_PRODUCT ? { ZERO_PRODUCT: env.ZERO_PRODUCT } : {}),
@@ -278,7 +311,7 @@ export async function cloudRun({
     ...(claudeToken ? { CLAUDE_CODE_OAUTH_TOKEN: claudeToken } : {}),
   };
 
-  const marker = { runId, sessionId, branch, startSha, sent, configDir };
+  const marker = { runId, sessionId, branch, startSha, sent, configDir, engine, bringDirs };
   writeMarker(cwd, { ...marker, pid: process.pid, state: 'starting' });
 
   // 3. Start. Starting the same run twice is answered "already", so a start
@@ -369,9 +402,14 @@ export async function cloudRun({
     stdinBuf += typeof d === 'string' ? d : inDecoder.write(d);
     let i;
     while ((i = stdinBuf.indexOf('\n')) >= 0) {
-      const line = stdinBuf.slice(0, i + 1);
+      let line = stdinBuf.slice(0, i + 1);
       stdinBuf = stdinBuf.slice(i + 1);
       const named = filesNamedIn(line, { cwd, roots });
+      if (codex) {
+        const c = codexLineForTheCloud(line, { stubPath, codexHome, keep: mcpConfig.mcpServers });
+        line = c.line;
+        named.push(...c.files.filter((f) => !named.includes(f)));
+      }
       if (named.length) enqueue({ action: 'files', paths: named });
       enqueue({ action: 'stdin', data: Buffer.from(line).toString('base64') });
     }
@@ -525,7 +563,7 @@ export async function cloudRun({
           if (!asked && (now?.state === 'exited' || now?.state === 'collect-failed')) {
             // Finished but never uploaded (or its links ran out): fresh links.
             asked = true;
-            await retry(async () => transport.invoke(rec.sessionId, { action: 'collect', runId: rec.runId, ...(await resultUrls(rec.runId, rec.configDir)) }), { what: 'collect the earlier run', forever: false });
+            await retry(async () => transport.invoke(rec.sessionId, { action: 'collect', runId: rec.runId, ...(await resultUrls(rec.runId, dirsOf(rec))) }), { what: 'collect the earlier run', forever: false });
           }
           done = await storage.get(k('done.json'));
           if (!done) await sleep(3000);
@@ -569,8 +607,13 @@ export async function cloudRun({
       await fetchBundle('out.bundle', specs, 'the commits bundle is missing');
     }
     if (record.uncommitted) await fetchBundle('changes.bundle', [`refs/agentbox/changes:${keepChanges}`], 'the uncommitted work is missing');
-    const tgz = await storage.get(k('projects.tgz'));
-    if (!tgz && (record.brought || []).length) return { ok: false, why: 'the transcript is missing' };
+    // The conversation's folders, each one the run said it uploaded.
+    const conversations = [];
+    for (const b of dirsOf(rec)) {
+      const tgz = await storage.get(k(b.name));
+      if (tgz) conversations.push({ dir: b.dir, tgz });
+      else if ((record.brought || []).includes(b.dir)) return { ok: false, why: 'the transcript is missing' };
+    }
 
     // THE FOLDER MUST BE EXACTLY AS THE RUN LEFT IT: same branch, same commit,
     // same files, same staged changes. Anything else means something on this
@@ -604,10 +647,9 @@ export async function cloudRun({
         const patch = git(cwd, ['diff', '--binary', 'HEAD', keepChanges], { buffer: true });
         if (patch.length) git(cwd, ['apply', '--whitespace=nowarn'], { input: patch });
       }
-      if (tgz) {
-        const into = projectsFor(rec.configDir);
-        fs.mkdirSync(into, { recursive: true });
-        execFileSync('tar', ['-xzf', '-', '-C', into], { input: tgz });
+      for (const c of conversations) {
+        fs.mkdirSync(c.dir, { recursive: true });
+        execFileSync('tar', ['-xzf', '-', '-C', c.dir], { input: c.tgz });
       }
     } catch (err) {
       // Every download had already landed, so this is git itself refusing;
@@ -636,6 +678,66 @@ export async function cloudRun({
       }
     }
   }
+}
+
+// ONE LINE FROM THE SUPERVISOR'S CODEX CLIENT, MADE READY FOR THE SANDBOX.
+//
+// Codex is told its MCP servers inside `thread/start` and `thread/resume`
+// (`config.mcp_servers`), not on a command line. Each server that has a
+// command (the store; her own come switched off, `{ enabled: false }`, and
+// pass untouched) is swapped for the sandbox's stub, and the original is kept
+// in `keep` to run here when the stub calls. A `thread/resume` also names the
+// one file Codex will need to find that thread: its rollout, sent up first.
+// Any other line, or one that is not JSON, passes exactly as it came.
+export function codexLineForTheCloud(line, { stubPath = STUB, codexHome, keep, findRollout = codexTranscriptFile }) {
+  let msg;
+  try { msg = JSON.parse(line); } catch { return { line, files: [] }; }
+  // A picture rides in a turn as `localImage` with a path on this Mac; the
+  // file goes up first, at that same path (Codex's review, finding 5).
+  if (msg?.method === 'turn/start' || msg?.method === 'turn/steer') {
+    const files = (Array.isArray(msg.params?.input) ? msg.params.input : [])
+      .filter((i) => i && i.type === 'localImage' && typeof i.path === 'string' && path.isAbsolute(i.path))
+      .map((i) => i.path);
+    return { line, files };
+  }
+  if (msg?.method !== 'thread/start' && msg?.method !== 'thread/resume') return { line, files: [] };
+  const files = [];
+  const servers = msg.params?.config?.mcp_servers;
+  if (servers && typeof servers === 'object') {
+    for (const name of Object.keys(servers)) {
+      const s = servers[name];
+      if (!s || typeof s !== 'object' || !s.command) continue;
+      keep[name] = { command: s.command, args: s.args || [], env: s.env || {} };
+      // Codex starts an MCP server with a bare environment, so the stub is
+      // told where the sandbox's bridge is in its own entry (measured
+      // 2026-10-13: without it the stub never connected).
+      servers[name] = { ...s, command: 'node', args: [stubPath, name], env: { AGENTBOX_BRIDGE_SOCK: BRIDGE_SOCK } };
+    }
+  }
+  // Codex's own sandbox is kept exactly as the app asked for it: the image
+  // carries bubblewrap so it works inside the microVM (cloud/sandbox/Dockerfile).
+  if (msg.method === 'thread/resume' && msg.params?.threadId) {
+    const rollout = findRollout(msg.params.threadId, { home: codexHome });
+    if (rollout) files.push(rollout);
+  }
+  return { line: JSON.stringify(msg) + (line.endsWith('\n') ? '\n' : ''), files };
+}
+
+// THE PART OF HER CODEX CONFIG A CLOUD RUN TAKES: the top-level model, effort
+// and service tier, each a plain quoted string, and nothing else. Read by
+// line rather than by a TOML parser because only these three are wanted, and
+// anything that is not exactly `key = "value"` before the first [section] is
+// left behind rather than guessed at.
+const CODEX_SETTINGS = new Set(['model', 'model_reasoning_effort', 'service_tier']);
+export function codexConfigForTheCloud(toml) {
+  const out = [];
+  for (const raw of String(toml || '').split('\n')) {
+    const line = raw.trim();
+    if (line.startsWith('[')) break;
+    const m = /^([A-Za-z_]+)\s*=\s*"([^"\\\n]*)"\s*(#.*)?$/.exec(line);
+    if (m && CODEX_SETTINGS.has(m[1])) out.push(`${m[1]} = "${m[2]}"`);
+  }
+  return out.join('\n') + (out.length ? '\n' : '');
 }
 
 // THE ENVIRONMENT THE APP'S OWN TOOLS RUN IN, HERE. The worker's, as Claude

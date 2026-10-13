@@ -10,7 +10,9 @@
 import net from 'node:net';
 
 const server = process.argv[2];
-const sockPath = process.env.AGENTBOX_BRIDGE_SOCK;
+// A harness that starts its tools with a bare environment (Codex does) still
+// finds the image's bridge at its fixed place.
+const sockPath = process.env.AGENTBOX_BRIDGE_SOCK || '/tmp/agentbox-bridge.sock';
 if (!server || !sockPath) {
   process.stderr.write('mcp-stub: needs a server name and AGENTBOX_BRIDGE_SOCK\n');
   process.exit(2);

@@ -127,10 +127,20 @@ describe('where a thread runs', () => {
     expect(sup._cloudSlotFor('claude')).toBe(false);
   });
 
-  it('never sends Codex, a personal project, a row with no task folder, or a digest', () => {
+  it('sends a Codex row as well, once a Codex login can sign in there', () => {
+    build();
+    fill(2);
+    sup._capacityFor = () => 3;
+    expect(sup._cloudSlotFor('codex')).toBe(true);
+    expect(sup._mayRunInCloud(row(), product, folder, {})).toBe(true);
+    build({ signedIn: false });
+    sup._capacityFor = () => 3;
+    expect(sup._cloudSlotFor('codex')).toBe(false);
+  });
+
+  it('never sends a personal project, a row with no task folder, or a digest', () => {
     build({ personal: ['mine'] });
     fill(2);
-    expect(sup._whereToRun({ item: row(), product, cwd: folder, engine: 'codex' })).toBe(null);
     expect(sup._whereToRun({ item: row(), product: { ...product, slug: 'mine' }, cwd: folder, engine: 'claude' })).toBe(null);
     expect(sup._whereToRun({ item: row(), product, cwd: repo, engine: 'claude' })).toBe(null);
     expect(sup._whereToRun({ item: row('digest-123'), product, cwd: folder, engine: 'claude' })).toBe(null);

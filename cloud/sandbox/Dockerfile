@@ -8,15 +8,17 @@
 FROM public.ecr.aws/docker/library/node:22-bookworm-slim
 
 ARG CLAUDE_CODE_VERSION
-RUN test -n "$CLAUDE_CODE_VERSION"
+ARG CODEX_VERSION
+RUN test -n "$CLAUDE_CODE_VERSION" && test -n "$CODEX_VERSION"
 
-# git for the bundle, tar for the transcripts, and what `npm ci` needs to build
-# native modules in a project's own dependencies.
+# git for the bundle, tar for the transcripts, what `npm ci` needs to build
+# native modules in a project's own dependencies, and bubblewrap, which Codex's
+# own command sandbox runs on.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git ca-certificates tar gzip python3 make g++ openssh-client procps \
+ && apt-get install -y --no-install-recommends git ca-certificates tar gzip python3 make g++ openssh-client procps bubblewrap \
  && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" && npm cache clean --force
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/codex@${CODEX_VERSION}" && npm cache clean --force
 
 # The server runs as root: a run happens at the SAME absolute paths it has on
 # the user's machine (/Users/<name>/..., /home/<name>/..., and the Mac's own
