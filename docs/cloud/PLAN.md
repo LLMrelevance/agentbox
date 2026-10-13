@@ -1,17 +1,18 @@
 # Cloud runs: the build
 
-Status: draft, 2026-10-13, under review. This file is the handoff between
-sessions building it. Keep it current: tick what landed, say what is next.
+Status: revised 2026-10-13 after Codex's review of the first draft (its 14
+findings are answered inline below, as R1..R14). This file is the handoff
+between sessions building it. Keep it current: tick what landed, say what is
+next.
 
 ## What it is
 
 A thread can run in a cloud sandbox instead of on this Mac. Two reasons, in the
 order they matter:
 
-1. **Overflow.** A 16 GB Mac runs two agents at once (`maxConcurrentSessions`,
-   with the memory gate on). Every thread past that waits. With cloud runs on,
-   a thread that would wait runs in the cloud instead, so how many run at once
-   stops being the bottleneck.
+1. **Overflow.** A 16 GB Mac runs two or three agents at once. Every thread
+   past that waits. With cloud runs on, a Claude Code thread that would wait
+   runs in the cloud instead, so how many run at once stops being the limit.
 2. **The lid closes.** A run that is already in the cloud keeps going while the
    Mac sleeps. Its result lands when the Mac wakes. (Starting NEW runs while
    the Mac sleeps needs a scheduler in the cloud; that is phase 2, below.)
@@ -20,117 +21,162 @@ order they matter:
 
 - AWS Bedrock AgentCore Runtime, us-east-1, in the user's own AWS account, paid
   by AWS credits. One microVM per run (2 vCPU / 8 GB ceiling, 8 h max).
-- The agents run on the user's own Claude / Codex subscription, never an API
-  key and never Bedrock pay-per-token. Claude Code takes a long-lived token from
-  `claude setup-token` (Anthropic's own sign-in) in `CLAUDE_CODE_OAUTH_TOKEN`.
-- Presets per harness combination; the first is Claude Code + Codex + git + Node.
-- The cloud side is a plain remote computer. It starts a command, streams its
-  output, and carries the app's tools through. It never learns what a harness
-  or a tool is, so the next harness costs the cloud side nothing.
-- A budget alarm that counts spend before credits exists before anything is
-  built (done by the step 1 spike, `agentcore-sandboxes`).
+- The agents run on the user's own Claude subscription, never an API key and
+  never Bedrock pay-per-token. Claude Code takes a long-lived token from
+  `claude setup-token` (Anthropic's own sign-in) in `CLAUDE_CODE_OAUTH_TOKEN`,
+  given to the remote command only, after `_workerEnv`'s scrub (R9).
+- The cloud side is a plain remote computer: it starts a command, keeps what
+  it prints, and carries the app's tools through as raw lines. It never learns
+  what a harness or a tool is.
+- A budget alarm that counts spend before credits exists (`agentcore-sandboxes`,
+  made by the spike, w-bad6fbae78).
+
+## v1 scope, and what is deliberately left out
+
+- **Claude Code only.** Codex runs every thread inside one shared
+  `codex app-server` per account, with approvals handled in process (R8). It
+  needs its own adapter; until then a Codex thread always runs on the Mac.
+- **No re-attach across an app restart (R1, R2, R5, R6, R7).** Today every app
+  restart stops every local worker and `recoverInterrupted` resumes each one
+  from its transcript. A cloud run does exactly the same: when the app stops a
+  cloud run, for any reason (Stop, archive, preemption, quit), the run is
+  cancelled, its work and transcript are brought home, and the existing resume
+  takes over. That removes replayed store writes, orphaned claims, approvals
+  keyed to a dead app's key, and double runs, because there is never a remote
+  run the app is not holding a live session for.
+- **The Mac sleeping is not a restart.** The app, the proxy, the store server
+  and the approvals server all freeze together and thaw together; their memory
+  is intact. The sandbox keeps going. A store call it makes while the Mac
+  sleeps waits (the remote command gets `MCP_TOOL_TIMEOUT` of 8 h). An approval
+  asked while the Mac sleeps is refused 15 minutes after it was asked, by wall
+  clock, exactly as a local one would be (R7); the agent carries on with what
+  it may do.
+- **No `look_at_page`** in the cloud: it would open Chrome on the Mac against
+  the Mac's localhost, not the sandbox's (R10). The proxy drops it from the
+  store server's tool list on the way out and refuses a call to it.
 
 ## How it works
 
-### One idea: the cloud run is a local process that happens to compute elsewhere
+### The proxy: one local process per cloud run
 
-The supervisor already knows how to start a worker, read its stream-json,
-settle it when it exits, resume it, and ship its branch. None of that changes.
-For a cloud run the supervisor spawns `main/cloud/run.mjs` in place of `claude`
-(or `codex`), with the SAME argv, env and cwd. That proxy:
+For a cloud run the supervisor spawns `main/cloud/run.mjs` in place of
+`claude`, with the same argv, env and cwd, through Electron's node
+(`ELECTRON_RUN_AS_NODE`), the way the approvals server already runs. It is a
+duplex pipe (R8): stdin bytes go to the remote command in order, EOF included,
+so the prompt the supervisor writes after spawn, live replies, interrupts and
+the close at the end all reach Claude Code exactly as they do locally. Remote
+stdout and stderr come back byte for byte. Its life:
 
-1. Packs the task folder: `git bundle` of the branch (55 MB / 1 s for this
-   repo), plus the Claude transcript if the run resumes one.
-2. Uploads the pack to S3 and calls `InvokeAgentRuntime` with
-   `{action:"start"}` on a session id derived from the run id. The sandbox
-   unpacks into the SAME absolute path as the local task folder, so paths in
-   the brief, `--resume` and transcripts are identical on both sides.
-3. Opens an event stream (`{action:"events", since}` over SSE, at most 60 min
-   per stream, reopened from the last sequence number) and writes every stdout
-   line of the remote harness to its own stdout, byte for byte. The
-   supervisor's parser cannot tell it from a local child.
-4. Bridges every MCP server named in `--mcp-config` (the store server and the
-   approvals channel). Inside the sandbox each server is replaced by a stub
-   that forwards raw JSON-RPC lines out as events; the proxy feeds them to the
-   REAL server, started on this Mac exactly as today, and sends the replies
-   back with `{action:"rpc"}`. Store writes go through the one write path on
-   the Mac, with real epochs; approvals use the existing signed spool
-   unchanged.
-5. When the harness exits, asks the sandbox to bundle the new commits
-   (`git bundle <branch> ^<start>`) and the transcript to S3, fetches them into
-   the task folder (fast-forward only), then exits with the remote exit code.
-   Ship then runs exactly as it does for a local run.
+1. **Launch manifest (R9).** From the argv and env it builds an explicit list,
+   never the host environment wholesale:
+   - the `--settings` file, rewritten without the memory-gate hooks (R12);
+   - the `--mcp-config` file, rewritten so each server is
+     `cloud/sandbox/mcp-stub.mjs <name>`;
+   - for `--resume <id>`, the transcript file at the same path under the same
+     account folder;
+   - every file under the product's folder named in the prompt or the
+     appended system text (attachments), up to 25 MB each;
+   - env: `ZERO_PRODUCT`, `ZERO_ITEM`, `CLAUDE_CONFIG_DIR` (always set, to the
+     account folder's Mac path), git's author name and email, `MCP_TOOL_TIMEOUT`,
+     `CLAUDE_CODE_OAUTH_TOKEN` for that account. Nothing from `memoryGateEnv`.
+2. **Pack.** `git bundle` of the task branch, `main` and `origin/main` (55 MB,
+   1 s for this repo) to S3. A pending-import marker goes into the task
+   folder's git dir (`<git dir>/agentbox-cloud.json`), naming the run id and the
+   start commit.
+3. **Start.** `InvokeAgentRuntime {action:"start"}` with presigned URLs: a GET
+   for the bundle and each file, and PUTs for every result (R11). The sandbox
+   checks the bundle out at the SAME absolute path as the task folder, so the
+   brief's paths, `--resume` and the transcript's folder name are identical.
+4. **Run.** Long-polls `{action:"events", since}`; writes stdout and stderr out;
+   feeds `mcp` lines to the REAL local servers (started from the original
+   `--mcp-config` with the worker's own env, exactly as Claude Code would start
+   them) and returns their lines with `{action:"mcp"}`. MCP traffic is never
+   resent: the cursor lives in memory and only moves forward (R5).
+5. **Finish.** When the command exits, the sandbox itself uploads the new
+   commits, the uncommitted work (one commit on its own ref) and the account's
+   `projects/<folder>` transcripts to the PUT URLs, plus the full event log,
+   whether or not the Mac is awake (R11). Then it lets the session go idle.
+6. **Import.** The proxy downloads them (from S3, not from the sandbox, so a
+   reaped session loses nothing), fetches the commits into a staging ref,
+   fast-forwards the task branch only if its tip is still the start commit (if
+   not, the cloud commits stay on `refs/agentbox/cloud/<run>` and the run
+   reports it), applies the uncommitted work, unpacks the transcripts, removes
+   the marker, and exits with the remote exit code.
+7. **Cancel.** On SIGTERM (Stop, archive, preemption, quit) the proxy signals
+   the remote command, waits up to 30 s for it to exit, and then does 5 and 6.
+   If it cannot reach the sandbox it exits with a failure and leaves the
+   marker.
 
-If the Mac sleeps, the proxy freezes with it; the sandbox keeps running
-(`/ping` answers `HealthyBusy`) and any store call simply waits for the Mac.
-On wake the proxy reopens the stream from its last sequence number.
+### Guards in the supervisor
 
-If the app restarts, the supervisor kills the proxy (not the remote run). A
-small state file per task (`<task folder>/.agentbox-cloud.json`, ignored)
-names the live remote session, and a new proxy for the same item re-attaches
-to it instead of starting a second run.
+- **Shipping waits for the import (R3).** `nextToShip` skips a folder whose git
+  dir holds a pending-import marker, so a `ship` label added by a cloud worker
+  can never ship the stale local branch.
+- **Folder cleanup waits too.** Release and park skip a folder with a marker.
+- **Delivery (R4).** A proxy that ran the remote result to the end but could
+  not import exits with a distinct code (`75`, EX_TEMPFAIL) and writes nothing
+  to stdout after the result; the supervisor treats that code as a transport
+  fault (redeliver, no attempt spent) rather than a finished run.
+- **Slots (R13).** Local capacity counts local sessions only. A Claude thread
+  may take a cloud slot when no local slot is free, cloud runs are on, fewer
+  than `maxCloudSessions` (default 10) cloud runs are live, and an account is
+  healthy. Account cooldowns and the fleet brake apply to cloud runs exactly as
+  to local ones.
+- **Hangs.** The reaper is unchanged: silence plus an expired claim. The store
+  server runs on the Mac, so its heartbeat renews the claim for a cloud run
+  exactly as for a local one.
 
 ### The sandbox
 
-`cloud/sandbox/`: an arm64 image (Node 22, git, Claude Code, Codex) with one
-small Node server on :8080 (`/ping`, `/invocations`). It holds at most one run,
-keeps that run's event log on disk so a stream can be replayed from any
-sequence number, checkpoints the branch to S3 after each new commit, and
-answers `Healthy` only once its results are collected, so an idle session is
-reaped after 15 minutes but a working or uncollected one is not.
+`cloud/sandbox/`: an arm64 image (Node 22, git, Claude Code) running
+`server.mjs` on :8080 (`/ping`, `/invocations`). One run per microVM. It keeps
+every event numbered for replay, answers `HealthyBusy` from start until its
+results are uploaded, and holds the bridge socket that `mcp-stub.mjs` uses.
+Built and tested (cloud/sandbox/*, tests/a-cloud-sandbox-*, tests/a-cloud-run-*).
 
 ### AWS setup, once
 
 `scripts/cloud-setup.mjs`, run with an admin sign-in (`aws login`), creates or
-updates, idempotently: the S3 bucket (lifecycle: delete run objects after 7
-days), the ECR repository, a CodeBuild project that builds the image in AWS (no
-local Docker), the runtime's execution role (S3 on its own bucket, ECR pull,
-logs), the AgentCore runtime, and a narrow IAM user for the app (invoke and
-stop on that one runtime, read/write on that one bucket). The app keeps that
-user's key in the macOS keychain, so the 12-hour `aws login` is never what the
-app runs on. Everything it made is written to the app's data folder, never to
-git (the account id must not be committed).
+updates, idempotently: the S3 bucket (block public access, objects expire after
+7 days), the ECR repository, a CodeBuild project that builds the arm64 image
+in AWS (no Docker on the Mac), the runtime's execution role (ECR pull and logs
+only: the sandbox reaches S3 through presigned URLs and holds no AWS rights of
+its own), the AgentCore runtime, and an IAM user for the app that may invoke
+and stop sessions on that one runtime and read and write that one bucket. Its
+key goes into `~/.aws/credentials` as the `agentbox-cloud` profile (0600), so
+the app never runs on the 12-hour `aws login`. Names and ARNs go to
+`<app data>/cloud.json`, never to git.
 
-### Choosing where a thread runs
+### Turning it on
 
-- `cloudRuns: true` in the config turns it on; off by default, and the app is
-  exactly today's app when off.
-- A thread runs locally while a local slot is free. Past `maxConcurrentSessions`
-  it runs in the cloud, up to `maxCloudSessions` (default 10). Cloud runs do not
-  pass through the memory gate; the proxy is a ~50 MB process.
-- Personal products and anything that needs this Mac (a product with no repo,
-  a `--chrome` style tool, a local-only MCP server) stay local.
-- A thread started in the cloud resumes in the cloud only if its sandbox is
-  still alive; otherwise the reply runs wherever a slot is, carrying the
-  transcript across.
+`cloudRuns: true` in the config, after the setup script and one
+`claude setup-token` per account (stored in the macOS keychain). Off by
+default; when off the app is exactly today's app.
 
 ### What the user sees
 
-One line in the thread's state: "Running in the cloud". Nothing else changes.
-(Needs screenshots and divergent options before it is built.)
+One line in the thread's state: "Running in the cloud". (Screenshots and
+divergent options before it is built.)
 
 ## Phases
 
-1. Spike: AgentCore measured for real (budget, image size, start time, 1 GB
-   storage, subscription sign-in, 2 CPU build speed). Running as w-bad6fbae78.
-2. The sandbox image and server, with unit tests on the server's protocol.
+1. Spike: AgentCore measured for real. Running as w-bad6fbae78.
+2. The sandbox image and server. **Server and bridge built and tested.**
 3. `scripts/cloud-setup.mjs`, run once against the real account.
-4. The proxy (`main/cloud/run.mjs`): pack, start, stream, MCP bridge, collect,
-   re-attach. Tested against an in-process stand-in of the sandbox server.
-5. The supervisor's choice of local or cloud, the config, the state line.
-6. End to end: a real thread of this repo runs in the cloud, asks for an
-   approval, writes to the store, commits, and ships; then the same with the
-   lid shut halfway (simulated by suspending the proxy).
-7. Phase 2, filed separately: new runs while the Mac sleeps (a scheduler in
-   the cloud), replies from the phone, and a managed version for people who do
-   not have an AWS account.
+4. The proxy, tested against the in-process sandbox and a stand-in S3.
+5. The supervisor's guards, slots and spawn switch, with fault tests (R14):
+   lost start acknowledgement, a store write whose reply is lost to sleep,
+   quit during an approval, quit after the ship label, failed import, a reply
+   arriving while the run is in the cloud, Stop while the sandbox is
+   unreachable.
+6. End to end against the real account: a thread of this repo runs in the
+   cloud, writes to the store, asks for an approval, commits, ships.
+7. Phase 2, filed separately: Codex in the cloud, new runs while the Mac
+   sleeps, replies from the phone, and a managed version for people with no
+   AWS account.
 
-## Open questions for review
+## The privacy and terms pages
 
-- Codex sign-in in the sandbox: `codex login --with-access-token` exists; does
-  a token like that refresh without invalidating the Mac's own copy?
-- Untracked files a task needs (gitignored config) do not travel in a bundle.
-- `npm ci` on every run is slow; cache node_modules per lockfile hash in S3?
-- The privacy and terms pages say Agentbox sends nothing and hosts nothing.
-  Running a task in the user's own AWS account changes what leaves the Mac, so
-  both pages need editing in the same change.
+They say Agentbox sends nothing and hosts nothing. A cloud run sends the task's
+code, prompt and transcript to the user's own AWS account, by their choice, so
+both pages are edited in the change that turns cloud runs on.
