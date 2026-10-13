@@ -19,14 +19,19 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { layersFor, DRIVE_ORDER } from '../.claude/skills/verify-agentbox/scripts/verify.mjs';
+import { layersFor, DRIVE_ORDER, REAL_ORDER, INSTALLED_ORDER } from '../.claude/skills/verify-agentbox/scripts/verify.mjs';
 import { SHAPES, build } from '../.claude/skills/verify-agentbox/scripts/machines.mjs';
 
 const runs = (files, opts) => Object.fromEntries(Object.entries(layersFor(files, opts)).map(([k, v]) => [k, v.run]));
+// Since 2026-10-12 (the owner's answer on w-4401acca50): every deploy that
+// changes what a person runs also runs real Claude Code and Codex, the
+// installed app, and an agent trying to break it.
+const APP_CHANGE = { live: true, real: true, installed: true, breaker: true };
+const NO_APP_CHANGE = { live: false, real: false, installed: false, breaker: false };
 
 describe('which layers a branch gets', () => {
-  it('a change to how Codex is found runs the machine check and the live drive', () => {
-    expect(runs(['main/codex-bin.mjs'])).toEqual({ 'this-machine': true, machines: true, live: true });
+  it('a change to how Codex is found runs the machine check and every app layer', () => {
+    expect(runs(['main/codex-bin.mjs'])).toEqual({ 'this-machine': true, machines: true, ...APP_CHANGE });
   });
 
   it('every file that decides how a tool is found or started counts', () => {
@@ -35,8 +40,19 @@ describe('which layers a branch gets', () => {
     }
   });
 
-  it('a screen change runs the live drive but not the machine check', () => {
-    expect(runs(['renderer/src/threads/ThreadComposer.tsx'])).toEqual({ 'this-machine': true, machines: false, live: true });
+  it('a screen change runs every app layer but not the machine check', () => {
+    expect(runs(['renderer/src/threads/ThreadComposer.tsx'])).toEqual({ 'this-machine': true, machines: false, ...APP_CHANGE });
+  });
+
+  it('--quick keeps the stand-in drives and drops the slow, billed layers', () => {
+    expect(runs(['main/supervisor.mjs'], { quick: true })).toEqual({ 'this-machine': true, machines: false, live: true, real: false, installed: false, breaker: false });
+  });
+
+  it('each slow layer can be dropped on its own, and says why it was', () => {
+    expect(runs(['main/supervisor.mjs'], { real: false })).toMatchObject({ live: true, real: false, installed: true, breaker: true });
+    expect(runs(['main/supervisor.mjs'], { installed: false })).toMatchObject({ real: true, installed: false, breaker: true });
+    expect(runs(['main/supervisor.mjs'], { breaker: false })).toMatchObject({ real: true, installed: true, breaker: false });
+    expect(layersFor(['main/supervisor.mjs'], { real: false }).real.why).toBe('--no-real');
   });
 
   it('a change to the stand-in worker or the skill re-proves the drive', () => {
@@ -47,21 +63,32 @@ describe('which layers a branch gets', () => {
 
   it('docs, tests and one-off scripts get only the two-second layer', () => {
     expect(runs(['docs/team/PLAN.md', 'tests/a-bare-week-means-one-week.test.mjs', 'scripts/scratch/x.mjs', 'README.md']))
-      .toEqual({ 'this-machine': true, machines: false, live: false });
+      .toEqual({ 'this-machine': true, machines: false, ...NO_APP_CHANGE });
   });
 
   it('does not match a path that only starts with a product folder\'s name', () => {
     expect(runs(['docs/main/notes.md', 'mainline.md', 'renderer-notes.md', 'tests/main/claude-bin.test.mjs']))
-      .toEqual({ 'this-machine': true, machines: false, live: false });
+      .toEqual({ 'this-machine': true, machines: false, ...NO_APP_CHANGE });
   });
 
   it('--all runs everything, whatever changed', () => {
-    expect(runs([], { all: true })).toEqual({ 'this-machine': true, machines: true, live: true });
+    expect(runs([], { all: true })).toEqual({ 'this-machine': true, machines: true, ...APP_CHANGE });
   });
 
-  it('every drive the check runs exists', async () => {
+  it('every drive the check runs exists, on every copy it runs on', async () => {
     const src = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', '.claude/skills/verify-agentbox/scripts/drives.mjs'), 'utf8');
-    for (const d of DRIVE_ORDER) expect(src).toContain(`'${d}': {`);
+    for (const d of [...DRIVE_ORDER, ...REAL_ORDER, ...INSTALLED_ORDER]) expect(src, d).toContain(`'${d}': {`);
+  });
+
+  it('runs real Claude Code and Codex on the agent drives', () => {
+    expect(REAL_ORDER).toEqual(expect.arrayContaining(['new-thread', 'reply', 'codex-thread', 'many-at-once']));
+  });
+
+  it('runs nothing after every login runs out, since every login is left resting', () => {
+    for (const order of [DRIVE_ORDER, INSTALLED_ORDER]) {
+      const i = order.indexOf('every-login-runs-out');
+      if (i >= 0) expect(i, order.join(' ')).toBe(order.length - 1);
+    }
   });
 });
 

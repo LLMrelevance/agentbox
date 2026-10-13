@@ -1,6 +1,6 @@
 ---
 name: verify-agentbox
-description: Prove an Agentbox change works the way a person meets it, before it ships. Runs the app's own tool-finding and worker setup on fake Macs unlike this one (other install methods, shells, PATHs), reads this Mac for real, and drives a throwaway copy of the app by keyboard in headless Chrome (inbox, new thread, reply). Use before shipping anything under main/, shared/, renderer/ or bin/, when a bug might depend on someone's machine, or when asked to verify, QA, or "check it really works".
+description: Prove an Agentbox change works the way a person meets it, before it ships. Runs the app's own tool-finding and worker setup on fake Macs unlike this one, reads this Mac for real, drives throwaway copies of the app by keyboard (agents on Claude Code and Codex, several at once, logins out of usage, restarts, replies landing on the right thread) on stand-ins, on the real tools, and through the installed app, then sets an agent loose to break it. Use before shipping anything under main/, shared/, renderer/ or bin/, when a bug might depend on someone's machine, or when asked to verify, QA, or "check it really works".
 ---
 
 # Verify Agentbox
@@ -9,26 +9,37 @@ The unit tests run on the Mac the code was written on, so they cannot see the
 bugs that only exist on somebody else's: Codex installed with npm under a
 lazy nvm, a bash user, a home folder with a space, `CODEX_HOME` set only in
 `.zshrc`, an app opened from the Dock with launchd's four-folder PATH. Most of
-what reached people was that kind. This skill is the check for it, plus a live
-drive of the app itself.
+what reached people was that kind. The rest were the agents themselves: a
+task that never runs (Codex most of all), an answer on the wrong thread or in
+the wrong inbox, several at once, a login out of usage. This skill drives
+those for real.
 
-Three layers, one command:
+Six layers, one command:
 
 ```sh
-node .claude/skills/verify-agentbox/scripts/verify.mjs          # the layers this branch needs
-node .claude/skills/verify-agentbox/scripts/verify.mjs --all    # every layer
+node .claude/skills/verify-agentbox/scripts/verify.mjs          # the layers this branch needs, in full
+node .claude/skills/verify-agentbox/scripts/verify.mjs --all    # every layer, whatever changed
+node .claude/skills/verify-agentbox/scripts/verify.mjs --quick  # stand-in drives only, for iterating
+# drop one slow layer: --no-real --no-installed --no-breaker; --breaker-minutes 20
 ```
 
 | layer | what it proves | time |
 |---|---|---|
 | `this-machine` | what the app finds on THIS Mac, opened from the Dock, and that a worker can start it | ~2 s |
 | `machines` | the same, through the app's own modules, on 17 fake Macs (`scripts/machines.mjs`) | ~35 s |
-| `live` | a throwaway copy of the app, driven by keyboard: inbox, new thread, reply | ~40 s |
+| `live` | the browser copy on stand-ins, every drive in `DRIVE_ORDER`: Codex, six at once, replies landing where shown, logins out of usage, quit and Control-C mid-run | ~10 min |
+| `real` | `REAL_ORDER` again on the Claude Code and Codex this Mac has, signed in as they are, one-word tasks (billed to that subscription, a few cents) | ~5–10 min |
+| `installed` | the packaged `.app`, opened with a Dock launch's environment on a throwaway home, `INSTALLED_ORDER` through its own window | ~5 min with the build |
+| `breaker` | a locked-down Claude Code session told to break the app through the screen (`breaker.mjs`). Findings are printed for a person, not counted as failures | 15 min |
+
+The owner's call (2026-10-12): every deploy that changes what a person runs
+gets all six, real Claude Code and Codex included. Feature-by-feature drives
+(⌘K, approvals, options) are not the priority; the agents are.
 
 `verify.mjs` reads `git diff origin/main...HEAD` plus uncommitted files and
-skips a layer a change cannot affect (docs, tests and scripts never get the
-live drive). It prints what it ran and why, and exits 0 only when every layer
-that ran held. Known gaps (below) print `KNOWN` and do not fail it.
+skips a layer a change cannot affect (docs, tests and scripts get only
+`this-machine`). It prints what it ran and why, and exits 0 only when every
+layer that ran held. Known gaps (below) print `KNOWN` and do not fail it.
 
 Unit tests are not repeated here: `npm run test:changed`, `npm run ship`, the
 push hook and CI already run them.
@@ -106,7 +117,10 @@ environment it was handed).
 
 To add a drive: add an entry to `DRIVES` in `scripts/drives.mjs` with `what`
 and `run({ tab, state, claim, capture })`, add its feature file, and add it to
-`DRIVE_ORDER` in `verify.mjs` if it belongs in the pre-deploy run. `tab` is
+`DRIVE_ORDER` in `verify.mjs` if it belongs in the pre-deploy run (and to
+`REAL_ORDER` or `INSTALLED_ORDER` if it means something on the real tools or
+the packaged app). Nothing can follow `every-login-runs-out` on one copy: it
+leaves every login resting. `tab` is
 `scripts/cdp.mjs`: `press(key, mods)`, `type(text)`, `until(expr)`,
 `evaluate(expr)`, `capture(file)`, `text()`.
 
@@ -175,22 +189,26 @@ A claim or shape with `known` set is a product bug filed on its own thread.
 It still runs; it prints `KNOWN`, does not fail the run, and prints a reminder
 when it starts holding so the marker can come off.
 
-None today. The first two the check found (a thread you typed reading "An
-agent opened this" with nobody signed in, and an old npm Claude Code that
-could not start as a worker from the Dock) were fixed in the change that
-added the check.
+None today. Everything the check has found so far was fixed in the task that
+built it: a thread you typed reading "An agent opened this" with nobody
+signed in; an old npm Claude Code that could not start as a worker from the
+Dock; a task whose login ran out sleeping for hours while another login was
+free; Control-C on the browser copy charging its own stop to running tasks;
+and (the breaker's) an out-of-usage thread repeating "It handed this back".
 
 ## Not covered yet
 
 Listed so nobody reads a green run as proof of these:
 
-- The Electron shell itself (dock, menus, notifications, auto-update). The
-  live layer is the browser copy.
-- Codex as the worker (`scripts/lib/codex-stub-model.mjs` can stand in for the
-  model; no drive uses it yet).
-- The team version signed in (needs a test account on the team cloud).
+- The installed app's menus, notifications and auto-update. The `installed`
+  layer drives its window, not the shell around it.
+- The team version signed in. Not needed while one person ships it (the
+  owner's call, 2026-10-12); test accounts on the team server are allowed
+  when it is.
 - Shipping (`ship` label to `npm run ship`), approvals cards, scheduling.
 - Linux machines (`check-machines` is Mac shapes only; the app supports Linux).
+- Other people's Macs, beyond the fake ones. Not needed while one person
+  ships it.
 
 ## Keeping it honest
 

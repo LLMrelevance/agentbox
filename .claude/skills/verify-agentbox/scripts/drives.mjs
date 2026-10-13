@@ -24,13 +24,30 @@ export function readLedger(state, slug = 'sandbox') {
   if (!fs.existsSync(file)) return [];
   return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
 }
-/** Every row in the sandbox project, folded the way the app folds them. */
-export function rows(state, slug = 'sandbox') {
-  // The project is which ledger the row is in; the fold does not repeat it.
-  return [...foldWorkItems(readLedger(state, slug)).values()].map((r) => ({ ...r, product: slug }));
+/** Every project the copy has a ledger for, by slug (the installed app adds "My workspace" of its own). */
+export function projects(state) {
+  const prefix = `${path.join(state.accountRoot, '').replace(/[^A-Za-z0-9]/g, '-')}`;
+  try {
+    return fs.readdirSync(path.join(state.storeRoot, 'projects')).filter((d) => d.startsWith(prefix)).map((d) => d.slice(prefix.length));
+  } catch { return []; }
 }
-export function sessionLogs(state, id, slug = 'sandbox') {
-  try { return fs.readdirSync(path.join(machinery(state, slug), 'sessions', id)); } catch { return []; }
+
+/**
+ * Rows folded the way the app folds them: one project's, or with no slug every
+ * project's, since where a new thread is filed by default differs between the
+ * browser copy (the first project) and the installed app (its own workspace).
+ */
+export function rows(state, slug = null) {
+  // The project is which ledger the row is in; the fold does not repeat it.
+  const one = (s) => [...foldWorkItems(readLedger(state, s)).values()].map((r) => ({ ...r, product: s }));
+  return slug ? one(slug) : projects(state).flatMap(one);
+}
+/** A thread's session logs, in whichever project it is filed. */
+export function sessionLogs(state, id) {
+  for (const slug of projects(state)) {
+    try { return fs.readdirSync(path.join(machinery(state, slug), 'sessions', id)); } catch { /* not this one */ }
+  }
+  return [];
 }
 /** Every start of the Claude stand-in on one thread: which login, which attempt, when. */
 export function spawnsOf(state, id) {
@@ -188,7 +205,7 @@ export async function compose(tab, state, title, { engine = null, project = null
   // Composing writes two lines, the app's stamp and then the person's own
   // (with the engine and model); wait for the second, or the row reads early.
   const theirs = (r) => r.title === title && r.wrote?.title?.source === 'founder';
-  const row = await until(() => rows(state).find(theirs) ?? rows(state, 'second').find(theirs), 10_000);
+  const row = await until(() => rows(state).find(theirs), 10_000);
   return { row, picked };
 }
 
@@ -308,11 +325,11 @@ export const DRIVES = {
         made.map((m) => `${m.project}→${m.row?.product}`).join(' '));
       claim(made.every((m) => (m.row?.engine ?? 'claude') === (m.engine ?? 'claude')), 'each runs on the engine it was sent to',
         made.map((m) => `${m.engine ?? 'claude'}→${m.row?.engine ?? 'claude'}`).join(' '));
-      const resultOf = (m) => String([...rows(state), ...rows(state, 'second')].find((x) => x.id === m.row?.id)?.result ?? '');
+      const resultOf = (m) => String(rows(state).find((x) => x.id === m.row?.id)?.result ?? '');
       const done = await until(() => made.every((m) => resultOf(m).includes(m.tok)), real ? 600_000 : 150_000);
       claim(done, 'every task is answered, and each answer carries its own task\'s token (none crossed)',
         made.map((m) => `${m.tok}:${resultOf(m).includes(m.tok) ? 'ok' : resultOf(m).slice(0, 30) || 'none'}`).join(' '));
-      const all = [...rows(state), ...rows(state, 'second')];
+      const all = rows(state);
       claim(made.every((m) => all.filter((r) => r.title === m.title).length === 1), 'no task was duplicated');
       const listed = [];
       for (const m of made) listed.push(await inNeedsYou(tab, m.title));
@@ -339,6 +356,51 @@ export const DRIVES = {
     stubOnly: 'needs workers slow enough to be caught mid-run',
     notInstalled: 'Control-C is how the browser copy is stopped, not the installed app',
     run: (ctx) => interruptMidRun(ctx, 'ctrl-c'),
+  },
+  'reply-lands-where-shown': {
+    what: 'two replies sent quickly, the second after the app has moved on: each lands on the thread that was on screen when it was sent',
+    stubOnly: 'tells threads apart by the token in each stand-in answer',
+    async run({ tab, state, claim, capture }) {
+      const stamp = Date.now().toString(36);
+      // Three, because with more than one other thread waiting the app moves on
+      // to the next after a reply instead of back to the list.
+      const made = {};
+      for (const k of ['A', 'B', 'C']) made[k] = (await compose(tab, state, `Reply ${k} [[tok:Q${k}${stamp}]]`, { engine: 'claude' })).row;
+      const answered = await until(() => Object.entries(made).every(([k, r]) => String(rows(state).find((x) => x.id === r.id)?.result ?? '').includes(`Q${k}${stamp}`)), 40_000);
+      if (!claim(answered, 'all three threads are answered first')) return;
+      // Which thread is open, read off its pane: each answer carries its own token.
+      const shown = () => tab.evaluate(`(() => { const t = document.querySelector('.focus-pane')?.innerText ?? '';
+        return ['A', 'B', 'C'].find((k) => t.includes('Q' + k + '${stamp}')) ?? null; })()`);
+      // Opened the way a person works through Needs you: the tab, then the keys.
+      await tab.press('Escape');
+      await clickTab(tab, /^needs you/i);
+      await tab.press('Enter');
+      await tab.wait(800);
+      const before = await shown();
+      claim(before, 'a thread opens from Needs you with ↵', before ?? 'none');
+      if (!before) return;
+      const ledgerHas = (row, words) => readLedger(state, row.product).some((l) => l.id === row.id && JSON.stringify(l).includes(words));
+      await tab.press('r');
+      await tab.until(`document.activeElement?.matches('textarea, [contenteditable="true"]')`, { ms: 8000 });
+      await tab.type(`reply one ${stamp}`);
+      await tab.press('Enter', ['meta']);
+      claim(await until(() => ledgerHas(made[before], `reply one ${stamp}`), 10_000), `the first reply is on thread ${before}, the one on screen`);
+      await tab.wait(1200);
+      const next = await shown();
+      await capture('after-first-reply');
+      await tab.press('r');
+      const box = await tab.until(`document.activeElement?.matches('textarea, [contenteditable="true"]')`, { ms: 8000 }).catch(() => false);
+      if (!next || !box) {
+        claim(true, 'after the first reply the app left the thread, so there is no second thread to reply on', `on screen: ${next ?? 'the list'}`);
+        return;
+      }
+      await tab.type(`reply two ${stamp}`);
+      await tab.press('Enter', ['meta']);
+      const target = made[next];
+      claim(await until(() => ledgerHas(target, `reply two ${stamp}`), 10_000), `the second reply is on thread ${next}, the one on screen when it was sent`);
+      claim(Object.entries(made).every(([k, r]) => k === next || !ledgerHas(r, `reply two ${stamp}`)), 'and on no other thread');
+      await capture('after-second-reply');
+    },
   },
   'one-login-runs-out': {
     what: 'two Claude logins, the second out of usage: every task still gets answered, the one that hit the limit moves to the free login within a minute',
@@ -378,6 +440,7 @@ export const DRIVES = {
       claim(await inNeedsYou(tab, claude.title), 'the stopped task is under Needs you, where the person looks');
       await capture('needs-you');
       await openThread(tab, rows(state).find((r) => r.id === claude.id) ?? claude);
+      claim(!/It handed this back/.test(await tab.text()), 'the thread does not claim the agent handed it back (the app wrote its own note)');
       await capture('thread');
     },
   },
@@ -400,7 +463,7 @@ export const DRIVES = {
       await capture('reply-typed');
       const sentAt = Date.now();
       await tab.press('Enter', ['meta']);
-      const heard = await until(() => readLedger(state).some((l) => l.id === done.id && JSON.stringify(l).includes(stamp)), 10_000);
+      const heard = await until(() => readLedger(state, done.product).some((l) => l.id === done.id && JSON.stringify(l).includes(stamp)), 10_000);
       claim(heard, 'the reply is written to the thread in the store');
       const started = await until(() => sessionLogs(state, done.id).length > before, 30_000);
       claim(started, 'a worker session is started for the reply', `${before} → ${sessionLogs(state, done.id).length} session logs`);

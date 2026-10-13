@@ -433,6 +433,12 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null): Threa
         continue;
       }
       if (status === 'open') {
+        // THE APP DELIVERING ITS OWN NOTE IS NOT A HAND-BACK. A run that died
+        // before doing anything gets the app's sentence as its result, then a
+        // system line reopening the row; drawn as "It handed this back", that
+        // repeated once per attempt over a thread out of usage
+        // (tests/an-out-of-usage-thread-does-not-say-it-handed-this-back).
+        if (line.source === 'system' && events.at(-1)?.field === 'result') continue;
         events.push({ at, who, said: mine ? 'You sent it back' : 'It handed this back' });
         continue;
       }

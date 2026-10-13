@@ -94,7 +94,11 @@ const transcript = fs.openSync(path.join(out, 'transcript.jsonl'), 'a');
 const child = spawn(claude.path, [
   '-p', prompt,
   '--output-format', 'stream-json', '--verbose',
-  '--allowedTools', `Bash(${node} ${browse}:*)`, `Bash("${node}" "${browse}":*)`, `Read(${out}/**)`, `Write(${out}/**)`, `Edit(${out}/**)`,
+  // A path rule starting `//` is an absolute path (`/Users/…` alone reads as
+  // relative to the settings file, which is why the first trial could not
+  // write its findings). Edits are accepted inside its own folder, its cwd.
+  '--allowedTools', `Bash(${node} ${browse}:*)`, `Bash("${node}" "${browse}":*)`, `Read(/${out}/**)`, `Write(/${out}/**)`, `Edit(/${out}/**)`,
+  '--permission-mode', 'acceptEdits',
   '--disallowedTools', 'WebFetch', 'WebSearch', 'Task', 'Agent',
   '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
   ...(model ? ['--model', model] : []),

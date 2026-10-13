@@ -141,10 +141,18 @@ async function prepare(real) {
       fs.writeFileSync(path.join(home, dir, '.claude.json'), `${JSON.stringify({ oauthAccount: { emailAddress: `${n}@verify.invalid`, accountUuid: `verify-account-${n}` } })}\n`);
     }
     // A wrapper, so the stand-in starts with an absolute node and does not
-    // depend on what PATH the copy's shell recovers from an empty home.
+    // depend on what PATH the copy's shell recovers from an empty home. It runs
+    // a COPY of the stand-in kept here under /tmp, never the one in this
+    // checkout: a checkout under ~/Desktop or ~/Documents is a folder macOS
+    // guards, and the installed app reading a script there waits on a privacy
+    // prompt on the person's screen. Measured 2026-10-12: four workers sat for
+    // minutes before running a line. (The stand-in imports nothing but Node's
+    // own modules, so the copy is the whole of it.)
     claudeBin = path.join(INSTANCE, 'bin', 'claude');
     fs.mkdirSync(path.dirname(claudeBin), { recursive: true });
-    fs.writeFileSync(claudeBin, `#!/bin/sh\nexec "${process.execPath}" "${STUB}" "$@"\n`, { mode: 0o755 });
+    const stub = path.join(INSTANCE, 'bin', 'stub-claude-worker.mjs');
+    fs.copyFileSync(STUB, stub);
+    fs.writeFileSync(claudeBin, `#!/bin/sh\nexec "${process.execPath}" "${stub}" "$@"\n`, { mode: 0o755 });
     codexBin = await realCodex();
     if (codexBin) {
       codexHome = path.join(INSTANCE, 'codex-home');
@@ -228,8 +236,12 @@ async function startInstalled(state) {
     engineChoice: '2026-01-01T00:00:00.000Z', maxConcurrentSessions: 2,
   }, null, 2)}\n`);
   const port = await freePort();
-  const open = spawnSync('open', ['-n', '-a', APP, ...Object.entries(env).flatMap(([k, v]) => ['--env', `${k}=${v}`]),
-    '--args', `--remote-debugging-port=${port}`], { encoding: 'utf8' });
+  // `open` hands the app the environment it was itself started with, so run
+  // from a terminal (or from inside an agent) it passed on every variable of
+  // that session, including another Agentbox's memory gate. Started with an
+  // empty one, the app gets what a Dock launch gives it, plus the few set here.
+  const open = spawnSync('/usr/bin/open', ['-n', '-a', APP, ...Object.entries(env).flatMap(([k, v]) => ['--env', `${k}=${v}`]),
+    '--args', `--remote-debugging-port=${port}`], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' } });
   if (open.status !== 0) stop(`open could not start the installed app: ${open.stderr}`);
   const deadline = Date.now() + 60_000;
   let page = null;
@@ -369,6 +381,12 @@ export async function doctor({ quiet = false } = {}) {
     const old = appIsStale();
     if (old) bad(`the installed app is ${old}, so a drive would test old code. Run: live.mjs down, then up --installed`);
     else ok('the installed app is newer than its source');
+    // Opened as the Dock opens it: nothing of the session that started it.
+    let envOf = '';
+    try { envOf = execFileSync('ps', ['-Eww', '-o', 'command=', '-p', String(state.pid)], { encoding: 'utf8' }); } catch { /* gone */ }
+    const leaked = ['TERM_PROGRAM', 'AGENTBOX_GATE_SOCK', 'CLAUDECODE', 'ZERO_ITEM', 'NVM_DIR'].filter((k) => envOf.includes(` ${k}=`));
+    if (leaked.length) bad(`the installed app inherited a terminal's environment (${leaked.join(', ')}), so it is not a Dock launch`);
+    else ok('it was opened with a Dock launch\'s environment');
     return wrong;
   }
   if (cmd.includes('bin/agentbox.mjs') && cmd.includes(state.data)) ok('it is our copy (bin/agentbox.mjs on our data folder)');
@@ -383,7 +401,7 @@ export async function doctor({ quiet = false } = {}) {
   if (stale) bad(`the built screen is ${stale}, so a drive would test old code. Run: live.mjs down, then up`);
   else ok('the built screen is newer than its source');
   if (state.engine === 'stub') {
-    try { fs.accessSync(STUB, fs.constants.X_OK); ok('the stand-in worker is executable'); } catch { bad(`the stand-in worker is not executable: ${STUB}`); }
+    try { fs.accessSync(state.claudeBin ?? STUB, fs.constants.X_OK); ok('the stand-in worker is executable'); } catch { bad(`the stand-in worker is not executable: ${state.claudeBin ?? STUB}`); }
   } else {
     ok('worker: the Claude Code this Mac has');
   }
