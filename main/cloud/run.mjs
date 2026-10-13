@@ -45,6 +45,7 @@ import crypto from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import { spawn, execFileSync } from 'node:child_process';
 import { readMarker, writeMarker, clearMarker } from './marker.mjs';
+import { Name, nameSlug } from '../../shared/product-name.mjs';
 
 export const IMPORT_FAILED = 75;
 const STUB = '/opt/agentbox/mcp-stub.mjs';
@@ -98,7 +99,7 @@ export function folderState(cwd) {
 function snapshotUncommitted(cwd, ref) {
   if (!git(cwd, ['status', '--porcelain', '--untracked-files=all']).trim()) return false;
   const tree = treeOfFolder(cwd);
-  const commit = git(cwd, ['-c', 'user.name=Agentbox', '-c', 'user.email=agentbox@localhost', 'commit-tree', tree, '-p', 'HEAD', '-m', 'Uncommitted work kept by a cloud run']).trim();
+  const commit = git(cwd, ['-c', `user.name=${Name}`, '-c', `user.email=${nameSlug}@localhost`, 'commit-tree', tree, '-p', 'HEAD', '-m', 'Uncommitted work kept by a cloud run']).trim();
   git(cwd, ['update-ref', ref, commit]);
   return true;
 }

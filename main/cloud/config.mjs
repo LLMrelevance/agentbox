@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { Name } from '../../shared/product-name.mjs';
 
 export function cloudConfigPath(env = process.env) {
   return env.AGENTBOX_CLOUD_CONFIG || path.join(os.homedir(), '.agentbox', 'cloud.json');
@@ -25,7 +26,7 @@ export function readCloudConfig(env = process.env) {
   }
 }
 
-const SERVICE = 'Agentbox cloud: Claude sign-in';
+const SERVICE = `${Name} cloud: Claude sign-in`;
 const fileStore = () => path.join(os.homedir(), '.agentbox', 'cloud-tokens.json');
 
 // The account a token belongs to is the Claude config folder it signs in, so

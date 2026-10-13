@@ -3741,7 +3741,7 @@ export class Supervisor {
     this._homecomings.set(folder, rec);
     child.stderr?.on('data', (d) => console.warn(String(d).trim()));
     child.on('error', () => { rec.child = null; rec.at = Date.now(); });
-    child.on('exit', () => { rec.child = null; rec.at = Date.now(); this.wake?.(); });
+    child.once('exit', () => { rec.child = null; rec.at = Date.now(); this.wake?.(); });
   }
 
   /**
@@ -6876,7 +6876,7 @@ export class Supervisor {
     if (where === 'cloud' && !readClaudeToken(this._claudeConfigDir(profile))) {
       if (!this._warnedNoCloudSignIn?.has(profile)) {
         (this._warnedNoCloudSignIn ??= new Set()).add(profile);
-        console.warn(`zero: the Claude account ${profile} has no cloud sign-in (scripts/cloud-signin.mjs), so its threads stay on this Mac`);
+        console.warn(`zero: the Claude account ${profile} has no cloud sign-in (scripts/cloud-signin.mjs), so its threads run here only`);
       }
       if (!cloudWorkPending(cwd) && (this._localSlotFor(engine) || continuation)) where = 'local';
       else {
@@ -7256,12 +7256,8 @@ export class Supervisor {
       if (exited) return;
       exited = true;
       if (how?.transportFault) session.transportFault = true;
-      // A CLOUD RUN WHOSE WORK COULD NOT BE BROUGHT BACK (main/cloud/run.mjs,
-      // exit 75). The agent may have finished and said so, but its commits are
-      // not in this folder, so it did not finish here: not a delivered reply,
-      // not an attempt spent, and its closing words are not the answer. The
-      // folder stays marked and the next tick brings the work home.
-      if (session.cloud && code === 75) { session.transportFault = true; session.resultIsError = true; }
+      // Cloud work not home (exit 75): not finished here (main/cloud/run.mjs).
+      if (session.cloud && code === 75) { session.transportFault = session.resultIsError = true; }
       session.exitFailed = !!(signal || code !== 0 || session.transportFault || session.resultIsError || session.result == null);
       this.count?.('run_finished', runEndedProps(session, Date.now()));
       onLine(`session exited (${code})`);
