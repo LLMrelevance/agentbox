@@ -105,7 +105,18 @@ export function createCornerTag({
     const f = framed(a);
     return { x: f.x - EDGE_SLACK, y: f.y - EDGE_SLACK, width: f.width + 2 * EDGE_SLACK, height: f.height + 2 * EDGE_SLACK };
   };
-  const glassOf = (r) => (frame ? { x: r.x + frame, y: r.y + frame, width: r.width - 2 * frame, height: r.height - 2 * frame } : r);
+  // WHERE THE GLASS IS DRAWN INSIDE THAT WINDOW, as the page measured it. It
+  // used to be worked out from the band alone, which is only the truth while
+  // the window is exactly the size the page asked for — and a grip drag widens
+  // the window first and lets the page catch up, so the last guess of a drag
+  // can outlive it. The list then lined up with a window edge that was no
+  // longer the glass's: "it is a little too far to the right... it's just the
+  // right sides that seem to be improperly aligned" (2026-10-13).
+  let inset = null;
+  const glassOf = (r) => {
+    if (inset) return { x: r.x + inset.x, y: r.y + inset.y, width: inset.width, height: inset.height };
+    return frame ? { x: r.x + frame, y: r.y + frame, width: r.width - 2 * frame, height: r.height - 2 * frame } : r;
+  };
   const inApp = () => {
     try { return !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused(); } catch { return false; }
   };
@@ -476,7 +487,13 @@ export function createCornerTag({
       if (open) { placeCard(); showCard(); }
       return null;
     }
-    if (partOf(p) === 'tag' && Number.isFinite(p.frame)) frame = Math.max(0, Math.round(p.frame));
+    if (partOf(p) === 'tag' && p.glass && Number.isFinite(p.glass.x) && p.glass.width > 0) {
+      inset = {
+        x: Math.max(0, Math.round(p.glass.x)), y: Math.max(0, Math.round(p.glass.y)),
+        width: Math.round(p.glass.width), height: Math.round(p.glass.height),
+      };
+      frame = inset.x;
+    }
     // Mid-resize the page's own measurement is the truth: it places the tag
     // from the corner she is not holding.
     if (press?.grip) { resizeTo(size); if (open) placeCard(); return null; }
