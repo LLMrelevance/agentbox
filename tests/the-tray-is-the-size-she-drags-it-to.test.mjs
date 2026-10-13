@@ -65,16 +65,17 @@ describe('the size she drags to is a multiple of the automatic one', () => {
 });
 
 describe('the corners she drags', () => {
-  it('are all four, each with an arrow that shows itself when pointed at', () => {
-    // One ledge in one corner was not discoverable: "there was no way to
-    // discover that it was actually expandable".
+  it('are all four, and draw nothing at all', () => {
+    // An arrow that appeared as the pointer crossed a corner read as a glitch:
+    // "you accidentally see something flash... it really kills the vibes". The
+    // affordance is the pointer, which the system turns into a resize arrow.
     for (const corner of ['tl', 'tr', 'bl', 'br']) expect(css).toContain(`.ct-grip-${corner}`);
     expect(page).toContain('GRIPS.map');
-    // and nothing shows until the pointer is on that one corner: four at once
-    // read as a frame of handles round the tag, which it is not
-    expect(css).toMatch(/\.ct-grip \{[^}]*opacity: 0;/);
-    expect(css).toMatch(/\.ct-grip:hover \{ opacity: 0\.8/);
-    expect(css).not.toMatch(/\.ct-frame:hover \.ct-grip[^:]*\{/);
+    expect(css).toContain('cursor: nwse-resize');
+    expect(css).toContain('cursor: nesw-resize');
+    expect(css).not.toContain('.ct-grip svg');
+    expect(css).not.toMatch(/\.ct-grip[^}]*opacity/);
+    expect(page).not.toContain('const ARROW');
     // and a patch big enough to aim at, not a few pixels of ledge
     expect(css).toMatch(/\.ct-grip \{[^}]*width: calc\(20px/);
   });
@@ -82,45 +83,6 @@ describe('the corners she drags', () => {
   it('press through the same door as a drag, saying which corner it is', () => {
     expect(bridge).toContain('press: (x, y, grip, corner)');
     expect(page).toContain('bridge?.press(e.screenX, e.screenY, true, corner)');
-  });
-});
-
-describe('the arrows hang over the glass, not inside it', () => {
-  it('centres each one on its corner, half in the clear band', () => {
-    // "It should extend over the edges and point outward... halfway inside the
-    // browser and halfway outside it." The window keeps a 10pt band around the
-    // glass and the 18pt patch starts 2.5pt into it, so the arrow's middle
-    // lands on the corner, a whisker inside where the radius rounds it off.
-    expect(css).toMatch(/\.ct-frame \{[^}]*padding: calc\(10px \* var\(--ct-s\)\)/);
-    // the inset is a fraction of the corner's own radius, so it holds at
-    // every size the tag can be dragged to
-    const radius = Number(css.match(/\.ct-tag \{[^}]*border-radius: calc\((\d+)px/)?.[1] ?? css.match(/border-radius: calc\((\d+)px \* var\(--ct-s\)\)/)[1]);
-    expect(2.4 / radius).toBeCloseTo(0.4, 1);
-    const grip = css.match(/\.ct-grip \{[^}]*\}/)[0];
-    // a 20pt patch inside a 10pt band, 2.4pt in from the window's corner.
-    // That number is measured, not judged: sampling the arrow's ink against
-    // the glass's real rounded rectangle gives 14% on the glass at no inset,
-    // 40% at two, 57% at three and 94% at five, and 51% where it now stands.
-    // It is 0.4 of the 6pt corner radius, so it holds at every size.
-    expect(grip).toMatch(/width: calc\(20px \* var\(--ct-s\)\)/);
-    expect(grip).toMatch(/height: calc\(20px \* var\(--ct-s\)\)/);
-    for (const corner of ['tl', 'tr', 'bl', 'br']) {
-      expect(css).toMatch(new RegExp(`\\.ct-grip-${corner} \\{ (left|right): calc\\(2\\.4px \\* var\\(--ct-s\\)\\); (top|bottom): calc\\(2\\.4px`));
-    }
-    // grey rather than ink, and never quite full strength
-    // low-key: a light grey at half strength, and never fully lit
-    const alpha = Number(grip.match(/color: rgba\(\d+, \d+, \d+, ([\d.]+)\)/)[1]);
-    expect(alpha).toBeLessThanOrEqual(0.55);
-    expect(css).toMatch(/\.ct-grip:hover \{ opacity: 0\.8/);
-  });
-
-  it('draws the usual two-headed arrow, one head at each end of the diagonal', () => {
-    // "a little two-directional arrow almost comes up and that's kind of what
-    // we're looking for" — a window's own corner handle.
-    const arrow = page.match(/const ARROW = '([^']+)'/)[1];
-    expect(arrow).toMatch(/^M1\.6 1\.6 10\.4 10\.4/);
-    expect(arrow.match(/M/g)).toHaveLength(3);
-    expect(css).toContain('.ct-grip-tr svg, .ct-grip-bl svg { transform: rotate(90deg); }');
   });
 
   it('tells the main process the band, and what is under the pointer', () => {
@@ -130,3 +92,4 @@ describe('the arrows hang over the glass, not inside it', () => {
     expect(bridge).toContain('size: (part, width, height, frame)');
   });
 });
+

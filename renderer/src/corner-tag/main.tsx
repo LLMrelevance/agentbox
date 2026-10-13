@@ -131,12 +131,6 @@ function useReportSize(ref: React.RefObject<HTMLElement>, which: Part, key: unkn
   }, [key]);
 }
 
-// The two-headed diagonal arrow a window shows at its corner: one line from
-// corner to corner with a head at each end, turned ninety degrees for the
-// other diagonal (corner-tag.css). It runs nearly the whole box, because a
-// short one reads as a speck rather than a handle.
-const ARROW = 'M1.6 1.6 10.4 10.4M1.6 6.1V1.6H6.1M10.4 5.9V10.4H5.9';
-
 /* --------------------------------- the tag --------------------------------- */
 function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }) {
   const [open, setOpen] = useState(forceOpen);
@@ -209,15 +203,15 @@ function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }
       <span className="ct-words">{text}</span>
       <Go />
     </div>
-      {/* EVERY CORNER RESIZES IT, AND ITS ARROW HANGS OVER THE EDGE (2026-10-13).
-          One ledge inside the bottom-left corner was neither findable nor right:
-          "the positioning of that arrow is completely wrong. It should extend
-          over the edges and point outward... halfway inside the browser and
-          halfway outside it." So each arrow is centred ON its corner, half over
-          the glass and half over the clear band the window keeps around it, and
-          points out along that diagonal. The press goes through the same door
-          as a move, flagged as the grip, so the main process reads the cursor
-          exactly as it does for a drag: the page is never sent every move. */}
+      {/* EVERY CORNER TAKES A DRAG, AND DRAWS NOTHING (2026-10-13). First a
+          ledge, then an arrow on each corner: "you accidentally see something
+          flash and you're like, oh wait, what was that... it really kills the
+          vibes". So the corners are bare: the pointer turning into the resize
+          arrow over them is the system's own affordance, and nothing in the
+          corner of her screen moves. Making it discoverable is the open
+          question, proposed rather than guessed at. The press goes through the
+          same door as a move, flagged as the grip, so the main process reads
+          the cursor exactly as it does for a drag. */}
       {GRIPS.map((corner) => (
         <span
           key={corner}
@@ -240,15 +234,14 @@ function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }
           onPointerCancel={() => letGo(true)}
           onLostPointerCapture={() => letGo(true)}
         >
-          {/* THE USUAL ONE: a two-headed arrow along the corner's own diagonal,
-              the thing a window shows when you point at its corner. The half
-              that hangs outside the glass lands on whatever is on the screen,
-              so it carries a pale outline and reads on a white page, a dark
-              app or a photograph alike. */}
-          <svg viewBox="0 0 12 12" aria-hidden>
-            <path d={ARROW} fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
-            <path d={ARROW} fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          {/* NOTHING IS DRAWN HERE ANY MORE (2026-10-13). An arrow that
+              appears as the pointer crosses a corner reads as a glitch:
+              "you accidentally see something flash and you're like, oh wait,
+              what was that... it really kills the vibes". The corner still
+              takes a drag and the pointer still turns into the resize arrow
+              over it, which is the system's own affordance and costs the tag
+              nothing. How somebody is meant to FIND that is a separate
+              question, and an open one. */}
         </span>
       ))}
     </div>

@@ -138,41 +138,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
    is on the tag so nothing is added to the corner of her screen at rest. It is
    inside the glass, because the window is exactly the glass and padding it is
    what once let a first click fall through (main/corner-tag.mjs). */
-/* A patch the size of a quarter of the tag to aim at, with a small arrow
-   tucked right into the corner itself: big enough to hit, small enough that
-   the words and the mark keep the middle of the tag to themselves. */
-/* A strip across the top and bottom of each end, never the middle: the mark
-/* EACH ARROW IS CENTRED ON ITS CORNER, half over the glass and half over the
-   clear band around it, pointing out along that diagonal: a window's corner
-   handle rather than an icon parked inside the pill. The patch around the
-   arrow is bigger than the arrow, so there is something to aim at. It is grey
-   rather than ink and it does not come all the way up: a handle you can see
-   when you look for it and not a mark on the corner of her screen. */
+/* THE CORNERS STILL TAKE A DRAG, AND DRAW NOTHING. A glyph that appears as
+   the pointer crosses a corner reads as a glitch rather than a handle ("you
+   accidentally see something flash... it really kills the vibes"), so the
+   affordance is the pointer itself: the system's resize arrow over a patch
+   big enough to aim at. Discovering that it resizes at all is a question
+   still open; nothing in the corner of her screen answers it by flashing. */
 .ct-grip {
   position: absolute; width: calc(20px * var(--ct-s)); height: calc(20px * var(--ct-s));
-  display: flex; align-items: center; justify-content: center;
-  opacity: 0; transition: opacity 110ms ease; color: rgba(96, 101, 112, 0.5);
 }
-.ct-grip svg { width: calc(11px * var(--ct-s)); height: calc(11px * var(--ct-s)); display: block; }
-/* HALF ON THE GLASS, MEASURED RATHER THAN EYEBALLED. The corner is rounded,
-   so where the arrow's ink falls against the painted glass is not where its
-   box sits: sampling the ink against the real rounded rectangle gives 14% on
-   the glass at no inset, 40% at two points, 57% at three and 94% at five —
-   which is exactly the pair of complaints that got us here ("75% of it is
-   outside", then "two-thirds in the component"). Half lands at 0.4 of the
-   corner's radius, and the radius is 6, so the inset is 2.4. */
 .ct-grip-tl { left: calc(2.4px * var(--ct-s)); top: calc(2.4px * var(--ct-s)); cursor: nwse-resize; }
 .ct-grip-tr { right: calc(2.4px * var(--ct-s)); top: calc(2.4px * var(--ct-s)); cursor: nesw-resize; }
 .ct-grip-bl { left: calc(2.4px * var(--ct-s)); bottom: calc(2.4px * var(--ct-s)); cursor: nesw-resize; }
 .ct-grip-br { right: calc(2.4px * var(--ct-s)); bottom: calc(2.4px * var(--ct-s)); cursor: nwse-resize; }
-/* the arrow lies along its own corner's diagonal */
-.ct-grip-tr svg, .ct-grip-bl svg { transform: rotate(90deg); }
-/* NOTHING IS DRAWN UNTIL THE POINTER IS ON THAT ONE CORNER. Showing all four
-   at once put a frame of handles round the tag — "the borders themselves look
-   a bit funky" — and a tag is not a selected object. One corner, one arrow,
-   only while the pointer is on it, exactly as a window's own corner behaves. */
-.ct-grip:hover { opacity: 0.8; }
-.ct-frame:has(.ct-tag.is-dragging) .ct-grip { opacity: 0; }
 
 .ct-go { display: flex; align-items: center; gap: calc(8px * var(--ct-s)); margin-left: 1px; color: var(--ct-faint); }
 .ct-go::before { content: ''; width: 1px; height: calc(14px * var(--ct-s)); background: var(--ct-rule); }
