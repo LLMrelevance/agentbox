@@ -244,8 +244,10 @@ describe('a cloud sandbox', () => {
     expect(stdoutOf(logged)).toContain('"type":"result"');
     expect(logged.some((e) => e.kind === 'exit' && e.code === 0)).toBe(true);
     expect(done.lastSeq).toBe(logged.at(-1).seq);
-    // Nothing is left to wait for, so AgentCore may let the session go.
-    expect(sandbox.ping().status).toBe('Healthy');
+    // Nothing is left to wait for, so AgentCore may let the session go. (The
+    // state turns a moment after done.json lands, which is the order it must
+    // go in: done.json last of everything uploaded.)
+    await until(() => sandbox.ping().status === 'Healthy', 'the session to go idle', 5000);
   });
 
   it('keeps the session alive and says so when an upload fails, so the Mac can ask again', async () => {
