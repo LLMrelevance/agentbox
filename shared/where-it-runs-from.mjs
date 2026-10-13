@@ -28,7 +28,6 @@
 // place" is a nag on a healthy install, and two of those are worse than the
 // silence this replaces.
 
-import path from 'node:path';
 import { Name } from './product-name.mjs';
 
 // THE WORDS, IN ONE PLACE, and main and the renderer both read them from here.
@@ -85,10 +84,13 @@ export const PLACE = {
 
 // The folder macOS puts a translocated copy in. The path is always under
 // `/private/var/folders`, but the one segment that names the mechanism is this
-// one, and it is the only part Apple has kept stable.
-const TRANSLOCATED = `${path.sep}AppTranslocation${path.sep}`;
+// one, and it is the only part Apple has kept stable. Written with "/" and
+// not `path.sep`: these are only ever read on a Mac (`placeOfApp` returns
+// before them anywhere else), and the screen imports this file, so it may not
+// import anything from Node.
+const TRANSLOCATED = '/AppTranslocation/';
 // Every mounted volume lives here, including the disk image the download is.
-const VOLUMES = `${path.sep}Volumes${path.sep}`;
+const VOLUMES = '/Volumes/';
 
 /**
  * PURE. The whole decision, off four facts, so every case can be tested

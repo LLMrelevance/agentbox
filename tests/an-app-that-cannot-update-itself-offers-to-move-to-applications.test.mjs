@@ -328,4 +328,12 @@ describe('the three surfaces that offer it', () => {
     expect(read('preload.cjs')).toContain("zero:update-move");
     expect(read('main/ipc.mjs')).toContain("zero:update-move");
   });
+
+  // The screen imports this file's sentences (update-row, SidebarUpdate, api),
+  // so it must load in a browser. A `node:path` import here broke the browser
+  // bundle tests/inline-links-keep-their-place builds, and blocked every ship
+  // on 2026-10-12; in a dev window Vite throws on `path.sep` at load.
+  it('the file the screen reads its sentences from imports nothing from Node', () => {
+    expect(read('shared/where-it-runs-from.mjs')).not.toMatch(/from ['"]node:/);
+  });
 });
