@@ -117,6 +117,26 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
    (she kept both, 2026-10-08, picking the chevron over an arrow on full-screen
    pictures for how it sits). A click anywhere on the tag opens the app; the
    chevron says so. */
+/* THE RESIZE GRIP: the tag's bottom-left corner, drawn only while the pointer
+   is on the tag so nothing is added to the corner of her screen at rest. It is
+   inside the glass, because the window is exactly the glass and padding it is
+   what once let a first click fall through (main/corner-tag.mjs). */
+.ct-grip {
+  position: absolute; left: 0; bottom: 0;
+  width: calc(9px * var(--ct-s)); height: calc(9px * var(--ct-s));
+  border-bottom-left-radius: calc(6px * var(--ct-s)); overflow: hidden;
+  cursor: nesw-resize; opacity: 0; transition: opacity 120ms ease;
+}
+/* two short ticks across the corner, inset so they never run under the mark */
+.ct-grip::before, .ct-grip::after {
+  content: ''; position: absolute; left: calc(1.5px * var(--ct-s)); width: calc(6px * var(--ct-s));
+  height: 1px; background: var(--ct-faint); transform: rotate(-45deg); transform-origin: 0 50%;
+}
+.ct-grip::before { bottom: calc(1.5px * var(--ct-s)); }
+.ct-grip::after { bottom: calc(4.5px * var(--ct-s)); width: calc(3px * var(--ct-s)); }
+.ct-tag:hover .ct-grip, .ct-tag.is-open .ct-grip { opacity: 0.6; }
+.ct-tag.is-dragging .ct-grip { opacity: 0; }
+
 .ct-go { display: flex; align-items: center; gap: calc(8px * var(--ct-s)); margin-left: 1px; color: var(--ct-faint); }
 .ct-go::before { content: ''; width: 1px; height: calc(14px * var(--ct-s)); background: var(--ct-rule); }
 .ct-go svg { display: block; width: calc(7px * var(--ct-s)); height: calc(10px * var(--ct-s)); }

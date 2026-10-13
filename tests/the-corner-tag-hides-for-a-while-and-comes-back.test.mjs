@@ -516,12 +516,21 @@ describe('hiding it for a while', () => {
     expect(r.saved.filter((p) => 'cornerTagHiddenUntil' in p)).toHaveLength(0);
   });
 
-  it('offers the hides and a way to Settings on right-click, and nothing that closes it for good', () => {
+  it('offers the sizes, the hides and a way to Settings on right-click, and nothing that closes it for good', () => {
     const r = rig();
     r.showTag();
     r.call('corner-tag:menu');
     const labels = r.tag.menu.filter((m) => m.label).map((m) => m.label);
-    expect(labels).toEqual(['Hide for 5 minutes', 'Hide for 30 minutes', 'Hide for the rest of today', 'Turn off in Settings…']);
+    // The sizes joined this menu on 2026-10-13, when she asked to be able to
+    // resize the tray: dragging its corner is the way most people will find,
+    // and this is the way somebody looks second, plus the only way back to the
+    // automatic size. Nothing here still closes it for good.
+    expect(labels).toEqual([
+      'Bigger', 'Smaller', 'Size for this screen',
+      'Hide for 5 minutes', 'Hide for 30 minutes', 'Hide for the rest of today',
+      'Turn off in Settings…',
+    ]);
+    expect(labels.some((l) => /close|quit|never|for good/i.test(l))).toBe(false);
   });
 
   it('shows again after waking from sleep once a hide has run out meanwhile', () => {

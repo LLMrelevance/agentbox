@@ -1775,7 +1775,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             <Group id="corner-tag" label="Agent Tray">
               <Row
                 label="Show the Agent Tray"
-                desc="A small tag over your other apps says when an agent has something for you. Drag it anywhere; it keeps that corner on every screen. Hide it for a while from the tag itself."
+                desc="A small tag over your other apps says when an agent has something for you. Drag it anywhere; it keeps that corner on every screen, and sizes itself to the screen it is on. Drag its bottom-left corner to make it bigger or smaller, or right-click it for that, for hiding it a while, and for turning it off."
               >
                 <Switch label="Show the Agent Tray" on={w.cornerTag !== false} onChange={(v) => setWorkspace('cornerTag', v)} />
               </Row>

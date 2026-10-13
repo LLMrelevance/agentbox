@@ -177,6 +177,31 @@ function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }
       <Mark says={{ kind: says.kind, count: says.kind === 'ready' ? counts.ready : counts.working }} />
       <span className="ct-words">{text}</span>
       <Go />
+      {/* THE CORNER SHE DRAGS TO RESIZE IT (her ask, 2026-10-13). It sits in
+          the tag's bottom left, the end furthest from the chevron and from the
+          screen's own corner, and it is invisible until the pointer is on the
+          tag. The press goes through the same door as a move, flagged as the
+          grip, so the main process reads the cursor exactly as it does for a
+          drag: the page is never sent every move. */}
+      <span
+        className="ct-grip"
+        aria-hidden
+        title="Drag to resize"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          e.stopPropagation();
+          e.currentTarget.setPointerCapture(e.pointerId);
+          pressed.current = true;
+          bridge?.press(e.screenX, e.screenY, true);
+        }}
+        onPointerUp={(e) => {
+          e.stopPropagation();
+          letGo(false);
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+        }}
+        onPointerCancel={() => letGo(true)}
+        onLostPointerCapture={() => letGo(true)}
+      />
     </div>
   );
 }

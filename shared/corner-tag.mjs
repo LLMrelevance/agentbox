@@ -88,6 +88,47 @@ export function tagScale(width) {
 }
 
 /**
+ * HER OWN SIZE, KEPT AS A MULTIPLE OF THE AUTOMATIC ONE (2026-10-13). She
+ * asked to be able to resize the tray, by dragging a corner of it.
+ *
+ * What she sets is not a height in pixels but how much bigger or smaller than
+ * the automatic size she wants it, because the automatic size is the thing
+ * that knows about screens: a tag she grows by a fifth on her laptop is a
+ * fifth bigger on the 32" too, rather than shrinking back to a laptop's
+ * number the moment she plugs the big screen in.
+ */
+export const TAG_ZOOM = { min: 0.75, max: 2, step: 0.1 };
+/** However far she drags, the tag stays a tag. */
+export const TAG_LIMITS = { min: 24, max: 80 };
+
+/** Her multiple, kept sane; nothing stored means the automatic size. */
+export function tagZoom(zoom) {
+  const z = Number.isFinite(zoom) ? zoom : 1;
+  return clamp(Math.round(z * 100) / 100, TAG_ZOOM.min, TAG_ZOOM.max);
+}
+
+/** How tall the tag draws on this screen, with her multiple applied. */
+export function tagHeightOn(width, zoom) {
+  return clamp(Math.round(tagHeight(width) * tagZoom(zoom)), TAG_LIMITS.min, TAG_LIMITS.max);
+}
+
+/** The scale the page is handed: the automatic size times her multiple. */
+export function tagScaleOn(width, zoom) {
+  return tagHeightOn(width, zoom) / TAG_BASE;
+}
+
+/** The multiple a tag dragged to this height means, on this screen. */
+export function zoomFor(height, width) {
+  const h = clamp(Number.isFinite(height) ? height : 0, TAG_LIMITS.min, TAG_LIMITS.max);
+  return tagZoom(h / tagHeight(width));
+}
+
+/** One notch bigger or smaller, for the tag's own menu. */
+export function zoomStep(zoom, by) {
+  return tagZoom(tagZoom(zoom) + by * TAG_ZOOM.step);
+}
+
+/**
  * THE NINE DOTS ARE WHOLE PIXELS, not a share of the tag (2026-10-13). They
  * used to be 2.7 and 0.95 points multiplied by the scale, which at 31px came
  * out as 2.99 and 1.05: every row and column rounded somewhere different, so

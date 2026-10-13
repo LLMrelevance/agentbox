@@ -37,7 +37,7 @@
 // is, so it hands over what is ready and how many are working on
 // `zero:corner-tag`; shared/corner-tag.mjs puts it newest first.
 
-import { cardPlacement, cornerPlace, hiddenUntil, keepCorner, readyNow, restingSpot, spotFor, tagScale, tagShows, HIDE_CHOICES } from '../shared/corner-tag.mjs';
+import { cardPlacement, cornerPlace, hiddenUntil, keepCorner, readyNow, restingSpot, spotFor, tagScaleOn, tagShows, tagZoom, zoomFor, zoomStep, HIDE_CHOICES } from '../shared/corner-tag.mjs';
 
 // How long the pointer may be off both the tag and its list before the list
 // shuts: long enough to cross the gap between them, short enough to feel like
@@ -98,7 +98,9 @@ export function createCornerTag({
   // How big the tag draws, from the width of the screen it is resting on. The
   // page multiplies everything by it, reports the size it came out, and this
   // file places that. A tag dragged to another screen is measured again there.
-  const scaleNow = () => tagScale((tag ? areaOf(tag) : areas()[0] ?? { width: 0 }).width);
+  // ...and how much bigger or smaller than that she has dragged it to be.
+  let zoom = tagZoom(config.cornerTagZoom);
+  const scaleNow = () => tagScaleOn((tag ? areaOf(tag) : areas()[0] ?? { width: 0 }).width, zoom);
   const sendState = () => {
     const s = { ready: fresh(), working, now: now(), open, scale: scaleNow() };
     send('tag', 'corner-tag:state', s);
@@ -272,6 +274,15 @@ export function createCornerTag({
       closeCard();
       send('tag', 'corner-tag:dragging', true);
     }
+    // THE GRIP: the cursor sets the height, the page redraws everything from
+    // it, and what is remembered is how much bigger or smaller than this
+    // screen's automatic size that is.
+    if (press.grip) {
+      if (!press.moved) return;
+      const want = zoomFor(press.fromHeight + dy, areaOf(tag).width);
+      if (want !== zoom) { zoom = want; sendState(); }
+      return;
+    }
     if (press.moved && alive('tag')) {
       tag = { ...tag, x: press.from.x + dx, y: press.from.y + dy };
       wins.tag.setPosition(Math.round(tag.x), Math.round(tag.y));
@@ -295,6 +306,14 @@ export function createCornerTag({
     const p = press;
     if (!cancelled) follow();
     press = null;
+    if (p.grip) {
+      // The pointer is still on the tag, so the list waits for it to leave and
+      // come back, exactly as it does after a move. A press on the grip that
+      // never moved is not a click either: it does not open the app.
+      send('tag', 'corner-tag:dragging', false);
+      if (p.moved) saveConfig(config, { cornerTagZoom: zoom });
+      return;
+    }
     if (p.moved) {
       tag = { ...restingSpot({ x: tag.x, y: tag.y }, tagSize, areas()), ...tagSize };
       if (alive('tag')) wins.tag.setBounds(rounded(tag));
@@ -431,7 +450,12 @@ export function createCornerTag({
   ipcMain.handle('corner-tag:press', (_e, at) => {
     const pt = Number.isFinite(at?.x) && Number.isFinite(at?.y) ? { x: at.x, y: at.y } : screen.getCursorScreenPoint?.();
     if (!pt || !tag || !tagUp() || press) return null;
-    press = { start: pt, from: { x: tag.x, y: tag.y }, moved: false, at: now(), timer: null };
+    press = {
+      start: pt, from: { x: tag.x, y: tag.y }, moved: false, at: now(), timer: null,
+      // A press on the grip resizes instead of moving: the corner follows the
+      // cursor down and the tag grows, the way a window does.
+      grip: !!at?.grip, fromHeight: tagSize.height,
+    };
     press.timer = setTimer(step, FRAME_MS);
     return null;
   });
@@ -442,10 +466,25 @@ export function createCornerTag({
   ipcMain.handle('corner-tag:settings', () => { openSettings(); return null; });
 
   // A right-click on the tag offers the same choices as the list does.
+  // One place sets the size, whether it came from the grip or from the menu:
+  // the page is told, it redraws and reports what it came out, and that is
+  // what gets placed.
+  const setZoom = (next) => {
+    zoom = tagZoom(next);
+    saveConfig(config, { cornerTagZoom: zoom });
+    sendState();
+  };
+
   ipcMain.handle('corner-tag:menu', () => {
     if (!alive('tag')) return null;
     closeCard();
     Menu.buildFromTemplate([
+      // Dragging the grip is the way most people will find; this is the way
+      // somebody looks second, and the only way back to the automatic size.
+      { label: 'Bigger', click: () => setZoom(zoomStep(zoom, 1)) },
+      { label: 'Smaller', click: () => setZoom(zoomStep(zoom, -1)) },
+      { label: 'Size for this screen', enabled: zoom !== 1, click: () => setZoom(1) },
+      { type: 'separator' },
       ...HIDE_CHOICES.map((c) => ({ label: HIDE_LABELS[c.key], click: () => hide(c.key) })),
       { type: 'separator' },
       { label: 'Turn off in Settings…', click: openSettings },
