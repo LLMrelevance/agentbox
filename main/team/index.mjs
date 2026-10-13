@@ -168,6 +168,7 @@ export function createTeamService({
     sync = createTeamSync({
       backend,
       disk,
+      log,
       state: kept(),
       // ARCHIVED ONES COUNT AS HERE. Asked of the visible list, a shared
       // project you archived read as missing and was joined again beside it.
