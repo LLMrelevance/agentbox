@@ -348,6 +348,7 @@ export function ItemThread({ item, engine, session, opening, sending, filed = []
       {/* THE OPEN THREAD, beside the chat rather than in it (w-920461cbe6). */}
       {chat && thread && openParent && thread.host && createPortal(
         <ThreadPanel
+          product={item.product}
           parent={openParent}
           replies={built.replies[openParent.uid!] ?? []}
           md={(text) => md(clean(text))}
