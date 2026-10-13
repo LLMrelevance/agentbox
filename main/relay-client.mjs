@@ -17,8 +17,15 @@ import {
 const SKEW_MS = 5 * 60_000;
 /** One sealed frame's most. Cloudflare takes up to 1MB per socket message. */
 const CHUNK = 256 * 1024;
+/** The most one request may carry, as the relay allows (relay/worker.mjs). */
+const MAX_REQUEST = 32 * 1024 * 1024;
 /** What a phone's request may carry on to the phone server. */
 const PASS = ['accept', 'content-type', 'range', 'user-agent', 'if-none-match', 'x-agentbox-token', 'x-agentbox-device'];
+/**
+ * How often a slow answer says "still working" (FRAME.WAIT), well inside the
+ * 30 s the room gives a Mac to start answering (relay/room.mjs).
+ */
+const WAIT_MS = 10_000;
 /** What the phone does not want back: the relay's stream is its own framing. */
 const DROP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'content-length', 'content-encoding']);
 
@@ -27,7 +34,7 @@ const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0'))
 
 export function createRelayClient({
   relayUrl, key, port, WebSocketImpl = globalThis.WebSocket, fetchImpl = (...a) => globalThis.fetch(...a),
-  log = console, onChange = () => {},
+  log = console, onChange = () => {}, waitMs = WAIT_MS,
 }) {
   let ws = null;
   let want = false;
@@ -43,6 +50,8 @@ export function createRelayClient({
   const answered = new Map();
   /** Answers being sent, so a phone that gives up stops them. */
   const live = new Map();
+  /** Pieces of requests too big for one message, until their last piece. */
+  const parts = new Map();
 
   async function ready() {
     const k = key();
@@ -83,12 +92,19 @@ export function createRelayClient({
     const idh = hex(id);
     live.set(idh, ctl);
     let seq = 0;
-    const frame = async (type, payload) => {
+    // One at a time, in order: each frame's number is sealed into it, and a
+    // "still working" frame from the timer must not overtake the head.
+    let queue = Promise.resolve();
+    const frame = (type, payload) => (queue = queue.then(async () => {
       const plain = new Uint8Array(1 + payload.length);
       plain[0] = type;
       plain.set(payload, 1);
       send(sock, tag(FROM_MAC.FRAME, id, await seal(k.down, plain, frameAad(head.nonce, seq++))));
-    };
+    }));
+    // Until the answer starts, a phone that asked for it hears "still working".
+    let waiting = head.wait ? setInterval(() => { frame(FRAME.WAIT, new Uint8Array(0)).catch(() => {}); }, waitMs) : null;
+    const answering = () => { if (waiting) clearInterval(waiting); waiting = null; };
+    let sentHead = false;
     try {
       const headers = { 'x-agentbox-relay': '1', 'x-forwarded-for': 'relay' };
       for (const name of PASS) if (head.headers?.[name]) headers[name] = String(head.headers[name]);
@@ -96,8 +112,10 @@ export function createRelayClient({
       const res = await fetchImpl(`http://127.0.0.1:${port()}${head.path}`, {
         method, headers, body: method === 'GET' || method === 'HEAD' ? undefined : body, signal: ctl.signal,
       });
+      answering();
       const out = {};
       res.headers.forEach((v, name) => { if (!DROP.has(name)) out[name] = v; });
+      sentHead = true;
       await frame(FRAME.HEAD, enc.encode(JSON.stringify({ status: res.status, headers: out })));
       if (res.body) {
         const reader = res.body.getReader();
@@ -110,10 +128,12 @@ export function createRelayClient({
       await frame(FRAME.END, new Uint8Array(0));
       send(sock, tag(FROM_MAC.DONE, id));
     } catch (err) {
+      answering();
       if (ctl.signal.aborted) return;
       log.warn?.('[relay] answering failed:', err?.message ?? err);
       try {
-        if (seq === 0) {
+        await queue.catch(() => {});
+        if (!sentHead) {
           await frame(FRAME.HEAD, enc.encode(JSON.stringify({ status: 502, headers: { 'content-type': 'application/json' } })));
           await frame(FRAME.DATA, enc.encode(JSON.stringify({ error: 'Your computer could not answer that.' })));
         }
@@ -121,6 +141,7 @@ export function createRelayClient({
       } catch { /* nothing more to say */ }
       send(sock, tag(FROM_MAC.DONE, id));
     } finally {
+      answering();
       live.delete(idh);
     }
   }
@@ -131,11 +152,29 @@ export function createRelayClient({
         : new Uint8Array(await data.arrayBuffer());
     if (bytes.length < 1 + ID_BYTES) return;
     const id = bytes.slice(1, 1 + ID_BYTES);
+    const idh = hex(id);
     if (bytes[0] === TO_MAC.CANCEL) {
-      live.get(hex(id))?.abort();
-      live.delete(hex(id));
+      live.get(idh)?.abort();
+      live.delete(idh);
+      parts.delete(idh);
+    } else if (bytes[0] === TO_MAC.PART) {
+      // A big request comes in pieces (relay/room.mjs); keep them until the
+      // last, within a limit, so a stream of pieces cannot fill memory.
+      const held = parts.get(idh) ?? { chunks: [], size: 0 };
+      held.chunks.push(bytes.slice(1 + ID_BYTES));
+      held.size += bytes.length - 1 - ID_BYTES;
+      if (held.size > MAX_REQUEST) { parts.delete(idh); send(sock, tag(FROM_MAC.REFUSED, id)); return; }
+      parts.set(idh, held);
     } else if (bytes[0] === TO_MAC.REQUEST) {
-      await answer(sock, id, bytes.slice(1 + ID_BYTES));
+      const held = parts.get(idh);
+      parts.delete(idh);
+      const last = bytes.slice(1 + ID_BYTES);
+      if (!held) { await answer(sock, id, last); return; }
+      const whole = new Uint8Array(held.size + last.length);
+      let at = 0;
+      for (const c of held.chunks) { whole.set(c, at); at += c.length; }
+      whole.set(last, at);
+      await answer(sock, id, whole);
     }
   }
 

@@ -81,6 +81,7 @@ export const REQUEST_CHANNELS = {
   bootInfo: 'zero:boot-info',
   updateCheck: 'zero:update-check',
   updateInstall: 'zero:update-install',
+  updateMove: 'zero:update-move',
   notify: 'zero:notify',
   stopSession: 'zero:stop-session',
   runNow: 'zero:run-now',

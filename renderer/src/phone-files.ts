@@ -24,6 +24,41 @@ export function phoneFileUrl(url: string, key: string): string {
 
 const ATTRS = ['src', 'poster'];
 
+/* -------------------------------------------- a picture while it loads */
+
+// THROUGH THE RELAY A PICTURE ARRIVES A PIECE AT A TIME, so it drew from the
+// top down and grew from nothing, pushing the words under it ("as images load
+// in mobile they look rather weird. Best to have nice skeleton loaders",
+// 2026-10-12). Each picture is marked loading, ready or failed, and phone.css
+// draws a loading one as a shimmering box of a picture's shape.
+const STATE = 'data-phone-img';
+type PictureLike = Pick<HTMLImageElement, 'complete' | 'naturalWidth' | 'setAttribute' | 'addEventListener'>;
+const watched = new WeakSet<object>();
+
+export function watchPicture(img: PictureLike) {
+  img.setAttribute(STATE, img.complete ? (img.naturalWidth > 0 ? 'ready' : 'failed') : 'loading');
+  if (watched.has(img)) return;
+  watched.add(img);
+  img.addEventListener('load', () => img.setAttribute(STATE, 'ready'));
+  img.addEventListener('error', () => img.setAttribute(STATE, 'failed'));
+}
+
+/** Every picture drawn from now on, and again whenever its address changes. */
+export function installPictureWatch(root: Node = document) {
+  const each = (node: Node) => {
+    if (!(node instanceof Element)) return;
+    if (node instanceof HTMLImageElement) watchPicture(node);
+    for (const img of node.querySelectorAll('img')) watchPicture(img);
+  };
+  each(root instanceof Document ? root.documentElement : root);
+  new MutationObserver((changes) => {
+    for (const change of changes) {
+      if (change.type === 'attributes') { if (change.target instanceof HTMLImageElement) watchPicture(change.target); }
+      else for (const node of change.addedNodes) each(node);
+    }
+  }).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['src'] });
+}
+
 /** Rewrite every address already drawn and every one drawn from now on. */
 export function installPhoneFiles(key: string, root: Node = document) {
   const fix = (el: Element) => {

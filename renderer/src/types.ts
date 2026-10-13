@@ -349,6 +349,9 @@ export interface SupervisorStatus {
   // Rows nothing can start because their tool is signed out, id -> the tool's
   // name. Said instead of "queued", which would promise an agent that cannot come.
   signInNeeded?: Record<string, string>;
+  // Rows nothing can start because every login of their tool is out of usage,
+  // id -> the tool's name and when it resets (0 when no login said).
+  atLimit?: Record<string, { tool: string; until: number }>;
   // Rows the app's ship queue still owes a ship (main/ship-queue.mjs). Waiting
   // on the app, not on a person: In progress, reading "Shipping".
   shipping?: string[];
@@ -623,6 +626,14 @@ export interface UpdateState {
   changes?: string[];
   behind?: number | null;
   installing?: boolean;
+  // WHERE THIS COPY IS RUNNING FROM, when that is a place macOS will not let
+  // it update itself (shared/where-it-runs-from.mjs). `canMove` is the one
+  // question the screens ask, `place` is which read-only place it is, and
+  // `moveError` is why the last move did not work. All absent, and `canMove`
+  // false, on every copy that can update itself, which is nearly all of them.
+  canMove?: boolean;
+  place?: string | null;
+  moveError?: string | null;
 }
 
 export interface Snapshot {
@@ -1181,6 +1192,7 @@ declare global {
       // onto the version that already downloaded itself.
       updateCheck(): Promise<UpdateState>;
       updateInstall(): Promise<{ started: boolean }>;
+      updateMove(): Promise<{ moved: boolean; error: string | null }>;
       // The window moved to a screen that wants the other set.
       onScreenDetail?(fn: (s: { detail: string }) => void): () => void;
       // The wake sweep's one line: agents put back on the work the lid

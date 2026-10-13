@@ -10,7 +10,7 @@
 //
 // What each message on the Mac's socket is, is in shared/relay-crypto.mjs
 // (TO_MAC, FROM_MAC), where the Mac's end reads it too.
-import { lengthPrefixed, TO_MAC, FROM_MAC, ID_BYTES as ID, tag } from '../shared/relay-crypto.mjs';
+import { lengthPrefixed, TO_MAC, FROM_MAC, ID_BYTES as ID, PART_BYTES, tag } from '../shared/relay-crypto.mjs';
 
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 const bytesOf = (data) => (data instanceof Uint8Array ? data : new Uint8Array(data));
@@ -114,7 +114,15 @@ export class Room {
       });
       signal?.addEventListener?.('abort', giveUp);
       try {
-        mac.send(tag(TO_MAC.REQUEST, id, bytesOf(body)));
+        // In pieces when it is big: a photo a phone attaches is several MB,
+        // and one socket message to the Mac carries 1 MB at most.
+        const all = bytesOf(body);
+        let at = 0;
+        while (all.length - at > PART_BYTES) {
+          mac.send(tag(TO_MAC.PART, id, all.subarray(at, at + PART_BYTES)));
+          at += PART_BYTES;
+        }
+        mac.send(tag(TO_MAC.REQUEST, id, all.subarray(at)));
       } catch {
         end();
         resolve(said(503, MAC_AWAY));

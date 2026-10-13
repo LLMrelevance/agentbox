@@ -1,4 +1,6 @@
 import { RemoteControl } from './RemoteControl';
+import { onPhone } from '../phone-screen';
+import { pollEvery } from '../phone-polls';
 import {DirectReview} from './DirectReview';
 import {MessageFiles} from './MessageFiles';
 import {reviewLabEnabled, reviewContextDraft} from '../review-lab';
@@ -921,7 +923,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     };
     read();
     if (!session) return () => { live = false; };
-    const timer = setInterval(read, 4000);
+    const timer = setInterval(read, pollEvery(4000, onPhone()));
     return () => { live = false; clearInterval(timer); };
   }, [item.product, item.id, item.updatedAt, session?.startedAt, agent]);
 
@@ -2666,6 +2668,15 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
             is an instruction rather than a formatted message, so that box keeps
             exactly the footer it had. */}
         {talkTo?.length ? <FormatBar box={ref} onChange={changeText} onAttach={pickFiles} /> : null}
+        {/* A PHONE HAS NO PASTE OF A FILE AND NO DROP, so a reply to an agent,
+            which takes files only those two ways on the desktop, took none
+            ("I can't upload files in mobile", 2026-10-12). It gets the same
+            picker the chat's + opens. */}
+        {!talkTo?.length && onPhone() ? (
+          <button type="button" className="compose-attach" aria-label="Attach a file or picture" title="Attach a file or picture" onClick={pickFiles}>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21 11.5-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l8-8" /></svg>
+          </button>
+        ) : null}
         <span className="compose-clauses">
           {/* WHERE IT GOES, NOT WHO SEES IT (w-a8e752a9f2). The conversation's
               own header already reads "MESSAGES · MAYA GAVE YOU THIS" with both

@@ -232,6 +232,17 @@ const PREEMPTION_HOLD_MS = 15 * 60_000;
 // hundred and sixty.
 const FRUITLESS_RESTS_MS = [15 * 60_000, 60 * 60_000, 4 * 3_600_000, 12 * 3_600_000, 24 * 3_600_000];
 
+// HOW LONG A WORKER'S DEATH BY A STOP SIGNAL WAITS TO BE JUDGED, so a Control-C
+// that reached it first is still seen as the app being stopped. Half a second
+// is far longer than the gap measured (the app's own handler runs within
+// milliseconds) and far shorter than anything a person would notice.
+export const QUIT_GRACE_MS = 500;
+
+/** SIGINT, SIGTERM or SIGHUP, as a signal or as the CLI's own exit code for one (130, 143, 129). */
+export function diedOfAStopSignal(code, signal) {
+  return ['SIGINT', 'SIGTERM', 'SIGHUP'].includes(signal) || [129, 130, 143].includes(code);
+}
+
 // THE FIRST RUN'S TWO MARKS (w-0b60195a14). The label is on the walk's own
 // example task and means one thing: no session, ever. It is answered by the app
 // itself out of the folder she just chose, so a worker picking it up would be a
@@ -776,6 +787,9 @@ export class Supervisor {
   // approval cards no new spawn would produce (2026-08-06). Items respawn on
   // next boot; an orphan just misbehaves invisibly.
   killAll() {
+    // Read by a worker's exit that is still inside its grace (QUIT_GRACE_MS):
+    // the app is going, so that death was ours.
+    this._quitting = true;
     for (const session of this.sessions.values()) this._kill(session);
     this._closeCodex(`${Name} is quitting`);
     this.stopMemoryGate();
@@ -816,9 +830,11 @@ export class Supervisor {
     const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
     const me = process.env.AGENTBOX_PERSON_ID || null;
 
-    for (const item of this.store.listItems(Date.now())) {
-      if (!only.has(item.id)) continue;
-      only.delete(item.id);
+    // In her running order, so the free slots go to the top of it rather
+    // than to whichever folder comes first on disk. The first row by an id
+    // is the one asked for, as it was when this walked the store directly.
+    const asked = this.store.listItems(Date.now()).filter((item) => only.delete(item.id));
+    for (const item of this._inRunningOrder(asked)) {
       if (!mayRunHere(item, productBySlug.get(item.product), me)) continue;
       // A row with a worker on it is already resumed. Saying so is the honest
       // answer; killing the session to restart it would throw away the work in
@@ -885,6 +901,34 @@ export class Supervisor {
     }
     if (resumed.length) this._saveState();
     return resumed;
+  }
+
+  // The rows resumed by name that had no slot, taken IN HER RUNNING ORDER as
+  // slots free. A Set drains in the order rows went in, which was the order
+  // they sat on disk (w-6165eb69b4).
+  _drainResumeQueue(items) {
+    const waiting = [];
+    for (const id of [...this._resumeQueue]) {
+      const item = items.find((i) => i.id === id);
+      // A row that has gone or is already running is not waiting for a slot; it
+      // leaves the queue whatever capacity says.
+      if (!item || this.sessions.has(id)) {
+        this._resumeQueue.delete(id);
+        continue;
+      }
+      waiting.push(item);
+    }
+    for (const item of this._inRunningOrder(waiting)) {
+      // NO SLOT ON ITS ENGINE MEANS IT KEEPS ITS PLACE, and the scan goes on to
+      // the next one, which may be on the engine that is idle. This used to
+      // break out of the loop, which was the same starvation the main queue's
+      // `spent` note describes: she asked for these out loud, so a resume that
+      // waits behind the OTHER subscription is a resume that never happens.
+      if (!this._hasSlotFor(this._engineFor(item))) continue;
+      if (!this._memoryLetsStart(item, { asked: true })) continue;
+      this._resumeQueue.delete(item.id);
+      this._spawnResume(item);
+    }
   }
 
   // A resumed row spawns as a continuation when she has words on it that the
@@ -972,7 +1016,15 @@ export class Supervisor {
     let items;
     try { items = this.store.listItems(Date.now()); } catch { return out; }
     let dirty = false;
-    for (const [itemId, rec] of Object.entries(this._liveSessions)) {
+    // IN HER RUNNING ORDER, so when slots are short after a restart the top of
+    // it gets its session back first rather than whatever started first
+    // (w-6165eb69b4). A record whose row is gone sorts anywhere; it is only
+    // forgotten below.
+    const rowOf = ([itemId, rec]) => items.find((i) => i.id === itemId && i.product === rec.product);
+    const remembered = Object.entries(this._liveSessions).map((entry) => ({ entry, row: rowOf(entry) }));
+    const ranked = new Map(this._inRunningOrder(remembered.filter((r) => r.row).map((r) => r.row)).map((row, at) => [row, at]));
+    remembered.sort((a, b) => (ranked.get(a.row) ?? -1) - (ranked.get(b.row) ?? -1));
+    for (const { entry: [itemId, rec] } of remembered) {
       // A worker is on it. Nothing is stranded and killing it to resume it
       // would throw away the work in flight, which is never what resume meant.
       // A resume that STUCK also re-arms the announcement: the next time this
@@ -2592,6 +2644,12 @@ export class Supervisor {
     if (!runs) return 0;
     // Rested because its ACCOUNT refused it: awake as soon as the account is.
     if (seen?.account && !this._profileResting(seen.account)) return 0;
+    // OR AS SOON AS ANOTHER LOGIN CAN TAKE IT. One login out of usage is not
+    // the task's fault and says nothing about the others: with a second login
+    // free, the task slept its 15-minute rest while its row promised the reset
+    // hours away (tests/a-task-moves-to-a-free-login-when-its-login-runs-out).
+    // Only fresh work rests here, so a run on another login loses nothing.
+    if (seen?.account && this._anotherLoginIsFree(item, seen.account)) return 0;
     // AN URGENT ROW NEVER CLIMBS THE LADDER. Urgent outranks High, and is
     // even meant to INTERRUPT High and below, so it must never end up waiting
     // behind them.
@@ -3177,6 +3235,17 @@ export class Supervisor {
     return placedScore(this.threadPlaces[item.id], productRankScore(this.productOrder, item.product) + itemPriority(item));
   }
 
+  // THE SAME ORDER FOR EVERY PATH THAT PUTS MANY ROWS BACK AT ONCE
+  // (w-6165eb69b4). Resuming ticked rows, the queue of the ones that found no
+  // slot, and the sweep after a restart each walked rows in the order they sat
+  // on disk, so ⌘A and "Resume Agents" started Agentbox Team's Low and Medium
+  // while Personal and an Urgent waited. Highest score first, oldest first in
+  // a tie, as in the fresh-work queue.
+  _inRunningOrder(rows) {
+    return rows.slice().sort((a, b) =>
+      this._score(b) - this._score(a) || (a.createdAt ?? 0) - (b.createdAt ?? 0));
+  }
+
   // Places as a patch: a number sets one, null forgets it. Kept here beside
   // the project order, on this Mac, because both are one person's running
   // order and a teammate's list must not move when you drag yours.
@@ -3466,6 +3535,19 @@ export class Supervisor {
   // `codex:` key. That is the right scope for its two callers -- the fleet-wide
   // brake and the sentence above her list -- because both are about having
   // nowhere left to run, and Claude Code is what every row falls back to.
+  /**
+   * WHETHER A LOGIN OTHER THAN `account`, ON THE TASK'S OWN ENGINE, COULD RUN IT
+   * NOW: not resting, and carrying no trouble of its own (signed out, blocked).
+   * A free Claude login says nothing about a Codex task, and the other way round.
+   */
+  _anotherLoginIsFree(item, account) {
+    const engine = this._engineFor(item);
+    return this._liveProfilesFor(engine).some((p) => {
+      const key = this._accountKey(engine, p);
+      return key !== account && !this._profileTrouble?.[key];
+    });
+  }
+
   _healthyProfiles() {
     const now = Date.now();
     return this._profiles().filter((p) => (this._profileCooldown?.[p] ?? 0) < now && !this._profileTrouble?.[p]);
@@ -4286,6 +4368,13 @@ export class Supervisor {
       signInNeeded = this._waitingOnSignIn(this.store.listItems(Date.now())
         .filter((i) => mayRunHere(i, productBySlug.get(i.product), me)));
     } catch {}
+    let atLimit = {};
+    try {
+      const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
+      const me = process.env.AGENTBOX_PERSON_ID;
+      atLimit = this._waitingOnLimit(this.store.listItems(Date.now())
+        .filter((i) => mayRunHere(i, productBySlug.get(i.product), me)));
+    } catch {}
     // ROWS THE SHIP QUEUE STILL OWES A SHIP (w-0c1ba766eb). Waiting on the
     // app and not on a person, so the window keeps them in In progress until
     // they have shipped or gone back to their agent.
@@ -4298,6 +4387,11 @@ export class Supervisor {
       // tool's name. The row says so instead of "Queued", which promised an
       // agent "as soon as one is free" while none could be (2026-10-04).
       signInNeeded,
+      // ROWS NOTHING CAN START BECAUSE EVERY LOGIN OF THEIR TOOL IS OUT OF
+      // USAGE, by id, with the tool's name and when it resets. Its sibling
+      // above, for the same reason: "Queued" over a Codex task while Codex
+      // had no slot until the reset (found by the pre-deploy breaker).
+      atLimit,
       running: [...this.sessions.values()].filter(s => !s.remoteIdle).map((s) => ({
         itemId: s.itemId,
         product: s.product,
@@ -4523,6 +4617,36 @@ export class Supervisor {
     return out;
   }
 
+  /**
+   * Open rows held because EVERY login of their tool is resting on a usage
+   * limit, id -> { tool, until }. `_capacityFor` counts only logins that are
+   * not resting, so such a tool has no slots and nothing starts until the
+   * earliest reset; `until` is that moment, or 0 when any login did not say.
+   */
+  _waitingOnLimit(rows) {
+    const out = {};
+    const held = new Map();
+    const heldUntil = (engine) => {
+      if (!held.has(engine)) {
+        const profiles = this._profilesFor(engine);
+        const keys = profiles.map((p) => this._accountKey(engine, p));
+        const allOut = profiles.length > 0 && !this._liveProfilesFor(engine).length
+          && keys.every((k) => this._profileTrouble?.[k]?.cause === 'at-limit');
+        // The reset the tool printed, never the app's own retry clock: that is
+        // when it tries again, which is not a time the limit promised.
+        held.set(engine, allOut ? Math.min(...keys.map((k) => this._profileTrouble[k].resetsAt ?? 0)) : null);
+      }
+      return held.get(engine);
+    };
+    for (const i of rows ?? []) {
+      if (i.status !== 'open' || this.sessions.has(i.id)) continue;
+      const engine = engineOf(this._engineFor(i));
+      const until = heldUntil(engine);
+      if (until !== null) out[i.id] = { tool: engineLabel(engine), until };
+    }
+    return out;
+  }
+
   _spawnTrouble(queued) {
     const since = this._fleetTroubleSince ?? 0;
     if (!since) return null;
@@ -4641,24 +4765,7 @@ export class Supervisor {
     // next free slot, ahead of everything: she asked for these out loud, and a
     // resume that quietly never happens is the failure this whole path exists
     // to end.
-    for (const id of [...this._resumeQueue]) {
-      const item = items.find((i) => i.id === id);
-      // A row that has gone or is already running is not waiting for a slot; it
-      // leaves the queue whatever capacity says.
-      if (!item || this.sessions.has(id)) {
-        this._resumeQueue.delete(id);
-        continue;
-      }
-      // NO SLOT ON ITS ENGINE MEANS IT KEEPS ITS PLACE, and the scan goes on to
-      // the next one, which may be on the engine that is idle. This used to
-      // break out of the loop, which was the same starvation the main queue's
-      // `spent` note describes: she asked for these out loud, so a resume that
-      // waits behind the OTHER subscription is a resume that never happens.
-      if (!this._hasSlotFor(this._engineFor(item))) continue;
-      if (!this._memoryLetsStart(item, { asked: true })) continue;
-      this._resumeQueue.delete(id);
-      this._spawnResume(item);
-    }
+    this._drainResumeQueue(items);
 
     // ONE QUEUE, ONE ORDER. Everything spawnable this tick is scored by the
     // same rule and the slots go to the top of that one list.
@@ -7286,9 +7393,7 @@ export class Supervisor {
     // item. Written onto the session because that is what `settleDelivery`
     // reads, and read there rather than here so the decision stays in the one
     // method that owns it. See `onClosed` in main/codex-session.mjs.
-    child.on('exit', (code, signal, how) => {
-      if (exited) return;
-      exited = true;
+    const settleExit = (code, signal, how) => {
       if (how?.transportFault) session.transportFault = true;
       this.memoryGateTurnEnded(session);
       session.exitFailed = !!(signal || code !== 0 || session.transportFault || session.resultIsError || session.result == null);
@@ -7466,6 +7571,28 @@ export class Supervisor {
       harness.release(this, profile);
       // The item's own status was written by the worker through the MCP; if it
       // died without writing, the lease expires and the next tick re-pulls it.
+    };
+    child.on('exit', (code, signal, how) => {
+      if (exited) return;
+      exited = true;
+      // A WORKER THAT DIED OF A STOP SIGNAL WE DID NOT SEND is judged a moment
+      // later, not at once. Control-C in a terminal reaches the whole process
+      // group, so the worker can die of it before this process has even run
+      // its own handler and marked it stopped by us; judged at once, that
+      // death was a failed run ("it will keep failing the same way until this
+      // is fixed") and the task rested 15 minutes after the app came back
+      // (tests/a-worker-stopped-with-the-app-is-not-a-failed-run). If the app
+      // starts quitting within the grace, the person stopped it, not the task.
+      if (!session.stoppedByUs && !this._quitting && diedOfAStopSignal(code, signal)) {
+        const t = setTimeout(() => {
+          if (this._quitting) session.stoppedByUs = true;
+          settleExit(code, signal, how);
+        }, QUIT_GRACE_MS);
+        t.unref?.();
+        return;
+      }
+      if (this._quitting) session.stoppedByUs = true;
+      settleExit(code, signal, how);
     });
     this.onChange?.();
   }

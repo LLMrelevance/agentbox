@@ -77,7 +77,8 @@ describe('on a phone, a new thread', () => {
   it('closes only from the cross: the name is on the page, not on the backdrop that closes it', () => {
     // The backdrop's click closes the page; anything drawn on it closes it too.
     expect(bodiesFor('.tc-veil::after')).toMatch(/content:\s*none/);
-    expect(last('.tc-veil > .tc-card', 'top')).toBe('env(safe-area-inset-top, 0px)');
+    // From the top of the screen (and, with the keyboard up, of what shows).
+    expect(last('.tc-veil > .tc-card', 'top')).toBe('calc(env(safe-area-inset-top, 0px) + var(--vvtop, 0px))');
     // The cross is drawn over the page, or the page would hide it.
     expect(Number(last('.tc-veil::before', 'z-index'))).toBeGreaterThan(0);
   });
