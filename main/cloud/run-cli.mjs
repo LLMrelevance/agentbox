@@ -13,6 +13,13 @@ import { readCloudConfig, readClaudeToken } from './config.mjs';
 const say = (m) => process.stderr.write(`agentbox cloud: ${m}\n`);
 
 async function main() {
+  // SIGNED AS THE CLOUD RUNS' OWN USER AND NOBODY ELSE. AWS's libraries read
+  // keys from the environment before they read a named profile, so an app
+  // started from a shell signed in as an admin would run every cloud call as
+  // that admin. Those keys go, and the `agentbox-cloud` profile is what signs.
+  for (const k of Object.keys(process.env)) {
+    if (/^AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|SECURITY_TOKEN|PROFILE|DEFAULT_PROFILE|CREDENTIAL_EXPIRATION|WEB_IDENTITY_TOKEN_FILE|ROLE_ARN)$/.test(k)) delete process.env[k];
+  }
   const config = readCloudConfig();
   if (!config) { say('cloud runs are not set up on this Mac (run scripts/cloud-setup.mjs)'); return 1; }
   // `--agentbox-import-only`: bring an earlier run in this folder home, and

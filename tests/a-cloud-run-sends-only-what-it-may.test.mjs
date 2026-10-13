@@ -12,7 +12,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { filesNamedIn, remoteForTheCloud, settingsForTheCloud } from '../main/cloud/run.mjs';
+import { filesNamedIn, remoteForTheCloud, settingsForTheCloud, toolEnv } from '../main/cloud/run.mjs';
+import { tokenHider, tokenIn } from '../main/cloud/redact.mjs';
 
 let tmp; let store; let cwd; let outside;
 
@@ -66,6 +67,49 @@ describe('the git remote the sandbox may fetch from', () => {
     expect(remoteForTheCloud('/Users/someone/repo')).toBe(null);
     expect(remoteForTheCloud('http://example.com/repo.git')).toBe(null);
     expect(remoteForTheCloud('')).toBe(null);
+  });
+});
+
+describe('the sign-in token', () => {
+  const run = (chunks) => {
+    let shown = '';
+    const h = tokenHider((t) => { shown += t; });
+    for (const c of chunks) h.push(c);
+    h.end();
+    return shown;
+  };
+  const token = 'sk-ant-oat01-AbC_d-123456789';
+
+  it('is never shown, whole', () => {
+    const shown = run([`Your token: ${token}\nStore it safely.\n`]);
+    expect(shown).not.toContain('AbC_d');
+    expect(shown).toContain('[saved, not shown]');
+    expect(shown).toContain('Store it safely.');
+  });
+
+  it('is never shown in part, when it arrives split across chunks', () => {
+    for (let cut = 1; cut < token.length; cut += 3) {
+      const shown = run(['Token: ' + token.slice(0, cut), token.slice(cut) + '\n']);
+      expect(shown, `cut at ${cut}`).not.toMatch(/oat01|AbC/);
+      expect(shown).toContain('[saved, not shown]');
+    }
+  });
+
+  it('lets the sign-in link and the prompt through as they arrive', () => {
+    let shown = '';
+    const h = tokenHider((t) => { shown += t; });
+    h.push('Open https://claude.ai/oauth/authorize?code=true\n');
+    h.push('Paste code here: ');
+    expect(shown).toContain('https://claude.ai/oauth/authorize');
+    expect(shown).toContain('Paste code here: ');
+    expect(tokenIn(`x ${token} y`)).toBe(token);
+  });
+});
+
+describe('the app\'s own tools, run on this Mac for a cloud run', () => {
+  it('never inherit an AWS sign-in or the Claude token', () => {
+    const env = toolEnv({ PATH: '/bin', ZERO_ITEM: 'w-1', AWS_ACCESS_KEY_ID: 'AKIA', AWS_SECRET_ACCESS_KEY: 's', AWS_SESSION_TOKEN: 't', AWS_PROFILE: 'admin', AWS_REGION: 'us-east-1', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x' });
+    expect(env).toEqual({ PATH: '/bin', ZERO_ITEM: 'w-1', AWS_REGION: 'us-east-1' });
   });
 });
 

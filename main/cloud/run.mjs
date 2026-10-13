@@ -91,6 +91,9 @@ export function folderState(cwd) {
     branch: git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']).trim(),
     head: git(cwd, ['rev-parse', 'HEAD']).trim(),
     tree: treeOfFolder(cwd),
+    // What is staged, apart from what is on disk: a change staged and then
+    // undone on disk would otherwise read as no change at all.
+    index: git(cwd, ['write-tree']).trim(),
   };
 }
 
@@ -187,12 +190,15 @@ export async function cloudRun({
   const projectsFor = (dir) => path.join(dir || configDir, 'projects', transcriptFolderName(cwd));
   const projectsDir = projectsFor(configDir);
   const keyOf = (runId, name) => `runs/${runId}/${name}`;
-  const resultUrls = async (runId) => ({
+  // The links a run uploads its results to. The transcript folder is the RUN's
+  // account's, which for a run being brought home is the one its marker
+  // names, not whichever account this process happens to have been started for.
+  const resultUrls = async (runId, accountDir = configDir) => ({
     bundleUrl: await storage.putUrl(keyOf(runId, 'out.bundle')),
     changesUrl: await storage.putUrl(keyOf(runId, 'changes.bundle')),
     eventsUrl: await storage.putUrl(keyOf(runId, 'events.jsonl')),
     doneUrl: await storage.putUrl(keyOf(runId, 'done.json')),
-    bring: [{ dir: projectsDir, url: await storage.putUrl(keyOf(runId, 'projects.tgz')) }],
+    bring: [{ dir: projectsFor(accountDir), url: await storage.putUrl(keyOf(runId, 'projects.tgz')) }],
   });
 
   // 1. An earlier run that never came home comes home first.
@@ -326,8 +332,14 @@ export async function cloudRun({
       }
       const msg = outbox[0];
       if (msg.action === 'files' && !msg.files) {
+        // An attachment that cannot be uploaded is left out and said so; the
+        // prompt behind it still goes, rather than everything stopping here.
         const list = [];
-        for (const f of msg.paths) if (!sentFiles.has(f)) { list.push(await sendFile(f)); sentFiles.add(f); }
+        for (const f of msg.paths) {
+          if (sentFiles.has(f)) continue;
+          const sentOne = await retry(() => sendFile(f), { what: `send ${path.basename(f)}`, forever: false, stop: () => !!finished });
+          if (sentOne) { list.push(sentOne); sentFiles.add(f); } else say(`${f} could not be sent to the cloud run; it goes on without it`);
+        }
         if (!list.length) { outbox.shift(); continue; }
         msg.files = list;
       }
@@ -373,7 +385,7 @@ export async function cloudRun({
   function openServer(conn, name) {
     const cfg = mcpConfig.mcpServers?.[name];
     if (!cfg) { enqueue({ action: 'mcp-close', conn }); return; }
-    const proc = spawn(cfg.command, cfg.args || [], { cwd, env: { ...env, ...(cfg.env || {}) }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = spawn(cfg.command, cfg.args || [], { cwd, env: toolEnv({ ...env, ...(cfg.env || {}) }), stdio: ['pipe', 'pipe', 'pipe'] });
     const s = { proc, name, listIds: new Set(), buf: '', closed: false };
     servers.set(conn, s);
     const closeOnce = () => { if (s.closed) return; s.closed = true; if (servers.get(conn) === s) servers.delete(conn); enqueue({ action: 'mcp-close', conn }); };
@@ -513,7 +525,7 @@ export async function cloudRun({
           if (!asked && (now?.state === 'exited' || now?.state === 'collect-failed')) {
             // Finished but never uploaded (or its links ran out): fresh links.
             asked = true;
-            await retry(async () => transport.invoke(rec.sessionId, { action: 'collect', runId: rec.runId, ...(await resultUrls(rec.runId)) }), { what: 'collect the earlier run', forever: false });
+            await retry(async () => transport.invoke(rec.sessionId, { action: 'collect', runId: rec.runId, ...(await resultUrls(rec.runId, rec.configDir)) }), { what: 'collect the earlier run', forever: false });
           }
           done = await storage.get(k('done.json'));
           if (!done) await sleep(3000);
@@ -535,28 +547,38 @@ export async function cloudRun({
       }
     }
 
-    // The run's commits, fetched before anything is checked, so that whatever
-    // the checks decide, they are kept here.
+    // EVERYTHING IS FETCHED BEFORE ANYTHING IN THE FOLDER IS TOUCHED. An import
+    // that moved the branch and then failed to download the rest would leave a
+    // folder that no longer matches what the run left with, and its own retry
+    // would read that as somebody else's work (Codex, 2026-10-13). So: the
+    // commits into refs, the uncommitted work into a ref, the transcripts into
+    // memory, and only then, with nothing left that can be missing, the folder.
     const keep = `refs/agentbox/cloud/${rec.runId}`;
-    if (record.commits > 0 || record.strayHead) {
-      const b = await storage.get(k('out.bundle'));
-      if (!b) return { ok: false, why: 'the commits bundle is missing' };
-      const f = path.join(os.tmpdir(), `agentbox-cloud-in-${rec.runId}.bundle`);
+    const keepChanges = `refs/agentbox/cloud-changes/${rec.runId}`;
+    const fetchBundle = async (name, specs, why) => {
+      const b = await storage.get(k(name));
+      if (!b) throw new Error(why);
+      const f = path.join(os.tmpdir(), `agentbox-cloud-${name}-${rec.runId}`);
       fs.writeFileSync(f, b);
-      try {
-        const specs = [];
-        if (record.commits > 0) specs.push(`refs/heads/${rec.branch}:${keep}`);
-        if (record.strayHead) specs.push(`refs/agentbox/head:${keep}-head`);
-        git(cwd, ['fetch', '-q', f, ...specs]);
-      } finally { fs.rmSync(f, { force: true }); }
+      try { git(cwd, ['fetch', '-q', f, ...specs]); } finally { fs.rmSync(f, { force: true }); }
+    };
+    if (record.commits > 0 || record.strayHead) {
+      const specs = [];
+      if (record.commits > 0) specs.push(`refs/heads/${rec.branch}:${keep}`);
+      if (record.strayHead) specs.push(`refs/agentbox/head:${keep}-head`);
+      await fetchBundle('out.bundle', specs, 'the commits bundle is missing');
     }
+    if (record.uncommitted) await fetchBundle('changes.bundle', [`refs/agentbox/changes:${keepChanges}`], 'the uncommitted work is missing');
+    const tgz = await storage.get(k('projects.tgz'));
+    if (!tgz && (record.brought || []).length) return { ok: false, why: 'the transcript is missing' };
 
     // THE FOLDER MUST BE EXACTLY AS THE RUN LEFT IT: same branch, same commit,
-    // same files. Anything else means something on this Mac worked in it while
-    // the run was away, and laying the run's state over it would undo that.
+    // same files, same staged changes. Anything else means something on this
+    // Mac worked in it while the run was away, and laying the run's state over
+    // it would undo that.
     if (rec.sent) {
       const now = folderState(cwd);
-      if (now.branch !== rec.sent.branch || now.head !== rec.sent.head || now.tree !== rec.sent.tree) {
+      if (now.branch !== rec.sent.branch || now.head !== rec.sent.head || now.tree !== rec.sent.tree || (rec.sent.index && now.index !== rec.sent.index)) {
         return { ok: false, state: 'diverged', why: `this folder changed on this Mac while the run was in the cloud; the run's commits are kept on ${keep}` };
       }
     }
@@ -567,28 +589,33 @@ export async function cloudRun({
 
     // The folder is put back exactly as the run left it. What it held when the
     // run began went up with it and comes back in the run's own state; a copy
-    // is set aside first anyway, under a name no later run reuses.
-    snapshotUncommitted(cwd, `refs/agentbox/before-cloud/${rec.runId}-${Date.now()}`);
-    git(cwd, ['reset', '-q', '--hard', 'HEAD']);
-    git(cwd, ['clean', '-q', '-fd']);
-    if (record.commits > 0) git(cwd, ['merge', '-q', '--ff-only', keep]);
-    if (record.uncommitted) {
-      const b = await storage.get(k('changes.bundle'));
-      if (!b) return { ok: false, why: 'the uncommitted work is missing' };
-      const f = path.join(os.tmpdir(), `agentbox-cloud-ch-${rec.runId}.bundle`);
-      fs.writeFileSync(f, b);
-      try { git(cwd, ['fetch', '-q', f, `refs/agentbox/changes:refs/agentbox/cloud-changes/${rec.runId}`]); } finally { fs.rmSync(f, { force: true }); }
-      const patch = git(cwd, ['diff', '--binary', 'HEAD', `refs/agentbox/cloud-changes/${rec.runId}`], { buffer: true });
-      if (patch.length) git(cwd, ['apply', '--whitespace=nowarn'], { input: patch });
-      gitOk(cwd, ['update-ref', '-d', `refs/agentbox/cloud-changes/${rec.runId}`]);
+    // of the files AND of what was staged is set aside first anyway, under
+    // names no later run reuses.
+    const stamp = `${rec.runId}-${Date.now()}`;
+    snapshotUncommitted(cwd, `refs/agentbox/before-cloud/${stamp}`);
+    const stagedTree = git(cwd, ['write-tree']).trim();
+    const stagedCommit = git(cwd, ['-c', `user.name=${Name}`, '-c', `user.email=${nameSlug}@localhost`, 'commit-tree', stagedTree, '-p', 'HEAD', '-m', 'What was staged before a cloud run came home']).trim();
+    git(cwd, ['update-ref', `refs/agentbox/before-cloud/${stamp}-staged`, stagedCommit]);
+    try {
+      git(cwd, ['reset', '-q', '--hard', 'HEAD']);
+      git(cwd, ['clean', '-q', '-fd']);
+      if (record.commits > 0) git(cwd, ['merge', '-q', '--ff-only', keep]);
+      if (record.uncommitted) {
+        const patch = git(cwd, ['diff', '--binary', 'HEAD', keepChanges], { buffer: true });
+        if (patch.length) git(cwd, ['apply', '--whitespace=nowarn'], { input: patch });
+      }
+      if (tgz) {
+        const into = projectsFor(rec.configDir);
+        fs.mkdirSync(into, { recursive: true });
+        execFileSync('tar', ['-xzf', '-', '-C', into], { input: tgz });
+      }
+    } catch (err) {
+      // Every download had already landed, so this is git itself refusing;
+      // nothing a retry would change. A person looks, with everything kept.
+      return { ok: false, state: 'diverged', why: `laying the run into the folder failed (${String(err.message).split('\n')[0]}); the earlier state is on refs/agentbox/before-cloud/${stamp} and the run's on ${keep}` };
     }
+    gitOk(cwd, ['update-ref', '-d', keepChanges]);
     if (record.commits > 0) gitOk(cwd, ['update-ref', '-d', keep]);
-    const tgz = await storage.get(k('projects.tgz'));
-    if (tgz) {
-      const into = projectsFor(rec.configDir);
-      fs.mkdirSync(into, { recursive: true });
-      execFileSync('tar', ['-xzf', '-', '-C', into], { input: tgz });
-    }
     clearMarker(cwd);
     return { ok: true, exitCode: record.exitCode, record };
   }
@@ -609,6 +636,19 @@ export async function cloudRun({
       }
     }
   }
+}
+
+// THE ENVIRONMENT THE APP'S OWN TOOLS RUN IN, HERE. The worker's, as Claude
+// Code would have given it, minus anything that signs in to AWS: this process
+// signs as the cloud runs' own AWS user, and an app started from a shell that
+// was signed in to AWS would otherwise hand that sign-in to every tool.
+export function toolEnv(env) {
+  const out = { ...env };
+  for (const k of Object.keys(out)) {
+    if (/^AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|SECURITY_TOKEN|PROFILE|DEFAULT_PROFILE|CREDENTIAL_EXPIRATION|WEB_IDENTITY_TOKEN_FILE|ROLE_ARN)$/.test(k)) delete out[k];
+    if (k === 'CLAUDE_CODE_OAUTH_TOKEN') delete out[k];
+  }
+  return out;
 }
 
 // The remote command's exit, as one number: its own code, or for a command a

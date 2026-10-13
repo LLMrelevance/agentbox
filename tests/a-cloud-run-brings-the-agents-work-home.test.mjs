@@ -232,6 +232,35 @@ describe('a cloud run', () => {
     expect(git(mac, 'log', '-1', '--format=%s')).toBe('first');
   });
 
+  it('notices a change staged on this Mac meanwhile, even one whose file was put back', async () => {
+    const run = launch({ message: 'SLOW please' });
+    await new Promise((r) => setTimeout(r, 600));
+    fs.writeFileSync(path.join(mac, 'a.txt'), 'staged meanwhile\n');
+    git(mac, 'add', 'a.txt');
+    fs.writeFileSync(path.join(mac, 'a.txt'), 'one\n');
+    expect(await run.done).toBe(IMPORT_FAILED);
+    expect(readMarker(mac)).toMatchObject({ state: 'diverged' });
+    expect(git(mac, 'diff', '--cached', '--name-only')).toBe('a.txt');
+  });
+
+  it('touches nothing in the folder until every piece has downloaded, so a retry finds it as the run left it', async () => {
+    const realGet = storage.get;
+    storage.get = async (k) => (k.endsWith('changes.bundle') ? null : realGet(k));
+    const first = launch();
+    expect(await first.done).toBe(IMPORT_FAILED);
+    storage.get = realGet;
+    // Nothing moved: not the branch, not the files.
+    expect(git(mac, 'log', '-1', '--format=%s')).toBe('first');
+    expect(fs.existsSync(path.join(mac, 'loose.txt'))).toBe(false);
+    expect(readMarker(mac)).toMatchObject({ state: 'import-failed' });
+    // The homecoming alone, as the app runs it, now lays all of it down.
+    const code = await cloudRun({ importOnly: true, argv: [], env: { ...process.env, CLAUDE_CONFIG_DIR: first.configDir }, cwd: mac, transport, storage, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), watchParent: false, homeDir: path.join(tmp, 'home') });
+    expect(code).toBe(0);
+    expect(git(mac, 'log', '-1', '--format=%s')).toBe('From the cloud');
+    expect(fs.readFileSync(path.join(mac, 'loose.txt'), 'utf8')).toBe('not committed\n');
+    expect(readMarker(mac)).toBe(null);
+  });
+
   it('will not bring home an agent that finished on another branch as if it were the task\'s', async () => {
     const run = launch({ message: 'SWITCH branches' });
     expect(await run.done).toBe(IMPORT_FAILED);

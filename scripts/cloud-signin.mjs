@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { accountKey, saveClaudeToken, readClaudeToken } from '../main/cloud/config.mjs';
+import { tokenHider, tokenIn } from '../main/cloud/redact.mjs';
 
 const configDir = accountKey(process.argv[2] ? process.argv[2].replace(/^~/, os.homedir()) : path.join(os.homedir(), '.claude'));
 const say = (m) => console.log(`cloud-signin: ${m}`);
@@ -25,11 +26,15 @@ function runSetupToken() {
     const env = { ...process.env, CLAUDE_CONFIG_DIR: configDir };
     for (const k of Object.keys(env)) if (/^ANTHROPIC_/.test(k)) delete env[k];
     const child = spawn('claude', ['setup-token'], { env, stdio: ['inherit', 'pipe', 'inherit'] });
+    // THE TOKEN IS NEVER SHOWN (main/cloud/redact.mjs): the sign-in link and
+    // the prompt for the code pass through as they arrive, the token does not.
     let seen = '';
-    child.stdout.on('data', (d) => { process.stdout.write(d); seen += d; });
+    const shown = tokenHider((t) => process.stdout.write(t));
+    child.stdout.on('data', (d) => { seen += d; shown.push(d); });
     child.on('error', reject);
     child.on('exit', () => {
-      const token = (seen.match(/sk-ant-oat\d*-[A-Za-z0-9_-]+/) || [])[0];
+      shown.end();
+      const token = tokenIn(seen);
       if (token) resolve(token); else reject(new Error('no token was printed; was the sign-in finished?'));
     });
   });

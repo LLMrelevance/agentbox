@@ -137,6 +137,25 @@ describe('where a thread runs', () => {
     expect(sup._whereToRun({ item: row(), product, cwd: folder, engine: 'claude', remoteOnly: true })).toBe(null);
   });
 
+  it('counts a cloud slot as room only for a row that can use it, so an Urgent personal row still asks for one here', () => {
+    build({ personal: ['mine'] });
+    product = { ...product };
+    const products = [product, { slug: 'mine', repoPath: repo, dir: '/x' }];
+    sup.store.listProducts = () => products;
+    fill(2);
+    expect(sup._hasSlotFor('claude', row())).toBe(true);
+    expect(sup._hasSlotFor('claude', { ...row(), product: 'mine' })).toBe(false);
+    expect(sup._hasSlotFor('claude', { ...row(), id: 'digest-1' })).toBe(false);
+    expect(sup._hasSlotFor('claude', false)).toBe(false);
+  });
+
+  it('lets a pinned account that is full on this Mac overflow to the cloud, not onto a local slot', () => {
+    build();
+    fill(1);
+    expect(sup._whereToRun({ item: row(), product, cwd: folder, engine: 'claude', localFull: true })).toBe('cloud');
+    expect(sup._whereToRun({ item: row(), product, cwd: folder, engine: 'claude', localFull: false })).toBe('local');
+  });
+
   it('a reply the Mac has no slot for still runs, in the cloud when it can', () => {
     build();
     fill(2);
@@ -151,9 +170,12 @@ describe('a folder whose cloud work has not come home', () => {
   beforeEach(() => writeMarker(folder, { runId: 'r1', sessionId: 's', branch: 'agentbox/w-1', state: 'import-failed' }));
   afterEach(() => clearMarker(folder));
 
-  it('sends its next run through the cloud proxy, which brings the earlier work home first', () => {
+  it('runs nothing until the earlier work is home, then is placed like any other', () => {
     build();
-    expect(sup._whereToRun({ item: row(), product, cwd: folder, engine: 'claude' })).toBe('cloud');
+    expect(sup._whereToRun({ item: row(), product, cwd: folder, engine: 'claude' })).toBe(null);
+    expect(sup._homesAsked).toEqual([folder]);
+    clearMarker(folder);
+    expect(sup._whereToRun({ item: row(), product, cwd: folder, engine: 'claude' })).toBe('local');
   });
 
   it('with cloud runs off, runs nothing in it and asks for the work to come home', () => {
@@ -173,6 +195,21 @@ describe('a folder whose cloud work has not come home', () => {
     build();
     expect(await sup.releaseWorkFolder(row(), product)).toBe(null);
     expect(fs.existsSync(folder)).toBe(true);
+  });
+});
+
+describe('a cloud run whose row was finished or archived meanwhile', () => {
+  it('still has its work brought home, and is not forgotten until it is', () => {
+    build();
+    writeMarker(folder, { runId: 'r1', sessionId: 's', branch: 'agentbox/w-1', state: 'import-failed' });
+    sup._liveSessions = { 'w-1': { sessionId: 'sess-x', product: 'p', cwd: folder, profile: 'default', engine: 'claude', cloud: true } };
+    sup.store.listItems = () => [row('w-1', { status: 'done' })];
+    sup.recoverInterrupted('tick');
+    expect(sup._homesAsked).toContain(folder);
+    expect(sup._liveSessions['w-1']).toBeTruthy();
+    clearMarker(folder);
+    sup.recoverInterrupted('tick');
+    expect(sup._liveSessions['w-1']).toBeUndefined();
   });
 });
 
