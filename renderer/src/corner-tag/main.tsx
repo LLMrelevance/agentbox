@@ -14,7 +14,7 @@
 // - Off both the tag and the list for a moment, and the list shuts.
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GRIPS, Grip, HIDE_CHOICES, cardLines, cardScale, latticeCell, tagSays } from '../../../shared/corner-tag.mjs';
+import { GRIPS, Grip, HIDE_CHOICES, cardLines, cardScale, tagSays } from '../../../shared/corner-tag.mjs';
 import { NAME } from '../../../shared/product-name.mjs';
 import { Lattice, Move, markMoves } from './lattice';
 import './corner-tag.css';
@@ -29,7 +29,7 @@ type Bridge = {
   onReset: (fn: () => void) => () => void;
   onDragging: (fn: (dragging: boolean) => void) => () => void;
   ready: (part: Part) => Promise<unknown>;
-  size: (part: Part, w: number, h: number, frame?: number) => Promise<unknown>;
+  size: (part: Part, w: number, h: number, glass?: { x: number; y: number; width: number; height: number }) => Promise<unknown>;
   clickable: (on: boolean) => Promise<unknown>;
   hover: (part: Part, inside: boolean) => Promise<unknown>;
   toggle: () => Promise<unknown>;
@@ -77,9 +77,6 @@ function useTagState() {
     if (!state.scale) return;
     const root = document.documentElement;
     root.style.setProperty('--ct-s', String(state.scale));
-    const { dot, gap } = latticeCell(28 * state.scale);
-    root.style.setProperty('--ct-dot', `${dot}px`);
-    root.style.setProperty('--ct-gap', `${gap}px`);
     // The list follows the tag only part of the way: it is read a line at a
     // time and should sit near the size of everything else on the screen.
     root.style.setProperty('--ct-cs', String(cardScale(state.scale)));
@@ -90,7 +87,7 @@ function useTagState() {
 // The mark, and the one place that decides when it moves: whenever the words
 // change, markMoves says whether this is news worth a turn, a count worth a
 // pop, or nothing at all.
-function Mark({ says }: { says: { kind: string; count: number } }) {
+function Mark({ says, scale }: { says: { kind: string; count: number }; scale: number }) {
   const before = useRef<{ kind: string; count: number } | null>(null);
   const [beat, setBeat] = useState<{ move: Move; n: number }>({ move: 'none', n: 0 });
   useEffect(() => {
@@ -98,7 +95,7 @@ function Mark({ says }: { says: { kind: string; count: number } }) {
     before.current = says;
     if (move !== 'none') setBeat((b) => ({ move, n: b.n + 1 }));
   }, [says.kind, says.count]);
-  return <Lattice lit={says.kind === 'ready'} move={beat.move} beat={beat.n} />;
+  return <Lattice box={10 * scale} lit={says.kind === 'ready'} move={beat.move} beat={beat.n} />;
 }
 
 // The way into the app, drawn at the tag's end.
@@ -118,12 +115,18 @@ function useReportSize(ref: React.RefObject<HTMLElement>, which: Part, key: unkn
     const el = ref.current;
     if (!el || !bridge) return;
     // The tag's window is the glass plus the clear band around it, so the
-    // band's width goes with the measurement: everything that places the
-    // window works from the glass inside it, not from the window's own edge.
+    // GLASS'S OWN RECTANGLE goes with the measurement: everything that places
+    // the window works from that, not from the window's own edge. It used to
+    // send one number, the band on the left, and the rest was worked out from
+    // it — which is only true while the window is exactly the size the page
+    // asked for. A drag widens the window first and lets the page catch up, so
+    // the last guess of a drag can outlive it, and then the list lined up with
+    // a window edge that was no longer the glass: "it is a little too far to
+    // the right... it's just the right sides" (2026-10-13).
     const report = () => {
       const r = el.getBoundingClientRect();
-      const glass = el.querySelector('.ct-tag')?.getBoundingClientRect();
-      bridge.size(which, r.width, r.height, glass ? Math.round(glass.x - r.x) : 0);
+      const g = el.querySelector('.ct-tag')?.getBoundingClientRect() ?? r;
+      bridge.size(which, r.width, r.height, { x: g.x - r.x, y: g.y - r.y, width: g.width, height: g.height });
     };
     report();
     const ro = new ResizeObserver(report);
@@ -200,7 +203,7 @@ function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }
       onLostPointerCapture={() => letGo(true)}
       onContextMenu={(e) => { e.preventDefault(); bridge?.menu(); }}
     >
-      <Mark says={{ kind: says.kind, count: says.kind === 'ready' ? counts.ready : counts.working }} />
+      <Mark scale={state.scale ?? 1} says={{ kind: says.kind, count: says.kind === 'ready' ? counts.ready : counts.working }} />
       <span className="ct-words">{text}</span>
       <Go />
     </div>
@@ -266,7 +269,7 @@ function CardBody({ state }: { state: State }) {
       {!lines.length && <div className="ct-quiet ct-static">Nothing is ready for you yet</div>}
       {state.working > 0 && (
         <button className="ct-line ct-quiet" onClick={() => bridge?.go(null)}>
-          <Lattice lit={false} move="none" beat={0} />
+          <Lattice box={10 * cardScale(state.scale ?? 1)} lit={false} move="none" beat={0} />
           {lines.length ? `${state.working} others working` : `${state.working} working`}
         </button>
       )}
