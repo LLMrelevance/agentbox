@@ -129,7 +129,7 @@ import { waitingCounts } from './threads-made';
 import { closeAsk, KEEP_OPEN } from './close-asks-first';
 import { ChatAgentsContext, type ChatAgentsValue } from './team/ChatAgents';
 import { agentLinks, chatProjects, chatTaskSharing, chatTranscript, taskBrief, taskTitle, withTask } from './team/agent-mentions';
-import { isCleanRun, ruleIdOf, ruleLabel } from '../../shared/repeats.mjs';
+import { isCleanRun, ruleIdOf, ruleLabel, runToOpen } from '../../shared/repeats.mjs';
 import { NAME, Name } from '../../shared/product-name.mjs';
 import { isNew } from '../../shared/notify-rules.mjs';
 import { inMyInbox, isShared, heldByAPerson, runnerOf, iSpokeLast } from '../../shared/team-rules.mjs';
@@ -5189,6 +5189,43 @@ export default function App() {
   // the tabs, in the list's place (threads/Pages.tsx, InboxClear).
   const inboxEmpty = !workspaceNavigation && view === 'inbox' && inbox.length === 0 && !focused && !settingsOpen && search === null;
 
+  // A REPEATING TASK OPENS AS ITS LATEST RUN, AN ORDINARY THREAD (w-5e3f2e047f).
+  // Its page used to put a box shaped like Reply under the runs, and the words
+  // typed into it replaced what every later run is told: "I thought I could
+  // just message the agent". Now the Reply box under the run messages the run's
+  // agent, and what every run is told is a line in that thread's summary
+  // (threads/Summary.tsx). Only a rule with no run on file still opens the
+  // rule's own page.
+  const openRepeat = (rule: RepeatRule) => {
+    const latest = runToOpen(rule, items);
+    if (latest) { setFocusedRepeat(null); setCardSel(null); setFocused(latest); markSeen(latest); }
+    else { setFocused(null); setFocusedRepeat(rule); }
+  };
+  // HER MESSAGE, SPLIT THE SAME WAY IT WAS SPLIT WHEN SHE TYPED IT. The label is
+  // derived rather than kept, so the Later row and the instruction cannot drift
+  // apart, and the next run reads the new body (main/repeats.mjs briefs it with
+  // `rule.body`). Null when the write was refused, so the box that sent it can
+  // keep her words.
+  const saveRule = async (rule: RepeatRule, message: string): Promise<RepeatRule | null> => {
+    const { title, body } = splitMessage(message);
+    try {
+      await api.setRepeat({ product: rule.product, id: rule.id, rule: { title, body } });
+      const fresh = await api.repeats();
+      setRepeats(fresh);
+      showToast('Changed. The next run reads this.');
+      return fresh.find((r) => r.id === rule.id) ?? null;
+    } catch (err) {
+      showToast(`Not changed: ${(err as Error).message}`);
+      return null;
+    }
+  };
+  const endRule = async (rule: RepeatRule) => {
+    await api.endRepeat({ product: rule.product, id: rule.id });
+    setRepeats(await api.repeats());
+    showToast(`Ended: ${rule.title}`);
+  };
+  const focusedRule = focused ? repeats.find((r) => r.product === focused.product && r.id === ruleIdOf(focused)) ?? null : null;
+
   // AND A VIEW WITH NOTHING IN IT DRAWS NO CARD EITHER. The other half of the
   // same directive: painting the sentence out of the empty pane leaves a large
   // blank slab, which reads as a list that failed to load rather than as a list
@@ -5731,36 +5768,27 @@ export default function App() {
                      the run served tomorrow morning reads the new body
                      (main/repeats.mjs briefs it with `rule.body`). */
                   onSave={async (message) => {
-                    const { title, body } = splitMessage(message);
-                    try {
-                      await api.setRepeat({
-                        product: focusedRepeat.product,
-                        id: focusedRepeat.id,
-                        rule: { title, body },
-                      });
-                      const fresh = await api.repeats();
-                      setRepeats(fresh);
-                      // The pane is holding a copy, so it has to be handed the
-                      // new one or it redraws the words she just replaced.
-                      setFocusedRepeat(fresh.find((r) => r.id === focusedRepeat.id) ?? null);
-                      setEditingRule(false);
-                      showToast('Changed. The next run reads this.');
-                    } catch (err) {
-                      // The box stays open with the words in it. A refused write
-                      // that also eats what the user typed is two failures.
-                      showToast(`Not changed: ${(err as Error).message}`);
-                    }
+                    const fresh = await saveRule(focusedRepeat, message);
+                    // The pane is holding a copy, so it has to be handed the
+                    // new one or it redraws the words she just replaced. A
+                    // refused write leaves the box open with the words in it.
+                    if (fresh) { setFocusedRepeat(fresh); setEditingRule(false); }
                   }}
                   onEnd={async () => {
-                    await api.endRepeat({ product: focusedRepeat.product, id: focusedRepeat.id });
                     setFocusedRepeat(null);
-                    setRepeats(await api.repeats());
-                    showToast(`Ended: ${focusedRepeat.title}`);
+                    await endRule(focusedRepeat);
                   }}
                 />
               ) : focused ? (
                 <TicketItems.Provider value={items}>
                 <Focus
+                  // A run of a repeating task carries its rule into the
+                  // summary: what every run is told, and Stop repeating.
+                  repeat={focusedRule ? {
+                    rule: focusedRule,
+                    onSave: async (message) => !!(await saveRule(focusedRule, message)),
+                    onEnd: () => { void endRule(focusedRule); },
+                  } : null}
                   // A message from a person can be handed to an agent from
                   // its page.
                   onHandToAgent={handToAgent}
@@ -6022,7 +6050,7 @@ export default function App() {
                   hoveredId={hoveredId}
                   onHover={keyHints ? setHoveredId : undefined}
                   onSelect={(i) => { setCardSel(null); setSelected(i); }}
-                  onOpenRepeat={(rule) => { setFocused(null); setFocusedRepeat(rule); }}
+                  onOpenRepeat={openRepeat}
                   onOpen={(item) => { setCardSel(null); setFocused(item); markSeen(item); }}
                   onAnswerImport={answerImport}
                   onToggle={(i) => {
