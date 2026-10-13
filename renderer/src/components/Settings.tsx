@@ -648,7 +648,7 @@ function PhoneAlertsPage({ onFeedback }: { onFeedback?: () => void }) {
           ("not sure how to give feedback on mobile", 2026-10-12). */}
       {onFeedback && (
         <Group id="phone-feedback" label="Feedback">
-          <Row label="Send feedback" desc="Tell us what works and what does not. It goes straight to the people who make Agentbox.">
+          <Row label="Send feedback" desc={`Tell us what works and what does not. It goes straight to the people who make ${Name}.`}>
             <button type="button" className="set-ghost" onClick={onFeedback}>Send feedback</button>
           </Row>
         </Group>
