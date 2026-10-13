@@ -100,7 +100,13 @@ export function unpackRequest(bytes) {
 // An answer, Mac to phone, is a run of frames, each sealed on its own: a head
 // (status and headers), the body in pieces, and an end. The end is sealed too,
 // so an answer cut short by anyone in between is seen to be cut short.
-export const FRAME = Object.freeze({ HEAD: 0, DATA: 1, END: 2 });
+//
+// WAIT comes before the head and says only "still working". A reply to an
+// agent mid-step is answered when the agent takes it, which can be minutes,
+// and the room gives a Mac 30 seconds to start answering. A phone that asks
+// for these (`wait` in its request's head) skips them; one that does not
+// never gets one.
+export const FRAME = Object.freeze({ HEAD: 0, DATA: 1, END: 2, WAIT: 3 });
 
 export const frameAad = (nonce, seq) => `res:${nonce}:${seq}`;
 

@@ -1,5 +1,6 @@
 import { RemoteControl } from './RemoteControl';
 import { onPhone } from '../phone-screen';
+import { pollEvery } from '../phone-polls';
 import {DirectReview} from './DirectReview';
 import {MessageFiles} from './MessageFiles';
 import {reviewLabEnabled, reviewContextDraft} from '../review-lab';
@@ -919,7 +920,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     };
     read();
     if (!session) return () => { live = false; };
-    const timer = setInterval(read, 4000);
+    const timer = setInterval(read, pollEvery(4000, onPhone()));
     return () => { live = false; clearInterval(timer); };
   }, [item.product, item.id, item.updatedAt, session?.startedAt, agent]);
 

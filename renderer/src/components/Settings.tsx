@@ -31,6 +31,7 @@ import type { AgentMode, CodexModeId, PermissionMode, PhoneLink, PhoneRoute, Pro
 import { ago } from '../format';
 import { ALERTS_SAY, alertsState, testAlert, turnOffAlerts, turnOnAlerts, type AlertsState } from '../phone-alerts';
 import { onPhone } from '../phone-screen';
+import { pollEvery } from '../phone-polls';
 import { api, RESTART_NOTE } from '../api';
 import { updateLook } from '../update-row';
 import { InstructionSettings, sizeLabel } from './InstructionSettings';
@@ -668,7 +669,7 @@ function PhonePage({ onFeedback }: { onFeedback?: () => void }) {
     void run('status');
     const off = api.onPhoneChanged(() => { void api.phoneLink({ action: 'status' }).then(setLink); });
     // "Last seen" moves without a push.
-    const tick = window.setInterval(() => { setNow(Date.now()); void api.phoneLink({ action: 'status' }).then(setLink); }, 15_000);
+    const tick = window.setInterval(() => { setNow(Date.now()); void api.phoneLink({ action: 'status' }).then(setLink); }, pollEvery(15_000, onPhone()));
     return () => { off(); window.clearInterval(tick); };
   }, [run]);
 
