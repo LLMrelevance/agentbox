@@ -37,7 +37,7 @@
 // is, so it hands over what is ready and how many are working on
 // `zero:corner-tag`; shared/corner-tag.mjs puts it newest first.
 
-import { cardPlacement, cornerPlace, heightFromDrag, hiddenUntil, keepCorner, readyNow, restingSpot, spotFor, tagScaleOn, tagShows, tagZoom, zoomFor, zoomStep, GRIPS, HIDE_CHOICES } from '../shared/corner-tag.mjs';
+import { cardPlacement, cornerPlace, heightFromDrag, EDGE_SLACK, hiddenUntil, keepCorner, readyNow, restingSpot, spotFor, tagScaleOn, tagShows, tagZoom, zoomFor, zoomStep, GRIPS, HIDE_CHOICES } from '../shared/corner-tag.mjs';
 
 // How long the pointer may be off both the tag and its list before the list
 // shuts: long enough to cross the gap between them, short enough to feel like
@@ -99,6 +99,12 @@ export function createCornerTag({
   // window lets it through (corner-tag:clickable).
   let frame = 0;
   const framed = (a) => (frame ? { x: a.x - frame, y: a.y - frame, width: a.width + 2 * frame, height: a.height + 2 * frame } : a);
+  // Where she may park it: the screen, plus the band, plus the slack that lets
+  // her tuck it past the edge (shared/corner-tag.mjs, EDGE_SLACK).
+  const parkable = (a) => {
+    const f = framed(a);
+    return { x: f.x - EDGE_SLACK, y: f.y - EDGE_SLACK, width: f.width + 2 * EDGE_SLACK, height: f.height + 2 * EDGE_SLACK };
+  };
   const glassOf = (r) => (frame ? { x: r.x + frame, y: r.y + frame, width: r.width - 2 * frame, height: r.height - 2 * frame } : r);
   const inApp = () => {
     try { return !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused(); } catch { return false; }
@@ -151,7 +157,10 @@ export function createCornerTag({
 
   const placeTag = () => {
     const held = place ? spotFor(place, tagSize, framed(screenFor())) : null;
-    const spot = held ?? restingSpot(tag ? { x: tag.x, y: tag.y } : config.cornerTagSpot ?? null, tagSize, areas().map(framed));
+    // A tag that has never been put anywhere starts its margin in from the
+    // screen's own edge; one she has parked may keep the slack she left it in.
+    const soFar = tag ? { x: tag.x, y: tag.y } : config.cornerTagSpot ?? null;
+    const spot = held ?? restingSpot(soFar, tagSize, areas().map(soFar ? parkable : framed));
     tag = { ...spot, ...tagSize };
     if (alive('tag')) wins.tag.setBounds(rounded(tag));
   };
@@ -360,7 +369,7 @@ export function createCornerTag({
       if (!p.moved) return;
       // It has been dragged into a corner of its screen; let it settle back
       // against the edge it is parked at, and remember where that is.
-      tag = { ...restingSpot({ x: tag.x, y: tag.y }, tagSize, areas().map(framed)), ...tagSize };
+      tag = { ...restingSpot({ x: tag.x, y: tag.y }, tagSize, areas().map(parkable)), ...tagSize };
       if (alive('tag')) wins.tag.setBounds(rounded(tag));
       place = cornerPlace(tag, framed(areaOf(tag)));
       saveConfig(config, { cornerTagZoom: zoom, cornerTagSpot: { x: Math.round(tag.x), y: Math.round(tag.y) }, cornerTagPlace: place });
@@ -368,7 +377,7 @@ export function createCornerTag({
       return;
     }
     if (p.moved) {
-      tag = { ...restingSpot({ x: tag.x, y: tag.y }, tagSize, areas().map(framed)), ...tagSize };
+      tag = { ...restingSpot({ x: tag.x, y: tag.y }, tagSize, areas().map(parkable)), ...tagSize };
       if (alive('tag')) wins.tag.setBounds(rounded(tag));
       // Where she left it, said as a corner and a gap so it means the same
       // thing on whatever screen it is on next.

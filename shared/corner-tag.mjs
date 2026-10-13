@@ -18,6 +18,17 @@
 /** Space between the tag and the edge of the screen when it rests in a corner. */
 export const MARGIN = 18;
 
+/**
+ * HOW FAR PAST THE EDGE SHE MAY PARK IT (2026-10-13). The resting rule used to
+ * hold the whole tag inside the screen, so a drag to the right stopped with
+ * the tag flush against the edge and sprang back from anything further: "I
+ * can't seem to put it further to the right. It snaps back into place in this
+ * slot but I often want it a little bit further to the right side of the
+ * screen." It may now hang this far off any edge — enough to tuck it away,
+ * never enough to lose it.
+ */
+export const EDGE_SLACK = 24;
+
 /** The ways to hide it. All of them come back; none of them is permanent. */
 export const HIDE_CHOICES = [
   { key: '5m', label: '5 min' },
@@ -276,8 +287,10 @@ export function spotFor(place, size, area) {
   if (!place?.corner) return null;
   const right = place.corner.endsWith('r');
   const lower = place.corner.startsWith('b');
-  const dx = clamp(Number.isFinite(place.dx) ? place.dx : MARGIN, 0, Math.max(0, area.width - size.width));
-  const dy = clamp(Number.isFinite(place.dy) ? place.dy : MARGIN, 0, Math.max(0, area.height - size.height));
+  // A gap may be negative: that is the tag tucked past the edge, which she
+  // asked for and which the resting rule now allows.
+  const dx = clamp(Number.isFinite(place.dx) ? place.dx : MARGIN, -EDGE_SLACK, Math.max(0, area.width - size.width));
+  const dy = clamp(Number.isFinite(place.dy) ? place.dy : MARGIN, -EDGE_SLACK, Math.max(0, area.height - size.height));
   return {
     x: right ? area.x + area.width - size.width - dx : area.x + dx,
     y: lower ? area.y + area.height - size.height - dy : area.y + dy,

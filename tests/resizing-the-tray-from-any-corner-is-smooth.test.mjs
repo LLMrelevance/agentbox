@@ -14,7 +14,7 @@
 // by driving the real controller with a pretend screen, windows and cursor.
 import { describe, expect, it } from 'vitest';
 import { createCornerTag } from '../main/corner-tag.mjs';
-import { GRIPS, TAG_LIMITS, cardScale, heightFromDrag, tagHeight, tagZoom } from '../shared/corner-tag.mjs';
+import { EDGE_SLACK, GRIPS, TAG_LIMITS, cardScale, heightFromDrag, tagHeight, tagZoom } from '../shared/corner-tag.mjs';
 
 const AREA = { x: 0, y: 0, width: 1728, height: 1080 };
 
@@ -162,10 +162,11 @@ describe('every corner resizes it', () => {
     r.show();
     dragCorner(r, 'br', [[40, 40], [80, 80]]);
     const b = r.win().bounds;
-    expect(b.x).toBeGreaterThanOrEqual(AREA.x);
-    expect(b.y).toBeGreaterThanOrEqual(AREA.y);
-    expect(b.x + b.width).toBeLessThanOrEqual(AREA.x + AREA.width);
-    expect(b.y + b.height).toBeLessThanOrEqual(AREA.y + AREA.height);
+    // it may hang off by the tuck she asked for, and never by more
+    expect(b.x).toBeGreaterThanOrEqual(AREA.x - EDGE_SLACK);
+    expect(b.y).toBeGreaterThanOrEqual(AREA.y - EDGE_SLACK);
+    expect(b.x + b.width).toBeLessThanOrEqual(AREA.x + AREA.width + EDGE_SLACK);
+    expect(b.y + b.height).toBeLessThanOrEqual(AREA.y + AREA.height + EDGE_SLACK);
     expect(r.config.cornerTagPlace?.corner).toBe('br');
   });
 
