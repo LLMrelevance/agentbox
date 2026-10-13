@@ -332,8 +332,10 @@ body.chat-thread-dragging * { cursor: col-resize !important; }
   background: var(--wash); border: 1px solid var(--line); border-radius: 0;
   transition: border-color .18s, background .18s;
 }
-/* The thumbnails of what is attached sit above the line you type on. */
-.chat-thread-box .attach-row { padding: 10px 16px 0; }
+/* What is attached sits under the line you type on, small, and the box grows
+   to hold it; full-size thumbnails took over a panel this narrow. */
+.chat-thread-box .attach-row { padding: 0 16px 10px; }
+.chat-thread-box .attach-thumb img { height: 48px; max-width: 120px; }
 .chat-thread-line-in { display: flex; align-items: flex-end; gap: 4px; }
 .chat-thread-attach { flex: none; margin: 0 2px 9px 0; }
 .chat-thread-box:focus-within { border-color: var(--line-strong); background: var(--surface); }

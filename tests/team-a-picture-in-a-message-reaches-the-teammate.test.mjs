@@ -149,6 +149,54 @@ it('brings a picture in the other direction too', async () => {
   expect(onDisk(maya, 'from-theo.png')).toEqual(PNG);
 });
 
+// ANY FILE, NOT ONLY A PICTURE (asked 2026-10-13: "make sure that files and
+// other things now travel"). A file that is not a picture is linked without
+// the !, `[brief.pdf](attachments/…)`, and goes the same way.
+it('brings a file that is not a picture, like a PDF or a spreadsheet', async () => {
+  const pdf = Buffer.from('%PDF-1.4 brief');
+  const csv = Buffer.from('name,email\nA,a@x.test\n');
+  paste(maya, 'k2x9ab-q1w2e3-brief.pdf', pdf);
+  paste(maya, 'k2x9ab-r4t5y6-leads.csv', csv);
+  await maya.on(() => maya.service.message(theo.personId, 'Both files:\n\n[brief.pdf](attachments/k2x9ab-q1w2e3-brief.pdf)\n[leads.csv](attachments/k2x9ab-r4t5y6-leads.csv)'));
+  await maya.service.syncNow();
+  await theo.service.syncNow();
+  expect(onDisk(theo, 'k2x9ab-q1w2e3-brief.pdf')).toEqual(pdf);
+  expect(onDisk(theo, 'k2x9ab-r4t5y6-leads.csv')).toEqual(csv);
+});
+
+// THE NEW MESSAGE CARD. Its files used to "stay here: a message to a person
+// carries words only", because the conversation they would be saved in may not
+// exist until the message makes it. They are handed to the send now, saved
+// into the conversation it lands in, and linked under the words.
+it('carries the files of the very first message to somebody', async () => {
+  const priya = await aMac(cloud, signUpMemory(cloud, { email: 'priya@nw.test', name: 'Priya Shah' }));
+  await maya.service.invite('priya@nw.test');
+  await priya.service.signIn();
+  await priya.service.acceptInvite(maya.service.state().team.id);
+  await maya.service.syncNow();
+  await maya.on(() => maya.service.message(priya.personId, 'The brief', undefined, [
+    { name: 'brief.pdf', dataBase64: Buffer.from('%PDF brief').toString('base64') },
+    { name: 'pasted-1.png', dataBase64: PNG.toString('base64') },
+  ]));
+  await priya.service.syncNow();
+  const there = priya.store.listProducts().find((p) => p.team?.direct);
+  const row = priya.store.listItems().find((i) => i.product === there.slug);
+  expect(row.body).toMatch(/^The brief\n\n\[brief\.pdf\]\(attachments\/[\w.-]+-brief\.pdf\)\n!\[pasted-1\.png\]\(attachments\/[\w.-]+-pasted-1\.png\)$/);
+  const [pdfName, pngName] = [...row.body.matchAll(/\(attachments\/([^)]+)\)/g)].map((m) => m[1]);
+  expect(fs.readFileSync(path.join(there.dir, 'attachments', pdfName)).toString()).toBe('%PDF brief');
+  expect(fs.readFileSync(path.join(there.dir, 'attachments', pngName))).toEqual(PNG);
+  await priya.service.signOut();
+});
+
+// THE BOUNDARY: a file alone is a message; nothing at all is still not one.
+it('sends files with no words, and still refuses a message with neither', async () => {
+  await maya.on(() => maya.service.message(theo.personId, '', undefined, [{ name: 'only.png', dataBase64: PNG.toString('base64') }]));
+  await theo.service.syncNow();
+  const row = theo.store.listItems().find((i) => i.product === conversation(theo).slug);
+  expect(row.answer).toMatch(/^!\[only\.png\]\(attachments\/[\w.-]+-only\.png\)$/);
+  await expect(maya.on(() => maya.service.message(theo.personId, '  ', undefined, []))).rejects.toThrow(/needs some words/);
+});
+
 // A CLOUD WITHOUT THE FILES TABLE (one the migration has not reached yet), or a
 // file that will not come, never stops a message.
 it('still sends and receives the words when the cloud refuses every file call', async () => {

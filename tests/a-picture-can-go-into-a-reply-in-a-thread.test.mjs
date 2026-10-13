@@ -74,6 +74,48 @@ describe('the reply box in a thread', () => {
   });
 });
 
+// THE PICTURE DOES NOT TAKE OVER THE PANEL. Their words on the first build:
+// "the image takes up almost all of the thread. In other chats the image is at
+// the bottom and expands the thread." It sat above the line you type on at the
+// app's full thumbnail size (84px tall, up to 220 wide) in a panel 440 wide.
+describe('a picture waiting in the thread box', () => {
+  const src = code(read('renderer/src/team/ThreadPanel.tsx'));
+  const css = read('renderer/src/team/chat.css');
+
+  it('sits under the line you type on, not above it', () => {
+    expect(src.indexOf('<AttachRow')).toBeGreaterThan(src.indexOf('placeholder="Reply in thread…"'));
+    expect(src.indexOf('<AttachRow')).toBeGreaterThan(src.indexOf('className="chat-thread-send"'));
+  });
+
+  it('is drawn small there, and only there', () => {
+    expect(css).toMatch(/\.chat-thread-box \.attach-thumb img \{ height: 48px; max-width: 120px; \}/);
+    // The chat's own box keeps the full size.
+    expect(read('renderer/src/styles.css')).toMatch(/\.attach-thumb img \{\s*height: 84px;/);
+  });
+});
+
+// THE NEW MESSAGE CARD, TO A PERSON. It took no paste, no drop and had no
+// attach button, and said "a message to a person carries words only".
+describe('a new message to a person', () => {
+  const src = code(read('renderer/src/threads/ThreadComposer.tsx'));
+
+  it('no longer says its files stay behind', () => {
+    expect(src).not.toMatch(/carries words only/);
+    expect(src).not.toMatch(/if \(person\) return;/);
+  });
+
+  it('sends the files it holds with the words', () => {
+    expect(src).toMatch(/attachments\.map\(\(\{ name, dataBase64, srcPath \}\) => \(\{ name, dataBase64, srcPath \}\)\)/);
+    expect(src).toMatch(/person \? !!text\.trim\(\) \|\| attachments\.length > 0/);
+  });
+
+  it('has an attach button beside Send', () => {
+    const from = src.indexOf('{person ? (');
+    const bar = src.slice(from, src.indexOf('\n        ) : (', from));
+    expect(bar).toMatch(/aria-label="Attach files"/);
+  });
+});
+
 describe('the chat\'s own reply box', () => {
   const bar = (onAttach) => renderToStaticMarkup(React.createElement(FormatBar, { box: { current: null }, onChange: () => {}, onAttach }));
 

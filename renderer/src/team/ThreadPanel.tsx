@@ -206,7 +206,6 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
             if (dropped.length) setAttachments((a) => [...a, ...dropped]);
           }}
         >
-          <AttachRow attachments={attachments} onRemove={(i) => setAttachments((x) => x.filter((_, j) => j !== i))} />
           <div className="chat-thread-line-in">
             <textarea
               ref={box}
@@ -238,6 +237,11 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
             </button>
             <button type="button" className="chat-thread-send" disabled={!ready} onClick={() => void send()}>Send</button>
           </div>
+          {/* UNDER THE LINE YOU TYPE ON, SMALL, and the box grows to hold
+              them, the way the chat's own box does. Above it, at full
+              thumbnail size, a pasted picture took over most of the panel
+              ("the image takes up almost all of the thread", 2026-10-13). */}
+          <AttachRow attachments={attachments} onRemove={(i) => setAttachments((x) => x.filter((_, j) => j !== i))} />
         </div>
       </div>
     </aside>

@@ -163,6 +163,9 @@ export interface Person {
 }
 
 /** What every team call answers: the team as it now stands, or why not. */
+/** A file a message to a person carries: pasted bytes or a path on this Mac. */
+export interface TeamMessageFile { name: string; dataBase64?: string; srcPath?: string }
+
 export interface TeamCallResult {
   ok: boolean;
   team?: TeamState;
@@ -1108,7 +1111,7 @@ declare global {
       teamSync(): Promise<TeamCallResult>;
       teamRoute(p: { product: string; id: string; route: 'agent' | 'me' | 'back' }): Promise<TeamCallResult>;
       teamReact(p: { product: string; id: string; on: string; emoji: string; off?: boolean }): Promise<TeamCallResult>;
-      teamMessage(p: { to: string | string[]; body: string; priority?: number }): Promise<TeamCallResult>;
+      teamMessage(p: { to: string | string[]; body: string; priority?: number; files?: TeamMessageFile[] }): Promise<TeamCallResult>;
       threadEdit(p: { product: string; id: string; patch: ThreadEditPatch }): Promise<{ ok: boolean; error?: string }>;
       schedule(p: { product: string; id: string; runAt: number }): Promise<WorkItem>;
       snooze(p: { product: string; id: string; snoozedUntil: number }): Promise<WorkItem>;
