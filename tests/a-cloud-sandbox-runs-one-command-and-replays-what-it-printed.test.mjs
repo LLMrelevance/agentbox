@@ -1,0 +1,240 @@
+// A CLOUD SANDBOX RUNS ONE COMMAND AND CAN REPLAY EVERYTHING IT PRINTED.
+//
+// Cloud runs (docs/cloud/PLAN.md) put a thread's agent in an AWS AgentCore
+// microVM, and the Mac reads what the agent prints over a connection that will
+// drop: the lid closes, a stream hits AgentCore's 60-minute ceiling, the app
+// restarts. So the sandbox's server (cloud/sandbox/server.mjs) keeps every byte
+// the command wrote, numbered, and hands back everything after the last number
+// the Mac saw. A gap or a repeat here is a corrupted stream-json line in the
+// supervisor, which is a thread that silently never finishes.
+//
+// It also has to tell AgentCore the truth about being busy: AgentCore reaps a
+// session that answers "Healthy" for 15 minutes, and a run whose results have
+// not been collected yet is not finished, however long ago its command exited.
+//
+// These drive the real server in process against a real git repository and a
+// real child process, with the bundle fetched over a real local HTTP server.
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import { execFileSync } from 'node:child_process';
+import { createSandbox } from '../cloud/sandbox/server.mjs';
+
+const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+
+let tmp; let files; let fileServer; let base; let sandbox;
+
+beforeEach(async () => {
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sandbox-'));
+  files = new Map();
+  fileServer = http.createServer((req, res) => {
+    if (req.method === 'GET') {
+      const body = files.get(req.url);
+      if (!body) { res.writeHead(404); return res.end(); }
+      res.writeHead(200); return res.end(body);
+    }
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => { files.set(req.url, Buffer.concat(chunks)); res.writeHead(200); res.end(); });
+  });
+  await new Promise((r) => fileServer.listen(0, '127.0.0.1', r));
+  base = `http://127.0.0.1:${fileServer.address().port}`;
+});
+
+afterEach(async () => {
+  await sandbox?.close();
+  sandbox = null;
+  fileServer.closeAllConnections();
+  await new Promise((r) => fileServer.close(r));
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+// A repository on "the Mac", on a task branch, packed the way the proxy packs it.
+function packedRepo() {
+  const repo = path.join(tmp, 'mac', 'repo');
+  fs.mkdirSync(repo, { recursive: true });
+  git(repo, 'init', '-q', '-b', 'main');
+  git(repo, 'config', 'user.email', 'a@example.com');
+  git(repo, 'config', 'user.name', 'A');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'one\n');
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-q', '-m', 'first');
+  git(repo, 'checkout', '-q', '-b', 'agentbox/w-1');
+  const bundle = path.join(tmp, 'in.bundle');
+  git(repo, 'bundle', 'create', bundle, 'agentbox/w-1', 'main');
+  files.set('/in.bundle', fs.readFileSync(bundle));
+  return { repo, head: git(repo, 'rev-parse', 'HEAD') };
+}
+
+async function until(fn, what, ms = 20_000) {
+  const end = Date.now() + ms;
+  for (;;) {
+    const v = await fn();
+    if (v) return v;
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
+async function drain(since = 0) {
+  const out = [];
+  let at = since;
+  for (;;) {
+    const r = await sandbox.handle({ action: 'events', since: at, waitMs: 0 });
+    if (!r.events.length) return { events: out, at };
+    out.push(...r.events);
+    at = r.events[r.events.length - 1].seq;
+  }
+}
+
+const stdoutOf = (events) => Buffer.concat(events.filter((e) => e.kind === 'stdout').map((e) => Buffer.from(e.data, 'base64'))).toString('utf8');
+
+describe('a cloud sandbox', () => {
+  it('runs the command in the same folder path the Mac uses, on the task branch', async () => {
+    const { head } = packedRepo();
+    const cwd = path.join(tmp, 'vm', 'Users', 'someone', 'repo-w-1');
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
+    const started = await sandbox.handle({
+      action: 'start', runId: 'run-1', cwd, branch: 'agentbox/w-1',
+      bundleUrl: `${base}/in.bundle`,
+      argv: [process.execPath, '-e', 'const {execSync}=require("child_process");process.stdout.write(process.cwd()+"\\n"+execSync("git rev-parse --abbrev-ref HEAD")+execSync("git rev-parse HEAD"))'],
+      env: {},
+    });
+    expect(started.ok).toBe(true);
+    await until(async () => (await sandbox.handle({ action: 'status' })).state === 'exited', 'the command to exit');
+    const { events } = await drain();
+    const [where, branch, sha] = stdoutOf(events).trim().split('\n');
+    expect(fs.realpathSync(where)).toBe(fs.realpathSync(cwd));
+    expect(branch).toBe('agentbox/w-1');
+    expect(sha).toBe(head);
+    expect(events.at(-1)).toMatchObject({ kind: 'exit', code: 0 });
+  });
+
+  it('replays from any sequence number without a gap or a repeat, including after the command has exited', async () => {
+    packedRepo();
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
+    const script = 'for(let i=0;i<300;i++)process.stdout.write(JSON.stringify({n:i})+"\\n")';
+    await sandbox.handle({ action: 'start', runId: 'run-2', cwd: path.join(tmp, 'vm', 'w'), branch: 'agentbox/w-1', bundleUrl: `${base}/in.bundle`, argv: [process.execPath, '-e', script], env: {} });
+    await until(async () => (await sandbox.handle({ action: 'status' })).state === 'exited', 'the command to exit');
+    const all = await drain(0);
+    const lines = stdoutOf(all.events).trim().split('\n').map((l) => JSON.parse(l).n);
+    expect(lines).toEqual([...Array(300).keys()]);
+    // Seq numbers are 1..n with no holes.
+    expect(all.events.map((e) => e.seq)).toEqual(all.events.map((_, i) => i + 1));
+    // Reading again from the middle gives exactly the tail, once.
+    const mid = all.events[Math.floor(all.events.length / 2)].seq;
+    const tail = await drain(mid);
+    expect(tail.events.map((e) => e.seq)).toEqual(all.events.filter((e) => e.seq > mid).map((e) => e.seq));
+    // And from the end, nothing.
+    expect((await drain(all.at)).events).toEqual([]);
+  });
+
+  it('a long poll waits for the next event instead of returning empty at once', async () => {
+    packedRepo();
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
+    await sandbox.handle({ action: 'start', runId: 'run-3', cwd: path.join(tmp, 'vm', 'w'), branch: 'agentbox/w-1', bundleUrl: `${base}/in.bundle`, argv: [process.execPath, '-e', 'setTimeout(()=>process.stdout.write("late\\n"),400)'], env: {} });
+    await until(async () => (await sandbox.handle({ action: 'status' })).state === 'running', 'the command to start');
+    const { events } = await drain(0);
+    const at = events.length ? events.at(-1).seq : 0;
+    const t0 = Date.now();
+    const r = await sandbox.handle({ action: 'events', since: at, waitMs: 5000 });
+    expect(Date.now() - t0).toBeGreaterThan(200);
+    expect(Date.now() - t0).toBeLessThan(4500);
+    expect(stdoutOf(r.events)).toContain('late');
+  });
+
+  it('passes stdin through, in order, and closes it when told', async () => {
+    packedRepo();
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
+    const echo = 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>process.stdout.write("got:"+s))';
+    await sandbox.handle({ action: 'start', runId: 'run-4', cwd: path.join(tmp, 'vm', 'w'), branch: 'agentbox/w-1', bundleUrl: `${base}/in.bundle`, argv: [process.execPath, '-e', echo], env: {} });
+    await sandbox.handle({ action: 'stdin', data: Buffer.from('hello ').toString('base64') });
+    await sandbox.handle({ action: 'stdin', data: Buffer.from('world').toString('base64'), end: true });
+    await until(async () => (await sandbox.handle({ action: 'status' })).state === 'exited', 'the command to exit');
+    expect(stdoutOf((await drain()).events)).toBe('got:hello world');
+  });
+
+  it('gives the command only the environment it was sent, never the sandbox server\'s own', async () => {
+    packedRepo();
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm'), baseEnv: { PATH: process.env.PATH, HOME: path.join(tmp, 'vm', 'home') } });
+    process.env.SANDBOX_SECRET_FOR_TEST = 'must-not-leak';
+    try {
+      await sandbox.handle({ action: 'start', runId: 'run-5', cwd: path.join(tmp, 'vm', 'w'), branch: 'agentbox/w-1', bundleUrl: `${base}/in.bundle`, argv: [process.execPath, '-e', 'process.stdout.write(JSON.stringify({s:process.env.SANDBOX_SECRET_FOR_TEST||null,z:process.env.ZERO_ITEM||null}))'], env: { ZERO_ITEM: 'w-1' } });
+      await until(async () => (await sandbox.handle({ action: 'status' })).state === 'exited', 'the command to exit');
+      expect(JSON.parse(stdoutOf((await drain()).events))).toEqual({ s: null, z: 'w-1' });
+    } finally {
+      delete process.env.SANDBOX_SECRET_FOR_TEST;
+    }
+  });
+
+  it('stays busy for AgentCore until its results are collected, then lets the session go idle', async () => {
+    packedRepo();
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
+    expect(sandbox.ping().status).toBe('Healthy');
+    await sandbox.handle({ action: 'start', runId: 'run-6', cwd: path.join(tmp, 'vm', 'w'), branch: 'agentbox/w-1', bundleUrl: `${base}/in.bundle`, argv: [process.execPath, '-e', ''], env: {} });
+    expect(sandbox.ping().status).toBe('HealthyBusy');
+    await until(async () => (await sandbox.handle({ action: 'status' })).state === 'exited', 'the command to exit');
+    expect(sandbox.ping().status).toBe('HealthyBusy');
+    await sandbox.handle({ action: 'collect', bundleUrl: `${base}/out.bundle`, changesUrl: `${base}/changes.bundle`, bring: [] });
+    expect(sandbox.ping().status).toBe('Healthy');
+  });
+
+  it('brings back new commits and uncommitted work, and nothing from before the run', async () => {
+    const { head } = packedRepo();
+    const cwd = path.join(tmp, 'vm', 'w');
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
+    const work = [
+      'const fs=require("fs"),{execSync:x}=require("child_process");',
+      'x("git config user.email b@example.com && git config user.name B");',
+      'fs.writeFileSync("b.txt","two\\n");x("git add b.txt && git commit -q -m second");',
+      'fs.writeFileSync("a.txt","changed\\n");fs.writeFileSync("new.txt","untracked\\n");',
+    ].join('');
+    await sandbox.handle({ action: 'start', runId: 'run-7', cwd, branch: 'agentbox/w-1', bundleUrl: `${base}/in.bundle`, argv: [process.execPath, '-e', work], env: {} });
+    await until(async () => (await sandbox.handle({ action: 'status' })).state === 'exited', 'the command to exit');
+    const collected = await sandbox.handle({ action: 'collect', bundleUrl: `${base}/out.bundle`, changesUrl: `${base}/changes.bundle`, bring: [] });
+    expect(collected).toMatchObject({ ok: true, startSha: head, commits: 1, uncommitted: true });
+
+    // Apply on "the Mac" the way the proxy does.
+    const mac = path.join(tmp, 'mac', 'repo');
+    fs.writeFileSync(path.join(tmp, 'out.bundle'), files.get('/out.bundle'));
+    git(mac, 'fetch', '-q', path.join(tmp, 'out.bundle'), 'agentbox/w-1:refs/agentbox/cloud');
+    git(mac, 'merge', '-q', '--ff-only', 'refs/agentbox/cloud');
+    expect(fs.readFileSync(path.join(mac, 'b.txt'), 'utf8')).toBe('two\n');
+    fs.writeFileSync(path.join(tmp, 'changes.bundle'), files.get('/changes.bundle'));
+    git(mac, 'fetch', '-q', path.join(tmp, 'changes.bundle'), `${collected.changesRef}:refs/agentbox/changes`);
+    const patch = execFileSync('git', ['diff', '--binary', 'HEAD', 'refs/agentbox/changes'], { cwd: mac });
+    execFileSync('git', ['apply'], { cwd: mac, input: patch });
+    expect(fs.readFileSync(path.join(mac, 'a.txt'), 'utf8')).toBe('changed\n');
+    expect(fs.readFileSync(path.join(mac, 'new.txt'), 'utf8')).toBe('untracked\n');
+  });
+
+  it('says plainly when it holds no run, which is what a session AgentCore restarted looks like', async () => {
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
+    for (const action of ['events', 'stdin', 'collect', 'signal', 'mcp']) {
+      expect(await sandbox.handle({ action, since: 0 })).toMatchObject({ ok: false, error: 'no-run' });
+    }
+    expect(await sandbox.handle({ action: 'status' })).toMatchObject({ state: 'none' });
+  });
+
+  it('refuses a second start for a different run, and treats a repeated start of the same run as already started', async () => {
+    packedRepo();
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
+    const start = { action: 'start', runId: 'run-8', cwd: path.join(tmp, 'vm', 'w'), branch: 'agentbox/w-1', bundleUrl: `${base}/in.bundle`, argv: [process.execPath, '-e', 'setTimeout(()=>{},300)'], env: {} };
+    expect((await sandbox.handle(start)).ok).toBe(true);
+    expect(await sandbox.handle(start)).toMatchObject({ ok: true, already: true });
+    expect(await sandbox.handle({ ...start, runId: 'run-other' })).toMatchObject({ ok: false, error: 'busy' });
+  });
+
+  it('reports a bundle it could not fetch as a failed run, not as a hang', async () => {
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
+    await sandbox.handle({ action: 'start', runId: 'run-9', cwd: path.join(tmp, 'vm', 'w'), branch: 'agentbox/w-1', bundleUrl: `${base}/missing.bundle`, argv: [process.execPath, '-e', ''], env: {} });
+    await until(async () => (await sandbox.handle({ action: 'status' })).state === 'failed', 'the run to fail');
+    const { events } = await drain();
+    expect(events.find((e) => e.kind === 'error')?.message).toMatch(/404|fetch/i);
+    // A failed run is not collected and not busy: there is nothing to keep alive for.
+    expect(sandbox.ping().status).toBe('Healthy');
+  });
+});
