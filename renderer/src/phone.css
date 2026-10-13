@@ -297,6 +297,30 @@
      tap (phone-screen.ts installPictureZoom). Left to the page, a pinch did
      nothing and a drag scrolled ("I can't zoom in on them", 2026-10-12). */
   :root:root:root .doc-picture { touch-action: none; transform-origin: center center; transition: transform .05s linear; }
+  /* A PICTURE HOLDS ITS PLACE WHILE IT LOADS, as a soft shimmering box of a
+     picture's shape, and then fades in whole. Through the relay it arrives a
+     piece at a time, and it drew top-down, grew from nothing and pushed the
+     words under it ("as images load in mobile they look rather weird",
+     2026-10-12). The half-drawn picture and the broken mark are kept out of
+     sight (object-position and color) while the box shows; the state is set
+     by phone-files.ts watchPicture. */
+  :root:root:root .inline-image[data-phone-img="loading"],
+  :root:root:root .doc-picture[data-phone-img="loading"] {
+    display: block; width: 100%; max-width: 100%; height: auto; aspect-ratio: 4 / 3;
+    color: transparent; object-position: -99999px 0;
+    background: linear-gradient(100deg, rgba(255, 255, 255, .035) 30%, rgba(255, 255, 255, .09) 50%, rgba(255, 255, 255, .035) 70%) 0 0 / 200% 100%, var(--bg-raised, rgba(255, 255, 255, .03));
+    animation: phone-shimmer 1.3s linear infinite;
+  }
+  :root:root:root .attach-row img[data-phone-img="loading"] {
+    color: transparent; object-position: -99999px 0;
+    background: linear-gradient(100deg, rgba(255, 255, 255, .035) 30%, rgba(255, 255, 255, .09) 50%, rgba(255, 255, 255, .035) 70%) 0 0 / 200% 100%, var(--bg-raised, rgba(255, 255, 255, .03));
+    animation: phone-shimmer 1.3s linear infinite;
+  }
+  :root:root:root .inline-image[data-phone-img="ready"],
+  :root:root:root .doc-picture[data-phone-img="ready"],
+  :root:root:root .attach-row img[data-phone-img="ready"] { animation: phone-fade-in .25s ease-out; }
+  @keyframes phone-shimmer { from { background-position: 100% 0, 0 0; } to { background-position: -100% 0, 0 0; } }
+  @keyframes phone-fade-in { from { opacity: 0; } to { opacity: 1; } }
   /* The reply box's attach button, an icon like the box's others. */
   :root:root:root .compose-attach {
     flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; margin: 0 4px 0 -6px;

@@ -19,7 +19,7 @@
 import { REQUEST_CHANNELS, PUSH_CHANNELS, WRAPPED_ARGS, DESKTOP_ONLY } from '../../shared/bridge-map.mjs';
 import { Name } from '../../shared/product-name.mjs';
 import { setIconCount, startPhoneAlerts } from './phone-alerts';
-import { installPhoneFiles } from './phone-files';
+import { installPhoneFiles, installPictureWatch } from './phone-files';
 import { installPhoneScreen } from './phone-screen';
 
 type Push = (payload: unknown) => void;
@@ -118,6 +118,8 @@ export function installBrowserBridge(): boolean {
     // The keyboard, the colour Safari paints round the page, and the
     // home-screen swipe back (phone-screen.ts).
     installPhoneScreen();
+    // A picture holds its place while it loads (phone-files.ts).
+    installPictureWatch();
     // Pictures and design pages, from this computer under the file key, which
     // reads files and nothing else (main/serve.mjs fileKey).
     fetch('/file-key', { headers: { [TOKEN_HEADER]: token } })
