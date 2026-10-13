@@ -170,7 +170,10 @@ divergent options before it is built.)
    committed in the sandbox and brought home in 11 s. The microVM measured:
    aarch64, 2 vCPU, 8 GB, 8.8 GB disk.
 5. **Done.** The supervisor's placement, slots, guards (ship, cleanup,
-   restart) and exit-75 handling, with tests.
+   restart) and exit-75 handling, with tests. The lid, measured against real
+   AWS: the Mac-side process frozen (SIGSTOP, as in sleep) for 50 s while the
+   sandbox ran a 25 s job; on waking it read the rest and brought the commit
+   and the loose file home 2 s later.
 6. **Waiting on one Claude sign-in** (`scripts/cloud-signin.mjs`): a real
    Claude Code thread of this repo runs in the cloud, writes to the store,
    asks for an approval, commits, ships.
