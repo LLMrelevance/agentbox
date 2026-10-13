@@ -92,14 +92,20 @@ describe('the arrows hang over the glass, not inside it', () => {
     // glass and the 18pt patch starts 2.5pt into it, so the arrow's middle
     // lands on the corner, a whisker inside where the radius rounds it off.
     expect(css).toMatch(/\.ct-frame \{[^}]*padding: calc\(10px \* var\(--ct-s\)\)/);
+    // the inset is a fraction of the corner's own radius, so it holds at
+    // every size the tag can be dragged to
+    const radius = Number(css.match(/\.ct-tag \{[^}]*border-radius: calc\((\d+)px/)?.[1] ?? css.match(/border-radius: calc\((\d+)px \* var\(--ct-s\)\)/)[1]);
+    expect(2.4 / radius).toBeCloseTo(0.4, 1);
     const grip = css.match(/\.ct-grip \{[^}]*\}/)[0];
-    // a 20pt patch inside a 10pt band, 5pt in from the window's corner: the
-    // corner is rounded, so an arrow centred where the edges would have met
-    // sits over the notch the radius cuts away and reads as mostly outside
+    // a 20pt patch inside a 10pt band, 2.4pt in from the window's corner.
+    // That number is measured, not judged: sampling the arrow's ink against
+    // the glass's real rounded rectangle gives 14% on the glass at no inset,
+    // 40% at two, 57% at three and 94% at five, and 51% where it now stands.
+    // It is 0.4 of the 6pt corner radius, so it holds at every size.
     expect(grip).toMatch(/width: calc\(20px \* var\(--ct-s\)\)/);
     expect(grip).toMatch(/height: calc\(20px \* var\(--ct-s\)\)/);
     for (const corner of ['tl', 'tr', 'bl', 'br']) {
-      expect(css).toMatch(new RegExp(`\\.ct-grip-${corner} \\{ (left|right): calc\\(5px \\* var\\(--ct-s\\)\\); (top|bottom): calc\\(5px`));
+      expect(css).toMatch(new RegExp(`\\.ct-grip-${corner} \\{ (left|right): calc\\(2\\.4px \\* var\\(--ct-s\\)\\); (top|bottom): calc\\(2\\.4px`));
     }
     // grey rather than ink, and never quite full strength
     // low-key: a light grey at half strength, and never fully lit

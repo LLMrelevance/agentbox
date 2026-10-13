@@ -154,15 +154,17 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
   opacity: 0; transition: opacity 110ms ease; color: rgba(96, 101, 112, 0.5);
 }
 .ct-grip svg { width: calc(11px * var(--ct-s)); height: calc(11px * var(--ct-s)); display: block; }
-/* THE CORNER IS ROUNDED, so an arrow centred on where the two edges would
-   have met sits mostly over the notch the radius cuts away: "at least
-   two-thirds of it is outside the component". The patch comes in 5 points,
-   which puts the arrow's middle that far inside the corner and half of it
-   over painted glass, which is what reads as half in and half out. */
-.ct-grip-tl { left: calc(5px * var(--ct-s)); top: calc(5px * var(--ct-s)); cursor: nwse-resize; }
-.ct-grip-tr { right: calc(5px * var(--ct-s)); top: calc(5px * var(--ct-s)); cursor: nesw-resize; }
-.ct-grip-bl { left: calc(5px * var(--ct-s)); bottom: calc(5px * var(--ct-s)); cursor: nesw-resize; }
-.ct-grip-br { right: calc(5px * var(--ct-s)); bottom: calc(5px * var(--ct-s)); cursor: nwse-resize; }
+/* HALF ON THE GLASS, MEASURED RATHER THAN EYEBALLED. The corner is rounded,
+   so where the arrow's ink falls against the painted glass is not where its
+   box sits: sampling the ink against the real rounded rectangle gives 14% on
+   the glass at no inset, 40% at two points, 57% at three and 94% at five —
+   which is exactly the pair of complaints that got us here ("75% of it is
+   outside", then "two-thirds in the component"). Half lands at 0.4 of the
+   corner's radius, and the radius is 6, so the inset is 2.4. */
+.ct-grip-tl { left: calc(2.4px * var(--ct-s)); top: calc(2.4px * var(--ct-s)); cursor: nwse-resize; }
+.ct-grip-tr { right: calc(2.4px * var(--ct-s)); top: calc(2.4px * var(--ct-s)); cursor: nesw-resize; }
+.ct-grip-bl { left: calc(2.4px * var(--ct-s)); bottom: calc(2.4px * var(--ct-s)); cursor: nesw-resize; }
+.ct-grip-br { right: calc(2.4px * var(--ct-s)); bottom: calc(2.4px * var(--ct-s)); cursor: nwse-resize; }
 /* the arrow lies along its own corner's diagonal */
 .ct-grip-tr svg, .ct-grip-bl svg { transform: rotate(90deg); }
 /* NOTHING IS DRAWN UNTIL THE POINTER IS ON THAT ONE CORNER. Showing all four
