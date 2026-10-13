@@ -25,6 +25,11 @@
 
 :root {
   --ct-s: 1.1;
+  /* The list's own scale. It follows the tag less than a third of the way,
+     because a tag is glanced at from across a desk and a list is read: at the
+     tag's full size on a 32" the rows came out bigger than anything else on
+     the screen. The page sets it (shared/corner-tag.mjs, cardScale). */
+  --ct-cs: 1.03;
   --ct-ink: #1d1d1f;
   --ct-dim: rgba(29, 29, 31, 0.74);
   --ct-faint: rgba(29, 29, 31, 0.50);
@@ -74,14 +79,29 @@
      not by being washed out. */
   --ct-lat: #ec8d55;
   --ct-lat-rest: 0.66;
+  /* the page sets these from the tag's height; these are its smallest step */
+  --ct-dot: 3px;
+  --ct-gap: 1px;
   --ct-lat-peak: 0.92;
 }
 
 html, body, #root { margin: 0; padding: 0; background: transparent; overflow: hidden; height: 100%; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; -webkit-font-smoothing: antialiased; user-select: none; cursor: default; color: var(--ct-ink); }
 
+/* THE CLEAR BAND AROUND THE GLASS. The window is the tag plus this, so the
+   resize arrows can sit ON its corners, half over the glass and half outside
+   it, the way a window's own corner handle does. Nothing is drawn in the band:
+   a click there is not the tag's, and main/corner-tag.mjs lets it through to
+   whatever is underneath. */
+.ct-frame {
+  position: absolute; left: 0; top: 0; display: inline-block;
+  padding: calc(10px * var(--ct-s)); box-sizing: content-box;
+}
+.ct-frame.is-demo { position: relative; }
+.ct-tag { position: relative; }
+
 .ct-glass {
-  position: absolute; left: 0; top: 0; color: var(--ct-ink); background: var(--ct-tint);
+  color: var(--ct-ink); background: var(--ct-tint);
   backdrop-filter: blur(28px) saturate(180%);
   border: 1px solid var(--ct-line); border-bottom-color: var(--ct-line-bottom);
   box-shadow: var(--ct-edge);
@@ -114,19 +134,62 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
    (she kept both, 2026-10-08, picking the chevron over an arrow on full-screen
    pictures for how it sits). A click anywhere on the tag opens the app; the
    chevron says so. */
+/* THE RESIZE GRIP: the tag's bottom-left corner, drawn only while the pointer
+   is on the tag so nothing is added to the corner of her screen at rest. It is
+   inside the glass, because the window is exactly the glass and padding it is
+   what once let a first click fall through (main/corner-tag.mjs). */
+/* A patch the size of a quarter of the tag to aim at, with a small arrow
+   tucked right into the corner itself: big enough to hit, small enough that
+   the words and the mark keep the middle of the tag to themselves. */
+/* A strip across the top and bottom of each end, never the middle: the mark
+/* EACH ARROW IS CENTRED ON ITS CORNER, half over the glass and half over the
+   clear band around it, pointing out along that diagonal: a window's corner
+   handle rather than an icon parked inside the pill. The patch around the
+   arrow is bigger than the arrow, so there is something to aim at. */
+.ct-grip {
+  position: absolute; width: calc(18px * var(--ct-s)); height: calc(18px * var(--ct-s));
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 110ms ease; color: var(--ct-dim);
+}
+.ct-grip svg { width: calc(9px * var(--ct-s)); height: calc(9px * var(--ct-s)); display: block; }
+/* the band is 10 and the patch 18: at 2.5 in, the arrow's middle sits a
+   whisker inside the glass's corner, which is where the rounded edge is */
+.ct-grip-tl { left: calc(2.5px * var(--ct-s)); top: calc(2.5px * var(--ct-s)); cursor: nwse-resize; }
+.ct-grip-tr { right: calc(2.5px * var(--ct-s)); top: calc(2.5px * var(--ct-s)); cursor: nesw-resize; }
+.ct-grip-bl { left: calc(2.5px * var(--ct-s)); bottom: calc(2.5px * var(--ct-s)); cursor: nesw-resize; }
+.ct-grip-br { right: calc(2.5px * var(--ct-s)); bottom: calc(2.5px * var(--ct-s)); cursor: nwse-resize; }
+/* each one points out of its own corner */
+.ct-grip-tl svg { transform: rotate(-90deg); }
+.ct-grip-bl svg { transform: rotate(180deg); }
+.ct-grip-br svg { transform: rotate(90deg); }
+/* Pointing anywhere on the tag says the corners are there; pointing at one
+   says it is the one. */
+.ct-frame:hover .ct-grip, .ct-frame:has(.ct-tag.is-open) .ct-grip { opacity: 0.3; }
+.ct-frame:hover .ct-grip:hover { opacity: 0.95; }
+.ct-frame:has(.ct-tag.is-dragging) .ct-grip { opacity: 0; }
+
 .ct-go { display: flex; align-items: center; gap: calc(8px * var(--ct-s)); margin-left: 1px; color: var(--ct-faint); }
 .ct-go::before { content: ''; width: 1px; height: calc(14px * var(--ct-s)); background: var(--ct-rule); }
 .ct-go svg { display: block; width: calc(7px * var(--ct-s)); height: calc(10px * var(--ct-s)); }
 
 /* ---- the nine-dot lattice (renderer/src/corner-tag/lattice.tsx) ----
+   THE DOTS AND THE GAPS ARE WHOLE PIXELS, handed in by the page from the
+   tag's height (shared/corner-tag.mjs, latticeCell). They used to be a share
+   of the scale — 2.7 and 0.95 points multiplied — which at 31px came out
+   fractional, so the rows and columns rounded differently and the mark looked
+   crooked in the running app: "the dots aren't even here".
+
    The launch film's geometry to the point: dots 2.7, gaps 0.95, a 10 box whose
    centre lands where the old single dot centred, so nothing else in the tag
    moved when it arrived. */
 .ct-lat {
-  width: calc(10px * var(--ct-s)); height: calc(10px * var(--ct-s)); flex: none; display: grid;
-  grid-template-columns: repeat(3, calc(2.7px * var(--ct-s)));
-  grid-template-rows: repeat(3, calc(2.7px * var(--ct-s)));
-  gap: calc(0.95px * var(--ct-s)); transform-origin: 50% 50%;
+  flex: none; display: grid;
+  grid-template-columns: repeat(3, var(--ct-dot));
+  grid-template-rows: repeat(3, var(--ct-dot));
+  gap: var(--ct-gap);
+  width: calc(3 * var(--ct-dot) + 2 * var(--ct-gap));
+  height: calc(3 * var(--ct-dot) + 2 * var(--ct-gap));
+  transform-origin: 50% 50%;
 }
 .ct-lat i { border-radius: 50%; background: var(--ct-lat); display: block; opacity: var(--ct-lat-rest); }
 /* The centre dot is always filled, lit or resting: a mark with a heart rather
@@ -164,35 +227,37 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
 /* The list is firmer glass than the tag: it is only there while you are
    pointing at it, and it is read a line at a time. */
 .ct-card {
+  /* the list's window is the list, with no band around it */
+  position: absolute; left: 0; top: 0;
   background: var(--ct-tint-hover);
-  border-radius: calc(8px * var(--ct-s)); padding: calc(9px * var(--ct-s)) calc(8px * var(--ct-s)) calc(8px * var(--ct-s));
-  box-sizing: border-box; width: max-content; max-width: calc(440px * var(--ct-s)); min-width: calc(240px * var(--ct-s));
+  border-radius: calc(8px * var(--ct-cs)); padding: calc(9px * var(--ct-cs)) calc(8px * var(--ct-cs)) calc(8px * var(--ct-cs));
+  box-sizing: border-box; width: max-content; max-width: calc(440px * var(--ct-cs)); min-width: calc(240px * var(--ct-cs));
 }
 .ct-line {
-  all: unset; box-sizing: border-box; display: flex; align-items: center; gap: calc(9px * var(--ct-s)); width: 100%;
-  font-size: calc(13px * var(--ct-s)); white-space: nowrap; padding: calc(5px * var(--ct-s)) calc(6px * var(--ct-s));
-  border-radius: calc(4px * var(--ct-s)); cursor: pointer; color: var(--ct-ink);
+  all: unset; box-sizing: border-box; display: flex; align-items: center; gap: calc(9px * var(--ct-cs)); width: 100%;
+  font-size: calc(13px * var(--ct-cs)); white-space: nowrap; padding: calc(5px * var(--ct-cs)) calc(6px * var(--ct-cs));
+  border-radius: calc(4px * var(--ct-cs)); cursor: pointer; color: var(--ct-ink);
 }
 .ct-line:hover { background: var(--ct-press); }
-.ct-line .ct-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; max-width: calc(220px * var(--ct-s)); }
+.ct-line .ct-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; max-width: calc(220px * var(--ct-cs)); }
 .ct-line .ct-says { color: var(--ct-dim); }
-.ct-line .ct-when { margin-left: auto; padding-left: calc(14px * var(--ct-s)); font-size: calc(12px * var(--ct-s)); color: var(--ct-faint); }
-.ct-quiet { font-size: calc(12.5px * var(--ct-s)); color: var(--ct-faint); }
+.ct-line .ct-when { margin-left: auto; padding-left: calc(14px * var(--ct-cs)); font-size: calc(12px * var(--ct-cs)); color: var(--ct-faint); }
+.ct-quiet { font-size: calc(12.5px * var(--ct-cs)); color: var(--ct-faint); }
 .ct-line.ct-quiet { color: var(--ct-faint); }
-.ct-static { padding: calc(5px * var(--ct-s)) calc(6px * var(--ct-s)); }
-.ct-mark-sp { width: calc(10px * var(--ct-s)); flex: none; }
+.ct-static { padding: calc(5px * var(--ct-cs)) calc(6px * var(--ct-cs)); }
+.ct-mark-sp { width: calc(10px * var(--ct-cs)); flex: none; }
 /* A row's own mark: one apricot dot, the lattice's colour, so the list reads
    as the tag's family. */
-.ct-pip { width: calc(7px * var(--ct-s)); height: calc(7px * var(--ct-s)); border-radius: 50%; flex: none; background: var(--ct-lat); }
+.ct-pip { width: calc(7px * var(--ct-cs)); height: calc(7px * var(--ct-cs)); border-radius: 50%; flex: none; background: var(--ct-lat); }
 
 /* Hide it for a while, or go and turn it off. Small and last, so the list
    reads first. */
 .ct-foot {
-  display: flex; align-items: center; gap: 2px; margin: calc(6px * var(--ct-s)) 0 0;
-  padding: calc(7px * var(--ct-s)) calc(6px * var(--ct-s)) 0; border-top: 1px solid var(--ct-rule);
-  font-size: calc(11.5px * var(--ct-s)); color: var(--ct-faint); white-space: nowrap;
+  display: flex; align-items: center; gap: 2px; margin: calc(6px * var(--ct-cs)) 0 0;
+  padding: calc(7px * var(--ct-cs)) calc(6px * var(--ct-cs)) 0; border-top: 1px solid var(--ct-rule);
+  font-size: calc(11.5px * var(--ct-cs)); color: var(--ct-faint); white-space: nowrap;
 }
 .ct-foot > span:first-child { margin-right: 2px; }
-.ct-foot button { all: unset; cursor: pointer; padding: calc(2px * var(--ct-s)) calc(6px * var(--ct-s)); border-radius: calc(5px * var(--ct-s)); color: var(--ct-dim); }
+.ct-foot button { all: unset; cursor: pointer; padding: calc(2px * var(--ct-cs)) calc(6px * var(--ct-cs)); border-radius: calc(5px * var(--ct-cs)); color: var(--ct-dim); }
 .ct-foot button:hover { background: var(--ct-press); color: var(--ct-ink); }
-.ct-foot .ct-sep { flex: 1; min-width: calc(16px * var(--ct-s)); }
+.ct-foot .ct-sep { flex: 1; min-width: calc(16px * var(--ct-cs)); }

@@ -88,6 +88,102 @@ export function tagScale(width) {
 }
 
 /**
+ * HER OWN SIZE, KEPT AS A MULTIPLE OF THE AUTOMATIC ONE (2026-10-13). She
+ * asked to be able to resize the tray, by dragging a corner of it.
+ *
+ * What she sets is not a height in pixels but how much bigger or smaller than
+ * the automatic size she wants it, because the automatic size is the thing
+ * that knows about screens: a tag she grows by a fifth on her laptop is a
+ * fifth bigger on the 32" too, rather than shrinking back to a laptop's
+ * number the moment she plugs the big screen in.
+ */
+export const TAG_ZOOM = { min: 0.75, max: 2, step: 0.1 };
+/** However far she drags, the tag stays a tag. */
+export const TAG_LIMITS = { min: 24, max: 80 };
+
+/** Her multiple, kept sane; nothing stored means the automatic size. */
+export function tagZoom(zoom) {
+  const z = Number.isFinite(zoom) ? zoom : 1;
+  return clamp(Math.round(z * 100) / 100, TAG_ZOOM.min, TAG_ZOOM.max);
+}
+
+/** How tall the tag draws on this screen, with her multiple applied. */
+export function tagHeightOn(width, zoom) {
+  return clamp(Math.round(tagHeight(width) * tagZoom(zoom)), TAG_LIMITS.min, TAG_LIMITS.max);
+}
+
+/** The scale the page is handed: the automatic size times her multiple. */
+export function tagScaleOn(width, zoom) {
+  return tagHeightOn(width, zoom) / TAG_BASE;
+}
+
+/** The multiple a tag dragged to this height means, on this screen. */
+export function zoomFor(height, width) {
+  const h = clamp(Number.isFinite(height) ? height : 0, TAG_LIMITS.min, TAG_LIMITS.max);
+  return tagZoom(h / tagHeight(width));
+}
+
+/** One notch bigger or smaller, for the tag's own menu. */
+export function zoomStep(zoom, by) {
+  return tagZoom(tagZoom(zoom) + by * TAG_ZOOM.step);
+}
+
+/** Every corner resizes it, because one ledge in one corner was not findable. */
+export const GRIPS = ['tl', 'tr', 'bl', 'br'];
+
+/**
+ * How tall a drag on this corner means. The corner follows the cursor and the
+ * opposite one stays where it is, the way a window resizes. The tag is four
+ * times wider than it is tall, so sideways travel counts for about a third:
+ * the diagonal still feels like a diagonal without the width running away.
+ */
+export function heightFromDrag(corner, fromHeight, dx, dy) {
+  const down = corner.startsWith('b') ? dy : -dy;
+  const out = corner.endsWith('r') ? dx : -dx;
+  return Math.round(fromHeight + down + out * 0.35);
+}
+
+/**
+ * HOW MUCH OF THE TAG'S SIZE THE LIST TAKES (2026-10-13). The tag is a glance
+ * from across a desk and wants to be big on a big screen; the list is read a
+ * line at a time and does not. At the tag's full scale on her 32" the rows came
+ * out "really, really big... way bigger than anything else I'm used to seeing
+ * on the screen", so the list follows the tag less than a third of the way and
+ * stops at a quarter bigger than the app's own text.
+ */
+export function cardScale(scale) {
+  const s = Number.isFinite(scale) ? scale : 1;
+  return clamp(Math.round((1 + (s - 1) * 0.3) * 1000) / 1000, 1, 1.25);
+}
+
+/**
+ * THE NINE DOTS ARE WHOLE PIXELS, not a share of the tag (2026-10-13). They
+ * used to be 2.7 and 0.95 points multiplied by the scale, which at 31px came
+ * out as 2.99 and 1.05: every row and column rounded somewhere different, so
+ * the gaps were uneven and a dot that small turned into an aliased square.
+ * She caught it in the running app: "the dots aren't even here".
+ *
+ * So each height gets a dot and a gap in whole pixels. Every track is then
+ * identical at any pixel ratio, and a dot has enough pixels to be round.
+ */
+export const LATTICE_CELLS = {
+  31: { dot: 3, gap: 1 },
+  36: { dot: 4, gap: 1 },
+  42: { dot: 4, gap: 2 },
+  48: { dot: 5, gap: 2 },
+};
+
+/** The dot and gap for a tag this tall. */
+export function latticeCell(height) {
+  const h = Number.isFinite(height) ? Math.round(height) : TAG_HEIGHTS[0].px;
+  if (LATTICE_CELLS[h]) return LATTICE_CELLS[h];
+  // A height nobody planned for still draws something even: about a tenth of
+  // the tag for a dot, a third of that for the gap, both whole.
+  const dot = Math.max(2, Math.round(h / 10));
+  return { dot, gap: Math.max(1, Math.round(dot / 3)) };
+}
+
+/**
  * What the tag counts and lists: everything waiting on you, newest first.
  * The first version put threads from weeks ago at the top of the list; the
  * second cut everything older than a day, and then a Needs you of 58 read
@@ -158,6 +254,36 @@ function inLowerHalf(r, a) { return r.y + r.height / 2 > a.y + a.height / 2; }
  * corner stays put, so "2 ready for you" turning into "20 working" does not
  * walk the tag away from the edge you parked it against.
  */
+/**
+ * WHERE THE TAG IS PARKED, SAID IN A WAY THAT SURVIVES A CHANGE OF SCREEN
+ * (2026-10-13). Its spot used to be remembered as a point on the whole desktop,
+ * so plugging in a monitor, or unplugging one, moved every screen's
+ * coordinates underneath it and the tag "jumps around quite a bit". A corner
+ * and a gap mean the same thing on any screen: bottom right, 18 points in.
+ */
+export function cornerPlace(bounds, area) {
+  const right = inRightHalf(bounds, area);
+  const lower = inLowerHalf(bounds, area);
+  return {
+    corner: `${lower ? 'b' : 't'}${right ? 'r' : 'l'}`,
+    dx: Math.round(right ? area.x + area.width - (bounds.x + bounds.width) : bounds.x - area.x),
+    dy: Math.round(lower ? area.y + area.height - (bounds.y + bounds.height) : bounds.y - area.y),
+  };
+}
+
+/** That same place on this screen, wholly on it however small it is. */
+export function spotFor(place, size, area) {
+  if (!place?.corner) return null;
+  const right = place.corner.endsWith('r');
+  const lower = place.corner.startsWith('b');
+  const dx = clamp(Number.isFinite(place.dx) ? place.dx : MARGIN, 0, Math.max(0, area.width - size.width));
+  const dy = clamp(Number.isFinite(place.dy) ? place.dy : MARGIN, 0, Math.max(0, area.height - size.height));
+  return {
+    x: right ? area.x + area.width - size.width - dx : area.x + dx,
+    y: lower ? area.y + area.height - size.height - dy : area.y + dy,
+  };
+}
+
 export function keepCorner(bounds, size, area) {
   const x = inRightHalf(bounds, area) ? bounds.x + bounds.width - size.width : bounds.x;
   const y = inLowerHalf(bounds, area) ? bounds.y + bounds.height - size.height : bounds.y;

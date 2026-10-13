@@ -14,7 +14,7 @@
 // - Off both the tag and the list for a moment, and the list shuts.
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { HIDE_CHOICES, cardLines, tagSays } from '../../../shared/corner-tag.mjs';
+import { GRIPS, Grip, HIDE_CHOICES, cardLines, cardScale, latticeCell, tagSays } from '../../../shared/corner-tag.mjs';
 import { NAME } from '../../../shared/product-name.mjs';
 import { Lattice, Move, markMoves } from './lattice';
 import './corner-tag.css';
@@ -29,10 +29,12 @@ type Bridge = {
   onReset: (fn: () => void) => () => void;
   onDragging: (fn: (dragging: boolean) => void) => () => void;
   ready: (part: Part) => Promise<unknown>;
-  size: (part: Part, w: number, h: number) => Promise<unknown>;
+  size: (part: Part, w: number, h: number, frame?: number) => Promise<unknown>;
+  clickable: (on: boolean) => Promise<unknown>;
   hover: (part: Part, inside: boolean) => Promise<unknown>;
   toggle: () => Promise<unknown>;
-  press: (x: number, y: number) => Promise<unknown>;
+  // grip and corner say the press landed on one of the four resize corners.
+  press: (x: number, y: number, grip?: boolean, corner?: Grip) => Promise<unknown>;
   release: (cancelled?: boolean) => Promise<unknown>;
   go: (id: string | null) => Promise<unknown>;
   hide: (choice: string) => Promise<unknown>;
@@ -68,8 +70,18 @@ function useTagState() {
   // screen the tag rests on (shared/corner-tag.mjs, tagScale) and sends it
   // here; everything in the tag and its list is written against it, so they
   // grow together on a 32" and stay small on a laptop.
+  // The nine dots are the exception: they are whole pixels off that height,
+  // never a fraction of it, or their rows and columns round unevenly.
   useEffect(() => {
-    if (state.scale) document.documentElement.style.setProperty('--ct-s', String(state.scale));
+    if (!state.scale) return;
+    const root = document.documentElement;
+    root.style.setProperty('--ct-s', String(state.scale));
+    const { dot, gap } = latticeCell(28 * state.scale);
+    root.style.setProperty('--ct-dot', `${dot}px`);
+    root.style.setProperty('--ct-gap', `${gap}px`);
+    // The list follows the tag only part of the way: it is read a line at a
+    // time and should sit near the size of everything else on the screen.
+    root.style.setProperty('--ct-cs', String(cardScale(state.scale)));
   }, [state.scale]);
   return state;
 }
@@ -104,7 +116,14 @@ function useReportSize(ref: React.RefObject<HTMLElement>, which: Part, key: unkn
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || !bridge) return;
-    const report = () => { const r = el.getBoundingClientRect(); bridge.size(which, r.width, r.height); };
+    // The tag's window is the glass plus the clear band around it, so the
+    // band's width goes with the measurement: everything that places the
+    // window works from the glass inside it, not from the window's own edge.
+    const report = () => {
+      const r = el.getBoundingClientRect();
+      const glass = el.querySelector('.ct-tag')?.getBoundingClientRect();
+      bridge.size(which, r.width, r.height, glass ? Math.round(glass.x - r.x) : 0);
+    };
     report();
     const ro = new ResizeObserver(report);
     ro.observe(el);
@@ -141,14 +160,27 @@ function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }
     bridge?.release(cancelled);
   };
 
+  // WHAT IS UNDER THE POINTER RIGHT NOW. The window is the glass plus a clear
+  // band, so a click in that band belongs to whatever is underneath; the main
+  // process is told which it is, and lets the click through when it is not
+  // ours. Moves keep arriving either way, because the window forwards them.
+  const overUs = (e: React.PointerEvent) => {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    return !!el?.closest('.ct-tag, .ct-grip');
+  };
+
   return (
     <div
       ref={ref}
+      className={`ct-frame${demo ? ' is-demo' : ''}`}
+      onPointerMove={(e) => bridge?.clickable(overUs(e))}
+      onPointerLeave={() => bridge?.clickable(false)}
+    >
+    <div
       role="button"
       aria-label={`${text}. Click to open ${NAME}, drag to move.`}
       aria-expanded={open}
       className={`ct-glass ct-tag ${says.kind}${open ? ' is-open' : ''}${dragging ? ' is-dragging' : ''}`}
-      style={demo ? { position: 'relative' } : undefined}
       onPointerEnter={() => bridge?.hover('tag', true)}
       onPointerLeave={() => { if (!pressed.current) bridge?.hover('tag', false); }}
       onPointerDown={(e) => {
@@ -170,6 +202,47 @@ function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }
       <Mark says={{ kind: says.kind, count: says.kind === 'ready' ? counts.ready : counts.working }} />
       <span className="ct-words">{text}</span>
       <Go />
+    </div>
+      {/* EVERY CORNER RESIZES IT, AND ITS ARROW HANGS OVER THE EDGE (2026-10-13).
+          One ledge inside the bottom-left corner was neither findable nor right:
+          "the positioning of that arrow is completely wrong. It should extend
+          over the edges and point outward... halfway inside the browser and
+          halfway outside it." So each arrow is centred ON its corner, half over
+          the glass and half over the clear band the window keeps around it, and
+          points out along that diagonal. The press goes through the same door
+          as a move, flagged as the grip, so the main process reads the cursor
+          exactly as it does for a drag: the page is never sent every move. */}
+      {GRIPS.map((corner) => (
+        <span
+          key={corner}
+          className={`ct-grip ct-grip-${corner}`}
+          data-corner={corner}
+          aria-hidden
+          title="Drag to resize"
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            e.stopPropagation();
+            e.currentTarget.setPointerCapture(e.pointerId);
+            pressed.current = true;
+            bridge?.press(e.screenX, e.screenY, true, corner);
+          }}
+          onPointerUp={(e) => {
+            e.stopPropagation();
+            letGo(false);
+            if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+          }}
+          onPointerCancel={() => letGo(true)}
+          onLostPointerCapture={() => letGo(true)}
+        >
+          {/* The half that hangs outside the glass lands on whatever is on
+              the screen, so the arrow carries its own pale outline and reads
+              on a white page, a dark app or a photograph alike. */}
+          <svg viewBox="0 0 12 12" aria-hidden>
+            <path d="M10.5 1.5 4.5 7.5M10.5 6V1.5H6" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M10.5 1.5 4.5 7.5M10.5 6V1.5H6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+      ))}
     </div>
   );
 }
