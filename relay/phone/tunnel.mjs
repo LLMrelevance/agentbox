@@ -50,7 +50,15 @@ function away(request, status, said) {
  * One request, through the relay, to the Mac and back.
  * `ctx` is { room, keys } from relayIds/relayKeys; `fetchImpl` reaches the relay.
  */
-export async function tunnelFetch(request, ctx, fetchImpl = (...a) => fetch(...a), { wait = true } = {}) {
+/**
+ * May this request be waited on past the room's 30 s? Only a reply: an agent
+ * takes it at its next break, which can be minutes. Every other request that
+ * long unanswered is given up, or a busy computer piles them up until the room
+ * turns the phone away (tests/a-phone-never-piles-up-requests-on-its-computer).
+ */
+export const waitsForAgent = (method, pathname) => String(method).toUpperCase() === 'POST' && pathname === '/api/zero:answer';
+
+export async function tunnelFetch(request, ctx, fetchImpl = (...a) => fetch(...a), { wait = waitsForAgent(request.method, new URL(request.url).pathname) } = {}) {
   const url = new URL(request.url);
   const headers = {};
   for (const name of PASS) {
