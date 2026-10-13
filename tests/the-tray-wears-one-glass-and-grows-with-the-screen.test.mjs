@@ -121,7 +121,12 @@ describe('one glass, whatever the Mac is set to', () => {
   it('has dropped the pearl and the half-circle for the apricot lattice', () => {
     expect(css).not.toContain('radial-gradient');
     expect(page).not.toContain('ct-half');
-    expect(css).toContain('#f3a27a');
+    // the film's apricot, half a step deeper so it carries on a big screen
+    expect(css).toMatch(/--ct-lat: #[0-9a-f]{6}/);
+    const [, r, g, b] = css.match(/--ct-lat: #(..)(..)(..)/).map((h, i) => (i ? parseInt(h, 16) : h));
+    expect(r).toBeGreaterThan(g);
+    expect(g).toBeGreaterThan(b);
+    expect(r - b).toBeGreaterThan(100);
     expect(css).toContain('.ct-lat');
   });
 
@@ -149,6 +154,9 @@ describe('one glass, whatever the Mac is set to', () => {
     expect(alpha('-bottom')).toBeGreaterThan(alpha(''));
     expect(alpha('-quiet-bottom')).toBeGreaterThan(alpha('-quiet'));
     expect(alpha('')).toBeGreaterThan(alpha('-quiet'));
+    // and it stays faint: an edge, not a frame ("a bit too prominent/visible")
+    expect(alpha('-bottom')).toBeLessThan(0.25);
+    expect(alpha('')).toBeLessThan(0.18);
   });
 
   it('keeps its promise to anyone who asked for less motion', () => {

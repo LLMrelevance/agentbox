@@ -51,16 +51,24 @@
      looks a little messed up". A border follows the corner radius exactly and
      lands on whole pixels, which is also why the heights are whole numbers
      (shared/corner-tag.mjs). The bottom carries a shade more than the rest,
-     the way anything lit from above does. */
-  --ct-line: rgba(16, 18, 24, 0.26);
-  --ct-line-bottom: rgba(16, 18, 24, 0.34);
-  --ct-line-quiet: rgba(16, 18, 24, 0.20);
-  --ct-line-quiet-bottom: rgba(16, 18, 24, 0.27);
+     the way anything lit from above does.
+
+     It is faint. Drawn dark enough to count the pixels it was "a bit too
+     prominent/visible": this line is meant to tell the chip from the page it
+     sits on and nothing else, so it reads as an edge rather than a frame. */
+  --ct-line: rgba(16, 18, 24, 0.16);
+  --ct-line-bottom: rgba(16, 18, 24, 0.23);
+  --ct-line-quiet: rgba(16, 18, 24, 0.12);
+  --ct-line-quiet-bottom: rgba(16, 18, 24, 0.18);
   --ct-edge: inset 0 1px 0 rgba(255, 255, 255, 0.72);
   --ct-edge-quiet: inset 0 1px 0 rgba(255, 255, 255, 0.55);
-  /* The mark: the launch film's soft apricot, in both states. */
-  --ct-lat: #f3a27a;
-  --ct-lat-rest: 0.46;
+  /* The mark: the launch film's soft apricot, in both states, carried half a
+     step deeper for the app — "the orange is a little hard to see so might
+     want it to be very slightly more intense" (2026-10-13). The film's own
+     #f3a27a sat on a 1400pt screen filling your view; this one has to carry
+     on a 32" from across a desk. */
+  --ct-lat: #ef9765;
+  --ct-lat-rest: 0.50;
   --ct-lat-peak: 0.80;
 }
 
