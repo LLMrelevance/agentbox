@@ -29,4 +29,6 @@ sock.on('connect', () => {
 // Lines from the Mac arrive as written: whole lines, in order, each ending in
 // a newline, so they can go straight to stdout.
 sock.pipe(process.stdout);
-sock.on('close', () => process.exit(0));
+// Once the Mac's side closes, everything it sent is written out before this
+// goes: a large last reply must not be cut off by the exit.
+sock.on('close', () => process.stdout.write('', () => process.exit(0)));

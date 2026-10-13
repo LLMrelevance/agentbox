@@ -216,6 +216,42 @@ describe('a cloud run', () => {
     expect(readMarker(mac)).toBe(null);
   });
 
+  it('will not lay the run over a folder that changed on this Mac while it was away, and keeps the run\'s commits', async () => {
+    const run = launch({ message: 'SLOW please' });
+    // Something on the Mac writes into the folder while the agent works.
+    await new Promise((r) => setTimeout(r, 600));
+    fs.writeFileSync(path.join(mac, 'local-edit.txt'), 'made here meanwhile\n');
+    expect(await run.done).toBe(IMPORT_FAILED);
+    expect(readMarker(mac)).toMatchObject({ state: 'diverged' });
+    expect(run.err()).toMatch(/changed on this Mac/);
+    // The local edit is untouched, and the run's commit is kept on its ref.
+    expect(fs.readFileSync(path.join(mac, 'local-edit.txt'), 'utf8')).toBe('made here meanwhile\n');
+    const kept = git(mac, 'for-each-ref', '--format=%(refname)', 'refs/agentbox/cloud/');
+    expect(kept).toMatch(/refs\/agentbox\/cloud\//);
+    expect(git(mac, 'log', '-1', '--format=%s', kept.split('\n')[0])).toBe('From the cloud');
+    expect(git(mac, 'log', '-1', '--format=%s')).toBe('first');
+  });
+
+  it('will not bring home an agent that finished on another branch as if it were the task\'s', async () => {
+    const run = launch({ message: 'SWITCH branches' });
+    expect(await run.done).toBe(IMPORT_FAILED);
+    expect(run.err()).toMatch(/finished on somewhere-else/);
+    expect(git(mac, 'log', '-1', '--format=%s')).toBe('first');
+    expect(git(mac, 'for-each-ref', '--format=%(refname)', 'refs/agentbox/cloud/')).toMatch(/-head$/m);
+  });
+
+  it('keeps its record when the start went unanswered, because the run may have begun', async () => {
+    const realInvoke = transport.invoke;
+    transport.invoke = async (sid, p) => { if (p.action === 'start') throw new Error('network down'); return realInvoke(sid, p); };
+    try {
+      const run = launch();
+      expect(await run.done).toBe(IMPORT_FAILED);
+      expect(readMarker(mac)).toMatchObject({ state: 'start-unknown' });
+    } finally {
+      transport.invoke = realInvoke;
+    }
+  });
+
   it('refuses to start a second run while an earlier one\'s own process is still bringing it home', async () => {
     writeMarker(mac, { runId: 'r-old', sessionId: 's-old-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', branch: 'agentbox/w-1', startSha: git(mac, 'rev-parse', 'HEAD'), pid: process.pid === 1 ? 2 : process.ppid, state: 'running' });
     const run = launch();

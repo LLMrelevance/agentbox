@@ -248,14 +248,21 @@ export function createSandbox({
     child.stderr.on('data', (d) => emitChunks('stderr', d, r));
     child.stdin.on('error', () => {});
     for (const p of r.pendingStdin.splice(0)) writeStdin(r, p);
-    child.on('error', (err) => emit({ kind: 'error', message: `the command failed: ${err.message}` }, r));
     let exited = false;
+    // A command that could not be started at all (not found, not allowed)
+    // reports an error and may never report an exit; it is over all the same,
+    // and its folder is still collected.
+    child.on('error', (err) => {
+      emit({ kind: 'error', message: `the command failed: ${err.message}` }, r);
+      if (!child.pid) setImmediate(() => finish(127, null));
+    });
     const finish = (code, signal) => {
       if (exited) return;
       exited = true;
       clearTimeout(r.killTimer);
       clearTimeout(r.deadlineTimer);
       r.exitCode = code;
+      r.exitSignal = signal || null;
       r.child = null;
       // Anything the command left running in its group goes now: a dev
       // server holding stdout open would otherwise keep the run "running".
@@ -334,7 +341,7 @@ export function createSandbox({
       try {
         const manifest = await collect(r, urls);
         if (urls.eventsUrl) await upload(fetchImpl, urls.eventsUrl, fs.readFileSync(r.log.file));
-        const done = { ...manifest, runId: r.id, exitCode: r.exitCode, cancelled: r.cancelled || null, lastSeq: r.log.index.length };
+        const done = { ...manifest, runId: r.id, exitCode: r.exitCode, exitSignal: r.exitSignal || null, cancelled: r.cancelled || null, lastSeq: r.log.index.length };
         if (urls.doneUrl) await upload(fetchImpl, urls.doneUrl, Buffer.from(JSON.stringify(done)));
         r.manifest = done;
         setState('collected', {}, r);
@@ -358,9 +365,20 @@ export function createSandbox({
     const branch = r.spec.branch;
     const tip = (await sh('git', ['rev-parse', `refs/heads/${branch}`], cwd)).trim();
     const commits = Number((await sh('git', ['rev-list', '--count', `${r.startSha}..${tip}`], cwd)).trim()) || 0;
-    if (commits > 0) {
+    // WHERE THE AGENT ENDED UP, not only where it started. An agent that
+    // switched branches and committed there leaves the task branch untouched
+    // and the folder clean, and collecting the task branch alone would bring
+    // back nothing while the work sat on the other one.
+    const head = (await sh('git', ['rev-parse', 'HEAD'], cwd)).trim();
+    const headRef = (await sh('git', ['symbolic-ref', '-q', '--short', 'HEAD'], cwd).catch(() => '')).trim() || null;
+    const strayHead = head !== tip && head !== r.startSha;
+    if (strayHead) await sh('git', ['update-ref', 'refs/agentbox/head', head], cwd);
+    if (commits > 0 || strayHead) {
       const out = tmp('out.bundle');
-      await sh('git', ['bundle', 'create', '-q', out, `refs/heads/${branch}`, `^${r.startSha}`], cwd);
+      const refs = [];
+      if (commits > 0) refs.push(`refs/heads/${branch}`);
+      if (strayHead) refs.push('refs/agentbox/head');
+      await sh('git', ['bundle', 'create', '-q', out, ...refs, `^${r.startSha}`], cwd);
       await upload(fetchImpl, bundleUrl, fs.readFileSync(out));
       fs.rmSync(out, { force: true });
     }
@@ -390,8 +408,7 @@ export function createSandbox({
       fs.rmSync(tarball, { force: true });
       brought.push(b.dir);
     }
-    const head = (await sh('git', ['rev-parse', 'HEAD'], cwd)).trim();
-    return { ok: true, startSha: r.startSha, tip, head, commits, uncommitted: dirty, changesRef, brought };
+    return { ok: true, startSha: r.startSha, tip, head, headRef, strayHead, commits, uncommitted: dirty, changesRef, brought };
   }
 
   async function checkpoint(r, { bundleUrl }) {
@@ -410,13 +427,27 @@ export function createSandbox({
   // Numbered input: `n` is the Mac's count of everything it has sent this run.
   // A repeat is acknowledged and not applied; a gap is refused, naming the
   // number expected, so the Mac resends from there.
+  //
+  // ONE AT A TIME. Inputs are applied in a single chain per run, so a resend
+  // that arrives while the first copy is still downloading a file waits for it
+  // and is then answered as the duplicate it is; it can never land second and
+  // rewind the count. The count moves only when an input was applied, or was
+  // consumed with nothing left to apply it to (stdin after the command exited,
+  // a reply for a stub that has gone); a failed file download leaves it, so the
+  // same number can be sent again.
   function sequenced(r, req, apply) {
-    if (req.n === undefined) return apply();
-    const n = Number(req.n);
-    if (n <= r.inSeq) return { ok: true, dup: true };
-    if (n !== r.inSeq + 1) return { ok: false, error: 'gap', expect: r.inSeq + 1 };
-    r.inSeq = n;
-    return apply();
+    const step = async () => {
+      if (req.n === undefined) return apply();
+      const n = Number(req.n);
+      if (n <= r.inSeq) return { ok: true, dup: true };
+      if (n !== r.inSeq + 1) return { ok: false, error: 'gap', expect: r.inSeq + 1 };
+      const out = await apply();
+      if (out?.ok || out?.consumed) r.inSeq = n;
+      return out;
+    };
+    const p = (r.inputs || Promise.resolve()).then(step, step);
+    r.inputs = p.catch(() => {});
+    return p;
   }
 
   async function handle(req = {}) {
@@ -469,29 +500,29 @@ export function createSandbox({
       }
       case 'stdin':
         return sequenced(r, req, () => {
-          if (['exited', 'collected', 'collect-failed', 'failed'].includes(r.state)) return { ok: false, error: 'exited' };
+          if (['exited', 'collected', 'collect-failed', 'failed'].includes(r.state)) return { ok: false, error: 'exited', consumed: true };
           writeStdin(r, req);
           return { ok: true };
         });
       case 'files':
         // Files the Mac learns it must send once the run is going (an
         // attachment named in the prompt, which arrives over stdin).
-        if (req.n !== undefined && Number(req.n) <= r.inSeq) return { ok: true, dup: true };
-        if (req.n !== undefined && Number(req.n) !== r.inSeq + 1) return { ok: false, error: 'gap', expect: r.inSeq + 1 };
-        try {
-          for (const f of req.files || []) {
-            if (!f?.url || !path.isAbsolute(f?.path || '')) return { ok: false, error: 'bad-file' };
-            await placeFile({ ...f, path: at(f.path), ...(f.untar ? { untar: at(f.untar) } : {}) });
+        return sequenced(r, req, async () => {
+          try {
+            for (const f of req.files || []) {
+              if (!f?.url || !path.isAbsolute(f?.path || '')) return { ok: false, error: 'bad-file', consumed: true };
+              await placeFile({ ...f, path: at(f.path), ...(f.untar ? { untar: at(f.untar) } : {}) });
+              if (runAs) await sh('chown', [`${runAs.uid}:${runAs.gid}`, at(f.path)], '/').catch(() => {});
+            }
+          } catch (err) {
+            return { ok: false, error: 'file-failed', message: err.message };
           }
-        } catch (err) {
-          return { ok: false, error: 'file-failed', message: err.message };
-        }
-        if (req.n !== undefined) r.inSeq = Number(req.n);
-        return { ok: true };
+          return { ok: true };
+        });
       case 'mcp':
         return sequenced(r, req, () => {
           const c = bridge?.conns.get(req.conn);
-          if (!c || c.run !== r) return { ok: false, error: 'no-conn' };
+          if (!c || c.run !== r) return { ok: false, error: 'no-conn', consumed: true };
           c.sock.write(String(req.line) + '\n');
           return { ok: true };
         });

@@ -216,15 +216,18 @@ function ensureAppUser(bucket, runtimeArn) {
     ],
   };
   aws(['iam', 'put-user-policy', '--user-name', NAMES.appUser, '--policy-name', `${NAMES.appUser}-policy`, '--policy-document', JSON.stringify(policy)], { json: false });
-  // The key on disk is kept if AWS still knows it; otherwise a new one replaces
-  // whatever is there, and keys AWS holds that this Mac does not are retired.
+  // The key on disk is kept if AWS still knows it. A key this Mac does not
+  // hold is NEVER retired from here: it may be another Mac's, mid-run. AWS
+  // allows two keys per user, so a third Mac is told to free one by hand.
   let onDisk = null;
   try {
     onDisk = execFileSync('aws', ['configure', 'get', 'aws_access_key_id', '--profile', NAMES.profile], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
   } catch { /* no such profile yet */ }
   const keys = aws(['iam', 'list-access-keys', '--user-name', NAMES.appUser]).AccessKeyMetadata || [];
   if (onDisk && keys.some((k) => k.AccessKeyId === onDisk)) return;
-  for (const k of keys) aws(['iam', 'delete-access-key', '--user-name', NAMES.appUser, '--access-key-id', k.AccessKeyId], { json: false });
+  if (keys.length >= 2) {
+    throw new Error(`the app's user ${NAMES.appUser} already has two keys, held by other Macs; delete one in IAM if a Mac is gone, then run this again`);
+  }
   const key = aws(['iam', 'create-access-key', '--user-name', NAMES.appUser]).AccessKey;
   execFileSync('aws', ['configure', 'set', 'aws_access_key_id', key.AccessKeyId, '--profile', NAMES.profile]);
   execFileSync('aws', ['configure', 'set', 'aws_secret_access_key', key.SecretAccessKey, '--profile', NAMES.profile]);
@@ -255,7 +258,9 @@ async function main() {
     Statement: [
       { Effect: 'Allow', Action: ['ecr:GetAuthorizationToken'], Resource: '*' },
       { Effect: 'Allow', Action: ['ecr:BatchGetImage', 'ecr:GetDownloadUrlForLayer'], Resource: `arn:aws:ecr:${REGION}:${account}:repository/${NAMES.repo}` },
-      { Effect: 'Allow', Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents', 'logs:DescribeLogStreams', 'logs:DescribeLogGroups'], Resource: `arn:aws:logs:${REGION}:${account}:log-group:/aws/bedrock-agentcore/runtimes/*` },
+      { Effect: 'Allow', Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents', 'logs:DescribeLogStreams'], Resource: `arn:aws:logs:${REGION}:${account}:log-group:/aws/bedrock-agentcore/runtimes/*` },
+      // Discovery is asked of every group, as AWS's own runtime role does.
+      { Effect: 'Allow', Action: ['logs:DescribeLogGroups'], Resource: `arn:aws:logs:${REGION}:${account}:log-group:*` },
     ],
   });
   await retrying('build project', () => ensureBuildProject(bucket, buildRoleArn));

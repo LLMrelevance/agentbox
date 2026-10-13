@@ -74,6 +74,8 @@ async function turn(text) {
   const tool = text.includes('LOOK') ? 'look_at_page' : 'note';
   const reply = await call('tools/call', { name: tool, arguments: { text } });
   const said = reply.result?.content?.[0]?.text ?? JSON.stringify(reply);
+  if (text.includes('SLOW')) await new Promise((r) => setTimeout(r, 1500));
+  if (text.includes('SWITCH')) execSync('git checkout -q -b somewhere-else');
   fs.appendFileSync('cloud.txt', 'made in the cloud\n');
   execSync('git add cloud.txt && git commit -q -m "From the cloud"');
   fs.writeFileSync('loose.txt', 'not committed\n');

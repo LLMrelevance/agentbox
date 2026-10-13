@@ -37,7 +37,7 @@ import {fillName} from '../shared/product-name.mjs';
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { cloudWorkPending } from './cloud/marker.mjs';
+import { cloudWorkPending, readMarker } from './cloud/marker.mjs';
 import { readCloudConfig, readClaudeToken } from './cloud/config.mjs';
 import { buildSessionArgs, CLAUDE_MODES, permissionMode } from './settings.mjs';
 import fs from 'node:fs';
@@ -3718,6 +3718,14 @@ export class Supervisor {
     this._homecomings ??= new Map();
     const last = this._homecomings.get(folder);
     if (last && (last.child || Date.now() - last.at < 120_000)) return;
+    // A run that cannot be laid into its folder without undoing work done
+    // here waits for a person; asking again every two minutes changes nothing.
+    const marker = readMarker(folder);
+    if (marker?.state === 'diverged') {
+      if (!last) console.warn(`zero: a cloud run's work in ${folder} needs a person: ${marker.why || 'the folder changed while it was away'}`);
+      this._homecomings.set(folder, { child: null, at: Date.now() });
+      return;
+    }
     let child;
     try {
       child = spawn(process.execPath, [this._cloudRunPath(), '--agentbox-import-only'], {
