@@ -141,7 +141,7 @@ import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxCl
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
-import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, flipView, isDirect, nextTab, pageDisplay, pageFor, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPlaces, placesForDrop, rankScore, sorted as sortedByDisplay, type Display, type Privacy, type Unsaved } from './threads/page-rules';
+import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, flipView, isDirect, nextTab, pageDisplay, pageFor, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
 import { mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
 import { boardStops, listStops, stepStop, stopKey, type Stop } from './threads/walk-rules';
 import { opensTheToast, toastParts, type ToastGoes } from './toast-parts';
@@ -1527,13 +1527,15 @@ export default function App() {
   // snapshot wears them until it carries them itself. And none lands while a
   // row is in hand: it would reorder the rows under the carried one.
   const unsavedPlaces = useRef<Unsaved>({});
+  // And the pins, the same way (w-20323283e6).
+  const unsavedPins = useRef<UnsavedPins>({});
   // A snapshot held back by a drag is asked for again shortly, so a reply or a
   // state change that arrived mid-drag is not left waiting for the next poll.
   const refreshAgain = useRef<() => void>(() => {});
   const refresh = useCallback(async () => {
     const next = await api.snapshot();
     if (isCarrying()) { setTimeout(() => refreshAgain.current(), 300); return; }
-    setSnap(next && { ...next, items: overlayPlaces(next.items, unsavedPlaces.current) });
+    setSnap(next && { ...next, items: overlayPins(overlayPlaces(next.items, unsavedPlaces.current), unsavedPins.current) });
   }, []);
   refreshAgain.current = () => { void refresh(); };
   const refreshRef = useRef<() => Promise<void>>();
@@ -2304,12 +2306,24 @@ export default function App() {
   }, []);
   // Worked out against the rows in the order they were DRAWN (`drawn`), so the
   // neighbours are the two the person saw the gap between.
+  // A PIN (w-20323283e6), set from the thread's menu or by a drop across the
+  // line between the pinned threads and the rest. Unpinning from the menu also
+  // forgets a dragged place, so the thread goes back to where it sorts.
+  const pinThread = useCallback((id: string, pinned: boolean, fromMenu = false) => {
+    unsavedPins.current[id] = { pinned, at: Date.now() };
+    const forget = fromMenu && !pinned;
+    if (forget) delete unsavedPlaces.current[id];
+    setSnap((s) => s && { ...s, items: s.items.map((i) => (i.id === id ? { ...i, pinned, ...(forget ? { place: undefined } : {}) } : i)) });
+    void api.setThreadPins({ [id]: pinned ? true : null });
+    if (forget) void api.setThreadPlaces({ [id]: null });
+  }, []);
   const reorderThread = useCallback((id: string, beforeId: string | null, drawn: string[]) => {
     const byId = new Map(displayedBox.map((i) => [i.id, i]));
     const rows = drawn.map((d) => byId.get(d)).filter((i): i is WorkItem => !!i);
-    const places = placesForDrop(rows.map((i) => ({ id: i.id, score: rankScore(i, projectOrder, directSlugs) })), id, beforeId);
+    const { places, pin } = dropWithPins(rows.map((i) => ({ id: i.id, score: rankScore(i, projectOrder, directSlugs), pinned: !!i.pinned })), id, beforeId);
+    if (pin !== null) pinThread(id, pin);
     if (places) keepPlaces(places, id);
-  }, [displayedBox, projectOrder, directSlugs, keepPlaces]);
+  }, [displayedBox, projectOrder, directSlugs, keepPlaces, pinThread]);
   // THE PICKED TEAMMATES' THREADS FOR THIS TAB, from the cards their Macs
   // publish, merged into your rows in the Display's order.
   const cards = snap?.team?.cards ?? [];
@@ -5866,6 +5880,7 @@ export default function App() {
                   onReplyClose={() => setModal(null)}
                   onStop={() => stopAgent(focused)}
                   onRunNow={() => runNow(focused)}
+                  onPin={focused.agent ? undefined : (pin) => pinThread(focused.id, pin, true)}
                   onReveal={() => revealAgent(focused)}
                   // Remind me later and stop this task are neither of the two
                   // ways a task ends, and the card beside the bar names exactly
@@ -5910,7 +5925,7 @@ export default function App() {
                     selected={current} selectedCard={keyCard ? cardSel : null} columnOrder={columnOrder} onReorderColumns={reorderColumns}
                     // A card dragged up or down its column keeps that place,
                     // the way a row in the list does (w-6e5b532a95).
-                    onPlaces={!run && !withOthers && inboxDisplay.sort === 'priority' ? keepPlaces : undefined}
+                    onPlaces={!run && !withOthers && inboxDisplay.sort === 'priority' ? (places, id, pin) => { if (pin != null) pinThread(id, pin); keepPlaces(places, id); } : undefined}
                     // THE SAME PICK THE LIST'S BOXES FILL (w-2e3819913c), so
                     // ⌘K, E, L and Escape act on board cards with no copy.
                     marked={multiSel} onMark={setMultiSel}

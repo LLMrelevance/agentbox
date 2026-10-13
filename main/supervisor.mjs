@@ -473,6 +473,8 @@ export class Supervisor {
       this.hiddenProducts = new Set(state.hiddenProducts ?? []);
       // Threads she dragged to a place of their own in the list (`_score`).
       this.threadPlaces = Object.fromEntries(Object.entries(state.threadPlaces ?? {}).filter(([, v]) => Number.isFinite(v)));
+      // Threads she pinned to the top of the list (w-20323283e6).
+      this.threadPins = Object.fromEntries(Object.entries(state.threadPins ?? {}).filter(([, v]) => v === true));
     } catch {
       this._handledAnswers = new Set();
       this._resumedWaits = new Set();
@@ -489,6 +491,7 @@ export class Supervisor {
       this.productOrder = [];
       this.hiddenProducts = new Set();
       this.threadPlaces = {};
+      this.threadPins = {};
     }
     // WHICH ROWS NOTHING HAS BEEN ABLE TO RUN ON, as of the last tick, for the
     // line above her list. Deliberately NOT persisted: it is derived from
@@ -3255,10 +3258,33 @@ export class Supervisor {
     this.onChange?.();
   }
 
-  // The snapshot's items with each one's place on it, which is all the screen
-  // needs to sort by it. A row with no place is handed back untouched.
+  // PINNED THREADS (w-20323283e6), as a patch: true pins one, null forgets it.
+  // Kept beside the places for the same reason: a pin is one person's list,
+  // and a teammate's must not change when you pin yours. The fleet does not
+  // read it; a pin is where a thread is drawn, not when it runs.
+  setThreadPins(patch) {
+    let changed = false;
+    for (const [id, pin] of Object.entries(patch ?? {})) {
+      const was = this.threadPins[id] === true;
+      if (pin === true) this.threadPins[id] = true;
+      else if (pin === null || pin === false) delete this.threadPins[id];
+      changed ||= was !== (this.threadPins[id] === true);
+    }
+    // Every close asks to forget a pin, and almost none has one to forget.
+    if (!changed) return;
+    this._saveState();
+    this.onChange?.();
+  }
+
+  // The snapshot's items with each one's place and pin on it, which is all the
+  // screen needs to sort by them. A row with neither is handed back untouched.
   withPlaces(items) {
-    return items.map((i) => (Number.isFinite(this.threadPlaces[i.id]) ? { ...i, place: this.threadPlaces[i.id] } : i));
+    return items.map((i) => {
+      const place = this.threadPlaces[i.id];
+      const pinned = this.threadPins[i.id] === true;
+      if (!Number.isFinite(place) && !pinned) return i;
+      return { ...i, ...(pinned ? { pinned: true } : {}), ...(Number.isFinite(place) ? { place } : {}) };
+    });
   }
 
   /* ----------------------- auth profiles (subscriptions) ------------------ */
@@ -4191,6 +4217,7 @@ export class Supervisor {
         productOrder: this.productOrder,
         hiddenProducts: [...this.hiddenProducts],
         threadPlaces: this.threadPlaces,
+        threadPins: this.threadPins,
         liveSessions: this._liveSessions,
         rowSessions: this._rowSessions,
         compactions: this._compactions,

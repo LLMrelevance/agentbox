@@ -619,6 +619,12 @@ export const api = {
     if (useFixtures || !window.zero?.setThreadPlaces) return;
     await window.zero.setThreadPlaces({ places });
   },
+  // Threads pinned to the top of the list (w-20323283e6). Optional on the
+  // bridge: an older main process under a newer window has no such door.
+  async setThreadPins(pins: Record<string, true | null>): Promise<void> {
+    if (useFixtures || !window.zero?.setThreadPins) return;
+    await window.zero.setThreadPins({ pins });
+  },
 
   async compose(p: { product: string; title: string; body?: string; kind?: string; priority?: number; runAt?: number; start?: 'later' | 'now'; labels?: string[]; model?: string; engine?: string; effort?: string; assignee?: string; due?: string; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[] }): Promise<WorkItem | null> {
     // FIXTURES ANSWER WITH THE TASK, the way the real store does. Returning
