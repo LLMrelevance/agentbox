@@ -105,7 +105,7 @@ function Go() {
   return (
     <span className="ct-go" aria-hidden>
       <svg width="7" height="10" viewBox="0 0 7 10">
-        <path d="M1.5 1.5 5 5 1.5 8.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M1.5 1.5 5 5 1.5 8.5" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </span>
   );
@@ -246,8 +246,8 @@ function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }
               so it carries a pale outline and reads on a white page, a dark
               app or a photograph alike. */}
           <svg viewBox="0 0 12 12" aria-hidden>
-            <path d={ARROW} fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
-            <path d={ARROW} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d={ARROW} fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+            <path d={ARROW} fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </span>
       ))}

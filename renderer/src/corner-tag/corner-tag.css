@@ -151,22 +151,25 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
 .ct-grip {
   position: absolute; width: calc(20px * var(--ct-s)); height: calc(20px * var(--ct-s));
   display: flex; align-items: center; justify-content: center;
-  opacity: 0; transition: opacity 110ms ease; color: rgba(78, 82, 92, 0.72);
+  opacity: 0; transition: opacity 110ms ease; color: rgba(96, 101, 112, 0.5);
 }
 .ct-grip svg { width: calc(11px * var(--ct-s)); height: calc(11px * var(--ct-s)); display: block; }
-/* the band is 10 and the patch 20, flush with the window's own corner: the
-   arrow's middle lands exactly on the glass's corner, half in and half out */
-.ct-grip-tl { left: 0; top: 0; cursor: nwse-resize; }
-.ct-grip-tr { right: 0; top: 0; cursor: nesw-resize; }
-.ct-grip-bl { left: 0; bottom: 0; cursor: nesw-resize; }
-.ct-grip-br { right: 0; bottom: 0; cursor: nwse-resize; }
+/* THE CORNER IS ROUNDED, so an arrow centred on where the two edges would
+   have met sits mostly over the notch the radius cuts away: "at least
+   two-thirds of it is outside the component". The patch comes in 5 points,
+   which puts the arrow's middle that far inside the corner and half of it
+   over painted glass, which is what reads as half in and half out. */
+.ct-grip-tl { left: calc(5px * var(--ct-s)); top: calc(5px * var(--ct-s)); cursor: nwse-resize; }
+.ct-grip-tr { right: calc(5px * var(--ct-s)); top: calc(5px * var(--ct-s)); cursor: nesw-resize; }
+.ct-grip-bl { left: calc(5px * var(--ct-s)); bottom: calc(5px * var(--ct-s)); cursor: nesw-resize; }
+.ct-grip-br { right: calc(5px * var(--ct-s)); bottom: calc(5px * var(--ct-s)); cursor: nwse-resize; }
 /* the arrow lies along its own corner's diagonal */
 .ct-grip-tr svg, .ct-grip-bl svg { transform: rotate(90deg); }
 /* NOTHING IS DRAWN UNTIL THE POINTER IS ON THAT ONE CORNER. Showing all four
    at once put a frame of handles round the tag — "the borders themselves look
    a bit funky" — and a tag is not a selected object. One corner, one arrow,
    only while the pointer is on it, exactly as a window's own corner behaves. */
-.ct-grip:hover { opacity: 0.85; }
+.ct-grip:hover { opacity: 0.8; }
 .ct-frame:has(.ct-tag.is-dragging) .ct-grip { opacity: 0; }
 
 .ct-go { display: flex; align-items: center; gap: calc(8px * var(--ct-s)); margin-left: 1px; color: var(--ct-faint); }

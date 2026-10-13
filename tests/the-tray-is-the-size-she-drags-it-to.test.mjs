@@ -73,7 +73,7 @@ describe('the corners she drags', () => {
     // and nothing shows until the pointer is on that one corner: four at once
     // read as a frame of handles round the tag, which it is not
     expect(css).toMatch(/\.ct-grip \{[^}]*opacity: 0;/);
-    expect(css).toMatch(/\.ct-grip:hover \{ opacity: 0\.85/);
+    expect(css).toMatch(/\.ct-grip:hover \{ opacity: 0\.8/);
     expect(css).not.toMatch(/\.ct-frame:hover \.ct-grip[^:]*\{/);
     // and a patch big enough to aim at, not a few pixels of ledge
     expect(css).toMatch(/\.ct-grip \{[^}]*width: calc\(20px/);
@@ -93,16 +93,19 @@ describe('the arrows hang over the glass, not inside it', () => {
     // lands on the corner, a whisker inside where the radius rounds it off.
     expect(css).toMatch(/\.ct-frame \{[^}]*padding: calc\(10px \* var\(--ct-s\)\)/);
     const grip = css.match(/\.ct-grip \{[^}]*\}/)[0];
-    // a 20pt patch flush with the window's corner, around a 10pt band: the
-    // arrow's middle lands exactly on the glass's corner, half in, half out
+    // a 20pt patch inside a 10pt band, 5pt in from the window's corner: the
+    // corner is rounded, so an arrow centred where the edges would have met
+    // sits over the notch the radius cuts away and reads as mostly outside
     expect(grip).toMatch(/width: calc\(20px \* var\(--ct-s\)\)/);
     expect(grip).toMatch(/height: calc\(20px \* var\(--ct-s\)\)/);
     for (const corner of ['tl', 'tr', 'bl', 'br']) {
-      expect(css).toMatch(new RegExp(`\\.ct-grip-${corner} \\{ (left|right): 0; (top|bottom): 0;`));
+      expect(css).toMatch(new RegExp(`\\.ct-grip-${corner} \\{ (left|right): calc\\(5px \\* var\\(--ct-s\\)\\); (top|bottom): calc\\(5px`));
     }
     // grey rather than ink, and never quite full strength
-    expect(grip).toMatch(/color: rgba\(78, 82, 92, 0\.72\)/);
-    expect(css).toMatch(/\.ct-grip:hover \{ opacity: 0\.85/);
+    // low-key: a light grey at half strength, and never fully lit
+    const alpha = Number(grip.match(/color: rgba\(\d+, \d+, \d+, ([\d.]+)\)/)[1]);
+    expect(alpha).toBeLessThanOrEqual(0.55);
+    expect(css).toMatch(/\.ct-grip:hover \{ opacity: 0\.8/);
   });
 
   it('draws the usual two-headed arrow, one head at each end of the diagonal', () => {
