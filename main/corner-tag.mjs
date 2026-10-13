@@ -37,7 +37,7 @@
 // is, so it hands over what is ready and how many are working on
 // `zero:corner-tag`; shared/corner-tag.mjs puts it newest first.
 
-import { cardPlacement, hiddenUntil, keepCorner, readyNow, restingSpot, tagScale, tagShows, HIDE_CHOICES } from '../shared/corner-tag.mjs';
+import { cardPlacement, cornerPlace, hiddenUntil, keepCorner, readyNow, restingSpot, spotFor, tagScale, tagShows, HIDE_CHOICES } from '../shared/corner-tag.mjs';
 
 // How long the pointer may be off both the tag and its list before the list
 // shuts: long enough to cross the gap between them, short enough to feel like
@@ -111,8 +111,19 @@ export function createCornerTag({
   // A click that was on its way while the tag hid must not open it alone.
   const tagUp = () => !gone && alive('tag') && wins.tag.isVisible() && shouldShow();
 
+  // WHICH SCREEN IT BELONGS TO, AND WHERE ON IT. The corner it was parked in
+  // and the gap from that corner are what is remembered (shared/corner-tag.mjs,
+  // cornerPlace), because a point on the whole desktop stops meaning anything
+  // the moment a monitor is plugged in or taken away: every screen's
+  // coordinates move underneath it and the tag jumps.
+  let place = config.cornerTagPlace ?? null;
+  const screenFor = () => {
+    const known = tag ?? (config.cornerTagSpot ? { ...config.cornerTagSpot, ...tagSize } : null);
+    return known ? areaOf(known) : areas()[0];
+  };
   const placeTag = () => {
-    const spot = restingSpot(tag ? { x: tag.x, y: tag.y } : config.cornerTagSpot ?? null, tagSize, areas());
+    const held = place ? spotFor(place, tagSize, screenFor()) : null;
+    const spot = held ?? restingSpot(tag ? { x: tag.x, y: tag.y } : config.cornerTagSpot ?? null, tagSize, areas());
     tag = { ...spot, ...tagSize };
     if (alive('tag')) wins.tag.setBounds(rounded(tag));
   };
@@ -287,7 +298,10 @@ export function createCornerTag({
     if (p.moved) {
       tag = { ...restingSpot({ x: tag.x, y: tag.y }, tagSize, areas()), ...tagSize };
       if (alive('tag')) wins.tag.setBounds(rounded(tag));
-      saveConfig(config, { cornerTagSpot: { x: Math.round(tag.x), y: Math.round(tag.y) } });
+      // Where she left it, said as a corner and a gap so it means the same
+      // thing on whatever screen it is on next.
+      place = cornerPlace(tag, areaOf(tag));
+      saveConfig(config, { cornerTagSpot: { x: Math.round(tag.x), y: Math.round(tag.y) }, cornerTagPlace: place });
       send('tag', 'corner-tag:dragging', false);
       // Dragged onto another screen, it draws at that screen's size.
       sendState();
@@ -442,12 +456,15 @@ export function createCornerTag({
   /* ------------------------------ from the system -------------------------- */
   // A screen that comes, goes or changes shape: the list shuts and the tag is
   // pulled back onto a screen if it was left hanging off one.
+  // A monitor plugged in or taken away: back to the corner it was parked in,
+  // the same gap in, on whichever screen now holds it. It used to be clamped
+  // from its old desktop point, which is what made it jump.
   const reseat = () => {
     if (gone) return;
     closeCard();
     if (!tag || press) return;
-    tag = { ...restingSpot({ x: tag.x, y: tag.y }, tagSize, areas()), ...tagSize };
-    if (alive('tag')) wins.tag.setBounds(rounded(tag));
+    placeTag();
+    sendState();
   };
   // After sleep the screens may have changed and a hide may have run out.
   const woke = () => { reseat(); refresh(); };

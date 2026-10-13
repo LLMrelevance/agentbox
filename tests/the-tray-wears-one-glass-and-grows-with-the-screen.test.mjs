@@ -21,7 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createElement as h } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TAG_BASE, TAG_HEIGHTS, tagHeight, tagScale } from '../shared/corner-tag.mjs';
+import { LATTICE_CELLS, TAG_BASE, TAG_HEIGHTS, latticeCell, tagHeight, tagScale } from '../shared/corner-tag.mjs';
 import { Lattice, markMoves } from '../renderer/src/corner-tag/lattice.tsx';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -84,6 +84,49 @@ describe('what the mark does, and when', () => {
     expect(markMoves({ kind: 'working', count: 20 }, { kind: 'working', count: 20 })).toBe('none');
     expect(markMoves(null, { kind: 'working', count: 20 })).toBe('stir');
     expect(markMoves(null, { kind: 'ready', count: 3 })).toBe('pop');
+  });
+});
+
+describe('the nine dots sit on whole pixels', () => {
+  // In the running app the mark came out crooked — "the dots aren't even here"
+  // — because a dot was 2.7 points times the scale: 2.99px at 31, 3.47 at 36.
+  // Every row and column rounded somewhere different.
+  it('gives every step a whole dot and a whole gap', () => {
+    for (const { px } of TAG_HEIGHTS) {
+      const { dot, gap } = latticeCell(px);
+      expect(Number.isInteger(dot)).toBe(true);
+      expect(Number.isInteger(gap)).toBe(true);
+      expect(dot).toBeGreaterThan(gap);
+    }
+  });
+
+  it('keeps the mark about a third of the tag at every step', () => {
+    for (const { px } of TAG_HEIGHTS) {
+      const { dot, gap } = latticeCell(px);
+      const box = 3 * dot + 2 * gap;
+      expect(box / px).toBeGreaterThan(0.3);
+      expect(box / px).toBeLessThan(0.45);
+    }
+  });
+
+  it('grows with the tag and never shrinks as it goes up', () => {
+    const boxes = TAG_HEIGHTS.map(({ px }) => { const c = latticeCell(px); return 3 * c.dot + 2 * c.gap; });
+    expect([...boxes].sort((a, b) => a - b)).toEqual(boxes);
+    expect(Object.keys(LATTICE_CELLS).map(Number)).toEqual(TAG_HEIGHTS.map((s) => s.px));
+  });
+
+  it('still answers for a height nobody planned for', () => {
+    const { dot, gap } = latticeCell(55);
+    expect(Number.isInteger(dot)).toBe(true);
+    expect(Number.isInteger(gap)).toBe(true);
+    expect(latticeCell(undefined)).toEqual(LATTICE_CELLS[31]);
+  });
+
+  it('is drawn from those two numbers and nothing else', () => {
+    expect(css).toContain('grid-template-columns: repeat(3, var(--ct-dot))');
+    expect(css).toContain('gap: var(--ct-gap)');
+    expect(css).not.toContain('2.7px');
+    expect(css).not.toContain('0.95px');
   });
 });
 

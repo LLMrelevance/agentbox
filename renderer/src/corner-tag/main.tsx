@@ -14,7 +14,7 @@
 // - Off both the tag and the list for a moment, and the list shuts.
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { HIDE_CHOICES, cardLines, tagSays } from '../../../shared/corner-tag.mjs';
+import { HIDE_CHOICES, cardLines, latticeCell, tagSays } from '../../../shared/corner-tag.mjs';
 import { NAME } from '../../../shared/product-name.mjs';
 import { Lattice, Move, markMoves } from './lattice';
 import './corner-tag.css';
@@ -68,8 +68,15 @@ function useTagState() {
   // screen the tag rests on (shared/corner-tag.mjs, tagScale) and sends it
   // here; everything in the tag and its list is written against it, so they
   // grow together on a 32" and stay small on a laptop.
+  // The nine dots are the exception: they are whole pixels off that height,
+  // never a fraction of it, or their rows and columns round unevenly.
   useEffect(() => {
-    if (state.scale) document.documentElement.style.setProperty('--ct-s', String(state.scale));
+    if (!state.scale) return;
+    const root = document.documentElement;
+    root.style.setProperty('--ct-s', String(state.scale));
+    const { dot, gap } = latticeCell(28 * state.scale);
+    root.style.setProperty('--ct-dot', `${dot}px`);
+    root.style.setProperty('--ct-gap', `${gap}px`);
   }, [state.scale]);
   return state;
 }

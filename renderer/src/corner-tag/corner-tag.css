@@ -74,6 +74,9 @@
      not by being washed out. */
   --ct-lat: #ec8d55;
   --ct-lat-rest: 0.66;
+  /* the page sets these from the tag's height; these are its smallest step */
+  --ct-dot: 3px;
+  --ct-gap: 1px;
   --ct-lat-peak: 0.92;
 }
 
@@ -119,14 +122,23 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
 .ct-go svg { display: block; width: calc(7px * var(--ct-s)); height: calc(10px * var(--ct-s)); }
 
 /* ---- the nine-dot lattice (renderer/src/corner-tag/lattice.tsx) ----
+   THE DOTS AND THE GAPS ARE WHOLE PIXELS, handed in by the page from the
+   tag's height (shared/corner-tag.mjs, latticeCell). They used to be a share
+   of the scale — 2.7 and 0.95 points multiplied — which at 31px came out
+   fractional, so the rows and columns rounded differently and the mark looked
+   crooked in the running app: "the dots aren't even here".
+
    The launch film's geometry to the point: dots 2.7, gaps 0.95, a 10 box whose
    centre lands where the old single dot centred, so nothing else in the tag
    moved when it arrived. */
 .ct-lat {
-  width: calc(10px * var(--ct-s)); height: calc(10px * var(--ct-s)); flex: none; display: grid;
-  grid-template-columns: repeat(3, calc(2.7px * var(--ct-s)));
-  grid-template-rows: repeat(3, calc(2.7px * var(--ct-s)));
-  gap: calc(0.95px * var(--ct-s)); transform-origin: 50% 50%;
+  flex: none; display: grid;
+  grid-template-columns: repeat(3, var(--ct-dot));
+  grid-template-rows: repeat(3, var(--ct-dot));
+  gap: var(--ct-gap);
+  width: calc(3 * var(--ct-dot) + 2 * var(--ct-gap));
+  height: calc(3 * var(--ct-dot) + 2 * var(--ct-gap));
+  transform-origin: 50% 50%;
 }
 .ct-lat i { border-radius: 50%; background: var(--ct-lat); display: block; opacity: var(--ct-lat-rest); }
 /* The centre dot is always filled, lit or resting: a mark with a heart rather

@@ -88,6 +88,33 @@ export function tagScale(width) {
 }
 
 /**
+ * THE NINE DOTS ARE WHOLE PIXELS, not a share of the tag (2026-10-13). They
+ * used to be 2.7 and 0.95 points multiplied by the scale, which at 31px came
+ * out as 2.99 and 1.05: every row and column rounded somewhere different, so
+ * the gaps were uneven and a dot that small turned into an aliased square.
+ * She caught it in the running app: "the dots aren't even here".
+ *
+ * So each height gets a dot and a gap in whole pixels. Every track is then
+ * identical at any pixel ratio, and a dot has enough pixels to be round.
+ */
+export const LATTICE_CELLS = {
+  31: { dot: 3, gap: 1 },
+  36: { dot: 4, gap: 1 },
+  42: { dot: 4, gap: 2 },
+  48: { dot: 5, gap: 2 },
+};
+
+/** The dot and gap for a tag this tall. */
+export function latticeCell(height) {
+  const h = Number.isFinite(height) ? Math.round(height) : TAG_HEIGHTS[0].px;
+  if (LATTICE_CELLS[h]) return LATTICE_CELLS[h];
+  // A height nobody planned for still draws something even: about a tenth of
+  // the tag for a dot, a third of that for the gap, both whole.
+  const dot = Math.max(2, Math.round(h / 10));
+  return { dot, gap: Math.max(1, Math.round(dot / 3)) };
+}
+
+/**
  * What the tag counts and lists: everything waiting on you, newest first.
  * The first version put threads from weeks ago at the top of the list; the
  * second cut everything older than a day, and then a Needs you of 58 read
@@ -158,6 +185,36 @@ function inLowerHalf(r, a) { return r.y + r.height / 2 > a.y + a.height / 2; }
  * corner stays put, so "2 ready for you" turning into "20 working" does not
  * walk the tag away from the edge you parked it against.
  */
+/**
+ * WHERE THE TAG IS PARKED, SAID IN A WAY THAT SURVIVES A CHANGE OF SCREEN
+ * (2026-10-13). Its spot used to be remembered as a point on the whole desktop,
+ * so plugging in a monitor, or unplugging one, moved every screen's
+ * coordinates underneath it and the tag "jumps around quite a bit". A corner
+ * and a gap mean the same thing on any screen: bottom right, 18 points in.
+ */
+export function cornerPlace(bounds, area) {
+  const right = inRightHalf(bounds, area);
+  const lower = inLowerHalf(bounds, area);
+  return {
+    corner: `${lower ? 'b' : 't'}${right ? 'r' : 'l'}`,
+    dx: Math.round(right ? area.x + area.width - (bounds.x + bounds.width) : bounds.x - area.x),
+    dy: Math.round(lower ? area.y + area.height - (bounds.y + bounds.height) : bounds.y - area.y),
+  };
+}
+
+/** That same place on this screen, wholly on it however small it is. */
+export function spotFor(place, size, area) {
+  if (!place?.corner) return null;
+  const right = place.corner.endsWith('r');
+  const lower = place.corner.startsWith('b');
+  const dx = clamp(Number.isFinite(place.dx) ? place.dx : MARGIN, 0, Math.max(0, area.width - size.width));
+  const dy = clamp(Number.isFinite(place.dy) ? place.dy : MARGIN, 0, Math.max(0, area.height - size.height));
+  return {
+    x: right ? area.x + area.width - size.width - dx : area.x + dx,
+    y: lower ? area.y + area.height - size.height - dy : area.y + dy,
+  };
+}
+
 export function keepCorner(bounds, size, area) {
   const x = inRightHalf(bounds, area) ? bounds.x + bounds.width - size.width : bounds.x;
   const y = inLowerHalf(bounds, area) ? bounds.y + bounds.height - size.height : bounds.y;

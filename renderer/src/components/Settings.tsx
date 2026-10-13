@@ -1772,12 +1772,12 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             {/* THE CORNER TAG (w-dafae58a23). The tag itself only hides for a
                 while; this is the one place it turns off for good, so it can
                 never become a thing she closed once and forgot. */}
-            <Group id="corner-tag" label="While you're in other apps">
+            <Group id="corner-tag" label="Agent Tray">
               <Row
-                label="Show what's ready in the corner"
-                desc="A small tag over your other apps says when an agent has something for you. Drag it anywhere. Hide it for a while from the tag itself."
+                label="Show the Agent Tray"
+                desc="A small tag over your other apps says when an agent has something for you. Drag it anywhere; it keeps that corner on every screen. Hide it for a while from the tag itself."
               >
-                <Switch label="Show what's ready in the corner" on={w.cornerTag !== false} onChange={(v) => setWorkspace('cornerTag', v)} />
+                <Switch label="Show the Agent Tray" on={w.cornerTag !== false} onChange={(v) => setWorkspace('cornerTag', v)} />
               </Row>
             </Group>
             {/* ONE SWITCH OVER EVERYTHING THAT LEAVES THE MACHINE, and there is
