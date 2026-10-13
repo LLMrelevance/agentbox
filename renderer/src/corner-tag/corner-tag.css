@@ -45,8 +45,19 @@
   --ct-tint-quiet: linear-gradient(180deg, rgba(252, 252, 253, 0.58), rgba(238, 240, 245, 0.55));
   /* Pointing at it firms the glass up, because that is when it is being read. */
   --ct-tint-hover: linear-gradient(180deg, rgba(255, 255, 255, 0.93), rgba(246, 247, 251, 0.90));
-  --ct-edge: inset 0 0.5px 0 rgba(255, 255, 255, 0.70), inset 0 0 0 0.5px rgba(16, 18, 24, 0.22);
-  --ct-edge-quiet: inset 0 0.5px 0 rgba(255, 255, 255, 0.55), inset 0 0 0 0.5px rgba(16, 18, 24, 0.18);
+  /* THE BORDER IS A REAL BORDER, one whole pixel, on all four sides. It was a
+     half-pixel inset ring, which the top and sides survived and the bottom did
+     not: "the bottom border isn't really visible and the bottom-left corner
+     looks a little messed up". A border follows the corner radius exactly and
+     lands on whole pixels, which is also why the heights are whole numbers
+     (shared/corner-tag.mjs). The bottom carries a shade more than the rest,
+     the way anything lit from above does. */
+  --ct-line: rgba(16, 18, 24, 0.26);
+  --ct-line-bottom: rgba(16, 18, 24, 0.34);
+  --ct-line-quiet: rgba(16, 18, 24, 0.20);
+  --ct-line-quiet-bottom: rgba(16, 18, 24, 0.27);
+  --ct-edge: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  --ct-edge-quiet: inset 0 1px 0 rgba(255, 255, 255, 0.55);
   /* The mark: the launch film's soft apricot, in both states. */
   --ct-lat: #f3a27a;
   --ct-lat-rest: 0.46;
@@ -59,6 +70,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
 .ct-glass {
   position: absolute; left: 0; top: 0; color: var(--ct-ink); background: var(--ct-tint);
   backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid var(--ct-line); border-bottom-color: var(--ct-line-bottom);
   box-shadow: var(--ct-edge);
 }
 
@@ -75,8 +87,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
 .ct-tag .ct-words { font-weight: 500; color: var(--ct-dim); }
 /* Working sits back at about three quarters of the glass, waiting comes
    forward. */
-.ct-tag.working { background: var(--ct-tint-quiet); box-shadow: var(--ct-edge-quiet); }
-.ct-tag:hover, .ct-tag.is-open { background: var(--ct-tint-hover); box-shadow: var(--ct-edge); }
+.ct-tag.working {
+  background: var(--ct-tint-quiet); box-shadow: var(--ct-edge-quiet);
+  border-color: var(--ct-line-quiet); border-bottom-color: var(--ct-line-quiet-bottom);
+}
+.ct-tag:hover, .ct-tag.is-open {
+  background: var(--ct-tint-hover); box-shadow: var(--ct-edge);
+  border-color: var(--ct-line); border-bottom-color: var(--ct-line-bottom);
+}
 .ct-tag.is-dragging { cursor: grabbing; }
 
 /* The way into the app, always at the tag's end: a hairline and a chevron

@@ -60,20 +60,31 @@ export function tagSays({ ready = 0, working = 0 } = {}) {
  * too small so you need to scale it more with screen size" — so the steps are
  * now 31px on a laptop, 36px, 42px, and 48px on a screen as wide as hers
  * (3413 points). 1 would be the old 28px tag, which nothing asks for any more.
+ *
+ * THE STEPS ARE WHOLE PIXELS, and the scale is worked back from them. A tag
+ * 30.8px tall puts its bottom border on half a device pixel, where it goes
+ * soft and its bottom corners break up; she saw exactly that and called it
+ * messed up (2026-10-13). Whole heights keep every edge on a real pixel.
  */
-export const TAG_SCALES = [
-  { from: 0, scale: 1.1 },
-  { from: 1900, scale: 1.3 },
-  { from: 2400, scale: 1.5 },
-  { from: 3000, scale: 1.7 },
+export const TAG_BASE = 28;
+export const TAG_HEIGHTS = [
+  { from: 0, px: 31 },
+  { from: 1900, px: 36 },
+  { from: 2400, px: 42 },
+  { from: 3000, px: 48 },
 ];
 
-/** The scale for a screen this many points wide. */
-export function tagScale(width) {
+/** How tall the tag draws on a screen this many points wide, in whole pixels. */
+export function tagHeight(width) {
   const w = Number.isFinite(width) ? width : 0;
-  let scale = TAG_SCALES[0].scale;
-  for (const step of TAG_SCALES) if (w >= step.from) scale = step.scale;
-  return scale;
+  let px = TAG_HEIGHTS[0].px;
+  for (const step of TAG_HEIGHTS) if (w >= step.from) px = step.px;
+  return px;
+}
+
+/** The one number the page multiplies everything by. */
+export function tagScale(width) {
+  return tagHeight(width) / TAG_BASE;
 }
 
 /**

@@ -21,7 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createElement as h } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TAG_SCALES, tagScale } from '../shared/corner-tag.mjs';
+import { TAG_BASE, TAG_HEIGHTS, tagHeight, tagScale } from '../shared/corner-tag.mjs';
 import { Lattice, markMoves } from '../renderer/src/corner-tag/lattice.tsx';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -30,29 +30,36 @@ const page = fs.readFileSync(path.join(root, 'renderer/src/corner-tag/main.tsx')
 
 describe('the tag grows with the screen it rests on', () => {
   it('draws one notch smaller than 34px on the laptop-sized screen she was shown', () => {
-    expect(tagScale(1728)).toBe(1.1);
-    expect(tagScale(1440)).toBe(1.1);
+    expect(tagHeight(1728)).toBe(31);
+    expect(tagHeight(1440)).toBe(31);
   });
 
   it('climbs hard on a wide screen, because 34px on her 32 inch was far too small', () => {
-    expect(tagScale(1900)).toBe(1.3);
-    expect(tagScale(2400)).toBe(1.5);
-    expect(tagScale(3000)).toBe(1.7);
+    expect(tagHeight(1900)).toBe(36);
+    expect(tagHeight(2400)).toBe(42);
+    expect(tagHeight(3000)).toBe(48);
     // her own screen, from the screenshot she sent
-    expect(tagScale(3413)).toBe(1.7);
-    expect(28 * tagScale(3413)).toBeGreaterThan(44);
+    expect(tagHeight(3413)).toBe(48);
   });
 
   it('holds the boundary either side and never answers with nothing', () => {
-    expect(tagScale(1899)).toBe(1.1);
-    expect(tagScale(2399)).toBe(1.3);
-    expect(tagScale(2999)).toBe(1.5);
-    expect(tagScale(undefined)).toBe(1.1);
-    expect(tagScale(NaN)).toBe(1.1);
-    expect(TAG_SCALES.every((s) => s.scale > 1)).toBe(true);
+    expect(tagHeight(1899)).toBe(31);
+    expect(tagHeight(2399)).toBe(36);
+    expect(tagHeight(2999)).toBe(42);
+    expect(tagHeight(undefined)).toBe(31);
+    expect(tagHeight(NaN)).toBe(31);
     // every step is bigger than the one below it, in order
-    const steps = TAG_SCALES.map((s) => s.scale);
+    const steps = TAG_HEIGHTS.map((s) => s.px);
     expect([...steps].sort((a, b) => a - b)).toEqual(steps);
+    expect(steps.every((px) => px > TAG_BASE)).toBe(true);
+  });
+
+  it('lands on whole pixels at every step, so the bottom border is a real line', () => {
+    // 28 x 1.1 is 30.8, and a border on half a device pixel is what broke the
+    // bottom corners (2026-10-13). The scale is worked back from whole heights.
+    for (const w of [900, 1440, 1728, 1900, 2400, 3000, 3413, 5120]) {
+      expect(Number.isInteger(TAG_BASE * tagScale(w))).toBe(true);
+    }
   });
 });
 
@@ -130,6 +137,18 @@ describe('one glass, whatever the Mac is set to', () => {
     expect(Math.min(...fill(''))).toBeGreaterThan(0.65);
     expect(Math.max(...fill('-quiet'))).toBeLessThan(0.62);
     expect(Math.min(...fill('-hover'))).toBeGreaterThan(0.85);
+  });
+
+  it('draws a whole border on all four sides, the bottom one strongest', () => {
+    // A half-pixel inset ring left the bottom edge and its corners broken on
+    // her screen; a real border follows the radius and lands on real pixels.
+    expect(css).toContain('border: 1px solid var(--ct-line)');
+    expect(css).toContain('border-bottom-color: var(--ct-line-bottom)');
+    expect(css).not.toContain('inset 0 0 0 0.5px');
+    const alpha = (name) => Number(css.match(new RegExp(`--ct-line${name}: rgba\\([^)]+\\)`))[0].split(',').pop().trim().replace(')', ''));
+    expect(alpha('-bottom')).toBeGreaterThan(alpha(''));
+    expect(alpha('-quiet-bottom')).toBeGreaterThan(alpha('-quiet'));
+    expect(alpha('')).toBeGreaterThan(alpha('-quiet'));
   });
 
   it('keeps its promise to anyone who asked for less motion', () => {
