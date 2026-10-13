@@ -24,12 +24,22 @@
      34px inset under the inboxes read as "extra padding at the bottom"
      (2026-10-11); the home bar itself is a 5px line 8px off the edge, so 20px
      clears it. Never under 8px, on a phone with no home bar. */
-  :root { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; --phone-foot: max(8px, calc(env(safe-area-inset-bottom, 0px) - 14px)); }
+  :root { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; --phone-foot: max(8px, calc(env(safe-area-inset-bottom, 0px) - 14px)); background-color: var(--bg); }
   /* THE PAGE ITSELF NEVER SCROLLS; its panes do. Turned sideways and back,
      iOS left the whole page scrolled by the status bar's height, the title
      under the clock and the bottom bar under the frame (an iPhone,
      2026-10-09). Pinned here, and put back after a turn by the bridge. */
-  :root, :root body { overscroll-behavior: none; overflow: hidden; height: 100%; }
+  /* AND IT IS AS TALL AS WHAT SHOWS, not as the layout: an iPhone's keyboard
+     shrinks only the visual viewport, and the reply box at the foot of a
+     100%-tall page sat under it ("the chat field is blocked by the keyboard",
+     2026-10-11). --vvh is the visual viewport's height (phone-screen.ts). */
+  :root, :root body { overscroll-behavior: none; overflow: hidden; }
+  /* PINNED TO WHAT SHOWS, ITS PLACE AS WELL AS ITS HEIGHT. Held to the height
+     alone, the page still slid when iOS scrolled the window to keep the caret
+     in view, leaving a band under the reply box that grew as she typed
+     ("the white space expands when I'm typing", 2026-10-12). --vvtop and --vvh
+     are the visual viewport's top and height (phone-screen.ts). */
+  :root body { position: fixed; left: 0; right: 0; top: var(--vvtop, 0px); height: var(--vvh, 100%); }
 
   /* The frame, edge to edge, with room for the notch. There is no bar along
      the bottom: "not a fan of that bar at the bottom entirely ... all that
@@ -41,9 +51,16 @@
     /* Sideways, the notch is on the left or the right. */
     padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   }
+  /* With the keyboard up the home bar is under it, so its room goes. */
+  :root[data-keyboard="up"]:root:root .app.workspace-layout { padding-bottom: 0; }
   /* The desktop window's four corner marks (the Ember Grid look) sat on the
      bar and the title on a phone, whose screen is the frame already. */
-  :root:root:root .workspace-layout::before { top: 0; left: 0; right: 0; bottom: 0; border-radius: 0; background: var(--skin-pane, var(--surface)); box-shadow: none; }
+  /* THE PHONE IS THE WALL ITSELF, not the desktop's card laid over it. The
+     card's wash, rgba(36, 34, 33, 0.55) on Ember Grid, covered the whole phone
+     and took more than half of the wall's orange glow ("we lost the nice
+     colored background", 2026-10-12), and left the screen lighter than the
+     wall colour iOS paints behind the clock, which is the seam at the top. */
+  :root:root:root .workspace-layout::before { top: 0; left: 0; right: 0; bottom: 0; border-radius: 0; background: none; box-shadow: none; }
 
   /* THE SIDE RAIL ON A PHONE IS SETTINGS, AT THE RIGHT OF THE TOP BAR. The
      rest of it has no place here: the logo opened a sidebar ("idek what menu
@@ -64,6 +81,14 @@
   :root:root:root .workspace-navigation .sb-update, :root:root:root .workspace-navigation .th-me { display: none; }
   :root:root:root .workspace-navigation .workspace-bottom,
   :root:root:root .workspace-navigation .workspace-utilities { display: flex; flex-direction: row; align-items: center; gap: 0; margin: 0; padding: 0; position: static; border: 0; }
+  /* SETTINGS AND NOTHING ELSE, by what to keep rather than a list of what to
+     hide. The list went stale: the update button became .sb-update-row and
+     .sb-update-card, and on a phone with an update waiting it sat over View
+     and filters and covered the gear ("that little reload button ... is
+     overlaying other buttons", 2026-10-12). Restarting the computer's app is
+     not a phone's to do. */
+  :root:root:root .workspace-navigation .workspace-utilities > :not(button[aria-label="Settings"]) { display: none; }
+  :root:root:root .workspace-navigation .workspace-bottom > :not(.workspace-utilities) { display: none; }
   :root:root:root .workspace-navigation button[aria-label="Settings"] {
     display: flex; align-items: center; justify-content: center;
     width: 40px; min-width: 40px; height: 40px; margin: 0; padding: 0;
@@ -81,7 +106,13 @@
 
   /* The top bar: the title, then search, filters and (the side rail's)
      Settings as three plain icons of one size, no boxes. */
-  :root:root:root .workspace-layout > .topbar { padding: 0 48px 0 16px; height: var(--phone-top); min-height: var(--phone-top); flex-basis: var(--phone-top); }
+  /* SOLID, IN THE WALL'S COLOUR, as is the page's root (above). Safari on
+     iOS paints the band behind the clock by matching the top of the page and
+     takes no notice of theme-color: over the wall's glow it gave up and drew
+     its own grey, (19, 20, 22), against a bar of (26, 24, 23) to (34, 29, 26)
+     sampled off a screenshot (2026-10-12). A flat bar gives it one colour to
+     match, and the glow starts under the bar's line. */
+  :root:root:root .workspace-layout > .topbar { padding: 0 48px 0 16px; height: var(--phone-top); min-height: var(--phone-top); flex-basis: var(--phone-top); background: var(--bg); }
   /* The title at the desktop's 400 weight and tight spacing read thin and
      stretched at phone size ("the threads title looks a little weird",
      2026-10-11): a phone's bar title is smaller and a step heavier. */
@@ -90,6 +121,10 @@
   :root:root:root .th-search > span, :root:root:root .th-new > span, :root:root:root .th-new { font-size: 0; }
   :root:root:root .topbar button { border-color: transparent; background: none; box-shadow: none; }
   :root:root:root .topbar .th-search, :root:root:root .topbar .th-disp { width: 40px; min-width: 40px; height: 40px; padding: 0; justify-content: center; color: var(--text-dim); }
+  /* On a team the button also wears the faces of whose threads are shown;
+     in 40px they lay over the sliders and the gear ("icons in the top corner
+     are bunched up", 2026-10-11). The choice is the first line of its menu. */
+  :root:root:root .th-disp .th-faces { display: none; }
   :root:root:root .th-search kbd, :root:root:root .th-new kbd { display: none; }
 
   /* A NEW THREAD IS ONE ORANGE BUTTON UNDER THE THUMB ("big fan of the new
@@ -121,8 +156,10 @@
     height: calc(var(--phone-tabs) + var(--phone-foot));
     padding: 0 calc(16px + env(safe-area-inset-right, 0px)) var(--phone-foot) calc(16px + env(safe-area-inset-left, 0px));
     align-items: center; gap: 12px; overflow-x: auto; scrollbar-width: none;
-    /* The look's own ground, solid: the pane colour is see-through, and the
-       rows scrolled visibly under the words. */
+    /* Solid, or the rows scroll visibly under the words, and the same colour
+       as the list. The list is the wall now, with no card wash over it, so
+       this is the wall's own colour (it was the wash over the base while the
+       list wore the wash; "a tad bit different" was the two disagreeing). */
     background: var(--bg); border-top: 1px solid var(--line);
   }
   :root:root:root .th-bar::-webkit-scrollbar { display: none; }
@@ -159,13 +196,46 @@
   :root:root:root .row.selected { background: transparent; box-shadow: none; }
   :root:root:root .row.selected::before, :root:root:root .row.selected::after { display: none; }
   :root:root:root .row .mark { display: none; }
+  /* NOTHING ON A ROW WAITS FOR A HOVER. A tap leaves :hover on the row it
+     touched, so the desktop's Share or Unshare stayed on screen, hid that
+     row's age and underlined its title ("the unshare button just stays
+     visible", 2026-10-11). Sharing is in the thread's summary. */
+  :root:root:root .th-row-act { display: none; }
+  :root:root:root .th-table .row .has-act .th-when { visibility: visible; }
+  :root:root:root .row .subject { text-decoration: none; }
 
   /* The board has four columns; a phone shows them one under another. */
   :root:root:root .th-board { grid-template-columns: minmax(0, 1fr); padding: 8px 12px 24px; width: auto; }
 
   /* An open task: the words take the width, the right-hand rail goes. */
   :root:root:root .focus-pane { --ts-rail-w: 0px; --ts-panel-w: 0px; --read-w: 100%; }
-  :root:root:root .ts-rail { display: none; }
+  /* THE SUMMARY OPENS FROM AN ICON AT THE RIGHT OF THE THREAD'S TOP BAR. The
+     desktop's rail down the right edge took a quarter of a phone's width, so
+     it was hidden, and with it the only way in ("not sure how to open the
+     summary on mobile", 2026-10-11). Its marks stay in the summary itself. */
+  :root:root:root .focus-pane .ts-rail {
+    /* Beside the thread's ⋯, which keeps the corner, and on the top bar's
+       middle line with it, the back arrow and the name. */
+    position: fixed; top: calc(env(safe-area-inset-top, 0px) + (var(--phone-top, 56px) - 44px) / 2); right: calc(50px + env(safe-area-inset-right, 0px)); bottom: auto; left: auto;
+    width: 44px; height: 44px; padding: 0; gap: 0; justify-content: center; align-items: center;
+    border: 0; background: none; z-index: 60;
+  }
+  :root:root:root .focus-pane .ts-rail .ts-rail-mark { display: none; }
+  /* The desktop rail's 4px gap under its icon put the glyph 2px above the
+     middle. */
+  :root:root:root .focus-pane .ts-rail .ts-rail-ic { margin: 0; }
+  /* The header the back arrow and the name are in wore the desktop's 18px
+     top margin and hung from the top, 4px below the bar's middle. On the
+     right it stops short of the summary icon: the bar keeps 48px, this 48. */
+  :root:root:root .workspace-task-header { margin: 0 48px 0 0; align-self: center; }
+  /* Open, it is a page of its own over the thread, under the same top bar,
+     closed from its own icon at its top right. */
+  :root:root:root .focus-pane .ts-panel {
+    position: fixed; top: calc(env(safe-area-inset-top, 0px) + var(--phone-top, 56px)); left: 0; right: 0; bottom: 0;
+    width: auto; z-index: 60; padding: 20px 16px calc(40px + env(safe-area-inset-bottom, 0px));
+    border-left: 0; border-top: 1px solid var(--line);
+    background: var(--bg);
+  }
   /* Its top bar is a back arrow and the thread's name in the reading type,
      not the desktop's "NEEDS YOU / NAME" crumb in capitals. */
   :root:root:root .thread-crumb-from, :root:root:root .thread-crumb-sep { display: none; }
@@ -211,6 +281,51 @@
   :root:root:root .focus-dock { padding-left: 0; padding-right: 0; }
   :root:root:root .focus-pane[data-summary="open"] > * { margin-right: 0; }
   :root:root:root .focus-body pre, :root:root:root .focus-body table { max-width: 100%; overflow-x: auto; }
+  /* A PAGE SCROLLS UP AND DOWN; ONLY A WIDE THING SCROLLS SIDEWAYS, under the
+     finger that is on it. The scroller took a wide table's width, so every
+     slightly diagonal swipe moved the whole page left and right ("weirdly
+     scrollable to the left ... always bouncing", 2026-10-12). A table becomes
+     its own sideways scroller; the page refuses sideways panning. */
+  :root:root:root .focus-body table { display: block; touch-action: pan-x pan-y; }
+  :root:root:root .focus-scroll { overflow-x: hidden; touch-action: pan-y; overscroll-behavior-x: none; }
+  :root:root:root .doc-rich { overflow-x: hidden; touch-action: pan-y; overscroll-behavior-x: none; padding: 6px 16px 40px; }
+  :root:root:root .doc-rich .ProseMirror { overflow-wrap: anywhere; }
+  :root:root:root .doc-rich .ProseMirror table { display: block; max-width: 100%; overflow-x: auto; touch-action: pan-x pan-y; }
+  :root:root:root .doc-rich .ProseMirror pre { max-width: 100%; touch-action: pan-x pan-y; }
+  :root:root:root .doc-rich .ProseMirror img { max-width: 100%; height: auto; }
+  /* A PICTURE TAKES THE FINGERS ITSELF: pinch, pan once enlarged, and double
+     tap (phone-screen.ts installPictureZoom). Left to the page, a pinch did
+     nothing and a drag scrolled ("I can't zoom in on them", 2026-10-12). */
+  :root:root:root .doc-picture { touch-action: none; transform-origin: center center; transition: transform .05s linear; }
+  /* A PICTURE HOLDS ITS PLACE WHILE IT LOADS, as a soft shimmering box of a
+     picture's shape, and then fades in whole. Through the relay it arrives a
+     piece at a time, and it drew top-down, grew from nothing and pushed the
+     words under it ("as images load in mobile they look rather weird",
+     2026-10-12). The half-drawn picture and the broken mark are kept out of
+     sight (object-position and color) while the box shows; the state is set
+     by phone-files.ts watchPicture. */
+  :root:root:root .inline-image[data-phone-img="loading"],
+  :root:root:root .doc-picture[data-phone-img="loading"] {
+    display: block; width: 100%; max-width: 100%; height: auto; aspect-ratio: 4 / 3;
+    color: transparent; object-position: -99999px 0;
+    background: linear-gradient(100deg, rgba(255, 255, 255, .035) 30%, rgba(255, 255, 255, .09) 50%, rgba(255, 255, 255, .035) 70%) 0 0 / 200% 100%, var(--bg-raised, rgba(255, 255, 255, .03));
+    animation: phone-shimmer 1.3s linear infinite;
+  }
+  :root:root:root .attach-row img[data-phone-img="loading"] {
+    color: transparent; object-position: -99999px 0;
+    background: linear-gradient(100deg, rgba(255, 255, 255, .035) 30%, rgba(255, 255, 255, .09) 50%, rgba(255, 255, 255, .035) 70%) 0 0 / 200% 100%, var(--bg-raised, rgba(255, 255, 255, .03));
+    animation: phone-shimmer 1.3s linear infinite;
+  }
+  :root:root:root .inline-image[data-phone-img="ready"],
+  :root:root:root .doc-picture[data-phone-img="ready"],
+  :root:root:root .attach-row img[data-phone-img="ready"] { animation: phone-fade-in .25s ease-out; }
+  @keyframes phone-shimmer { from { background-position: 100% 0, 0 0; } to { background-position: -100% 0, 0 0; } }
+  @keyframes phone-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  /* The reply box's attach button, an icon like the box's others. */
+  :root:root:root .compose-attach {
+    flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; margin: 0 4px 0 -6px;
+    border: 0; background: none; color: var(--text-dim); box-shadow: none;
+  }
 
   /* The hint plates teach keys a phone does not have. */
   :root:root:root .hint-plate, :root:root:root .row-keys, :root:root:root .dock-card kbd { display: none !important; }
@@ -225,7 +340,13 @@
   /* Settings: the page list is one sideways strip above the page, not a
      column beside it. Stacked with its desktop size it spilled over the page
      on a real phone (2026-10-09). */
-  :root:root:root .settings-screen { flex-direction: column; padding-top: env(safe-area-inset-top, 0px); }
+  /* No top padding of its own: the app around it already keeps the status
+     bar's room, and the two together left a band of nothing above Back to
+     app on an iPhone (measured 2026-10-12, 59px twice). */
+  :root:root:root .settings-screen { flex-direction: column; padding-top: 0; }
+  /* The feedback card's desktop words: a phone neither pastes a file nor
+     drops one, and has no ⌘↵. Attach is still there. */
+  :root:root:root .fb-hint, :root:root:root .dock-send kbd { display: none; }
   :root:root:root .settings-screen .set-nav { position: static; inset: auto; width: auto; flex: none; padding: 6px 0 0; border-right: 0; border-bottom: 1px solid var(--line); }
   /* Settings hides the bottom bar, so it gets that room back. */
   :root:root:root .app.workspace-layout.workspace-settings { padding-bottom: env(safe-area-inset-bottom, 0px); }
@@ -273,7 +394,7 @@
      beside the card always has. It is drawn over the card, which covers
      everything else, so nothing but the cross closes the page. */
   :root:root:root .tc-veil::before {
-    content: ''; position: fixed; z-index: 3; top: env(safe-area-inset-top, 0px); left: calc(4px + env(safe-area-inset-left, 0px));
+    content: ''; position: fixed; z-index: 3; top: calc(env(safe-area-inset-top, 0px) + var(--vvtop, 0px)); left: calc(4px + env(safe-area-inset-left, 0px));
     width: 44px; height: var(--phone-top, 56px); background: var(--text-dim);
     -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'><path d='M6 6l12 12M18 6 6 18'/></svg>") center / 18px no-repeat;
     mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'><path d='M6 6l12 12M18 6 6 18'/></svg>") center / 18px no-repeat;
@@ -281,8 +402,10 @@
   /* The name used to be drawn here, on the backdrop, where a tap on it
      closed the page. */
   :root:root:root .tc-veil::after { content: none; }
+  /* It stops where the keyboard starts (--kb), so the attach row and the end
+     of the message are never under it. */
   :root:root:root .tc-veil > .tc-card {
-    position: fixed; top: env(safe-area-inset-top, 0px); left: 0; right: 0; bottom: 0; padding-top: var(--phone-top, 56px);
+    position: fixed; top: calc(env(safe-area-inset-top, 0px) + var(--vvtop, 0px)); left: 0; right: 0; bottom: var(--kb, 0px); padding-top: var(--phone-top, 56px);
     width: auto; max-width: none; margin: 0; border: 0; border-radius: 0; box-shadow: none;
     display: flex; flex-direction: column; background: var(--bg); transform: none;
   }
@@ -323,7 +446,7 @@
      top bar: at 12px from the edge it sat "touching the top corner of the
      app" (2026-10-11). */
   :root:root:root .tc-card .tc-send {
-    position: fixed; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + 12px); right: calc(16px + env(safe-area-inset-right, 0px));
+    position: fixed; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + var(--vvtop, 0px) + 12px); right: calc(16px + env(safe-area-inset-right, 0px));
   }
   :root:root:root .tc-card .tc-send-main { height: 32px; padding: 0 14px; border-radius: var(--radius) 0 0 var(--radius); font-size: 15px; font-weight: 500; }
   :root:root:root .tc-card .tc-send.solo .tc-send-main { border-radius: var(--radius); }
@@ -363,7 +486,7 @@
     top: calc(env(safe-area-inset-top, 0px) + var(--phone-top, 56px)); bottom: auto; left: 0; right: 0; width: auto;
     max-height: 75vh; overflow-y: auto; z-index: 120; padding: 4px 0 6px;
     border-radius: 0; border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
-    background: linear-gradient(var(--skin-pane, transparent), var(--skin-pane, transparent)), var(--bg);
+    background: var(--bg);
     box-shadow: 0 16px 32px rgba(0, 0, 0, .45);
   }
   :root:root:root .th-pop .line { display: flex; flex-direction: row; align-items: flex-start; gap: 0; padding: 6px 16px; }

@@ -1,4 +1,7 @@
 import { previewFocus } from './preview-focus';
+import { usePhoneBack, onPhone } from './phone-screen';
+import { holdsReplies, writeHeldWhenHidden } from './phone-holds';
+import { pollEvery } from './phone-polls';
 import type {FocusControlStyle} from './focus-control';
 import {reviewLabEnabled} from './review-lab';
 import { deliverReply } from './deliver-reply.mjs';
@@ -46,11 +49,12 @@ import { Palette } from './components/Palette';
 import { Standing, STANDING } from './components/Standing';
 import { Settings } from './components/Settings';
 import { Snooze } from './components/Snooze';
+import { LATER_KEYWORDS } from './palette-rows';
 /* The line, the toast and the dot on the cog were the other three drawn for that round and
  are gone; their copy is in decisions.md and their photographs on
  `astral/w-86452550e5-looks`.
 */
-import { announcesUpdate, isUpdateRow, CHECK_SAY, updateLook } from './update-row';
+import { announcesMove, announcesUpdate, isUpdateRow, CHECK_SAY, updateLook } from './update-row';
 // Inbox zero is `IdlePage`.
 import { IdlePage } from './components/IdlePage';
 import { ago, closesTheTask, itemOptions, offerIsLive, parseRepeat } from './format';
@@ -337,6 +341,9 @@ export default function App() {
     if (!v) { setHoveredId(null); setPointedHint(null); hints.current?.stop(); }
   }, []);
   const [focused, setFocused] = useState<WorkItem | null>(null);
+  // ON A PHONE AN OPEN THREAD IS A STEP IN THE HISTORY, so swiping back from
+  // the left edge returns to the inbox (phone-screen.ts).
+  usePhoneBack(!!focused, () => setFocused(null));
   // Which row is open NOW, for callbacks that settle minutes after the render
   // that made them. A failed live reply reads it to decide whether she is
   // still on that conversation or has gone somewhere else.
@@ -1503,11 +1510,15 @@ export default function App() {
   // before it reloads and waits for this to finish (main/write-before-reload.mjs).
   // `pagehide` covers the window closing or the app quitting, where nobody
   // asks: the write's first step leaves for main before the page goes.
+  // A PHONE PUT AWAY never sends `pagehide`: iOS hides the page, freezes it and
+  // may throw it away, so a phone writes what it holds as it is hidden
+  // (./phone-holds).
   useEffect(() => {
     const off = window.zero?.onWriteHeld?.(flushPending);
     const onHide = () => { void flushPending(); };
     window.addEventListener('pagehide', onHide);
-    return () => { off?.(); window.removeEventListener('pagehide', onHide); };
+    const offHidden = onPhone() ? writeHeldWhenHidden(document, flushPending) : null;
+    return () => { off?.(); offHidden?.(); window.removeEventListener('pagehide', onHide); };
   }, [flushPending]);
 
   // PLACES JUST DROPPED AND NOT YET BACK FROM THE MAIN PROCESS (w-6e5b532a95).
@@ -1531,7 +1542,7 @@ export default function App() {
   useEffect(() => {
     refresh();
     const off = api.onChanged(refresh);
-    const poll = setInterval(refresh, 10_000);
+    const poll = setInterval(refresh, pollEvery(10_000, onPhone()));
     return () => { off(); clearInterval(poll); };
   }, [refresh]);
 
@@ -3380,6 +3391,9 @@ export default function App() {
     // What the thread says if a Z inside the grace window takes this back,
     // when nothing has reached the ledger to say it (./undo-marks).
     undid?: UndidSpec[],
+    // How long it is held. A reply from a phone is not (./phone-holds); its
+    // Undo then takes back the written reply, which its own undo entry does.
+    holdMs: number = UNDO_GRACE_MS,
   ) => {
     await flushPending(); // a new action commits the previous one immediately
     if (!stay) leaveResolved(item);
@@ -3395,6 +3409,12 @@ export default function App() {
     // A pick she is still looking at needs no way in: `stay` means the pane
     // never left the row.
     showToast(`${toast} · press Z to undo`, stay ? undefined : goes);
+    if (holdMs <= 0) {
+      await run();
+      await refresh();
+      setPendingId((p) => (p === item.id ? null : p));
+      return;
+    }
     const timer = setTimeout(async () => {
       if (pendingRef.current?.timer !== timer) return;
       pendingRef.current = null;
@@ -3602,6 +3622,23 @@ export default function App() {
     // reads her reply when it exits (deliverMidflightReply). Reopening would
     // put a second worker on the same item.
     const status = statusForReply(item.status);
+    // A REPLY THAT DID NOT GET THROUGH COMES BACK TO THE BOX, on every path.
+    // NEVER PULL HER BACK. This settles whenever the agent's session does,
+    // which can be minutes after she moved on, and it used to switch the
+    // screen to this row and open its reply box in the middle of whatever she
+    // was doing (w-d92559b84f). If she is still here, the box opens where she
+    // is looking. If she is not, the words wait in this row's box and a toast
+    // she can click says where.
+    const putBack = (error: unknown) => {
+      restoreFailedDraft(item, sent?.words ?? text, sent?.attachments ?? []);
+      const here = focusedNow.current?.id === item.id && focusedNow.current?.product === item.product;
+      if (here) {
+        setModal('reply');
+        showToast((error as Error)?.message || 'Could not send. Your message is back in the reply box.');
+      } else {
+        showToast('A message you sent did not reach its agent. Click to open it, your words are back in the reply box.', { product: item.product, id: item.id });
+      }
+    };
     // A REPLY TO HER OWN THREAD IN THE TUTORIAL (2026-10-06). It is written at
     // once rather than after the three seconds Z can take it back, because Z
     // has not been taught yet and the walk moves on from this press: the
@@ -3643,7 +3680,7 @@ export default function App() {
       // not taken it yet. Everything below can take a minute and none of it is
       // hers to wait for.
       const at = Date.now();
-      const mine = { product: item.product, id: item.id, at, text, held: true };
+      const mine = { product: item.product, id: item.id, at, text, held: holdsReplies(onPhone()) };
       // The same message once the window has closed. TWO OBJECTS RATHER THAN A
       // FIELD WRITTEN IN PLACE, because the queue is identified by identity
       // below and React only redraws on a new one.
@@ -3719,20 +3756,7 @@ export default function App() {
         failed: (error: Error) => {
           setSending((q) => q.filter((s) => s !== mine && s !== gone));
           setUndoStack((u) => u.filter((e) => e !== alreadyGone));
-          restoreFailedDraft(item, sent?.words ?? text, sent?.attachments ?? []);
-          // NEVER PULL HER BACK. This settles whenever the agent's session
-          // does, which can be minutes after she moved on, and it used to
-          // switch the screen to this row and open its reply box in the
-          // middle of whatever she was doing (w-d92559b84f). If she is still
-          // here, the box opens where she is looking. If she is not, the words
-          // wait in this row's box and a toast she can click says where.
-          const here = focusedNow.current?.id === item.id && focusedNow.current?.product === item.product;
-          if (here) {
-            setModal('reply');
-            showToast(error.message || 'Could not send. Your message is back in the reply box.');
-          } else {
-            showToast('A message you sent did not reach its agent. Click to open it, your words are back in the reply box.', { product: item.product, id: item.id });
-          }
+          putBack(error);
         },
         });
       };
@@ -3746,6 +3770,9 @@ export default function App() {
       // the two bars this path used to raise are the ones w-87c4e7913c took
       // away.
       await flushPending();
+      // A PHONE HANDS IT OVER NOW: it has no Z, and a page put away inside
+      // the window could lose the message (./phone-holds).
+      if (!holdsReplies(onPhone())) { void handOver(); return; }
       const timer = setTimeout(() => {
         if (pendingRef.current?.timer !== timer) return;
         pendingRef.current = null;
@@ -3828,23 +3855,33 @@ export default function App() {
       // on the screen takes the same words, or the written one would not be
       // recognised as it and the message would show twice until it lapsed
       // (seen in the built app: "Sending… press Z to undo" above the real one).
-      const answer = talking ? await startChatAgents(item, text) : text;
-      if (answer !== text) { mine.text = answer; setSending((q) => [...q]); }
-      await api.answer({
-        product: item.product,
-        id: item.id,
-        answer,
-        ...(status ? { status } : {}),
-        ...(priority != null ? { priority } : {}),
-        // What this one reply may do. Undefined means she did not touch it and
-        // the item keeps whatever it had; null means she cleared it.
-        ...(mode !== undefined ? { permissionMode: mode } : {}),
-        // AND WHICH MODEL PICKS THE ROW UP. Absent unless she opened the
-        // drawer; the store writes it onto the item BEFORE the answer, so the
-        // run this reply starts reads the model she just chose rather than the
-        // one it was on (main/store.mjs, answerItem).
-        ...(pick ? { model: pick.model, effort: pick.effort } : {}),
-      });
+      // A WRITE THAT FAILS IS SAID, NOT SWALLOWED. This ran in the hold's
+      // timer, where a throw went nowhere: the toast had said Sent, and a
+      // phone whose Mac was asleep or whose relay blinked lost the reply
+      // without a word (w-db47be2d37).
+      try {
+        const answer = talking ? await startChatAgents(item, text) : text;
+        if (answer !== text) { mine.text = answer; setSending((q) => [...q]); }
+        await api.answer({
+          product: item.product,
+          id: item.id,
+          answer,
+          ...(status ? { status } : {}),
+          ...(priority != null ? { priority } : {}),
+          // What this one reply may do. Undefined means she did not touch it and
+          // the item keeps whatever it had; null means she cleared it.
+          ...(mode !== undefined ? { permissionMode: mode } : {}),
+          // AND WHICH MODEL PICKS THE ROW UP. Absent unless she opened the
+          // drawer; the store writes it onto the item BEFORE the answer, so the
+          // run this reply starts reads the model she just chose rather than the
+          // one it was on (main/store.mjs, answerItem).
+          ...(pick ? { model: pick.model, effort: pick.effort } : {}),
+        });
+      } catch (error) {
+        setSending((q) => q.filter((s) => s !== mine));
+        putBack(error);
+        return;
+      }
       if (talking) setTimeout(() => setSending((q) => q.filter((s) => s !== mine)), LANDED_MS);
       if (wasScheduled) {
         if (priorRunAt > Date.now()) await api.schedule({ product: item.product, id: item.id, runAt: 0 });
@@ -3867,7 +3904,7 @@ export default function App() {
         // means what it always meant.
         setFollowing(null);
       } });
-    }, talking ? 'Sent' : `Sent → ${item.productName}`, restore, stay, { product: item.product, id: item.id }, undid);
+    }, talking ? 'Sent' : `Sent → ${item.productName}`, restore, stay, { product: item.product, id: item.id }, undid, holdsReplies(onPhone()) ? UNDO_GRACE_MS : 0);
   }, [deferCommit, snap?.supervisor.running, snap?.products, showToast, refresh, markSeen, pushUndo, startChatAgents, fire]);
 
   /* ------------------------ answering one of her agents -------------------- */
@@ -4069,7 +4106,7 @@ export default function App() {
     try {
       for (const item of list) await writeMoment(item, ts);
     } catch (err) {
-      showToast(`Could not snooze: ${(err as Error)?.message ?? 'the store refused the write'}`);
+      showToast(`Could not move it to Later: ${(err as Error)?.message ?? 'the store refused the write'}`);
       refresh();
       return;
     }
@@ -4083,13 +4120,13 @@ export default function App() {
     // The COUNT IS WHAT SHE PICKED. A thread she moved as one row is one row to
     // her, so saying 13 after she selected 12 would report the repair as a
     // miscount and put the old doubt back in different words.
-    showToast(picked.length > 1 ? `${picked.length} snoozed. Back ${label.toLowerCase()}` : `Snoozed. Back ${label.toLowerCase()}`);
+    showToast(picked.length > 1 ? `${picked.length} moved to Later. Back ${label.toLowerCase()}` : `Moved to Later. Back ${label.toLowerCase()}`);
     // Undo restores only inbox reminders. Execution schedules stay intact.
     const prior = new Map(list.map((i) => [i.id, (i.agent ? i.runAt : i.snoozedUntil) ?? 0]));
     // AND THE TASK IT PUTS BACK IS OPENED (w-874411cc63). Without `brings` the
     // Z put the task back in the inbox out of sight, read as doing nothing, and
     // the next Z took back the reply under it instead.
-    pushUndo({ label: 'Snooze undone', undoes: 'undo that snooze', brings: bringsBack(picked), undid: list.filter((i) => !i.agent).map((i) => ({ product: i.product, id: i.id, words: 'Undid the snooze' })), run: async () => {
+    pushUndo({ label: 'Back in your inbox', undoes: 'undo moving it to Later', brings: bringsBack(picked), undid: list.filter((i) => !i.agent).map((i) => ({ product: i.product, id: i.id, words: 'Undid moving it to Later' })), run: async () => {
       for (const item of list) await writeMoment(item, prior.get(item.id) ?? 0);
       refresh();
     } });
@@ -5206,6 +5243,11 @@ export default function App() {
       {workspaceNavigation && <WorkspaceNavigation
         update={announcesUpdate(snap?.update, { walking, closed: '' }) ? { installing: !!snap?.update?.installing, version: snap?.update?.newVersion, changes: snap?.update?.changes, behind: snap?.update?.behind, error: snap?.update?.error } : null}
         onUpdate={() => { void api.updateInstall(); }}
+        /* AND THE COPY THAT CANNOT UPDATE ITSELF FROM WHERE IT IS
+           (shared/where-it-runs-from.mjs): the same card, in the same place,
+           offering the move. Null on every copy that can. */
+        move={announcesMove(snap?.update, { walking, closed: '' }) ? { place: snap?.update?.place ?? null, error: snap?.update?.moveError ?? null } : null}
+        onMove={() => { void api.updateMove(); }}
         page={settingsOpen ? 'settings' : null} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
@@ -6148,6 +6190,15 @@ export default function App() {
             showToast(CHECK_SAY.looking);
             void api.updateCheck().then((got) => showToast(updateLook(got).sentence));
           }}
+          /* AND THE MOVE, for a copy that cannot update itself from where it
+             is. A successful move relaunches the app, so there is nothing to
+             draw after it; a failure answers with its own reason and the
+             sidebar and Settings go on offering the press. */
+          moveToApplications={announcesMove(snap.update, { walking, closed: '' })}
+          onMoveToApplications={() => {
+            setModal(null);
+            void api.updateMove().then((got) => { if (!got.moved && got.error) showToast(got.error); });
+          }}
           panelUp={panelShownNow}
           onTogglePanel={() => { setModal(null); togglePanel(); }}
           boardUp={inboxDisplay.view === 'board'}
@@ -6169,7 +6220,7 @@ export default function App() {
                 ...(view !== 'snoozed'
                   ? [{ id: 'done', label: `Close (${n} selected)`, keyHint: 'E', run: () => { setModal(null); batchDone(multiSel); } }]
                   : []),
-                { id: 'snooze', label: `Remind Me (Snooze ${n} selected)`, keyHint: 'L', run: () => openSnooze(sel) },
+                { id: 'snooze', label: `Later (${n} selected)`, keywords: LATER_KEYWORDS, keyHint: 'L', run: () => openSnooze(sel) },
                 ...(sel.some((i) => returnAt(i) > Date.now())
                   ? [{ id: 'unsnooze', label: `Back to Inbox (${n} selected)`, run: () => unsnooze(sel) }]
                   : []),
@@ -6254,7 +6305,7 @@ export default function App() {
                     run: () => unsnooze(target),
                   }]
                 : []),
-              { id: 'snooze', label: 'Remind Me (Snooze)', keyHint: 'L', run: () => openSnooze(target) },
+              { id: 'snooze', label: 'Later', keywords: LATER_KEYWORDS, keyHint: 'L', run: () => openSnooze(target) },
               // THE FIRST PLACE SHE LOOKED. It asked `supervisor.running`, so on
               // a task she had just composed there was no Stop in ⌘K at all —
               // and, because nothing was running, the one agent command that DID
@@ -6332,6 +6383,7 @@ export default function App() {
       {settingsOpen && (
         <Settings
           key={`${settingsPane ?? 'general'}:${settingsVisit}`}
+          onFeedback={() => setFeedbackOpen(true)}
           embedded={workspaceNavigation}
           usageReadings={snap.usageByEngine ?? (snap.usage ? [snap.usage] : [])}
           now={now}

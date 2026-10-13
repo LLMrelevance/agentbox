@@ -778,7 +778,7 @@ export function rowKeys(view: string, batch = false): RowKey[] {
   // row to click. It was never S here: S means the summary now, in every place
   // in the app that says a key.
   if (view === 'inbox') return [{ key: 'R', word: 'Reply' }, { key: 'E', word: DONE.short }, { key: 'L', word: 'Later' }];
-  if (view === 'snoozed') return [{ key: 'E', word: 'Back to inbox' }, { key: 'L', word: 'Remind me' }];
+  if (view === 'snoozed') return [{ key: 'E', word: 'Back to inbox' }, { key: 'L', word: 'Later' }];
   return [{ key: '⏎', word: 'Open' }];
 }
 

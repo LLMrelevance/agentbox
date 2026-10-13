@@ -10,6 +10,8 @@ import { liveLine, shortSpan, shortWord, type LiveFacts } from '../live-line';
 import { keepActivityKeyLocal, LIVE_STEPS_SHOWN, previousActivity, stepsSinceLastSaid } from '../activity-summary';
 import { LiveMark } from './LiveMark';
 import { api } from '../api';
+import { onPhone } from '../phone-screen';
+import { pollEvery } from '../phone-polls';
 import { runNodes } from '../item-thread';
 import type { AgentWork } from '../types';
 import type { WorkItem } from '../types';
@@ -42,7 +44,7 @@ export function Live({ item, facts }: { item: WorkItem; facts: LiveFacts }) {
       }).catch(() => { if (active) setHistoryError(true); });
     read();
     const off = api.onChanged(read);
-    const timer = setInterval(read, 8000);
+    const timer = setInterval(read, pollEvery(8000, onPhone()));
     return () => { active = false; off(); clearInterval(timer); };
   }, [expanded, item.id, item.product, facts.session?.startedAt]);
   useEffect(() => setExpanded(false), [item.id, item.product, facts.session?.startedAt]);

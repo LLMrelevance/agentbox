@@ -396,7 +396,7 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null): Threa
       } else {
         events.push({
           at, who,
-          said: mine ? 'You snoozed it' : 'It paused this',
+          said: mine ? 'You moved it to Later' : 'It paused this',
           words: snoozeWords(runAt, at),
         });
       }

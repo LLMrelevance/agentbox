@@ -24,6 +24,7 @@ import { readCodexThreads } from './codex-threads.mjs';
 import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
 import { createPhoneLink } from './phone-link.mjs';
+import { relayAddress } from './relay-address.mjs';
 import { atTheApp } from '../shared/notify-rules.mjs';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
@@ -35,6 +36,7 @@ import { openFreshUser } from './fresh-user.mjs';
 import { installCrashReports, reportFromRenderer, pending as pendingCrashes, setTransport } from './crash-report.mjs';
 import { createAnalytics, createDailyCount } from './analytics.mjs';
 import { createUpdater } from './updater.mjs';
+import { createPlace } from '../shared/where-it-runs-from.mjs';
 import { createSourceUpdater } from './source-updater.mjs';
 import { learnShellDataDirs, recoverShellPath } from './shell-path.mjs';
 import { installNotifier } from './notify.mjs';
@@ -685,9 +687,16 @@ async function createWindow() {
   // AND A COPY RUN FROM SOURCE watches its git branch instead of a release
   // feed (main/source-updater.mjs), because that is how teammates run the team
   // build and their updates are pushes to main, not releases.
+  //
+  // AND WHERE THIS COPY IS RUNNING FROM (shared/where-it-runs-from.mjs). An
+  // app run out of the disk image, or out of a read-only copy macOS made of
+  // it, can never update itself, and until 2026-10-12 nothing in the app said
+  // so: two installs sat on 0.1.11 for a week. The fact rides the updater's
+  // state so the Settings row, the sidebar card and ⌘K all read one answer.
   let pushUpdate = () => {};
   const updater = app.isPackaged ? createUpdater({
     app,
+    place: createPlace({ app }),
     onChanged: () => pushUpdate(),
   }) : createSourceUpdater({
     app,
@@ -731,6 +740,13 @@ async function createWindow() {
     channels: phoneChannels,
     listeners: phoneListeners,
     dist: path.join(appDir, 'renderer', 'dist'),
+    // Pictures and design pages, under the same two rules the window's own
+    // schemes use below: a page the pane was granted, and a picture inside a
+    // root the app owns (main/serve.mjs answerFile).
+    files: { allows: (kind, f) => (kind === 'doc' ? docGrants.allows(f) : servable(f, imageRoots())) },
+    // "Anywhere": the relay a phone reaches this Mac through from any network
+    // (main/relay-client.mjs). None until it is deployed, and then no choice.
+    relayUrl: relayAddress({ appDir }),
     onChange: () => { if (!window.isDestroyed()) sendToWindow('zero:phone-changed'); },
     // The phone stays quiet while she is at the desktop app, by the same rule
     // the desktop's own notifications use (shared/notify-rules.mjs).

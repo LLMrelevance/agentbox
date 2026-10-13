@@ -44,7 +44,12 @@ const ENTRIES: Entry[] = [
   // The words here are the ones a person types when they want the NEWEST
   // version, which is rarely the word "update": "new version", "upgrade",
   // "restart" and the version number itself all land on the same row.
-  { page: 'general', label: 'Check for updates', anchor: 'updates', words: 'update updates upgrade new version release restart newest current' },
+  // "move to applications", "applications folder" and "disk image" are here
+  // because of the one copy that cannot update itself from where it is: the
+  // same row carries that press, and the words somebody types when updates
+  // have stopped working are about the place, not about updating
+  // (shared/where-it-runs-from.mjs).
+  { page: 'general', label: 'Check for updates', anchor: 'updates', words: 'update updates upgrade new version release restart newest current move applications folder disk image read-only stuck' },
   { page: 'appearance', label: 'Theme', anchor: 'theme', words: 'dark light colour color look background picture wallpaper' },
   { page: 'appearance', label: 'Blur and darkness', anchor: 'tune', words: 'tint dim glass transparency' },
   { page: 'shortcuts', label: 'Keyboard shortcuts', words: 'keys hotkeys keybindings' },

@@ -33,7 +33,15 @@ async function ask(action: string, extra: Record<string, unknown> = {}) {
   return said;
 }
 
-const worker = () => navigator.serviceWorker.register('/phone-sw.js', { scope: '/' });
+// THROUGH THE RELAY the page is already run by the relay's worker, which
+// carries every request to the Mac and handles alerts too (relay/phone/sw.mjs).
+// Registering /phone-sw.js over it would replace it and cut the phone off.
+const RELAY_WORKER = '/relay-sw.js';
+const worker = async () => {
+  const running = await navigator.serviceWorker.getRegistration('/');
+  if (running?.active?.scriptURL && new URL(running.active.scriptURL).pathname === RELAY_WORKER) return running;
+  return navigator.serviceWorker.register('/phone-sw.js', { scope: '/' });
+};
 
 export async function alertsState(): Promise<AlertsState> {
   if (!auth) return 'unsupported';
@@ -76,7 +84,7 @@ export const ALERTS_SAY: Record<AlertsState, string> = {
   off: 'Get an alert when an agent needs you, and a count on the icon.',
   blocked: 'Alerts are blocked for this app. Turn them on in the phone\'s Settings, under Notifications.',
   'needs-home-screen': 'To get alerts, add this page to your home screen (Share, then Add to Home Screen) and open it from there.',
-  'needs-secure': 'Alerts need the secure address. On the computer, open Settings, then Phone, and pick Tailscale.',
+  'needs-secure': 'Alerts need a secure connection. On the computer, open Settings, then Phone, pick Anywhere, and scan the new code.',
   unsupported: 'This browser cannot show alerts from a web app.',
 };
 

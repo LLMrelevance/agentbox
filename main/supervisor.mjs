@@ -113,11 +113,13 @@ import { LEVELS, latestMessage, sortMessage, wantsPriority } from './message-pri
 import { NAME, Name, envName, nameSlug, isOurSlug } from '../shared/product-name.mjs';
 import { signInFiles, signInStamp } from './sign-in-files.mjs';
 import { runsOn } from './runs-on.mjs';
-import { MemoryGateServer, defaultSocketPath as memoryGateSocketPath } from './memory-gate-server.mjs';
+import { MemoryGateServer, defaultSocketPath as memoryGateSocketPath, readMacPressure } from './memory-gate-server.mjs';
+import { startDecision, readMacPressureNow } from './start-hold.mjs';
+import { MemoryLog } from './memory-log.mjs';
 import { autoSlots, DEFAULTS as MEMORY_GATE } from './memory-gate.mjs';
 import { LeftoverCleaner } from './leftovers.mjs';
 import { syncCodexMemoryGate } from './codex-memory-gate.mjs';
-import { autoAgents, perAccountAgents } from './machine.mjs';
+import { autoAgents } from './machine.mjs';
 import { runEndedProps } from './analytics.mjs';
 
 const POLL_MS = 15_000;
@@ -614,11 +616,29 @@ export class Supervisor {
     // the moment their lease lapses and puts a FRESH session on them, which is
     // the restart she ruled out. The sweep gets there first and hands each row
     // back to the session that was doing it.
+    // A READING BEFORE THE RESTART WAVE, so the sessions a restart brings back
+    // meet the memory hold too rather than all arriving before the first
+    // reading does (main/start-hold.mjs). One sysctl, a few milliseconds.
+    if (this.config.memoryGate) this._memReading = readMacPressureNow();
     try { this.recoverInterrupted('startup'); } catch (e) { console.warn('zero: startup recovery:', e.message); }
     if (this.config.memoryGate) this.setMemoryGate(true).catch((e) => console.warn('zero: memory gate:', e.message));
     this.setLeftoverCleanup(!!this.config.cleanupLeftovers).catch((e) => console.warn('zero: leftovers:', e.message));
     this._timer = setInterval(() => this.tick().catch((e) => console.warn('supervisor:', e.message)), POLL_MS);
     this.tick().catch(() => {});
+    this.startMemoryLog();
+  }
+
+  /** A line a minute of memory by task, kept a week in the app's own folder
+   *  (main/memory-log.mjs), so the next time memory runs out it points at a
+   *  task instead of leaving it to a guess. */
+  startMemoryLog() {
+    clearInterval(this._memoryLogTimer);
+    this._memoryLog ??= new MemoryLog({
+      dir: path.join(this.userDir, 'memory-log'),
+      facts: () => ({ running: this._load(), capacity: this._capacity(), holding: this.startHoldStatus().holding }),
+    });
+    this._memoryLogTimer = setInterval(() => this._memoryLog.tick(), 60_000);
+    this._memoryLogTimer.unref?.();
   }
 
   // EVERY KILL OF OURS GOES THROUGH HERE, because the exit that follows cannot
@@ -712,6 +732,7 @@ export class Supervisor {
 
   stop() {
     clearInterval(this._timer);
+    clearInterval(this._memoryLogTimer);
     // The shared `codex app-server` goes with them. An orphaned one keeps every
     // thread it is holding alive after the supervisor that answers their
     // approvals has gone, which is the 2026-08-06 orphan incident in the other
@@ -770,6 +791,7 @@ export class Supervisor {
     this._closeCodex(`${Name} is quitting`);
     this.stopMemoryGate();
     clearInterval(this._leftoverTimer);
+    clearInterval(this._memoryLogTimer);
   }
 
   // PUT A WORKER BACK ON THESE ROWS, WHATEVER STATE THEY ARE IN.
@@ -805,9 +827,11 @@ export class Supervisor {
     const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
     const me = process.env.AGENTBOX_PERSON_ID || null;
 
-    for (const item of this.store.listItems(Date.now())) {
-      if (!only.has(item.id)) continue;
-      only.delete(item.id);
+    // In her running order, so the free slots go to the top of it rather
+    // than to whichever folder comes first on disk. The first row by an id
+    // is the one asked for, as it was when this walked the store directly.
+    const asked = this.store.listItems(Date.now()).filter((item) => only.delete(item.id));
+    for (const item of this._inRunningOrder(asked)) {
       if (!mayRunHere(item, productBySlug.get(item.product), me)) continue;
       // A row with a worker on it is already resumed. Saying so is the honest
       // answer; killing the session to restart it would throw away the work in
@@ -822,7 +846,7 @@ export class Supervisor {
       // rest the fleet earned on it exactly as it outranks the attempt cap.
       delete this._fruitless[`${item.product}:${item.id}`];
 
-      if (this._hasSlotFor(this._engineFor(item))) {
+      if (this._hasSlotFor(this._engineFor(item)) && this._memoryLetsStart(item, { asked: true })) {
         this._spawnResume(item);
         out.resumed += 1;
       } else {
@@ -874,6 +898,34 @@ export class Supervisor {
     }
     if (resumed.length) this._saveState();
     return resumed;
+  }
+
+  // The rows resumed by name that had no slot, taken IN HER RUNNING ORDER as
+  // slots free. A Set drains in the order rows went in, which was the order
+  // they sat on disk (w-6165eb69b4).
+  _drainResumeQueue(items) {
+    const waiting = [];
+    for (const id of [...this._resumeQueue]) {
+      const item = items.find((i) => i.id === id);
+      // A row that has gone or is already running is not waiting for a slot; it
+      // leaves the queue whatever capacity says.
+      if (!item || this.sessions.has(id)) {
+        this._resumeQueue.delete(id);
+        continue;
+      }
+      waiting.push(item);
+    }
+    for (const item of this._inRunningOrder(waiting)) {
+      // NO SLOT ON ITS ENGINE MEANS IT KEEPS ITS PLACE, and the scan goes on to
+      // the next one, which may be on the engine that is idle. This used to
+      // break out of the loop, which was the same starvation the main queue's
+      // `spent` note describes: she asked for these out loud, so a resume that
+      // waits behind the OTHER subscription is a resume that never happens.
+      if (!this._hasSlotFor(this._engineFor(item))) continue;
+      if (!this._memoryLetsStart(item, { asked: true })) continue;
+      this._resumeQueue.delete(item.id);
+      this._spawnResume(item);
+    }
   }
 
   // A resumed row spawns as a continuation when she has words on it that the
@@ -961,7 +1013,15 @@ export class Supervisor {
     let items;
     try { items = this.store.listItems(Date.now()); } catch { return out; }
     let dirty = false;
-    for (const [itemId, rec] of Object.entries(this._liveSessions)) {
+    // IN HER RUNNING ORDER, so when slots are short after a restart the top of
+    // it gets its session back first rather than whatever started first
+    // (w-6165eb69b4). A record whose row is gone sorts anywhere; it is only
+    // forgotten below.
+    const rowOf = ([itemId, rec]) => items.find((i) => i.id === itemId && i.product === rec.product);
+    const remembered = Object.entries(this._liveSessions).map((entry) => ({ entry, row: rowOf(entry) }));
+    const ranked = new Map(this._inRunningOrder(remembered.filter((r) => r.row).map((r) => r.row)).map((row, at) => [row, at]));
+    remembered.sort((a, b) => (ranked.get(a.row) ?? -1) - (ranked.get(b.row) ?? -1));
+    for (const { entry: [itemId, rec] } of remembered) {
       // A worker is on it. Nothing is stranded and killing it to resume it
       // would throw away the work in flight, which is never what resume meant.
       // A resume that STUCK also re-arms the announcement: the next time this
@@ -1039,7 +1099,7 @@ export class Supervisor {
       // nothing again. Only one of the two facts ever changes on its own, so
       // only one of them is worth queueing for.
       const engine = engineOf(rec.engine);
-      if (this._engineCanRun(engine) && !this._hasSlotFor(engine)) {
+      if (this._engineCanRun(engine) && !(this._hasSlotFor(engine) && this._memoryLetsStart(item))) {
         out.queued += 1;
         this._recoverPending = true;
         continue;
@@ -3172,6 +3232,17 @@ export class Supervisor {
     return placedScore(this.threadPlaces[item.id], productRankScore(this.productOrder, item.product) + itemPriority(item));
   }
 
+  // THE SAME ORDER FOR EVERY PATH THAT PUTS MANY ROWS BACK AT ONCE
+  // (w-6165eb69b4). Resuming ticked rows, the queue of the ones that found no
+  // slot, and the sweep after a restart each walked rows in the order they sat
+  // on disk, so ⌘A and "Resume Agents" started Agentbox Team's Low and Medium
+  // while Personal and an Urgent waited. Highest score first, oldest first in
+  // a tie, as in the fresh-work queue.
+  _inRunningOrder(rows) {
+    return rows.slice().sort((a, b) =>
+      this._score(b) - this._score(a) || (a.createdAt ?? 0) - (b.createdAt ?? 0));
+  }
+
   // Places as a patch: a number sets one, null forgets it. Kept here beside
   // the project order, on this Mac, because both are one person's running
   // order and a teammate's list must not move when you drag yours.
@@ -3627,7 +3698,28 @@ export class Supervisor {
   _capacityFor(engine) {
     const which = engineOf(engine);
     if (!this.engineChoices().some((e) => e.id === which)) return 0;
-    return this._slotsPerAccount(which) * this._liveProfilesFor(which).length;
+    const perLogin = this._slotsPerAccount(which) * this._liveProfilesFor(which).length;
+    // A NUMBER FOR THE WHOLE COMPUTER IS RUN EXACTLY (w-ec27ff1a51). Shared out
+    // a login at a time it rounds up, so 7 on two logins is four and four, and
+    // the computer's number is what stops it at 7 rather than 8.
+    const total = this._machineTotalFor(which);
+    return total === null ? perLogin : Math.min(total, perLogin);
+  }
+
+  /**
+   * THE NUMBER FOR THE WHOLE COMPUTER, or null when the number is still a
+   * per-login one (a Claude plan that allows one at a time, or a config
+   * written before `agentsAtOnce` existed and never loaded through
+   * main/config.mjs). Automatic's own answer, or the one picked on the menu.
+   */
+  _machineTotalFor(engine = DEFAULT_ENGINE) {
+    const planSpokeForClaude = engineOf(engine) !== DEFAULT_ENGINE && !!this.config.planSlotsFrom;
+    if (this.config.agentsAuto && !planSpokeForClaude) {
+      return autoAgents({ ...this._machine(), gated: !!this.config.memoryGate, nudge: this.config.agentsNudge });
+    }
+    const picked = Number(this.config.agentsAtOnce);
+    if (!this.config.agentsAuto && Number.isFinite(picked) && picked >= 1) return Math.floor(picked);
+    return null;
   }
 
   /**
@@ -3694,14 +3786,14 @@ export class Supervisor {
     // A SMALL PLAN STILL WINS. `slotsForPlans` answers one at a time for a
     // subscription that is not Max; that is a fact about the subscription and
     // not about this Mac, so Automatic may only ever come out at or under it.
-    if (this.config.agentsAuto && !planSpokeForClaude) {
-      const total = autoAgents({
-        ...this._machine(),
-        gated: !!this.config.memoryGate,
-        nudge: this.config.agentsNudge,
-      });
-      const per = perAccountAgents(total, this._liveProfilesFor(engineOf(engine)).length);
-      const plan = this.config.planSlotsFrom ? Number(this.config.maxConcurrentSessions) : null;
+    //
+    // AND THE NUMBER PICKED ON THE MENU IS THE COMPUTER'S TOO (w-ec27ff1a51),
+    // shared out the same way. A login's share rounds UP here, so an odd number
+    // is not rounded away; `_capacityFor` holds the total to the number itself.
+    const total = this._machineTotalFor(engine);
+    if (total !== null) {
+      const per = Math.ceil(total / Math.max(1, this._liveProfilesFor(engineOf(engine)).length));
+      const plan = this.config.agentsAuto && this.config.planSlotsFrom ? Number(this.config.maxConcurrentSessions) : null;
       return Number.isFinite(plan) && plan >= 1 ? Math.min(Math.floor(plan), per) : per;
     }
     const set = Number(planSpokeForClaude ? DEFAULT_SESSIONS_AT_ONCE : this.config.maxConcurrentSessions);
@@ -3792,6 +3884,67 @@ export class Supervisor {
     if (which === DEFAULT_ENGINE && this._spawnBraked()) return false;
     return this._loadFor(which) < this._capacityFor(which) && this._load() < this._capacity();
   }
+
+  /**
+   * MAY ONE MORE AGENT START, AS FAR AS MEMORY GOES (w-ec27ff1a51). The rule
+   * and every way out of it are in main/start-hold.mjs; this only gathers the
+   * facts and remembers when the current hold began. `item` is the row that
+   * would start (null for a digest), `asked` is a row she resumed by name.
+   */
+  _memoryLetsStart(item, { asked = false } = {}) {
+    const now = Date.now();
+    const swap = !!item && [...this._preempted.values()].some((p) => p.forItem === item.id);
+    const d = startDecision({
+      on: !!this.config.memoryGate,
+      reading: this._memReading,
+      now,
+      running: this._load(),
+      urgent: !!item && (isUrgent(item) || this._runNow.has(item.id)),
+      asked,
+      swap,
+      lastStartAt: this._lastStartAt ?? 0,
+      heldSince: this._memHeldSince ?? null,
+    });
+    if (d.start) {
+      if (d.why === 'off' || d.why === 'normal' || d.why === 'no-reading') this._memHeldSince = null;
+      // The one let through after ten minutes restarts the wait from now, even
+      // if its spawn takes a while to register a session.
+      if (d.why === 'overdue') this._lastStartAt = now;
+    } else {
+      this._memHeldSince ??= now;
+      this._memHeldAt = now;
+      this._memHeldWhy = d.why;
+    }
+    return d.start;
+  }
+
+  /** What the Running page says about the hold: whether a start was held in
+   *  the last pass, how short memory is, and since when. */
+  startHoldStatus() {
+    const holding = !!this._memHeldSince && Date.now() - (this._memHeldAt ?? 0) < 2 * POLL_MS;
+    return { holding, pressure: holding ? this._memHeldWhy : null, since: holding ? this._memHeldSince : null };
+  }
+
+  /** The kernel's memory pressure, asked at most every ten seconds and never
+   *  awaited by the pass. A read that never answers is given up on after
+   *  thirty, and its silence ages the last reading out (STALE_MS), which
+   *  lifts the hold rather than freezing it. */
+  _refreshMemoryReading() {
+    if (!this.config.memoryGate) return;
+    const now = Date.now();
+    if (this._memReading && now - this._memReading.at < 10_000) return;
+    if (this._memReadingSince && now - this._memReadingSince < 30_000) return;
+    this._memReadingSince = now;
+    const asked = now;
+    Promise.resolve().then(() => this._readPressure()).then((r) => {
+      if (this._memReadingSince !== asked) return;
+      this._memReading = { level: r?.level ?? null, freePct: r?.freePct ?? null, at: Date.now() };
+    }, () => {}).finally(() => {
+      if (this._memReadingSince === asked) this._memReadingSince = null;
+    });
+  }
+
+  _readPressure() { return readMacPressure(); }
 
   /** The fleet-wide brake, as a clock rather than a state. */
   _spawnBraked() {
@@ -4509,6 +4662,7 @@ export class Supervisor {
 
   async _tick() {
     if (this.paused) return;
+    this._refreshMemoryReading();
     if (this.firstRunHolding()) return;
     // Has a login landed since an account was found signed out? Ahead of the
     // brake below, which would otherwise hold the fleet past the sign-in.
@@ -4584,23 +4738,7 @@ export class Supervisor {
     // next free slot, ahead of everything: she asked for these out loud, and a
     // resume that quietly never happens is the failure this whole path exists
     // to end.
-    for (const id of [...this._resumeQueue]) {
-      const item = items.find((i) => i.id === id);
-      // A row that has gone or is already running is not waiting for a slot; it
-      // leaves the queue whatever capacity says.
-      if (!item || this.sessions.has(id)) {
-        this._resumeQueue.delete(id);
-        continue;
-      }
-      // NO SLOT ON ITS ENGINE MEANS IT KEEPS ITS PLACE, and the scan goes on to
-      // the next one, which may be on the engine that is idle. This used to
-      // break out of the loop, which was the same starvation the main queue's
-      // `spent` note describes: she asked for these out loud, so a resume that
-      // waits behind the OTHER subscription is a resume that never happens.
-      if (!this._hasSlotFor(this._engineFor(item))) continue;
-      this._resumeQueue.delete(id);
-      this._spawnResume(item);
-    }
+    this._drainResumeQueue(items);
 
     // ONE QUEUE, ONE ORDER. Everything spawnable this tick is scored by the
     // same rule and the slots go to the top of that one list.
@@ -4863,7 +5001,9 @@ export class Supervisor {
       // reading `item.engine` here instead would be a second one that could
       // disagree with it.
       const engine = this._engineFor(item);
-      if (!this._hasSlotFor(engine)) {
+      // MEMORY SHORT READS AS NO SLOT (main/start-hold.mjs), so an Urgent row
+      // still takes a lesser session's slot below: a swap, which adds nothing.
+      if (!this._hasSlotFor(engine) || !this._memoryLetsStart(item)) {
         // an Urgent row takes a slot rather than queueing behind work that
         // matters less. At most ONE session is interrupted per engine per
         // tick, and the urgent row spawns on the next one — the child has to
@@ -4914,7 +5054,7 @@ export class Supervisor {
       // A DIGEST RUNS ON THIS MAC'S HOME ENGINE: Claude Code, or Codex on a Mac
       // with nothing else. It carries a synthetic row with no engine on it, so
       // the slot it checks and the engine `spawnDigest` forces are one answer.
-      if (!this._hasSlotFor(this._homeEngine())) break;
+      if (!this._hasSlotFor(this._homeEngine()) || !this._memoryLetsStart(null)) break;
       const owed = this._digestOwed(items, product.slug, now);
       if (!owed) continue;
       this.lastDigestTry[product.slug] = now;
@@ -5294,8 +5434,12 @@ export class Supervisor {
     // from the finished `assistant` event only (`traceStreamLine`), so what is
     // kept is whole sentences and never a half-typed one; the pieces live on
     // the session in memory and die with it, which is what `saying` below is.
-    const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--include-partial-messages', ...claudeGrants];
-    if (claudeEffort) args.push('--effort', claudeEffort);
+    // AND THE LINE ITSELF IS THE ENGINE'S OWN, read off its `run` definition
+    // rather than spelled out here (w-380b06bf53). This method used to name six
+    // of Claude Code's flags, so an engine that speaks the same stream-json and
+    // differs by a binary and one flag value still could not be added without
+    // editing this file. It is built once, below, after the system block it
+    // carries; an engine with no command line is handed none.
     // Her standing instructions, on every session there is: workers, digests,
     // and every resumed turn of a thread that started before the user wrote the
     // rule. This is the ONE place a session's arguments are built, which is why
@@ -5332,12 +5476,13 @@ export class Supervisor {
     // buildBrief: these blocks are markdown files that cannot import it, and
     // her own copies keep the tokens so a rename reaches her edits as well.
     const system = fillName([standing, project, messages, adhd].filter(Boolean).join('\n\n'));
-    if (system) args.push('--append-system-prompt', system);
-    if (resumeId) args.push('--resume', resumeId);
-    // AND THE ONE FLAG THAT MAKES IT A FORK RATHER THAN A CONTINUATION: the
+    // `fork` IS THE FLAG THAT MAKES IT A FORK RATHER THAN A CONTINUATION: the
     // resumed conversation is written on under a NEW id, so the row it came
-    // from keeps its own thread untouched (MP-08).
-    if (forkFrom && resumeId) args.push('--fork-session');
+    // from keeps its own thread untouched (MP-08). The builder drops it when
+    // there is no resume to fork from, and when the engine cannot fork at all.
+    const args = harnessFor(engine).workerArgs({
+      prompt, grants: claudeGrants, effort: claudeEffort, system, resumeId, fork: !!forkFrom,
+    });
     /*
      * `command` GOES BACK WITH THE ARGUMENTS, because the exit handler has to
        know what this run was. A command run does not write on the row and is
@@ -6971,6 +7116,7 @@ export class Supervisor {
       spawnFiles,
     };
     this.sessions.set(item.id, session);
+    if (!session.command) this._lastStartAt = session.startedAt;
     // THAT an agent started work, and on which engine; nothing about the task.
     // `count` is set by main.mjs and is absent wherever nothing is sent.
     this.count?.('run_started', { engine });

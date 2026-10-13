@@ -19,6 +19,9 @@
 import { REQUEST_CHANNELS, PUSH_CHANNELS, WRAPPED_ARGS, DESKTOP_ONLY } from '../../shared/bridge-map.mjs';
 import { Name } from '../../shared/product-name.mjs';
 import { setIconCount, startPhoneAlerts } from './phone-alerts';
+import { installPhoneFiles, installPictureWatch } from './phone-files';
+import { installPhoneScreen } from './phone-screen';
+import { atMostEvery, PHONE_PUSH_MS } from './phone-polls';
 
 type Push = (payload: unknown) => void;
 
@@ -70,7 +73,10 @@ function showLockedOut() {
 
 function takeToken(): string | null {
   const url = new URL(location.href);
-  const fromUrl = url.searchParams.get('token');
+  // THROUGH THE RELAY the key is after the # (relay/phone/), which a browser
+  // never sends, so the relay never sees it.
+  const fromHash = onPhoneDoor() ? /(?:^#|&)k=([A-Za-z0-9_-]{24,})/.exec(url.hash)?.[1] ?? null : null;
+  const fromUrl = url.searchParams.get('token') ?? fromHash;
   if (fromUrl && onPhoneDoor()) {
     try { localStorage.setItem(TOKEN_KEY, fromUrl); } catch { /* private mode */ }
     return fromUrl;
@@ -110,6 +116,17 @@ export function installBrowserBridge(): boolean {
     addEventListener('orientationchange', () => { unscroll(); setTimeout(unscroll, 350); });
     addEventListener('resize', unscroll);
     visualViewport?.addEventListener('resize', unscroll);
+    // The keyboard, the colour Safari paints round the page, and the
+    // home-screen swipe back (phone-screen.ts).
+    installPhoneScreen();
+    // A picture holds its place while it loads (phone-files.ts).
+    installPictureWatch();
+    // Pictures and design pages, from this computer under the file key, which
+    // reads files and nothing else (main/serve.mjs fileKey).
+    fetch('/file-key', { headers: { [TOKEN_HEADER]: token } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((said) => { if (said?.key) installPhoneFiles(said.key); })
+      .catch(() => { /* pictures stay blank; everything else still works */ });
   }
 
   const ask = async (channel: string, payload?: unknown) => {
@@ -163,13 +180,22 @@ export function installBrowserBridge(): boolean {
   // A refused stream is closed for good, where a dropped one only reconnects.
   // On a phone the one refusal there is is a key that was reset.
   stream.onerror = () => { if (phone && stream.readyState === EventSource.CLOSED) showLockedOut(); };
+  const deliver = (channel: string, payload: unknown) => {
+    for (const fn of listeners.get(channel) ?? []) {
+      try { fn(payload); } catch { /* one listener's fault is its own */ }
+    }
+  };
+  // "SOMETHING CHANGED" COMES UP TO 2.5 TIMES A SECOND while an agent writes,
+  // and each one has the screen ask for the inbox and the thread again. On a
+  // phone each of those is a paid request through the relay, so it reaches
+  // the screen at most every 2 seconds, the last one always (./phone-polls).
+  const changed = atMostEvery(PHONE_PUSH_MS, (payload: unknown) => deliver(PUSH_CHANNELS.onChanged, payload));
   stream.onmessage = (event) => {
     let message: { channel?: string; args?: unknown[] };
     try { message = JSON.parse(event.data); } catch { return; }
     if (!message.channel) return;
-    for (const fn of listeners.get(message.channel) ?? []) {
-      try { fn(message.args?.[0]); } catch { /* one listener's fault is its own */ }
-    }
+    if (phone && message.channel === PUSH_CHANNELS.onChanged) { changed(message.args?.[0]); return; }
+    deliver(message.channel, message.args?.[0]);
   };
 
   (window as any).zero = bridge;
