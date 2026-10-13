@@ -124,7 +124,7 @@ import { withOlder } from './older-threads';
 import { NO_FILTER, filterBox, filterMenu, filterTags, isFiltering, toggleFilter, clearFilterPart, type BoxFilter as BoxFilterState, type FilterPart, type Harness } from './box-filter';
 import { BoxFilter } from './components/BoxFilter';
 import { itemPriority, moveProduct, placeScore, placedScore } from '../../shared/rank.mjs';
-import { threadsMade, approvableFiled } from './threads-made';
+import { threadsMade, approvableFiled, doItHereWrites } from './threads-made';
 import { waitingCounts } from './threads-made';
 import { closeAsk, KEEP_OPEN } from './close-asks-first';
 import { ChatAgentsContext, type ChatAgentsValue } from './team/ChatAgents';
@@ -3577,6 +3577,25 @@ export default function App() {
     }
   }, [refresh, showToast, markDone]);
 
+  // DO IT HERE (w-554834e749): the proposal goes back to the thread that filed
+  // it, as a message from her, and its own thread closes. "Have the agent not
+  // make that a different thread and just do it in our thread." `stay`, for
+  // the same reason Approve has it: she is reading the parent.
+  //
+  // Z inside the window takes back both. After it, Z reopens the proposal and
+  // says plainly that the message has already gone, because a message handed to
+  // a running agent cannot be taken back (see answerWith).
+  const doItHere = useCallback(async (child: WorkItem) => {
+    const parent = items.find((i) => i.id === child.parent && i.product === child.product) ?? null;
+    const writes = doItHereWrites(child, parent);
+    if (!writes || !parent) return;
+    const undid = [{ product: child.product, id: child.id, words: 'Undid doing it here' }];
+    await deferCommit(child, async () => {
+      for (const w of writes) await api.answer(w);
+      pushUndo({ label: `Back as its own thread: ${clipToSentence(child.title, TOAST_TITLE)}. The message already went.`, undoes: `reopen “${clipToSentence(child.title, TOAST_TITLE)}”`, brings: child, undid, run: async () => { await api.answer({ product: child.product, id: child.id, status: 'open' }); } });
+    }, `Doing it in this thread: ${clipToSentence(child.title, TOAST_TITLE)}`, undefined, true, { product: parent.product, id: parent.id }, undid);
+  }, [items, deferCommit, pushUndo]);
+
   // THE ANSWER TO WHAT A CLOSE ASKED (w-d2744c6daa, ./close-asks-first.ts).
   // Deciding each one keeps the thread open and brings the list into view;
   // starting or dropping them does so one at a time through the same presses
@@ -5836,13 +5855,11 @@ export default function App() {
                      from: the complaint was the trip, so a press that moved you
                      somewhere else would be the same trip with fewer steps. */
                   onApproveFiled={(i) => resolve(i, { stay: true })}
-                  /* AND SAYING NO IS THE CLOSE, NOT A SECOND KIND OF WRITE
-                     (w-9cf2b43110). "There is no decline" below still holds:
-                     this is Close This Task, reachable from the row it is
-                     about, so a rejected proposal is closed exactly as it
-                     would be from its own row — and a closed one is no longer
-                     a proposal, so the thread stops coming back. */
-                  onRejectFiled={(i) => markDone(i, { stay: true })}
+                  /* AND DOING IT IN THIS THREAD INSTEAD (w-554834e749). The No
+                     that stood beside these is gone: "ignoring it is
+                     basically rejecting it". A proposal is still closed from
+                     its own row like any thread. */
+                  onHereFiled={(i) => doItHere(i)}
                   // The question a close asks while tasks still wait (w-d2744c6daa).
                   closeAsk={(() => {
                     const asked = closeAskOn === keyOf(focused) ? closeAsk(waitingFiled(focused).length) : null;

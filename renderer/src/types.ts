@@ -1241,6 +1241,8 @@ export type FolderListing = {
 /** What a person may change on a thread from its summary (main/store.mjs threadEdit). */
 export type ThreadEditPatch = Partial<{
   problem: string; progress: string; solution: string;
+  /** A rename: the name every row shows. The title stays the message. */
+  label: string;
   /** 'now' is how a thread leaves Later and starts (w-afb66e6661). */
   start: 'later' | 'now';
   visibility: 'team' | 'people' | 'private'; visibleTo: string[]; priority: number;
