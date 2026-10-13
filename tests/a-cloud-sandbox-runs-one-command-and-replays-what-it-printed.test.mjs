@@ -264,6 +264,90 @@ describe('a cloud sandbox', () => {
     expect(sandbox.ping().status).toBe('Healthy');
   });
 
+  it('applies numbered input once: a repeat is acknowledged and dropped, a gap is refused with the number it wants', async () => {
+    packedRepo();
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
+    const echo = 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>process.stdout.write("got:"+s))';
+    await sandbox.handle({ action: 'start', runId: 'run-n', cwd: path.join(tmp, 'vm', 'w'), branch: 'agentbox/w-1', bundleUrl: `${base}/in.bundle`, argv: [process.execPath, '-e', echo], env: {} });
+    const b64 = (s) => Buffer.from(s).toString('base64');
+    expect(await sandbox.handle({ action: 'stdin', n: 1, data: b64('a') })).toMatchObject({ ok: true });
+    expect(await sandbox.handle({ action: 'stdin', n: 1, data: b64('a') })).toMatchObject({ ok: true, dup: true });
+    expect(await sandbox.handle({ action: 'stdin', n: 3, data: b64('c') })).toMatchObject({ ok: false, error: 'gap', expect: 2 });
+    expect(await sandbox.handle({ action: 'stdin', n: 2, data: b64('b'), end: true })).toMatchObject({ ok: true });
+    await until(async () => (await sandbox.handle({ action: 'status' })).state === 'exited', 'the command to exit');
+    expect(stdoutOf((await drain()).events)).toBe('got:ab');
+  });
+
+  it('a cancel that arrives while the run is still being prepared stops it from ever starting', async () => {
+    packedRepo();
+    // A bundle server slow enough that the cancel lands mid-preparation.
+    const slow = http.createServer((q, s) => setTimeout(() => { s.writeHead(200); s.end(files.get('/in.bundle')); }, 400));
+    await new Promise((r) => slow.listen(0, '127.0.0.1', r));
+    try {
+      sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
+      const marker = path.join(tmp, 'it-ran');
+      await sandbox.handle({ action: 'start', runId: 'run-c', cwd: path.join(tmp, 'vm', 'w'), branch: 'agentbox/w-1', bundleUrl: `http://127.0.0.1:${slow.address().port}/in.bundle`, argv: [process.execPath, '-e', `require("fs").writeFileSync(${JSON.stringify(marker)},"x")`], env: {} });
+      expect(await sandbox.handle({ action: 'signal', signal: 'SIGTERM' })).toMatchObject({ ok: true, preparing: true });
+      await until(async () => (await sandbox.handle({ action: 'status' })).state === 'exited', 'the cancelled run to settle');
+      await new Promise((r) => setTimeout(r, 300));
+      expect(fs.existsSync(marker)).toBe(false);
+      expect((await drain()).events.find((e) => e.kind === 'exit')).toMatchObject({ cancelled: true });
+    } finally {
+      slow.closeAllConnections();
+      await new Promise((r) => slow.close(r));
+    }
+  });
+
+  it('a cancel reaches what the command started, not only the command', async () => {
+    packedRepo();
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm'), killGraceMs: 500 });
+    const pidFile = path.join(tmp, 'grandchild.pid');
+    const parent = `const {spawn}=require("child_process");const c=spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{stdio:"ignore"});require("fs").writeFileSync(${JSON.stringify(pidFile)},String(c.pid));setInterval(()=>{},1000)`;
+    await sandbox.handle({ action: 'start', runId: 'run-g', cwd: path.join(tmp, 'vm', 'w'), branch: 'agentbox/w-1', bundleUrl: `${base}/in.bundle`, argv: [process.execPath, '-e', parent], env: {} });
+    await until(() => fs.existsSync(pidFile) && fs.readFileSync(pidFile, 'utf8'), 'the grandchild to start');
+    const grandchild = Number(fs.readFileSync(pidFile, 'utf8'));
+    await sandbox.handle({ action: 'signal', signal: 'SIGTERM' });
+    await until(async () => (await sandbox.handle({ action: 'status' })).state === 'exited', 'the command to exit');
+    await until(() => { try { process.kill(grandchild, 0); return false; } catch { return true; } }, 'the grandchild to be gone', 5000);
+  });
+
+  it('pages events by size, so no poll can outgrow AgentCore\'s response limit', async () => {
+    packedRepo();
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
+    await sandbox.handle({ action: 'start', runId: 'run-p', cwd: path.join(tmp, 'vm', 'w'), branch: 'agentbox/w-1', bundleUrl: `${base}/in.bundle`, argv: [process.execPath, '-e', 'process.stdout.write("y".repeat(2*1024*1024))'], env: {} });
+    await until(async () => (await sandbox.handle({ action: 'status' })).state === 'exited', 'the command to exit');
+    const first = await sandbox.handle({ action: 'events', since: 0, maxBytes: 256 * 1024 });
+    expect(JSON.stringify(first.events).length).toBeLessThan(400 * 1024);
+    expect(first.more).toBe(true);
+    const { events } = await drain(0);
+    expect(stdoutOf(events).length).toBe(2 * 1024 * 1024);
+  });
+
+  it('a collect asked again after it finished returns the same record instead of an error', async () => {
+    packedRepo();
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
+    await sandbox.handle({ action: 'start', runId: 'run-r', cwd: path.join(tmp, 'vm', 'w'), branch: 'agentbox/w-1', bundleUrl: `${base}/in.bundle`, argv: [process.execPath, '-e', ''], env: {} });
+    await until(async () => (await sandbox.handle({ action: 'status' })).state === 'exited', 'the command to exit');
+    const urls = { action: 'collect', bundleUrl: `${base}/q/out`, changesUrl: `${base}/q/ch`, eventsUrl: `${base}/q/ev`, doneUrl: `${base}/q/done`, bring: [] };
+    const first = await sandbox.handle(urls);
+    const again = await sandbox.handle(urls);
+    expect(first.ok).toBe(true);
+    expect(again).toMatchObject({ ...first, already: true });
+    expect((await sandbox.handle({ action: 'status' })).manifest).toMatchObject({ runId: 'run-r', ok: true });
+  });
+
+  it('stops a command that runs too long and still uploads its work', async () => {
+    packedRepo();
+    sandbox = createSandbox({ workRoot: path.join(tmp, 'vm'), killGraceMs: 200 });
+    await sandbox.handle({
+      action: 'start', runId: 'run-d', cwd: path.join(tmp, 'vm', 'w'), branch: 'agentbox/w-1', bundleUrl: `${base}/in.bundle`,
+      argv: [process.execPath, '-e', 'require("fs").writeFileSync("e.txt","x");setInterval(()=>{},1000)'], env: {}, deadlineMs: 500,
+      results: { bundleUrl: `${base}/t/out`, changesUrl: `${base}/t/ch`, eventsUrl: `${base}/t/ev`, doneUrl: `${base}/t/done`, bring: [] },
+    });
+    await until(() => files.has('/t/done'), 'the overdue run to be stopped and saved');
+    expect(JSON.parse(files.get('/t/done'))).toMatchObject({ ok: true, uncommitted: true, cancelled: 'SIGTERM' });
+  });
+
   it('says plainly when it holds no run, which is what a session AgentCore restarted looks like', async () => {
     sandbox = createSandbox({ workRoot: path.join(tmp, 'vm') });
     for (const action of ['events', 'stdin', 'collect', 'signal', 'mcp']) {
