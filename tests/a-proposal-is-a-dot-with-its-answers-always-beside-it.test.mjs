@@ -1,4 +1,4 @@
-// A PROPOSAL IS A DOT, AND ITS ANSWERS FADE IN UNDER THE CURSOR (w-fcb5fdc2e5).
+// A PROPOSAL IS A DOT, WITH ITS ANSWERS ALWAYS BESIDE IT (w-fcb5fdc2e5).
 //
 // What broke: the list of threads a thread filed drew two boxed presses on
 // every waiting row inside an orange border, and the row shaded the instant a
@@ -135,23 +135,26 @@ describe('the three answers', () => {
   });
 });
 
-describe('the answers wait under the cursor, and nothing snaps', () => {
-  it('hides them at rest and lets them be pressed only once shown', () => {
-    expect(rule('.made-acts')).toMatch(/opacity: 0/);
-    expect(rule('.made-acts')).toMatch(/pointer-events: none/);
+// ALWAYS THERE, NOT UNDER THE CURSOR (second correction). Shown only on hover,
+// the proposal you were not pointing at looked broken: "Why is this proposal
+// not showing the options... it should always show those options even if
+// you're not hovering over it."
+describe('the answers are always on every proposal, and nothing snaps', () => {
+  it('never hides them or holds them back from a press', () => {
+    expect(css).not.toMatch(/\.made-acts \{[^}]*opacity: 0/);
+    expect(css).not.toMatch(/\.made-acts \{[^}]*pointer-events: none/);
+    expect(css).not.toMatch(/:hover[^{]*\.made-acts \{/);
   });
 
-  it('shows them for the cursor and for the keyboard alike', () => {
-    expect(css).toMatch(/\.made-ask:is\(:hover, :focus-within\) \.made-acts \{[^}]*opacity: 1[^}]*pointer-events: auto/);
+  it('sits in the row beside the title, so a long title shortens instead of running under them', () => {
+    expect(rule('.made-acts')).not.toMatch(/position: absolute/);
+    expect(rule('.made-acts')).toMatch(/flex: none/);
+    expect(rule('.made-title')).toMatch(/text-overflow: ellipsis/);
   });
 
-  it('keeps a long title from running under them', () => {
-    expect(css).toMatch(/\.made-ask:is\(:hover, :focus-within\) \.made-title \{ margin-right: \d+px; \}/);
-  });
-
-  it('fades every colour the cursor changes, and the answers coming in', () => {
-    const t = css.match(/\.made-row, \.made-open, \.made-title, \.made-state, \.made-acts, \.made-acts button \{[^}]*\}/)?.[0] ?? '';
-    for (const prop of ['background-color', 'color', 'opacity', 'transform']) expect(t).toMatch(new RegExp(`${prop} \\.\\d+s`));
+  it('fades every colour the cursor changes', () => {
+    const t = css.match(/\.made-row, \.made-open, \.made-title, \.made-state, \.made-acts button \{[^}]*\}/)?.[0] ?? '';
+    for (const prop of ['background-color', 'color']) expect(t).toMatch(new RegExp(`${prop} \\.\\d+s`));
   });
 
   it('stands still for someone who has asked for less motion', () => {

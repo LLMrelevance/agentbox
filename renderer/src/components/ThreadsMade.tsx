@@ -20,9 +20,11 @@
 //   made two orange words in one list, "and we can't have two pieces of text in
 //   orange. Otherwise it gets very confusing."
 //
-//   ITS ANSWERS FADE IN UNDER THE CURSOR, where the state word would stand:
-//   NEW THREAD in the accent, the only orange word the list ever shows, then DO
-//   HERE and DISMISS in grey. Keyboard focus reveals them the same way.
+//   ITS ANSWERS ARE ALWAYS BESIDE IT, where the state word would stand: NEW
+//   THREAD in the accent, the only orange word the list shows, then DO HERE
+//   and DISMISS in grey. They were drawn under the cursor only, and the
+//   proposal you were not pointing at looked broken: "it should always show
+//   those options even if you're not hovering over it."
 //
 //   DISMISS IS BACK. "I sometimes will just want to reject something." It used
 //   to be left out on the grounds that ignoring a proposal is rejecting it;

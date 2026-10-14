@@ -150,7 +150,7 @@ describe('the button, drawn in the list', () => {
   // drawn under the cursor, and was taken out on 2026-10-13: "No basically
   // means reject so it's a different functionality... Ignoring it is
   // basically rejecting it." Turning one down came back as DISMISS
-  // (w-fcb5fdc2e5, tests/a-proposal-is-a-dot-and-its-answers-fade-in), drawn
+  // (w-fcb5fdc2e5, tests/a-proposal-is-a-dot-with-its-answers-always-beside-it), drawn
   // only where it is wired; the old No and its wiring stay gone.
   it('draws no No, on any row', () => {
     const both = renderToStaticMarkup(React.createElement(ThreadsMade, {
@@ -209,7 +209,9 @@ describe('the press looks like the app', () => {
   it('stands at the right-hand edge the state words end at', () => {
     expect(css).toMatch(/\.made-open \{[^}]*flex: 1/);
     expect(css).toMatch(/\.made-row \{[^}]*padding-right: 10px/);
-    expect(css).toMatch(/\.made-acts \{[^}]*right: 8px/);
+    // In the row's flow, hung 2px into its 10px padding: 8px from the edge,
+    // where they stood in the drawing that was picked.
+    expect(css).toMatch(/\n\.made-acts \{[^}]*margin-right: -2px/);
     expect(css).not.toContain('made-approve-room');
   });
 });

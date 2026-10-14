@@ -11,12 +11,12 @@
 
 /* NOTHING SNAPS (w-fcb5fdc2e5): "Everything immediately shades, which is not
    the best UX. You typically want those little transitions." Every colour a
-   cursor changes here fades, and the answers ease in rather than appear. */
-.made-row, .made-open, .made-title, .made-state, .made-acts, .made-acts button {
-  transition: background-color .18s var(--made-ease), border-color .18s var(--made-ease), color .18s var(--made-ease), opacity .2s var(--made-ease), transform .2s var(--made-ease);
+   cursor changes here fades. */
+.made-row, .made-open, .made-title, .made-state, .made-acts button {
+  transition: background-color .18s var(--made-ease), color .18s var(--made-ease);
 }
 @media (prefers-reduced-motion: reduce) {
-  .made-row, .made-open, .made-title, .made-state, .made-acts, .made-acts button { transition: none; }
+  .made-row, .made-open, .made-title, .made-state, .made-acts button { transition: none; }
 }
 
 /* The row. Its right-hand padding is all that stands between the state word
@@ -45,16 +45,13 @@
 .made-quiet .made-title, .made-quiet .made-state { color: var(--text-faint); }
 .made-quiet:hover .made-title { color: var(--text-dim); }
 
-/* ITS ANSWERS, UNDER THE CURSOR OR THE KEYBOARD, where a state word would
-   stand. Words in the app's mono capitals, no boxes: NEW THREAD in the accent,
-   DO HERE and DISMISS in grey, each washed in under the cursor. */
-.made-acts {
-  position: absolute; right: 8px; top: 50%; display: flex; gap: 2px;
-  opacity: 0; transform: translate(6px, -50%); pointer-events: none;
-}
-.made-ask:is(:hover, :focus-within) .made-acts { opacity: 1; transform: translate(0, -50%); pointer-events: auto; }
-/* A long title gives way to them rather than running underneath. */
-.made-ask:is(:hover, :focus-within) .made-title { margin-right: 250px; }
+/* ITS ANSWERS, ALWAYS THERE, where a state word would stand. Shown only under
+   the cursor, the proposal you were not pointing at looked broken: "it should
+   always show those options even if you're not hovering over it." Words in the
+   app's mono capitals, no boxes: NEW THREAD in the accent, DO HERE and DISMISS
+   in grey, each washed in under the cursor. In the row's flow, so a long
+   title ends in an ellipsis before them rather than running underneath. */
+.made-acts { flex: none; display: flex; gap: 2px; margin-left: 12px; margin-right: -2px; }
 .made-acts button {
   flex: none; height: 26px; padding: 0 9px;
   appearance: none; cursor: pointer; border: 0; border-radius: var(--radius); background: none;
