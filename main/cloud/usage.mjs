@@ -30,6 +30,9 @@ export function appendCloudUsage({ runId, item, engine, exitCode, usage }, { hom
     peakMemoryBytes: usage?.peakMemoryBytes ?? null,
     source: usage?.source ?? null,
   };
+  // Once per run: a homecoming retried after a failed import reads the same
+  // done.json again.
+  if (line.runId && readCloudUsage({ home }).some((l) => l.runId === line.runId)) return null;
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.appendFileSync(file, JSON.stringify(line) + '\n');

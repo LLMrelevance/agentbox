@@ -21,7 +21,7 @@ export interface CloudStatus {
 export const CLOUD_MODES: { id: CloudMode; label: string; note: string }[] = [
   { id: 'mac', label: 'This Mac only', note: 'Threads that don’t fit wait for a free agent.' },
   { id: 'full', label: 'When this Mac is full', note: 'Threads that don’t fit here start in the cloud.' },
-  { id: 'all', label: 'Everything', note: 'Every thread runs in the cloud, even with the lid shut.' },
+  { id: 'all', label: 'Everything', note: 'Threads start in the cloud first, wherever they can.' },
 ];
 
 // `cloudRuns` in the config, read the way the supervisor reads it: false is

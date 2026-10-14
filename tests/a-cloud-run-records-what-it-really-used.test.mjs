@@ -82,6 +82,14 @@ describe('the record on the Mac', () => {
     expect(lines[1]).toMatchObject({ runId: 'r2', wallSeconds: null, cpuSeconds: null, peakMemoryBytes: null });
   });
 
+  it('keeps one line per run however many times its homecoming is tried', () => {
+    const home = path.join(tmp, 'home');
+    const run = { runId: 'r1', item: 'w-1', engine: 'claude', exitCode: 0, usage: { wallSeconds: 60, cpuSeconds: 1, peakMemoryBytes: 1, source: 'cgroup' } };
+    expect(appendCloudUsage(run, { home })).not.toBe(null);
+    expect(appendCloudUsage(run, { home })).toBe(null);
+    expect(readCloudUsage({ home })).toHaveLength(1);
+  });
+
   it('skips a broken line instead of losing the rest', () => {
     const home = path.join(tmp, 'home');
     fs.mkdirSync(path.join(home, '.agentbox'), { recursive: true });

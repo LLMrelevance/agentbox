@@ -4148,6 +4148,28 @@ export class Supervisor {
     return false;
   }
 
+  // Whether a row `_roomFor` sent to the cloud for want of memory is still
+  // held at its spawn: its folder may have taken a while, and memory may
+  // have recovered meanwhile (Codex's review, 2026-10-13). Consumes the mark.
+  _stillHeldForMemory(item) {
+    return !!this._heldForMemory?.delete(item.id) && !this._memoryLetsStart(item);
+  }
+
+  // A row bound for the cloud that cannot go after all (a Codex resume, an
+  // account with no cloud sign-in) may run here instead only as any start
+  // here would: a slot, and this Mac's memory. A reply still runs here.
+  _mayRunHereInstead({ item, engine, pinnedFull = false, continuation = false, heldForMemory = false }) {
+    if (pinnedFull) return false;
+    if (continuation) return true;
+    return this._localSlotFor(engine) && !heldForMemory && this._memoryLetsStart(item);
+  }
+
+  // The memory gate's clock counts starts on this Mac: a command she typed
+  // is left out (`_load`), and a cloud start uses none of its memory.
+  _startsOnThisMac(session) {
+    return !session.command && !session.cloud;
+  }
+
   // The part of `_mayRunInCloud` that can be asked before a row has a folder.
   _cloudEligible(item) {
     if (!item || String(item.id || '').startsWith('digest-')) return false;
@@ -7377,8 +7399,11 @@ export class Supervisor {
 
     // ON THIS MAC OR IN THE CLOUD (docs/cloud/PLAN.md). Asked before the plan
     // and the per-run files exist, so a "wait" costs nothing.
-    // A row this Mac's memory held back is, for where it runs, a full Mac.
-    const heldForMemory = !!this._heldForMemory?.delete(item.id);
+    // A row this Mac's memory held back is, for where it runs, a full Mac,
+    // unless memory has recovered while its folder was being made: asked
+    // again here, where the decision is used (Codex's review, 2026-10-13).
+    const heldForMemory = this._stillHeldForMemory(item);
+    const mayRunHereInstead = () => this._mayRunHereInstead({ item, engine, pinnedFull, continuation, heldForMemory });
     let where = this._whereToRun({ item, product, cwd, engine, continuation, remoteOnly, localFull: pinnedFull || heldForMemory });
     if (!where) {
       if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
@@ -7396,7 +7421,7 @@ export class Supervisor {
     // never been loaded here, so its replies run here and load the rollout
     // that came home. A resume with no room here waits for room here.
     if (where === 'cloud' && engine === 'codex' && plan.resumeId) {
-      if (!pinnedFull && (this._localSlotFor(engine) || continuation)) where = 'local';
+      if (mayRunHereInstead()) where = 'local';
       else {
         if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
         return;
@@ -7443,7 +7468,7 @@ export class Supervisor {
         (this._warnedNoCloudSignIn ??= new Set()).add(`${engine}:${profile}`);
         console.warn(`zero: the ${engine} account ${profile} cannot sign in in the cloud right now, so its threads run here only`);
       }
-      if (!pinnedFull && (this._localSlotFor(engine) || continuation)) where = 'local';
+      if (mayRunHereInstead()) where = 'local';
       else {
         this.removeSpawnFiles({ spawnFiles });
         if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
@@ -7504,7 +7529,9 @@ export class Supervisor {
       cloud: where === 'cloud',
     };
     this.sessions.set(item.id, session);
-    if (!session.command) this._lastStartAt = session.startedAt;
+    // The memory gate's clock counts starts on this Mac only: a cloud start
+    // uses none of its memory (Codex's review, 2026-10-13).
+    if (this._startsOnThisMac(session)) this._lastStartAt = session.startedAt;
     // THAT an agent started work, and on which engine; nothing about the task.
     // `count` is set by main.mjs and is absent wherever nothing is sent.
     this.count?.('run_started', { engine });

@@ -229,7 +229,6 @@ export async function cloudRun({
   const earlier = readMarker(cwd);
   if (earlier) {
     const back = await bringHome(earlier, { recovering: true });
-    if (back.record) appendCloudUsage({ runId: earlier.runId, item: env.ZERO_ITEM, engine: earlier.engine || engine, exitCode: back.record.exitCode, usage: back.record.usage }, { home: homeDir });
     if (!back.ok) { say(`an earlier cloud run in this folder could not be brought back yet (${back.why}); not starting another`); return IMPORT_FAILED; }
   }
   if (importOnly) return 0;
@@ -520,9 +519,6 @@ export async function cloudRun({
 
   if (finished === 'failed') { clearMarker(cwd); return 1; }
   const back = await bringHome({ ...marker }, { cursor, replay: (e) => absorb(e) });
-  // WHAT THE RUN USED, for setting the plan limits from real work
-  // (main/cloud/usage.mjs). Written whatever the import did: the machine ran.
-  if (back.record) appendCloudUsage({ runId, item: env.ZERO_ITEM, engine, exitCode: back.record.exitCode, usage: back.record.usage }, { home: homeDir });
   if (!back.ok) {
     say(`the cloud run's work could not be brought back (${back.why}); it is kept in the cloud for 7 days and will be tried again`);
     writeMarker(cwd, { ...marker, pid: null, state: back.state || 'import-failed' });
@@ -583,6 +579,11 @@ export async function cloudRun({
     }
     if (!done) return { ok: false, why: 'its results never arrived' };
     const record = JSON.parse(done.toString('utf8'));
+    // WHAT THE RUN USED, for setting the plan limits from real work
+    // (main/cloud/usage.mjs). Recorded as soon as its results are here,
+    // whatever laying them into the folder does next: the machine ran either
+    // way. Once per run, however many times this is tried.
+    appendCloudUsage({ runId: rec.runId, item: env.ZERO_ITEM, engine: rec.engine || engine, exitCode: record.exitCode, usage: record.usage }, { home: homeDir });
 
     // Anything the stream never delivered (the session was gone before the
     // Mac could read it) is replayed from the copy in S3.

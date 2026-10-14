@@ -106,6 +106,46 @@ describe('a thread this Mac\'s memory holds back', () => {
   });
 });
 
+describe('the spawn, after its folder is made (Codex\'s review)', () => {
+  it('runs a held row here after all when memory recovered meanwhile', () => {
+    build({ memory: false });
+    sup._roomFor('claude', row());
+    sup._memoryLetsStart = () => true;
+    expect(sup._stillHeldForMemory(row())).toBe(false);
+    expect(sup._heldForMemory.has('w-1')).toBe(false);
+  });
+
+  it('keeps it held when memory is still short', () => {
+    build({ memory: false });
+    sup._roomFor('claude', row());
+    expect(sup._stillHeldForMemory(row())).toBe(true);
+  });
+
+  it('falls back from the cloud to this Mac only as a start here would', () => {
+    build({ memory: true });
+    expect(sup._mayRunHereInstead({ item: row(), engine: 'claude' })).toBe(true);
+    // Memory short: not here, the row waits.
+    sup._memoryLetsStart = () => false;
+    expect(sup._mayRunHereInstead({ item: row(), engine: 'claude' })).toBe(false);
+    // Held for memory at the spawn: not here either.
+    sup._memoryLetsStart = () => true;
+    expect(sup._mayRunHereInstead({ item: row(), engine: 'claude', heldForMemory: true })).toBe(false);
+    // No slot here, or a pinned account that is full: waits.
+    expect(sup._mayRunHereInstead({ item: row(), engine: 'claude', pinnedFull: true })).toBe(false);
+    fill(2);
+    expect(sup._mayRunHereInstead({ item: row(), engine: 'claude' })).toBe(false);
+    // A reply runs here whatever.
+    expect(sup._mayRunHereInstead({ item: row(), engine: 'claude', continuation: true })).toBe(true);
+  });
+
+  it('does not wind the memory gate\'s clock for a cloud start', () => {
+    build();
+    expect(sup._startsOnThisMac({ cloud: false })).toBe(true);
+    expect(sup._startsOnThisMac({ cloud: true })).toBe(false);
+    expect(sup._startsOnThisMac({ command: 'ls', cloud: false })).toBe(false);
+  });
+});
+
 describe('"Everything" (cloudRuns: "all")', () => {
   it('sends a row to the cloud first, though this Mac has a free slot', () => {
     build({ cloudRuns: 'all' });

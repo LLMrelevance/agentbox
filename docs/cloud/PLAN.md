@@ -203,12 +203,44 @@ the app never runs on the 12-hour `aws login`. Names and ARNs go to
 
 On by itself once a Mac has run the setup script and saved one account's
 sign-in (`claude setup-token`, stored in the macOS keychain); a Mac that has
-done neither is exactly today's app. `cloudRuns: false` turns it off.
+done neither is exactly today's app. Three settings, chosen from the cloud
+button: `cloudRuns: false` is "This Mac only", null is "When this Mac is
+full", `'all'` is "Everything" (the cloud first; this Mac for what cannot go
+there or when the cloud is at its cap).
+
+This Mac's memory gate (main/start-hold.mjs) holds only this Mac: a row it
+holds goes to the cloud when a cloud slot is free (`_roomFor`).
 
 ### What the user sees
 
-One line in the thread's state: "Running in the cloud". (Screenshots and
-divergent options before it is built.)
+A square cloud button beside the filters button, drawn only on a Mac set up
+for the cloud, wearing how many threads run there while any do. Its menu is
+built like the filters menu: the three choices with the picked one in
+orange, one line on what it does, and this month's agent-hours and
+estimated cost. Approved 2026-10-13 after four rounds of screenshots
+(designs/w-1dc7ee2408/).
+
+### What each run used
+
+The sandbox measures its whole machine, which is what AWS bills: CPU time
+(cgroup v2 cpu.stat, else /proc/stat) and memory's high-water mark
+(memory.peak, else sampled), plus wall time (cloud/sandbox/usage.mjs).
+done.json carries it home and the Mac keeps one line per run in
+~/.agentbox/cloud-usage.jsonl; `node scripts/cloud-usage.mjs` summarises it
+at AgentCore's published rates. The plan limits are set from these.
+
+## Plans (decided 2026-10-13, numbers to be set from measured use)
+
+- Sold as "+N agent slots": agents running in the cloud at once, on top of
+  this Mac's. A monthly agent-hour limit sits behind each plan, high enough
+  that most people never reach it; past it, threads wait for the Mac.
+- Pro $40 +10 slots, Plus $100 +25, Max $200 +60. No top-ups for now.
+- A cloud hour is one agent working for one hour; waiting for a reply is
+  free (a run ends with its turn). Each agent is its own machine, billed on
+  what it uses, so packing agents onto one machine would not save money.
+- AWS lets this account run 5,000 sessions at once and start 25 a second
+  (checked 2026-10-13; both can be raised).
+- Free: 5 hours, no card. Sign-in is the app's own sign-in page.
 
 ## Phases
 
@@ -262,6 +294,10 @@ else. `"cloudRuns": false` in zero.config.json turns them off.
   stays marked until a person looks (the app logs which folder).
 - The budget the spike made (`agentcore-sandboxes`) counts all of the
   account's spend, not only cloud runs.
+- The sandbox is Linux: a project that builds with Xcode cannot run there,
+  and nothing yet keeps such a project on the Mac.
+- Each run starts on a fresh machine and installs what it needs; a
+  per-project setup step and a saved installed copy are not built yet.
 
 ## The privacy and terms pages
 
