@@ -27,7 +27,7 @@ import { TeamContext } from '../team/people';
 import { useReactionsNow, type Press } from '../team/reactions-now';
 import { api } from '../api';
 import { onPhone } from '../phone-screen';
-import { pollEvery } from '../phone-polls';
+import { pollEvery, oneAtATime } from '../phone-polls';
 import { changePathFor, type Change } from '../code-artifact';
 import { filedOnTurn } from '../filed-in-thread';
 import { itemThread, type PendingSaid } from '../item-thread';
@@ -202,13 +202,17 @@ export function ItemThread({ item, engine, session, opening, sending, filed = []
   // being one event behind is worse than being slow.
   useEffect(() => {
     let live = true;
-    const read = () => {
+    // ONE READ AT A TIME, the three together. On a phone a long thread's trace
+    // takes longer through the relay than the 2 s between pushes, and reads
+    // asked on top of each other piled up until the relay turned the phone
+    // away (../phone-polls, oneAtATime).
+    const read = oneAtATime(() => Promise.allSettled([
       api.itemHistory({ product: item.product, id: item.id })
         .then((r) => { if (live) setLedger({ lines: r?.lines ?? [], error: r?.ok ? undefined : r?.error }); })
-        .catch((err) => { if (live) setLedger({ lines: [], error: String((err as Error)?.message ?? err) }); });
+        .catch((err) => { if (live) setLedger({ lines: [], error: String((err as Error)?.message ?? err) }); }),
       api.sessionTrace({ product: item.product, id: item.id })
         .then((r) => { if (live) setSessions(r?.sessions ?? []); })
-        .catch(() => { if (live) setSessions([]); });
+        .catch(() => { if (live) setSessions([]); }),
       // The change is re-read on the same beat as the trace, because the run
       // that is writing the trace is the run that will write the change, and it
       // writes it the moment it exits. Without this she would have to leave the
@@ -220,8 +224,8 @@ export function ItemThread({ item, engine, session, opening, sending, filed = []
           const files = (r?.ok ? (r.change as Change | undefined)?.files : null) ?? [];
           setChanged(files.map((f) => f.path).filter(Boolean));
         })
-        .catch(() => { if (live) setChanged([]); });
-    };
+        .catch(() => { if (live) setChanged([]); }),
+    ]));
     read();
     // Only while something is running. A finished row does not change under
     // her, and a timer on every open task is a poll per row she reads.

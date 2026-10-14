@@ -2869,10 +2869,12 @@ export default function App() {
     prevAskIds.current = askIds;
 
     const arrivals = [
-      ...fresh.map((i) => ({ id: i.id, title: i.title, product: i.product, productName: i.productName, kind: 'item' })),
+      ...fresh.map((i) => ({ id: i.id, title: rowTitle(i), product: i.product, productName: i.productName, kind: 'item' })),
       ...freshAsks.map((a) => ({
         id: a.id,
         title: String((a.input as any)?.description ?? (a.input as any)?.command ?? a.tool ?? 'a command'),
+        // The thread that is asking, which heads the phone's alert.
+        thread: (() => { const of = a.item ? snap.items.find((i) => i.id === a.item) : null; return of ? rowTitle(of) : null; })(),
         product: a.product,
         productName: snap.products.find((p) => p.slug === a.product)?.name ?? a.product,
         kind: 'approval',

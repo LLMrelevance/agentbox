@@ -1212,6 +1212,8 @@ declare global {
         title: string;
         product?: string | null;
         productName?: string | null;
+        // An approval's thread, by its list name, which heads the phone's alert.
+        thread?: string | null;
         kind: string;
       }>): Promise<void>;
       // She clicked the banner: open this row.

@@ -79,9 +79,6 @@
      not by being washed out. */
   --ct-lat: #ec8d55;
   --ct-lat-rest: 0.66;
-  /* the page sets these from the tag's height; these are its smallest step */
-  --ct-dot: 3px;
-  --ct-gap: 1px;
   --ct-lat-peak: 0.92;
 }
 
@@ -157,30 +154,27 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
 .ct-go svg { display: block; width: calc(7px * var(--ct-s)); height: calc(10px * var(--ct-s)); }
 
 /* ---- the nine-dot lattice (renderer/src/corner-tag/lattice.tsx) ----
-   THE DOTS AND THE GAPS ARE WHOLE PIXELS, handed in by the page from the
-   tag's height (shared/corner-tag.mjs, latticeCell). They used to be a share
-   of the scale — 2.7 and 0.95 points multiplied — which at 31px came out
-   fractional, so the rows and columns rounded differently and the mark looked
-   crooked in the running app: "the dots aren't even here".
+   ONE DRAWING, NOT NINE BOXES. It was a grid of nine boxes, and twice the fix
+   for a crooked mark was whole pixels for the dot and the gap. That holds only
+   where a point is a whole device pixel, and on a Mac in a scaled mode it is
+   1.5 of one: each box snaps on its own and the gaps round apart. An svg's
+   nine circles are rasterised together, so they cannot.
 
-   The launch film's geometry to the point: dots 2.7, gaps 0.95, a 10 box whose
+   The launch film's geometry, exactly: dots 2.7, gaps 0.95, a 10 box whose
    centre lands where the old single dot centred, so nothing else in the tag
    moved when it arrived. */
 .ct-lat {
-  flex: none; display: grid;
-  grid-template-columns: repeat(3, var(--ct-dot));
-  grid-template-rows: repeat(3, var(--ct-dot));
-  gap: var(--ct-gap);
-  width: calc(3 * var(--ct-dot) + 2 * var(--ct-gap));
-  height: calc(3 * var(--ct-dot) + 2 * var(--ct-gap));
+  /* the drawing sets its own width and height: they are whole device pixels,
+     which is the one thing a stylesheet cannot work out */
+  flex: none; display: block; overflow: visible;
   transform-origin: 50% 50%;
 }
-.ct-lat i { border-radius: 50%; background: var(--ct-lat); display: block; opacity: var(--ct-lat-rest); }
+.ct-lat circle { fill: var(--ct-lat); opacity: var(--ct-lat-rest); transform-box: fill-box; transform-origin: 50% 50%; }
 /* The centre dot is always filled, lit or resting: a mark with a heart rather
    than a gap. */
-.ct-lat i.ct-heart { opacity: 1; animation: none; }
+.ct-lat .ct-heart { opacity: 1; animation: none; }
 /* Waiting: every dot lit, and still. */
-.ct-lat.is-waiting i { opacity: 1; }
+.ct-lat.is-waiting circle { opacity: 1; }
 
 /* It turns twice and settles, and only when something has changed. The dots
    never reach full while turning, because this corner is read out of the side
@@ -189,7 +183,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
   0%, 62%, 100% { opacity: var(--ct-lat-rest); }
   18%, 42% { opacity: var(--ct-lat-peak); }
 }
-.ct-lat.is-turning i:not(.ct-heart) {
+.ct-lat.is-turning circle:not(.ct-heart) {
   animation: ct-orbit 1856ms cubic-bezier(0.77, 0, 0.175, 1) 2 both;
   animation-delay: calc(var(--p) * 232ms);
 }
@@ -199,12 +193,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
 @keyframes ct-pop { from { transform: scale(1.12); } to { transform: scale(1); } }
 @keyframes ct-land { from { transform: scale(0.45); } to { transform: scale(1); } }
 .ct-lat.is-popping { animation: ct-pop 420ms cubic-bezier(0.18, 1.4, 0.4, 1) both; }
-.ct-lat.is-popping i { animation: ct-land 380ms cubic-bezier(0.18, 1.6, 0.4, 1) both; animation-delay: calc(var(--r) * 28ms); }
+.ct-lat.is-popping circle { animation: ct-land 380ms cubic-bezier(0.18, 1.6, 0.4, 1) both; animation-delay: calc(var(--r) * 28ms); }
 
 /* Nothing moves for anyone who has asked for less motion: both states are the
    still marks, and a change is carried by the words and by brightness alone. */
 @media (prefers-reduced-motion: reduce) {
-  .ct-lat, .ct-lat i { animation: none; transition: opacity 200ms linear; }
+  .ct-lat, .ct-lat circle { animation: none; transition: opacity 200ms linear; }
 }
 
 /* ---- the list ---- */
