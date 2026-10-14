@@ -927,9 +927,12 @@ export function addCodexAccount({ config, supervisor }) {
  * ordinary reason for wanting it: a work login and a personal login, both
  * live, on one Mac.
  *
- * Everything else is the Codex flow exactly. Main makes the folder and
- * registers the profile, so the row appears immediately reading "Not signed
- * in"; the terminal is left with the browser half, which is genuinely hers.
+ * Main makes the folder and the terminal is left with the browser half, which
+ * is genuinely hers. UNLIKE CODEX, NOTHING IS WRITTEN INTO THE CONFIG: the
+ * folder is the shape main/account-discovery.mjs finds, so the account appears
+ * the moment its sign-in lands and never before. Registering it first put an
+ * abandoned sign-in in Settings as a "Not signed in" account and handed it
+ * every other task (tests/an-account-shows-once-and-only-once-it-is-signed-in).
  *
  * THE TOOLING IS LINKED AT CREATION, which the Codex side has no equivalent of.
  * `linkAccountTooling` otherwise runs at the first spawn, and the first thing
@@ -939,9 +942,6 @@ export function addCodexAccount({ config, supervisor }) {
  */
 export function addClaudeAccount({ config, supervisor }) {
   const made = makeClaudeHome({ home: config.home });
-  const existing = (config.authProfiles ?? []).map((x) => x || 'default');
-  const list = existing.length ? existing : ['default'];
-  saveConfig(config, { authProfiles: [...list, made.profile] });
   // A failure here is a folder without her skills in it, which is a smaller
   // thing than a sign in that does not happen: the links are retried at every
   // spawn anyway.
@@ -1139,6 +1139,18 @@ export function setWorkspaceSetting({ config, supervisor }, { key, value }) {
       break;
     // STOP WHAT FINISHED AGENTS LEAVE RUNNING (main/leftovers.mjs). Turning it
     // on records the moment, which is the earliest the clock may start from.
+    // WHERE THREADS RUN (renderer/src/cloud-menu.ts): 'mac' turns cloud runs
+    // off, 'full' sends what does not fit here, 'all' sends everything first.
+    // Read by the supervisor per call, so it takes effect on the next tick.
+    case 'cloudRuns': {
+      const map = { mac: false, full: null, all: 'all' };
+      if (!(value in map)) throw new Error(`unknown cloud mode: ${value}`);
+      saveConfig(config, { cloudRuns: map[value] });
+      config.cloudRuns = map[value];
+      supervisor.wake?.();
+      supervisor.onChange?.();
+      break;
+    }
     case 'cleanupLeftovers':
       saveConfig(config, value ? { cleanupLeftovers: true, cleanupLeftoversSince: Date.now() } : { cleanupLeftovers: false });
       supervisor.setLeftoverCleanup?.(!!value)?.catch?.((e) => console.warn('zero: leftovers:', e.message));
