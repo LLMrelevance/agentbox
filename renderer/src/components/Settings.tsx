@@ -1586,9 +1586,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                 onAdd={async (a) => {
                   const r = a.engine === 'codex' ? await api.addCodexAccount() : await api.addClaudeAccount();
                   setAdding(r.ok ? { engine: a.engine, name: a.name, command: r.command } : { engine: a.engine, name: a.name, error: r.error });
-                  // The row for the new login appears immediately, reading
-                  // "Not signed in", so an abandoned sign in leaves something
-                  // she can see rather than a folder nothing mentions.
+                  // A Codex row appears now, reading "Not signed in". A Claude
+                  // one appears only once its sign-in lands, so an abandoned
+                  // one is never listed as an account.
                   await load();
                 }}
               />

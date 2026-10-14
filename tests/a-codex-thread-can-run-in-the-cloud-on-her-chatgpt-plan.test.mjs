@@ -6,12 +6,9 @@
 // Claude Code in the cloud. This is the Codex half (docs/cloud/PLAN.md, "Codex
 // in the cloud"), and each piece here guards a way it was found to go wrong:
 //
-//   - the sign-in. A Codex login renews by rotating its refresh token, so a
-//     copy that renewed in the cloud would sign the Mac out. Measured on her
-//     Mac: the sandbox copy runs on the 240-hour access token with a
-//     placeholder where the refresh token was; a copy with no refresh token at
-//     all reads as signed out ("Missing bearer authentication"). A login with
-//     under 9 h left does not go.
+//   - the sign-in, which since 2026-10-14 is made in the cloud and never
+//     leaves it (tests/a-cloud-sign-in-happens-in-the-cloud-and-never-
+//     reaches-the-mac). The Mac's own login no longer goes up at all.
 //   - the app's tools, which Codex is told about inside `thread/start`, not on
 //     a command line, so the proxy swaps them in the stream.
 //   - pictures, which ride in a turn as `localImage` paths on the Mac.
@@ -22,7 +19,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { codexCloudAuth, CODEX_REFRESH_PLACEHOLDER } from '../main/cloud/config.mjs';
 import { codexLineForTheCloud, codexConfigForTheCloud } from '../main/cloud/run.mjs';
 import { holdUntilHome } from '../main/cloud/codex-cloud.mjs';
 import { TURN_CLOSED } from '../main/claude-input.mjs';
@@ -30,44 +26,6 @@ import { TURN_CLOSED } from '../main/claude-input.mjs';
 let tmp;
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-cloud-')); });
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
-
-const jwt = (claims) => `h.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.s`;
-const writeAuth = (hoursLeft, tokens = {}) => {
-  const now = Date.now() / 1000;
-  fs.writeFileSync(path.join(tmp, 'auth.json'), JSON.stringify({
-    auth_mode: 'chatgpt', OPENAI_API_KEY: null, last_refresh: '2026-10-10T00:00:00Z',
-    tokens: { id_token: 'id', access_token: jwt({ iat: now - 3600, exp: now + hoursLeft * 3600 }), refresh_token: 'the-real-one', account_id: 'acct', ...tokens },
-  }));
-};
-
-describe('the Codex sign-in a cloud run gets', () => {
-  it('is her access token with the refresh token replaced, so the cloud can never rotate her login', () => {
-    writeAuth(120);
-    const got = codexCloudAuth(tmp);
-    const copy = JSON.parse(got.authJson);
-    const mine = JSON.parse(fs.readFileSync(path.join(tmp, 'auth.json'), 'utf8'));
-    expect(copy.tokens.access_token).toBe(mine.tokens.access_token);
-    expect(copy.tokens.refresh_token).toBe(CODEX_REFRESH_PLACEHOLDER);
-    expect(got.authJson).not.toContain('the-real-one');
-    // The Mac's own file is untouched.
-    expect(mine.tokens.refresh_token).toBe('the-real-one');
-  });
-
-  it('is not offered when the access token would not outlast a run', () => {
-    writeAuth(8.5);
-    expect(codexCloudAuth(tmp)).toBe(null);
-    writeAuth(9.5);
-    expect(codexCloudAuth(tmp)).not.toBe(null);
-  });
-
-  it('is not offered with no login, an unreadable token, or no refresh token to stand in for', () => {
-    expect(codexCloudAuth(tmp)).toBe(null);
-    writeAuth(120, { access_token: 'not-a-jwt' });
-    expect(codexCloudAuth(tmp)).toBe(null);
-    writeAuth(120, { refresh_token: undefined });
-    expect(codexCloudAuth(tmp)).toBe(null);
-  });
-});
 
 describe('a line from the app to a cloud Codex', () => {
   const keep = () => ({});

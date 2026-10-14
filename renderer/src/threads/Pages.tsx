@@ -27,6 +27,7 @@ import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
 import { api } from '../api';
 import { CLOUD_MODES, cloudButtonCount, cloudMonthLine, type CloudMode, type CloudStatus } from '../cloud-menu';
+import { menuSetupLine, SETUP } from '../cloud-setup';
 import './pages.css';
 
 // Before the frame is drawn in the app; a plain effect where there is no
@@ -107,12 +108,12 @@ function useOutside(open: boolean, close: () => void) {
 export type PeoplePick = { everyone: Person[]; picked: string[]; me: string | null; onPick: (picked: string[]) => void };
 
 /** Search, New thread and the Display icon, at the right of the Inbox and Team headers. */
-export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode }: {
+export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode, onCloudSetUp }: {
   page: PageId; display: Display; onDisplay: (d: Display) => void; products: Product[]; items?: WorkItem[];
   onSearch: () => void; onCompose: () => void; shown?: number; total?: number; tab?: string;
   people?: PeoplePick;
   /** Where threads run; no button at all on a Mac not set up for the cloud. */
-  cloud?: CloudStatus | null; onCloudMode?: (mode: CloudMode) => void;
+  cloud?: CloudStatus | null; onCloudMode?: (mode: CloudMode) => void; onCloudSetUp?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useOutside(open, () => setOpen(false));
@@ -130,7 +131,7 @@ export function HeaderActions({ page, display, onDisplay, products, items, onSea
   return <div className="th-right">
     <button type="button" className="th-search" data-hint="search" data-hint-text="span" onClick={onSearch} title="Search threads (/)" aria-label="Search threads"><SearchGlyph /><span>Search</span></button>
     <button type="button" className="th-new" data-hint="new-task" onClick={onCompose} title="New thread (N)"><PenIcon />New thread</button>
-    {cloud?.setUp && <CloudButton cloud={cloud} onMode={onCloudMode} />}
+    {cloud?.setUp && <CloudButton cloud={cloud} onMode={onCloudMode} onSetUp={onCloudSetUp} />}
     <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
       <button type="button" className={`th-disp${worn ? ' faces' : ''}${open ? ' open' : ''}`}
         aria-label={whose ? `View and filters, showing ${whose}` : 'View and filters'} title={whose ? `${whose} · View and filters` : 'View and filters'}
@@ -156,23 +157,49 @@ const toggle = <T,>(list: T[], value: T) => (list.includes(value) ? list.filter(
 // (renderer/src/cloud-menu.ts, tests/the-cloud-button-chooses-where-threads-run).
 const CloudIcon = () => <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" /></svg>;
 
-function CloudButton({ cloud, onMode }: { cloud: CloudStatus; onMode?: (mode: CloudMode) => void }) {
+function CloudButton({ cloud, onMode, onSetUp }: { cloud: CloudStatus; onMode?: (mode: CloudMode) => void; onSetUp?: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useOutside(open, () => setOpen(false));
   const count = cloudButtonCount(cloud);
   const picked = CLOUD_MODES.find((m) => m.id === cloud.mode) ?? CLOUD_MODES[1];
+  // NOT SET UP IS THE WHOLE MENU, NOT A ROW IN IT (2026-10-14: the "Setup"
+  // row was "very strange and I don't even notice it"). Until one account can
+  // run in the cloud, the choices of where threads run mean nothing, so the
+  // menu is an invitation with one button (picked 2026-10-14 over a banner
+  // above greyed choices), and the button wears the accent dot the filters
+  // button uses. Once some are set up, one line says how many are left.
+  // Picking a choice never opens a screen by itself.
+  const accounts = cloud.accounts || [];
+  const nobodyReady = !accounts.length;
+  const setup = menuSetupLine(cloud);
+  const goSetUp = () => { setOpen(false); onSetUp?.(); };
   return <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
     <button type="button" className={`th-disp th-cloud${count ? ' count' : ''}${open ? ' open' : ''}`}
-      aria-label={count ? `Cloud, ${count} running there` : 'Cloud'} title="Where threads run"
+      aria-label={count ? `Cloud, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : 'Cloud'} title="Where threads run"
       onClick={() => setOpen((o) => !o)}>
-      <CloudIcon />{count && <b>{count}</b>}
+      <CloudIcon />{count && <b>{count}</b>}{!count && (nobodyReady || setup) && <i />}
     </button>
-    {open && <div className="th-pop th-cloud-pop" role="dialog" aria-label="Where threads run">
+    {open && nobodyReady && <div className="th-pop th-cloud-pop th-cloud-invite" role="dialog" aria-label={SETUP.inviteHead}>
+      <span className="th-cloud-invite-ic"><CloudIcon /></span>
+      <div className="th-cloud-invite-head">{SETUP.inviteHead}</div>
+      <p className="th-cloud-invite-line">{SETUP.inviteLine}</p>
+      <button type="button" className="th-cloud-invite-go" onClick={goSetUp}>{SETUP.inviteGo}</button>
+      <span className="th-cloud-invite-note">{SETUP.inviteNote}</span>
+    </div>}
+    {open && !nobodyReady && <div className="th-pop th-cloud-pop" role="dialog" aria-label="Where threads run">
+      {setup && <div className="th-cloud-banner">
+        <div className="th-cloud-banner-say"><b>{setup.say}</b></div>
+        <button type="button" className="th-cloud-go" onClick={goSetUp}>{setup.go}</button>
+      </div>}
       <div className="line"><span className="lab">Cloud</span><span className="opts">
         {CLOUD_MODES.map((m) => <button type="button" key={m.id} className={m.id === cloud.mode ? 'on picked' : ''} aria-pressed={m.id === cloud.mode} onClick={() => onMode?.(m.id)}>{m.label}</button>)}
       </span></div>
       <div className="line th-cloud-note"><span className="lab" /><span>{picked.note}</span></div>
       <div className="rule" />
+      <div className="line th-cloud-setup"><span className="lab">Accounts</span><span className="th-cloud-setup-row">
+        <span className="th-cloud-setup-say">{SETUP.menuAccounts(accounts.length)}</span>
+        <button type="button" className="th-cloud-manage" onClick={goSetUp}>{SETUP.menuManage}</button>
+      </span></div>
       <div className="line"><span className="lab">This month</span><span className="th-cloud-use">{cloudMonthLine(cloud.month)}</span></div>
       <div className="rule" />
       <div className="foot"><span>{cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now'}</span></div>

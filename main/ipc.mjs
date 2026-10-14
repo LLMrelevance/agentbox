@@ -27,6 +27,7 @@ import {refreshAgentModels} from './refresh-agent-models.mjs';
 import {readInstruction,writeInstruction,listVersions,readVersion} from './instruction-settings.mjs';
 import path from 'node:path';
 import os from 'node:os';
+import { looksLikeClaudeCode } from '../shared/claude-code-shape.mjs';
 import fsWatch from 'node:fs';
 import { listFolders } from './folders.mjs';
 import { feedbackUrl, sendFeedback } from './feedback.mjs';
@@ -1183,8 +1184,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // So this is `zero:import-agents` with the agent taken out of it. No ticks are
   // saved, because there is nothing for the card to remember: an imported thread
   // is a row, and a row is what stops it being imported twice
-  // (`threadsNeedingRows`). It does NOT resume the conversation; she was offered
-  // that and picked this instead.
+  // (`threadsNeedingRows`). The row's first reply resumes the conversation as a
+  // copy (`Supervisor#importedThreadFor`, GitHub #44).
   ipcMain.handle('zero:import-threads', (_e, { product, threads } = {}) => {
     if (!product) return { ok: false, added: 0, already: 0, ids: [] };
     const want = new Set(
@@ -1527,6 +1528,32 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     }
   });
 
+  // THE CLOUD SETUP'S SIGN-IN for one account, made in the cloud
+  // (main/cloud/logins.mjs). The Mac relays the link and the code only.
+  ipcMain.handle('zero:cloud-signin', async (_e, { action, engine, key, code } = {}) => {
+    try {
+      const out = await supervisor.cloudSignIn(action, engine, key ?? null, code);
+      push();
+      return { ok: true, key: out?.key ?? null };
+    } catch (err) {
+      return { ok: false, error: String(err.message) };
+    }
+  });
+  // CLAUDE'S CODE, FROM THE CLIPBOARD, WHEN SHE COMES BACK (2026-10-14: she
+  // approved on Claude's page and waited, not seeing that the code it shows
+  // has to come back). Answered only while a Claude sign-in is waiting for
+  // its code, and only with text shaped like one: anything else she copied
+  // stays where it is.
+  ipcMain.handle('zero:cloud-clipboard-code', () => {
+    try {
+      const waiting = (supervisor.cloudStatus?.().signIns || []).some((s) => s.engine === 'claude' && s.state === 'needs-code');
+      if (!waiting) return { code: null };
+      const text = String(host?.readClipboardText?.() ?? '').trim();
+      return { code: looksLikeClaudeCode(text) ? text : null };
+    } catch {
+      return { code: null };
+    }
+  });
   ipcMain.handle('zero:settings-set-workspace', (_e, payload) => {
     try {
       setWorkspaceSetting({ config, supervisor }, payload ?? {});

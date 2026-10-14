@@ -12,10 +12,11 @@ ARG CODEX_VERSION
 RUN test -n "$CLAUDE_CODE_VERSION" && test -n "$CODEX_VERSION"
 
 # git for the bundle, tar for the transcripts, what `npm ci` needs to build
-# native modules in a project's own dependencies, and bubblewrap, which Codex's
-# own command sandbox runs on.
+# native modules in a project's own dependencies, bubblewrap, which Codex's
+# own command sandbox runs on, and bsdutils for `script`, the terminal
+# `claude setup-token` needs to sign an account in (server.mjs).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git ca-certificates tar gzip python3 make g++ openssh-client procps bubblewrap \
+ && apt-get install -y --no-install-recommends git ca-certificates tar gzip python3 make g++ openssh-client procps bubblewrap bsdutils \
  && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/codex@${CODEX_VERSION}" && npm cache clean --force

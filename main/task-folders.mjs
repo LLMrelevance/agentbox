@@ -62,7 +62,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { nameSlug } from '../shared/product-name.mjs';
+import { Name, nameSlug } from '../shared/product-name.mjs';
 import { carryLocalFiles, copyTree, onlyTrackedContent, trackedTopLevel } from './worktree-include.mjs';
 
 /** Where Claude Code puts its own, so both engines and a human agree. */
@@ -152,6 +152,79 @@ export function repoRoot(dir) {
   if (!dir || !fs.existsSync(dir)) return null;
   const found = tryGit(dir, ['rev-parse', '--show-toplevel']);
   return found.ok && found.out ? found.out : null;
+}
+
+/**
+ * A PROJECT FOLDER THAT IS NOT A REPOSITORY IS MADE ONE (2026-10-14).
+ *
+ * A teammate's first task failed with "no folder could be made" until they ran
+ * `git init` and a first commit by hand, and so did every task in any project
+ * picked from a plain folder: a task folder is a worktree, and a worktree needs
+ * a repository and a commit to start from. New Project even creates the folder
+ * when it is missing, so an empty one failed its first task every time.
+ *
+ * So the app takes the same two steps. Local only: nothing is pushed, and a
+ * `.gitignore` the folder already has is respected by the first commit. Inside
+ * a repository already, `repoRoot` answers first and this never runs. A folder
+ * too big to commit by itself (`FIRST_COMMIT_LIMIT`) is left exactly as it was,
+ * the repository just started here removed again, and the refusal says why.
+ */
+function startRepository(dir) {
+  if (!dir || !fs.existsSync(dir)) return null;
+  if (!tryGit(dir, ['init', '-q']).ok) return null;
+  const root = repoRoot(dir);
+  try { firstCommitIfNone(root); }
+  catch (error) { fs.rmSync(path.join(root, '.git'), { recursive: true, force: true }); throw error; }
+  return root;
+}
+
+/**
+ * HOW MUCH A FIRST COMMIT MAY TAKE ON BY ITSELF. Measured on the founder's
+ * store on 2026-10-14: the one project whose folder was not a repository held
+ * 18 GB, mostly media libraries, and committing that copies all of it into
+ * `.git` and runs for minutes. A code project with its dependencies left in is
+ * a few hundred MB.
+ */
+const FIRST_COMMIT_LIMIT = 500 * 1024 * 1024;
+
+const sizeSaid = (bytes) => (bytes >= 1024 ** 3
+  ? `${(bytes / 1024 ** 3).toFixed(1)} GB`
+  : `${Math.round(bytes / 1024 ** 2)} MB`);
+
+/** What a first commit would take, in bytes, stopping once past the limit. */
+function sizeOfFirstCommit(root) {
+  // Its own call rather than `tryGit`, for the buffer: a folder of media lists
+  // far past the default megabyte of output.
+  const listed = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
+    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024,
+  });
+  let total = 0;
+  for (const file of listed.split('\0')) {
+    if (!file) continue;
+    try { total += fs.lstatSync(path.join(root, file)).size; } catch { /* gone since the listing */ }
+    if (total > FIRST_COMMIT_LIMIT) break;
+  }
+  return total;
+}
+
+/**
+ * The first commit, made only when there is none: a repository with any commit
+ * at all is never committed to here, so work somebody has not committed stays
+ * theirs. `--allow-empty` because an empty folder is a real first project.
+ * A Mac where git has never been told who you are gets a name for this one
+ * commit rather than a refusal, and signing is off for it, because a signing
+ * setup that asks for a passphrase would hang a commit nobody is watching.
+ */
+function firstCommitIfNone(root) {
+  if (tryGit(root, ['rev-parse', '--verify', '-q', 'HEAD']).ok) return;
+  hideFromTheCheckout(root);
+  const size = sizeOfFirstCommit(root);
+  if (size > FIRST_COMMIT_LIMIT) {
+    throw Error(`this project's folder is not a git repository yet, and at more than ${sizeSaid(size)} it is too big for ${Name} to make one by itself. In a terminal in that folder run git init, add a .gitignore for the big folders, and make a first commit`);
+  }
+  if (!tryGit(root, ['add', '-A']).ok) return;
+  const who = tryGit(root, ['config', 'user.email']).out ? [] : ['-c', `user.name=${Name}`, '-c', `user.email=${nameSlug}@localhost`];
+  tryGit(root, [...who, '-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '--allow-empty', '-m', `First commit, made by ${Name} so each task can have a folder of its own`]);
 }
 
 /**
@@ -268,8 +341,9 @@ export function acquireTaskFolder(root, folder, { pid = process.pid } = {}) {
  */
 export function ensureTaskFolder(dir, id, { pid = process.pid, dependencies = true } = {}) {
   const name = safeTaskName(id);
-  const root = repoRoot(dir);
+  const root = repoRoot(dir) ?? startRepository(dir);
   if (!root) return null;
+  firstCommitIfNone(root);
   const folder = taskFolderPath(root, name);
   const branch = taskBranch(name);
   const refused = (held) => ({ taken: false, reason: held.reason, heldBy: held.heldBy ?? null, path: null });
@@ -598,6 +672,15 @@ function ownFolder(root, name, given) {
 }
 
 /**
+ * AND STILL ON THE TASK'S OWN BRANCH, asked right before anything is committed
+ * or removed. The path alone was not proof (GitHub issue #43: another tool's
+ * worktree sat at the same path), and a folder an agent moved off its branch
+ * would be committed onto the wrong one, or, on no branch at all, onto nothing
+ * and then deleted.
+ */
+const onItsOwnBranch = (root, folder, name) => record(root, folder)?.branch === taskBranch(name);
+
+/**
  * Give the folder back when the session is done with it. Removal is the rare
  * case on purpose: it happens when the work is already in main and nothing is
  * uncommitted. Every other answer names what is in the way, so the app can say
@@ -610,6 +693,7 @@ export function releaseTaskFolder(dir, id, { pid = process.pid, path: given = nu
   const folder = ownFolder(root, name, given);
   if (!folder) return { removed: false, reason: 'not-ours', path: given };
   if (!fs.existsSync(folder)) return { removed: false, reason: 'gone' };
+  if (!onItsOwnBranch(root, folder, name)) return { removed: false, reason: 'not-ours', path: folder };
 
   // Whose folder this is, asked in the one place that knows (`holder`). A lock
   // naming a process that has exited is not a claim on anything, and sweeping
@@ -675,6 +759,7 @@ export function parkTaskFolder(dir, id, { pid = process.pid, path: given = null 
   const folder = ownFolder(root, name, given);
   if (!folder) return { parked: false, reason: 'not-ours', path: given };
   if (!fs.existsSync(folder)) return { parked: false, reason: 'gone' };
+  if (!onItsOwnBranch(root, folder, name)) return { parked: false, reason: 'not-ours', path: folder };
 
   const owner = holder(root, folder, pid);
   if (!owner.ok) return { parked: false, reason: owner.reason, heldBy: owner.heldBy, path: folder };
@@ -766,9 +851,12 @@ export function restoreTaskFolder(dir, id, { pid = process.pid } = {}) {
  * Only the second is ever parked or removed, and the first is what lets a person
  * see what is holding their disk.
  *
- * `ours` IS PROOF BY LOCATION, and the location is the app's own. Nothing but
- * `ensureTaskFolder` puts a folder at `<primary>/.claude/worktrees/<task name>`,
- * so a folder there was made here. It is deliberately not inferred from the lock
+ * `ours` IS PROOF BY LOCATION AND BRANCH. The location alone is not enough:
+ * Claude Code's desktop app makes its worktrees at that same
+ * `<primary>/.claude/worktrees/<name>`, on `claude/<name>`, and the sweep parked
+ * and removed three of them with live sessions in them (GitHub issue #43). So a
+ * folder there is ours only when it is also on a branch `taskBranch` names; one
+ * on any other branch, or on none, is a stray. It is deliberately not inferred from the lock
  * (dropped on the way to every removal) or from a marker file (which an agent
  * working in the folder could delete, turning a folder the app made into one it
  * will never reclaim).
@@ -808,7 +896,8 @@ export function inventoryWorktrees(dir) {
       // the app's bookkeeping to tidy, and is nothing anybody may act on.
       atOurPath: path.dirname(at) === home && couldBeATaskName(name),
       ours: !unfinished && !missing && !w.prunable
-        && path.dirname(at) === home && couldBeATaskName(name),
+        && path.dirname(at) === home && couldBeATaskName(name)
+        && String(w.branch ?? '').startsWith(BRANCH_PREFIX),
     };
   });
 }

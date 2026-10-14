@@ -10,7 +10,7 @@
 // an IAM user that may only start and stop sessions on one runtime and read
 // and write one bucket's `runs/`. Never the 12-hour admin sign-in.
 import { BedrockAgentCoreClient, InvokeAgentRuntimeCommand, StopRuntimeSessionCommand } from '@aws-sdk/client-bedrock-agentcore';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // A link the sandbox uses must outlive the longest run (8 hours) plus the
@@ -59,7 +59,17 @@ export function awsStorage({ region, bucket, profile }) {
         throw err;
       }
     },
-    getUrl: (key) => getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: LINK_SECONDS }),
-    putUrl: (key) => getSignedUrl(s3, new PutObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: LINK_SECONDS }),
+    // Whether an object is there, without reading it.
+    async exists(key) {
+      try { await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key })); return true; } catch (err) {
+        if (err?.name === 'NotFound' || err?.$metadata?.httpStatusCode === 404) return false;
+        throw err;
+      }
+    },
+    async del(key) {
+      await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    },
+    getUrl: (key, seconds = LINK_SECONDS) => getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: seconds }),
+    putUrl: (key, seconds = LINK_SECONDS) => getSignedUrl(s3, new PutObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: seconds }),
   };
 }

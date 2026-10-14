@@ -25,7 +25,7 @@ import { providerCommand } from '../../../shared/provider-commands.mjs';
 // One typographic system throughout (markdown, no cards, no stripes). Reply is
 // a docked composer, never a modal over the text.
 
-import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as BoxKeyEvent, type ReactNode } from 'react';
 import { TeamContext, firstName } from '../team/people';
 import { joinNames } from '../threads/composer-rules';
 import { createPortal } from 'react-dom';
@@ -76,6 +76,7 @@ import { withQuote } from '../team/chat-quote';
 import { THREAD_WIDTH, THREAD_WIDTH_KEY, clampThreadWidth, threadToOpen } from '../team/chat-threads';
 import { whatWaits } from '../../../shared/team-rules.mjs';
 import { FormatBar } from '../team/FormatBar';
+import { RichReply, type RichBox } from '../team/RichReply';
 import { OptionsOffer } from './OptionsOffer';
 import { foldedReply } from '../folded-reply';
 import { applyDockHeight } from '../dock-height';
@@ -108,6 +109,7 @@ import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { useChatMentions } from '../team/ChatAgents';
 import { AGENT_SCHEME } from '../team/agent-mentions';
 import { engineModelLabel } from '../models';
+import { lookAgainAfter } from '../picture-looks-again';
 
 // With the options strip riding on the composer, the field's own "## Options"
 // section would say everything twice; drop the heading and its numbered items
@@ -210,6 +212,20 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
     find(src!.replace(/^\.\//, '')).then((p) => { if (live) setFound(p || null); }).catch(() => { if (live) setFound(null); });
     return () => { live = false; };
   }, [exhausted, found, src]);
+  // AND A MISSING ONE LOOKS AGAIN (../picture-looks-again.ts): a teammate's
+  // picture can land after its message, and asking once left it missing until
+  // the thread was reopened.
+  const [looks, setLooks] = useState(0);
+  const lookNow = () => {
+    find?.(src!.replace(/^\.\//, '')).then((p) => { if (p) setFound(p); }).catch(() => {});
+  };
+  useEffect(() => {
+    if (found !== null || !find || !src) return;
+    const wait = lookAgainAfter(looks);
+    if (wait === null) return;
+    const timer = setTimeout(() => { lookNow(); setLooks(looks + 1); }, wait);
+    return () => clearTimeout(timer);
+  }, [found, looks, src]);
   if (!src) return null;
   // A picture pasted straight into a message carries its own bytes, so there is
   // no file anywhere for a click to open and it stays a picture and nothing else.
@@ -251,6 +267,7 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
     if (asked) return door(asked, <img src={pictureUrl(asked)} alt={alt ?? ''} className="inline-image" crossOrigin="anonymous" onError={() => setFound(null)} />);
     // Still asking: nothing yet, rather than a "missing" that turns into a picture.
     if (asked === undefined) return null;
+    if (find) return <button type="button" className="missing-artifact" title="Look for it again" onClick={lookNow}>missing image: {rel}</button>;
     return <span className="missing-artifact">missing image: {rel}</span>;
   }
   return door(rel, <img src={candidates[attempt]} alt={alt ?? ''} className="inline-image" crossOrigin="anonymous" onError={() => setAttempt(attempt + 1)} />);
@@ -2171,7 +2188,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     setModel(item.model ?? null);
     setEffort(item.effort ?? null);
   }, [item.product, item.id, item.model, item.effort]);
-  const ref = useRef<HTMLTextAreaElement>(null);
+  const ref = useRef<HTMLTextAreaElement | null>(null);
   // The hidden file input the formatting bar's attach button opens.
   const filePicker = useRef<HTMLInputElement>(null);
   const pickFiles = () => filePicker.current?.click();
@@ -2182,7 +2199,20 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   // THE FORMATTING BAR'S @ BUTTON IS A WAY INTO THIS and not a second
   // mechanism: it types an @ into the box at the caret, which is exactly what
   // the menu below watches for, so pressing it and typing it are the same act.
-  const chat = useChatMentions({ on: !!talkTo?.length && !item.agent, where: item, text, setText, input: ref, people: talkTo ?? [] });
+  //
+  // A CHAT'S BOX SHOWS ITS FORMATTING (w-0d55a2b160, ../team/RichReply.tsx):
+  // ⌘B makes the words bold rather than typing asterisks. `text` is still the
+  // markdown that is saved and sent; the @ menu counts in the words somebody
+  // sees, which are `plain`, and edits them through the editor so the bold
+  // around a mention stays.
+  const richBox = !!talkTo?.length;
+  const [plain, setPlain] = useState('');
+  const chat = useChatMentions({
+    on: !!talkTo?.length && !item.agent, where: item, people: talkTo ?? [], input: ref,
+    ...(richBox
+      ? { text: plain, setText: (next: string) => (ref.current as RichBox | null)?.rich.setPlain(next) }
+      : { text, setText }),
+  });
   // WHAT THIS ONE MESSAGE MAY DO.So it is not a project setting and not a
   // workspace one; it rides on the send.
   //
@@ -2520,6 +2550,58 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     if (!rule && lastParsed.current && sameRule(repeat, lastParsed.current)) setRepeat(null);
     lastParsed.current = rule;
   }, [parsed && 'rule' in parsed ? parsed.rule.at : null]);
+  // THE BOX'S KEYS, whichever box it is: the text field on a thread with an
+  // agent, the editor in a chat.
+  const boxKey = (e: BoxKeyEvent<HTMLTextAreaElement>) => {
+    // THE MENU TAKES THE KEYS FIRST WHILE IT IS OPEN, and gives every
+    // one of them back the moment it closes. Escape here clears the
+    // SLASH rather than folding the box, because folding a box on the
+    // first character somebody typed reads as the app refusing them.
+    // CLAUDE CODE'S OWN KEY, DOING CLAUDE CODE'S OWN THING. Their docs:
+    // "press Shift+Tab to cycle permission modes". It is checked before
+    // the menu because it works whether the menu is open or shut, and
+    // because a bare Tab inside the menu is a pick, which is a different
+    // key.
+    // The @ menu and a mention's card take their keys first, and only
+    // while one of them is up.
+    if (chat.keyDown(e)) return;
+    if (e.key === 'Tab' && e.shiftKey && canSetMode) {
+      e.preventDefault();
+      const next = claudeCode ? nextMode(running as PermissionMode) : nextCodexMode(running as CodexModeId);
+      setMode(next);
+      // AND IT SAYS SO OUT LOUD NOW. Cycling used to be readable off the
+      // chip in the footer, which is where somebody's eye already was.
+      // With the chip gone this key would otherwise change what an agent
+      // is allowed to do on somebody's Mac and show nothing at all.
+      announce(next);
+      return;
+    }
+    if (slashOpen) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSlashAt((i) => (i + 1) % menuRows.length); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSlashAt((i) => (i - 1 + menuRows.length) % menuRows.length); return; }
+      /*
+       * ENTER AND TAB BOTH PICK THE ROW, and neither sends: a command
+         goes into the box and waits for Send, a mode is set (pickRow).
+         ⌘↵ falls through to Send, so `/usage` typed out and sent still
+         runs in one key. */
+      if ((e.key === 'Enter' && !e.metaKey && !e.ctrlKey) || e.key === 'Tab') {
+        e.preventDefault();
+        pickRow(menuRows[slashAt] ?? menuRows[0]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault(); e.stopPropagation();
+        setText('');
+        return;
+      }
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') send();
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      if (hasDraft) ref.current?.blur();
+      else onClose();
+    }
+  };
   return (
     <>
       {/* THE MENU RIDES ON THE CARD, NOT ON THE BOX, and it opens upward for
@@ -2543,6 +2625,33 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           draws outside a conversation with a person. */}
       {chat.menu}
       {chat.card}
+      {richBox ? (
+        // The editor draws a mention's chip on its own words; the layer of
+        // chips behind a text field has no text field to sit behind.
+        // Not `with-mentions`: that lifts a text field over the layer, and
+        // lifted, the box covered the emoji plate rising out of the bar.
+        <RichReply
+          className="dock-input"
+          boxRef={ref}
+          value={text}
+          onChange={changeText}
+          onPlain={setPlain}
+          placeholder={`Reply to ${joinNames(talkTo ?? [])}`}
+          mentions={chat.mentions.map((m) => ({ start: m.start, end: m.end, loose: !m.project }))}
+          // ⌘↵ and Escape are taken even where nothing above stops them, or
+          // the editor's own ⌘↵ would add a line break under the send.
+          onKeyDown={(e) => {
+            boxKey(e as unknown as BoxKeyEvent<HTMLTextAreaElement>);
+            return e.defaultPrevented || e.key === 'Escape' || ((e.metaKey || e.ctrlKey) && e.key === 'Enter');
+          }}
+          onFiles={async (files) => {
+            const got = await collectFiles(files);
+            if (got.length) setAttachments((a) => [...a, ...got]);
+          }}
+          onCaret={(box) => chat.track(box as unknown as HTMLTextAreaElement)}
+          onClick={(box) => chat.click(box as unknown as HTMLTextAreaElement)}
+        />
+      ) : <>
       {chat.chips}
       <textarea
         className={`dock-input${chat.live ? ' with-mentions' : ''}`}
@@ -2560,56 +2669,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
            `tests/the-reply-box-asks-one-question.test.mjs` holds the sentence count.
         */
         placeholder="What should the agent do next?"
-        onKeyDown={(e) => {
-          // THE MENU TAKES THE KEYS FIRST WHILE IT IS OPEN, and gives every
-          // one of them back the moment it closes. Escape here clears the
-          // SLASH rather than folding the box, because folding a box on the
-          // first character somebody typed reads as the app refusing them.
-          // CLAUDE CODE'S OWN KEY, DOING CLAUDE CODE'S OWN THING. Their docs:
-          // "press Shift+Tab to cycle permission modes". It is checked before
-          // the menu because it works whether the menu is open or shut, and
-          // because a bare Tab inside the menu is a pick, which is a different
-          // key.
-          // The @ menu and a mention's card take their keys first, and only
-          // while one of them is up.
-          if (chat.keyDown(e)) return;
-          if (e.key === 'Tab' && e.shiftKey && canSetMode) {
-            e.preventDefault();
-            const next = claudeCode ? nextMode(running as PermissionMode) : nextCodexMode(running as CodexModeId);
-            setMode(next);
-            // AND IT SAYS SO OUT LOUD NOW. Cycling used to be readable off the
-            // chip in the footer, which is where somebody's eye already was.
-            // With the chip gone this key would otherwise change what an agent
-            // is allowed to do on somebody's Mac and show nothing at all.
-            announce(next);
-            return;
-          }
-          if (slashOpen) {
-            if (e.key === 'ArrowDown') { e.preventDefault(); setSlashAt((i) => (i + 1) % menuRows.length); return; }
-            if (e.key === 'ArrowUp') { e.preventDefault(); setSlashAt((i) => (i - 1 + menuRows.length) % menuRows.length); return; }
-            /*
-             * ENTER AND TAB BOTH PICK THE ROW, and neither sends: a command
-               goes into the box and waits for Send, a mode is set (pickRow).
-               ⌘↵ falls through to Send, so `/usage` typed out and sent still
-               runs in one key. */
-            if ((e.key === 'Enter' && !e.metaKey && !e.ctrlKey) || e.key === 'Tab') {
-              e.preventDefault();
-              pickRow(menuRows[slashAt] ?? menuRows[0]);
-              return;
-            }
-            if (e.key === 'Escape') {
-              e.preventDefault(); e.stopPropagation();
-              setText('');
-              return;
-            }
-          }
-          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') send();
-          if (e.key === 'Escape') {
-            e.stopPropagation();
-            if (hasDraft) ref.current?.blur();
-            else onClose();
-          }
-        }}
+        onKeyDown={boxKey}
         onPaste={async (e) => {
           const pasted = await fromPaste(e);
           if (pasted.length) { e.preventDefault(); setAttachments((a) => [...a, ...pasted]); }
@@ -2621,6 +2681,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           if (dropped.length) setAttachments((a) => [...a, ...dropped]);
         }}
       />
+      </>}
       {/* THE FILE PICKER THE ATTACH BUTTON OPENS. The box already took files by
           paste and by drop; the bar's + is the third way in, and all three end
           in the same `collectFiles` and the same row of thumbnails below. The

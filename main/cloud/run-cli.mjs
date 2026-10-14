@@ -5,10 +5,12 @@
 //
 // Same argv, env and cwd as the local run would have had. Everything it does
 // is main/cloud/run.mjs; this only connects it to the real AWS account named
-// in ~/.agentbox/cloud.json and to this account's saved Claude sign-in.
-import { cloudRun, IMPORT_FAILED } from './run.mjs';
+// in ~/.agentbox/cloud.json and names this account's cloud sign-in, which
+// lives in the cloud and is never read here (main/cloud/logins.mjs).
+import { cloudRun, IMPORT_FAILED, LOGIN_TROUBLE } from './run.mjs';
 import { awsTransport, awsStorage } from './aws.mjs';
-import { readCloudConfig, readClaudeToken, codexCloudAuth } from './config.mjs';
+import { readCloudConfig } from './config.mjs';
+import { pickCloudLogin, markCloudLogin, loginObjectKey } from './logins.mjs';
 
 const say = (m) => process.stderr.write(`agentbox cloud: ${m}\n`);
 
@@ -28,21 +30,29 @@ async function main() {
   // in the sandbox, on the Codex login CODEX_HOME names.
   const importOnly = process.argv[2] === '--agentbox-import-only';
   const codex = process.argv[2] === '--agentbox-codex';
-  const token = importOnly || codex ? null : readClaudeToken(process.env.CLAUDE_CONFIG_DIR);
-  if (!importOnly && !codex && !token) { say('this Claude account has no cloud sign-in yet (run scripts/cloud-signin.mjs)'); return 1; }
-  const codexAuth = codex ? codexCloudAuth(process.env.CODEX_HOME || `${process.env.HOME}/.codex`)?.authJson : null;
-  if (codex && !codexAuth) { say('this Codex login cannot go to the cloud right now (no ChatGPT sign-in in its folder, or one about to expire)'); return 1; }
+  const engine = codex ? 'codex' : 'claude';
+  // The cloud account it runs on: of the ones she added for this engine, the
+  // one used least recently (main/cloud/logins.mjs). Not the Mac's account:
+  // the folder below only says where the conversation is kept.
+  const rec = importOnly ? null : pickCloudLogin(engine);
+  if (!importOnly && !rec) { say(`no ${codex ? 'Codex' : 'Claude'} account is signed in for the cloud yet (the cloud button)`); return LOGIN_TROUBLE; }
+  const dir = rec?.key;
   return cloudRun({
     importOnly,
-    engine: codex ? 'codex' : 'claude',
-    codexAuth,
+    engine,
+    login: rec ? { engine, id: rec.id, key: loginObjectKey(engine, rec.id) } : null,
+    // A missing or refused login is marked so the menu asks for a new sign-in;
+    // an expired Codex one is left for the supervisor to renew.
+    onLoginTrouble: ({ state, id }) => {
+      if (state === 'expired') markCloudLogin(engine, dir, id, { expiresAt: Date.now() });
+      else markCloudLogin(engine, dir, id, { broken: state });
+    },
     remoteCommand: codex ? 'codex' : 'claude',
     argv: importOnly ? [] : process.argv.slice(codex ? 3 : 2),
     env: process.env,
     cwd: process.cwd(),
     transport: awsTransport(config),
     storage: awsStorage(config),
-    claudeToken: token,
   });
 }
 

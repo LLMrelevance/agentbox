@@ -5,6 +5,7 @@ export { streamingText, countHelpers, saidNothingSheCanUse } from './harnesses/c
 import { taskRemoteControl } from './task-remote-control.mjs';
 import { taskFolderPath, real, restoreTaskFolder } from './task-folders.mjs';
 import { SHIP_LABEL, ShipQueue, readShipSettings, shipScriptFor } from './ship-queue.mjs';
+import { MainTests } from './main-went-red.mjs';
 import { folderJob } from './task-folders-offthread.mjs';
 import { gitJob } from './git-change-offthread.mjs';
 import { queuedReplyText } from './live-replies.mjs';
@@ -38,7 +39,9 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, readMarker } from './cloud/marker.mjs';
-import { readCloudConfig, readClaudeToken, codexCloudAuth } from './cloud/config.mjs';
+import { readCloudConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
+import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey } from './cloud/logins.mjs';
+import { execFileSync } from 'node:child_process';
 import { holdUntilHome } from './cloud/codex-cloud.mjs';
 import { readCloudUsage, summarizeCloudUsage } from './cloud/usage.mjs';
 import { buildSessionArgs, CLAUDE_MODES, permissionMode } from './settings.mjs';
@@ -77,7 +80,8 @@ import { effectiveProfiles } from './account-discovery.mjs';
 import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
 import { writeChangeForRun, changePath } from './code-change.mjs';
 import { snapshotRepo, changeFromRepo } from './git-change.mjs';
-import { importedAgentBrief, importedAgentName } from '../shared/agent-import.mjs';
+import { importedAgentBrief, importedAgentName, THREAD_LABEL } from '../shared/agent-import.mjs';
+import { readTranscriptHead } from './agent-sessions.mjs';
 import { readPlan } from './claude-plan.mjs';
 import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
 import { readDeadRunTrace, traceShowsASilentDeath } from '../shared/dead-run-trace.mjs';
@@ -374,8 +378,13 @@ export class Supervisor {
         const fresh = this.store.readItem?.(item.product, item.id) ?? item;
         this.spawnWorker(fresh, { continuation: true, shipFailure: reply });
       },
-      afterShip: () => this.onShipped(),
+      afterShip: (shipped) => { this.onShipped(); this.watchMainsTests(shipped); },
     });
+    // AND THEN SOMEBODY WATCHES THE RUN THAT SHIP STARTED. The whole suite runs
+    // on GitHub for every push and takes about five minutes, which is after the
+    // agent has ended its turn, so main was red for four days in October with
+    // nobody reading the cross (main/main-went-red.mjs).
+    this.mainTests = new MainTests({ store, userDir });
     this._compactionJobs = new Map();
     this.sessions = new Map(); // itemId -> {child, product, startedAt, tail, itemId}
     // Spawns waiting on their row's folder, and folders made for the spawn that
@@ -742,9 +751,25 @@ export class Supervisor {
     return true;
   }
 
+  /**
+   * WAIT FOR THAT COMMIT'S TESTS ON GITHUB, BESIDE EVERYTHING ELSE.
+   *
+   * Nothing waits on this: no ship, no agent, no tick. It is started and
+   * dropped, every failure inside it is quiet, and the app quitting ends it
+   * wherever it had got to (`stop` below), because the next ship starts another
+   * one and a run nobody watched costs a row rather than anything real.
+   */
+  watchMainsTests(shipped) {
+    if (!shipped?.sha || !shipped?.product) return;
+    try {
+      this.mainTests.watch(shipped).catch(() => {});
+    } catch { /* a watch that cannot start is not a ship that failed */ }
+  }
+
   stop() {
     clearInterval(this._timer);
     clearInterval(this._memoryLogTimer);
+    this.mainTests?.stop();
     // The shared `codex app-server` goes with them. An orphaned one keeps every
     // thread it is holding alive after the supervisor that answers their
     // approvals has gone, which is the 2026-08-06 orphan incident in the other
@@ -1667,6 +1692,75 @@ export class Supervisor {
     if (!source) return null;
     const chat = this.rowSessionFor(source, product ?? this.store.listProducts?.().find((p) => p.slug === item.product) ?? null);
     return chat?.sessionId ? { sessionId: chat.sessionId, profile: chat.profile ?? null, sourceId } : null;
+  }
+
+  /**
+   * A CLAUDE CODE CONVERSATION THE IMPORT CARD BROUGHT IN, on its first run
+   * (GitHub #44), or null.
+   *
+   * The import card files a row labelled `thread-import` and `thread:<session
+   * id>`. That id is Claude Code's own, so the row's first run resumes it the
+   * way a fork resumes its source: with `--fork-session`, under a new id, which
+   * leaves the conversation in Claude Code exactly as it was for anybody still
+   * running it in a terminal. From then on the row has a chat of its own and
+   * this answers null.
+   *
+   * Resuming from the row's own folder works although the transcript is filed
+   * under the folder it ran in: measured on Claude Code 2.1.293, a session
+   * started in one folder and resumed by id from another remembered what it had
+   * been told. Null for everything that cannot be resumed honestly, and null is
+   * what every imported row got before: a fresh brief.
+   */
+  importedThreadFor(item, product = null) {
+    const labels = item?.labels ?? [];
+    if (!labels.includes(THREAD_LABEL)) return null;
+    const label = labels.find((l) => typeof l === 'string' && l.startsWith('thread:'));
+    const sessionId = label ? label.slice(7).trim() : '';
+    if (!sessionId) return null;
+    // Once, the same guard a fork has.
+    if (this._rowSessions?.[item.id]?.sessionId) return null;
+    // A Claude Code session id means nothing to Codex.
+    if (engineOf(this._engineFor(item)) !== 'claude') return null;
+    // Only on the login whose home holds it, and only when that login may run
+    // this project: the transcript is gone, or on the wrong account, and the
+    // row is briefed fresh rather than handed an id its account cannot find.
+    const profile = this.profileHoldingSession(sessionId, item.id, product);
+    if (!profile) return null;
+    const slug = product?.slug ?? item.product;
+    if (this._projectProfile(slug, 'claude')
+      ? !this._profileFitsProject(profile, slug, 'claude')
+      : this._profileCannotHoldAChat(profile, 'claude')) return null;
+    let folder = '';
+    try { folder = readTranscriptHead(this.transcriptFile({ sessionId, profile, engine: 'claude' })).cwd ?? ''; } catch { folder = ''; }
+    return { sessionId, profile, imported: true, folder };
+  }
+
+  /**
+   * WHAT AN IMPORTED CONVERSATION HEARS FIRST. It remembers everything it did in
+   * Claude Code and nothing about this app, so it gets the whole brief, and in
+   * front of that the two things it cannot work out alone: that it has moved,
+   * and that work it left uncommitted in its old folder is not in this one.
+   */
+  importedBrief(item, product, { continuation = false, engine = DEFAULT_ENGINE, folder = '' } = {}) {
+    const parts = [
+      `THIS CONVERSATION HAS MOVED INTO ${NAME}. The person you were working with`,
+      `brought it in as a task, ${item.id}, and is replying to you from there. Everything`,
+      'you remember is still true and none of it needs redoing. This is a copy: the',
+      'original conversation is left as it was.',
+      '',
+      ...(folder ? [
+        `You were working in ${folder}. If you are in a different folder now, anything`,
+        'you changed there and did not commit is still there and not here, so look at it',
+        `(git -C ${folder} status) before you carry on.`,
+        '',
+      ] : []),
+      'You now run inside the task below. Its brief says how to report and how to finish.',
+      '',
+      '---',
+      '',
+      this.buildBrief(item, product, { continuation, engine }),
+    ];
+    return parts.join('\n');
   }
 
   /** The base checkout: what every session used before folders existed. */
@@ -3918,20 +4012,27 @@ export class Supervisor {
     return this._cloudSignedIn.get(which);
   }
 
-  // Set up, and at least one live account of THIS engine can sign in in the
-  // cloud: a Claude account with its saved sign-in, a Codex login whose
-  // access token outlasts a run (main/cloud/config.mjs). A Mac set up but
-  // never signed in offers no cloud slot at all, rather than one every tick
-  // reaches for and then turns back from.
+  // Set up, and at least one live account of THIS engine has a working
+  // sign-in in the cloud (main/cloud/logins.mjs). A Mac set up but never
+  // signed in offers no cloud slot at all, rather than one every tick reaches
+  // for and then turns back from.
   _hasCloudSignIn(engine = DEFAULT_ENGINE) {
-    if (engineOf(engine) === 'codex') return this._liveProfilesFor('codex').some((p) => !!codexCloudAuth(this._codexProfileHome(p)));
-    return this._liveProfilesFor(DEFAULT_ENGINE).some((p) => !!readClaudeToken(this._claudeConfigDir(p)));
+    return this._cloudLoginRunnable(engineOf(engine));
+  }
+
+  // Whether any cloud account of this engine may run now. Which one a run
+  // takes is decided when it starts (main/cloud/logins.mjs pickCloudLogin);
+  // it need not be the account the thread uses on this Mac.
+  _cloudLoginRunnable(engine) {
+    const now = Date.now();
+    return listCloudLogins(engineOf(engine), { home: this.config.home }).some((r) => mayRunOn(cloudLoginState(r, { now })));
   }
 
   // WHAT THE CLOUD BUTTON SHOWS (renderer/src/cloud-menu.ts): whether this
   // Mac is set up for cloud runs at all, where threads go, how many run there
-  // now, and this month's use from the runs' own measurements. The usage file
-  // is read at most every 30 seconds; the snapshot asks on every change.
+  // now, this month's use from the runs' own measurements, the accounts she
+  // added for the cloud, and any sign-in going on. The usage file is read at
+  // most every 30 seconds; the snapshot asks on every change.
   cloudStatus() {
     const setUp = !!readCloudConfig(process.env, this.config.home);
     const mode = this.config.cloudRuns === false ? 'mac' : this.config.cloudRuns === 'all' ? 'all' : 'full';
@@ -3941,7 +4042,157 @@ export class Supervisor {
       const since = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
       this._cloudMonth = { at: now, month: summarizeCloudUsage(readCloudUsage({ home: this.config.home }), { since }) };
     }
-    return { setUp, mode, running: this._cloudLoad(), month: this._cloudMonth.month };
+    return {
+      setUp, mode, running: this._cloudLoad(), month: this._cloudMonth.month,
+      accounts: setUp ? this._cloudAccounts() : [],
+      signIns: setUp ? this._cloudSignInsNow() : [],
+    };
+  }
+
+  // THE ACCOUNTS SHE ADDED FOR THE CLOUD, of both engines, oldest first, each
+  // named by its email when the vendor said it, and with whether it can run.
+  // They are hers to choose (2026-10-14: "we shouldn't predefine which
+  // accounts to sign up with"), so they are not this Mac's accounts.
+  _cloudAccounts() {
+    const now = Date.now();
+    const out = [];
+    for (const engine of [DEFAULT_ENGINE, 'codex']) {
+      listCloudLogins(engine, { home: this.config.home }).forEach((r) => {
+        const state = cloudLoginState(r, { now });
+        out.push({ engine, key: r.key, name: r.email || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null });
+      });
+    }
+    return out;
+  }
+
+  // The sign-ins going on, or just ended, for the setup screen to draw.
+  _cloudSignInsNow() {
+    const out = [];
+    for (const [key, flow] of this._cloudSignIns ?? new Map()) {
+      const [engine, account] = key.split('|');
+      out.push({ engine, key: account, ...flow.status() });
+    }
+    return out;
+  }
+
+  // The cloud's own AWS clients, loaded only once a person signs in or a
+  // login needs renewing: a Mac that never uses the cloud never loads AWS.
+  async _cloudClients() {
+    const config = readCloudConfig(process.env, this.config.home);
+    if (!config) throw new Error('the cloud is not set up here');
+    const { awsTransport, awsStorage } = await import('./cloud/aws.mjs');
+    return { transport: awsTransport(config), storage: awsStorage(config) };
+  }
+
+  // THE CLOUD SETUP'S SIGN-IN. `start` adds a new account of an engine (or,
+  // given one of hers, signs it in again); `code` relays the code she pasted;
+  // `cancel` stops one; `remove` takes an account out of the cloud. The
+  // sign-in happens in the cloud; the Mac only relays the link, the code, and
+  // how it ended. Anything else is refused.
+  async cloudSignIn(action, engine, key, code) {
+    if (engine !== 'codex' && engine !== 'claude') throw new Error('not an engine the cloud runs');
+    const which = engineOf(engine);
+    this._cloudSignIns ??= new Map();
+    const known = (k) => typeof k === 'string' && /^acct-[a-z0-9-]{4,40}$/.test(k);
+    if (action === 'remove') {
+      if (!known(key)) throw new Error('not one of the cloud accounts');
+      const { storage } = await this._cloudClients().catch(() => ({ storage: null }));
+      await removeCloudLogin(which, key, { storage, home: this.config.home });
+      this._cloudConfigAt = 0;
+      this.onChange?.();
+      return { key };
+    }
+    if (action !== 'start' && !known(key)) throw new Error('not one of the cloud accounts');
+    if (action === 'start' && key != null && !listCloudLogins(which, { home: this.config.home }).some((r) => r.key === key)) throw new Error('not one of the cloud accounts');
+    const account = action === 'start' && key == null ? newCloudAccountKey() : key;
+    const flowKey = `${which}|${account}`;
+    const live = this._cloudSignIns.get(flowKey);
+    const going = live && !['saved', 'failed'].includes(live.status().state);
+    if (action === 'code') { if (going) await live.code(code); return { key: account }; }
+    if (action === 'cancel') { if (going) await live.cancel(); this._cloudSignIns.delete(flowKey); this.onChange?.(); return { key: account }; }
+    if (action !== 'start') throw new Error(`unknown sign-in step: ${action}`);
+    if (going) return { key: account };
+    // One sign-in at a time per engine: a second Add while one is going
+    // gives back the one going.
+    for (const [k, f] of this._cloudSignIns) {
+      if (k.startsWith(`${which}|`) && !['saved', 'failed'].includes(f.status().state)) return { key: k.split('|')[1] };
+    }
+    // Taken at once, so a second Start before the cloud answers starts nothing.
+    const held = { state: 'starting', url: null, code: null, message: null };
+    let cancelledEarly = false;
+    const holder = { status: () => held, code: async () => false, cancel: async () => { cancelledEarly = true; } };
+    this._cloudSignIns.set(flowKey, holder);
+    this.onChange?.();
+    let clients;
+    try { clients = await this._cloudClients(); } catch (err) {
+      const failed = { ...held, state: 'failed', message: `The cloud could not be reached (${err.message}).` };
+      this._cloudSignIns.set(flowKey, { status: () => failed, code: async () => false, cancel: async () => {} });
+      this.onChange?.();
+      return { key: account };
+    }
+    // Cancelled, or replaced by a newer Start, while the cloud was being
+    // reached: nothing is started (Codex's review, finding 6).
+    if (cancelledEarly || this._cloudSignIns.get(flowKey) !== holder) return { key: account };
+    const { transport, storage } = clients;
+    const flow = startCloudSignIn({
+      transport, storage, engine: which, dir: account, home: this.config.home,
+      onChange: () => this.onChange?.(),
+      onSaved: () => {
+        // The account can run in the cloud from the next tick.
+        this._cloudConfigAt = 0;
+        sweepRetiredLogins(which, account, { storage, home: this.config.home }).catch(() => {});
+        this.wake?.();
+      },
+    });
+    this._cloudSignIns.set(flowKey, flow);
+    this.onChange?.();
+    return { key: account };
+  }
+
+  // CODEX LOGINS RENEWED BEFORE THEY RUN OUT, on the supervisor's own clock
+  // and not only when a run is waiting, so one left a week still renews.
+  // At most every ten minutes; one renewal per account at a time (the fence
+  // itself is in main/cloud/logins.mjs, and survives a restart).
+  _renewCloudLogins(now = Date.now()) {
+    if (!this._cloudConfig || this.config.cloudRuns === false) return;
+    if (this._cloudRenewAt && now - this._cloudRenewAt < 10 * 60_000) return;
+    this._cloudRenewAt = now;
+    this._cloudRenewing ??= new Set();
+    for (const rec of listCloudLogins('codex', { home: this.config.home })) {
+      const dir = rec.key;
+      const state = cloudLoginState(rec, { now });
+      if ((state !== 'stale' && state !== 'renew') || this._cloudRenewing.has(dir)) continue;
+      this._cloudRenewing.add(dir);
+      this._cloudClients()
+        .then(({ transport, storage }) => renewCloudCodexLogin({ transport, storage, dir, home: this.config.home })
+          .then((out) => { if (out === 'renewed') sweepRetiredLogins('codex', dir, { storage, home: this.config.home }).catch(() => {}); return out; }))
+        .then((out) => { if (out !== 'busy') console.warn(`zero: a cloud Codex sign-in ${out === 'renewed' ? 'was renewed' : out === 'signed-out' ? 'needs signing in again' : 'could not be renewed yet'}`); })
+        .catch((e) => console.warn('zero: could not renew a cloud Codex sign-in:', e.message))
+        .finally(() => { this._cloudRenewing.delete(dir); this._cloudConfigAt = 0; this.onChange?.(); this.wake?.(); });
+    }
+  }
+
+  // A CLOUD RUN WHOSE SIGN-IN FAILED (exit 77, main/cloud/run.mjs): a
+  // transport fault, so the row waits rather than spending a try, and no
+  // strike against the account here (`noteExitForBackoff`).
+  _noteCloudLoginExit(session, code, how) {
+    if (!session.cloud || (code !== 77 && !how?.cloudLoginTrouble)) return;
+    session.transportFault = session.resultIsError = session.cloudLoginTrouble = true;
+    this._cloudConfigAt = 0;
+  }
+
+  // The first cloud build kept the app's own Claude tokens in the keychain;
+  // nothing reads them now. Deleted once per Mac, never Claude Code's own.
+  _forgetOldCloudTokens() {
+    if (this._forgotOldCloudTokens) return;
+    this._forgotOldCloudTokens = true;
+    const flag = path.join(this.config.home || os.homedir(), '.agentbox', '.old-cloud-tokens-forgotten');
+    try { if (fs.existsSync(flag)) return; } catch { return; }
+    try {
+      forgetOldCloudTokens({ home: this.config.home || os.homedir(), service: OLD_TOKEN_SERVICE, exec: (cmd, args) => execFileSync(cmd, args, { stdio: 'ignore' }) });
+      fs.mkdirSync(path.dirname(flag), { recursive: true });
+      fs.writeFileSync(flag, '');
+    } catch { /* tried */ }
   }
 
   // Where new threads go: 'all' sends them to the cloud first; anything else
@@ -4300,6 +4551,11 @@ export class Supervisor {
   // through, with nothing on screen saying why (store-demo, 2026-08-11).
   noteExitForBackoff(session, { onLine = () => {} } = {}) {
     if (session.stoppedByUs) return;
+    // A CLOUD SIGN-IN THAT STOPPED WORKING SAYS NOTHING ABOUT THIS MAC'S (exit
+    // 77, main/cloud/run.mjs): the work that was done is home, the row waits,
+    // and the account's login here is a different login, so nothing is struck
+    // against it (Codex's review of the cloud sign-ins, finding 9).
+    if (session.cloudLoginTrouble) return;
     // A CODEX RUN CANNOT STRIKE A CLAUDE ACCOUNT, and until this slice the only
     // way to be sure of that was to return here: `_noteProfileTrouble` and
     // `_strikeProfile` took `session.profile`, which was one of the Claude
@@ -4967,6 +5223,9 @@ export class Supervisor {
     try { this._noticeSignIns(); } catch (e) { console.warn('zero: could not look for a sign-in:', e.message); }
     try { this._forgetResetLimits(); } catch (e) { console.warn('zero: could not let a reset limit go:', e.message); }
     try { this._forgetRenewedSubscriptions(); } catch (e) { console.warn('zero: could not let a renewed subscription back in:', e.message); }
+    // _cloudReady reads the cloud's setup (at most once a minute) first.
+    try { this._cloudReady('codex'); this._renewCloudLogins(); } catch (e) { console.warn('zero: could not check the cloud sign-ins:', e.message); }
+    try { if (this._cloudConfig) this._forgetOldCloudTokens(); } catch { /* tried */ }
     // A COOLDOWN STOPS THE SPAWNING AND IT MUST NOT STOP THE TELLING. The brake
     // goes on when there is no healthy account left anywhere, for up to half an
     // hour, which is precisely the half hour her tasks are all stuck and the
@@ -5558,7 +5817,11 @@ export class Supervisor {
     // mints a new id and leaves the original thread exactly as it was. The
     // moment this row has a chat of its own, `rowChat` answers first and
     // nothing ever forks twice.
-    const forkFrom = !rowChat && !resumeSessionId ? this.forkSourceFor(item, product) : null;
+    // A CONVERSATION BROUGHT IN FROM CLAUDE CODE is the same fork with the
+    // source outside the app (`importedThreadFor`, GitHub #44).
+    const forkFrom = !rowChat && !resumeSessionId
+      ? (this.forkSourceFor(item, product) ?? this.importedThreadFor(item, product))
+      : null;
     const resumeIdOnDisk = resumeSessionId ?? rowChat?.sessionId ?? forkFrom?.sessionId ?? null;
     // AND WHICH SUBSCRIPTION IT LIVES ON. A resume is only a resume on the
     // account that started it: the transcript sits under that profile's home
@@ -5613,6 +5876,7 @@ export class Supervisor {
     // A FORK IS NOT AN INTERRUPTED SESSION AND MUST NOT BE TOLD IT IS. It is
     // the old conversation under a new id, on a new row, and the one thing it
     // cannot work out for itself is that it has moved.
+    else if (forkFrom?.imported) prompt = this.importedBrief(item, product, { continuation, engine, folder: forkFrom.folder });
     else if (forkFrom) prompt = this.forkBrief(item, { product, from: forkFrom.sourceId });
     else prompt = resumeId ? this.resumeBrief(item, { continuation, product }) : this.buildBrief(item, product, { continuation, engine });
     // A BRANCH THE APP COULD NOT SHIP (main/ship-queue.mjs) goes back to the
@@ -7458,11 +7722,10 @@ export class Supervisor {
     const model = engineOf(engine) === 'codex' ? this._codexModelWord(plan) : null;
     const profile = pinned ?? forcedProfile ?? plan.resumeProfile ?? this._pickProfile(engine, { model });
     // A CLOUD RUN RUNS ON THIS ACCOUNT'S OWN SUBSCRIPTION, through the sign-in
-    // scripts/cloud-signin.mjs saved for it. An account without one runs here
-    // when there is room, and otherwise waits; it never runs on another's.
-    const cloudSignIn = (engine === 'codex')
-      ? !!codexCloudAuth(this._codexProfileHome(profile))
-      : !!readClaudeToken(this._claudeConfigDir(profile));
+    // it made in the cloud (main/cloud/logins.mjs). An account without a
+    // working one runs here when there is room, and otherwise waits; it never
+    // runs on another's.
+    const cloudSignIn = this._cloudLoginRunnable(engine);
     if (where === 'cloud' && !cloudSignIn) {
       if (!this._warnedNoCloudSignIn?.has(`${engine}:${profile}`)) {
         (this._warnedNoCloudSignIn ??= new Set()).add(`${engine}:${profile}`);
@@ -7789,6 +8052,7 @@ export class Supervisor {
       if (how?.transportFault) session.transportFault = true;
       // Cloud work not home (exit 75): not finished here (main/cloud/run.mjs).
       if (session.cloud && code === 75) { session.transportFault = session.resultIsError = true; }
+      this._noteCloudLoginExit(session, code, how);
       this.memoryGateTurnEnded(session);
       session.exitFailed = !!(signal || code !== 0 || session.transportFault || session.resultIsError || session.result == null);
       this.count?.('run_finished', runEndedProps(session, Date.now()));

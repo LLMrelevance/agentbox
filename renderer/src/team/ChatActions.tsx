@@ -12,6 +12,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { EMOJI_GROUPS, findEmoji } from './emoji-list';
+import { chipPressed, quickRow, readRecent, rememberEmoji } from './recent-emoji';
 import './chat.css';
 
 // THE EMOJI ON OFFER FIRST: the ones a working chat actually uses, one press
@@ -65,10 +66,14 @@ export function EmojiPick({ onPick, onClose, title = 'React' }: {
     const r = box.current?.getBoundingClientRect();
     if (r) setAll(placeEvery(r));
   };
+  // YOUR RECENT ONES FIRST (./recent-emoji.ts), read as the plate opens, and
+  // every pick from here or the full list is remembered.
+  const [recent] = useState(readRecent);
+  const pick = (emoji: string) => { rememberEmoji(emoji); onPick(emoji); };
   return (
     <div className="chat-emoji" ref={box} role="group" aria-label={title}>
-      {CHAT_EMOJI.map((emoji) => (
-        <button key={emoji} type="button" className="chat-emoji-one" title={emoji} onClick={() => onPick(emoji)}>
+      {quickRow(recent, CHAT_EMOJI).map((emoji) => (
+        <button key={emoji} type="button" className="chat-emoji-one" title={emoji} onClick={() => pick(emoji)}>
           {emoji}
         </button>
       ))}
@@ -77,7 +82,7 @@ export function EmojiPick({ onPick, onClose, title = 'React' }: {
           <path d="M8 3v10M3 8h10" />
         </svg>
       </button>
-      {all && createPortal(<EveryEmoji onPick={onPick} at={all} boxRef={every} />, document.body)}
+      {all && createPortal(<EveryEmoji onPick={pick} at={all} boxRef={every} recent={recent} />, document.body)}
     </div>
   );
 }
@@ -88,10 +93,12 @@ export function EmojiPick({ onPick, onClose, title = 'React' }: {
  * short list: the group jumps are drawn grey until pointed at, so the only
  * colour in the panel is the emoji you are choosing between.
  */
-export function EveryEmoji({ onPick, at, boxRef }: {
+export function EveryEmoji({ onPick, at, boxRef, recent = [] }: {
   onPick: (emoji: string) => void;
   at?: CSSProperties;
   boxRef?: RefObject<HTMLDivElement>;
+  /** Yours, newest first, drawn above the groups as Slack draws them. */
+  recent?: string[];
 }) {
   const [typed, setTyped] = useState('');
   const [jumpTo, setJumpTo] = useState<string | null>(null);
@@ -132,12 +139,22 @@ export function EveryEmoji({ onPick, at, boxRef }: {
           ? (found.length
             ? <div className="chat-emoji-grid">{found.map(cell)}</div>
             : <div className="chat-emoji-none">No emoji for “{typed.trim()}”</div>)
-          : EMOJI_GROUPS.map((group) => (
-            <section key={group.name} data-group={group.name}>
-              <div className="chat-emoji-group">{group.name}</div>
-              <div className="chat-emoji-grid">{group.emoji.map(cell)}</div>
-            </section>
-          ))}
+          : <>
+            {recent.length > 0 && (
+              <section data-group="Recent">
+                <div className="chat-emoji-group">Recent</div>
+                <div className="chat-emoji-grid">{recent.map((emoji) => (
+                  <button key={emoji} type="button" className="chat-emoji-cell" title={emoji} onClick={() => onPick(emoji)}>{emoji}</button>
+                ))}</div>
+              </section>
+            )}
+            {EMOJI_GROUPS.map((group) => (
+              <section key={group.name} data-group={group.name}>
+                <div className="chat-emoji-group">{group.name}</div>
+                <div className="chat-emoji-grid">{group.emoji.map(cell)}</div>
+              </section>
+            ))}
+          </>}
       </div>
     </div>
   );
@@ -172,7 +189,7 @@ export function Reactions({ on, me, onReact }: {
             className={`chat-chip${mine ? ' mine' : ''}`}
             aria-pressed={mine}
             title={mine ? `You and ${who.length - 1} other${who.length === 2 ? '' : 's'}` : `${who.length}`}
-            onClick={() => onReact(emoji, mine)}
+            onClick={() => { chipPressed(emoji, mine); onReact(emoji, mine); }}
           >
             <span className="chat-chip-emoji">{emoji}</span>
             <span className="chat-chip-count">{who.length}</span>
