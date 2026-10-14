@@ -58,7 +58,8 @@ describe('the git remote the sandbox may fetch from', () => {
     expect(remoteForTheCloud('https://github.com/someone/repo.git')).toBe('https://github.com/someone/repo.git');
   });
   it('drops the credentials an https remote carries', () => {
-    expect(remoteForTheCloud('https://user:ghp_secret@github.com/someone/repo.git')).toBe('https://github.com/someone/repo.git');
+    // A made-up key, the one this test proves never reaches the sandbox.
+    expect(remoteForTheCloud('https://user:ghp_secret@github.com/someone/repo.git')).toBe('https://github.com/someone/repo.git'); // public-check: allow
   });
   it('turns an ssh remote into its https twin, since the sandbox holds no keys', () => {
     expect(remoteForTheCloud('git@github.com:someone/repo.git')).toBe('https://github.com/someone/repo.git');
