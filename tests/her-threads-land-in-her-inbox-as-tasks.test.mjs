@@ -240,10 +240,15 @@ describe('what the imported row says to her', () => {
     expect(startedIn('desktop')).toBe('in the Claude Code desktop app');
   });
 
-  it('says it does not carry the conversation on, because she chose that', () => {
-    expect(row.body).toContain('replying starts a fresh session rather than carrying the old one on');
-    expect(row.body).toContain(`${Name} has not read the conversation`);
-    expect(row.body).toContain(`${NAME} runs it here in ${NAME}`);
+  // It used to say the opposite: that the app had not read the conversation and
+  // a reply started fresh. GitHub #44 asked for the conversation to carry on,
+  // and the first reply now resumes it as a copy
+  // (an-imported-claude-code-thread-carries-on-its-conversation.test.mjs).
+  it('says the reply carries the conversation on, and that the original is left alone', () => {
+    expect(row.body).toContain(`${NAME} picks this conversation up where you left it here in ${NAME}`);
+    expect(row.body).toContain('the original stays as it was');
+    expect(row.body).not.toContain('has not read the conversation');
+    expect(row.body).not.toContain('fresh session');
   });
 
   it('waits for her rather than starting on its own', () => {

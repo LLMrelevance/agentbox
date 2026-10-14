@@ -31,6 +31,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { mediaResponse, mediaType } from './img-scheme.mjs';
+import { readPictureShape } from './picture-shape.mjs';
 import { loadConfig } from './config.mjs';
 import { Store } from './store.mjs';
 import { Supervisor } from './supervisor.mjs';
@@ -254,14 +255,24 @@ const MIME = {
  */
 async function answerFile(req, res, url, { token, files }) {
   const [, , key, kind, ...rest] = url.pathname.split('/');
-  if (kind !== 'doc' && kind !== 'img') { res.writeHead(404).end('No such kind of file.'); return; }
+  if (kind !== 'doc' && kind !== 'img' && kind !== 'shape') { res.writeHead(404).end('No such kind of file.'); return; }
   if (!sameKey(key, fileKey(typeof token === 'function' ? token() : token))) { res.writeHead(403).end('Wrong key.'); return; }
   let file;
   try { file = path.normalize('/' + rest.map(decodeURIComponent).join('/')); } catch { res.writeHead(400).end('Bad path.'); return; }
-  if (!path.isAbsolute(file) || !files.allows(kind, file)) { res.writeHead(403).end('Not available.'); return; }
+  // A shape is asked of a picture, under the picture's own rule.
+  if (!path.isAbsolute(file) || !files.allows(kind === 'shape' ? 'img' : kind, file)) { res.writeHead(403).end('Not available.'); return; }
   let stat;
   try { stat = await fs.promises.stat(file); } catch { res.writeHead(404).end('Not there.'); return; }
   if (!stat.isFile()) { res.writeHead(404).end('Not there.'); return; }
+  // ITS WIDTH AND HEIGHT, so a picture the phone has never seen holds its
+  // place before its last byte comes (main/picture-shape.mjs).
+  if (kind === 'shape') {
+    const shape = await readPictureShape(file).catch(() => null);
+    if (!shape) { res.writeHead(404).end('Not a picture this can measure.'); return; }
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(shape));
+    return;
+  }
   const media = mediaType(file);
   if (media) {
     const out = await mediaResponse(file, req.headers.range);

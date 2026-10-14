@@ -672,6 +672,15 @@ function ownFolder(root, name, given) {
 }
 
 /**
+ * AND STILL ON THE TASK'S OWN BRANCH, asked right before anything is committed
+ * or removed. The path alone was not proof (GitHub issue #43: another tool's
+ * worktree sat at the same path), and a folder an agent moved off its branch
+ * would be committed onto the wrong one, or, on no branch at all, onto nothing
+ * and then deleted.
+ */
+const onItsOwnBranch = (root, folder, name) => record(root, folder)?.branch === taskBranch(name);
+
+/**
  * Give the folder back when the session is done with it. Removal is the rare
  * case on purpose: it happens when the work is already in main and nothing is
  * uncommitted. Every other answer names what is in the way, so the app can say
@@ -684,6 +693,7 @@ export function releaseTaskFolder(dir, id, { pid = process.pid, path: given = nu
   const folder = ownFolder(root, name, given);
   if (!folder) return { removed: false, reason: 'not-ours', path: given };
   if (!fs.existsSync(folder)) return { removed: false, reason: 'gone' };
+  if (!onItsOwnBranch(root, folder, name)) return { removed: false, reason: 'not-ours', path: folder };
 
   // Whose folder this is, asked in the one place that knows (`holder`). A lock
   // naming a process that has exited is not a claim on anything, and sweeping
@@ -749,6 +759,7 @@ export function parkTaskFolder(dir, id, { pid = process.pid, path: given = null 
   const folder = ownFolder(root, name, given);
   if (!folder) return { parked: false, reason: 'not-ours', path: given };
   if (!fs.existsSync(folder)) return { parked: false, reason: 'gone' };
+  if (!onItsOwnBranch(root, folder, name)) return { parked: false, reason: 'not-ours', path: folder };
 
   const owner = holder(root, folder, pid);
   if (!owner.ok) return { parked: false, reason: owner.reason, heldBy: owner.heldBy, path: folder };
@@ -840,9 +851,12 @@ export function restoreTaskFolder(dir, id, { pid = process.pid } = {}) {
  * Only the second is ever parked or removed, and the first is what lets a person
  * see what is holding their disk.
  *
- * `ours` IS PROOF BY LOCATION, and the location is the app's own. Nothing but
- * `ensureTaskFolder` puts a folder at `<primary>/.claude/worktrees/<task name>`,
- * so a folder there was made here. It is deliberately not inferred from the lock
+ * `ours` IS PROOF BY LOCATION AND BRANCH. The location alone is not enough:
+ * Claude Code's desktop app makes its worktrees at that same
+ * `<primary>/.claude/worktrees/<name>`, on `claude/<name>`, and the sweep parked
+ * and removed three of them with live sessions in them (GitHub issue #43). So a
+ * folder there is ours only when it is also on a branch `taskBranch` names; one
+ * on any other branch, or on none, is a stray. It is deliberately not inferred from the lock
  * (dropped on the way to every removal) or from a marker file (which an agent
  * working in the folder could delete, turning a folder the app made into one it
  * will never reclaim).
@@ -882,7 +896,8 @@ export function inventoryWorktrees(dir) {
       // the app's bookkeeping to tidy, and is nothing anybody may act on.
       atOurPath: path.dirname(at) === home && couldBeATaskName(name),
       ours: !unfinished && !missing && !w.prunable
-        && path.dirname(at) === home && couldBeATaskName(name),
+        && path.dirname(at) === home && couldBeATaskName(name)
+        && String(w.branch ?? '').startsWith(BRANCH_PREFIX),
     };
   });
 }

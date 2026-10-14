@@ -121,7 +121,9 @@ export function useChatMentions({ on, where, text, setText, input, people }: {
     const at = el.selectionStart;
     const hit = mentions.findIndex((m) => at > m.start && at <= m.end);
     if (hit < 0) { setCardFor(null); return; }
-    const chip = layer.current?.querySelector<HTMLElement>(`[data-mention="${hit}"]`);
+    // In the chat's editor the chip is drawn on the words themselves
+    // (./chat-editor.ts), so it is found in the card rather than in the layer.
+    const chip = (layer.current ?? el.closest('.dock-card'))?.querySelector<HTMLElement>(`[data-mention="${hit}"]`);
     const card = el.closest('.dock-card')?.getBoundingClientRect();
     setCardX(chip && card ? Math.max(0, chip.getBoundingClientRect().left - card.left - 4) : 12);
     setCardFor(hit);

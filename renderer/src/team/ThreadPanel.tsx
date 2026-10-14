@@ -21,8 +21,9 @@ import { clock } from '../thread-history';
 import { THREAD_WIDTH, threadLine } from './chat-threads';
 import { holdTheEdge } from './hold-the-edge';
 import { FormatBar } from './FormatBar';
+import { RichReply } from './RichReply';
 import { AttachRow } from '../components/AttachRow';
-import { collectFiles, fromPaste, persistAttachments, type PendingAttachment } from '../attachments';
+import { collectFiles, persistAttachments, type PendingAttachment } from '../attachments';
 import type { AgentTurn } from '../types';
 import './chat.css';
 
@@ -54,7 +55,7 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
   const me = team?.me ?? null;
   const panel = useRef<HTMLElement>(null);
   const body = useRef<HTMLDivElement>(null);
-  const box = useRef<HTMLTextAreaElement>(null);
+  const box = useRef<HTMLTextAreaElement | null>(null);
   const [draft, setDraft] = useState('');
   // A PICTURE GOES IN HERE THE WAYS IT GOES INTO THE CHAT'S OWN BOX
   // (w-140ac855b1): pasted, dropped, or picked with the paperclip. This box
@@ -113,11 +114,13 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
     onSend(text);
   };
   const ready = !!draft.trim() || attachments.length > 0;
-  const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
+  // True when the key was taken, so the editor does not also act on it.
+  const onKey = (e: globalThis.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); return true; }
     // Escape leaves the thread, and goes no further: the page behind it would
     // otherwise take the same key as "leave this conversation".
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); return true; }
+    return false;
   };
 
   // THE LEFT EDGE DRAGS, like Slack's. The panel's right edge is the pane's, so
@@ -152,7 +155,7 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
             <span className="msg-who">{mine ? 'You' : person?.name ?? 'A teammate'}</span>
             <span className="msg-when">{clock(e.at)}</span>
           </div>
-          <ChatFold>{md(e.text ?? '')}</ChatFold>
+          <ChatFold lines>{md(e.text ?? '')}</ChatFold>
           {e.uid && (
             <Reactions on={reactions?.[e.uid]} me={me} onReact={(emoji, off) => onReact?.(e.uid!, emoji, off)} />
           )}
@@ -215,17 +218,19 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
               attached under the words, then the chat's formatting bar on the
               left of a footer and Send at its right, which is the chat's reply
               box and Slack's thread box both. */}
-          <textarea
-            ref={box}
-            rows={3}
+          {/* THE SAME EDITOR AS THE CHAT'S OWN BOX (w-0d55a2b160): ⌘B bolds,
+              pasted rich text keeps its bold. Return sends here, as it did. */}
+          <RichReply
+            className="chat-thread-input"
+            boxRef={box}
             value={draft}
+            onChange={setDraft}
             placeholder="Reply in thread…"
-            aria-label="Reply in thread"
-            onChange={(e) => setDraft(e.target.value)}
+            label="Reply in thread"
             onKeyDown={onKey}
-            onPaste={async (e) => {
-              const pasted = await fromPaste(e);
-              if (pasted.length) { e.preventDefault(); setAttachments((a) => [...a, ...pasted]); }
+            onFiles={async (files) => {
+              const got = await collectFiles(files);
+              if (got.length) setAttachments((a) => [...a, ...got]);
             }}
           />
           <AttachRow attachments={attachments} onRemove={(i) => setAttachments((x) => x.filter((_, j) => j !== i))} />

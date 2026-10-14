@@ -106,6 +106,10 @@ export const REQUEST_CHANNELS = {
   claudeAddAccount: 'zero:claude-add-account',
   setProjectSetting: 'zero:settings-set-project',
   setWorkspaceSetting: 'zero:settings-set-workspace',
+  // The cloud setup's sign-in for one account, made in the cloud (main/cloud/logins.mjs).
+  cloudSignIn: 'zero:cloud-signin',
+  // Claude's sign-in code, read from the clipboard while one is waiting for it.
+  cloudClipboardCode: 'zero:cloud-clipboard-code',
   projectRename: 'zero:project-rename',
   projectArchive: 'zero:project-archive',
   projectSeenBy: 'zero:project-seen-by',
