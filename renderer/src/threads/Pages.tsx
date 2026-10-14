@@ -169,14 +169,15 @@ function CloudButton({ cloud, onMode, onSetUp }: { cloud: CloudStatus; onMode?: 
   // above greyed choices), and the button wears the accent dot the filters
   // button uses. Once some are set up, one line says how many are left.
   // Picking a choice never opens a screen by itself.
-  const nobodyReady = !(cloud.accounts || []).some((a) => a.ready);
-  const setup = menuSetupLine({ ...cloud, mode: cloud.mode === 'mac' ? 'full' : cloud.mode });
+  const accounts = cloud.accounts || [];
+  const nobodyReady = !accounts.length;
+  const setup = menuSetupLine(cloud);
   const goSetUp = () => { setOpen(false); onSetUp?.(); };
   return <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
     <button type="button" className={`th-disp th-cloud${count ? ' count' : ''}${open ? ' open' : ''}`}
       aria-label={count ? `Cloud, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : 'Cloud'} title="Where threads run"
       onClick={() => setOpen((o) => !o)}>
-      <CloudIcon />{count && <b>{count}</b>}{!count && setup && <i />}
+      <CloudIcon />{count && <b>{count}</b>}{!count && (nobodyReady || setup) && <i />}
     </button>
     {open && nobodyReady && <div className="th-pop th-cloud-pop th-cloud-invite" role="dialog" aria-label={SETUP.inviteHead}>
       <span className="th-cloud-invite-ic"><CloudIcon /></span>
@@ -195,6 +196,10 @@ function CloudButton({ cloud, onMode, onSetUp }: { cloud: CloudStatus; onMode?: 
       </span></div>
       <div className="line th-cloud-note"><span className="lab" /><span>{picked.note}</span></div>
       <div className="rule" />
+      <div className="line th-cloud-setup"><span className="lab">Accounts</span><span className="th-cloud-setup-row">
+        <span className="th-cloud-setup-say">{SETUP.menuAccounts(accounts.length)}</span>
+        <button type="button" className="th-cloud-manage" onClick={goSetUp}>{SETUP.menuManage}</button>
+      </span></div>
       <div className="line"><span className="lab">This month</span><span className="th-cloud-use">{cloudMonthLine(cloud.month)}</span></div>
       <div className="rule" />
       <div className="foot"><span>{cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now'}</span></div>

@@ -1116,10 +1116,17 @@ export const api = {
   },
 
   /** The cloud menu's sign-in for one account, made in the cloud: start, paste Claude's code, or cancel. */
-  async cloudSignIn(p: { action: 'start' | 'code' | 'cancel'; engine: 'claude' | 'codex'; profile: string; code?: string }): Promise<{ ok: boolean; error?: string }> {
+  async cloudSignIn(p: { action: 'start' | 'code' | 'cancel' | 'remove'; engine: 'claude' | 'codex'; key?: string | null; code?: string }): Promise<{ ok: boolean; key?: string | null; error?: string }> {
     const zero = window.zero as any;
     if (!zero?.cloudSignIn) return { ok: false, error: RESTART_NOTE };
     return zero.cloudSignIn(p);
+  },
+
+  /** Claude's sign-in code from the clipboard, while a sign-in waits for one; else null. */
+  async cloudClipboardCode(): Promise<string | null> {
+    const zero = window.zero as any;
+    if (!zero?.cloudClipboardCode) return null;
+    try { return (await zero.cloudClipboardCode())?.code ?? null; } catch { return null; }
   },
 
   async setWorkspaceSetting(p: { key: string; value: unknown }): Promise<Settings> {

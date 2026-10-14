@@ -351,7 +351,7 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
                     {headFacts(e, clock(e.at))}
                   </div>
                 )}
-                <ChatFold>{md(e.text ?? '')}</ChatFold>
+                <ChatFold lines={e.who === 'you'}>{md(e.text ?? '')}</ChatFold>
                 {/* THE CHIPS, AND THE BAR WHEN YOU POINT AT IT (w-560647d4db).
                     Both hang off the message's own uid, which is the name the
                     store keeps a reaction under and the only name a message has

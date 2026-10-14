@@ -1,4 +1,11 @@
-// EACH ACCOUNT'S CLOUD SIGN-IN, AS THE MAC KNOWS IT: BY NAME, NEVER BY CONTENT.
+// THE CLOUD'S ACCOUNTS, AS THE MAC KNOWS THEM: BY NAME, NEVER BY CONTENT.
+//
+// A cloud account is one a person ADDED for the cloud, signed in through the
+// vendor's own page, and it need not be any account this Mac uses (2026-10-14:
+// "we shouldn't predefine which accounts to sign up with ... maybe I want to
+// sign in with my work account"). Each is filed under a key of its own
+// (`acct-…`), and a cloud run of an engine takes whichever of that engine's
+// accounts was used least recently (`pickCloudLogin`).
 //
 // docs/cloud/PLAN.md, "Sign-ins live in the cloud". A person signs in to
 // Claude or Codex inside a cloud sandbox, through the vendor's own sign-in,
@@ -34,7 +41,10 @@ const LINK_SECONDS = 30 * 60;
 
 export const loginObjectKey = (engine, id) => `logins/${engine}/${id}.json`;
 export const cloudLoginsPath = (home = os.homedir()) => path.join(home, '.agentbox', 'cloud-logins.json');
-const accountOf = (engine, dir) => `${engine}:${path.resolve(dir)}`;
+// The key is the account's own (`acct-…`), or, in older notes and tests, a
+// folder; either way it is used exactly as given.
+const accountOf = (engine, key) => `${engine}:${key}`;
+export const newCloudAccountKey = () => `acct-${crypto.randomUUID().slice(0, 8)}`;
 
 export function readCloudLogins({ home = os.homedir() } = {}) {
   try {
@@ -90,7 +100,7 @@ export function recordCloudLogin(engine, dir, { id, savedAt = Date.now(), expire
   const was = all[key];
   const retired = [...(was?.retired || [])];
   if (was?.id && was.id !== id) retired.push({ id: was.id, at: now });
-  all[key] = { engine, dir: path.resolve(dir), id, savedAt, expiresAt, email: email ?? was?.email ?? null, broken: null, renewing: null, retired };
+  all[key] = { engine, key: dir, id, savedAt, expiresAt, email: email ?? was?.email ?? null, broken: null, renewing: null, lastUsedAt: was?.lastUsedAt ?? null, retired };
   writeCloudLogins(all, { home });
   return all[key];
   });
@@ -122,6 +132,48 @@ export function cloudLoginState(rec, { now = Date.now() } = {}) {
 }
 
 export const mayRunOn = (state) => state === 'ready' || state === 'stale';
+
+// Every cloud account of an engine, oldest first.
+export function listCloudLogins(engine, { home = os.homedir() } = {}) {
+  return Object.values(readCloudLogins({ home }))
+    .filter((r) => r && r.engine === engine && r.id)
+    .map((r) => ({ ...r, key: r.key ?? r.dir }))
+    .sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0));
+}
+
+// THE ACCOUNT A CLOUD RUN USES: of this engine's accounts that may run, the
+// one used least recently, so runs spread over every account she added. Its
+// use is written down in the same step, so two runs starting together take
+// two accounts when there are two.
+export function pickCloudLogin(engine, { home = os.homedir(), now = Date.now() } = {}) {
+  return withLock(home, () => {
+    const all = readCloudLogins({ home });
+    const ready = Object.entries(all)
+      .filter(([, r]) => r?.engine === engine && mayRunOn(cloudLoginState(r, { now })))
+      .sort(([, a], [, b]) => (a.lastUsedAt || 0) - (b.lastUsedAt || 0));
+    if (!ready.length) return null;
+    const [k, r] = ready[0];
+    all[k] = { ...r, lastUsedAt: now };
+    writeCloudLogins(all, { home });
+    return { ...all[k], key: r.key ?? r.dir };
+  });
+}
+
+// An account she took out of the cloud. Its object goes too, and every older
+// one it replaced (main/cloud/logins.mjs keeps them only for runs under way).
+export async function removeCloudLogin(engine, key, { storage, home = os.homedir() } = {}) {
+  const rec = cloudLoginFor(engine, key, { home });
+  if (!rec) return false;
+  withLock(home, () => {
+    const all = readCloudLogins({ home });
+    delete all[accountOf(engine, key)];
+    writeCloudLogins(all, { home });
+  });
+  for (const id of [rec.id, ...(rec.retired || []).map((r) => r.id)]) {
+    await Promise.resolve(storage?.del?.(loginObjectKey(engine, id))).catch(() => {});
+  }
+  return true;
+}
 
 // Delete what newer sign-ins replaced, once their grace is over. Never the
 // current one.

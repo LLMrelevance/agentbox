@@ -111,6 +111,9 @@ export function createSandbox({
   // a Mac, whose `script` takes other flags, passes a plain shell.
   terminal = linuxTerminal,
   signinMs = SIGNIN_MS,
+  // Which Claude account a new token belongs to, so the Mac can name it.
+  // Best effort: a token that cannot say is kept all the same, unnamed.
+  whoIs = claudeAccountEmail,
 } = {}) {
   const at = (p) => (pathRoot ? path.join(pathRoot, p) : p);
   let run = null;
@@ -516,7 +519,8 @@ export function createSandbox({
     const check = await scratchFor(r, 'check');
     const out = await quiet(['claude', '-p', 'Reply with the single word: ok', '--max-turns', '1'], { cwd: check, env: ownEnv({ CLAUDE_CODE_OAUTH_TOKEN: token, CLAUDE_CONFIG_DIR: check }), timeoutMs: 120_000 });
     if (out.code !== 0 || !/ok/i.test(out.stdout)) return failSignin(r, 'Claude refused the new sign-in; nothing was kept.');
-    await saveLogin(r, { engine: 'claude', token, savedAt: Date.now() }, { expiresAt: null });
+    const email = await Promise.resolve(whoIs(token, fetchImpl)).catch(() => null);
+    await saveLogin(r, { engine: 'claude', token, savedAt: Date.now() }, { expiresAt: null, email: typeof email === 'string' ? email : null });
   }
 
   async function finishCodex(r) {
@@ -991,6 +995,20 @@ function heldTail(text, secrets) {
     }
   }
   return keep;
+}
+
+// The email of the Claude account a token signs in, asked of Anthropic the
+// way Claude Code asks for its own; null when it will not say.
+async function claudeAccountEmail(token, fetchImpl = globalThis.fetch) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 5000);
+  try {
+    const res = await fetchImpl('https://api.anthropic.com/api/oauth/profile', { headers: { Authorization: `Bearer ${token}`, 'anthropic-beta': 'oauth-2025-04-20' }, signal: ctl.signal });
+    if (!res.ok) return null;
+    const j = await res.json();
+    const e = j?.account?.email_address ?? j?.account?.email ?? j?.email ?? null;
+    return typeof e === 'string' && e.includes('@') ? e : null;
+  } catch { return null; } finally { clearTimeout(t); }
 }
 
 // Whether any commit in these ranges carries a login's text.

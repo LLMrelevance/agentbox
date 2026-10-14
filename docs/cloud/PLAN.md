@@ -306,7 +306,19 @@ holds goes to the cloud when a cloud slot is free (`_roomFor`).
 
 ### What the user sees
 
-Setting up (approved 2026-10-14): until an account can run in the cloud, the
+THE CLOUD'S ACCOUNTS ARE THE ONES SHE ADDS (2026-10-14, after her first real
+try: "we shouldn't predefine which accounts to sign up with ... maybe I want
+to sign in with my work account"). A cloud account is filed under its own key
+(`acct-…`), named by its email when the vendor says it (Codex always; Claude
+when Anthropic's profile answers), and a cloud run of an engine takes the one
+of that engine's accounts used least recently (`pickCloudLogin`). The Mac's
+own accounts only decide where a conversation is kept. Claude's code comes
+back from the clipboard by itself the moment she returns to the app (only
+while a Claude sign-in waits for one, and only text shaped like one), because
+on that try she approved on Claude's page and waited, not seeing that the code
+had to come back.
+
+Setting up (approved 2026-10-14, then reworked the same day): until an account can run in the cloud, the
 cloud button wears the accent dot and its menu is one invitation, "Set up the
 cloud". That opens a full screen (renderer/src/components/CloudSetup.tsx): what
 the cloud gives and which accounts will sign in, then one screen per account
