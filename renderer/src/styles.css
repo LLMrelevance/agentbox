@@ -1977,7 +1977,8 @@ body {
    columns; a block table still lays its cells out as a table. */
 .markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 14px 0; font-size: 14px; line-height: 1.45; }
 .markdown th, .markdown td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; vertical-align: top; }
-.markdown th { background: var(--bg-raised); font-weight: 650; }
+/* Half the raised grey: the full one pulled the eye to the header first. */
+.markdown th { background: color-mix(in srgb, var(--bg-raised) 50%, transparent); font-weight: 650; }
 .markdown td:first-child { font-weight: 600; }
 .inline-image { max-width: 100%; border-radius: 0; border: 1px solid var(--line); margin: 8px 0; }
 

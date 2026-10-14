@@ -9,7 +9,7 @@
 // five-column answer in the built interface, full screen in dark mode, before
 // and after: before there were no borders and every cell sat mid-row.
 //
-// The fix is the grid: a line round every cell, the header on a raised band,
+// The fix is the grid: a line round every cell, the header on a soft band,
 // everything read from the top-left, and a wide table scrolls sideways rather
 // than crushing its columns.
 import fs from 'node:fs';
@@ -53,8 +53,10 @@ describe('a table in a message', () => {
     }
   });
 
-  it('puts the header on a raised band, and not the body', () => {
-    expect(declarationsFor('.markdown th').background).toBe('var(--bg-raised)');
+  // The full raised grey read as "a little too prominent"; she approved it at
+  // half strength.
+  it('puts the header on a half-strength raised band, and not the body', () => {
+    expect(declarationsFor('.markdown th').background).toBe('color-mix(in srgb, var(--bg-raised) 50%, transparent)');
     expect(declarationsFor('.markdown td').background).toBeUndefined();
   });
 
