@@ -44,8 +44,14 @@ describe('the board on a phone', () => {
     expect(rule(':root:root:root .th-board-wrap')).toMatch(/height:\s*100%/);
   });
 
-  it('keeps a column\'s heading in view while its cards scroll', () => {
-    expect(rule(':root:root:root .th-col-h')).toMatch(/position:\s*sticky/);
+  // A sticky heading needed a fill to hide the cards under it, and that fill
+  // was a dark band over the page's own warm background ("this weird black
+  // background on Needs You and In Progress", 2026-10-13). So nothing on the
+  // board paints a background the desktop board does not.
+  it('paints no background of its own behind a column or its heading', () => {
+    const board = phone.slice(phone.indexOf('/* THE BOARD SWIPES SIDEWAYS'), phone.indexOf('/* An open task:')).replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(board).not.toMatch(/background/);
+    expect(board).not.toMatch(/position:\s*sticky/);
   });
 
   it('the desktop board is untouched', () => {
