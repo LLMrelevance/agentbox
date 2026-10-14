@@ -41,6 +41,20 @@ export function waitingCounts<T extends Pick<WorkItem, 'id' | 'product' | 'statu
   return out;
 }
 
+/**
+ * ONE LINE OF WHAT A PROPOSAL IS FOR (w-fcb5fdc2e5), drawn under its name so
+ * you can answer it without opening it. Its body's first paragraph, without
+ * the title repeated at its head or the markdown marks, cut at a word.
+ */
+export function proposalLine(item: { title: string; body?: string | null }, max = 180): string {
+  const title = item.title.trim();
+  let body = (item.body ?? '').trim();
+  if (title && body.startsWith(title)) body = body.slice(title.length).replace(/^[\s.:;,\-–—]+/, '');
+  const first = (body.split(/\n\s*\n/)[0] ?? '').replace(/[#*_`>]+/g, '').replace(/\s+/g, ' ').trim();
+  if (first.length <= max) return first;
+  return `${first.slice(0, max).replace(/\s+\S*$/, '').replace(/[\s.,;:]+$/, '')}…`;
+}
+
 /** "2 tasks to approve", or nothing. */
 export const toApproveWords = (n: number | undefined): string => (n ? `${n} task${n === 1 ? '' : 's'} to approve` : '');
 

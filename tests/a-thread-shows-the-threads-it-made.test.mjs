@@ -86,7 +86,7 @@ describe('the list, drawn', () => {
 describe('where it is drawn', () => {
   it('reaches the opened task with each child’s tab state, and the task draws it under the conversation', () => {
     const app = read('renderer/src/App.tsx');
-    expect(app).toMatch(/filed=\{threadsMade\(items, focused\)\.map\(\(i\) => \(\{ id: i\.id, title: [^,]+, state: stateOfMine\(i\), approve: approvableFiled\(i, stateOfMine\(i\)\), item: i \}\)\)\}/);
+    expect(app).toMatch(/filed=\{threadsMade\(items, focused\)\.map\(\(i\) => \(\{ id: i\.id, title: [^,]+, state: stateOfMine\(i\), approve: approvableFiled\(i, stateOfMine\(i\)\), (?:detail: proposalLine\(i\), )?item: i \}\)\)\}/);
     const focus = read('renderer/src/components/Focus.tsx');
     expect(focus).toMatch(/<ThreadsMade\s+rows=\{filed\}/);
   });
