@@ -6479,7 +6479,6 @@ a.set-ghost { text-decoration: none; display: inline-block; }
 .cs-account.fresh { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .cs-account-name { font-size: 14px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cs-account-eng { font-size: 12.5px; color: var(--text-faint); }
-.cs-account-ok { display: flex; color: var(--text-dim); }
 .cs-account.broken .cs-account-name { color: var(--text-dim); }
 .cs-remove { width: 22px; height: 22px; border: 0; background: none; color: var(--text-faint); font-size: 16px; line-height: 1; cursor: pointer; border-radius: 5px; opacity: 0; }
 .cs-account:hover .cs-remove { opacity: 1; }

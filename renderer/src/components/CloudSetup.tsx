@@ -19,7 +19,6 @@ import { NAME } from '../../../shared/product-name.mjs';
 import { accountLabel, engineWord, pageToOpen, type CloudAccount, type CloudMode, type CloudSignIn, type CloudStatus } from '../cloud-menu';
 import { SETUP, WHERE_ROWS, activeSignIn, anyReady, signInView } from '../cloud-setup';
 
-const Check = () => <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" /></svg>;
 const Plus = () => <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>;
 const Mark = ({ engine }: { engine: 'claude' | 'codex' }) => <span className="ps-mark" aria-hidden="true">{engine === 'codex' ? 'X' : 'C'}</span>;
 const Busy = () => <span className="cs-busy" aria-hidden="true" />;
@@ -76,7 +75,6 @@ export function CloudSetup({ cloud, onMode, onClose }: {
 }) {
   const accounts = cloud.accounts || [];
   const active = activeSignIn(cloud);
-  const addStyle = typeof localStorage !== 'undefined' && localStorage.getItem('zero.cloudAddStyle') === 'choices' ? 'choices' : 'rows';
   const [where, setWhere] = useState(false);
   // A failed sign-in stays on screen until she tries again or goes back.
   const [dismissed, setDismissed] = useState<string | null>(null);
@@ -128,11 +126,13 @@ export function CloudSetup({ cloud, onMode, onClose }: {
     body = <div className="fr-stack fr-stack-folders">
       <h1 className="fr-page">{SETUP.homeHead}</h1>
       <p className="fr-lede">{SETUP.homeLede}</p>
-      {/* ADDING LIVES IN THE LIST, as its last rows, so the card is the one
+      {/* ADDING LIVES IN THE LIST, as its last row, so the card is the one
           thing on the screen and an empty one says what to do (2026-10-14:
           two buttons side by side under the list felt "a little bit of bad
-          UX"). Two ways while she picks: a row per engine, or one row with
-          the engines as its choices. */}
+          UX"). One row, with the two kinds as its choices: she picked it over
+          a row per kind, and with two kinds a menu behind it would only add a
+          click. No tick on an account that works: it looked unpolished; only
+          one that stopped working says anything. */}
       <div className="fr-card cs-accounts">
         {accounts.map((a: CloudAccount) => <div key={a.key} className={`cs-account${fresh === a.key ? ' fresh' : ''}${a.state === 'broken' ? ' broken' : ''}`}>
           <Mark engine={a.engine} />
@@ -140,22 +140,17 @@ export function CloudSetup({ cloud, onMode, onClose }: {
           <span className="cs-account-eng">{engineWord(a)}</span>
           {a.state === 'broken'
             ? <button type="button" className="cs-quiet cs-again" onClick={() => void send(a.engine, 'start', a.key)}>{SETUP.again}</button>
-            : <span className="cs-account-ok"><Check /></span>}
+            : <span />}
           <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${accountLabel(a, accounts)}`} title={SETUP.remove} onClick={() => void send(a.engine, 'remove', a.key)}>×</button>
         </div>)}
-        {addStyle === 'choices'
-          ? <div className="cs-add-row cs-add-one">
-              <span className="cs-add-ic"><Plus /></span>
-              <span className="cs-add-say">{SETUP.addOne}</span>
-              <span className="cs-add-pick">
-                <button type="button" onClick={() => void send('claude', 'start')}><Mark engine="claude" />Claude</button>
-                <button type="button" onClick={() => void send('codex', 'start')}><Mark engine="codex" />Codex</button>
-              </span>
-            </div>
-          : <>
-              <button type="button" className="cs-add-row" onClick={() => void send('claude', 'start')}><span className="cs-add-ic"><Plus /></span><span className="cs-add-say">{SETUP.addClaude}</span></button>
-              <button type="button" className="cs-add-row" onClick={() => void send('codex', 'start')}><span className="cs-add-ic"><Plus /></span><span className="cs-add-say">{SETUP.addCodex}</span></button>
-            </>}
+        <div className="cs-add-row cs-add-one">
+          <span className="cs-add-ic"><Plus /></span>
+          <span className="cs-add-say">{SETUP.addOne}</span>
+          <span className="cs-add-pick">
+            <button type="button" aria-label={SETUP.addClaude} onClick={() => void send('claude', 'start')}><Mark engine="claude" />Claude</button>
+            <button type="button" aria-label={SETUP.addCodex} onClick={() => void send('codex', 'start')}><Mark engine="codex" />Codex</button>
+          </span>
+        </div>
       </div>
       {anyReady(accounts) && <div className="ps-acts"><button type="button" className="fr-finish-go cs-go" onClick={() => setWhere(true)}>{SETUP.done}</button></div>}
     </div>;
