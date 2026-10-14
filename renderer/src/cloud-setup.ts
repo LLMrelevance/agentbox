@@ -21,6 +21,7 @@ export const SETUP = {
   homeLede: 'Add the accounts you want it to use.',
   addClaude: 'Add Claude account',
   addCodex: 'Add Codex account',
+  addOne: 'Add an account',
   remove: 'Remove',
   again: 'Sign in again',
   done: 'Done',

@@ -76,6 +76,7 @@ export function CloudSetup({ cloud, onMode, onClose }: {
 }) {
   const accounts = cloud.accounts || [];
   const active = activeSignIn(cloud);
+  const addStyle = typeof localStorage !== 'undefined' && localStorage.getItem('zero.cloudAddStyle') === 'choices' ? 'choices' : 'rows';
   const [where, setWhere] = useState(false);
   // A failed sign-in stays on screen until she tries again or goes back.
   const [dismissed, setDismissed] = useState<string | null>(null);
@@ -127,7 +128,12 @@ export function CloudSetup({ cloud, onMode, onClose }: {
     body = <div className="fr-stack fr-stack-folders">
       <h1 className="fr-page">{SETUP.homeHead}</h1>
       <p className="fr-lede">{SETUP.homeLede}</p>
-      {accounts.length > 0 && <div className="fr-card cs-accounts">
+      {/* ADDING LIVES IN THE LIST, as its last rows, so the card is the one
+          thing on the screen and an empty one says what to do (2026-10-14:
+          two buttons side by side under the list felt "a little bit of bad
+          UX"). Two ways while she picks: a row per engine, or one row with
+          the engines as its choices. */}
+      <div className="fr-card cs-accounts">
         {accounts.map((a: CloudAccount) => <div key={a.key} className={`cs-account${fresh === a.key ? ' fresh' : ''}${a.state === 'broken' ? ' broken' : ''}`}>
           <Mark engine={a.engine} />
           <span className="cs-account-name">{accountLabel(a, accounts)}</span>
@@ -137,10 +143,19 @@ export function CloudSetup({ cloud, onMode, onClose }: {
             : <span className="cs-account-ok"><Check /></span>}
           <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${accountLabel(a, accounts)}`} title={SETUP.remove} onClick={() => void send(a.engine, 'remove', a.key)}>×</button>
         </div>)}
-      </div>}
-      <div className="cs-adds">
-        <button type="button" className="cs-add" onClick={() => void send('claude', 'start')}><Plus />{SETUP.addClaude}</button>
-        <button type="button" className="cs-add" onClick={() => void send('codex', 'start')}><Plus />{SETUP.addCodex}</button>
+        {addStyle === 'choices'
+          ? <div className="cs-add-row cs-add-one">
+              <span className="cs-add-ic"><Plus /></span>
+              <span className="cs-add-say">{SETUP.addOne}</span>
+              <span className="cs-add-pick">
+                <button type="button" onClick={() => void send('claude', 'start')}><Mark engine="claude" />Claude</button>
+                <button type="button" onClick={() => void send('codex', 'start')}><Mark engine="codex" />Codex</button>
+              </span>
+            </div>
+          : <>
+              <button type="button" className="cs-add-row" onClick={() => void send('claude', 'start')}><span className="cs-add-ic"><Plus /></span><span className="cs-add-say">{SETUP.addClaude}</span></button>
+              <button type="button" className="cs-add-row" onClick={() => void send('codex', 'start')}><span className="cs-add-ic"><Plus /></span><span className="cs-add-say">{SETUP.addCodex}</span></button>
+            </>}
       </div>
       {anyReady(accounts) && <div className="ps-acts"><button type="button" className="fr-finish-go cs-go" onClick={() => setWhere(true)}>{SETUP.done}</button></div>}
     </div>;
