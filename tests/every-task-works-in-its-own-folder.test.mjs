@@ -175,13 +175,19 @@ describe('the folder a task works in', () => {
   });
 
   // MOST OF HER PROJECTS HAVE NO CODE AT ALL (23 of her 28 on 2026-09-22), and
-  // none of them may change behaviour because of this.
-  it('does nothing for a project that is not a git repository', () => {
-    const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'no-repo-'));
+  // none of them may change behaviour because of this. Those have no folder,
+  // and never reach this file (tests/a-task-with-no-folder-does-not-run-in-the-
+  // shared-checkout). A folder that exists and is not a repository is made one
+  // since 2026-10-14 (tests/a-project-folder-that-is-not-a-repository-still-
+  // runs-its-first-task); one that is not there at all is still left alone.
+  it('does nothing for a project folder that is not there', () => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'no-repo-'));
+    const plain = path.join(parent, 'gone');
     try {
       expect(ensureTaskFolder(plain, 'w-nowhere')).toBe(null);
       expect(listTaskFolders(plain)).toEqual([]);
-    } finally { fs.rmSync(plain, { recursive: true, force: true }); }
+      expect(fs.existsSync(plain)).toBe(false);
+    } finally { fs.rmSync(parent, { recursive: true, force: true }); }
   });
 
   // What the app shows her later is read from here, so a stranded folder stops
