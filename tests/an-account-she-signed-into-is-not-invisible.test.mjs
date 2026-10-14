@@ -171,16 +171,15 @@ describe('what must NOT join', () => {
 });
 
 describe('her own file is a decision, not a suggestion', () => {
-  it('keeps every profile she configured, in her order', () => {
+  // She has BOTH duplicates in her config. They used to be kept, as a choice
+  // she had typed; the founder's call on 2026-10-14 is that one account signed
+  // in twice shows once (tests/an-account-shows-once-and-only-once-it-is-signed-in).
+  it('keeps her order, and lists one subscription once', () => {
     signedIn('.claude', 'you@example.com', PERSONAL);
     const second = signedIn('.claude-second', 'you@example.com', PERSONAL);
     const work = signedIn('.claude-work', 'work@example.com', WORK);
-
-    // She has BOTH duplicates in her config. Discovery adds; it never removes,
-    // because a folder she typed in is a choice and the Agents page already
-    // says out loud when two rows are one subscription.
     expect(effectiveProfiles(['default', second], { home }))
-      .toEqual(['default', second, work]);
+      .toEqual(['default', work]);
   });
 
   it('does not add a folder she had already configured', () => {

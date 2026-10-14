@@ -79,10 +79,31 @@ export function disposeTerminalProcess(pty){
  * (TaskTerminal.tsx). So `lastReadAt` is not a guess about attention, it is the
  * last time the app was actually asked what this shell had to say.
  *
- * Idle AND unwatched for ten minutes is a shell that costs something and is
+ * Idle AND unwatched for an hour is a shell that costs something and is
  * worth nothing, and it goes. Everything else stays until she or the app quits.
+ *
+ * IT WAS TEN MINUTES, AND THAT WAS TOO SHORT (w-6841800f17): "I come back after
+ * maybe 15 minutes and it's gone ... I don't see the error message." A deploy
+ * that fails leaves an idle shell with the error on it, and ten minutes away
+ * from the task took the error with the shell. So the wait is an hour, and when
+ * a shell does go, the end of what it showed comes back with the next one.
  */
-const IDLE_MS=600000;
+const IDLE_MS=3600000;
+// How much of a closed shell's screen comes back. The end is where the error
+// is; 64K characters is several hundred lines of it.
+const KEPT_SCREEN=65536;
+// Closed shells whose screen is still held for her. Twice the cap is every
+// terminal open now plus as many again that the app has tidied away.
+const KEPT_SHELLS=40;
+/*
+ * THE END OF A SCREEN, CUT AT A LINE. Cutting mid-line would start the replay
+   halfway through a word or an escape sequence. */
+function keptScreen(buffer){
+  if(buffer.length<=KEPT_SCREEN)return buffer;
+  const tail=buffer.slice(-KEPT_SCREEN);
+  const line=tail.indexOf('\n');
+  return line<0?tail:tail.slice(line+1);
+}
 // The longest a read waits for output before answering with none, so the panel
 // still hears about a command that finished quietly and the sweep still sees
 // it watching.
@@ -128,13 +149,24 @@ export class TaskTerminals {
     }
     return pick;
   }
+  /*
+   * THE APP ENDS A SHELL, AND KEEPS WHAT IT SAID. Only these two paths keep the
+     screen: when she presses End shell herself, `close` is called directly and
+     nothing comes back, because she chose to throw it away. */
+  retire(key,why){
+    const s=this.sessions.get(key);
+    const screen=s?keptScreen(s.buffer):'';
+    this.close(key);
+    this.reaped.delete(key);
+    this.reaped.set(key,{why,screen});
+    while(this.reaped.size>KEPT_SHELLS)this.reaped.delete(this.reaped.keys().next().value);
+  }
   sweepIdle(){
     const cutoff=this.now()-this.idleMs;
     for(const [key,s] of [...this.sessions]){
       if(this.busy(s))continue;
       if((s.lastReadAt??0)>cutoff)continue;
-      this.close(key);
-      this.reaped.set(key,'The previous shell here was closed after ten minutes idle.');
+      this.retire(key,'The previous shell here was closed after an hour idle.');
     }
   }
   open(key){
@@ -149,8 +181,7 @@ export class TaskTerminals {
          and says so in those words. */
       const victim=this.oldestIdle();
       if(victim===null)throw Error('20 terminals are open and every one of them is running something. Stop one of those commands before opening another terminal.');
-      this.close(victim);
-      this.reaped.set(victim,'This shell was closed to make room for a newer terminal.');
+      this.retire(victim,'This shell was closed to make room for a newer terminal.');
     }
     const place=this.resolve(key);
     const cwd=typeof place==='string'?place:place.cwd;
@@ -162,9 +193,13 @@ export class TaskTerminals {
      * AND IT SAYS WHAT HAPPENED TO THE LAST ONE. Without this line, reopening a
        terminal the app tidied away looks exactly like the app losing her
        scrollback, which is the same event read as a bug. Dim, one line, above a
-       real prompt. */
-    const why=this.reaped.get(key);
-    if(why!==undefined){this.reaped.delete(key);session.buffer=`\x1b[2m[${why} This is a new one.]\x1b[0m\r\n`;}
+       real prompt, under whatever the old shell last showed. */
+    const gone=this.reaped.get(key);
+    if(gone!==undefined){
+      this.reaped.delete(key);
+      const old=gone.screen?`${gone.screen}\x1b[0m${gone.screen.endsWith('\n')?'':'\r\n'}`:'';
+      session.buffer=`${old}\x1b[2m[${gone.why}${old?' Its output is above.':''} This is a new one.]\x1b[0m\r\n`;
+    }
     if(place?.notice)session.buffer+=`\x1b[2m[${place.notice}]\x1b[0m\r\n`;
     pty.onData(data=>{session.buffer+=data;const trim=Math.max(0,session.buffer.length-LIMIT);session.buffer=session.buffer.slice(trim);session.offset+=trim;this.wake(session);});
     pty.onExit(({exitCode})=>{session.exited=true;session.exitCode=exitCode;resolveExit();this.wake(session);});

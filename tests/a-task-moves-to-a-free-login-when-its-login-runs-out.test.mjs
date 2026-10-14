@@ -45,6 +45,9 @@ beforeEach(() => {
   home = path.join(root, 'home');
   second = path.join(home, '.claude-second');
   fs.mkdirSync(second, { recursive: true });
+  // Signed in: a folder with no login is not an account
+  // (tests/an-account-shows-once-and-only-once-it-is-signed-in).
+  fs.writeFileSync(path.join(second, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'second@example.com', accountUuid: 'uuid-second' } }));
 });
 afterEach(() => { vi.useRealTimers(); fs.rmSync(root, { recursive: true, force: true }); });
 
@@ -77,6 +80,8 @@ describe('no login can take it', () => {
   });
 
   it('the only login out: it rests', () => {
+    // No second folder on disk, or the app finds its login and adds it.
+    fs.rmSync(second, { recursive: true, force: true });
     const sup = start(['default']);
     ranOutOn(sup, 'default');
     expect(sup.restingUntil(item())).toBeGreaterThan(Date.now());

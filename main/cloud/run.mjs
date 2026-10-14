@@ -33,7 +33,10 @@
 //
 // Exit codes: the agent's own, when its work came home. 75 (EX_TEMPFAIL) when
 // the agent may have finished but its work is not here; the marker stays, so
-// shipping and cleanup leave the folder alone, and the app tries again.
+// shipping and cleanup leave the folder alone, and the app tries again. 77
+// (EX_NOPERM) when the account's cloud sign-in was missing, refused or ran
+// out: the work that was done is home, and the account needs signing in (or
+// its Codex login renewing) before its threads go to the cloud again.
 //
 // Reviewed by Codex in three rounds (2026-10-13); the rules each finding left
 // behind are written where they apply.
@@ -50,6 +53,10 @@ import { codexTranscriptFile } from '../codex-session.mjs';
 import { appendCloudUsage } from './usage.mjs';
 
 export const IMPORT_FAILED = 75;
+export const LOGIN_TROUBLE = 77;
+// A link to a login is good for half an hour: a run fetches it while it is
+// being prepared, never later.
+const LOGIN_LINK_SECONDS = 30 * 60;
 const STUB = '/opt/agentbox/mcp-stub.mjs';
 // Where the image's sandbox server listens for stubs (cloud/sandbox/server.mjs).
 const BRIDGE_SOCK = '/tmp/agentbox-bridge.sock';
@@ -179,7 +186,13 @@ function tarOf(dir) {
 export async function cloudRun({
   argv, env = process.env, cwd,
   transport, storage,
-  claudeToken,
+  // THE ACCOUNT'S CLOUD SIGN-IN, by name only: { engine, id, key }, the
+  // object the sandbox fetches it from (main/cloud/logins.mjs). The login
+  // itself is never read here (docs/cloud/PLAN.md, "Sign-ins live in the
+  // cloud").
+  login = null,
+  // Told when the sandbox says the login was missing, refused or ran out.
+  onLoginTrouble = () => {},
   stdin = process.stdin, stdout = process.stdout, stderr = process.stderr,
   remoteCommand = 'claude',
   homeDir = os.homedir(),
@@ -194,9 +207,6 @@ export async function cloudRun({
   // 'claude' or 'codex'. A Codex run is `codex app-server` in the sandbox,
   // spoken to over stdin/stdout by the supervisor's own Codex client.
   engine = 'claude',
-  // The Codex sign-in to send up (main/cloud/config.mjs codexCloudAuth): a
-  // copy of auth.json that cannot renew itself.
-  codexAuth = null,
 }) {
   const say = (msg) => stderr.write(`agentbox cloud: ${msg}\n`);
   const codex = engine === 'codex';
@@ -232,6 +242,7 @@ export async function cloudRun({
     if (!back.ok) { say(`an earlier cloud run in this folder could not be brought back yet (${back.why}); not starting another`); return IMPORT_FAILED; }
   }
   if (importOnly) return 0;
+  if (!login || login.engine !== engine) { say(`this ${engine === 'codex' ? 'Codex' : 'Claude'} account has not signed in for the cloud`); return LOGIN_TROUBLE; }
 
   const runId = crypto.randomUUID();
   const sessionId = `agentbox-${(env.ZERO_ITEM || 'run').replace(/[^a-zA-Z0-9-]/g, '')}-${runId}`;
@@ -285,13 +296,11 @@ export async function cloudRun({
       if (fs.existsSync(dir)) files.push(await sendFile(null, path.join(configDir, `.${sub}.tgz`), tarOf(dir), path.join(configDir, sub)));
     }
   }
-  // Codex's sign-in, as a copy that cannot renew itself (config.mjs), and the
-  // few settings that change how it runs a turn (model, effort, tier), so a
-  // run in the cloud behaves as one here would. Nothing else of her config
-  // goes: no MCP servers, hooks, providers or sockets.
+  // The few Codex settings that change how it runs a turn (model, effort,
+  // tier), so a run in the cloud behaves as one here would. Nothing else of
+  // her config goes: no MCP servers, hooks, providers or sockets, and never
+  // her sign-in: the cloud has its own.
   if (codex) {
-    if (!codexAuth) { say('this Codex login cannot go to the cloud right now'); return 1; }
-    files.push(await sendFile(null, path.join(codexHome, 'auth.json'), Buffer.from(codexAuth)));
     let toml = '';
     try { toml = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8'); } catch { /* none */ }
     files.push(await sendFile(null, path.join(codexHome, 'config.toml'), Buffer.from(codexConfigForTheCloud(toml))));
@@ -312,7 +321,6 @@ export async function cloudRun({
     ...(env.ZERO_PRODUCT ? { ZERO_PRODUCT: env.ZERO_PRODUCT } : {}),
     ...(env.ZERO_ITEM ? { ZERO_ITEM: env.ZERO_ITEM } : {}),
     ...gitIdentity(cwd),
-    ...(claudeToken ? { CLAUDE_CODE_OAUTH_TOKEN: claudeToken } : {}),
   };
 
   const marker = { runId, sessionId, branch, startSha, sent, configDir, engine, bringDirs };
@@ -323,11 +331,13 @@ export async function cloudRun({
   // started nothing; one whose answer never came may have, so its marker
   // stays and the next run in this folder finds out which.
   const bundleUrl = await storage.getUrl(key('in.bundle'));
+  const loginUrl = await storage.getUrl(login.key, LOGIN_LINK_SECONDS);
   const started = await retry(() => transport.invoke(sessionId, {
     action: 'start', runId, cwd, branch, bundleUrl,
     argv: [remoteCommand, ...argv], env: remoteEnv, files,
     changesRef: hasOutgoing ? outgoing : undefined,
     ...(remote ? { remote } : {}),
+    login: { engine: login.engine, id: login.id, url: loginUrl },
     results,
   }), { what: 'start the cloud run', forever: false });
   if (!started) {
@@ -348,6 +358,7 @@ export async function cloudRun({
   let cancelled = false;
   let cancelledAt = 0;
   let finished = null; // 'collected' | 'collect-failed' | 'failed' | 'lost'
+  let loginTrouble = null; // { state: 'missing'|'refused'|'expired', id }
   const servers = new Map(); // conn -> { proc, name, listIds }
   const outbox = [];
   let wake = null;
@@ -477,6 +488,7 @@ export async function cloudRun({
     else if (e.kind === 'mcp') toServer(e.conn, e.line);
     else if (e.kind === 'mcp-close') { const s = servers.get(e.conn); servers.delete(e.conn); if (s) { s.closed = true; s.proc.stdin.end(); setTimeout(() => s.proc.kill(), 2000); } }
     else if (e.kind === 'error') say(e.message);
+    else if (e.kind === 'login') loginTrouble = { state: e.state, id: e.id ?? login?.id ?? null };
     else if (e.kind === 'state' && ['collected', 'collect-failed', 'failed'].includes(e.state)) finished = e.state;
   }
 
@@ -517,13 +529,23 @@ export async function cloudRun({
   await sender;
   for (const s of servers.values()) { s.closed = true; s.proc.stdin.end(); s.proc.kill(); }
 
-  if (finished === 'failed') { clearMarker(cwd); return 1; }
+  const troubleWithLogin = () => {
+    if (!loginTrouble) return false;
+    say(loginTrouble.state === 'expired' ? 'this account\'s cloud sign-in needs renewing' : 'this account\'s cloud sign-in no longer works; sign in again from the cloud menu');
+    try { onLoginTrouble(loginTrouble); } catch { /* noted elsewhere */ }
+    return true;
+  };
+  if (finished === 'failed') { clearMarker(cwd); return troubleWithLogin() ? LOGIN_TROUBLE : 1; }
   const back = await bringHome({ ...marker }, { cursor, replay: (e) => absorb(e) });
   if (!back.ok) {
     say(`the cloud run's work could not be brought back (${back.why}); it is kept in the cloud for 7 days and will be tried again`);
     writeMarker(cwd, { ...marker, pid: null, state: back.state || 'import-failed' });
-    return IMPORT_FAILED;
+    // Its marker stays either way, so nothing ships the folder until its work
+    // is home; a login that failed is still said, so no account here is
+    // struck for it.
+    return troubleWithLogin() ? LOGIN_TROUBLE : IMPORT_FAILED;
   }
+  if (troubleWithLogin()) return LOGIN_TROUBLE;
   return exitCodeOf(back.record);
 
   /* --------------------------- bringing it home -------------------------- */
@@ -586,13 +608,16 @@ export async function cloudRun({
     appendCloudUsage({ runId: rec.runId, item: env.ZERO_ITEM, engine: rec.engine || engine, exitCode: record.exitCode, usage: record.usage }, { home: homeDir });
 
     // Anything the stream never delivered (the session was gone before the
-    // Mac could read it) is replayed from the copy in S3.
-    if (replay) {
+    // Mac could read it) is replayed from the copy in S3, and so is what the
+    // sandbox said about the login, even for an earlier run brought home now
+    // (Codex's review, finding 4).
+    if (replay || recovering) {
       const log = await storage.get(k('events.jsonl'));
       for (const l of (log ? log.toString('utf8').split('\n') : [])) {
         if (!l) continue;
         const e = JSON.parse(l);
-        if (e.seq > from && (e.kind === 'stdout' || e.kind === 'stderr')) await replay(e);
+        if (replay && e.seq > from && (e.kind === 'stdout' || e.kind === 'stderr' || e.kind === 'login')) await replay(e);
+        else if (recovering && e.kind === 'login') { try { onLoginTrouble({ state: e.state, id: e.id ?? null }); } catch { /* noted elsewhere */ } }
       }
     }
 

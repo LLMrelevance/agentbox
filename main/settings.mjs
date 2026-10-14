@@ -927,9 +927,12 @@ export function addCodexAccount({ config, supervisor }) {
  * ordinary reason for wanting it: a work login and a personal login, both
  * live, on one Mac.
  *
- * Everything else is the Codex flow exactly. Main makes the folder and
- * registers the profile, so the row appears immediately reading "Not signed
- * in"; the terminal is left with the browser half, which is genuinely hers.
+ * Main makes the folder and the terminal is left with the browser half, which
+ * is genuinely hers. UNLIKE CODEX, NOTHING IS WRITTEN INTO THE CONFIG: the
+ * folder is the shape main/account-discovery.mjs finds, so the account appears
+ * the moment its sign-in lands and never before. Registering it first put an
+ * abandoned sign-in in Settings as a "Not signed in" account and handed it
+ * every other task (tests/an-account-shows-once-and-only-once-it-is-signed-in).
  *
  * THE TOOLING IS LINKED AT CREATION, which the Codex side has no equivalent of.
  * `linkAccountTooling` otherwise runs at the first spawn, and the first thing
@@ -939,9 +942,6 @@ export function addCodexAccount({ config, supervisor }) {
  */
 export function addClaudeAccount({ config, supervisor }) {
   const made = makeClaudeHome({ home: config.home });
-  const existing = (config.authProfiles ?? []).map((x) => x || 'default');
-  const list = existing.length ? existing : ['default'];
-  saveConfig(config, { authProfiles: [...list, made.profile] });
   // A failure here is a folder without her skills in it, which is a smaller
   // thing than a sign in that does not happen: the links are retried at every
   // spawn anyway.

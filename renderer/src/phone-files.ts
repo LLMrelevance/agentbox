@@ -40,8 +40,58 @@ const watched = new WeakSet<object>();
 // loads again, and its 4:3 box was a third the height of a phone screenshot:
 // everything under it jumped down and back each time (2026-10-13,
 // tests/a-thread-on-a-phone-holds-still-while-something-above-it-changes).
-const shapes = new Map<string, string>();
-export const shapeOf = (src: string) => shapes.get(src) ?? null;
+//
+// AND ACROSS A RELOAD (2026-10-14). A thread opened again tomorrow, or after
+// the home-screen app was swiped away, met every picture as new and jumped by
+// the difference between 4:3 and its shape. They are kept in this browser's
+// storage by the file's own part of the address, so a reset phone key does not
+// forget them, and only the newest few hundred
+// (tests/a-picture-on-its-way-holds-the-columns-width-not-a-dot).
+const KEPT = 'agentbox-picture-shapes';
+const KEEP_AT_MOST = 400;
+const fileOf = (src: string) => src.replace(/^\/f\/[^/]+\//, '');
+function readKept(): [string, string][] {
+  try {
+    const was = JSON.parse(globalThis.localStorage?.getItem(KEPT) ?? 'null');
+    return was && typeof was === 'object' ? Object.entries(was).filter((e): e is [string, string] => typeof e[1] === 'string') : [];
+  } catch { return []; }
+}
+const shapes = new Map<string, string>(readKept());
+function learn(src: string, shape: string) {
+  const file = fileOf(src);
+  shapes.delete(file);
+  shapes.set(file, shape);
+  while (shapes.size > KEEP_AT_MOST) shapes.delete(shapes.keys().next().value!);
+  try { globalThis.localStorage?.setItem(KEPT, JSON.stringify(Object.fromEntries(shapes))); } catch { /* private mode: this page keeps them */ }
+}
+export const shapeOf = (src: string) => shapes.get(fileOf(src)) ?? null;
+
+// A PICTURE NEVER SEEN ASKS THE COMPUTER FOR ITS SHAPE (2026-10-14). WebKit
+// gives a picture no size until its last byte, so a phone screenshot stayed a
+// 4:3 box and then grew 514px under the words. Its width and height come off
+// the file's first bytes (main/picture-shape.mjs) in a few bytes of answer,
+// long before the picture's megabyte (tests/a-picture-the-phone-has-never-
+// seen-gets-its-shape-before-it-arrives).
+type ShapeAsked = Pick<HTMLImageElement, 'complete' | 'getAttribute'> & { style?: { aspectRatio?: string } };
+type Fetcher = (url: string) => Promise<{ ok: boolean; json(): Promise<unknown> }>;
+const asking = new Set<string>();
+export function askShape(img: ShapeAsked, fetcher: Fetcher = (url) => fetch(url)) {
+  const src = img.getAttribute('src') ?? '';
+  const at = /^(\/f\/[^/]+\/)img\/(.+)$/.exec(src);
+  if (!at || img.complete || shapeOf(src) || asking.has(fileOf(src))) return;
+  const file = fileOf(src);
+  asking.add(file);
+  fetcher(`${at[1]}shape/${at[2]}`)
+    .then((res) => (res.ok ? res.json() : null))
+    .then((said) => {
+      const { w, h } = (said ?? {}) as { w?: number; h?: number };
+      if (!(typeof w === 'number' && w > 0 && typeof h === 'number' && h > 0)) return;
+      if (!shapeOf(src)) learn(src, `${w} / ${h}`);
+      if (!img.complete && img.getAttribute('src') === src && img.style) img.style.aspectRatio = shapeOf(src) ?? '';
+    })
+    .catch(() => { /* the box stays 4:3 */ })
+    .finally(() => asking.delete(file));
+}
 
 export function watchPicture(img: PictureLike) {
   const src = img.getAttribute('src') ?? '';
@@ -49,11 +99,11 @@ export function watchPicture(img: PictureLike) {
   img.setAttribute(STATE, img.complete ? (img.naturalWidth > 0 ? 'ready' : 'failed') : 'loading');
   // While it loads, the box is the shape it had last time, if it has been seen.
   const shape = (value: string) => { if (img.style) img.style.aspectRatio = value; };
-  shape(loading ? shapes.get(src) ?? '' : '');
+  shape(loading ? shapeOf(src) ?? '' : '');
   if (watched.has(img)) return;
   watched.add(img);
   img.addEventListener('load', () => {
-    if (img.naturalWidth > 0 && (img.naturalHeight ?? 0) > 0) shapes.set(img.getAttribute('src') ?? '', `${img.naturalWidth} / ${img.naturalHeight}`);
+    if (img.naturalWidth > 0 && (img.naturalHeight ?? 0) > 0) learn(img.getAttribute('src') ?? '', `${img.naturalWidth} / ${img.naturalHeight}`);
     shape('');
     img.setAttribute(STATE, 'ready');
   });
@@ -83,7 +133,9 @@ export function installPhoneFiles(key: string, root: Node = document) {
       const was = el.getAttribute(attr);
       if (!was) continue;
       const now = phoneFileUrl(was, key);
-      if (now !== was) el.setAttribute(attr, now);
+      if (now === was) continue;
+      el.setAttribute(attr, now);
+      if (attr === 'src' && el instanceof HTMLImageElement) askShape(el);
     }
   };
   const sweep = (node: Node) => {
