@@ -23,6 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   ensureTaskFolder, inventoryWorktrees, strayWorktrees, listTaskFolders, taskBranch,
+  releaseTaskFolder, parkTaskFolder,
 } from '../main/task-folders.mjs';
 import { Supervisor } from '../main/supervisor.mjs';
 
@@ -150,5 +151,63 @@ describe('a worktree another tool made in the app´s own home', () => {
     expect(fs.existsSync(mine.path)).toBe(false);
     expect(git(dir, 'show', `${taskBranch('w-finished')}:app.txt`)).toBe('marked done');
     expect(fs.existsSync(theirs)).toBe(true);
+  });
+});
+
+/* ========= and the two calls that are handed a task id, not a list ========= */
+// FOUND IN REVIEW, NOT IN THE REPORT. A session ending calls `releaseTaskFolder`
+// with its row id, and the sweep's `parkTaskFolder` runs a moment after the
+// list it was handed was read. Neither asked which branch the folder was on, so
+// a foreign folder sharing a row's name, or the app's own folder an agent had
+// moved off its branch (a rebase left mid-flight is a detached HEAD), could
+// still be committed onto and removed. Parking a detached folder wrote its
+// commits onto no branch at all and then deleted the only copy.
+describe('releasing or parking by task id', () => {
+  let dir;
+  beforeEach(() => { dir = repo(); });
+  afterEach(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} });
+
+  it('will not release a clean, merged folder on another tool´s branch', () => {
+    const theirs = inTheHome(dir, 'w-row', ['-b', 'claude/w-row']);
+    expect(releaseTaskFolder(dir, 'w-row').reason).toBe('not-ours');
+    expect(fs.existsSync(theirs)).toBe(true);
+  });
+
+  it('will not park a dirty folder on another tool´s branch', () => {
+    const theirs = inTheHome(dir, 'w-row', ['-b', 'claude/w-row']);
+    fs.writeFileSync(path.join(theirs, 'app.txt'), 'their work\n');
+    expect(parkTaskFolder(dir, 'w-row').reason).toBe('not-ours');
+    expect(fs.existsSync(theirs)).toBe(true);
+    expect(git(dir, 'log', '--format=%s', '-1', 'claude/w-row')).toBe('first');
+  });
+
+  it('will not park its own folder once an agent has moved it to another branch', () => {
+    const mine = ensureTaskFolder(dir, 'w-moved');
+    git(mine.path, 'checkout', '-q', '-b', 'side');
+    fs.writeFileSync(path.join(mine.path, 'app.txt'), 'on the side\n');
+    expect(parkTaskFolder(dir, 'w-moved').reason).toBe('not-ours');
+    expect(fs.existsSync(mine.path)).toBe(true);
+    expect(git(dir, 'log', '--format=%s', '-1', 'side')).toBe('first');
+  });
+
+  it('will not park its own folder while it is on no branch, where the work would be lost', () => {
+    const mine = ensureTaskFolder(dir, 'w-detached');
+    git(mine.path, 'checkout', '-q', '--detach');
+    fs.writeFileSync(path.join(mine.path, 'app.txt'), 'mid rebase\n');
+    expect(parkTaskFolder(dir, 'w-detached').reason).toBe('not-ours');
+    expect(fs.existsSync(mine.path)).toBe(true);
+    expect(git(mine.path, 'status', '--porcelain')).toContain('app.txt');
+  });
+
+  // THE CASE THAT MUST STILL WORK, through both calls.
+  it('still parks and releases its own folder on its own branch', () => {
+    const parked = ensureTaskFolder(dir, 'w-parked');
+    fs.writeFileSync(path.join(parked.path, 'app.txt'), 'kept\n');
+    expect(parkTaskFolder(dir, 'w-parked').parked).toBe(true);
+    expect(git(dir, 'show', `${taskBranch('w-parked')}:app.txt`)).toBe('kept');
+
+    const released = ensureTaskFolder(dir, 'w-released');
+    expect(releaseTaskFolder(dir, 'w-released').removed).toBe(true);
+    expect(fs.existsSync(released.path)).toBe(false);
   });
 });
