@@ -501,30 +501,9 @@ export function runStoppedLine(raw) {
   return RUN_STOPPED[troubleCause(raw)] ?? RUN_STOPPED.unknown;
 }
 
-// WHEN ANOTHER ACCOUNT TAKES THE TASK, THE TASK IS NOT STUCK, so none of the
-// openers above is true of it. A tester's thread opened with "could not sign
-// in, so nothing has been done" and finished on her other account a minute
-// later, with the answer right under it (tests/a-task-that-moves-off-a-
-// signed-out-account-says-it-moved). These name the account, not the task,
-// and say where the task went. Kept out of DEAD_RUN_OPENERS on purpose, so
-// `deadRunCause` does not count a moving task among the ones nothing ran on.
-const ONE_ACCOUNT_IS = {
-  'signed-out': ['is signed out', ' Sign it back in from Settings to use it again.'],
-  'at-limit': ['is at its usage limit', ' That account comes back on its own when its limit resets.'],
-  'org-blocked': ['is switched off by its organization', ' Only an admin of that Claude workspace can turn it back on.'],
-  'subscription-ended': ['has no Claude subscription any more', ' Renew it at claude.ai to use it again.'],
-};
-
 // `elsewhere` is only read for 'model-not-on-plan': whether another signed-in
 // login's plan has the model, so the task moves there rather than waiting on her.
-// `movesOn` is the same fact for the account-shaped causes in ONE_ACCOUNT_IS:
-// another account is free and the task runs there next.
-export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, elsewhere = false, movesOn = false } = {}) {
-  if (movesOn && ONE_ACCOUNT_IS[cause]) {
-    const [state, after] = ONE_ACCOUNT_IS[cause];
-    const whose = engineWord === 'The agent' ? 'One of your accounts' : `One of your ${engineWord} accounts`;
-    return `${whose} ${state}, so this task is moving to another one.${after}`;
-  }
+export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, elsewhere = false } = {}) {
   const opener = `${engineWord} ${DEAD_RUN_OPENERS[cause] ?? DEAD_RUN_OPENERS.unknown}`;
 
   const again = runs > 1 ? ` This has happened ${runs} times on this task.` : '';

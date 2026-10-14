@@ -7,7 +7,7 @@ import { EFFORT_LEVELS } from '../../shared/effort-levels.mjs';
 import { storeRootEnv } from '../store/home.mjs';
 import { resolveClaudeBin } from '../claude-bin.mjs';
 import { claudeModelRows } from '../claude-models.mjs';
-import { accountIdentity, linkAccountTooling } from '../account-tooling.mjs';
+import { linkAccountTooling } from '../account-tooling.mjs';
 import { streamInputArgs, attachClaudeInput } from '../claude-input.mjs';
 import { claudeLaunchEnv } from '../claude-launch-env.mjs';
 import { claudeActivity } from '../agent-activity.mjs';
@@ -25,14 +25,7 @@ export const claudeHarness = {
   profileHome: () => null,
   effortLevels: () => EFFORT_LEVELS.map(e => e.id),
   profiles: sup => sup._profiles(),
-  // A FOLDER ADD ACCOUNT MADE IS LISTED BEFORE ANYBODY SIGNS INTO IT, and the
-  // round-robin gave it every other task, each of which died on arrival
-  // reading "could not sign in, so nothing has been done" before moving on
-  // (tests/a-claude-account-nobody-signed-into-is-not-handed-work). Signed in
-  // means Claude Code has written an account into the folder. The default
-  // login is never judged by that file, so a working fleet cannot be stopped
-  // by where one install keeps it.
-  signedIn: (sup, profile) => !profile || profile === 'default' || !!accountIdentity(profile),
+  signedIn: () => true,
   profileEnv: (env, profile) => profile === 'default' ? env : { ...env, [definition.homeEnv]: profile },
   signInFiles({ folder, home }) {
     if (folder) return definition.credentialFiles.map(file => path.join(folder, file));

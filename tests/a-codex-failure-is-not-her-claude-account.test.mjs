@@ -47,12 +47,6 @@ import { Supervisor } from '../main/supervisor.mjs';
 // with no `~/.claude` and red on the founder's.
 const EMPTY_HOME = mkdtempSync(join(tmpdir(), 'codex-no-home-'));
 
-// A second Claude login that is signed in. A folder with no account in it is
-// skipped by the pick (tests/a-claude-account-nobody-signed-into-is-not-handed-work),
-// so the round-robin cases need one that has signed in.
-const SECOND_CLAUDE = mkdtempSync(join(tmpdir(), 'claude-second-'));
-writeFileSync(join(SECOND_CLAUDE, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'second@example.com', accountUuid: 'uuid-second' } }));
-
 function bare(config = {}) {
   const s = Object.create(Supervisor.prototype);
   s.config = { authProfiles: [], maxConcurrentSessions: 3, home: EMPTY_HOME, ...config };
@@ -69,12 +63,12 @@ const dead = (engine, tail) => ({
 
 describe('a codex session runs on a codex home, never a claude one', () => {
   it('never hands her claude account folders to codex', () => {
-    const s = bare({ authProfiles: ['default', SECOND_CLAUDE] });
+    const s = bare({ authProfiles: ['default', '/Users/her/.claude-second'] });
     // Ten picks, so a round robin cannot pass this by luck.
     const picked = new Set();
     for (let i = 0; i < 10; i += 1) picked.add(s._pickProfile('codex'));
     expect([...picked]).toEqual(['default']);
-    expect(picked.has(SECOND_CLAUDE)).toBe(false);
+    expect(picked.has('/Users/her/.claude-second')).toBe(false);
   });
 
   // THE CASE THAT MUST NOT MATCH: Claude Code still round-robins across both
@@ -82,17 +76,17 @@ describe('a codex session runs on a codex home, never a claude one', () => {
   // pinned everything to 'default' would pass the test above and cost half
   // the fleet.
   it('still round-robins claude code across both subscriptions', () => {
-    const s = bare({ authProfiles: ['default', SECOND_CLAUDE] });
+    const s = bare({ authProfiles: ['default', '/Users/her/.claude-second'] });
     const picked = new Set();
     for (let i = 0; i < 10; i += 1) picked.add(s._pickProfile('claude'));
-    expect(picked).toEqual(new Set(['default', SECOND_CLAUDE]));
+    expect(picked).toEqual(new Set(['default', '/Users/her/.claude-second']));
   });
 
   // The default, so a caller that names no engine is answered about the engine
   // it is actually going to spawn.
   it('answers a claude account when nobody names an engine', () => {
-    const s = bare({ authProfiles: [SECOND_CLAUDE] });
-    expect(s._pickProfile()).toBe(SECOND_CLAUDE);
+    const s = bare({ authProfiles: ['/Users/her/.claude-second'] });
+    expect(s._pickProfile()).toBe('/Users/her/.claude-second');
   });
 
   // Read here so that a second Codex login is a config key rather than a
@@ -117,7 +111,7 @@ describe('a codex session runs on a codex home, never a claude one', () => {
   // untouched by it.
   it('keeps a resting codex login out of the codex rotation only', () => {
     const s = bare({
-      authProfiles: ['default', SECOND_CLAUDE],
+      authProfiles: ['default', '/Users/her/.claude-second'],
       codexProfiles: ['default', '/Users/her/.codex-second'],
     });
     s._profileCooldown['codex:default'] = Date.now() + 60_000;
@@ -126,7 +120,7 @@ describe('a codex session runs on a codex home, never a claude one', () => {
     expect(codex).toEqual(new Set(['/Users/her/.codex-second']));
     const claude = new Set();
     for (let i = 0; i < 10; i += 1) claude.add(s._pickProfile('claude'));
-    expect(claude).toEqual(new Set(['default', SECOND_CLAUDE]));
+    expect(claude).toEqual(new Set(['default', '/Users/her/.claude-second']));
   });
 });
 
@@ -137,7 +131,6 @@ describe('a real codex spawn bills a codex home', () => {
   afterAll(() => {
     for (const dir of dirs) { try { rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
     try { rmSync(EMPTY_HOME, { recursive: true, force: true }); } catch { /* best effort */ }
-    try { rmSync(SECOND_CLAUDE, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
   // WHERE THE PICK ACTUALLY HAPPENS. Everything above asks `_pickProfile`
@@ -165,7 +158,7 @@ describe('a real codex spawn bills a codex home', () => {
         maxConcurrentSessions: 4,
         // TWO Claude logins, so a pick that reached the wrong pool has
         // somewhere wrong to land and cannot pass by luck.
-        authProfiles: ['default', SECOND_CLAUDE],
+        authProfiles: ['default', '/Users/her/.claude-second'],
       },
       {
         listItems: () => [],
@@ -187,7 +180,7 @@ describe('a real codex spawn bills a codex home', () => {
       sup.sessions.delete(id);
     }
     expect([...seen]).toEqual(['default']);
-    expect(seen.has(SECOND_CLAUDE)).toBe(false);
+    expect(seen.has('/Users/her/.claude-second')).toBe(false);
   });
 });
 
