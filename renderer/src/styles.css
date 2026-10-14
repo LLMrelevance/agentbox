@@ -768,6 +768,8 @@
   border-radius: var(--radius);
   padding: 2px 8px;
 }
+/* One a finder can ask again is pressed to look now, and looks the same. */
+button.missing-artifact { background: none; cursor: pointer; }
 
 html, body, #root { height: 100%; }
 

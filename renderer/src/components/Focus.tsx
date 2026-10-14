@@ -108,6 +108,7 @@ import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { useChatMentions } from '../team/ChatAgents';
 import { AGENT_SCHEME } from '../team/agent-mentions';
 import { engineModelLabel } from '../models';
+import { lookAgainAfter } from '../picture-looks-again';
 
 // With the options strip riding on the composer, the field's own "## Options"
 // section would say everything twice; drop the heading and its numbered items
@@ -210,6 +211,20 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
     find(src!.replace(/^\.\//, '')).then((p) => { if (live) setFound(p || null); }).catch(() => { if (live) setFound(null); });
     return () => { live = false; };
   }, [exhausted, found, src]);
+  // AND A MISSING ONE LOOKS AGAIN (../picture-looks-again.ts): a teammate's
+  // picture can land after its message, and asking once left it missing until
+  // the thread was reopened.
+  const [looks, setLooks] = useState(0);
+  const lookNow = () => {
+    find?.(src!.replace(/^\.\//, '')).then((p) => { if (p) setFound(p); }).catch(() => {});
+  };
+  useEffect(() => {
+    if (found !== null || !find || !src) return;
+    const wait = lookAgainAfter(looks);
+    if (wait === null) return;
+    const timer = setTimeout(() => { lookNow(); setLooks(looks + 1); }, wait);
+    return () => clearTimeout(timer);
+  }, [found, looks, src]);
   if (!src) return null;
   // A picture pasted straight into a message carries its own bytes, so there is
   // no file anywhere for a click to open and it stays a picture and nothing else.
@@ -251,6 +266,7 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
     if (asked) return door(asked, <img src={pictureUrl(asked)} alt={alt ?? ''} className="inline-image" crossOrigin="anonymous" onError={() => setFound(null)} />);
     // Still asking: nothing yet, rather than a "missing" that turns into a picture.
     if (asked === undefined) return null;
+    if (find) return <button type="button" className="missing-artifact" title="Look for it again" onClick={lookNow}>missing image: {rel}</button>;
     return <span className="missing-artifact">missing image: {rel}</span>;
   }
   return door(rel, <img src={candidates[attempt]} alt={alt ?? ''} className="inline-image" crossOrigin="anonymous" onError={() => setAttempt(attempt + 1)} />);
