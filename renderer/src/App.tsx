@@ -6765,7 +6765,6 @@ export default function App() {
       {cloudSetupOpen && snap.cloud?.setUp && (
         <CloudSetup
           cloud={snap.cloud}
-          layout={localStorage.getItem('zero.cloudSetupLayout') === 'list' ? 'list' : 'walk'}
           onMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
           onClose={() => setCloudSetupOpen(false)}
         />

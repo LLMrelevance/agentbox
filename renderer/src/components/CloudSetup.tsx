@@ -5,10 +5,8 @@
 // (components/PlanSetup.tsx, `.fr-screen .ps-over`), because that is how this
 // app already gets somebody signed in, and she picked that card.
 //
-// Two layouts while she chooses between them (2026-10-14):
-//   'walk'  an introduction, then one screen per account, then where threads
-//           should start;
-//   'list'  one card listing every account, the one signing in opened up.
+// An introduction, then one screen per account, then where new threads
+// should start (picked 2026-10-14 over one card listing every account).
 // The sign-in itself happens in the cloud (main/cloud/logins.mjs); this only
 // relays Claude's code and shows Codex's.
 import { useEffect, useRef, useState } from 'react';
@@ -89,9 +87,8 @@ function Trouble({ account, onSkip }: { account: CloudAccount; onSkip: () => voi
   </>;
 }
 
-export function CloudSetup({ cloud, layout = 'walk', onMode, onClose }: {
+export function CloudSetup({ cloud, onMode, onClose }: {
   cloud: CloudStatus;
-  layout?: 'walk' | 'list';
   onMode: (mode: CloudMode) => void;
   onClose: () => void;
 }) {
@@ -99,7 +96,7 @@ export function CloudSetup({ cloud, layout = 'walk', onMode, onClose }: {
   // The accounts this setup set out to sign in, fixed when it opened, so the
   // count does not move as each one finishes.
   const [order] = useState(() => accounts.filter((a) => !a.ready && a.state !== 'renew' && a.state !== 'stale').map(keyOf));
-  const [begun, setBegun] = useState(layout === 'list' || order.length === 0);
+  const [begun, setBegun] = useState(order.length === 0);
   const [skipped, setSkipped] = useState<string[]>([]);
   const current = begun ? currentAccount(accounts, order, skipped) : null;
   const finished = begun && !current;
@@ -111,14 +108,13 @@ export function CloudSetup({ cloud, layout = 'walk', onMode, onClose }: {
     return () => window.removeEventListener('keydown', on);
   }, [begun, onClose]);
 
-  // In the walk, the account on screen starts signing in by itself; in the
-  // list it starts when its row is pressed.
+  // The account on screen starts signing in by itself.
   const started = useRef<string | null>(null);
   useEffect(() => {
-    if (layout !== 'walk' || !current || current.signIn || started.current === keyOf(current)) return;
+    if (!current || current.signIn || started.current === keyOf(current)) return;
     started.current = keyOf(current);
     sign(current, 'start');
-  }, [layout, current ? keyOf(current) : null, current?.signIn?.state]);
+  }, [current ? keyOf(current) : null, current?.signIn?.state]);
 
   // Each vendor's page opens in the browser by itself, once per sign-in.
   const opened = useRef<string | null>(null);
@@ -164,7 +160,7 @@ export function CloudSetup({ cloud, layout = 'walk', onMode, onClose }: {
       <p className="fr-lede">{SETUP.doneLede}</p>
       <AskList rows={WHERE_ROWS.map((r) => ({ ...r }))} label={SETUP.doneLede} onPick={(key) => { onMode(key as CloudMode); onClose(); }} />
     </div>;
-  } else if (layout === 'walk' && current) {
+  } else if (current) {
     body = <div className="fr-stack fr-stack-folders">
       <h1 className="fr-page">{SETUP.signInHead(current.engine)}</h1>
       <p className="fr-lede"><span className="fr-lede-path">{current.name}</span>{order.length > 1 && <span className="ps-of"> · {SETUP.of(n, order.length)}</span>}</p>
@@ -175,37 +171,10 @@ export function CloudSetup({ cloud, layout = 'walk', onMode, onClose }: {
       </div>
     </div>;
   } else {
-    body = <div className="fr-stack fr-stack-folders">
-      <h1 className="fr-page">{SETUP.listHead}</h1>
-      <p className="fr-lede">{SETUP.listLede}</p>
-      <div className="fr-card fr-folders cs-list">
-        {order.map((k) => {
-          const a = accounts.find((x) => keyOf(x) === k);
-          if (!a) return null;
-          const open = current && keyOf(current) === k && !!a.signIn;
-          const state: StepState = a.ready ? 'done' : open ? 'now' : 'todo';
-          return <div key={k} className={`cs-row ${state}`}>
-            <div className="cs-row-head">
-              <span className="ps-ic"><StepIcon state={state} /></span>
-              <span className="cs-row-name">{a.name}</span>
-              <span className="cs-row-eng">{engineWord(a)}</span>
-              {a.ready ? <span className="cs-row-ready">Ready</span>
-                : !a.signIn || a.signIn.state === 'failed' ? <button type="button" className="fr-submit cs-row-go" onClick={() => sign(a, 'start')}>Sign in</button>
-                : <span className="cs-row-ready">Signing in…</span>}
-            </div>
-            {open && <div className="cs-row-body">
-              {stepsFor(a).filter((s) => s.state === 'now').map((s) => <div key={s.key}><div className="ps-t">{s.title}</div>{s.sub && <div className="ps-s">{s.sub}</div>}</div>)}
-              <StepAsk account={a} />
-              {a.signIn?.url && <button type="button" className="ps-link" onClick={() => window.open(a.signIn!.url!, '_blank')}>{SETUP.openAgain}</button>}
-            </div>}
-            {a.signIn?.state === 'failed' && a.signIn.message && <div className="cs-row-body"><span className="cs-row-trouble">{a.signIn.message}</span></div>}
-          </div>;
-        })}
-      </div>
-    </div>;
+    body = <></>;
   }
 
-  return <div className="fr-screen has-back ps-over" role="dialog" aria-label={SETUP.listHead}>
+  return <div className="fr-screen has-back ps-over" role="dialog" aria-label={SETUP.screenLabel}>
     <button type="button" className="back-esc fr-back" aria-label="Back" title="Back" onClick={onClose}>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M10 3.5L5.5 8l4.5 4.5" /></svg>
     </button>

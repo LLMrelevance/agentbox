@@ -433,7 +433,5 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 .th-cloud-banner { display: flex; align-items: center; gap: 14px; margin: 4px 12px 8px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .th-cloud-banner-say { flex: 1; min-width: 0; display: grid; gap: 3px; font-size: 13px; line-height: 1.45; color: var(--text); }
 .th-cloud-banner-say b { font-weight: 500; }
-.th-cloud-banner-say span { font-size: 12.5px; color: var(--text-dim); }
-.th-cloud-off .opts > button { opacity: .45; cursor: default; }
 .th-cloud-go { flex: none; height: 26px; padding: 0 12px; border: 1px solid var(--accent); border-radius: var(--tag-radius); background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
 .th-cloud-go:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }

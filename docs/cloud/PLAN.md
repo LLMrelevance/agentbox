@@ -306,6 +306,16 @@ holds goes to the cloud when a cloud slot is free (`_roomFor`).
 
 ### What the user sees
 
+Setting up (approved 2026-10-14): until an account can run in the cloud, the
+cloud button wears the accent dot and its menu is one invitation, "Set up the
+cloud". That opens a full screen (renderer/src/components/CloudSetup.tsx): what
+the cloud gives and which accounts will sign in, then one screen per account
+(the vendor's page opens by itself; Claude's code is pasted, Codex's is typed
+there), then where new threads should start. Once some accounts are signed in,
+the menu's top line says how many are left. Picking a choice never opens the
+setup by itself.
+
+
 A square cloud button beside the filters button, drawn only on a Mac set up
 for the cloud, wearing how many threads run there while any do. Its menu is
 built like the filters menu: the three choices with the picked one in

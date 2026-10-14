@@ -165,12 +165,12 @@ function CloudButton({ cloud, onMode, onSetUp }: { cloud: CloudStatus; onMode?: 
   // NOT SET UP IS THE WHOLE MENU, NOT A ROW IN IT (2026-10-14: the "Setup"
   // row was "very strange and I don't even notice it"). Until one account can
   // run in the cloud, the choices of where threads run mean nothing, so the
-  // menu is an invitation with one button, and the button wears the accent
-  // dot the filters button uses. Once some are set up, one line says how many
-  // are left. Picking a choice never opens a screen by itself.
+  // menu is an invitation with one button (picked 2026-10-14 over a banner
+  // above greyed choices), and the button wears the accent dot the filters
+  // button uses. Once some are set up, one line says how many are left.
+  // Picking a choice never opens a screen by itself.
   const nobodyReady = !(cloud.accounts || []).some((a) => a.ready);
   const setup = menuSetupLine({ ...cloud, mode: cloud.mode === 'mac' ? 'full' : cloud.mode });
-  const entry = typeof localStorage !== 'undefined' && localStorage.getItem('zero.cloudMenuEntry') === 'banner' ? 'banner' : 'invite';
   const goSetUp = () => { setOpen(false); onSetUp?.(); };
   return <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
     <button type="button" className={`th-disp th-cloud${count ? ' count' : ''}${open ? ' open' : ''}`}
@@ -178,25 +178,22 @@ function CloudButton({ cloud, onMode, onSetUp }: { cloud: CloudStatus; onMode?: 
       onClick={() => setOpen((o) => !o)}>
       <CloudIcon />{count && <b>{count}</b>}{!count && setup && <i />}
     </button>
-    {open && nobodyReady && entry === 'invite' && <div className="th-pop th-cloud-pop th-cloud-invite" role="dialog" aria-label={SETUP.inviteHead}>
+    {open && nobodyReady && <div className="th-pop th-cloud-pop th-cloud-invite" role="dialog" aria-label={SETUP.inviteHead}>
       <span className="th-cloud-invite-ic"><CloudIcon /></span>
       <div className="th-cloud-invite-head">{SETUP.inviteHead}</div>
       <p className="th-cloud-invite-line">{SETUP.inviteLine}</p>
       <button type="button" className="th-cloud-invite-go" onClick={goSetUp}>{SETUP.inviteGo}</button>
       <span className="th-cloud-invite-note">{SETUP.inviteNote}</span>
     </div>}
-    {open && !(nobodyReady && entry === 'invite') && <div className="th-pop th-cloud-pop" role="dialog" aria-label="Where threads run">
-      {setup && <div className={`th-cloud-banner${nobodyReady ? ' first' : ''}`}>
-        <div className="th-cloud-banner-say">
-          <b>{nobodyReady ? SETUP.inviteHead : setup.say}</b>
-          {nobodyReady && <span>{SETUP.inviteLine}</span>}
-        </div>
-        <button type="button" className="th-cloud-go" onClick={goSetUp}>{nobodyReady ? SETUP.inviteGo : setup.go}</button>
+    {open && !nobodyReady && <div className="th-pop th-cloud-pop" role="dialog" aria-label="Where threads run">
+      {setup && <div className="th-cloud-banner">
+        <div className="th-cloud-banner-say"><b>{setup.say}</b></div>
+        <button type="button" className="th-cloud-go" onClick={goSetUp}>{setup.go}</button>
       </div>}
-      <div className={`line${nobodyReady ? ' th-cloud-off' : ''}`}><span className="lab">Cloud</span><span className="opts">
-        {CLOUD_MODES.map((m) => <button type="button" key={m.id} disabled={nobodyReady} className={m.id === cloud.mode ? 'on picked' : ''} aria-pressed={m.id === cloud.mode} onClick={() => onMode?.(m.id)}>{m.label}</button>)}
+      <div className="line"><span className="lab">Cloud</span><span className="opts">
+        {CLOUD_MODES.map((m) => <button type="button" key={m.id} className={m.id === cloud.mode ? 'on picked' : ''} aria-pressed={m.id === cloud.mode} onClick={() => onMode?.(m.id)}>{m.label}</button>)}
       </span></div>
-      <div className="line th-cloud-note"><span className="lab" /><span>{nobodyReady ? 'Choose once the cloud is set up.' : picked.note}</span></div>
+      <div className="line th-cloud-note"><span className="lab" /><span>{picked.note}</span></div>
       <div className="rule" />
       <div className="line"><span className="lab">This month</span><span className="th-cloud-use">{cloudMonthLine(cloud.month)}</span></div>
       <div className="rule" />
