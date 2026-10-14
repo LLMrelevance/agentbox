@@ -99,13 +99,19 @@ describe('what is already under way goes grey', () => {
 describe('the three answers', () => {
   const html = draw();
 
-  it('are New thread, Do here and Dismiss, in that order, on each proposal', () => {
+  // THE MAIN ONE AT THE RIGHT-HAND EDGE (third correction): "don't you think
+  // New Thread should logically be on the right?" Answers hung off a row's
+  // right edge end on the one most people pick, it stands in one column down
+  // the list, and the throwaway one is the furthest from it.
+  it('are Dismiss, Do here and New thread, in that order, on each proposal', () => {
     expect(html.match(/>New thread</g)).toHaveLength(2);
     expect(html.match(/>Do here</g)).toHaveLength(2);
     expect(html.match(/>Dismiss</g)).toHaveLength(2);
     const first = html.slice(html.indexOf('made-acts'));
-    expect(first.indexOf('>New thread<')).toBeLessThan(first.indexOf('>Do here<'));
-    expect(first.indexOf('>Do here<')).toBeLessThan(first.indexOf('>Dismiss<'));
+    expect(first.indexOf('>Dismiss<')).toBeLessThan(first.indexOf('>Do here<'));
+    expect(first.indexOf('>Do here<')).toBeLessThan(first.indexOf('>New thread<'));
+    const one = first.slice(0, first.indexOf('</div>'));
+    expect(one.trim().endsWith('>New thread</button>')).toBe(true);
   });
 
   it('name the proposal each one is about', () => {

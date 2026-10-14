@@ -20,11 +20,16 @@
 //   made two orange words in one list, "and we can't have two pieces of text in
 //   orange. Otherwise it gets very confusing."
 //
-//   ITS ANSWERS ARE ALWAYS BESIDE IT, where the state word would stand: NEW
-//   THREAD in the accent, the only orange word the list shows, then DO HERE
-//   and DISMISS in grey. They were drawn under the cursor only, and the
-//   proposal you were not pointing at looked broken: "it should always show
-//   those options even if you're not hovering over it."
+//   ITS ANSWERS ARE ALWAYS BESIDE IT, where the state word would stand. They
+//   were drawn under the cursor only, and the proposal you were not pointing
+//   at looked broken: "it should always show those options even if you're not
+//   hovering over it."
+//
+//   DISMISS, DO HERE, NEW THREAD, with the main one at the right-hand edge:
+//   "don't you think New Thread should logically be on the right?" Answers
+//   hung off a row's right edge end on the one most people pick, it stands in
+//   one column down the list, and the throwaway one is furthest from it. NEW
+//   THREAD is in the accent, the only orange word the list shows.
 //
 //   DISMISS IS BACK. "I sometimes will just want to reject something." It used
 //   to be left out on the grounds that ignoring a proposal is rejecting it;
@@ -109,9 +114,9 @@ export function ThreadsMade({ rows, onOpen, onApprove, onHere, onDismiss, label 
                   hovering cursor, nothing about which proposal it is. */}
               {press && (
                 <div className="made-acts">
-                  <button type="button" className="made-approve" aria-label={`Start new thread: ${r.title}`} title={`Start new thread: ${r.title}`} onClick={() => onApprove!(r.id)}>{START_NEW}</button>
-                  {onHere && <button type="button" className="made-here" aria-label={`Do in this thread: ${r.title}`} title={`Do in this thread: ${r.title}`} onClick={() => onHere(r.id)}>{DO_HERE}</button>}
                   {onDismiss && <button type="button" className="made-dismiss" aria-label={`${DISMISS}: ${r.title}`} title={`${DISMISS}: it will not run`} onClick={() => onDismiss(r.id)}>{DISMISS}</button>}
+                  {onHere && <button type="button" className="made-here" aria-label={`Do in this thread: ${r.title}`} title={`Do in this thread: ${r.title}`} onClick={() => onHere(r.id)}>{DO_HERE}</button>}
+                  <button type="button" className="made-approve" aria-label={`Start new thread: ${r.title}`} title={`Start new thread: ${r.title}`} onClick={() => onApprove!(r.id)}>{START_NEW}</button>
                 </div>
               )}
             </div>

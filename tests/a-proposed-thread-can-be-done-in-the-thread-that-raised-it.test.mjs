@@ -117,9 +117,9 @@ describe('the press, drawn in the list', () => {
     expect(html).toContain('aria-label="Do in this thread: Say why Send is off"');
   });
 
-  it('comes after New thread', () => {
+  it('comes first, with New thread after it at the edge', () => {
     expect(html.match(/class="made-approve"/g)).toHaveLength(1);
-    expect(html.indexOf('made-approve')).toBeLessThan(html.indexOf('made-here'));
+    expect(html.indexOf('made-here')).toBeLessThan(html.indexOf('made-approve'));
   });
 
   it('is the grey one, and the accent stays on New thread', () => {
