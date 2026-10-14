@@ -18,7 +18,7 @@
 /**
  * The label every one of these rows carries, so a second walk through the
  *  first run can tell which agents already have a row and file nothing twice. */
-import { NAME, Name } from '../shared/product-name.mjs';
+import { NAME } from '../shared/product-name.mjs';
 export const IMPORT_LABEL = 'agent-import';
 
 /**
@@ -107,11 +107,11 @@ export function agentsNeedingRows(chosen, existingItems = []) {
 }
 
 /* --------------------------- AND THE THREADS ----------------------------- */
-// Of the three things a picked thread could do, this is the plainest one. It
-// does NOT resume the conversation, and that is the half these words have to
-// carry, because a row named after an earlier conversation is a row anybody
-// would assume was carrying it on. So the body says, in plain words, that this
-// starts fresh.
+// A picked thread becomes a row that carries the conversation on. It first
+// did not: the body said the reply started fresh, and somebody importing a
+// hundred half-finished sessions was asked to restate every one of them
+// (GitHub #44). The row is still only a row here; the resume happens on the
+// first reply, in `Supervisor#importedThreadFor`.
 //
 // Everything else is the agent import's shape, for the same reasons: one row per
 // thing the user ticked, a label so a second press files nothing twice, and a
@@ -161,10 +161,11 @@ export function startedIn(source) {
  *  added in front of it: a list of rows all opening with the same three words is
  *  a list that has to be read past to find which is which.
  *
- *  The last paragraph is the honest one. Agentbox read the top of the transcript
- *  to find this name and nothing else, and the reply starts a fresh session. A
- *  row that let her believe otherwise would be the same empty promise the agent
- *  import had before 08-23, in a new place. */
+ *  The last paragraph is the honest one. The reply resumes the conversation
+ *  under a new id (`Supervisor#importedThreadFor`), so the original in Claude
+ *  Code is never written to. When the transcript has gone by the time they
+ *  reply, the row is briefed fresh with its title and their reply, which is
+ *  what every imported row got before GitHub #44. */
 export function threadImportRow(thread, { projectName = null, now = Date.now() } = {}) {
   const title = String(thread?.title || '').trim();
   const where = String(thread?.short || thread?.folder || '').trim();
@@ -179,8 +180,8 @@ export function threadImportRow(thread, { projectName = null, now = Date.now() }
   const body = [
     '**Say what you want done next in this thread.**',
     `${started}.`,
-    `Reply with the job and ${NAME} runs it${inProject}, answering you here.`,
-    `${Name} has not read the conversation, only the line above that names it, and replying starts a fresh session rather than carrying the old one on. So say what you need in the reply.`,
+    `Reply and ${NAME} picks this conversation up where you left it${inProject}, answering you here.`,
+    'It carries on a copy, so the original stays as it was wherever you started it.',
   ].join('\n\n');
   return {
     title,
