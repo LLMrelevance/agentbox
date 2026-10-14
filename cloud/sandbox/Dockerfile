@@ -28,7 +28,7 @@ RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/c
 RUN useradd --create-home --home-dir /opt/agent --shell /bin/bash agent \
  && mkdir -p /var/lib/agentbox
 
-COPY server.mjs mcp-stub.mjs /opt/agentbox/
+COPY server.mjs mcp-stub.mjs usage.mjs /opt/agentbox/
 
 ENV AGENTBOX_RUN_AS=agent
 EXPOSE 8080

@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadStore } from './store-modules.mjs';
 import { Repeats } from './repeats.mjs';
+import { CLEAN_LABEL, isCleanRun } from '../shared/repeats.mjs';
 import { answerFor, describeFor } from './first-run.mjs';
 import { checkProjectFolder } from '../shared/project-folder-check.mjs';
 import { EXAMPLES, stampsFor } from '../shared/first-run-examples.mjs';
@@ -34,6 +35,13 @@ import {
   answerMode as readAnswerMode, answerModes, clearAnswerMode as clearAnswerModeFile, setAnswerMode,
   touchAnswerMode as touchAnswerModeFile,
 } from './answer-modes.mjs';
+
+// WHAT A ROW'S ID LOOKS LIKE, for the reads that take one from the window: a
+// task, `w-` and hex, or a run of a repeating task, `r-<rule>-<YYYYMMDD>`
+// (shared/repeats.mjs occurrenceId). Runs were refused until a repeating task
+// began opening as its latest run (w-5e3f2e047f), and a run's page then had no
+// conversation to draw.
+const ROW_ID = /^(w-[0-9a-f]{6,}|r-[0-9a-f]{6,}-\d{8})$/;
 
 export class Store {
   constructor(config) {
@@ -246,7 +254,7 @@ export class Store {
   // a heartbeat a minute, and's 39 lines are 15 events.
   readHistory(slug, id, { max = 400 } = {}) {
     const { workItemsDisk } = this.modules;
-    if (!/^w-[0-9a-f]{6,}$/.test(String(id ?? ''))) return [];
+    if (!ROW_ID.test(String(id ?? ''))) return [];
     const file = workItemsDisk._internals.ledgerPath(this.productDir(slug));
     const lines = [];
     for (const raw of workItemsDisk._internals.readLines(file)) {
@@ -269,7 +277,7 @@ export class Store {
   // here would silently decide it twice.
   readThread(slug, id) {
     const { workItemsDisk, workItemsCore } = this.modules;
-    if (!/^w-[0-9a-f]{6,}$/.test(String(id ?? ''))) return [];
+    if (!ROW_ID.test(String(id ?? ''))) return [];
     const file = workItemsDisk._internals.ledgerPath(this.productDir(slug));
     return workItemsCore.threadOf(workItemsDisk._internals.readLines(file), id);
   }
@@ -344,6 +352,14 @@ export class Store {
     if (model !== undefined) item = workItemsDisk.updateWorkItem(dir, id, { model: model ?? '' }, { source: 'founder' });
     if (effort !== undefined) item = workItemsDisk.updateWorkItem(dir, id, { effort: effort ?? '' }, { source: 'founder' });
     if (answer) item = workItemsDisk.updateWorkItem(dir, id, inReplyTo ? { answer, inReplyTo } : { answer }, { source: 'founder' });
+    // A REPLY ON A RUN THAT FINISHED QUIETLY MAKES IT NEWS AGAIN (w-5e3f2e047f).
+    // A quiet run is kept out of her inbox, and a repeating task now opens on
+    // its latest run, so without this the answer to what she just asked there
+    // could never reach her. Written as the app rather than as her, so the
+    // worker can still mark a later quiet finish of its own.
+    if (answer && answer !== '(withdrawn)' && isCleanRun(item)) {
+      item = workItemsDisk.updateWorkItem(dir, id, { labels: item.labels.filter((l) => l !== CLEAN_LABEL) }, { source: 'system' });
+    }
     // The pane may still show a running row after Stop or a provider result.
     // Resolve omitted reply status against the ledger that was just written.
     if (status == null && typeof answer === 'string' && answer.trim() && answer !== '(withdrawn)'
@@ -482,7 +498,7 @@ export class Store {
   // Put the existing thread back in the person's inbox later. This never
   // changes its execution schedule, answer, status, claim or delivery marks.
   snoozeItem(slug, id, snoozedUntil) {
-    if (!Number.isFinite(snoozedUntil)) throw new Error('Snooze needs a valid time');
+    if (!Number.isFinite(snoozedUntil)) throw new Error('Later needs a valid time');
     return this.modules.workItemsDisk.updateWorkItem(
       this.productDir(slug), id, { snoozedUntil: Math.max(0, Math.trunc(snoozedUntil)) }, { source: 'founder' },
     );
@@ -516,8 +532,15 @@ export class Store {
   threadEdit(slug, id, patch) {
     // `start` is how a thread leaves Later: the summary and the thread page
     // both write 'now' on it, which is what makes `isDue` true again.
-    const fields = ['problem', 'progress', 'solution', 'visibility', 'visibleTo', 'priority', 'blockedBy', 'blocks', 'start'];
+    // `label` is a rename (w-ab3d51dc7d): the name every row shows. Never
+    // `title`, which is the message the thread was started with and briefs
+    // every run. Written on her authority, it outranks the namer's.
+    const fields = ['problem', 'progress', 'solution', 'visibility', 'visibleTo', 'priority', 'blockedBy', 'blocks', 'start', 'label'];
     const allowed = Object.fromEntries(Object.entries(patch ?? {}).filter(([k]) => fields.includes(k)));
+    if ('label' in allowed) {
+      allowed.label = String(allowed.label ?? '').replace(/\s+/g, ' ').trim();
+      if (!allowed.label) throw new Error('a thread needs a name');
+    }
     if (!Object.keys(allowed).length) throw new Error('nothing to change');
     return this.modules.workItemsDisk.updateWorkItem(this.productDir(slug), id, allowed, { source: 'founder' });
   }

@@ -36,6 +36,7 @@ import net from 'node:net';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn, execFile, execFileSync } from 'node:child_process';
+import { usageMeter } from './usage.mjs';
 
 // One stdout event at most this many bytes of output.
 const CHUNK = 48 * 1024;
@@ -68,6 +69,9 @@ export function createSandbox({
   // unprivileged `agent` user, owning only its folder and its account folder.
   // { uid, gid, home, user }, or null to run as whoever the server is.
   runAs = null,
+  // Where the usage meter reads the machine (cloud/sandbox/usage.mjs); a
+  // test points it at a fake /sys/fs/cgroup and /proc.
+  usage = {},
 } = {}) {
   const at = (p) => (pathRoot ? path.join(pathRoot, p) : p);
   let run = null;
@@ -248,6 +252,7 @@ export function createSandbox({
       return;
     }
     r.child = child;
+    r.meter = usageMeter(usage);
     child.stdout.on('data', (d) => emitChunks('stdout', d, r));
     child.stderr.on('data', (d) => emitChunks('stderr', d, r));
     child.stdin.on('error', () => {});
@@ -267,6 +272,8 @@ export function createSandbox({
       clearTimeout(r.deadlineTimer);
       r.exitCode = code;
       r.exitSignal = signal || null;
+      r.usage = r.meter?.stop() ?? null;
+      r.meter = null;
       r.child = null;
       // Anything the command left running in its group goes now: a dev
       // server holding stdout open would otherwise keep the run "running".
@@ -345,7 +352,7 @@ export function createSandbox({
       try {
         const manifest = await collect(r, urls);
         if (urls.eventsUrl) await upload(fetchImpl, urls.eventsUrl, fs.readFileSync(r.log.file));
-        const done = { ...manifest, runId: r.id, exitCode: r.exitCode, exitSignal: r.exitSignal || null, cancelled: r.cancelled || null, lastSeq: r.log.index.length };
+        const done = { ...manifest, runId: r.id, exitCode: r.exitCode, exitSignal: r.exitSignal || null, cancelled: r.cancelled || null, lastSeq: r.log.index.length, usage: r.usage || null };
         if (urls.doneUrl) await upload(fetchImpl, urls.doneUrl, Buffer.from(JSON.stringify(done)));
         r.manifest = done;
         setState('collected', {}, r);

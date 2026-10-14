@@ -13,19 +13,20 @@
 // the project they belong to instead of in a text editor.
 
 import fs from 'node:fs';
+import { harnessFor } from './harnesses.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { codexChoiceToOpen, saveConfig } from './config.mjs';
-import { resolveClaudeBin, forgetClaudeBin, INSTALL_URL } from './claude-bin.mjs';
+import { forgetClaudeBin, INSTALL_URL } from './claude-bin.mjs';
 import { AGENT_MODES } from '../shared/agents.mjs';
 import { analyticsKey, diagnosticsOn } from './analytics.mjs';
 import { CLAUDE_PERMISSION_MODES } from '../shared/work-items.mjs';
-import { accountSentence, engineTroubleNote } from '../shared/spawn-trouble.mjs';
+import { accountSentence, engineTroubleNote, refineCause } from '../shared/spawn-trouble.mjs';
 import { readPlan } from './claude-plan.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { machineSlots, machineNote, autoAgents, MAX_SLOTS } from './machine.mjs';
 import { shortPath } from './agent-files.mjs';
-import { NAME } from '../shared/product-name.mjs';
+import { NAME, Name } from '../shared/product-name.mjs';
 import { autoSlots } from './memory-gate.mjs';
 import { accountIdentity, claudeLoginCommand, duplicateAccountNote, linkAccountTooling, makeClaudeHome } from './account-tooling.mjs';
 import { isEngine } from '../shared/engines.mjs';
@@ -33,7 +34,7 @@ import { codexAccount, codexLoginCommand, makeCodexHome } from './codex-account.
 import { codexDefaultModel, codexModels } from './codex-models.mjs';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
 import { claudeModels } from './claude-models.mjs';
-import { resolveCodexBin, forgetCodexBin, INSTALL_URL as CODEX_INSTALL_URL } from './codex-bin.mjs';
+import { forgetCodexBin, INSTALL_URL as CODEX_INSTALL_URL } from './codex-bin.mjs';
 
 // Her Claude Code sessions in her inbox: all of them, only the ones stopped on
 // a question, or none. One reader, here, so the settings screen and the
@@ -249,13 +250,18 @@ const lineCount = (text) => (text.trim() ? text.trim().split('\n').length : 0);
 // Claude Code: the path, whether it is really there, and where to get it when
 // it is not. One reader, here, so the screen and the config cannot disagree.
 export function claudeState(config) {
-  const found = resolveClaudeBin(config.claudeBinConfigured ?? null);
+  const found = harnessFor('claude').discover(config.claudeBinConfigured ?? null);
   return {
     claudeBin: found.path ?? config.claudeBin,
     claudeFound: found.found,
     // Whether the search got an answer at all.
     claudeCertain: found.certain !== false,
     claudeInstallUrl: INSTALL_URL,
+    // WHETHER SOMEBODY POINTED AT THIS FILE THEMSELVES, which is the one thing
+    // the card cannot work out from the path alone. A chosen path is never
+    // searched around, so the row that offers the search back has to know
+    // (`pointAtEngineBin` below).
+    claudeChosen: found.from === 'settings',
   };
 }
 
@@ -311,7 +317,7 @@ export function recheckClaude(config) {
  * whose unsure state is not checked. Nothing in the app passes it.
  */
 export function codexState(config, where = {}) {
-  const found = resolveCodexBin(config.codexBinConfigured ?? null, where);
+  const found = harnessFor('codex').discover(config.codexBinConfigured ?? null, where);
   return {
     // Empty rather than a path when there is nothing there, which is the same
     // asymmetry `config.codexBin` already keeps (main/config.mjs): a configured
@@ -323,6 +329,8 @@ export function codexState(config, where = {}) {
     // Whether the search got an answer at all.
     certain: found.certain !== false,
     url: CODEX_INSTALL_URL,
+    // Whether somebody pointed at this file themselves. See `claudeState`.
+    chosen: found.from === 'settings',
   };
 }
 
@@ -347,6 +355,87 @@ export function recheckCodex(config) {
   const opened = codexChoiceToOpen(config, state.found);
   if (opened && config.appDir) saveConfig(config, { engineChoice: opened });
   return state;
+}
+
+/* ------------------- POINTING AT IT YOURSELF, AND BACK -------------------- */
+/**
+ * THE WAY OUT OF A SEARCH THAT MISSED, AND IT IS NOT A RELEASE (w-ce8c1a9275).
+ *
+ * The note this came from: "It has a really hard time finding the install on the
+ * person's computer, and we keep having bug reports and then patching that
+ * specific case." Asking the login shell first (main/engine-bin.mjs) covers
+ * every installer a person's own PATH knows about, which is most of them. It
+ * cannot cover a wrapper script somewhere nobody would guess, a tool on a
+ * volume, or a machine whose login shell will not start at all -- and for those,
+ * every fix used to be a path WE ship and a release THEY wait for.
+ *
+ * `claudeBin` in zero.config.json already won over the search and always has.
+ * What was missing is that nobody is told about that file and the app gave no
+ * way to edit it. These two functions are that door, and the second one matters
+ * as much as the first: a wrong choice that could only be undone by hand-editing
+ * a file nobody has heard of is not a door, it is a trap.
+ *
+ * THE REFUSALS ARE MOST OF THE WORK. Each thing refused here was possible by
+ * hand before and each one becomes a spawn that fails once per row, naming a
+ * file nobody meant to name. The sentence comes back to the screen instead.
+ *
+ * NO PATH FROM THE WINDOW IS EVER TRUSTED: main/ipc.mjs opens the picker and
+ * calls this in the same trip, so the only path that reaches here is one the
+ * open panel itself produced. The sibling rule is
+ * tests/where-codex-runs-from-is-not-a-file-a-worker-can-write.test.mjs.
+ */
+const BIN_KEY = { claude: 'claudeBin', codex: 'codexBin' };
+
+/** The sentence, or null when the file really is one we could run. */
+function whyNotAnAgent(chosen) {
+  if (typeof chosen !== 'string' || !path.isAbsolute(chosen)) {
+    return `${Name} needs the file itself, picked from your computer.`;
+  }
+  let stat;
+  try { stat = fs.statSync(chosen); } catch { stat = null; }
+  if (!stat) return `${Name} could not find anything there. It may have moved since.`;
+  if (stat.isDirectory()) return 'That is a folder. Open it and pick the file inside.';
+  try { fs.accessSync(chosen, fs.constants.X_OK); } catch {
+    return 'That file cannot be run, so it is not the one.';
+  }
+  return null;
+}
+
+/**
+ * Take a file somebody picked for one coding agent.
+ *
+ * Written to zero.config.json so it survives a restart AND set on the live
+ * config, because every consumer reads `config.*` per call and a setting that
+ * waits for a relaunch is the same failure as a fix that is not running. The
+ * recheck afterwards is what puts the path the fleet spawns from in step with
+ * it, the same way the Check again button does.
+ */
+export function pointAtEngineBin(config, engine, chosen) {
+  const key = BIN_KEY[engine];
+  if (!key) return { ok: false, say: `${Name} does not know a coding agent called that.` };
+  const why = whyNotAnAgent(chosen);
+  if (why) return { ok: false, say: why };
+  if (!config.appDir) return { ok: false, say: `${Name} has nowhere to save that.` };
+  saveConfig(config, { [key]: chosen });
+  config[`${engine}BinConfigured`] = chosen;
+  const state = engine === 'claude' ? recheckClaude(config) : recheckCodex(config);
+  return { ok: true, state };
+}
+
+/**
+ * Give the choice back, so the search is in charge again. The key is REMOVED
+ * from the file rather than emptied: `saveConfig` reads an explicit undefined as
+ * a deletion, and an empty string left behind would read as a setting that means
+ * something else (main/config.mjs only treats a non-empty string as chosen).
+ */
+export function searchForEngineBin(config, engine) {
+  const key = BIN_KEY[engine];
+  if (!key) return { ok: false, say: `${Name} does not know a coding agent called that.` };
+  if (!config.appDir) return { ok: false, say: `${Name} has nowhere to save that.` };
+  saveConfig(config, { [key]: undefined });
+  config[`${engine}BinConfigured`] = null;
+  const state = engine === 'claude' ? recheckClaude(config) : recheckCodex(config);
+  return { ok: true, state };
 }
 
 export function readSettings({ config, supervisor, store }) {
@@ -380,7 +469,11 @@ export function readSettings({ config, supervisor, store }) {
   // waiting, because a page she chose to open interrupts nobody.
   const troubles = status.accountTrouble ?? {};
   const accounts = (profiles.length ? profiles : ['default']).map((profile) => {
-    const trouble = troubles[profile] ?? null;
+    const plan = readPlan(profile);
+    // A reason filed before an ended subscription had its own name still reads
+    // as an admin's block; the login's file says which it is.
+    const filed = troubles[profile] ?? null;
+    const trouble = filed ? { ...filed, cause: refineCause(filed.cause, plan) } : null;
     const resting = (supervisor._profileCooldown?.[profile] ?? 0) >= now;
     // WHOSE SUBSCRIPTION THIS ROW IS, not merely which folder it lives in.
     // The page named its rows after folders, so nothing on it could tell a
@@ -422,7 +515,7 @@ export function readSettings({ config, supervisor, store }) {
       // Read here rather than kept, because Claude Code refreshes its own
       // profile as it runs and this page is opened by hand a few times a day.
       // `null` when the file cannot be read, and then no screen says anything.
-      plan: (() => { const p = readPlan(profile); return p.known ? { label: p.label, max: p.max } : null; })(),
+      plan: plan.known ? { label: plan.label, max: plan.max } : null,
     };
   });
 
@@ -472,7 +565,9 @@ export function readSettings({ config, supervisor, store }) {
     archivedProjects,
     workspace: {
       agentsRunning: !supervisor.paused,
-      sessionsAtOnce: config.maxConcurrentSessions,
+      // The number picked on the menu, for the whole computer, or what is
+      // running as the limit now when nothing was picked.
+      sessionsAtOnce: typeof config.agentsAtOnce === 'number' ? config.agentsAtOnce : status.capacity,
       // AUTOMATIC, AND WHAT IT WORKS OUT TO (w-e5225b62ba). `agentsAuto` is who
       // is deciding; `agentsTotal` is what the whole Mac is running at once,
       // which is the number the page shows, because the per-account one is
@@ -896,6 +991,9 @@ export function memoryGateSettings({ config, supervisor }) {
 export function memoryReading({ config, supervisor }) {
   const out = { heavy: null, waiting: null, pressure: null, usedPct: null, asked: null, waited: null, refused: null };
   if (!config.memoryGate) return out;
+  // The supervisor's own hold on new agents (main/start-hold.mjs), which does
+  // not depend on which copy of the app is coordinating the command queue.
+  try { out.holding = !!supervisor.startHoldStatus?.()?.holding; } catch { out.holding = false; }
   let s = null;
   try { s = supervisor.memoryGateStatus?.() ?? null; } catch { return out; }
   if (!s || s.role === 'standby') return out;
@@ -1012,7 +1110,9 @@ export function setWorkspaceSetting({ config, supervisor }, { key, value }) {
       const n = Math.max(1, Math.min(MAX_SLOTS, Math.round(Number(value) || 1)));
       // Setting a number by hand IS taking the decision back, so the page never
       // shows a stepper that the supervisor is quietly ignoring.
-      saveConfig(config, { maxConcurrentSessions: n, agentsAuto: false });
+      // FOR THE WHOLE COMPUTER (w-ec27ff1a51), under its own key, so a number
+      // written per login before 5 Oct can never be read as this choice.
+      saveConfig(config, { agentsAtOnce: n, agentsAuto: false });
       // An explicit choice replaces the startup plan suggestion for BOTH
       // engines. Leaving this marker set makes Codex ignore the new number
       // until loadConfig runs again at restart. It is derived, not persisted.
@@ -1039,6 +1139,18 @@ export function setWorkspaceSetting({ config, supervisor }, { key, value }) {
       break;
     // STOP WHAT FINISHED AGENTS LEAVE RUNNING (main/leftovers.mjs). Turning it
     // on records the moment, which is the earliest the clock may start from.
+    // WHERE THREADS RUN (renderer/src/cloud-menu.ts): 'mac' turns cloud runs
+    // off, 'full' sends what does not fit here, 'all' sends everything first.
+    // Read by the supervisor per call, so it takes effect on the next tick.
+    case 'cloudRuns': {
+      const map = { mac: false, full: null, all: 'all' };
+      if (!(value in map)) throw new Error(`unknown cloud mode: ${value}`);
+      saveConfig(config, { cloudRuns: map[value] });
+      config.cloudRuns = map[value];
+      supervisor.wake?.();
+      supervisor.onChange?.();
+      break;
+    }
     case 'cleanupLeftovers':
       saveConfig(config, value ? { cleanupLeftovers: true, cleanupLeftoversSince: Date.now() } : { cleanupLeftovers: false });
       supervisor.setLeftoverCleanup?.(!!value)?.catch?.((e) => console.warn('zero: leftovers:', e.message));

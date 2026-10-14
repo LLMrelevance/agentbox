@@ -40,15 +40,16 @@ import { readDoc, writeDoc } from './doc-file.mjs';
 import { readChange } from './code-change.mjs';
 import { findFile, readCodeFile, writeCodeFile } from './code-file.mjs';
 import { readNote, writeNote } from './rail-note.mjs';
-import { addClaudeAccount, addCodexAccount, outsideAgentsMode, permissionMode, readSettings, recheckClaude, recheckCodex, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
+import { addClaudeAccount, addCodexAccount, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, recheckClaude, recheckCodex, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
 import { ICON_KINDS, clearProjectIcon, setProjectIcon, setProjectName } from './project-identity.mjs';
 import { ClaudeUsage } from './claude-usage.mjs';
 import { usageEngine } from '../shared/usage.mjs';
-import { DEFAULT_ENGINE } from '../shared/engines.mjs';
+import { DEFAULT_ENGINE, isEngine } from '../shared/engines.mjs';
 import * as agents from './agents.mjs';
 import { findAgentFolders, readAgentFiles, readFolderAgents } from './agent-files.mjs';
-import { readSessionThreads } from './agent-sessions.mjs';
 import { readCodexThreads } from './codex-threads.mjs';
+import { appSessionFolders } from './agent-homes.mjs';
+import { readImportableThreads } from './importable-threads.mjs';
 import { markImported } from '../shared/agent-import.mjs';
 import { codexIdOf, importChoice, isCodexImportRow, isNotImportedRow } from '../shared/codex-import.mjs';
 import { checkProjectFolder } from '../shared/project-folder-check.mjs';
@@ -60,6 +61,7 @@ import { machineryPath } from './store/home.mjs';
 import { EVENT_NAMES } from '../shared/analytics-events.mjs';
 import { Name } from '../shared/product-name.mjs';
 import { handedOnByReply } from '../shared/team-rules.mjs';
+import { saveAttachments } from './save-attachments.mjs';
 
 // WHAT A WORKER IS TOLD WHEN HER DECISION COULD NOT BE RECORDED.
 const SPOOL_REFUSED = `${Name} could not record the founder's decision, so nothing was allowed. Finish what your grants cover and file the rest as a review.`;
@@ -91,6 +93,9 @@ const NO_UPDATER = {
   }),
   check: async () => NO_UPDATER.state(),
   install: () => false,
+  // Nowhere to move to and nothing to move: a copy with no updater behind it
+  // is a copy run from source (shared/where-it-runs-from.mjs).
+  move: () => ({ moved: false, error: null }),
 };
 
 export function registerIpc({ store, supervisor, config, window, analytics = NO_ANALYTICS, docGrants = null, updater = NO_UPDATER, host, team = null }) {
@@ -264,6 +269,12 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     onChange: push,
   });
 
+  ipcMain.handle('zero:refresh-usage', async event => {
+    if (event.senderFrame?.parent || (event.sender && event.sender !== window.webContents)) throw Error('Usage refresh is only available in the main app window.');
+    const result = await usage.refreshNow();
+    return result.reading ? { ...result, reading: { engine: DEFAULT_ENGINE, ...result.reading } } : result;
+  });
+
   // Agents this run has already counted. In memory on purpose: a fresh launch
   // seeing the same agent again is a fresh fact about the app being used.
   const seenAgents = new Set();
@@ -349,13 +360,13 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   });
   ipcMain.handle('zero:terminal',(_event,payload={})=>{
     if(_event.senderFrame?.parent || (_event.sender && _event.sender!==window.webContents)) throw Error('Terminal is only available in the main app window.');
-    const {product,id,action,data,cols,rows,offset}=payload;
+    const {product,id,action,data,cols,rows,offset,wait}=payload;
     if(typeof product!=='string'||typeof id!=='string'||!id||id.length>300)throw Error('Invalid task.');
     const key=JSON.stringify({product,id});
     if(product==='@agent-update')return agentUpdates.terminal(id,payload);
     switch(action){
       case 'open':return terminals.open(key);
-      case 'read':return terminals.read(key,offset);
+      case 'read':return terminals.read(key,offset,wait);
       case 'write':terminals.write(key,data);return true;
       case 'resize':terminals.resize(key,cols,rows);return true;
       case 'close':terminals.close(key);return true;
@@ -441,6 +452,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       // while fixes landed underneath it, and a boot-time check cannot see
       // that. See main/staleness.mjs.
       restartNeeded: restartNeeded(supervisor.appDir),
+      // WHERE THREADS RUN, for the cloud button beside the filters
+      // (renderer/src/cloud-menu.ts). `setUp` false draws no button at all.
+      cloud: supervisor.cloudStatus(),
       // HER RATE LIMIT, WHICH IS WHAT ACTUALLY CAPS THE FLEET. Null until the
       // first reading lands, and the corner draws nothing at all until then
       // rather than a pill full of dashes.
@@ -586,6 +600,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     // same as one picked on the summary (zero:thread-edit). A reply that
     // happens to carry its row's level does not.
     if (priority != null && !answer && id) supervisor.setThreadPlaces({ [id]: null });
+    // CLOSING A THREAD IS THE END OF WHAT IT WAS PINNED FOR (w-20323283e6).
+    if (id && status === 'done') supervisor.setThreadPins({ [id]: null });
     // A REPLY IN A THREAD (w-920461cbe6) only means something in a conversation
     // between people, which is the only place a thread is drawn and the only
     // record the mark crosses to a teammate in (shared/team-rules.mjs). Anywhere
@@ -604,7 +620,10 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
         if (choice) {
           let thread = null;
           if (choice === 'yes') {
-            try { thread = readCodexThreads({}).threads.find((t) => t.id === codexIdOf(row)) ?? null; } catch { thread = null; }
+            try {
+              const { codexDirs } = appSessionFolders({ config, supervisor });
+              thread = readCodexThreads({ codexDirs }).threads.find((t) => t.id === codexIdOf(row)) ?? null;
+            } catch { thread = null; }
           }
           const out = store.answerCodexImport(product, id, choice, { thread });
           push();
@@ -654,6 +673,13 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // places the drop worked out (`dropPlaces`, shared/rank.mjs), id to number.
   ipcMain.handle('zero:set-thread-places', (_e, { places }) => {
     supervisor.setThreadPlaces(places);
+    push();
+    return { ok: true };
+  });
+
+  // PINNED THREADS (w-20323283e6): id to true, or null to unpin.
+  ipcMain.handle('zero:set-thread-pins', (_e, { pins }) => {
+    supervisor.setThreadPins(pins);
     push();
     return { ok: true };
   });
@@ -737,7 +763,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   ipcMain.handle('zero:team-sync', teamCall(() => team.syncNow()));
   // A MESSAGE TO A PERSON (approved 2026-10-01: people get messages, never
   // tasks). main/team/index.mjs keeps it between the two of them.
-  ipcMain.handle('zero:team-message', teamCall(({ to, body, priority }) => team.message(to, body, priority)));
+  ipcMain.handle('zero:team-message', teamCall(({ to, body, priority, files }) => team.message(to, body, priority, files)));
   // AN EDIT TO A THREAD, MADE IN PLACE from its summary: the summary's lines,
   // who sees it, its priority and what it is linked to. Works with or without a
   // team, since every thread has a summary.
@@ -1140,13 +1166,10 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // 'codex'`, land under the project whose folder they ran in exactly as the
   // Claude Code ones do, and the ones the user said not now to are here too, so
   // there is a way back to them.
-  const readAllThreads = () => {
-    let claude = [];
-    let codex = [];
-    try { ({ threads: claude } = readSessionThreads({})); } catch { claude = []; }
-    try { ({ threads: codex } = readCodexThreads({})); } catch { codex = []; }
-    return [...claude, ...codex].sort((a, b) => (b.when ?? 0) - (a.when ?? 0));
-  };
+  // EVERY FOLDER EITHER TOOL KEEPS SESSIONS IN (main/agent-homes.mjs), not only
+  // ~/.claude and ~/.codex, which is where the import used to look and nothing
+  // else (w-e46f2e9cea).
+  const readAllThreads = () => readImportableThreads({ config, supervisor });
   ipcMain.handle('zero:agent-threads', () => {
     const threads = readAllThreads();
     lastThreads = threads;
@@ -1373,15 +1396,64 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     }
   });
 
+  /*
+   * AND WHEN NEITHER BUTTON CAN FIND IT: POINT AT THE FILE YOURSELF
+   * (w-ce8c1a9275). The search asks the login shell first now, which covers
+   * every installer a person's own PATH knows about -- but a wrapper script
+   * somewhere nobody would guess, a tool on a volume, or a machine whose login
+   * shell will not start at all still used to mean a path WE ship and a release
+   * THEY wait for. This is the half that ends that.
+   *
+   * ONE ROUND TRIP, like `zero:project-icon` below and for the same reason: the
+   * panel opens in this process and the choice is applied in the same call, so
+   * the only path that ever reaches `pointAtEngineBin` is one the open panel
+   * itself produced. The window says WHICH coding agent it is asking about and
+   * nothing else, which is the whole of what it is trusted with -- `codexBin`
+   * is a path that gets spawned, and every worker on this machine has a broad
+   * Bash allow (tests/where-codex-runs-from-is-not-a-file-a-worker-can-write).
+   *
+   * THE REFUSAL IS A SENTENCE AND NOT AN ERROR. Picking a folder, or a file
+   * that cannot be run, is an ordinary mistake at a file panel; it comes back
+   * as words the row prints, the way `zero:choose-folder` already does.
+   */
+  ipcMain.handle('zero:engine-bin', async (_e, { engine, action } = {}) => {
+    if (engine !== 'claude' && engine !== 'codex') return { ok: false, error: 'Unknown coding agent.' };
+    try {
+      // Handing the choice back needs no panel: it is the row saying "look for
+      // it again", and the search takes over from there.
+      if (action === 'search') {
+        const gave = searchForEngineBin(config, engine);
+        if (!gave.ok) return { ok: false, refused: gave.say };
+        return { ok: true, ...readSettings({ config, supervisor, store }) };
+      }
+      const { dialog } = await import('electron');
+      const r = await dialog.showOpenDialog(window, {
+        title: engine === 'codex' ? 'Where is Codex?' : 'Where is Claude Code?',
+        buttonLabel: 'Use this one',
+        properties: ['openFile', 'showHiddenFiles', 'treatPackageAsDirectory'],
+      });
+      // Cancelling is not a failure and must not draw one. `ok` with nothing
+      // changed is the honest answer: they opened the panel and closed it again.
+      if (r.canceled || !r.filePaths?.length) return { ok: true, canceled: true };
+      const took = pointAtEngineBin(config, engine, r.filePaths[0]);
+      if (!took.ok) return { ok: false, refused: took.say };
+      return { ok: true, ...readSettings({ config, supervisor, store }) };
+    } catch (err) {
+      return { ok: false, error: String(err.message) };
+    }
+  });
+
   // SETTING UP THEIR PLAN FOR THEM (w-9f6975906c). The walk asks which plan
   // they pay for and this installs the tool and starts its own sign-in. The
   // finder is the recheck, so what gets installed lands on the config and the
   // rest of the app runs on it without a restart.
   const engineSetup = createEngineSetup({
     find: (engine) => {
-      if (engine === 'claude') { const s = recheckClaude(config); return { found: s.claudeFound, path: s.claudeBin }; }
-      const s = recheckCodex(config);
-      return { found: s.found, path: s.bin };
+      const finders = {
+        claude: () => { const s = recheckClaude(config); return { found: s.claudeFound, path: s.claudeBin }; },
+        codex: () => { const s = recheckCodex(config); return { found: s.found, path: s.bin }; },
+      };
+      return finders[engine]?.() ?? { found: false, path: null };
     },
     // WHICH ONE IS SIGNED IN, kept on the config for the run that reads it
     // (`Supervisor#_enginesFound`) and never saved: it changes outside the app.
@@ -1400,7 +1472,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // A sign-in left waiting on the browser is not left running after the app.
   app.on('will-quit', () => { engineSetup.cancel('claude'); engineSetup.cancel('codex'); });
   ipcMain.handle('zero:engine-setup', async (_e, { action, engine } = {}) => {
-    if (engine !== 'claude' && engine !== 'codex') return { ok: false, error: 'Unknown coding agent.' };
+    if (!isEngine(engine)) return { ok: false, error: 'Unknown coding agent.' };
     try {
       if (action === 'ready') return { ok: true, ...(await engineSetup.readiness(engine)) };
       if (action === 'start') return { ok: true, ...engineSetup.start(engine) };
@@ -1581,29 +1653,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // in the product's attachments/ dir and come back as relative paths the
   // caller embeds in the body as markdown. Relative paths keep them readable
   // by workers through the MCP and renderable in the message view.
-  ipcMain.handle('zero:save-attachments', async (_e, { product, files }) => {
-    const fs = await import('node:fs');
-    const dir = store.productDir(product);
-    const outDir = path.join(dir, 'attachments');
-    fs.mkdirSync(outDir, { recursive: true });
-    const saved = [];
-    for (const file of files ?? []) {
-      const safe = String(file.name ?? 'file').replace(/[^\w.-]+/g, '-').slice(0, 80);
-      // A RANDOM SUFFIX, THE SAME ONE THE STAGING PATH ALREADY USES. The name
-      // was the millisecond plus the filename, so two files saved in the same
-      // millisecond with the same name overwrote each other and the message
-      // ended up with two links to one picture. Screenshots are often sent in
-      // pairs, which is exactly the shape that collides. It has never been observed
-      // happening; it is one line to make impossible.
-      const rel = `attachments/${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}-${safe}`;
-      const abs = path.join(dir, rel);
-      if (file.dataBase64) fs.writeFileSync(abs, Buffer.from(file.dataBase64, 'base64'));
-      else if (file.srcPath) fs.copyFileSync(file.srcPath, abs);
-      else continue;
-      saved.push({ rel, name: safe, image: /\.(png|jpe?g|gif|webp)$/i.test(safe) });
-    }
-    return saved;
-  });
+  // The saving itself is main/save-attachments.mjs, shared with a message to a
+  // person, which saves its own once it knows which conversation it is in.
+  ipcMain.handle('zero:save-attachments', async (_e, { product, files }) => saveAttachments(store.productDir(product), files));
 
   // A PASTED SCREENSHOT GOES TO DISK THE MOMENT IT IS PASTED.
   //
@@ -1900,6 +1952,14 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // to decide is when the app is allowed to disappear and come back.
   ipcMain.handle('zero:update-check', async () => updater.check({ manual: true }));
   ipcMain.handle('zero:update-install', () => ({ started: updater.install() }));
+  // AND A THIRD, for the copy that cannot update itself from where it is: move
+  // the app into Applications (shared/where-it-runs-from.mjs). It is a door of
+  // its own rather than part of the install, because it is the opposite
+  // decision — nothing has been downloaded and nothing will be until the app
+  // is somewhere macOS lets it write.
+  // A copy run from source answers no to it rather than throwing: there is no
+  // bundle to move (main/source-updater.mjs).
+  ipcMain.handle('zero:update-move', () => updater.move?.() ?? { moved: false, error: null });
 
   // Handed back so the Cmd+Y/Cmd+N chord answers through the same door the
   // buttons do, rather than reaching past it into approvals.answer.

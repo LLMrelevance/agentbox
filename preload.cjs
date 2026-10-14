@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('zero', {
   terminal: (payload) => ipcRenderer.invoke('zero:terminal', payload),
   agentUpdate: (payload) => ipcRenderer.invoke('zero:agent-update', payload),
   snapshot: () => ipcRenderer.invoke('zero:snapshot'),
+  refreshUsage: () => ipcRenderer.invoke('zero:refresh-usage'),
   assistiveTech: () => ipcRenderer.invoke('zero:assistiveTech'),
   olderItems: (payload) => ipcRenderer.invoke('zero:older-items', payload),
   dashboard: (slug) => ipcRenderer.invoke('zero:dashboard', slug),
@@ -126,6 +127,7 @@ contextBridge.exposeInMainWorld('zero', {
   // because nothing needs to; that happens on its own in the background.
   updateCheck: () => ipcRenderer.invoke('zero:update-check'),
   updateInstall: () => ipcRenderer.invoke('zero:update-install'),
+  updateMove: () => ipcRenderer.invoke('zero:update-move'),
   // What just arrived, not what to say about it. Whether she is looking at the
   // window is a fact only the main process holds, so the page reports and does
   // not decide (main/notify.mjs).
@@ -155,6 +157,12 @@ contextBridge.exposeInMainWorld('zero', {
   // it is also what makes the Coding agent row appear, because the path the
   // search lands on is the one that row is drawn from.
   codexRecheck: () => ipcRenderer.invoke('zero:codex-recheck'),
+  // AND WHEN NEITHER SEARCH CAN FIND IT: point at the file yourself, or hand
+  // the choice back so the search takes over again. `{ engine }` opens the
+  // picker in main and applies what it produced in the same trip, so no path
+  // off anybody's disk crosses this bridge in the direction of being trusted;
+  // `{ engine, action: 'search' }` needs no picker at all.
+  engineBin: (payload) => ipcRenderer.invoke('zero:engine-bin', payload),
   // Install a coding agent and start its own sign-in, for somebody who has a
   // plan and nothing installed. Actions: ready, start, status, again, cancel.
   engineSetup: (payload) => ipcRenderer.invoke('zero:engine-setup', payload),
@@ -223,8 +231,16 @@ contextBridge.exposeInMainWorld('zero', {
   redeliver: (payload) => ipcRenderer.invoke('zero:redeliver', payload),
   setProductOrder: (payload) => ipcRenderer.invoke('zero:set-product-order', payload),
   setThreadPlaces: (payload) => ipcRenderer.invoke('zero:set-thread-places', payload),
+  setThreadPins: (payload) => ipcRenderer.invoke('zero:set-thread-pins', payload),
   setProductHidden: (payload) => ipcRenderer.invoke('zero:set-product-hidden', payload),
   approve: (payload) => ipcRenderer.invoke('zero:approve', payload),
+  // The phone door (main/phone-link.mjs): { action: 'status' | 'on' | 'off' | 'reset' | 'via', via }.
+  phoneLink: (payload) => ipcRenderer.invoke('zero:phone-link', payload),
+  onPhoneChanged: (fn) => {
+    const handler = () => fn();
+    ipcRenderer.on('zero:phone-changed', handler);
+    return () => ipcRenderer.removeListener('zero:phone-changed', handler);
+  },
   // What was just decided, and on which card. The Cmd+Y chord is caught in the
   // main process (it has to outrank the game), so this is the only way the page
   // can know a press landed; the card's exit is drawn from it.

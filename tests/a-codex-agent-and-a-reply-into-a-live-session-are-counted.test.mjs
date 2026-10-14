@@ -121,7 +121,9 @@ describe('a Codex conversation is an agent that was seen', () => {
 
   it('is wired to the switch, with a set that lasts one run of the app', () => {
     expect(read('main/codex-watch.mjs')).toMatch(/const seen = new Set\(\)/);
-    expect(read('main/main.mjs')).toMatch(/startCodexWatch\(\{ store, count: \(name, props\) => analytics\.track\(name, props\) \}\)/);
+    // The watch also takes a reader of every Codex folder since w-e46f2e9cea,
+    // so the call spans lines; the counter is still the analytics switch.
+    expect(read('main/main.mjs')).toMatch(/startCodexWatch\(\{\s*store,\s*count: \(name, props\) => analytics\.track\(name, props\),/);
   });
 });
 
