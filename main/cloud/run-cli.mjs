@@ -7,12 +7,10 @@
 // is main/cloud/run.mjs; this only connects it to the real AWS account named
 // in ~/.agentbox/cloud.json and names this account's cloud sign-in, which
 // lives in the cloud and is never read here (main/cloud/logins.mjs).
-import os from 'node:os';
-import path from 'node:path';
 import { cloudRun, IMPORT_FAILED, LOGIN_TROUBLE } from './run.mjs';
 import { awsTransport, awsStorage } from './aws.mjs';
 import { readCloudConfig } from './config.mjs';
-import { cloudLoginFor, cloudLoginState, mayRunOn, markCloudLogin, loginObjectKey } from './logins.mjs';
+import { pickCloudLogin, markCloudLogin, loginObjectKey } from './logins.mjs';
 
 const say = (m) => process.stderr.write(`agentbox cloud: ${m}\n`);
 
@@ -33,12 +31,12 @@ async function main() {
   const importOnly = process.argv[2] === '--agentbox-import-only';
   const codex = process.argv[2] === '--agentbox-codex';
   const engine = codex ? 'codex' : 'claude';
-  // The account this run is for is the folder its harness was pointed at.
-  const dir = codex
-    ? (process.env.CODEX_HOME || path.join(os.homedir(), '.codex'))
-    : (process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'));
-  const rec = importOnly ? null : cloudLoginFor(engine, dir);
-  if (!importOnly && !mayRunOn(cloudLoginState(rec))) { say(`this ${codex ? 'Codex' : 'Claude'} account cannot run in the cloud until it signs in there (the cloud menu)`); return LOGIN_TROUBLE; }
+  // The cloud account it runs on: of the ones she added for this engine, the
+  // one used least recently (main/cloud/logins.mjs). Not the Mac's account:
+  // the folder below only says where the conversation is kept.
+  const rec = importOnly ? null : pickCloudLogin(engine);
+  if (!importOnly && !rec) { say(`no ${codex ? 'Codex' : 'Claude'} account is signed in for the cloud yet (the cloud button)`); return LOGIN_TROUBLE; }
+  const dir = rec?.key;
   return cloudRun({
     importOnly,
     engine,

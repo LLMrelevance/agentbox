@@ -62,13 +62,13 @@ afterEach(async () => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-function makeSandbox({ mode = '', signinMs } = {}) {
+function makeSandbox({ mode = '', signinMs, whoIs = async () => null } = {}) {
   sandbox = createSandbox({
     workRoot: path.join(tmp, 'vm-work'),
     pathRoot: path.join(tmp, 'vm'),
     bridgeSocket: path.join(tmp, 'bridge.sock'),
     baseEnv: { ...pickBaseEnv(process.env), PATH: `${bin}:${process.env.PATH}`, ...(mode ? { FAKE_VENDOR_MODE: mode } : {}) },
-    terminal: (line) => ['sh', '-c', line],
+    terminal: (line) => ['sh', '-c', line], whoIs,
     uploadRetryMs: 10,
     ...(signinMs ? { signinMs } : {}),
   });
@@ -104,6 +104,25 @@ describe('signing in to Claude in the cloud', () => {
     // Nothing the Mac can read carries it: not an event, not the log.
     expect(JSON.stringify(await allEvents())).not.toContain('sk-ant-oat');
     expect(sandbox.ping().status).toBe('Healthy');
+  });
+
+  it('names the Claude account when Anthropic says which it is, and keeps it all the same when it will not', async () => {
+    makeSandbox({ whoIs: async (token) => (token === TOKEN ? 'work@example.com' : null) });
+    await sandbox.handle({ action: 'signin', runId: 'si-w', engine: 'claude', saveUrl: `${base}/login-claude` });
+    await until(async () => (await signinStates()).find((e) => e.state === 'needs-code'), 'the link');
+    await sandbox.handle({ action: 'signin-code', runId: 'si-w', code: 'good#code' });
+    const end = await until(async () => { const s = await lastSignin(); return ['saved', 'failed'].includes(s?.state) && s; }, 'the end');
+    expect(end).toMatchObject({ state: 'saved', email: 'work@example.com' });
+
+    await sandbox.close();
+    files.delete('/login-claude');
+    makeSandbox({ whoIs: async () => { throw new Error('offline'); } });
+    await sandbox.handle({ action: 'signin', runId: 'si-x', engine: 'claude', saveUrl: `${base}/login-claude` });
+    await until(async () => (await signinStates()).find((e) => e.state === 'needs-code'), 'the link');
+    await sandbox.handle({ action: 'signin-code', runId: 'si-x', code: 'good#code' });
+    const quiet = await until(async () => { const s = await lastSignin(); return ['saved', 'failed'].includes(s?.state) && s; }, 'the end');
+    expect(quiet).toMatchObject({ state: 'saved', email: null });
+    expect(files.has('/login-claude')).toBe(true);
   });
 
   it('keeps nothing when the code is wrong, and says so', async () => {

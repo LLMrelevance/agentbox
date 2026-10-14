@@ -1,107 +1,81 @@
 // WHAT THE CLOUD SETUP SAYS AT EVERY MOMENT (components/CloudSetup.tsx draws
 // it; tests/the-cloud-is-set-up-on-its-own-screen reads it).
 //
-// The founder, 2026-10-14, on a sign-in walked through inside the cloud menu:
-// "If you're getting set up with Claude for the first time, it should maybe
-// say, 'You're not set up. You should get set up,' and then it should walk
-// you through it. The component shouldn't walk you through it." So the menu
-// says one line and offers Set up, and the setup is its own screen, built
-// from the first-run walk's setup card (components/PlanSetup.tsx), which is
-// how this app already gets somebody signed in.
-import { cloudNeedsSignIn, type CloudAccount, type CloudStatus } from './cloud-menu';
-
-export type StepState = 'done' | 'now' | 'todo';
-export interface SetupStep { key: string; title: string; sub?: string; state: StepState }
+// Three rounds of her words shaped it, all on 2026-10-14:
+//   - "The component shouldn't walk you through it": the cloud menu offers
+//     Set up, and the setup is its own screen.
+//   - "nobody reads text that's just in the bottom corner", then "this is way
+//     too much reading ... I can't tell if these are components that I had to
+//     click or read through": one line under each heading, and what can be
+//     pressed looks pressable and nothing else does.
+//   - "we shouldn't predefine which accounts to sign up with. Give people the
+//     option": she adds whichever Claude and Codex accounts she wants.
+// And she waited on Claude's page "stuck for about 30 seconds", not seeing
+// that its code had to come back: the code is now read from the clipboard
+// the moment she returns, and every wait says so with a moving mark.
+import { signingIn, type CloudAccount, type CloudSignIn, type CloudStatus } from './cloud-menu';
 
 export const SETUP = {
-  introHead: 'Run your agents in the cloud',
-  introLede: 'Each account signs in once, on Claude’s or OpenAI’s own page.',
-  introGets: [
-    { key: 'lid', title: 'Keeps working with your laptop closed', sub: 'Threads carry on and land in your inbox.' },
-    { key: 'many', title: 'As many at once as you need', sub: 'No longer held back by this Mac’s memory.' },
-    { key: 'plans', title: 'On your own plans', sub: 'Your Claude and ChatGPT subscriptions, never an API key.' },
-  ],
-  introAccounts: 'To sign in',
-  introGo: (n: number) => (n > 1 ? `Set up ${n} accounts` : 'Set up'),
-  inviteHead: 'Run your agents in the cloud',
-  inviteLine: 'They keep working with your laptop closed, and as many run at once as you need.',
-  inviteGo: 'Set up the cloud',
-  inviteNote: 'About a minute per account',
   screenLabel: 'Set up the cloud',
-  signInHead: (engine: CloudAccount['engine']) => (engine === 'codex' ? 'Sign in to Codex' : 'Sign in to Claude'),
-  of: (n: number, total: number) => `${n} of ${total}`,
+  homeHead: 'Run your agents in the cloud',
+  homeLede: 'Add the accounts you want it to use.',
+  addClaude: 'Add Claude account',
+  addCodex: 'Add Codex account',
+  remove: 'Remove',
+  again: 'Sign in again',
+  done: 'Done',
+  signInHead: (engine: CloudSignIn['engine']) => (engine === 'codex' ? 'Sign in to Codex' : 'Sign in to Claude'),
   openAgain: 'Open the page again',
   tryAgain: 'Try again',
-  skip: 'Skip this account',
+  back: 'Back',
   pastePlaceholder: 'Paste the code',
   pasteGo: 'Continue',
   copy: 'Copy',
   copied: 'Copied',
   doneHead: 'You’re set up',
-  doneLede: 'Your agents can run in the cloud now. Where should new threads start?',
-  menuNone: 'Not set up yet.',
-  menuSome: (n: number) => (n === 1 ? '1 account still needs to sign in.' : `${n} accounts still need to sign in.`),
-  menuBroken: 'An account needs to sign in again.',
-  menuGo: 'Set up',
-  menuFinish: 'Finish setup',
+  doneLede: 'Where should new threads start?',
+  inviteHead: 'Run your agents in the cloud',
+  inviteLine: 'They keep working with your laptop closed, and as many run at once as you need.',
+  inviteGo: 'Set up the cloud',
+  inviteNote: 'About a minute per account',
+  menuBroken: 'A cloud account needs to sign in again.',
+  menuFix: 'Fix',
+  menuAccounts: (n: number) => (n === 1 ? '1 account' : `${n} accounts`),
+  menuManage: 'Manage',
 };
 
-// The menu's one line, and its one button. Null once every account is ready.
+// The menu's one line about setup, when there is one: an account that
+// stopped working. With no accounts at all the menu is the invitation.
 export function menuSetupLine(status: CloudStatus): { say: string; go: string } | null {
-  const pending = cloudNeedsSignIn(status);
-  if (!pending.length) return null;
   const accounts = status.accounts || [];
-  if (pending.some((a) => a.state === 'broken')) return { say: SETUP.menuBroken, go: SETUP.menuGo };
-  if (pending.length === accounts.length) return { say: SETUP.menuNone, go: SETUP.menuGo };
-  return { say: SETUP.menuSome(pending.length), go: SETUP.menuFinish };
-}
-
-const going = (a: CloudAccount) => !!a.signIn && ['starting', 'needs-code', 'waiting', 'checking'].includes(a.signIn.state);
-export const keyOf = (a: CloudAccount) => `${a.engine}:${a.profile}`;
-
-// The account the setup is on: one already signing in, else the first of the
-// ones it set out to do that is not ready and was not skipped.
-export function currentAccount(accounts: CloudAccount[], order: string[], skipped: string[] = []): CloudAccount | null {
-  const live = accounts.find(going);
-  if (live) return live;
-  for (const k of order) {
-    const a = accounts.find((x) => keyOf(x) === k);
-    if (a && !a.ready && !skipped.includes(k)) return a;
-  }
+  if (!accounts.length) return null;
+  if (accounts.some((a) => a.state === 'broken')) return { say: SETUP.menuBroken, go: SETUP.menuFix };
   return null;
 }
 
-// THE THREE STEPS OF ONE ACCOUNT'S SIGN-IN, the setup card's rows.
-export function stepsFor(a: CloudAccount): SetupStep[] {
-  const s = a.signIn?.state ?? null;
-  const codex = a.engine === 'codex';
-  const failed = s === 'failed';
-  const opened = s === 'needs-code' || s === 'waiting' || s === 'checking' || s === 'saved' || a.ready;
-  const entered = s === 'checking' || s === 'saved' || a.ready;
-  return [
-    {
-      key: 'open',
-      title: codex ? 'Open OpenAI’s sign-in page' : 'Open Claude’s sign-in page',
-      sub: opened ? 'It opened in your browser.' : failed ? undefined : 'Opening it in your browser…',
-      state: opened ? 'done' : failed ? 'todo' : 'now',
-    },
-    {
-      key: 'code',
-      title: codex ? 'Enter this code on that page' : 'Approve, then paste the code Claude shows',
-      sub: codex && s === 'waiting' ? 'This step finishes by itself once you have.' : undefined,
-      state: entered ? 'done' : opened ? 'now' : 'todo',
-    },
-    {
-      key: 'ready',
-      title: 'Ready for the cloud',
-      sub: s === 'checking' ? 'Checking the sign-in works…' : undefined,
-      state: a.ready || s === 'saved' ? 'done' : s === 'checking' ? 'now' : 'todo',
-    },
-  ];
+// The sign-in on screen: one going, else one that just failed.
+export function activeSignIn(status: CloudStatus): CloudSignIn | null {
+  const all = status.signIns || [];
+  return all.find(signingIn) ?? all.find((s) => s.state === 'failed') ?? null;
 }
+
+// WHAT ONE SIGN-IN SAYS, in a line, and what it asks for. `busy` draws the
+// moving mark beside the line, so a wait never looks like a stop.
+export function signInView(s: CloudSignIn): { lead: string; busy: boolean; paste: boolean; codeToType: string | null } {
+  const claude = s.engine === 'claude';
+  if (s.state === 'starting') return { lead: claude ? 'Opening Claude’s sign-in…' : 'Opening OpenAI’s sign-in…', busy: true, paste: false, codeToType: null };
+  if (s.state === 'needs-code') return { lead: 'Approve on Claude’s page, then copy the code it shows.', busy: false, paste: true, codeToType: null };
+  if (s.state === 'waiting') return { lead: 'Enter this code on OpenAI’s page.', busy: true, paste: false, codeToType: s.code };
+  if (s.state === 'checking') return { lead: 'Checking…', busy: true, paste: false, codeToType: null };
+  if (s.state === 'failed') return { lead: s.message || 'That didn’t work.', busy: false, paste: false, codeToType: null };
+  return { lead: '', busy: false, paste: false, codeToType: null };
+}
+
+// Whether Done may be pressed: at least one account can run.
+export const anyReady = (accounts: CloudAccount[]) => accounts.some((a) => a.ready);
 
 // The last screen's question: where new threads start, now that they can.
 export const WHERE_ROWS = [
-  { key: 'all', name: 'Everything', sub: 'In the cloud first, wherever they can' },
-  { key: 'full', name: 'When this Mac is full', sub: 'On this Mac first; the cloud takes the rest' },
+  { key: 'all', name: 'Everything', sub: 'In the cloud first' },
+  { key: 'full', name: 'When this Mac is full', sub: 'On this Mac first' },
 ] as const;
