@@ -18,7 +18,7 @@ import path from 'node:path';
 import { Supervisor } from '../main/supervisor.mjs';
 import { setWorkspaceSetting } from '../main/settings.mjs';
 import { appendCloudUsage } from '../main/cloud/usage.mjs';
-import { CLOUD_MODES, cloudModeOf, cloudButtonCount, cloudMonthLine, cloudNeedsSignIn, cloudSetupLine, cloudStepCopy, signingIn, pageToOpen } from '../renderer/src/cloud-menu';
+import { CLOUD_MODES, cloudModeOf, cloudButtonCount, cloudMonthLine, cloudNeedsSignIn, pageToOpen } from '../renderer/src/cloud-menu';
 import { recordCloudLogin, markCloudLogin } from '../main/cloud/logins.mjs';
 
 let dir; let config; let supervisor;
@@ -103,12 +103,9 @@ describe('what the snapshot carries', () => {
   });
 });
 
-// THE ONE SIGN-IN EACH ACCOUNT NEEDS, AS A GUIDED SETUP (2026-10-14). She
-// called a list of accounts "the wrong UX and very confusing" and asked for
-// a setup that guides her; one sign-in per account is expected. The sign-in
-// itself happens in the cloud (main/cloud/logins.mjs). Here: what the menu
-// says before, during and after, and the supervisor's side of it.
-describe('the setup the menu walks her through', () => {
+// WHICH ACCOUNTS STILL NEED THEIR ONE CLOUD SIGN-IN (2026-10-14). The setup
+// itself is its own screen: tests/the-cloud-is-set-up-on-its-own-screen.
+describe('the accounts still to sign in', () => {
   const acct = (extra) => ({ engine: 'claude', profile: '/p', name: 'me@example.com', ready: false, state: 'none', signIn: null, ...extra });
   const status = (mode, accounts) => ({ setUp: true, mode, running: 0, month: { runs: 0, agentHours: 0, estimatedCost: 0, costPerAgentHour: null }, accounts });
 
@@ -116,9 +113,6 @@ describe('the setup the menu walks her through', () => {
     const one = acct();
     const codex = acct({ engine: 'codex', profile: 'default', name: 'me@example.com' });
     expect(cloudNeedsSignIn(status('all', [one, codex, acct({ profile: '/q', ready: true, state: 'ready' })]))).toEqual([one, codex]);
-    expect(cloudSetupLine([one, codex])).toBe('2 accounts need one sign-in each to run in the cloud.');
-    expect(cloudSetupLine([one])).toBe('Claude · me@example.com needs one sign-in to run in the cloud.');
-    expect(cloudSetupLine([acct({ state: 'broken' })])).toBe('Claude · me@example.com needs to sign in again to run in the cloud.');
     expect(cloudNeedsSignIn(status('mac', [one]))).toEqual([]);
     expect(cloudNeedsSignIn(status('full', [acct({ ready: true, state: 'ready' })]))).toEqual([]);
   });
@@ -136,16 +130,6 @@ describe('the setup the menu walks her through', () => {
     expect(cloudNeedsSignIn(status('all', [acct({ engine: 'codex', state: 'renew' }), acct({ engine: 'codex', state: 'stale', ready: true })]))).toEqual([]);
   });
 
-  it('says what to do at each step: paste Claude\'s code, type Codex\'s, then wait', () => {
-    expect(cloudStepCopy(acct({ signIn: { state: 'needs-code', url: 'https://claude.com/x', code: null, message: null } }))).toMatchObject({ paste: true, codeToType: null });
-    const codex = cloudStepCopy(acct({ engine: 'codex', signIn: { state: 'waiting', url: 'https://auth.openai.com/codex/device', code: 'WY6D-YCCOE', message: null } }));
-    expect(codex).toMatchObject({ paste: false, codeToType: 'WY6D-YCCOE' });
-    expect(codex.lead).toMatch(/finishes by itself/);
-    expect(cloudStepCopy(acct({ signIn: { state: 'checking', url: null, code: null, message: null } })).lead).toMatch(/Checking/);
-    expect(cloudStepCopy(acct({ signIn: { state: 'failed', url: null, code: null, message: 'Claude did not accept that code. Try signing in again.' } })).lead).toMatch(/did not accept/);
-    expect(signingIn(acct({ signIn: { state: 'waiting', url: null, code: 'X', message: null } }))).toBe(true);
-    expect(signingIn(acct({ signIn: { state: 'saved', url: null, code: null, message: null } }))).toBe(false);
-  });
 });
 
 describe('the supervisor\'s side of it', () => {

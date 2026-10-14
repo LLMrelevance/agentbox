@@ -26,7 +26,8 @@ import { PinMark } from './ThreadMenu';
 import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type Box } from './board-select';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
 import { api } from '../api';
-import { CLOUD_MODES, cloudButtonCount, cloudMonthLine, cloudNeedsSignIn, cloudSetupLine, cloudStepCopy, engineWord, pageToOpen, signingIn, type CloudAccount, type CloudMode, type CloudStatus } from '../cloud-menu';
+import { CLOUD_MODES, cloudButtonCount, cloudMonthLine, type CloudMode, type CloudStatus } from '../cloud-menu';
+import { menuSetupLine } from '../cloud-setup';
 import './pages.css';
 
 // Before the frame is drawn in the app; a plain effect where there is no
@@ -107,12 +108,12 @@ function useOutside(open: boolean, close: () => void) {
 export type PeoplePick = { everyone: Person[]; picked: string[]; me: string | null; onPick: (picked: string[]) => void };
 
 /** Search, New thread and the Display icon, at the right of the Inbox and Team headers. */
-export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode }: {
+export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode, onCloudSetUp }: {
   page: PageId; display: Display; onDisplay: (d: Display) => void; products: Product[]; items?: WorkItem[];
   onSearch: () => void; onCompose: () => void; shown?: number; total?: number; tab?: string;
   people?: PeoplePick;
   /** Where threads run; no button at all on a Mac not set up for the cloud. */
-  cloud?: CloudStatus | null; onCloudMode?: (mode: CloudMode) => void;
+  cloud?: CloudStatus | null; onCloudMode?: (mode: CloudMode) => void; onCloudSetUp?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useOutside(open, () => setOpen(false));
@@ -130,7 +131,7 @@ export function HeaderActions({ page, display, onDisplay, products, items, onSea
   return <div className="th-right">
     <button type="button" className="th-search" data-hint="search" data-hint-text="span" onClick={onSearch} title="Search threads (/)" aria-label="Search threads"><SearchGlyph /><span>Search</span></button>
     <button type="button" className="th-new" data-hint="new-task" onClick={onCompose} title="New thread (N)"><PenIcon />New thread</button>
-    {cloud?.setUp && <CloudButton cloud={cloud} onMode={onCloudMode} />}
+    {cloud?.setUp && <CloudButton cloud={cloud} onMode={onCloudMode} onSetUp={onCloudSetUp} />}
     <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
       <button type="button" className={`th-disp${worn ? ' faces' : ''}${open ? ' open' : ''}`}
         aria-label={whose ? `View and filters, showing ${whose}` : 'View and filters'} title={whose ? `${whose} · View and filters` : 'View and filters'}
@@ -156,7 +157,7 @@ const toggle = <T,>(list: T[], value: T) => (list.includes(value) ? list.filter(
 // (renderer/src/cloud-menu.ts, tests/the-cloud-button-chooses-where-threads-run).
 const CloudIcon = () => <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" /></svg>;
 
-function CloudButton({ cloud, onMode }: { cloud: CloudStatus; onMode?: (mode: CloudMode) => void }) {
+function CloudButton({ cloud, onMode, onSetUp }: { cloud: CloudStatus; onMode?: (mode: CloudMode) => void; onSetUp?: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useOutside(open, () => setOpen(false));
   const count = cloudButtonCount(cloud);
@@ -173,7 +174,7 @@ function CloudButton({ cloud, onMode }: { cloud: CloudStatus; onMode?: (mode: Cl
       </span></div>
       <div className="line th-cloud-note"><span className="lab" /><span>{picked.note}</span></div>
       <div className="rule" />
-      <CloudSetup cloud={cloud} />
+      <CloudSetupLine cloud={cloud} onSetUp={() => { setOpen(false); onSetUp?.(); }} />
       <div className="line"><span className="lab">This month</span><span className="th-cloud-use">{cloudMonthLine(cloud.month)}</span></div>
       <div className="rule" />
       <div className="foot"><span>{cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now'}</span></div>
@@ -181,81 +182,18 @@ function CloudButton({ cloud, onMode }: { cloud: CloudStatus; onMode?: (mode: Cl
   </span>;
 }
 
-// THE ONE SIGN-IN EACH ACCOUNT NEEDS FOR THE CLOUD, AS A GUIDED SETUP
-// (2026-10-14). She asked that the cloud "guide you through a setup
-// process" rather than show a list of accounts; one sign-in per account is
-// expected. So the menu says how many still need one, and Sign in walks
-// them one at a time: each vendor's page opens in her browser by itself,
-// Claude's code is pasted here, Codex's code is shown here to type there,
-// and the next account starts when one finishes. The sign-in itself happens
-// in the cloud (main/cloud/logins.mjs). Nothing at all once every account is
-// signed in.
-const keyOf = (a: CloudAccount) => `${a.engine}:${a.profile}`;
-function CloudSetup({ cloud }: { cloud: CloudStatus }) {
-  const accounts = cloud.accounts || [];
-  const pending = cloudNeedsSignIn(cloud);
-  const active = accounts.find(signingIn) ?? null;
-  const [walking, setWalking] = useState<string[] | null>(null);
-  const [finished, setFinished] = useState(false);
-  const [code, setCode] = useState('');
-  const [copied, setCopied] = useState(false);
-  const opened = useRef<string | null>(null);
-  const step = (a: CloudAccount, action: 'start' | 'code' | 'cancel', c?: string) => { void api.cloudSignIn({ action, engine: a.engine, profile: a.profile, code: c }); };
-  const failed = !active ? accounts.find((a) => a.signIn?.state === 'failed' && (!walking || walking.includes(keyOf(a)))) ?? null : null;
-  // Each vendor's page opens in the browser by itself, once per sign-in: two
-  // Codex accounts show the same link, and the second must open it too.
-  const page = pageToOpen(active);
-  useEffect(() => {
-    if (page && opened.current !== page.key) { opened.current = page.key; window.open(page.url, '_blank'); }
-  }, [page?.key]);
-  // While she walks through them, the next starts when one finishes.
-  const pendingKeys = pending.map(keyOf).join(',');
-  useEffect(() => {
-    if (!walking || active || failed) return;
-    const next = pending.find((a) => walking.includes(keyOf(a)));
-    if (next) { setCode(''); setCopied(false); step(next, 'start'); }
-    else { setWalking(null); setFinished(true); }
-  }, [walking, active?.profile, active?.engine, failed?.profile, pendingKeys]);
-
-  if (active) {
-    const copy = cloudStepCopy(active);
-    const of = walking && walking.length > 1 ? `${walking.indexOf(keyOf(active)) + 1} of ${walking.length}` : null;
-    return <><div className="line th-cloud-setup"><span className="lab">Sign in</span><div className="th-cloud-step">
-      <div className="th-cloud-who"><span className="th-cloud-eng">{engineWord(active)}</span><span className="th-cloud-acct-name">{active.name}</span>{of && <span className="th-cloud-of">{of}</span>}</div>
-      <p>{copy.lead}</p>
-      {active.signIn?.message && <p className="th-cloud-trouble">{active.signIn.message}</p>}
-      {copy.codeToType && <div className="th-cloud-typecode">
-        <code>{copy.codeToType}</code>
-        <button type="button" onClick={() => { void navigator.clipboard?.writeText(copy.codeToType!); setCopied(true); }}>{copied ? 'Copied' : 'Copy'}</button>
-      </div>}
-      {copy.paste && <form className="th-cloud-code" onSubmit={(e) => { e.preventDefault(); step(active, 'code', code); setCode(''); }}>
-        <input autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder="Paste Claude’s code" aria-label={`Claude’s sign-in code for ${active.name}`} />
-        <button type="submit" disabled={!code.trim()}>Done</button>
-      </form>}
-      <div className="th-cloud-links">
-        {active.signIn?.url && <button type="button" onClick={() => window.open(active.signIn!.url!, '_blank')}>Open the page again</button>}
-        <button type="button" onClick={() => { step(active, 'cancel'); setWalking(null); }}>Cancel</button>
-      </div>
-    </div></div><div className="rule" /></>;
-  }
-  if (failed) {
-    return <><div className="line th-cloud-setup"><span className="lab">Sign in</span><div className="th-cloud-step">
-      <div className="th-cloud-who"><span className="th-cloud-eng">{engineWord(failed)}</span><span className="th-cloud-acct-name">{failed.name}</span></div>
-      <p className="th-cloud-trouble">{cloudStepCopy(failed).lead}</p>
-      <div className="th-cloud-links">
-        <button type="button" className="th-cloud-go" onClick={() => { setWalking((w) => w ?? [keyOf(failed)]); step(failed, 'start'); }}>Try again</button>
-        <button type="button" onClick={() => { step(failed, 'cancel'); setWalking((w) => (w ? w.filter((k) => k !== keyOf(failed)) : w)); }}>Skip</button>
-      </div>
-    </div></div><div className="rule" /></>;
-  }
-  if (pending.length) {
-    return <><div className="line th-cloud-setup"><span className="lab">Sign in</span><div className="th-cloud-step">
-      <p>{cloudSetupLine(pending)}</p>
-      <div className="th-cloud-links"><button type="button" className="th-cloud-go" onClick={() => { setFinished(false); setWalking(pending.map(keyOf)); }}>{pending.length > 1 ? `Sign in to ${pending.length} accounts` : 'Sign in'}</button></div>
-    </div></div><div className="rule" /></>;
-  }
-  if (finished) return <><div className="line th-cloud-note"><span className="lab" /><span>All set. Every account can run in the cloud.</span></div><div className="rule" /></>;
-  return null;
+// WHETHER THE CLOUD IS SET UP, AND THE WAY TO SET IT UP (2026-10-14). One
+// line and one button; the setup is its own screen (components/CloudSetup).
+// Her words: "it should maybe say, 'You're not set up. You should get set
+// up,' and then it should walk you through it. The component shouldn't walk
+// you through it." Nothing at all once every account is set up.
+function CloudSetupLine({ cloud, onSetUp }: { cloud: CloudStatus; onSetUp?: () => void }) {
+  const line = menuSetupLine(cloud);
+  if (!line) return null;
+  return <><div className="line th-cloud-setup"><span className="lab">Setup</span><span className="th-cloud-setup-row">
+    <span className="th-cloud-setup-say">{line.say}</span>
+    <button type="button" className="th-cloud-go" onClick={onSetUp}>{line.go}</button>
+  </span></div><div className="rule" /></>;
 }
 
 export function DisplayMenu({ page, display, onDisplay, products, items = [], shown, total, tab, people }: {

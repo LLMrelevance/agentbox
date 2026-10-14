@@ -42,8 +42,6 @@ export interface CloudStatus {
   accounts?: CloudAccount[];
 }
 
-const GOING = new Set(['starting', 'needs-code', 'waiting', 'checking']);
-export const signingIn = (a: CloudAccount) => !!a.signIn && GOING.has(a.signIn.state);
 export const engineWord = (a: CloudAccount) => (a.engine === 'codex' ? 'Codex' : 'Claude');
 
 // The page a sign-in step opens, and what tells this opening from the
@@ -59,29 +57,6 @@ export function pageToOpen(a: CloudAccount | null): { key: string; url: string }
 export function cloudNeedsSignIn(status: CloudStatus): CloudAccount[] {
   if (status.mode === 'mac') return [];
   return (status.accounts || []).filter((a) => !a.ready && a.state !== 'renew' && a.state !== 'stale');
-}
-
-// The one line the menu says about them, before she starts.
-export function cloudSetupLine(pending: CloudAccount[]): string {
-  if (!pending.length) return '';
-  if (pending.length === 1) {
-    const a = pending[0];
-    return a.state === 'broken'
-      ? `${engineWord(a)} · ${a.name} needs to sign in again to run in the cloud.`
-      : `${engineWord(a)} · ${a.name} needs one sign-in to run in the cloud.`;
-  }
-  return `${pending.length} accounts need one sign-in each to run in the cloud.`;
-}
-
-// WHAT ONE STEP OF THE SETUP SAYS, for the account being signed in.
-export function cloudStepCopy(a: CloudAccount): { lead: string; codeToType: string | null; paste: boolean } {
-  const s = a.signIn?.state;
-  if (s === 'starting') return { lead: 'Starting the sign-in…', codeToType: null, paste: false };
-  if (s === 'needs-code') return { lead: 'Claude’s sign-in opened in your browser. Approve it, then paste the code it shows.', codeToType: null, paste: true };
-  if (s === 'waiting') return { lead: 'OpenAI’s page opened in your browser. Enter this code there; this step finishes by itself.', codeToType: a.signIn?.code ?? null, paste: false };
-  if (s === 'checking') return { lead: 'Checking the sign-in…', codeToType: null, paste: false };
-  if (s === 'failed') return { lead: a.signIn?.message || 'That did not work.', codeToType: null, paste: false };
-  return { lead: '', codeToType: null, paste: false };
 }
 
 export const CLOUD_MODES: { id: CloudMode; label: string; note: string }[] = [

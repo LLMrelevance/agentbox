@@ -100,6 +100,8 @@ import { ZoomPercent } from './components/ZoomPercent';
 import { FindBar } from './components/FindBar';
 import { Landed, Onboarding, PracticeBand, WayOut } from './components/Onboarding';
 import { PlanBar, PlanSetupCard } from './components/PlanSetup';
+import { CloudSetup } from './components/CloudSetup';
+import { menuSetupLine } from './cloud-setup';
 import { AppMark } from './components/AppMark';
 import { needsPlan, type Plan } from './plan-setup';
 import { PRACTICE_REPLY, PRACTICE_ROWS, PRACTICE_SLUG } from '../../shared/first-run-practice.mjs';
@@ -593,6 +595,9 @@ export default function App() {
      every time one of these opens. `./walk-scope.ts` is the rule. */
   // The plan the inbox bar is setting up, over the app (w-9f6975906c).
   const [setupPlan, setSetupPlan] = useState<Plan | null>(null);
+  // THE CLOUD'S OWN SETUP SCREEN, opened from the cloud menu's Set up, or by
+  // choosing to run in the cloud before it is set up (components/CloudSetup).
+  const [cloudSetupOpen, setCloudSetupOpen] = useState(false);
   const floatingRef = useRef<OpenOverTheApp>(NOTHING_OVER_THE_APP);
   floatingRef.current = { modal, settings: settingsOpen, importAgents, newProject, teamShown, setupPlan: !!setupPlan };
   // WHICH PAGE OF SETTINGS A PRESS ASKED FOR, when it asked for one. ⌘K's
@@ -5586,7 +5591,11 @@ export default function App() {
               tab={view}
               people={peoplePick}
               cloud={snap.cloud ?? null}
-              onCloudMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
+              onCloudMode={(mode) => {
+                void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode });
+                if (mode !== 'mac' && snap.cloud && menuSetupLine({ ...snap.cloud, mode })) setCloudSetupOpen(true);
+              }}
+              onCloudSetUp={() => setCloudSetupOpen(true)}
             />
           )}
           {!workspaceNavigation && !focused && !settingsOpen && !inPractice && (
@@ -6756,6 +6765,14 @@ export default function App() {
             onSkip={() => { setSetupPlan(null); void checkPlan(); }}
           />
         </div>
+      )}
+      {cloudSetupOpen && snap.cloud?.setUp && (
+        <CloudSetup
+          cloud={snap.cloud}
+          layout={localStorage.getItem('zero.cloudSetupLayout') === 'list' ? 'list' : 'walk'}
+          onMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
+          onClose={() => setCloudSetupOpen(false)}
+        />
       )}
       {/* THE TUTORIAL, OFFERING ITSELF ON A NEW PROJECT (w-9a6ea066d6).
           Out here beside the walk's own cards rather than in the modal stack,
