@@ -23,9 +23,10 @@
 //     spawn round to an account that is already at its limit. The test is on
 //     `accountUuid`, the id Claude Code stores for the subscription itself,
 //     never on the email, because one email can hold more than one subscription.
-//   - NOTHING THE USER CONFIGURED IS EVER DROPPED OR REORDERED. The config is a
-//     decision; this is only a discovery. Discovered accounts go after the
-//     configured ones.
+//   - NOTHING THE USER CONFIGURED IS REORDERED, and nothing is dropped except
+//     a home-directory folder that fails the two rules above and below: one
+//     with no login, or a second one holding a subscription already listed.
+//     Discovered accounts go after the configured ones.
 //   - A folder with no login is not an account. Folders such as
 //     ~/.claude-swap-backup or ~/.claude-worktrees are exactly that, and
 //     neither is a place to send work.
@@ -103,10 +104,17 @@ export function discoverProfiles({ home = os.homedir() } = {}) {
   return out.sort((a, b) => (a.dir === dflt ? -1 : b.dir === dflt ? 1 : 0));
 }
 
+/** A `.claude-<anything>` folder directly in the home directory: the shape
+ *  discovery looks for and Add account makes. */
+function isHomeFolder(dir, home) {
+  const full = path.resolve(dir);
+  return path.dirname(full) === path.resolve(home) && path.basename(full).startsWith('.claude-');
+}
+
 /**
- * THE PROFILES THE FLEET ACTUALLY RUNS ON: the configured ones first, exactly
- *  as written, then any subscription found on the disk that none of the
- *  configured ones is already running on.
+ * THE PROFILES THE FLEET ACTUALLY RUNS ON: the configured ones first, in her
+ *  order, then any subscription found on the disk that none of the configured
+ *  ones is already running on.
  *
  *  Profiles are the strings the rest of the app has always used: the literal
  *  'default' for ~/.claude (which is what spawning with no CLAUDE_CONFIG_DIR
@@ -114,18 +122,38 @@ export function discoverProfiles({ home = os.homedir() } = {}) {
  *  with at least ['default'], because somewhere has to be spawnable. */
 export function effectiveProfiles(configured, { home = os.homedir() } = {}) {
   const mine = (Array.isArray(configured) ? configured : []).map((p) => p || 'default');
-  const list = mine.length ? [...mine] : ['default'];
   const dflt = defaultClaudeHome(home);
   const dirOf = (p) => (p === 'default' ? dflt : p);
+  const isDefault = (p) => p === 'default' || dirOf(p) === dflt;
+  const idOf = (p) => accountIdentity(isDefault(p) ? null : dirOf(p), { home });
 
-  // Which subscriptions her own list already covers. A configured folder with
-  // no readable login covers nothing, which is right: it cannot run anything,
-  // so it cannot be the reason a working account is left out.
+  // Which subscriptions her own list already covers, the default login's first
+  // so that it is the one kept when a second folder holds the same account.
   const have = new Set();
-  for (const p of list) {
-    const id = accountIdentity(p === 'default' ? null : dirOf(p), { home });
+  for (const p of mine) {
+    const id = isDefault(p) ? idOf(p) : null;
     if (id?.accountUuid) have.add(id.accountUuid);
   }
+
+  // A `.claude-<n>` FOLDER IN THE HOME DIRECTORY IS AN ACCOUNT ONLY WHEN IT IS
+  // SIGNED IN, AND ONLY ONCE PER SUBSCRIPTION, whether discovery found it or
+  // the config names it. Add account used to write its folder into the config
+  // before the sign-in, so an abandoned one sat in Settings as "Not signed in"
+  // and was handed every other task; and one account signed into two folders
+  // was listed twice (tests/an-account-shows-once-and-only-once-it-is-signed-in).
+  // The default login is never judged, and a folder anywhere else is a
+  // hand-written setting and stays exactly as written.
+  const list = [];
+  for (const p of mine) {
+    if (isDefault(p)) { list.push(p); continue; }
+    const id = idOf(p);
+    if (isHomeFolder(dirOf(p), home)) {
+      if (!id?.accountUuid || have.has(id.accountUuid)) continue;
+    }
+    if (id?.accountUuid) have.add(id.accountUuid);
+    list.push(p);
+  }
+  if (!list.length) list.push('default');
   const listed = new Set(list.map((p) => dirOf(p)));
 
   for (const found of discoverProfiles({ home })) {
