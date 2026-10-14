@@ -5,6 +5,7 @@ export { streamingText, countHelpers, saidNothingSheCanUse } from './harnesses/c
 import { taskRemoteControl } from './task-remote-control.mjs';
 import { taskFolderPath, real, restoreTaskFolder } from './task-folders.mjs';
 import { SHIP_LABEL, ShipQueue, readShipSettings, shipScriptFor } from './ship-queue.mjs';
+import { MainTests } from './main-went-red.mjs';
 import { folderJob } from './task-folders-offthread.mjs';
 import { gitJob } from './git-change-offthread.mjs';
 import { queuedReplyText } from './live-replies.mjs';
@@ -81,7 +82,8 @@ import { effectiveProfiles } from './account-discovery.mjs';
 import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
 import { writeChangeForRun, changePath } from './code-change.mjs';
 import { snapshotRepo, changeFromRepo } from './git-change.mjs';
-import { importedAgentBrief, importedAgentName } from '../shared/agent-import.mjs';
+import { importedAgentBrief, importedAgentName, THREAD_LABEL } from '../shared/agent-import.mjs';
+import { readTranscriptHead } from './agent-sessions.mjs';
 import { readPlan } from './claude-plan.mjs';
 import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
 import { readDeadRunTrace, traceShowsASilentDeath } from '../shared/dead-run-trace.mjs';
@@ -378,8 +380,13 @@ export class Supervisor {
         const fresh = this.store.readItem?.(item.product, item.id) ?? item;
         this.spawnWorker(fresh, { continuation: true, shipFailure: reply });
       },
-      afterShip: () => this.onShipped(),
+      afterShip: (shipped) => { this.onShipped(); this.watchMainsTests(shipped); },
     });
+    // AND THEN SOMEBODY WATCHES THE RUN THAT SHIP STARTED. The whole suite runs
+    // on GitHub for every push and takes about five minutes, which is after the
+    // agent has ended its turn, so main was red for four days in October with
+    // nobody reading the cross (main/main-went-red.mjs).
+    this.mainTests = new MainTests({ store, userDir });
     this._compactionJobs = new Map();
     this.sessions = new Map(); // itemId -> {child, product, startedAt, tail, itemId}
     // Spawns waiting on their row's folder, and folders made for the spawn that
@@ -746,9 +753,25 @@ export class Supervisor {
     return true;
   }
 
+  /**
+   * WAIT FOR THAT COMMIT'S TESTS ON GITHUB, BESIDE EVERYTHING ELSE.
+   *
+   * Nothing waits on this: no ship, no agent, no tick. It is started and
+   * dropped, every failure inside it is quiet, and the app quitting ends it
+   * wherever it had got to (`stop` below), because the next ship starts another
+   * one and a run nobody watched costs a row rather than anything real.
+   */
+  watchMainsTests(shipped) {
+    if (!shipped?.sha || !shipped?.product) return;
+    try {
+      this.mainTests.watch(shipped).catch(() => {});
+    } catch { /* a watch that cannot start is not a ship that failed */ }
+  }
+
   stop() {
     clearInterval(this._timer);
     clearInterval(this._memoryLogTimer);
+    this.mainTests?.stop();
     // The shared `codex app-server` goes with them. An orphaned one keeps every
     // thread it is holding alive after the supervisor that answers their
     // approvals has gone, which is the 2026-08-06 orphan incident in the other
@@ -1671,6 +1694,75 @@ export class Supervisor {
     if (!source) return null;
     const chat = this.rowSessionFor(source, product ?? this.store.listProducts?.().find((p) => p.slug === item.product) ?? null);
     return chat?.sessionId ? { sessionId: chat.sessionId, profile: chat.profile ?? null, sourceId } : null;
+  }
+
+  /**
+   * A CLAUDE CODE CONVERSATION THE IMPORT CARD BROUGHT IN, on its first run
+   * (GitHub #44), or null.
+   *
+   * The import card files a row labelled `thread-import` and `thread:<session
+   * id>`. That id is Claude Code's own, so the row's first run resumes it the
+   * way a fork resumes its source: with `--fork-session`, under a new id, which
+   * leaves the conversation in Claude Code exactly as it was for anybody still
+   * running it in a terminal. From then on the row has a chat of its own and
+   * this answers null.
+   *
+   * Resuming from the row's own folder works although the transcript is filed
+   * under the folder it ran in: measured on Claude Code 2.1.293, a session
+   * started in one folder and resumed by id from another remembered what it had
+   * been told. Null for everything that cannot be resumed honestly, and null is
+   * what every imported row got before: a fresh brief.
+   */
+  importedThreadFor(item, product = null) {
+    const labels = item?.labels ?? [];
+    if (!labels.includes(THREAD_LABEL)) return null;
+    const label = labels.find((l) => typeof l === 'string' && l.startsWith('thread:'));
+    const sessionId = label ? label.slice(7).trim() : '';
+    if (!sessionId) return null;
+    // Once, the same guard a fork has.
+    if (this._rowSessions?.[item.id]?.sessionId) return null;
+    // A Claude Code session id means nothing to Codex.
+    if (engineOf(this._engineFor(item)) !== 'claude') return null;
+    // Only on the login whose home holds it, and only when that login may run
+    // this project: the transcript is gone, or on the wrong account, and the
+    // row is briefed fresh rather than handed an id its account cannot find.
+    const profile = this.profileHoldingSession(sessionId, item.id, product);
+    if (!profile) return null;
+    const slug = product?.slug ?? item.product;
+    if (this._projectProfile(slug, 'claude')
+      ? !this._profileFitsProject(profile, slug, 'claude')
+      : this._profileCannotHoldAChat(profile, 'claude')) return null;
+    let folder = '';
+    try { folder = readTranscriptHead(this.transcriptFile({ sessionId, profile, engine: 'claude' })).cwd ?? ''; } catch { folder = ''; }
+    return { sessionId, profile, imported: true, folder };
+  }
+
+  /**
+   * WHAT AN IMPORTED CONVERSATION HEARS FIRST. It remembers everything it did in
+   * Claude Code and nothing about this app, so it gets the whole brief, and in
+   * front of that the two things it cannot work out alone: that it has moved,
+   * and that work it left uncommitted in its old folder is not in this one.
+   */
+  importedBrief(item, product, { continuation = false, engine = DEFAULT_ENGINE, folder = '' } = {}) {
+    const parts = [
+      `THIS CONVERSATION HAS MOVED INTO ${NAME}. The person you were working with`,
+      `brought it in as a task, ${item.id}, and is replying to you from there. Everything`,
+      'you remember is still true and none of it needs redoing. This is a copy: the',
+      'original conversation is left as it was.',
+      '',
+      ...(folder ? [
+        `You were working in ${folder}. If you are in a different folder now, anything`,
+        'you changed there and did not commit is still there and not here, so look at it',
+        `(git -C ${folder} status) before you carry on.`,
+        '',
+      ] : []),
+      'You now run inside the task below. Its brief says how to report and how to finish.',
+      '',
+      '---',
+      '',
+      this.buildBrief(item, product, { continuation, engine }),
+    ];
+    return parts.join('\n');
   }
 
   /** The base checkout: what every session used before folders existed. */
@@ -5726,7 +5818,11 @@ export class Supervisor {
     // mints a new id and leaves the original thread exactly as it was. The
     // moment this row has a chat of its own, `rowChat` answers first and
     // nothing ever forks twice.
-    const forkFrom = !rowChat && !resumeSessionId ? this.forkSourceFor(item, product) : null;
+    // A CONVERSATION BROUGHT IN FROM CLAUDE CODE is the same fork with the
+    // source outside the app (`importedThreadFor`, GitHub #44).
+    const forkFrom = !rowChat && !resumeSessionId
+      ? (this.forkSourceFor(item, product) ?? this.importedThreadFor(item, product))
+      : null;
     const resumeIdOnDisk = resumeSessionId ?? rowChat?.sessionId ?? forkFrom?.sessionId ?? null;
     // AND WHICH SUBSCRIPTION IT LIVES ON. A resume is only a resume on the
     // account that started it: the transcript sits under that profile's home
@@ -5781,6 +5877,7 @@ export class Supervisor {
     // A FORK IS NOT AN INTERRUPTED SESSION AND MUST NOT BE TOLD IT IS. It is
     // the old conversation under a new id, on a new row, and the one thing it
     // cannot work out for itself is that it has moved.
+    else if (forkFrom?.imported) prompt = this.importedBrief(item, product, { continuation, engine, folder: forkFrom.folder });
     else if (forkFrom) prompt = this.forkBrief(item, { product, from: forkFrom.sourceId });
     else prompt = resumeId ? this.resumeBrief(item, { continuation, product }) : this.buildBrief(item, product, { continuation, engine });
     // A BRANCH THE APP COULD NOT SHIP (main/ship-queue.mjs) goes back to the

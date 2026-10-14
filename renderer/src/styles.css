@@ -1971,6 +1971,15 @@ body {
 .diagram-pending { min-height: 120px; }
 .markdown blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(--text-dim); margin: 8px 0; }
 .markdown strong { font-weight: 650; }
+/* A TABLE IS A GRID. With no rule here an agent's table came out in the
+   browser's defaults: no lines, centred headers, cells floating mid-row. A
+   table wider than the message scrolls sideways rather than crushing its
+   columns; a block table still lays its cells out as a table. */
+.markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 14px 0; font-size: 14px; line-height: 1.45; }
+.markdown th, .markdown td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; vertical-align: top; }
+/* Half the raised grey: the full one pulled the eye to the header first. */
+.markdown th { background: color-mix(in srgb, var(--bg-raised) 50%, transparent); font-weight: 650; }
+.markdown td:first-child { font-weight: 600; }
 .inline-image { max-width: 100%; border-radius: 0; border: 1px solid var(--line); margin: 8px 0; }
 
 
