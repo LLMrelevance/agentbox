@@ -5613,6 +5613,8 @@ export default function App() {
               total={(mineShown ? shownBox.length : 0) + theirRows.length}
               tab={view}
               people={peoplePick}
+              cloud={snap.cloud ?? null}
+              onCloudMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
             />
           )}
           {!workspaceNavigation && !focused && !settingsOpen && !inPractice && (
