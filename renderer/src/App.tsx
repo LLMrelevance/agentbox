@@ -3881,21 +3881,6 @@ export default function App() {
     // A message to a person is held in `sending` like one to a running agent;
     // the written copy replaces it (item-thread.ts) and Z takes it off.
     const talking = isDirect(snap?.products.find((p) => p.slug === item.product));
-    // Held, and so saying "press Z to undo", only where it really is held: a
-    // phone writes it at once and has no Z (./phone-holds).
-    const mine = { product: item.product, id: item.id, at: Date.now(), text, held: holdsReplies(onPhone()) };
-    if (talking) setSending((q) => [...q, mine]);
-    const restore = (): Restored => {
-      setSending((q) => q.filter((s) => s !== mine));
-      return restoreDraft(item, sent?.words ?? text, sent?.attachments ?? []) ? { item } : null;
-    };
-    // A REPLY IS A CLAIM ON NOW, so it cancels a schedule rather than queueing
-    // behind it. The rule and the reason are in list-rules; what is here is the
-    // write and the way back. The old moment rides on the undo, so answering
-    // something and still wanting it to run Monday at 6am costs one Z.
-    const wasScheduled = replyClearsSchedule(item, Date.now());
-    const priorRunAt = item.runAt ?? 0;
-    const priorSnooze = item.snoozedUntil ?? 0;
     // AND A COMMAND KEEPS HER ON THE ROW IT IS ABOUT TO ANSWER.Every other
     // reply hands work to somebody else and takes seconds to hours; this one
     // prints a table in four seconds and the table is the entire reason she
@@ -3909,6 +3894,27 @@ export default function App() {
     // A REPLY IN A CONVERSATION STAYS IN THE CONVERSATION (2026-10-01):
     // sending a message to a person must not jump to another page.
     const stay = staysOnTheTask(item, text, engine) || talking || !movesOn(item);
+    // Held, and so saying "press Z to undo", only where it really is held: a
+    // phone writes it at once and has no Z (./phone-holds).
+    const mine = { product: item.product, id: item.id, at: Date.now(), text, held: holdsReplies(onPhone()) };
+    // ANY REPLY THAT KEEPS HER ON THE THREAD IS DRAWN AT ONCE (w-461fbd8d2d),
+    // not only one to a person. Since a reply to a finished agent stopped
+    // moving her on, it closed the box and drew nothing until the write landed:
+    // "for a good half second ... I feel like only when the agent starts
+    // thinking does it actually show my message." A reply that moves her on
+    // leaves no thread on the screen to draw it in.
+    if (stay) setSending((q) => [...q, mine]);
+    const restore = (): Restored => {
+      setSending((q) => q.filter((s) => s !== mine));
+      return restoreDraft(item, sent?.words ?? text, sent?.attachments ?? []) ? { item } : null;
+    };
+    // A REPLY IS A CLAIM ON NOW, so it cancels a schedule rather than queueing
+    // behind it. The rule and the reason are in list-rules; what is here is the
+    // write and the way back. The old moment rides on the undo, so answering
+    // something and still wanting it to run Monday at 6am costs one Z.
+    const wasScheduled = replyClearsSchedule(item, Date.now());
+    const priorRunAt = item.runAt ?? 0;
+    const priorSnooze = item.snoozedUntil ?? 0;
     if (stay) setFollowing({ product: item.product, id: item.id });
     const undid = [{ product: item.product, id: item.id, words: 'Undid your reply' }];
     await deferCommit(item, async () => {
@@ -3944,7 +3950,7 @@ export default function App() {
         putBack(error);
         return;
       }
-      if (talking) setTimeout(() => setSending((q) => q.filter((s) => s !== mine)), LANDED_MS);
+      if (stay) setTimeout(() => setSending((q) => q.filter((s) => s !== mine)), LANDED_MS);
       if (wasScheduled) {
         if (priorRunAt > Date.now()) await api.schedule({ product: item.product, id: item.id, runAt: 0 });
         if (priorSnooze > Date.now()) await api.snooze({ product: item.product, id: item.id, snoozedUntil: 0 });

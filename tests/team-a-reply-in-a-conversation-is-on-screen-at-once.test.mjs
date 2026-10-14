@@ -19,7 +19,7 @@ const quiet = app.slice(app.indexOf('// A REPLY IN A CONVERSATION IS ON THE SCRE
 
 describe('a reply in a conversation', () => {
   it('goes into the sending queue, held, before the three second wait', () => {
-    expect(quiet).toMatch(/if \(talking\) setSending\(\(q\) => \[\.\.\.q, mine\]\)/);
+    expect(quiet).toMatch(/if \(stay\) setSending\(\(q\) => \[\.\.\.q, mine\]\)/);
     expect(quiet.indexOf('setSending((q) => [...q, mine])')).toBeLessThan(quiet.indexOf('await deferCommit('));
     // HELD ONLY WHERE IT IS HELD (w-461fbd8d2d). A phone writes a reply at
     // once and has no Z, and its message said "Sending… press Z to undo".
