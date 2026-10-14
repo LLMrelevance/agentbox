@@ -101,7 +101,6 @@ import { FindBar } from './components/FindBar';
 import { Landed, Onboarding, PracticeBand, WayOut } from './components/Onboarding';
 import { PlanBar, PlanSetupCard } from './components/PlanSetup';
 import { CloudSetup } from './components/CloudSetup';
-import { menuSetupLine } from './cloud-setup';
 import { AppMark } from './components/AppMark';
 import { needsPlan, type Plan } from './plan-setup';
 import { PRACTICE_REPLY, PRACTICE_ROWS, PRACTICE_SLUG } from '../../shared/first-run-practice.mjs';
@@ -5591,10 +5590,7 @@ export default function App() {
               tab={view}
               people={peoplePick}
               cloud={snap.cloud ?? null}
-              onCloudMode={(mode) => {
-                void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode });
-                if (mode !== 'mac' && snap.cloud && menuSetupLine({ ...snap.cloud, mode })) setCloudSetupOpen(true);
-              }}
+              onCloudMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
               onCloudSetUp={() => setCloudSetupOpen(true)}
             />
           )}

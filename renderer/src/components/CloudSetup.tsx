@@ -30,6 +30,14 @@ const StepIcon = ({ state }: { state: StepState }) => (
   )
 );
 
+// The three things the cloud gives, each with a small line drawing.
+function GetIcon({ which }: { which: string }) {
+  const p = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true };
+  if (which === 'lid') return <svg {...p}><path d="M4 16h16M6 16V7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v9M3 19h18" /></svg>;
+  if (which === 'many') return <svg {...p}><rect x="4" y="4" width="7" height="7" rx="1" /><rect x="13" y="4" width="7" height="7" rx="1" /><rect x="4" y="13" width="7" height="7" rx="1" /><rect x="13" y="13" width="7" height="7" rx="1" /></svg>;
+  return <svg {...p}><circle cx="8" cy="15" r="4" /><path d="M11 12l8-8M16 7l2 2M14 9l2 2" /></svg>;
+}
+
 const sign = (a: CloudAccount, action: 'start' | 'code' | 'cancel', code?: string) => {
   void api.cloudSignIn({ action, engine: a.engine, profile: a.profile, code });
 };
@@ -124,12 +132,31 @@ export function CloudSetup({ cloud, layout = 'walk', onMode, onClose }: {
 
   let body: JSX.Element;
   if (!begun) {
-    body = <div className="fr-corner">
-      <div>
-        <h1 className="fr-head">{SETUP.introHead}</h1>
-        <p className="fr-sub">{SETUP.introSub}</p>
+    // WHAT IT IS, WHAT IT GIVES, WHO SIGNS IN, AND ONE BUTTON, in the middle
+    // of the screen like every other step (2026-10-14: the corner layout was
+    // "an artifact of the past ... nobody reads text that's just in the
+    // bottom corner").
+    const toSign = order.map((k) => accounts.find((x) => keyOf(x) === k)).filter(Boolean) as CloudAccount[];
+    body = <div className="fr-stack fr-stack-folders">
+      <h1 className="fr-page">{SETUP.introHead}</h1>
+      <p className="fr-lede">{SETUP.introLede}</p>
+      <div className="fr-card cs-intro">
+        <div className="cs-gets">
+          {SETUP.introGets.map((g) => <div key={g.key} className="cs-get">
+            <span className="cs-get-ic"><GetIcon which={g.key} /></span>
+            <div><div className="ps-t">{g.title}</div><div className="ps-s">{g.sub}</div></div>
+          </div>)}
+        </div>
+        {toSign.length > 0 && <div className="cs-accts">
+          <div className="cs-accts-head">{SETUP.introAccounts}</div>
+          {toSign.map((a) => <div key={keyOf(a)} className="cs-acct">
+            <span className="ps-mark" aria-hidden="true">{a.engine === 'codex' ? 'X' : 'C'}</span>
+            <span className="cs-acct-name">{a.name}</span>
+            <span className="cs-acct-eng">{engineWord(a)}</span>
+          </div>)}
+        </div>}
       </div>
-      <button type="button" className="fr-go" onClick={() => setBegun(true)}>{SETUP.introGo} <Cap cap="↵" /></button>
+      <div className="ps-acts"><button type="button" className="fr-finish-go cs-go" autoFocus onClick={() => setBegun(true)}>{SETUP.introGo(toSign.length)} <Cap cap="↵" /></button></div>
     </div>;
   } else if (finished) {
     body = <div className="fr-stack fr-stack-folders">

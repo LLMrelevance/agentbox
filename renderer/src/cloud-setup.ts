@@ -15,8 +15,18 @@ export interface SetupStep { key: string; title: string; sub?: string; state: St
 
 export const SETUP = {
   introHead: 'Run your agents in the cloud',
-  introSub: 'They keep working with your laptop closed, and as many run at once as you need. Each account signs in once, on its own company’s page.',
-  introGo: 'Set up',
+  introLede: 'Each account signs in once, on Claude’s or OpenAI’s own page.',
+  introGets: [
+    { key: 'lid', title: 'Keeps working with your laptop closed', sub: 'Threads carry on and land in your inbox.' },
+    { key: 'many', title: 'As many at once as you need', sub: 'No longer held back by this Mac’s memory.' },
+    { key: 'plans', title: 'On your own plans', sub: 'Your Claude and ChatGPT subscriptions, never an API key.' },
+  ],
+  introAccounts: 'To sign in',
+  introGo: (n: number) => (n > 1 ? `Set up ${n} accounts` : 'Set up'),
+  inviteHead: 'Run your agents in the cloud',
+  inviteLine: 'They keep working with your laptop closed, and as many run at once as you need.',
+  inviteGo: 'Set up the cloud',
+  inviteNote: 'About a minute per account',
   listHead: 'Set up the cloud',
   listLede: 'Each account signs in once, on its own company’s page.',
   signInHead: (engine: CloudAccount['engine']) => (engine === 'codex' ? 'Sign in to Codex' : 'Sign in to Claude'),

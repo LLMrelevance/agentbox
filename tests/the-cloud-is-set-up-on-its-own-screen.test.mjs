@@ -88,3 +88,24 @@ describe('the last screen', () => {
     expect(SETUP.doneHead).toBe('You’re set up');
   });
 });
+
+// Her second look, 2026-10-14: the first screen was the old corner layout
+// ("nobody reads text that's just in the bottom corner"), picking a choice
+// jumped to a whole new page "without your approval", and the menu's Setup
+// row was "very strange and I don't even notice it".
+describe('the way in', () => {
+  it('opens the setup only when she asks for it, never when she picks where threads run', async () => {
+    const fs = await import('node:fs');
+    const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
+    const pick = app.slice(app.indexOf('onCloudMode={'), app.indexOf('onCloudSetUp={'));
+    expect(pick).not.toMatch(/setCloudSetupOpen/);
+    expect(app).toMatch(/onCloudSetUp=\{\(\) => setCloudSetupOpen\(true\)\}/);
+  });
+
+  it('starts with what the cloud gives and who signs in, and one button naming how many', () => {
+    expect(SETUP.introGets.map((g) => g.key)).toEqual(['lid', 'many', 'plans']);
+    expect(SETUP.introGo(3)).toBe('Set up 3 accounts');
+    expect(SETUP.introGo(1)).toBe('Set up');
+    expect(SETUP.inviteGo).toBe('Set up the cloud');
+  });
+});

@@ -27,7 +27,7 @@ import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
 import { api } from '../api';
 import { CLOUD_MODES, cloudButtonCount, cloudMonthLine, type CloudMode, type CloudStatus } from '../cloud-menu';
-import { menuSetupLine } from '../cloud-setup';
+import { menuSetupLine, SETUP } from '../cloud-setup';
 import './pages.css';
 
 // Before the frame is drawn in the app; a plain effect where there is no
@@ -162,38 +162,47 @@ function CloudButton({ cloud, onMode, onSetUp }: { cloud: CloudStatus; onMode?: 
   const ref = useOutside(open, () => setOpen(false));
   const count = cloudButtonCount(cloud);
   const picked = CLOUD_MODES.find((m) => m.id === cloud.mode) ?? CLOUD_MODES[1];
+  // NOT SET UP IS THE WHOLE MENU, NOT A ROW IN IT (2026-10-14: the "Setup"
+  // row was "very strange and I don't even notice it"). Until one account can
+  // run in the cloud, the choices of where threads run mean nothing, so the
+  // menu is an invitation with one button, and the button wears the accent
+  // dot the filters button uses. Once some are set up, one line says how many
+  // are left. Picking a choice never opens a screen by itself.
+  const nobodyReady = !(cloud.accounts || []).some((a) => a.ready);
+  const setup = menuSetupLine({ ...cloud, mode: cloud.mode === 'mac' ? 'full' : cloud.mode });
+  const entry = typeof localStorage !== 'undefined' && localStorage.getItem('zero.cloudMenuEntry') === 'banner' ? 'banner' : 'invite';
+  const goSetUp = () => { setOpen(false); onSetUp?.(); };
   return <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
     <button type="button" className={`th-disp th-cloud${count ? ' count' : ''}${open ? ' open' : ''}`}
-      aria-label={count ? `Cloud, ${count} running there` : 'Cloud'} title="Where threads run"
+      aria-label={count ? `Cloud, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : 'Cloud'} title="Where threads run"
       onClick={() => setOpen((o) => !o)}>
-      <CloudIcon />{count && <b>{count}</b>}
+      <CloudIcon />{count && <b>{count}</b>}{!count && setup && <i />}
     </button>
-    {open && <div className="th-pop th-cloud-pop" role="dialog" aria-label="Where threads run">
-      <div className="line"><span className="lab">Cloud</span><span className="opts">
-        {CLOUD_MODES.map((m) => <button type="button" key={m.id} className={m.id === cloud.mode ? 'on picked' : ''} aria-pressed={m.id === cloud.mode} onClick={() => onMode?.(m.id)}>{m.label}</button>)}
+    {open && nobodyReady && entry === 'invite' && <div className="th-pop th-cloud-pop th-cloud-invite" role="dialog" aria-label={SETUP.inviteHead}>
+      <span className="th-cloud-invite-ic"><CloudIcon /></span>
+      <div className="th-cloud-invite-head">{SETUP.inviteHead}</div>
+      <p className="th-cloud-invite-line">{SETUP.inviteLine}</p>
+      <button type="button" className="th-cloud-invite-go" onClick={goSetUp}>{SETUP.inviteGo}</button>
+      <span className="th-cloud-invite-note">{SETUP.inviteNote}</span>
+    </div>}
+    {open && !(nobodyReady && entry === 'invite') && <div className="th-pop th-cloud-pop" role="dialog" aria-label="Where threads run">
+      {setup && <div className={`th-cloud-banner${nobodyReady ? ' first' : ''}`}>
+        <div className="th-cloud-banner-say">
+          <b>{nobodyReady ? SETUP.inviteHead : setup.say}</b>
+          {nobodyReady && <span>{SETUP.inviteLine}</span>}
+        </div>
+        <button type="button" className="th-cloud-go" onClick={goSetUp}>{nobodyReady ? SETUP.inviteGo : setup.go}</button>
+      </div>}
+      <div className={`line${nobodyReady ? ' th-cloud-off' : ''}`}><span className="lab">Cloud</span><span className="opts">
+        {CLOUD_MODES.map((m) => <button type="button" key={m.id} disabled={nobodyReady} className={m.id === cloud.mode ? 'on picked' : ''} aria-pressed={m.id === cloud.mode} onClick={() => onMode?.(m.id)}>{m.label}</button>)}
       </span></div>
-      <div className="line th-cloud-note"><span className="lab" /><span>{picked.note}</span></div>
+      <div className="line th-cloud-note"><span className="lab" /><span>{nobodyReady ? 'Choose once the cloud is set up.' : picked.note}</span></div>
       <div className="rule" />
-      <CloudSetupLine cloud={cloud} onSetUp={() => { setOpen(false); onSetUp?.(); }} />
       <div className="line"><span className="lab">This month</span><span className="th-cloud-use">{cloudMonthLine(cloud.month)}</span></div>
       <div className="rule" />
       <div className="foot"><span>{cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now'}</span></div>
     </div>}
   </span>;
-}
-
-// WHETHER THE CLOUD IS SET UP, AND THE WAY TO SET IT UP (2026-10-14). One
-// line and one button; the setup is its own screen (components/CloudSetup).
-// Her words: "it should maybe say, 'You're not set up. You should get set
-// up,' and then it should walk you through it. The component shouldn't walk
-// you through it." Nothing at all once every account is set up.
-function CloudSetupLine({ cloud, onSetUp }: { cloud: CloudStatus; onSetUp?: () => void }) {
-  const line = menuSetupLine(cloud);
-  if (!line) return null;
-  return <><div className="line th-cloud-setup"><span className="lab">Setup</span><span className="th-cloud-setup-row">
-    <span className="th-cloud-setup-say">{line.say}</span>
-    <button type="button" className="th-cloud-go" onClick={onSetUp}>{line.go}</button>
-  </span></div><div className="rule" /></>;
 }
 
 export function DisplayMenu({ page, display, onDisplay, products, items = [], shown, total, tab, people }: {
