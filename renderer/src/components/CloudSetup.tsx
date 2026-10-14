@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { AppMark } from './AppMark';
+import { EngineLogo } from './EngineLogos';
 import { AskList } from './PlanSetup';
 import { Cap } from './Onboarding';
 import { NAME } from '../../../shared/product-name.mjs';
@@ -20,7 +21,7 @@ import { accountLabel, engineWord, pageToOpen, type CloudAccount, type CloudMode
 import { SETUP, WHERE_ROWS, activeSignIn, anyReady, signInView } from '../cloud-setup';
 
 const Plus = () => <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>;
-const Mark = ({ engine }: { engine: 'claude' | 'codex' }) => <span className="ps-mark" aria-hidden="true">{engine === 'codex' ? 'X' : 'C'}</span>;
+const Chevron = () => <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" /></svg>;
 const Busy = () => <span className="cs-busy" aria-hidden="true" />;
 
 const send = (engine: 'claude' | 'codex', action: 'start' | 'code' | 'cancel' | 'remove', key?: string | null, code?: string) =>
@@ -50,6 +51,7 @@ function SignIn({ s, existing }: { s: CloudSignIn; existing: boolean }) {
   }, [s.state, s.attempt]);
 
   return <div className="fr-stack fr-stack-folders">
+    <span className="cs-signin-mark"><EngineLogo engine={s.engine} size={30} /></span>
     <h1 className="fr-page">{SETUP.signInHead(s.engine)}</h1>
     <p className={`fr-lede${s.state === 'failed' ? ' cs-trouble' : ''}`}>{view.busy && <Busy />}{view.lead}</p>
     {view.paste && <form className="fr-card cs-paste-card" onSubmit={(e) => { e.preventDefault(); submit(code); }}>
@@ -76,6 +78,7 @@ export function CloudSetup({ cloud, onMode, onClose }: {
   const accounts = cloud.accounts || [];
   const active = activeSignIn(cloud);
   const [where, setWhere] = useState(false);
+  const [choosing, setChoosing] = useState(false);
   // A failed sign-in stays on screen until she tries again or goes back.
   const [dismissed, setDismissed] = useState<string | null>(null);
   const shown = active && !(active.state === 'failed' && dismissed === (active.attempt ?? active.key)) ? active : null;
@@ -95,6 +98,7 @@ export function CloudSetup({ cloud, onMode, onClose }: {
       return;
     }
     if (where) { setWhere(false); return; }
+    if (choosing) { setChoosing(false); return; }
     onClose();
   };
   useEffect(() => {
@@ -126,31 +130,34 @@ export function CloudSetup({ cloud, onMode, onClose }: {
     body = <div className="fr-stack fr-stack-folders">
       <h1 className="fr-page">{SETUP.homeHead}</h1>
       <p className="fr-lede">{SETUP.homeLede}</p>
-      {/* ADDING LIVES IN THE LIST, as its last row, so the card is the one
-          thing on the screen and an empty one says what to do (2026-10-14:
-          two buttons side by side under the list felt "a little bit of bad
-          UX"). One row, with the two kinds as its choices: she picked it over
-          a row per kind, and with two kinds a menu behind it would only add a
-          click. No tick on an account that works: it looked unpolished; only
-          one that stopped working says anything. */}
+      {/* ONE CARD, ONE COLUMN OF MARKS (2026-10-14). Each account is its
+          vendor's logo and its name; the last row is Add account, and adding
+          opens, in the same rows and the same columns, the two kinds to pick
+          from (her question: "just click Add account and then ... choose
+          which it is"). With no accounts yet the two kinds are already open,
+          since adding is the only thing to do. No tick on an account that
+          works; only one that stopped working says anything. */}
       <div className="fr-card cs-accounts">
-        {accounts.map((a: CloudAccount) => <div key={a.key} className={`cs-account${fresh === a.key ? ' fresh' : ''}${a.state === 'broken' ? ' broken' : ''}`}>
-          <Mark engine={a.engine} />
-          <span className="cs-account-name">{accountLabel(a, accounts)}</span>
-          <span className="cs-account-eng">{engineWord(a)}</span>
+        {accounts.map((a: CloudAccount) => <div key={a.key} className={`cs-row${fresh === a.key ? ' fresh' : ''}${a.state === 'broken' ? ' broken' : ''}`}>
+          <span className="cs-row-mark"><EngineLogo engine={a.engine} /></span>
+          <span className="cs-row-name">{accountLabel(a, accounts)}</span>
           {a.state === 'broken'
             ? <button type="button" className="cs-quiet cs-again" onClick={() => void send(a.engine, 'start', a.key)}>{SETUP.again}</button>
-            : <span />}
+            : <span className="cs-row-eng">{engineWord(a)}</span>}
           <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${accountLabel(a, accounts)}`} title={SETUP.remove} onClick={() => void send(a.engine, 'remove', a.key)}>×</button>
         </div>)}
-        <div className="cs-add-row cs-add-one">
-          <span className="cs-add-ic"><Plus /></span>
-          <span className="cs-add-say">{SETUP.addOne}</span>
-          <span className="cs-add-pick">
-            <button type="button" aria-label={SETUP.addClaude} onClick={() => void send('claude', 'start')}><Mark engine="claude" />Claude</button>
-            <button type="button" aria-label={SETUP.addCodex} onClick={() => void send('codex', 'start')}><Mark engine="codex" />Codex</button>
-          </span>
-        </div>
+        {choosing && accounts.length > 0 && <div className="cs-choose-head">{SETUP.addWhich}</div>}
+        {choosing || !accounts.length
+          ? (['claude', 'codex'] as const).map((engine) => <button key={engine} type="button" className="cs-row cs-pick" onClick={() => { setChoosing(false); void send(engine, 'start'); }}>
+              <span className="cs-row-mark"><EngineLogo engine={engine} /></span>
+              <span className="cs-row-name">{engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}</span>
+              <span className="cs-row-eng">{engine === 'codex' ? SETUP.planCodex : SETUP.planClaude}</span>
+              <span className="cs-row-go"><Chevron /></span>
+            </button>)
+          : <button type="button" className="cs-row cs-add" onClick={() => setChoosing(true)}>
+              <span className="cs-row-mark"><Plus /></span>
+              <span className="cs-row-name">{SETUP.addOne}</span>
+            </button>}
       </div>
       {anyReady(accounts) && <div className="ps-acts"><button type="button" className="fr-finish-go cs-go" onClick={() => setWhere(true)}>{SETUP.done}</button></div>}
     </div>;
