@@ -330,8 +330,26 @@
   /* The hint plates teach keys a phone does not have. */
   :root:root:root .hint-plate, :root:root:root .row-keys, :root:root:root .dock-card kbd { display: none !important; }
 
-  /* The toast sits above the bottom bar, across the width. */
-  :root:root:root .toast { left: 12px; right: 12px; width: auto; bottom: calc(var(--phone-tabs, 0px) + var(--phone-foot) + 12px); }
+  /* THE TOAST IS ONE SLIM LINE UNDER THE TOP BAR (2026-10-13). At the foot it
+     sat on the reply box and the tabs, the two things a phone is pressed on
+     most, and at two lines with drawn keys it was "rather large" for a phone
+     with no keyboard. Up here it covers only the first line of what is under
+     the bar. One line: where it went, then Undo as a word. The task's title
+     and the O key go; tapping the line still opens the task. */
+  :root:root:root .toast {
+    left: 12px; right: 12px; width: auto; max-width: none;
+    top: calc(env(safe-area-inset-top, 0px) + var(--phone-top, 56px) + 8px); bottom: auto;
+    display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 0 6px 0 14px;
+  }
+  :root:root:root .toast .toast-title { display: none; }
+  :root:root:root .toast .toast-line { flex: 1; min-width: 0; font-size: 13.5px; color: var(--text); }
+  :root:root:root .toast .toast-keys { gap: 0; }
+  :root:root:root .toast .toast-key:not(.toast-undo) { display: none; }
+  :root:root:root .toast .toast-key kbd { display: none; }
+  :root:root:root .toast .toast-undo { height: 40px; padding: 0 10px; }
+  :root:root:root .toast .toast-undo .toast-key-word { font-size: 13.5px; color: var(--accent); }
+  :root:root:root .toast .toast-clock { left: 14px; right: 14px; }
+  :root:root:root .app.composing .toast { top: calc(env(safe-area-inset-top, 0px) + var(--phone-top, 56px) + 8px); }
 
   /* The setup bar: its sentence over its buttons, not squeezed beside them. */
   :root:root:root .ps-bar { flex-wrap: wrap; gap: 10px; padding: 12px 16px; }
