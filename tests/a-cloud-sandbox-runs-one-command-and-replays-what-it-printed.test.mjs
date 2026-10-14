@@ -23,7 +23,18 @@ import http from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { createSandbox } from '../cloud/sandbox/server.mjs';
 
-const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+/**
+ * Git, with its own housekeeping turned off (2026-10-14).
+ *
+ * `git fetch` and `git merge` end by asking git to tidy the repository, and
+ * when it decides to, it does that in a process that outlives the command and
+ * writes inside `.git`. Nothing here needs tidying, and a write arriving after
+ * the last command returned is a write racing the folder being deleted, which
+ * is what the `tmpGone` note below is about. So none of these commands may
+ * start one.
+ */
+const GIT_LEAVES_NOTHING_BEHIND = ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'core.fsmonitor=false'];
+const git = (cwd, ...args) => execFileSync('git', [...GIT_LEAVES_NOTHING_BEHIND, ...args], { cwd, encoding: 'utf8' }).trim();
 
 let tmp; let files; let fileServer; let base; let sandbox;
 
@@ -44,12 +55,32 @@ beforeEach(async () => {
   base = `http://127.0.0.1:${fileServer.address().port}`;
 });
 
+/**
+ * THE FOLDER GOES, AND IF IT WILL NOT, THE TEST STILL STANDS (2026-10-14).
+ *
+ * This deleted the folder in one go, and on GitHub's Linux runner that threw
+ * `ENOTEMPTY: directory not empty, rmdir '…/mac/repo/.git'` after every
+ * assertion in "brings back new commits" had passed: something put an entry
+ * back in `.git` between the delete reading the folder and emptying it. That
+ * failed the test, and main was red for four days over it (run 38654506193 and
+ * the four before it; the Mac job was green in every one).
+ *
+ * Which write it was, this never pinned down, so this does not pretend to have
+ * fixed it: the retries let one already on its way land and then take the
+ * folder again, and a folder that still will not go is left in the operating
+ * system's own temp folder rather than failing a test that has already proved
+ * its point. The other thirty-five test files here clean up the same way.
+ */
+const tmpGone = (dir) => {
+  try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch { /* best effort */ }
+};
+
 afterEach(async () => {
   await sandbox?.close();
   sandbox = null;
   fileServer.closeAllConnections();
   await new Promise((r) => fileServer.close(r));
-  fs.rmSync(tmp, { recursive: true, force: true });
+  tmpGone(tmp);
 });
 
 // A repository on "the Mac", on a task branch, packed the way the proxy packs it.
@@ -205,8 +236,8 @@ describe('a cloud sandbox', () => {
     expect(fs.readFileSync(path.join(mac, 'b.txt'), 'utf8')).toBe('two\n');
     fs.writeFileSync(path.join(tmp, 'changes.bundle'), files.get('/changes.bundle'));
     git(mac, 'fetch', '-q', path.join(tmp, 'changes.bundle'), `${collected.changesRef}:refs/agentbox/changes`);
-    const patch = execFileSync('git', ['diff', '--binary', 'HEAD', 'refs/agentbox/changes'], { cwd: mac });
-    execFileSync('git', ['apply'], { cwd: mac, input: patch });
+    const patch = execFileSync('git', [...GIT_LEAVES_NOTHING_BEHIND, 'diff', '--binary', 'HEAD', 'refs/agentbox/changes'], { cwd: mac });
+    execFileSync('git', [...GIT_LEAVES_NOTHING_BEHIND, 'apply'], { cwd: mac, input: patch });
     expect(fs.readFileSync(path.join(mac, 'a.txt'), 'utf8')).toBe('changed\n');
     expect(fs.readFileSync(path.join(mac, 'new.txt'), 'utf8')).toBe('untracked\n');
   });
