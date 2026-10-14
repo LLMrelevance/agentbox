@@ -215,6 +215,11 @@ function ensureAppUser(bucket, runtimeArn) {
     Statement: [
       { Effect: 'Allow', Action: ['bedrock-agentcore:InvokeAgentRuntime', 'bedrock-agentcore:StopRuntimeSession'], Resource: [runtimeArn, `${runtimeArn}/*`] },
       { Effect: 'Allow', Action: ['s3:GetObject', 's3:PutObject'], Resource: `arn:aws:s3:::${bucket}/runs/*` },
+      // Each account's cloud sign-in (main/cloud/logins.mjs). The app only
+      // presigns links to these for the sandbox, which carry the signer's
+      // rights, and deletes the ones a newer sign-in replaced. No expiry rule
+      // covers logins/.
+      { Effect: 'Allow', Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'], Resource: `arn:aws:s3:::${bucket}/logins/*` },
       // Without list rights S3 answers a missing object with 403, not 404, and
       // "this run uploaded no transcript" would read as a refusal.
       { Effect: 'Allow', Action: ['s3:ListBucket'], Resource: `arn:aws:s3:::${bucket}`, Condition: { StringLike: { 's3:prefix': ['runs/*'] } } },

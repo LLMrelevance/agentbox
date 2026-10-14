@@ -422,17 +422,23 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 .th-cloud-pop .th-cloud-note { padding-top: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-faint); }
 .th-cloud-pop .th-cloud-use { font-size: 13px; color: var(--text); }
 .th-cloud-pop .th-cloud-warn > span:last-child { color: var(--accent); }
-.th-cloud-pop .th-cloud-accounts { align-items: start; }
-.th-cloud-pop .th-cloud-list { display: grid; gap: 8px; min-width: 0; }
-.th-cloud-acct { display: grid; gap: 6px; font-size: 13px; color: var(--text); }
-.th-cloud-acct-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.th-cloud-acct { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
-.th-cloud-acct-state { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-faint); }
-.th-cloud-acct-state.ready { color: var(--text-dim); }
-.th-cloud-acct button, .th-cloud-code button { height: 24px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: var(--tag-radius); background: none; color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
-.th-cloud-acct button:hover { border-color: var(--accent); }
-.th-cloud-code { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.th-cloud-code input { flex: 1 1 200px; height: 26px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--tag-radius); background: rgba(255,255,255,.03); color: var(--text); font: inherit; font-size: 12.5px; }
+.th-cloud-pop .th-cloud-setup { align-items: start; }
+.th-cloud-step { display: grid; gap: 8px; min-width: 0; font-size: 13px; color: var(--text); }
+.th-cloud-step p { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-dim); }
+.th-cloud-step p.th-cloud-trouble { color: var(--text); }
+.th-cloud-who { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.th-cloud-eng { flex: none; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-faint); }
+.th-cloud-acct-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.th-cloud-of { margin-left: auto; flex: none; font-size: 12px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.th-cloud-typecode { display: flex; align-items: center; gap: 10px; }
+.th-cloud-typecode code { padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: var(--tag-radius); font: 500 17px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; color: var(--text); }
+.th-cloud-step button, .th-cloud-code button { height: 26px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--tag-radius); background: none; color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.th-cloud-step button:hover { border-color: var(--accent); }
+.th-cloud-step button.th-cloud-go { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.th-cloud-step button:disabled { opacity: .45; cursor: default; }
+.th-cloud-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.th-cloud-links button:not(.th-cloud-go) { border-color: transparent; padding: 0 2px; color: var(--text-faint); }
+.th-cloud-links button:not(.th-cloud-go):hover { color: var(--text); border-color: transparent; }
+.th-cloud-code { display: flex; align-items: center; gap: 8px; }
+.th-cloud-code input { flex: 1 1 200px; height: 28px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: var(--tag-radius); background: rgba(255,255,255,.03); color: var(--text); font: inherit; font-size: 12.5px; }
 .th-cloud-code input:focus { outline: none; border-color: var(--accent); }
-.th-cloud-code a { font-size: 12.5px; color: var(--text-dim); }
-.th-cloud-code .th-cloud-quiet { border-color: transparent; color: var(--text-faint); }

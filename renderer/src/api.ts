@@ -1115,8 +1115,8 @@ export const api = {
     }
   },
 
-  /** The cloud menu's sign-in for one Claude account: start, paste the code, or cancel. */
-  async cloudSignIn(p: { action: 'start' | 'code' | 'cancel'; profile: string; code?: string }): Promise<{ ok: boolean; error?: string }> {
+  /** The cloud menu's sign-in for one account, made in the cloud: start, paste Claude's code, or cancel. */
+  async cloudSignIn(p: { action: 'start' | 'code' | 'cancel'; engine: 'claude' | 'codex'; profile: string; code?: string }): Promise<{ ok: boolean; error?: string }> {
     const zero = window.zero as any;
     if (!zero?.cloudSignIn) return { ok: false, error: RESTART_NOTE };
     return zero.cloudSignIn(p);

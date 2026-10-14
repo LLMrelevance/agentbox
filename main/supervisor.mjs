@@ -38,10 +38,11 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, readMarker } from './cloud/marker.mjs';
-import { readCloudConfig, readClaudeToken, codexCloudAuth, saveClaudeToken, claudeTokenWorks } from './cloud/config.mjs';
-import { createCloudSignIn } from './cloud/signin-flow.mjs';
+import { readCloudConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
+import { cloudLoginFor, cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens } from './cloud/logins.mjs';
 import { accountIdentity } from './account-tooling.mjs';
-import { createRequire } from 'node:module';
+import { codexAccount } from './codex-account.mjs';
+import { execFileSync } from 'node:child_process';
 import { holdUntilHome } from './cloud/codex-cloud.mjs';
 import { readCloudUsage, summarizeCloudUsage } from './cloud/usage.mjs';
 import { buildSessionArgs, CLAUDE_MODES, permissionMode } from './settings.mjs';
@@ -3921,14 +3922,23 @@ export class Supervisor {
     return this._cloudSignedIn.get(which);
   }
 
-  // Set up, and at least one live account of THIS engine can sign in in the
-  // cloud: a Claude account with its saved sign-in, a Codex login whose
-  // access token outlasts a run (main/cloud/config.mjs). A Mac set up but
-  // never signed in offers no cloud slot at all, rather than one every tick
-  // reaches for and then turns back from.
+  // Set up, and at least one live account of THIS engine has a working
+  // sign-in in the cloud (main/cloud/logins.mjs). A Mac set up but never
+  // signed in offers no cloud slot at all, rather than one every tick reaches
+  // for and then turns back from.
   _hasCloudSignIn(engine = DEFAULT_ENGINE) {
-    if (engineOf(engine) === 'codex') return this._liveProfilesFor('codex').some((p) => !!codexCloudAuth(this._codexProfileHome(p)));
-    return this._liveProfilesFor(DEFAULT_ENGINE).some((p) => !!readClaudeToken(this._claudeConfigDir(p)));
+    const which = engineOf(engine);
+    return this._liveProfilesFor(which).some((p) => this._cloudLoginRunnable(which, p));
+  }
+
+  // The folder that IS an account, for each engine: the one its cloud
+  // sign-in is filed under.
+  _accountDir(engine, profile) {
+    return engineOf(engine) === 'codex' ? this._codexProfileHome(profile) : this._claudeConfigDir(profile);
+  }
+
+  _cloudLoginRunnable(engine, profile) {
+    return mayRunOn(cloudLoginState(cloudLoginFor(engineOf(engine), this._accountDir(engine, profile), { home: this.config.home })));
   }
 
   // WHAT THE CLOUD BUTTON SHOWS (renderer/src/cloud-menu.ts): whether this
@@ -3948,58 +3958,150 @@ export class Supervisor {
   }
 
   // EACH ACCOUNT, AND WHETHER IT CAN RUN IN THE CLOUD (the cloud menu's
-  // Accounts line). A Claude account needs its own cloud sign-in, made from
-  // the menu (`cloudSignIn`); a Codex login is ready while its token outlasts
-  // a run (main/cloud/config.mjs). Read at most every 30 seconds; the
-  // keychain is asked once per account.
+  // Accounts). Every account this app runs, of both engines, with the state
+  // of its cloud sign-in (main/cloud/logins.mjs) and, while one is going,
+  // the sign-in's own state for the menu to draw. Listed from every account
+  // she has set up, not only the healthy ones: an account the Mac has struck
+  // is still one she may want to sign in for the cloud (Codex's review,
+  // finding 9).
   _cloudAccounts() {
     const now = Date.now();
     if (!this._cloudAccountsCache || now - this._cloudAccountsCache.at > 30_000) {
-      const claude = this._liveProfilesFor(DEFAULT_ENGINE).map((profile) => {
-        const dir = this._claudeConfigDir(profile);
+      const names = (engine, profile) => {
+        if (engine === 'codex') {
+          let email = null;
+          try { email = codexAccount(this._codexProfileHome(profile))?.email ?? null; } catch { /* none */ }
+          // The menu says which engine beside the name; the name is the account.
+          return email || path.basename(this._codexProfileHome(profile));
+        }
         let email = null;
         try { email = accountIdentity(profile === 'default' ? null : profile)?.email ?? null; } catch { /* no login there */ }
-        return { engine: 'claude', profile, name: email || path.basename(dir), ready: !!readClaudeToken(dir) };
-      });
-      const codex = this._liveProfilesFor('codex').map((profile) => {
-        const home = this._codexProfileHome(profile);
-        return { engine: 'codex', profile, name: `Codex · ${path.basename(home)}`, ready: !!codexCloudAuth(home) };
-      });
-      this._cloudAccountsCache = { at: now, list: [...claude, ...codex] };
+        return email || path.basename(this._claudeConfigDir(profile));
+      };
+      const list = [];
+      for (const engine of [DEFAULT_ENGINE, 'codex']) {
+        for (const profile of this._cloudProfilesFor(engine)) list.push({ engine, profile, name: names(engine, profile) });
+      }
+      this._cloudAccountsCache = { at: now, list };
     }
-    const flows = this._cloudSignInFlow().status();
-    return this._cloudAccountsCache.list.map((a) => (a.engine === 'claude'
-      ? { ...a, signIn: flows[this._claudeConfigDir(a.profile)] ?? null }
-      : a));
+    const flows = this._cloudSignIns ?? new Map();
+    return this._cloudAccountsCache.list.map((a) => {
+      const state = cloudLoginState(cloudLoginFor(a.engine, this._accountDir(a.engine, a.profile), { home: this.config.home }));
+      const flow = flows.get(`${a.engine}:${a.profile}`)?.status() ?? null;
+      return { ...a, ready: mayRunOn(state), state, signIn: flow };
+    });
   }
 
-  _cloudSignInFlow() {
-    this._signInFlow ??= createCloudSignIn({
-      spawn: (...a) => createRequire(import.meta.url)('node-pty').spawn(...a),
-      claudeBin: this.config.claudeBin || 'claude',
-      verify: (token) => claudeTokenWorks(token, { claudeBin: this.config.claudeBin || 'claude' }),
-      save: (dir, token) => {
-        saveClaudeToken(dir, token);
-        // The account can run in the cloud from the next tick.
-        this._cloudAccountsCache = null;
-        this._cloudConfigAt = 0;
-        this.wake?.();
-      },
-      onChange: () => this.onChange?.(),
-    });
-    return this._signInFlow;
+  // Every account of an engine she has set up, healthy or not.
+  _cloudProfilesFor(engine) {
+    const live = this._liveProfilesFor(engine);
+    const all = typeof this._profilesFor === 'function' ? (this._profilesFor(engine) || []) : [];
+    return [...new Set([...live, ...all])];
+  }
+
+  // The cloud's own AWS clients, loaded only once a person signs in or a
+  // login needs renewing: a Mac that never uses the cloud never loads AWS.
+  async _cloudClients() {
+    const config = readCloudConfig(process.env, this.config.home);
+    if (!config) throw new Error('the cloud is not set up here');
+    const { awsTransport, awsStorage } = await import('./cloud/aws.mjs');
+    return { transport: awsTransport(config), storage: awsStorage(config) };
   }
 
   // THE CLOUD MENU'S SIGN-IN: start, the code she pasted, or cancel, for one
-  // Claude account this app runs. Anything else is refused.
-  cloudSignIn(action, profile, code) {
-    if (!this._liveProfilesFor(DEFAULT_ENGINE).includes(profile)) throw new Error('not one of this app\'s Claude accounts');
-    const dir = this._claudeConfigDir(profile);
-    const flow = this._cloudSignInFlow();
-    if (action === 'start') flow.start(dir);
-    else if (action === 'code') flow.code(dir, code);
-    else if (action === 'cancel') flow.cancel(dir);
-    else throw new Error(`unknown sign-in step: ${action}`);
+  // of this app's own accounts. It happens in the cloud; the Mac only relays
+  // the link, the code, and how it ended. Anything else is refused.
+  async cloudSignIn(action, engine, profile, code) {
+    if (engine !== 'codex' && engine !== 'claude') throw new Error('not an engine the cloud runs');
+    const which = engineOf(engine);
+    if (!this._cloudProfilesFor(which).includes(profile)) throw new Error(`not one of this app's ${which === 'codex' ? 'Codex' : 'Claude'} accounts`);
+    const key = `${which}:${profile}`;
+    this._cloudSignIns ??= new Map();
+    const live = this._cloudSignIns.get(key);
+    const going = live && !['saved', 'failed'].includes(live.status().state);
+    if (action === 'code') { if (going) await live.code(code); return; }
+    if (action === 'cancel') { if (going) await live.cancel(); this._cloudSignIns.delete(key); this.onChange?.(); return; }
+    if (action !== 'start') throw new Error(`unknown sign-in step: ${action}`);
+    if (going) return;
+    // Taken at once, so a second Start before the cloud answers starts nothing.
+    const held = { state: 'starting', url: null, code: null, message: null };
+    let cancelledEarly = false;
+    const holder = { status: () => held, code: async () => false, cancel: async () => { cancelledEarly = true; } };
+    this._cloudSignIns.set(key, holder);
+    this.onChange?.();
+    let clients;
+    try { clients = await this._cloudClients(); } catch (err) {
+      const failed = { ...held, state: 'failed', message: `The cloud could not be reached (${err.message}).` };
+      this._cloudSignIns.set(key, { status: () => failed, code: async () => false, cancel: async () => {} });
+      this.onChange?.();
+      return;
+    }
+    // Cancelled, or replaced by a newer Start, while the cloud was being
+    // reached: nothing is started (Codex's review, finding 6).
+    if (cancelledEarly || this._cloudSignIns.get(key) !== holder) return;
+    const { transport, storage } = clients;
+    const dir = this._accountDir(which, profile);
+    let expectEmail = null;
+    if (which === 'codex') { try { expectEmail = codexAccount(dir)?.email ?? null; } catch { /* none */ } }
+    const flow = startCloudSignIn({
+      transport, storage, engine: which, dir, home: this.config.home, expectEmail,
+      onChange: () => this.onChange?.(),
+      onSaved: () => {
+        // The account can run in the cloud from the next tick.
+        this._cloudConfigAt = 0;
+        this._cloudAccountsCache = null;
+        sweepRetiredLogins(which, dir, { storage, home: this.config.home }).catch(() => {});
+        this.wake?.();
+      },
+    });
+    this._cloudSignIns.set(key, flow);
+    this.onChange?.();
+  }
+
+  // CODEX LOGINS RENEWED BEFORE THEY RUN OUT, on the supervisor's own clock
+  // and not only when a run is waiting, so one left a week still renews.
+  // At most every ten minutes; one renewal per account at a time (the fence
+  // itself is in main/cloud/logins.mjs, and survives a restart).
+  _renewCloudLogins(now = Date.now()) {
+    if (!this._cloudConfig || this.config.cloudRuns === false) return;
+    if (this._cloudRenewAt && now - this._cloudRenewAt < 10 * 60_000) return;
+    this._cloudRenewAt = now;
+    this._cloudRenewing ??= new Set();
+    for (const profile of this._cloudProfilesFor('codex')) {
+      const dir = this._codexProfileHome(profile);
+      const state = cloudLoginState(cloudLoginFor('codex', dir, { home: this.config.home }), { now });
+      if ((state !== 'stale' && state !== 'renew') || this._cloudRenewing.has(dir)) continue;
+      this._cloudRenewing.add(dir);
+      this._cloudClients()
+        .then(({ transport, storage }) => renewCloudCodexLogin({ transport, storage, dir, home: this.config.home })
+          .then((out) => { if (out === 'renewed') sweepRetiredLogins('codex', dir, { storage, home: this.config.home }).catch(() => {}); return out; }))
+        .then((out) => { if (out !== 'busy') console.warn(`zero: a cloud Codex sign-in ${out === 'renewed' ? 'was renewed' : out === 'signed-out' ? 'needs signing in again' : 'could not be renewed yet'}`); })
+        .catch((e) => console.warn('zero: could not renew a cloud Codex sign-in:', e.message))
+        .finally(() => { this._cloudRenewing.delete(dir); this._cloudConfigAt = 0; this.onChange?.(); this.wake?.(); });
+    }
+  }
+
+  // A CLOUD RUN WHOSE SIGN-IN FAILED (exit 77, main/cloud/run.mjs): a
+  // transport fault, so the row waits rather than spending a try, and no
+  // strike against the account here (`noteExitForBackoff`).
+  _noteCloudLoginExit(session, code, how) {
+    if (!session.cloud || (code !== 77 && !how?.cloudLoginTrouble)) return;
+    session.transportFault = session.resultIsError = session.cloudLoginTrouble = true;
+    this._cloudConfigAt = 0;
+  }
+
+  // The first cloud build kept the app's own Claude tokens in the keychain;
+  // nothing reads them now. Deleted once per Mac, never Claude Code's own.
+  _forgetOldCloudTokens() {
+    if (this._forgotOldCloudTokens) return;
+    this._forgotOldCloudTokens = true;
+    const flag = path.join(this.config.home || os.homedir(), '.agentbox', '.old-cloud-tokens-forgotten');
+    try { if (fs.existsSync(flag)) return; } catch { return; }
+    try {
+      forgetOldCloudTokens({ home: this.config.home || os.homedir(), service: OLD_TOKEN_SERVICE, exec: (cmd, args) => execFileSync(cmd, args, { stdio: 'ignore' }) });
+      fs.mkdirSync(path.dirname(flag), { recursive: true });
+      fs.writeFileSync(flag, '');
+    } catch { /* tried */ }
   }
 
   // Where new threads go: 'all' sends them to the cloud first; anything else
@@ -4358,6 +4460,11 @@ export class Supervisor {
   // through, with nothing on screen saying why (store-demo, 2026-08-11).
   noteExitForBackoff(session, { onLine = () => {} } = {}) {
     if (session.stoppedByUs) return;
+    // A CLOUD SIGN-IN THAT STOPPED WORKING SAYS NOTHING ABOUT THIS MAC'S (exit
+    // 77, main/cloud/run.mjs): the work that was done is home, the row waits,
+    // and the account's login here is a different login, so nothing is struck
+    // against it (Codex's review of the cloud sign-ins, finding 9).
+    if (session.cloudLoginTrouble) return;
     // A CODEX RUN CANNOT STRIKE A CLAUDE ACCOUNT, and until this slice the only
     // way to be sure of that was to return here: `_noteProfileTrouble` and
     // `_strikeProfile` took `session.profile`, which was one of the Claude
@@ -5025,6 +5132,9 @@ export class Supervisor {
     try { this._noticeSignIns(); } catch (e) { console.warn('zero: could not look for a sign-in:', e.message); }
     try { this._forgetResetLimits(); } catch (e) { console.warn('zero: could not let a reset limit go:', e.message); }
     try { this._forgetRenewedSubscriptions(); } catch (e) { console.warn('zero: could not let a renewed subscription back in:', e.message); }
+    // _cloudReady reads the cloud's setup (at most once a minute) first.
+    try { this._cloudReady('codex'); this._renewCloudLogins(); } catch (e) { console.warn('zero: could not check the cloud sign-ins:', e.message); }
+    try { if (this._cloudConfig) this._forgetOldCloudTokens(); } catch { /* tried */ }
     // A COOLDOWN STOPS THE SPAWNING AND IT MUST NOT STOP THE TELLING. The brake
     // goes on when there is no healthy account left anywhere, for up to half an
     // hour, which is precisely the half hour her tasks are all stuck and the
@@ -7516,11 +7626,10 @@ export class Supervisor {
     const model = engineOf(engine) === 'codex' ? this._codexModelWord(plan) : null;
     const profile = pinned ?? forcedProfile ?? plan.resumeProfile ?? this._pickProfile(engine, { model });
     // A CLOUD RUN RUNS ON THIS ACCOUNT'S OWN SUBSCRIPTION, through the sign-in
-    // scripts/cloud-signin.mjs saved for it. An account without one runs here
-    // when there is room, and otherwise waits; it never runs on another's.
-    const cloudSignIn = (engine === 'codex')
-      ? !!codexCloudAuth(this._codexProfileHome(profile))
-      : !!readClaudeToken(this._claudeConfigDir(profile));
+    // it made in the cloud (main/cloud/logins.mjs). An account without a
+    // working one runs here when there is room, and otherwise waits; it never
+    // runs on another's.
+    const cloudSignIn = this._cloudLoginRunnable(engine, profile);
     if (where === 'cloud' && !cloudSignIn) {
       if (!this._warnedNoCloudSignIn?.has(`${engine}:${profile}`)) {
         (this._warnedNoCloudSignIn ??= new Set()).add(`${engine}:${profile}`);
@@ -7847,6 +7956,7 @@ export class Supervisor {
       if (how?.transportFault) session.transportFault = true;
       // Cloud work not home (exit 75): not finished here (main/cloud/run.mjs).
       if (session.cloud && code === 75) { session.transportFault = session.resultIsError = true; }
+      this._noteCloudLoginExit(session, code, how);
       this.memoryGateTurnEnded(session);
       session.exitFailed = !!(signal || code !== 0 || session.transportFault || session.resultIsError || session.result == null);
       this.count?.('run_finished', runEndedProps(session, Date.now()));

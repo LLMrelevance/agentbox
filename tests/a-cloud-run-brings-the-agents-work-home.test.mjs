@@ -33,6 +33,7 @@ const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const FAKE_CLAUDE = here('./fixtures/cloud/fake-claude.mjs');
 const FAKE_STORE = here('./fixtures/cloud/fake-store-server.mjs');
 const STUB = here('../cloud/sandbox/mcp-stub.mjs');
+const LOGIN = { engine: 'claude', id: 'L1', key: 'logins/claude/L1.json' };
 
 let tmp; let sandbox; let sandboxUrl; let s3; let s3Url; let objects; let mac;
 const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8' }).trim();
@@ -48,6 +49,9 @@ beforeEach(async () => {
   await new Promise((r) => s3.listen(0, '127.0.0.1', r));
   s3Url = `http://127.0.0.1:${s3.address().port}`;
   sandbox = createSandbox({ workRoot: path.join(tmp, 'vm-work'), pathRoot: path.join(tmp, 'vm'), bridgeSocket: path.join(tmp, 'bridge.sock') });
+  // The account's Claude sign-in, kept in the cloud (main/cloud/logins.mjs).
+  macReads = [];
+  objects.set(LOGIN.key, Buffer.from(JSON.stringify({ engine: 'claude', token: 'tok-123-cloud-signin-only' })));
   const addr = await sandbox.listen(0, '127.0.0.1');
   sandboxUrl = `http://127.0.0.1:${addr.port}`;
 
@@ -77,9 +81,11 @@ const transport = {
   },
   async stop() {},
 };
+// What the Mac asked to read from the bucket: never a login.
+let macReads = [];
 const storage = {
   async put(k, body) { objects.set(k, Buffer.from(body)); },
-  async get(k) { return objects.get(k) ?? null; },
+  async get(k) { macReads.push(k); return objects.get(k) ?? null; },
   async getUrl(k) { return `${s3Url}/${encodeURIComponent(k)}`; },
   async putUrl(k) { return `${s3Url}/${encodeURIComponent(k)}`; },
 };
@@ -105,7 +111,7 @@ function launch({ message = 'please do it', extraArgs = [], signals = new EventE
   const done = cloudRun({
     argv: [FAKE_CLAUDE, '-p', '--output-format', 'stream-json', '--mcp-config', mcpFile, '--settings', settingsFile, ...extraArgs],
     env: { ...process.env, ZERO_ITEM: 'w-1', ZERO_PRODUCT: 'p', CLAUDE_CONFIG_DIR: configDir, AGENTBOX_HOME: path.join(tmp, 'mac'), ...env },
-    cwd: mac, transport, storage, claudeToken: 'tok-123',
+    cwd: mac, transport, storage, login: LOGIN,
     stdin, stdout, stderr, remoteCommand: process.execPath, stubPath: STUB, pollWaitMs: 200, resultsWaitMs: 8000, watchParent: false, signals,
     homeDir: path.join(tmp, 'home'),
   });
@@ -124,8 +130,10 @@ describe('a cloud run', () => {
     // The store call ran HERE, with the worker's own environment.
     expect(result.said).toBe('noted on the Mac for w-1');
     expect(fs.readFileSync(run.storeLog, 'utf8')).toContain('"item":"w-1"');
-    // Subscription sign-in reached the remote command, and only it.
-    expect(result.token).toBe('tok-123');
+    // The account's cloud sign-in reached the remote command, and what the
+    // command printed of it came home redacted. The Mac never read it.
+    expect(result.token).toBe('[cloud sign-in]');
+    expect(macReads.some((k) => k.startsWith('logins/'))).toBe(false);
     // The commit came home, fast-forwarded onto the task branch.
     expect(git(mac, 'log', '-1', '--format=%s')).toBe('From the cloud');
     expect(git(mac, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('agentbox/w-1');
@@ -306,7 +314,7 @@ describe('a cloud run', () => {
     const code = await cloudRun({
       argv: [here('./fixtures/cloud/real-mcp-client.mjs'), process.execPath, STUB, 'agentbox', '--mcp-config', mcpFile],
       env: { ...process.env, ZERO_ITEM: 'w-1', CLAUDE_CONFIG_DIR: path.join(tmp, 'mac', 'claude-home') },
-      cwd: mac, transport, storage, claudeToken: null, stdin, stdout, stderr,
+      cwd: mac, transport, storage, login: LOGIN, stdin, stdout, stderr,
       remoteCommand: process.execPath, stubPath: STUB, pollWaitMs: 200, resultsWaitMs: 8000, watchParent: false,
       homeDir: path.join(tmp, 'home'),
     });

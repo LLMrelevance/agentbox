@@ -11,10 +11,16 @@ export interface CloudMonth {
   costPerAgentHour: number | null;
 }
 
+// A sign-in going on in the cloud for one account (main/cloud/logins.mjs).
+// Claude: its page opens, she pastes the code it shows. Codex: OpenAI's page
+// opens, she types the code shown here, and it finishes by itself.
 export interface CloudSignIn {
-  state: 'opening' | 'needs-code' | 'checking' | 'saved' | 'failed';
+  state: 'starting' | 'needs-code' | 'waiting' | 'checking' | 'saved' | 'failed';
   url: string | null;
+  code: string | null;
   message: string | null;
+  // One sign-in, told from the next, which may show the same link.
+  attempt?: string;
 }
 
 export interface CloudAccount {
@@ -22,6 +28,9 @@ export interface CloudAccount {
   profile: string;
   name: string;
   ready: boolean;
+  // 'none' (never signed in for the cloud), 'broken' (stopped working),
+  // 'renew' / 'stale' (a Codex login being renewed), 'ready'.
+  state?: 'none' | 'broken' | 'renew' | 'stale' | 'ready';
   signIn?: CloudSignIn | null;
 }
 
@@ -33,20 +42,46 @@ export interface CloudStatus {
   accounts?: CloudAccount[];
 }
 
-// What one account's row says on its right, and whether it offers Sign in.
-export function cloudAccountState(a: CloudAccount): { word: string; signIn: boolean; code: boolean } {
-  const s = a.signIn?.state;
-  if (s === 'opening') return { word: 'Opening the sign-in page…', signIn: false, code: false };
-  if (s === 'needs-code') return { word: '', signIn: false, code: true };
-  if (s === 'checking') return { word: 'Checking…', signIn: false, code: false };
-  if (a.ready || s === 'saved') return { word: 'Ready', signIn: false, code: false };
-  if (a.engine === 'codex') return { word: 'Sign in to Codex again', signIn: false, code: false };
-  return { word: s === 'failed' ? (a.signIn?.message || 'That didn’t work.') : '', signIn: true, code: false };
+const GOING = new Set(['starting', 'needs-code', 'waiting', 'checking']);
+export const signingIn = (a: CloudAccount) => !!a.signIn && GOING.has(a.signIn.state);
+export const engineWord = (a: CloudAccount) => (a.engine === 'codex' ? 'Codex' : 'Claude');
+
+// The page a sign-in step opens, and what tells this opening from the
+// last: two Codex accounts show the same link, and each must open it.
+export function pageToOpen(a: CloudAccount | null): { key: string; url: string } | null {
+  const url = a?.signIn?.url;
+  return a && url ? { key: `${a.engine}:${a.profile}:${a.signIn?.attempt ?? ''}:${url}`, url } : null;
 }
 
-// The line under the choices when the cloud is on but nothing can run there.
-export function cloudNobodyReady(status: CloudStatus): boolean {
-  return status.mode !== 'mac' && !!status.accounts?.length && !status.accounts.some((a) => a.ready || a.signIn?.state === 'saved');
+// THE ACCOUNTS THAT STILL NEED THEIR ONE SIGN-IN, in the order the setup
+// walks them. A Codex login being renewed is not one: that needs nothing
+// from her. Nothing at all while threads stay on this Mac.
+export function cloudNeedsSignIn(status: CloudStatus): CloudAccount[] {
+  if (status.mode === 'mac') return [];
+  return (status.accounts || []).filter((a) => !a.ready && a.state !== 'renew' && a.state !== 'stale');
+}
+
+// The one line the menu says about them, before she starts.
+export function cloudSetupLine(pending: CloudAccount[]): string {
+  if (!pending.length) return '';
+  if (pending.length === 1) {
+    const a = pending[0];
+    return a.state === 'broken'
+      ? `${engineWord(a)} · ${a.name} needs to sign in again to run in the cloud.`
+      : `${engineWord(a)} · ${a.name} needs one sign-in to run in the cloud.`;
+  }
+  return `${pending.length} accounts need one sign-in each to run in the cloud.`;
+}
+
+// WHAT ONE STEP OF THE SETUP SAYS, for the account being signed in.
+export function cloudStepCopy(a: CloudAccount): { lead: string; codeToType: string | null; paste: boolean } {
+  const s = a.signIn?.state;
+  if (s === 'starting') return { lead: 'Starting the sign-in…', codeToType: null, paste: false };
+  if (s === 'needs-code') return { lead: 'Claude’s sign-in opened in your browser. Approve it, then paste the code it shows.', codeToType: null, paste: true };
+  if (s === 'waiting') return { lead: 'OpenAI’s page opened in your browser. Enter this code there; this step finishes by itself.', codeToType: a.signIn?.code ?? null, paste: false };
+  if (s === 'checking') return { lead: 'Checking the sign-in…', codeToType: null, paste: false };
+  if (s === 'failed') return { lead: a.signIn?.message || 'That did not work.', codeToType: null, paste: false };
+  return { lead: '', codeToType: null, paste: false };
 }
 
 export const CLOUD_MODES: { id: CloudMode; label: string; note: string }[] = [

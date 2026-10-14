@@ -36,6 +36,7 @@ import net from 'node:net';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn, execFile, execFileSync } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 import { usageMeter } from './usage.mjs';
 
 // One stdout event at most this many bytes of output.
@@ -50,6 +51,40 @@ const KILL_GRACE_MS = 15_000;
 const DEFAULT_DEADLINE_MS = (8 * 60 - 15) * 60_000;
 
 const DONE_STATES = new Set(['collected', 'failed']);
+
+// THE SIGN-INS (docs/cloud/PLAN.md, "Sign-ins live in the cloud"). A person
+// signs in to Claude or Codex HERE, through the vendor's own command, and the
+// login is kept in the cloud: it is never an event, never in the log, and the
+// Mac only ever hears the link to open, the code to type, and how it ended.
+// How long a person gets to finish signing in: Codex's code lasts 15 minutes.
+const SIGNIN_MS = 20 * 60_000;
+// Claude Code prints its one-year token on a line of its own. Taken only once
+// something follows it, so a token split across two reads is never half-read.
+const CLAUDE_TOKEN = /(sk-ant-oat\d*-[A-Za-z0-9_-]{20,})\s/;
+// A link is taken only once something ends it: a half-read link is not one.
+const CLAUDE_SIGNIN_URL = /(https:\/\/claude\.(?:com|ai)\/\S*oauth\/authorize\?[^\s"'<>]+)\s/;
+const CODEX_DEVICE_URL = /(https:\/\/auth\.openai\.com\/[^\s"'<>]+)\s/;
+// A code is taken only once something ends it: `WY6D-YCCO` read a moment
+// before its last letter arrived is not the code.
+const CODEX_DEVICE_CODE = /\b([A-Z0-9]{4}-[A-Z0-9]{4,6})\s/;
+// What each vendor's command says when the login itself is refused, read
+// only from our own check, never from an agent's output.
+const CLAUDE_REFUSED = /invalid bearer token|oauth token (?:has )?(?:expired|been revoked|revoked)|authentication_error|please run \/login|invalid api key|\b401\b/i;
+const CODEX_SIGNED_OUT = /refresh_token_(?:reused|expired|invalidated)|invalid_grant|token_expired|\b401\b|unauthorized|sign in again|log in again|not signed in/i;
+// A run's Codex login cannot renew itself: renewing rotates the login under
+// every other run of the account. The renewal is its own session (`renew`).
+export const CODEX_REFRESH_PLACEHOLDER = 'agentbox-cloud-cannot-refresh';
+// What a login's text becomes wherever a run prints it.
+export const REDACTED = '[cloud sign-in]';
+// `claude setup-token` draws its screen only on a terminal. util-linux
+// `script` gives it one: its record goes to /dev/null (never a `typescript`
+// file holding the token) and the code typed into it is not echoed back.
+// The line sets the terminal wide enough that neither the link nor the token
+// is ever wrapped onto two lines.
+const linuxTerminal = (line) => ['script', '-qe', '--echo=never', '-c', line, '/dev/null'];
+// A Codex access token with less than this left does not start a run.
+const CODEX_MIN_LEFT_MS = 30 * 60_000;
+const plain = (s) => String(s).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '');
 
 export function createSandbox({
   workRoot = '/tmp',
@@ -72,6 +107,10 @@ export function createSandbox({
   // Where the usage meter reads the machine (cloud/sandbox/usage.mjs); a
   // test points it at a fake /sys/fs/cgroup and /proc.
   usage = {},
+  // How a command gets a terminal (`claude setup-token` needs one). A test on
+  // a Mac, whose `script` takes other flags, passes a plain shell.
+  terminal = linuxTerminal,
+  signinMs = SIGNIN_MS,
 } = {}) {
   const at = (p) => (pathRoot ? path.join(pathRoot, p) : p);
   let run = null;
@@ -124,8 +163,33 @@ export function createSandbox({
   }
 
   function emitChunks(kind, buf, r) {
+    if (r.secrets?.length) buf = redactStream(r, kind, buf);
     for (let i = 0; i < buf.length; i += CHUNK) emit({ kind, data: buf.subarray(i, i + CHUNK).toString('base64') }, r);
   }
+
+  // A RUN NEVER PRINTS ITS LOGIN TO THE MAC. The agent can read its own
+  // token (it is in its environment, or in its auth file), and an agent that
+  // echoes it would otherwise send it home in the stream. Each stream keeps
+  // back only a tail that could be the start of a login, until the next
+  // bytes say whether it was; a line's end never is, so a whole line is never
+  // held. `flush` lets the held tail go when the command exits.
+  function redactStream(r, kind, buf, flush = false) {
+    r.redact ??= {};
+    const st = (r.redact[kind] ??= { decoder: new StringDecoder('utf8'), held: '' });
+    let text = st.held + (flush ? st.decoder.end() : st.decoder.write(buf));
+    for (const s of r.secrets) text = text.split(s).join(REDACTED);
+    st.held = '';
+    if (!flush) {
+      const keep = heldTail(text, r.secrets);
+      if (keep) { st.held = text.slice(text.length - keep); text = text.slice(0, text.length - keep); }
+    }
+    return Buffer.from(text, 'utf8');
+  }
+  const redactLine = (r, line) => {
+    let text = String(line);
+    for (const s of r?.secrets || []) text = text.split(s).join(REDACTED);
+    return text;
+  };
 
   /* ------------------------------ THE BRIDGE ------------------------------ */
   // Each MCP server the harness is configured with is replaced, in here, by
@@ -164,7 +228,7 @@ export function createSandbox({
             emit({ kind: 'mcp-open', conn, server: String(hello.server) }, r);
             continue;
           }
-          emit({ kind: 'mcp', conn, line }, r);
+          emit({ kind: 'mcp', conn, line: redactLine(r, line) }, r);
         }
       });
       sock.on('close', () => {
@@ -204,6 +268,7 @@ export function createSandbox({
       }
       for (const f of files) await placeFile(f);
       fs.rmSync(bundle, { force: true });
+      if (r.spec.login) await placeLogin(r);
       // What the command writes to becomes its own: the task folder, and the
       // account folder its transcripts and tooling live in.
       if (runAs) {
@@ -239,6 +304,7 @@ export function createSandbox({
           ...baseEnv,
           ...(runAs ? { HOME: runAs.home, USER: runAs.user, LOGNAME: runAs.user, TMPDIR: '/tmp' } : {}),
           ...env,
+          ...(r.secretEnv || {}),
           AGENTBOX_BRIDGE_SOCK: bridgeSocket,
         },
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -278,10 +344,20 @@ export function createSandbox({
       // Anything the command left running in its group goes now: a dev
       // server holding stdout open would otherwise keep the run "running".
       killGroup(child.pid, 'SIGKILL');
+      if (r.secrets?.length) {
+        for (const kind of ['stdout', 'stderr']) {
+          const tail = redactStream(r, kind, Buffer.alloc(0), true);
+          if (tail.length) emit({ kind, data: tail.toString('base64') }, r);
+        }
+      }
       emit({ kind: 'exit', code, signal, ...(r.cancelled ? { cancelled: true } : {}) }, r);
       r.state = 'exited';
       statusChangedAt = Math.floor(Date.now() / 1000);
-      if (r.spec.results) autoCollect(r, r.spec.results);
+      // Whether the login is why: asked of the login itself, never read from
+      // what the agent printed, and said before the results go.
+      Promise.resolve(r.spec.login && !r.cancelled ? checkLogin(r, code) : null)
+        .catch(() => {})
+        .then(() => { if (r.spec.results) autoCollect(r, r.spec.results); });
     };
     // `exit` rather than `close`: a descendant that inherited stdout can hold
     // the pipe open long after the command itself is gone. The output that was
@@ -313,6 +389,227 @@ export function createSandbox({
       await sh('tar', ['-xzf', f.path, '-C', f.untar], f.untar);
       fs.rmSync(f.path, { force: true });
     }
+  }
+
+  /* ----------------------------- THE SIGN-INS ----------------------------- */
+  // What a command of ours runs as, and with: the agent's user and home, and
+  // nothing from the image's own environment.
+  const ownEnv = (extra) => ({ ...baseEnv, ...(runAs ? { HOME: runAs.home, USER: runAs.user, LOGNAME: runAs.user, TMPDIR: '/tmp' } : {}), ...extra });
+  const asAgent = runAs ? { uid: runAs.uid, gid: runAs.gid } : {};
+  async function scratchFor(r, name) {
+    const dir = path.join(r.dir, name);
+    fs.mkdirSync(dir, { recursive: true });
+    if (runAs) await sh('chown', ['-R', `${runAs.uid}:${runAs.gid}`, r.dir], '/');
+    return dir;
+  }
+  const signinEvent = (r, state, extra = {}) => emit({ kind: 'signin', state, ...extra }, r);
+
+  // The run's login, fetched from the cloud by its own link, put where the
+  // harness reads it, and added to what is never printed. A login that cannot
+  // be fetched stops the run before anything starts, and says so in a way the
+  // Mac reads as "this account needs signing in again".
+  async function placeLogin(r) {
+    const want = r.spec.login.engine;
+    let login = null;
+    try {
+      const res = await fetchImpl(r.spec.login.url);
+      if (res.ok) login = JSON.parse(Buffer.from(await res.arrayBuffer()).toString('utf8'));
+    } catch { /* read as missing */ }
+    const id = r.spec.login.id ?? null;
+    if (!login || login.engine !== want) {
+      emit({ kind: 'login', state: 'missing', engine: want, id }, r);
+      throw new Error(`this account has no ${want === 'codex' ? 'Codex' : 'Claude'} sign-in in the cloud`);
+    }
+    if (want === 'claude') {
+      if (!login.token) throw new Error('the saved Claude sign-in is empty');
+      r.secrets = [login.token];
+      r.secretEnv = { CLAUDE_CODE_OAUTH_TOKEN: login.token };
+      return;
+    }
+    const tokens = login.auth?.tokens || {};
+    const home = r.spec.env?.CODEX_HOME;
+    if (!tokens.access_token || !home) throw new Error('the saved Codex sign-in is incomplete');
+    // The login's own expiry, read now, not the Mac's note of it: a run is
+    // not started on a token about to run out (the Mac renews it).
+    const exp = jwtExpiryMs(tokens.access_token);
+    if (!exp || exp - Date.now() < CODEX_MIN_LEFT_MS) {
+      emit({ kind: 'login', state: 'expired', engine: want, id }, r);
+      throw new Error('the Codex sign-in needs renewing before a run');
+    }
+    r.loginExpiresAt = exp;
+    // On the access token alone, and fresh, so Codex never tries to renew.
+    const copy = { ...login.auth, tokens: { ...tokens, refresh_token: CODEX_REFRESH_PLACEHOLDER }, last_refresh: new Date().toISOString() };
+    fs.mkdirSync(at(home), { recursive: true });
+    fs.writeFileSync(path.join(at(home), 'auth.json'), JSON.stringify(copy, null, 2), { mode: 0o600 });
+    r.secrets = [tokens.access_token, tokens.id_token, tokens.refresh_token].filter((s) => typeof s === 'string' && s.length >= 16);
+  }
+
+  // A SIGN-IN: the vendor's own command, run here, for a person at the Mac.
+  async function startSignin(r) {
+    const { engine } = r.spec;
+    let scratch;
+    try { scratch = await scratchFor(r, engine); } catch (err) { return failSignin(r, `could not prepare the sign-in: ${err.message}`); }
+    r.scratch = scratch;
+    const env = ownEnv(engine === 'claude' ? { CLAUDE_CONFIG_DIR: scratch, BROWSER: '/bin/false', TERM: 'xterm-256color' } : { CODEX_HOME: scratch, BROWSER: '/bin/false' });
+    const argv = engine === 'claude'
+      ? terminal('stty cols 4000 rows 50 2>/dev/null; exec claude setup-token')
+      : ['codex', 'login', '--device-auth'];
+    if (r.cancelled) return failSignin(r, 'The sign-in was cancelled.');
+    let child;
+    try {
+      child = spawn(argv[0], argv.slice(1), { cwd: scratch, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true, ...asAgent });
+    } catch (err) {
+      return failSignin(r, `could not start the sign-in: ${err.message}`);
+    }
+    r.child = child;
+    child.stdin.on('error', () => {});
+    setState('signing-in', {}, r);
+    // What the command prints is read here and never sent anywhere: it is
+    // where the token appears.
+    let seen = '';
+    const read = (d) => {
+      if (r.signinOver) return;
+      seen = (seen + plain(d.toString('utf8'))).slice(-256 * 1024);
+      if (engine === 'claude') {
+        const token = seen.match(CLAUDE_TOKEN)?.[1];
+        if (token) {
+          r.signinOver = true;
+          seen = '';
+          killGroup(child.pid, 'SIGTERM');
+          finishClaude(r, token);
+          return;
+        }
+        if (!r.signinUrl) {
+          const url = seen.match(CLAUDE_SIGNIN_URL)?.[1];
+          if (url) { r.signinUrl = url; signinEvent(r, 'needs-code', { url }); }
+        }
+      } else if (!r.signinUrl) {
+        const url = seen.match(CODEX_DEVICE_URL)?.[1];
+        const code = seen.match(CODEX_DEVICE_CODE)?.[1];
+        if (url && code) { r.signinUrl = url; signinEvent(r, 'waiting', { url, code }); }
+      }
+    };
+    child.stdout.on('data', read);
+    child.stderr.on('data', read);
+    child.on('error', () => {});
+    child.on('exit', (code) => setImmediate(() => {
+      r.child = null;
+      if (r.signinOver) return;
+      r.signinOver = true;
+      if (engine === 'codex' && code === 0 && !r.cancelled) { finishCodex(r); return; }
+      if (r.cancelled) failSignin(r, 'The sign-in was cancelled.');
+      else if (r.codeSent) failSignin(r, 'Claude did not accept that code. Try signing in again.');
+      else failSignin(r, engine === 'claude' ? 'The sign-in ended before Claude finished it.' : 'Codex did not finish signing in.');
+    }));
+    r.signinTimer = setTimeout(() => {
+      if (r.signinOver) return;
+      r.signinOver = true;
+      killGroup(child.pid, 'SIGKILL');
+      failSignin(r, 'The sign-in timed out. Try again.');
+    }, signinMs);
+  }
+
+  async function finishClaude(r, token) {
+    signinEvent(r, 'checking');
+    // One word from Claude on that token alone, from an empty folder, before
+    // it is kept: a token that does not answer is not a sign-in.
+    const check = await scratchFor(r, 'check');
+    const out = await quiet(['claude', '-p', 'Reply with the single word: ok', '--max-turns', '1'], { cwd: check, env: ownEnv({ CLAUDE_CODE_OAUTH_TOKEN: token, CLAUDE_CONFIG_DIR: check }), timeoutMs: 120_000 });
+    if (out.code !== 0 || !/ok/i.test(out.stdout)) return failSignin(r, 'Claude refused the new sign-in; nothing was kept.');
+    await saveLogin(r, { engine: 'claude', token, savedAt: Date.now() }, { expiresAt: null });
+  }
+
+  async function finishCodex(r) {
+    let auth = null;
+    try { auth = JSON.parse(fs.readFileSync(path.join(r.scratch, 'auth.json'), 'utf8')); } catch { /* none */ }
+    if (!auth?.tokens?.access_token || !auth.tokens.refresh_token) return failSignin(r, 'Codex finished without a ChatGPT sign-in.');
+    await saveLogin(r, { engine: 'codex', auth, savedAt: Date.now() }, { expiresAt: jwtExpiryMs(auth.tokens.access_token), email: jwtClaim(auth.tokens.id_token, 'email') });
+  }
+
+  // Kept by its own link, a few tries; the Mac hears only that it was kept.
+  async function saveLogin(r, login, meta) {
+    const body = Buffer.from(JSON.stringify(login));
+    let lastErr = null;
+    for (let i = 0; i < 3; i += 1) {
+      try { await upload(fetchImpl, r.spec.saveUrl, body); lastErr = null; break; } catch (err) { lastErr = err; await new Promise((res) => setTimeout(res, uploadRetryMs * (i + 1))); }
+    }
+    if (lastErr) return failSignin(r, 'The sign-in worked but could not be kept. Try again.');
+    clearTimeout(r.signinTimer);
+    forget(r);
+    signinEvent(r, 'saved', meta);
+    setState('collected', {}, r);
+  }
+
+  function failSignin(r, message, extra = {}) {
+    clearTimeout(r.signinTimer);
+    r.signinOver = true;
+    if (r.child) killGroup(r.child.pid, 'SIGKILL');
+    forget(r);
+    signinEvent(r, 'failed', { message, ...extra });
+    setState('failed', {}, r);
+  }
+
+  // Nothing of a login stays on the machine once the session is over.
+  function forget(r) {
+    let names = [];
+    try { names = fs.readdirSync(r.dir); } catch { /* gone */ }
+    for (const n of names) if (n !== 'events.jsonl') fs.rmSync(path.join(r.dir, n), { recursive: true, force: true });
+  }
+
+  // A CODEX RENEWAL: the real login, marked as long overdue so Codex renews
+  // it on its first request, one tiny request, and the renewed login kept.
+  // Never run beside a run of the same account: the Mac keeps them apart.
+  async function renew(r) {
+    setState('renewing', {}, r);
+    let login = null;
+    try {
+      const res = await fetchImpl(r.spec.loginUrl);
+      if (res.ok) login = JSON.parse(Buffer.from(await res.arrayBuffer()).toString('utf8'));
+    } catch { /* not reached */ }
+    // A login that could not be fetched may be a network hiccup: tried again
+    // later, never taken for a sign-out (finding 5).
+    if (!login) return failSignin(r, 'The Codex sign-in could not be reached; it will be tried again.');
+    if (!login?.auth?.tokens?.refresh_token) return failSignin(r, 'There is no Codex sign-in to renew.', { signedOut: true });
+    let home;
+    try { home = await scratchFor(r, 'codex'); } catch (err) { return failSignin(r, `could not prepare the renewal: ${err.message}`); }
+    fs.writeFileSync(path.join(home, 'auth.json'), JSON.stringify({ ...login.auth, last_refresh: '2000-01-01T00:00:00Z' }, null, 2), { mode: 0o600 });
+    if (runAs) await sh('chown', [`${runAs.uid}:${runAs.gid}`, path.join(home, 'auth.json')], '/').catch(() => {});
+    const work = await scratchFor(r, 'work');
+    const ran = await quiet(['codex', 'exec', '--skip-git-repo-check', '--ephemeral', '-s', 'read-only', '-c', 'model_reasoning_effort=low', 'Reply with the single word: ok'], { cwd: work, env: ownEnv({ CODEX_HOME: home }), timeoutMs: 5 * 60_000 });
+    let after = null;
+    try { after = JSON.parse(fs.readFileSync(path.join(home, 'auth.json'), 'utf8')); } catch { /* gone */ }
+    const access = after?.tokens?.access_token;
+    if (!access || access === login.auth.tokens.access_token || !after.tokens.refresh_token) {
+      // Signed out only when Codex said the login itself was refused; any
+      // other failure (the network, a limit, a timeout) is tried again.
+      if (CODEX_SIGNED_OUT.test(ran.output)) return failSignin(r, 'Codex could not renew this sign-in. Sign in again.', { signedOut: true });
+      return failSignin(r, 'Codex could not renew this sign-in just now; it will be tried again.');
+    }
+    await saveLogin(r, { engine: 'codex', auth: after, savedAt: Date.now() }, { expiresAt: jwtExpiryMs(access) });
+  }
+
+  async function checkLogin(r, code) {
+    const { engine, id = null } = r.spec.login;
+    if (engine === 'codex') {
+      if (r.loginExpiresAt && r.loginExpiresAt <= Date.now()) emit({ kind: 'login', state: 'expired', engine, id }, r);
+      return;
+    }
+    if (code === 0 || !r.secretEnv?.CLAUDE_CODE_OAUTH_TOKEN) return;
+    const check = await scratchFor(r, 'check');
+    const out = await quiet(['claude', '-p', 'Reply with the single word: ok', '--max-turns', '1'], { cwd: check, env: ownEnv({ CLAUDE_CODE_OAUTH_TOKEN: r.secretEnv.CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CONFIG_DIR: check }), timeoutMs: 120_000 });
+    fs.rmSync(check, { recursive: true, force: true });
+    // Refused only when Claude said so; a timeout or an outage is not a
+    // reason to ask her to sign in again (finding 5).
+    if ((out.code !== 0 || !/ok/i.test(out.stdout)) && CLAUDE_REFUSED.test(out.output)) emit({ kind: 'login', state: 'refused', engine, id }, r);
+  }
+
+  // A command of ours whose output is read here and never sent anywhere.
+  function quiet(argv, { cwd, env, timeoutMs }) {
+    return new Promise((resolve) => {
+      execFile(argv[0], argv.slice(1), { cwd, env, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, ...asAgent }, (err, stdout, stderr) => {
+        resolve({ code: err ? (Number.isInteger(err.code) ? err.code : 1) : 0, stdout: String(stdout || ''), output: `${stdout || ''}\n${stderr || ''}` });
+      });
+    });
   }
 
   function writeStdin(r, { data, end }) {
@@ -375,15 +672,30 @@ export function createSandbox({
     const cwd = r.spec.cwd;
     const branch = r.spec.branch;
     const tip = (await sh('git', ['rev-parse', `refs/heads/${branch}`], cwd)).trim();
-    const commits = Number((await sh('git', ['rev-list', '--count', `${r.startSha}..${tip}`], cwd)).trim()) || 0;
+    let commits = Number((await sh('git', ['rev-list', '--count', `${r.startSha}..${tip}`], cwd)).trim()) || 0;
     // WHERE THE AGENT ENDED UP, not only where it started. An agent that
     // switched branches and committed there leaves the task branch untouched
     // and the folder clean, and collecting the task branch alone would bring
     // back nothing while the work sat on the other one.
     const head = (await sh('git', ['rev-parse', 'HEAD'], cwd)).trim();
     const headRef = (await sh('git', ['symbolic-ref', '-q', '--short', 'HEAD'], cwd).catch(() => '')).trim() || null;
-    const strayHead = head !== tip && head !== r.startSha;
+    let strayHead = head !== tip && head !== r.startSha;
     if (strayHead) await sh('git', ['update-ref', 'refs/agentbox/head', head], cwd);
+    // NOTHING THE RUN MADE GOES HOME CARRYING ITS LOGIN (Codex's review,
+    // 2026-10-14, finding 1). Changed files have the login's text replaced;
+    // commits cannot be, so commits that carry it stay here, and the run says
+    // so. An agent can still encode its login some other way: this is a
+    // guard, not a promise (docs/cloud/PLAN.md).
+    let withheld = null;
+    if (r.secrets?.length && (commits > 0 || strayHead)) {
+      const ranges = [`${r.startSha}..${tip}`, ...(strayHead ? [`${r.startSha}..${head}`] : [])];
+      if (await commitsCarry(cwd, ranges, r.secrets)) {
+        withheld = 'the run\'s commits contain its own sign-in, so they were left in the cloud; its other work came home';
+        emit({ kind: 'error', message: withheld }, r);
+      }
+    }
+    if (withheld) { commits = 0; strayHead = false; }
+    if (r.secrets?.length) await redactChanged(cwd, r.secrets);
     if (commits > 0 || strayHead) {
       const out = tmp('out.bundle');
       const refs = [];
@@ -393,7 +705,9 @@ export function createSandbox({
       await upload(fetchImpl, bundleUrl, fs.readFileSync(out));
       fs.rmSync(out, { force: true });
     }
-    const dirty = (await sh('git', ['status', '--porcelain', '--untracked-files=all'], cwd)).trim().length > 0;
+    // Uncommitted work sits on the agent's own commits; with those withheld,
+    // the Mac has nothing to lay it on.
+    const dirty = (await sh('git', ['status', '--porcelain', '--untracked-files=all'], cwd)).trim().length > 0 && !(withheld && head !== r.startSha);
     let changesRef = null;
     if (dirty) {
       changesRef = 'refs/agentbox/changes';
@@ -413,19 +727,21 @@ export function createSandbox({
     }
     for (const b of bring) {
       if (!fs.existsSync(b.dir)) continue;
+      if (r.secrets?.length) redactFolder(b.dir, r.secrets);
       const tarball = tmp('bring.tgz');
       await sh('tar', ['-czf', tarball, '-C', b.dir, '.'], cwd);
       await upload(fetchImpl, b.url, fs.readFileSync(tarball));
       fs.rmSync(tarball, { force: true });
       brought.push(b.dir);
     }
-    return { ok: true, startSha: r.startSha, tip, head, headRef, strayHead, commits, uncommitted: dirty, changesRef, brought };
+    return { ok: true, startSha: r.startSha, tip: withheld ? r.startSha : tip, head: withheld ? r.startSha : head, headRef, strayHead, commits, uncommitted: dirty, changesRef, brought, ...(withheld ? { withheld } : {}) };
   }
 
   async function checkpoint(r, { bundleUrl }) {
     const cwd = r.spec.cwd;
     const tip = (await sh('git', ['rev-parse', `refs/heads/${r.spec.branch}`], cwd)).trim();
     if (tip === r.lastCheckpoint) return { ok: true, changed: false, tip };
+    if (r.secrets?.length && await commitsCarry(cwd, [`${r.startSha}..${tip}`], r.secrets)) return { ok: false, error: 'withheld' };
     const out = path.join(r.dir, 'checkpoint.bundle');
     await sh('git', ['bundle', 'create', '-q', out, `refs/heads/${r.spec.branch}`, `^${r.startSha}`], cwd);
     await upload(fetchImpl, bundleUrl, fs.readFileSync(out));
@@ -467,6 +783,24 @@ export function createSandbox({
       if (!run) return { ok: true, state: 'none' };
       return { ok: true, runId: run.id, state: run.state, seq: run.log.index.length, inSeq: run.inSeq, exitCode: run.exitCode ?? null, manifest: run.manifest || null };
     }
+    if (action === 'signin' || action === 'renew') {
+      if (run && run.id === req.runId) return { ok: true, already: true, state: run.state, seq: run.log.index.length };
+      if (run && !DONE_STATES.has(run.state)) return { ok: false, error: 'busy', runId: run.id };
+      const problem = invalidSignin(action, req);
+      if (problem) return { ok: false, error: 'bad-start', message: problem };
+      closeLog(run);
+      const r = {
+        id: req.runId, spec: { kind: action, engine: req.engine, saveUrl: req.saveUrl, loginUrl: req.loginUrl },
+        state: 'preparing', waiters: new Set(), pendingStdin: [], child: null,
+        exitCode: null, startSha: null, inSeq: 0, cancelled: null, manifest: null,
+        dir: path.join(workRoot, '.agentbox', safe(req.runId)),
+      };
+      openLog(r);
+      run = r;
+      setState('preparing', {}, r);
+      if (action === 'signin') startSignin(r); else renew(r);
+      return { ok: true, seq: r.log.index.length };
+    }
     if (action === 'start') {
       if (run && run.id === req.runId) return { ok: true, already: true, state: run.state, seq: run.log.index.length };
       if (run && !DONE_STATES.has(run.state)) return { ok: false, error: 'busy', runId: run.id };
@@ -495,7 +829,20 @@ export function createSandbox({
     if (!run) return { ok: false, error: 'no-run' };
     if (req.runId && req.runId !== run.id) return { ok: false, error: 'no-run', runId: run.id };
     const r = run;
+    // A sign-in session takes its code and a cancel, and nothing a run takes:
+    // input to it would be typed into the vendor's own sign-in.
+    if (r.spec.kind && !['events', 'signal', 'signin-code'].includes(action)) return { ok: false, error: 'not-a-run' };
     switch (action) {
+      case 'signin-code': {
+        if (r.spec.kind !== 'signin' || r.spec.engine !== 'claude') return { ok: false, error: 'not-a-claude-sign-in' };
+        if (!r.child || r.signinOver) return { ok: false, error: 'not-waiting' };
+        const code = String(req.code || '').replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 4096);
+        if (!code) return { ok: false, error: 'empty-code' };
+        r.codeSent = true;
+        r.child.stdin.write(`${code}\r`);
+        signinEvent(r, 'checking');
+        return { ok: true };
+      }
       case 'events': {
         const since = Math.max(0, Number(req.since) || 0);
         const waitMs = Math.min(Math.max(0, Number(req.waitMs) || 0), 25_000);
@@ -602,7 +949,16 @@ export function createSandbox({
 
 /* -------------------------------- helpers --------------------------------- */
 
+function invalidSignin(action, req) {
+  if (!req.runId || typeof req.runId !== 'string') return 'runId is required';
+  if (!req.saveUrl) return 'saveUrl is required';
+  if (action === 'signin' && !['claude', 'codex'].includes(req.engine)) return 'engine must be claude or codex';
+  if (action === 'renew' && (req.engine !== 'codex' || !req.loginUrl)) return 'a renewal is for a Codex login, by its link';
+  return null;
+}
+
 function invalidStart(req) {
+  if (req.login && (!req.login.url || !['claude', 'codex'].includes(req.login.engine))) return 'a login needs its engine and its link';
   if (!req.runId || typeof req.runId !== 'string') return 'runId is required';
   if (!req.cwd || !path.isAbsolute(req.cwd)) return 'cwd must be an absolute path';
   if (!req.branch) return 'branch is required';
@@ -625,6 +981,86 @@ export function pickBaseEnv(env) {
 }
 
 function safe(s) { return String(s).replace(/[^a-zA-Z0-9._-]/g, '_'); }
+
+// How much of the end of `text` could be the start of one of `secrets`.
+function heldTail(text, secrets) {
+  let keep = 0;
+  for (const s of secrets) {
+    for (let n = Math.min(s.length - 1, text.length); n > keep; n -= 1) {
+      if (text.endsWith(s.slice(0, n))) { keep = n; break; }
+    }
+  }
+  return keep;
+}
+
+// Whether any commit in these ranges carries a login's text.
+async function commitsCarry(cwd, ranges, secrets) {
+  for (const range of ranges) {
+    const text = await sh('git', ['log', '-p', '--binary', '--format=%B', range], cwd).catch(() => '');
+    if (secrets.some((s) => text.includes(s))) return true;
+  }
+  return false;
+}
+
+// The files a run changed or made, with a login's text taken out of them.
+async function redactChanged(cwd, secrets) {
+  const listed = await sh('git', ['status', '--porcelain', '-z', '--untracked-files=all'], cwd).catch(() => '');
+  const parts = listed.split('\0');
+  for (let i = 0; i < parts.length; i += 1) {
+    const entry = parts[i];
+    if (!entry) continue;
+    // A rename lists its old path next; only the new one is on disk.
+    if (entry[0] === 'R' || entry[0] === 'C') i += 1;
+    const p = path.join(cwd, entry.slice(3));
+    try {
+      const st = fs.lstatSync(p);
+      if (!st.isFile() || st.size > 512 * 1024 * 1024) continue;
+      const text = fs.readFileSync(p, 'latin1');
+      if (!secrets.some((s) => text.includes(s))) continue;
+      let out = text;
+      for (const s of secrets) out = out.split(s).join(REDACTED);
+      fs.writeFileSync(p, out, 'latin1');
+    } catch { /* gone */ }
+  }
+}
+
+// The transcripts that come home, with the login's text taken out of them.
+function redactFolder(dir, secrets) {
+  const walk = (d) => {
+    let entries = [];
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { walk(p); continue; }
+      if (!e.isFile()) continue;
+      try {
+        if (fs.statSync(p).size > 512 * 1024 * 1024) continue;
+        const text = fs.readFileSync(p, 'utf8');
+        if (!secrets.some((s) => text.includes(s))) continue;
+        let out = text;
+        for (const s of secrets) out = out.split(s).join(REDACTED);
+        fs.writeFileSync(p, out);
+      } catch { /* unreadable: left as it is */ }
+    }
+  };
+  walk(dir);
+}
+
+function jwtClaim(token, claim) {
+  try {
+    const seg = String(token).split('.')[1];
+    const v = JSON.parse(Buffer.from(seg.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'))[claim];
+    return typeof v === 'string' ? v : null;
+  } catch { return null; }
+}
+
+function jwtExpiryMs(token) {
+  try {
+    const seg = String(token).split('.')[1];
+    const exp = JSON.parse(Buffer.from(seg.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')).exp;
+    return Number.isFinite(exp) ? exp * 1000 : null;
+  } catch { return null; }
+}
 
 // git refuses to work in a folder another user owns ("dubious ownership"),
 // and once the command has run, the task folder is the `agent` user's while

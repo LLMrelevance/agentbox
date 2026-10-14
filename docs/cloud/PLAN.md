@@ -21,15 +21,108 @@ order they matter:
 
 - AWS Bedrock AgentCore Runtime, us-east-1, in the user's own AWS account, paid
   by AWS credits. One microVM per run (2 vCPU / 8 GB ceiling, 8 h max).
-- The agents run on the user's own Claude subscription, never an API key and
-  never Bedrock pay-per-token. Claude Code takes a long-lived token from
-  `claude setup-token` (Anthropic's own sign-in) in `CLAUDE_CODE_OAUTH_TOKEN`,
-  given to the remote command only, after `_workerEnv`'s scrub (R9).
+- The agents run on the user's own Claude and ChatGPT plans, never an API key
+  and never Bedrock pay-per-token ("We simply cannot use an API key").
+- **Every sign-in happens in the cloud and stays there** (2026-10-14, below).
+  The Mac never copies, holds or sends a Claude or Codex login.
 - The cloud side is a plain remote computer: it starts a command, keeps what
   it prints, and carries the app's tools through as raw lines. It never learns
   what a harness or a tool is.
 - A budget alarm that counts spend before credits exists (`agentcore-sandboxes`,
   made by the spike, w-bad6fbae78).
+
+## Sign-ins live in the cloud (2026-10-14)
+
+Why. Anthropic's terms (code.claude.com/docs/en/legal-and-compliance) let a
+platform host the unmodified Claude Code binary with each person signing in
+with their own subscription, and forbid a developer to "collect, store, or
+intermediate Claude.ai credentials or session tokens — sign-in to a Claude
+account must complete through Anthropic's own flow". Copying the Mac's
+login into the cloud, which the first build did, is the forbidden half.
+OpenAI allows hosted ChatGPT logins only through Sign in with ChatGPT
+(applied for 2026-10-14; "early Q4"). The founder chose: one sign-in per
+account, done inside the cloud through each vendor's own sign-in, kept
+between runs.
+
+- **Signing in.** From the cloud menu, per account. The Mac starts a sign-in
+  session in a sandbox (`{action:'signin', engine, saveUrl}`); the sandbox
+  runs the vendor's own command as the agent user:
+  - Claude: `claude setup-token`, Anthropic's documented sign-in for machines
+    with no browser. Its token lasts a year and only makes model requests, so
+    nothing ever renews it and parallel runs share it safely. It draws on a
+    terminal only, so it runs under util-linux
+    `script -qe --echo=never -c '...' /dev/null` (no typescript file, no echo
+    of the code), 4000 columns wide. The sandbox sends the Mac the sign-in
+    link only, once a whitespace ends it (never a half-read link); the person
+    pastes Claude's code into the menu; it goes to the command
+    (`signin-code`). The token is read by the sandbox server, checked with one
+    word from Claude, and PUT to the login's object. It is never an event,
+    never in the log, never sent to the Mac.
+  - Codex: `codex login --device-auth`, OpenAI's documented sign-in for remote
+    machines. The sandbox sends the link and the one-time code; the person
+    enters the code on OpenAI's page; Codex writes `auth.json` in a scratch
+    `CODEX_HOME`, which the sandbox PUTs. The sandbox also reports the
+    account's email from the id token, which the Mac checks against the
+    account it is signing in (a different ChatGPT account is refused).
+  The sandbox tells the Mac only `saved` (with the expiry, for Codex) or
+  `failed` and why. The session is busy for AgentCore only while it waits,
+  20 minutes at most, and the Mac stops it as soon as it ends.
+- **Where a login lives.** `logins/<engine>/<id>.json`, where the id is a
+  fresh random one per sign-in, kept in `~/.agentbox/cloud-logins.json` with
+  when it was saved, its expiry, and whether it stopped working; no secret is
+  in that file. A new sign-in is a new object, so nothing old can overwrite
+  it, and the old one is deleted. The bucket's expiry rules cover `runs/` and
+  `build/` only. The app's IAM user may get, put and delete `logins/*`
+  (presigned links carry the signer's rights); links to a login last 30
+  minutes. The Mac's code only ever presigns them; nothing on the Mac GETs a
+  login (tested). On her own AWS account the Mac's IAM user could still read
+  one; the managed version keeps logins behind a server.
+- **A run.** The start carries `login: {engine, id, url}`. The sandbox fetches
+  it before the command starts:
+  - Claude: `CLAUDE_CODE_OAUTH_TOKEN` in the command's environment only.
+  - Codex: `CODEX_HOME/auth.json` with the refresh token replaced by a
+    placeholder and `last_refresh` set to now, so Codex runs on the access
+    token and does not try to renew on age (a renewal would rotate the login
+    under every other run). A copy whose access token has under 30 minutes
+    left is refused before anything starts.
+  A run never writes its login back. Whatever the run prints, on stdout,
+  stderr, the tool bridge, or in the transcripts that come home, has the
+  login's text replaced by `[cloud sign-in]`, a tail that could be the start
+  of one held back until the next bytes say. That is a guard, not a promise:
+  an agent can read its own login and could encode it.
+- **Codex renewal.** A ChatGPT access token lasts 240 h. A login with under 3
+  days left is renewed by the supervisor on its own clock, whether or not a
+  run is waiting, one renewal per account at a time, fenced across an app
+  restart by a `renewing` mark with its start time in cloud-logins.json. The
+  renewal session takes the real `auth.json` with `last_refresh` set far in
+  the past, so Codex renews on its first request, runs one tiny `codex exec`,
+  and PUTs the renewed file whatever that request answered. A renewal that
+  cannot renew marks the login as needing a new sign-in.
+- **A login that stops working.** Never read from what an agent prints. A run
+  that fails makes the sandbox ask the login itself: for Claude one word on
+  that token; for Codex whether its access token has run out. A refused or
+  missing login becomes a `login` event naming its id; the proxy brings the
+  work home and exits 77, which the supervisor takes as a transport fault
+  that strikes no account (the Mac's own login is not the cloud's). The
+  Mac marks that login id broken only if it is still the current one, so an
+  old run cannot undo a new sign-in; an expired Codex login is renewed
+  rather than marked.
+- **Codex's command.** The cloud keeps `codex app-server`. Moving to
+  `codex exec` would not change what OpenAI's terms say about hosted
+  ChatGPT logins (Codex's review, finding 2: Sign in with ChatGPT supports
+  app-server itself), and it would cost live approvals and mid-turn replies.
+  Until the partnership, cloud Codex is the founder's own use only.
+- **What goes.** The keychain token (`readClaudeToken`/`saveClaudeToken`),
+  the Mac-side `setup-token` driver (main/cloud/signin-flow.mjs),
+  scripts/cloud-signin.mjs, and the Mac's `auth.json` copy
+  (`codexCloudAuth`). On start the app deletes its own old cloud tokens from
+  the keychain and `~/.agentbox/cloud-tokens.json`; the Mac's ordinary Claude
+  and Codex logins are never touched.
+- **Still a judgement call.** The sandbox reads the token `setup-token`
+  prints and keeps it for the person's later runs. That is the hosted
+  environment keeping the vendor's own sign-in, which the hosting clause
+  covers in spirit; the page does not say so outright. Anthropic's page
+  offers a sales contact for exactly this question.
 
 ## Codex in the cloud (added 2026-10-13: "a fundamental requirement")
 
@@ -201,12 +294,12 @@ the app never runs on the 12-hour `aws login`. Names and ARNs go to
 
 ### Turning it on
 
-On by itself once a Mac has run the setup script and saved one account's
-sign-in (`claude setup-token`, stored in the macOS keychain); a Mac that has
-done neither is exactly today's app. Three settings, chosen from the cloud
-button: `cloudRuns: false` is "This Mac only", null is "When this Mac is
-full", `'all'` is "Everything" (the cloud first; this Mac for what cannot go
-there or when the cloud is at its cap).
+On by itself once a Mac has run the setup script and an account has signed
+in for the cloud from the cloud menu (see "Sign-ins live in the cloud"); a
+Mac that has done neither is exactly today's app. Three settings, chosen
+from the cloud button: `cloudRuns: false` is "This Mac only", null is "When
+this Mac is full", `'all'` is "Everything" (the cloud first; this Mac for
+what cannot go there or when the cloud is at its cap).
 
 This Mac's memory gate (main/start-hold.mjs) holds only this Mac: a row it
 holds goes to the cloud when a cloud slot is free (`_roomFor`).
@@ -258,9 +351,9 @@ at AgentCore's published rates. The plan limits are set from these.
    AWS: the Mac-side process frozen (SIGSTOP, as in sleep) for 50 s while the
    sandbox ran a 25 s job; on waking it read the rest and brought the commit
    and the loose file home 2 s later.
-6. **Waiting on one Claude sign-in** (`scripts/cloud-signin.mjs`): a real
-   Claude Code thread of this repo runs in the cloud, writes to the store,
-   asks for an approval, commits, ships.
+6. **Sign-ins made in the cloud** (2026-10-14, above). Then a real Claude
+   Code thread of this repo runs in the cloud, writes to the store, asks for
+   an approval, commits, ships.
 7. Phase 2, filed separately: Codex in the cloud, new runs while the Mac
    sleeps, replies from the phone, and a managed version for people with no
    AWS account.
@@ -279,8 +372,9 @@ a-thread-running-in-the-cloud-says-so.
 
 1. `aws login --region us-east-1` (an admin), then
    `node scripts/cloud-setup.mjs`.
-2. `node scripts/cloud-signin.mjs <account folder>` for each Claude account
-   that may run in the cloud. An account without one keeps its threads here.
+2. In the app, the cloud button: Sign in. It walks each account through its
+   one sign-in, made in the cloud. An account without one keeps its threads
+   here.
 
 That is all: cloud runs are on for a Mac that has been set up, and nowhere
 else. `"cloudRuns": false` in zero.config.json turns them off.

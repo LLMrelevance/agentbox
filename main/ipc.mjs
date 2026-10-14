@@ -1527,10 +1527,11 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     }
   });
 
-  // THE CLOUD MENU'S SIGN-IN for one Claude account (main/cloud/signin-flow.mjs).
-  ipcMain.handle('zero:cloud-signin', (_e, { action, profile, code } = {}) => {
+  // THE CLOUD MENU'S SIGN-IN for one account, made in the cloud
+  // (main/cloud/logins.mjs). The Mac relays the link and the code only.
+  ipcMain.handle('zero:cloud-signin', async (_e, { action, engine, profile, code } = {}) => {
     try {
-      supervisor.cloudSignIn(action, profile, code);
+      await supervisor.cloudSignIn(action, engine, profile, code);
       push();
       return { ok: true };
     } catch (err) {

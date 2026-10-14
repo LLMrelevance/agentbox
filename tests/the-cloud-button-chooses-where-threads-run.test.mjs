@@ -18,7 +18,8 @@ import path from 'node:path';
 import { Supervisor } from '../main/supervisor.mjs';
 import { setWorkspaceSetting } from '../main/settings.mjs';
 import { appendCloudUsage } from '../main/cloud/usage.mjs';
-import { CLOUD_MODES, cloudModeOf, cloudButtonCount, cloudMonthLine, cloudAccountState, cloudNobodyReady } from '../renderer/src/cloud-menu';
+import { CLOUD_MODES, cloudModeOf, cloudButtonCount, cloudMonthLine, cloudNeedsSignIn, cloudSetupLine, cloudStepCopy, signingIn, pageToOpen } from '../renderer/src/cloud-menu';
+import { recordCloudLogin, markCloudLogin } from '../main/cloud/logins.mjs';
 
 let dir; let config; let supervisor;
 const savedConfigEnv = process.env.AGENTBOX_CLOUD_CONFIG;
@@ -102,36 +103,48 @@ describe('what the snapshot carries', () => {
   });
 });
 
-// ACCOUNTS, AND SIGNING ONE IN FROM THE MENU (2026-10-14: "if I have to run
-// commands, it's kind of a point of failure"). Each account says whether it
-// can run in the cloud; a Claude one that cannot offers Sign in, which the
-// supervisor runs for that account only (main/cloud/signin-flow.mjs).
-describe('the accounts the menu lists', () => {
-  const acct = (extra) => ({ engine: 'claude', profile: '/p', name: 'me@example.com', ready: false, signIn: null, ...extra });
+// THE ONE SIGN-IN EACH ACCOUNT NEEDS, AS A GUIDED SETUP (2026-10-14). She
+// called a list of accounts "the wrong UX and very confusing" and asked for
+// a setup that guides her; one sign-in per account is expected. The sign-in
+// itself happens in the cloud (main/cloud/logins.mjs). Here: what the menu
+// says before, during and after, and the supervisor's side of it.
+describe('the setup the menu walks her through', () => {
+  const acct = (extra) => ({ engine: 'claude', profile: '/p', name: 'me@example.com', ready: false, state: 'none', signIn: null, ...extra });
+  const status = (mode, accounts) => ({ setUp: true, mode, running: 0, month: { runs: 0, agentHours: 0, estimatedCost: 0, costPerAgentHour: null }, accounts });
 
-  it('offers Sign in for a Claude account with no cloud sign-in, and Ready once it has one', () => {
-    expect(cloudAccountState(acct())).toEqual({ word: '', signIn: true, code: false });
-    expect(cloudAccountState(acct({ ready: true }))).toMatchObject({ word: 'Ready', signIn: false });
-    expect(cloudAccountState(acct({ signIn: { state: 'saved', url: null, message: null } }))).toMatchObject({ word: 'Ready' });
+  it('names what still needs a sign-in, and nothing when every account has one or threads stay here', () => {
+    const one = acct();
+    const codex = acct({ engine: 'codex', profile: 'default', name: 'me@example.com' });
+    expect(cloudNeedsSignIn(status('all', [one, codex, acct({ profile: '/q', ready: true, state: 'ready' })]))).toEqual([one, codex]);
+    expect(cloudSetupLine([one, codex])).toBe('2 accounts need one sign-in each to run in the cloud.');
+    expect(cloudSetupLine([one])).toBe('Claude · me@example.com needs one sign-in to run in the cloud.');
+    expect(cloudSetupLine([acct({ state: 'broken' })])).toBe('Claude · me@example.com needs to sign in again to run in the cloud.');
+    expect(cloudNeedsSignIn(status('mac', [one]))).toEqual([]);
+    expect(cloudNeedsSignIn(status('full', [acct({ ready: true, state: 'ready' })]))).toEqual([]);
   });
 
-  it('walks through the sign-in: opening, the code, checking, and a failure it can retry', () => {
-    expect(cloudAccountState(acct({ signIn: { state: 'opening' } }))).toMatchObject({ signIn: false, code: false });
-    expect(cloudAccountState(acct({ signIn: { state: 'needs-code', url: 'https://claude.com/x' } }))).toMatchObject({ code: true });
-    expect(cloudAccountState(acct({ signIn: { state: 'checking' } }))).toMatchObject({ word: 'Checking…', signIn: false });
-    expect(cloudAccountState(acct({ signIn: { state: 'failed', message: 'Claude refused the new sign-in; nothing was saved.' } })))
-      .toEqual({ word: 'Claude refused the new sign-in; nothing was saved.', signIn: true, code: false });
+  it('opens the page again for the next account even when it shows the same link (Codex\'s review, finding 8)', () => {
+    const url = 'https://auth.openai.com/codex/device';
+    const first = pageToOpen(acct({ engine: 'codex', profile: 'a', signIn: { state: 'waiting', url, code: 'X', message: null, attempt: 's1' } }));
+    const second = pageToOpen(acct({ engine: 'codex', profile: 'b', signIn: { state: 'waiting', url, code: 'Y', message: null, attempt: 's2' } }));
+    const retry = pageToOpen(acct({ engine: 'codex', profile: 'a', signIn: { state: 'waiting', url, code: 'Z', message: null, attempt: 's3' } }));
+    expect(new Set([first.key, second.key, retry.key]).size).toBe(3);
+    expect(pageToOpen(acct({ signIn: { state: 'starting', url: null, code: null, message: null } }))).toBe(null);
   });
 
-  it('never offers a cloud sign-in for Codex, whose own login is what runs there', () => {
-    expect(cloudAccountState({ engine: 'codex', profile: 'default', name: 'Codex', ready: false })).toEqual({ word: 'Sign in to Codex again', signIn: false, code: false });
+  it('asks nothing of her while a Codex login is only being renewed', () => {
+    expect(cloudNeedsSignIn(status('all', [acct({ engine: 'codex', state: 'renew' }), acct({ engine: 'codex', state: 'stale', ready: true })]))).toEqual([]);
   });
 
-  it('says so when the cloud is on but no account can run there', () => {
-    const status = (mode, accounts) => ({ setUp: true, mode, running: 0, month: { runs: 0, agentHours: 0, estimatedCost: 0, costPerAgentHour: null }, accounts });
-    expect(cloudNobodyReady(status('all', [acct()]))).toBe(true);
-    expect(cloudNobodyReady(status('all', [acct(), acct({ ready: true })]))).toBe(false);
-    expect(cloudNobodyReady(status('mac', [acct()]))).toBe(false);
+  it('says what to do at each step: paste Claude\'s code, type Codex\'s, then wait', () => {
+    expect(cloudStepCopy(acct({ signIn: { state: 'needs-code', url: 'https://claude.com/x', code: null, message: null } }))).toMatchObject({ paste: true, codeToType: null });
+    const codex = cloudStepCopy(acct({ engine: 'codex', signIn: { state: 'waiting', url: 'https://auth.openai.com/codex/device', code: 'WY6D-YCCOE', message: null } }));
+    expect(codex).toMatchObject({ paste: false, codeToType: 'WY6D-YCCOE' });
+    expect(codex.lead).toMatch(/finishes by itself/);
+    expect(cloudStepCopy(acct({ signIn: { state: 'checking', url: null, code: null, message: null } })).lead).toMatch(/Checking/);
+    expect(cloudStepCopy(acct({ signIn: { state: 'failed', url: null, code: null, message: 'Claude did not accept that code. Try signing in again.' } })).lead).toMatch(/did not accept/);
+    expect(signingIn(acct({ signIn: { state: 'waiting', url: null, code: 'X', message: null } }))).toBe(true);
+    expect(signingIn(acct({ signIn: { state: 'saved', url: null, code: null, message: null } }))).toBe(false);
   });
 });
 
@@ -142,24 +155,55 @@ describe('the supervisor\'s side of it', () => {
     process.env.AGENTBOX_CLOUD_CONFIG = cfg;
   };
 
-  it('lists this app\'s Claude and Codex accounts with whether each is ready, and none on a Mac not set up', () => {
+  it('lists this app\'s Claude and Codex accounts with whether each has its cloud sign-in, and none on a Mac not set up', () => {
     expect(supervisor.cloudStatus().accounts).toEqual([]);
     setUp();
     supervisor._liveProfilesFor = (engine) => (engine === 'codex' ? ['default'] : ['default', path.join(dir, '.claude-2')]);
+    supervisor._profilesFor = supervisor._liveProfilesFor;
+    recordCloudLogin('claude', path.join(dir, '.claude-2'), { id: 'L2' }, { home: dir });
     const accounts = supervisor.cloudStatus().accounts;
-    expect(accounts.map((a) => a.engine)).toEqual(['claude', 'claude', 'codex']);
-    expect(accounts.every((a) => typeof a.ready === 'boolean')).toBe(true);
+    expect(accounts.map((a) => [a.engine, a.ready, a.state])).toEqual([['claude', false, 'none'], ['claude', true, 'ready'], ['codex', false, 'none']]);
     expect(accounts[1].name).toBe('.claude-2');
   });
 
-  it('runs a sign-in step only for one of this app\'s own Claude accounts', () => {
+  it('runs a Claude thread in the cloud only on an account with a working cloud sign-in', () => {
+    setUp();
     supervisor._liveProfilesFor = () => ['default'];
-    const steps = [];
-    supervisor._signInFlow = { start: (d) => steps.push(['start', d]), code: (d, c) => steps.push(['code', d, c]), cancel: (d) => steps.push(['cancel', d]), status: () => ({}) };
-    supervisor.cloudSignIn('start', 'default');
-    supervisor.cloudSignIn('code', 'default', 'abc');
-    expect(steps).toEqual([['start', path.join(dir, '.claude')], ['code', path.join(dir, '.claude'), 'abc']]);
-    expect(() => supervisor.cloudSignIn('start', '/somebody/else')).toThrow();
-    expect(() => supervisor.cloudSignIn('erase', 'default')).toThrow();
+    expect(supervisor._hasCloudSignIn('claude')).toBe(false);
+    recordCloudLogin('claude', path.join(dir, '.claude'), { id: 'L1' }, { home: dir });
+    expect(supervisor._hasCloudSignIn('claude')).toBe(true);
+    markCloudLogin('claude', path.join(dir, '.claude'), 'L1', { broken: 'refused' }, { home: dir });
+    expect(supervisor._hasCloudSignIn('claude')).toBe(false);
+  });
+
+  it('starts a sign-in only for one of this app\'s own accounts, and refuses anything else', async () => {
+    supervisor._liveProfilesFor = () => ['default'];
+    await expect(supervisor.cloudSignIn('start', 'claude', '/somebody/else')).rejects.toThrow();
+    await expect(supervisor.cloudSignIn('erase', 'claude', 'default')).rejects.toThrow();
+    await expect(supervisor.cloudSignIn('start', 'gemini', 'default')).rejects.toThrow();
+  });
+
+  it('takes a cloud run whose sign-in failed as a transport fault that strikes nothing here, and only that', () => {
+    const cloudRun = { cloud: true };
+    supervisor._noteCloudLoginExit(cloudRun, 77, null);
+    expect(cloudRun).toMatchObject({ transportFault: true, cloudLoginTrouble: true });
+    const struck = [];
+    supervisor._strikeProfile = (...a) => struck.push(a);
+    supervisor._noteProfileTrouble = (...a) => struck.push(a);
+    supervisor.noteExitForBackoff({ ...cloudRun, engine: 'claude', profile: 'default', startedAt: Date.now(), tail: [] });
+    expect(struck).toEqual([]);
+    // A local run with the same code, and a cloud run that failed otherwise, are not this.
+    const local = { cloud: false };
+    supervisor._noteCloudLoginExit(local, 77, null);
+    expect(local.cloudLoginTrouble).toBeUndefined();
+    const other = { cloud: true };
+    supervisor._noteCloudLoginExit(other, 1, null);
+    expect(other.cloudLoginTrouble).toBeUndefined();
+  });
+
+  it('says the cloud could not be reached when it is not set up, instead of hanging', async () => {
+    supervisor._liveProfilesFor = () => ['default'];
+    await supervisor.cloudSignIn('start', 'claude', 'default');
+    expect(supervisor._cloudSignIns.get('claude:default').status()).toMatchObject({ state: 'failed' });
   });
 });
