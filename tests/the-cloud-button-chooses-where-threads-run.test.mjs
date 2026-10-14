@@ -18,7 +18,7 @@ import path from 'node:path';
 import { Supervisor } from '../main/supervisor.mjs';
 import { setWorkspaceSetting } from '../main/settings.mjs';
 import { appendCloudUsage } from '../main/cloud/usage.mjs';
-import { CLOUD_MODES, cloudModeOf, cloudButtonCount, cloudMonthLine } from '../renderer/src/cloud-menu';
+import { CLOUD_MODES, cloudModeOf, cloudButtonCount, cloudMonthLine, cloudAccountState, cloudNobodyReady } from '../renderer/src/cloud-menu';
 
 let dir; let config; let supervisor;
 const savedConfigEnv = process.env.AGENTBOX_CLOUD_CONFIG;
@@ -99,5 +99,67 @@ describe('what the snapshot carries', () => {
     expect(s).toMatchObject({ setUp: true, mode: 'all', running: 1 });
     expect(s.month.agentHours).toBe(2);
     expect(s.month.runs).toBe(1);
+  });
+});
+
+// ACCOUNTS, AND SIGNING ONE IN FROM THE MENU (2026-10-14: "if I have to run
+// commands, it's kind of a point of failure"). Each account says whether it
+// can run in the cloud; a Claude one that cannot offers Sign in, which the
+// supervisor runs for that account only (main/cloud/signin-flow.mjs).
+describe('the accounts the menu lists', () => {
+  const acct = (extra) => ({ engine: 'claude', profile: '/p', name: 'me@example.com', ready: false, signIn: null, ...extra });
+
+  it('offers Sign in for a Claude account with no cloud sign-in, and Ready once it has one', () => {
+    expect(cloudAccountState(acct())).toEqual({ word: '', signIn: true, code: false });
+    expect(cloudAccountState(acct({ ready: true }))).toMatchObject({ word: 'Ready', signIn: false });
+    expect(cloudAccountState(acct({ signIn: { state: 'saved', url: null, message: null } }))).toMatchObject({ word: 'Ready' });
+  });
+
+  it('walks through the sign-in: opening, the code, checking, and a failure it can retry', () => {
+    expect(cloudAccountState(acct({ signIn: { state: 'opening' } }))).toMatchObject({ signIn: false, code: false });
+    expect(cloudAccountState(acct({ signIn: { state: 'needs-code', url: 'https://claude.com/x' } }))).toMatchObject({ code: true });
+    expect(cloudAccountState(acct({ signIn: { state: 'checking' } }))).toMatchObject({ word: 'Checking…', signIn: false });
+    expect(cloudAccountState(acct({ signIn: { state: 'failed', message: 'Claude refused the new sign-in; nothing was saved.' } })))
+      .toEqual({ word: 'Claude refused the new sign-in; nothing was saved.', signIn: true, code: false });
+  });
+
+  it('never offers a cloud sign-in for Codex, whose own login is what runs there', () => {
+    expect(cloudAccountState({ engine: 'codex', profile: 'default', name: 'Codex', ready: false })).toEqual({ word: 'Sign in to Codex again', signIn: false, code: false });
+  });
+
+  it('says so when the cloud is on but no account can run there', () => {
+    const status = (mode, accounts) => ({ setUp: true, mode, running: 0, month: { runs: 0, agentHours: 0, estimatedCost: 0, costPerAgentHour: null }, accounts });
+    expect(cloudNobodyReady(status('all', [acct()]))).toBe(true);
+    expect(cloudNobodyReady(status('all', [acct(), acct({ ready: true })]))).toBe(false);
+    expect(cloudNobodyReady(status('mac', [acct()]))).toBe(false);
+  });
+});
+
+describe('the supervisor\'s side of it', () => {
+  const setUp = () => {
+    const cfg = path.join(dir, 'cloud.json');
+    fs.writeFileSync(cfg, JSON.stringify({ region: 'us-east-1', bucket: 'b', runtimeArn: 'arn:aws:bedrock-agentcore:us-east-1:000000000000:runtime/x' }));
+    process.env.AGENTBOX_CLOUD_CONFIG = cfg;
+  };
+
+  it('lists this app\'s Claude and Codex accounts with whether each is ready, and none on a Mac not set up', () => {
+    expect(supervisor.cloudStatus().accounts).toEqual([]);
+    setUp();
+    supervisor._liveProfilesFor = (engine) => (engine === 'codex' ? ['default'] : ['default', path.join(dir, '.claude-2')]);
+    const accounts = supervisor.cloudStatus().accounts;
+    expect(accounts.map((a) => a.engine)).toEqual(['claude', 'claude', 'codex']);
+    expect(accounts.every((a) => typeof a.ready === 'boolean')).toBe(true);
+    expect(accounts[1].name).toBe('.claude-2');
+  });
+
+  it('runs a sign-in step only for one of this app\'s own Claude accounts', () => {
+    supervisor._liveProfilesFor = () => ['default'];
+    const steps = [];
+    supervisor._signInFlow = { start: (d) => steps.push(['start', d]), code: (d, c) => steps.push(['code', d, c]), cancel: (d) => steps.push(['cancel', d]), status: () => ({}) };
+    supervisor.cloudSignIn('start', 'default');
+    supervisor.cloudSignIn('code', 'default', 'abc');
+    expect(steps).toEqual([['start', path.join(dir, '.claude')], ['code', path.join(dir, '.claude'), 'abc']]);
+    expect(() => supervisor.cloudSignIn('start', '/somebody/else')).toThrow();
+    expect(() => supervisor.cloudSignIn('erase', 'default')).toThrow();
   });
 });

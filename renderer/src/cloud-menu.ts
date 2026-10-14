@@ -11,11 +11,42 @@ export interface CloudMonth {
   costPerAgentHour: number | null;
 }
 
+export interface CloudSignIn {
+  state: 'opening' | 'needs-code' | 'checking' | 'saved' | 'failed';
+  url: string | null;
+  message: string | null;
+}
+
+export interface CloudAccount {
+  engine: 'claude' | 'codex';
+  profile: string;
+  name: string;
+  ready: boolean;
+  signIn?: CloudSignIn | null;
+}
+
 export interface CloudStatus {
   setUp: boolean;
   mode: CloudMode;
   running: number;
   month: CloudMonth;
+  accounts?: CloudAccount[];
+}
+
+// What one account's row says on its right, and whether it offers Sign in.
+export function cloudAccountState(a: CloudAccount): { word: string; signIn: boolean; code: boolean } {
+  const s = a.signIn?.state;
+  if (s === 'opening') return { word: 'Opening the sign-in page…', signIn: false, code: false };
+  if (s === 'needs-code') return { word: '', signIn: false, code: true };
+  if (s === 'checking') return { word: 'Checking…', signIn: false, code: false };
+  if (a.ready || s === 'saved') return { word: 'Ready', signIn: false, code: false };
+  if (a.engine === 'codex') return { word: 'Sign in to Codex again', signIn: false, code: false };
+  return { word: s === 'failed' ? (a.signIn?.message || 'That didn’t work.') : '', signIn: true, code: false };
+}
+
+// The line under the choices when the cloud is on but nothing can run there.
+export function cloudNobodyReady(status: CloudStatus): boolean {
+  return status.mode !== 'mac' && !!status.accounts?.length && !status.accounts.some((a) => a.ready || a.signIn?.state === 'saved');
 }
 
 export const CLOUD_MODES: { id: CloudMode; label: string; note: string }[] = [

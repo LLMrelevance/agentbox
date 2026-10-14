@@ -1527,6 +1527,16 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     }
   });
 
+  // THE CLOUD MENU'S SIGN-IN for one Claude account (main/cloud/signin-flow.mjs).
+  ipcMain.handle('zero:cloud-signin', (_e, { action, profile, code } = {}) => {
+    try {
+      supervisor.cloudSignIn(action, profile, code);
+      push();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: String(err.message) };
+    }
+  });
   ipcMain.handle('zero:settings-set-workspace', (_e, payload) => {
     try {
       setWorkspaceSetting({ config, supervisor }, payload ?? {});

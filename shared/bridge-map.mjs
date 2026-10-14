@@ -106,6 +106,8 @@ export const REQUEST_CHANNELS = {
   claudeAddAccount: 'zero:claude-add-account',
   setProjectSetting: 'zero:settings-set-project',
   setWorkspaceSetting: 'zero:settings-set-workspace',
+  // The cloud menu's sign-in for one Claude account (main/cloud/signin-flow.mjs).
+  cloudSignIn: 'zero:cloud-signin',
   projectRename: 'zero:project-rename',
   projectArchive: 'zero:project-archive',
   projectSeenBy: 'zero:project-seen-by',

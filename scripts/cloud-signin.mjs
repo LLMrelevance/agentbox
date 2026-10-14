@@ -11,11 +11,10 @@
 // account's cloud runs, and to nothing else. It is never an API key and it is
 // never written into this repository. Then it checks the token really works
 // by asking Claude one word with it, from an empty folder.
-import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, execFileSync } from 'node:child_process';
-import { accountKey, saveClaudeToken, readClaudeToken } from '../main/cloud/config.mjs';
+import { spawn } from 'node:child_process';
+import { accountKey, saveClaudeToken, readClaudeToken, claudeTokenWorks } from '../main/cloud/config.mjs';
 import { tokenHider, tokenIn } from '../main/cloud/redact.mjs';
 
 const configDir = accountKey(process.argv[2] ? process.argv[2].replace(/^~/, os.homedir()) : path.join(os.homedir(), '.claude'));
@@ -40,26 +39,12 @@ function runSetupToken() {
   });
 }
 
-function works(token) {
-  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'agentbox-signin-check-'));
-  try {
-    const env = { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: token, CLAUDE_CONFIG_DIR: empty };
-    for (const k of Object.keys(env)) if (/^ANTHROPIC_/.test(k)) delete env[k];
-    const out = execFileSync('claude', ['-p', 'Reply with the single word: ok', '--max-turns', '1'], { cwd: empty, env, encoding: 'utf8', timeout: 120_000 });
-    return /ok/i.test(out);
-  } catch {
-    return false;
-  } finally {
-    fs.rmSync(empty, { recursive: true, force: true });
-  }
-}
-
 async function main() {
   say(`signing in the Claude account in ${configDir}`);
   if (readClaudeToken(configDir)) say('it already has a cloud sign-in; this replaces it');
   const token = await runSetupToken();
   say('checking the sign-in works');
-  if (!works(token)) throw new Error('Claude refused the new sign-in; nothing was saved');
+  if (!(await claudeTokenWorks(token))) throw new Error('Claude refused the new sign-in; nothing was saved');
   saveClaudeToken(configDir, token);
   say('saved. Cloud runs on this account will use it.');
 }

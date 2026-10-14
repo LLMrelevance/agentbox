@@ -26,7 +26,7 @@ import { PinMark } from './ThreadMenu';
 import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type Box } from './board-select';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
 import { api } from '../api';
-import { CLOUD_MODES, cloudButtonCount, cloudMonthLine, type CloudMode, type CloudStatus } from '../cloud-menu';
+import { CLOUD_MODES, cloudAccountState, cloudButtonCount, cloudMonthLine, cloudNobodyReady, type CloudAccount, type CloudMode, type CloudStatus } from '../cloud-menu';
 import './pages.css';
 
 // Before the frame is drawn in the app; a plain effect where there is no
@@ -172,11 +172,40 @@ function CloudButton({ cloud, onMode }: { cloud: CloudStatus; onMode?: (mode: Cl
         {CLOUD_MODES.map((m) => <button type="button" key={m.id} className={m.id === cloud.mode ? 'on picked' : ''} aria-pressed={m.id === cloud.mode} onClick={() => onMode?.(m.id)}>{m.label}</button>)}
       </span></div>
       <div className="line th-cloud-note"><span className="lab" /><span>{picked.note}</span></div>
+      {cloudNobodyReady(cloud) && <div className="line th-cloud-note th-cloud-warn"><span className="lab" /><span>No account can run in the cloud yet. Sign one in below.</span></div>}
       <div className="rule" />
+      {!!cloud.accounts?.length && <>
+        <div className="line th-cloud-accounts"><span className="lab">Accounts</span><span className="th-cloud-list">
+          {cloud.accounts.map((a) => <CloudAccountRow key={`${a.engine}:${a.profile}`} account={a} />)}
+        </span></div>
+        <div className="rule" />
+      </>}
       <div className="line"><span className="lab">This month</span><span className="th-cloud-use">{cloudMonthLine(cloud.month)}</span></div>
       <div className="rule" />
       <div className="foot"><span>{cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now'}</span></div>
     </div>}
+  </span>;
+}
+
+// ONE ACCOUNT IN THE CLOUD MENU: Ready, or Sign in, which opens Claude's own
+// sign-in page and then takes the code it shows (main/cloud/signin-flow.mjs).
+function CloudAccountRow({ account }: { account: CloudAccount }) {
+  const [code, setCode] = useState('');
+  const st = cloudAccountState(account);
+  const step = (action: 'start' | 'code' | 'cancel', c?: string) => { void api.cloudSignIn({ action, profile: account.profile, code: c }); };
+  return <span className="th-cloud-acct">
+    <span className="th-cloud-acct-name">{account.name}</span>
+    {st.code
+      ? <form className="th-cloud-code" onSubmit={(e) => { e.preventDefault(); step('code', code); setCode(''); }}>
+          <input autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder="Paste the code from the browser" aria-label={`Sign-in code for ${account.name}`} />
+          <button type="submit" disabled={!code.trim()}>Done</button>
+          {account.signIn?.url && <a href={account.signIn.url} target="_blank" rel="noreferrer">Open the page again</a>}
+          <button type="button" className="th-cloud-quiet" onClick={() => step('cancel')}>Cancel</button>
+        </form>
+      : <span className={`th-cloud-acct-state${account.ready ? ' ready' : ''}`}>
+          {st.word && <span>{st.word}</span>}
+          {st.signIn && <button type="button" onClick={() => step('start')}>Sign in</button>}
+        </span>}
   </span>;
 }
 

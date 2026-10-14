@@ -38,7 +38,10 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, readMarker } from './cloud/marker.mjs';
-import { readCloudConfig, readClaudeToken, codexCloudAuth } from './cloud/config.mjs';
+import { readCloudConfig, readClaudeToken, codexCloudAuth, saveClaudeToken, claudeTokenWorks } from './cloud/config.mjs';
+import { createCloudSignIn } from './cloud/signin-flow.mjs';
+import { accountIdentity } from './account-tooling.mjs';
+import { createRequire } from 'node:module';
 import { holdUntilHome } from './cloud/codex-cloud.mjs';
 import { readCloudUsage, summarizeCloudUsage } from './cloud/usage.mjs';
 import { buildSessionArgs, CLAUDE_MODES, permissionMode } from './settings.mjs';
@@ -3941,7 +3944,62 @@ export class Supervisor {
       const since = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
       this._cloudMonth = { at: now, month: summarizeCloudUsage(readCloudUsage({ home: this.config.home }), { since }) };
     }
-    return { setUp, mode, running: this._cloudLoad(), month: this._cloudMonth.month };
+    return { setUp, mode, running: this._cloudLoad(), month: this._cloudMonth.month, accounts: setUp ? this._cloudAccounts() : [] };
+  }
+
+  // EACH ACCOUNT, AND WHETHER IT CAN RUN IN THE CLOUD (the cloud menu's
+  // Accounts line). A Claude account needs its own cloud sign-in, made from
+  // the menu (`cloudSignIn`); a Codex login is ready while its token outlasts
+  // a run (main/cloud/config.mjs). Read at most every 30 seconds; the
+  // keychain is asked once per account.
+  _cloudAccounts() {
+    const now = Date.now();
+    if (!this._cloudAccountsCache || now - this._cloudAccountsCache.at > 30_000) {
+      const claude = this._liveProfilesFor(DEFAULT_ENGINE).map((profile) => {
+        const dir = this._claudeConfigDir(profile);
+        let email = null;
+        try { email = accountIdentity(profile === 'default' ? null : profile)?.email ?? null; } catch { /* no login there */ }
+        return { engine: 'claude', profile, name: email || path.basename(dir), ready: !!readClaudeToken(dir) };
+      });
+      const codex = this._liveProfilesFor('codex').map((profile) => {
+        const home = this._codexProfileHome(profile);
+        return { engine: 'codex', profile, name: `Codex · ${path.basename(home)}`, ready: !!codexCloudAuth(home) };
+      });
+      this._cloudAccountsCache = { at: now, list: [...claude, ...codex] };
+    }
+    const flows = this._cloudSignInFlow().status();
+    return this._cloudAccountsCache.list.map((a) => (a.engine === 'claude'
+      ? { ...a, signIn: flows[this._claudeConfigDir(a.profile)] ?? null }
+      : a));
+  }
+
+  _cloudSignInFlow() {
+    this._signInFlow ??= createCloudSignIn({
+      spawn: (...a) => createRequire(import.meta.url)('node-pty').spawn(...a),
+      claudeBin: this.config.claudeBin || 'claude',
+      verify: (token) => claudeTokenWorks(token, { claudeBin: this.config.claudeBin || 'claude' }),
+      save: (dir, token) => {
+        saveClaudeToken(dir, token);
+        // The account can run in the cloud from the next tick.
+        this._cloudAccountsCache = null;
+        this._cloudConfigAt = 0;
+        this.wake?.();
+      },
+      onChange: () => this.onChange?.(),
+    });
+    return this._signInFlow;
+  }
+
+  // THE CLOUD MENU'S SIGN-IN: start, the code she pasted, or cancel, for one
+  // Claude account this app runs. Anything else is refused.
+  cloudSignIn(action, profile, code) {
+    if (!this._liveProfilesFor(DEFAULT_ENGINE).includes(profile)) throw new Error('not one of this app\'s Claude accounts');
+    const dir = this._claudeConfigDir(profile);
+    const flow = this._cloudSignInFlow();
+    if (action === 'start') flow.start(dir);
+    else if (action === 'code') flow.code(dir, code);
+    else if (action === 'cancel') flow.cancel(dir);
+    else throw new Error(`unknown sign-in step: ${action}`);
   }
 
   // Where new threads go: 'all' sends them to the cloud first; anything else

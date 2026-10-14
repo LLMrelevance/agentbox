@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { Name } from '../../shared/product-name.mjs';
 
 // `home` is the supervisor's own idea of the home folder (config.home), so a
@@ -102,4 +102,22 @@ export function saveClaudeToken(configDir, token, { platform = process.platform 
   all[account] = token;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(all, null, 2), { mode: 0o600 });
+}
+
+// WHETHER A NEW CLAUDE SIGN-IN REALLY WORKS, asked before it is saved: one
+// word from Claude, from an empty folder, on that token alone (never an API
+// key). Used by the app's own sign-in (main/cloud/signin-flow.mjs) and by
+// scripts/cloud-signin.mjs.
+export async function claudeTokenWorks(token, { claudeBin = 'claude' } = {}) {
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'agentbox-signin-check-'));
+  try {
+    const env = { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: token, CLAUDE_CONFIG_DIR: empty };
+    for (const k of Object.keys(env)) if (/^ANTHROPIC_/.test(k)) delete env[k];
+    const out = await new Promise((resolve) => {
+      execFile(claudeBin, ['-p', 'Reply with the single word: ok', '--max-turns', '1'], { cwd: empty, env, timeout: 120_000 }, (err, stdout) => resolve(err ? '' : String(stdout)));
+    });
+    return /ok/i.test(out);
+  } finally {
+    fs.rmSync(empty, { recursive: true, force: true });
+  }
 }
