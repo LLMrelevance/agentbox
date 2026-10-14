@@ -766,9 +766,12 @@ export function restoreTaskFolder(dir, id, { pid = process.pid } = {}) {
  * Only the second is ever parked or removed, and the first is what lets a person
  * see what is holding their disk.
  *
- * `ours` IS PROOF BY LOCATION, and the location is the app's own. Nothing but
- * `ensureTaskFolder` puts a folder at `<primary>/.claude/worktrees/<task name>`,
- * so a folder there was made here. It is deliberately not inferred from the lock
+ * `ours` IS PROOF BY LOCATION AND BRANCH. The location alone is not enough:
+ * Claude Code's desktop app makes its worktrees at that same
+ * `<primary>/.claude/worktrees/<name>`, on `claude/<name>`, and the sweep parked
+ * and removed three of them with live sessions in them (GitHub issue #43). So a
+ * folder there is ours only when it is also on a branch `taskBranch` names; one
+ * on any other branch, or on none, is a stray. It is deliberately not inferred from the lock
  * (dropped on the way to every removal) or from a marker file (which an agent
  * working in the folder could delete, turning a folder the app made into one it
  * will never reclaim).
@@ -808,7 +811,8 @@ export function inventoryWorktrees(dir) {
       // the app's bookkeeping to tidy, and is nothing anybody may act on.
       atOurPath: path.dirname(at) === home && couldBeATaskName(name),
       ours: !unfinished && !missing && !w.prunable
-        && path.dirname(at) === home && couldBeATaskName(name),
+        && path.dirname(at) === home && couldBeATaskName(name)
+        && String(w.branch ?? '').startsWith(BRANCH_PREFIX),
     };
   });
 }
