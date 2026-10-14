@@ -20,7 +20,7 @@ import { readySkin, swapLook } from './look-switch';
 import type { AnswerMode, Approval, PermissionMode, Product, RepeatRule, RepeatShape, Snapshot, ThreadCard, ThreadStateWord, View, WorkItem } from './types';
 import { api } from './api';
 import { setClaudeModels } from './models';
-import { advanceAfter, advanceLandsHere, nextAfterAdvance, type Advance } from './advance';
+import { advanceAfter, advanceLandsHere, replyMovesOn, nextAfterAdvance, type Advance } from './advance';
 import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from './stay-with-a-command';
 import { List } from './components/List';
 import { isTroubleRow, troubleRow } from './trouble-row';
@@ -3380,6 +3380,11 @@ export default function App() {
     setFocused(null);
   }, [noteAdvance]);
 
+  // Whether a reply from inside this thread moves her on to the next (./advance).
+  const movesOn = useCallback((item: WorkItem) => replyMovesOn({
+    view, onBoard, index: shownInbox.findIndex((i) => i.id === item.id), inboxSize: shownInbox.length,
+  }), [view, onBoard, shownInbox]);
+
   // Every resolving action goes through here: the UI advances instantly, the
   // write happens after the grace window (unless Z cancels it first).
   const deferCommit = useCallback(async (
@@ -3881,7 +3886,7 @@ export default function App() {
     // up.
     // A REPLY IN A CONVERSATION STAYS IN THE CONVERSATION (2026-10-01):
     // sending a message to a person must not jump to another page.
-    const stay = staysOnTheTask(item, text, engine) || talking;
+    const stay = staysOnTheTask(item, text, engine) || talking || !movesOn(item);
     if (stay) setFollowing({ product: item.product, id: item.id });
     const undid = [{ product: item.product, id: item.id, words: 'Undid your reply' }];
     await deferCommit(item, async () => {
@@ -3940,7 +3945,7 @@ export default function App() {
         setFollowing(null);
       } });
     }, talking ? 'Sent' : `Sent → ${item.productName}`, restore, stay, { product: item.product, id: item.id }, undid, holdsReplies(onPhone()) ? UNDO_GRACE_MS : 0);
-  }, [deferCommit, snap?.supervisor.running, snap?.products, showToast, refresh, markSeen, pushUndo, startChatAgents, fire]);
+  }, [deferCommit, snap?.supervisor.running, snap?.products, showToast, refresh, markSeen, pushUndo, startChatAgents, fire, movesOn]);
 
   /* ------------------------ answering one of her agents -------------------- */
   // THE ONE THING AGENTBOX SAYS OUT LOUD TO THE REST OF HER MACHINE. The reply goes
@@ -4044,8 +4049,8 @@ export default function App() {
         // undone into her inbox instead of back into Done.
         await api.answer({ product: item.product, id: item.id, ...withdrawReply(item.status) });
       } });
-    }, `Option ${option.n} → ${item.productName}`, undefined, undefined, { product: item.product, id: item.id }, undid);
-  }, [deferCommit, pushUndo, markDone]);
+    }, `Option ${option.n} → ${item.productName}`, undefined, !movesOn(item), { product: item.product, id: item.id }, undid);
+  }, [deferCommit, pushUndo, markDone, movesOn]);
 
   /* ------------------------ the task she just wrote ------------------------ */
   // THE TASK SHE JUST MADE IS WHAT Z TAKES BACK.
@@ -5580,6 +5585,8 @@ export default function App() {
               total={(mineShown ? shownBox.length : 0) + theirRows.length}
               tab={view}
               people={peoplePick}
+              cloud={snap.cloud ?? null}
+              onCloudMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
             />
           )}
           {!workspaceNavigation && !focused && !settingsOpen && !inPractice && (
