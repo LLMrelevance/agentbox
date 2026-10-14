@@ -2854,6 +2854,10 @@ export class Supervisor {
         runs,
         resetsAt,
         elsewhere: session.accountFault?.cause === 'model-not-on-plan',
+        // The account refused it and another one is free, so the next pass
+        // runs it there (`restingUntil`). Said as that, not as "nothing has
+        // been done", which the answer arriving under it would contradict.
+        movesOn: !!session.accountFault?.account && this._anotherLoginIsFree(item, session.accountFault.account),
       });
       const written = this.store.recordSessionResult(item.product, item.id, { result, status: 'open' });
       // REMEMBER THAT WE SAID IT, keyed on the run we said it about. The pass
@@ -3129,6 +3133,9 @@ export class Supervisor {
             cause,
             runs: seen.runs,
             resetsAt,
+            // The same question `sayTheRunDied` asks, of the account the run
+            // died on, so the two writers tell one story.
+            movesOn: !!seen.account && this._anotherLoginIsFree(item, seen.account),
           }),
           status: 'open',
         });
@@ -3574,9 +3581,11 @@ export class Supervisor {
    */
   _anotherLoginIsFree(item, account) {
     const engine = this._engineFor(item);
+    // A login still being added is not somewhere the task can go, which is
+    // the same rule `_pickProfile` applies, so the two cannot disagree.
     return this._liveProfilesFor(engine).some((p) => {
       const key = this._accountKey(engine, p);
-      return key !== account && !this._profileTrouble?.[key];
+      return key !== account && !this._profileTrouble?.[key] && harnessFor(engine).signedIn(this, p);
     });
   }
 
