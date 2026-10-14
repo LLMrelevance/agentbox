@@ -19,6 +19,8 @@ function must({ data, error }, what) {
   return data;
 }
 
+const commandOut = (r) => ({ id: r.id, owner: r.owner, project: r.project, item: r.item, kind: r.kind, payload: r.payload ?? {}, createdAt: r.created_at, takenAt: r.taken_at ?? null, outcome: r.outcome ?? null });
+
 export function supabaseBackend(client) {
   let personId = null;
   async function myId() {
@@ -238,8 +240,65 @@ export function supabaseBackend(client) {
       return (rows?.length ?? 0) > 0;
     },
 
+    // HER OWN ROWS FOR HER PHONE (20261014000000_phone_inbox.sql). The owner
+    // column defaults to her, and row level security keeps every row hers.
+    async putPhoneProject({ project, name }) {
+      await myId();
+      must(await client.from('phone_projects').upsert({ project, name, updated_at: new Date().toISOString() }, { onConflict: 'owner,project' }), 'putting a project on your phone');
+    },
+    async dropPhoneProject(project) {
+      await myId();
+      must(await client.from('phone_threads').delete().eq('project', project), 'taking a project off your phone');
+      must(await client.from('phone_projects').delete().eq('project', project), 'taking a project off your phone');
+    },
+    async putPhoneThreads(project, rows) {
+      await myId();
+      const at = new Date().toISOString();
+      for (let i = 0; i < rows.length; i += 50) {
+        const batch = rows.slice(i, i + 50).map((r) => ({ project, item: r.item, snapshot: r.snapshot, updated_at: at }));
+        must(await client.from('phone_threads').upsert(batch, { onConflict: 'owner,project,item' }), 'sending threads to your phone');
+      }
+    },
+    async dropPhoneThreads(project, items) {
+      await myId();
+      for (let i = 0; i < items.length; i += 100) {
+        must(await client.from('phone_threads').delete().eq('project', project).in('item', items.slice(i, i + 100)), 'taking threads off your phone');
+      }
+    },
+    // What her phone reads and sends.
+    async phoneProjects() {
+      const me = await myId();
+      const rows = must(await client.from('phone_projects').select('owner,project,name').order('name'), 'reading the projects on your phone');
+      return (rows ?? []).filter((r) => r.owner === me);
+    },
+    async phoneThreads() {
+      const me = await myId();
+      const rows = must(await client.from('phone_threads').select('owner,project,item,snapshot,updated_at').order('updated_at', { ascending: false }).limit(1000), 'reading the threads on your phone');
+      return (rows ?? []).filter((r) => r.owner === me).map((r) => ({ owner: r.owner, project: r.project, item: r.item, snapshot: r.snapshot, updatedAt: Date.parse(r.updated_at) }));
+    },
+    async addPhoneCommand({ project, item = null, kind, payload = {} }) {
+      await myId();
+      const row = must(await client.from('phone_commands').insert({ project, item, kind, payload }).select('id,owner,project,item,kind,payload,created_at,taken_at,outcome').single(), 'sending that to your Mac');
+      return commandOut(row);
+    },
+    async phoneCommands() {
+      await myId();
+      const rows = must(await client.from('phone_commands').select('id,owner,project,item,kind,payload,created_at,taken_at,outcome').order('created_at', { ascending: true }).limit(500), 'reading what your phone sent');
+      return (rows ?? []).map(commandOut);
+    },
+    async waitingPhoneCommands() {
+      await myId();
+      const rows = must(await client.from('phone_commands').select('id,project,item,kind,payload,created_at').is('taken_at', null).order('created_at', { ascending: true }).limit(200), 'reading what your phone sent');
+      return (rows ?? []).map((r) => ({ id: r.id, project: r.project, item: r.item, kind: r.kind, payload: r.payload ?? {}, createdAt: r.created_at }));
+    },
+    async markPhoneCommand(id, outcome) {
+      await myId();
+      must(await client.from('phone_commands').update({ taken_at: new Date().toISOString(), outcome }).eq('id', id).is('taken_at', null), 'marking what your phone sent as done');
+    },
+
     subscribe(onChange) {
       const channel = client.channel(`team-${Math.random().toString(36).slice(2)}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'phone_commands' }, () => onChange())
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'lines' }, () => onChange())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'thread_cards' }, () => onChange())
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'people' }, () => onChange())

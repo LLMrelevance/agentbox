@@ -540,6 +540,9 @@ export function readSettings({ config, supervisor, store }) {
       // workspace default and never a strip of Claude Code jargon on a page
       // she opens to change her rules.
       autonomous: (config.autonomousProducts ?? []).includes(product.slug),
+      // ON HER PHONE WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md): its threads
+      // go up to her own rows online on every sync (main/phone-inbox.mjs).
+      onPhone: (config.phoneProducts ?? []).includes(product.slug),
       permission: override ? permissionMode(override) : 'workspace',
       permissionArgs: override ?? null,
       codexMode: config.projectCodexMode?.[product.slug] ?? 'workspace',
@@ -792,6 +795,11 @@ export function setProjectSetting({ config, supervisor }, { product, key, value 
     case 'autonomous':
       saveConfig(config, { autonomousProducts: withSlug(config.autonomousProducts, product, !!value) });
       break;
+    case 'phone': {
+      const list = withSlug(config.phoneProducts, product, !!value);
+      saveConfig(config, { phoneProducts: list.length ? list : undefined });
+      break;
+    }
     // WHICH OF HER CLAUDE CODE AGENTS THIS PROJECT TOOK. Names only: the files
     // stay where their author put them and Agentbox never copies or moves one,
     // so a list here that has gone stale costs nothing and an agent she

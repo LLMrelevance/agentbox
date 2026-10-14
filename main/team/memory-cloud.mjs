@@ -265,12 +265,60 @@ export function memoryBackend(cloud, personId) {
       return true;
     },
 
+    // HER OWN ROWS FOR HER PHONE (20261014000000_phone_inbox.sql): every one
+    // keyed by its owner, and only ever that owner's.
+    async putPhoneProject({ project, name }) {
+      (cloud.phoneProjects ??= new Map()).set(`${personId}:${project}`, { owner: personId, project, name });
+    },
+    async dropPhoneProject(project) {
+      cloud.phoneProjects?.delete(`${personId}:${project}`);
+      for (const k of [...(cloud.phoneThreads?.keys() ?? [])]) if (k.startsWith(`${personId}:${project}:`)) cloud.phoneThreads.delete(k);
+    },
+    async putPhoneThreads(project, rows) {
+      cloud.phoneThreads ??= new Map();
+      for (const r of rows) {
+        if (JSON.stringify(r.snapshot).length > 1_000_000) refuse('a thread copy that big');
+        cloud.phoneThreads.set(`${personId}:${project}:${r.item}`, { owner: personId, project, item: r.item, snapshot: r.snapshot, updatedAt: cloud.now() });
+      }
+      cloud.events.emit('phone', 1);
+    },
+    async dropPhoneThreads(project, items) {
+      for (const item of items) cloud.phoneThreads?.delete(`${personId}:${project}:${item}`);
+    },
+    async phoneThreads() {
+      return [...(cloud.phoneThreads?.values() ?? [])].filter((t) => t.owner === personId);
+    },
+    async phoneProjects() {
+      return [...(cloud.phoneProjects?.values() ?? [])].filter((p) => p.owner === personId);
+    },
+    // What her phone does: a command, as herself, not yet taken.
+    async addPhoneCommand({ project, item = null, kind, payload = {} }) {
+      const row = { id: crypto.randomUUID(), owner: personId, project, item, kind, payload, createdAt: new Date(cloud.now()).toISOString(), takenAt: null, outcome: null };
+      (cloud.phoneCommands ??= []).push(row);
+      cloud.events.emit('phone', 1);
+      return row;
+    },
+    async waitingPhoneCommands() {
+      return (cloud.phoneCommands ?? []).filter((c) => c.owner === personId && !c.takenAt).map((c) => ({ ...c }));
+    },
+    async phoneCommands() {
+      return (cloud.phoneCommands ?? []).filter((c) => c.owner === personId).map((c) => ({ ...c }));
+    },
+    async markPhoneCommand(id, outcome) {
+      // Somebody else's command is not there for you, as row level security
+      // has it: the mark changes nothing rather than failing.
+      const c = (cloud.phoneCommands ?? []).find((x) => x.id === id && x.owner === personId);
+      if (c && !c.takenAt) { c.takenAt = new Date(cloud.now()).toISOString(); c.outcome = outcome; }
+      cloud.events.emit('phone', 1);
+    },
+
     subscribe(onChange) {
       const fire = () => onChange();
       cloud.events.on('lines', fire);
       cloud.events.on('cards', fire);
       cloud.events.on('people', fire);
-      return () => { cloud.events.off('lines', fire); cloud.events.off('cards', fire); cloud.events.off('people', fire); };
+      cloud.events.on('phone', fire);
+      return () => { cloud.events.off('lines', fire); cloud.events.off('cards', fire); cloud.events.off('people', fire); cloud.events.off('phone', fire); };
     },
   };
 }

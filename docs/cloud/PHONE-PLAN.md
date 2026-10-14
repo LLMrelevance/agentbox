@@ -90,19 +90,12 @@ therefore does not sync ledgers both ways at all.
 - Notify on a thread newly needing her, deduplicated, never for backfill
   (finding 14). Live progress lines like today's thread cards.
 
-## Payment (her open question)
+## Payment (decided 2026-10-14)
 
-The cloud is the paid tier. Options for the phone:
-- **A. The phone comes with the cloud.** Phone-with-the-Mac-closed needs the
-  online inbox and, for replies to run, cloud machines: it IS the cloud.
-  Simplest to explain: "Cloud: run more agents, close your laptop, use your
-  phone."
-- **B. Phone free, cloud runs paid.** Everyone can sign in to read and reply
-  from the phone (inbox online); work only continues when the Mac wakes,
-  unless they pay. Costs us database and push for free users; a strong reason
-  to sign up.
-- The existing Mac-awake phone link (Wi-Fi, Tailscale, relay) stays free
-  either way.
+"I feel like phone access should be free for everyone. What we charge for is
+using your agents in the cloud (ie., more slots or with computer closed)."
+So step 1 and step 3 are free with a signed-in account; step 2's cloud work is
+the paid cloud. All three steps are to be built.
 
 ## Risks
 

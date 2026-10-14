@@ -24,6 +24,7 @@ import { readCodexThreads } from './codex-threads.mjs';
 import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
 import { createPhoneLink } from './phone-link.mjs';
+import { applyThrough } from './phone-inbox.mjs';
 import { relayAddress } from './relay-address.mjs';
 import { atTheComputer } from '../shared/notify-rules.mjs';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
@@ -390,6 +391,7 @@ async function createWindow() {
   // single-person app, which has no sign-in to keep
   // (tests/the-installed-app-is-the-single-person-app.test.mjs).
   const cloudConfig = loadCloudConfig(appDir, { packaged: app.isPackaged });
+  let phoneApply = null;
   const team = cloudConfig ? createTeamService({
     session: supabaseSession({
       cloudConfig,
@@ -408,6 +410,14 @@ async function createWindow() {
     // exists; until then a change has nobody to tell.
     onChange: () => { try { pushUpdate(); } catch { /* no window yet */ } },
     log: (line) => console.log(line),
+    // HER PHONE WITH THE MAC SHUT (main/phone-inbox.mjs). What it left is done
+    // through the window's own handlers, filed below once the window exists.
+    phone: {
+      projects: () => config.phoneProducts ?? [],
+      ready: () => !!phoneApply,
+      apply: (cmd) => phoneApply(cmd),
+      stateFile: path.join(config.storeRoot, '.phone-inbox.json'),
+    },
   }) : null;
   if (team) {
     team.start().then(() => supervisor.wake?.()).catch((err) => console.warn(`team: ${err.message}`));
@@ -737,6 +747,7 @@ async function createWindow() {
   // What the window answers itself (badge, boot info) a phone gets the plain
   // stand-ins for, as a browser tab does.
   answerWhatOnlyTheWindowAnswered({ handle: (channel, fn) => { if (!phoneChannels.has(channel)) phoneChannels.set(channel, fn); } });
+  phoneApply = applyThrough(phoneChannels);
   const phone = createPhoneLink({
     file: path.join(userDir, 'phone-link.json'),
     channels: phoneChannels,

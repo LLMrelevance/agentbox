@@ -174,6 +174,30 @@ for (const [where, makeWorld, enabled] of worlds) {
       await expect(w.theo.putCards(team.id, [{ ...card, people: [] }])).rejects.toThrow();
     });
 
+    // HER THREADS ON HER PHONE (20261014000000_phone_inbox.sql): her own
+    // rows, read by nobody else, not even a teammate, and a command marked
+    // once only by her.
+    it('keeps the phone rows to their owner, teammate or not', async () => {
+      const project = `phone-${shared.slice(0, 8)}`;
+      await w.maya.putPhoneProject({ project, name: 'Website' });
+      await w.maya.putPhoneThreads(project, [{ item: 'w-1', snapshot: { v: 1, item: { id: 'w-1', title: 'Hi' }, turns: [] } }]);
+      expect((await w.maya.phoneThreads()).map((t) => [t.project, t.item, t.snapshot.item.title])).toEqual([[project, 'w-1', 'Hi']]);
+      expect(await w.theo.phoneThreads()).toEqual([]);
+      expect(await w.jun.phoneProjects()).toEqual([]);
+
+      const cmd = await w.maya.addPhoneCommand({ project, item: 'w-1', kind: 'reply', payload: { text: 'yes' } });
+      expect(await w.theo.waitingPhoneCommands()).toEqual([]);
+      await w.theo.markPhoneCommand(cmd.id, 'done');
+      expect((await w.maya.waitingPhoneCommands()).map((c) => c.id)).toEqual([cmd.id]);
+      await w.maya.markPhoneCommand(cmd.id, 'done');
+      await w.maya.markPhoneCommand(cmd.id, 'refused: late');
+      expect((await w.maya.phoneCommands()).find((c) => c.id === cmd.id)?.outcome).toBe('done');
+      expect(await w.maya.waitingPhoneCommands()).toEqual([]);
+
+      await w.maya.dropPhoneProject(project);
+      expect(await w.maya.phoneThreads()).toEqual([]);
+    });
+
     // A STATUS LINE YOU WRITE YOURSELF (w-0b54ee983f).
     it('carries a status line to the team and clears it again', async () => {
       const until = Date.now() + 2 * 86_400_000;

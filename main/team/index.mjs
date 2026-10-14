@@ -19,6 +19,8 @@ import { cardsFor } from '../../shared/thread-cards.mjs';
 import fs from 'node:fs';
 import { saveAttachments, attachmentMarkdown } from '../save-attachments.mjs';
 import { hasLapsed, statusEnds } from '../../shared/team-status.mjs';
+import { createPhoneInbox } from '../phone-inbox.mjs';
+import { SNAPSHOT_LIMITS } from '../../shared/phone-snapshot.mjs';
 
 // `signingIn` is { url } while a Google sign-in waits on the browser, so the
 // page can offer that link again rather than a button that does nothing.
@@ -28,6 +30,10 @@ export function createTeamService({
   session, store, disk, accountRoot, stateFile, onChange = () => {}, log = () => {}, intervalMs = 5000, startRetryMs = 1500,
   // The clock, so a test can move past the moment a status runs out.
   now = Date.now,
+  // HER PHONE WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md, step 1): which
+  // projects she put on it (slugs), how a command from it is done, and where
+  // this Mac remembers what it sent. Needs no team, only a sign-in.
+  phone = null,
 }) {
   let state = { ...EMPTY, configured: !!session?.configured };
   let backend = null;
@@ -35,6 +41,7 @@ export function createTeamService({
   let timer = null;
   let unsubscribe = null;
   let pending = null;
+  let phoneInbox = null;
   // The sync cursors and which team this Mac is in, in one file.
   let local = null;
   const kept = () => (local ??= fileSyncState(stateFile, fs));
@@ -140,10 +147,45 @@ export function createTeamService({
         set({ error: String(err?.message ?? err) });
         return null;
       } finally {
+        // On its own, so a team sync that failed does not hold up her phone,
+        // nor her phone the team.
+        await phoneOnce();
         pending = null;
       }
     });
     return pending;
+  }
+
+  async function phoneOnce() {
+    // Not before the app's handlers exist: a command taken then would be
+    // marked refused for no reason of hers.
+    if (!phoneInbox || phone.ready?.() === false) return;
+    try {
+      await phoneInbox.syncOnce();
+      if (state.phoneError) set({ phoneError: null });
+    } catch (err) {
+      set({ phoneError: String(err?.message ?? err) });
+    }
+  }
+
+  function makePhoneInbox() {
+    if (!phone) return null;
+    const productOf = (slug) => products().find((p) => p.slug === slug) ?? null;
+    return createPhoneInbox({
+      backend,
+      projects: () => {
+        const on = new Set(phone.projects() ?? []);
+        return products().filter((p) => on.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name || p.slug }));
+      },
+      listItems: (slug) => { const p = productOf(slug); try { return p ? disk.readWorkItems(p.dir) : []; } catch { return []; } },
+      historyOf: (slug, id) => { try { return store.readHistory(slug, id, { max: SNAPSHOT_LIMITS.lines }); } catch { return []; } },
+      apply: phone.apply,
+      // One file per person: what this Mac sent up for one account is not
+      // what the next one to sign in here has.
+      stateFile: phone.stateFile.replace(/(\.json)?$/, `.${state.me?.id ?? 'nobody'}.json`),
+      now,
+      log,
+    });
   }
 
   function stopLoop() {
@@ -166,6 +208,7 @@ export function createTeamService({
     // no team cloud. So the single-person app opened on no projects at all.
     // Everybody gets one at boot now (main/main.mjs), signed in or not.
     await refreshTeam();
+    phoneInbox = makePhoneInbox();
     sync = createTeamSync({
       backend,
       disk,
@@ -258,6 +301,7 @@ export function createTeamService({
       delete process.env.AGENTBOX_PERSON_ID;
       backend = null;
       sync = null;
+      phoneInbox = null;
       // Signed out is a known answer, so the window shows the sign-in page at once.
       state = { ...EMPTY, configured: !!session?.configured, started: true };
       onChange();
