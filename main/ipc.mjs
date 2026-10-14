@@ -1183,8 +1183,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // So this is `zero:import-agents` with the agent taken out of it. No ticks are
   // saved, because there is nothing for the card to remember: an imported thread
   // is a row, and a row is what stops it being imported twice
-  // (`threadsNeedingRows`). It does NOT resume the conversation; she was offered
-  // that and picked this instead.
+  // (`threadsNeedingRows`). The row's first reply resumes the conversation as a
+  // copy (`Supervisor#importedThreadFor`, GitHub #44).
   ipcMain.handle('zero:import-threads', (_e, { product, threads } = {}) => {
     if (!product) return { ok: false, added: 0, already: 0, ids: [] };
     const want = new Set(
