@@ -7,7 +7,7 @@
 // sign-in and no other key.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
-import { phoneView, phoneHistory, commandFor, readCloudConfig, phoneSlug, splitSlug } from '../renderer/src/cloud-bridge';
+import { phoneView, phoneHistory, commandFor, readCloudConfig, phoneSlug, splitSlug, closeToTakeBack, UNDONE } from '../renderer/src/cloud-bridge';
 import { REQUEST_CHANNELS } from '../shared/bridge-map.mjs';
 import { cloudClient } from '../renderer/src/cloud-rest';
 
@@ -78,6 +78,21 @@ describe('what the inbox draws', () => {
     // A close her Mac turned down leaves the row where it was.
     const noClose = cmd('c2', 'close', { taken_at: iso(NOW), outcome: 'refused: no' });
     expect(phoneView(rows([noClose]), NOW).items.find((i) => i.id === 'w-1').status).toBe('blocked');
+  });
+});
+
+describe('undo on the phone', () => {
+  it('takes back a close still waiting, and the row comes back', () => {
+    const close = cmd('c1', 'close');
+    const r = rows([close]);
+    expect(closeToTakeBack(r, 'zero:answer', { product: A, id: 'w-1', status: 'open' })?.id).toBe('c1');
+    const undone = rows([{ ...close, taken_at: iso(NOW), outcome: UNDONE }]);
+    expect(phoneView(undone, NOW).items.find((i) => i.id === 'w-1').status).toBe('blocked');
+  });
+  it('leaves alone a close the computer already did, a reply, and another thread', () => {
+    expect(closeToTakeBack(rows([cmd('c1', 'close', { taken_at: iso(NOW), outcome: 'done' })]), 'zero:answer', { product: A, id: 'w-1', status: 'open' })).toBeNull();
+    expect(closeToTakeBack(rows([cmd('c1', 'close')]), 'zero:answer', { product: A, id: 'w-2', status: 'open' })).toBeNull();
+    expect(closeToTakeBack(rows([cmd('c1', 'close')]), 'zero:answer', { product: A, id: 'w-1', status: 'open', answer: 'more' })).toBeNull();
   });
 });
 

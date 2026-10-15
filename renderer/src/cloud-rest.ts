@@ -138,6 +138,9 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
     async select(table: string, query: string) {
       return (await call(`/rest/v1/${table}?${query}`, { method: 'GET' })) ?? [];
     },
+    async update(table: string, query: string, patch: Record<string, unknown>) {
+      return (await call(`/rest/v1/${table}?${query}`, { method: 'PATCH', headers: { prefer: 'return=representation' }, body: JSON.stringify(patch) })) ?? [];
+    },
     async insert(table: string, row: Record<string, unknown>) {
       const out = await call(`/rest/v1/${table}`, { method: 'POST', headers: { prefer: 'return=representation' }, body: JSON.stringify(row) });
       return Array.isArray(out) ? out[0] : out;

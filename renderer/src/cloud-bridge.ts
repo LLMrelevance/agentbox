@@ -89,6 +89,19 @@ export function phoneHistory(rows: PhoneRows, product: string, id: string) {
 }
 
 /** What one press on the phone leaves for her Mac, or null for a press that is not one of the four. */
+// UNDO OF A CLOSE MADE ON THE PHONE takes the close back while it is still
+// waiting: the phone marks its own command taken, as undone, and the computer
+// never sees it. Once the computer has closed the thread, undoing is the
+// computer's. Returns the command to take back, or null.
+export function closeToTakeBack(rows: PhoneRows, channel: string, p: any) {
+  if (channel !== REQUEST_CHANNELS.answer || p?.status !== 'open' || (typeof p.answer === 'string' && p.answer.trim())) return null;
+  const where = splitSlug(p.product);
+  if (!where) return null;
+  const waiting = rows.commands.filter((c) => c.kind === 'close' && !c.taken_at && c.device === where.device && c.project === where.project && c.item === p.id);
+  return waiting.at(-1) ?? null;
+}
+export const UNDONE = 'refused: taken back on the phone';
+
 export function commandFor(channel: string, p: any): { device: string; project: string; item: string | null; kind: string; payload: Record<string, unknown> } | null {
   const where = splitSlug(p?.product);
   if (!where) return null;
@@ -217,8 +230,17 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     : { configured: true, started, signedIn: false, signingIn: null, me: null, team: null, invites: [], sent: [], people: [], cards: [], lastSyncAt: null, error });
 
   const leave = async (channel: string, payload: unknown) => {
+    const back = closeToTakeBack(rows, channel, payload);
+    if (back) {
+      const asked = client.generation();
+      const done = await client.update('phone_commands', `id=eq.${encodeURIComponent(back.id)}&taken_at=is.null`, { taken_at: new Date().toISOString(), outcome: UNDONE });
+      if (!done.length) throw new Error('Your computer already closed it. Reopen it there.');
+      if (client.generation() === asked) rows = { ...rows, commands: rows.commands.map((c) => (c.id === back.id ? done[0] : c)) };
+      changed(null);
+      return { ok: true };
+    }
     const cmd = commandFor(channel, payload);
-    if (!cmd) return { ok: false, error: NOT_HERE };
+    if (!cmd) throw new Error(NOT_HERE);
     const asked = client.generation();
     const row = await client.insert('phone_commands', cmd);
     if (client.generation() === asked) rows = { ...rows, commands: [...rows.commands, row] };
