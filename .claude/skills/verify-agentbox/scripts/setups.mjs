@@ -115,16 +115,15 @@ export const SETUPS = [
     why: 'an API key left in ~/.claude/settings.json from an old project: Claude Code uses it, so a worker would bill that key instead of the person\'s plan',
     settings: () => ({ env: { ANTHROPIC_API_KEY: 'sk-ant-api03-verify-not-a-real-key' } }),
     expect: NORMAL,
-    // The app scrubs keys from a worker's environment, but Claude Code reads
-    // this one out of the settings file itself. Every request was signed with it.
-    known: { billing: 'found 2026-10-15 (w-6d8c543a43): a worker bills a key left in ~/.claude/settings.json, not the plan' },
+    // Claude Code reads this one out of the settings file itself, past the
+    // environment scrub. Found by this setup on its first run and fixed by the
+    // blank in every worker's --settings (NO_METERED_KEY, main/harnesses/claude.mjs).
   },
   {
     name: 'api-key-in-project',
     why: 'the same key committed in the project\'s .claude/settings.json, which a teammate never chose (an open problem found in past tasks)',
     repo: { '.claude/settings.json': `${JSON.stringify({ env: { ANTHROPIC_API_KEY: 'sk-ant-api03-verify-not-a-real-key' } }, null, 1)}\n` },
     expect: NORMAL,
-    known: { billing: 'found 2026-10-15 (w-6d8c543a43): a worker bills a key committed in the project\'s .claude/settings.json, not the plan' },
   },
   // NOT A SETUP: a settings file Claude Code rejects. Measured 2026-10-15 on
   // 2.1.301, `cleanupPeriodDays: 0` fails validation and Claude Code drops the
@@ -146,10 +145,8 @@ export const SETUPS = [
     login: ['.config/claude'],
     home: { '.zshrc': 'export CLAUDE_CONFIG_DIR="$HOME/.config/claude"\n' },
     expect: NORMAL,
-    // main/shell-path.mjs reads the shell's CLAUDE_CONFIG_DIR for importing
-    // sessions only, and account discovery looks under ~/.claude* only, so the
-    // worker runs on an empty ~/.claude and every task says it could not sign in.
-    known: { all: 'found 2026-10-15 (w-6d8c543a43): a login moved by CLAUDE_CONFIG_DIR in .zshrc is never used by workers' },
+    // Found by this setup on its first run: workers ran on an empty ~/.claude.
+    // Fixed in main/account-discovery.mjs (effectiveProfiles reads the shell's folder).
   },
 ];
 

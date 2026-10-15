@@ -77,7 +77,10 @@ export function cleanEnv(base = process.env) {
   const out = {};
   for (const [k, v] of Object.entries(base)) {
     if (/^(ZERO_|STORE_|AGENTBOX_|ASTRAL_|ANTHROPIC_|CLAUDE_CODE_|OPENAI_|CODEX_)/.test(k)) continue;
-    if (['CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT', 'MCP_CONNECTION_NONBLOCKING'].includes(k)) continue;
+    // CLAUDE_CONFIG_DIR names THIS Mac's login. The copy reads its shell for
+    // the login folder workers sign in to, so one carried in would put a
+    // setup's workers on the real account.
+    if (['CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT', 'CLAUDE_CONFIG_DIR', 'MCP_CONNECTION_NONBLOCKING'].includes(k)) continue;
     out[k] = v;
   }
   return out;
