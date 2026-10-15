@@ -113,7 +113,7 @@ describe('what a copy carries', () => {
   const history = [
     { id: 'w-1', ts: 1, source: 'founder', patch: { title: 'Fix login', body: 'It loops' }, by: 'p-1', uid: 'u-1' },
     { id: 'w-1', ts: 2, source: 'agent', claim: { holder: 'macbook-pro:4242' }, epoch: 3, patch: { status: 'claimed' } },
-    { id: 'w-1', ts: 3, source: 'agent', patch: { result: 'Used key sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ in /Users/someone/code/x', permissionMode: 'bypassPermissions', model: 'opus' } },
+    { id: 'w-1', ts: 3, source: 'agent', patch: { result: 'Used key sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ in /Users/someone/code/x', permissionMode: 'bypassPermissions', model: 'opus' } }, // public-check: allow (made-up keys, to prove they are hidden)
     { id: 'w-1', ts: 4, source: 'agent', heartbeat: true, patch: { note: 'alive' } },
   ];
   it('is built from named fields only: no lease, epoch, who may see it, paths of the run, or fields nobody named', () => {
@@ -128,7 +128,7 @@ describe('what a copy carries', () => {
   it('hides keys and her home folder in the words themselves', () => {
     const snap = threadSnapshot(row, history, SNAPSHOT_LIMITS, { home: '/Users/someone' });
     expect(snap.history[1].patch.result).toBe('Used key [hidden] in ~/code/x');
-    for (const secret of ['ghp_' + 'a'.repeat(36), 'AKIA' + 'B'.repeat(16), 'xoxb-1234567890-abcdef', '-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----', 'eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0NTY3.SflKxwRJSMeKKF2QT4fw']) {
+    for (const secret of ['ghp_' + 'a'.repeat(36), 'AKIA' + 'B'.repeat(16), 'xoxb-1234567890-abcdef', '-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----', 'eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0NTY3.SflKxwRJSMeKKF2QT4fw']) { // public-check: allow (made-up keys, to prove they are hidden)
       expect(hideSecrets(`x ${secret} y`)).toBe('x [hidden] y');
     }
     // The case that must NOT match: ordinary words, ids and short codes.
