@@ -2239,7 +2239,7 @@ export default function App() {
     : view === 'snoozed' ? snoozed
       : view === 'progress' ? progress
         : done;
-  const shownBox = useMemo(() => filterBox(wholeBox, boxFilter), [wholeBox, boxFilter]);
+  const shownBox = useMemo(() => filterBox(wholeBox, boxFilter, directSlugs), [wholeBox, boxFilter, directSlugs]);
   // THE DISPLAY MENU'S FILTERS AND SORT, on top of the box (approved
   // 2026-10-01). Remembered per page; the Inbox is a list by default and the
   // Team a board.
@@ -2396,12 +2396,12 @@ export default function App() {
   // whole inbox, or the next task opened can be one she has hidden
   // (w-27759abd33).
   const shownInbox = useMemo(
-    () => sortedByDisplay(filterBox(inbox, boxFilter).filter((i) => isTroubleRow(i) || isUpdateRow(i) || keepsDisplay(i, inboxDisplay, now, seenOf(i), directSlugs)), inboxDisplay, undefined, projectOrder, directSlugs),
+    () => sortedByDisplay(filterBox(inbox, boxFilter, directSlugs).filter((i) => isTroubleRow(i) || isUpdateRow(i) || keepsDisplay(i, inboxDisplay, now, seenOf(i), directSlugs)), inboxDisplay, undefined, projectOrder, directSlugs),
     [inbox, boxFilter, inboxDisplay, now, projectOrder, directSlugs, seenOf],
   );
   const boxFilterMenu = useMemo(
-    () => (modal === 'filter' ? filterMenu(wholeBox.filter((i) => !isTroubleRow(i) && !isUpdateRow(i)), boxFilter, snap?.products ?? []) : null),
-    [modal, wholeBox, boxFilter, snap?.products],
+    () => (modal === 'filter' ? filterMenu(wholeBox.filter((i) => !isTroubleRow(i) && !isUpdateRow(i)), boxFilter, snap?.products ?? [], directSlugs) : null),
+    [modal, wholeBox, boxFilter, snap?.products, directSlugs],
   );
   // ONE RULE FOR WHERE A THREAD SITS, THE TABS' OWN (2026-10-01: the board
   // said Running for queued work the tab did not). Needs you wins, then
@@ -6423,7 +6423,7 @@ export default function App() {
                        label: `Resume Agents (${sel.filter((i) => !working(i)).length} of ${n} selected)`,
                        run: () => { setModal(null); putAgentBackOn(sel.filter((i) => !working(i))); } }]
                   : []),
-                ...priorityCommands(sel).map((c) => ({
+                ...priorityCommands(sel, directSlugs).map((c) => ({
                   ...c, run: () => { setModal(null); void retag(sel, c.value); },
                 })),
               ];
@@ -6520,7 +6520,7 @@ export default function App() {
               // was removed on her word. It had no entry here once, and the
               // one place she went looking for it was the one place it was
               // missing.
-              ...priorityCommands([target]).map((c) => ({
+              ...priorityCommands([target], directSlugs).map((c) => ({
                 ...c, run: () => { setModal(null); void retag([target], c.value); },
               })),
             ];

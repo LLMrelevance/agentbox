@@ -99,6 +99,25 @@ export function itemPriority(item) {
 }
 
 /**
+ * THE LEVEL A THREAD SHOWS IS THE LEVEL IT RUNS AT (w-5ac9c9006d, 2026-10-15).
+ *
+ * Every screen drew the raw stored number while the fleet ran `itemPriority`,
+ * so a thread an agent filed untagged read Low and ran as Medium, and an
+ * agent's own 8 read High and ran as Medium. In Progress then showed three
+ * "Low" threads running while a "High" and a "Medium" waited, which is the
+ * fleet keeping its order and the screen saying it had not.
+ *
+ * A CONVERSATION keeps the number it carries: its level is the message
+ * sorter's (main/message-priority.mjs), written as an agent on purpose, and a
+ * conversation never spawns, so there is no running order for it to disagree
+ * with. `conversation` is the caller's to say, since only it knows the product.
+ */
+export function shownPriority(item, conversation = false) {
+  if (conversation) return item?.priority ?? null;
+  return itemPriority(item);
+}
+
+/**
  * The top of her own scale, and the only level that INTERRUPTS.
  *
  * The number is the renderer's (renderer/src/priority.ts: Urgent is 9), and it

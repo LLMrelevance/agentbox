@@ -11,7 +11,7 @@ import type { Product, ThreadCard, ThreadStateWord, WorkItem } from '../types';
 import { priorityIdOf, priorityValueOf, type PriorityId } from '../priority';
 import { firstRealLine } from '../format';
 import { threadState } from '../../../shared/thread-cards.mjs';
-import { dropPlaces, placeScore, placedScore } from '../../../shared/rank.mjs';
+import { dropPlaces, placeScore, placedScore, shownPriority } from '../../../shared/rank.mjs';
 import { plainWords } from '../team/agent-mentions';
 import { whatWaits } from '../../../shared/team-rules.mjs';
 
@@ -136,9 +136,9 @@ const startOfDay = (now: number) => { const t = new Date(now); t.setHours(0, 0, 
  *  A MESSAGE TO YOU PASSES THE PROJECT FILTER (w-5a432fb112): `direct` names
  *  the conversation projects, which no chip offers, so any lit chip hid every
  *  message. "Messages to me ARE my tasks." */
-export function keeps(item: Pick<WorkItem, 'priority' | 'product' | 'updatedAt'>, d: Display, now: number, seen?: Seen | null, direct?: ReadonlySet<string>): boolean {
+export function keeps(item: Pick<WorkItem, 'priority' | 'product' | 'updatedAt'> & { wrote?: WorkItem['wrote'] }, d: Display, now: number, seen?: Seen | null, direct?: ReadonlySet<string>): boolean {
   if (!keepsPrivacy(seen, d.privacy)) return false;
-  if (d.priorities.length && !d.priorities.includes(priorityIdOf(item.priority))) return false;
+  if (d.priorities.length && !d.priorities.includes(priorityIdOf(shownPriority(item, !!direct?.has(item.product))))) return false;
   if (d.projects.length && item.product && !d.projects.includes(item.product) && !direct?.has(item.product)) return false;
   if (d.updated === 'today' && !(item.updatedAt >= startOfDay(now))) return false;
   if (d.updated === 'week' && !(item.updatedAt >= now - 7 * 86_400_000)) return false;
@@ -168,7 +168,7 @@ export function keeps(item: Pick<WorkItem, 'priority' | 'product' | 'updatedAt'>
 // which replaces it (`placedScore`, shared/rank.mjs). A drop works out that
 // place from this same number (`dropPlaces`).
 export const rankScore = (r: Ranked, projectOrder: string[] = [], direct?: ReadonlySet<string>): number =>
-  placedScore(r.place, placeScore(projectOrder, r.product ?? '', direct) + priorityValueOf(priorityIdOf(r.priority)));
+  placedScore(r.place, placeScore(projectOrder, r.product ?? '', direct) + priorityValueOf(priorityIdOf(shownPriority(r, !!direct?.has(r.product ?? '')))));
 export const byPriority = (projectOrder: string[] = [], direct?: ReadonlySet<string>) => (a: Ranked, b: Ranked) =>
   rankScore(b, projectOrder, direct) - rankScore(a, projectOrder, direct) || b.updatedAt - a.updatedAt;
 const byUpdated = (a: Ranked, b: Ranked) => b.updatedAt - a.updatedAt;
@@ -619,7 +619,7 @@ export function teamEntries({ items, products, cards, me, now, since = null, sta
     if (state === 'done' && !(item.updatedAt >= today)) continue;
     out.push({
       key: `mine/${item.product}/${item.id}`, ownerId: me, state, title: item.label || item.title, project: product.name,
-      projectSlug: product.slug, priority: item.priority ?? null, updatedAt: item.updatedAt, item, card: null,
+      projectSlug: product.slug, priority: shownPriority(item), updatedAt: item.updatedAt, item, card: null,
       live: !!live?.has(item.id),
     });
   }

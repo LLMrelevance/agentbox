@@ -29,6 +29,8 @@ import { summaryFits, useRoomyToggle } from '../room';
 import { VISIBILITY_WORD, chosenNames, whoSees, type Seen } from './summary-rules';
 import { findPeople, teammates } from './composer-rules';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
+import { shownPriority } from '../../../shared/rank.mjs';
+import { isDirect } from './page-rules';
 import { rowTitle } from '../list-rules';
 import { SharedMark } from './Pages';
 import { TicketText } from '../components/TicketReference';
@@ -148,7 +150,7 @@ export function ThreadStateMark({ item }: { item: WorkItem }) {
 export function SummaryRail({ item, team, onOpen }: { item: WorkItem; team: TeamView | null; onOpen: () => void }) {
   const me = team?.me ?? null;
   const state = threadState(item);
-  const prio = priorityIdOf(item.priority);
+  const prio = priorityIdOf(shownPriority(item, isDirect(team?.products.get(item.product))));
   const byId = team?.byId ?? new Map<string, Person>();
   const owner = ownerName(item, me, byId);
   const ownerPerson = owner === 'You' ? (me ? byId.get(me) ?? null : null) : byId.get(item.createdBy ?? '') ?? null;
@@ -301,7 +303,9 @@ export function SummaryPanel({ item, team, onFinish, onClose, repeat = null }: {
   const holdMenu = (which: Menu) => (el: HTMLElement | null) => { if (menu === which) menuRef.current = el; };
 
   const state = threadState(item);
-  const prio: PriorityId = priorityIdOf(valueOf<number>('priority'));
+  // A level just picked shows at once; otherwise the level it runs at.
+  const prio: PriorityId = priorityIdOf(pending.priority ? valueOf<number>('priority')
+    : shownPriority(item, isDirect(team?.products.get(item.product))));
   // A thread from before you joined is yours until you share it, whatever it
   // says on disk (summary-rules.ts `whoSees`, the Team page's own rule).
   const visibility = whoSees({
