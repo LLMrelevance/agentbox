@@ -126,7 +126,7 @@ export const SETUPS = [
   {
     name: 'api-key-in-settings',
     why: 'an API key left in ~/.claude/settings.json from an old project: Claude Code uses it, so a worker would bill that key instead of the person\'s plan',
-    settings: () => ({ env: { ANTHROPIC_API_KEY: 'sk-ant-api03-verify-not-a-real-key' } }),
+    settings: () => ({ env: { ANTHROPIC_API_KEY: 'sk-ant-api03-verify-not-a-real-key' } }), // public-check: allow
     expect: NORMAL,
     // Claude Code reads this one out of the settings file itself, past the
     // environment scrub. Found by this setup on its first run and fixed by the
@@ -135,7 +135,7 @@ export const SETUPS = [
   {
     name: 'api-key-in-project',
     why: 'the same key committed in the project\'s .claude/settings.json, which a teammate never chose (an open problem found in past tasks)',
-    repo: { '.claude/settings.json': `${JSON.stringify({ env: { ANTHROPIC_API_KEY: 'sk-ant-api03-verify-not-a-real-key' } }, null, 1)}\n` },
+    repo: { '.claude/settings.json': `${JSON.stringify({ env: { ANTHROPIC_API_KEY: 'sk-ant-api03-verify-not-a-real-key' } }, null, 1)}\n` }, // public-check: allow
     expect: NORMAL,
   },
   // NOT A SETUP: a settings file Claude Code rejects. Measured 2026-10-15 on
