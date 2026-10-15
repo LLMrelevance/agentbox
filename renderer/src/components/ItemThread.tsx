@@ -62,7 +62,7 @@ const REFRESH_MS = 8_000;
 // screen is the kind of drift this row exists to end.
 const THEM = 'The agent';
 
-export function ItemThread({ item, engine, session, opening, sending, filed = [], onOpenFiled, onApproveFiled, onHereFiled,onOpenOrigin, onSendNow, md, clean, onOpenDoc, chat = false, onQuote, onHandToAgent, thread }: {
+export function ItemThread({ item, engine, session, opening, sending, filed = [], onOpenFiled, onApproveFiled, onHereFiled, onDismissFiled, onOpenOrigin, onSendNow, md, clean, onOpenDoc, chat = false, onQuote, onHandToAgent, thread }: {
   // A CHAT'S THREAD, IN THE PANEL BESIDE IT (w-920461cbe6). The pane owns which
   // one is open and how wide it is; this draws it, because this is where the
   // replies were read. `host` is the pane the panel is drawn into. Absent
@@ -90,6 +90,8 @@ export function ItemThread({ item, engine, session, opening, sending, filed = []
   onApproveFiled?: (id: string) => void;
   // And the one that does it in this thread instead (w-554834e749).
   onHereFiled?: (id: string) => void;
+  // And the one that drops it (w-fcb5fdc2e5).
+  onDismissFiled?: (id: string) => void;
   // IN A CHAT ONLY: put a message's words in the reply box as a quote, and turn
   // this conversation into work. The second was a line under the whole
   // conversation and is an action on one message now (w-560647d4db).
@@ -294,7 +296,7 @@ export function ItemThread({ item, engine, session, opening, sending, filed = []
   // `atFoot` and is drawn under the checkpoint, which is that turn's last word.
   const made = filedOnTurn(events, filed);
   const madeList = (rows: typeof filed) => (
-    <ThreadsMade rows={rows} label="Filed from this thread" onOpen={(id) => onOpenFiled?.(id)} onApprove={onApproveFiled} onHere={onHereFiled} />
+    <ThreadsMade rows={rows} label="Filed from this thread" onOpen={(id) => onOpenFiled?.(id)} onApprove={onApproveFiled} onHere={onHereFiled} onDismiss={onDismissFiled} />
   );
 
   // THE ANSWER, WHOLE, AT THE FOOT OF THE CONVERSATION.

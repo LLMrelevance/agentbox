@@ -47,9 +47,32 @@ function sockets({ answers = true } = {}) {
   return { Sock, made };
 }
 
-// The keys are made with WebCrypto, which settles on the real event loop, so
-// the fake clock leaves setImmediate alone and this waits on it.
-const flush = async () => { for (let i = 0; i < 50; i++) await new Promise((r) => setImmediate(r)); };
+// WAITING HERE IS FOR THE THING, NOT FOR FIFTY TURNS OF THE LOOP (2026-10-14).
+//
+// The room name and both keys are made with WebCrypto, which runs on libuv's
+// thread pool: it settles when the pool gets to it, not after any number of
+// turns of the event loop. This waited fifty turns of setImmediate and then
+// asserted the link was up, and that is what put main red on GitHub's Linux
+// runner for four days (run 38654506193 and the four before it): two of the
+// eight tests here failed, at `expect(client.state().connected).toBe(true)`,
+// while the other six passed in the same file.
+//
+// Measured on this Mac with scripts/scratch: alone, the link was up after 10
+// turns; with eight pbkdf2 jobs holding the pool, fifty turns saw
+// `connected: false` every time and the link came up a little later. So these
+// wait on the condition instead, and give up loudly, naming what never
+// happened. tests/waiting.mjs cannot be used: it is built on setTimeout and
+// Date.now(), which the fake clock here owns. performance.now() it does not.
+const realTimeout = globalThis.setTimeout;
+/** Turns of the loop first, since that is usually enough, then the real clock. */
+const turn = (n) => new Promise((r) => (n < 50 ? setImmediate(r) : realTimeout(r, 2)));
+const settles = async (what, cond, ms = 10_000) => {
+  const until = performance.now() + ms;
+  for (let n = 0; !cond(); n += 1) {
+    if (performance.now() >= until) throw new Error(`waited ${Math.round(ms / 1000)}s for ${what} and it never happened`);
+    await turn(n);
+  }
+};
 
 describe('the computer keeps its link to the relay alive', () => {
   let client;
@@ -61,7 +84,7 @@ describe('the computer keeps its link to the relay alive', () => {
     client = createRelayClient({ relayUrl: 'https://relay.test', key: () => KEY, port: () => 1, WebSocketImpl: Sock, log: { warn() {}, info() {} } });
     client.start();
     await vi.advanceTimersByTimeAsync(0);
-    await flush();
+    await settles('the computer to reach the relay', () => client.state().connected);
     expect(client.state().connected).toBe(true);
     return made;
   }
@@ -87,7 +110,7 @@ describe('the computer keeps its link to the relay alive', () => {
     await vi.advanceTimersByTimeAsync(PING_MS * 2);
     made[0].answers = false;
     await vi.advanceTimersByTimeAsync(PING_MS * 2 + PONG_GRACE_MS);
-    await flush();
+    await settles('the quiet link to be replaced', () => made[0].closed && made.length >= 2 && client.state().connected);
     expect(made[0].closed).toBe(true);
     expect(made.length).toBeGreaterThanOrEqual(2);
     expect(client.state().connected).toBe(true);
@@ -116,7 +139,7 @@ describe('the computer keeps its link to the relay alive', () => {
     // The laptop slept for ten minutes: the clock moved and no timer ran.
     vi.setSystemTime(Date.now() + 10 * 60_000);
     await vi.advanceTimersByTimeAsync(PING_MS);
-    await flush();
+    await settles('the link to be replaced after the sleep', () => made[0].closed && made.length === 2 && client.state().connected);
     expect(made[0].closed).toBe(true);
     expect(made).toHaveLength(2);
     expect(client.state().connected).toBe(true);
