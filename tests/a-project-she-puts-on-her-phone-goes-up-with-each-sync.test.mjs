@@ -31,7 +31,8 @@ beforeEach(async () => {
   cloud = createMemoryCloud();
   me = signUpMemory(cloud, { email: 'owner@example.com' });
   phone = memoryBackend(cloud, me);
-  onPhone = ['alpha'];
+  // Her yes, with her id on it, as Settings writes it.
+  onPhone = { owner: me, slugs: ['alpha'] };
   calls = [];
   const channels = new Map([
     ['zero:answer', async (_e, args) => { calls.push(['zero:answer', args]); return { id: args.id }; }],
@@ -45,6 +46,11 @@ beforeEach(async () => {
   });
   await service.signIn();
 });
+// The id this computer's projects carry online, read the way her phone reads it.
+const device = async () => {
+  await service.syncNow();
+  return (await phone.phoneProjects())[0].device;
+};
 afterEach(async () => { await service.signOut(); fs.rmSync(dir, { recursive: true, force: true }); });
 
 describe('the signed-in Mac sends up what she put on her phone', () => {
@@ -59,20 +65,42 @@ describe('the signed-in Mac sends up what she put on her phone', () => {
   });
 
   it('sends nothing when no project is on her phone', async () => {
-    onPhone = [];
+    onPhone = null;
     store.composeItem('alpha', { title: 'x', body: 'y' });
     await service.syncNow();
     expect(await phone.phoneThreads()).toEqual([]);
   });
 });
 
+// Codex's review of step 1, finding 1: her yes was the computer's, so whoever
+// signed in next had her projects sent to their account.
+describe('her yes is hers', () => {
+  it('somebody else signing in on this computer gets none of her projects', async () => {
+    store.composeItem('alpha', { title: 'Fix the login page', body: 'It loops.' });
+    await service.signOut();
+    const other = signUpMemory(cloud, { email: 'other@example.com' });
+    const theirs = memoryBackend(cloud, other);
+    const next = createTeamService({
+      session: memorySession(() => memoryBackend(cloud, other)),
+      store, disk, accountRoot: path.join(dir, 'accounts', 'a'), stateFile: path.join(dir, '.team-sync.json'), intervalMs: 3_600_000,
+      phone: { projects: () => onPhone, apply: async () => {}, stateFile: path.join(dir, '.phone-inbox.json') },
+    });
+    await next.signIn();
+    await next.syncNow();
+    expect(await theirs.phoneThreads()).toEqual([]);
+    expect(await theirs.phoneProjects()).toEqual([]);
+    await next.signOut();
+    await service.signIn();
+  });
+});
+
 describe('what her phone left goes through the window\'s own handlers', () => {
   it('a reply, a close, a snooze and a new thread, each to its handler', async () => {
     const a = store.composeItem('alpha', { title: 'Fix the login page', body: 'It loops.' });
-    await phone.addPhoneCommand({ project: 'alpha', item: a.id, kind: 'reply', payload: { text: 'Use the new cookie.' } });
-    await phone.addPhoneCommand({ project: 'alpha', item: a.id, kind: 'snooze', payload: { until: 1_900_000_000_000 } });
-    await phone.addPhoneCommand({ project: 'alpha', item: a.id, kind: 'close' });
-    await phone.addPhoneCommand({ project: 'alpha', kind: 'new', payload: { title: 'Ship it', body: 'today' } });
+    await phone.addPhoneCommand({ device: await device(), project: 'alpha', item: a.id, kind: 'reply', payload: { text: 'Use the new cookie.' } });
+    await phone.addPhoneCommand({ device: await device(), project: 'alpha', item: a.id, kind: 'snooze', payload: { until: 1_900_000_000_000 } });
+    await phone.addPhoneCommand({ device: await device(), project: 'alpha', item: a.id, kind: 'close' });
+    await phone.addPhoneCommand({ device: await device(), project: 'alpha', kind: 'new', payload: { title: 'Ship it', body: 'today' } });
     await service.syncNow();
     expect(calls).toEqual([
       ['zero:answer', { product: 'alpha', id: a.id, answer: 'Use the new cookie.' }],
@@ -91,7 +119,7 @@ describe('what her phone left goes through the window\'s own handlers', () => {
 
   it('never acts on a project she did not put on her phone', async () => {
     const p = store.composeItem('private', { title: 'Board notes', body: 'secret' });
-    await phone.addPhoneCommand({ project: 'private', item: p.id, kind: 'close' });
+    await phone.addPhoneCommand({ device: await device(), project: 'private', item: p.id, kind: 'close' });
     await service.syncNow();
     expect(calls).toEqual([]);
     expect((await phone.phoneCommands())[0].outcome).toMatch(/^refused: /);
@@ -107,8 +135,21 @@ describe('the switch on a project', () => {
     expect(onPhoneNow()).toBe(false);
     setProjectSetting({ config, supervisor: sup }, { product: 'acme', key: 'phone', value: true });
     expect(onPhoneNow()).toBe(true);
-    expect(loadConfig(dir).phoneProducts).toEqual(['acme']);
+    expect(loadConfig(dir).phoneProducts).toEqual({ owner: me, slugs: ['acme'] });
     setProjectSetting({ config, supervisor: sup }, { product: 'acme', key: 'phone', value: false });
     expect(onPhoneNow()).toBe(false);
+  });
+  it('is kept under the person signed in, reads off for anybody else, and needs somebody signed in', () => {
+    const config = loadConfig(dir);
+    const sup = new Supervisor(config, fake, dir);
+    const was = process.env.AGENTBOX_PERSON_ID;
+    try {
+      setProjectSetting({ config, supervisor: sup }, { product: 'acme', key: 'phone', value: true });
+      expect(loadConfig(dir).phoneProducts).toEqual({ owner: was, slugs: ['acme'] });
+      process.env.AGENTBOX_PERSON_ID = 'someone-else';
+      expect(readSettings({ config: loadConfig(dir), supervisor: sup, store: fake }).projects[0].onPhone).toBe(false);
+      delete process.env.AGENTBOX_PERSON_ID;
+      expect(() => setProjectSetting({ config, supervisor: sup }, { product: 'acme', key: 'phone', value: true })).toThrow(/sign in/);
+    } finally { process.env.AGENTBOX_PERSON_ID = was; }
   });
 });

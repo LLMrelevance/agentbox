@@ -12,6 +12,7 @@
 // place a grant is reviewed; what changed is that she edits them as fields on
 // the project they belong to instead of in a text editor.
 
+import { phoneProjectsOf, withPhoneProject } from '../shared/phone-snapshot.mjs';
 import fs from 'node:fs';
 import { harnessFor } from './harnesses.mjs';
 import os from 'node:os';
@@ -542,7 +543,7 @@ export function readSettings({ config, supervisor, store }) {
       autonomous: (config.autonomousProducts ?? []).includes(product.slug),
       // ON HER PHONE WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md): its threads
       // go up to her own rows online on every sync (main/phone-inbox.mjs).
-      onPhone: (config.phoneProducts ?? []).includes(product.slug),
+      onPhone: phoneProjectsOf(config.phoneProducts, process.env.AGENTBOX_PERSON_ID).includes(product.slug),
       permission: override ? permissionMode(override) : 'workspace',
       permissionArgs: override ?? null,
       codexMode: config.projectCodexMode?.[product.slug] ?? 'workspace',
@@ -795,11 +796,9 @@ export function setProjectSetting({ config, supervisor }, { product, key, value 
     case 'autonomous':
       saveConfig(config, { autonomousProducts: withSlug(config.autonomousProducts, product, !!value) });
       break;
-    case 'phone': {
-      const list = withSlug(config.phoneProducts, product, !!value);
-      saveConfig(config, { phoneProducts: list.length ? list : undefined });
+    case 'phone':
+      saveConfig(config, { phoneProducts: withPhoneProject(config.phoneProducts, process.env.AGENTBOX_PERSON_ID, product, !!value) });
       break;
-    }
     // WHICH OF HER CLAUDE CODE AGENTS THIS PROJECT TOOK. Names only: the files
     // stay where their author put them and Agentbox never copies or moves one,
     // so a list here that has gone stale costs nothing and an agent she

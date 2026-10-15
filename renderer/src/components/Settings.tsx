@@ -613,8 +613,6 @@ function Reading({ running, capacity, gate }: {
 // THE PHONE DOOR (main/phone-link.mjs). Off until turned on. The QR code is the
 // key, so it is drawn only on this page and only while the door is open.
 const PHONE_ROUTE_OPTIONS: Array<{ value: PhoneRoute; label: string }> = [
-  // Shown only once there is a relay to use (main/relay-address.mjs).
-  { value: 'anywhere', label: 'Anywhere' },
   { value: 'tailscale', label: 'Tailscale, secure' },
   { value: 'wifi', label: 'Same Wi-Fi, not secure' },
 ];
@@ -660,23 +658,33 @@ function PhoneAlertsPage({ onFeedback }: { onFeedback?: () => void }) {
 // WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md, step 1). The projects she
 // puts on her phone go to her account online on every sync; the phone site
 // reads them and leaves what she sends for this Mac to do when it wakes.
-type MacShut = { site: string | null; projects: ProjectSettings[]; onSet: (slug: string, on: boolean) => void };
+// THE WAY IN IS A WEBSITE WE HOST (2026-10-14), not a relay to this computer:
+// the code is only its address, so it carries no key and needs no resetting.
+type MacShut = { site: string | null; siteQr: string | null; projects: ProjectSettings[]; onSet: (slug: string, on: boolean) => void };
 function MacShutGroup({ macShut }: { macShut: MacShut }) {
   const site = macShut.site?.replace(/^https?:\/\//, '').replace(/\/$/, '') ?? null;
   return (
-    <Group id="phone-mac-shut" label="With your computer closed">
-      {macShut.projects.map((p) => (
-        <Row key={p.slug} label={p.name}>
-          <Switch on={!!p.onPhone} label={`${p.name} on your phone`} onChange={(v) => macShut.onSet(p.slug, v)} />
-        </Row>
-      ))}
-      <Row
-        label="Open on your phone"
-        desc={site
-          ? `Go to ${site} and sign in with this account. Replies wait there until this computer wakes.`
-          : 'The phone site is not set up yet.'}
-      />
-    </Group>
+    <>
+      <Group id="phone-mac-shut" label="Projects on your phone">
+        {macShut.projects.map((p) => (
+          <Row key={p.slug} label={p.name}>
+            <Switch on={!!p.onPhone} label={`${p.name} on your phone`} onChange={(v) => macShut.onSet(p.slug, v)} />
+          </Row>
+        ))}
+      </Group>
+      <Group id="phone-site" label="Open on your phone">
+        {site && macShut.siteQr ? (
+          <div className="set-row set-phone-qr">
+            <img alt={`QR code that opens ${site} on a phone`} src={`data:image/svg+xml;utf8,${encodeURIComponent(macShut.siteQr)}`} />
+            <div className="set-row-desc">
+              Scan with your phone's camera, or go to <code>{site}</code>. Sign in with this account, then add the page to your home screen and it opens like an app. Replies wait there until this computer wakes.
+            </div>
+          </div>
+        ) : (
+          <Row label="Not set up yet" desc="The phone site has no address yet." />
+        )}
+      </Group>
+    </>
   );
 }
 
@@ -715,20 +723,18 @@ function PhonePage({ onFeedback, macShut }: { onFeedback?: () => void; macShut?:
     if (window.confirm('Make a new key? Every connected phone is disconnected and has to scan the new code.')) void run('reset');
   };
   return (
-    <Page title="Phone" lede={`Use this inbox on your phone. Scan the code with the phone's camera, then add the page to the home screen and it opens like an app.`}>
+    <Page title="Phone" lede={macShut
+      ? 'Read and reply from your phone, even with this computer closed.'
+      : `Use this inbox on your phone. Scan the code with the phone's camera, then add the page to the home screen and it opens like an app.`}>
       {macShut && <MacShutGroup macShut={macShut} />}
-      <Group id="phone" label="Phone access">
+      <Group id="phone" label={macShut ? 'Straight to this computer, without signing in' : 'Phone access'}>
         <Row label="Let phones connect" desc={link.on ? (link.error ?? (link.listening ? `Open on port ${link.port}.` : 'Starting…')) : 'Off. Nothing outside this computer can reach the inbox.'}>
           <Switch on={link.on} busy={busy} label="Let phones connect" onChange={(v) => void run(v ? 'on' : 'off')} />
         </Row>
         {link.on && (
           <Row
             label="Reach it over"
-            desc={link.via === 'anywhere'
-              ? link.relay?.connected
-                ? 'Works on any Wi-Fi or mobile data, with nothing to install. Everything is locked on this computer and unlocked only on your phone, so the relay in between cannot read it.'
-                : link.error ?? 'Connecting to the relay…'
-              : link.via === 'tailscale'
+            desc={link.via === 'tailscale'
               ? link.settingUp
                 ? 'Setting up a secure address with Tailscale…'
                 : link.secure
@@ -1422,7 +1428,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   account?: { email: string; team?: string | null; onSignOut: () => void };
   /** HER PHONE WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md): present while
    *  she is signed in, with the phone site's address once there is one. */
-  phoneCloud?: { site: string | null };
+  phoneCloud?: { site: string | null; siteQr: string | null };
   /**
    * WHETHER A NEWER AGENTBOX IS WAITING, as the whole app already reads it
    *  (the sidebar card and ⌘K read the same field). Handed in rather than

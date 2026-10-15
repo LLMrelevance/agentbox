@@ -18,13 +18,14 @@ import { REQUEST_CHANNELS, PUSH_CHANNELS, DESKTOP_ONLY } from '../../shared/brid
 import { cloudClient, type CloudClient, type CloudConfig } from './cloud-rest';
 import { installPhoneScreen } from './phone-screen';
 import { atMostEvery } from './phone-polls';
+import { madeHere } from '../../shared/phone-snapshot.mjs';
 
 type Push = (payload: unknown) => void;
 
 export interface PhoneRows {
-  projects: { project: string; name: string }[];
-  threads: { project: string; item: string; snapshot: any; updated_at?: string }[];
-  commands: { id: string; project: string; item: string | null; kind: string; payload: any; created_at: string; taken_at: string | null; outcome: string | null }[];
+  projects: { device: string; project: string; name: string }[];
+  threads: { device: string; project: string; item: string; snapshot: any; updated_at?: string }[];
+  commands: { id: string; device: string; project: string; item: string | null; kind: string; payload: any; created_at: string; taken_at: string | null; outcome: string | null }[];
 }
 
 export interface Waiting { product: string; id: string; at: number; text: string; refused?: string }
@@ -32,9 +33,14 @@ export interface Waiting { product: string; id: string; at: number; text: string
 // How long a refusal stays on her screen: long enough to be read the next time
 // she looks, not forever.
 const REFUSAL_SHOWN_MS = 24 * 3600_000;
-// A new thread's row before her Mac has made it. Shaped like a row id so every
-// screen that tests one takes it.
-const madeHere = (cmdId: string) => `w-${cmdId.replace(/[^0-9a-f]/gi, '').slice(0, 10).toLowerCase()}`;
+// A PROJECT ON THE PHONE IS A PROJECT ON ONE COMPUTER (Codex's review of
+// step 1, finding 4): the screens know it by its name there and that
+// computer's id together, so two computers' projects of the same name stay two.
+export const phoneSlug = (device: string, project: string) => `${project}@${device}`;
+export function splitSlug(slug: string): { device: string; project: string } | null {
+  const m = /^(.+)@([0-9a-f]{12})$/.exec(String(slug));
+  return m ? { project: m[1], device: m[2] } : null;
+}
 
 /**
  * Her rows, as the inbox draws them: each thread as her Mac last saw it, with
@@ -43,12 +49,13 @@ const madeHere = (cmdId: string) => `w-${cmdId.replace(/[^0-9a-f]/gi, '').slice(
  * in the thread, marked as waiting.
  */
 export function phoneView(rows: PhoneRows, now = Date.now()) {
-  const names = new Map(rows.projects.map((p) => [p.project, p.name]));
-  const products = rows.projects.map((p) => ({ slug: p.project, name: p.name, dir: '', oneLiner: '', repoPath: '' }));
+  const names = new Map(rows.projects.map((p) => [phoneSlug(p.device, p.project), p.name]));
+  const products = rows.projects.map((p) => ({ slug: phoneSlug(p.device, p.project), name: p.name, dir: '', oneLiner: '', repoPath: '' }));
   const items = new Map<string, any>();
   for (const t of rows.threads) {
-    if (!names.has(t.project) || !t.snapshot?.item) continue;
-    items.set(`${t.project}/${t.item}`, { ...t.snapshot.item, id: t.item, product: t.project, productName: names.get(t.project) });
+    const slug = phoneSlug(t.device, t.project);
+    if (!names.has(slug) || !t.snapshot?.item) continue;
+    items.set(`${slug}/${t.item}`, { ...t.snapshot.item, id: t.item, product: slug, productName: names.get(slug) });
   }
   const waiting: Waiting[] = [];
   const ordered = [...rows.commands].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
@@ -56,16 +63,17 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
     const at = Date.parse(c.created_at) || now;
     const refused = c.outcome?.startsWith('refused') ? c.outcome.replace(/^refused:\s*/, '') : null;
     if (c.taken_at && !(refused && now - at < REFUSAL_SHOWN_MS)) continue;
-    const key = `${c.project}/${c.item}`;
+    const slug = phoneSlug(c.device, c.project);
+    const key = `${slug}/${c.item}`;
     const row = items.get(key);
-    if (c.kind === 'reply' && c.item) waiting.push({ product: c.project, id: c.item, at, text: String(c.payload?.text ?? ''), ...(refused ? { refused } : {}) });
+    if (c.kind === 'reply' && c.item) waiting.push({ product: slug, id: c.item, at, text: String(c.payload?.text ?? ''), ...(refused ? { refused } : {}) });
     else if (refused) continue;
     else if (c.kind === 'close' && row) items.set(key, { ...row, status: 'done', updatedAt: at });
     else if (c.kind === 'snooze' && row) items.set(key, { ...row, snoozedUntil: Number(c.payload?.until) || null, updatedAt: at });
-    else if (c.kind === 'new' && names.has(c.project)) {
+    else if (c.kind === 'new' && names.has(slug)) {
       const id = madeHere(c.id);
-      items.set(`${c.project}/${id}`, {
-        id, product: c.project, productName: names.get(c.project), title: String(c.payload?.title || c.payload?.body || '').slice(0, 200),
+      items.set(`${slug}/${id}`, {
+        id, product: slug, productName: names.get(slug), title: String(c.payload?.title || c.payload?.body || '').slice(0, 200),
         body: String(c.payload?.body ?? ''), status: 'open', kind: 'directive', labels: [], priority: 0,
         createdAt: at, updatedAt: at, waitsForMac: true,
       });
@@ -76,24 +84,42 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
 
 /** The thread's lines as her Mac sent them, for the thread view. */
 export function phoneHistory(rows: PhoneRows, product: string, id: string) {
-  const t = rows.threads.find((r) => r.project === product && r.item === id);
+  const t = rows.threads.find((r) => phoneSlug(r.device, r.project) === product && r.item === id);
   return { ok: true, lines: Array.isArray(t?.snapshot?.history) ? t.snapshot.history : [] };
 }
 
 /** What one press on the phone leaves for her Mac, or null for a press that is not one of the four. */
-export function commandFor(channel: string, p: any): { project: string; item: string | null; kind: string; payload: Record<string, unknown> } | null {
-  if (!p?.product) return null;
+export function commandFor(channel: string, p: any): { device: string; project: string; item: string | null; kind: string; payload: Record<string, unknown> } | null {
+  const where = splitSlug(p?.product);
+  if (!where) return null;
+  const on = (item: string | null, kind: string, payload: Record<string, unknown>) => ({ ...where, item, kind, payload });
   if (channel === REQUEST_CHANNELS.answer) {
-    if (typeof p.answer === 'string' && p.answer.trim()) return { project: p.product, item: p.id, kind: 'reply', payload: { text: p.answer } };
-    if (p.status === 'done') return { project: p.product, item: p.id, kind: 'close', payload: {} };
+    if (typeof p.answer === 'string' && p.answer.trim()) return on(p.id, 'reply', { text: p.answer });
+    if (p.status === 'done') return on(p.id, 'close', {});
     return null;
   }
-  if (channel === REQUEST_CHANNELS.snooze && Number.isFinite(p.snoozedUntil)) return { project: p.product, item: p.id, kind: 'snooze', payload: { until: p.snoozedUntil } };
+  if (channel === REQUEST_CHANNELS.snooze && Number.isFinite(p.snoozedUntil) && p.snoozedUntil >= 0) return on(p.id, 'snooze', { until: p.snoozedUntil });
   if (channel === REQUEST_CHANNELS.compose && (String(p.title ?? '').trim() || String(p.body ?? '').trim())) {
-    return { project: p.product, item: null, kind: 'new', payload: { title: String(p.title ?? ''), body: String(p.body ?? '') } };
+    return on(null, 'new', { title: String(p.title ?? ''), body: String(p.body ?? '') });
   }
   return null;
 }
+
+// THE DOORS THAT ONLY READ, answered here as a door with nothing behind it.
+// Every other door changes something on her computer that the phone cannot
+// reach, so it says so rather than answering as if it had (Codex's review of
+// step 1, finding 7: Stop said the agent stopped when nothing had).
+const READS = new Set([
+  'agentUpdate', 'refreshUsage', 'assistiveTech', 'olderItems', 'commandCatalog', 'compactionStatus',
+  'firstRunExamples', 'firstRunWalking', 'listFolders', 'folderExists', 'agentFiles', 'agentFolders',
+  'agentThreads', 'cornerTag', 'bootInfo', 'updateCheck', 'instructionRead', 'instructionHistory',
+  'instructionVersion', 'standingRead', 'messageRulesRead', 'settingsRead', 'engineBin',
+  'cloudClipboardCode', 'projectInstructionsRead', 'folderPictures', 'readDoc', 'codeFile', 'railNote',
+  'agentConversation', 'phoneLink', 'teamStatus', 'resumeAgents', 'resumeItems',
+  // Where she dragged a row or a project to: kept on this page, not sent.
+  'setThreadPlaces', 'setThreadPins', 'setProductOrder', 'setProductHidden',
+]);
+export const NOT_HERE = 'Your computer does this. Your phone can reply, start a thread, close, and move things to Later.';
 
 export function readCloudConfig(doc: Document = document): CloudConfig | null {
   const raw = doc.querySelector('meta[name="agentbox-cloud"]')?.getAttribute('content');
@@ -127,17 +153,37 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
   };
   const changed = atMostEvery(1000, (payload?: unknown) => deliver(PUSH_CHANNELS.onChanged, payload));
 
+  const COMMANDS = 'select=id,device,project,item,kind,payload,created_at,taken_at,outcome&order=created_at';
+  // Every command still waiting, however old (Codex's review of step 1,
+  // finding 10), and those taken in the last two days, for what they say.
+  async function commands() {
+    const waiting: PhoneRows['commands'] = [];
+    for (let from = 0; ; from += 500) {
+      const page = await client.select('phone_commands', `${COMMANDS}&taken_at=is.null&offset=${from}&limit=500`);
+      waiting.push(...page);
+      if (page.length < 500) break;
+    }
+    const since = new Date(Date.now() - 2 * 24 * 3600_000).toISOString();
+    const done = await client.select('phone_commands', `${COMMANDS}&taken_at=not.is.null&created_at=gte.${since}&limit=500`);
+    return [...waiting, ...done];
+  }
+
   async function refresh() {
     if (!client.signedIn()) { rows = EMPTY_ROWS; return; }
+    const asked = client.generation();
     try {
-      const [projects, threads, commands] = await Promise.all([
-        client.select('phone_projects', 'select=project,name&order=name'),
-        client.select('phone_threads', 'select=project,item,snapshot,updated_at&order=updated_at.desc&limit=1000'),
-        client.select('phone_commands', `select=id,project,item,kind,payload,created_at,taken_at,outcome&created_at=gte.${new Date(Date.now() - 2 * 24 * 3600_000).toISOString()}&order=created_at&limit=500`),
+      const [projects, threads, cmds] = await Promise.all([
+        client.select('phone_projects', 'select=device,project,name&order=name'),
+        client.select('phone_threads', 'select=device,project,item,snapshot,updated_at&order=updated_at.desc&limit=1000'),
+        commands(),
       ]);
-      rows = { projects, threads, commands };
+      // Read for a sign-in that has since ended: not hers to show.
+      if (client.generation() !== asked) return;
+      rows = { projects, threads, commands: cmds };
       error = null;
     } catch (err) {
+      if (client.generation() !== asked) return;
+      if (!client.signedIn()) rows = EMPTY_ROWS;
       error = String((err as Error)?.message ?? err);
     }
     const key = JSON.stringify([rows.threads.map((t) => [t.item, t.updated_at]), rows.commands.map((c) => [c.id, c.taken_at]), rows.projects, error, client.signedIn()]);
@@ -172,9 +218,10 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
 
   const leave = async (channel: string, payload: unknown) => {
     const cmd = commandFor(channel, payload);
-    if (!cmd) return { ok: false, error: 'Your computer does this. Open it there.' };
+    if (!cmd) return { ok: false, error: NOT_HERE };
+    const asked = client.generation();
     const row = await client.insert('phone_commands', cmd);
-    rows = { ...rows, commands: [...rows.commands, row] };
+    if (client.generation() === asked) rows = { ...rows, commands: [...rows.commands, row] };
     changed(null);
     return { ok: true };
   };
@@ -183,9 +230,9 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
   };
 
   const bridge: Record<string, unknown> = {};
-  // Every door answers, as one that is not here: the screens treat a null as
-  // "nothing to show".
-  for (const name of Object.keys(REQUEST_CHANNELS)) bridge[name] = async () => null;
+  // A door that reads answers as one with nothing behind it: the screens treat
+  // a null as "nothing to show". Every other door says it is not here.
+  for (const name of Object.keys(REQUEST_CHANNELS)) bridge[name] = READS.has(name) ? async () => null : async () => { throw new Error(NOT_HERE); };
   for (const name of DESKTOP_ONLY) bridge[name] = () => null;
   for (const [name, channel] of Object.entries(PUSH_CHANNELS)) {
     bridge[name] = (fn: Push) => {
@@ -229,7 +276,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       const out = await client.signUp(name, email, password);
       if (out.confirm) throw new Error('Check your email to confirm it, then sign in here.');
     }),
-    teamSignOut: async () => { client.signOut(); rows = EMPTY_ROWS; changed(null); return { ok: true }; },
+    teamSignOut: async () => { client.signOut(); rows = EMPTY_ROWS; error = null; changed(null); return { ok: true }; },
   });
 
   (window as any).zero = bridge;

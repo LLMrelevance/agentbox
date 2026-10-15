@@ -19,7 +19,8 @@ function must({ data, error }, what) {
   return data;
 }
 
-const commandOut = (r) => ({ id: r.id, owner: r.owner, project: r.project, item: r.item, kind: r.kind, payload: r.payload ?? {}, createdAt: r.created_at, takenAt: r.taken_at ?? null, outcome: r.outcome ?? null });
+const COMMAND_COLUMNS = 'id,owner,device,project,item,kind,payload,created_at,taken_at,outcome';
+const commandOut = (r) => ({ id: r.id, owner: r.owner, device: r.device, project: r.project, item: r.item, kind: r.kind, payload: r.payload ?? {}, createdAt: r.created_at, takenAt: r.taken_at ?? null, outcome: r.outcome ?? null });
 
 export function supabaseBackend(client) {
   let personId = null;
@@ -242,54 +243,60 @@ export function supabaseBackend(client) {
 
     // HER OWN ROWS FOR HER PHONE (20261014000000_phone_inbox.sql). The owner
     // column defaults to her, and row level security keeps every row hers.
-    async putPhoneProject({ project, name }) {
+    // Every row names the computer it belongs to (`device`).
+    async putPhoneProject({ device, project, name }) {
       await myId();
-      must(await client.from('phone_projects').upsert({ project, name, updated_at: new Date().toISOString() }, { onConflict: 'owner,project' }), 'putting a project on your phone');
+      must(await client.from('phone_projects').upsert({ device, project, name, updated_at: new Date().toISOString() }, { onConflict: 'owner,device,project' }), 'putting a project on your phone');
     },
-    async dropPhoneProject(project) {
+    async dropPhoneProject(device, project) {
       await myId();
-      must(await client.from('phone_threads').delete().eq('project', project), 'taking a project off your phone');
-      must(await client.from('phone_projects').delete().eq('project', project), 'taking a project off your phone');
+      // Its threads go with it (the database cascades).
+      must(await client.from('phone_projects').delete().eq('device', device).eq('project', project), 'taking a project off your phone');
     },
-    async putPhoneThreads(project, rows) {
+    async putPhoneThreads(device, project, rows) {
       await myId();
       const at = new Date().toISOString();
       for (let i = 0; i < rows.length; i += 50) {
-        const batch = rows.slice(i, i + 50).map((r) => ({ project, item: r.item, snapshot: r.snapshot, updated_at: at }));
-        must(await client.from('phone_threads').upsert(batch, { onConflict: 'owner,project,item' }), 'sending threads to your phone');
+        const batch = rows.slice(i, i + 50).map((r) => ({ device, project, item: r.item, snapshot: r.snapshot, updated_at: at }));
+        must(await client.from('phone_threads').upsert(batch, { onConflict: 'owner,device,project,item' }), 'sending threads to your phone');
       }
     },
-    async dropPhoneThreads(project, items) {
+    async dropPhoneThreads(device, project, items) {
       await myId();
       for (let i = 0; i < items.length; i += 100) {
-        must(await client.from('phone_threads').delete().eq('project', project).in('item', items.slice(i, i + 100)), 'taking threads off your phone');
+        must(await client.from('phone_threads').delete().eq('device', device).eq('project', project).in('item', items.slice(i, i + 100)), 'taking threads off your phone');
       }
     },
     // What her phone reads and sends.
     async phoneProjects() {
       const me = await myId();
-      const rows = must(await client.from('phone_projects').select('owner,project,name').order('name'), 'reading the projects on your phone');
+      const rows = must(await client.from('phone_projects').select('owner,device,project,name').order('name'), 'reading the projects on your phone');
       return (rows ?? []).filter((r) => r.owner === me);
     },
     async phoneThreads() {
       const me = await myId();
-      const rows = must(await client.from('phone_threads').select('owner,project,item,snapshot,updated_at').order('updated_at', { ascending: false }).limit(1000), 'reading the threads on your phone');
-      return (rows ?? []).filter((r) => r.owner === me).map((r) => ({ owner: r.owner, project: r.project, item: r.item, snapshot: r.snapshot, updatedAt: Date.parse(r.updated_at) }));
+      const rows = must(await client.from('phone_threads').select('owner,device,project,item,snapshot,updated_at').order('updated_at', { ascending: false }).limit(1000), 'reading the threads on your phone');
+      return (rows ?? []).filter((r) => r.owner === me).map((r) => ({ owner: r.owner, device: r.device, project: r.project, item: r.item, snapshot: r.snapshot, updatedAt: Date.parse(r.updated_at) }));
     },
-    async addPhoneCommand({ project, item = null, kind, payload = {} }) {
+    async addPhoneCommand({ device, project, item = null, kind, payload = {} }) {
       await myId();
-      const row = must(await client.from('phone_commands').insert({ project, item, kind, payload }).select('id,owner,project,item,kind,payload,created_at,taken_at,outcome').single(), 'sending that to your Mac');
+      const row = must(await client.from('phone_commands').insert({ device, project, item, kind, payload }).select(COMMAND_COLUMNS).single(), 'sending that to your computer');
       return commandOut(row);
     },
     async phoneCommands() {
       await myId();
-      const rows = must(await client.from('phone_commands').select('id,owner,project,item,kind,payload,created_at,taken_at,outcome').order('created_at', { ascending: true }).limit(500), 'reading what your phone sent');
+      const rows = must(await client.from('phone_commands').select(COMMAND_COLUMNS).order('created_at', { ascending: true }).limit(500), 'reading what your phone sent');
       return (rows ?? []).map(commandOut);
     },
-    async waitingPhoneCommands() {
+    // This computer's, every one still waiting, oldest first, a page at a time.
+    async waitingPhoneCommands(device) {
       await myId();
-      const rows = must(await client.from('phone_commands').select('id,project,item,kind,payload,created_at').is('taken_at', null).order('created_at', { ascending: true }).limit(200), 'reading what your phone sent');
-      return (rows ?? []).map((r) => ({ id: r.id, project: r.project, item: r.item, kind: r.kind, payload: r.payload ?? {}, createdAt: r.created_at }));
+      const out = [];
+      for (let from = 0; ; from += 200) {
+        const rows = must(await client.from('phone_commands').select(COMMAND_COLUMNS).eq('device', device).is('taken_at', null).order('created_at', { ascending: true }).range(from, from + 199), 'reading what your phone sent');
+        out.push(...(rows ?? []).map(commandOut));
+        if (!rows || rows.length < 200) return out;
+      }
     },
     async markPhoneCommand(id, outcome) {
       await myId();

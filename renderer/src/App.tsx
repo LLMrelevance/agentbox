@@ -1,5 +1,5 @@
 import { previewFocus } from './preview-focus';
-import { usePhoneBack, onPhone } from './phone-screen';
+import { usePhoneBack, onCloudPhone, onPhone } from './phone-screen';
 import { holdsReplies, writeHeldWhenHidden } from './phone-holds';
 import { pollEvery } from './phone-polls';
 import type {FocusControlStyle} from './focus-control';
@@ -4325,6 +4325,10 @@ export default function App() {
     // these would be a write into nothing. Both behave like a task in every way
     // she can see and in none that she cannot.
     if (item.agent || isTroubleRow(item) || isUpdateRow(item)) return;
+    // NOR FROM THE PHONE WITH THE COMPUTER CLOSED, which cannot reach a run to
+    // stop it, and says so rather than saying it stopped (Codex's review of
+    // step 1, finding 7).
+    if (onCloudPhone()) { showToast('Stop it on your computer. Your phone can reply, close, and move things to Later.'); return; }
     // A MESSAGE STILL IN ITS THREE SECONDS IS WRITTEN BEFORE THE STOP. Held, it
     // landed after the kill, read as a reply sent after stopping, reopened the
     // row and started a fresh run on it two minutes later (2026-10-05).
@@ -6559,7 +6563,7 @@ export default function App() {
           // bottom of settings page". Only while someone is signed in.
           // HER PHONE WITH THE MAC SHUT: the projects she puts on it, on the
           // Phone page, only while she is signed in.
-          phoneCloud={snap?.team?.signedIn ? { site: snap.team.phoneSite ?? null } : undefined}
+          phoneCloud={snap?.team?.signedIn ? { site: snap.team.phoneSite ?? null, siteQr: snap.team.phoneSiteQr ?? null } : undefined}
           account={snap?.team?.signedIn && snap.team.me ? { email: snap.team.me.email, team: snap.team.team?.name ?? null, onSignOut: () => { void api.teamSignOut().then(() => refresh()); } } : undefined}
           // THE VERSION AND THE CHECK FOR A NEWER ONE (w-39d6c237f7), off the
           // same snapshot field the sidebar card and ⌘K read.

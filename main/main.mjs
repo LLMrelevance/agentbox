@@ -25,7 +25,6 @@ import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
 import { createPhoneLink } from './phone-link.mjs';
 import { applyThrough } from './phone-inbox.mjs';
-import { relayAddress } from './relay-address.mjs';
 import { atTheComputer } from '../shared/notify-rules.mjs';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
@@ -413,7 +412,8 @@ async function createWindow() {
     // HER PHONE WITH THE MAC SHUT (main/phone-inbox.mjs). What it left is done
     // through the window's own handlers, filed below once the window exists.
     phone: {
-      projects: () => config.phoneProducts ?? [],
+      // Her yes, with her id on it (shared/phone-snapshot.mjs phoneProjectsOf).
+      projects: () => config.phoneProducts ?? null,
       ready: () => !!phoneApply,
       apply: (cmd) => phoneApply(cmd),
       stateFile: path.join(config.storeRoot, '.phone-inbox.json'),
@@ -759,9 +759,6 @@ async function createWindow() {
     // schemes use below: a page the pane was granted, and a picture inside a
     // root the app owns (main/serve.mjs answerFile).
     files: { allows: (kind, f) => (kind === 'doc' ? docGrants.allows(f) : servable(f, imageRoots())) },
-    // "Anywhere": the relay a phone reaches this Mac through from any network
-    // (main/relay-client.mjs). None until it is deployed, and then no choice.
-    relayUrl: relayAddress({ appDir }),
     onChange: () => { if (!window.isDestroyed()) sendToWindow('zero:phone-changed'); },
     // The phone stays quiet while she is using the computer in any app, not
     // only Agentbox: the desktop banner covers the rest (shared/notify-rules.mjs).

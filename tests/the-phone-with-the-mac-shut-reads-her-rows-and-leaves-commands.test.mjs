@@ -7,22 +7,38 @@
 // sign-in and no other key.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
-import { phoneView, phoneHistory, commandFor, readCloudConfig } from '../renderer/src/cloud-bridge';
+import { phoneView, phoneHistory, commandFor, readCloudConfig, phoneSlug, splitSlug } from '../renderer/src/cloud-bridge';
+import { REQUEST_CHANNELS } from '../shared/bridge-map.mjs';
 import { cloudClient } from '../renderer/src/cloud-rest';
 
 const NOW = Date.parse('2026-10-14T12:00:00Z');
 const iso = (ms) => new Date(ms).toISOString();
-const thread = (item, extra = {}) => ({ project: 'alpha', item, snapshot: { v: 2, item: { id: item, title: `T ${item}`, status: 'blocked', updatedAt: NOW - 1e5, ...extra }, history: [{ id: item, ts: 1, source: 'agent', patch: { result: 'Done.' } }] } });
-const cmd = (id, kind, extra = {}) => ({ id, project: 'alpha', item: 'w-1', kind, payload: {}, created_at: iso(NOW - 1000), taken_at: null, outcome: null, ...extra });
-const rows = (commands = []) => ({ projects: [{ project: 'alpha', name: 'Alpha' }], threads: [thread('w-1'), thread('w-2')], commands });
+const DEV = 'a1b2c3d4e5f6';
+const OTHER = '0f0e0d0c0b0a';
+const A = phoneSlug(DEV, 'alpha');
+const thread = (item, extra = {}) => ({ device: DEV, project: 'alpha', item, snapshot: { v: 2, item: { id: item, title: `T ${item}`, status: 'blocked', updatedAt: NOW - 1e5, ...extra }, history: [{ id: item, ts: 1, source: 'agent', patch: { result: 'Done.' } }] } });
+const cmd = (id, kind, extra = {}) => ({ id, device: DEV, project: 'alpha', item: 'w-1', kind, payload: {}, created_at: iso(NOW - 1000), taken_at: null, outcome: null, ...extra });
+const rows = (commands = []) => ({ projects: [{ device: DEV, project: 'alpha', name: 'Alpha' }], threads: [thread('w-1'), thread('w-2')], commands });
 
 describe('what the inbox draws', () => {
   it('each thread as her Mac last saw it, under its project', () => {
     const v = phoneView(rows(), NOW);
-    expect(v.products.map((p) => [p.slug, p.name])).toEqual([['alpha', 'Alpha']]);
-    expect(v.items.map((i) => [i.id, i.product, i.productName, i.status])).toEqual([['w-1', 'alpha', 'Alpha', 'blocked'], ['w-2', 'alpha', 'Alpha', 'blocked']]);
-    expect(phoneHistory(rows(), 'alpha', 'w-1').lines[0].patch.result).toBe('Done.');
-    expect(phoneHistory(rows(), 'alpha', 'w-9').lines).toEqual([]);
+    expect(v.products.map((p) => [p.slug, p.name])).toEqual([[A, 'Alpha']]);
+    expect(v.items.map((i) => [i.id, i.product, i.productName, i.status])).toEqual([['w-1', A, 'Alpha', 'blocked'], ['w-2', A, 'Alpha', 'blocked']]);
+    expect(phoneHistory(rows(), A, 'w-1').lines[0].patch.result).toBe('Done.');
+    expect(phoneHistory(rows(), A, 'w-9').lines).toEqual([]);
+  });
+
+  it('two computers\' projects of the same name are two projects', () => {
+    const r = rows();
+    r.projects.push({ device: OTHER, project: 'alpha', name: 'Alpha at home' });
+    r.threads.push({ ...thread('w-1'), device: OTHER });
+    const v = phoneView(r, NOW);
+    expect(v.products.map((p) => p.name)).toEqual(['Alpha', 'Alpha at home']);
+    expect(v.items.filter((i) => i.id === 'w-1').map((i) => i.productName)).toEqual(['Alpha', 'Alpha at home']);
+    expect(commandFor('zero:answer', { product: phoneSlug(OTHER, 'alpha'), id: 'w-1', answer: 'hi' })).toMatchObject({ device: OTHER, project: 'alpha' });
+    expect(splitSlug('alpha')).toBeNull();
+    expect(splitSlug('my@project@a1b2c3d4e5f6')).toEqual({ project: 'my@project', device: 'a1b2c3d4e5f6' });
   });
 
   it('a thread of a project no longer on her phone is not drawn', () => {
@@ -40,14 +56,19 @@ describe('what the inbox draws', () => {
   it('a new thread waiting for her Mac is a row of its own', () => {
     const v = phoneView(rows([cmd('0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', 'new', { item: null, payload: { title: 'Ship it', body: 'today' } })]), NOW);
     const made = v.items.find((i) => i.title === 'Ship it');
-    expect(made).toMatchObject({ product: 'alpha', status: 'open', waitsForMac: true });
+    expect(made).toMatchObject({ product: A, status: 'open', waitsForMac: true });
     expect(made.id).toMatch(/^w-[0-9a-f]{10}$/);
   });
 
   it('a reply waits, then goes once her Mac has taken it', () => {
     expect(phoneView(rows([cmd('c1', 'reply', { payload: { text: 'Yes, ship it.' } })]), NOW).waiting)
-      .toEqual([{ product: 'alpha', id: 'w-1', at: NOW - 1000, text: 'Yes, ship it.' }]);
+      .toEqual([{ product: A, id: 'w-1', at: NOW - 1000, text: 'Yes, ship it.' }]);
     expect(phoneView(rows([cmd('c1', 'reply', { payload: { text: 'x' }, taken_at: iso(NOW), outcome: 'done' })]), NOW).waiting).toEqual([]);
+  });
+
+  it('a reply still waiting is shown however old it is', () => {
+    const old = cmd('c1', 'reply', { payload: { text: 'from last week' }, created_at: iso(NOW - 9 * 864e5) });
+    expect(phoneView(rows([old]), NOW).waiting.map((w) => w.text)).toEqual(['from last week']);
   });
 
   it('a reply her Mac turned down says why, for a day', () => {
@@ -62,15 +83,18 @@ describe('what the inbox draws', () => {
 
 describe('what a press leaves for her Mac', () => {
   it('the four things, and nothing else', () => {
-    expect(commandFor('zero:answer', { product: 'alpha', id: 'w-1', answer: 'Yes' })).toEqual({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'Yes' } });
-    expect(commandFor('zero:answer', { product: 'alpha', id: 'w-1', status: 'done' })).toEqual({ project: 'alpha', item: 'w-1', kind: 'close', payload: {} });
-    expect(commandFor('zero:snooze', { product: 'alpha', id: 'w-1', snoozedUntil: 5 })).toEqual({ project: 'alpha', item: 'w-1', kind: 'snooze', payload: { until: 5 } });
-    expect(commandFor('zero:compose', { product: 'alpha', title: 'T', body: 'B' })).toEqual({ project: 'alpha', item: null, kind: 'new', payload: { title: 'T', body: 'B' } });
-    expect(commandFor('zero:answer', { product: 'alpha', id: 'w-1', answer: '  ' })).toBeNull();
-    expect(commandFor('zero:answer', { product: 'alpha', id: 'w-1', priority: 9 })).toBeNull();
-    expect(commandFor('zero:snooze', { product: 'alpha', id: 'w-1', snoozedUntil: null })).toBeNull();
-    expect(commandFor('zero:compose', { product: 'alpha', title: ' ', body: '' })).toBeNull();
-    expect(commandFor('zero:stop-session', { product: 'alpha', id: 'w-1' })).toBeNull();
+    expect(commandFor('zero:answer', { product: A, id: 'w-1', answer: 'Yes' })).toEqual({ device: DEV, project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'Yes' } });
+    expect(commandFor('zero:answer', { product: A, id: 'w-1', status: 'done' })).toEqual({ device: DEV, project: 'alpha', item: 'w-1', kind: 'close', payload: {} });
+    expect(commandFor('zero:snooze', { product: A, id: 'w-1', snoozedUntil: 5 })).toEqual({ device: DEV, project: 'alpha', item: 'w-1', kind: 'snooze', payload: { until: 5 } });
+    expect(commandFor('zero:compose', { product: A, title: 'T', body: 'B' })).toEqual({ device: DEV, project: 'alpha', item: null, kind: 'new', payload: { title: 'T', body: 'B' } });
+    expect(commandFor('zero:answer', { product: A, id: 'w-1', answer: '  ' })).toBeNull();
+    expect(commandFor('zero:answer', { product: A, id: 'w-1', priority: 9 })).toBeNull();
+    expect(commandFor('zero:snooze', { product: A, id: 'w-1', snoozedUntil: null })).toBeNull();
+    expect(commandFor('zero:snooze', { product: A, id: 'w-1', snoozedUntil: 0 })).toMatchObject({ kind: 'snooze', payload: { until: 0 } });
+    // A project not known as one computer's is no command at all.
+    expect(commandFor('zero:answer', { product: 'alpha', id: 'w-1', answer: 'hi' })).toBeNull();
+    expect(commandFor('zero:compose', { product: A, title: ' ', body: '' })).toBeNull();
+    expect(commandFor('zero:stop-session', { product: A, id: 'w-1' })).toBeNull();
   });
 });
 
@@ -120,6 +144,39 @@ describe('signing in and asking, as her', () => {
     await expect(cloudClient(cfg, { storage: memory(), fetchImpl }).finishGoogle('code-2')).rejects.toThrow(/started somewhere else/);
   });
 
+  // Codex's review of step 1, finding 6.
+  it('a renewal still in flight when she signs out does not sign her back in', async () => {
+    const storage = memory();
+    storage.setItem('agentbox-cloud-session', JSON.stringify({ access_token: 'old', refresh_token: 'r', expires_at: NOW + 10_000, user: { id: 'u-1' } }));
+    let release;
+    const fetchImpl = async (url) => {
+      if (url.includes('grant_type=refresh_token')) { await new Promise((z) => { release = z; }); return answer(200, { access_token: 'new', refresh_token: 'r2', expires_in: 3600, user: { id: 'u-1' } }); }
+      return answer(200, []);
+    };
+    const c = cloudClient(cfg, { storage, fetchImpl, now: () => NOW });
+    const asking = c.select('phone_threads', 'select=item').catch((e) => e);
+    await new Promise((z) => setTimeout(z, 0));
+    c.signOut();
+    release();
+    await asking;
+    expect(c.signedIn()).toBe(false);
+    expect(storage.getItem('agentbox-cloud-session')).toBeNull();
+  });
+
+  it('a renewal the database refuses signs her out, and two at once ask once', async () => {
+    const storage = memory();
+    storage.setItem('agentbox-cloud-session', JSON.stringify({ access_token: 'old', refresh_token: 'r', expires_at: NOW + 10_000, user: { id: 'u-1' } }));
+    let asked = 0;
+    const c = cloudClient(cfg, { storage, now: () => NOW, fetchImpl: async (url) => {
+      if (url.includes('grant_type=refresh_token')) { asked += 1; return answer(400, { error_description: 'Invalid Refresh Token' }); }
+      return answer(200, []);
+    } });
+    const both = await Promise.all([c.select('a', 'x').catch((e) => e.message), c.select('b', 'y').catch((e) => e.message)]);
+    expect(both).toEqual(['Invalid Refresh Token', 'Invalid Refresh Token']);
+    expect(asked).toBe(1);
+    expect(c.signedIn()).toBe(false);
+  });
+
   it('a refused sign-in says why in words, and a lapsed one signs her out', async () => {
     const c = cloudClient(cfg, { storage: memory(), fetchImpl: async () => answer(400, { error_description: 'Invalid login credentials' }) });
     await expect(c.signInWithPassword('a@b.c', 'no')).rejects.toThrow('Invalid login credentials');
@@ -128,6 +185,21 @@ describe('signing in and asking, as her', () => {
     const d = cloudClient(cfg, { storage, fetchImpl: async () => answer(401, { message: 'JWT expired' }) });
     await expect(d.select('phone_threads', 'select=item')).rejects.toThrow('JWT expired');
     expect(d.signedIn()).toBe(false);
+  });
+});
+
+// Codex's review of step 1, finding 7: Stop answered as if it had stopped.
+describe('the doors the phone does not have', () => {
+  it('every door is either one of the four, a read, sign-in, or says it is not here', () => {
+    const src = fs.readFileSync(new URL('../renderer/src/cloud-bridge.ts', import.meta.url), 'utf8');
+    const reads = [...src.slice(src.indexOf('const READS = new Set(['), src.indexOf(']);', src.indexOf('const READS'))).matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1]);
+    for (const door of ['stopSession', 'runNow', 'reopen', 'schedule', 'sendNow', 'command', 'approve', 'agentReply', 'saveAttachments', 'setProjectSetting', 'threadEdit', 'createProduct']) {
+      expect(reads, door).not.toContain(door);
+      expect(Object.keys(REQUEST_CHANNELS)).toContain(door);
+    }
+    expect(src).toMatch(/READS\.has\(name\) \? async \(\) => null : async \(\) => \{ throw new Error\(NOT_HERE\); \}/);
+    const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
+    expect(app).toMatch(/if \(onCloudPhone\(\)\) \{ showToast\('Stop it on your computer\./);
   });
 });
 

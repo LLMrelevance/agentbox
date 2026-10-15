@@ -1,6 +1,6 @@
 # The phone with the Mac closed: the plan
 
-Status: draft, 2026-10-14, revised after Codex's review (14 findings, below). Not built.
+Status: step 1 built 2026-10-14 (commits on w-1dc7ee2408), reviewed by Codex twice. Steps 2 and 3 not built.
 
 ## What she asked for
 
@@ -89,6 +89,46 @@ therefore does not sync ledgers both ways at all.
 **3. Push alerts and live progress.**
 - Notify on a thread newly needing her, deduplicated, never for backfill
   (finding 14). Live progress lines like today's thread cards.
+
+## How a phone gets in (decided 2026-10-14)
+
+A website we host, not a relay to the computer. "Maybe, if we store everything
+ourselves, we don't need that. Maybe we could just have a web application that
+we host." The relay (relay/, never deployed) is deleted. Settings › Phone shows
+the site's address as a QR code, which carries no key; she signs in there with
+the same account. The same-Wi-Fi and Tailscale door to the computer stays, for
+anyone who never signs in.
+
+Putting it up: `npm run phone:deploy` (Cloudflare Pages; `npx wrangler login`
+once), then the address goes in `cloud/team.config.json` as `phoneSite` and in
+the database's allowed sign-in return addresses, and the migration
+`20261014000000_phone_inbox.sql` is applied.
+
+## Step 1 as built, and what Codex's review of it changed
+
+- A copy is built from named fields only, with keys hidden and the home folder
+  written `~`, and kept under the size limit in UTF-8 bytes
+  (shared/phone-snapshot.mjs).
+- Each computer has its own id; its projects online carry it, and it takes only
+  the commands left on them, so two computers on one account never take each
+  other's commands or overwrite a project of the same name.
+- A command is done once: the computer writes down that it is doing one before
+  it does it, and after a crash looks for the reply or thread it made before
+  doing it again. The database lets a command be marked taken once and never
+  changed, whatever Supabase's default grants are (a trigger, tested in
+  PGlite with the old defaults switched on).
+- Which projects are on the phone is kept under the signed-in person's id, so a
+  second person signing in on the same computer starts with none.
+- The phone's sign-in throws away any answer for a sign-in that has ended, so a
+  renewal in flight cannot undo a sign-out; a refused renewal signs her out.
+- Every door the phone does not have says so; Stop says to stop it on the
+  computer.
+- A reply to a thread started on the phone reaches the row it became; replies
+  still waiting are shown however old they are.
+
+Still to decide: the installed app has no team cloud at all
+(`loadCloudConfig` answers null when packaged), so until that changes only a
+copy run from source can put projects on the phone.
 
 ## Payment (decided 2026-10-14)
 

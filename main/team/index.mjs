@@ -19,8 +19,9 @@ import { cardsFor } from '../../shared/thread-cards.mjs';
 import fs from 'node:fs';
 import { saveAttachments, attachmentMarkdown } from '../save-attachments.mjs';
 import { hasLapsed, statusEnds } from '../../shared/team-status.mjs';
+import QRCode from 'qrcode';
 import { createPhoneInbox } from '../phone-inbox.mjs';
-import { SNAPSHOT_LIMITS } from '../../shared/phone-snapshot.mjs';
+import { SNAPSHOT_LIMITS, phoneProjectsOf } from '../../shared/phone-snapshot.mjs';
 
 // `signingIn` is { url } while a Google sign-in waits on the browser, so the
 // page can offer that link again rather than a button that does nothing.
@@ -35,7 +36,10 @@ export function createTeamService({
   // this Mac remembers what it sent. Needs no team, only a sign-in.
   phone = null,
 }) {
-  let state = { ...EMPTY, configured: !!session?.configured, phoneSite: phone?.site ?? null };
+  // The phone site's address, only an https one, and its code for Settings.
+  const site = typeof phone?.site === 'string' && /^https:\/\/[^\s/]+(\/[^\s]*)?$/.test(phone.site) ? phone.site : null;
+  let siteQr = null;
+  let state = { ...EMPTY, configured: !!session?.configured, phoneSite: site, phoneSiteQr: null };
   let backend = null;
   let sync = null;
   let timer = null;
@@ -47,6 +51,7 @@ export function createTeamService({
   const kept = () => (local ??= fileSyncState(stateFile, fs));
 
   const set = (patch) => { state = { ...state, ...patch }; onChange(); };
+  if (site) QRCode.toString(site, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }).then((qr) => { siteQr = qr; set({ phoneSiteQr: qr }); }).catch(() => {});
 
   function products() {
     try { return store.listProducts(); } catch { return []; }
@@ -174,7 +179,7 @@ export function createTeamService({
     return createPhoneInbox({
       backend,
       projects: () => {
-        const on = new Set(phone.projects() ?? []);
+        const on = new Set(phoneProjectsOf(phone.projects(), state.me?.id));
         return products().filter((p) => on.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name || p.slug }));
       },
       listItems: (slug) => { const p = productOf(slug); try { return p ? disk.readWorkItems(p.dir) : []; } catch { return []; } },
@@ -303,7 +308,7 @@ export function createTeamService({
       sync = null;
       phoneInbox = null;
       // Signed out is a known answer, so the window shows the sign-in page at once.
-      state = { ...EMPTY, configured: !!session?.configured, started: true, phoneSite: phone?.site ?? null };
+      state = { ...EMPTY, configured: !!session?.configured, started: true, phoneSite: site, phoneSiteQr: siteQr };
       onChange();
       return state;
     },

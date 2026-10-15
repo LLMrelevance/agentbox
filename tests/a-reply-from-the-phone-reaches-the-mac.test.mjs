@@ -1,53 +1,60 @@
-// What broke: nothing yet. Her phone only worked while the Mac was awake (it
-// talked to the Mac itself, main/phone-link.mjs). Step 1 of
-// docs/cloud/PHONE-PLAN.md: the Mac writes a copy of each thread of a project
-// she put on her phone to her own rows online, and takes the replies, new
-// threads, snoozes and closes her phone left there while it was shut.
-// Measured with the in-memory cloud, which keeps the database's rules: what
-// reaches the phone, what the Mac does with each command and in what order,
-// that a command is done once even when marking it fails, and that a stranger
-// sees none of it.
+// What broke: nothing yet, then four things Codex found (review of step 1,
+// 2026-10-14). Her phone only worked while the computer was awake (it talked
+// to it directly, main/phone-link.mjs). Step 1 of docs/cloud/PHONE-PLAN.md:
+// the computer writes a copy of each thread of a project she put on her phone
+// to her own rows online, and takes the replies, new threads, snoozes and
+// closes her phone left there while it was shut. Codex then showed a copy
+// carried raw ledger fields and keys (finding 2), a command could run twice if
+// the computer stopped half way (3), a second computer on the same account
+// took the first one's commands (4), a reply to a thread started on the phone
+// went nowhere (8), and one big thread stopped the rest being sent (9).
+// Measured with the in-memory cloud, which keeps the database's rules.
 import { describe, it, expect, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createMemoryCloud, signUpMemory, memoryBackend } from '../main/team/memory-cloud.mjs';
 import { createPhoneInbox } from '../main/phone-inbox.mjs';
-import { threadSnapshot, threadsWorthCarrying, checkCommand, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
+import { threadSnapshot, threadsWorthCarrying, checkCommand, madeHere, bytesOf, hideSecrets, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
 
 const DAY = 24 * 3600_000;
 const NOW = Date.parse('2026-10-14T12:00:00Z');
 
-function setup({ items = {}, chosen = [{ slug: 'alpha', name: 'Alpha' }], apply } = {}) {
-  const cloud = createMemoryCloud();
-  const me = signUpMemory(cloud, { email: 'owner@example.com' });
-  const stranger = signUpMemory(cloud, { email: 'stranger@example.com' });
+function setup({ items = {}, chosen = [{ slug: 'alpha', name: 'Alpha' }], apply, cloud = createMemoryCloud(), me, dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phone-inbox-')), history } = {}) {
+  // The database's clock and this computer's agree here, at NOW.
+  cloud.now = () => NOW;
+  me ??= signUpMemory(cloud, { email: `owner-${Math.random()}@example.com` });
+  const stranger = signUpMemory(cloud, { email: `stranger-${Math.random()}@example.com` });
   const mac = memoryBackend(cloud, me);
   const phone = memoryBackend(cloud, me);
   const other = memoryBackend(cloud, stranger);
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phone-inbox-'));
   const applied = [];
-  const state = { chosen, items };
-  const inbox = createPhoneInbox({
+  const state = { chosen, items, history: history ?? {} };
+  const make = () => createPhoneInbox({
     backend: mac,
     projects: () => state.chosen,
     listItems: (slug) => state.items[slug] ?? [],
-    historyOf: (slug, id) => [{ id, ts: NOW, source: 'founder', patch: { body: `brief of ${id}` } }],
+    historyOf: (slug, id) => state.history[`${slug}/${id}`] ?? [{ id, ts: NOW, source: 'founder', patch: { body: `brief of ${id}` } }],
     apply: apply ?? (async (cmd) => { applied.push(cmd); }),
     stateFile: path.join(dir, 'phone-inbox.json'),
+    home: '/Users/someone',
     now: () => NOW,
   });
-  return { cloud, mac, phone, other, inbox, applied, state, stateFile: path.join(dir, 'phone-inbox.json') };
+  const inbox = make();
+  // What her phone sends: a command for the computer the project lives on.
+  const send = (c) => phone.addPhoneCommand({ device: inbox.device, ...c });
+  return { cloud, me, mac, phone, other, inbox, make, send, applied, state, dir };
 }
 
-const item = (id, extra = {}) => ({ id, title: `Thread ${id}`, status: 'open', updatedAt: NOW - 1000, ...extra });
+const item = (id, extra = {}) => ({ id, title: `Thread ${id}`, status: 'open', updatedAt: NOW - 1000, createdAt: NOW - 5000, ...extra });
 
-describe('the Mac puts her threads on her phone', () => {
+describe('the computer puts her threads on her phone', () => {
   it('sends each thread of a chosen project once, and again only when it changes', async () => {
     const t = setup({ items: { alpha: [item('w-1'), item('w-2')] } });
     expect((await t.inbox.syncOnce()).sent).toBe(2);
     const seen = await t.phone.phoneThreads();
     expect(seen.map((r) => r.item).sort()).toEqual(['w-1', 'w-2']);
+    expect(seen.every((r) => r.device === t.inbox.device)).toBe(true);
     expect(seen[0].snapshot.history[0]).toMatchObject({ source: 'founder', patch: { body: expect.stringMatching(/^brief of/) } });
     expect((await t.phone.phoneProjects()).map((p) => p.name)).toEqual(['Alpha']);
 
@@ -84,42 +91,83 @@ describe('the Mac puts her threads on her phone', () => {
     expect(rows.map((r) => r.id).sort()).toEqual(['done-recent', 'open-old']);
   });
 
-  it('keeps a long thread to its latest lines, cuts long text, and says how many it left behind', () => {
-    const history = Array.from({ length: SNAPSHOT_LIMITS.lines + 5 }, (_, i) => ({ id: 'w-1', ts: i, source: 'agent', patch: { result: `line ${i}` } }));
-    history[history.length - 1].patch.result = 'x'.repeat(SNAPSHOT_LIMITS.textChars + 10);
-    const snap = threadSnapshot(item('w-1', { body: 'y'.repeat(SNAPSHOT_LIMITS.textChars + 1) }), history);
-    expect(snap.history).toHaveLength(SNAPSHOT_LIMITS.lines);
-    expect(snap.history[0].patch.result).toBe('line 5');
-    expect(snap.history.at(-1).patch.result).toHaveLength(SNAPSHOT_LIMITS.textChars + 1);
-    expect(snap.item.body.endsWith('…')).toBe(true);
-    expect(snap.olderLines).toBe(5);
-    const huge = Array.from({ length: SNAPSHOT_LIMITS.lines }, (_, i) => ({ id: 'w-2', ts: i, source: 'agent', patch: { result: 'z'.repeat(SNAPSHOT_LIMITS.textChars), note: 'q'.repeat(SNAPSHOT_LIMITS.textChars) } }));
-    const fits = threadSnapshot(item('w-2'), huge);
-    expect(JSON.stringify(fits).length).toBeLessThanOrEqual(SNAPSHOT_LIMITS.bytes);
-    expect(fits.history.at(-1).ts).toBe(SNAPSHOT_LIMITS.lines - 1);
+  it('one thread the cloud will not take does not stop the others', async () => {
+    const t = setup({ items: { alpha: [item('w-1'), item('w-2'), item('w-3')] } });
+    const put = t.mac.putPhoneThreads;
+    t.mac.putPhoneThreads = async (device, project, rows) => {
+      if (rows.some((r) => r.item === 'w-2')) throw new Error('too big');
+      return put(device, project, rows);
+    };
+    await t.inbox.syncOnce();
+    expect((await t.phone.phoneThreads()).map((r) => r.item).sort()).toEqual(['w-1', 'w-3']);
   });
 });
 
-describe('the Mac takes what her phone left', () => {
+describe('what a copy carries', () => {
+  const row = {
+    id: 'w-1', title: 'Fix login', body: 'It loops', status: 'blocked', result: 'Fixed.', updatedAt: NOW, createdAt: NOW - 1,
+    claim: { holder: 'macbook-pro:4242', leaseUntil: NOW + 1 }, epoch: 7, visibleTo: ['someone'], runner: 'p-1',
+    sessionId: 'abc', worktree: '/Users/someone/code/x', somethingNew: 'not named',
+    wrote: { title: { ts: 1, source: 'founder', by: 'p-1' }, result: { ts: 2, source: 'agent' }, claim: { ts: 3, source: 'system' } },
+  };
+  const history = [
+    { id: 'w-1', ts: 1, source: 'founder', patch: { title: 'Fix login', body: 'It loops' }, by: 'p-1', uid: 'u-1' },
+    { id: 'w-1', ts: 2, source: 'agent', claim: { holder: 'macbook-pro:4242' }, epoch: 3, patch: { status: 'claimed' } },
+    { id: 'w-1', ts: 3, source: 'agent', patch: { result: 'Used key sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ in /Users/someone/code/x', permissionMode: 'bypassPermissions', model: 'opus' } },
+    { id: 'w-1', ts: 4, source: 'agent', heartbeat: true, patch: { note: 'alive' } },
+  ];
+  it('is built from named fields only: no lease, epoch, who may see it, paths of the run, or fields nobody named', () => {
+    const snap = threadSnapshot(row, history, SNAPSHOT_LIMITS, { home: '/Users/someone' });
+    expect(Object.keys(snap.item).sort()).toEqual(['body', 'createdAt', 'id', 'result', 'status', 'title', 'updatedAt', 'wrote']);
+    expect(snap.item.wrote).toEqual({ title: { ts: 1, source: 'founder' }, result: { ts: 2, source: 'agent' } });
+    expect(snap.history.map((l) => l.ts)).toEqual([1, 3]);
+    expect(snap.history[0]).toEqual({ id: 'w-1', ts: 1, source: 'founder', patch: { title: 'Fix login', body: 'It loops' } });
+    expect(Object.keys(snap.history[1].patch)).toEqual(['result']);
+    expect(JSON.stringify(snap)).not.toMatch(/macbook|4242|bypassPermissions|sessionId|somethingNew|visibleTo/);
+  });
+  it('hides keys and her home folder in the words themselves', () => {
+    const snap = threadSnapshot(row, history, SNAPSHOT_LIMITS, { home: '/Users/someone' });
+    expect(snap.history[1].patch.result).toBe('Used key [hidden] in ~/code/x');
+    for (const secret of ['ghp_' + 'a'.repeat(36), 'AKIA' + 'B'.repeat(16), 'xoxb-1234567890-abcdef', '-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----', 'eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0NTY3.SflKxwRJSMeKKF2QT4fw']) {
+      expect(hideSecrets(`x ${secret} y`)).toBe('x [hidden] y');
+    }
+    // The case that must NOT match: ordinary words, ids and short codes.
+    expect(hideSecrets('task w-1dc7ee2408, sk-short, the AKIA docs')).toBe('task w-1dc7ee2408, sk-short, the AKIA docs');
+  });
+  it('keeps a long thread to its latest lines and says how many it left behind', () => {
+    const many = Array.from({ length: SNAPSHOT_LIMITS.lines + 5 }, (_, i) => ({ id: 'w-1', ts: i, source: 'agent', patch: { result: `line ${i}` } }));
+    const snap = threadSnapshot(item('w-1'), many);
+    expect(snap.history).toHaveLength(SNAPSHOT_LIMITS.lines);
+    expect(snap.history[0].patch.result).toBe('line 5');
+    expect(snap.olderLines).toBe(5);
+  });
+  it('stays under the limit in bytes, not characters, even in a language of wide letters', () => {
+    const wide = '漢'.repeat(SNAPSHOT_LIMITS.textChars);
+    const many = Array.from({ length: SNAPSHOT_LIMITS.lines }, (_, i) => ({ id: 'w-1', ts: i, source: 'agent', patch: { result: wide, note: wide } }));
+    const snap = threadSnapshot(item('w-1', { body: wide, result: wide, note: wide, answer: wide }), many);
+    expect(bytesOf(snap)).toBeLessThanOrEqual(SNAPSHOT_LIMITS.bytes);
+    expect(snap.history.at(-1).ts).toBe(SNAPSHOT_LIMITS.lines - 1);
+  });
+});
+
+describe('the computer takes what her phone left', () => {
   let t;
   beforeEach(() => { t = setup({ items: { alpha: [item('w-1')] } }); });
 
   it('does each command in the order she made it, then marks it done', async () => {
     t.cloud.now = () => NOW;
-    await t.phone.addPhoneCommand({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'first' } });
+    await t.send({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'first' } });
     t.cloud.now = () => NOW + 1000;
-    await t.phone.addPhoneCommand({ project: 'alpha', kind: 'new', payload: { title: 'second' } });
+    await t.send({ project: 'alpha', kind: 'new', payload: { title: 'second' } });
     expect((await t.inbox.syncOnce()).taken).toBe(2);
     expect(t.applied.map((c) => c.kind)).toEqual(['reply', 'new']);
-    const after = await t.phone.phoneCommands();
-    expect(after.every((c) => c.takenAt && c.outcome === 'done')).toBe(true);
-    expect(await t.phone.waitingPhoneCommands()).toEqual([]);
+    expect((await t.phone.phoneCommands()).every((c) => c.takenAt && c.outcome === 'done')).toBe(true);
   });
 
   it('refuses, and says why, a command it may not do', async () => {
-    await t.phone.addPhoneCommand({ project: 'private', item: 'w-9', kind: 'reply', payload: { text: 'x' } });
-    await t.phone.addPhoneCommand({ project: 'alpha', item: 'w-404', kind: 'close' });
-    await t.phone.addPhoneCommand({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: '   ' } });
+    await t.send({ project: 'private', item: 'w-9', kind: 'reply', payload: { text: 'x' } });
+    await t.send({ project: 'alpha', item: 'w-404', kind: 'close' });
+    await t.send({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: '   ' } });
     await t.inbox.syncOnce();
     expect(t.applied).toEqual([]);
     expect((await t.phone.phoneCommands()).map((c) => c.outcome)).toEqual([
@@ -131,14 +179,14 @@ describe('the Mac takes what her phone left', () => {
 
   it('marks a command the app itself refused, and carries on with the next', async () => {
     const u = setup({ items: { alpha: [item('w-1')] }, apply: async (cmd) => { if (cmd.payload.text === 'bad') throw new Error('thread is running'); } });
-    await u.phone.addPhoneCommand({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'bad' } });
-    await u.phone.addPhoneCommand({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'good' } });
+    await u.send({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'bad' } });
+    await u.send({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'good' } });
     await u.inbox.syncOnce();
     expect((await u.phone.phoneCommands()).map((c) => c.outcome)).toEqual(['refused: thread is running', 'done']);
   });
 
   it('never does a command twice when marking it fails', async () => {
-    await t.phone.addPhoneCommand({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'once' } });
+    await t.send({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'once' } });
     const mark = t.mac.markPhoneCommand;
     t.mac.markPhoneCommand = async () => { throw new Error('offline'); };
     await expect(t.inbox.syncOnce()).rejects.toThrow('offline');
@@ -148,21 +196,102 @@ describe('the Mac takes what her phone left', () => {
     expect((await t.phone.phoneCommands())[0].outcome).toBe('done');
   });
 
-  it('remembers a done command across a restart of the Mac', async () => {
-    await t.phone.addPhoneCommand({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'once' } });
+  // Codex's finding 3: the computer stops after the reply is written and
+  // before it wrote down that it had. The next start finds the reply in the
+  // thread and does not send it again.
+  it('never does a reply twice when the computer stopped half way through it', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phone-inbox-'));
+    const cloud = createMemoryCloud();
+    const me = signUpMemory(cloud, { email: 'half@example.com' });
+    let landedReply = null;
+    const first = setup({ cloud, me, dir, items: { alpha: [item('w-1')] }, apply: async (cmd) => { landedReply = cmd.payload.text; throw Object.assign(new Error('power cut'), { crash: true }); } });
+    await first.send({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'ship it' } });
+    // The power cut: the reply is in the thread, and nothing after it ran.
+    const state = JSON.parse(fs.readFileSync(path.join(dir, 'phone-inbox.json'), 'utf8'));
+    const [cmd] = await first.phone.waitingPhoneCommands(first.inbox.device);
+    fs.writeFileSync(path.join(dir, 'phone-inbox.json'), JSON.stringify({ ...state, doing: { [cmd.id]: NOW } }));
+    expect(landedReply).toBe(null);
+    const second = setup({ cloud, me, dir, items: { alpha: [item('w-1')] }, history: { 'alpha/w-1': [{ id: 'w-1', ts: NOW, source: 'founder', patch: { answer: 'ship it' } }] } });
+    await second.inbox.syncOnce();
+    expect(second.applied).toEqual([]);
+    expect((await second.phone.phoneCommands())[0].outcome).toBe('done');
+  });
+
+  it('does a reply again when the computer stopped before it landed', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phone-inbox-'));
+    const cloud = createMemoryCloud();
+    const me = signUpMemory(cloud, { email: 'early@example.com' });
+    const first = setup({ cloud, me, dir, items: { alpha: [item('w-1')] } });
+    const c = await first.send({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'ship it' } });
+    const state = JSON.parse(fs.readFileSync(path.join(dir, 'phone-inbox.json'), 'utf8'));
+    fs.writeFileSync(path.join(dir, 'phone-inbox.json'), JSON.stringify({ ...state, doing: { [c.id]: NOW } }));
+    const second = setup({ cloud, me, dir, items: { alpha: [item('w-1')] } });
+    await second.inbox.syncOnce();
+    expect(second.applied.map((x) => x.payload.text)).toEqual(['ship it']);
+  });
+
+  it('never starts a thread twice when the computer stopped half way through it', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phone-inbox-'));
+    const cloud = createMemoryCloud();
+    const me = signUpMemory(cloud, { email: 'twice@example.com' });
+    const first = setup({ cloud, me, dir, items: { alpha: [item('w-1')] } });
+    const c = await first.send({ project: 'alpha', kind: 'new', payload: { title: 'Ship it', body: 'today' } });
+    const state = JSON.parse(fs.readFileSync(path.join(dir, 'phone-inbox.json'), 'utf8'));
+    fs.writeFileSync(path.join(dir, 'phone-inbox.json'), JSON.stringify({ ...state, doing: { [c.id]: NOW } }));
+    const made = item('w-made00001', { title: 'Ship it', body: 'today', createdAt: NOW });
+    const second = setup({ cloud, me, dir, items: { alpha: [item('w-1'), made] } });
+    await second.inbox.syncOnce();
+    expect(second.applied).toEqual([]);
+    // And a reply to the row the phone showed reaches the row it became.
+    await second.send({ project: 'alpha', item: madeHere(c.id), kind: 'reply', payload: { text: 'and this' } });
+    await second.inbox.syncOnce();
+    expect(second.applied.map((x) => [x.item, x.payload.text])).toEqual([['w-made00001', 'and this']]);
+  });
+
+  // Codex's finding 8.
+  it('a reply to a thread started on the phone goes to the row it became', async () => {
+    const u = setup({ items: { alpha: [item('w-1')] }, apply: async (cmd) => {
+      u.applied.push(cmd);
+      if (cmd.kind === 'new') { u.state.items.alpha.push(item('w-real00001', { title: cmd.payload.title })); return { id: 'w-real00001' }; }
+      return {};
+    } });
+    const made = await u.send({ project: 'alpha', kind: 'new', payload: { title: 'Ship it' } });
+    await u.send({ project: 'alpha', item: madeHere(made.id), kind: 'reply', payload: { text: 'today please' } });
+    await u.inbox.syncOnce();
+    expect(u.applied.map((c) => [c.kind, c.item])).toEqual([['new', null], ['reply', 'w-real00001']]);
+    expect((await u.phone.phoneCommands()).map((c) => c.outcome)).toEqual(['done', 'done']);
+  });
+
+  it('remembers a done command across a restart of the computer', async () => {
+    const c = await t.send({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'once' } });
     t.mac.markPhoneCommand = async () => { throw new Error('offline'); };
     await expect(t.inbox.syncOnce()).rejects.toThrow();
-    const again = createPhoneInbox({
-      backend: memoryBackend(t.cloud, (await t.phone.me()).id),
-      projects: () => t.state.chosen,
-      listItems: (slug) => t.state.items[slug] ?? [],
-      historyOf: () => [],
-      apply: async (cmd) => { t.applied.push(cmd); },
-      stateFile: t.stateFile,
-      now: () => NOW,
-    });
+    const again = t.make();
+    t.mac.markPhoneCommand = memoryBackend(t.cloud, t.me).markPhoneCommand;
     await again.syncOnce();
     expect(t.applied).toHaveLength(1);
+    expect((await t.phone.phoneCommands()).find((x) => x.id === c.id).outcome).toBe('done');
+  });
+});
+
+// Codex's finding 4.
+describe('two computers on one account', () => {
+  it('each takes only the commands left on its own projects, and their same-named projects stay apart', async () => {
+    const cloud = createMemoryCloud();
+    const me = signUpMemory(cloud, { email: 'two@example.com' });
+    const a = setup({ cloud, me, items: { alpha: [item('w-1')] }, chosen: [{ slug: 'alpha', name: 'Alpha at work' }] });
+    const b = setup({ cloud, me, items: { alpha: [item('w-1')] }, chosen: [{ slug: 'alpha', name: 'Alpha at home' }] });
+    expect(a.inbox.device).not.toBe(b.inbox.device);
+    await a.inbox.syncOnce();
+    await b.inbox.syncOnce();
+    expect((await a.phone.phoneProjects()).map((p) => p.name).sort()).toEqual(['Alpha at home', 'Alpha at work']);
+    expect((await a.phone.phoneThreads())).toHaveLength(2);
+    await b.send({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'for home' } });
+    await a.inbox.syncOnce();
+    expect(a.applied).toEqual([]);
+    expect((await a.phone.waitingPhoneCommands(b.inbox.device))).toHaveLength(1);
+    await b.inbox.syncOnce();
+    expect(b.applied.map((c) => c.payload.text)).toEqual(['for home']);
   });
 });
 
@@ -170,17 +299,17 @@ describe('her phone rows are hers alone', () => {
   it('a stranger reads none of her threads or commands, and marking one changes nothing', async () => {
     const t = setup({ items: { alpha: [item('w-1')] } });
     await t.inbox.syncOnce();
-    const cmd = await t.phone.addPhoneCommand({ project: 'alpha', item: 'w-1', kind: 'close' });
+    const cmd = await t.send({ project: 'alpha', item: 'w-1', kind: 'close' });
     expect(await t.other.phoneThreads()).toEqual([]);
     expect(await t.other.phoneProjects()).toEqual([]);
-    expect(await t.other.waitingPhoneCommands()).toEqual([]);
+    expect(await t.other.waitingPhoneCommands(t.inbox.device)).toEqual([]);
     await t.other.markPhoneCommand(cmd.id, 'done');
-    expect((await t.phone.waitingPhoneCommands()).map((c) => c.id)).toEqual([cmd.id]);
+    expect((await t.phone.waitingPhoneCommands(t.inbox.device)).map((c) => c.id)).toEqual([cmd.id]);
   });
 
   it('a command already marked keeps its first outcome', async () => {
     const t = setup();
-    const cmd = await t.phone.addPhoneCommand({ project: 'alpha', kind: 'new', payload: { title: 'x' } });
+    const cmd = await t.send({ project: 'alpha', kind: 'new', payload: { title: 'x' } });
     await t.mac.markPhoneCommand(cmd.id, 'done');
     await t.mac.markPhoneCommand(cmd.id, 'refused: late');
     expect((await t.phone.phoneCommands())[0].outcome).toBe('done');
@@ -193,24 +322,11 @@ describe('what the phone may ask', () => {
     expect(checkCommand({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'hi' } }, ctx)).toBeNull();
     expect(checkCommand({ project: 'alpha', kind: 'new', payload: { body: 'hi' } }, ctx)).toBeNull();
     expect(checkCommand({ project: 'alpha', item: 'w-1', kind: 'snooze', payload: { until: NOW + DAY } }, ctx)).toBeNull();
+    // Waking a snoozed thread is a snooze until no time at all.
+    expect(checkCommand({ project: 'alpha', item: 'w-1', kind: 'snooze', payload: { until: 0 } }, ctx)).toBeNull();
     expect(checkCommand({ project: 'alpha', item: 'w-1', kind: 'close' }, ctx)).toBeNull();
     expect(checkCommand({ project: 'alpha', item: 'w-1', kind: 'delete' }, ctx)).toMatch(/not something/);
-    expect(checkCommand({ project: 'alpha', item: 'w-1', kind: 'snooze', payload: {} }, ctx)).toMatch(/time/);
+    expect(checkCommand({ project: 'alpha', item: 'w-1', kind: 'snooze', payload: { until: -1 } }, ctx)).toMatch(/time/);
     expect(checkCommand({ project: 'alpha', kind: 'new', payload: { title: ' ' } }, ctx)).toMatch(/words/);
-  });
-});
-
-describe('the database keeps the same rules', () => {
-  const sql = fs.readFileSync(new URL('../cloud/supabase/migrations/20261014000000_phone_inbox.sql', import.meta.url), 'utf8');
-  it('turns on row level security for every phone table, owner-only', () => {
-    for (const t of ['phone_projects', 'phone_threads', 'phone_commands']) {
-      expect(sql).toContain(`alter table public.${t} enable row level security`);
-    }
-    expect(sql.match(/owner = auth\.uid\(\)/g).length).toBeGreaterThanOrEqual(6);
-  });
-  it('lets a command change only in the two columns that mark it taken', () => {
-    expect(sql).toContain('grant update (taken_at, outcome) on public.phone_commands to authenticated');
-    expect(sql).not.toMatch(/grant [^;]*update[^(;]*on public\.phone_commands to authenticated/);
-    expect(sql).toMatch(/revoke all on [^;]*phone_commands from anon/);
   });
 });

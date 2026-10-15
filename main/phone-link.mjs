@@ -34,7 +34,6 @@ import QRCode from 'qrcode';
 import webpush from 'web-push';
 import { phoneBanner, shouldSpeak } from '../shared/notify-rules.mjs';
 import { createHandler, sameKey } from './serve.mjs';
-import { createRelayClient } from './relay-client.mjs';
 import { Name } from '../shared/product-name.mjs';
 
 export const PHONE_PORT = 41745;
@@ -148,23 +147,12 @@ export function deviceName(ua = '') {
  *           dist?: string, port?: number, onChange?: () => void,
  *           interfaces?: () => object, log?: { warn?: Function } }} options
  */
-export function createPhoneLink({ file, channels, listeners, dist, files = null, port = PHONE_PORT, onChange = () => {}, interfaces = () => os.networkInterfaces(), log = console, tailscale = tailscaleCli(), warm = (url) => fetch(url).catch(() => {}), send = (sub, body, opts) => webpush.sendNotification(sub, body, opts), atDesk = () => false, coalesceMs = COALESCE_MS, relayUrl = '', createRelay = (opts) => createRelayClient(opts) }) {
+export function createPhoneLink({ file, channels, listeners, dist, files = null, port = PHONE_PORT, onChange = () => {}, interfaces = () => os.networkInterfaces(), log = console, tailscale = tailscaleCli(), warm = (url) => fetch(url).catch(() => {}), send = (sub, body, opts) => webpush.sendNotification(sub, body, opts), atDesk = () => false, coalesceMs = COALESCE_MS }) {
   let saved = read(file);
-  // ANYWHERE, THROUGH THE RELAY (main/relay-client.mjs). With a relay to use it
-  // is where a person starts, because it needs nothing on the phone; a route
-  // someone picked stays picked. Before the relay every file said "wifi"
-  // whether or not anybody picked it, so only a pick marked as one counts.
-  const relay = relayUrl ? createRelay({ relayUrl, key: () => saved.key, port: () => port, log, onChange: () => onChange() }) : null;
-  const via = () => {
-    const picked = saved.viaChosen || saved.via === 'tailscale' ? saved.via : null;
-    if (picked === 'anywhere' && !relay) return 'wifi';
-    return picked ?? (relay ? 'anywhere' : 'wifi');
-  };
-  function settleRelay() {
-    if (!relay) return;
-    if (saved.on && via() === 'anywhere') relay.start();
-    else relay.stop();
-  }
+  // THE RELAY IS GONE (2026-10-14). Away from home, a phone reads her rows
+  // online with the computer closed (renderer/src/cloud-bridge.ts); this door
+  // is the same Wi-Fi, or Tailscale.
+  const via = () => (saved.via === 'tailscale' ? 'tailscale' : 'wifi');
   let server = null;
   let error = null;
   /** The https name `tailscale serve` is answering on, or why it is not. */
@@ -223,10 +211,7 @@ export function createPhoneLink({ file, channels, listeners, dist, files = null,
       res.end(JSON.stringify({
         name: Name,
         short_name: Name,
-        // Saved through the relay, the icon opens with the key after the #, so
-        // a cold start (before the phone's worker is back) never hands the key
-        // to the relay in an address it could log.
-        start_url: req.headers['x-agentbox-relay'] ? `/#k=${encodeURIComponent(given)}` : `/?token=${encodeURIComponent(given)}`,
+        start_url: `/?token=${encodeURIComponent(given)}`,
         scope: '/',
         display: 'standalone',
         // The app's own warm dark. A cool grey here was what Safari painted
@@ -295,7 +280,7 @@ export function createPhoneLink({ file, channels, listeners, dist, files = null,
   // this computer only and no network the Mac joins can reach it in plain
   // http. Over Wi-Fi the phone is on the network, so it listens on every
   // address and `fromThisNetwork` turns away anyone who is not.
-  const wantedHost = () => (secureWanted() || via() === 'anywhere' ? '127.0.0.1' : '0.0.0.0');
+  const wantedHost = () => (secureWanted() ? '127.0.0.1' : '0.0.0.0');
   let host = null;
 
   function start() {
@@ -464,33 +449,23 @@ export function createPhoneLink({ file, channels, listeners, dist, files = null,
   async function status({ via: asked } = {}) {
     const addrs = phoneAddresses(interfaces());
     const want = asked ?? via();
-    // THROUGH THE RELAY the code is its address with the key after the #,
-    // which a browser never sends: the relay sees a room, never the key.
-    const anywhere = want === 'anywhere' && relay;
-    const pick = anywhere ? { via: 'anywhere', host: new URL(relayUrl).host } : addrs.find((a) => a.via === want) ?? addrs[0] ?? null;
-    const safe = anywhere || (pick?.via === 'tailscale' && secure.host);
+    const pick = addrs.find((a) => a.via === want) ?? addrs[0] ?? null;
+    const safe = pick?.via === 'tailscale' && secure.host;
     const url = !pick ? null
-      : anywhere ? `${relayUrl.replace(/\/+$/, '')}/#k=${encodeURIComponent(saved.key)}`
       : safe ? `https://${secure.host}:${SECURE_PORT}/?token=${encodeURIComponent(saved.key)}`
       : `http://${pick.host}:${port}/?token=${encodeURIComponent(saved.key)}`;
-    const relayState = anywhere ? relay.state() : null;
     const now = Date.now();
     return {
       on: !!saved.on,
       listening: !!server?.listening,
-      /** 127.0.0.1 over Tailscale and the relay, 0.0.0.0 over Wi-Fi. */
+      /** 127.0.0.1 over Tailscale, 0.0.0.0 over Wi-Fi. */
       host: server?.listening ? host : null,
-      error: error ?? (pick?.via === 'tailscale' ? secure.error : null) ?? relayState?.error ?? null,
+      error: error ?? (pick?.via === 'tailscale' ? secure.error : null) ?? null,
       port,
       secure: !!safe,
       settingUp: !!secure.busy,
-      /** Through the relay: whether this Mac is connected to it now. */
-      relay: relayState ? { connected: !!relayState.connected, host: pick.host } : null,
       via: pick?.via ?? null,
-      routes: [
-        ...(relay ? [{ via: 'anywhere', host: new URL(relayUrl).host }] : []),
-        ...[...new Set(addrs.map((a) => a.via))].map((v) => ({ via: v, host: addrs.find((a) => a.via === v).host })),
-      ],
+      routes: [...new Set(addrs.map((a) => a.via))].map((v) => ({ via: v, host: addrs.find((a) => a.via === v).host })),
       url: saved.on ? url : null,
       qr: saved.on && url ? await QRCode.toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }) : null,
       // The phones seen since the app started, and the phones with alerts on,
@@ -504,11 +479,11 @@ export function createPhoneLink({ file, channels, listeners, dist, files = null,
 
   /** The Settings page's one channel. */
   async function act({ action, via, device } = {}) {
-    if (action === 'on') { saved.on = true; save(); start(); await settleSecure(); settleRelay(); }
-    else if (action === 'off') { saved.on = false; save(); stop(); await settleSecure(); settleRelay(); }
-    else if (action === 'reset') { saved.key = newKey(); save(); dropEveryPhone(); relay?.restart(); }
-    else if (action === 'via' && (via === 'wifi' || via === 'tailscale' || (via === 'anywhere' && relay))) {
-      saved.via = via; saved.viaChosen = true; save(); await settleSecure(); settleRelay(); rebind();
+    if (action === 'on') { saved.on = true; save(); start(); await settleSecure(); }
+    else if (action === 'off') { saved.on = false; save(); stop(); await settleSecure(); }
+    else if (action === 'reset') { saved.key = newKey(); save(); dropEveryPhone(); }
+    else if (action === 'via' && (via === 'wifi' || via === 'tailscale')) {
+      saved.via = via; saved.viaChosen = true; save(); await settleSecure(); rebind();
     } else if (action === 'via') { /* a route this Mac does not have: nothing to change */ }
     else if (action === 'stop-alerts' && typeof device === 'string') { delete saved.alerts[device]; save(); }
     else if (action !== 'status') throw new Error(`Unknown phone action ${action}`);
@@ -516,14 +491,14 @@ export function createPhoneLink({ file, channels, listeners, dist, files = null,
     return status();
   }
 
-  if (saved.on) { start(); void settleSecure(); settleRelay(); }
+  if (saved.on) { start(); void settleSecure(); }
   return {
     act, status, start, stop, handle, arrivals, seen: seenAll,
     /** The inbox count the desktop last drew, which each alert carries for the icon. */
     count(n) { if (Number.isFinite(n)) count = Math.max(0, Math.floor(n)); },
     settled: () => secure.busy ?? Promise.resolve(),
     get key() { return saved.key; },
-    close() { if (timer) clearTimeout(timer); stop(); relay?.stop(); },
+    close() { if (timer) clearTimeout(timer); stop(); },
   };
 }
 
@@ -534,7 +509,7 @@ function read(file) {
   return {
     on: !!saved.on,
     key: saved.key,
-    via: ['tailscale', 'wifi', 'anywhere'].includes(saved.via) ? saved.via : 'wifi',
+    via: saved.via === 'tailscale' ? 'tailscale' : 'wifi',
     // A route somebody picked, not one written down because it was the only one.
     viaChosen: saved.viaChosen === true,
     vapid: saved.vapid?.publicKey && saved.vapid?.privateKey ? saved.vapid : null,
@@ -544,7 +519,7 @@ function read(file) {
 
 // ALERTS GO TO ONE PHONE, the one that turned them on last (2026-10-13).
 // Adding the app to the home screen again, over Wi-Fi, over Tailscale or
-// through the relay, makes a separate web app to iOS with its own id here, and
+// (or, once, through the relay), makes a separate web app to iOS with its own id here, and
 // nothing a page can read says two of them are the same phone. One Mac held
 // three of them, so every alert arrived three times in three groups to clear.
 // The newest is the icon in use: an older one is told alerts are off and can
