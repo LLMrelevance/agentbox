@@ -19,8 +19,8 @@ function must({ data, error }, what) {
   return data;
 }
 
-const COMMAND_COLUMNS = 'id,owner,device,project,item,kind,payload,created_at,taken_at,outcome';
-const commandOut = (r) => ({ id: r.id, owner: r.owner, device: r.device, project: r.project, item: r.item, kind: r.kind, payload: r.payload ?? {}, createdAt: r.created_at, takenAt: r.taken_at ?? null, outcome: r.outcome ?? null });
+const COMMAND_COLUMNS = 'id,owner,device,project,item,kind,payload,created_at,claimed_at,taken_at,outcome';
+const commandOut = (r) => ({ id: r.id, owner: r.owner, device: r.device, project: r.project, item: r.item, kind: r.kind, payload: r.payload ?? {}, createdAt: r.created_at, claimedAt: r.claimed_at ?? null, takenAt: r.taken_at ?? null, outcome: r.outcome ?? null });
 
 export function supabaseBackend(client) {
   let personId = null;
@@ -300,6 +300,16 @@ export function supabaseBackend(client) {
         out.push(...(rows ?? []).map(commandOut));
         if (!rows || rows.length < 200) return out;
       }
+    },
+    // THE COMPUTER CLAIMS ONE BEFORE IT DOES IT; the phone takes one back only
+    // while nobody has (renderer/src/cloud-bridge.ts). The database lets one win.
+    async claimPhoneCommand(id, owner) {
+      const me = await myId();
+      const who = owner ?? me;
+      const won = must(await client.from('phone_commands').update({ claimed_at: new Date().toISOString() }).eq('id', id).eq('owner', who).is('taken_at', null).is('claimed_at', null).select('id'), 'starting what your phone sent');
+      if (won?.length) return 'claimed';
+      const row = must(await client.from('phone_commands').select('taken_at,claimed_at').eq('id', id).eq('owner', who).maybeSingle(), 'reading what your phone sent');
+      return row && !row.taken_at && row.claimed_at ? 'ours' : 'gone';
     },
     async markPhoneCommand(id, outcome, owner) {
       const me = await myId();

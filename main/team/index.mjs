@@ -192,7 +192,7 @@ export function createTeamService({
         return products().filter((p) => on.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name || p.slug }));
       },
       listItems: (slug) => { const p = productOf(slug); try { return p ? disk.readWorkItems(p.dir) : []; } catch { return []; } },
-      historyOf: (slug, id) => { try { return store.readHistory(slug, id, { max: SNAPSHOT_LIMITS.lines }); } catch { return []; } },
+      historyOf: (slug, id, { all = false } = {}) => { try { return store.readHistory(slug, id, { max: all ? Number.MAX_SAFE_INTEGER : SNAPSHOT_LIMITS.lines }); } catch { return []; } },
       apply: phone.apply,
       // One file per person: what this Mac sent up for one account is not
       // what the next one to sign in here has.

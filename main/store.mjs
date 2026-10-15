@@ -336,7 +336,7 @@ export class Store {
   // `inReplyTo` makes the answer a reply in a thread (w-920461cbe6): the uid
   // of the message it answers, on THE SAME LINE as the words, so the reply's
   // own uid (what its reactions hang off) is the line that says where it goes.
-  answerItem(slug, id, { answer, status, priority, permissionMode, model, effort, inReplyTo }) {
+  answerItem(slug, id, { answer, status, priority, permissionMode, model, effort, inReplyTo, fromPhone }) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
     let item = null;
@@ -351,7 +351,7 @@ export class Store {
     // special-cased in both engines' argument builders.
     if (model !== undefined) item = workItemsDisk.updateWorkItem(dir, id, { model: model ?? '' }, { source: 'founder' });
     if (effort !== undefined) item = workItemsDisk.updateWorkItem(dir, id, { effort: effort ?? '' }, { source: 'founder' });
-    if (answer) item = workItemsDisk.updateWorkItem(dir, id, inReplyTo ? { answer, inReplyTo } : { answer }, { source: 'founder' });
+    if (answer) item = workItemsDisk.updateWorkItem(dir, id, { answer, ...(inReplyTo ? { inReplyTo } : {}), ...(fromPhone ? { fromPhone } : {}) }, { source: 'founder' });
     // A REPLY ON A RUN THAT FINISHED QUIETLY MAKES IT NEWS AGAIN (w-5e3f2e047f).
     // A quiet run is kept out of her inbox, and a repeating task now opens on
     // its latest run, so without this the answer to what she just asked there
@@ -545,7 +545,7 @@ export class Store {
     return this.modules.workItemsDisk.updateWorkItem(this.productDir(slug), id, allowed, { source: 'founder' });
   }
 
-  composeItem(slug, { title, body, kind = 'directive', priority = 0, labels, runAt, start, engine, model, effort, assignee, due, people, visibility, visibleTo }) {
+  composeItem(slug, { title, body, kind = 'directive', priority = 0, labels, runAt, start, engine, model, effort, assignee, due, people, visibility, visibleTo, fromPhone }) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
     // The 'founder' label is the human-in-the-loop marker: only items the
@@ -563,6 +563,8 @@ export class Store {
     const contentPatch = {
       title,
       ...(body ? { body } : {}),
+      // The phone command that asked for it, when one did (shared/work-items.mjs).
+      ...(fromPhone ? { fromPhone: String(fromPhone) } : {}),
       ...(runAt ? { runAt: Math.max(0, Math.trunc(runAt)) } : {}),
       // "Add it to Later" on the card: the thread exists now and starts when
       // she says, which is the one answer on that menu with no clock in it.

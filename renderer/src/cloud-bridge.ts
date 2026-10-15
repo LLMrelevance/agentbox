@@ -25,7 +25,7 @@ type Push = (payload: unknown) => void;
 export interface PhoneRows {
   projects: { device: string; project: string; name: string }[];
   threads: { device: string; project: string; item: string; snapshot: any; updated_at?: string }[];
-  commands: { id: string; device: string; project: string; item: string | null; kind: string; payload: any; created_at: string; taken_at: string | null; outcome: string | null }[];
+  commands: { id: string; device: string; project: string; item: string | null; kind: string; payload: any; created_at: string; claimed_at?: string | null; taken_at: string | null; outcome: string | null }[];
 }
 
 export interface Waiting { product: string; id: string; at: number; text: string; refused?: string }
@@ -52,7 +52,7 @@ const fnv = (text: string) => {
   for (let i = 0; i < text.length; i += 1) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
   return (h >>> 0).toString(16).padStart(8, '0');
 };
-const aliasFor = (slug: string, item: string) => `w-${(fnv(`${slug}/${item}`) + fnv(`${item}/${slug}`)).slice(0, 10)}`;
+const aliasFor = (slug: string, item: string, n: number) => `w-${(fnv(`${slug}/${item}/${n}`) + fnv(`${n}/${item}/${slug}`)).slice(0, 10)}`;
 export type Aliases = Record<string, { product: string; item: string }>;
 /** The thread a screen's id stands for, in its project. */
 export const realItem = (aliases: Aliases, product: string, id: string) => (aliases[id]?.product === product ? aliases[id].item : id);
@@ -70,13 +70,21 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
   const items = new Map<string, any>();
   const screenId = new Map<string, string>();
   const aliases: Aliases = {};
+  // Every real id, and every id a new thread waiting on the phone shows under,
+  // is spoken for before any stand-in is made, and a stand-in is never one of
+  // them (Codex's third review, finding 6).
+  const taken = new Set<string>([...rows.threads.map((t) => t.item), ...rows.commands.filter((c) => c.kind === 'new').map((c) => madeHere(c.id))]);
   const used = new Set<string>();
   const threads = [...rows.threads].sort((a, b) => `${a.device}/${a.project}`.localeCompare(`${b.device}/${b.project}`));
   for (const t of threads) {
     const slug = phoneSlug(t.device, t.project);
     if (!names.has(slug) || !t.snapshot?.item) continue;
     let id = t.item;
-    if (used.has(id)) { id = aliasFor(slug, t.item); aliases[id] = { product: slug, item: t.item }; }
+    if (used.has(id)) {
+      let n = 0;
+      do { id = aliasFor(slug, t.item, n); n += 1; } while (taken.has(id) || used.has(id));
+      aliases[id] = { product: slug, item: t.item };
+    }
     used.add(id);
     screenId.set(`${slug}/${t.item}`, id);
     items.set(`${slug}/${t.item}`, { ...t.snapshot.item, id, product: slug, productName: names.get(slug) });
@@ -129,7 +137,7 @@ export function closeToTakeBack(rows: PhoneRows, channel: string, p: any, aliase
   const where = splitSlug(p.product);
   if (!where) return null;
   const item = realItem(aliases, p.product, p.id);
-  const waiting = rows.commands.filter((c) => c.kind === 'close' && !c.taken_at && c.device === where.device && c.project === where.project && c.item === item);
+  const waiting = rows.commands.filter((c) => c.kind === 'close' && !c.taken_at && !c.claimed_at && c.device === where.device && c.project === where.project && c.item === item);
   return waiting.at(-1) ?? null;
 }
 
@@ -199,7 +207,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
   };
   const changed = atMostEvery(1000, (payload?: unknown) => deliver(PUSH_CHANNELS.onChanged, payload));
 
-  const COMMANDS = 'select=id,device,project,item,kind,payload,created_at,taken_at,outcome&order=created_at';
+  const COMMANDS = 'select=id,device,project,item,kind,payload,created_at,claimed_at,taken_at,outcome&order=created_at';
   // Every command still waiting, however old (Codex's review of step 1,
   // finding 10), and those taken in the last two days, for what they say.
   async function commands() {
@@ -266,8 +274,9 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     const back = closeToTakeBack(rows, channel, payload, aliases);
     if (back) {
       const asked = client.generation();
-      const done = await client.update('phone_commands', `id=eq.${encodeURIComponent(back.id)}&taken_at=is.null`, { taken_at: new Date().toISOString(), outcome: UNDONE });
-      if (!done.length) throw new Error('Your computer already closed it. Reopen it there.');
+      // Only while the computer has not claimed it (Codex's third review, finding 3).
+      const done = await client.update('phone_commands', `id=eq.${encodeURIComponent(back.id)}&taken_at=is.null&claimed_at=is.null`, { taken_at: new Date().toISOString(), outcome: UNDONE });
+      if (!done.length) throw new Error('Your computer already has it. Reopen it there.');
       if (client.generation() === asked) rows = { ...rows, commands: rows.commands.map((c) => (c.id === back.id ? done[0] : c)) };
       changed(null);
       return { ok: true };

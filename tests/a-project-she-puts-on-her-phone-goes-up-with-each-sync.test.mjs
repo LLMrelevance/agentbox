@@ -103,10 +103,10 @@ describe('what her phone left goes through the window\'s own handlers', () => {
     await phone.addPhoneCommand({ device: await device(), project: 'alpha', kind: 'new', payload: { title: 'Ship it', body: 'today' } });
     await service.syncNow();
     expect(calls).toEqual([
-      ['zero:answer', { product: 'alpha', id: a.id, answer: 'Use the new cookie.' }],
+      ['zero:answer', { product: 'alpha', id: a.id, answer: 'Use the new cookie.', fromPhone: expect.any(String) }],
       ['zero:snooze', { product: 'alpha', id: a.id, snoozedUntil: 1_900_000_000_000 }],
       ['zero:answer', { product: 'alpha', id: a.id, status: 'done' }],
-      ['zero:compose', { product: 'alpha', title: 'Ship it', body: 'today' }],
+      ['zero:compose', { product: 'alpha', title: 'Ship it', body: 'today', fromPhone: expect.any(String) }],
     ]);
     expect((await phone.phoneCommands()).map((c) => c.outcome)).toEqual(['done', 'done', 'done', 'done']);
   });
@@ -123,6 +123,20 @@ describe('what her phone left goes through the window\'s own handlers', () => {
     await service.syncNow();
     expect(calls).toEqual([]);
     expect((await phone.phoneCommands())[0].outcome).toMatch(/^refused: /);
+  });
+});
+
+// Codex's third review, finding 5: what a phone command writes carries its id.
+describe('the line a phone command writes', () => {
+  it('carries the command\'s id, on a reply and on a new thread, and nothing that is not one', () => {
+    const a = store.composeItem('alpha', { title: 'Fix it', body: 'now', fromPhone: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d' });
+    expect(store.readItem('alpha', a.id).fromPhone).toBe('0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d');
+    store.answerItem('alpha', a.id, { answer: 'and this', fromPhone: '11111111-2222-4333-8444-555555555555' });
+    expect(store.readHistory('alpha', a.id).at(-1).patch).toMatchObject({ answer: 'and this', fromPhone: '11111111-2222-4333-8444-555555555555' });
+    store.answerItem('alpha', a.id, { answer: 'from the window' });
+    expect(store.readHistory('alpha', a.id).at(-1).patch.fromPhone).toBeUndefined();
+    store.answerItem('alpha', a.id, { answer: 'odd', fromPhone: '<script>' });
+    expect(store.readHistory('alpha', a.id).at(-1).patch.fromPhone).toBeUndefined();
   });
 });
 

@@ -21,12 +21,12 @@
 // `alive()` before each one: once she signs out, a pass already running stops
 // rather than carrying her projects into whoever signs in next.
 //
-// A COMMAND IS DONE ONCE (finding 3). Before it is done, what the thread looked
-// like is written down here; if this computer stopped half way, the next pass
-// looks for what the command does AFTER that point before doing it again: her
-// reply after the last line there was, a thread that was not there before
-// (second review, finding 4: matching the words alone took an earlier "yes"
-// for a second one). Closing and snoozing are the same twice over. Once done,
+// A COMMAND IS DONE ONCE (finding 3). Before it is done, that it is being done
+// is written down here, and what it writes carries the command's own id
+// (`fromPhone`). If this computer stopped half way, the next pass looks for a
+// line or a row with that id before doing it again (second and third reviews:
+// matching the words, or the moment, took an earlier "yes" for a second one).
+// Closing and snoozing are the same twice over. Once done,
 // the outcome is kept here before the cloud is told, so a mark that fails is
 // retried and the command never runs twice. One that cannot be done is marked
 // with why.
@@ -54,7 +54,7 @@ export function createPhoneInbox({
   // The projects on her phone, read fresh each pass: [{ slug, name }].
   projects,
   listItems, // (slug) -> folded rows
-  historyOf, // (slug, id) -> the thread's history lines (store.readHistory)
+  historyOf, // (slug, id, { all }) -> the thread's history lines (store.readHistory); all of them when asked
   apply, // async (command) -> the handler's answer; throws to refuse
   stateFile,
   home = os.homedir(),
@@ -66,6 +66,17 @@ export function createPhoneInbox({
   if (!given && !state.device) { state.device = crypto.randomBytes(6).toString('hex'); save(); }
   const device = given ?? state.device;
   if (!/^[0-9a-f]{12}$/.test(device)) throw new Error('a computer id is twelve hex digits');
+  // WHAT WAS SENT WAS SENT AS ONE COMPUTER (Codex's third review, finding 2).
+  // Under another id (a store copied here, or the id made a new way) nothing
+  // is online yet, so it all goes again; the other id's rows are that
+  // computer's, and are left to it.
+  if (state.forDevice !== device) {
+    state.forDevice = device;
+    state.sent = {};
+    state.failed = {};
+    state.made = {};
+    save();
+  }
   const still = () => { if (!alive()) throw new SignedOut('signed out'); };
 
   async function publish() {
@@ -140,29 +151,12 @@ export function createPhoneInbox({
     }
   }
 
-  // What the thread looked like before a command was done: the moment of its
-  // latest line, and the rows the project had.
-  function before(cmd, item) {
-    if (cmd.kind === 'reply') return { after: Math.max(0, ...historyOf(cmd.project, item).map((l) => l?.ts ?? 0)) };
-    if (cmd.kind === 'new') return { ids: listItems(cmd.project).map((i) => i.id) };
-    return {};
-  }
   // What a command already did, if this computer did it before it stopped:
-  // only something that appeared after the moment written down before it.
-  function landed(cmd, item, was) {
-    const p = cmd.payload || {};
-    if (cmd.kind === 'reply' && Number.isFinite(was?.after)) {
-      return historyOf(cmd.project, item).some((l) => l?.source === 'founder' && l.patch?.answer === p.text && (l.ts ?? 0) > was.after) ? item : null;
-    }
-    if (cmd.kind === 'new' && Array.isArray(was?.ids)) {
-      const old = new Set(was.ids);
-      const title = String(p.title ?? '').trim();
-      const body = String(p.body ?? '').trim();
-      const made = listItems(cmd.project).filter((i) => !old.has(i.id)
-        && String(i.body ?? '').trim() === body && (!title || String(i.title ?? '').trim() === title));
-      // Two new rows that both fit cannot be told apart: neither is claimed.
-      return made.length === 1 ? made[0].id : null;
-    }
+  // the line or the row that carries the command's own id (`fromPhone`,
+  // shared/work-items.mjs). Nothing else counts, however alike its words.
+  function landed(cmd, item) {
+    if (cmd.kind === 'reply') return historyOf(cmd.project, item, { all: true }).some((l) => l?.patch?.fromPhone === cmd.id) ? item : null;
+    if (cmd.kind === 'new') return listItems(cmd.project).find((i) => i.fromPhone === cmd.id)?.id ?? null;
     return null;
   }
 
@@ -181,13 +175,20 @@ export function createPhoneInbox({
         const why = checkCommand(resolved, { projects: slugs, hasItem: (project, id) => listItems(project).some((i) => i.id === id) });
         if (why) outcome = `refused: ${why}`;
         else {
-          const was = state.doing[cmd.id];
-          const already = was ? landed(resolved, item, was) : null;
+          // Claimed in the cloud first: after this the phone cannot take it
+          // back, and if she already did, it is not done (third review, 3).
+          const claim = await backend.claimPhoneCommand(cmd.id, owner);
+          const already = claim === 'gone' ? null : state.doing[cmd.id] || claim === 'ours' ? landed(resolved, item) : null;
+          if (claim === 'gone') {
+            delete state.doing[cmd.id];
+            save();
+            continue;
+          }
           if (already) {
             if (cmd.kind === 'new') state.made[madeHere(cmd.id)] = { id: already, at: now() };
             outcome = 'done';
           } else {
-            state.doing[cmd.id] = { at: now(), ...before(resolved, item) };
+            state.doing[cmd.id] = { at: now() };
             save();
             try {
               const out = await apply(resolved);
@@ -251,10 +252,10 @@ export function phoneDevice(appDataDir, storeRoot) {
 // main/main.mjs files every channel in. A handler that answers `ok: false`
 // turned it down, and that is what the phone is told.
 const ROUTES = {
-  reply: (c) => ['zero:answer', { product: c.project, id: c.item, answer: c.payload.text }],
+  reply: (c) => ['zero:answer', { product: c.project, id: c.item, answer: c.payload.text, fromPhone: c.id }],
   close: (c) => ['zero:answer', { product: c.project, id: c.item, status: 'done' }],
   snooze: (c) => ['zero:snooze', { product: c.project, id: c.item, snoozedUntil: c.payload.until }],
-  new: (c) => ['zero:compose', { product: c.project, title: c.payload.title ?? '', body: c.payload.body ?? '' }],
+  new: (c) => ['zero:compose', { product: c.project, title: c.payload.title ?? '', body: c.payload.body ?? '', fromPhone: c.id }],
 };
 export function applyThrough(channels) {
   return async (cmd) => {
@@ -272,9 +273,9 @@ function readState(file) {
     const s = JSON.parse(fs.readFileSync(file, 'utf8'));
     const made = {};
     for (const [k, v] of Object.entries(s.made || {})) made[k] = typeof v === 'string' ? { id: v, at: Date.now() } : v;
-    return { device: typeof s.device === 'string' && /^[0-9a-f]{12}$/.test(s.device) ? s.device : null, sent: s.sent || {}, failed: s.failed || {}, done: s.done || {}, doing: s.doing || {}, made };
+    return { device: typeof s.device === 'string' && /^[0-9a-f]{12}$/.test(s.device) ? s.device : null, forDevice: s.forDevice ?? null, sent: s.sent || {}, failed: s.failed || {}, done: s.done || {}, doing: s.doing || {}, made };
   } catch {
-    return { device: null, sent: {}, failed: {}, done: {}, doing: {}, made: {} };
+    return { device: null, forDevice: null, sent: {}, failed: {}, done: {}, doing: {}, made: {} };
   }
 }
 

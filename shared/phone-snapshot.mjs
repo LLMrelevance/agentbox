@@ -46,11 +46,28 @@ const SECRETS = [
   /\b(Bearer\s+)[A-Za-z0-9._~+/-]{20,}=*/gi,
   /\b(Basic\s+)[A-Za-z0-9+/]{12,}=*/gi,
 ];
-// A VALUE GIVEN A SECRET'S NAME, whatever it looks like (Codex's second review,
-// finding 2): `AWS_SECRET_ACCESS_KEY=...`, `password: hunter22`,
-// `"api_key": "..."`. The name stays, so the sentence still reads.
-// A plain number after the name (`max_tokens=128000`) is a setting, not a secret.
-const NAMED = /\b([A-Za-z0-9_.-]*(?:secret|passw(?:or)?d|passphrase|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credentials?|authorization)[A-Za-z0-9_.-]*)(["']?\s*[:=]\s*["']?)(?![0-9]+\b)([^\s"',;]{6,})/gi;
+// A VALUE GIVEN A SECRET'S NAME, whatever it looks like (Codex's second and
+// third reviews): `AWS_SECRET_ACCESS_KEY=...`, `password: hunter22`,
+// `PASSWORD=12345678`, `password="correct horse battery staple"`. The name
+// stays, so the sentence still reads; a quoted value goes whole.
+const STRONG = '[A-Za-z0-9_.-]*(?:passw(?:or)?d|passphrase|secret|api[_-]?key|access[_-]?key|private[_-]?key|credentials?|authorization|(?:auth|access|refresh|session|bearer|id)[_-]?token)[A-Za-z0-9_.-]*';
+// "token" alone is a word people use ("token: unexpected identifier"), so it
+// counts only as an ENV_STYLE name, or before a long run that looks like a key.
+const WEAK = '(?:[A-Z0-9_]*TOKEN[A-Z0-9_]*|token)';
+const VALUE = '(?:"([^"\\n]{1,500})"|\'([^\'\\n]{1,500})\'|([^\\s"\',;()\\[\\]{}<>][^\\s"\',;)\\]}]*))';
+const NAMED_STRONG = new RegExp(`\\b(${STRONG})(["']?\\s*[:=]\\s*)${VALUE}`, 'gi');
+const NAMED_WEAK = new RegExp(`\\b(${WEAK})(["']?\\s*[:=]\\s*)${VALUE}`, 'g');
+const hidden = (name, sep, dq, sq, bare) => `${name}${sep}${dq !== undefined ? '"[hidden]"' : sq !== undefined ? "'[hidden]'" : '[hidden]'}`;
+function hideNamed(text) {
+  let out = text.replace(NAMED_STRONG, (m, name, sep, dq, sq, bare) => (bare === '[hidden]' ? m : hidden(name, sep, dq, sq, bare)));
+  out = out.replace(NAMED_WEAK, (m, name, sep, dq, sq, bare) => {
+    const value = dq ?? sq ?? bare ?? '';
+    const envStyle = name !== 'token' && name === name.toUpperCase();
+    const keyLike = value.length >= 16 && /[0-9]/.test(value) && !/\s/.test(value);
+    return value !== '[hidden]' && (envStyle || keyLike) ? hidden(name, sep, dq, sq, bare) : m;
+  });
+  return out;
+}
 // AND A LONG RUN OF LETTERS AND DIGITS THAT LOOKS LIKE NOTHING BUT A KEY: 32 or
 // more, upper and lower case and digits all present. A commit id or a uuid is
 // one case of hex and is left alone.
@@ -58,7 +75,7 @@ const KEYLIKE = /\b(?=[A-Za-z0-9_-]{32,}\b)(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_
 export function hideSecrets(text, { home = null } = {}) {
   let out = String(text);
   for (const re of SECRETS) out = out.replace(re, (m, bearer) => (typeof bearer === 'string' && /^(Bearer|Basic)/i.test(bearer) ? `${bearer}[hidden]` : '[hidden]'));
-  out = out.replace(NAMED, (m, name, sep, value) => (value === '[hidden]' ? m : `${name}${sep}[hidden]`));
+  out = hideNamed(out);
   out = out.replace(KEYLIKE, '[hidden]');
   // Her home folder is ~ online, as it is in a crash report (shared/crash-scrub.mjs).
   if (home && home.length > 1) out = out.split(home).join('~');

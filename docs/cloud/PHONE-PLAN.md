@@ -145,6 +145,19 @@ Codex's second review (10 more findings) changed:
 - Refusals show for a day from when they were refused, for all four kinds.
 - Starting an agent update, and resuming agents, are the computer's.
 
+Codex's third review (6 findings) changed:
+
+- What a phone command writes carries the command's id (`fromPhone` on the
+  ledger line), and crash recovery goes by that id alone.
+- The computer claims a command in the database before doing it; Undo on the
+  phone only takes back one nobody has claimed, so exactly one of them wins.
+- Under a new computer id everything is sent again.
+- The migration also replaces the second draft's tables, and adds the tables
+  to the live-updates publication only if they are not there.
+- Credentials named in the text are hidden whole, short, numeric or quoted;
+  "token" alone counts only in an ENV_STYLE name or before a key-like value.
+- A stand-in id for a thread shared by two computers never equals a real one.
+
 A phone that saved the relay's address to its home screen needs the new site
 instead; nobody had one, since the relay was never deployed.
 

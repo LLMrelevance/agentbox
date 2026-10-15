@@ -211,7 +211,7 @@ describe('the computer takes what her phone left', () => {
     const [cmd] = await first.phone.waitingPhoneCommands(first.inbox.device);
     fs.writeFileSync(path.join(dir, 'phone-inbox.json'), JSON.stringify({ ...state, doing: { [cmd.id]: { at: NOW, after: NOW - 1 } } }));
     expect(landedReply).toBe(null);
-    const second = setup({ cloud, me, dir, items: { alpha: [item('w-1')] }, history: { 'alpha/w-1': [{ id: 'w-1', ts: NOW, source: 'founder', patch: { answer: 'ship it' } }] } });
+    const second = setup({ cloud, me, dir, items: { alpha: [item('w-1')] }, history: { 'alpha/w-1': [{ id: 'w-1', ts: NOW, source: 'founder', patch: { answer: 'ship it', fromPhone: cmd.id } }] } });
     await second.inbox.syncOnce();
     expect(second.applied).toEqual([]);
     expect((await second.phone.phoneCommands())[0].outcome).toBe('done');
@@ -238,7 +238,7 @@ describe('the computer takes what her phone left', () => {
     const c = await first.send({ project: 'alpha', kind: 'new', payload: { title: 'Ship it', body: 'today' } });
     const state = JSON.parse(fs.readFileSync(path.join(dir, 'phone-inbox.json'), 'utf8'));
     fs.writeFileSync(path.join(dir, 'phone-inbox.json'), JSON.stringify({ ...state, doing: { [c.id]: { at: NOW, ids: ['w-1'] } } }));
-    const made = item('w-made00001', { title: 'Ship it', body: 'today', createdAt: NOW });
+    const made = item('w-made00001', { title: 'Ship it', body: 'today', createdAt: NOW, fromPhone: c.id });
     const second = setup({ cloud, me, dir, items: { alpha: [item('w-1'), made] } });
     await second.inbox.syncOnce();
     expect(second.applied).toEqual([]);
@@ -404,13 +404,83 @@ describe('what the second review found', () => {
       ['AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY', 'AWS_SECRET_ACCESS_KEY=[hidden]'],
       ['password: hunter22', 'password: [hidden]'],
       ['"api_key": "abcd1234efgh"', '"api_key": "[hidden]"'],
-      ['Authorization: Basic dXNlcjpwYXNzd29yZA==', 'Authorization: Basic [hidden]'],
+      ['Authorization: Basic dXNlcjpwYXNzd29yZA==', 'Authorization: [hidden] [hidden]'],
+      // Codex's third review: short, numeric and quoted values, and the prose that must stay.
+      ['PASSWORD=12345678', 'PASSWORD=[hidden]'],
+      ['password=abc', 'password=[hidden]'],
+      ['API_KEY=1234-abcd-efgh', 'API_KEY=[hidden]'],
+      ['password="correct horse battery staple"', 'password="[hidden]"'],
+      ["'client_secret': 'xyz'", "'client_secret': '[hidden]'"],
+      ['GITHUB_TOKEN=abc', 'GITHUB_TOKEN=[hidden]'],
+      ['token=Zm9vYmFyYmF6cXV4MTIz', 'token=[hidden]'],
+      ['token: unexpected identifier', 'token: unexpected identifier'],
+      ['the password field is required', 'the password field is required'],
+      ['Set password: (see vault)', 'Set password: (see vault)'],
       ['a bare XyZ12abcDEF34ghiJKL56mnoPQR78stuVW key', 'a bare [hidden] key'],
       ['max_tokens=128000', 'max_tokens=128000'],
       ['author: Sam Lee', 'author: Sam Lee'],
       ['commit 3f2a9c1e8b7d6f5a4c3b2a1908f7e6d5c4b3a291', 'commit 3f2a9c1e8b7d6f5a4c3b2a1908f7e6d5c4b3a291'],
       ['my secret plan', 'my secret plan'],
     ]) expect(hideSecrets(said), said).toBe(shown);
+  });
+});
+
+// Codex's third review.
+describe('what the third review found', () => {
+  // Finding 5: the moment was taken for the order. The command's own id on its
+  // line is what counts now, and only that.
+  it('after a crash, a reply counts as sent only if its line carries the command\'s id', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phone-inbox-'));
+    const cloud = createMemoryCloud();
+    const me = signUpMemory(cloud, { email: 'ids@example.com' });
+    const first = setup({ cloud, me, dir, items: { alpha: [item('w-1')] } });
+    const c = await first.send({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'yes' } });
+    const state = JSON.parse(fs.readFileSync(path.join(dir, 'phone-inbox.json'), 'utf8'));
+    fs.writeFileSync(path.join(dir, 'phone-inbox.json'), JSON.stringify({ ...state, doing: { [c.id]: { at: NOW } } }));
+    // The same words, the same moment, written by somebody else: not it.
+    const lookalike = setup({ cloud, me, dir, items: { alpha: [item('w-1')] }, history: { 'alpha/w-1': [{ id: 'w-1', ts: NOW, source: 'founder', patch: { answer: 'yes' } }] } });
+    await lookalike.inbox.syncOnce();
+    expect(lookalike.applied.map((x) => x.payload.text)).toEqual(['yes']);
+  });
+
+  // Finding 3: Undo and the computer both won.
+  it('a close taken back on the phone before the computer claims it is never done', async () => {
+    const t = setup({ items: { alpha: [item('w-1')] } });
+    const c = await t.send({ project: 'alpha', item: 'w-1', kind: 'close' });
+    // The computer has read the list; she takes it back; then it gets to it.
+    const claim = t.mac.claimPhoneCommand;
+    t.mac.claimPhoneCommand = async (...a) => { expect(await t.phone.takeBackPhoneCommand(c.id, 'refused: taken back on the phone')).toBe(true); return claim(...a); };
+    await t.inbox.syncOnce();
+    expect(t.applied).toEqual([]);
+    expect((await t.phone.phoneCommands())[0].outcome).toBe('refused: taken back on the phone');
+  });
+  it('a close the computer has claimed can no longer be taken back', async () => {
+    const t = setup({ items: { alpha: [item('w-1')] } });
+    const c = await t.send({ project: 'alpha', item: 'w-1', kind: 'close' });
+    const u = setup({ cloud: t.cloud, me: t.me, dir: t.dir, items: { alpha: [item('w-1')] }, apply: async (cmd) => {
+      expect(await t.phone.takeBackPhoneCommand(c.id, 'refused: taken back on the phone')).toBe(false);
+      u.applied.push(cmd);
+    } });
+    await u.inbox.syncOnce();
+    expect(u.applied.map((x) => x.kind)).toEqual(['close']);
+    expect((await t.phone.phoneCommands())[0].outcome).toBe('done');
+  });
+
+  // Finding 2: a new computer id kept the old one's "already sent".
+  it('under a new computer id everything is sent again', async () => {
+    const cloud = createMemoryCloud();
+    cloud.now = () => NOW;
+    const me = signUpMemory(cloud, { email: 'moved@example.com' });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phone-inbox-'));
+    const phone = memoryBackend(cloud, me);
+    const make = (device) => createPhoneInbox({
+      backend: memoryBackend(cloud, me), owner: me, device, projects: () => [{ slug: 'alpha', name: 'Alpha' }],
+      listItems: () => [item('w-1')], historyOf: () => [], apply: async () => {}, stateFile: path.join(dir, 's.json'), now: () => NOW,
+    });
+    await make('aaaaaaaaaaaa').syncOnce();
+    await make('bbbbbbbbbbbb').syncOnce();
+    expect((await phone.phoneProjects()).map((p) => p.device).sort()).toEqual(['aaaaaaaaaaaa', 'bbbbbbbbbbbb']);
+    expect((await phone.phoneThreads()).map((t) => t.device).sort()).toEqual(['aaaaaaaaaaaa', 'bbbbbbbbbbbb']);
   });
 });
 

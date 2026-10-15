@@ -306,7 +306,7 @@ export function memoryBackend(cloud, personId) {
     async addPhoneCommand({ device, project, item = null, kind, payload = {} }) {
       if (!/^[0-9a-f]{12}$/.test(String(device))) refuse('a command for no computer');
       if (!['reply', 'new', 'snooze', 'close'].includes(kind)) refuse(`a ${kind} command`);
-      const row = { id: crypto.randomUUID(), owner: personId, device, project, item, kind, payload, createdAt: new Date(cloud.now()).toISOString(), takenAt: null, outcome: null };
+      const row = { id: crypto.randomUUID(), owner: personId, device, project, item, kind, payload, createdAt: new Date(cloud.now()).toISOString(), claimedAt: null, takenAt: null, outcome: null };
       (cloud.phoneCommands ??= []).push(row);
       cloud.events.emit('phone', 1);
       return { ...row };
@@ -316,6 +316,26 @@ export function memoryBackend(cloud, personId) {
     },
     async phoneCommands() {
       return (cloud.phoneCommands ?? []).filter((c) => c.owner === personId).map((c) => ({ ...c }));
+    },
+    // THE COMPUTER CLAIMS ONE BEFORE IT DOES IT; the phone takes one back only
+    // while nobody has. Exactly one of the two wins, as in the database.
+    // 'claimed' is a claim made now, 'ours' one made before (this computer,
+    // starting again), 'gone' a command taken back or already done.
+    async claimPhoneCommand(id, owner) {
+      if (owner && owner !== personId) return 'gone';
+      const c = (cloud.phoneCommands ?? []).find((x) => x.id === id && x.owner === personId);
+      if (!c || c.takenAt) return 'gone';
+      if (c.claimedAt) return 'ours';
+      c.claimedAt = new Date(cloud.now()).toISOString();
+      return 'claimed';
+    },
+    async takeBackPhoneCommand(id, outcome) {
+      const c = (cloud.phoneCommands ?? []).find((x) => x.id === id && x.owner === personId);
+      if (!c || c.takenAt || c.claimedAt) return false;
+      c.takenAt = new Date(cloud.now()).toISOString();
+      c.outcome = outcome;
+      cloud.events.emit('phone', 1);
+      return true;
     },
     async markPhoneCommand(id, outcome, owner) {
       if (owner && owner !== personId) return;

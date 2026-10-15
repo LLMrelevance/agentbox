@@ -134,6 +134,26 @@ describe('undo on the phone', () => {
   });
 });
 
+describe('the third review', () => {
+  // Finding 6: a stand-in id landed on a real one.
+  it('a stand-in id is never a real thread\'s id, nor a new thread\'s waiting on the phone', () => {
+    const r = { projects: [{ device: 'aaaaaaaaaaaa', project: 'p', name: 'P' }, { device: 'bbbbbbbbbbbb', project: 'p', name: 'P2' }], threads: [], commands: [] };
+    r.threads.push({ ...thread('w-1234567890'), device: 'aaaaaaaaaaaa', project: 'p' }, { ...thread('w-1234567890'), device: 'bbbbbbbbbbbb', project: 'p' });
+    const first = phoneView(r, NOW);
+    const stand = first.items.find((i) => i.id !== 'w-1234567890').id;
+    // Now a real thread with exactly that id appears.
+    r.threads.push({ ...thread(stand), device: 'aaaaaaaaaaaa', project: 'p' });
+    const ids = phoneView(r, NOW).items.map((i) => i.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+  // Finding 3: Undo only before the computer claims it.
+  it('Undo takes back nothing the computer has claimed', () => {
+    expect(closeToTakeBack(rows([cmd('c1', 'close', { claimed_at: iso(NOW) })]), 'zero:answer', { product: A, id: 'w-1', status: 'open' })).toBeNull();
+    const src = fs.readFileSync(new URL('../renderer/src/cloud-bridge.ts', import.meta.url), 'utf8');
+    expect(src).toMatch(/taken_at=is\.null&claimed_at=is\.null/);
+  });
+});
+
 describe('what a press leaves for her Mac', () => {
   it('the four things, and nothing else', () => {
     expect(commandFor('zero:answer', { product: A, id: 'w-1', answer: 'Yes' })).toEqual({ device: DEV, project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'Yes' } });

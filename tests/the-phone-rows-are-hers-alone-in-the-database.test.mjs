@@ -137,21 +137,46 @@ describe('nobody signed in', () => {
 // Codex's second review, finding 3: a database that ran the first draft of
 // these tables kept them, holes and all, because the file only made tables
 // that were not there yet.
-describe('a database that ran the first draft', () => {
-  it('ends with the tables as they are now, and the holes closed', async () => {
+describe('a database that ran either earlier draft', () => {
+  it.each(['phone-inbox-first-draft.sql', 'phone-inbox-second-draft.sql'])('%s ends with the tables as they are now, and the holes closed', async (fixture) => {
     const old = new PGlite();
     await old.exec(SUPABASE_STAND_IN);
-    const draft = fs.readFileSync(path.join(root, 'tests/fixtures/phone-inbox-first-draft.sql'), 'utf8');
+    const draft = fs.readFileSync(path.join(root, 'tests/fixtures', fixture), 'utf8');
     const before = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql') && f < '20261014000000').sort().map((f) => fs.readFileSync(path.join(migrationsDir, f), 'utf8')).join('\n');
     const after = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql') && f > '20261014000000').sort().map((f) => fs.readFileSync(path.join(migrationsDir, f), 'utf8')).join('\n');
     await old.exec(before);
     await old.exec(draft);
     await old.exec(after);
     const cols = (await old.query(`select column_name from information_schema.columns where table_name = 'phone_commands' order by column_name`)).rows.map((r) => r.column_name);
-    expect(cols).toContain('device');
+    expect(cols).toEqual(expect.arrayContaining(['device', 'claimed_at']));
     const triggers = (await old.query(`select tgname from pg_trigger where tgname like 'phone_command_%' order by tgname`)).rows.map((r) => r.tgname);
     expect(triggers).toEqual(['phone_command_made', 'phone_command_taken']);
     await old.close();
+  });
+});
+
+// Codex's third review, finding 3: Undo and the computer raced, and both won.
+describe('the computer claims a command; the phone takes one back; only one of them wins', () => {
+  it('a command the computer claimed cannot be taken back, and is claimed once', async () => {
+    const c = await command();
+    const [claimed] = await rows(OWNER, `update public.phone_commands set claimed_at = now() where id = $1 and taken_at is null and claimed_at is null returning id`, [c.id]);
+    expect(claimed?.id).toBe(c.id);
+    expect(await rows(OWNER, `update public.phone_commands set taken_at = now(), outcome = 'refused: taken back on the phone' where id = $1 and taken_at is null and claimed_at is null returning id`, [c.id])).toEqual([]);
+    expect(await refused(OWNER, `update public.phone_commands set claimed_at = now() + interval '1 second' where id = $1`, [c.id])).toBe(true);
+    await as(OWNER, `update public.phone_commands set taken_at = now(), outcome = 'done' where id = $1`, [c.id]);
+    const [after] = await rows(OWNER, `select outcome, claimed_at is not null as claimed from public.phone_commands where id = $1`, [c.id]);
+    expect(after).toEqual({ outcome: 'done', claimed: true });
+  });
+  it('a command taken back cannot then be claimed', async () => {
+    const c = await command();
+    await as(OWNER, `update public.phone_commands set taken_at = now(), outcome = 'refused: taken back on the phone' where id = $1 and taken_at is null and claimed_at is null`, [c.id]);
+    expect(await refused(OWNER, `update public.phone_commands set claimed_at = now() where id = $1`, [c.id])).toBe(true);
+    expect(await rows(OWNER, `update public.phone_commands set claimed_at = now() where id = $1 and taken_at is null and claimed_at is null returning id`, [c.id])).toEqual([]);
+  });
+  it('an update that changes nothing, or an outcome without a time, is refused', async () => {
+    const c = await command();
+    expect(await refused(OWNER, `update public.phone_commands set outcome = 'done' where id = $1`, [c.id])).toBe(true);
+    expect(await refused(OWNER, `update public.phone_commands set claimed_at = null where id = $1`, [c.id])).toBe(true);
   });
 });
 

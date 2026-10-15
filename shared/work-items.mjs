@@ -155,6 +155,12 @@ export const WORK_ITEM_FIELDS = [
   // mark on ONE line rather than a value the row holds, so the fold skips it;
   // the chat reads it per line (renderer/src/thread-history.ts).
   'inReplyTo',
+  // WHICH COMMAND FROM HER PHONE WROTE THIS LINE (docs/cloud/PHONE-PLAN.md):
+  // the command's id, on the line of the reply or the new thread it made. It
+  // is how the computer, starting again after stopping half way through a
+  // command, knows for certain whether that command already landed, rather
+  // than guessing from the words (Codex's third review of step 1, finding 5).
+  'fromPhone',
 ];
 
 // THE SUMMARY IS SHARED BETWEEN THE PERSON AND THE AGENT. Everywhere else the
@@ -464,6 +470,7 @@ function coerceField(field, value) {
       return value.off === true ? { on, emoji, off: true } : { on, emoji };
     }
     case 'inReplyTo': return shortId(value) ?? undefined;
+    case 'fromPhone': return typeof value === 'string' && /^[0-9a-f-]{8,64}$/i.test(value) ? value : undefined;
     case 'visibility': return value === 'private' || value === 'team' || value === 'people' ? value : undefined;
     // An empty list is a real value: it is how the last chosen person comes
     // off a thread, and the thread then reaches nobody until she names one.
