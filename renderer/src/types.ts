@@ -836,6 +836,8 @@ export interface ProjectSettings {
 }
 
 export interface WorkspaceSettings {
+  /** Every project on her phone, unless she turned it off (shared/phone-snapshot.mjs). */
+  phoneAll?: boolean;
   agentsRunning: boolean;
   sessionsAtOnce: number;
   /**

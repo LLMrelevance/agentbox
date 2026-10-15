@@ -1522,7 +1522,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
 
   ipcMain.handle('zero:settings-set-project', (_e, payload) => {
     try {
-      setProjectSetting({ config, supervisor }, payload ?? {});
+      setProjectSetting({ config, supervisor, store }, payload ?? {});
       push();
       return { ok: true, ...readSettings({ config, supervisor, store }) };
     } catch (err) {
@@ -1558,7 +1558,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   });
   ipcMain.handle('zero:settings-set-workspace', (_e, payload) => {
     try {
-      setWorkspaceSetting({ config, supervisor }, payload ?? {});
+      setWorkspaceSetting({ config, supervisor, store }, payload ?? {});
       push();
       return { ok: true, ...readSettings({ config, supervisor, store }) };
     } catch (err) {

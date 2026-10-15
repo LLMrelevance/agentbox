@@ -37,7 +37,11 @@ if (name === 'claude' && args[0] === 'setup-token') {
     got += d;
     if (!/[\r\n]/.test(got)) return;
     const code = got.trim();
-    if (code !== 'good#code') { process.stdout.write('\r\nOAuth error: Invalid code\r\n'); process.exit(1); }
+    // A CODE CLAUDE DOES NOT TAKE, said and then waited on, as the real
+    // command does (measured on 2.1.301, 2026-10-15): it never exits by itself.
+    // Says nothing at all after the code, ever.
+    if (mode === 'claude-silent') { setInterval(() => {}, 1000); return; }
+    if (code !== 'good#code') { process.stdout.write('\r\nOAuth error: Request failed with status code 400 Press Enter to retry.\r\n'); got = ''; return; }
     // The token arrives in two pieces, as a terminal may deliver it.
     process.stdout.write(`\r\nYour OAuth token (valid for 1 year):\r\n\r\n${TOKEN.slice(0, 25)}`);
     setTimeout(() => {
@@ -47,6 +51,8 @@ if (name === 'claude' && args[0] === 'setup-token') {
     }, 50);
   });
 } else if (name === 'claude' && args[0] === '-p') {
+  // A check that takes its time, longer than the wait for the code's answer.
+  if (mode === 'claude-slow-check') await new Promise((r) => setTimeout(r, 700));
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN === TOKEN && mode !== 'claude-refuses' && mode !== 'claude-offline') { process.stdout.write('ok\n'); process.exit(0); }
   process.stderr.write(mode === 'claude-offline' ? 'API Error: Connection error (ECONNRESET)\n' : 'Invalid bearer token\n');
   process.exit(1);

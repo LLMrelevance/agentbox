@@ -25,7 +25,7 @@ import { providerCommand } from '../../../shared/provider-commands.mjs';
 // One typographic system throughout (markdown, no cards, no stripes). Reply is
 // a docked composer, never a modal over the text.
 
-import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as BoxKeyEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as BoxKeyEvent, type ReactNode } from 'react';
 import { TeamContext, firstName } from '../team/people';
 import { joinNames } from '../threads/composer-rules';
 import { createPortal } from 'react-dom';
@@ -59,6 +59,7 @@ import type { ModelChoice } from '../models';
 import { sameRule, type RepeatShape as RepeatRuleValue } from '../../../shared/repeats.mjs';
 import { collectFiles, fromPaste, persistAttachments, type PendingAttachment } from '../attachments';
 import { pictureUrl } from '../picture';
+import { playerShelf } from '../player-shelf';
 import { handleCopyOut, blockCopyText } from '../copy-out';
 import { diagramSource } from '../diagram-fence';
 import { DiagramBlock } from './DiagramBlock';
@@ -289,10 +290,45 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
 // worker named by their full path read as plain black lines nobody had
 // detected. It carries the film icon and the file's name now; the path waits
 // in the hover title.
+//
+// THE PLAYER ITSELF IS KEPT ON A SHELF, NOT DRAWN (w-22c362edd1). A film she was
+// watching started again from nothing every time she replied or a worker wrote a
+// note, because each of those draws the message again. ../player-shelf.ts says
+// why, and this hands the same player back to the message drawn in its place.
+const players = playerShelf<HTMLMediaElement>({
+  make: (url) => {
+    const film = /\.(mp4|mov|m4v|webm)(?:[?#]|$)/i.test(decodeURIComponent(url));
+    const player = document.createElement(film ? 'video' : 'audio');
+    player.controls = true;
+    player.preload = 'metadata';
+    player.src = url;
+    return player;
+  },
+  drop: (player) => { player.pause(); player.removeAttribute('src'); player.load(); player.remove(); },
+});
+
 export function ArtifactMedia({ src, label, roots, onOpen }: { src: string; label?: string; roots: string[]; onOpen?: (src: string) => void }) {
   const [attempt, setAttempt] = useState(0);
   const rel = src.replace(/^\.\//, '');
   const candidates = src.startsWith('/') ? [pictureUrl(src)] : roots.map((r) => pictureUrl(`${r}/${rel}`));
+  const looked = candidates.join('\n');
+  const spot = useRef<HTMLSpanElement | null>(null);
+  // Taken in the commit that drew this message, so the one that went out in the
+  // same commit hands its player straight over.
+  useLayoutEffect(() => {
+    const host = spot.current;
+    const got = host && players.take(looked.split('\n'), attempt);
+    if (!host || !got) return;
+    const { player } = got;
+    let broken = false;
+    const next = () => { broken = true; setAttempt((was) => Math.max(was, candidates.indexOf(got.url)) + 1); };
+    player.addEventListener('error', next);
+    if (player.parentNode !== host) host.appendChild(player);
+    return () => {
+      player.removeEventListener('error', next);
+      players.give(player, { broken });
+    };
+  }, [looked, attempt]);
   const name = (
     <button type="button" className="inline-media-name mention mention-media" data-copy-file={rel} title={rel} onClick={() => onOpen?.(rel)}>
       <MentionIcon kind="media" /><span className="mention-name">{mentionLabel(rel, label) ?? label}</span>
@@ -300,14 +336,10 @@ export function ArtifactMedia({ src, label, roots, onOpen }: { src: string; labe
   );
   // Not in any root: it stays a name she can press, and the press says it is missing.
   if (attempt >= candidates.length) return <span className="inline-media-missing">{name}</span>;
-  const next = () => setAttempt(attempt + 1);
-  const film = /\.(mp4|mov|m4v|webm)(?:[?#]|$)/i.test(rel);
   return (
     <span className="inline-media">
       {name}
-      {film
-        ? <video key={candidates[attempt]} src={candidates[attempt]} controls preload="metadata" onError={next} />
-        : <audio key={candidates[attempt]} src={candidates[attempt]} controls preload="metadata" onError={next} />}
+      <span className="inline-media-player" ref={spot} />
     </span>
   );
 }
@@ -380,6 +412,13 @@ export function FolderPreview({ product, folder, onOpen, quiet, thread }: {
     </span>
   );
 }
+
+// WHAT THE MESSAGE PIECES READ THAT GROWS WITH THE THREAD: the folders a film or
+// a picture is looked for in, which the messages themselves name, and whether a
+// message already draws its own pictures. It is handed down rather than built
+// into the pieces, because building it in rebuilt the pieces on every reply and
+// every note, and a rebuilt piece is a new player (w-22c362edd1).
+const MessagePlace = createContext<{ roots: string[]; drawsPictures: boolean }>({ roots: [], drawsPictures: false });
 
 // A worker's link, its href corrected to the file that actually exists (the
 // main process resolves across every plausible root). Until then the naive
@@ -976,7 +1015,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // fresh arrows every render meant every store push (workers stream one per
   // second) remounted the whole markdown tree, so images reloaded from disk
   // and links re-resolved, and the screen visibly flashed and shifted.
-  const { resolveSrc, mdComponents, openHref, roots } = useMemo(() => {
+  //
+  // AND NOT WHEN THE THREAD SAYS SOMETHING NEW (w-22c362edd1). They were rebuilt
+  // whenever the result, the note, the ask or the answer changed, so every reply
+  // she sent and every note a worker wrote remounted every player and picture on
+  // the screen: a film she was watching started again from nothing. What those
+  // words decide comes down through `MessagePlace` instead.
+  const { resolveSrc, mdComponents, openHref } = useMemo(() => {
     const resolveSrc = (src?: string) => {
       if (!src) return src;
       if (/^(https?|file|data):/.test(src)) return src;
@@ -984,15 +1029,6 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       return `file://${productDir}/${src.replace(/^\.\//, '')}`;
     };
 
-    // Where a worker's relative path might actually live: the folders this
-    // message names and the thread's own designs folder first, then the docs
-    // dir, its designs/ and attachments/ folders, and the code repo. Workers
-    // write paths relative to whichever one they were thinking about
-    // (../message-folders.ts).
-    const texts = [item.result, item.note, item.body, item.answer];
-    const roots = pictureRoots({ dir: productDir, repo: repoDir, id: item.id, texts });
-    // A message that draws pictures of its own keeps its folder to one line.
-    const drawsPictures = referencedFiles(...texts, { dir: productDir }).some(isImagePath);
     const find = (src: string) => {
       const zero = (window as any).zero;
       if (!zero?.openArtifact) return Promise.resolve(null);
@@ -1032,6 +1068,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         return <CodePre>{children}</CodePre>;
       },
       a: ({ href, children }: { href?: string; children?: ReactNode }) => {
+        const { roots, drawsPictures } = useContext(MessagePlace);
         const ticket = href?.startsWith(TICKET_HREF)
           ? ticketReference(href.slice(TICKET_HREF.length)) : ticketReference(href ?? '');
         if (ticket) return <TicketLink id={ticket}>{children}</TicketLink>;
@@ -1058,8 +1095,12 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         }
         return <ArtifactLink kind={mentionKind(href ?? '')} product={product} src={href} fallback={resolveSrc(href)} onOpen={() => openHref(href)}>{href ? linkLabel(href, children) : children}</ArtifactLink>;
       },
-      img: ({ src, alt }: { src?: string; alt?: string }) => <ArtifactImg key={src} src={src} alt={alt} roots={roots} onOpen={openHref} find={find} />,
+      img: ({ src, alt }: { src?: string; alt?: string }) => {
+        const { roots } = useContext(MessagePlace);
+        return <ArtifactImg key={src} src={src} alt={alt} roots={roots} onOpen={openHref} find={find} />;
+      },
       code: ({ children, className }: { children?: ReactNode; className?: string }) => {
+        const { roots } = useContext(MessagePlace);
         const value = String(children ?? '');
         if (!className && ticketReference(value)) return <code>{children}</code>;
         const source = !className && sourceReference(value);
@@ -1080,10 +1121,23 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         return <code className={className}>{children}</code>;
       },
     };
-    return { resolveSrc, mdComponents, openHref, roots };
-  // The message's own words join the list because the folders they name are
-  // where its pictures are looked for. They change only when a worker writes.
-  }, [product, productDir, repoDir, item.id, item.result, item.note, item.body, item.answer]);
+    return { resolveSrc, mdComponents, openHref };
+  }, [product, productDir, repoDir, item.id]);
+
+  // Where a worker's relative path might actually live: the folders this
+  // message names and the thread's own designs folder first, then the docs
+  // dir, its designs/ and attachments/ folders, and the code repo. Workers
+  // write paths relative to whichever one they were thinking about
+  // (../message-folders.ts). The message's own words are read because the
+  // folders they name are where its pictures are looked for.
+  const place = useMemo(() => {
+    const texts = [item.result, item.note, item.body, item.answer];
+    return {
+      roots: pictureRoots({ dir: productDir, repo: repoDir, id: item.id, texts }),
+      // A message that draws pictures of its own keeps its folder to one line.
+      drawsPictures: referencedFiles(...texts, { dir: productDir }).some(isImagePath),
+    };
+  }, [productDir, repoDir, item.id, item.result, item.note, item.body, item.answer]);
 
   const mdPlugins = useMemo(
     () => [remarkGfm, remarkTicketReferences, [remarkArtifactPaths, { dir: productDir ?? null }]] as NonNullable<Parameters<typeof ReactMarkdown>[0]['remarkPlugins']>,
@@ -1091,7 +1145,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   );
 
   const md = (text: string) => (
-    <ReactMarkdown remarkPlugins={mdPlugins} components={mdComponents} urlTransform={artifactUrlTransform}>{text}</ReactMarkdown>
+    <MessagePlace.Provider value={place}>
+      <ReactMarkdown remarkPlugins={mdPlugins} components={mdComponents} urlTransform={artifactUrlTransform}>{text}</ReactMarkdown>
+    </MessagePlace.Provider>
   );
 
   // Every design THIS MESSAGE names, embedded live under it. The whole

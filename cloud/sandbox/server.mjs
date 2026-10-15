@@ -61,6 +61,13 @@ const SIGNIN_MS = 20 * 60_000;
 // Claude Code prints its one-year token on a line of its own. Taken only once
 // something follows it, so a token split across two reads is never half-read.
 const CLAUDE_TOKEN = /(sk-ant-oat\d*-[A-Za-z0-9_-]{20,})\s/;
+// WHAT CLAUDE SAYS WHEN IT DOES NOT TAKE A CODE, and then waits on forever
+// (2.1.301, 2026-10-15: "OAuth error: Request failed with status code 400
+// Press Enter to retry."). Read only from what it printed after the code.
+const CLAUDE_CODE_REFUSED = /OAuth error|Press Enter to retry|Invalid code/i;
+// After the code, Claude answers within seconds; this long with neither a
+// token nor an error is a sign-in that will not finish.
+const CODE_ANSWER_MS = 60_000;
 // A link is taken only once something ends it: a half-read link is not one.
 const CLAUDE_SIGNIN_URL = /(https:\/\/claude\.(?:com|ai)\/\S*oauth\/authorize\?[^\s"'<>]+)\s/;
 const CODEX_DEVICE_URL = /(https:\/\/auth\.openai\.com\/[^\s"'<>]+)\s/;
@@ -111,6 +118,7 @@ export function createSandbox({
   // a Mac, whose `script` takes other flags, passes a plain shell.
   terminal = linuxTerminal,
   signinMs = SIGNIN_MS,
+  codeAnswerMs = CODE_ANSWER_MS,
   // Which Claude account a new token belongs to, so the Mac can name it.
   // Best effort: a token that cannot say is kept all the same, unnamed.
   whoIs = claudeAccountEmail,
@@ -474,9 +482,17 @@ export function createSandbox({
       if (r.signinOver) return;
       seen = (seen + plain(d.toString('utf8'))).slice(-256 * 1024);
       if (engine === 'claude') {
+        if (r.codeSent && CLAUDE_CODE_REFUSED.test(seen.slice(r.codeAt ?? 0))) {
+          r.signinOver = true;
+          seen = '';
+          killGroup(child.pid, 'SIGTERM');
+          failSignin(r, 'Claude didn’t accept that code. Copy the newest code from Claude’s page and try again.');
+          return;
+        }
         const token = seen.match(CLAUDE_TOKEN)?.[1];
         if (token) {
           r.signinOver = true;
+          clearTimeout(r.codeTimer);
           seen = '';
           killGroup(child.pid, 'SIGTERM');
           finishClaude(r, token);
@@ -492,6 +508,9 @@ export function createSandbox({
         if (url && code) { r.signinUrl = url; signinEvent(r, 'waiting', { url, code }); }
       }
     };
+    // Where in what it printed the code was sent: only what came after is
+    // read for Claude's answer to it.
+    r.markCode = () => { r.codeAt = seen.length; };
     child.stdout.on('data', read);
     child.stderr.on('data', read);
     child.on('error', () => {});
@@ -501,7 +520,7 @@ export function createSandbox({
       r.signinOver = true;
       if (engine === 'codex' && code === 0 && !r.cancelled) { finishCodex(r); return; }
       if (r.cancelled) failSignin(r, 'The sign-in was cancelled.');
-      else if (r.codeSent) failSignin(r, 'Claude did not accept that code. Try signing in again.');
+      else if (r.codeSent) failSignin(r, 'Claude didn’t accept that code. Copy the newest code from Claude’s page and try again.');
       else failSignin(r, engine === 'claude' ? 'The sign-in ended before Claude finished it.' : 'Codex did not finish signing in.');
     }));
     r.signinTimer = setTimeout(() => {
@@ -539,6 +558,7 @@ export function createSandbox({
     }
     if (lastErr) return failSignin(r, 'The sign-in worked but could not be kept. Try again.');
     clearTimeout(r.signinTimer);
+    clearTimeout(r.codeTimer);
     forget(r);
     signinEvent(r, 'saved', meta);
     setState('collected', {}, r);
@@ -546,6 +566,7 @@ export function createSandbox({
 
   function failSignin(r, message, extra = {}) {
     clearTimeout(r.signinTimer);
+    clearTimeout(r.codeTimer);
     r.signinOver = true;
     if (r.child) killGroup(r.child.pid, 'SIGKILL');
     forget(r);
@@ -843,8 +864,16 @@ export function createSandbox({
         const code = String(req.code || '').replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 4096);
         if (!code) return { ok: false, error: 'empty-code' };
         r.codeSent = true;
+        r.markCode?.();
         r.child.stdin.write(`${code}\r`);
         signinEvent(r, 'checking');
+        clearTimeout(r.codeTimer);
+        r.codeTimer = setTimeout(() => {
+          if (r.signinOver) return;
+          r.signinOver = true;
+          if (r.child) killGroup(r.child.pid, 'SIGKILL');
+          failSignin(r, 'Claude didn’t answer that code. Try again.');
+        }, codeAnswerMs);
         return { ok: true };
       }
       case 'events': {
@@ -1103,7 +1132,8 @@ async function download(fetchImpl, url, file) {
 }
 
 async function upload(fetchImpl, url, body) {
-  const res = await fetchImpl(url, { method: 'PUT', body });
+  // Never an upload that hangs a session: two minutes is far past any we make.
+  const res = await fetchImpl(url, { method: 'PUT', body, signal: AbortSignal.timeout(120_000) });
   if (!res.ok) throw new Error(`upload ${res.status} for ${redact(url)}`);
 }
 
