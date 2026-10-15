@@ -515,7 +515,7 @@ export function groupWork(events, { min = RUN_MIN } = {}) {
 //   several                      `24 things it did · ran 18 · read 4 · changed 2`
 //
 // A count of one is not printed, because a trailing 1 reads as part of the name.
-const PLAIN = new Set(['ran', 'read', 'wrote', 'edited', 'looked for', 'searched for', 'fetched', 'messaged']);
+const PLAIN = new Set(['ran', 'read', 'wrote', 'changed', 'looked for', 'searched for', 'fetched', 'messaged']);
 const TALLY_VERBS = 3;
 
 export function runSummary(items) {
