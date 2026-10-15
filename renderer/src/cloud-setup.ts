@@ -46,23 +46,54 @@ export const SETUP = {
   inviteNote: 'About a minute per account',
   menuBroken: 'A cloud account needs to sign in again.',
   menuFix: 'Fix',
-  menuAccounts: (n: number) => (n === 1 ? '1 account' : `${n} accounts`),
+  menuAccounts: (n: number) => (n === 0 ? 'None yet' : n === 1 ? '1 account' : `${n} accounts`),
+  // AN ACCOUNT BEING ADDED IN THE BACKGROUND (2026-10-15), and one that was not.
+  adding: 'Adding…',
+  menuAdding: (engine: CloudSignIn['engine']) => `Adding your ${engine === 'codex' ? 'Codex' : 'Claude'} account…`,
+  menuFailed: (engine: CloudSignIn['engine'], why: string | null) => `Your ${engine === 'codex' ? 'Codex' : 'Claude'} account wasn’t added.${why ? ` ${why}` : ''}`,
+  toastFailed: (engine: CloudSignIn['engine']) => `Your ${engine === 'codex' ? 'Codex' : 'Claude'} account wasn’t added. Open the cloud menu to try again.`,
   menuManage: 'Manage',
 };
 
-// The menu's one line about setup, when there is one: an account that
-// stopped working. With no accounts at all the menu is the invitation.
-export function menuSetupLine(status: CloudStatus): { say: string; go: string } | null {
+// The menu's one line about setup, when there is one: an account that did
+// not get added (with the way to try again), one being added, or one that
+// stopped working.
+export function menuSetupLine(status: CloudStatus): { say: string; go: string | null } | null {
   const accounts = status.accounts || [];
-  if (!accounts.length) return null;
+  const fresh = (status.signIns || []).filter((s) => !accounts.some((a) => a.key === s.key) || s.state === 'failed');
+  const failed = fresh.find((s) => s.state === 'failed');
+  if (failed) return { say: SETUP.menuFailed(failed.engine, failed.message), go: SETUP.tryAgain };
+  const adding = (status.signIns || []).find((s) => s.state === 'checking');
+  if (adding) return { say: SETUP.menuAdding(adding.engine), go: null };
   if (accounts.some((a) => a.state === 'broken')) return { say: SETUP.menuBroken, go: SETUP.menuFix };
   return null;
 }
 
-// The sign-in on screen: one going, else one that just failed.
+// HER PART OF A SIGN-IN HOLDS THE SCREEN, AND NOTHING ELSE DOES (2026-10-15:
+// "anything over 3 seconds is too long ... doing it in the background"). Once
+// she has pasted Claude's code or approved on OpenAI's page, the cloud's
+// check goes on behind her accounts list, and how it ended is shown there.
+const HERS = new Set<CloudSignIn['state']>(['starting', 'needs-code', 'waiting']);
 export function activeSignIn(status: CloudStatus): CloudSignIn | null {
-  const all = status.signIns || [];
-  return all.find(signingIn) ?? all.find((s) => s.state === 'failed') ?? null;
+  return (status.signIns || []).find((s) => HERS.has(s.state)) ?? null;
+}
+
+// The rows the accounts list adds for sign-ins of new accounts: one being
+// checked in the cloud, and one that failed, with why.
+export function addingRows(status: CloudStatus): CloudSignIn[] {
+  const accounts = status.accounts || [];
+  return (status.signIns || []).filter((s) => (s.state === 'checking' || s.state === 'failed') && !accounts.some((a) => a.key === s.key));
+}
+
+// Done may be pressed once an account can run, or one is on its way.
+export function mayFinish(status: CloudStatus): boolean {
+  return anyReady(status.accounts || []) || (status.signIns || []).some((s) => s.state === 'checking');
+}
+
+// Sign-ins that failed since the last look, by their attempt, so a toast says
+// so once and not on every redraw.
+export function newlyFailedSignIns(before: Set<string>, status: CloudStatus | null | undefined): CloudSignIn[] {
+  return (status?.signIns || []).filter((s) => s.state === 'failed' && !before.has(s.attempt ?? s.key));
 }
 
 // WHAT ONE SIGN-IN SAYS, in a line, and what it asks for. `busy` draws the

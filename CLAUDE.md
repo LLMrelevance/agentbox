@@ -28,6 +28,23 @@ rules that are not obvious from them.
   do it (GitHub runs the whole suite on every push; the hook runs it when a
   change touches what every test depends on).
 
+## Before you commit: trim comments, unslop, check the blast radius
+
+The skills in `.claude/skills/` are for agents building this app, not part of
+it. Three are habits on every change:
+
+- `trim-comments` on the comments your change adds or edits. A comment keeps
+  only the why the code cannot say. The story of the bug goes in the commit
+  message and the test's opening comment. In 2026-10 the code was 43% comment
+  lines, mostly dated incident stories; do not add more.
+- `unslop` on what you write for a person: comments, commit messages, docs,
+  CLAUDE.md, and your answer.
+- `blast-radius` when a change touches `main/`, `shared/`, the store or how
+  workers start.
+
+`correct` (turn a repeated mistake into a check that fails) and `interrogate`
+(Claude and Codex both review a diff) run when someone asks.
+
 ## SHIPPING IS ONE COMMAND: `npm run ship`
 
 Several agents work this repository at once, so the order of operations is not

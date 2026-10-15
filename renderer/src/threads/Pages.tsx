@@ -180,9 +180,21 @@ function CloudButton({ cloud, onMode, onSetUp }: { cloud: CloudStatus; onMode?: 
   // button uses. Once some are set up, one line says how many are left.
   // Picking a choice never opens a screen by itself.
   const accounts = cloud.accounts || [];
-  const nobodyReady = !accounts.length;
+  // The invitation is for a cloud with no account at all, and none on its way.
+  const nobodyReady = !accounts.length && !(cloud.signIns || []).length;
   const setup = menuSetupLine(cloud);
   const goSetUp = () => { setOpen(false); onSetUp?.(); };
+  // TRY AGAIN ON ONE THAT WAS NOT ADDED starts it again and opens the setup on
+  // its sign-in, rather than on a list with a second Try again on it.
+  const failed = (cloud.signIns || []).find((s) => s.state === 'failed');
+  const retry = async () => {
+    if (failed) {
+      const mine = (cloud.accounts || []).some((a) => a.key === failed.key);
+      await api.cloudSignIn({ action: 'cancel', engine: failed.engine, key: failed.key });
+      await api.cloudSignIn({ action: 'start', engine: failed.engine, key: mine ? failed.key : null });
+    }
+    goSetUp();
+  };
   return <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
     <button type="button" className={`th-disp th-cloud${count ? ' count' : ''}${open ? ' open' : ''}`}
       aria-label={count ? `Cloud, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : 'Cloud'} title="Where threads run"
@@ -198,8 +210,8 @@ function CloudButton({ cloud, onMode, onSetUp }: { cloud: CloudStatus; onMode?: 
     </div>}
     {open && !nobodyReady && <div className="th-pop th-cloud-pop" role="dialog" aria-label="Where threads run">
       {setup && <div className="th-cloud-banner">
-        <div className="th-cloud-banner-say"><b>{setup.say}</b></div>
-        <button type="button" className="th-cloud-go" onClick={goSetUp}>{setup.go}</button>
+        <div className="th-cloud-banner-say">{!setup.go && <span className="cs-busy" aria-hidden="true" />}<b>{setup.say}</b></div>
+        {setup.go && <button type="button" className="th-cloud-go" onClick={() => void (failed && setup.go === SETUP.tryAgain ? retry() : goSetUp())}>{setup.go}</button>}
       </div>}
       <div className="line"><span className="lab">Cloud</span><span className="opts">
         {CLOUD_MODES.map((m) => <button type="button" key={m.id} className={m.id === cloud.mode ? 'on picked' : ''} aria-pressed={m.id === cloud.mode} onClick={() => onMode?.(m.id)}>{m.label}</button>)}

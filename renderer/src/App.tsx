@@ -103,6 +103,7 @@ import { FindBar } from './components/FindBar';
 import { Landed, Onboarding, PracticeBand, WayOut } from './components/Onboarding';
 import { PlanBar, PlanSetupCard } from './components/PlanSetup';
 import { CloudSetup } from './components/CloudSetup';
+import { SETUP, newlyFailedSignIns } from './cloud-setup';
 import { AppMark } from './components/AppMark';
 import { needsPlan, type Plan } from './plan-setup';
 import { PRACTICE_REPLY, PRACTICE_ROWS, PRACTICE_SLUG } from '../../shared/first-run-practice.mjs';
@@ -3276,6 +3277,23 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), goes ? TOAST_GOES_MS : 2500);
   }, []);
   showToastRef.current = showToast;
+
+  // A CLOUD ACCOUNT THAT WAS NOT ADDED, SAID THE MOMENT IT FAILS (2026-10-15):
+  // the check goes on behind her, so when it fails with the setup closed she
+  // is told once, here, and the cloud button keeps the way to try again. Not
+  // for failures already there when the app opened, and not twice.
+  const cloudFailuresSeen = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const cloud = snap?.cloud;
+    if (!cloud) return;
+    if (cloudFailuresSeen.current === null) {
+      cloudFailuresSeen.current = new Set(newlyFailedSignIns(new Set(), cloud).map((s) => s.attempt ?? s.key));
+      return;
+    }
+    const fresh = newlyFailedSignIns(cloudFailuresSeen.current, cloud);
+    for (const s of fresh) cloudFailuresSeen.current.add(s.attempt ?? s.key);
+    if (fresh.length && !cloudSetupOpen) showToast(SETUP.toastFailed(fresh[0].engine));
+  }, [snap?.cloud, cloudSetupOpen, showToast]);
 
   // THE FIRST PRESS THAT WOULD LEAVE A STOPPED AGENT STUCK, HELD ONCE.
   //
