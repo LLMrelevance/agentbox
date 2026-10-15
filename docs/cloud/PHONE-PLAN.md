@@ -23,9 +23,10 @@ with the Mac shut.
   5 s and on Realtime). A work item online is exactly its ledger lines, and the
   browser-safe `foldWorkItems` rebuilds rows from them anywhere.
 - **The phone screen**: the app's own renderer with a phone layout
-  (renderer/src/phone.css, browser-bridge.ts), today served BY the Mac over
-  Wi-Fi, Tailscale or a Cloudflare relay (main/phone-link.mjs, relay/). Dead
-  when the Mac sleeps (`MAC_AWAY`).
+  (renderer/src/phone.css, browser-bridge.ts), served BY the Mac over Wi-Fi
+  or Tailscale (main/phone-link.mjs). Dead when the Mac sleeps. (When this was
+  mapped there was also a Cloudflare relay; it was never deployed and is
+  deleted, see "How a phone gets in".)
 - **Cloud runs** (docs/cloud/PLAN.md): every run is proxied by a process on the
   Mac, which also serves the agent's store tools and approvals.
 
@@ -102,7 +103,7 @@ anyone who never signs in.
 Putting it up: `npm run phone:deploy` (Cloudflare Pages; `npx wrangler login`
 once), then the address goes in `cloud/team.config.json` as `phoneSite` and in
 the database's allowed sign-in return addresses, and the migration
-`20261014000000_phone_inbox.sql` is applied.
+`20261014000100_phone_inbox.sql` is applied.
 
 ## Step 1 as built, and what Codex's review of it changed
 
@@ -125,6 +126,27 @@ the database's allowed sign-in return addresses, and the migration
   computer.
 - A reply to a thread started on the phone reaches the row it became; replies
   still waiting are shown however old they are.
+
+Codex's second review (10 more findings) changed:
+
+- Everything the computer sends names the person signed in, and a pass still
+  running when she signs out stops; the database refuses a write for anybody
+  else.
+- A value given a secret's name (`PASSWORD=...`, `"api_key": ...`), Basic
+  credentials and long key-shaped strings are hidden too.
+- The migration has its own version and replaces the tables of the first
+  draft, so a database that ran the draft ends up right.
+- Crash recovery looks only for what appeared after the moment written down
+  before the command, so an earlier "yes" is never taken for a second one.
+- A copy the cloud did not take is tried again, later each time.
+- The computer's id is this installation and this store together, kept outside
+  the store, so a copied store is another computer.
+- The same thread id on two computers is two rows on the phone.
+- Refusals show for a day from when they were refused, for all four kinds.
+- Starting an agent update, and resuming agents, are the computer's.
+
+A phone that saved the relay's address to its home screen needs the new site
+instead; nobody had one, since the relay was never deployed.
 
 Still to decide: the installed app has no team cloud at all
 (`loadCloudConfig` answers null when packaged), so until that changes only a

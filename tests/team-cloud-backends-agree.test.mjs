@@ -174,7 +174,7 @@ for (const [where, makeWorld, enabled] of worlds) {
       await expect(w.theo.putCards(team.id, [{ ...card, people: [] }])).rejects.toThrow();
     });
 
-    // HER THREADS ON HER PHONE (20261014000000_phone_inbox.sql): her own
+    // HER THREADS ON HER PHONE (20261014000100_phone_inbox.sql): her own
     // rows, read by nobody else, not even a teammate, and a command marked
     // once only by her.
     it('keeps the phone rows to their owner, teammate or not', async () => {

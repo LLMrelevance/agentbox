@@ -25,6 +25,22 @@
 -- 2025 grants every new table to every role by default, and a column grant
 -- added on top of that takes nothing away.
 
+-- AN EARLIER DRAFT OF THESE TABLES (no `device`, commands that could be
+-- rewritten) is replaced, never upgraded in place (Codex's second review,
+-- finding 3). It held copies the computer sends again on its next sync and
+-- commands nobody had taken yet; a database that ran it is put right here.
+-- This file has its own version, after the draft's, so a database that
+-- recorded the draft still runs it.
+do $$
+begin
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'phone_commands')
+     and not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'phone_commands' and column_name = 'device') then
+    drop table public.phone_commands;
+    drop table if exists public.phone_threads;
+    drop table if exists public.phone_projects;
+  end if;
+end $$;
+
 create table if not exists public.phone_projects (
   owner uuid not null default auth.uid() references public.people(id) on delete cascade,
   device text not null check (device ~ '^[0-9a-f]{12}$'),

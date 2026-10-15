@@ -33,6 +33,7 @@ export interface Waiting { product: string; id: string; at: number; text: string
 // How long a refusal stays on her screen: long enough to be read the next time
 // she looks, not forever.
 const REFUSAL_SHOWN_MS = 24 * 3600_000;
+export const UNDONE = 'refused: taken back on the phone';
 // A PROJECT ON THE PHONE IS A PROJECT ON ONE COMPUTER (Codex's review of
 // step 1, finding 4): the screens know it by its name there and that
 // computer's id together, so two computers' projects of the same name stay two.
@@ -42,50 +43,80 @@ export function splitSlug(slug: string): { device: string; project: string } | n
   return m ? { project: m[1], device: m[2] } : null;
 }
 
+// THE SAME THREAD ID ON TWO COMPUTERS (a store copied from one to the other)
+// would be one row to the screens, which pick, pin and close by id (Codex's
+// second review, finding 6). The first keeps its id; every other gets one of
+// its own, made from where it lives, and is turned back at the boundary.
+const fnv = (text: string) => {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i += 1) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(16).padStart(8, '0');
+};
+const aliasFor = (slug: string, item: string) => `w-${(fnv(`${slug}/${item}`) + fnv(`${item}/${slug}`)).slice(0, 10)}`;
+export type Aliases = Record<string, { product: string; item: string }>;
+/** The thread a screen's id stands for, in its project. */
+export const realItem = (aliases: Aliases, product: string, id: string) => (aliases[id]?.product === product ? aliases[id].item : id);
+
 /**
- * Her rows, as the inbox draws them: each thread as her Mac last saw it, with
- * what she did on the phone since laid over it. A close or a snooze moves the
- * row at once; a new thread is a row of its own; a reply is a message of hers
- * in the thread, marked as waiting.
+ * Her rows, as the inbox draws them: each thread as her computer last saw it,
+ * with what she did on the phone since laid over it. A close or a snooze moves
+ * the row at once; a new thread is a row of its own; a reply is a message of
+ * hers in the thread, marked as waiting. What her computer turned down says
+ * why, for a day after it did (second review, finding 9).
  */
 export function phoneView(rows: PhoneRows, now = Date.now()) {
   const names = new Map(rows.projects.map((p) => [phoneSlug(p.device, p.project), p.name]));
   const products = rows.projects.map((p) => ({ slug: phoneSlug(p.device, p.project), name: p.name, dir: '', oneLiner: '', repoPath: '' }));
   const items = new Map<string, any>();
-  for (const t of rows.threads) {
+  const screenId = new Map<string, string>();
+  const aliases: Aliases = {};
+  const used = new Set<string>();
+  const threads = [...rows.threads].sort((a, b) => `${a.device}/${a.project}`.localeCompare(`${b.device}/${b.project}`));
+  for (const t of threads) {
     const slug = phoneSlug(t.device, t.project);
     if (!names.has(slug) || !t.snapshot?.item) continue;
-    items.set(`${slug}/${t.item}`, { ...t.snapshot.item, id: t.item, product: slug, productName: names.get(slug) });
+    let id = t.item;
+    if (used.has(id)) { id = aliasFor(slug, t.item); aliases[id] = { product: slug, item: t.item }; }
+    used.add(id);
+    screenId.set(`${slug}/${t.item}`, id);
+    items.set(`${slug}/${t.item}`, { ...t.snapshot.item, id, product: slug, productName: names.get(slug) });
   }
   const waiting: Waiting[] = [];
   const ordered = [...rows.commands].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   for (const c of ordered) {
     const at = Date.parse(c.created_at) || now;
     const refused = c.outcome?.startsWith('refused') ? c.outcome.replace(/^refused:\s*/, '') : null;
-    if (c.taken_at && !(refused && now - at < REFUSAL_SHOWN_MS)) continue;
+    const takenAt = c.taken_at ? Date.parse(c.taken_at) || at : null;
+    if (takenAt !== null && !(refused && now - takenAt < REFUSAL_SHOWN_MS)) continue;
+    // Taken back on the phone: nothing to show.
+    if (c.outcome === UNDONE) continue;
     const slug = phoneSlug(c.device, c.project);
     const key = `${slug}/${c.item}`;
     const row = items.get(key);
-    if (c.kind === 'reply' && c.item) waiting.push({ product: slug, id: c.item, at, text: String(c.payload?.text ?? ''), ...(refused ? { refused } : {}) });
-    else if (refused) continue;
-    else if (c.kind === 'close' && row) items.set(key, { ...row, status: 'done', updatedAt: at });
+    const id = screenId.get(key) ?? c.item;
+    const said = (text: string) => waiting.push({ product: slug, id: id as string, at, text, ...(refused ? { refused } : {}) });
+    if (c.kind === 'reply' && c.item) said(String(c.payload?.text ?? ''));
+    else if (refused && c.item && (c.kind === 'close' || c.kind === 'snooze')) {
+      said(c.kind === 'close' ? 'Close this thread' : Number(c.payload?.until) > 0 ? 'Move to Later' : 'Bring back from Later');
+    } else if (c.kind === 'close' && row) items.set(key, { ...row, status: 'done', updatedAt: at });
     else if (c.kind === 'snooze' && row) items.set(key, { ...row, snoozedUntil: Number(c.payload?.until) || null, updatedAt: at });
     else if (c.kind === 'new' && names.has(slug)) {
-      const id = madeHere(c.id);
-      items.set(`${slug}/${id}`, {
-        id, product: slug, productName: names.get(slug), title: String(c.payload?.title || c.payload?.body || '').slice(0, 200),
-        body: String(c.payload?.body ?? ''), status: 'open', kind: 'directive', labels: [], priority: 0,
-        createdAt: at, updatedAt: at, waitsForMac: true,
+      const made = madeHere(c.id);
+      items.set(`${slug}/${made}`, {
+        id: made, product: slug, productName: names.get(slug), title: String(c.payload?.title || c.payload?.body || '').slice(0, 200),
+        body: String(c.payload?.body ?? ''), kind: 'directive', labels: [], priority: 0, createdAt: at, updatedAt: at,
+        ...(refused ? { status: 'blocked', result: `Your computer could not start this: ${refused}` } : { status: 'open', waitsForMac: true }),
       });
     }
   }
-  return { products, items: [...items.values()], waiting };
+  return { products, items: [...items.values()], waiting, aliases };
 }
 
-/** The thread's lines as her Mac sent them, for the thread view. */
-export function phoneHistory(rows: PhoneRows, product: string, id: string) {
-  const t = rows.threads.find((r) => phoneSlug(r.device, r.project) === product && r.item === id);
-  return { ok: true, lines: Array.isArray(t?.snapshot?.history) ? t.snapshot.history : [] };
+/** The thread's lines as her computer sent them, for the thread view. */
+export function phoneHistory(rows: PhoneRows, product: string, id: string, aliases: Aliases = {}) {
+  const item = realItem(aliases, product, id);
+  const t = rows.threads.find((r) => phoneSlug(r.device, r.project) === product && r.item === item);
+  return { ok: true, lines: Array.isArray(t?.snapshot?.history) ? t.snapshot.history.map((l: any) => ({ ...l, id })) : [] };
 }
 
 /** What one press on the phone leaves for her Mac, or null for a press that is not one of the four. */
@@ -93,19 +124,19 @@ export function phoneHistory(rows: PhoneRows, product: string, id: string) {
 // waiting: the phone marks its own command taken, as undone, and the computer
 // never sees it. Once the computer has closed the thread, undoing is the
 // computer's. Returns the command to take back, or null.
-export function closeToTakeBack(rows: PhoneRows, channel: string, p: any) {
+export function closeToTakeBack(rows: PhoneRows, channel: string, p: any, aliases: Aliases = {}) {
   if (channel !== REQUEST_CHANNELS.answer || p?.status !== 'open' || (typeof p.answer === 'string' && p.answer.trim())) return null;
   const where = splitSlug(p.product);
   if (!where) return null;
-  const waiting = rows.commands.filter((c) => c.kind === 'close' && !c.taken_at && c.device === where.device && c.project === where.project && c.item === p.id);
+  const item = realItem(aliases, p.product, p.id);
+  const waiting = rows.commands.filter((c) => c.kind === 'close' && !c.taken_at && c.device === where.device && c.project === where.project && c.item === item);
   return waiting.at(-1) ?? null;
 }
-export const UNDONE = 'refused: taken back on the phone';
 
-export function commandFor(channel: string, p: any): { device: string; project: string; item: string | null; kind: string; payload: Record<string, unknown> } | null {
+export function commandFor(channel: string, p: any, aliases: Aliases = {}): { device: string; project: string; item: string | null; kind: string; payload: Record<string, unknown> } | null {
   const where = splitSlug(p?.product);
   if (!where) return null;
-  const on = (item: string | null, kind: string, payload: Record<string, unknown>) => ({ ...where, item, kind, payload });
+  const on = (item: string | null, kind: string, payload: Record<string, unknown>) => ({ ...where, item: item === null ? null : realItem(aliases, p.product, item), kind, payload });
   if (channel === REQUEST_CHANNELS.answer) {
     if (typeof p.answer === 'string' && p.answer.trim()) return on(p.id, 'reply', { text: p.answer });
     if (p.status === 'done') return on(p.id, 'close', {});
@@ -123,12 +154,12 @@ export function commandFor(channel: string, p: any): { device: string; project: 
 // reach, so it says so rather than answering as if it had (Codex's review of
 // step 1, finding 7: Stop said the agent stopped when nothing had).
 const READS = new Set([
-  'agentUpdate', 'refreshUsage', 'assistiveTech', 'olderItems', 'commandCatalog', 'compactionStatus',
+  'refreshUsage', 'assistiveTech', 'olderItems', 'commandCatalog', 'compactionStatus',
   'firstRunExamples', 'firstRunWalking', 'listFolders', 'folderExists', 'agentFiles', 'agentFolders',
   'agentThreads', 'cornerTag', 'bootInfo', 'updateCheck', 'instructionRead', 'instructionHistory',
   'instructionVersion', 'standingRead', 'messageRulesRead', 'settingsRead', 'engineBin',
   'cloudClipboardCode', 'projectInstructionsRead', 'folderPictures', 'readDoc', 'codeFile', 'railNote',
-  'agentConversation', 'phoneLink', 'teamStatus', 'resumeAgents', 'resumeItems',
+  'agentConversation', 'phoneLink', 'teamStatus',
   // Where she dragged a row or a project to: kept on this page, not sent.
   'setThreadPlaces', 'setThreadPins', 'setProductOrder', 'setProductHidden',
 ]);
@@ -158,6 +189,8 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
 
   let rows: PhoneRows = EMPTY_ROWS;
   let started = false;
+  // The screen ids of threads that share an id with another computer's.
+  let aliases: Aliases = {};
   let error: string | null = null;
   let last = '';
   const listeners = new Map<string, Set<Push>>();
@@ -177,7 +210,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       if (page.length < 500) break;
     }
     const since = new Date(Date.now() - 2 * 24 * 3600_000).toISOString();
-    const done = await client.select('phone_commands', `${COMMANDS}&taken_at=not.is.null&created_at=gte.${since}&limit=500`);
+    const done = await client.select('phone_commands', `${COMMANDS}&taken_at=gte.${since}&limit=500`);
     return [...waiting, ...done];
   }
 
@@ -230,7 +263,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     : { configured: true, started, signedIn: false, signingIn: null, me: null, team: null, invites: [], sent: [], people: [], cards: [], lastSyncAt: null, error });
 
   const leave = async (channel: string, payload: unknown) => {
-    const back = closeToTakeBack(rows, channel, payload);
+    const back = closeToTakeBack(rows, channel, payload, aliases);
     if (back) {
       const asked = client.generation();
       const done = await client.update('phone_commands', `id=eq.${encodeURIComponent(back.id)}&taken_at=is.null`, { taken_at: new Date().toISOString(), outcome: UNDONE });
@@ -239,7 +272,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       changed(null);
       return { ok: true };
     }
-    const cmd = commandFor(channel, payload);
+    const cmd = commandFor(channel, payload, aliases);
     if (!cmd) throw new Error(NOT_HERE);
     const asked = client.generation();
     const row = await client.insert('phone_commands', cmd);
@@ -269,6 +302,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     async snapshot() {
       await boot;
       const view = phoneView(rows);
+      aliases = view.aliases;
       return {
         products: view.products, items: view.items, phoneWaiting: view.waiting,
         team: team(), agents: [], approvals: [], supervisor: { ...SUPERVISOR, productOrder: view.products.map((p) => p.slug) },
@@ -276,7 +310,10 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
         config: { browserHome: '', browserPins: [], outsideAgents: 'off' },
       };
     },
-    itemHistory: async ({ product, id }: { product: string; id: string }) => phoneHistory(rows, product, id),
+    itemHistory: async ({ product, id }: { product: string; id: string }) => phoneHistory(rows, product, id, aliases),
+    // Whether Claude Code or Codex has an update is the computer's to say;
+    // starting one is the computer's to do.
+    agentUpdate: async (p: any) => { if (p?.action === 'start') throw new Error(NOT_HERE); return null; },
     sessionTrace: async () => ({ sessions: [] }),
     repeats: async () => [],
     // Her Mac runs the agents; nothing here asks her to set one up.

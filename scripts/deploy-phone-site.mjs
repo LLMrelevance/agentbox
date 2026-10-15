@@ -7,7 +7,7 @@
 //   1. put the address it prints in cloud/team.config.json as `phoneSite`;
 //   2. add that address to the database's allowed sign-in return addresses
 //      (Supabase: Authentication > URL Configuration > Redirect URLs);
-//   3. apply cloud/supabase/migrations/20261014000000_phone_inbox.sql.
+//   3. apply cloud/supabase/migrations/20261014000100_phone_inbox.sql.
 //
 //   npm run phone:deploy
 import fs from 'node:fs';

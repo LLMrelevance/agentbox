@@ -35,7 +35,7 @@ describe('what the inbox draws', () => {
     r.threads.push({ ...thread('w-1'), device: OTHER });
     const v = phoneView(r, NOW);
     expect(v.products.map((p) => p.name)).toEqual(['Alpha', 'Alpha at home']);
-    expect(v.items.filter((i) => i.id === 'w-1').map((i) => i.productName)).toEqual(['Alpha', 'Alpha at home']);
+    expect(v.items.filter((i) => i.title === 'T w-1').map((i) => i.productName).sort()).toEqual(['Alpha', 'Alpha at home']);
     expect(commandFor('zero:answer', { product: phoneSlug(OTHER, 'alpha'), id: 'w-1', answer: 'hi' })).toMatchObject({ device: OTHER, project: 'alpha' });
     expect(splitSlug('alpha')).toBeNull();
     expect(splitSlug('my@project@a1b2c3d4e5f6')).toEqual({ project: 'my@project', device: 'a1b2c3d4e5f6' });
@@ -69,6 +69,44 @@ describe('what the inbox draws', () => {
   it('a reply still waiting is shown however old it is', () => {
     const old = cmd('c1', 'reply', { payload: { text: 'from last week' }, created_at: iso(NOW - 9 * 864e5) });
     expect(phoneView(rows([old]), NOW).waiting.map((w) => w.text)).toEqual(['from last week']);
+  });
+
+  // Codex's second review, finding 6: the same thread id on two computers.
+  it('the same thread id on two computers is two rows, each acted on where it lives', () => {
+    const r = rows();
+    r.projects.push({ device: OTHER, project: 'alpha', name: 'Alpha at home' });
+    r.threads.push({ ...thread('w-1'), device: OTHER });
+    const v = phoneView(r, NOW);
+    const ids = v.items.map((i) => i.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const both = v.items.filter((i) => i.title === 'T w-1');
+    expect(both.filter((i) => i.id === 'w-1')).toHaveLength(1);
+    for (const row of both) {
+      const device = splitSlug(row.product).device;
+      expect(commandFor('zero:answer', { product: row.product, id: row.id, status: 'done' }, v.aliases)).toEqual({ device, project: 'alpha', item: 'w-1', kind: 'close', payload: {} });
+      expect(phoneHistory(r, row.product, row.id, v.aliases).lines[0]).toMatchObject({ id: row.id, patch: { result: 'Done.' } });
+    }
+    // A reply waiting on one is drawn on that one's row only.
+    const home = both.find((i) => i.productName === 'Alpha at home');
+    r.commands.push({ ...cmd('c9', 'reply', { payload: { text: 'home only' } }), device: OTHER });
+    expect(phoneView(r, NOW).waiting.map((w) => [w.product, w.id])).toEqual([[home.product, home.id]]);
+  });
+
+  // Finding 9: refusals aged by when the command was made, not when it was refused.
+  it('an old reply refused just now shows why, and so does a close, a Later or a new thread', () => {
+    const old = iso(NOW - 3 * 864e5);
+    const v = phoneView(rows([
+      cmd('c1', 'reply', { payload: { text: 'from last week' }, created_at: old, taken_at: iso(NOW - 1000), outcome: 'refused: that thread is not on your phone' }),
+      cmd('c2', 'close', { created_at: old, taken_at: iso(NOW - 1000), outcome: 'refused: it is running' }),
+      cmd('c3', 'snooze', { payload: { until: NOW + 864e5 }, taken_at: iso(NOW - 1000), outcome: 'refused: no' }),
+      cmd('0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', 'new', { item: null, payload: { title: 'Ship it' }, taken_at: iso(NOW - 1000), outcome: 'refused: no room' }),
+    ]), NOW);
+    expect(v.waiting.map((w) => [w.text, w.refused])).toEqual([
+      ['from last week', 'that thread is not on your phone'],
+      ['Close this thread', 'it is running'],
+      ['Move to Later', 'no'],
+    ]);
+    expect(v.items.find((i) => i.title === 'Ship it')).toMatchObject({ status: 'blocked', result: 'Your computer could not start this: no room' });
   });
 
   it('a reply her Mac turned down says why, for a day', () => {
@@ -208,11 +246,13 @@ describe('the doors the phone does not have', () => {
   it('every door is either one of the four, a read, sign-in, or says it is not here', () => {
     const src = fs.readFileSync(new URL('../renderer/src/cloud-bridge.ts', import.meta.url), 'utf8');
     const reads = [...src.slice(src.indexOf('const READS = new Set(['), src.indexOf(']);', src.indexOf('const READS'))).matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1]);
-    for (const door of ['stopSession', 'runNow', 'reopen', 'schedule', 'sendNow', 'command', 'approve', 'agentReply', 'saveAttachments', 'setProjectSetting', 'threadEdit', 'createProduct']) {
+    for (const door of ['stopSession', 'runNow', 'reopen', 'schedule', 'sendNow', 'command', 'approve', 'agentReply', 'saveAttachments', 'setProjectSetting', 'threadEdit', 'createProduct', 'resumeAgents', 'resumeItems', 'agentUpdate']) {
       expect(reads, door).not.toContain(door);
       expect(Object.keys(REQUEST_CHANNELS)).toContain(door);
     }
     expect(src).toMatch(/READS\.has\(name\) \? async \(\) => null : async \(\) => \{ throw new Error\(NOT_HERE\); \}/);
+    // Asking whether an agent has an update is a read; starting one is not.
+    expect(src).toMatch(/agentUpdate: async \(p: any\) => \{ if \(p\?\.action === 'start'\) throw new Error\(NOT_HERE\); return null; \}/);
     const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
     expect(app).toMatch(/if \(onCloudPhone\(\)\) \{ showToast\('Stop it on your computer\./);
   });

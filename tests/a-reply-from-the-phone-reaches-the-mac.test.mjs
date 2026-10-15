@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createMemoryCloud, signUpMemory, memoryBackend } from '../main/team/memory-cloud.mjs';
-import { createPhoneInbox } from '../main/phone-inbox.mjs';
+import { createPhoneInbox, phoneDevice } from '../main/phone-inbox.mjs';
 import { threadSnapshot, threadsWorthCarrying, checkCommand, madeHere, bytesOf, hideSecrets, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
 
 const DAY = 24 * 3600_000;
@@ -209,7 +209,7 @@ describe('the computer takes what her phone left', () => {
     // The power cut: the reply is in the thread, and nothing after it ran.
     const state = JSON.parse(fs.readFileSync(path.join(dir, 'phone-inbox.json'), 'utf8'));
     const [cmd] = await first.phone.waitingPhoneCommands(first.inbox.device);
-    fs.writeFileSync(path.join(dir, 'phone-inbox.json'), JSON.stringify({ ...state, doing: { [cmd.id]: NOW } }));
+    fs.writeFileSync(path.join(dir, 'phone-inbox.json'), JSON.stringify({ ...state, doing: { [cmd.id]: { at: NOW, after: NOW - 1 } } }));
     expect(landedReply).toBe(null);
     const second = setup({ cloud, me, dir, items: { alpha: [item('w-1')] }, history: { 'alpha/w-1': [{ id: 'w-1', ts: NOW, source: 'founder', patch: { answer: 'ship it' } }] } });
     await second.inbox.syncOnce();
@@ -224,7 +224,7 @@ describe('the computer takes what her phone left', () => {
     const first = setup({ cloud, me, dir, items: { alpha: [item('w-1')] } });
     const c = await first.send({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'ship it' } });
     const state = JSON.parse(fs.readFileSync(path.join(dir, 'phone-inbox.json'), 'utf8'));
-    fs.writeFileSync(path.join(dir, 'phone-inbox.json'), JSON.stringify({ ...state, doing: { [c.id]: NOW } }));
+    fs.writeFileSync(path.join(dir, 'phone-inbox.json'), JSON.stringify({ ...state, doing: { [c.id]: { at: NOW, after: NOW - 1 } } }));
     const second = setup({ cloud, me, dir, items: { alpha: [item('w-1')] } });
     await second.inbox.syncOnce();
     expect(second.applied.map((x) => x.payload.text)).toEqual(['ship it']);
@@ -237,7 +237,7 @@ describe('the computer takes what her phone left', () => {
     const first = setup({ cloud, me, dir, items: { alpha: [item('w-1')] } });
     const c = await first.send({ project: 'alpha', kind: 'new', payload: { title: 'Ship it', body: 'today' } });
     const state = JSON.parse(fs.readFileSync(path.join(dir, 'phone-inbox.json'), 'utf8'));
-    fs.writeFileSync(path.join(dir, 'phone-inbox.json'), JSON.stringify({ ...state, doing: { [c.id]: NOW } }));
+    fs.writeFileSync(path.join(dir, 'phone-inbox.json'), JSON.stringify({ ...state, doing: { [c.id]: { at: NOW, ids: ['w-1'] } } }));
     const made = item('w-made00001', { title: 'Ship it', body: 'today', createdAt: NOW });
     const second = setup({ cloud, me, dir, items: { alpha: [item('w-1'), made] } });
     await second.inbox.syncOnce();
@@ -292,6 +292,125 @@ describe('two computers on one account', () => {
     expect((await a.phone.waitingPhoneCommands(b.inbox.device))).toHaveLength(1);
     await b.inbox.syncOnce();
     expect(b.applied.map((c) => c.payload.text)).toEqual(['for home']);
+  });
+});
+
+// Codex's second review.
+describe('what the second review found', () => {
+  // Finding 4: the words alone took an earlier "yes" for the second.
+  it('a second "yes" after a crash is sent, not mistaken for the first', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phone-inbox-'));
+    const cloud = createMemoryCloud();
+    const me = signUpMemory(cloud, { email: 'yes@example.com' });
+    const history = { 'alpha/w-1': [{ id: 'w-1', ts: NOW - 60_000, source: 'founder', patch: { answer: 'yes' } }] };
+    const first = setup({ cloud, me, dir, items: { alpha: [item('w-1')] }, history });
+    const c = await first.send({ project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'yes' } });
+    const state = JSON.parse(fs.readFileSync(path.join(dir, 'phone-inbox.json'), 'utf8'));
+    // It stopped after writing down where the thread was, before the reply.
+    fs.writeFileSync(path.join(dir, 'phone-inbox.json'), JSON.stringify({ ...state, doing: { [c.id]: { at: NOW, after: NOW - 60_000 } } }));
+    const second = setup({ cloud, me, dir, items: { alpha: [item('w-1')] }, history });
+    await second.inbox.syncOnce();
+    expect(second.applied.map((x) => x.payload.text)).toEqual(['yes']);
+  });
+
+  it('two new threads that both fit are not claimed: the command runs again', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phone-inbox-'));
+    const cloud = createMemoryCloud();
+    const me = signUpMemory(cloud, { email: 'two-new@example.com' });
+    const first = setup({ cloud, me, dir, items: { alpha: [item('w-1')] } });
+    const c = await first.send({ project: 'alpha', kind: 'new', payload: { title: 'Ship', body: 'it' } });
+    const state = JSON.parse(fs.readFileSync(path.join(dir, 'phone-inbox.json'), 'utf8'));
+    fs.writeFileSync(path.join(dir, 'phone-inbox.json'), JSON.stringify({ ...state, doing: { [c.id]: { at: NOW, ids: ['w-1'] } } }));
+    const twins = [item('w-aaaaaaaaaa', { title: 'Ship', body: 'it' }), item('w-bbbbbbbbbb', { title: 'Ship', body: 'it' })];
+    const second = setup({ cloud, me, dir, items: { alpha: [item('w-1'), ...twins] } });
+    await second.inbox.syncOnce();
+    expect(second.applied.map((x) => x.kind)).toEqual(['new']);
+  });
+
+  // Finding 1: signing out while a pass is sending.
+  it('a pass under way when she signs out sends nothing more, and nothing as anybody else', async () => {
+    let signedIn = true;
+    const cloud = createMemoryCloud();
+    cloud.now = () => NOW;
+    const me = signUpMemory(cloud, { email: 'leaving@example.com' });
+    const t = setup({ cloud, me, items: { alpha: [item('w-1')], beta: [item('w-2')] }, chosen: [{ slug: 'alpha', name: 'Alpha' }, { slug: 'beta', name: 'Beta' }] });
+    const inbox = createPhoneInbox({
+      backend: { ...t.mac, putPhoneThreads: async (...a) => { await t.mac.putPhoneThreads(...a); signedIn = false; } },
+      owner: me, alive: () => signedIn,
+      projects: () => t.state.chosen, listItems: (slug) => t.state.items[slug] ?? [], historyOf: () => [],
+      apply: async () => {}, stateFile: path.join(t.dir, 'other.json'), now: () => NOW,
+    });
+    expect((await inbox.syncOnce()).stopped).toBe(true);
+    expect((await t.phone.phoneProjects()).map((p) => p.name)).toEqual(['Alpha']);
+    // And a write for one person through another's sign-in is refused outright.
+    const other = memoryBackend(cloud, signUpMemory(cloud, { email: 'next@example.com' }));
+    await expect(other.putPhoneProject({ owner: me, device: 'a1b2c3d4e5f6', project: 'beta', name: 'Beta' })).rejects.toThrow(/not allowed/);
+    await expect(other.putPhoneThreads('a1b2c3d4e5f6', 'beta', [], me)).rejects.toThrow(/not allowed/);
+  });
+
+  // Finding 5: a failure was counted as sent.
+  it('a copy the cloud did not take goes again later, not only when it changes', async () => {
+    let clock = NOW;
+    const t = setup({ items: { alpha: [item('w-1')] } });
+    let fail = true;
+    let tries = 0;
+    const put = t.mac.putPhoneThreads;
+    t.mac.putPhoneThreads = async (...a) => { tries += 1; if (fail) throw new Error('offline'); return put(...a); };
+    const inbox = createPhoneInbox({
+      backend: t.mac, owner: t.me, projects: () => t.state.chosen, listItems: (slug) => t.state.items[slug] ?? [], historyOf: () => [],
+      apply: async () => {}, stateFile: path.join(t.dir, 'retry.json'), now: () => clock,
+    });
+    await inbox.syncOnce();
+    await inbox.syncOnce();
+    expect(tries).toBe(1);
+    fail = false;
+    clock += 61_000;
+    await inbox.syncOnce();
+    expect(tries).toBe(2);
+    expect((await t.phone.phoneThreads()).map((r) => r.item)).toEqual(['w-1']);
+  });
+
+  // Finding 8: a reply to the first of 501 new threads lost its row.
+  it('remembers the row a phone thread became for as long as a reply could need it', async () => {
+    let n = 0;
+    const u = setup({ items: { alpha: [item('w-1')] }, apply: async (cmd) => {
+      if (cmd.kind !== 'new') { u.applied.push(cmd); return {}; }
+      const id = `w-${String(n += 1).padStart(10, '0')}`;
+      u.state.items.alpha.push(item(id, { title: cmd.payload.title }));
+      return { id };
+    } });
+    const firstNew = await u.send({ project: 'alpha', kind: 'new', payload: { title: 'first' } });
+    for (let i = 0; i < 520; i += 1) await u.send({ project: 'alpha', kind: 'new', payload: { title: `t${i}` } });
+    await u.send({ project: 'alpha', item: madeHere(firstNew.id), kind: 'reply', payload: { text: 'to the first' } });
+    await u.inbox.syncOnce();
+    expect(u.applied.map((c) => [c.item, c.payload.text])).toEqual([['w-0000000001', 'to the first']]);
+  });
+
+  // Finding 7: the id lived in the store, so a copied store was the same computer.
+  it('the computer id is this installation and this store together', () => {
+    const app1 = fs.mkdtempSync(path.join(os.tmpdir(), 'app-'));
+    const app2 = fs.mkdtempSync(path.join(os.tmpdir(), 'app-'));
+    const a = phoneDevice(app1, '/stores/one');
+    expect(a).toMatch(/^[0-9a-f]{12}$/);
+    expect(phoneDevice(app1, '/stores/one')).toBe(a);
+    expect(phoneDevice(app1, '/stores/two')).not.toBe(a);
+    expect(phoneDevice(app2, '/stores/one')).not.toBe(a);
+    expect(fs.statSync(path.join(app1, 'phone-install-id')).mode & 0o077).toBe(0);
+  });
+
+  // Finding 2.
+  it('hides a value given a secret\'s name, and leaves settings and names alone', () => {
+    for (const [said, shown] of [
+      ['AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY', 'AWS_SECRET_ACCESS_KEY=[hidden]'],
+      ['password: hunter22', 'password: [hidden]'],
+      ['"api_key": "abcd1234efgh"', '"api_key": "[hidden]"'],
+      ['Authorization: Basic dXNlcjpwYXNzd29yZA==', 'Authorization: Basic [hidden]'],
+      ['a bare XyZ12abcDEF34ghiJKL56mnoPQR78stuVW key', 'a bare [hidden] key'],
+      ['max_tokens=128000', 'max_tokens=128000'],
+      ['author: Sam Lee', 'author: Sam Lee'],
+      ['commit 3f2a9c1e8b7d6f5a4c3b2a1908f7e6d5c4b3a291', 'commit 3f2a9c1e8b7d6f5a4c3b2a1908f7e6d5c4b3a291'],
+      ['my secret plan', 'my secret plan'],
+    ]) expect(hideSecrets(said), said).toBe(shown);
   });
 });
 

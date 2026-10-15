@@ -241,30 +241,33 @@ export function supabaseBackend(client) {
       return (rows?.length ?? 0) > 0;
     },
 
-    // HER OWN ROWS FOR HER PHONE (20261014000000_phone_inbox.sql). The owner
+    // HER OWN ROWS FOR HER PHONE (20261014000100_phone_inbox.sql). The owner
     // column defaults to her, and row level security keeps every row hers.
     // Every row names the computer it belongs to (`device`).
-    async putPhoneProject({ device, project, name }) {
+    // Each write names who it is for, so a write begun before a sign-out
+    // that lands after somebody else signed in is refused by the database
+    // (`owner = auth.uid()`) rather than written into their account.
+    async putPhoneProject({ owner, device, project, name }) {
       await myId();
-      must(await client.from('phone_projects').upsert({ device, project, name, updated_at: new Date().toISOString() }, { onConflict: 'owner,device,project' }), 'putting a project on your phone');
+      must(await client.from('phone_projects').upsert({ ...(owner ? { owner } : {}), device, project, name, updated_at: new Date().toISOString() }, { onConflict: 'owner,device,project' }), 'putting a project on your phone');
     },
-    async dropPhoneProject(device, project) {
-      await myId();
+    async dropPhoneProject(device, project, owner) {
+      const me = await myId();
       // Its threads go with it (the database cascades).
-      must(await client.from('phone_projects').delete().eq('device', device).eq('project', project), 'taking a project off your phone');
+      must(await client.from('phone_projects').delete().eq('owner', owner ?? me).eq('device', device).eq('project', project), 'taking a project off your phone');
     },
-    async putPhoneThreads(device, project, rows) {
+    async putPhoneThreads(device, project, rows, owner) {
       await myId();
       const at = new Date().toISOString();
       for (let i = 0; i < rows.length; i += 50) {
-        const batch = rows.slice(i, i + 50).map((r) => ({ device, project, item: r.item, snapshot: r.snapshot, updated_at: at }));
+        const batch = rows.slice(i, i + 50).map((r) => ({ ...(owner ? { owner } : {}), device, project, item: r.item, snapshot: r.snapshot, updated_at: at }));
         must(await client.from('phone_threads').upsert(batch, { onConflict: 'owner,device,project,item' }), 'sending threads to your phone');
       }
     },
-    async dropPhoneThreads(device, project, items) {
-      await myId();
+    async dropPhoneThreads(device, project, items, owner) {
+      const me = await myId();
       for (let i = 0; i < items.length; i += 100) {
-        must(await client.from('phone_threads').delete().eq('device', device).eq('project', project).in('item', items.slice(i, i + 100)), 'taking threads off your phone');
+        must(await client.from('phone_threads').delete().eq('owner', owner ?? me).eq('device', device).eq('project', project).in('item', items.slice(i, i + 100)), 'taking threads off your phone');
       }
     },
     // What her phone reads and sends.
@@ -298,9 +301,9 @@ export function supabaseBackend(client) {
         if (!rows || rows.length < 200) return out;
       }
     },
-    async markPhoneCommand(id, outcome) {
-      await myId();
-      must(await client.from('phone_commands').update({ taken_at: new Date().toISOString(), outcome }).eq('id', id).is('taken_at', null), 'marking what your phone sent as done');
+    async markPhoneCommand(id, outcome, owner) {
+      const me = await myId();
+      must(await client.from('phone_commands').update({ taken_at: new Date().toISOString(), outcome }).eq('id', id).eq('owner', owner ?? me).is('taken_at', null), 'marking what your phone sent as done');
     },
 
     subscribe(onChange) {

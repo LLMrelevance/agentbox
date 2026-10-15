@@ -24,7 +24,7 @@ import { readCodexThreads } from './codex-threads.mjs';
 import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
 import { createPhoneLink } from './phone-link.mjs';
-import { applyThrough } from './phone-inbox.mjs';
+import { applyThrough, phoneDevice } from './phone-inbox.mjs';
 import { atTheComputer } from '../shared/notify-rules.mjs';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
@@ -417,6 +417,8 @@ async function createWindow() {
       ready: () => !!phoneApply,
       apply: (cmd) => phoneApply(cmd),
       stateFile: path.join(config.storeRoot, '.phone-inbox.json'),
+      // This installation and this store together (main/phone-inbox.mjs).
+      device: () => phoneDevice(userDir, config.storeRoot),
       // Where her phone reads it, once the site is up (cloud/team.config.json).
       site: typeof cloudConfig.phoneSite === 'string' ? cloudConfig.phoneSite : null,
     },

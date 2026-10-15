@@ -265,17 +265,23 @@ export function memoryBackend(cloud, personId) {
       return true;
     },
 
-    // HER OWN ROWS FOR HER PHONE (20261014000000_phone_inbox.sql): every one
+    // HER OWN ROWS FOR HER PHONE (20261014000100_phone_inbox.sql): every one
     // keyed by its owner and the computer it came from, and only ever that
     // owner's. A command is written once and marked taken once.
-    async putPhoneProject({ device, project, name }) {
+    // Each write may name who it is for; a write for somebody other than
+    // whoever this backend is signed in as is refused, as the database's
+    // `owner = auth.uid()` refuses it.
+    async putPhoneProject({ owner, device, project, name }) {
+      if (owner && owner !== personId) refuse('write to somebody else\'s phone');
       (cloud.phoneProjects ??= new Map()).set(`${personId}:${device}:${project}`, { owner: personId, device, project, name });
     },
-    async dropPhoneProject(device, project) {
+    async dropPhoneProject(device, project, owner) {
+      if (owner && owner !== personId) return;
       cloud.phoneProjects?.delete(`${personId}:${device}:${project}`);
       for (const k of [...(cloud.phoneThreads?.keys() ?? [])]) if (k.startsWith(`${personId}:${device}:${project}:`)) cloud.phoneThreads.delete(k);
     },
-    async putPhoneThreads(device, project, rows) {
+    async putPhoneThreads(device, project, rows, owner) {
+      if (owner && owner !== personId) refuse('write to somebody else\'s phone');
       cloud.phoneThreads ??= new Map();
       if (!cloud.phoneProjects?.has(`${personId}:${device}:${project}`)) refuse('a thread of a project not on the phone');
       for (const r of rows) {
@@ -286,7 +292,8 @@ export function memoryBackend(cloud, personId) {
       }
       cloud.events.emit('phone', 1);
     },
-    async dropPhoneThreads(device, project, items) {
+    async dropPhoneThreads(device, project, items, owner) {
+      if (owner && owner !== personId) return;
       for (const item of items) cloud.phoneThreads?.delete(`${personId}:${device}:${project}:${item}`);
     },
     async phoneThreads() {
@@ -310,7 +317,8 @@ export function memoryBackend(cloud, personId) {
     async phoneCommands() {
       return (cloud.phoneCommands ?? []).filter((c) => c.owner === personId).map((c) => ({ ...c }));
     },
-    async markPhoneCommand(id, outcome) {
+    async markPhoneCommand(id, outcome, owner) {
+      if (owner && owner !== personId) return;
       // Somebody else's command is not there for you, as row level security
       // has it: the mark changes nothing rather than failing. Your own is
       // marked once; a second mark finds nothing waiting and changes nothing,

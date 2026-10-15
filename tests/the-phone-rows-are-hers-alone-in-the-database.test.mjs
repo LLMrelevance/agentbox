@@ -134,6 +134,27 @@ describe('nobody signed in', () => {
   });
 });
 
+// Codex's second review, finding 3: a database that ran the first draft of
+// these tables kept them, holes and all, because the file only made tables
+// that were not there yet.
+describe('a database that ran the first draft', () => {
+  it('ends with the tables as they are now, and the holes closed', async () => {
+    const old = new PGlite();
+    await old.exec(SUPABASE_STAND_IN);
+    const draft = fs.readFileSync(path.join(root, 'tests/fixtures/phone-inbox-first-draft.sql'), 'utf8');
+    const before = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql') && f < '20261014000000').sort().map((f) => fs.readFileSync(path.join(migrationsDir, f), 'utf8')).join('\n');
+    const after = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql') && f > '20261014000000').sort().map((f) => fs.readFileSync(path.join(migrationsDir, f), 'utf8')).join('\n');
+    await old.exec(before);
+    await old.exec(draft);
+    await old.exec(after);
+    const cols = (await old.query(`select column_name from information_schema.columns where table_name = 'phone_commands' order by column_name`)).rows.map((r) => r.column_name);
+    expect(cols).toContain('device');
+    const triggers = (await old.query(`select tgname from pg_trigger where tgname like 'phone_command_%' order by tgname`)).rows.map((r) => r.tgname);
+    expect(triggers).toEqual(['phone_command_made', 'phone_command_taken']);
+    await old.close();
+  });
+});
+
 describe('two computers on one account', () => {
   it('keep a project of the same name apart', async () => {
     await as(OWNER, `insert into public.phone_projects (device, project, name) values ($1, 'alpha', 'Alpha on the other computer')`, [OTHER_DEV]);

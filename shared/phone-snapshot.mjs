@@ -44,10 +44,22 @@ const SECRETS = [
   /\bAIza[0-9A-Za-z_-]{35}\b/g,
   /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
   /\b(Bearer\s+)[A-Za-z0-9._~+/-]{20,}=*/gi,
+  /\b(Basic\s+)[A-Za-z0-9+/]{12,}=*/gi,
 ];
+// A VALUE GIVEN A SECRET'S NAME, whatever it looks like (Codex's second review,
+// finding 2): `AWS_SECRET_ACCESS_KEY=...`, `password: hunter22`,
+// `"api_key": "..."`. The name stays, so the sentence still reads.
+// A plain number after the name (`max_tokens=128000`) is a setting, not a secret.
+const NAMED = /\b([A-Za-z0-9_.-]*(?:secret|passw(?:or)?d|passphrase|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credentials?|authorization)[A-Za-z0-9_.-]*)(["']?\s*[:=]\s*["']?)(?![0-9]+\b)([^\s"',;]{6,})/gi;
+// AND A LONG RUN OF LETTERS AND DIGITS THAT LOOKS LIKE NOTHING BUT A KEY: 32 or
+// more, upper and lower case and digits all present. A commit id or a uuid is
+// one case of hex and is left alone.
+const KEYLIKE = /\b(?=[A-Za-z0-9_-]{32,}\b)(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}\b/g;
 export function hideSecrets(text, { home = null } = {}) {
   let out = String(text);
-  for (const re of SECRETS) out = out.replace(re, (m, bearer) => (typeof bearer === 'string' && /^Bearer/i.test(bearer) ? `${bearer}[hidden]` : '[hidden]'));
+  for (const re of SECRETS) out = out.replace(re, (m, bearer) => (typeof bearer === 'string' && /^(Bearer|Basic)/i.test(bearer) ? `${bearer}[hidden]` : '[hidden]'));
+  out = out.replace(NAMED, (m, name, sep, value) => (value === '[hidden]' ? m : `${name}${sep}[hidden]`));
+  out = out.replace(KEYLIKE, '[hidden]');
   // Her home folder is ~ online, as it is in a crash report (shared/crash-scrub.mjs).
   if (home && home.length > 1) out = out.split(home).join('~');
   return out;

@@ -176,10 +176,19 @@ export function createTeamService({
   function makePhoneInbox() {
     if (!phone) return null;
     const productOf = (slug) => products().find((p) => p.slug === slug) ?? null;
-    return createPhoneInbox({
+    // WHO IT SENDS AS, fixed now, and whether that is still who is signed in
+    // (Codex's second review, finding 1).
+    const owner = state.me?.id;
+    const signedInAs = backend;
+    if (!owner) return null;
+    let inbox = null;
+    inbox = createPhoneInbox({
       backend,
+      owner,
+      alive: () => phoneInbox === inbox && backend === signedInAs && state.me?.id === owner,
+      device: phone.device?.() ?? null,
       projects: () => {
-        const on = new Set(phoneProjectsOf(phone.projects(), state.me?.id));
+        const on = new Set(phoneProjectsOf(phone.projects(), owner));
         return products().filter((p) => on.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name || p.slug }));
       },
       listItems: (slug) => { const p = productOf(slug); try { return p ? disk.readWorkItems(p.dir) : []; } catch { return []; } },
@@ -187,10 +196,11 @@ export function createTeamService({
       apply: phone.apply,
       // One file per person: what this Mac sent up for one account is not
       // what the next one to sign in here has.
-      stateFile: phone.stateFile.replace(/(\.json)?$/, `.${state.me?.id ?? 'nobody'}.json`),
+      stateFile: phone.stateFile.replace(/(\.json)?$/, `.${owner}.json`),
       now,
       log,
     });
+    return inbox;
   }
 
   function stopLoop() {
