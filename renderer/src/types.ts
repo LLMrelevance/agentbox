@@ -205,6 +205,8 @@ export interface TeamInvite {
 
 export interface TeamState {
   configured: boolean;
+  /** The phone site's address, for the phone with the Mac shut, once there is one. */
+  phoneSite?: string | null;
   /** The first look for a saved sign-in is over (false while it is still being found). */
   started?: boolean;
   /** When this person began sharing on this Mac: threads started before it stay theirs unless shared by hand. */
@@ -532,6 +534,9 @@ export interface AgentTurn {
   // and after it `steer` has put the user's words on the session's stdin and no undo
   // can reach them. So the message says which of the two it is in.
   held?: boolean;
+  // AND, ON THE PHONE WITH THE MAC SHUT, WHY HER MAC DID NOT TAKE IT
+  // (renderer/src/cloud-bridge.ts). Absent on every other message.
+  refused?: string;
   // THE ROW THE WORDS WERE SAID ON, when they came from somewhere other than here.
   //
   // The ask usually lives on the PARENT row, and the pane used to quote it in a
@@ -645,6 +650,9 @@ export interface UpdateState {
 export interface Snapshot {
   products: Product[];
   items: WorkItem[];
+  // ON THE PHONE WITH THE MAC SHUT ONLY (renderer/src/cloud-bridge.ts): her
+  // replies from the phone her Mac has not taken yet, or turned down.
+  phoneWaiting?: { product: string; id: string; at: number; text: string; refused?: string }[];
   // The team (main/team/index.mjs). Null or absent on a build with no team
   // cloud, which is the single-person app.
   team?: TeamState | null;
@@ -807,6 +815,8 @@ export interface ProjectSettings {
   /** Her mark for this project as a drawable url, or null for the burst. */
   logo: string | null;
   autonomous: boolean;
+  /** Its threads go to her account online for her phone with the Mac shut. */
+  onPhone?: boolean;
   permission: PermissionMode | 'workspace';
   permissionArgs: string[] | null;
   /** This project's own Codex mode, or 'workspace' when it has no opinion. */

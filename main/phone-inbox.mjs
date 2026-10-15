@@ -120,7 +120,7 @@ export function applyThrough(channels) {
   return async (cmd) => {
     const [channel, args] = ROUTES[cmd.kind]?.({ ...cmd, payload: cmd.payload || {} }) ?? [];
     const fn = channel && channels.get(channel);
-    if (!fn) throw new Error('this Mac cannot do that yet');
+    if (!fn) throw new Error('this computer cannot do that yet');
     const out = await fn({ sender: null }, args);
     if (out && out.ok === false) throw new Error(out.error || 'the app turned it down');
     return out;

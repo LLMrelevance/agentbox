@@ -14,6 +14,9 @@
 import { useEffect, useRef } from 'react';
 
 export const onPhone = () => typeof document !== 'undefined' && document.documentElement.dataset.door === 'phone';
+// The phone with the Mac shut, which reads her rows online rather than her
+// Mac (cloud-bridge.ts): what she sends waits there for her Mac.
+export const onCloudPhone = () => typeof document !== 'undefined' && document.documentElement.dataset.via === 'cloud';
 
 type HistoryLike = { readonly state: unknown; pushState(state: unknown, title: string): void; replaceState(state: unknown, title: string): void; back(): void };
 type WindowLike = {

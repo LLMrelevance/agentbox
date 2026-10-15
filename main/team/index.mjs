@@ -35,7 +35,7 @@ export function createTeamService({
   // this Mac remembers what it sent. Needs no team, only a sign-in.
   phone = null,
 }) {
-  let state = { ...EMPTY, configured: !!session?.configured };
+  let state = { ...EMPTY, configured: !!session?.configured, phoneSite: phone?.site ?? null };
   let backend = null;
   let sync = null;
   let timer = null;
@@ -303,7 +303,7 @@ export function createTeamService({
       sync = null;
       phoneInbox = null;
       // Signed out is a known answer, so the window shows the sign-in page at once.
-      state = { ...EMPTY, configured: !!session?.configured, started: true };
+      state = { ...EMPTY, configured: !!session?.configured, started: true, phoneSite: phone?.site ?? null };
       onChange();
       return state;
     },

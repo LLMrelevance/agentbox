@@ -1,5 +1,5 @@
 import { RemoteControl } from './RemoteControl';
-import { onPhone } from '../phone-screen';
+import { onCloudPhone, onPhone } from '../phone-screen';
 import { pollEvery } from '../phone-polls';
 import {DirectReview} from './DirectReview';
 import {MessageFiles} from './MessageFiles';
@@ -1760,7 +1760,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             <span className="dim">{' · '}opens the app it is running in</span>
           </button>
         )}
-        {!agent && item.status === 'blocked' && !session && <button onClick={onReopen}>send back to agent</button>}
+        {!agent && item.status === 'blocked' && !session && !onCloudPhone() && <button onClick={onReopen}>send back to agent</button>}
         {/* "esc back" was the third one removed. Escape still closes the pane
             and so does clicking away from it. */}
       </div>

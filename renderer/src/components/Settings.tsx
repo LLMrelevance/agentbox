@@ -657,7 +657,30 @@ function PhoneAlertsPage({ onFeedback }: { onFeedback?: () => void }) {
   );
 }
 
-function PhonePage({ onFeedback }: { onFeedback?: () => void }) {
+// WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md, step 1). The projects she
+// puts on her phone go to her account online on every sync; the phone site
+// reads them and leaves what she sends for this Mac to do when it wakes.
+type MacShut = { site: string | null; projects: ProjectSettings[]; onSet: (slug: string, on: boolean) => void };
+function MacShutGroup({ macShut }: { macShut: MacShut }) {
+  const site = macShut.site?.replace(/^https?:\/\//, '').replace(/\/$/, '') ?? null;
+  return (
+    <Group id="phone-mac-shut" label="With your computer closed">
+      {macShut.projects.map((p) => (
+        <Row key={p.slug} label={p.name}>
+          <Switch on={!!p.onPhone} label={`${p.name} on your phone`} onChange={(v) => macShut.onSet(p.slug, v)} />
+        </Row>
+      ))}
+      <Row
+        label="Open on your phone"
+        desc={site
+          ? `Go to ${site} and sign in with this account. Replies wait there until this computer wakes.`
+          : 'The phone site is not set up yet.'}
+      />
+    </Group>
+  );
+}
+
+function PhonePage({ onFeedback, macShut }: { onFeedback?: () => void; macShut?: MacShut }) {
   const [link, setLink] = useState<PhoneLink | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -680,6 +703,7 @@ function PhonePage({ onFeedback }: { onFeedback?: () => void }) {
     if (document.documentElement.dataset.door === 'phone') return <PhoneAlertsPage onFeedback={onFeedback} />;
     return (
       <Page title="Phone">
+        {macShut && <MacShutGroup macShut={macShut} />}
         <Group>
           <Row label="Set up from the desktop app" desc={`A phone is connected from the ${Name} app's own window, not from a browser tab.`} />
         </Group>
@@ -692,6 +716,7 @@ function PhonePage({ onFeedback }: { onFeedback?: () => void }) {
   };
   return (
     <Page title="Phone" lede={`Use this inbox on your phone. Scan the code with the phone's camera, then add the page to the home screen and it opens like an app.`}>
+      {macShut && <MacShutGroup macShut={macShut} />}
       <Group id="phone" label="Phone access">
         <Row label="Let phones connect" desc={link.on ? (link.error ?? (link.listening ? `Open on port ${link.port}.` : 'Starting…')) : 'Off. Nothing outside this computer can reach the inbox.'}>
           <Switch on={link.on} busy={busy} label="Let phones connect" onChange={(v) => void run(v ? 'on' : 'off')} />
@@ -1352,7 +1377,7 @@ function paneFrom(want: string, has: { team: boolean }): Pane {
 
 /* --------------------------------- screen --------------------------------- */
 
-export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, projectShare, projectWho, account, update = null, onClose, onFeedback }: {
+export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback }: {
   /** Opens the feedback card. A phone has no Feedback button in its corner,
    *  so its own Settings page offers it (2026-10-12). */
   onFeedback?: () => void;
@@ -1395,6 +1420,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   /** Who is signed in, for the Account group on General. Absent when nobody
    *  is, and then there is no group. */
   account?: { email: string; team?: string | null; onSignOut: () => void };
+  /** HER PHONE WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md): present while
+   *  she is signed in, with the phone site's address once there is one. */
+  phoneCloud?: { site: string | null };
   /**
    * WHETHER A NEWER AGENTBOX IS WAITING, as the whole app already reads it
    *  (the sidebar card and ⌘K read the same field). Handed in rather than
@@ -2058,7 +2086,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             is what a person actually presses, grouped by the moment they would
             want it; ../shortcuts.ts holds the list. Every key on it works today
             (`tests/the-shortcuts-page-lists-keys-that-work.test.mjs`). */}
-        {pane === 'phone' && <PhonePage onFeedback={onFeedback} />}
+        {pane === 'phone' && <PhonePage onFeedback={onFeedback} macShut={phoneCloud ? { ...phoneCloud, projects, onSet: (slug, on) => setProject(slug, 'phone', on) } : undefined} />}
         {pane === 'shortcuts' && (
           <div className="set-inner set-keys-page">
             <h1 className="set-title">Shortcuts</h1>

@@ -380,8 +380,16 @@ export default function App() {
   // In flight on ONE row, in the order she sent them. A message on its way to
   // another task is that task's conversation, not this one's.
   const sendingOn = useCallback(
-    (item: WorkItem): PendingSaid[] => sending.filter((s) => s.product === item.product && s.id === item.id),
-    [sending],
+    (item: WorkItem): PendingSaid[] => {
+      const here = sending.filter((s) => s.product === item.product && s.id === item.id);
+      // AND, ON THE PHONE WITH THE MAC SHUT, what she said here earlier that
+      // her Mac has not taken yet (renderer/src/cloud-bridge.ts). Once each:
+      // a send still in this page's own queue is not drawn twice.
+      const mine = new Set(here.map((s) => s.text.trim()));
+      const away = (snap?.phoneWaiting ?? []).filter((w) => w.product === item.product && w.id === item.id && !mine.has(w.text.trim()));
+      return [...here, ...away.map((w) => ({ at: w.at, text: w.text, ...(w.refused ? { refused: w.refused } : {}) }))];
+    },
+    [sending, snap?.phoneWaiting],
   );
   /*
    * WHICH CODING AGENT THE OPEN ROW REALLY RUNS ON, and it is main's answer
@@ -6549,6 +6557,9 @@ export default function App() {
           projectWho={team ? (product: Product) => <ProjectWho product={product} /> : undefined}
           // SIGN OUT AT THE FOOT OF SETTINGS (w-a09476712f): "should be at
           // bottom of settings page". Only while someone is signed in.
+          // HER PHONE WITH THE MAC SHUT: the projects she puts on it, on the
+          // Phone page, only while she is signed in.
+          phoneCloud={snap?.team?.signedIn ? { site: snap.team.phoneSite ?? null } : undefined}
           account={snap?.team?.signedIn && snap.team.me ? { email: snap.team.me.email, team: snap.team.team?.name ?? null, onSignOut: () => { void api.teamSignOut().then(() => refresh()); } } : undefined}
           // THE VERSION AND THE CHECK FOR A NEWER ONE (w-39d6c237f7), off the
           // same snapshot field the sidebar card and ⌘K read.

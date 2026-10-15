@@ -417,6 +417,8 @@ async function createWindow() {
       ready: () => !!phoneApply,
       apply: (cmd) => phoneApply(cmd),
       stateFile: path.join(config.storeRoot, '.phone-inbox.json'),
+      // Where her phone reads it, once the site is up (cloud/team.config.json).
+      site: typeof cloudConfig.phoneSite === 'string' ? cloudConfig.phoneSite : null,
     },
   }) : null;
   if (team) {

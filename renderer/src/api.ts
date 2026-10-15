@@ -23,8 +23,10 @@ import { MOVE_SAY } from '../../shared/where-it-runs-from.mjs';
 // body that imports them, so calling it here means no other file has to
 // remember to, and no import order anywhere can get it wrong.
 import { installBrowserBridge } from './browser-bridge';
+import { installCloudBridge } from './cloud-bridge';
 
-installBrowserBridge();
+// The Mac's own page first; the phone with the Mac shut only on its own site.
+if (!installBrowserBridge()) installCloudBridge();
 
 // A team call, in words: a build or a window with no team door says so rather
 // than throwing somewhere the person cannot see. Below the bridge's install,

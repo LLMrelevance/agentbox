@@ -1,4 +1,5 @@
 {
   "url": "https://your-project-ref.example",
-  "anonKey": "your-project-anon-key"
+  "anonKey": "your-project-anon-key",
+  "phoneSite": "https://phone.your-site.example"
 }
