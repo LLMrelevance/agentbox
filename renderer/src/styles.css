@@ -7188,6 +7188,20 @@ button.cs-row:hover .cs-row-go { color: var(--text); }
    page brings its own black, 0 on markdown) and it is a stated cost of a card
    with a header, not a bug to chase. */
 .doc-view { flex: 1; width: 100%; min-height: 0; border: 0; background: transparent; }
+/* A WEBSITE IN THE PANE (DocPane's doc-website, WebsitePane.tsx). Two things
+   it needs that a file does not. `display: flex` is Electron's own
+   requirement for a `<webview>` to fill the box it is in; without it the tag
+   lays out as an inline element and the page draws a few pixels tall. And the
+   ground under it is white, because a page off the web is written expecting a
+   white canvas, so a site that paints no background of its own — or a short
+   one that leaves the foot of the pane empty — would otherwise show the
+   window's charcoal through the gap.
+
+   AND THE HEADER ABOVE IT IS ALWAYS THERE, which is the other half and lives
+   in workspace-navigation.css beside the hover toolbar it overrules: the page
+   is a separate compositing layer that paints over anything the card draws,
+   so a mark that only appears under the pointer is a mark nobody can press. */
+.doc-website-view { display: flex; background: #fff; }
 .doc-missing { flex: 1; padding: 40px; color: var(--text-faint); font-size: 13.5px; }
 
 /* A PICTURE OPEN IN THE PANE. It keeps the card picked on 08-21, the way a

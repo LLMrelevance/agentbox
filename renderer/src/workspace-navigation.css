@@ -806,6 +806,22 @@
 .workspace-layout:is([data-design-toolbar="floating"],[data-design-toolbar="corner"],[data-design-toolbar="edge"])[data-artifact-layout="beside"] .doc-html .doc-card:focus-within > .doc-head {
  opacity:1; pointer-events:auto; transform:translateY(0);
 }
+/* A WEBSITE KEEPS ITS HEADER, AND IT IS NOT A PREFERENCE. The block above
+   hands the whole card to the page and floats the controls over it under the
+   pointer, which is right for a drawing of ours drawn in an iframe. A page
+   off the web is drawn in a `<webview>`, a separate compositing layer that
+   paints over anything the card draws: measured in the real app 2026-10-15,
+   the crumb and both marks were laid out at the top right of the card and not
+   one pixel of them reached the screen, so the one way out to your own
+   browser could never be pressed. So for a website only, the header is back
+   in the flow, visible, with the address in it. */
+.workspace-layout:is([data-design-toolbar="floating"],[data-design-toolbar="corner"],[data-design-toolbar="edge"])[data-artifact-layout="beside"] .doc-html.doc-website .doc-head {
+ position:static; opacity:1; pointer-events:auto; transform:none;
+ background:var(--doc-page); border:0; border-bottom:1px solid var(--line);
+ box-shadow:none; border-radius:0; padding:14px 12px 12px 18px;
+}
+.workspace-layout:is([data-design-toolbar="floating"],[data-design-toolbar="corner"],[data-design-toolbar="edge"])[data-artifact-layout="beside"] .doc-html.doc-website .doc-crumb { display:flex; }
+
 @media (hover:none) {
  .workspace-layout[data-design-toolbar][data-artifact-layout="beside"] .doc-html .doc-head { opacity:1; pointer-events:auto; transform:none; }
 }

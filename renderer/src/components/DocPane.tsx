@@ -6,6 +6,8 @@ import {PreviewLoading} from './PreviewLoading';
 import { isLocalPreview, type ArtifactMode } from '../artifact-layout';
 import { LOCAL_APP_SANDBOX, previewShows, previewStatus, useLocalPreview } from '../local-preview';
 import { LocalPreviewStatus } from './LocalPreviewStatus';
+import { WebsitePane } from './WebsitePane';
+import { canFrameAWebsite, websiteCrumb } from '../../../shared/websites.mjs';
 // THE DOCUMENT PANE. The right half of the window is the file itself.
 //
 // The look is settled and is not a question any more.
@@ -82,6 +84,30 @@ const CloseGlyph = () => (
 // changes on every press and is the whole reason it exists.
 export type OpenDoc = { product: string; src: string; auto?: boolean; at?: string; atFrom?: number };
 
+// A WEBSITE CARRIES doc-html TOO, and that is not a shortcut: what doc-html
+// stands for is "this card holds a page whose colour the app cannot see into,
+// so the header keeps its own dark in every theme" (styles.css), and a page
+// off the web is the strongest case of that there is. It carries doc-website
+// as well, for the one thing that is only true here.
+//
+// THAT ONE THING IS THE HEADER, AND IT WAS MEASURED. On an html page the
+// header is a toolbar that fades in when the pointer is over the card, so a
+// drawing has the whole card to itself (the design-toolbar rules in
+// workspace-navigation.css). A `<webview>` is a separate compositing layer
+// and paints OVER everything the card draws, so that toolbar is painted under
+// the page: in the real app on 2026-10-15 the crumb and both marks sat at
+// 1278,146 118x42 in the DOM and not one pixel of them reached the screen.
+// The mark that hands the page to your own browser is the point of this
+// feature, so a website's header stays in the flow above the page, which
+// workspace-navigation.css puts back.
+function paneKindClass(kind: DocKind): string {
+  if (kind === 'html') return 'doc-html';
+  if (kind === 'website') return 'doc-html doc-website';
+  if (kind === 'code') return 'doc-code';
+  if (kind === 'image') return 'doc-image';
+  return 'doc-md';
+}
+
 export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, onMode, headerTarget, focusControlStyle }: {
   focusControlStyle?: FocusControlStyle;
   headerTarget?: HTMLElement | null;
@@ -98,6 +124,16 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
   onNotice: (text: string) => void;
 }) {
   const kind: DocKind = docKind(doc.src) ?? 'html';
+  // WHERE THE PANE IS STANDING, for a website only. A webview keeps its own
+  // history, so after one click inside the page the thread's address is no
+  // longer the page you are reading: the crumb and the mark that hands it to
+  // your own browser both follow this rather than `doc.src`.
+  const [here, setHere] = useState(doc.src);
+  const [webFailed, setWebFailed] = useState<string | null>(null);
+  const [webReady, setWebReady] = useState(false);
+  // Asked once: whether this page can draw a browser of its own. The desktop
+  // window can; a tab and a phone get a frame instead.
+  const [ownBrowser] = useState(() => canFrameAWebsite(typeof document === 'undefined' ? null : document));
   // The file this really is, found by the app's own finder in the main process,
   // so the pane opens exactly what a click on the same path would have opened.
   const [resolved, setResolved] = useState<string | null>(null);
@@ -125,6 +161,11 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
   useEffect(() => {
     let live = true;
     setResolved(null); setText(null); setFailed(null); setMtime(0); setUrl(null); setChange(null);
+    setHere(doc.src); setWebFailed(null); setWebReady(false);
+    // A WEBSITE IS NOT LOOKED FOR ON DISK. The address is the document; asking
+    // the main process to resolve it would hand back the address again with no
+    // url, and the pane would print the sentence about reopening the app.
+    if (kind === 'website') { setResolved(doc.src); setUrl(doc.src); return () => { live = false; }; }
     if (isLocalPreview(doc.src)) { setResolved(doc.src); setUrl(doc.src); return () => { live = false; }; }
     api.resolveDoc({ product: doc.product, src: doc.src }).then((r) => {
       if (!live) return;
@@ -172,12 +213,14 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
     setDragging(false);
   };
 
-  const crumb = crumbParts(resolved ?? doc.src, roots);
+  const crumb = kind === 'website' ? websiteCrumb(here) : crumbParts(resolved ?? doc.src, roots);
   // WHAT THE FIRST MARK DOES, AND FOR A CHANGE IT IS HER EDITOR.On a markdown
   // file or a page it is unchanged and still hands the file to the operating
-  // system, which is what she approved on 08-20.
+  // system, which is what she approved on 08-20. ON A WEBSITE IT IS THE
+  // BROWSER YOU ACTUALLY USE, and it hands over the page you have walked to
+  // rather than the one the thread named.
   const openOutside = () => {
-    const src = kind === 'code' ? (fileAt ?? doc.src) : doc.src;
+    const src = kind === 'website' ? here : kind === 'code' ? (fileAt ?? doc.src) : doc.src;
     api.openArtifactExternally({ product: doc.product, src }).then((r) => {
       if (!r.ok) onNotice(r.error ?? 'That file could not be opened.');
     });
@@ -199,7 +242,7 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
             <button
               type="button"
               className="doc-mark"
-              title={kind === 'code' ? 'Open this file in your editor' : `Open outside ${NAME}`}
+              title={kind === 'code' ? 'Open this file in your editor' : kind === 'website' ? 'Open in your browser' : `Open outside ${NAME}`}
               onClick={openOutside}
             >
               {focusControlStyle ? <ArtifactControlGlyph kind="open"/> : <OpenGlyph />}
@@ -213,7 +256,7 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
 
   return (
     <aside
-      className={`doc-pane ${kind === 'html' ? 'doc-html' : kind === 'code' ? 'doc-code' : kind === 'image' ? 'doc-image' : 'doc-md'}${dragging ? ' dragging' : ''}`}
+      className={`doc-pane ${paneKindClass(kind)}${dragging ? ' dragging' : ''}`}
       style={{ flexBasis: `${split * 100}%` }}
     >
       {/* The divider. It is a 9px reach around a 1px line: a hairline is the
@@ -238,6 +281,25 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
         {headerTarget ? createPortal(documentHeader, headerTarget) : documentHeader}
         {failed ? (
           <div className="doc-missing">{failed}</div>
+        ) : kind === 'website' ? (
+          // THE PAGE ITSELF, IN A BROWSER OF ITS OWN (WebsitePane.tsx). The
+          // cover comes off when the page says it is drawn, so a site that
+          // takes a second does not flash its white loading frame first.
+          <div className="preview-frame" aria-busy={!webReady}>
+            {webFailed
+              ? <div className="doc-missing">{webFailed} Open it in your browser with the mark above.</div>
+              : <>
+                  {!webReady && <PreviewLoading />}
+                  <WebsitePane
+                    url={doc.src}
+                    webview={ownBrowser}
+                    ready={webReady}
+                    onNavigate={setHere}
+                    onReady={() => setWebReady(true)}
+                    onFailed={setWebFailed}
+                  />
+                </>}
+          </div>
         ) : kind === 'image' ? (
           // THE PICTURE ITSELF. Nothing to sandbox and nothing to parse: it
           // goes on the app's own picture scheme, the same one every picture in

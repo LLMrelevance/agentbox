@@ -45,6 +45,7 @@ import { createCornerTag } from './corner-tag.mjs';
 import { DOC_SCHEMES, DocGrants, docPath } from './doc-scheme.mjs';
 import { quietTheFramesScrollbars } from './frame-scrollbars.mjs';
 import { letLocalAppsShowInThePane } from './local-app-frames.mjs';
+import { hardenAttachedWebview } from './webview-guard.mjs';
 import { IMG_SCHEMES, imgPath, mediaResponse, mediaType, servable } from './img-scheme.mjs';
 import { hotWindowVerdict, storeHasWork } from './dev-window.mjs';
 import { writeHeldThenReload } from './write-before-reload.mjs';
@@ -999,18 +1000,14 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
-  // NO PAGE IN AN EMBEDDED BROWSER STARTS SOUND BEFORE SHE HAS CLICKED IN IT.
+  // WHAT AN EMBEDDED PAGE MAY DO IS DECIDED HERE, NOT ON THE TAG THAT ASKED.
   //
-  // Electron's default is `no-user-gesture-required`, so any page may start
-  // media the moment it loads, and the rest browser reloads her last tab at
-  // every launch, out of sight. Measured 2026-09-10 on Electron 43 in a hidden
-  // webview on a YouTube watch page: default, the video ran from 3s to 15s;
-  // with this rule it sat paused at 0 for all 16s. A click anywhere in the page
-  // is activation, so pressing play, or picking the next video inside YouTube,
-  // works as before. Every webview this window attaches gets it, the junk
-  // browser included, which is what "never" asks for.
-  window.webContents.on('will-attach-webview', (_e, webPreferences) => {
-    webPreferences.autoplayPolicy = 'document-user-activation-required';
+  // The pane draws a website now, which is the first code in this window that
+  // nobody here wrote, so every webview is pinned below the tag: no preload,
+  // sandboxed, context-isolated, node off, web security on, and no sound
+  // before a click. main/webview-guard.mjs is the rule and the reasons.
+  window.webContents.on('will-attach-webview', (_e, webPreferences, params) => {
+    hardenAttachedWebview(webPreferences, params);
   });
 
   // A page in the pane hides its scrollbar until you scroll, like the app's own
@@ -1026,6 +1023,16 @@ async function createWindow() {
   // focus and would otherwise swallow the key. Intercept it below the page.
   app.on('web-contents-created', (_event, contents) => {
     if (contents.getType() !== 'webview') return;
+
+    // A LINK IN A WEBSITE THAT WANTS A NEW WINDOW GOES TO YOUR OWN BROWSER.
+    // The pane is one page at a time; a second Electron window would be a
+    // browser we have not designed, and `allowpopups` is off anyway
+    // (webview-guard.mjs), so without this such a link does nothing at all.
+    contents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:/.test(url)) shell.openExternal(url);
+      return { action: 'deny' };
+    });
+
     contents.on('before-input-event', (e, input) => {
       if (input.type === 'keyDown' && input.key === 'Escape' && window && !window.isDestroyed()) {
         window.webContents.send('zero:escape-browser');
