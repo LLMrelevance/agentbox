@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 // DOES A WHOLE TASK RUN ON CLAUDE CODE SET UP THE WAY OTHER PEOPLE SET IT UP?
 //
-//   node .claude/skills/verify-agentbox/scripts/check-setups.mjs [setup ...] [--out <dir>]
+//   node .claude/skills/verify-agentbox/scripts/check-setups.mjs [setup ...] [--engine claude|codex] [--out <dir>]
 //
 // For each setup in setups.mjs: bring the browser copy up on a home laid out
-// that way, with the real Claude Code on this Mac and a stand-in model (so
-// nothing is billed), then drive one task and one reply through the screen:
+// that way, with the real Claude Code (or, for a Codex setup, the real codex)
+// on this Mac and a stand-in model (so nothing is billed), then drive one task
+// and one reply through the screen:
 //
-//   setup-task  the answer lands, Claude Code offered the app's store tools,
-//               the worker's note reached the thread, and no API key the
-//               person left in a settings file was used
+//   setup-task  the answer lands, the worker was offered the app's store
+//               tools, its note reached the thread, and no API key the person
+//               has was used; or, on a setup that must not run, the thread
+//               says why in a plain sentence and nothing was sent
 //   reply       the reply is answered and remembers the first turn
 //
 // and take the copy down. One setup at a time: they share this checkout's
@@ -32,10 +34,13 @@ if (isMain) {
   const args = process.argv.slice(2);
   const at = args.indexOf('--out');
   const out = at >= 0 ? path.resolve(args.splice(at, 2)[1]) : path.join('/tmp', 'agentbox-verify', 'runs', `${new Date().toISOString().replace(/[:.]/g, '-')}-setups`);
+  const ea = args.indexOf('--engine');
+  const engine = ea >= 0 ? args.splice(ea, 2)[1] : null;
   const wanted = args.filter((a) => !a.startsWith('--'));
   const unknown = wanted.filter((w) => !SETUPS.some((s) => s.name === w));
   if (unknown.length) { console.error(`No such setup: ${unknown.join(', ')}. Setups: ${SETUPS.map((s) => s.name).join(', ')}`); process.exit(2); }
-  const setups = wanted.length ? SETUPS.filter((s) => wanted.includes(s.name)) : SETUPS;
+  const setups = (wanted.length ? SETUPS.filter((s) => wanted.includes(s.name)) : SETUPS)
+    .filter((s) => !engine || (s.engine ?? 'claude') === engine);
   fs.mkdirSync(out, { recursive: true });
   const live = (a, quiet = true) => spawnSync(process.execPath, [path.join(here, 'live.mjs'), ...a], { cwd: REPO, encoding: 'utf8', stdio: quiet ? 'pipe' : 'inherit' });
   const results = [];
@@ -48,7 +53,8 @@ if (isMain) {
       r.ok = false;
       r.wrong.push(`the copy did not come up: ${String(up.stderr || doctor?.stdout || '').trim().split('\n').slice(-2).join(' ')}`);
     } else {
-      for (const d of SETUP_DRIVES) {
+      // A setup that must not run has no answer to reply to.
+      for (const d of SETUP_DRIVES.filter((x) => x !== 'reply' || setup.expect.answers !== false)) {
         const dir = path.join(out, `${setup.name}-${d}`);
         const run = live(['drive', d, '--out', dir]);
         let report = null;

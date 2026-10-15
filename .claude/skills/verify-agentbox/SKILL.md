@@ -28,7 +28,7 @@ node .claude/skills/verify-agentbox/scripts/verify.mjs --quick  # stand-in drive
 | `this-machine` | what the app finds on THIS Mac, opened from the Dock, and that a worker can start it | ~2 s |
 | `machines` | the same, through the app's own modules, on 17 fake Macs (`scripts/machines.mjs`) | ~35 s |
 | `live` | the browser copy on stand-ins, every drive in `DRIVE_ORDER`: Codex, six at once, replies landing where shown, logins out of usage, quit and Control-C mid-run | ~10 min |
-| `setups` | the REAL Claude Code on homes set up the way other people set theirs up (`scripts/setups.mjs`), against a stand-in model: a task and a reply each. Nothing billed | ~40 s a setup |
+| `setups` | the REAL Claude Code and the REAL codex on homes set up the way other people set theirs up (`scripts/setups.mjs`), against a stand-in model: a task and a reply each. Nothing billed | ~40 s a setup |
 | `real` | `REAL_ORDER` again on the Claude Code and Codex this Mac has, signed in as they are, one-word tasks (billed to that subscription, a few cents) | ~5–10 min |
 | `installed` | the packaged `.app`, opened with a Dock launch's environment on a throwaway home, `INSTALLED_ORDER` through its own window | ~5 min with the build |
 | `breaker` | a locked-down Claude Code session told to break the app through the screen (`breaker.mjs`). Findings are printed for a person, not counted as failures | 15 min |
@@ -182,6 +182,26 @@ turn. To add a setup, add an entry to `SETUPS` with `why` and `expect` (what a
 person on it needs, not what the code does). A bug report that turns out to be
 about someone's Claude Code setup should become a setup before it is fixed.
 
+**Codex setups** (`engine: 'codex'`, `check-setups.mjs --engine codex`) send
+the task to Codex from the composer and run the real `codex` on the person's
+own Codex home: their `auth.json` (a ChatGPT login with tokens that open
+nothing, or an API key that is not one), their `config.toml`, their
+`AGENTS.md`. The copy's config names neither `codexBin` nor `codexHome`, so it
+finds both as a person's copy does; a `codexHome` there is what hid the
+`.zshrc` bug. The stand-in (`stub-codex-server.mjs --setup`) is layered into
+their `config.toml` as a provider with `requires_openai_auth = true`, so Codex
+signs its requests with their login: a JWT is a ChatGPT plan, `sk-...` is a
+key. It is also the copy's HTTPS proxy, so anything Codex tries to send off
+the Mac (chatgpt.com, github.com) is logged and refused. What was measured on
+codex-cli 0.160.0 and the stand-in now does: MCP tools sit behind a client
+`tool_search`, so it searches before it calls `update_work_item`; and in the
+app's Auto mode every MCP call, the store's included, goes to an approval
+reviewer model (`codex-auto-review`) that must answer JSON, which the stand-in
+answers by allowing the store write only. A setup that must not run
+(`expect.answers: false`) is checked for the opposite: nothing went to the
+model on that login, and the thread says why in a sentence matching
+`expect.says`.
+
 ## Evidence
 
 Everything lands in `/tmp/agentbox-verify/runs/<timestamp>-<what>/`:
@@ -221,15 +241,22 @@ A claim or shape with `known` set is a product bug filed on its own thread.
 It still runs; it prints `KNOWN`, does not fail the run, and prints a reminder
 when it starts holding so the marker can come off.
 
-Three, all found by the setups layer on its first run (2026-10-15):
+None today. The setups layer's first run (2026-10-15) found three, all fixed
+in the same task: a key in `~/.claude/settings.json` or a project's
+`.claude/settings.json` billed past the env scrub (every worker's `--settings`
+now blanks it, `NO_METERED_KEY`), and a login moved by `CLAUDE_CONFIG_DIR` in
+`.zshrc` was never used by workers (`effectiveProfiles` reads the shell's
+folder now).
 
-- `api-key-in-settings` and `api-key-in-project`: an `ANTHROPIC_API_KEY` in
-  `~/.claude/settings.json` or a project's committed `.claude/settings.json`
-  is read by Claude Code itself, past the app's scrub of the worker's
-  environment, so the worker bills that key instead of the person's plan.
-- `config-dir-from-zshrc`: a login moved by `CLAUDE_CONFIG_DIR` in `.zshrc`
-  is read for importing sessions only. Workers run on an empty `~/.claude` and
-  every task says Claude Code could not sign in.
+The whole map of setup differences, what covers each and what is still open,
+is `RISKS.md` beside this file. Read it before adding a shape.
+
+The Codex setups' first run (2026-10-15) found two more, both fixed in that
+task: a Codex signed in with an API key ran every task on the key (refused
+now, `codexKeyRefusal`, saying to run `codex login`), and a `config.toml`
+codex will not read, a TOML mistake or an old `profile = "..."` line that
+0.160 refuses outright, said only "Codex stopped before it did anything"
+(now it names config.toml and how to find the line).
 
 Before those, everything the check found was fixed in the task that
 built it: a thread you typed reading "An agent opened this" with nobody
@@ -249,10 +276,12 @@ Listed so nobody reads a green run as proof of these:
   when it is.
 - Shipping (`ship` label to `npm run ship`), approvals cards, scheduling.
 - Linux machines (`check-machines` is Mac shapes only; the app supports Linux).
-- Codex setups. The setups layer shapes Claude Code's home only; Codex runs on
-  the scripted model with a bare `CODEX_HOME`.
-- Other Claude Code versions and install methods. Setups link the one Claude
-  Code this Mac has into the installer's layout.
+- Other Claude Code and Codex versions and install methods. Setups link the
+  one Claude Code this Mac has into the installer's layout, and run the one
+  codex on its PATH.
+- A person's own Codex `model_provider` (Azure, a local server). The setups
+  layer leaves one alone if the config names it, so its workers would use it;
+  none of the setups does, because there is no stand-in for it.
 - Other people's Macs, beyond the fake ones. Not needed while one person
   ships it.
 

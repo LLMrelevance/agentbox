@@ -24,6 +24,14 @@ describe('the one line a stopped row prints', () => {
     expect(shortNext(row('network'))).toBe('need the network set up');
   });
 
+  it('asks for a ChatGPT sign-in when Codex is signed in with an API key', () => {
+    expect(shortNext(row('api-key'))).toBe('need a ChatGPT login');
+  });
+
+  it('asks for the Codex config to be fixed when Codex cannot read it', () => {
+    expect(shortNext(row('codex-config'))).toBe('need config.toml fixed');
+  });
+
   it('still says "stopped, still trying" for a cause nobody named', () => {
     expect(shortNext(row('unknown'))).toBe('stopped, still trying');
   });

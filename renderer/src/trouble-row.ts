@@ -58,6 +58,8 @@ export function shortNext(c: Cause): string {
   if (c.cause === 'model-not-on-plan') return 'need another model';
   if (c.cause === 'too-old') return 'need Claude Code updated';
   if (c.cause === 'network') return 'need the network set up';
+  if (c.cause === 'api-key') return 'need a ChatGPT login';
+  if (c.cause === 'codex-config') return 'need config.toml fixed';
   return 'stopped, still trying';
 }
 

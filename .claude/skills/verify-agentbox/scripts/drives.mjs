@@ -72,6 +72,77 @@ export async function until(fn, ms) {
 
 const WORD = 'PINEAPPLE';
 
+/** Every line the Codex stand-in logged: its requests, and the CONNECTs it refused as the copy's proxy. */
+export function codexModelLog(state) {
+  try {
+    return fs.readFileSync(path.join(state.instance, 'codex-model.log'), 'utf8').split('\n').filter(Boolean)
+      .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  } catch { return []; }
+}
+
+/**
+ * ONE TASK ON A PERSON'S OWN CODEX SETUP: sent to Codex from the composer, run
+ * by the real codex on their home, against the stand-in signed with their own
+ * login. A setup that must not run (`expect.answers` false) is checked for
+ * the opposite: no request went out on that login at all, and the thread says
+ * in a plain sentence why and what to do.
+ */
+async function codexSetupTask({ tab, state, claim, capture, setup }) {
+  const expect = setup.expect;
+  const known = (k) => ({ known: setup.known?.[k] ?? null });
+  const tok = `cs${Date.now().toString(36)}`;
+  const title = `Setup ${tok}: reply with exactly the word ${WORD} and nothing else. [[tok:${tok}]]`;
+  const { row, picked } = await compose(tab, state, title, { engine: 'codex' });
+  claim(picked, 'the composer offers Codex and it can be picked', picked ?? 'no Codex column in the model menu');
+  await capture('sent');
+  if (!claim(row, 'the store holds the thread', row?.id)) return;
+  claim(row.engine === 'codex', 'the thread is stored as a Codex thread', `engine ${row.engine ?? 'unset'}`);
+  const mine = () => codexModelLog(state).filter((e) => e.token === tok || (e.item && e.item === row.id));
+  const current = () => rows(state).find((r) => r.id === row.id) ?? row;
+  const result = () => String(current().result ?? '');
+
+  if (expect.answers) {
+    claim(await until(() => mine().length, 60_000), 'the real codex asked the model about this thread', `${mine().length} request(s)`);
+    const answered = await until(() => result().includes(WORD), 120_000);
+    claim(answered, 'the answer lands on the thread', result().slice(0, 80) || '(none)', known('answers'));
+  } else {
+    // Long enough for a worker to have started and died, and for the app to
+    // have written what it has to say.
+    const said = await until(() => {
+      const r = current();
+      const text = [r.result, r.note, r.error, r.statusNote].filter(Boolean).join(' ');
+      return expect.says.test(text) ? text : null;
+    }, 90_000);
+    await openThread(tab, current());
+    await tab.wait(800);
+    const screen = await tab.text();
+    const shown = expect.says.test(screen);
+    claim(said || shown, 'the thread says, in a plain sentence, why it cannot run and what to do',
+      String(said || screen.split('\n').find((l) => expect.says.test(l)) || result() || '(nothing on the thread)').slice(0, 200), known('answers'));
+    await capture('refused');
+    claim(!mine().length, 'no worker sent this task to a model on that login', `${mine().length} request(s)`, known('billing'));
+  }
+
+  const asked = mine().filter((e) => e.item || e.token);
+  if (expect.store) {
+    const offered = asked.find((e) => e.mcp?.some((n) => /update_work_item$/.test(n)));
+    claim(offered, 'Codex offered the worker the app\'s store tools',
+      offered ? offered.mcp.filter((n) => /work_item/.test(n)).slice(0, 2).join(', ') : `mcp tools: ${asked[0]?.mcp?.slice(0, 4).join(', ') || 'none'}`, known('store'));
+    const note = await until(() => readLedger(state, row.product).some((l) => l.id === row.id && String(l.patch?.note ?? '').includes(tok)), 10_000);
+    const back = asked.find((e) => e.toolResult)?.toolResult;
+    claim(note, 'the worker\'s note reached the thread through the store tool',
+      note ? 'in the ledger' : back ? `tool said: ${back.slice(0, 120)}` : 'never called', known('store'));
+  }
+  const signed = [...new Set(asked.map((e) => e.auth))];
+  const away = [...new Set(codexModelLog(state).filter((e) => e.connect).map((e) => e.connect))];
+  claim(!signed.includes('api-key') && (!expect.answers || signed.includes('chatgpt')),
+    'the model was paid for by a ChatGPT plan, never an API key',
+    `signed: ${signed.join(', ') || 'nothing'}${away.length ? `; refused on the way off this Mac: ${away.join(', ')}` : ''}`, known('billing'));
+  for (const c of setup.check?.(state.home, { codexLog: asked }) ?? []) claim(c.ok, c.sentence, c.evidence, known(c.key ?? 'check'));
+  claim(await openThread(tab, current()), 'the thread opens from the list');
+  await capture('thread');
+}
+
 /**
  * A CLAUDE AND A CODEX TASK, CAUGHT MID-RUN BY THE APP STOPPING, THEN THE APP
  * STARTED AGAIN. `how` is 'quit' (the app alone is signalled and stops its own
@@ -480,6 +551,7 @@ export const DRIVES = {
     async run({ tab, state, claim, capture }) {
       const { setupNamed } = await import('./setups.mjs');
       const setup = setupNamed(state.setup);
+      if (setup.engine === 'codex') return codexSetupTask({ tab, state, claim, capture, setup });
       const expect = setup.expect;
       const known = (k) => ({ known: setup.known?.[k] ?? null });
       const tok = `su${Date.now().toString(36)}`;

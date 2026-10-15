@@ -25,7 +25,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { defaultAnswer, authOf, createClaudeStubModel, STUB_TOKEN, stubClaudeSettings } from '../scripts/lib/claude-stub-model.mjs';
-import { SETUPS, layHome, layRepo, setupNamed } from '../.claude/skills/verify-agentbox/scripts/setups.mjs';
+import { SETUPS, layHome, layRepo, setupNamed, layCodexHome, chatgptLogin, apiKeyLogin } from '../.claude/skills/verify-agentbox/scripts/setups.mjs';
+import { codexAuthOf, layeredCodexConfig, wordAnswer, offeredTools, searchedTools, createStubModel, STUB_CODEX_KEY } from '../scripts/lib/codex-stub-model.mjs';
 import { layersFor } from '../.claude/skills/verify-agentbox/scripts/verify.mjs';
 
 const user = (text) => ({ role: 'user', content: [{ type: 'text', text }] });
@@ -160,13 +161,122 @@ describe('each setup is laid out the way it says', () => {
     expect(new Set(SETUPS.map((s) => s.name)).size).toBe(SETUPS.length);
     for (const s of SETUPS) {
       expect(s.why.split(/\s+/).length, s.name).toBeGreaterThan(6);
-      expect(Object.keys(s.expect).sort(), s.name).toEqual(['answers', 'billing', 'memory', 'store']);
+      // A setup that must not run says what the person reads instead.
+      const keys = s.expect.answers === false ? ['answers', 'billing', 'memory', 'says', 'store'] : ['answers', 'billing', 'memory', 'store'];
+      expect(Object.keys(s.expect).sort(), s.name).toEqual(keys);
+      if (s.expect.says) expect(s.expect.says, s.name).toBeInstanceOf(RegExp);
+      expect([undefined, 'codex'], s.name).toContain(s.engine);
       for (const k of Object.keys(s.known ?? {})) expect(['answers', 'store', 'memory', 'billing', 'check', 'all'], `${s.name}.known.${k}`).toContain(k);
     }
   });
 
   it('the stand-in settings never carry a real key', () => {
     expect(Object.keys(stubClaudeSettings('http://x').env).filter((k) => /API_KEY/.test(k))).toEqual([]);
+  });
+});
+
+// AND THE REAL CODEX (2026-10-15). Codex ran on a scripted model too, but in a
+// bare CODEX_HOME the copy was handed in its config, which is not how anybody's
+// copy finds theirs: that is how CODEX_HOME in .zshrc went unseen. Now a Codex
+// setup is a person's own home, the stand-in is layered into their own
+// config.toml and signed with their own login, and the copy finds both itself.
+// Measured on codex-cli 0.160.0: a ChatGPT login signs with its JWT access
+// token and an API-key login with the key, which is how the key login was
+// caught billing.
+describe('the Codex stand-in, and Codex homes laid out like a person\'s', () => {
+  const homes = [];
+  afterEach(() => { for (const h of homes.splice(0)) fs.rmSync(h, { recursive: true, force: true }); });
+  const lay = (name) => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-setup-test-'));
+    homes.push(home);
+    const dir = layCodexHome(setupNamed(name), { home, url: 'http://127.0.0.1:1/v1' });
+    const read = (f) => fs.readFileSync(path.join(dir, f), 'utf8');
+    return { home, dir, read };
+  };
+
+  it('tells a ChatGPT login from a key from ours, from nothing', () => {
+    const jwt = chatgptLogin().tokens.access_token;
+    expect(codexAuthOf({ authorization: `Bearer ${jwt}` })).toBe('chatgpt');
+    expect(codexAuthOf({ authorization: `Bearer ${apiKeyLogin().OPENAI_API_KEY}` })).toBe('api-key');
+    expect(codexAuthOf({ authorization: `Bearer ${STUB_CODEX_KEY}` })).toBe('stub');
+    expect(codexAuthOf({ authorization: 'Bearer something-else' })).toBe('bearer');
+    expect(codexAuthOf({})).toBe('none');
+  });
+
+  it('the stand-in goes over the person\'s config, keeping theirs, with its table last', () => {
+    const own = 'model = "gpt-5.5"\n\n[mcp_servers.gone]\ncommand = "/nonexistent"\n';
+    const out = layeredCodexConfig(own, { url: 'http://127.0.0.1:9/v1' });
+    expect(out).toContain(own.trim());
+    expect(out.indexOf('model_provider = "verify"')).toBeLessThan(out.indexOf('[mcp_servers.gone]'));
+    expect(out.trimEnd().split('\n').slice(-5)).toEqual(['[model_providers.verify]', 'name = "verify stand-in"', 'base_url = "http://127.0.0.1:9/v1"', 'wire_api = "responses"', 'requires_openai_auth = true']);
+    expect(out).toContain('chatgpt_base_url = "http://127.0.0.1:9/backend-api/"');
+  });
+
+  it('a provider the person chose is left theirs, and one named in a table is not mistaken for it', () => {
+    const theirs = layeredCodexConfig('model_provider = "azure"\n', { url: 'http://x/v1' });
+    expect(theirs.match(/^model_provider\s*=/gm)).toHaveLength(1);
+    expect(theirs).toContain('model_provider = "azure"');
+    const inTable = layeredCodexConfig('[profiles.p]\nmodel_provider = "azure"\n', { url: 'http://x/v1' });
+    expect(inTable).toContain('model_provider = "verify"');
+  });
+
+  it('a ChatGPT login is a JWT with an email and a fresh refresh time, and opens nothing', () => {
+    const { read } = lay('codex-plain');
+    const auth = JSON.parse(read('auth.json'));
+    expect(auth.auth_mode).toBe('chatgpt');
+    const claims = JSON.parse(Buffer.from(auth.tokens.id_token.split('.')[1], 'base64url').toString());
+    expect(claims.email).toMatch(/@verify\.invalid$/);
+    expect(Date.now() - Date.parse(auth.last_refresh)).toBeLessThan(60_000);
+    expect(JSON.parse(read('models_cache.json')).models.length).toBeGreaterThan(0);
+  });
+
+  it('a CODEX_HOME in .zshrc leaves no ~/.codex, and the shell says where it went', () => {
+    const { home, dir } = lay('codex-home-from-zshrc');
+    expect(dir).toBe(path.join(home, '.config', 'codex'));
+    expect(fs.existsSync(path.join(home, '.codex'))).toBe(false);
+    // .zshrc is laid with the rest of the home (layHome).
+    expect(setupNamed('codex-home-from-zshrc').home['.zshrc']).toBe('export CODEX_HOME="$HOME/.config/codex"\n');
+  });
+
+  it('an API-key login holds a key that is not one', () => {
+    const auth = JSON.parse(lay('codex-api-key-login').read('auth.json'));
+    expect(auth).toEqual({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-verify-not-a-real-key' });
+  });
+
+  it('their own config, instructions and broken servers are all there', () => {
+    const { read } = lay('codex-own-config');
+    expect(read('config.toml')).toMatch(/sandbox_mode = "danger-full-access"/);
+    expect(read('config.toml')).toMatch(/\[mcp_servers\.agentbox\]/);
+    expect(read('AGENTS.md')).toContain('[[mark:agents-md]]');
+  });
+
+  it('the stand-in answers one word, remembers it only from what it was sent, and stays out of the way otherwise', () => {
+    const msg = (role, text) => ({ type: 'message', role, content: [{ type: role === 'user' ? 'input_text' : 'output_text', text }] });
+    expect(wordAnswer({ input: [msg('user', 'Setup x: reply with exactly the word PINEAPPLE. [[tok:ab]]')] })).toBe('PINEAPPLE [ab]');
+    expect(wordAnswer({ input: [msg('user', 'reply with exactly the word PINEAPPLE'), msg('assistant', 'PINEAPPLE'), msg('user', 'Which word did you just reply with?')] })).toBe('PINEAPPLE');
+    expect(wordAnswer({ input: [msg('user', 'Which word did you just reply with?')] })).toBe('I do not know.');
+    expect(wordAnswer({ input: [msg('user', 'Verify Codex [[tok:cx1]]')] })).toBe(null);
+  });
+
+  it('finds the store tool where codex 0.160 keeps it, behind tool_search', () => {
+    const request = {
+      tools: [{ type: 'function', name: 'exec_command' }, { type: 'tool_search', execution: 'client' }],
+      input: [{ type: 'tool_search_output', tools: [{ type: 'namespace', name: 'mcp__agentbox', tools: [{ type: 'function', name: 'update_work_item' }] }] }],
+    };
+    expect(offeredTools(request).map((t) => t.full)).toEqual(['exec_command', 'tool_search']);
+    expect(searchedTools(request)).toEqual([{ name: 'update_work_item', namespace: 'mcp__agentbox', full: 'mcp__agentbox__update_work_item' }]);
+  });
+
+  it('only a turn is a turn: codex\'s side requests get a 404 and are not counted', async () => {
+    const model = createStubModel({ respond: () => [] });
+    const url = await model.listen();
+    try {
+      expect((await fetch(`${url}/models?client_version=0.160.0`)).status).toBe(404);
+      const res = await fetch(`${url}/responses`, { method: 'POST', headers: { authorization: `Bearer ${STUB_CODEX_KEY}` }, body: '{"input":[]}' });
+      expect(res.status).toBe(200);
+      await res.text();
+      expect(model.requests.map((r) => r.auth)).toEqual(['stub']);
+    } finally { await model.close(); }
   });
 });
 

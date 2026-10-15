@@ -796,6 +796,31 @@ export function createCodexWorker({
 }
 
 /**
+ * A WORKER THAT WAS NEVER STARTED, AND SAYS WHY, in the shape `spawnWorker`
+ * holds: the sentence on stderr and an exit of 1, both on a later tick,
+ * because the supervisor attaches its listeners after this returns (the same
+ * reason `codexThreadParamsFor` throws inside the worker's chain rather than
+ * speaking early). No 'spawn' is emitted, so no delivery mark is written and
+ * no one-off permission mode is spent.
+ */
+export function refusedCodexWorker(sentence) {
+  const worker = new EventEmitter();
+  worker.stderr = new EventEmitter();
+  worker.threadId = null;
+  worker.turnId = null;
+  worker.steer = async () => { throw Error('The turn is not running.'); };
+  let ended = false;
+  worker.kill = () => false;
+  setImmediate(() => {
+    if (ended) return;
+    ended = true;
+    worker.stderr.emit('data', sentence);
+    worker.emit('exit', 1, null);
+  });
+  return worker;
+}
+
+/**
  * Why a turn did not finish, in whatever words the server gave us -- AND IN THE
  * ONE WORD IT GIVES US THAT IS NOT PROSE.
  *

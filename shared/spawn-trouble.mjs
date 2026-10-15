@@ -90,6 +90,23 @@ const ORG_BLOCKED = [
   /ask your admin/i,
 ];
 
+// A CODEX SIGNED IN WITH AN API KEY. Our own line, said before the worker
+// starts (main/codex-account.mjs `codexKeyRefusal`), because Codex reads the
+// key out of auth.json past the worker scrub and bills every call to it.
+// Before SIGNED_OUT, whose /invalid api key/ is a different event.
+const API_KEY = [/signed in with an api key/i];
+
+// A CODEX config.toml CODEX WILL NOT READ. Codex's own words, off real runs of
+// codex-cli 0.160.0 on 2026-10-15: the app-server refusing `config/read` for a
+// quote left open or an old `profile = "..."` line, and the terminal's
+// "Error loading config.toml". Not benched like a login: fixing the file
+// changes no sign-in file, so a benched account would never come back.
+const CODEX_CONFIG = [
+  /refused config\/read: failed to (read configuration layers|resolve feature override)/i,
+  /error loading config\.toml/i,
+  /config\.toml:\d+:\d+: /i,
+];
+
 const SIGNED_OUT = [
   /oauth/i,
   /session expired/i,
@@ -239,6 +256,8 @@ export function troubleCause(raw) {
   if (!text.trim()) return 'unknown';
   // The CLI's own argument check, before any account is asked anything.
   if (TOO_OLD.some((re) => re.test(text))) return 'too-old';
+  if (CODEX_CONFIG.some((re) => re.test(text))) return 'codex-config';
+  if (API_KEY.some((re) => re.test(text))) return 'api-key';
   // FIRST, because an organization's refusal mentions the subscription and
   // reads as a signed-out login to the list below.
   if (ORG_BLOCKED.some((re) => re.test(text))) return 'org-blocked';
@@ -323,7 +342,9 @@ export function needsHerHands(cause) {
   // again in thirty minutes cannot possibly help.
   // An out-of-date Claude Code is hers too: no retry updates it, and every run
   // until she does spends nothing but a reply's tries.
-  return cause === 'signed-out' || cause === 'org-blocked' || cause === 'subscription-ended' || cause === 'too-old';
+  // A Codex signed in with a key is hers as well, and `codex login` rewrites
+  // auth.json, which is what brings a benched account back.
+  return cause === 'signed-out' || cause === 'org-blocked' || cause === 'subscription-ended' || cause === 'too-old' || cause === 'api-key';
 }
 
 // THE ONE COMMAND THAT UPDATES IT, WHEREVER IT CAME FROM. `claude update`
@@ -435,6 +456,8 @@ export function engineTroubleNote(cause, engineWord = 'Codex') {
   if (cause === 'workspace') return `${engineWord} would not run in the folder a task asked to work in. Open that folder in ${engineWord} once and allow it.`;
   if (cause === 'interrupted') return `${engineWord} runs keep getting cut off. ${Name} is trying them again on its own.`;
   if (cause === 'network') return `${engineWord} cannot connect securely through this network, so its tasks are not moving. Set your company's proxy or certificate in your shell profile and reopen ${Name}.`;
+  if (cause === 'api-key') return `${engineWord} is signed in with an API key, which ${Name} never bills, so nothing runs on it. Open a terminal, run codex login, and sign in with ChatGPT.`;
+  if (cause === 'codex-config') return `${engineWord} could not read its config.toml, so nothing runs on it. Run codex in a terminal to see the line it points at, and fix it.`;
   return `${engineWord} sessions are dying on arrival, so its tasks are not moving. ${Name} keeps trying.`;
 }
 
@@ -549,6 +572,8 @@ const DEAD_RUN_OPENERS = {
   'model-not-on-plan': "could not use this task's model on that account's plan, so nothing has been done.",
   network: 'could not connect securely through this network, so nothing has been done on this task.',
   'too-old': `on this computer is older than ${Name} needs, so nothing has been done on this task.`,
+  'api-key': `is signed in with an API key, which ${Name} never bills, so nothing has been done.`,
+  'codex-config': 'could not read its config.toml, so nothing has been done on this task.',
   unknown: 'stopped before it did anything, so this task has not been started.',
 };
 
@@ -572,6 +597,8 @@ const RUN_STOPPED = {
   'model-not-on-plan': "This run stopped because that account's plan does not include the model.",
   network: 'This run stopped because this network would not let it connect securely.',
   'too-old': `This run stopped because Claude Code on this computer is older than ${Name} needs.`,
+  'api-key': 'This run stopped because Codex is signed in with an API key.',
+  'codex-config': 'This run stopped because Codex could not read its config.toml.',
   unknown: 'This run stopped before it finished.',
 };
 
@@ -599,6 +626,10 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
       ? (resetsAt ? ` It starts again on its own at ${resetsAt}.` : ' It starts again on its own when the limit resets.')
       : cause === 'too-old'
       ? ` To update it, ${UPDATE}, and it starts again on its own.`
+      : cause === 'api-key'
+      ? ' Run codex login in a terminal to sign in with your ChatGPT plan, and it picks straight up.'
+      : cause === 'codex-config'
+      ? ` Run codex in a terminal to see the line it points at and fix it; ${Name} tries again on its own.`
       : cause === 'interrupted'
         ? ` ${Name} runs it again on its own.`
         : cause === 'model-not-on-plan'

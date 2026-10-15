@@ -24,9 +24,21 @@
 //           answers, store (the worker's note reaches the thread), memory (a
 //           reply remembers the first turn), billing ('subscription' unless the
 //           person really meant otherwise)
+//           says    (optional) for a setup that must NOT run: the plain sentence,
+//                   as a pattern, the person reads on the thread instead
 //   known   { <expectation>: 'why it fails today, and the thread it is filed on' },
 //           or { all: ... } when the setup cannot run a task at all
-//   check(home) extra claims about this setup: [{ ok, sentence, evidence }]
+//   check(home, { codexLog }) extra claims about this setup: [{ ok, sentence, evidence }]
+//
+// A CODEX SETUP has `engine: 'codex'`, and the task is sent to Codex from the
+// composer. Its `codex` field is the person's Codex home:
+//   dir     where it is, relative to their home (default '.codex')
+//   login   'chatgpt' (a ChatGPT plan), 'apikey' (an API key), or null (signed out)
+//   config(ctx)  the person's own config.toml, as text (the stand-in is layered over it)
+//   files   { 'name': contents } anything else in that folder (AGENTS.md)
+// The real `codex` on this Mac runs it; the stand-in model is
+// stub-codex-server.mjs, signed with the person's own login, so a check reads
+// off each request whether a plan or a key would have paid.
 //
 // A bug report that turns out to be about someone's Claude Code or Codex setup
 // should become a setup here before it is fixed.
@@ -36,6 +48,7 @@ import { fileURLToPath } from 'node:url';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const { stubClaudeSettings } = await import(path.join(REPO, 'scripts/lib/claude-stub-model.mjs'));
+const { layeredCodexConfig } = await import(path.join(REPO, 'scripts/lib/codex-stub-model.mjs'));
 
 const HOOK_LOG = '.hook-ran.log';
 /** A hook command that leaves a mark in the home, so a check knows the person's hook really ran. */
@@ -148,7 +161,170 @@ export const SETUPS = [
     // Found by this setup on its first run: workers ran on an empty ~/.claude.
     // Fixed in main/account-discovery.mjs (effectiveProfiles reads the shell's folder).
   },
+
+  // ----------------------------------------------------------------- Codex --
+  {
+    name: 'codex-plain',
+    engine: 'codex',
+    why: 'Codex signed in with ChatGPT in ~/.codex and nothing else: the baseline every other Codex setup is read against',
+    codex: { login: 'chatgpt' },
+    expect: NORMAL,
+  },
+  {
+    name: 'codex-home-from-zshrc',
+    engine: 'codex',
+    why: 'CODEX_HOME exported in .zshrc, so the only Codex login is in ~/.config/codex and there is no ~/.codex at all (workers ran signed out on ~/.codex until w-6d8c543a43)',
+    codex: { dir: '.config/codex', login: 'chatgpt' },
+    home: { '.zshrc': 'export CODEX_HOME="$HOME/.config/codex"\n' },
+    expect: NORMAL,
+    check: (home) => [{
+      ok: rollouts(path.join(home, '.config', 'codex')).length > 0 && !fs.existsSync(path.join(home, '.codex', 'sessions')),
+      sentence: 'the worker\'s session was written in the folder .zshrc names, not in ~/.codex',
+      evidence: `${rollouts(path.join(home, '.config', 'codex')).length} in ~/.config/codex, ${rollouts(path.join(home, '.codex')).length} in ~/.codex`,
+    }],
+  },
+  {
+    name: 'codex-api-key-login',
+    engine: 'codex',
+    why: 'Codex signed in with an API key (`codex login --with-api-key`, auth.json auth_mode "apikey"): every call is metered to whoever owns the key, not a ChatGPT plan',
+    codex: { login: 'apikey' },
+    // The app's rule is that workers run on a subscription and never a key, and
+    // there is no plan in this home to fall back on, so the person needs to be
+    // told, on the thread, to sign Codex in with ChatGPT.
+    expect: { answers: false, store: false, memory: false, billing: 'subscription', says: /API key[\s\S]*codex login/i },
+  },
+  {
+    name: 'codex-own-config',
+    engine: 'codex',
+    why: 'a config.toml of their own: their own model and a profile, approval_policy "never" and danger-full-access, a notify script, an MCP server whose command is gone, one already called "agentbox", and a long ~/.codex/AGENTS.md',
+    codex: {
+      login: 'chatgpt',
+      // No `profile = "work"` line: codex 0.160 refuses to start on one (the
+      // codex-legacy-profile setup below).
+      config: ({ home }) => [
+        'model = "gpt-5.5"',
+        'approval_policy = "never"',
+        'sandbox_mode = "danger-full-access"',
+        `notify = ["/bin/sh", "-c", "echo notify >> '${path.join(home, NOTIFY_LOG)}'"]`,
+        '',
+        '[profiles.work]',
+        'model = "gpt-5.5"',
+        'model_reasoning_effort = "high"',
+        '',
+        '[mcp_servers.gone]',
+        'command = "/nonexistent/mcp-server"',
+        '',
+        '[mcp_servers.agentbox]',
+        'command = "/nonexistent/old-agentbox-mcp"',
+        '',
+      ].join('\n'),
+      files: { 'AGENTS.md': `# My rules [[mark:agents-md]]\n\n${'- Always explain your reasoning in detail before acting.\n'.repeat(400)}` },
+    },
+    expect: NORMAL,
+    check: (home, { codexLog = [] } = {}) => {
+      const asked = codexLog.filter((e) => e.item);
+      const policies = rollouts(path.join(home, '.codex')).flatMap(turnContexts);
+      // The approval reviewer runs read-only with no approvals of its own,
+      // which is safe; danger-full-access, or never asking outside read-only, is theirs leaking in.
+      const wide = policies.filter((p) => /danger/i.test(p.sandbox) || (p.approval === 'never' && !/read-only/.test(p.sandbox)));
+      return [
+        { ok: asked.some((e) => e.marks?.includes('agents-md')), sentence: 'their ~/.codex/AGENTS.md reached the worker, as it reaches their terminal\'s Codex', evidence: `${asked.length} task request(s)` },
+        { ok: policies.length > 0 && !wide.length, sentence: 'the worker ran in the app\'s sandbox, not their danger-full-access with no approvals',
+          evidence: policies.map((p) => `${p.sandbox}/${p.approval}`).join(', ') || 'no turn recorded' },
+      ];
+    },
+  },
+  {
+    name: 'codex-invalid-config',
+    engine: 'codex',
+    why: 'a config.toml with a TOML mistake in it (a quote left open), which their terminal\'s codex refuses to start on',
+    codex: { login: 'chatgpt', config: () => 'model = "gpt-5.5\napproval_policy = "on-request"\n' },
+    // Nothing can run, and the person has to be told which file and what is
+    // wrong in it, on the thread, not left with a task that never starts.
+    expect: { answers: false, store: false, memory: false, billing: 'subscription', says: /config\.toml/ },
+  },
+  {
+    name: 'codex-legacy-profile',
+    engine: 'codex',
+    why: 'a `profile = "work"` line older Codex read as the default profile, which codex 0.160 refuses to start on at all (found by codex-own-config on its first run, 2026-10-15)',
+    codex: { login: 'chatgpt', config: () => 'profile = "work"\n\n[profiles.work]\nmodel = "gpt-5.5"\n' },
+    expect: { answers: false, store: false, memory: false, billing: 'subscription', says: /config\.toml/ },
+  },
+  // NOT A SETUP YET: an older or newer codex. Setups run the one codex this Mac
+  // has (0.160.0 on 2026-10-15); the machines layer covers finding the others.
 ];
+
+const NOTIFY_LOG = '.notify-ran.log';
+
+/** Every Codex rollout under one home, newest last. */
+function rollouts(dir) {
+  const out = [];
+  const walk = (d) => { let es = []; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; } for (const e of es) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (/^rollout-.*\.jsonl$/.test(e.name)) out.push(p); } };
+  walk(path.join(dir, 'sessions'));
+  return out.sort();
+}
+/** The sandbox and approval policy each turn of one rollout really ran with. */
+function turnContexts(file) {
+  let lines = [];
+  try { lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean); } catch { return []; }
+  return lines.map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .filter((e) => e?.type === 'turn_context')
+    .map((e) => ({ sandbox: e.payload?.sandbox_policy?.type ?? e.payload?.sandbox_policy?.mode ?? JSON.stringify(e.payload?.sandbox_policy ?? null), approval: e.payload?.approval_policy ?? null }));
+}
+
+/**
+ * A ChatGPT login the way `codex login` writes one, with tokens that open
+ * nothing. Codex reads the id_token for the email and plan without checking
+ * its signature, and refreshes only a login older than a few days, so a fresh
+ * `last_refresh` keeps it from asking OpenAI for a new one.
+ */
+export function chatgptLogin(i = 1, now = Date.now()) {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const jwt = (claims) => `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64(claims)}.dmVyaWZ5LW5vdC1zaWduZWQ`;
+  const exp = Math.floor(now / 1000) + 30 * 86400;
+  const account = `verify-codex-account-${i}`;
+  const auth = { chatgpt_plan_type: 'plus', chatgpt_account_id: account };
+  return {
+    auth_mode: 'chatgpt',
+    OPENAI_API_KEY: null,
+    tokens: {
+      id_token: jwt({ email: `codex-${i}@verify.invalid`, exp, 'https://api.openai.com/auth': auth }),
+      access_token: jwt({ exp, 'https://api.openai.com/auth': auth }),
+      refresh_token: 'verify-not-a-refresh-token',
+      account_id: account,
+    },
+    last_refresh: new Date(now).toISOString(),
+  };
+}
+/** A models_cache.json of the shape codex keeps, with two made-up models the stand-in answers as. */
+function modelsCache(now = Date.now()) {
+  const levels = ['low', 'medium', 'high'].map((effort) => ({ effort, description: `${effort} effort` }));
+  const model = (slug, priority) => ({ slug, display_name: slug, description: 'the verify stand-in', visibility: 'list', priority, default_reasoning_level: 'medium', supported_reasoning_levels: levels });
+  return { fetched_at: new Date(now).toISOString(), client_version: 'verify', models: [model('gpt-5.5', 1), model('gpt-5.5-mini', 2)] };
+}
+
+/** An API-key login, as `codex login --with-api-key` writes it. The key is not one. */
+export const apiKeyLogin = () => ({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-verify-not-a-real-key' });
+
+/**
+ * LAY A PERSON'S CODEX HOME OUT, with the stand-in at `url` layered into their
+ * own config.toml. Returns the folder.
+ */
+export function layCodexHome(setup, { home, url }) {
+  const spec = setup.codex ?? {};
+  const dir = path.join(home, spec.dir ?? '.codex');
+  fs.mkdirSync(dir, { recursive: true });
+  const login = spec.login === 'chatgpt' ? chatgptLogin() : spec.login === 'apikey' ? apiKeyLogin() : null;
+  if (login) fs.writeFileSync(path.join(dir, 'auth.json'), `${JSON.stringify(login, null, 2)}\n`, { mode: 0o600 });
+  // The model list a signed-in codex keeps beside its login, which is where
+  // the app's picker reads Codex's models from (main/codex-models.mjs). The
+  // stand-in has no catalog to serve, so without this file the composer had
+  // no Codex column at all, on a home where Settings said Codex was signed in.
+  if (login) fs.writeFileSync(path.join(dir, 'models_cache.json'), `${JSON.stringify(modelsCache(), null, 1)}\n`);
+  fs.writeFileSync(path.join(dir, 'config.toml'), layeredCodexConfig(spec.config?.({ home }) ?? '', { url }));
+  for (const [rel, text] of Object.entries(spec.files ?? {})) fs.writeFileSync(path.join(dir, rel), text);
+  return dir;
+}
 
 /** The fake accounts each login holds, so main/account-discovery.mjs sees two subscriptions, not one. */
 const account = (i) => ({ oauthAccount: { emailAddress: `setup-${i}@verify.invalid`, accountUuid: `verify-setup-account-${i}` } });
