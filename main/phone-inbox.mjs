@@ -60,6 +60,8 @@ export function createPhoneInbox({
   home = os.homedir(),
   now = Date.now,
   log = () => {},
+  // How a thread's copy is made; a test counts the calls.
+  build = threadSnapshot,
 }) {
   const state = readState(stateFile);
   const save = () => writeState(stateFile, state);
@@ -80,11 +82,23 @@ export function createPhoneInbox({
   }
   const still = () => { if (!alive()) throw new SignedOut('signed out'); };
 
+  // WHAT EACH THREAD'S COPY WAS LAST BUILT FROM, so a pass skips building the
+  // copies of threads that did not change. Building them is the costly part of
+  // a pass (261 of 361 ms for 300 threads of the real agentbox-team ledger,
+  // 2026-10-14), and it runs on the thread that draws the window every few
+  // seconds. A copy is made of the row and its lines and nothing else, so the
+  // same row and lines make the same copy.
+  const built = new Map();
+  const inputsOf = (item, history) => crypto.createHash('sha1').update(JSON.stringify(item)).update('\0').update(JSON.stringify(history)).digest('base64');
+  // Each project's pass is one stretch of work; between them the window gets a turn.
+  const breathe = () => new Promise((resolve) => setImmediate(resolve));
+
   async function publish() {
     let sent = 0;
     const chosen = projects();
     const known = new Set(chosen.map((p) => p.slug));
     for (const p of chosen) {
+      await breathe();
       const key = `project:${p.slug}`;
       if (state.sent[key] !== p.name) { still(); await backend.putPhoneProject({ owner, device, project: p.slug, name: p.name }); state.sent[key] = p.name; save(); }
       const rows = threadsWorthCarrying(listItems(p.slug), { now: now() });
@@ -92,9 +106,14 @@ export function createPhoneInbox({
       const here = new Set();
       for (const item of rows) {
         here.add(item.id);
-        const snap = threadSnapshot(item, historyOf(p.slug, item.id), SNAPSHOT_LIMITS, { home });
-        const k = snapshotKey(snap);
         const sk = `${p.slug}:${item.id}`;
+        const history = historyOf(p.slug, item.id);
+        const inputs = inputsOf(item, history);
+        const was = built.get(sk);
+        if (was && was.inputs === inputs && state.sent[sk] === was.key) continue;
+        const snap = build(item, history, SNAPSHOT_LIMITS, { home });
+        const k = snapshotKey(snap);
+        built.set(sk, { inputs, key: k });
         if (state.sent[sk] === k) continue;
         const failed = state.failed[sk];
         if (failed && failed.key === k && now() < failed.next) continue;
@@ -106,7 +125,7 @@ export function createPhoneInbox({
       if (gone.length) {
         still();
         await backend.dropPhoneThreads(device, p.slug, gone.map((k) => k.slice(p.slug.length + 1)), owner);
-        for (const k of gone) { delete state.sent[k]; delete state.failed[k]; }
+        for (const k of gone) { delete state.sent[k]; delete state.failed[k]; built.delete(k); }
         save();
       }
     }
@@ -115,7 +134,7 @@ export function createPhoneInbox({
       const slug = k.slice(8);
       still();
       await backend.dropPhoneProject(device, slug, owner);
-      for (const t of Object.keys(state.sent).filter((t) => t.startsWith(`${slug}:`))) delete state.sent[t];
+      for (const t of Object.keys(state.sent).filter((t) => t.startsWith(`${slug}:`))) { delete state.sent[t]; built.delete(t); }
       for (const t of Object.keys(state.failed).filter((t) => t.startsWith(`${slug}:`))) delete state.failed[t];
       delete state.sent[k];
       save();

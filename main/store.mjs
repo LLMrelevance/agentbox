@@ -252,19 +252,13 @@ export class Store {
   // The lease lines go here rather than there because they are the bulk of the
   // file and none of them are news: a worker holding a task for an hour writes
   // a heartbeat a minute, and's 39 lines are 15 events.
+  //
+  // Read once per change of the ledger, not once per call (main/store/
+  // work-items.mjs readItemHistory): the phone pass asks for 300 threads in a
+  // row, and reading the file for each blocked the app for 21 s (2026-10-14).
   readHistory(slug, id, { max = 400 } = {}) {
-    const { workItemsDisk } = this.modules;
     if (!ROW_ID.test(String(id ?? ''))) return [];
-    const file = workItemsDisk._internals.ledgerPath(this.productDir(slug));
-    const lines = [];
-    for (const raw of workItemsDisk._internals.readLines(file)) {
-      let line = null;
-      try { line = JSON.parse(raw); } catch { continue; }
-      if (!line || line.id !== id) continue;
-      if (line.heartbeat || line.release) continue;
-      lines.push(line);
-    }
-    return lines.slice(-max);
+    return this.modules.workItemsDisk.readItemHistory(this.productDir(slug), id, { max });
   }
 
   // THE CONVERSATION ON ONE ROW, oldest first, for the brief a spawning worker
