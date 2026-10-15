@@ -5601,7 +5601,9 @@ export default function App() {
           {/* SEARCH, NEW THREAD AND DISPLAY (approved 2026-10-01): the whole of
               the right end on the Inbox, which is the one page of threads now
               (w-05ff3d1438). Display holds the view, the sort and the filters.
-              Not over a teammate's card or the team's setup. */}
+              Not over a teammate's card or the team's setup. Search is drawn
+              here only on the board; on the list it ends the tabs row
+              (w-3c51d02de5). */}
           {workspaceNavigation && !focused && !settingsOpen && !teamShown && (
             <HeaderActions
               page="inbox"
@@ -5611,8 +5613,8 @@ export default function App() {
               // The projects she uses most come first in the menu, which takes
               // reading her threads (w-5a08121f99: about forty projects).
               items={items}
-              onSearch={openSearch}
               onCompose={() => setModal('compose')}
+              onSearch={inboxDisplay.view === 'board' ? openSearch : undefined}
               shown={displayedBox.length + theirRows.length}
               total={(mineShown ? shownBox.length : 0) + theirRows.length}
               tab={view}
@@ -6033,6 +6035,7 @@ export default function App() {
                     }}
                     needs={team ? needsWord(picked, team.me) : undefined}
                     onView={(next) => { setView(next as View); setSelected(0); setMultiSel(new Set()); }}
+                    onSearch={openSearch}
                   />
                 )}
                 {workspaceNavigation && emptyView && !theirRows.length ? (

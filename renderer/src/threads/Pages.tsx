@@ -107,10 +107,22 @@ function useOutside(open: boolean, close: () => void) {
 /** Whose threads are on the page, and how to change it (App.tsx holds it). */
 export type PeoplePick = { everyone: Person[]; picked: string[]; me: string | null; onPick: (picked: string[]) => void };
 
-/** Search, New thread and the Display icon, at the right of the Inbox and Team headers. */
+/**
+ * SEARCH IS A MAGNIFIER WITH NO WORD (w-3c51d02de5, 2026-10-14): the header's
+ * right end had grown to four controls and read as cluttered. It sits at the
+ * right end of the tabs row; the board has no tabs row, so there it stays in
+ * the header. NO "/" ON ITS FACE (w-facfc092e1): the key shows on hover,
+ * through the hint plate.
+ */
+export function SearchButton({ onSearch }: { onSearch: () => void }) {
+  return <button type="button" className="th-search" data-hint="search" onClick={onSearch} title="Search threads (/)" aria-label="Search threads"><SearchGlyph /></button>;
+}
+
+/** New thread, the cloud and the Display icon (and Search on the board), at the right of the Inbox header. */
 export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode, onCloudSetUp }: {
   page: PageId; display: Display; onDisplay: (d: Display) => void; products: Product[]; items?: WorkItem[];
-  onSearch: () => void; onCompose: () => void; shown?: number; total?: number; tab?: string;
+  /** Only where no tabs row draws it (the board). */
+  onSearch?: () => void; onCompose: () => void; shown?: number; total?: number; tab?: string;
   people?: PeoplePick;
   /** Where threads run; no button at all on a Mac not set up for the cloud. */
   cloud?: CloudStatus | null; onCloudMode?: (mode: CloudMode) => void; onCloudSetUp?: () => void;
@@ -126,10 +138,8 @@ export function HeaderActions({ page, display, onDisplay, products, items, onSea
   // filters say: it is the everyday state (asked for 2026-10-04).
   const justYou = !!worn && !!people?.me && people.picked.length === 1 && people.picked[0] === people.me;
   const dot = !justYou && (isFiltered(display) || (!!people && peopleWorthADot(people.everyone, people.picked, people.me)));
-  // NO "/" ON ITS FACE (w-facfc092e1): a shortcut shows on hover, through the
-  // hint plate, and is never printed on the control.
   return <div className="th-right">
-    <button type="button" className="th-search" data-hint="search" data-hint-text="span" onClick={onSearch} title="Search threads (/)" aria-label="Search threads"><SearchGlyph /><span>Search</span></button>
+    {onSearch && <SearchButton onSearch={onSearch} />}
     <button type="button" className="th-new" data-hint="new-task" onClick={onCompose} title="New thread (N)"><PenIcon />New thread</button>
     {cloud?.setUp && <CloudButton cloud={cloud} onMode={onCloudMode} onSetUp={onCloudSetUp} />}
     <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
@@ -291,13 +301,15 @@ export const INBOX_TABS: { view: TabView; label: string }[] = [
 const COUNTED: TabView[] = ['inbox', 'progress', 'snoozed'];
 
 /** `needs` renames the first tab (Waiting, once a teammate is on the page). */
-export function StateTabs({ view, counts, onView, needs }: {
+export function StateTabs({ view, counts, onView, needs, onSearch }: {
   view: TabView; counts: Partial<Record<TabView, number>>; onView: (v: TabView) => void; needs?: string;
+  /** Draws Search at the row's right end (w-3c51d02de5). */
+  onSearch?: () => void;
 }) {
   return <div className="th-bar"><div className="tm-tabs">
     {/* Every tab wears the Tab plate (hint-plate.ts, 'state-tab'). */}
     {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view ? ' on' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
-  </div></div>;
+  </div>{onSearch && <SearchButton onSearch={onSearch} />}</div>;
 }
 
 /* ------------------------------------------------------------ whose threads */

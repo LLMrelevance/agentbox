@@ -57,8 +57,10 @@
    that is not an action, so it loses its border and its 240px block and
    answers the pointer the way the app's other quiet controls do, with a
    background. New thread keeps its outline, because it is the thing you
-   press. */
-.th-search { display: inline-flex; align-items: center; gap: 9px; height: 32px; padding: 0 10px; border: 0; border-radius: var(--radius); background: none; color: var(--text-faint); font: inherit; font-size: 13px; cursor: text; }
+   press. Since w-3c51d02de5 it is the magnifier alone, a 32px square, at the
+   right end of the tabs row (and in the header only on the board). */
+.th-search { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--radius); background: none; color: var(--text-dim); font: inherit; cursor: pointer; flex: none; }
+.th-bar > .th-search { margin-left: auto; }
 .th-new { height: 32px; padding: 0 13px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: none; color: var(--text); font: inherit; font-size: 13.5px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .th-new svg { color: var(--text-dim); }
 .th-new:hover, .th-disp:hover { background: var(--wash-strong); }
