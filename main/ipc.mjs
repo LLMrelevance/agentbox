@@ -27,6 +27,7 @@ import {refreshAgentModels} from './refresh-agent-models.mjs';
 import {readInstruction,writeInstruction,listVersions,readVersion} from './instruction-settings.mjs';
 import path from 'node:path';
 import os from 'node:os';
+import { looksLikeClaudeCode } from '../shared/claude-code-shape.mjs';
 import fsWatch from 'node:fs';
 import { listFolders } from './folders.mjs';
 import { feedbackUrl, sendFeedback } from './feedback.mjs';
@@ -1527,15 +1528,30 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     }
   });
 
-  // THE CLOUD MENU'S SIGN-IN for one account, made in the cloud
+  // THE CLOUD SETUP'S SIGN-IN for one account, made in the cloud
   // (main/cloud/logins.mjs). The Mac relays the link and the code only.
-  ipcMain.handle('zero:cloud-signin', async (_e, { action, engine, profile, code } = {}) => {
+  ipcMain.handle('zero:cloud-signin', async (_e, { action, engine, key, code } = {}) => {
     try {
-      await supervisor.cloudSignIn(action, engine, profile, code);
+      const out = await supervisor.cloudSignIn(action, engine, key ?? null, code);
       push();
-      return { ok: true };
+      return { ok: true, key: out?.key ?? null };
     } catch (err) {
       return { ok: false, error: String(err.message) };
+    }
+  });
+  // CLAUDE'S CODE, FROM THE CLIPBOARD, WHEN SHE COMES BACK (2026-10-14: she
+  // approved on Claude's page and waited, not seeing that the code it shows
+  // has to come back). Answered only while a Claude sign-in is waiting for
+  // its code, and only with text shaped like one: anything else she copied
+  // stays where it is.
+  ipcMain.handle('zero:cloud-clipboard-code', () => {
+    try {
+      const waiting = (supervisor.cloudStatus?.().signIns || []).some((s) => s.engine === 'claude' && s.state === 'needs-code');
+      if (!waiting) return { code: null };
+      const text = String(host?.readClipboardText?.() ?? '').trim();
+      return { code: looksLikeClaudeCode(text) ? text : null };
+    } catch {
+      return { code: null };
     }
   });
   ipcMain.handle('zero:settings-set-workspace', (_e, payload) => {

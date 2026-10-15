@@ -1,111 +1,99 @@
-// THE CLOUD IS SET UP ON ITS OWN SCREEN, AND THE MENU ONLY POINTS AT IT.
+// THE CLOUD IS SET UP ON ITS OWN SCREEN, WITH WHICHEVER ACCOUNTS SHE CHOOSES.
 //
-// What broke: on 2026-10-14 the cloud menu walked her through each account's
-// sign-in inside the menu itself. Her words: "imagine this component: what is
-// it for? If you're getting set up with Claude for the first time, it should
-// maybe say, 'You're not set up. You should get set up,' and then it should
-// walk you through it. The component shouldn't walk you through it." So the
-// menu says one line and offers Set up, and the setup is a full screen built
-// from the first-run walk's setup card (components/CloudSetup.tsx). Here:
-// what the menu says, which account the setup is on, and the three steps it
-// shows for each, measured against the states a real sign-in passes through
-// (main/cloud/logins.mjs).
+// What broke, in her words, 2026-10-14, over three rounds:
+//   - the cloud menu walked her through the sign-in itself: "The component
+//     shouldn't walk you through it." The menu invites; the setup is a screen.
+//   - picking a choice jumped to a new page "without your approval", and the
+//     first screen was "way too much reading ... I can't tell if these are
+//     components that I had to click or read through."
+//   - it named which Mac account to sign in with, she "signed in with a
+//     different account", and "we shouldn't predefine which accounts to sign
+//     up with. Give people the option."
+//   - she approved on Claude's page and waited "about 30 seconds and nothing
+//     happened": the code Claude shows had to come back, and nothing said so.
+// Measured the same day against the real cloud: from Start to Claude's link
+// took 5 s through the app's own path, so the wait was the code, not the
+// cloud. Here: what each view says, that waits say they are waiting, the code
+// read from the clipboard and nothing else, and the way in.
 
 import { describe, it, expect } from 'vitest';
-import { menuSetupLine, currentAccount, stepsFor, keyOf, WHERE_ROWS, SETUP } from '../renderer/src/cloud-setup';
+import fs from 'node:fs';
+import { SETUP, menuSetupLine, activeSignIn, signInView, anyReady, WHERE_ROWS } from '../renderer/src/cloud-setup';
+import { looksLikeClaudeCode } from '../shared/claude-code-shape.mjs';
 
-const acct = (extra) => ({ engine: 'claude', profile: 'default', name: 'me@example.com', ready: false, state: 'none', signIn: null, ...extra });
-const status = (accounts, mode = 'full') => ({ setUp: true, mode, running: 0, month: { runs: 0, agentHours: 0, estimatedCost: 0, costPerAgentHour: null }, accounts });
-const si = (state, extra = {}) => ({ signIn: { state, url: null, code: null, message: null, ...extra } });
+const status = (accounts = [], signIns = []) => ({ setUp: true, mode: 'full', running: 0, month: { runs: 0, agentHours: 0, estimatedCost: 0, costPerAgentHour: null }, accounts, signIns });
+const acct = (extra) => ({ engine: 'claude', key: 'acct-1', name: null, ready: true, state: 'ready', ...extra });
+const si = (state, extra = {}) => ({ engine: 'claude', key: 'acct-9', state, url: null, code: null, message: null, ...extra });
 
-describe('what the cloud menu says about setup', () => {
-  it('says it is not set up when no account has signed in, and offers Set up', () => {
-    expect(menuSetupLine(status([acct(), acct({ engine: 'codex' })]))).toEqual({ say: 'Not set up yet.', go: 'Set up' });
+describe('the words', () => {
+  it('keep each view to a heading and one line', () => {
+    expect(SETUP.homeLede.split(' ').length).toBeLessThanOrEqual(10);
+    for (const s of [si('starting'), si('needs-code'), si('checking'), si('waiting', { engine: 'codex', code: 'WY6D-YCCOE' })]) {
+      expect(signInView(s).lead.split(' ').length).toBeLessThanOrEqual(10);
+    }
   });
 
-  it('says how many are left once some have, and offers to finish', () => {
-    expect(menuSetupLine(status([acct({ ready: true, state: 'ready' }), acct({ profile: '/b' })]))).toEqual({ say: '1 account still needs to sign in.', go: 'Finish setup' });
-    expect(menuSetupLine(status([acct({ ready: true, state: 'ready' }), acct({ profile: '/b' }), acct({ profile: '/c' })])).say).toBe('2 accounts still need to sign in.');
-  });
-
-  it('asks for a sign-in again when one stopped working', () => {
-    expect(menuSetupLine(status([acct({ state: 'broken' }), acct({ profile: '/b', ready: true, state: 'ready' })])).say).toBe('An account needs to sign in again.');
-  });
-
-  it('says nothing when every account is set up, while a Codex login is only renewing, or when threads stay on this Mac', () => {
-    expect(menuSetupLine(status([acct({ ready: true, state: 'ready' })]))).toBe(null);
-    expect(menuSetupLine(status([acct({ engine: 'codex', state: 'renew' })]))).toBe(null);
-    expect(menuSetupLine(status([acct()], 'mac'))).toBe(null);
+  it('let her add either kind of account, with no account named for her', () => {
+    expect([SETUP.addClaude, SETUP.addCodex]).toEqual(['Add Claude account', 'Add Codex account']);
   });
 });
 
-describe('which account the setup is on', () => {
-  const a = acct({ profile: '/a' }); const b = acct({ profile: '/b' }); const c = acct({ engine: 'codex', profile: 'default' });
-  const order = [a, b, c].map(keyOf);
-
-  it('takes them in order, passing the ones that are ready and the ones she skipped', () => {
-    expect(currentAccount([a, b, c], order)).toBe(a);
-    const aDone = { ...a, ready: true };
-    expect(currentAccount([aDone, b, c], order)).toBe(b);
-    expect(currentAccount([aDone, b, c], order, [keyOf(b)])).toBe(c);
-    expect(currentAccount([aDone, { ...b, ready: true }, { ...c, ready: true }], order)).toBe(null);
+describe('a sign-in on screen', () => {
+  it('says it is working whenever it is waiting on something other than her', () => {
+    expect(signInView(si('starting')).busy).toBe(true);
+    expect(signInView(si('checking')).busy).toBe(true);
+    expect(signInView(si('waiting', { engine: 'codex', code: 'C' })).busy).toBe(true);
+    expect(signInView(si('needs-code')).busy).toBe(false);
   });
 
-  it('stays on one that is signing in, whatever the order says', () => {
-    const live = { ...c, ...si('waiting', { code: 'X' }) };
-    expect(currentAccount([a, b, live], order)).toBe(live);
-  });
-});
-
-describe('the three steps of one sign-in', () => {
-  const states = (a) => stepsFor(a).map((s) => s.state);
-
-  it('walks Claude: open the page, paste its code, then check', () => {
-    expect(states(acct(si('starting')))).toEqual(['now', 'todo', 'todo']);
-    expect(states(acct(si('needs-code', { url: 'https://claude.com/x' })))).toEqual(['done', 'now', 'todo']);
-    expect(states(acct(si('checking')))).toEqual(['done', 'done', 'now']);
-    expect(states(acct({ ready: true, state: 'ready', ...si('saved') }))).toEqual(['done', 'done', 'done']);
-    expect(stepsFor(acct(si('needs-code')))[1].title).toMatch(/paste the code Claude shows/);
+  it('asks Claude for its code, and shows Codex its code', () => {
+    expect(signInView(si('needs-code'))).toMatchObject({ paste: true, codeToType: null });
+    expect(signInView(si('waiting', { engine: 'codex', code: 'WY6D-YCCOE' }))).toMatchObject({ paste: false, codeToType: 'WY6D-YCCOE' });
+    expect(signInView(si('failed', { message: 'Claude did not accept that code.' })).lead).toMatch(/did not accept/);
   });
 
-  it('walks Codex: open the page, type the code shown here, and it finishes by itself', () => {
-    const waiting = stepsFor(acct({ engine: 'codex', ...si('waiting', { url: 'https://auth.openai.com/codex/device', code: 'WY6D-YCCOE' }) }));
-    expect(waiting.map((s) => s.state)).toEqual(['done', 'now', 'todo']);
-    expect(waiting[0].title).toMatch(/OpenAI/);
-    expect(waiting[1].sub).toMatch(/finishes by itself/);
-  });
-
-  it('claims nothing is opening once a sign-in has failed', () => {
-    const failed = stepsFor(acct(si('failed', { message: 'Claude did not accept that code.' })));
-    expect(failed.map((s) => s.state)).toEqual(['todo', 'todo', 'todo']);
-    expect(failed[0].sub).toBeUndefined();
+  it('is the one going, or else the one that just failed', () => {
+    const going = si('waiting', { engine: 'codex', code: 'C' });
+    expect(activeSignIn(status([], [si('saved'), going]))).toBe(going);
+    const failed = si('failed', { message: 'x' });
+    expect(activeSignIn(status([], [si('saved'), failed]))).toBe(failed);
+    expect(activeSignIn(status([], [si('saved')]))).toBe(null);
   });
 });
 
-describe('the last screen', () => {
-  it('asks where new threads start, with the two choices that use the cloud', () => {
-    expect(WHERE_ROWS.map((r) => r.key)).toEqual(['all', 'full']);
-    expect(SETUP.doneHead).toBe('You’re set up');
+describe('Claude\'s code from the clipboard', () => {
+  it('is taken only when it is shaped like one', () => {
+    expect(looksLikeClaudeCode('aB3dEf9hIjKlMnOp#qRsTuVwXyZ01')).toBe(true);
+    expect(looksLikeClaudeCode('  aB3dEf9hIjKlMnOp#qRsTuVwXyZ01\n')).toBe(true);
+    for (const other of ['', 'hello world', 'https://claude.com/x#y', 'my password', 'short#x', 'a'.repeat(40)]) expect(looksLikeClaudeCode(other)).toBe(false);
+  });
+
+  it('is read only while a Claude sign-in is waiting for it', () => {
+    const ipc = fs.readFileSync(new URL('../main/ipc.mjs', import.meta.url), 'utf8');
+    const handler = ipc.slice(ipc.indexOf("'zero:cloud-clipboard-code'"), ipc.indexOf("'zero:settings-set-workspace'"));
+    expect(handler).toMatch(/s\.engine === 'claude' && s\.state === 'needs-code'/);
+    expect(handler.indexOf('waiting')).toBeLessThan(handler.indexOf('readClipboardText'));
   });
 });
 
-// Her second look, 2026-10-14: the first screen was the old corner layout
-// ("nobody reads text that's just in the bottom corner"), picking a choice
-// jumped to a whole new page "without your approval", and the menu's Setup
-// row was "very strange and I don't even notice it".
 describe('the way in', () => {
-  it('opens the setup only when she asks for it, never when she picks where threads run', async () => {
-    const fs = await import('node:fs');
+  it('is an invitation until an account is added, then a line only when one stopped working', () => {
+    expect(menuSetupLine(status([]))).toBe(null);
+    expect(menuSetupLine(status([acct()]))).toBe(null);
+    expect(menuSetupLine(status([acct(), acct({ key: 'acct-2', state: 'broken', ready: false })]))).toEqual({ say: SETUP.menuBroken, go: SETUP.menuFix });
+  });
+
+  it('opens the setup only when she asks for it, never when she picks where threads run', () => {
     const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
     const pick = app.slice(app.indexOf('onCloudMode={'), app.indexOf('onCloudSetUp={'));
     expect(pick).not.toMatch(/setCloudSetupOpen/);
     expect(app).toMatch(/onCloudSetUp=\{\(\) => setCloudSetupOpen\(true\)\}/);
   });
 
-  it('starts with what the cloud gives and who signs in, and one button naming how many', () => {
-    expect(SETUP.introGets.map((g) => g.key)).toEqual(['lid', 'many', 'plans']);
-    expect(SETUP.introGo(3)).toBe('Set up 3 accounts');
-    expect(SETUP.introGo(1)).toBe('Set up');
-    expect(SETUP.inviteGo).toBe('Set up the cloud');
+  it('lets her finish once one account can run, and asks where threads start', () => {
+    expect(anyReady([])).toBe(false);
+    expect(anyReady([acct({ ready: false, state: 'broken' })])).toBe(false);
+    expect(anyReady([acct()])).toBe(true);
+    expect(WHERE_ROWS.map((r) => r.key)).toEqual(['all', 'full']);
   });
 });

@@ -30,6 +30,7 @@ import { createSandbox, pickBaseEnv } from '../cloud/sandbox/server.mjs';
 import {
   cloudLoginFor, recordCloudLogin, markCloudLogin, cloudLoginState, mayRunOn, startCloudSignIn,
   renewCloudCodexLogin, sweepRetiredLogins, loginObjectKey, readCloudLogins, forgetOldCloudTokens,
+  listCloudLogins, pickCloudLogin, removeCloudLogin,
   CODEX_RENEW_BEFORE_MS, CODEX_RUN_NEEDS_MS,
 } from '../main/cloud/logins.mjs';
 import { cloudRun, LOGIN_TROUBLE } from '../main/cloud/run.mjs';
@@ -70,7 +71,7 @@ function makeSandbox(mode = '') {
   sandbox = createSandbox({
     workRoot: path.join(tmp, 'vm-work'), pathRoot: path.join(tmp, 'vm'), bridgeSocket: path.join(tmp, 'bridge.sock'),
     baseEnv: { ...pickBaseEnv(process.env), PATH: `${bin}:${process.env.PATH}`, ...(mode ? { FAKE_VENDOR_MODE: mode } : {}) },
-    terminal: (line) => ['sh', '-c', line], uploadRetryMs: 10,
+    terminal: (line) => ['sh', '-c', line], whoIs: async () => null, uploadRetryMs: 10,
   });
 }
 const stopped = [];
@@ -138,6 +139,38 @@ describe('the note the Mac keeps', () => {
     expect(objects.has(loginObjectKey('claude', 'a'))).toBe(false);
     expect(objects.has(loginObjectKey('claude', 'b'))).toBe(true);
     expect(cloudLoginFor('claude', '/acct', { home }).retired).toEqual([]);
+  });
+});
+
+// The accounts are hers to choose (2026-10-14), so runs are spread over them.
+describe('the cloud accounts she added', () => {
+  it('spread runs over every account of the engine that may run, least used first', () => {
+    recordCloudLogin('claude', 'acct-a', { id: 'A', savedAt: 1 }, { home });
+    recordCloudLogin('claude', 'acct-b', { id: 'B', savedAt: 2 }, { home });
+    recordCloudLogin('codex', 'acct-c', { id: 'C', savedAt: 3, expiresAt: Date.now() + 200 * H }, { home });
+    const picks = [1, 2, 3, 4].map((i) => pickCloudLogin('claude', { home, now: 1_000 + i }).key);
+    expect(picks).toEqual(['acct-a', 'acct-b', 'acct-a', 'acct-b']);
+    expect(pickCloudLogin('codex', { home }).key).toBe('acct-c');
+    markCloudLogin('claude', 'acct-a', 'A', { broken: 'refused' }, { home });
+    expect(pickCloudLogin('claude', { home, now: 9_000 }).key).toBe('acct-b');
+    expect(listCloudLogins('claude', { home }).map((r) => r.key)).toEqual(['acct-a', 'acct-b']);
+  });
+
+  it('pick nothing when none of the engine\'s accounts can run', () => {
+    expect(pickCloudLogin('claude', { home })).toBe(null);
+    recordCloudLogin('codex', 'acct-x', { id: 'X', expiresAt: Date.now() + H }, { home });
+    expect(pickCloudLogin('codex', { home })).toBe(null);
+  });
+
+  it('take a removed account and every object it left out of the cloud', async () => {
+    objects.set(loginObjectKey('claude', 'A1'), Buffer.from('x'));
+    objects.set(loginObjectKey('claude', 'A2'), Buffer.from('y'));
+    recordCloudLogin('claude', 'acct-a', { id: 'A1' }, { home });
+    recordCloudLogin('claude', 'acct-a', { id: 'A2' }, { home });
+    expect(await removeCloudLogin('claude', 'acct-a', { storage, home })).toBe(true);
+    expect(listCloudLogins('claude', { home })).toEqual([]);
+    expect(objects.has(loginObjectKey('claude', 'A1'))).toBe(false);
+    expect(objects.has(loginObjectKey('claude', 'A2'))).toBe(false);
   });
 });
 

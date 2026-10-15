@@ -146,7 +146,7 @@ import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
 import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, flipView, isDirect, nextTab, pageDisplay, pageFor, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
 import { mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
-import { boardStops, listStops, stepStop, stopKey, type Stop } from './threads/walk-rules';
+import { boardStops, listStops, stepFromPlace, stepStop, stopKey, type Stop } from './threads/walk-rules';
 import { opensTheToast, toastParts, type ToastGoes } from './toast-parts';
 
 type Modal = null | 'compose' | 'filter' | 'palette' | 'reply' | 'snooze' | 'standing';
@@ -2979,6 +2979,25 @@ export default function App() {
   // Where the keyboard is in the walk: their row, or your last one.
   const walkPlace = keyCard ? stops.findIndex((s) => s.card && stopKey(s) === cardSel) : stops.findIndex((s) => s.item === current);
 
+  // WHERE THE OPEN THREAD SAT, KEPT AFTER IT LEAVES THE LIST (w-0d55a2b160).
+  // A reply to a person keeps you on the thread and takes it out of Needs you
+  // (`iSpokeLast`), so J, K and E, which all count from the thread's place,
+  // found none: J did nothing, K opened the bottom row, E dropped you on the
+  // list. They count from here instead while you are still on it
+  // (`stepFromPlace`, and `noteAdvance` for E). Two places, because J and K
+  // walk what the page draws and E reopens a slot in Needs you.
+  const walkHeld = useRef<{ key: string; index: number } | null>(null);
+  const inboxPlace = useRef<{ id: string; index: number } | null>(null);
+  useEffect(() => {
+    // Leaving the thread forgets it: the place is only good while you are on it.
+    if (!focused) { walkHeld.current = null; inboxPlace.current = null; return; }
+    const key = stopKey({ item: focused });
+    const at = stops.findIndex((s) => stopKey(s) === key);
+    if (at >= 0) walkHeld.current = { key, index: at };
+    const inInbox = shownInbox.findIndex((i) => i.id === focused.id);
+    if (inInbox >= 0) inboxPlace.current = { id: focused.id, index: inInbox };
+  }, [focused, stops, shownInbox]);
+
   // WHAT A CONVERSATION NEEDS TO BRING AN AGENT IN AND TO DRAW ITS ANSWER
   // (w-7b9cb8636a, team/ChatAgents.tsx): the projects it can be sent to, the
   // model lists, and the tasks themselves, read off this snapshot.
@@ -3372,7 +3391,10 @@ export default function App() {
   // cost her are in ./advance; what is here is only which state answers "was a
   // task open when she acted", and that is `focused`.
   const noteAdvance = useCallback((item: WorkItem) => {
-    const index = shownInbox.findIndex((i) => i.id === item.id);
+    // A thread your reply already took out of Needs you advances from the
+    // slot it was in, which is where you were working.
+    const at = shownInbox.findIndex((i) => i.id === item.id);
+    const index = at < 0 && focused?.id === item.id && inboxPlace.current?.id === item.id ? inboxPlace.current.index : at;
     advanceRef.current = advanceAfter({ fromTask: !!focused, index, id: item.id });
   }, [shownInbox, focused]);
 
@@ -4750,7 +4772,11 @@ export default function App() {
         // The next one may be a teammate's, which opens as their card.
         else if (e.key === 'j' || e.key === 'J' || e.key === 'k' || e.key === 'K') {
           e.preventDefault();
-          const target = stepStop(stops, { item: focused }, (e.key === 'j' || e.key === 'J') ? 1 : -1, walkPlace);
+          const dir = (e.key === 'j' || e.key === 'J') ? 1 : -1;
+          // Off the page because your reply took it there: from where it sat.
+          const key = stopKey({ item: focused });
+          const gone = !stops.some((s) => stopKey(s) === key) && walkHeld.current?.key === key;
+          const target = gone ? stepFromPlace(stops, walkHeld.current!.index, dir) : stepStop(stops, { item: focused }, dir, walkPlace);
           if (target) goToStop(target);
         }
         // E archives, unconditionally. It must never approve on her behalf.
@@ -5589,7 +5615,9 @@ export default function App() {
           {/* SEARCH, NEW THREAD AND DISPLAY (approved 2026-10-01): the whole of
               the right end on the Inbox, which is the one page of threads now
               (w-05ff3d1438). Display holds the view, the sort and the filters.
-              Not over a teammate's card or the team's setup. */}
+              Not over a teammate's card or the team's setup. Search is drawn
+              here only on the board; on the list it ends the tabs row
+              (w-3c51d02de5). */}
           {workspaceNavigation && !focused && !settingsOpen && !teamShown && (
             <HeaderActions
               page="inbox"
@@ -5599,8 +5627,8 @@ export default function App() {
               // The projects she uses most come first in the menu, which takes
               // reading her threads (w-5a08121f99: about forty projects).
               items={items}
-              onSearch={openSearch}
               onCompose={() => setModal('compose')}
+              onSearch={inboxDisplay.view === 'board' ? openSearch : undefined}
               shown={displayedBox.length + theirRows.length}
               total={(mineShown ? shownBox.length : 0) + theirRows.length}
               tab={view}
@@ -5890,6 +5918,10 @@ export default function App() {
                      basically rejecting it". A proposal is still closed from
                      its own row like any thread. */
                   onHereFiled={(i) => doItHere(i)}
+                  /* AND DROPPING ONE (w-fcb5fdc2e5): "I sometimes will just
+                     want to reject something." The close its own row makes,
+                     with its undo, without leaving this thread. */
+                  onDismissFiled={(i) => markDone(i, { stay: true, force: true })}
                   // The question a close asks while tasks still wait (w-d2744c6daa).
                   closeAsk={(() => {
                     const asked = closeAskOn === keyOf(focused) ? closeAsk(waitingFiled(focused).length) : null;
@@ -6020,6 +6052,7 @@ export default function App() {
                     }}
                     needs={team ? needsWord(picked, team.me) : undefined}
                     onView={(next) => { setView(next as View); setSelected(0); setMultiSel(new Set()); }}
+                    onSearch={openSearch}
                   />
                 )}
                 {workspaceNavigation && emptyView && !theirRows.length ? (

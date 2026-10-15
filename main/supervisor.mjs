@@ -40,9 +40,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, readMarker } from './cloud/marker.mjs';
 import { readCloudConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
-import { cloudLoginFor, cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens } from './cloud/logins.mjs';
-import { accountIdentity } from './account-tooling.mjs';
-import { codexAccount } from './codex-account.mjs';
+import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey } from './cloud/logins.mjs';
 import { execFileSync } from 'node:child_process';
 import { holdUntilHome } from './cloud/codex-cloud.mjs';
 import { readCloudUsage, summarizeCloudUsage } from './cloud/usage.mjs';
@@ -4019,24 +4017,22 @@ export class Supervisor {
   // signed in offers no cloud slot at all, rather than one every tick reaches
   // for and then turns back from.
   _hasCloudSignIn(engine = DEFAULT_ENGINE) {
-    const which = engineOf(engine);
-    return this._liveProfilesFor(which).some((p) => this._cloudLoginRunnable(which, p));
+    return this._cloudLoginRunnable(engineOf(engine));
   }
 
-  // The folder that IS an account, for each engine: the one its cloud
-  // sign-in is filed under.
-  _accountDir(engine, profile) {
-    return engineOf(engine) === 'codex' ? this._codexProfileHome(profile) : this._claudeConfigDir(profile);
-  }
-
-  _cloudLoginRunnable(engine, profile) {
-    return mayRunOn(cloudLoginState(cloudLoginFor(engineOf(engine), this._accountDir(engine, profile), { home: this.config.home })));
+  // Whether any cloud account of this engine may run now. Which one a run
+  // takes is decided when it starts (main/cloud/logins.mjs pickCloudLogin);
+  // it need not be the account the thread uses on this Mac.
+  _cloudLoginRunnable(engine) {
+    const now = Date.now();
+    return listCloudLogins(engineOf(engine), { home: this.config.home }).some((r) => mayRunOn(cloudLoginState(r, { now })));
   }
 
   // WHAT THE CLOUD BUTTON SHOWS (renderer/src/cloud-menu.ts): whether this
   // Mac is set up for cloud runs at all, where threads go, how many run there
-  // now, and this month's use from the runs' own measurements. The usage file
-  // is read at most every 30 seconds; the snapshot asks on every change.
+  // now, this month's use from the runs' own measurements, the accounts she
+  // added for the cloud, and any sign-in going on. The usage file is read at
+  // most every 30 seconds; the snapshot asks on every change.
   cloudStatus() {
     const setUp = !!readCloudConfig(process.env, this.config.home);
     const mode = this.config.cloudRuns === false ? 'mac' : this.config.cloudRuns === 'all' ? 'all' : 'full';
@@ -4046,49 +4042,37 @@ export class Supervisor {
       const since = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
       this._cloudMonth = { at: now, month: summarizeCloudUsage(readCloudUsage({ home: this.config.home }), { since }) };
     }
-    return { setUp, mode, running: this._cloudLoad(), month: this._cloudMonth.month, accounts: setUp ? this._cloudAccounts() : [] };
+    return {
+      setUp, mode, running: this._cloudLoad(), month: this._cloudMonth.month,
+      accounts: setUp ? this._cloudAccounts() : [],
+      signIns: setUp ? this._cloudSignInsNow() : [],
+    };
   }
 
-  // EACH ACCOUNT, AND WHETHER IT CAN RUN IN THE CLOUD (the cloud menu's
-  // Accounts). Every account this app runs, of both engines, with the state
-  // of its cloud sign-in (main/cloud/logins.mjs) and, while one is going,
-  // the sign-in's own state for the menu to draw. Listed from every account
-  // she has set up, not only the healthy ones: an account the Mac has struck
-  // is still one she may want to sign in for the cloud (Codex's review,
-  // finding 9).
+  // THE ACCOUNTS SHE ADDED FOR THE CLOUD, of both engines, oldest first, each
+  // named by its email when the vendor said it, and with whether it can run.
+  // They are hers to choose (2026-10-14: "we shouldn't predefine which
+  // accounts to sign up with"), so they are not this Mac's accounts.
   _cloudAccounts() {
     const now = Date.now();
-    if (!this._cloudAccountsCache || now - this._cloudAccountsCache.at > 30_000) {
-      const names = (engine, profile) => {
-        if (engine === 'codex') {
-          let email = null;
-          try { email = codexAccount(this._codexProfileHome(profile))?.email ?? null; } catch { /* none */ }
-          // The menu says which engine beside the name; the name is the account.
-          return email || path.basename(this._codexProfileHome(profile));
-        }
-        let email = null;
-        try { email = accountIdentity(profile === 'default' ? null : profile)?.email ?? null; } catch { /* no login there */ }
-        return email || path.basename(this._claudeConfigDir(profile));
-      };
-      const list = [];
-      for (const engine of [DEFAULT_ENGINE, 'codex']) {
-        for (const profile of this._cloudProfilesFor(engine)) list.push({ engine, profile, name: names(engine, profile) });
-      }
-      this._cloudAccountsCache = { at: now, list };
+    const out = [];
+    for (const engine of [DEFAULT_ENGINE, 'codex']) {
+      listCloudLogins(engine, { home: this.config.home }).forEach((r) => {
+        const state = cloudLoginState(r, { now });
+        out.push({ engine, key: r.key, name: r.email || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null });
+      });
     }
-    const flows = this._cloudSignIns ?? new Map();
-    return this._cloudAccountsCache.list.map((a) => {
-      const state = cloudLoginState(cloudLoginFor(a.engine, this._accountDir(a.engine, a.profile), { home: this.config.home }));
-      const flow = flows.get(`${a.engine}:${a.profile}`)?.status() ?? null;
-      return { ...a, ready: mayRunOn(state), state, signIn: flow };
-    });
+    return out;
   }
 
-  // Every account of an engine she has set up, healthy or not.
-  _cloudProfilesFor(engine) {
-    const live = this._liveProfilesFor(engine);
-    const all = typeof this._profilesFor === 'function' ? (this._profilesFor(engine) || []) : [];
-    return [...new Set([...live, ...all])];
+  // The sign-ins going on, or just ended, for the setup screen to draw.
+  _cloudSignInsNow() {
+    const out = [];
+    for (const [key, flow] of this._cloudSignIns ?? new Map()) {
+      const [engine, account] = key.split('|');
+      out.push({ engine, key: account, ...flow.status() });
+    }
+    return out;
   }
 
   // The cloud's own AWS clients, loaded only once a person signs in or a
@@ -4100,54 +4084,69 @@ export class Supervisor {
     return { transport: awsTransport(config), storage: awsStorage(config) };
   }
 
-  // THE CLOUD MENU'S SIGN-IN: start, the code she pasted, or cancel, for one
-  // of this app's own accounts. It happens in the cloud; the Mac only relays
-  // the link, the code, and how it ended. Anything else is refused.
-  async cloudSignIn(action, engine, profile, code) {
+  // THE CLOUD SETUP'S SIGN-IN. `start` adds a new account of an engine (or,
+  // given one of hers, signs it in again); `code` relays the code she pasted;
+  // `cancel` stops one; `remove` takes an account out of the cloud. The
+  // sign-in happens in the cloud; the Mac only relays the link, the code, and
+  // how it ended. Anything else is refused.
+  async cloudSignIn(action, engine, key, code) {
     if (engine !== 'codex' && engine !== 'claude') throw new Error('not an engine the cloud runs');
     const which = engineOf(engine);
-    if (!this._cloudProfilesFor(which).includes(profile)) throw new Error(`not one of this app's ${which === 'codex' ? 'Codex' : 'Claude'} accounts`);
-    const key = `${which}:${profile}`;
     this._cloudSignIns ??= new Map();
-    const live = this._cloudSignIns.get(key);
+    const known = (k) => typeof k === 'string' && /^acct-[a-z0-9-]{4,40}$/.test(k);
+    if (action === 'remove') {
+      if (!known(key)) throw new Error('not one of the cloud accounts');
+      const { storage } = await this._cloudClients().catch(() => ({ storage: null }));
+      await removeCloudLogin(which, key, { storage, home: this.config.home });
+      this._cloudConfigAt = 0;
+      this.onChange?.();
+      return { key };
+    }
+    if (action !== 'start' && !known(key)) throw new Error('not one of the cloud accounts');
+    if (action === 'start' && key != null && !listCloudLogins(which, { home: this.config.home }).some((r) => r.key === key)) throw new Error('not one of the cloud accounts');
+    const account = action === 'start' && key == null ? newCloudAccountKey() : key;
+    const flowKey = `${which}|${account}`;
+    const live = this._cloudSignIns.get(flowKey);
     const going = live && !['saved', 'failed'].includes(live.status().state);
-    if (action === 'code') { if (going) await live.code(code); return; }
-    if (action === 'cancel') { if (going) await live.cancel(); this._cloudSignIns.delete(key); this.onChange?.(); return; }
+    if (action === 'code') { if (going) await live.code(code); return { key: account }; }
+    if (action === 'cancel') { if (going) await live.cancel(); this._cloudSignIns.delete(flowKey); this.onChange?.(); return { key: account }; }
     if (action !== 'start') throw new Error(`unknown sign-in step: ${action}`);
-    if (going) return;
+    if (going) return { key: account };
+    // One sign-in at a time per engine: a second Add while one is going
+    // gives back the one going.
+    for (const [k, f] of this._cloudSignIns) {
+      if (k.startsWith(`${which}|`) && !['saved', 'failed'].includes(f.status().state)) return { key: k.split('|')[1] };
+    }
     // Taken at once, so a second Start before the cloud answers starts nothing.
     const held = { state: 'starting', url: null, code: null, message: null };
     let cancelledEarly = false;
     const holder = { status: () => held, code: async () => false, cancel: async () => { cancelledEarly = true; } };
-    this._cloudSignIns.set(key, holder);
+    this._cloudSignIns.set(flowKey, holder);
     this.onChange?.();
     let clients;
     try { clients = await this._cloudClients(); } catch (err) {
       const failed = { ...held, state: 'failed', message: `The cloud could not be reached (${err.message}).` };
-      this._cloudSignIns.set(key, { status: () => failed, code: async () => false, cancel: async () => {} });
+      this._cloudSignIns.set(flowKey, { status: () => failed, code: async () => false, cancel: async () => {} });
       this.onChange?.();
-      return;
+      return { key: account };
     }
     // Cancelled, or replaced by a newer Start, while the cloud was being
     // reached: nothing is started (Codex's review, finding 6).
-    if (cancelledEarly || this._cloudSignIns.get(key) !== holder) return;
+    if (cancelledEarly || this._cloudSignIns.get(flowKey) !== holder) return { key: account };
     const { transport, storage } = clients;
-    const dir = this._accountDir(which, profile);
-    let expectEmail = null;
-    if (which === 'codex') { try { expectEmail = codexAccount(dir)?.email ?? null; } catch { /* none */ } }
     const flow = startCloudSignIn({
-      transport, storage, engine: which, dir, home: this.config.home, expectEmail,
+      transport, storage, engine: which, dir: account, home: this.config.home,
       onChange: () => this.onChange?.(),
       onSaved: () => {
         // The account can run in the cloud from the next tick.
         this._cloudConfigAt = 0;
-        this._cloudAccountsCache = null;
-        sweepRetiredLogins(which, dir, { storage, home: this.config.home }).catch(() => {});
+        sweepRetiredLogins(which, account, { storage, home: this.config.home }).catch(() => {});
         this.wake?.();
       },
     });
-    this._cloudSignIns.set(key, flow);
+    this._cloudSignIns.set(flowKey, flow);
     this.onChange?.();
+    return { key: account };
   }
 
   // CODEX LOGINS RENEWED BEFORE THEY RUN OUT, on the supervisor's own clock
@@ -4159,9 +4158,9 @@ export class Supervisor {
     if (this._cloudRenewAt && now - this._cloudRenewAt < 10 * 60_000) return;
     this._cloudRenewAt = now;
     this._cloudRenewing ??= new Set();
-    for (const profile of this._cloudProfilesFor('codex')) {
-      const dir = this._codexProfileHome(profile);
-      const state = cloudLoginState(cloudLoginFor('codex', dir, { home: this.config.home }), { now });
+    for (const rec of listCloudLogins('codex', { home: this.config.home })) {
+      const dir = rec.key;
+      const state = cloudLoginState(rec, { now });
       if ((state !== 'stale' && state !== 'renew') || this._cloudRenewing.has(dir)) continue;
       this._cloudRenewing.add(dir);
       this._cloudClients()
@@ -7726,7 +7725,7 @@ export class Supervisor {
     // it made in the cloud (main/cloud/logins.mjs). An account without a
     // working one runs here when there is room, and otherwise waits; it never
     // runs on another's.
-    const cloudSignIn = this._cloudLoginRunnable(engine, profile);
+    const cloudSignIn = this._cloudLoginRunnable(engine);
     if (where === 'cloud' && !cloudSignIn) {
       if (!this._warnedNoCloudSignIn?.has(`${engine}:${profile}`)) {
         (this._warnedNoCloudSignIn ??= new Set()).add(`${engine}:${profile}`);

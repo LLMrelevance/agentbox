@@ -51,7 +51,10 @@ describe('the reply box in a thread', () => {
 
   it('takes a pasted picture and a dropped one', () => {
     const src = code(read('renderer/src/team/ThreadPanel.tsx'));
-    expect(src).toMatch(/onPaste=\{async \(e\) => \{\s*const pasted = await fromPaste\(e\)/);
+    // The box is the chat's editor since w-0d55a2b160, which hands a pasted
+    // or dropped file to `onFiles` rather than putting it in the text.
+    expect(src).toMatch(/onFiles=\{async \(files\) => \{\s*const got = await collectFiles\(files\)/);
+    expect(code(read('renderer/src/team/RichReply.tsx'))).toMatch(/if \(files\.length\) \{ live\.current\.onFiles\?\.\(files\); return true; \}/);
     expect(src).toMatch(/onDrop=\{async \(e\) => \{[\s\S]*?collectFiles\(e\.dataTransfer\.files\)/);
   });
 
@@ -83,15 +86,16 @@ describe('the thread reply box is laid out like the chat\'s own', () => {
   const css = read('renderer/src/team/chat.css');
 
   it('has room for three lines, growing as you write', () => {
-    expect(html).toMatch(/<textarea rows="3"/);
-    expect(css).toMatch(/\.chat-thread-box textarea \{[^}]*min-height: 82px; max-height: 240px;/);
+    // An editor since w-0d55a2b160, at the size the text field was.
+    expect(html).toContain('class="chat-thread-input rich-reply"');
+    expect(css).toMatch(/\.chat-thread-input \{[^}]*min-height: 82px; max-height: 240px;/);
   });
 
   it('ends in a footer: the chat\'s formatting bar on the left, Send last, in the corner', () => {
     const bar = html.slice(html.indexOf('class="chat-thread-bar"'));
     expect(bar.indexOf('class="fmt-bar"')).toBeGreaterThan(-1);
     expect(bar.indexOf('class="dock-send"')).toBeGreaterThan(bar.indexOf('aria-label="Add an emoji"'));
-    expect(html.indexOf('class="chat-thread-bar"')).toBeGreaterThan(html.indexOf('<textarea'));
+    expect(html.indexOf('class="chat-thread-bar"')).toBeGreaterThan(html.indexOf('class="chat-thread-input'));
     expect(html.lastIndexOf('</button>')).toBe(html.indexOf('Send <kbd>↵</kbd></button>') + 'Send <kbd>↵</kbd>'.length);
   });
 

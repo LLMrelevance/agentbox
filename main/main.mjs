@@ -714,7 +714,9 @@ async function createWindow() {
   const filingIpcMain = {
     handle(channel, fn) { ipcMain.handle(channel, fn); phoneChannels.set(channel, fn); },
   };
-  const filingHost = { ipcMain: filingIpcMain, app, dialog };
+  // `readClipboardText` is read only by the cloud setup, and only for a
+  // Claude sign-in code (main/ipc.mjs `zero:cloud-clipboard-code`).
+  const filingHost = { ipcMain: filingIpcMain, app, dialog, readClipboardText: () => clipboard.readText() };
   const sendToWindow = window.webContents.send.bind(window.webContents);
   window.webContents.send = (channel, ...args) => {
     sendToWindow(channel, ...args);
