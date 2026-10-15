@@ -15,7 +15,7 @@ import { createTeamService } from '../main/team/index.mjs';
 import { memorySession } from '../main/team/session.mjs';
 import { applyThrough } from '../main/phone-inbox.mjs';
 import { loadConfig } from '../main/config.mjs';
-import { readSettings, setProjectSetting } from '../main/settings.mjs';
+import { readSettings, setProjectSetting, setWorkspaceSetting } from '../main/settings.mjs';
 import { Supervisor } from '../main/supervisor.mjs';
 
 let cloud, me, store, service, onPhone, calls, dir, phone;
@@ -64,18 +64,45 @@ describe('the signed-in Mac sends up what she put on her phone', () => {
     expect((await phone.phoneProjects()).map((p) => p.name)).toEqual(['Alpha']);
   });
 
-  it('sends nothing when no project is on her phone', async () => {
-    onPhone = null;
+  it('sends nothing when she turned her phone off', async () => {
+    onPhone = { owner: me, all: false, except: [] };
     store.composeItem('alpha', { title: 'x', body: 'y' });
     await service.syncNow();
     expect(await phone.phoneThreads()).toEqual([]);
+  });
+
+  // 2026-10-15: "95% of people just want all of their projects connected."
+  it('sends every project when she has chosen nothing, and a new project with them', async () => {
+    onPhone = null;
+    store.composeItem('alpha', { title: 'a', body: 'a' });
+    store.composeItem('private', { title: 'p', body: 'p' });
+    await service.syncNow();
+    expect((await phone.phoneProjects()).map((p) => p.project).sort()).toEqual(['alpha', 'private']);
+    store.createProduct({ name: 'Later One' });
+    store.composeItem('later-one', { title: 'l', body: 'l' });
+    await service.syncNow();
+    expect((await phone.phoneProjects()).map((p) => p.project).sort()).toEqual(['alpha', 'later-one', 'private']);
+  });
+
+  it('keeps a project she kept on this computer off the phone, and takes it off if it was there', async () => {
+    onPhone = null;
+    store.composeItem('private', { title: 'p', body: 'p' });
+    await service.syncNow();
+    onPhone = { owner: me, all: true, except: ['private'] };
+    await service.syncNow();
+    expect((await phone.phoneProjects()).map((p) => p.project)).toEqual(['alpha']);
+    expect((await phone.phoneThreads()).filter((t) => t.project === 'private')).toEqual([]);
   });
 });
 
 // Codex's review of step 1, finding 1: her yes was the computer's, so whoever
 // signed in next had her projects sent to their account.
-describe('her yes is hers', () => {
-  it('somebody else signing in on this computer gets none of her projects', async () => {
+// Codex's review of step 1, finding 1: her choices were the computer's, so
+// whoever signed in next was held to them. Each person's choice is their own;
+// somebody with none starts from the default, which is every project.
+describe('her choice is hers', () => {
+  it('somebody else signing in on this computer is not held to what she kept here', async () => {
+    onPhone = { owner: me, all: false, except: [] };
     store.composeItem('alpha', { title: 'Fix the login page', body: 'It loops.' });
     await service.signOut();
     const other = signUpMemory(cloud, { email: 'other@example.com' });
@@ -87,8 +114,9 @@ describe('her yes is hers', () => {
     });
     await next.signIn();
     await next.syncNow();
-    expect(await theirs.phoneThreads()).toEqual([]);
-    expect(await theirs.phoneProjects()).toEqual([]);
+    expect((await theirs.phoneProjects()).map((p) => p.project).sort()).toEqual(['alpha', 'private']);
+    // And nothing reached her account through his sign-in.
+    expect(await phone.phoneThreads()).toEqual([]);
     await next.signOut();
     await service.signIn();
   });
@@ -149,22 +177,40 @@ describe('the switch on a project', () => {
     const config = loadConfig(dir);
     const sup = new Supervisor(config, fake, dir);
     const onPhoneNow = () => readSettings({ config: loadConfig(dir), supervisor: sup, store: fake }).projects.find((p) => p.slug === 'acme').onPhone;
-    expect(onPhoneNow()).toBe(false);
-    setProjectSetting({ config, supervisor: sup }, { product: 'acme', key: 'phone', value: true });
+    const phoneAll = () => readSettings({ config: loadConfig(dir), supervisor: sup, store: fake }).workspace.phoneAll;
+    // On by default.
     expect(onPhoneNow()).toBe(true);
-    expect(loadConfig(dir).phoneProducts).toEqual({ owner: me, slugs: ['acme'] });
-    setProjectSetting({ config, supervisor: sup }, { product: 'acme', key: 'phone', value: false });
+    expect(phoneAll()).toBe(true);
+    setProjectSetting({ config, supervisor: sup, store: fake }, { product: 'acme', key: 'phone', value: false });
     expect(onPhoneNow()).toBe(false);
+    expect(loadConfig(dir).phoneProducts).toEqual({ owner: me, all: true, except: ['acme'] });
+    setProjectSetting({ config, supervisor: sup, store: fake }, { product: 'acme', key: 'phone', value: true });
+    expect(onPhoneNow()).toBe(true);
+    // The whole phone off, and on again: what she kept here is remembered.
+    setProjectSetting({ config, supervisor: sup, store: fake }, { product: 'acme', key: 'phone', value: false });
+    setWorkspaceSetting({ config, supervisor: sup, store: fake }, { key: 'phoneAll', value: false });
+    expect(phoneAll()).toBe(false);
+    expect(onPhoneNow()).toBe(false);
+    setWorkspaceSetting({ config, supervisor: sup, store: fake }, { key: 'phoneAll', value: true });
+    expect(loadConfig(dir).phoneProducts).toEqual({ owner: me, all: true, except: ['acme'] });
   });
-  it('is kept under the person signed in, reads off for anybody else, and needs somebody signed in', () => {
+  it('reads a choice saved the first way, a list of projects on, as all but the rest', async () => {
+    const { phoneProjectsOf } = await import('../shared/phone-snapshot.mjs');
+    expect(phoneProjectsOf({ owner: 'p', slugs: ['a', 'b'] }, 'p', ['a', 'b', 'c', 'd'])).toEqual(['a', 'b']);
+    expect(phoneProjectsOf(null, 'p', ['a', 'b'])).toEqual(['a', 'b']);
+    expect(phoneProjectsOf({ owner: 'q', all: false }, 'p', ['a'])).toEqual(['a']);
+    expect(phoneProjectsOf(null, null, ['a'])).toEqual([]);
+    expect(phoneProjectsOf(null, 'p', ['practice'].filter((s) => s !== 'practice'))).toEqual([]);
+  });
+  it('is kept under the person signed in, is not anybody else\'s, and needs somebody signed in', () => {
     const config = loadConfig(dir);
     const sup = new Supervisor(config, fake, dir);
     const was = process.env.AGENTBOX_PERSON_ID;
     try {
-      setProjectSetting({ config, supervisor: sup }, { product: 'acme', key: 'phone', value: true });
-      expect(loadConfig(dir).phoneProducts).toEqual({ owner: was, slugs: ['acme'] });
+      setProjectSetting({ config, supervisor: sup, store: fake }, { product: 'acme', key: 'phone', value: false });
+      expect(loadConfig(dir).phoneProducts).toEqual({ owner: was, all: true, except: ['acme'] });
       process.env.AGENTBOX_PERSON_ID = 'someone-else';
-      expect(readSettings({ config: loadConfig(dir), supervisor: sup, store: fake }).projects[0].onPhone).toBe(false);
+      expect(readSettings({ config: loadConfig(dir), supervisor: sup, store: fake }).projects[0].onPhone).toBe(true);
       delete process.env.AGENTBOX_PERSON_ID;
       expect(() => setProjectSetting({ config, supervisor: sup }, { product: 'acme', key: 'phone', value: true })).toThrow(/sign in/);
     } finally { process.env.AGENTBOX_PERSON_ID = was; }

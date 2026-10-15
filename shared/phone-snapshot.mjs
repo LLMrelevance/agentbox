@@ -151,19 +151,52 @@ export function threadSnapshot(item, history = [], limits = SNAPSHOT_LIMITS, { h
   }
 }
 
-// WHICH PROJECTS ARE ON THE PHONE OF THE PERSON SIGNED IN (Codex's review of
-// step 1, finding 1). Her yes is kept with her id on it (`phoneProducts` in the
-// config: { owner, slugs }), so somebody else signing in on this computer
-// starts with nothing on their phone, not with her projects.
-export function phoneProjectsOf(saved, personId) {
-  if (!personId || !saved || typeof saved !== 'object' || saved.owner !== personId || !Array.isArray(saved.slugs)) return [];
-  return saved.slugs.filter((s) => typeof s === 'string' && s);
+// WHICH PROJECTS ARE ON THE PHONE OF THE PERSON SIGNED IN.
+//
+// ALL OF THEM, UNLESS SHE SAYS OTHERWISE (2026-10-15: "95% of people just want
+// all of their projects connected ... I just turn them all on"). One switch
+// for the lot, on until she turns it off, and new projects go up with the
+// rest; keeping a project on this computer only is the exception, named
+// project by project (`except`).
+//
+// Her choice is kept with her id on it (`phoneProducts` in the config:
+// { owner, all, except }), so somebody else signing in on this computer starts
+// from the default rather than from her choices (Codex's review of step 1,
+// finding 1). A choice saved in the first shape, a list of the projects she
+// turned on ({ owner, slugs }), reads as all of them except the ones that list
+// left out, so the projects she had on stay on.
+// `every` is every project here, by slug.
+// The projects that can go to a phone at all: not the walk's practice project.
+export const phoneEligible = (products) => (Array.isArray(products) ? products : []).map((p) => p?.slug).filter((s) => typeof s === 'string' && s && s !== 'practice');
+export function phoneChoiceOf(saved, personId, every = []) {
+  const mine = personId && saved && typeof saved === 'object' && saved.owner === personId ? saved : null;
+  if (!mine) return { all: true, except: [] };
+  if (mine.all === undefined && Array.isArray(mine.slugs)) {
+    const on = new Set(mine.slugs);
+    return { all: true, except: every.filter((s) => !on.has(s)) };
+  }
+  return { all: mine.all !== false, except: Array.isArray(mine.except) ? mine.except.filter((s) => typeof s === 'string' && s) : [] };
 }
-export function withPhoneProject(saved, personId, slug, on) {
+export function phoneProjectsOf(saved, personId, every = []) {
+  if (!personId) return [];
+  const { all, except } = phoneChoiceOf(saved, personId, every);
+  if (!all) return [];
+  const kept = new Set(except);
+  return every.filter((s) => typeof s === 'string' && s && !kept.has(s));
+}
+// One project on or off the phone; the rest as they were.
+export function withPhoneProject(saved, personId, slug, on, every = []) {
   if (!personId) throw new Error('sign in first');
-  const set = new Set(phoneProjectsOf(saved, personId));
-  if (on) set.add(slug); else set.delete(slug);
-  return set.size ? { owner: personId, slugs: [...set] } : undefined;
+  const { all, except } = phoneChoiceOf(saved, personId, every);
+  const kept = new Set(except);
+  if (on) kept.delete(slug); else kept.add(slug);
+  return { owner: personId, all, except: [...kept] };
+}
+// The whole phone on or off; which projects stay local is remembered.
+export function withPhoneAll(saved, personId, on, every = []) {
+  if (!personId) throw new Error('sign in first');
+  const { except } = phoneChoiceOf(saved, personId, every);
+  return { owner: personId, all: !!on, except };
 }
 
 // A NEW THREAD STARTED ON THE PHONE has a row there before the Mac makes it,
