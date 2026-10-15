@@ -663,38 +663,74 @@ function PhoneAlertsPage({ onFeedback }: { onFeedback?: () => void }) {
 // THE WAY IN IS A WEBSITE WE HOST (2026-10-14), not a relay to this computer:
 // the code is only its address, so it carries no key and needs no resetting.
 // ALL OF HER PROJECTS, BY DEFAULT (2026-10-15: "95% of people just want all
-// of their projects connected"). One switch; keeping a project on this
-// computer only is the exception, folded away under it until she asks.
-type MacShut = { site: string | null; siteQr: string | null; all: boolean; projects: ProjectSettings[]; onSetAll: (on: boolean) => void; onSet: (slug: string, on: boolean) => void };
+// of their projects connected"). One row and one dropdown, the way every
+// other choice on this page is made ("it's more of a dropdown kind of
+// thing"): Every project, None, or a tick beside each project.
+type MacShut = { site: string | null; siteQr: string | null; all: boolean; projects: ProjectSettings[]; onChoose: (all: boolean, except: string[]) => void };
+function PhoneProjectsPicker({ macShut }: { macShut: MacShut }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e: MouseEvent) => { if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  const slugs = macShut.projects.map((p) => p.slug);
+  const kept = macShut.all ? macShut.projects.filter((p) => !p.onPhone).map((p) => p.slug) : slugs;
+  const on = (slug: string) => !kept.includes(slug);
+  const every = macShut.all && kept.length === 0;
+  const none = !macShut.all || kept.length === slugs.length;
+  const word = every ? 'Every project' : none ? 'None' : `${slugs.length - kept.length} of ${slugs.length}`;
+  const tick = (slug: string) => {
+    const next = on(slug) ? [...kept, slug] : kept.filter((s) => s !== slug);
+    macShut.onChoose(next.length < slugs.length, next.length < slugs.length ? next : []);
+  };
+  const Tick = ({ checked }: { checked: boolean }) => (
+    <span className={`ps-tick set-phone-tick${checked ? ' on' : ''}`} aria-hidden="true">
+      {checked && <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3.8 8.4 6.6 11.2 12.2 5" /></svg>}
+    </span>
+  );
+  return (
+    <div className={`set-picker set-picker-bare${open ? ' open' : ''}`}>
+      <span className="set-picker-wrap" ref={wrap}>
+        <button type="button" className="set-picker-now" aria-label="Projects on your phone" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          {word}
+          <svg className="set-picker-chev" width="9" height="9" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M2.2 4 L5 6.8 L7.8 4" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        {open && (
+          <span className="set-picker-menu set-phone-menu" role="menu" aria-label="Projects on your phone">
+            <button type="button" role="menuitemradio" aria-checked={every} className={`set-picker-row set-phone-row${every ? ' on' : ''}`} onClick={() => macShut.onChoose(true, [])}>
+              <span className="set-phone-row-text">Every project<small>New ones too</small></span>
+            </button>
+            <button type="button" role="menuitemradio" aria-checked={none} className={`set-picker-row set-phone-row${none ? ' on' : ''}`} onClick={() => macShut.onChoose(false, [])}>
+              <span className="set-phone-row-text">None<small>Everything stays on this computer</small></span>
+            </button>
+            <span className="set-phone-rule" role="separator" />
+            {macShut.projects.map((p) => (
+              <button key={p.slug} type="button" role="menuitemcheckbox" aria-checked={on(p.slug)} className="set-picker-row set-phone-row" onClick={() => tick(p.slug)}>
+                <Tick checked={on(p.slug)} />
+                <span className="set-phone-row-text">{p.name}</span>
+              </button>
+            ))}
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
 function MacShutGroup({ macShut }: { macShut: MacShut }) {
   const site = macShut.site?.replace(/^https?:\/\//, '').replace(/\/$/, '') ?? null;
-  const kept = macShut.projects.filter((p) => !p.onPhone);
-  const [choosing, setChoosing] = useState(false);
-  const open = choosing;
   return (
     <>
       <Group id="phone-mac-shut" label="On your phone">
-        <Row
-          label="All your projects"
-          desc={macShut.all
-            ? 'A copy of every thread is kept in your account, so your phone can read and reply with this computer closed. New projects are included.'
-            : 'Off. Nothing from this computer is kept online for your phone.'}
-        >
-          <Switch on={macShut.all} label="All your projects on your phone" onChange={macShut.onSetAll} />
+        <Row label="Projects on your phone" desc="A copy of their threads is kept in your account, so your phone can read and reply with this computer closed.">
+          <PhoneProjectsPicker macShut={macShut} />
         </Row>
-        {macShut.all && (
-          <Row
-            label="Keep some on this computer only"
-            desc={kept.length === 0 ? 'None. Every project is on your phone.' : `${kept.length === 1 ? kept[0].name : `${kept.length} projects`} kept on this computer only.`}
-          >
-            <button type="button" className="set-ghost" aria-expanded={open} onClick={() => setChoosing((v) => !v)}>{open ? 'Done' : 'Choose'}</button>
-          </Row>
-        )}
-        {macShut.all && open && macShut.projects.map((p) => (
-          <Row key={p.slug} label={p.name}>
-            <Switch on={!!p.onPhone} label={`${p.name} on your phone`} onChange={(v) => macShut.onSet(p.slug, v)} />
-          </Row>
-        ))}
       </Group>
       <Group id="phone-site" label="Open on your phone">
         {site && macShut.siteQr ? (
@@ -2120,7 +2156,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             is what a person actually presses, grouped by the moment they would
             want it; ../shortcuts.ts holds the list. Every key on it works today
             (`tests/the-shortcuts-page-lists-keys-that-work.test.mjs`). */}
-        {pane === 'phone' && <PhonePage onFeedback={onFeedback} macShut={phoneCloud ? { ...phoneCloud, all: model?.workspace?.phoneAll !== false, projects: projects.filter((p) => p.slug !== 'practice'), onSetAll: (on) => setWorkspace('phoneAll', on), onSet: (slug, on) => setProject(slug, 'phone', on) } : undefined} />}
+        {pane === 'phone' && <PhonePage onFeedback={onFeedback} macShut={phoneCloud ? { ...phoneCloud, all: model?.workspace?.phoneAll !== false, projects: projects.filter((p) => p.slug !== 'practice'), onChoose: (all, except) => setWorkspace('phoneProjects', { all, except }) } : undefined} />}
         {pane === 'shortcuts' && (
           <div className="set-inner set-keys-page">
             <h1 className="set-title">Shortcuts</h1>

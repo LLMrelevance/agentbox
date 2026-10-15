@@ -140,12 +140,14 @@ export function CloudSetup({ cloud, onMode, onClose }: {
           return <div key={a.key} className={`cs-row${fresh === a.key ? ' fresh' : ''}${a.state === 'broken' || again?.state === 'failed' ? ' broken' : ''}`}>
             <span className="cs-row-mark"><EngineLogo engine={a.engine} /></span>
             <span className="cs-row-name">{accountLabel(a, accounts)}{again?.state === 'failed' && again.message && <small className="cs-row-why">{again.message}</small>}</span>
-            {again?.state === 'checking'
-              ? <span className="cs-row-eng cs-row-adding"><Busy />{SETUP.adding}</span>
-              : a.state === 'broken' || again?.state === 'failed'
-                ? <button type="button" className="cs-quiet cs-again" onClick={() => void send(a.engine, 'start', a.key)}>{again?.state === 'failed' ? SETUP.tryAgain : SETUP.again}</button>
-                : <span className="cs-row-eng">{engineWord(a)}</span>}
-            <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${accountLabel(a, accounts)}`} title={SETUP.remove} onClick={() => void send(a.engine, 'remove', a.key)}>×</button>
+            <span className="cs-row-end">
+              {again?.state === 'checking'
+                ? <span className="cs-row-eng cs-row-adding"><Busy />{SETUP.adding}</span>
+                : a.state === 'broken' || again?.state === 'failed'
+                  ? <button type="button" className="cs-quiet cs-again" onClick={() => void send(a.engine, 'start', a.key)}>{again?.state === 'failed' ? SETUP.tryAgain : SETUP.again}</button>
+                  : <span className="cs-row-eng cs-row-swap">{engineWord(a)}</span>}
+              <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${accountLabel(a, accounts)}`} title={SETUP.remove} onClick={() => void send(a.engine, 'remove', a.key)}>×</button>
+            </span>
           </div>;
         })}
         {/* ONE BEING ADDED, OR ONE THAT WAS NOT (2026-10-15): the cloud checks
@@ -154,18 +156,22 @@ export function CloudSetup({ cloud, onMode, onClose }: {
         {adding.map((s) => <div key={s.key} className={`cs-row${s.state === 'failed' ? ' broken' : ''}`}>
           <span className="cs-row-mark"><EngineLogo engine={s.engine} /></span>
           <span className="cs-row-name">{s.engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}{s.state === 'failed' && <small className="cs-row-why">{s.message || 'That didn’t work.'}</small>}</span>
-          {s.state === 'checking'
-            ? <span className="cs-row-eng cs-row-adding"><Busy />{SETUP.adding}</span>
-            : <button type="button" className="cs-quiet cs-again" onClick={() => void send(s.engine, 'cancel', s.key).then(() => send(s.engine, 'start'))}>{SETUP.tryAgain}</button>}
-          {s.state === 'failed' && <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${s.engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}`} title={SETUP.remove} onClick={() => void send(s.engine, 'cancel', s.key)}>×</button>}
+          <span className="cs-row-end">
+            {s.state === 'checking'
+              ? <span className="cs-row-eng cs-row-adding"><Busy />{SETUP.adding}</span>
+              : <button type="button" className="cs-quiet cs-again" onClick={() => void send(s.engine, 'cancel', s.key).then(() => send(s.engine, 'start'))}>{SETUP.tryAgain}</button>}
+            {s.state === 'failed' && <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${s.engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}`} title={SETUP.remove} onClick={() => void send(s.engine, 'cancel', s.key)}>×</button>}
+          </span>
         </div>)}
         {choosing && accounts.length > 0 && <div className="cs-choose-head">{SETUP.addWhich}</div>}
         {choosing || (!accounts.length && !adding.length)
           ? (['claude', 'codex'] as const).map((engine) => <button key={engine} type="button" className="cs-row cs-pick" onClick={() => { setChoosing(false); void send(engine, 'start'); }}>
               <span className="cs-row-mark"><EngineLogo engine={engine} /></span>
               <span className="cs-row-name">{engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}</span>
-              <span className="cs-row-eng">{engine === 'codex' ? SETUP.planCodex : SETUP.planClaude}</span>
-              <span className="cs-row-go"><Chevron /></span>
+              <span className="cs-row-end">
+                <span className="cs-row-eng">{engine === 'codex' ? SETUP.planCodex : SETUP.planClaude}</span>
+                <span className="cs-row-go"><Chevron /></span>
+              </span>
             </button>)
           : <button type="button" className="cs-row cs-add" onClick={() => setChoosing(true)}>
               <span className="cs-row-mark"><Plus /></span>

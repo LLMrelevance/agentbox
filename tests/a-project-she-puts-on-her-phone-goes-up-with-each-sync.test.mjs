@@ -194,6 +194,22 @@ describe('the switch on a project', () => {
     setWorkspaceSetting({ config, supervisor: sup, store: fake }, { key: 'phoneAll', value: true });
     expect(loadConfig(dir).phoneProducts).toEqual({ owner: me, all: true, except: ['acme'] });
   });
+  // 2026-10-15: "it's more of a dropdown kind of thing". The dropdown sends its
+  // whole answer at once: on or off, and which projects stay here.
+  it('takes the dropdown\'s whole answer, keeping only projects that exist, from somebody signed in', () => {
+    const config = loadConfig(dir);
+    const sup = new Supervisor(config, fake, dir);
+    setWorkspaceSetting({ config, supervisor: sup, store: fake }, { key: 'phoneProjects', value: { all: true, except: ['acme', 'no-such-project'] } });
+    expect(loadConfig(dir).phoneProducts).toEqual({ owner: me, all: true, except: ['acme'] });
+    setWorkspaceSetting({ config, supervisor: sup, store: fake }, { key: 'phoneProjects', value: { all: false, except: [] } });
+    expect(readSettings({ config: loadConfig(dir), supervisor: sup, store: fake }).workspace.phoneAll).toBe(false);
+    setWorkspaceSetting({ config, supervisor: sup, store: fake }, { key: 'phoneProjects', value: { all: true, except: [] } });
+    expect(readSettings({ config: loadConfig(dir), supervisor: sup, store: fake }).projects[0].onPhone).toBe(true);
+    const was = process.env.AGENTBOX_PERSON_ID;
+    delete process.env.AGENTBOX_PERSON_ID;
+    try { expect(() => setWorkspaceSetting({ config, supervisor: sup, store: fake }, { key: 'phoneProjects', value: { all: true } })).toThrow(/sign in/); }
+    finally { process.env.AGENTBOX_PERSON_ID = was; }
+  });
   it('reads a choice saved the first way, a list of projects on, as all but the rest', async () => {
     const { phoneProjectsOf } = await import('../shared/phone-snapshot.mjs');
     expect(phoneProjectsOf({ owner: 'p', slugs: ['a', 'b'] }, 'p', ['a', 'b', 'c', 'd'])).toEqual(['a', 'b']);
