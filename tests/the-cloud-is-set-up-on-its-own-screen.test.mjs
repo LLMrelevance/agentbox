@@ -52,11 +52,12 @@ describe('a sign-in on screen', () => {
     expect(signInView(si('failed', { message: 'Claude did not accept that code.' })).lead).toMatch(/did not accept/);
   });
 
-  it('is the one going, or else the one that just failed', () => {
+  // A failure is shown on her accounts list now, not as a screen of its own
+  // (tests/a-cloud-account-is-checked-in-the-background.test.mjs).
+  it('is the one waiting on her, and nothing that has ended', () => {
     const going = si('waiting', { engine: 'codex', code: 'C' });
     expect(activeSignIn(status([], [si('saved'), going]))).toBe(going);
-    const failed = si('failed', { message: 'x' });
-    expect(activeSignIn(status([], [si('saved'), failed]))).toBe(failed);
+    expect(activeSignIn(status([], [si('saved'), si('failed', { message: 'x' })]))).toBe(null);
     expect(activeSignIn(status([], [si('saved')]))).toBe(null);
   });
 });

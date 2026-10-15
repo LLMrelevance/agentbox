@@ -1095,6 +1095,16 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
     case 'phoneAll':
       saveConfig(config, { phoneProducts: withPhoneAll(config.phoneProducts, process.env.AGENTBOX_PERSON_ID, !!value, phoneEligible(store?.listProducts?.() ?? [])) });
       break;
+    // THE DROPDOWN'S WHOLE ANSWER AT ONCE: on or off, and which projects stay
+    // on this computer. Only project slugs that exist are kept.
+    case 'phoneProjects': {
+      const person = process.env.AGENTBOX_PERSON_ID;
+      if (!person) throw new Error('sign in first');
+      const every = phoneEligible(store?.listProducts?.() ?? []);
+      const except = Array.isArray(value?.except) ? value.except.filter((s) => every.includes(s)) : [];
+      saveConfig(config, { phoneProducts: { owner: person, all: value?.all !== false, except } });
+      break;
+    }
     case 'agentsRunning':
       supervisor.paused = !value;
       supervisor.onChange?.();

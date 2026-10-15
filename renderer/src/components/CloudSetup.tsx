@@ -18,7 +18,7 @@ import { AskList } from './PlanSetup';
 import { Cap } from './Onboarding';
 import { NAME } from '../../../shared/product-name.mjs';
 import { accountLabel, engineWord, pageToOpen, type CloudAccount, type CloudMode, type CloudSignIn, type CloudStatus } from '../cloud-menu';
-import { SETUP, WHERE_ROWS, activeSignIn, anyReady, signInView } from '../cloud-setup';
+import { SETUP, WHERE_ROWS, activeSignIn, addingRows, mayFinish, signInView } from '../cloud-setup';
 
 const Plus = () => <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>;
 const Chevron = () => <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" /></svg>;
@@ -76,12 +76,13 @@ export function CloudSetup({ cloud, onMode, onClose }: {
   onClose: () => void;
 }) {
   const accounts = cloud.accounts || [];
-  const active = activeSignIn(cloud);
+  // Her part of a sign-in, on screen; the cloud's part goes on behind her
+  // accounts, where how it ended is shown (cloud-setup.ts, activeSignIn).
+  const shown = activeSignIn(cloud);
+  const adding = addingRows(cloud);
+  const checking = (key: string) => (cloud.signIns || []).find((s) => s.key === key && (s.state === 'checking' || s.state === 'failed')) ?? null;
   const [where, setWhere] = useState(false);
   const [choosing, setChoosing] = useState(false);
-  // A failed sign-in stays on screen until she tries again or goes back.
-  const [dismissed, setDismissed] = useState<string | null>(null);
-  const shown = active && !(active.state === 'failed' && dismissed === (active.attempt ?? active.key)) ? active : null;
 
   // The vendor's page opens in the browser by itself, once per sign-in.
   const opened = useRef<string | null>(null);
@@ -92,11 +93,7 @@ export function CloudSetup({ cloud, onMode, onClose }: {
 
   // Back: out of a sign-in to the accounts, out of the screen from there.
   const back = () => {
-    if (shown) {
-      if (shown.state !== 'failed') void send(shown.engine, 'cancel', shown.key);
-      setDismissed(shown.attempt ?? shown.key);
-      return;
-    }
+    if (shown) { void send(shown.engine, 'cancel', shown.key); return; }
     if (where) { setWhere(false); return; }
     if (choosing) { setChoosing(false); return; }
     onClose();
@@ -138,28 +135,50 @@ export function CloudSetup({ cloud, onMode, onClose }: {
           since adding is the only thing to do. No tick on an account that
           works; only one that stopped working says anything. */}
       <div className="fr-card cs-accounts">
-        {accounts.map((a: CloudAccount) => <div key={a.key} className={`cs-row${fresh === a.key ? ' fresh' : ''}${a.state === 'broken' ? ' broken' : ''}`}>
-          <span className="cs-row-mark"><EngineLogo engine={a.engine} /></span>
-          <span className="cs-row-name">{accountLabel(a, accounts)}</span>
-          {a.state === 'broken'
-            ? <button type="button" className="cs-quiet cs-again" onClick={() => void send(a.engine, 'start', a.key)}>{SETUP.again}</button>
-            : <span className="cs-row-eng">{engineWord(a)}</span>}
-          <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${accountLabel(a, accounts)}`} title={SETUP.remove} onClick={() => void send(a.engine, 'remove', a.key)}>×</button>
+        {accounts.map((a: CloudAccount) => {
+          const again = checking(a.key);
+          return <div key={a.key} className={`cs-row${fresh === a.key ? ' fresh' : ''}${a.state === 'broken' || again?.state === 'failed' ? ' broken' : ''}`}>
+            <span className="cs-row-mark"><EngineLogo engine={a.engine} /></span>
+            <span className="cs-row-name">{accountLabel(a, accounts)}{again?.state === 'failed' && again.message && <small className="cs-row-why">{again.message}</small>}</span>
+            <span className="cs-row-end">
+              {again?.state === 'checking'
+                ? <span className="cs-row-eng cs-row-adding"><Busy />{SETUP.adding}</span>
+                : a.state === 'broken' || again?.state === 'failed'
+                  ? <button type="button" className="cs-quiet cs-again" onClick={() => void send(a.engine, 'start', a.key)}>{again?.state === 'failed' ? SETUP.tryAgain : SETUP.again}</button>
+                  : <span className="cs-row-eng cs-row-swap">{engineWord(a)}</span>}
+              <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${accountLabel(a, accounts)}`} title={SETUP.remove} onClick={() => void send(a.engine, 'remove', a.key)}>×</button>
+            </span>
+          </div>;
+        })}
+        {/* ONE BEING ADDED, OR ONE THAT WAS NOT (2026-10-15): the cloud checks
+            it while she carries on, and a failure says why on its own row,
+            with the way to try again. × lets the failure go. */}
+        {adding.map((s) => <div key={s.key} className={`cs-row${s.state === 'failed' ? ' broken' : ''}`}>
+          <span className="cs-row-mark"><EngineLogo engine={s.engine} /></span>
+          <span className="cs-row-name">{s.engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}{s.state === 'failed' && <small className="cs-row-why">{s.message || 'That didn’t work.'}</small>}</span>
+          <span className="cs-row-end">
+            {s.state === 'checking'
+              ? <span className="cs-row-eng cs-row-adding"><Busy />{SETUP.adding}</span>
+              : <button type="button" className="cs-quiet cs-again" onClick={() => void send(s.engine, 'cancel', s.key).then(() => send(s.engine, 'start'))}>{SETUP.tryAgain}</button>}
+            {s.state === 'failed' && <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${s.engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}`} title={SETUP.remove} onClick={() => void send(s.engine, 'cancel', s.key)}>×</button>}
+          </span>
         </div>)}
         {choosing && accounts.length > 0 && <div className="cs-choose-head">{SETUP.addWhich}</div>}
-        {choosing || !accounts.length
+        {choosing || (!accounts.length && !adding.length)
           ? (['claude', 'codex'] as const).map((engine) => <button key={engine} type="button" className="cs-row cs-pick" onClick={() => { setChoosing(false); void send(engine, 'start'); }}>
               <span className="cs-row-mark"><EngineLogo engine={engine} /></span>
               <span className="cs-row-name">{engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}</span>
-              <span className="cs-row-eng">{engine === 'codex' ? SETUP.planCodex : SETUP.planClaude}</span>
-              <span className="cs-row-go"><Chevron /></span>
+              <span className="cs-row-end">
+                <span className="cs-row-eng">{engine === 'codex' ? SETUP.planCodex : SETUP.planClaude}</span>
+                <span className="cs-row-go"><Chevron /></span>
+              </span>
             </button>)
           : <button type="button" className="cs-row cs-add" onClick={() => setChoosing(true)}>
               <span className="cs-row-mark"><Plus /></span>
               <span className="cs-row-name">{SETUP.addOne}</span>
             </button>}
       </div>
-      {anyReady(accounts) && <div className="ps-acts"><button type="button" className="fr-finish-go cs-go" onClick={() => setWhere(true)}>{SETUP.done}</button></div>}
+      {mayFinish(cloud) && <div className="ps-acts"><button type="button" className="fr-finish-go cs-go" onClick={() => setWhere(true)}>{SETUP.done}</button></div>}
     </div>;
   }
 
