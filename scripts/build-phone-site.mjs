@@ -16,12 +16,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { teamConfigFile } from './phone-site-config.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-export function buildPhoneSite({ dist = path.join(root, 'renderer', 'dist'), out = path.join(root, 'phone-site'), configFile = path.join(root, 'cloud', 'team.config.json'), icon = path.join(root, 'main', 'phone-icon.png') } = {}) {
+export function buildPhoneSite({ dist = path.join(root, 'renderer', 'dist'), out = path.join(root, 'phone-site'), configFile = teamConfigFile(root), icon = path.join(root, 'main', 'phone-icon.png') } = {}) {
   if (!fs.existsSync(path.join(dist, 'index.html'))) throw new Error('build the renderer first: npm run phone:build');
-  if (!fs.existsSync(configFile)) throw new Error('no cloud/team.config.json on this machine: the phone site needs the team cloud');
+  if (!configFile || !fs.existsSync(configFile)) throw new Error('no team.config.json on this machine (cloud/ or ~/.agentbox/): the phone site needs the team cloud');
   const { url, anonKey } = JSON.parse(fs.readFileSync(configFile, 'utf8'));
   let origin;
   try { origin = new URL(url); } catch { throw new Error('cloud/team.config.json has no url'); }

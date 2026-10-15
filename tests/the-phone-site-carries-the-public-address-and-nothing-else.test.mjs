@@ -76,3 +76,16 @@ describe('the headers', () => {
     expect(headers).toMatch(/Referrer-Policy: no-referrer/);
   });
 });
+
+describe('where the build finds the cloud', () => {
+  it('in the checkout first, then in the home folder, and nowhere else', async () => {
+    const { teamConfigFile } = await import('../scripts/phone-site-config.mjs');
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'home-'));
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-'));
+    expect(teamConfigFile(repo, home)).toBeNull();
+    write(path.join(home, '.agentbox', 'team.config.json'), '{}');
+    expect(teamConfigFile(repo, home)).toBe(path.join(home, '.agentbox', 'team.config.json'));
+    write(path.join(repo, 'cloud', 'team.config.json'), '{}');
+    expect(teamConfigFile(repo, home)).toBe(path.join(repo, 'cloud', 'team.config.json'));
+  });
+});

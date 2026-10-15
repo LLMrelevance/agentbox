@@ -105,7 +105,7 @@ site is up and every copy can sign in would cut those phones off. It goes once
 both are true. The same-Wi-Fi and Tailscale door also stays.
 
 Putting it up: `npm run phone:deploy` (Cloudflare Pages; `npx wrangler login`
-once), then the address goes in `cloud/team.config.json` as `phoneSite` and in
+once), then the address goes in `~/.agentbox/team.config.json` as `phoneSite` and in
 the database's allowed sign-in return addresses, and the migration
 `20261014000200_phone_inbox.sql` is applied.
 
