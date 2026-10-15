@@ -1054,7 +1054,7 @@ export interface RepeatRule {
 }
 
 /** Which address the phone QR code carries (main/phone-link.mjs). */
-export type PhoneRoute = 'wifi' | 'tailscale';
+export type PhoneRoute = 'wifi' | 'tailscale' | 'anywhere';
 export type PhoneDevice = { id: string; name: string; ip: string | null; firstSeen: number; lastSeen: number; live: boolean; alerts: boolean; alertError: string | null };
 export type PhoneLink = {
   on: boolean;
@@ -1065,6 +1065,8 @@ export type PhoneLink = {
   secure: boolean;
   /** Tailscale is still putting the https address up. */
   settingUp: boolean;
+  /** Through the relay: whether this Mac is connected to it now. */
+  relay?: { connected: boolean; host: string } | null;
   via: PhoneRoute | null;
   routes: Array<{ via: PhoneRoute; host: string }>;
   url: string | null;

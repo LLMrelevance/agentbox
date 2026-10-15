@@ -23,10 +23,9 @@ with the Mac shut.
   5 s and on Realtime). A work item online is exactly its ledger lines, and the
   browser-safe `foldWorkItems` rebuilds rows from them anywhere.
 - **The phone screen**: the app's own renderer with a phone layout
-  (renderer/src/phone.css, browser-bridge.ts), served BY the Mac over Wi-Fi
-  or Tailscale (main/phone-link.mjs). Dead when the Mac sleeps. (When this was
-  mapped there was also a Cloudflare relay; it was never deployed and is
-  deleted, see "How a phone gets in".)
+  (renderer/src/phone.css, browser-bridge.ts), served BY the Mac over Wi-Fi,
+  Tailscale or the Cloudflare relay (main/phone-link.mjs, relay/). Dead when
+  the Mac sleeps.
 - **Cloud runs** (docs/cloud/PLAN.md): every run is proxied by a process on the
   Mac, which also serves the agent's store tools and approvals.
 
@@ -93,12 +92,17 @@ therefore does not sync ledgers both ways at all.
 
 ## How a phone gets in (decided 2026-10-14)
 
-A website we host, not a relay to the computer. "Maybe, if we store everything
-ourselves, we don't need that. Maybe we could just have a web application that
-we host." The relay (relay/, never deployed) is deleted. Settings › Phone shows
-the site's address as a QR code, which carries no key; she signs in there with
-the same account. The same-Wi-Fi and Tailscale door to the computer stays, for
-anyone who never signs in.
+A website we host. "Maybe, if we store everything ourselves, we don't need
+that. Maybe we could just have a web application that we host." Settings ›
+Phone shows the site's address as a QR code, which carries no key; she signs
+in there with the same account.
+
+THE RELAY STAYS FOR NOW. It was deployed on 2026-10-12 (shared/relay-address.mjs)
+and every copy of the app offers "Anywhere" through it, including installed
+copies, which have no cloud sign-in at all (`loadCloudConfig` answers null
+when packaged) and so cannot use the hosted site. Taking it out before the
+site is up and every copy can sign in would cut those phones off. It goes once
+both are true. The same-Wi-Fi and Tailscale door also stays.
 
 Putting it up: `npm run phone:deploy` (Cloudflare Pages; `npx wrangler login`
 once), then the address goes in `cloud/team.config.json` as `phoneSite` and in
@@ -164,8 +168,8 @@ starts with and however long; settings like `MAX_TOKENS=128000` stay; a new
 computer id keeps which rows the phone's new threads became; the migration
 has a version newer than every draft.
 
-A phone that saved the relay's address to its home screen needs the new site
-instead; nobody had one, since the relay was never deployed.
+(The relay was briefly deleted in this work and is back: it is deployed and in
+use, see "How a phone gets in".)
 
 Still to decide: the installed app has no team cloud at all
 (`loadCloudConfig` answers null when packaged), so until that changes only a

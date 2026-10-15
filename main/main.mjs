@@ -25,6 +25,7 @@ import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
 import { createPhoneLink } from './phone-link.mjs';
 import { applyThrough, phoneDevice } from './phone-inbox.mjs';
+import { relayAddress } from './relay-address.mjs';
 import { atTheComputer } from '../shared/notify-rules.mjs';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
@@ -761,6 +762,10 @@ async function createWindow() {
     // schemes use below: a page the pane was granted, and a picture inside a
     // root the app owns (main/serve.mjs answerFile).
     files: { allows: (kind, f) => (kind === 'doc' ? docGrants.allows(f) : servable(f, imageRoots())) },
+    // "Anywhere": the relay a phone reaches this Mac through from any network
+    // (main/relay-client.mjs). It stays beside the hosted phone site until
+    // every copy of the app can sign in to that (docs/cloud/PHONE-PLAN.md).
+    relayUrl: relayAddress({ appDir }),
     onChange: () => { if (!window.isDestroyed()) sendToWindow('zero:phone-changed'); },
     // The phone stays quiet while she is using the computer in any app, not
     // only Agentbox: the desktop banner covers the rest (shared/notify-rules.mjs).
