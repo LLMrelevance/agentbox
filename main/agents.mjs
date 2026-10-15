@@ -611,8 +611,8 @@ function readState(pid) {
 // A reply cannot clear a permission box, so that agent needs the user at its
 // own window. Claude Code has no command to focus a session, so this walks the
 // parent chain to the first macOS .app and brings that to the front.
-export function owningApp(pid) {
-  const table = processTable();
+export async function owningApp(pid) {
+  const table = await processTable();
   let cur = table.get(pid);
   for (let hops = 0; cur && hops < 12; hops += 1) {
     const m = cur.command.match(/^(\/(?:Applications|System\/Applications)\/[^/]*?\.app)\//);
@@ -622,8 +622,8 @@ export function owningApp(pid) {
   return null;
 }
 
-export function reveal(pid) {
-  const app = owningApp(pid);
+export async function reveal(pid) {
+  const app = await owningApp(pid);
   if (!app) return { ok: false, reason: `${Name} cannot tell which window it is running in.` };
   return new Promise((resolve) => {
     execFile('/usr/bin/open', ['-a', app.path], (err) => {
