@@ -138,12 +138,12 @@ describe('nobody signed in', () => {
 // these tables kept them, holes and all, because the file only made tables
 // that were not there yet.
 describe('a database that ran either earlier draft', () => {
-  it.each(['phone-inbox-first-draft.sql', 'phone-inbox-second-draft.sql'])('%s ends with the tables as they are now, and the holes closed', async (fixture) => {
+  it.each(['phone-inbox-first-draft.sql', 'phone-inbox-second-draft.sql', 'phone-inbox-third-draft.sql'])('%s ends with the tables as they are now, and the holes closed', async (fixture) => {
     const old = new PGlite();
     await old.exec(SUPABASE_STAND_IN);
     const draft = fs.readFileSync(path.join(root, 'tests/fixtures', fixture), 'utf8');
     const before = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql') && f < '20261014000000').sort().map((f) => fs.readFileSync(path.join(migrationsDir, f), 'utf8')).join('\n');
-    const after = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql') && f > '20261014000000').sort().map((f) => fs.readFileSync(path.join(migrationsDir, f), 'utf8')).join('\n');
+    const after = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql') && f >= '20261014000000').sort().map((f) => fs.readFileSync(path.join(migrationsDir, f), 'utf8')).join('\n');
     await old.exec(before);
     await old.exec(draft);
     await old.exec(after);

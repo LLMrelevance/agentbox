@@ -265,7 +265,7 @@ export function memoryBackend(cloud, personId) {
       return true;
     },
 
-    // HER OWN ROWS FOR HER PHONE (20261014000100_phone_inbox.sql): every one
+    // HER OWN ROWS FOR HER PHONE (20261014000200_phone_inbox.sql): every one
     // keyed by its owner and the computer it came from, and only ever that
     // owner's. A command is written once and marked taken once.
     // Each write may name who it is for; a write for somebody other than

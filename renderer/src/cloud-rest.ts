@@ -3,7 +3,7 @@
 // The phone with the Mac shut talks to the database itself, as her: it signs
 // in with the same account the Mac uses, through the database's own sign-in
 // pages, and reads and writes only what row level security gives that account
-// (cloud/supabase/migrations/20261014000100_phone_inbox.sql). It holds the
+// (cloud/supabase/migrations/20261014000200_phone_inbox.sql). It holds the
 // public address and the public key every browser of the site has; never a
 // service key, never a vendor login.
 //

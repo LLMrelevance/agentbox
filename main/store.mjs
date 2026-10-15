@@ -554,7 +554,9 @@ export class Store {
     const allLabels = [...new Set(['founder', ...(labels ?? [])])];
     const created = workItemsDisk.createWorkItem(
       dir,
-      { title, kind, priority, labels: allLabels },
+      // The phone command that asked for it, on the very line that makes the
+      // row, so no row it made is ever without it (Codex's fourth review).
+      { title, kind, priority, labels: allLabels, ...(fromPhone ? { fromPhone: String(fromPhone) } : {}) },
       { source: 'system' }
     );
     // The founder's words carry founder authority; the lifecycle does not.
@@ -563,8 +565,6 @@ export class Store {
     const contentPatch = {
       title,
       ...(body ? { body } : {}),
-      // The phone command that asked for it, when one did (shared/work-items.mjs).
-      ...(fromPhone ? { fromPhone: String(fromPhone) } : {}),
       ...(runAt ? { runAt: Math.max(0, Math.trunc(runAt)) } : {}),
       // "Add it to Later" on the card: the thread exists now and starts when
       // she says, which is the one answer on that menu with no clock in it.

@@ -131,6 +131,9 @@ describe('the line a phone command writes', () => {
   it('carries the command\'s id, on a reply and on a new thread, and nothing that is not one', () => {
     const a = store.composeItem('alpha', { title: 'Fix it', body: 'now', fromPhone: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d' });
     expect(store.readItem('alpha', a.id).fromPhone).toBe('0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d');
+    // On the very line that makes the row (Codex's fourth review): a crash
+    // after it leaves no row without its command's id.
+    expect(store.readHistory('alpha', a.id)[0].patch).toMatchObject({ title: 'Fix it', fromPhone: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d' });
     store.answerItem('alpha', a.id, { answer: 'and this', fromPhone: '11111111-2222-4333-8444-555555555555' });
     expect(store.readHistory('alpha', a.id).at(-1).patch).toMatchObject({ answer: 'and this', fromPhone: '11111111-2222-4333-8444-555555555555' });
     store.answerItem('alpha', a.id, { answer: 'from the window' });

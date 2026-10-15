@@ -25,16 +25,16 @@
 -- 2025 grants every new table to every role by default, and a column grant
 -- added on top of that takes nothing away.
 
--- AN EARLIER DRAFT OF THESE TABLES (either of the two before this one: no
--- `device`, or no `claimed_at`) is replaced, never upgraded in place (Codex's
--- second review, finding 3; third review, finding 4). It held copies the
--- computer sends again on its next sync and commands nobody had taken yet; a
--- database that ran it is put right here. This file has its own version, after
--- the drafts', so a database that recorded a draft still runs it.
+-- AN EARLIER DRAFT OF THESE TABLES (no `device`, commands that could be
+-- rewritten) is replaced, never upgraded in place (Codex's second review,
+-- finding 3). It held copies the computer sends again on its next sync and
+-- commands nobody had taken yet; a database that ran it is put right here.
+-- This file has its own version, after the draft's, so a database that
+-- recorded the draft still runs it.
 do $$
 begin
   if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'phone_commands')
-     and not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'phone_commands' and column_name = 'claimed_at') then
+     and not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'phone_commands' and column_name = 'device') then
     drop table public.phone_commands;
     drop table if exists public.phone_threads;
     drop table if exists public.phone_projects;
@@ -74,12 +74,7 @@ create table if not exists public.phone_commands (
   kind text not null check (kind in ('reply', 'new', 'snooze', 'close')),
   payload jsonb not null default '{}' check (octet_length(payload::text) <= 100000),
   created_at timestamptz not null default now(),
-  -- Set by the computer the moment before it does it. From then on the phone
-  -- can no longer take it back (Codex's third review, finding 3): the two
-  -- race for this one column, and the database lets exactly one win.
-  claimed_at timestamptz,
-  -- Set by the computer once it has done it (or refused it, and why), or by
-  -- the phone when she takes it back before the computer claimed it.
+  -- Set by the computer once it has done it (or refused it, and why).
   taken_at timestamptz,
   outcome text check (outcome is null or length(outcome) <= 300),
   check ((taken_at is null) = (outcome is null))
@@ -91,7 +86,6 @@ create or replace function public.phone_command_made() returns trigger
 language plpgsql set search_path = public as $$
 begin
   new.created_at := now();
-  new.claimed_at := null;
   new.taken_at := null;
   new.outcome := null;
   return new;
@@ -100,21 +94,15 @@ drop trigger if exists phone_command_made on public.phone_commands;
 create trigger phone_command_made before insert on public.phone_commands
   for each row execute function public.phone_command_made();
 
--- Claimed once, marked taken once, and nothing else about it ever changes.
+-- Marked taken once, and nothing else about it ever changes.
 create or replace function public.phone_command_taken() returns trigger
 language plpgsql set search_path = public as $$
 begin
   if old.taken_at is not null then
     raise exception 'this command was already taken';
   end if;
-  if old.claimed_at is not null and new.claimed_at is distinct from old.claimed_at then
-    raise exception 'this command was already claimed';
-  end if;
-  if (new.taken_at is null) <> (new.outcome is null) then
-    raise exception 'a command is marked taken with its outcome';
-  end if;
-  if new.taken_at is null and new.claimed_at is not distinct from old.claimed_at then
-    raise exception 'a command is only ever claimed or marked taken';
+  if new.taken_at is null or new.outcome is null then
+    raise exception 'a command is only ever marked taken';
   end if;
   if (new.id, new.owner, new.device, new.project, new.item, new.kind, new.payload, new.created_at)
      is distinct from (old.id, old.owner, old.device, old.project, old.item, old.kind, old.payload, old.created_at) then
@@ -155,20 +143,12 @@ grant select, insert, update, delete on public.phone_projects to authenticated;
 grant select, insert, update, delete on public.phone_threads to authenticated;
 grant select on public.phone_commands to authenticated;
 grant insert (device, project, item, kind, payload) on public.phone_commands to authenticated;
-grant update (claimed_at, taken_at, outcome) on public.phone_commands to authenticated;
+grant update (taken_at, outcome) on public.phone_commands to authenticated;
 grant all on public.phone_projects, public.phone_threads, public.phone_commands to service_role;
 revoke all on function public.phone_command_made(), public.phone_command_taken() from public, anon, authenticated;
 
 -- The computer hears a command the moment the phone sends it; the phone hears
 -- a thread change the moment the computer writes it. Realtime reads under
 -- the same row level security, so each hears only their own.
--- Only if they are not in it already: a database that ran a draft may have them.
-do $$
-begin
-  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'phone_commands') then
-    alter publication supabase_realtime add table public.phone_commands;
-  end if;
-  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'phone_threads') then
-    alter publication supabase_realtime add table public.phone_threads;
-  end if;
-end $$;
+alter publication supabase_realtime add table public.phone_commands;
+alter publication supabase_realtime add table public.phone_threads;

@@ -241,7 +241,7 @@ export function supabaseBackend(client) {
       return (rows?.length ?? 0) > 0;
     },
 
-    // HER OWN ROWS FOR HER PHONE (20261014000100_phone_inbox.sql). The owner
+    // HER OWN ROWS FOR HER PHONE (20261014000200_phone_inbox.sql). The owner
     // column defaults to her, and row level security keeps every row hers.
     // Every row names the computer it belongs to (`device`).
     // Each write names who it is for, so a write begun before a sign-out

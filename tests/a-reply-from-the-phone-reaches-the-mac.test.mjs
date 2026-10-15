@@ -415,7 +415,15 @@ describe('what the second review found', () => {
       ['token=Zm9vYmFyYmF6cXV4MTIz', 'token=[hidden]'],
       ['token: unexpected identifier', 'token: unexpected identifier'],
       ['the password field is required', 'the password field is required'],
-      ['Set password: (see vault)', 'Set password: (see vault)'],
+      // Codex's fourth review: a value in brackets, a long quoted one, an
+      // escaped quote, and settings that are only numbers. Hiding wins over
+      // prose: a bracket after a password's name is taken for its value.
+      ['password=(hunter22)', 'password=[hidden]'],
+      ['Set password: (see vault)', 'Set password: [hidden] vault)'],
+      [`password="${'a'.repeat(501)}" x`, 'password="[hidden]" x'],
+      ['password="abc\\"defghi" next', 'password="[hidden]" next'],
+      ['MAX_TOKENS=128000', 'MAX_TOKENS=128000'],
+      ['TOKEN_LIMIT=8192', 'TOKEN_LIMIT=8192'],
       ['a bare XyZ12abcDEF34ghiJKL56mnoPQR78stuVW key', 'a bare [hidden] key'],
       ['max_tokens=128000', 'max_tokens=128000'],
       ['author: Sam Lee', 'author: Sam Lee'],

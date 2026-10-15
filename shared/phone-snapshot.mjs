@@ -54,7 +54,9 @@ const STRONG = '[A-Za-z0-9_.-]*(?:passw(?:or)?d|passphrase|secret|api[_-]?key|ac
 // "token" alone is a word people use ("token: unexpected identifier"), so it
 // counts only as an ENV_STYLE name, or before a long run that looks like a key.
 const WEAK = '(?:[A-Z0-9_]*TOKEN[A-Z0-9_]*|token)';
-const VALUE = '(?:"([^"\\n]{1,500})"|\'([^\'\\n]{1,500})\'|([^\\s"\',;()\\[\\]{}<>][^\\s"\',;)\\]}]*))';
+// A quoted value goes whole, however long, escaped quotes and all; a bare one
+// is everything up to a space, brackets included (Codex's fourth review).
+const VALUE = '(?:"((?:[^"\\\\\\n]|\\\\.)*)"|\'((?:[^\'\\\\\\n]|\\\\.)*)\'|([^\\s"\',;]+))';
 const NAMED_STRONG = new RegExp(`\\b(${STRONG})(["']?\\s*[:=]\\s*)${VALUE}`, 'gi');
 const NAMED_WEAK = new RegExp(`\\b(${WEAK})(["']?\\s*[:=]\\s*)${VALUE}`, 'g');
 const hidden = (name, sep, dq, sq, bare) => `${name}${sep}${dq !== undefined ? '"[hidden]"' : sq !== undefined ? "'[hidden]'" : '[hidden]'}`;
@@ -62,7 +64,9 @@ function hideNamed(text) {
   let out = text.replace(NAMED_STRONG, (m, name, sep, dq, sq, bare) => (bare === '[hidden]' ? m : hidden(name, sep, dq, sq, bare)));
   out = out.replace(NAMED_WEAK, (m, name, sep, dq, sq, bare) => {
     const value = dq ?? sq ?? bare ?? '';
-    const envStyle = name !== 'token' && name === name.toUpperCase();
+    // MAX_TOKENS=128000 and TOKEN_LIMIT=8192 are settings: a bare number is
+    // never taken for a key under this weaker name.
+    const envStyle = name !== 'token' && name === name.toUpperCase() && !/^[0-9]+$/.test(value);
     const keyLike = value.length >= 16 && /[0-9]/.test(value) && !/\s/.test(value);
     return value !== '[hidden]' && (envStyle || keyLike) ? hidden(name, sep, dq, sq, bare) : m;
   });

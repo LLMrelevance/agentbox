@@ -70,11 +70,12 @@ export function createPhoneInbox({
   // Under another id (a store copied here, or the id made a new way) nothing
   // is online yet, so it all goes again; the other id's rows are that
   // computer's, and are left to it.
+  // Which rows the phone's new threads became is about this store, not the
+  // id, and is kept (Codex's fourth review, finding 3).
   if (state.forDevice !== device) {
     state.forDevice = device;
     state.sent = {};
     state.failed = {};
-    state.made = {};
     save();
   }
   const still = () => { if (!alive()) throw new SignedOut('signed out'); };

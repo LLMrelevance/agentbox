@@ -103,7 +103,7 @@ anyone who never signs in.
 Putting it up: `npm run phone:deploy` (Cloudflare Pages; `npx wrangler login`
 once), then the address goes in `cloud/team.config.json` as `phoneSite` and in
 the database's allowed sign-in return addresses, and the migration
-`20261014000100_phone_inbox.sql` is applied.
+`20261014000200_phone_inbox.sql` is applied.
 
 ## Step 1 as built, and what Codex's review of it changed
 
@@ -157,6 +157,12 @@ Codex's third review (6 findings) changed:
 - Credentials named in the text are hidden whole, short, numeric or quoted;
   "token" alone counts only in an ENV_STYLE name or before a key-like value.
 - A stand-in id for a thread shared by two computers never equals a real one.
+
+Codex's fourth review (5 narrow findings) changed: a new thread's command id
+is on the line that makes the row; a password value is hidden whatever it
+starts with and however long; settings like `MAX_TOKENS=128000` stay; a new
+computer id keeps which rows the phone's new threads became; the migration
+has a version newer than every draft.
 
 A phone that saved the relay's address to its home screen needs the new site
 instead; nobody had one, since the relay was never deployed.
