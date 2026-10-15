@@ -668,6 +668,10 @@ export const LIST = {
   // older ones (main/importable-threads.mjs, w-e46f2e9cea). "From the last 10
   // days" over a list of October's sessions would be untrue.
   lineOlder: 'Nothing from the last 10 days, so here are your most recent. Untick any you want to leave out.',
+  // AND ONCE A SEARCH HAS PUT SOMETHING ON THIS LIST (w-6418318cd5). Keeping a
+  // match from March adds it here, ticked, so "From the last 10 days" over it
+  // is this card's oldest fault in a new place.
+  lineFound: 'From the last 10 days, plus the ones you found by name. Untick any you want to leave out.',
   add: (n: number) => (n > 0 ? `Add ${n} to your inbox` : 'Nothing ticked'),
   notNow: 'Not now',
 };
@@ -676,7 +680,13 @@ export const LIST = {
  * WHICH LINE GOES OVER THE LIST. The older one only when there are dated
  *  conversations and none of them is from the last ten days, which is exactly
  *  when the reader reached back. Agent files carry no date and change nothing. */
-export function listLine(threads: Array<{ when?: number }> = [], now = Date.now()): string {
+export function listLine(
+  threads: Array<{ when?: number }> = [], now = Date.now(), alsoFound = false,
+): string {
+  // A chat kept out of a search is on this list whatever its date, so it
+  // outranks both readings below: neither "the last 10 days" nor "nothing from
+  // the last 10 days" describes a list that has March on it by request.
+  if (alsoFound) return LIST.lineFound;
   const dated = threads.filter((t) => Number(t?.when) > 0);
   const recent = now - 10 * 86400000;
   return dated.length && dated.every((t) => Number(t.when) < recent) ? LIST.lineOlder : LIST.line;
@@ -709,4 +719,81 @@ export function importLines(dests: Destination[], now = Date.now()): ImportLine[
     for (const a of d.items) files.push({ path: a.path, title: a.title, meta: `Claude Code agent · ${d.name}`, when: 0 });
   }
   return [...talks.sort((a, b) => b.when - a.when), ...files];
+}
+
+/* ------------------------- FINDING AN OLDER ONE ---------------------------- */
+// The card offered the last ten days and nothing else, so a chat from July
+// could not be brought in at all. The idea is GitHub #31's; the way in is not.
+// He put an "Add chat" button in the inbox header, which is four controls wide
+// already and only carries what is pressed daily.
+//
+// SO THE FIELD IS ON THE CARD THAT ALREADY EXISTS, and the ways to that card
+// are the two places the thought occurs: ⌘K, where the row has always been,
+// and the New thread card, because a chat you already had is a thread you
+// already started.
+//
+// THE TEN DAYS ARE UNTOUCHED. They arrive ticked, which is the founder's own
+// pick (w-db6f5e331e). A search is the opposite act: you typed four letters,
+// nine rows came back, and not one of them is a row you chose. So matches
+// arrive unticked and the button stays dark until you pick.
+
+export const SEARCH = {
+  /** Over a list of matches from March, `LIST.head` ("your recent agents")
+   *  would be the card contradicting itself again. */
+  head: 'Bring in an older chat',
+  placeholder: 'Find a chat by name',
+  /** Under the field, so it is clear this reaches past the ten days above it. */
+  hint: 'Finds your older Claude Code and Codex chats too.',
+  looking: 'Looking through your chats…',
+  /** Typed in the field, quoted back, so a typo is visible rather than silent. */
+  none: (q: string) => `No chat with “${q}” in its name.`,
+  /** How many matched, over the list, because the list scrolls. */
+  found: (n: number) => (n === 1 ? 'One chat matches.' : `${n} chats match.`),
+  clear: 'Clear',
+};
+
+/**
+ * DOES THIS CHAT'S NAME MATCH WHAT WAS TYPED.
+ *
+ *  Every word typed has to appear somewhere in the name, in any order, so
+ *  "hero image" and "image hero" both find the same chat and neither needs the
+ *  words to be adjacent. Capitals are ignored.
+ *
+ *  THE NAME AND NOTHING ELSE. The field says "by name", and a match on the
+ *  folder would mean typing a project's name returns every chat that ever ran
+ *  inside it — a list of forty you would then be invited to add in one press.
+ *
+ *  A blank field is not a search and matches nothing, which is what keeps the
+ *  card on its ten-day list until somebody really types. */
+export function matchesName(title: string, query: string): boolean {
+  const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return false;
+  const name = String(title ?? '').toLowerCase();
+  return words.every((w) => name.includes(w));
+}
+
+/**
+ * The lines a search puts on the card: the matching ones, in the order they
+ *  were already in, which is newest first. Agent files carry no date and are
+ *  not chats, so a search leaves them out. */
+export function searchLines(lines: ImportLine[], query: string): ImportLine[] {
+  if (!String(query ?? '').trim()) return [];
+  return lines.filter((l) => l.when > 0 && matchesName(l.title, query));
+}
+
+/**
+ * HOW FAR BACK THE SEARCH REALLY GOT, said out loud when it is not all of it.
+ *
+ *  There are 29,703 transcripts on the Mac this was written on, and a name is
+ *  only known once the file has been opened, so a search cannot promise every
+ *  chat that ever happened. The read goes newest first until its budget is
+ *  spent (`readSearchableThreads`, main/importable-threads.mjs) and hands back
+ *  the moment it stopped at. A card that printed "No chat with that name" over
+ *  a read that gave up in August would be lying by omission, which is the same
+ *  silence the zero-pixel scrollbar was keeping. */
+export function reachLine(reached: number | null | undefined, now = Date.now()): string {
+  const when = Number(reached) || 0;
+  if (!when) return '';
+  const day = new Date(when).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return `Searched back to ${day}.`;
 }

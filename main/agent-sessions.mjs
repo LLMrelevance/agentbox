@@ -349,7 +349,7 @@ function messageText(row) {
  *  `skipped` comes back with it because the counts are the argument for the
  *  filters, and a session that changes one of them should be able to see what
  *  it changed rather than take this comment's word for it. */
-function readTerminalThreads({ home, dirs, cutoff, max, skipIds = new Set() }) {
+function readTerminalThreads({ home, dirs, cutoff, max, budgetMs = READ_BUDGET_MS, skipIds = new Set() }) {
   const skipped = { old: 0, scratch: 0, started: 0, subagent: 0, empty: 0, unread: 0, desktopDupe: 0, copy: 0 };
   const out = [];
   // Stat everything, keep the recent, newest first, and only then start opening
@@ -389,12 +389,20 @@ function readTerminalThreads({ home, dirs, cutoff, max, skipIds = new Set() }) {
   // 5.0s there.
   const started = Date.now();
   let opened = 0;
+  // THE MOMENT THE READ GAVE UP AT, for the caller to say out loud. Only the
+  // search needs it (w-6418318cd5): a name is only known once the file has been
+  // opened, so a search that stopped in August must not answer "no such chat"
+  // as if it had looked at September. Zero when the whole window was read.
+  let reached = 0;
+  let lastOpened = 0;
   for (const { file, when } of recent) {
-    if (out.length >= max || Date.now() - started > READ_BUDGET_MS) {
+    if (out.length >= max || Date.now() - started > budgetMs) {
       skipped.unread = recent.length - opened;
+      reached = lastOpened;
       break;
     }
     opened += 1;
+    lastOpened = when;
     const id = path.basename(file, '.jsonl');
     // THE DESKTOP APP WRITES A THREAD TWICE, once as a transcript here and once
     // as its own record, joined by `cliSessionId`. Measured 2026-08-29 on the
@@ -421,7 +429,7 @@ function readTerminalThreads({ home, dirs, cutoff, max, skipIds = new Set() }) {
       path: file,
     });
   }
-  return { threads: out, skipped };
+  return { threads: out, skipped, reached };
 }
 
 /**
@@ -524,16 +532,23 @@ export function readSessionThreads({
   days = RECENT_DAYS,
   now = Date.now(),
   max = MAX_READS,
+  // How long the transcript read may take. The card's own list keeps the
+  // three seconds it was measured for; a search is allowed longer, because it
+  // is reaching back a year and is the one read somebody is waiting on with a
+  // word already typed (w-6418318cd5).
+  budgetMs = READ_BUDGET_MS,
 } = {}) {
   const cutoff = now - Math.max(0, Number(days) || 0) * 86400 * 1000;
   // The desktop side goes first so its ids are known before the transcripts are
   // walked, which is what stops one thread appearing twice.
   const desk = readDesktopThreads({ home, cutoff, max });
-  const term = readTerminalThreads({ home, dirs, cutoff, max, skipIds: desk.owned });
+  const term = readTerminalThreads({ home, dirs, cutoff, max, budgetMs, skipIds: desk.owned });
   const threads = [...term.threads, ...desk.threads].sort((a, b) => b.when - a.when);
   return {
     threads,
     skipped: { ...term.skipped, desktopOld: desk.skipped.old, archived: desk.skipped.archived },
+    /** Zero when the whole window was read. See `reached` above. */
+    reached: term.reached,
   };
 }
 

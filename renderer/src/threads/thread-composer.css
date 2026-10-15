@@ -83,6 +83,17 @@
 .tc-card .attach-row { padding: 0 18px 10px; }
 .tc-note { padding: 0 18px 10px; font-size: 13px; line-height: 19px; color: var(--text-dim); }
 
+/* ALREADY HAD THIS CHAT? (w-6418318cd5). One faint line on an empty card, and
+   the first letter typed takes it away, so it is an offer rather than a
+   control. Quieter than `.tc-note`, which carries refusals and errors: this
+   one is news you may not need. */
+.tc-had { padding: 0 18px 10px; font-size: 12.5px; line-height: 18px; color: var(--text-faint); }
+.tc-had button {
+  font: inherit; background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--text-dim); text-decoration: underline; text-underline-offset: 3px;
+}
+.tc-had button:hover { color: var(--text); }
+
 /* -------------------------------- the bar -------------------------------- */
 .tc-bar { display: flex; align-items: center; gap: 8px; padding: 12px 14px 12px 18px; border-top: 1px solid var(--tc-hair); position: relative; }
 .tc-chip {

@@ -9,7 +9,7 @@ import type { LedgerLine } from './thread-history';
 import type { AgentFile as AgentFileRow } from './onboarding';
 import type { AgentFolder, SessionThread } from './agent-import-card';
 import type { EngineSetupState } from './plan-setup';
-import { fixtureAgents, fixtureSnapshot, fixtureDashboards, fixtureRepeats, fixtureRuns, fixtureMock, fixtureMockDashboards, fixtureTraces, fixtureHistory, fixtureSettings, fixtureConversation, fixtureAgentFiles, fixtureSessionThreads } from './fixtures';
+import { fixtureAgents, fixtureSnapshot, fixtureDashboards, fixtureRepeats, fixtureRuns, fixtureMock, fixtureMockDashboards, fixtureTraces, fixtureHistory, fixtureSettings, fixtureConversation, fixtureAgentFiles, fixtureSessionThreads, fixtureSearchableThreads } from './fixtures';
 import { fixtureEngineWorld, fixtureEngineSettings, fixtureSecondEngine } from './fixtures';
 import { fixtureFolders } from './fixtures';
 import { NAME, Name } from '../../shared/product-name.mjs';
@@ -1307,6 +1307,27 @@ export const api = {
       const r = await zero.agentThreads();
       return Array.isArray(r?.threads) ? r.threads : [];
     } catch { return []; }
+  },
+
+  /**
+   * EVERYTHING THE NAME FIELD CAN FIND, which is a year rather than ten days.
+   *
+   *  Taken once, the first time somebody types into the field, and held by the
+   *  main process for the life of the window, so the keystrokes after it cost
+   *  nothing. `reached` is the moment the read gave up at and zero when it got
+   *  through the lot; the card prints it rather than answering "no such chat"
+   *  over a read that stopped months ago. */
+  async searchAgentThreads(p: { again?: boolean } = {}): Promise<{ threads: SessionThread[]; reached: number }> {
+    if (useFixtures) {
+      if (emptyFixtures || params.has('noThreads')) return { threads: [], reached: 0 };
+      return { threads: fixtureSearchableThreads(), reached: 0 };
+    }
+    const zero = window.zero as any;
+    if (!zero?.searchAgentThreads) return { threads: [], reached: 0 };
+    try {
+      const r = await zero.searchAgentThreads(p);
+      return { threads: Array.isArray(r?.threads) ? r.threads : [], reached: Number(r?.reached ?? 0) };
+    } catch { return { threads: [], reached: 0 }; }
   },
 
   // Ids only; the thread itself is the main process's own copy, so a row never

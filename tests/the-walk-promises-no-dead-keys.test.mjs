@@ -191,8 +191,10 @@ describe('a Mac with no agent files is offered nothing at all', () => {
     expect(card).toMatch(/read && !some \? \(alreadyIn > 0 \? CARD\.headAllIn : CARD\.headNone\) : LIST\.head/);
     // The line over the list is not said over an empty card, because there is
     // nothing under it and it would be the same contradiction in a smaller
-    // typeface.
-    expect(card).toMatch(/read && some && <p className="ia-line">/);
+    // typeface. And not over a search either (w-6418318cd5): "From the last 10
+    // days" over a list of matches from July is the same sentence being wrong
+    // in the other direction.
+    expect(card).toMatch(/read && some && !searching && <p className="ia-line">/);
     // And the key the walk teaches still does something on it.
     expect(card).toMatch(/if \(walk && !some\) \{ walk\.onSkip\(\); return; \}/);
   });

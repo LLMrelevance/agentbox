@@ -7927,6 +7927,28 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 .modal.ia-card.ia-one { width: 720px; }
 .ia-one .ia-line { margin: 0 0 14px; }
 .ia-lines { max-height: min(56vh, 520px); border-top: 1px solid var(--line); }
+/* FINDING AN OLDER ONE BY NAME (w-6418318cd5). A field the width of the card
+   and a line under it, above the list, because it changes what the list is.
+   It is not a boxed search bar with a magnifier in it: the card has one filled
+   thing on it and that is the button. */
+.ia-find { margin: 2px 0 14px; }
+.ia-find-box {
+  width: 100%; font: inherit; font-size: 14.5px; line-height: 1.35;
+  padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius);
+  background: var(--wash); color: var(--text);
+}
+.ia-find-box::placeholder { color: var(--text-faint); }
+.ia-find-box:focus { outline: none; border-color: var(--accent); background: none; }
+/* One line under the field and never two: what it is for, or what it found,
+   with the way back at the far end of it. */
+.ia-find-under { display: flex; align-items: baseline; gap: 12px; margin: 7px 2px 0; }
+.ia-find-hint { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-faint); }
+.ia-find-clear {
+  flex: none; font: inherit; font-size: 12.5px; background: none; border: none; padding: 0;
+  cursor: pointer; color: var(--text-faint); text-decoration: underline; text-underline-offset: 3px;
+}
+.ia-find-clear:hover { color: var(--text-dim); }
+.ia-find-reach { color: var(--text-faint); }
 .ia-agent.ia-line-row {
   display: flex; align-items: center; gap: 12px; width: 100%;
   padding: 11px 2px; border-bottom: 1px solid var(--line); --tick-line: 14px;

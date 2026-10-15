@@ -75,6 +75,7 @@ export const REQUEST_CHANNELS = {
   agentFolders: 'zero:agent-folders',
   importAgents: 'zero:import-agents',
   agentThreads: 'zero:agent-threads',
+  searchAgentThreads: 'zero:search-agent-threads',
   importThreads: 'zero:import-threads',
   badge: 'zero:badge',
   cornerTag: 'zero:corner-tag',

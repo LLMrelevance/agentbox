@@ -208,7 +208,13 @@ describe('what it says afterwards is what really happened', () => {
 describe('the card offers no key and no button it cannot honour', () => {
   it('draws the button only when there is something to bring', () => {
     // One screen since w-db6f5e331e, so one condition: read, and something on it.
-    expect(card).toContain('{read && some && (\n          <div className="ia-foot ia-foot-one">');
+    //
+    // AND WHILE A SEARCH IS OPEN (w-6418318cd5), where there may be nothing
+    // ticked yet. The button stays drawn rather than appearing under the hand
+    // on the first tick, and `ready` still disables it, so it is a button that
+    // says "Nothing ticked" rather than one it cannot honour.
+    expect(card).toContain('{read && (some || searching) && (\n          <div className="ia-foot ia-foot-one">');
+    expect(card).toContain('disabled={!ready || busy}');
   });
 
   it('takes ⌘↵ and Escape, and leaves plain Enter to the ticks', () => {

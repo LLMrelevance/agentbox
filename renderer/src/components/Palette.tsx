@@ -355,11 +355,15 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
     // IT NAMES CODEX TOO (w-db6f5e331e). The card behind it has read Codex
     // conversations since w-ec62ab6b38, but a line that said only "Claude Code"
     // told a person who uses only Codex that it was not for them.
+    // AND THE HINT NO LONGER PROMISES LESS THAN THE CARD DOES (w-6418318cd5).
+    // It said "your last ten days", which was the whole of the card until the
+    // card grew a name field that reaches a year back. Somebody looking for
+    // the chat they had in July read that line and stopped here.
     {
       id: 'import-agents',
       label: 'Import agents from Claude Code or Codex',
-      hint: 'your last ten days on this computer · they land in your inbox',
-      keywords: 'import agents claude code codex conversations threads sessions subagents existing mine bring across add my recent',
+      hint: 'your recent ones, or find an older chat by name · they land in your inbox',
+      keywords: 'import agents claude code codex conversations threads sessions subagents existing mine bring across add my recent older chat find search by name title past old',
       run: onImportAgents,
     },
     /* * ------------------- THE TUTORIAL, WHICH IS NOT THE ONBOARDING ---------
