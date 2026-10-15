@@ -6493,6 +6493,10 @@ a.set-ghost { text-decoration: none; display: inline-block; }
 .cs-row-eng { font-size: 12.5px; color: var(--text-faint); }
 .cs-row-go { display: flex; justify-content: center; color: var(--text-faint); }
 .cs-row.broken .cs-row-name { color: var(--text-dim); }
+/* AN ACCOUNT BEING ADDED IN THE BACKGROUND, and why one was not (2026-10-15). */
+.cs-row-adding { display: inline-flex; align-items: center; gap: 7px; }
+.cs-row-why { display: block; font-size: 12.5px; color: var(--code-minus); white-space: normal; padding: 2px 0 8px; }
+.cs-row:has(.cs-row-why) { padding-top: 8px; }
 button.cs-row { cursor: pointer; }
 button.cs-row:hover { background: var(--wash-strong, var(--wash)); box-shadow: none; }
 button.cs-row:hover + .cs-row { box-shadow: none; }
