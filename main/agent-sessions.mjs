@@ -1,123 +1,52 @@
-// HER CLAUDE CODE THREADS, WHICH ARE THE AGENTS SHE MEANT.
+// Claude Code conversation threads for the import card. These are separate from
+// the `.md` agent definitions that agent-files.mjs reads, and the card shows both.
 //
-// That sentence retires the assumption `agent-files.mjs` was built on. That
-// module reads `.md` agent DEFINITIONS, which is a real thing Claude Code has
-// and is not what she is looking at when she says "my agents". the four
-// definition files on this Mac were last edited on 23 and 30 March, and she had
-// four threads going the evening she complained.
+// A thread lives in one of two places:
 //
-// So the import gets a second source, and this is it. Nothing here replaces the
-// files; a definition and a thread are different objects and the card shows
-// both.
+//   <claude data folder>/projects/<folder>/<id>.jsonl   a terminal or editor
+//       session, one JSON object per line (data folders: main/agent-homes.mjs)
+//   ~/Library/Application Support/Claude/claude-code-sessions/**/local_<id>.json
+//       the desktop app's small record about a session, with a real `title`
 //
-// WHERE A THREAD LIVES. Two places, because she named two:
-//
-//   ~/.claude/projects/<folder>/<id>.jsonl     every terminal session (and the
-//                                              same under every other Claude
-//                                              data folder: main/agent-homes.mjs)
-//   ~/Library/Application Support/Claude/
-//     claude-code-sessions/**/local_<id>.json  the desktop app
-//
-// The terminal store is the transcript itself, one JSON object per line. The
-// desktop store is a small record ABOUT the session, and it is the richer of
-// the two because the app writes a real `title` into it. Measured 2026-08-29:
-// 2,444 transcripts in 240 folders, and 38 desktop records whose newest is
-// 7 July, so on her Mac today the terminal side is all of it.
-//
-// THE HARD PART IS NOT FINDING THEM, IT IS THROWING THEM AWAY. hundreds exist
-// and a handful are relevant.
-//
-// The line that separates them is not a heuristic, which is the good news. Every
-// transcript row carries an `entrypoint`, and it says who started the session.
-// Counted over all 2,212 transcripts in her store on 2026-08-29:
-//
-//   2,158  sdk-cli         something started it: Agentbox's own workers, Agentbox's
-//                          chats, and our measurement scripts running twenty
-//                          agents at a time in temp folders
-//      53  cli             she opened a terminal and typed
-//       1  claude-desktop  she used the desktop app
-//
-// So 54 of 2,212 were started by a person, and those 54 are the handful she
-// means. Her own test is one of them: `~/Desktop/dev/zero`, 8:38 PM, "this is a
-// test", `entrypoint: "cli"`.
-//
-// A FIRST DRAFT OF THIS GUESSED INSTEAD, and the guess is worth keeping written
-// down because it looked like it worked. It dropped anything opening with the
-// work item brief and anything running in a temp folder, which on that evening
-// removed 126 and 171 rows and left a believable list. It would have kept every
-// chat Agentbox itself runs in a product folder, because those open with her own
-// question and run somewhere real. `entrypoint` was on the row the whole time.
+// Most transcripts on a machine running Agentbox were started by Agentbox. The
+// `entrypoint` on every transcript row says who started the session, so the
+// filter reads that rather than guessing from the prompt or the folder.
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { claudeDataDirs } from './agent-homes.mjs';
 
-/**
- * "Recent = last few days", in days.
- *
- *  Seven rather than three, and the number is measured rather than chosen.
- *  Counting only the threads a person started, her Mac on 2026-08-29 has 2 in
- *  the last three days and 9 in the last seven, in two folders she works in.
- *  Three days is a card with tonight's test on it and almost nothing else; the
- *  filters have already done the work that "a few" was standing in for, so the
- *  window can afford to be the generous reading.
- *
- *  Ten since the launch list (w-db6f5e331e, 2026-10-05): "showing your recently
- *  active agents over the last 10 days". Codex reads the same number
+/** How many days back counts as recent. Codex reads the same number
  *  (main/codex-threads.mjs), so the two halves of the card agree. */
 export const RECENT_DAYS = 10;
 
-/**
- * How much of a transcript is read to find its first human turn. The first
- *  turn is at the top of the file by construction, and the files are not small:
- *  the largest in her store on 2026-08-29 is 13MB, and there are hundreds. */
+/** How much of a transcript is read to find its first human turn, which is at
+ *  the top of the file. Transcripts run to many megabytes. */
 const HEAD_BYTES = 96 * 1024;
 
-/**
- * How far past the head one cut-off first message may be followed
- *  (w-24edc04548, 2026-10-05). A screenshot pasted into the first message is
- *  written into that row as base64, so the row outgrows the head: three of her
- *  ten days' terminal threads opened with rows of 240KB, 294KB and 486KB, were
- *  cut, lost their name and fell off the card. Eight megabytes is the Codex
- *  reader's own ceiling (main/codex-threads.mjs) and several screenshots. */
+/** How far past the head one cut-off first message may be followed. A
+ *  screenshot pasted into the first message is written into that row as
+ *  base64, so the row can be hundreds of KB. Eight MB matches the Codex
+ *  reader's ceiling (main/codex-threads.mjs). */
 const FIRST_TURN_BYTES = 8 * 1024 * 1024;
 
-/**
- * A stop on how many transcripts are OPENED, for the same reason the folder
- *  scan in agent-files.mjs has one: opening a card may not turn into a disk
- *  crawl.
- *
- *  It is a cap on reading, never on looking. The walk stats every file, which
- *  is cheap, throws away everything older than the cutoff, and sorts what is
- *  left newest first before it opens anything. An earlier draft capped the walk
- *  itself and the bug is worth keeping written down: the cap was reached in
- *  directory order, so on her Mac it stopped after 1,500 of 2,444 files and
- *  whether tonight's thread survived was down to where its folder sorted. A
- *  cap that can drop the newest thread on the machine is not a safety rail. */
+/** A cap on how many threads are kept, so opening the card is not a disk
+ *  crawl. It caps reading, never looking: the terminal walk stats every file
+ *  and sorts newest first before it opens any, so the cap only drops older
+ *  threads. */
 const MAX_READS = 1200;
-// How long the conversation read may take, in ms (w-ec62ab6b38). The card that
-// uses it says "Looking" meanwhile; three seconds reaches two thirds of her
-// week's 9,073 transcripts and all of a normal Mac's.
+// The card shows "Looking" while this runs.
 const READ_BUDGET_MS = 3000;
 
-/* ------------------------- WHAT IS NOT HERS TO IMPORT ---------------------- */
-
-/**
- * A FOLDER NOBODY WORKS IN.
- *
- *  `/private/var/folders/19/.../T/speedsize-6AGMVw-run-12` is a real cwd of a
- *  real Claude Code session, and it is one of twenty a measurement script of
- *  ours started in a loop. 258 of her 448 recent threads are that. Nobody opens
- *  a temp directory to work, so a thread that ran in one is not a thread she
- *  would recognise, and offering it is how a list of hundreds happens. */
+/** A temp folder, where nobody works. Agentbox's own scripts and workers run
+ *  Claude Code sessions there, so a thread from one is not the person's. */
 export function isScratchFolder(folder, home = os.homedir()) {
   const p = String(folder ?? '');
   if (!p) return true;
-  // A FOLDER INSIDE YOUR OWN HOME IS YOURS, whatever the disk path says. This
-  // is the rule the temp-path list is a proxy for, and it has to be stated
-  // first, because a Mac can put a home directory anywhere and the tests put
-  // one under `/var/folders` on purpose.
+  // A folder inside the home folder is the person's, whatever the path. This
+  // check comes first because a Mac can put a home folder anywhere, and the
+  // tests put one under `/var/folders`.
   const here = path.resolve(String(home ?? ''));
   if (here && (p === here || p.startsWith(`${here}/`))) return false;
   return /^\/private\/tmp(\/|$)/.test(p)
@@ -126,14 +55,10 @@ export function isScratchFolder(folder, home = os.homedir()) {
     || /^\/var\/folders(\/|$)/.test(p);
 }
 
-/**
- * THE SAME RULE, READ OFF THE FOLDER CLAUDE CODE FILED THE TRANSCRIPT IN, so
- *  it can be applied before the file is opened (w-24edc04548, 2026-10-05).
- *  Claude Code names that folder after the working folder with every other
- *  character turned into `-`, so `/private/tmp/w-1` is `-private-tmp-w-1`.
- *  Of her 12,272 transcripts touched in ten days about 12,000 were in temp
- *  folders, and opening each one only to refuse it spent the card's three
- *  seconds before it reached her oldest threads. */
+/** The same rule read off the folder Claude Code filed the transcript in, so
+ *  a temp-folder transcript is refused without being opened. Claude Code names
+ *  that folder after the working folder with every character that is not a
+ *  letter or digit turned into `-`, so `/private/tmp/w-1` is `-private-tmp-w-1`. */
 export function isScratchProjectDir(name, home = os.homedir()) {
   const n = String(name ?? '');
   const here = path.resolve(String(home ?? '')).replace(/[^a-zA-Z0-9]/g, '-');
@@ -141,24 +66,12 @@ export function isScratchProjectDir(name, home = os.homedir()) {
   return /^-(private-)?(tmp|var-folders)(-|$)/.test(n);
 }
 
-/**
- * THE ONES A PERSON STARTED, which is the whole filter.
- *
- *  `cli` is a terminal she opened. `claude-desktop` is the desktop app, which
- *  she named. Everything else was started by software, and on this Mac that is
- *  overwhelmingly Agentbox itself: its workers, its chats, and the scripts we run
- *  to measure it. Offering those on an import card would be offering to bring
- *  the inbox into the inbox.
- *
- *  An entrypoint we have never seen is treated as not hers. The cost of being
- *  wrong that way is one missing row on a card; the other way is the hundreds
- *  she is complaining about.
- *
- *  `claude-vscode` IS A PERSON TOO (w-e46f2e9cea, 2026-10-11). It is what the
- *  Claude Code extension writes in VS Code, Cursor and Windsurf, and leaving it
- *  out threw away every session of everybody who runs Claude Code in an editor.
- *  Read out of the 2.1.293 binary, which maps it to `claude_code_vscode`. The
- *  `remote*` family stays out: those run in the cloud, not on this disk. */
+/** Entrypoints a person starts. `cli` is a terminal, `claude-desktop` the
+ *  desktop app, and `claude-vscode` the Claude Code extension in VS Code,
+ *  Cursor and Windsurf. Everything else, mostly `sdk-cli`, was started by
+ *  software, usually Agentbox's own workers and chats. An unknown entrypoint
+ *  counts as not the person's: a missing row costs less than hundreds of
+ *  wrong ones. `remote*` sessions run in the cloud, not on this disk. */
 const BY_HAND = new Set(['cli', 'claude-desktop', 'claude-vscode']);
 export function startedByHand(entrypoint) {
   return BY_HAND.has(entrypoint);
@@ -170,44 +83,25 @@ export function sourceOf(entrypoint) {
   return entrypoint === 'claude-vscode' ? 'editor' : 'terminal';
 }
 
-/**
- * A SUBAGENT IS NOT A THREAD SHE OPENED. Claude Code files them under
- *  `<session>/subagents/`, one per fan-out, so the parent already stands for
- *  them and listing both says the same work twice. */
+/** Claude Code files subagent transcripts under `<session>/subagents/`. The
+ *  parent session already stands for that work. */
 export function isSubagentPath(file) {
   return /(^|\/)subagents\//.test(String(file ?? ''));
 }
 
-/* ------------------------------ WHAT IT IS CALLED -------------------------- */
-
-/**
- * Lines a person did not type, which a transcript's first turn is often made
- *  of: the slash command wrapper, the resume caveat, and anything the harness
- *  injected. A thread named `<command-name>/clear</command-name>` is a thread
- *  she cannot recognise. */
+/** Lines Claude Code writes into a first turn that a person did not type: the
+ *  slash command wrapper, the resume caveat and injected reminders. */
 const NOT_TYPED = [
   /^<command-name>/, /^<command-message>/, /^<command-args>/, /^<local-command/,
   /^<system-reminder>/, /^<user-memory/, /^Caveat: The messages below/,
   /^This session is being continued from/, /^\[Request interrupted/,
 ];
 
-/**
- * THE NAME ON THE ROW, out of the first thing she actually typed.
- *
- *  A terminal transcript has no title in it: measured 2026-08-29, ZERO of her
- *  495 recent files carry a `summary` row, so there is nothing to read but the
- *  conversation. The first human sentence is what the desktop app titles from
- *  too, and it is the line she would know the thread by.
- *
- *  SEVERAL MESSAGES ARE OFFERED, NOT ONE, and that is a fix rather than a
- *  flourish. A session that opens with a slash command has the wrapper as its
- *  first user message and her actual words in the second, so reading only the
- *  first left four of her own threads in an outside repo nameless and
- *  therefore off the card. The first message that is something a person typed
- *  wins; a thread with no such message has no name and is dropped, which is the
- *  right outcome for a session that was never spoken to.
- *
- *  Markdown is flattened rather than rendered, because this lands in a list. */
+/** The row's name, from the first line a person typed. Terminal transcripts
+ *  carry no title, so the conversation is all there is. Takes several messages
+ *  because a session that opens with a slash command has the wrapper first and
+ *  the person's words second. Returns '' when nobody typed anything, and the
+ *  caller drops that thread. */
 export function threadTitle(texts, max = 72) {
   for (const text of Array.isArray(texts) ? texts : [texts]) {
     const got = titleFromOne(text, max);
@@ -220,7 +114,7 @@ function titleFromOne(text, max) {
   const raw = String(text ?? '').replace(/\r/g, '');
   for (const line of raw.split('\n')) {
     // `[Image #1]` and `[Pasted text #1 +40 lines]` are Claude Code's stand-ins
-    // for what was pasted, not words she typed.
+    // for what was pasted.
     const t = line.replace(/\[(?:Image|Pasted text) #\d+[^\]]*\]/g, '').trim();
     if (!t) continue;
     if (NOT_TYPED.some((re) => re.test(t))) return '';
@@ -238,27 +132,17 @@ function titleFromOne(text, max) {
   return '';
 }
 
-/**
- * `/Users/you/Desktop/dev/zero` → `~/Desktop/dev/zero`. Same reason as the
- * one in agent-files.mjs: a path carrying her account name reads like a
- * system string rather than a folder she knows. */
+/** Writes a folder under home as `~/...`. */
 export function shortFolder(folder, home = os.homedir()) {
   const here = path.resolve(home);
   const full = path.resolve(String(folder ?? '') || here);
   return full === here || full.startsWith(`${here}/`) ? `~${full.slice(here.length)}` : full;
 }
 
-/* ------------------------------ THE TERMINAL SIDE -------------------------- */
-
-/**
- * The head of a transcript, and out of it the three things a row needs: who
- *  started the session, which folder it ran in, and the first thing the person
- *  typed.
- *
- *  Read as a fixed head rather than a whole file. `entrypoint` and `cwd` are on
- *  every message row and the first human turn is the first message, so all
- *  three are at the top, and the alternative is reading gigabytes to fill in a
- *  list. Her largest transcript is 13MB and there are hundreds. */
+/** Reads a transcript's head for who started the session, which folder it ran
+ *  in and the first messages the person typed. `entrypoint` and `cwd` are on
+ *  every message row and the first human turn comes first, so a fixed head is
+ *  enough. */
 export function readTranscriptHead(file, bytes = HEAD_BYTES, most = FIRST_TURN_BYTES) {
   let fd = null;
   try {
@@ -266,10 +150,8 @@ export function readTranscriptHead(file, bytes = HEAD_BYTES, most = FIRST_TURN_B
     const buf = Buffer.alloc(bytes);
     const n = fs.readSync(fd, buf, 0, bytes, 0);
     const text = buf.slice(0, n).toString('utf8');
-    // The last line of a fixed read is usually cut in half. Dropping it costs
-    // nothing, because what is wanted is at the top. UNLESS THE WHOLE FILE FIT:
-    // then the last line is complete, and a file whose one row has no newline
-    // after it lost that row (found by Codex's review, 2026-10-11).
+    // The last line of a full-size read is usually cut in half, so it is set
+    // aside. When the whole file fit, the last line is complete and is kept.
     const lines = text.split('\n');
     const cut = n < bytes ? null : lines.pop();
     let cwd = null;
@@ -290,12 +172,10 @@ export function readTranscriptHead(file, bytes = HEAD_BYTES, most = FIRST_TURN_B
       take(line);
       if (cwd && entrypoint && said.length >= 5) break;
     }
-    // UNLESS THE HALF LINE IS HER FIRST MESSAGE, cut because a screenshot was
-    // pasted into it. Then it is read to its end, once, up to `most`. Only a
-    // cut row that names itself a user message near its start qualifies, and
-    // only when nothing she said was found and the session is not already
-    // known to be the app's own, so the thousands of worker transcripts are
-    // never read past their head.
+    // If the cut line is the first user message, cut because a screenshot was
+    // pasted into it, read it to its end, up to `most`. Only when nothing typed
+    // was found and the session is not known to be the app's own, so worker
+    // transcripts are never read past their head.
     if (!said.length && n === bytes && cut && /"type"\s*:\s*"user"/.test(cut.slice(0, 2048))
       && (!entrypoint || startedByHand(entrypoint))) {
       const rest = restOfLine(fd, n, most - n);
@@ -309,10 +189,8 @@ export function readTranscriptHead(file, bytes = HEAD_BYTES, most = FIRST_TURN_B
   }
 }
 
-/**
- * The bytes from `from` up to the next newline, or null if there is none
- *  within `budget` bytes: a line that long is given up on, not read whole. A
- *  file that ends without a newline ends the line too. */
+/** The bytes from `from` up to the next newline or the end of the file, or
+ *  null if neither comes within `budget` bytes. */
 function restOfLine(fd, from, budget) {
   const parts = [];
   let at = from;
@@ -328,9 +206,7 @@ function restOfLine(fd, from, budget) {
   return null;
 }
 
-/**
- * The words out of one transcript row, whichever of the two shapes it is in.
- *  Content is a string on the plain ones and a list of blocks on the rest. */
+/** A row's content is either a string or a list of blocks. */
 function messageText(row) {
   const c = row?.message?.content;
   if (typeof c === 'string') return c;
@@ -343,22 +219,13 @@ function messageText(row) {
   return '';
 }
 
-/**
- * Every terminal thread, newest first, with the three kinds of noise gone.
- *
- *  `skipped` comes back with it because the counts are the argument for the
- *  filters, and a session that changes one of them should be able to see what
- *  it changed rather than take this comment's word for it. */
+/** `skipped` counts why each transcript was left out, so a change to a filter
+ *  can be measured. */
 function readTerminalThreads({ home, dirs, cutoff, max, skipIds = new Set() }) {
   const skipped = { old: 0, scratch: 0, started: 0, subagent: 0, empty: 0, unread: 0, desktopDupe: 0, copy: 0 };
   const out = [];
-  // Stat everything, keep the recent, newest first, and only then start opening
-  // files. This is the order that makes `max` safe: whatever it cuts off is
-  // older than everything it kept.
-  //
-  // EVERY DATA FOLDER, NOT ONLY ~/.claude (main/agent-homes.mjs). They are
-  // pooled before the sort, so the cap and the time budget are spent on the
-  // newest sessions on the machine, whichever folder they are in.
+  // Every data folder is pooled and sorted newest first before any file is
+  // opened, so `max` and the time budget only ever cut off older sessions.
   const recent = [];
   for (const dir of dirs) {
     const root = path.join(dir, 'projects');
@@ -374,19 +241,11 @@ function readTerminalThreads({ home, dirs, cutoff, max, skipIds = new Set() }) {
     }
   }
   recent.sort((a, b) => b.when - a.when);
-  // ONE SESSION IS ONE ROW, even when two folders hold it: a backup folder with
-  // a copy of a conversation is ordinary. Newest first, so the copy kept is the
-  // one still being written to.
+  // One session is one row even when two data folders hold a copy. Newest
+  // first, so the copy kept is the one still being written to.
   const seenIds = new Set();
-  // THE CAP COUNTS WHAT IS KEPT, NOT WHAT IS OPENED (w-ec62ab6b38, 2026-09-28).
-  // On a busy machine the last seven days held 9,073 transcripts, the newest
-  // 1,200 were opened, and every one of those was started by agentbox itself,
-  // so a conversation started by hand was never looked at and the import card
-  // said there was nothing, as if the app were not looking in Claude Code at
-  // all. Somebody running dozens of agents fills this folder with ours. So it
-  // opens newest first until it has `max` of the person's own, or until
-  // READ_BUDGET_MS has gone, whichever is first. Reading all 9,073 heads took
-  // 5.0s there.
+  // The cap counts threads kept, not files opened: on a machine running many
+  // workers, the newest thousand transcripts can all be Agentbox's own.
   const started = Date.now();
   let opened = 0;
   for (const { file, when } of recent) {
@@ -396,15 +255,14 @@ function readTerminalThreads({ home, dirs, cutoff, max, skipIds = new Set() }) {
     }
     opened += 1;
     const id = path.basename(file, '.jsonl');
-    // THE DESKTOP APP WRITES A THREAD TWICE, once as a transcript here and once
-    // as its own record, joined by `cliSessionId`. Measured 2026-08-29 on the
-    // one desktop thread in her store. Its own record wins, because the app
-    // wrote a real title into it and this side would have to guess one.
+    // The desktop app writes a thread twice, as a transcript here and as its
+    // own record joined by `cliSessionId`. Its record wins because it has a
+    // real title.
     if (skipIds.has(id)) { skipped.desktopDupe += 1; continue; }
     if (seenIds.has(id)) { skipped.copy += 1; continue; }
     const { cwd, entrypoint, said } = readTranscriptHead(file);
-    // A copy is only the copy once it could be read. A damaged newer one, cut
-    // off mid-write, would otherwise hide the good older one in another folder.
+    // Only a readable copy counts, so a newer copy cut off mid-write does not
+    // hide a good older one.
     if (cwd || entrypoint) seenIds.add(id);
     if (!startedByHand(entrypoint)) { skipped.started += 1; continue; }
     if (isScratchFolder(cwd, home)) { skipped.scratch += 1; continue; }
@@ -424,10 +282,8 @@ function readTerminalThreads({ home, dirs, cutoff, max, skipIds = new Set() }) {
   return { threads: out, skipped };
 }
 
-/**
- * Every transcript under the projects root, subagent folders included so the
- *  filter above can count them rather than the walk hiding them. Unbounded on
- *  purpose: this only lists names, and the cap that matters is on opening. */
+/** Lists every transcript, subagents included so the caller can count them.
+ *  Not capped: listing names is cheap, and the cap is on opening. */
 function walkTranscripts(dir, into, depth = 4) {
   if (depth < 0) return;
   let entries = [];
@@ -439,30 +295,17 @@ function walkTranscripts(dir, into, depth = 4) {
   }
 }
 
-/* ------------------------------- THE DESKTOP SIDE -------------------------- */
-
-/** Where the desktop app keeps what it knows about a session. */
 export function desktopSessionsDir(home = os.homedir()) {
   return path.join(home, 'Library', 'Application Support', 'Claude', 'claude-code-sessions');
 }
 
-/**
- * THE DESKTOP APP'S THREADS, which are the easy half.
- *
- *  Its record is small and it carries a real `title` the app wrote, plus the
- *  folder, the branch and the moment of the last turn. So there is no
- *  transcript to read and no name to guess: measured on her Mac 2026-08-29, 38
- *  records, every one of them titled, for example "Fix duplicate cowork task
- *  display issue".
- *
- *  Archived ones are left out. She archived them, which is the desktop app's
- *  word for done with. */
+/** The desktop app's record carries a real `title`, the folder and the time of
+ *  the last turn, so no transcript is read. Archived sessions are left out. */
 function readDesktopThreads({ home, cutoff, max }) {
   const root = desktopSessionsDir(home);
   const skipped = { old: 0, scratch: 0, archived: 0, empty: 0 };
   const out = [];
-  // Every id this side owns, recent or not, so the transcript walk can leave
-  // them alone rather than draw the same thread under a worse name.
+  // Every id this side owns, recent or not, so the transcript walk skips them.
   const owned = new Set();
   const files = [];
   walkDesktop(root, files, max);
@@ -503,31 +346,21 @@ function walkDesktop(dir, into, max, depth = 3) {
   }
 }
 
-/* ---------------------------------- BOTH ----------------------------------- */
-
-/**
- * BOTH SOURCES, NEWEST FIRST, THE HANDFUL SHE MEANT.
- *
- *  `days` is her "last few days" and it is a parameter rather than a constant
- *  because the number is the one thing on this card somebody may want to argue
- *  about. Everything else here is a fact about the file.
- *
- *  One row per thread and no folding by folder: the folder is on the row and
- *  the card groups by it, the same way it already groups agent files. */
+/** Terminal, editor and desktop threads a person started, newest first, one
+ *  row per thread. */
 export function readSessionThreads({
   home = os.homedir(),
-  // Every Claude Code data folder to read (main/agent-homes.mjs). The app hands
-  // in the list it made with its own environment and settings; left out, it is
-  // the folders under `home`, and nothing from whatever CLAUDE_CONFIG_DIR the
-  // caller's process happens to carry.
+  // The app passes the data folders it found with its own environment and
+  // settings. The default is the folders under `home`, ignoring whatever
+  // CLAUDE_CONFIG_DIR the calling process has.
   dirs = claudeDataDirs({ home }),
   days = RECENT_DAYS,
   now = Date.now(),
   max = MAX_READS,
 } = {}) {
   const cutoff = now - Math.max(0, Number(days) || 0) * 86400 * 1000;
-  // The desktop side goes first so its ids are known before the transcripts are
-  // walked, which is what stops one thread appearing twice.
+  // The desktop side goes first so its ids are known before the transcripts
+  // are walked, which stops one thread appearing twice.
   const desk = readDesktopThreads({ home, cutoff, max });
   const term = readTerminalThreads({ home, dirs, cutoff, max, skipIds: desk.owned });
   const threads = [...term.threads, ...desk.threads].sort((a, b) => b.when - a.when);
@@ -537,12 +370,8 @@ export function readSessionThreads({
   };
 }
 
-/**
- * THE FOLDERS THOSE THREADS RAN IN, each with its own threads under it.
- *
- *  The import card is already a section per place the rows can land, so this is
- *  the shape it wants. Sorted by the newest thread in each, because the folder
- *  she touched an hour ago is the one she is looking for. */
+/** Groups threads by folder, each folder sorted by its newest thread. Expects
+ *  the threads newest first, as readSessionThreads returns them. */
 export function threadsByFolder(threads = []) {
   const byFolder = new Map();
   for (const t of threads) {
