@@ -33,7 +33,7 @@ describe('after a reply', () => {
   });
   it('stays when she opened it from any other list', () => {
     expect(replyMovesOn({ view: 'done', onBoard: false, index: -1, inboxSize: 5 })).toBe(false);
-    expect(replyMovesOn({ view: 'all', onBoard: false, index: 3, inboxSize: 5 })).toBe(false);
+    expect(replyMovesOn({ view: 'snoozed', onBoard: false, index: 3, inboxSize: 5 })).toBe(false);
   });
   it('stays on Needs you when this was the last thread waiting, rather than leaving her on an empty list', () => {
     expect(replyMovesOn({ view: 'inbox', onBoard: false, index: 0, inboxSize: 1 })).toBe(false);

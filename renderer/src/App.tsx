@@ -2008,7 +2008,7 @@ export default function App() {
       // A MESSAGE IS NEVER RUNNING. Nothing is working on it; it waits on a
       // person, and the two persona tests both read "Running" there as an
       // agent at work. It shows in Needs you when it is yours to answer, and
-      // under All otherwise.
+      // in search otherwise.
       if (isDirect(snap?.products.find((p) => p.slug === i.product))) return false;
       // A task you gave a teammate is moving, for you, until it is done.
       if (team && heldByAPerson(i) && isShared(team.products.get(i.product))) return i.status !== 'done';
@@ -2223,25 +2223,13 @@ export default function App() {
   // a waiting update is not something a filter should be able to hide. Search
   // ignores the filter, as it has always ignored the product filter, because
   // it reads every project and every tab on purpose.
-  // ALL (the team version, approved 2026-10-01): every open thread of yours,
-  // whatever it is waiting on, as one list.
-  // YOUR CONVERSATIONS INCLUDED. A conversation whose turn is the other
-  // person's is in no other tab (it is not running and it does not need you),
-  // so without this a message you just answered vanished from the Inbox
-  // altogether.
-  // AND DONE INCLUDED (w-fda2165ec6, 2026-10-07): "done and all don't contain
-  // most of my tasks". All held open threads only, about 40 of her 1,339.
-  // page-rules.ts `order` puts the open ones first and the finished after.
-  const allRows = useMemo(() => {
-    const seenIds = new Set<string>();
-    const talking = items.filter((i) => !i.agent && i.status !== 'done' && isDirect(snap?.products.find((p) => p.slug === i.product)));
-    return [...inbox, ...progress, ...snoozed, ...talking, ...done].filter((i) => (seenIds.has(i.id) ? false : (seenIds.add(i.id), true)));
-  }, [inbox, progress, snoozed, done, items, snap?.products]);
+  // NO ALL TAB (w-313907fa49, 2026-10-14). It was the other four as one list.
+  // The one thing only it held was a conversation whose turn is the other
+  // person's; that is now where the board already had it, in search.
   const wholeBox = view === 'inbox' ? inbox
     : view === 'snoozed' ? snoozed
       : view === 'progress' ? progress
-        : view === 'all' ? allRows
-          : done;
+        : done;
   const shownBox = useMemo(() => filterBox(wholeBox, boxFilter), [wholeBox, boxFilter]);
   // THE DISPLAY MENU'S FILTERS AND SORT, on top of the box (approved
   // 2026-10-01). Remembered per page; the Inbox is a list by default and the
@@ -2356,7 +2344,7 @@ export default function App() {
     [withOthers, cards, view, picked, team?.me, inboxDisplay, snap?.products, now],
   );
   const mixedRows = useMemo(
-    () => (withOthers ? mergeRows(displayedBox, theirRows, view === 'done' ? 'done' : inboxDisplay.sort, { order: projectOrder, products: snap?.products ?? [] }, view) : null),
+    () => (withOthers ? mergeRows(displayedBox, theirRows, view === 'done' ? 'done' : inboxDisplay.sort, { order: projectOrder, products: snap?.products ?? [] }) : null),
     [withOthers, displayedBox, theirRows, inboxDisplay.sort, view, projectOrder, snap?.products],
   );
   // A teammate's thread opens as their card, over the page, and Back returns here.
@@ -4591,7 +4579,7 @@ export default function App() {
         return;
       }
       // TAB MOVES ALONG THE STATE TABS: on the threads page it cycles Needs
-      // you, In progress, Scheduled, Done and All. Shift-Tab goes back, and
+      // you, In progress, Later and Done. Shift-Tab goes back, and
       // both wrap.
       //
       // ONLY WHERE THOSE TABS ARE ON THE SCREEN WITH NOTHING OVER THEM: not
@@ -6029,7 +6017,6 @@ export default function App() {
                       progress: (mineShown ? shownCount(progress) : 0) + theirCount('progress'),
                       snoozed: (mineShown ? shownCount(snoozed) : 0) + theirCount('snoozed'),
                       done: (mineShown ? shownCount(done) : 0) + theirCount('done'),
-                      all: (mineShown ? shownCount(allRows) : 0) + theirCount('all'),
                     }}
                     needs={team ? needsWord(picked, team.me) : undefined}
                     onView={(next) => { setView(next as View); setSelected(0); setMultiSel(new Set()); }}
@@ -6062,8 +6049,8 @@ export default function App() {
                   onOpenCard={openTeammateCard}
                   selectedCard={keyCard ? cardSel : null}
                   // The next page of old finished threads, at the foot of the
-                  // two tabs that hold them (w-fda2165ec6).
-                  onEnd={search === null && olderMore !== false && (view === 'done' || view === 'all') ? loadOlder : undefined}
+                  // tab that holds them (w-fda2165ec6).
+                  onEnd={search === null && olderMore !== false && view === 'done' ? loadOlder : undefined}
                   // DRAG A THREAD TO WHERE IT BELONGS (w-6e5b532a95), wherever
                   // the list is in your running order: Sort by Priority, on the
                   // three tabs still ahead of you, your own threads alone.

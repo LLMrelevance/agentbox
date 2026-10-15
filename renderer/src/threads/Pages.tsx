@@ -266,7 +266,9 @@ export function DisplayMenu({ page, display, onDisplay, products, items = [], sh
 }
 
 /* ------------------------------------------------------------ the tabs */
-export type TabView = View | 'all';
+// NO ALL (w-313907fa49, 2026-10-14): "not sure if 'all' is actually useful of
+// a filter. we can remove it". It was the other four poured into one list.
+export type TabView = View;
 export const INBOX_TABS: { view: TabView; label: string }[] = [
   { view: 'inbox', label: 'Needs you' },
   { view: 'progress', label: 'In progress' },
@@ -277,14 +279,13 @@ export const INBOX_TABS: { view: TabView; label: string }[] = [
   // do not have.
   { view: 'snoozed', label: 'Later' },
   { view: 'done', label: DONE.short },
-  { view: 'all', label: 'All' },
 ];
 
 /**
  * A TAB CARRIES A NUMBER ONLY WHERE THE NUMBER CHANGES WHAT YOU DO (w-57034cf3c0).
  * The strip read DONE 1036 on a real inbox: the archive counting itself, the
- * same four digits every day, and the widest thing on the row. All is the other
- * three added up. Both are words now, and the three tabs that are still ahead of
+ * same four digits every day, and the widest thing on the row. It is a word
+ * now, and the three tabs that are still ahead of
  * you keep their number while there is something in them. A zero is not drawn
  * either: an empty tab says so by being empty.
  */
@@ -397,7 +398,6 @@ export function EmptyTab({ view }: { view: TabView }) {
     // A finished thread waits in Needs you until its owner closes it, which a
     // persona read as the app losing it.
     done: 'Nothing closed yet. A finished thread waits in Needs you until you close it.',
-    all: 'No threads yet.',
   };
   return <div className="th-empty">{words[view] ?? 'Nothing here.'}</div>;
 }
