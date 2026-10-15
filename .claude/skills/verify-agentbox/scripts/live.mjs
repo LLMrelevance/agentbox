@@ -101,13 +101,22 @@ async function realCodex() {
  * tiny wrapper, and the real `codex` binary pointed at a scripted model on a
  * loopback port. REAL MODE keeps this Mac's own home, so the copy finds and
  * runs the Claude Code and Codex installed here, signed in as they are.
+ *
+ * SETUP MODE (`--setup <name>`, setups.mjs) is the two at once: the REAL
+ * Claude Code on this Mac, linked into a home laid out the way one kind of
+ * person has theirs (their hooks, connected tools, settings, logins), talking
+ * to a stand-in model on a loopback port. Nothing is billed and nothing of
+ * this Mac's ~/.claude is read; everything of Claude Code's is real.
  */
-async function prepare(real) {
+async function prepare(real, setupName = null) {
   const data = path.join(INSTANCE, 'data');
   const storeRoot = path.join(INSTANCE, 'store');
   const accountRoot = path.join(storeRoot, 'accounts', ACCOUNT);
   const receipts = path.join(INSTANCE, 'receipts');
   const home = real ? null : path.join(INSTANCE, 'home');
+  const { setupNamed, layHome, layRepo } = await import('./setups.mjs');
+  const setup = setupName ? setupNamed(setupName) : null;
+  if (setupName && !setup) stop(`no setup called ${setupName}. Setups: ${(await import('./setups.mjs')).SETUPS.map((s) => s.name).join(', ')}`, 2);
   for (const d of [data, receipts]) fs.mkdirSync(d, { recursive: true });
 
   // Two projects with a real git repo behind each, so a worker has somewhere
@@ -119,6 +128,8 @@ async function prepare(real) {
     fs.mkdirSync(repo, { recursive: true });
     fs.mkdirSync(path.join(accountRoot, p.slug), { recursive: true });
     fs.writeFileSync(path.join(repo, 'README.md'), `# ${p.name}\n\nA throwaway project for verifying Agentbox.\n`);
+    // A setup's project files are committed, as a team's .claude and .mcp.json are.
+    if (setup) layRepo(setup, repo);
     const git = (...a) => execFileSync('git', a, { cwd: repo, stdio: 'ignore' });
     git('init', '-q', '-b', 'main');
     git('add', '-A');
@@ -135,7 +146,25 @@ async function prepare(real) {
   let claudeBin = null;
   let codexBin = null;
   let codexHome = null;
-  if (!real) {
+  let claudeModel = null;
+  if (setup) {
+    // The Claude Code this Mac has, found the way the app finds it, then
+    // linked into the setup's home where the installer puts it. `claudeBin`
+    // stays unset, so the copy finds it in that home as a person's would.
+    const { findClaudeBin } = await import(path.join(REPO, 'main', 'claude-bin.mjs'));
+    let mine = null;
+    try { const f = findClaudeBin({}); mine = f.found ? fs.realpathSync(f.path) : null; } catch { /* none */ }
+    if (!mine) stop('setups run the real Claude Code, and this Mac has none.');
+    const port = await freePort();
+    claudeModel = { port, url: `http://127.0.0.1:${port}` };
+    fs.mkdirSync(home, { recursive: true });
+    layHome(setup, { home, url: claudeModel.url, claude: mine, version: path.basename(mine) });
+    codexBin = await realCodex();
+    if (codexBin) {
+      codexHome = path.join(INSTANCE, 'codex-home');
+      fs.mkdirSync(codexHome, { recursive: true });
+    }
+  } else if (!real) {
     for (const [dir, n] of [['.claude', 'one'], ['.claude-second', 'two']]) {
       fs.mkdirSync(path.join(home, dir), { recursive: true });
       fs.writeFileSync(path.join(home, dir, '.claude.json'), `${JSON.stringify({ oauthAccount: { emailAddress: `${n}@verify.invalid`, accountUuid: `verify-account-${n}` } })}\n`);
@@ -161,7 +190,8 @@ async function prepare(real) {
   }
   const state = {
     repoRoot: REPO, instance: INSTANCE, data, storeRoot, accountRoot, repo: repos[PRODUCT.slug], repos, receipts, plan, home,
-    log: path.join(INSTANCE, 'app.log'), engine: real ? 'real' : 'stub', claudeBin, codexBin, codexHome,
+    log: path.join(INSTANCE, 'app.log'), engine: setup ? 'setup' : real ? 'real' : 'stub', claudeBin, codexBin, codexHome,
+    setup: setup?.name ?? null, claudeModel,
   };
   return state;
 }
@@ -269,7 +299,17 @@ async function start(state) {
     // nothing written to the shared project), and any counts go under the one
     // id that names itself as not a person (shared/fresh-user-home.mjs).
     [FRESH_USER_ENV]: '1' };
-  if (state.engine === 'stub') {
+  if (state.claudeModel) {
+    // The setup's stand-in model, on the port its settings already name.
+    const file = path.join(INSTANCE, 'claude-model.json');
+    try { fs.rmSync(file); } catch { /* none yet */ }
+    const server = spawn(process.execPath, [path.join(here, 'stub-claude-server.mjs'), INSTANCE, String(state.claudeModel.port)], { detached: true, stdio: 'ignore' });
+    server.unref();
+    const deadline = Date.now() + 10_000;
+    while (!fs.existsSync(file) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+    if (!fs.existsSync(file)) stop(`the stand-in Claude model did not start on port ${state.claudeModel.port}.`);
+  }
+  if (state.engine === 'stub' || state.engine === 'setup') {
     // HOME and CFFIXED_USER_HOME together: macOS asks Core Foundation, not the
     // environment, for some paths (scripts/fresh-user.mjs says why).
     Object.assign(env, { HOME: state.home, CFFIXED_USER_HOME: state.home });
@@ -339,15 +379,20 @@ async function up(args) {
   }
   const real = args.includes('--real') || args.includes('--real-claude');
   const installed = args.includes('--installed');
+  const at = args.indexOf('--setup');
+  const setupName = at >= 0 ? args[at + 1] : null;
   if (installed && real) stop('--installed runs on the stand-ins; use --real with the browser copy.');
+  if (setupName && (real || installed)) stop('--setup runs the browser copy on its own home; it cannot be combined with --real or --installed.');
   if (installed) {
     const old = appIsStale();
     if (old) buildInstalled(); else say('the installed app is newer than its source; using the one already built');
   }
-  const prepared = await prepare(real);
+  const prepared = await prepare(real, setupName);
   const next = await start(installed ? { ...prepared, installed: true } : prepared);
   say(installed ? `up: the installed app, pid ${next.pid}, window on debugging port ${next.cdpPort}` : `up: ${next.url}`);
-  say(real
+  say(setupName
+    ? `workers: the real Claude Code on the "${setupName}" setup, against a stand-in model (nothing billed)${next.codexBin ? ', and real codex on a scripted model' : ''}`
+    : real
     ? 'workers: the Claude Code and Codex this Mac has, on their own subscriptions'
     : `workers: the Claude stand-in on two fake logins${next.codexBin ? ', and real codex on a scripted model' : '; no codex on this Mac, so Codex drives are skipped'}`);
   say(`store: ${next.storeRoot}`);
@@ -402,6 +447,9 @@ export async function doctor({ quiet = false } = {}) {
   else ok('the built screen is newer than its source');
   if (state.engine === 'stub') {
     try { fs.accessSync(state.claudeBin ?? STUB, fs.constants.X_OK); ok('the stand-in worker is executable'); } catch { bad(`the stand-in worker is not executable: ${state.claudeBin ?? STUB}`); }
+  } else if (state.engine === 'setup') {
+    try { fs.accessSync(path.join(state.home, '.local', 'bin', 'claude'), fs.constants.X_OK); ok(`worker: the real Claude Code, linked into the "${state.setup}" home`); } catch { bad('the Claude Code linked into the setup home does not resolve'); }
+    try { await fetch(`${state.claudeModel.url}/v1/ping`); ok(`the stand-in model answers on ${new URL(state.claudeModel.url).host}`); } catch (err) { bad(`the stand-in model does not answer: ${err.message}`); }
   } else {
     ok('worker: the Claude Code this Mac has');
   }
@@ -466,6 +514,10 @@ async function drive(args) {
   if (wrong.length) stop(`the instance is not worth driving:\n  ${wrong.join('\n  ')}`);
   if (DRIVES[name].stubOnly && readState().engine !== 'stub') {
     say(`drive ${name}: skipped on real tools (${DRIVES[name].stubOnly}).`);
+    process.exit(0);
+  }
+  if (DRIVES[name].onlyOn && readState().engine !== DRIVES[name].onlyOn) {
+    say(`drive ${name}: skipped (it runs only on a copy started with --${DRIVES[name].onlyOn}).`);
     process.exit(0);
   }
   const at = args.indexOf('--out');

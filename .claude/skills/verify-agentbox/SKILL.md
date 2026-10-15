@@ -14,13 +14,13 @@ task that never runs (Codex most of all), an answer on the wrong thread or in
 the wrong inbox, several at once, a login out of usage. This skill drives
 those for real.
 
-Six layers, one command:
+Seven layers, one command:
 
 ```sh
 node .claude/skills/verify-agentbox/scripts/verify.mjs          # the layers this branch needs, in full
 node .claude/skills/verify-agentbox/scripts/verify.mjs --all    # every layer, whatever changed
 node .claude/skills/verify-agentbox/scripts/verify.mjs --quick  # stand-in drives only, for iterating
-# drop one slow layer: --no-real --no-installed --no-breaker; --breaker-minutes 20
+# drop one slow layer: --no-setups --no-real --no-installed --no-breaker; --breaker-minutes 20
 ```
 
 | layer | what it proves | time |
@@ -28,6 +28,7 @@ node .claude/skills/verify-agentbox/scripts/verify.mjs --quick  # stand-in drive
 | `this-machine` | what the app finds on THIS Mac, opened from the Dock, and that a worker can start it | ~2 s |
 | `machines` | the same, through the app's own modules, on 17 fake Macs (`scripts/machines.mjs`) | ~35 s |
 | `live` | the browser copy on stand-ins, every drive in `DRIVE_ORDER`: Codex, six at once, replies landing where shown, logins out of usage, quit and Control-C mid-run | ~10 min |
+| `setups` | the REAL Claude Code on homes set up the way other people set theirs up (`scripts/setups.mjs`), against a stand-in model: a task and a reply each. Nothing billed | ~40 s a setup |
 | `real` | `REAL_ORDER` again on the Claude Code and Codex this Mac has, signed in as they are, one-word tasks (billed to that subscription, a few cents) | ~5–10 min |
 | `installed` | the packaged `.app`, opened with a Dock launch's environment on a throwaway home, `INSTALLED_ORDER` through its own window | ~5 min with the build |
 | `breaker` | a locked-down Claude Code session told to break the app through the screen (`breaker.mjs`). Findings are printed for a person, not counted as failures | 15 min |
@@ -150,6 +151,37 @@ Mac the same way, prints paths with `~`, writes nothing but its report, sends
 nothing anywhere, and its output is safe to paste into a thread. It shows when
 the app and their terminal disagree about which `claude` or `codex` they have.
 
+## Setups
+
+```sh
+node .claude/skills/verify-agentbox/scripts/check-setups.mjs [setup ...]
+node $L up --setup own-hooks      # one by hand, then drive setup-task and reply
+```
+
+The machine shapes stop at "found, and `--version` runs". Most bugs that
+reached people were past that point: how their Claude Code was set up. A
+setup is a home laid out like one kind of person's: the real Claude Code on
+this Mac linked in where its installer puts it, their settings, hooks,
+connected tools, logins, and the project's committed `.claude` files. The
+copy runs on that home with nothing of this Mac's `~/.claude`.
+
+The model is the only stand-in (`scripts/lib/claude-stub-model.mjs`, served
+by `stub-claude-server.mjs`). Its address and a token that is not a key ride
+in the home's own `settings.json`, which Claude Code reads for itself, so the
+app's rule that a worker is never handed a key is untouched. Measured on
+Claude Code 2.1.301: signed out, it runs the task, writes its session and
+exits 0. On each task turn the stand-in calls the app's `update_work_item`
+once, then answers, so a setup that keeps the store tools from a worker fails
+on the ledger. It logs how each request was signed (never the key), so a key
+left in somebody's settings shows as `api-key`.
+
+`setup-task` checks: the answer lands, Claude Code offered the app's store
+tools, the worker's note reached the thread, and no key in a settings file
+was used. Then `reply` checks the reply is answered and remembers the first
+turn. To add a setup, add an entry to `SETUPS` with `why` and `expect` (what a
+person on it needs, not what the code does). A bug report that turns out to be
+about someone's Claude Code setup should become a setup before it is fixed.
+
 ## Evidence
 
 Everything lands in `/tmp/agentbox-verify/runs/<timestamp>-<what>/`:
@@ -189,7 +221,17 @@ A claim or shape with `known` set is a product bug filed on its own thread.
 It still runs; it prints `KNOWN`, does not fail the run, and prints a reminder
 when it starts holding so the marker can come off.
 
-None today. Everything the check has found so far was fixed in the task that
+Three, all found by the setups layer on its first run (2026-10-15):
+
+- `api-key-in-settings` and `api-key-in-project`: an `ANTHROPIC_API_KEY` in
+  `~/.claude/settings.json` or a project's committed `.claude/settings.json`
+  is read by Claude Code itself, past the app's scrub of the worker's
+  environment, so the worker bills that key instead of the person's plan.
+- `config-dir-from-zshrc`: a login moved by `CLAUDE_CONFIG_DIR` in `.zshrc`
+  is read for importing sessions only. Workers run on an empty `~/.claude` and
+  every task says Claude Code could not sign in.
+
+Before those, everything the check found was fixed in the task that
 built it: a thread you typed reading "An agent opened this" with nobody
 signed in; an old npm Claude Code that could not start as a worker from the
 Dock; a task whose login ran out sleeping for hours while another login was
@@ -207,6 +249,10 @@ Listed so nobody reads a green run as proof of these:
   when it is.
 - Shipping (`ship` label to `npm run ship`), approvals cards, scheduling.
 - Linux machines (`check-machines` is Mac shapes only; the app supports Linux).
+- Codex setups. The setups layer shapes Claude Code's home only; Codex runs on
+  the scripted model with a bare `CODEX_HOME`.
+- Other Claude Code versions and install methods. Setups link the one Claude
+  Code this Mac has into the installer's layout.
 - Other people's Macs, beyond the fake ones. Not needed while one person
   ships it.
 

@@ -124,14 +124,22 @@ export async function clickTab(tab, words) {
 }
 
 async function openThread(tab, row) {
-  await clickTab(tab, /^all\b/i);
   const names = [row.label, row.title].filter(Boolean).map((n) => String(n).slice(0, 24));
-  const clicked = await tab.until(`(() => {
+  const find = `(() => {
     const names = ${JSON.stringify(names)};
     const hit = [...document.querySelectorAll('*')].find((e) => e.children.length === 0 && names.some((n) => e.textContent.trim().startsWith(n)));
     if (hit) hit.click();
     return !!hit;
-  })()`, { ms: 8000, why: 'the thread to be in the All list' }).catch(() => false);
+  })()`;
+  // There is no "All" list any more: the thread is under whichever tab its
+  // state puts it, and a thread that just finished moves from In progress to
+  // Needs you while the drive looks. So each tab in turn, as a person would.
+  let clicked = false;
+  for (const words of [/^all\b/i, /^needs you/i, /^in progress/i, /^later/i, /^done/i]) {
+    if (!(await clickTab(tab, words))) continue;
+    clicked = await tab.until(find, { ms: 3000, why: 'the thread to be in this list' }).catch(() => false);
+    if (clicked) break;
+  }
   await tab.wait(800);
   return clicked;
 }
@@ -466,6 +474,45 @@ export const DRIVES = {
       await capture('new-codex-task-at-limit');
     },
   },
+  'setup-task': {
+    what: 'on a person\'s own Claude Code setup (live.mjs up --setup): one task, and the real Claude Code answers it, writes to the thread through the store tools, and bills nobody\'s API key',
+    onlyOn: 'setup',
+    async run({ tab, state, claim, capture }) {
+      const { setupNamed } = await import('./setups.mjs');
+      const setup = setupNamed(state.setup);
+      const expect = setup.expect;
+      const known = (k) => ({ known: setup.known?.[k] ?? null });
+      const tok = `su${Date.now().toString(36)}`;
+      const title = `Setup ${tok}: reply with exactly the word ${WORD} and nothing else. [[tok:${tok}]]`;
+      const { row } = await compose(tab, state, title, { engine: 'claude' });
+      await capture('sent');
+      if (!claim(row, 'the store holds the thread', row?.id)) return;
+      claim(await until(() => sessionLogs(state, row.id).length, 30_000), 'a worker was started on it');
+      const answered = await until(() => rows(state).find((r) => r.id === row.id && String(r.result ?? '').trim()), 120_000);
+      const result = String(rows(state).find((r) => r.id === row.id)?.result ?? '');
+      claim(!!answered === expect.answers && (!expect.answers || result.includes(WORD)), 'the answer lands on the thread', result.slice(0, 80) || '(none)', known('answers'));
+
+      // What Claude Code sent the model, as this person's setup shaped it.
+      const asked = fs.existsSync(path.join(state.instance, 'claude-model.log'))
+        ? fs.readFileSync(path.join(state.instance, 'claude-model.log'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.task && e.token === tok)
+        : [];
+      claim(asked.length, 'the real Claude Code asked the model about this thread', `${asked.length} task turn(s)`);
+      const offered = asked.find((e) => e.mcp.some((n) => /__update_work_item$/.test(n)));
+      claim(!!offered === expect.store, 'Claude Code offered the worker the app\'s store tools',
+        offered ? offered.mcp.filter((n) => /work_item/.test(n)).slice(0, 2).join(', ') : `mcp tools: ${asked[0]?.mcp.slice(0, 4).join(', ') || 'none'}${asked[0]?.deferred ? ' (tools deferred behind ToolSearch)' : ''}`, known('store'));
+      const note = await until(() => readLedger(state, row.product).some((l) => l.id === row.id && String(l.patch?.note ?? '').includes(tok)), 10_000);
+      const toolBack = asked.find((e) => e.toolResult)?.toolResult;
+      claim(!!note === expect.store, 'the worker\'s note reached the thread through the store tool',
+        note ? 'in the ledger' : toolBack ? `tool said: ${toolBack.text.slice(0, 120)}` : 'never called', known('store'));
+      const signed = [...new Set(asked.map((e) => e.auth))];
+      const billedKey = signed.includes('api-key');
+      claim(expect.billing === 'subscription' ? !billedKey : billedKey, 'no API key the person left in a settings file was used (the plan pays, not a key)',
+        `signed: ${signed.join(', ') || 'nothing'}`, known('billing'));
+      for (const c of setup.check?.(state.home) ?? []) claim(c.ok, c.sentence, c.evidence, known(c.key ?? 'check'));
+      claim(await openThread(tab, rows(state).find((r) => r.id === row.id) ?? row), 'the thread opens from the list');
+      await capture('thread');
+    },
+  },
   'reply': {
     what: 'open an answered thread, R, type a reply, ⌘↵: the reply is stored, a worker takes it and its answer lands (with --real-claude, it also remembers the first turn)',
     async run({ tab, state, claim, capture }) {
@@ -497,7 +544,9 @@ export const DRIVES = {
       // MEMORY, PROVED BY BEHAVIOUR. The stand-in leaves no Claude Code
       // transcript, so the app (rightly) cannot resume it and re-briefs instead;
       // only a real session can show the thread's context carried over.
-      if (state.engine !== 'stub' && answered) claim(String(answered.result).includes(WORD), `the answer remembers the first turn (${WORD})`, String(answered.result).slice(0, 60));
+      // On a setup, a gap already filed for that setup reads KNOWN.
+      const memoryKnown = state.setup ? ((await import('./setups.mjs')).setupNamed(state.setup)?.known?.memory ?? null) : null;
+      if (state.engine !== 'stub' && answered) claim(String(answered.result).includes(WORD), `the answer remembers the first turn (${WORD})`, String(answered.result).slice(0, 60), { known: memoryKnown });
       await tab.wait(800);
       await capture('after-reply');
     },
