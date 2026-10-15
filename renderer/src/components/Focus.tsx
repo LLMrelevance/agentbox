@@ -85,6 +85,7 @@ import { optionIsClipped, optionPeek } from '../option-peek';
 import { askLine, askFull, askIsClipped } from '../ask-line';
 import { replyIsSwallowed, replyReaches } from '../../../shared/agents.mjs';
 import { recapFor, type Recap as RecapValue } from '../recap';
+import type { LedgerLine } from '../thread-history';
 import type { LiveFacts } from '../live-line';
 import { offersRunNow } from '../run-now';
 import { AttachRow } from './AttachRow';
@@ -641,7 +642,23 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // starts with somebody else's summary of what she asked is the thing this row
   // is about. An agent row draws its own thread and has no parent of ours to
   // open, so nothing moves there either.
-  const said = recapFor(item, parent);
+  //
+  // THE ASK IS WHAT SHE SAID ON THE PARENT BEFORE THIS THREAD WAS FILED. When
+  // she has replied there since, the parent's `answer` is that later reply, so
+  // its lines up to this row's creation are read to find the one that asked
+  // (../recap.ts, recapFor). Read only then, which is rarely.
+  const [parentLines, setParentLines] = useState<{ key: string; lines: LedgerLine[] } | null>(null);
+  const parentReplyAt = parent?.wrote?.answer?.ts ?? 0;
+  const askKey = parent && !item.answer && parentReplyAt > item.createdAt ? `${parent.product}/${parent.id}@${item.createdAt}` : null;
+  useEffect(() => {
+    if (!askKey || !parent) return;
+    let live = true;
+    api.itemHistory({ product: parent.product, id: parent.id, before: item.createdAt })
+      .then((r) => { if (live) setParentLines({ key: askKey, lines: r?.lines ?? [] }); })
+      .catch(() => { if (live) setParentLines({ key: askKey, lines: [] }); });
+    return () => { live = false; };
+  }, [askKey]);
+  const said = recapFor(item, parent, parentLines?.key === askKey ? parentLines.lines : undefined);
   const openingSaid = !agent && said?.kind === 'said'
     ? { text: said.text, at: said.at, on: said.on }
     : null;
@@ -1435,7 +1452,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
            thread as its first message, whole (w-23db941885).
          */}
         <Recap
-          recap={openingSaid ? null : recapFor(item, parent)}
+          recap={openingSaid ? null : said}
           onOpen={() => parent && onOpenItem(parent)}
         />
 

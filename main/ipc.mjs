@@ -1967,9 +1967,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
 
   // The thread history behind the time under a task's title. Raw ledger lines,
   // read fresh: the renderer owns what they mean, this owns getting them across.
-  ipcMain.handle('zero:item-history', async (_e, { product, id }) => {
+  ipcMain.handle('zero:item-history', async (_e, { product, id, before }) => {
     try {
-      return { ok: true, lines: store.readHistory(product, id) };
+      return { ok: true, lines: store.readHistory(product, id, { before }) };
     } catch (err) {
       return { ok: false, error: err.message, lines: [] };
     }
