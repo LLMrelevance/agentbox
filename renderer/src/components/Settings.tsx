@@ -662,13 +662,35 @@ function PhoneAlertsPage({ onFeedback }: { onFeedback?: () => void }) {
 // reads them and leaves what she sends for this Mac to do when it wakes.
 // THE WAY IN IS A WEBSITE WE HOST (2026-10-14), not a relay to this computer:
 // the code is only its address, so it carries no key and needs no resetting.
-type MacShut = { site: string | null; siteQr: string | null; projects: ProjectSettings[]; onSet: (slug: string, on: boolean) => void };
+// ALL OF HER PROJECTS, BY DEFAULT (2026-10-15: "95% of people just want all
+// of their projects connected"). One switch; keeping a project on this
+// computer only is the exception, folded away under it until she asks.
+type MacShut = { site: string | null; siteQr: string | null; all: boolean; projects: ProjectSettings[]; onSetAll: (on: boolean) => void; onSet: (slug: string, on: boolean) => void };
 function MacShutGroup({ macShut }: { macShut: MacShut }) {
   const site = macShut.site?.replace(/^https?:\/\//, '').replace(/\/$/, '') ?? null;
+  const kept = macShut.projects.filter((p) => !p.onPhone);
+  const [choosing, setChoosing] = useState(false);
+  const open = choosing;
   return (
     <>
-      <Group id="phone-mac-shut" label="Projects on your phone">
-        {macShut.projects.map((p) => (
+      <Group id="phone-mac-shut" label="On your phone">
+        <Row
+          label="All your projects"
+          desc={macShut.all
+            ? 'A copy of every thread is kept in your account, so your phone can read and reply with this computer closed. New projects are included.'
+            : 'Off. Nothing from this computer is kept online for your phone.'}
+        >
+          <Switch on={macShut.all} label="All your projects on your phone" onChange={macShut.onSetAll} />
+        </Row>
+        {macShut.all && (
+          <Row
+            label="Keep some on this computer only"
+            desc={kept.length === 0 ? 'None. Every project is on your phone.' : `${kept.length === 1 ? kept[0].name : `${kept.length} projects`} kept on this computer only.`}
+          >
+            <button type="button" className="set-ghost" aria-expanded={open} onClick={() => setChoosing((v) => !v)}>{open ? 'Done' : 'Choose'}</button>
+          </Row>
+        )}
+        {macShut.all && open && macShut.projects.map((p) => (
           <Row key={p.slug} label={p.name}>
             <Switch on={!!p.onPhone} label={`${p.name} on your phone`} onChange={(v) => macShut.onSet(p.slug, v)} />
           </Row>
@@ -2098,7 +2120,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             is what a person actually presses, grouped by the moment they would
             want it; ../shortcuts.ts holds the list. Every key on it works today
             (`tests/the-shortcuts-page-lists-keys-that-work.test.mjs`). */}
-        {pane === 'phone' && <PhonePage onFeedback={onFeedback} macShut={phoneCloud ? { ...phoneCloud, projects, onSet: (slug, on) => setProject(slug, 'phone', on) } : undefined} />}
+        {pane === 'phone' && <PhonePage onFeedback={onFeedback} macShut={phoneCloud ? { ...phoneCloud, all: model?.workspace?.phoneAll !== false, projects: projects.filter((p) => p.slug !== 'practice'), onSetAll: (on) => setWorkspace('phoneAll', on), onSet: (slug, on) => setProject(slug, 'phone', on) } : undefined} />}
         {pane === 'shortcuts' && (
           <div className="set-inner set-keys-page">
             <h1 className="set-title">Shortcuts</h1>
