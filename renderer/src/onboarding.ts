@@ -1577,11 +1577,11 @@ export function nextTab(tabs: readonly string[] | undefined, view: string | unde
  *  carry no `data-tab`, so the tab tour finds one by its place in the strip.
  *  Without this the tour rang the sidebar, which in that layout holds only
  *  Inbox and Team (2026-10-01). */
-export const TEAM_TABS: readonly string[] = ['inbox', 'progress', 'snoozed', 'done', 'all'];
+export const TEAM_TABS: readonly string[] = ['inbox', 'progress', 'snoozed', 'done'];
 
 /** And the words on those tabs, the same ones Pages.tsx draws. */
 export const TEAM_TAB_NAMES: Readonly<Record<string, string>> = {
-  inbox: 'Needs you', progress: 'In progress', snoozed: 'Later', done: DONE.short, all: 'All',
+  inbox: 'Needs you', progress: 'In progress', snoozed: 'Later', done: DONE.short,
 };
 
 export function teamTab(view: string | null | undefined): string | null {

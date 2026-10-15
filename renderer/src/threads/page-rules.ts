@@ -190,15 +190,7 @@ const byFinished = (a: Ranked, b: Ranked) => finishedAt(b) - finishedAt(a);
 // it was a wall of Urgent rows in no order a reader could follow, and nothing
 // in it is waiting on a priority any more. So Done always runs newest finished
 // first, and every other tab keeps the Display's sort.
-//
-// ALL IS EVERYTHING, FINISHED THREADS INCLUDED (w-fda2165ec6, 2026-10-07): it
-// held only open ones, about 40 of 1,339 on her store. What is still open
-// comes first, in the Display's sort; what is finished follows, newest
-// finished first, the way Done reads.
 type Cmp = (a: Ranked, b: Ranked) => number;
-const isFinished = (r: Ranked) => (r.status === 'done' ? 1 : 0);
-const finishedLast = (open: Cmp): Cmp => (a, b) =>
-  isFinished(a) - isFinished(b) || (isFinished(a) ? byFinished(a, b) : open(a, b));
 //
 // A PINNED THREAD COMES FIRST (w-20323283e6), in every tab but Done and under
 // either sort, so the few threads you still mean to finish today are not dug
@@ -208,8 +200,7 @@ const pinnedOpen = (r: Ranked) => (r.pinned && r.status !== 'done' ? 1 : 0);
 const pinnedFirst = (then: Cmp): Cmp => (a, b) => pinnedOpen(b) - pinnedOpen(a) || then(a, b);
 export const order = (d: Pick<Display, 'sort'>, tab?: string, projectOrder: string[] = [], direct?: ReadonlySet<string>): Cmp => {
   if (tab === 'done') return byFinished;
-  const open = pinnedFirst(d.sort === 'updated' ? byUpdated : byPriority(projectOrder, direct));
-  return tab === 'all' ? finishedLast(open) : open;
+  return pinnedFirst(d.sort === 'updated' ? byUpdated : byPriority(projectOrder, direct));
 };
 
 /** The time column's heading: on Done it is when each thread was finished. */
@@ -326,7 +317,7 @@ export function dropWithPins(rows: { id: string; score: number; pinned?: boolean
 
 /* ------------------------------------------------------- the tabs and Tab */
 
-export type TabName = 'inbox' | 'progress' | 'snoozed' | 'done' | 'all';
+export type TabName = 'inbox' | 'progress' | 'snoozed' | 'done';
 
 /**
  * WHERE A PRESS OF TAB LANDS: on the threads page, Tab cycles the states.
@@ -373,7 +364,6 @@ export function filteredEmptyWords(view: TabName | string, hidden: number): { he
     progress: 'Nothing in your filter is running',
     snoozed: 'Nothing in your filter is in Later',
     done: 'Nothing in your filter is closed',
-    all: 'No threads match your filter',
   }[view as string] ?? 'Nothing in your filter needs you';
   const line = hidden === 1
     ? 'One more thread is behind your filters.'

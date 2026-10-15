@@ -91,7 +91,7 @@ export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearc
   // ONE PAGE OF YOUR THREADS (approved 2026-10-01). In progress, Scheduled and
   // Closed are tabs on the Inbox now, not places in the sidebar, so the Inbox
   // tab is lit on every one of them.
-  const inboxLit = !page && (['inbox', 'progress', 'snoozed', 'done', 'all'] as string[]).includes(view);
+  const inboxLit = !page && (['inbox', 'progress', 'snoozed', 'done'] as string[]).includes(view);
   const me = team?.signedIn ? team.me : null;
   const teamName = team?.team?.name ?? Name;
   // A team wears its initial. With no team the corner names the app itself, so

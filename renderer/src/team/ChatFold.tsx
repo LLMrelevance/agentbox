@@ -15,7 +15,9 @@ const WORTH_FOLDING_PX = FOLD_PX + 90;
 // (the tests draw the thread to a string). Same as threads/Pages.tsx.
 const useBeforePaint = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
-export function ChatFold({ children }: { children: ReactNode }) {
+// `lines` is for a message a person wrote: a newline they typed is a new line,
+// which markdown on its own would join into one (w-0d55a2b160).
+export function ChatFold({ children, lines = false }: { children: ReactNode; lines?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
   const [open, setOpen] = useState(false);
@@ -25,7 +27,7 @@ export function ChatFold({ children }: { children: ReactNode }) {
   }, [children, open]);
   return (
     <>
-      <div ref={box} className={`msg-body${long && !open ? ' chat-folded' : ''}`}>{children}</div>
+      <div ref={box} className={`msg-body${lines ? ' chat-lines' : ''}${long && !open ? ' chat-folded' : ''}`}>{children}</div>
       {long && (
         <button type="button" className="chat-more" onClick={() => setOpen((was) => !was)}>
           {open ? 'Show less' : 'Show the whole message'}
