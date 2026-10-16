@@ -50,3 +50,8 @@ html, body { margin: 0; width: 100%; height: 100%; background: transparent; over
 .neo-pace button:hover { color: #ece7e1; background: rgba(255, 214, 170, .06); }
 .neo-pace button.on { color: #ece7e1; }
 .neo-pace button.on::before { content: ''; width: 5px; height: 5px; background: #f07a3a; display: block; }
+
+/* Over the left half of the screen: orb on the left, card and speed on its right. */
+#neo.left #orb { right: auto; left: 24px; }
+#neo.left .neo-frame { right: auto; left: 184px; }
+#neo.left .neo-pace { right: auto; left: 12px; }

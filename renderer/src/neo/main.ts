@@ -13,6 +13,7 @@ type NeoBridge = {
   onNoMic(fn: (p: { app?: string | null }) => void): () => void;
   allowMic(): Promise<'granted' | 'settings' | 'refused'>;
   onNotice(fn: (p: { text: string }) => void): () => void;
+  onSide(fn: (p: { side: 'left' | 'right' }) => void): () => void;
   startLive(sdp: string, outside: boolean): Promise<{ ok: boolean; sdp?: string; error?: string }>;
   tool(callId: string, name: string, args: string, heard: string): Promise<unknown>;
   drag(phase: 'start' | 'move' | 'end', dx?: number, dy?: number): void;
@@ -169,6 +170,8 @@ function finish() {
 }
 
 neo.onWake(wake);
+// Over the left half of the screen the card sits on the orb's right.
+neo.onSide(({ side }) => root.classList.toggle('left', side === 'left'));
 neo.onSleep(({ reason }) => sleep(reason));
 neo.onResting(() => { root.classList.add('awake'); say('I have talked for three hours today, so I am resting until tomorrow.'); setTimeout(() => { root.classList.remove('awake'); neo.closed(); }, 5000); });
 // Main hides the window again on its own; this is not a session.

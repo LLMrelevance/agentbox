@@ -84,9 +84,22 @@ export function createNeo({
     };
   }
 
+  // Which side of the orb the card sits on: 'right' puts the orb at the
+  // window's right with the card to its left. Over the left half of a display
+  // it flips, so the card always has room.
+  const ORB_X = { right: WIDTH - 24 - 75, left: 24 + 75 };
+  let side = readPrefs().side === 'left' ? 'left' : 'right';
+  const sideFor = (b) => {
+    const orbX = b.x + ORB_X[side];
+    const { workArea: a } = screen.getDisplayNearestPoint({ x: Math.round(orbX), y: Math.round(b.y + HEIGHT / 2) });
+    return orbX < a.x + a.width / 2 ? 'left' : 'right';
+  };
+  const tellSide = () => win?.webContents.send('neo:side', { side });
+
   function place() {
     const kept = readPrefs().at;
     if (kept && Number.isFinite(kept.x) && Number.isFinite(kept.y)) { win.setBounds(within(kept.x, kept.y)); return; }
+    side = 'right';
     const point = screen.getCursorScreenPoint();
     const { workArea } = screen.getDisplayNearestPoint(point);
     win.setBounds({ x: workArea.x + workArea.width - WIDTH - MARGIN, y: workArea.y + workArea.height - HEIGHT - MARGIN, width: WIDTH, height: HEIGHT });
@@ -166,14 +179,17 @@ export function createNeo({
     seenCalls.clear();
     const outside = !mainWindow.isFocused();
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send('neo:mode', { on: true });
+    tellSide();
     win.webContents.send('neo:wake', { outside, source });
   }
 
   ipcMain.handle('neo:start-live', async (e, { sdp, outside } = {}) => {
     if (!fromNeo(e) || !live) return { ok: false, error: 'Neo is not awake.' };
-    const screenNow = await askMain('describe_screen', { outside: !!outside });
+    // Tells the app whether she is in another app; what is on screen is not
+    // given to the session (shared/neo-tools.mjs neoSession says why).
+    await askMain('describe_screen', { outside: !!outside });
     try {
-      const answer = await startLiveImpl({ sdp, session: neoSession({ screen: screenNow?.said ?? '', pace: readPrefs().pace }) });
+      const answer = await startLiveImpl({ sdp, session: neoSession({ pace: readPrefs().pace }) });
       log('session started');
       return { ok: true, sdp: answer.sdp };
     } catch (err) {
@@ -237,8 +253,15 @@ export function createNeo({
     if (!fromNeo(e) || !win) return;
     if (phase === 'start') { dragFrom = win.getBounds(); return; }
     if (!dragFrom) return;
-    if (phase === 'move' && Number.isFinite(dx) && Number.isFinite(dy)) { win.setBounds(within(dragFrom.x + dx, dragFrom.y + dy)); return; }
-    if (phase === 'end') { const { x, y } = win.getBounds(); writePrefs({ at: { x, y } }); dragFrom = null; }
+    if (phase === 'move' && Number.isFinite(dx) && Number.isFinite(dy)) {
+      const next = { x: dragFrom.x + dx, y: dragFrom.y + dy };
+      const now = sideFor(next);
+      // The orb stays under the pointer as the card changes sides.
+      if (now !== side) { const shift = ORB_X[side] - ORB_X[now]; dragFrom.x += shift; next.x += shift; side = now; tellSide(); }
+      win.setBounds(within(next.x, next.y));
+      return;
+    }
+    if (phase === 'end') { const { x, y } = win.getBounds(); writePrefs({ at: { x, y }, side }); dragFrom = null; }
   });
 
   // How fast Neo talks, from the next session on. Asked with no value, it answers.

@@ -82,13 +82,22 @@ describe('the session Neo starts', () => {
     expect(s.store).toBe(false);
   });
 
-  it('starts knowing what is on screen, marked as data rather than instructions', () => {
-    // The service takes a message's content as a list of parts, not a bare
-    // string ("expected an array of objects", measured live 2026-10-16).
-    const opening = s.input.find((m) => m.role === 'developer');
-    expect(opening.content).toEqual([{ type: 'input_text', text: expect.any(String) }]);
-    expect(opening.content[0].text).toMatch(/3 threads need you/);
-    expect(opening.content[0].text).toMatch(/data/i);
+  // She woke Neo and it opened with "what do you have in front of you? Oh I
+  // see, you've got this, this and this" (2026-10-16). Reproduced live: given
+  // the screen up front, a bare "hey" or "okay, let's see" got the inbox read
+  // out (5 of 6 runs). Without it, and told it is a tool, it said "Hi." or
+  // nothing, and a real "what needs me?" still went to the app.
+  it('starts knowing nothing of the screen, so it has nothing to fill silence with', () => {
+    expect(neoSession({ screen: '' }).input).toBeUndefined();
+    expect(neoSession({}).input).toBeUndefined();
+  });
+
+  it('is told never to speak first or fill silence, and that a greeting is not a request', () => {
+    const said = neoSession({}).instructions;
+    expect(said).toMatch(/never speak first/i);
+    expect(said).toMatch(/fill silence/i);
+    expect(said).toMatch(/greeting or filler/i);
+    expect(said).toMatch(/never volunteer what is on the screen/i);
   });
 });
 

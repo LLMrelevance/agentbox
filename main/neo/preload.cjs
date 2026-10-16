@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('neo', {
   onResting: listen('neo:resting'),
   onNoMic: listen('neo:no-mic'),
   onNotice: listen('neo:notice'),
+  onSide: listen('neo:side'),
   startLive: (sdp, outside) => ipcRenderer.invoke('neo:start-live', { sdp, outside: !!outside }),
   tool: (callId, name, args, heard) => ipcRenderer.invoke('neo:tool', { callId, name, args, heard }),
   drag: (phase, dx, dy) => ipcRenderer.send('neo:drag', { phase, dx, dy }),

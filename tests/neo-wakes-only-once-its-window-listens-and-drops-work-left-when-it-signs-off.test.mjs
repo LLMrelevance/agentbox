@@ -311,3 +311,53 @@ describe('the voice pace', () => {
     expect(await again.handlers.get('neo:pace')(null)).toBe('slow');
   });
 });
+
+// "When I put it in the top-left corner, the chat container moves
+// appropriately so it's not off-screen" (2026-10-16). Over the left half of
+// the display the card sits on the orb's right, and the orb stays under the
+// pointer as it changes sides.
+describe('the card on the side with room', () => {
+  const ORB_RIGHT = 600 - 24 - 75; // orb centre in the window, card on its left
+  const ORB_LEFT = 24 + 75;        // and with the card on its right
+  async function awake(userData) {
+    const f = fakes({ userData });
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    return f;
+  }
+  const sides = (f) => f.neoSent.filter(([ch]) => ch === 'neo:side').map(([, p]) => p.side);
+
+  it('starts with the card on the orb\'s left, in the bottom-right corner', async () => {
+    const f = await awake();
+    expect(sides(f).at(-1)).toBe('right');
+  });
+
+  it('moves the card to the orb\'s right over the left half, keeping the orb under the pointer', async () => {
+    const f = await awake();
+    const start = f.windows.last.getBounds();
+    const orbAt = start.x + ORB_RIGHT;
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -1500, dy: -800 });
+    expect(sides(f).at(-1)).toBe('left');
+    const b = f.windows.last.getBounds();
+    expect(b.x + ORB_LEFT).toBe(orbAt - 1500);
+    expect(b.y).toBe(start.y - 800);
+  });
+
+  it('lets the orb reach the left edge once the card is on its right', async () => {
+    const f = await awake();
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -5000, dy: -5000 });
+    expect(f.windows.last.getBounds()).toMatchObject({ x: 0, y: 0 });
+  });
+
+  it('keeps the side with the place', async () => {
+    const f = await awake();
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -1500, dy: -800 });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'end' });
+    const again = await awake(f.userData);
+    expect(sides(again).at(-1)).toBe('left');
+  });
+});
