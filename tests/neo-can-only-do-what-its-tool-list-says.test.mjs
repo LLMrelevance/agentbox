@@ -154,3 +154,19 @@ describe('commands, scrolling and showing', () => {
     expect(neoSession({}).instructions).toMatch(/open a thread for the person/i);
   });
 });
+
+// "I asked it to full screen the picture and it sent that as feedback"
+// (2026-10-16): a request to the app went to the agent as a reply.
+describe('a request to the app is never sent to the agent', () => {
+  it('both instructions say a reply is only for words she wants sent', () => {
+    const s = neoSession({});
+    for (const said of [s.instructions, s.delegation.responses.instructions]) {
+      expect(said).toMatch(/never a reply/i);
+    }
+  });
+
+  it('the reply tool says so too', () => {
+    const reply = NEO_TOOLS.find((t) => t.name === 'reply');
+    expect(reply.description).toMatch(/only when the person asks to send/i);
+  });
+});
