@@ -29,16 +29,20 @@ import { WEBSITE_PARTITION } from '../shared/websites.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 
+// THE DANGEROUS PREFERENCES BELOW ARE THE TEST. Every one of them is what a
+// tag might ask for and the guard refuses, so the file has to be able to say
+// them; the assertions underneath are that none survives. The public check
+// reads a push for exactly these words and is right to, hence the markers.
 describe('a tag that asks for the keys to the app', () => {
   const asked = () => ({
     preload: '/Applications/Agentbox.app/preload.cjs',
     preloadURL: 'file:///Applications/Agentbox.app/preload.cjs',
-    nodeIntegration: true,
-    nodeIntegrationInSubFrames: true,
-    contextIsolation: false,
-    sandbox: false,
-    webSecurity: false,
-    allowRunningInsecureContent: true,
+    nodeIntegration: true, // public-check: allow
+    nodeIntegrationInSubFrames: true, // public-check: allow
+    contextIsolation: false, // public-check: allow
+    sandbox: false, // public-check: allow
+    webSecurity: false, // public-check: allow
+    allowRunningInsecureContent: true, // public-check: allow
     experimentalFeatures: true,
   });
 
