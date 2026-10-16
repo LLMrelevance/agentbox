@@ -62,7 +62,7 @@ const CHANNELS = [
 
 export function createCornerTag({
   BrowserWindow, screen, ipcMain, Menu, powerMonitor, config, saveConfig, mainWindow, load, preload,
-  now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout, mac = process.platform === 'darwin',
+  count = () => {}, now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout, mac = process.platform === 'darwin',
 }) {
   const wins = { tag: null, card: null };
   const loaded = { tag: false, card: false };
@@ -451,6 +451,7 @@ export function createCornerTag({
     const until = hiddenUntil(choice, now());
     if (!until) return;
     saveConfig(config, { cornerTagHiddenUntil: until });
+    count('tag_hidden', { seconds: Math.round((until - now()) / 1000) });
     refresh();
   };
 

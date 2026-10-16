@@ -230,7 +230,14 @@ export function createAnalytics({ config, version, dir, client, env = process.en
       return sent;
     },
 
-    async flush() { try { await posthog?.flush?.(); } catch {} },
+    // AND THE SWITCH IS READ HERE TOO (w-60c8ddbab6). This is a send like any
+    // other, which is note 4 at the top of this file, and until the quit
+    // started waiting for it the point was moot: a fire-and-forget flush on the
+    // way out mostly never left the machine. Now that it lands, a flush asked
+    // for after the switch went off would carry events captured before it did,
+    // and section 10 of the privacy page says turning it off "stops sending from
+    // that moment".
+    async flush() { if (!on()) return; try { await posthog?.flush?.(); } catch {} },
     async shutdown() { try { await posthog?.shutdown?.(); } catch {} },
   };
 }

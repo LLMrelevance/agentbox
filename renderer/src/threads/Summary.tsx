@@ -109,6 +109,8 @@ export function useSummaryShortcut(onToggle: () => void, enabled = true) {
       if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      // An open emoji picker takes letters for its search (team/ChatActions.tsx).
+      if (document.querySelector('.chat-emoji, .chat-emoji-all')) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       if (!e.repeat) onToggle();

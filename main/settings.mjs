@@ -1088,6 +1088,14 @@ export function strayFolderSettings({ supervisor }, home = os.homedir()) {
   return { count, now };
 }
 
+export function cornerTagTurnedOff({ key, value } = {}) {
+  return key === 'cornerTag' && !value;
+}
+
+export function countsTurnedOff({ key, value } = {}) {
+  return key === 'diagnostics' && !value;
+}
+
 export function setWorkspaceSetting({ config, supervisor, store }, { key, value }) {
   switch (key) {
     // EVERY PROJECT ON HER PHONE, or none (shared/phone-snapshot.mjs). Which
@@ -1171,8 +1179,21 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
     case 'cloudRuns': {
       const map = { mac: false, full: null, all: 'all' };
       if (!(value in map)) throw new Error(`unknown cloud mode: ${value}`);
-      saveConfig(config, { cloudRuns: map[value] });
-      config.cloudRuns = map[value];
+      // Turning the cloud on to one meaning makes that the one C goes back to.
+      const patch = value === 'mac' ? { cloudRuns: false } : { cloudRuns: map[value], cloudWhenOn: value };
+      saveConfig(config, patch);
+      Object.assign(config, patch);
+      supervisor.wake?.();
+      supervisor.onChange?.();
+      break;
+    }
+    // WHAT "ON" MEANS (renderer/src/cloud-menu.ts): kept while the cloud is
+    // off, and taking effect at once while it is on.
+    case 'cloudWhenOn': {
+      if (value !== 'full' && value !== 'all') throw new Error(`unknown meaning of on: ${value}`);
+      const patch = config.cloudRuns === false ? { cloudWhenOn: value } : { cloudWhenOn: value, cloudRuns: value === 'all' ? 'all' : null };
+      saveConfig(config, patch);
+      Object.assign(config, patch);
       supervisor.wake?.();
       supervisor.onChange?.();
       break;
