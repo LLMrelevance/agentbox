@@ -47,6 +47,9 @@ async function main() {
       if (state === 'expired') markCloudLogin(engine, dir, id, { expiresAt: Date.now() });
       else markCloudLogin(engine, dir, id, { broken: state });
     },
+    // An account at its usage limit sits out until it resets; the next run
+    // takes another cloud account, or this Mac.
+    onLimit: ({ until }) => { if (rec) markCloudLogin(engine, dir, rec.id, { limitedUntil: until }); },
     remoteCommand: codex ? 'codex' : 'claude',
     argv: importOnly ? [] : process.argv.slice(codex ? 3 : 2),
     env: process.env,

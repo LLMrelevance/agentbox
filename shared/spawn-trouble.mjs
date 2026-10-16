@@ -326,6 +326,12 @@ export function limitResetMoment(raw, from = Date.now()) {
   if (!m) return null;
   const h = (Number(m[1]) % 12) + (m[3] === 'pm' ? 12 : 0);
   const d = new Date(from);
+  // A cloud machine prints its own zone, UTC, which is not the Mac's.
+  if (/resets\s+(?:at\s+)?\S+\s*\(UTC\)/i.test(String(raw))) {
+    d.setUTCHours(h, Number(m[2] ?? 0), 0, 0);
+    if (d.getTime() < from - 60_000) d.setUTCDate(d.getUTCDate() + 1);
+    return d.getTime();
+  }
   d.setHours(h, Number(m[2] ?? 0), 0, 0);
   if (d.getTime() < from - 60_000) d.setDate(d.getDate() + 1);
   return d.getTime();

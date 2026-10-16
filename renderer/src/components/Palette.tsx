@@ -231,11 +231,14 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
     // Its own row, so reaching the import does not mean walking the onboarding
     // again; that is why it sits above the onboarding row. "bring" and "across"
     // stay in the keywords from the old label.
+    // Both halves stay short: at 39 and 73 characters this was the longest
+    // label and the longest hint in the palette, and it wrapped onto two lines
+    // each. tests/a-palette-row-never-stacks-onto-two-lines holds the ceiling.
     {
       id: 'import-agents',
-      label: 'Import agents from Claude Code or Codex',
-      hint: 'your last ten days on this computer · they land in your inbox',
-      keywords: 'import agents claude code codex conversations threads sessions subagents existing mine bring across add my recent',
+      label: 'Import chats and agents',
+      hint: 'from Claude Code or Codex · recent or by name',
+      keywords: 'import agents claude code codex conversations threads sessions subagents existing mine bring across add my recent older chat find search by name title past old',
       run: onImportAgents,
     },
     // The tutorial practises and keeps nothing; the onboarding row below sets
@@ -344,7 +347,7 @@ function PaletteBox({ commands, onClose }: { commands: Command[]; onClose: () =>
               onClick={c.run}
               onMouseEnter={() => setSelected(i)}
             >
-              <span>{c.label}</span>
+              <span className="palette-label">{c.label}</span>
               {c.keyHint ? <span className="palette-key">{c.keyHint}</span> : c.hint && <span className="palette-hint">{c.hint}</span>}
             </div>
           ))}
