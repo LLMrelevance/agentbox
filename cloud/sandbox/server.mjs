@@ -124,6 +124,7 @@ export function createSandbox({
   // secret: `shape` masks every long run of key-like characters first.
   log = () => {},
   codeAnswerMs = CODE_ANSWER_MS,
+  enterAfterMs = 400,
   // Which Claude account a new token belongs to, so the Mac can name it.
   // Best effort: a token that cannot say is kept all the same, unnamed.
   whoIs = claudeAccountEmail,
@@ -880,7 +881,14 @@ export function createSandbox({
         if (!code) return { ok: false, error: 'empty-code' };
         r.codeSent = true;
         r.markCode?.();
-        r.child.stdin.write(`${code}\r`);
+        // THE CODE, THEN ENTER ON ITS OWN. Sent together, Claude reads the
+        // return as part of a paste and never submits a real-length code
+        // (2.1.301, measured 2026-10-15: she sat on Adding; the code showed
+        // as stars and nothing more).
+        r.child.stdin.write(code);
+        await new Promise((res) => setTimeout(res, enterAfterMs));
+        if (!r.child || r.signinOver) return { ok: false, error: 'not-waiting' };
+        r.child.stdin.write('\r');
         signinEvent(r, 'checking');
         clearTimeout(r.codeTimer);
         note(r, 'code sent');

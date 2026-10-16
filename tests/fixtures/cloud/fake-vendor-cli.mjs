@@ -34,7 +34,12 @@ if (name === 'claude' && args[0] === 'setup-token') {
   process.stdout.write('Paste code here if prompted > ');
   let got = '';
   process.stdin.on('data', (d) => {
-    got += d;
+    // A RETURN THAT ARRIVES WITH THE TEXT IS PART OF A PASTE, not a press of
+    // Enter, and is not acted on, as the real command does (2.1.301,
+    // 2026-10-15): only a return on its own submits the code.
+    const chunk = String(d);
+    if (/[\r\n]/.test(chunk) && chunk.replace(/[\r\n]/g, '').length > 0) { got += chunk.replace(/[\r\n]/g, ''); return; }
+    got += chunk;
     if (!/[\r\n]/.test(got)) return;
     const code = got.trim();
     // A CODE CLAUDE DOES NOT TAKE, said and then waited on, as the real

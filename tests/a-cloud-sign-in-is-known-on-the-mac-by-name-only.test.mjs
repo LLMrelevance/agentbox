@@ -180,7 +180,7 @@ describe('the cloud menu\'s sign-in', () => {
   // never ends, says so, and stops the session.
   it('stops waiting on a check that never ends, says so, and stops the cloud session', async () => {
     makeSandbox('claude-silent');
-    const s = startCloudSignIn({ transport, storage, engine: 'claude', dir: '/Users/x/.claude-q', home, pollWaitMs: 50, checkMs: 300 });
+    const s = startCloudSignIn({ transport, storage, engine: 'claude', dir: '/Users/x/.claude-q', home, pollWaitMs: 50, checkMs: 1500 });
     await until(() => s.status().state === 'needs-code', 'the link');
     await s.code('good#code');
     expect(s.status().state).toBe('checking');
