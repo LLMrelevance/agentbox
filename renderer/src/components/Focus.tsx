@@ -1066,7 +1066,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       // A PAGE OR A MARKDOWN FILE OPENS IN THE PANE.Everything else still goes
       // to the app that owns it, because Preview draws a png better than we
       // ever will.
-      if (onOpenDoc && ((!/^https?:/.test(href) && opensInPane(href)) || isLocalPreview(href))) { onOpenDoc(href); return; }
+      //
+      // AND SO DOES AN ORDINARY WEB LINK, since 2026-10-15. It used to be
+      // excluded here by hand (`!/^https?:/.test(href)`), so every https
+      // address left the app for the browser and the thread went out of sight.
+      // `docKind` now answers `website` for one, so the question is the same
+      // question for a file and for a page: does the pane draw this.
+      if (onOpenDoc && (opensInPane(href) || isLocalPreview(href))) { onOpenDoc(href); return; }
       const api = (window as any).zero;
       if (!api?.openArtifact) { window.open(resolveSrc(href), '_blank'); return; }
       const source = sourceReference(href);

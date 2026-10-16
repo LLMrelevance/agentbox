@@ -2716,8 +2716,15 @@ export default function App() {
   // still in the page and every letter she types goes into the file instead of
   // into the palette's field.
   useEffect(() => {
-    const off = (window.zero as any)?.onKeyInTheFile?.((k: { key: string; meta?: boolean; ctrl?: boolean }) => {
-      if (!focusIsInTheFile(document.activeElement)) return;
+    const off = (window.zero as any)?.onKeyInTheFile?.((k: { key: string; meta?: boolean; ctrl?: boolean; fromGuest?: boolean }) => {
+      // A KEY OUT OF A WEBVIEW NEEDS NO FOCUS CHECK, and must not be given
+      // one. The check below exists to stop a key being answered twice when
+      // the window's own handler also heard it. The window never hears a
+      // guest's keys: a webview is a separate WebContents, not a frame of
+      // this page, and `document.activeElement` stays on BODY while the guest
+      // holds the keyboard (measured in the running app). So main says where
+      // the key came from and only a frame's is checked.
+      if (!k.fromGuest && !focusIsInTheFile(document.activeElement)) return;
       const meant = whatTheFileSentUp(k);
       if (meant === 'close') {
         if (!escapeInTheFileClosesIt(openDoc)) return;

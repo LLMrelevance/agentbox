@@ -806,6 +806,16 @@
 .workspace-layout:is([data-design-toolbar="floating"],[data-design-toolbar="corner"],[data-design-toolbar="edge"])[data-artifact-layout="beside"] .doc-html .doc-card:focus-within > .doc-head {
  opacity:1; pointer-events:auto; transform:translateY(0);
 }
+/* A browsed page has a browser bar rather than the document header the block
+   above floats, and it is flush to the pane's edge rather than inset. The two
+   rules that put the inset there are written through the whole path, so these
+   have to be as well or they lose the cascade by one class. */
+.workspace-layout[data-artifact-layout="beside"] .doc-browsing .doc-view { border:0; border-radius:0; }
+.workspace-layout[data-artifact-layout="beside"] > .body > .artifact-host > .doc-pane.doc-browsing .doc-card,
+.workspace-layout[data-artifact-layout="focus"] .doc-pane.doc-browsing .doc-card {
+ margin:0; border:0; border-radius:0;
+}
+
 @media (hover:none) {
  .workspace-layout[data-design-toolbar][data-artifact-layout="beside"] .doc-html .doc-head { opacity:1; pointer-events:auto; transform:none; }
 }

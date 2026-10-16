@@ -58,7 +58,9 @@ describe('the renderer cannot send anything', () => {
 describe('the list of what may be sent', () => {
   // Her seven, and since 2026-10-06 the five that count real use rather than
   // the walkthrough (tests/real-use-is-counted.test.mjs says why).
-  it('is her twelve and no more', () => {
+  // And since 2026-10-16 five about the minutes after setup
+  // (tests/what-people-do-after-setup-is-counted.test.mjs).
+  it('is her seventeen and no more', () => {
     expect(Object.values(EVENTS)).toEqual([
       `${Name} was opened`,
       'First run finished',
@@ -72,6 +74,11 @@ describe('the list of what may be sent', () => {
       'A task was written',
       'An agent started work',
       'An agent stopped work',
+      `${Name} was quit`,
+      'The corner tag was hidden',
+      'The corner tag was turned off',
+      'Setup offered agents to import',
+      'Setup imported agents',
     ]);
   });
 
@@ -291,8 +298,8 @@ describe('the README, which is where the privacy notice lives', () => {
       .replace(Name.toLowerCase(), 'the app'));
     const missing = said.filter((sentence) => !text.includes(sentence));
     expect(missing).toEqual([]);
-    expect(text).toContain('twelve things');
-    expect(EVENT_NAMES).toHaveLength(12);
+    expect(text).toContain('seventeen things');
+    expect(EVENT_NAMES).toHaveLength(17);
   });
 
   it('promises no content leaves, which is what sanitize enforces', () => {

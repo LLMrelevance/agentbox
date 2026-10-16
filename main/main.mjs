@@ -46,6 +46,7 @@ import { createCornerTag } from './corner-tag.mjs';
 import { DOC_SCHEMES, DocGrants, docPath } from './doc-scheme.mjs';
 import { quietTheFramesScrollbars } from './frame-scrollbars.mjs';
 import { letLocalAppsShowInThePane } from './local-app-frames.mjs';
+import { hardenAttachedWebview } from './webview-guard.mjs';
 import { IMG_SCHEMES, imgPath, mediaResponse, mediaType, servable } from './img-scheme.mjs';
 import { hotWindowVerdict, storeHasWork } from './dev-window.mjs';
 import { writeHeldThenReload } from './write-before-reload.mjs';
@@ -449,6 +450,7 @@ async function createWindow() {
   // process went as soon as this returned, so the last batch was a POST that
   // never left, which on an install that opens the app once is everything we
   // would ever have heard from it (w-60c8ddbab6).
+  quitStep(app, 'before-quit', 'count the quit', () => analytics.track('app_quit', { seconds: Math.round(process.uptime()) }));
   flushBeforeQuit(app, () => analytics.flush());
 
   // Right-click. Electron ships no context menu at all, so links could not be
@@ -977,6 +979,7 @@ async function createWindow() {
   createCornerTag({
     BrowserWindow, screen: electronScreen, ipcMain, Menu, powerMonitor, config, saveConfig, mainWindow: window,
     preload: path.join(appDir, 'main', 'corner-tag-preload.cjs'),
+    count: (name, props) => analytics.track(name, props),
     // `part` is the tag itself or the list beside it, one page drawn twice.
     load: (tagWindow, part) => {
       const devTag = process.env.ZERO_DEV_URL;
@@ -1010,18 +1013,14 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
-  // NO PAGE IN AN EMBEDDED BROWSER STARTS SOUND BEFORE SHE HAS CLICKED IN IT.
+  // WHAT AN EMBEDDED PAGE MAY DO IS DECIDED HERE, NOT ON THE TAG THAT ASKED.
   //
-  // Electron's default is `no-user-gesture-required`, so any page may start
-  // media the moment it loads, and the rest browser reloads her last tab at
-  // every launch, out of sight. Measured 2026-09-10 on Electron 43 in a hidden
-  // webview on a YouTube watch page: default, the video ran from 3s to 15s;
-  // with this rule it sat paused at 0 for all 16s. A click anywhere in the page
-  // is activation, so pressing play, or picking the next video inside YouTube,
-  // works as before. Every webview this window attaches gets it, the junk
-  // browser included, which is what "never" asks for.
-  window.webContents.on('will-attach-webview', (_e, webPreferences) => {
-    webPreferences.autoplayPolicy = 'document-user-activation-required';
+  // The pane draws a website now, which is the first code in this window that
+  // nobody here wrote, so every webview is pinned below the tag: no preload,
+  // sandboxed, context-isolated, node off, web security on, and no sound
+  // before a click. main/webview-guard.mjs is the rule and the reasons.
+  window.webContents.on('will-attach-webview', (_e, webPreferences, params) => {
+    hardenAttachedWebview(webPreferences, params);
   });
 
   // A page in the pane hides its scrollbar until you scroll, like the app's own
@@ -1037,10 +1036,34 @@ async function createWindow() {
   // focus and would otherwise swallow the key. Intercept it below the page.
   app.on('web-contents-created', (_event, contents) => {
     if (contents.getType() !== 'webview') return;
+
+    // A LINK IN A WEBSITE THAT WANTS A NEW WINDOW GOES TO YOUR OWN BROWSER.
+    // The pane is one page at a time; a second Electron window would be a
+    // browser we have not designed, and `allowpopups` is off anyway
+    // (webview-guard.mjs), so without this such a link does nothing at all.
+    contents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:/.test(url)) shell.openExternal(url);
+      return { action: 'deny' };
+    });
+
     contents.on('before-input-event', (e, input) => {
+      // ESCAPE HAS TO REACH THE APP FROM INSIDE A PAGE, and a webview is not
+      // a frame of this window, so the handler above never hears it. It comes
+      // up the same channel a frame's does, because the renderer answers that
+      // one and decides there what escape means (whatTheFileSentUp). It used
+      // to be sent on `zero:escape-browser`, the junk browser's own channel,
+      // which no renderer code has listened to since that pane went: the key
+      // landed nowhere and the pane took two presses to close.
       if (input.type === 'keyDown' && input.key === 'Escape' && window && !window.isDestroyed()) {
-        window.webContents.send('zero:escape-browser');
-        window.webContents.focus();
+        // The keyboard is left where it is, exactly as it is for a frame: the
+        // renderer blurs the page before the pane goes. Taking focus back
+        // here first would move `document.activeElement` off the webview, and
+        // the renderer's own check of the same fact would then refuse the key
+        // that this just sent.
+        window.webContents.send('zero:key-in-the-file', {
+          key: input.key, meta: !!input.meta, ctrl: !!input.control, alt: !!input.alt, shift: !!input.shift,
+          fromGuest: true,
+        });
         return;
       }
       // The guest page owns the keyboard while she is in the junk browser, so
