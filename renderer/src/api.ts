@@ -511,7 +511,10 @@ export const api = {
   // one), so a build carrying this channel can be talking to a process that has
   // never heard of it. That answers empty rather than throwing: the door says
   // the app needs reopening, and nothing else on the task is affected.
-  async itemHistory(p: { product: string; id: string }): Promise<{ ok: boolean; lines: LedgerLine[]; error?: string }> {
+  // `before` keeps only the lines written at or before that moment, so a
+  // thread's history as it stood when another was filed from it is not cut off
+  // by the 400 newest lines (renderer/src/recap.ts, recapFor).
+  async itemHistory(p: { product: string; id: string; before?: number }): Promise<{ ok: boolean; lines: LedgerLine[]; error?: string }> {
     if (useFixtures) return { ok: true, lines: (fixtureHistory as any)[p.id] ?? [] };
     const zero = window.zero as any;
     if (!zero?.itemHistory) return { ok: false, lines: [], error: `quit and reopen ${NAME} to see this` };

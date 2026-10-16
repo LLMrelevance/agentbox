@@ -154,7 +154,7 @@ const HANDLED = {
   '\\': [[chords, "if (e.key === '\\\\')"], [chords, 'togglePanel();']],
   // Into the task the toast is about, on the list and inside a task alike
   // (w-f0bfe32859). Gated on the toast in toast-parts.ts, which has its own test.
-  'O': [[chords, 'const goesTo = opensTheToast(e.key, toast);'], [chords, 'openToastRow(goesTo);']],
+  'O': [[chords, 'const goesTo = opensTheToast(e.key, toast, focused ? { product: focused.product, id: focused.id } : null);'], [chords, 'openToastRow(goesTo);']],
 };
 
 describe('every key the shortcuts page draws is one the app answers', () => {

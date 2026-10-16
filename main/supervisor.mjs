@@ -1,6 +1,7 @@
 import { currentActivity } from './agent-activity.mjs';
 import { harnessFor, supportsHarnessOperation } from './harnesses.mjs';
 import { streamingText, countHelpers, saidNothingSheCanUse } from './harnesses/claude-stream.mjs';
+import { NO_METERED_KEY } from './harnesses/claude.mjs';
 export { streamingText, countHelpers, saidNothingSheCanUse } from './harnesses/claude-stream.mjs';
 import { taskRemoteControl } from './task-remote-control.mjs';
 import { taskFolderPath, real, restoreTaskFolder } from './task-folders.mjs';
@@ -4112,10 +4113,12 @@ export class Supervisor {
     if (action === 'cancel') { if (going) await live.cancel(); this._cloudSignIns.delete(flowKey); this.onChange?.(); return { key: account }; }
     if (action !== 'start') throw new Error(`unknown sign-in step: ${action}`);
     if (going) return { key: account };
-    // One sign-in at a time per engine: a second Add while one is going
-    // gives back the one going.
+    // One sign-in at a time per engine WHILE IT NEEDS HER: a second Add then
+    // gives back the one going. One the cloud is only checking needs nothing
+    // of her, so another account can be added beside it (2026-10-15: she
+    // could not add a second Claude account while the first said Adding…).
     for (const [k, f] of this._cloudSignIns) {
-      if (k.startsWith(`${which}|`) && !['saved', 'failed'].includes(f.status().state)) return { key: k.split('|')[1] };
+      if (k.startsWith(`${which}|`) && ['starting', 'needs-code', 'waiting'].includes(f.status().state)) return { key: k.split('|')[1] };
     }
     // Taken at once, so a second Start before the cloud answers starts nothing.
     const held = { state: 'starting', url: null, code: null, message: null };
@@ -8742,6 +8745,14 @@ export class Supervisor {
     add(this.config.storeRoot);
     if (product?.dir) add(product.dir);
     rules.permissions = { ...(rules.permissions ?? {}), additionalDirectories: dirs };
+    // A KEY IN A SETTINGS FILE BILLS THE SAME AS ONE IN THE ENVIRONMENT. The
+    // scrub in `_workerEnv` never sees it: Claude Code reads `env` out of
+    // ~/.claude/settings.json and a project's .claude/settings.json for itself,
+    // and runs `apiKeyHelper`. This file is the layer above both, so a blank
+    // here puts the run back on the login (measured on 2.1.301, w-6d8c543a43).
+    // A base address and token are left alone: a gateway is a choice.
+    rules.env = { ...(rules.env ?? {}), ...NO_METERED_KEY.env };
+    rules.apiKeyHelper = NO_METERED_KEY.apiKeyHelper;
     const gateHooks = this.memoryGateHooks();
     if (gateHooks) rules.hooks = { ...(rules.hooks ?? {}), ...gateHooks };
     // Beside the MCP config, and written the same way: a real file on disk,
