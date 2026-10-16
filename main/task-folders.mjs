@@ -171,11 +171,41 @@ export function repoRoot(dir) {
  */
 function startRepository(dir) {
   if (!dir || !fs.existsSync(dir)) return null;
+  const why = gitWillNotRun(dir);
+  if (why) throw Error(why);
   if (!tryGit(dir, ['init', '-q']).ok) return null;
   const root = repoRoot(dir);
   try { firstCommitIfNone(root); }
   catch (error) { fs.rmSync(path.join(root, '.git'), { recursive: true, force: true }); throw error; }
   return root;
+}
+
+/**
+ * WHEN GIT ITSELF CANNOT RUN HERE, THE ONE THING TO DO ABOUT IT (2026-10-15).
+ *
+ * `repoRoot` reads every failure as "not a repository", and two everyday setups
+ * fail before git looks at anything: a Mac without the Command Line Tools,
+ * whose `/usr/bin/git` only prints "xcrun: error: invalid active developer
+ * path", and a repository owned by another account, which git refuses as
+ * "dubious ownership". Both ended as "no folder could be made" with a list of
+ * causes that named neither, and the second ran `git init` over somebody
+ * else's repository on the way. The sentence returned here is what the task's
+ * row says, after "could not be given a folder of its own to work in: ".
+ */
+function gitWillNotRun(dir) {
+  const asked = tryGit(dir, ['rev-parse', '--show-toplevel']);
+  if (asked.ok) return null;
+  if (/xcrun: error|invalid active developer path|no developer tools were found/i.test(asked.out)) {
+    return `git is not set up on this Mac yet. Open Terminal, run xcode-select --install, and reply here once it has finished`;
+  }
+  if (/\bENOENT\b/.test(asked.out)) {
+    return `git is not installed on this computer, and ${Name} needs it to give each task a folder. Install git, then reply here`;
+  }
+  const owned = /dubious ownership in repository at '([^']+)'/.exec(asked.out);
+  if (owned) {
+    return `git will not work in ${owned[1]} because that folder belongs to another account on this computer. If it is yours, run git config --global --add safe.directory '${owned[1]}' in Terminal, then reply here`;
+  }
+  return null;
 }
 
 /**
@@ -211,9 +241,7 @@ function sizeOfFirstCommit(root) {
  * The first commit, made only when there is none: a repository with any commit
  * at all is never committed to here, so work somebody has not committed stays
  * theirs. `--allow-empty` because an empty folder is a real first project.
- * A Mac where git has never been told who you are gets a name for this one
- * commit rather than a refusal, and signing is off for it, because a signing
- * setup that asks for a passphrase would hang a commit nobody is watching.
+ * Made `asTheApp`, like every commit in this file.
  */
 function firstCommitIfNone(root) {
   if (tryGit(root, ['rev-parse', '--verify', '-q', 'HEAD']).ok) return;
@@ -223,8 +251,33 @@ function firstCommitIfNone(root) {
     throw Error(`this project's folder is not a git repository yet, and at more than ${sizeSaid(size)} it is too big for ${Name} to make one by itself. In a terminal in that folder run git init, add a .gitignore for the big folders, and make a first commit`);
   }
   if (!tryGit(root, ['add', '-A']).ok) return;
-  const who = tryGit(root, ['config', 'user.email']).out ? [] : ['-c', `user.name=${Name}`, '-c', `user.email=${nameSlug}@localhost`];
-  tryGit(root, [...who, '-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '--allow-empty', '-m', `First commit, made by ${Name} so each task can have a folder of its own`]);
+  tryGit(root, [...asTheApp(root), 'commit', '-q', '--no-verify', '--allow-empty', '-m', `First commit, made by ${Name} so each task can have a folder of its own`]);
+}
+
+/**
+ * EVERY COMMIT THE APP MAKES IS MADE WITH NOBODY WATCHING, so it cannot ask
+ * anybody anything. Two things a person's git setup can make a commit ask:
+ *
+ *   Who are you. A git with no name or email set refuses with "Please tell me
+ *   who you are" wherever it cannot make one up, which is any repository with
+ *   `user.useConfigOnly` and any Linux whose host name has no domain. A park
+ *   refused that way left the folder on the disk for good (2026-10-15). So
+ *   whatever is missing is filled in with the app's name, and whatever the
+ *   person set is kept.
+ *
+ *   A passphrase. With `commit.gpgsign` on, the signer can open a pinentry
+ *   window or wait on 1Password, and measured on 2026-10-15 with a signer that
+ *   waits, a park never came back. Folder jobs run one at a time, so that one
+ *   park left every later task in every project without a folder. Signing is
+ *   off for the app's commits only; the person's own still sign.
+ */
+function asTheApp(cwd) {
+  const set = (key) => { const got = tryGit(cwd, ['config', key]); return got.ok && got.out !== ''; };
+  return [
+    ...(set('user.name') ? [] : ['-c', `user.name=${Name}`]),
+    ...(set('user.email') ? [] : ['-c', `user.email=${nameSlug}@localhost`]),
+    '-c', 'commit.gpgsign=false',
+  ];
 }
 
 /**
@@ -475,10 +528,23 @@ export function ensureTaskFolder(dir, id, { pid = process.pid, dependencies = tr
  * arrived in git 2.32; on an older one the lock is written straight after,
  * which narrows the window rather than closing it and is no reason to refuse
  * the folder.
+ *
+ * AN ADD THAT SAYS IT FAILED MAY HAVE MADE THE FOLDER ANYWAY (2026-10-15). git
+ * runs the repository's post-checkout hook after the worktree is made and
+ * hands back the hook's exit as its own, and git-lfs's hook exits 1 on a
+ * machine without git-lfs. Read as a failure, the retry below was refused
+ * because the first add had already made the branch, and every task in that
+ * repository went without a folder. A checkout that itself fails is undone by
+ * git and leaves nothing registered, so a registered folder with a commit in
+ * it is one the hook complained about after the fact, and it is ours.
  */
 function addOwned(root, folder, rest, pid) {
   const owned = tryGit(root, ['worktree', 'add', '--lock', '--reason', lockReason(pid), ...rest]);
   if (owned.ok) return owned;
+  if (record(root, folder) && tryGit(folder, ['rev-parse', '--verify', '-q', 'HEAD']).ok) {
+    if (record(root, folder)?.lock === undefined) tryGit(root, ['worktree', 'lock', '--reason', lockReason(pid), folder]);
+    return { ok: true, out: owned.out };
+  }
   const added = tryGit(root, ['worktree', 'add', ...rest]);
   if (added.ok) tryGit(root, ['worktree', 'lock', '--reason', lockReason(pid), folder]);
   return added;
@@ -708,9 +774,87 @@ export function releaseTaskFolder(dir, id, { pid = process.pid, path: given = nu
   tryGit(root, ['worktree', 'unlock', folder]);
   // No --force: git refuses a second time if anything is uncommitted, which is
   // the belt under this braces.
-  const removed = tryGit(root, ['worktree', 'remove', folder]);
+  const removed = removeWorktree(root, folder);
   if (!removed.ok) return { removed: false, reason: 'refused', path: folder, detail: removed.out };
   return { removed: true, reason: 'merged', path: folder };
+}
+
+/**
+ * `git worktree remove`, AND A FOLDER HOLDING SUBMODULES TOO, WHEN THAT LOSES
+ * NOTHING (2026-10-15).
+ *
+ * git refuses to remove any worktree with a submodule filled in, clean or not:
+ * "working trees containing submodules cannot be moved or removed". A task in a
+ * repository with submodules starts with them empty, so an agent's first act is
+ * `git submodule update --init`, and from then on park and release were refused
+ * on every sweep and that folder was never reclaimed. Emptying the submodules
+ * first does not help: git still refuses while their repositories live on
+ * under the worktree's own `modules`.
+ *
+ * The refusal guards one real thing. Those repositories are the only copy of
+ * anything committed inside a submodule and not pushed, and `--force` deletes
+ * them. So it is forced only once that is provably nothing: no file anywhere in
+ * the folder or its submodules uncommitted, no submodule whose repository sits
+ * inside its own directory where this cannot look, and every commit in every
+ * submodule repository already on one of its remotes. Anything else stays
+ * refused, kept and reported as before.
+ */
+function removeWorktree(root, folder) {
+  const removed = tryGit(root, ['worktree', 'remove', folder]);
+  if (removed.ok || !/submodules/.test(removed.out)) return removed;
+  if (!submodulesHoldNothingOfTheirOwn(folder)) return removed;
+  return tryGit(root, ['worktree', 'remove', '--force', folder]);
+}
+
+function submodulesHoldNothingOfTheirOwn(folder) {
+  try {
+    const status = tryGit(folder, ['status', '--porcelain', '--ignore-submodules=none']);
+    if (!status.ok || status.out !== '') return false;
+    if (!everySubmoduleKeepsItsRepositoryOutside(folder)) return false;
+    const gitDir = tryGit(folder, ['rev-parse', '--absolute-git-dir']);
+    if (!gitDir.ok) return false;
+    return repositoriesUnder(path.join(gitDir.out, 'modules')).every((repo) => {
+      const own = tryGit(repo, ['--git-dir', repo, 'rev-list', '-n', '1', '--all', '--not', '--remotes']);
+      return own.ok && own.out === '';
+    });
+  } catch { return false; }
+}
+
+/**
+ * A submodule added from a repository already in place keeps that repository
+ * in its own `.git` directory rather than under `modules`, and a forced removal
+ * deletes it with the files. Asked of every level, since a submodule can hold
+ * its own.
+ */
+function everySubmoduleKeepsItsRepositoryOutside(at) {
+  const staged = tryGit(at, ['ls-files', '-s']);
+  if (!staged.ok) return false;
+  for (const line of staged.out.split('\n')) {
+    if (!line.startsWith('160000 ')) continue;
+    const inner = path.join(at, line.slice(line.indexOf('\t') + 1));
+    const dotGit = path.join(inner, '.git');
+    if (!fs.existsSync(dotGit)) continue;
+    if (fs.lstatSync(dotGit).isDirectory() || !everySubmoduleKeepsItsRepositoryOutside(inner)) return false;
+  }
+  return true;
+}
+
+/** Every repository in a `modules` directory, nested ones included. Throws on one it cannot read. */
+function repositoriesUnder(dir) {
+  if (!fs.existsSync(dir)) return [];
+  const found = [];
+  const walk = (at) => {
+    if (fs.existsSync(path.join(at, 'HEAD')) && fs.existsSync(path.join(at, 'objects'))) {
+      found.push(at);
+      if (fs.existsSync(path.join(at, 'modules'))) walk(path.join(at, 'modules'));
+      return;
+    }
+    for (const entry of fs.readdirSync(at, { withFileTypes: true })) {
+      if (entry.isDirectory()) walk(path.join(at, entry.name));
+    }
+  };
+  walk(dir);
+  return found;
 }
 
 /** The subject line that marks a commit as work parked rather than finished. */
@@ -784,18 +928,19 @@ export function parkTaskFolder(dir, id, { pid = process.pid, path: given = null 
     // will not commit, and the `add -A` below is what resolves them. Losing the
     // index there is exactly the old behaviour, and the old behaviour is better
     // than stranding the folder.
-    tryGit(folder, ['commit', '--no-verify', '--allow-empty', '-q', '-m', PARKED_INDEX]);
+    const as = asTheApp(folder);
+    tryGit(folder, [...as, 'commit', '--no-verify', '--allow-empty', '-q', '-m', PARKED_INDEX]);
     const staged = tryGit(folder, ['add', '-A']);
     // `--no-verify`, because a repository's own commit hooks are written for a
     // person finishing a piece of work, and this is the app tidying up after
     // one. A hook that refuses here would strand the folder it is protecting.
-    const tree = tryGit(folder, ['commit', '--no-verify', '--allow-empty', '-q', '-m', PARKED]);
+    const tree = tryGit(folder, [...as, 'commit', '--no-verify', '--allow-empty', '-q', '-m', PARKED]);
     if (!staged.ok || !tree.ok) return { parked: false, reason: 'refused', path: folder, detail: tree.out };
     kept = 'work in progress';
   }
 
   tryGit(root, ['worktree', 'unlock', folder]);
-  const removed = tryGit(root, ['worktree', 'remove', folder]);
+  const removed = removeWorktree(root, folder);
   if (!removed.ok) return { parked: false, reason: 'refused', path: folder, detail: removed.out };
   return { parked: true, kept, path: folder };
 }

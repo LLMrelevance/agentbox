@@ -1,6 +1,7 @@
 import { currentActivity } from './agent-activity.mjs';
 import { harnessFor, supportsHarnessOperation } from './harnesses.mjs';
 import { streamingText, countHelpers, saidNothingSheCanUse } from './harnesses/claude-stream.mjs';
+import { NO_METERED_KEY } from './harnesses/claude.mjs';
 export { streamingText, countHelpers, saidNothingSheCanUse } from './harnesses/claude-stream.mjs';
 import { taskRemoteControl } from './task-remote-control.mjs';
 import { taskFolderPath, real, restoreTaskFolder } from './task-folders.mjs';
@@ -8744,6 +8745,14 @@ export class Supervisor {
     add(this.config.storeRoot);
     if (product?.dir) add(product.dir);
     rules.permissions = { ...(rules.permissions ?? {}), additionalDirectories: dirs };
+    // A KEY IN A SETTINGS FILE BILLS THE SAME AS ONE IN THE ENVIRONMENT. The
+    // scrub in `_workerEnv` never sees it: Claude Code reads `env` out of
+    // ~/.claude/settings.json and a project's .claude/settings.json for itself,
+    // and runs `apiKeyHelper`. This file is the layer above both, so a blank
+    // here puts the run back on the login (measured on 2.1.301, w-6d8c543a43).
+    // A base address and token are left alone: a gateway is a choice.
+    rules.env = { ...(rules.env ?? {}), ...NO_METERED_KEY.env };
+    rules.apiKeyHelper = NO_METERED_KEY.apiKeyHelper;
     const gateHooks = this.memoryGateHooks();
     if (gateHooks) rules.hooks = { ...(rules.hooks ?? {}), ...gateHooks };
     // Beside the MCP config, and written the same way: a real file on disk,

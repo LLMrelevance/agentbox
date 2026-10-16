@@ -256,14 +256,54 @@ function exitedSayingNo(e) {
   return typeof e.status === 'number';
 }
 
+/**
+ * A SHELL THAT NEVER REACHED THE QUESTION HAS NOT ANSWERED IT (2026-10-15).
+ *
+ * `[ -z "$TMUX" ] && exec tmux` in .zshrc replaces the shell before `command
+ * -v` runs, and tmux with no terminal says "open terminal failed: not a
+ * terminal" and exits 1, which is exactly how `command -v` spells "not on
+ * PATH". Measured with the real /bin/zsh: a claude that .zshrc put on PATH came
+ * back `{ answered: true }`, so the setup screen was entitled to call it
+ * missing. `exec fish` was the same with exit 0 and nothing printed.
+ *
+ * So the runner says a word of its own first and only hands back what comes
+ * after it. Without that word the shell never got to the question, and what is
+ * thrown carries no exit status, which `exitedSayingNo` reads as no answer.
+ * The question itself is unchanged, so a `run` handed in by a test sees the
+ * same `command -v x` it always did.
+ */
+const REACHED = 'agentbox-shell-reached';
+const notReached = () => Object.assign(new Error('the shell profile ended the shell before the question ran'), { code: 'ENOTREACHED' });
+function afterReached(stdout) {
+  const lines = String(stdout ?? '').split('\n');
+  const at = lines.map((l) => l.trim()).lastIndexOf(REACHED);
+  return at < 0 ? null : lines.slice(at + 1).join('\n');
+}
+
+export function shellRunner(env = process.env) {
+  return (shell, [flags, command], timeout = 4000) => {
+    let out;
+    try {
+      out = execFileSync(shell, [flags, `echo ${REACHED}; ${command}`], {
+        encoding: 'utf8',
+        // stdin ignored on purpose: an interactive shell handed a live terminal can
+        // sit waiting for input, and this runs on the boot path.
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout,
+        env,
+      });
+    } catch (e) {
+      if (typeof e?.status === 'number' && !e.signal && afterReached(e.stdout) === null) throw notReached();
+      throw e;
+    }
+    const answer = afterReached(out);
+    if (answer === null) throw notReached();
+    return answer;
+  };
+}
+
 function defaultRun(shell, args, timeout = 4000) {
-  return execFileSync(shell, args, {
-    encoding: 'utf8',
-    // An interactive shell with a live stdin can wait for input, and this runs
-    // at boot.
-    stdio: ['ignore', 'pipe', 'ignore'],
-    timeout,
-  });
+  return shellRunner(process.env)(shell, args, timeout);
 }
 
 // A lookup that returns a bare path or null (the old shape) counts as answered.

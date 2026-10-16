@@ -37,6 +37,7 @@ import { openFreshUser } from './fresh-user.mjs';
 import { installCrashReports, reportFromRenderer, pending as pendingCrashes, setTransport } from './crash-report.mjs';
 import { createAnalytics, createDailyCount } from './analytics.mjs';
 import { createUpdater } from './updater.mjs';
+import { quitStep, flushBeforeQuit } from './quit-sequence.mjs';
 import { createPlace } from '../shared/where-it-runs-from.mjs';
 import { createSourceUpdater } from './source-updater.mjs';
 import { learnShellDataDirs, recoverShellPath } from './shell-path.mjs';
@@ -286,13 +287,14 @@ function reloadRenderer() {
 }
 
 async function createWindow() {
-  const shellPath = await recoverShellPath();
+  // Where the shell says Claude Code and Codex keep their logins and sessions,
+  // never put into this environment (main/shell-path.mjs). WAITED FOR, beside
+  // the PATH read so it costs no extra time: the folders it names are where
+  // workers sign in now (w-6d8c543a43), and a task resumed at launch before
+  // the answer landed ran on ~/.claude signed out.
+  const [shellPath] = await Promise.all([recoverShellPath(), learnShellDataDirs()]);
   process.env.PATH = shellPath.path;
   if (shellPath.error) console.warn('agentbox: could not load your shell PATH; using the inherited PATH:', shellPath.error);
-  // Where the shell says Claude Code and Codex keep their sessions, for the
-  // import only and never into this environment (main/shell-path.mjs). Not
-  // waited for: it lands long before setup reaches its last card.
-  void learnShellDataDirs();
   const config = loadConfig(dataDir);
   // The store modules read the app's own home variable at call time; setting it
   // here points auth session files, sync, and every store path at its root.
@@ -380,7 +382,7 @@ async function createWindow() {
   const supervisor = new Supervisor(config, store, appDir, dataDir, userDir);
   // THAT agents start and stop work (main/analytics.mjs checks the switch).
   supervisor.count = (name, props) => analytics.track(name, props);
-  app.on('before-quit', () => supervisor.killAll());
+  quitStep(app, 'before-quit', 'supervisor.killAll', () => supervisor.killAll());
   // THE TEAM. Off entirely on a build with no team cloud (the single-person
   // app). Otherwise it restores whoever was signed in, and from then on every
   // line this Mac writes says who wrote it and shared projects stay in sync.
@@ -426,7 +428,7 @@ async function createWindow() {
   }) : null;
   if (team) {
     team.start().then(() => supervisor.wake?.()).catch((err) => console.warn(`team: ${err.message}`));
-    app.on('before-quit', () => team.stop());
+    quitStep(app, 'before-quit', 'team.stop', () => team.stop());
   }
   // HER CODEX CONVERSATIONS ASK TO COME IN. Once a minute: a new one in a
   // folder a project points at gets a row asking yes or no, and the ones she
@@ -441,9 +443,13 @@ async function createWindow() {
     count: (name, props) => analytics.track(name, props),
     readThreads: (opts) => readCodexThreads({ ...opts, codexDirs: appSessionFolders({ config, supervisor }).codexDirs }),
   });
-  app.on('before-quit', () => codexWatch.stop());
-  // Whatever is still queued goes with the app rather than dying in memory.
-  app.on('will-quit', () => { analytics.flush(); });
+  quitStep(app, 'before-quit', 'codexWatch.stop', () => codexWatch.stop());
+  // Whatever is still queued goes with the app rather than dying in memory,
+  // and the quit WAITS for it (main/quit-sequence.mjs). It did not: the
+  // process went as soon as this returned, so the last batch was a POST that
+  // never left, which on an install that opens the app once is everything we
+  // would ever have heard from it (w-60c8ddbab6).
+  flushBeforeQuit(app, () => analytics.flush());
 
   // Right-click. Electron ships no context menu at all, so links could not be
   // copied or opened by hand anywhere in the app. Built per click from what is
@@ -766,7 +772,12 @@ async function createWindow() {
     // (main/relay-client.mjs). It stays beside the hosted phone site until
     // every copy of the app can sign in to that (docs/cloud/PHONE-PLAN.md).
     relayUrl: relayAddress({ appDir }),
-    onChange: () => { if (!window.isDestroyed()) sendToWindow('zero:phone-changed'); },
+    // THE WINDOW IS NULLED ON CLOSE, NOT MERELY DESTROYED (w-60c8ddbab6). This
+    // handler is reached on the way out: `phone.close()` stops the relay and the
+    // relay reports the change back, by which time `window = null` has already
+    // run, and `window.isDestroyed()` on a null threw a TypeError that killed
+    // the whole quit. Three 0.1.13 crash reports, all this line.
+    onChange: () => { if (window?.isDestroyed() === false) sendToWindow('zero:phone-changed'); },
     // The phone stays quiet while she is using the computer in any app, not
     // only Agentbox: the desktop banner covers the rest (shared/notify-rules.mjs).
     atDesk: () => {
@@ -777,12 +788,12 @@ async function createWindow() {
   // Settings' own channel, on the window only: a phone does not get to turn
   // the phone door off or hand out its key.
   ipcMain.handle('zero:phone-link', (_e, payload) => phone.act(payload ?? {}));
-  app.on('before-quit', () => phone.close());
+  quitStep(app, 'before-quit', 'phone.close', () => phone.close());
   updater.start();
   // A task the app just shipped moved main: look now rather than in half an
   // hour, so the restart is offered while she still remembers the task.
   supervisor.onShipped = () => { try { updater.check?.(); } catch {} };
-  app.on('before-quit', () => updater.stop());
+  quitStep(app, 'before-quit', 'updater.stop', () => updater.stop());
 
   // Cmd+Y / Cmd+N answer the oldest approval card from ANYWHERE, including
   // while a child web contents owns the keyboard (menu accelerators turned out
