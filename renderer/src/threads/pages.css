@@ -421,6 +421,12 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 .th-cloud.count { width: auto; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px 0 9px; font: inherit; font-size: 13px; }
 .th-cloud.count b { font-weight: 400; color: var(--text); font-variant-numeric: tabular-nums; }
 .th-cloud-pop .opts > button.picked, .th-cloud-pop .opts > button.picked:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--text); }
+/* Wide enough that the three choices, each with its number, stay on one line. */
+.th-pop.th-cloud-pop { width: 580px; }
+/* The number that picks a choice from the keyboard, as quiet as the empty
+   inbox's own key. */
+.th-cloud-pop .opts > button .th-cloud-key { font: 10.5px var(--mono); color: var(--text-faint); border: 1px solid var(--line); border-radius: var(--radius); padding: 0 4px; margin-inline-end: 7px; line-height: 15px; background: none; }
+.th-cloud-pop .opts > button.picked .th-cloud-key { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .th-cloud-pop .th-cloud-note { padding-top: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-faint); }
 .th-cloud-pop .th-cloud-use { font-size: 13px; color: var(--text); }
 .th-cloud-pop .th-cloud-warn > span:last-child { color: var(--accent); }

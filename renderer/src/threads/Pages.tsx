@@ -26,7 +26,7 @@ import { PinMark } from './ThreadMenu';
 import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type Box } from './board-select';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
 import { api } from '../api';
-import { CLOUD_MODES, cloudButtonCount, cloudMonthLine, type CloudMode, type CloudStatus } from '../cloud-menu';
+import { CLOUD_MODES, CLOUD_MENU_EVENT, cloudButtonCount, cloudModeForKey, cloudMonthLine, type CloudMode, type CloudStatus } from '../cloud-menu';
 import { menuSetupLine, SETUP } from '../cloud-setup';
 import './pages.css';
 
@@ -184,6 +184,24 @@ function CloudButton({ cloud, onMode, onSetUp }: { cloud: CloudStatus; onMode?: 
   const nobodyReady = !accounts.length && !(cloud.signIns || []).length;
   const setup = menuSetupLine(cloud);
   const goSetUp = () => { setOpen(false); onSetUp?.(); };
+  // W opens the menu from the inbox (App.tsx), and in it 1 2 3 pick.
+  useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener(CLOUD_MENU_EVENT, show);
+    return () => window.removeEventListener(CLOUD_MENU_EVENT, show);
+  }, []);
+  useEffect(() => {
+    if (!open || nobodyReady) return;
+    const onKey = (e: KeyboardEvent) => {
+      const mode = cloudModeForKey(e.key);
+      if (!mode || e.metaKey || e.ctrlKey || e.altKey) return;
+      e.preventDefault(); e.stopPropagation();
+      onMode?.(mode);
+      setOpen(false);
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [open, nobodyReady, onMode]);
   // TRY AGAIN ON ONE THAT WAS NOT ADDED starts it again and opens the setup on
   // its sign-in, rather than on a list with a second Try again on it.
   const failed = (cloud.signIns || []).find((s) => s.state === 'failed');
@@ -197,8 +215,8 @@ function CloudButton({ cloud, onMode, onSetUp }: { cloud: CloudStatus; onMode?: 
   };
   return <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
     <button type="button" className={`th-disp th-cloud${count ? ' count' : ''}${open ? ' open' : ''}`}
-      aria-label={count ? `Cloud, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : 'Cloud'} title="Where threads run"
-      onClick={() => setOpen((o) => !o)}>
+      aria-label={count ? `Cloud, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : 'Cloud'} title="Where threads run (W)"
+      data-hint="cloud" data-hint-align="right" onClick={() => setOpen((o) => !o)}>
       <CloudIcon />{count && <b>{count}</b>}{!count && (nobodyReady || setup) && <i />}
     </button>
     {open && nobodyReady && <div className="th-pop th-cloud-pop th-cloud-invite" role="dialog" aria-label={SETUP.inviteHead}>
@@ -214,7 +232,7 @@ function CloudButton({ cloud, onMode, onSetUp }: { cloud: CloudStatus; onMode?: 
         {setup.go && <button type="button" className="th-cloud-go" onClick={() => void (failed && setup.go === SETUP.tryAgain ? retry() : goSetUp())}>{setup.go}</button>}
       </div>}
       <div className="line"><span className="lab">Cloud</span><span className="opts">
-        {CLOUD_MODES.map((m) => <button type="button" key={m.id} className={m.id === cloud.mode ? 'on picked' : ''} aria-pressed={m.id === cloud.mode} onClick={() => onMode?.(m.id)}>{m.label}</button>)}
+        {CLOUD_MODES.map((m, i) => <button type="button" key={m.id} className={m.id === cloud.mode ? 'on picked' : ''} aria-pressed={m.id === cloud.mode} onClick={() => onMode?.(m.id)}><kbd className="th-cloud-key">{i + 1}</kbd>{m.label}</button>)}
       </span></div>
       <div className="line th-cloud-note"><span className="lab" /><span>{picked.note}</span></div>
       <div className="rule" />

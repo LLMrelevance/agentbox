@@ -75,6 +75,29 @@ export const CLOUD_MODES: { id: CloudMode; label: string; note: string }[] = [
   { id: 'all', label: 'Everything', note: 'Threads start in the cloud first, wherever they can.' },
 ];
 
+// THE KEY THAT OPENS THE MENU. W for where threads run, the button's own
+// title; C still starts a thread for those who learned it.
+export const CLOUD_KEY = 'W';
+/** What W sends to the cloud button, which owns whether its menu is open. */
+export const CLOUD_MENU_EVENT = 'agentbox:cloud-menu';
+export const openCloudMenu = () => window.dispatchEvent(new Event(CLOUD_MENU_EVENT));
+
+/** In the open menu, 1 2 3 pick the choices in the order they are drawn. */
+export function cloudModeForKey(key: string): CloudMode | null {
+  const n = /^[1-9]$/.test(key) ? Number(key) : 0;
+  return CLOUD_MODES[n - 1]?.id ?? null;
+}
+
+/** ⌘K's rows for where threads run, most cloud first, the one in use saying so. */
+export function cloudCommands(mode: CloudMode | null | undefined): { mode: CloudMode; label: string; hint?: string }[] {
+  const rows: { mode: CloudMode; label: string }[] = [
+    { mode: 'all', label: 'Run everything in the cloud' },
+    { mode: 'full', label: 'Run threads in the cloud when this Mac is full' },
+    { mode: 'mac', label: 'Run threads on this Mac only' },
+  ];
+  return rows.map((r) => (r.mode === mode ? { ...r, hint: 'on now' } : r));
+}
+
 // `cloudRuns` in the config, read the way the supervisor reads it: false is
 // off, 'all' is everything, anything else is "when this Mac is full".
 export function cloudModeOf(cloudRuns: unknown): CloudMode {
@@ -89,8 +112,9 @@ export function cloudButtonCount(status: { running: number } | null | undefined)
 
 const hours = (n: number) => String(Math.round(n * 10) / 10);
 
+// USE, NEVER A PRICE (2026-10-16): each person is on their own plan and pays
+// nothing like the estimate, so the hours are said and the cost is not.
 export function cloudMonthLine(month: CloudMonth): string {
   if (!month.runs) return 'Nothing in the cloud yet this month';
-  const base = `${hours(month.agentHours)} agent-hours`;
-  return month.costPerAgentHour != null ? `${base} · about $${month.estimatedCost.toFixed(2)}` : base;
+  return `${hours(month.agentHours)} agent-hours`;
 }

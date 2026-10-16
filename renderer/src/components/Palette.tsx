@@ -1,6 +1,7 @@
 // ⌘K: everything without a dedicated key. The list filters on each row's label
 // and keywords (../palette-rows), so a row is found only by words it contains.
 
+import { cloudCommands, type CloudMode } from '../cloud-menu';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Product, View } from '../types';
 import { commandKeys } from '../palette-keys';
@@ -21,7 +22,7 @@ interface Command {
   run: () => void;
 }
 
-export function Palette({ products, supervisorPaused, itemCommands = [], batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onStanding, onSettings, onShortcuts, panelUp, onTogglePanel, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose }: {
+export function Palette({ products, supervisorPaused, itemCommands = [], batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onStanding, onSettings, onShortcuts, panelUp, onTogglePanel, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloudMode = null, onCloudMode }: {
   products: Product[];
   supervisorPaused: boolean;
   itemCommands?: Command[];
@@ -82,6 +83,9 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
   /** Opens a second Agentbox on an invented studio's work, for demos. */
   onDemo: () => void;
   onClose: () => void;
+  /** Where threads run, when this Mac is set up for the cloud; null hides the rows. */
+  cloudMode?: CloudMode | null;
+  onCloudMode?: (mode: CloudMode) => void;
 }) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
@@ -115,6 +119,11 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
     })),
     // Prints its key, so someone who uses the corner magnifier learns `/`.
     { id: 'search', label: 'Search threads', keyHint: '/', run: onSearch },
+    // Where threads run, one row per choice (the cloud button's menu, W).
+    ...(cloudMode && onCloudMode ? cloudCommands(cloudMode).map((r) => ({
+      id: `cloud-${r.mode}`, label: r.label, hint: r.hint, keywords: 'cloud where threads run mac overflow everything move',
+      run: () => onCloudMode(r.mode),
+    })) : []),
     // Namespaced so they cannot share an id with an item command such as
     // 'done'. Ids become React keys, and a duplicate kept a stale row alive
     // through the filter (../palette-keys).
@@ -282,7 +291,7 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
       run: () => onSetKeyHints(!keyHints),
     },
 
-  ], [itemCommands, batch, products, supervisorPaused, order, onNewProject, filtering, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onStanding, onSettings, onShortcuts, look, machine, onSetLook, staleFiles, updateReady, onInstallUpdate, moveToApplications, onMoveToApplications, panelUp, onTogglePanel, boardUp, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo]);
+  ], [itemCommands, batch, products, supervisorPaused, order, onNewProject, filtering, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onStanding, onSettings, onShortcuts, look, machine, onSetLook, staleFiles, updateReady, onInstallUpdate, moveToApplications, onMoveToApplications, panelUp, onTogglePanel, boardUp, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, cloudMode, onCloudMode]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
