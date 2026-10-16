@@ -319,7 +319,10 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
         config: { browserHome: '', browserPins: [], outsideAgents: 'off' },
       };
     },
-    itemHistory: async ({ product, id }: { product: string; id: string }) => phoneHistory(rows, product, id, aliases),
+    itemHistory: async ({ product, id, before }: { product: string; id: string; before?: number }) => {
+      const read = phoneHistory(rows, product, id, aliases);
+      return Number.isFinite(before) ? { ...read, lines: read.lines.filter((l: any) => l.ts <= (before as number)) } : read;
+    },
     // Whether Claude Code or Codex has an update is the computer's to say;
     // starting one is the computer's to do.
     agentUpdate: async (p: any) => { if (p?.action === 'start') throw new Error(NOT_HERE); return null; },

@@ -309,6 +309,20 @@ function stamp2(ts: number, now: number): { ts: number; label: string } {
   return { ts, label: `${day}, ${time}` };
 }
 
+// A COMING MOMENT AS A DAY AND A CLOCK, for the hint beside a time. Inside the
+// coming six days the weekday names one day and stands alone ("Wed, 8:00 AM").
+// From seven days on, or once the moment has gone, it carries its date too:
+// "3 weeks" typed on a Thursday printed "THU 8:00 AM", which read as this
+// Thursday when it meant Thursday 5 Nov
+// (tests/a-later-time-weeks-away-says-its-date.test.mjs).
+export function dayAndTime(ts: number, now = Date.now()): string {
+  const days = Math.round((startOfDay(ts) - startOfDay(now)) / 86_400_000);
+  const dated = days < 0 || days >= 7;
+  return new Date(ts).toLocaleString(undefined, {
+    weekday: 'short', ...(dated ? { month: 'short', day: 'numeric' } : {}), hour: 'numeric', minute: '2-digit',
+  });
+}
+
 // Markdown out, one line in. ONE copy of this rule, because search reads the
 // same text the row does and the two must agree about what the words even are:
 // a query that matched `**conversion**` and a row that printed "conversion"

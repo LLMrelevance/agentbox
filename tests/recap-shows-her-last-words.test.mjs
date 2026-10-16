@@ -29,7 +29,9 @@ describe('recapFor', () => {
 
   it('without a reply here, it shows what she said on the row before', () => {
     const parent = row({ id: 'w-0', title: 'The earlier ask', answer: 'do the first one', wrote: { answer: { ts: 3000, source: 'founder' } } });
-    expect(recapFor(row(), parent)).toEqual({
+    // Filed after that reply. One written after the thread was filed is not
+    // its ask (a-filed-thread-opens-with-the-message-that-asked-for-it).
+    expect(recapFor(row({ createdAt: 3500 }), parent)).toEqual({
       kind: 'said', text: 'do the first one', at: 3000, on: 'The earlier ask',
     });
   });
