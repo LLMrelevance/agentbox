@@ -144,6 +144,7 @@ export const REQUEST_CHANNELS = {
   setProductOrder: 'zero:set-product-order',
   setThreadPlaces: 'zero:set-thread-places',
   setThreadPins: 'zero:set-thread-pins',
+  setThreadOnMac: 'zero:set-thread-on-mac',
   setProductHidden: 'zero:set-product-hidden',
   approve: 'zero:approve',
   // The phone door's Settings page (main/phone-link.mjs): its state, on, off,

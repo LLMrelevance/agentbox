@@ -1,5 +1,5 @@
 import { previewFocus } from './preview-focus';
-import { cloudToggleNote, cloudToggleTarget } from './cloud-menu';
+import { cloudToggleNote, cloudToggleTarget, threadPlace } from './cloud-menu';
 import { usePhoneBack, onCloudPhone, onPhone } from './phone-screen';
 import { holdsReplies, writeHeldWhenHidden } from './phone-holds';
 import { pollEvery } from './phone-polls';
@@ -6104,6 +6104,11 @@ export default function App() {
                   onStop={() => stopAgent(focused)}
                   onRunNow={() => runNow(focused)}
                   onPin={focused.agent ? undefined : (pin) => pinThread(focused.id, pin, true)}
+                  place={focused.agent ? null : threadPlace(focused, snap.supervisor.running.find((r) => r.itemId === focused.id) ?? null, snap.cloud ?? null, snap.products)}
+                  onPlace={(keep) => {
+                    void api.setThreadOnMac({ [focused.id]: keep ? true : null });
+                    showToast(keep ? 'This thread now runs only on this Mac' : 'The cloud can run this thread again');
+                  }}
                   onReveal={() => revealAgent(focused)}
                   // Remind me later and stop this task are neither of the two
                   // ways a task ends, and the card beside the bar names exactly

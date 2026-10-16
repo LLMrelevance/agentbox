@@ -87,13 +87,20 @@ describe('a thread this Mac\'s memory holds back', () => {
     expect(sup._heldForMemory.has('w-1')).toBe(false);
   });
 
-  it('stays put while a run of Claude failures has braked Claude, here and in the cloud', () => {
+  // The brake is about this Mac's Claude logins. The cloud runs on accounts
+  // of its own, so it takes the row (2026-10-16,
+  // tests/the-cloud-keeps-working-while-this-macs-account-rests).
+  it('stays put while a run of Claude failures has braked Claude here, and goes to the cloud', () => {
+    build({ memory: false, cloudRuns: false });
+    sup._spawnCooldownUntil = Date.now() + 60_000;
+    expect(sup._roomFor('claude', row())).toBe(false);
     build({ memory: false });
     sup._spawnCooldownUntil = Date.now() + 60_000;
-    expect(sup._roomFor('claude', row())).toBe(false);
+    expect(sup._roomFor('claude', row())).toBe(true);
     build({ cloudRuns: 'all' });
     sup._spawnCooldownUntil = Date.now() + 60_000;
-    expect(sup._roomFor('claude', row())).toBe(false);
+    expect(sup._localSlotFor('claude')).toBe(false);
+    expect(sup._roomFor('claude', row())).toBe(true);
   });
 
   it('never asks the memory gate when this Mac has no slot at all', () => {
