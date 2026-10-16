@@ -36,19 +36,40 @@ import { ensureTaskFolder } from '../main/task-folders.mjs';
 
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
 
+/** What git says when it will not read this folder, or '' when it reads it. */
+function whyGitRefused(cwd) {
+  try {
+    execFileSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    return '';
+  } catch (error) {
+    return String(error.stderr || error.message);
+  }
+}
+
 let dir;
 let stubs;
 let saved;
 
 beforeEach(() => {
-  saved = { PATH: process.env.PATH, ASSUME: process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER };
+  saved = {
+    PATH: process.env.PATH,
+    ASSUME: process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER,
+    GLOBAL: process.env.GIT_CONFIG_GLOBAL,
+    NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM,
+  };
   dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'git-cannot-run-')));
   stubs = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'git-stub-')));
 });
 afterEach(() => {
   process.env.PATH = saved.PATH;
-  if (saved.ASSUME === undefined) delete process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER;
-  else process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER = saved.ASSUME;
+  for (const [name, was] of [
+    ['GIT_TEST_ASSUME_DIFFERENT_OWNER', saved.ASSUME],
+    ['GIT_CONFIG_GLOBAL', saved.GLOBAL],
+    ['GIT_CONFIG_NOSYSTEM', saved.NOSYSTEM],
+  ]) {
+    if (was === undefined) delete process.env[name];
+    else process.env[name] = was;
+  }
   for (const p of [dir, stubs]) fs.rmSync(p, { recursive: true, force: true });
 });
 
@@ -95,7 +116,14 @@ describe('a task folder on a computer where git cannot run', () => {
 
   it('a repository owned by another account names the folder and how to trust it', () => {
     repository();
+    // Without the machine's own git config out of the way, a computer that
+    // trusts every folder (`safe.directory = *`) reads the repository happily
+    // and the refusal this test is about never happens. The line below says so
+    // in words if that ever changes again.
+    process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+    process.env.GIT_CONFIG_NOSYSTEM = '1';
     process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER = '1';
+    expect(whyGitRefused(dir)).toMatch(/dubious ownership/);
 
     let said = '';
     try { ensureTaskFolder(dir, 'w-owner', { dependencies: false }); } catch (error) { said = error.message; }

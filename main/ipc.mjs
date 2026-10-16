@@ -41,7 +41,7 @@ import { readDoc, writeDoc } from './doc-file.mjs';
 import { readChange } from './code-change.mjs';
 import { findFile, readCodeFile, writeCodeFile } from './code-file.mjs';
 import { readNote, writeNote } from './rail-note.mjs';
-import { addClaudeAccount, addCodexAccount, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, recheckClaude, recheckCodex, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
+import { addClaudeAccount, addCodexAccount, cornerTagTurnedOff, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, recheckClaude, recheckCodex, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
 import { ICON_KINDS, clearProjectIcon, setProjectIcon, setProjectName } from './project-identity.mjs';
 import { ClaudeUsage } from './claude-usage.mjs';
 import { usageEngine } from '../shared/usage.mjs';
@@ -1562,6 +1562,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   ipcMain.handle('zero:settings-set-workspace', (_e, payload) => {
     try {
       setWorkspaceSetting({ config, supervisor, store }, payload ?? {});
+      if (cornerTagTurnedOff(payload)) analytics.track('tag_turned_off');
       push();
       return { ok: true, ...readSettings({ config, supervisor, store }) };
     } catch (err) {

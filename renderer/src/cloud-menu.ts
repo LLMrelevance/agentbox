@@ -89,8 +89,9 @@ export function cloudButtonCount(status: { running: number } | null | undefined)
 
 const hours = (n: number) => String(Math.round(n * 10) / 10);
 
+// USE, NEVER A PRICE (2026-10-16): each person is on their own plan and pays
+// nothing like the estimate, so the hours are said and the cost is not.
 export function cloudMonthLine(month: CloudMonth): string {
   if (!month.runs) return 'Nothing in the cloud yet this month';
-  const base = `${hours(month.agentHours)} agent-hours`;
-  return month.costPerAgentHour != null ? `${base} · about $${month.estimatedCost.toFixed(2)}` : base;
+  return `${hours(month.agentHours)} agent-hours`;
 }
