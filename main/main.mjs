@@ -1045,9 +1045,22 @@ async function createWindow() {
     });
 
     contents.on('before-input-event', (e, input) => {
+      // ESCAPE HAS TO REACH THE APP FROM INSIDE A PAGE, and a webview is not
+      // a frame of this window, so the handler above never hears it. It comes
+      // up the same channel a frame's does, because the renderer answers that
+      // one and decides there what escape means (whatTheFileSentUp). It used
+      // to be sent on `zero:escape-browser`, the junk browser's own channel,
+      // which no renderer code has listened to since that pane went: the key
+      // landed nowhere and the pane took two presses to close.
       if (input.type === 'keyDown' && input.key === 'Escape' && window && !window.isDestroyed()) {
-        window.webContents.send('zero:escape-browser');
-        window.webContents.focus();
+        // The keyboard is left where it is, exactly as it is for a frame: the
+        // renderer blurs the page before the pane goes. Taking focus back
+        // here first would move `document.activeElement` off the webview, and
+        // the renderer's own check of the same fact would then refuse the key
+        // that this just sent.
+        window.webContents.send('zero:key-in-the-file', {
+          key: input.key, meta: !!input.meta, ctrl: !!input.control, alt: !!input.alt, shift: !!input.shift,
+        });
         return;
       }
       // The guest page owns the keyboard while she is in the junk browser, so

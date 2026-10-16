@@ -1,24 +1,12 @@
-// THE BAR OVER A PAGE THE PANE IS BROWSING, AND IT IS ONE BAR FOR BOTH KINDS.
+// One bar for both kinds of page the pane browses: a site on the web and a
+// local app a worker started. They are the same thing to read, and they had
+// two different headers, both built for a file on disk.
 //
-// A website off the web and a local app a worker started are the same thing to
-// read: somebody else's page, inside our window. They had two different
-// headers, both of them the document pane's — a breadcrumb built for a file on
-// disk, and the file marks beside it. Their words on the first round: it takes
-// a lot of space at the top, it loses valuable space, it looks a bit peeling,
-// and it is not clear that it is a browser tab.
-//
-// So this is a browser's bar rather than a document's header, shared by both
-// panes. Three layouts of it were built in the real app and photographed for
-// the pick — this toolbar, a tab carrying the page's name, and a 26px line
-// with no stepping controls — and the toolbar is the one that was chosen
-// (2026-10-15). The other two are gone rather than kept behind a flag.
-//
-// NO FAVICON IS FETCHED, AND THAT IS DELIBERATE. A webview has the site's icon
-// URL ready on `page-favicon-updated`, but drawing it here would make the
-// APP's own page request a file from that domain, on the app's own session
-// rather than the browsing one. That is this window reaching a third party on
-// a partition that carries the person's other sign-ins, and the privacy page
-// says nothing leaves the machine. The mark is drawn by us instead.
+// NO FAVICON IS FETCHED. A webview hands over the site's icon URL on
+// `page-favicon-updated`, but drawing it would make the APP's own page
+// request a file from that domain, on the app's session rather than the
+// browsing one, and the privacy page promises nothing leaves the machine. The
+// mark is drawn by us instead.
 import type { ReactNode } from 'react';
 
 // The app's own icon recipe (SearchIcon.tsx): a 24 grid, a hairline, round
@@ -40,7 +28,6 @@ const Reload = () => (
     <path d="M19.4 4.6v3.9h-3.9" />
   </Glyph>
 );
-/** A website: the globe every browser puts in front of an address. */
 const Globe = () => (
   <Glyph size={13}>
     <circle cx="12" cy="12" r="8.2" />
@@ -48,7 +35,6 @@ const Globe = () => (
     <path d="M12 3.8c2.1 2.2 3.2 5.1 3.2 8.2s-1.1 6-3.2 8.2c-2.1-2.2-3.2-5.1-3.2-8.2S9.9 6 12 3.8Z" />
   </Glyph>
 );
-/** A local app: the window on this machine, not out on the web. */
 const Local = () => (
   <Glyph size={13}>
     <rect x="3.6" y="5" width="16.8" height="13" rx="2" />
@@ -58,7 +44,7 @@ const Local = () => (
 
 export type WebChromeKind = 'website' | 'local';
 
-/** Where the pane is, split so the host can be read and the rest can fade. */
+/** Where the pane is, split so the host reads louder than the rest of it. */
 export function addressParts(url: string): { host: string; rest: string } {
   try {
     const u = new URL(url);
@@ -83,7 +69,7 @@ export function BrowserChrome({
   onForward?: () => void;
   onReload?: () => void;
   onOpenOutside: () => void;
-  // Focus and close, which the pane owns and every kind of document shares.
+  // Focus and close, which the pane owns whatever is in it.
   marks?: ReactNode;
 }) {
   const { host, rest } = addressParts(url);

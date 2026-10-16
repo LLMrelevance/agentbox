@@ -85,22 +85,12 @@ const CloseGlyph = () => (
 // changes on every press and is the whole reason it exists.
 export type OpenDoc = { product: string; src: string; auto?: boolean; at?: string; atFrom?: number };
 
-// A WEBSITE CARRIES doc-html TOO, and that is not a shortcut: what doc-html
-// stands for is "this card holds a page whose colour the app cannot see into,
-// so the header keeps its own dark in every theme" (styles.css), and a page
-// off the web is the strongest case of that there is. It carries doc-website
-// as well, for the one thing that is only true here.
-//
-// THAT ONE THING IS THE HEADER, AND IT WAS MEASURED. On an html page the
-// header is a toolbar that fades in when the pointer is over the card, so a
-// drawing has the whole card to itself (the design-toolbar rules in
-// workspace-navigation.css). A `<webview>` is a separate compositing layer
-// and paints OVER everything the card draws, so that toolbar is painted under
-// the page: in the real app on 2026-10-15 the crumb and both marks sat at
-// 1278,146 118x42 in the DOM and not one pixel of them reached the screen.
-// The mark that hands the page to your own browser is the point of this
-// feature, so a website's header stays in the flow above the page, which
-// workspace-navigation.css puts back.
+// A website carries doc-html for what that class means: a card holding a
+// page whose colour the app cannot see into, so the header keeps its own dark
+// in every theme. It carries doc-website for the one thing only true here. A
+// `<webview>` is a separate compositing layer and paints over everything the
+// card draws, so the hover-reveal toolbar doc-html normally gets would be
+// painted under the page and could never be pressed.
 function paneKindClass(kind: DocKind): string {
   if (kind === 'html') return 'doc-html';
   if (kind === 'website') return 'doc-html doc-website';
@@ -125,18 +115,15 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
   onNotice: (text: string) => void;
 }) {
   const kind: DocKind = docKind(doc.src) ?? 'html';
-  // WHERE THE PANE IS STANDING, for a website only. A webview keeps its own
-  // history, so after one click inside the page the thread's address is no
-  // longer the page you are reading: the crumb and the mark that hands it to
-  // your own browser both follow this rather than `doc.src`.
+  // Where the pane is standing. A webview keeps its own history, so after one
+  // click the thread's address is no longer the page being read, and the bar
+  // and the way out follow this rather than `doc.src`.
   const [here, setHere] = useState<Browsing>({ url: doc.src, canBack: false, canForward: false, loading: true });
   const [webFailed, setWebFailed] = useState<string | null>(null);
   const [webReady, setWebReady] = useState(false);
-  // What the bar above the page presses. Filled in by the webview while it is
-  // mounted (WebsitePane), null the rest of the time.
+  // What the bar presses. Filled in by the webview while it is mounted.
   const browsing = useRef<{ back: () => void; forward: () => void; reload: () => void } | null>(null);
-  // Asked once: whether this page can draw a browser of its own. The desktop
-  // window can; a tab and a phone get a frame instead.
+  // Asked once: can this page draw a browser of its own.
   const [ownBrowser] = useState(() => canFrameAWebsite(typeof document === 'undefined' ? null : document));
   // The file this really is, found by the app's own finder in the main process,
   // so the pane opens exactly what a click on the same path would have opened.
@@ -167,9 +154,7 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
     setResolved(null); setText(null); setFailed(null); setMtime(0); setUrl(null); setChange(null);
     setHere({ url: doc.src, canBack: false, canForward: false, loading: true });
     setWebFailed(null); setWebReady(false);
-    // A WEBSITE IS NOT LOOKED FOR ON DISK. The address is the document; asking
-    // the main process to resolve it would hand back the address again with no
-    // url, and the pane would print the sentence about reopening the app.
+    // A website is not looked for on disk: the address is the document.
     if (kind === 'website') { setResolved(doc.src); setUrl(doc.src); return () => { live = false; }; }
     if (isLocalPreview(doc.src)) { setResolved(doc.src); setUrl(doc.src); return () => { live = false; }; }
     api.resolveDoc({ product: doc.product, src: doc.src }).then((r) => {
@@ -218,8 +203,8 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
     setDragging(false);
   };
 
-  // A PAGE BEING BROWSED HAS NO BREADCRUMB. It has an address, and the bar
-  // above it draws that (BrowserChrome). The crumb is for a file on disk.
+  // A page being browsed has an address rather than a breadcrumb; the bar
+  // above it draws that (BrowserChrome).
   const browsingKind: WebChromeKind | null = kind === 'website' ? 'website' : app.local ? 'local' : null;
   const crumb = crumbParts(resolved ?? doc.src, roots);
   // WHAT THE FIRST MARK DOES, AND FOR A CHANGE IT IS HER EDITOR.On a markdown
@@ -234,8 +219,7 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
     });
   };
 
-  // Focus and close belong to the pane whatever is in it, so the browser bar
-  // is handed them rather than drawing its own.
+  // Focus and close belong to the pane whatever is in it.
   const paneMarks = (
     <>
       {onMode && focusControlStyle && <FocusControl style={focusControlStyle} focused={!!headerTarget} onClick={() => headerTarget ? onClose() : onMode('focus')} />}
@@ -288,11 +272,8 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
 
   return (
     <aside
-      // `doc-browsing` is the class the browser bar's layouts key off, and a
-      // LOCAL APP carries it too: http://localhost:3006 has no kind of its own
-      // (docKind answers null and the pane falls back to 'html'), and it is
-      // just as much a page being browsed as a site on the web is. The two
-      // used to wear the document pane's breadcrumb header; neither does now.
+      // A local app carries `doc-browsing` too: it has no kind of its own
+      // (docKind answers null) and is just as much a page being browsed.
       className={`doc-pane ${paneKindClass(kind)}${browsingKind ? ' doc-browsing' : ''}${dragging ? ' dragging' : ''}`}
       style={{ flexBasis: `${split * 100}%` }}
     >
@@ -319,9 +300,8 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
         {failed ? (
           <div className="doc-missing">{failed}</div>
         ) : kind === 'website' ? (
-          // THE PAGE ITSELF, IN A BROWSER OF ITS OWN (WebsitePane.tsx). The
-          // cover comes off when the page says it is drawn, so a site that
-          // takes a second does not flash its white loading frame first.
+          // The cover comes off when the page says it is drawn, so a slow
+          // site does not flash a white frame first.
           <div className="preview-frame" aria-busy={!webReady}>
             {webFailed
               ? <div className="doc-missing">{webFailed} Open it in your browser with the mark above.</div>

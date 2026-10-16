@@ -1,31 +1,18 @@
-// A PAGE OFF THE WEB, DRAWN BESIDE THE THREAD.
+// A page off the web, drawn beside the thread. Everything else the pane draws
+// is a file of ours; this is somebody else's running code, so it gets a
+// browser of its own rather than a corner of the app's page.
 //
-// Every other thing the pane draws is a file of ours. This one is somebody
-// else's running code, so it gets a browser of its own rather than a corner of
-// the app's page:
-//
-//   on the desktop   Electron's `<webview>`, a separate process on its own
-//                    session partition (shared/websites.mjs). Sites refuse to
-//                    be drawn in a frame all the time — X-Frame-Options and
-//                    frame-ancestors are the norm on anything with a sign-in —
-//                    and a webview is not a frame, so they draw. What it may
-//                    do is pinned in the main process, below the tag, by
-//                    main/webview-guard.mjs: no preload, sandboxed, isolated.
-//
-//   in a tab         an ordinary iframe, because nothing registers the tag
-//                    outside Electron. It is opaque to the app (no
-//                    allow-same-origin) and many sites will refuse it. The
-//                    mark in the header is the way out, and it is always there.
-//
-// NO AGENT EVER DRIVES THIS. It is a pane a person reads. The browser an agent
-// may be pointed at is the other one, the `persist:junk` partition that
-// carries nothing, and these two stores never meet.
+// On the desktop that is an Electron `<webview>`: a separate process on its
+// own session partition, and not a frame, so the X-Frame-Options and
+// frame-ancestors headers that come with anything carrying a sign-in do not
+// refuse it. What it may do is pinned below the tag by main/webview-guard.mjs.
+// In a browser tab there is no such tag, so it falls back to an opaque
+// iframe, which many sites will refuse; the way out to your own browser is
+// always in the bar above.
 import { useEffect, useRef } from 'react';
 import { WEBSITE_PARTITION } from '../../../shared/websites.mjs';
 
-// `<webview>` is Electron's own element, so React has no type for it and the
-// DOM has no interface for it. Both are declared here, narrowly: the three
-// attributes we set and the two events we listen to.
+// `<webview>` is Electron's own element, so React has no type for it.
 declare module 'react' {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace JSX {
@@ -57,10 +44,10 @@ export type Browsing = {
 };
 
 /**
- * `webview` is whether this page can draw one; the caller asks
- * `canFrameAWebsite(document)` so a test can hold both branches.
- * `onNavigate` is how the header follows the page: a webview navigates inside
- * itself, so after one click the thread's address is no longer where you are.
+ * `webview` is whether this page can draw one, asked by the caller so a test
+ * can hold both branches. `onNavigate` is how the bar follows the page: a
+ * webview navigates inside itself, so after one click the thread's address is
+ * no longer where you are.
  */
 export function WebsitePane({ url, webview, ready = true, control, onNavigate, onReady, onFailed }: {
   url: string;
@@ -98,9 +85,8 @@ export function WebsitePane({ url, webview, ready = true, control, onNavigate, o
     const walked = () => onNavigate(where());
     const started = () => onNavigate(where({ loading: true }));
     const ready = () => { onReady?.(); walked(); };
-    // A page that cannot be reached at all. -3 is Chromium's "the load was
-    // aborted", which every ordinary in-page navigation also reports, so it is
-    // not a failure and must not replace the page with a sentence.
+    // -3 is Chromium's "load aborted", which every ordinary in-page
+    // navigation also reports, so it is not a failure.
     const failed = (e: Event) => {
       const { errorCode, errorDescription, isMainFrame } = e as Event & { errorCode?: number; errorDescription?: string; isMainFrame?: boolean };
       if (isMainFrame === false || errorCode === -3) return;
@@ -122,8 +108,7 @@ export function WebsitePane({ url, webview, ready = true, control, onNavigate, o
       node.removeEventListener('did-fail-load', failed);
     };
     // `url` is deliberately not a dependency: the webview keeps its own
-    // history, and re-running this on every step would tear the listeners off
-    // and back on mid-navigation.
+    // history, and re-running this would tear the listeners off mid-step.
   }, [webview, control, onNavigate, onReady, onFailed]);
 
   if (webview) {
@@ -136,9 +121,9 @@ export function WebsitePane({ url, webview, ready = true, control, onNavigate, o
     />;
   }
 
-  // THE FALLBACK IN A TAB. Opaque to the app on purpose: `allow-same-origin`
-  // alongside `allow-scripts` would let a page escape its own sandbox, and the
-  // app is served from this very origin on the phone door (main/serve.mjs).
+  // Opaque on purpose: `allow-same-origin` beside `allow-scripts` lets a page
+  // escape its own sandbox, and on the phone door the app is served from this
+  // very origin (main/serve.mjs).
   return <iframe
     className="doc-view doc-website-view"
     style={{ opacity: ready ? 1 : 0 }}

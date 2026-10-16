@@ -1,25 +1,16 @@
-// PURE. WHAT COUNTS AS A WEBSITE, AND WHERE ITS SIGN-INS LIVE.
+// PURE. What counts as a website, and where its sign-ins live. Shared because
+// the main process pins what an embedded page may do and the screen decides
+// what to draw, and the two must agree.
 //
-// The pane on the right of a thread draws a page off the open web, so three
-// facts have to be agreed on by the main process (which pins what an embedded
-// page may do) and by the screen (which decides what to draw). They are here
-// rather than in either, so there is one copy of each.
-//
-// A LOCAL ADDRESS IS NOT A WEBSITE HERE. http://localhost:3006 is a dev server
-// a worker started, and the pane has drawn one since 2026-10-09 in an ordinary
-// frame, with a liveness check in front of it (renderer/src/local-preview.ts)
-// and its framing headers rewritten below the page
-// (main/local-app-frames.mjs). None of that applies to a site on the web, and
-// none of this applies to a dev server, so the two rules stay apart.
+// A local address is NOT a website here. A dev server is drawn in an ordinary
+// frame with a liveness check in front of it (renderer/src/local-preview.ts)
+// and its framing headers rewritten below the page (main/local-app-frames.mjs);
+// none of that applies to a site on the web.
 
 /**
- * The store a website's cookies and sign-ins go into.
- *
- * IT IS NOT `persist:junk`, AND THAT IS THE POINT. The junk partition is the
- * store behind the browser pane an agent is allowed to drive, which is safe
- * precisely because it carries nothing. This one is the opposite: a person
- * reads pages here and may well sign into one, so it is a store of theirs and
- * it must never be a store an agent can be pointed at.
+ * The store a website's cookies and sign-ins go into. Not `persist:junk`:
+ * that one is safe for an agent to drive precisely because it carries
+ * nothing, and a person may sign into a page here.
  */
 export const WEBSITE_PARTITION = 'persist:websites';
 
@@ -38,12 +29,9 @@ export function isWebsiteAddress(src) {
 }
 
 /**
- * Can this page embed a website in a browser of its own?
- *
- * Only the desktop window can: `<webview>` is Electron's, switched on by
- * `webviewTag` in main/main.mjs, and nothing registers the tag in an ordinary
- * tab or on a phone. The probe is the tag's own property rather than a guess
- * about which door this is, because the answer is exactly "is the tag here".
+ * Can this page embed a website in a browser of its own? Only the desktop
+ * window can: `<webview>` is Electron's, and nothing registers the tag in an
+ * ordinary tab or on a phone. Asking the tag beats guessing which door this is.
  */
 export function canFrameAWebsite(doc) {
   try {

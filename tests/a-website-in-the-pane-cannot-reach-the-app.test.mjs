@@ -17,7 +17,7 @@
 //
 // The cases: a tag that asks for everything dangerous, a tag that asks for
 // nothing, the autoplay rule that was already in this seam and must survive,
-// and the one thing that must NOT be flattened — the partition, which is how
+// and the one thing that must NOT be flattened, the partition, which is how
 // the website pane's sign-ins are kept out of the agent browser's store.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';

@@ -231,11 +231,17 @@ export const DOC_FRAME_CLASS = 'doc-view';
  * the whole test, and it is what keeps the forwarded key from being answered
  * twice: main only forwards from a frame, and this refuses anything that
  * arrives while the app's own page has the keyboard.
+ *
+ * A WEBVIEW COUNTS TOO, because a page off the web is drawn in one
+ * (WebsitePane.tsx) and the question is the same question. Asking for an
+ * IFRAME by name cost a press: escape from inside a website moved the
+ * keyboard back and left the pane open.
  */
 export function focusIsInTheFile(
   active: { tagName?: string; classList?: { contains(c: string): boolean } } | null | undefined,
 ): boolean {
   if (!active) return false;
-  if (String(active.tagName ?? '').toUpperCase() !== 'IFRAME') return false;
+  const tag = String(active.tagName ?? '').toUpperCase();
+  if (tag !== 'IFRAME' && tag !== 'WEBVIEW') return false;
   return !!active.classList?.contains(DOC_FRAME_CLASS);
 }
