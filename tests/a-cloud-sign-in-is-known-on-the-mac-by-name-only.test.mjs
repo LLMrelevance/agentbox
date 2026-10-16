@@ -175,6 +175,29 @@ describe('the cloud accounts she added', () => {
 });
 
 describe('the cloud menu\'s sign-in', () => {
+  // 2026-10-15: "It's been over a minute and it's still saying Adding."
+  // However the cloud's side goes, this Mac stops waiting on a check that
+  // never ends, says so, and stops the session.
+  it('stops waiting on a check that never ends, says so, and stops the cloud session', async () => {
+    makeSandbox('claude-silent');
+    const s = startCloudSignIn({ transport, storage, engine: 'claude', dir: '/Users/x/.claude-q', home, pollWaitMs: 50, checkMs: 300 });
+    await until(() => s.status().state === 'needs-code', 'the link');
+    await s.code('good#code');
+    expect(s.status().state).toBe('checking');
+    const end = await until(() => s.status().state === 'failed' && s.status(), 'the give-up', 5000);
+    expect(end.message).toMatch(/didn’t finish signing in/);
+    expect(cloudLoginFor('claude', '/Users/x/.claude-q', { home })).toBe(null);
+  });
+
+  it('does not give up on one that finishes in time', async () => {
+    makeSandbox();
+    const s = startCloudSignIn({ transport, storage, engine: 'claude', dir: '/Users/x/.claude-t', home, pollWaitMs: 50, checkMs: 10_000 });
+    await until(() => s.status().state === 'needs-code', 'the link');
+    await s.code('good#code');
+    const end = await s.done;
+    expect(end.state, end.message).toBe('saved');
+  });
+
   it('relays Claude\'s link and her code, and records the new login once the cloud kept it', async () => {
     makeSandbox();
     const changes = [];
@@ -225,7 +248,7 @@ describe('the cloud menu\'s sign-in', () => {
     await s.code('wrong');
     const end = await s.done;
     expect(end.state).toBe('failed');
-    expect(end.message).toMatch(/did not accept/);
+    expect(end.message).toMatch(/didn’t accept that code/);
     expect(cloudLoginFor('claude', '/Users/x/.claude', { home })).toBe(null);
   });
 });

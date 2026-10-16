@@ -160,7 +160,8 @@ export function CloudSetup({ cloud, onMode, onClose }: {
             {s.state === 'checking'
               ? <span className="cs-row-eng cs-row-adding"><Busy />{SETUP.adding}</span>
               : <button type="button" className="cs-quiet cs-again" onClick={() => void send(s.engine, 'cancel', s.key).then(() => send(s.engine, 'start'))}>{SETUP.tryAgain}</button>}
-            {s.state === 'failed' && <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${s.engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}`} title={SETUP.remove} onClick={() => void send(s.engine, 'cancel', s.key)}>×</button>}
+            {/* Being added or failed, it can be let go: a cancel stops the cloud's side too. */}
+            <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${s.engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}`} title={SETUP.remove} onClick={() => void send(s.engine, 'cancel', s.key)}>×</button>
           </span>
         </div>)}
         {choosing && accounts.length > 0 && <div className="cs-choose-head">{SETUP.addWhich}</div>}

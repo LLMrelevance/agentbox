@@ -287,13 +287,14 @@ function reloadRenderer() {
 }
 
 async function createWindow() {
-  const shellPath = await recoverShellPath();
+  // Where the shell says Claude Code and Codex keep their logins and sessions,
+  // never put into this environment (main/shell-path.mjs). WAITED FOR, beside
+  // the PATH read so it costs no extra time: the folders it names are where
+  // workers sign in now (w-6d8c543a43), and a task resumed at launch before
+  // the answer landed ran on ~/.claude signed out.
+  const [shellPath] = await Promise.all([recoverShellPath(), learnShellDataDirs()]);
   process.env.PATH = shellPath.path;
   if (shellPath.error) console.warn('agentbox: could not load your shell PATH; using the inherited PATH:', shellPath.error);
-  // Where the shell says Claude Code and Codex keep their sessions, for the
-  // import only and never into this environment (main/shell-path.mjs). Not
-  // waited for: it lands long before setup reaches its last card.
-  void learnShellDataDirs();
   const config = loadConfig(dataDir);
   // The store modules read the app's own home variable at call time; setting it
   // here points auth session files, sync, and every store path at its root.
