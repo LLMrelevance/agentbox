@@ -149,9 +149,10 @@ describe('the account rows never tell anybody to get a second subscription', () 
   */
   it('heads the list with one phrase that works at any number', () => {
     // The page is titled with the agent's name, and the rows are headed
-    // "Signed in", neither of which can grow a plural whatever the count is.
+    // "Signed in" ("On this computer" beside the cloud's own logins), none of
+    // which can grow a plural whatever the count is.
     expect(said).toMatch(/title=\{agent\.name\}/);
-    expect(said).toMatch(/label="Signed in"/);
+    expect(said).toMatch(/label=\{cloudHere \? 'On this computer' : 'Signed in'\}/);
     expect(said).not.toMatch(/label="Accounts"/);
     expect(said).not.toMatch(/Claude accounts/);
   });
@@ -269,7 +270,7 @@ describe('where the account rows live', () => {
   it('reads usage, then who is signed in, then permissions', () => {
     const said = spoken(accountsPane);
     const usage = said.indexOf('label="Usage"');
-    const who = said.indexOf('label="Signed in"');
+    const who = said.indexOf("'Signed in'}");
     const perms = said.indexOf('label="Permissions"');
     expect(usage).toBeGreaterThan(-1);
     expect(who).toBeGreaterThan(usage);

@@ -38,6 +38,7 @@ export interface CloudAccount {
   // renewed), 'ready'.
   state?: 'broken' | 'renew' | 'stale' | 'ready';
   savedAt?: number | null;
+  limitedUntil?: number | null;
 }
 
 export interface CloudStatus {

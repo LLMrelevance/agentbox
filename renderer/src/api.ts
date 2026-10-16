@@ -4,7 +4,7 @@ import {updateFixture} from './agent-update-fixture';
 // bridge; fixtures mode (?fixtures=1) serves canned data so the UI can be
 // developed, reviewed, and screenshotted without a live store or any agents.
 
-import type { AgentConversation, AnswerMode, DemoOpened, FolderListing, FreshUser, PermissionMode, PhoneLink, PhoneRoute, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, TeamMessageFile, ThreadEditPatch, UpdateState, Usage, WorkItem } from './types';
+import type { AccountUsageReading, AgentConversation, AnswerMode, DemoOpened, FolderListing, FreshUser, PermissionMode, PhoneLink, PhoneRoute, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, TeamMessageFile, ThreadEditPatch, UpdateState, Usage, WorkItem } from './types';
 import type { LedgerLine } from './thread-history';
 import type { AgentFile as AgentFileRow } from './onboarding';
 import type { AgentFolder, SessionThread } from './agent-import-card';
@@ -154,6 +154,30 @@ if (accountTroubleNotes[accountTrouble]) {
     trouble: { cause: accountTrouble, since: Date.now(), note: accountTroubleNotes[accountTrouble] },
     ...(accountTrouble === 'subscription-ended' ? { plan: { label: 'Subscription ended', max: false } } : {}),
   });
+}
+
+// ?accounts=two: two logins, the second picked and nearly empty, the first full,
+// and the cloud's two unnamed logins at their limit (2026-10-16).
+const twoLogins = params.get('accounts') === 'two';
+if (twoLogins) {
+  const [first, second] = fixtureSettingsState.workspace.accounts;
+  if (first) first.chosen = false;
+  if (second) second.chosen = true;
+}
+
+function fixtureAccountUsage(): AccountUsageReading[] {
+  const now = Date.now();
+  const at = (h: number, m = 0) => { const d = new Date(now); d.setHours(h, m, 0, 0); return d.getTime(); };
+  const limit = (span: 'session' | 'week', percent: number, resetsText: string, resetsAt: number, qualifier: string | null = null) => ({
+    span, qualifier, percent, resetsText, resetsOn: span === 'week' ? 'Oct 22' : null, resetsAt, zone: null,
+    name: span === 'session' ? 'This session' : qualifier === 'Fable' ? 'This week, Fable' : 'This week',
+  });
+  const [first, second] = fixtureSettingsState.workspace.accounts;
+  const week = now + 6 * 86_400_000;
+  return [
+    { profile: first.profile, at: now - 60_000, limits: [limit('session', twoLogins ? 100 : 42, '5:09pm', at(17, 9)), limit('week', 15, '11:59am', week, 'all models')] },
+    { profile: second.profile, at: now - 60_000, limits: [limit('session', 5, '8pm', at(20)), limit('week', 9, '4pm', week, 'all models')] },
+  ];
 }
 
 function fixtureWrite(scope: 'project' | 'workspace', p: any): Settings {
@@ -330,7 +354,18 @@ export const api = {
       // &cloud=mac|full|all draws the cloud button set up, two accounts in,
       // three threads running there, so its menu can be looked at.
       const cloud = params.get('cloud');
-      if (cloud === 'mac' || cloud === 'full' || cloud === 'all') {
+      if (params.get('accounts') === 'two') {
+        const until = new Date(); until.setHours(17, 10, 0, 0);
+        base.cloud = {
+          setUp: true, mode: 'full', whenOn: 'full', running: 0,
+          month: { runs: 14, agentHours: 1.2, estimatedCost: 0.16, costPerAgentHour: 0.13 },
+          accounts: [
+            { engine: 'claude', key: 'a1', name: null, ready: false, state: 'limited' as any, limitedUntil: until.getTime() },
+            { engine: 'claude', key: 'a2', name: null, ready: false, state: 'limited' as any, limitedUntil: until.getTime() },
+          ],
+          signIns: [],
+        } as typeof base.cloud;
+      } else if (cloud === 'mac' || cloud === 'full' || cloud === 'all') {
         base.cloud = {
           setUp: true, mode: cloud, whenOn: cloud === 'all' ? 'all' : 'full', running: 3,
           month: { runs: 6, agentHours: 2.4, estimatedCost: 0.31, costPerAgentHour: 0.13 },
@@ -355,6 +390,13 @@ export const api = {
     if (!window.zero?.refreshUsage) return { ok: false, error: RESTART_NOTE };
     try { return await window.zero.refreshUsage(); }
     catch { return { ok: false, error: USAGE_UNREADABLE }; }
+  },
+
+  /** Every Claude login's own usage, for Settings. Empty from a main process that predates it. */
+  async accountUsage(p: { refresh?: boolean } = {}): Promise<AccountUsageReading[]> {
+    if (useFixtures) return fixtureAccountUsage();
+    if (!window.zero?.accountUsage) return [];
+    try { return (await window.zero.accountUsage(p)).readings ?? []; } catch { return []; }
   },
 
   // THE NEXT PAGE OF FINISHED THREADS THE SNAPSHOT LEFT OUT (w-fda2165ec6),

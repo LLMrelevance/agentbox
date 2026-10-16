@@ -3760,6 +3760,28 @@ export class Supervisor {
     return forgot;
   }
 
+  /**
+   * A USAGE READING IS PROOF THE ACCOUNT RUNS. Limits only come back for a
+   * login that is signed in and allowed to use Claude Code, and an account she
+   * has not picked never gets the surviving session that would otherwise clear
+   * its mark. A limit mark goes only when nothing in the reading is at 100%.
+   * Trouble that is not the account's (an old Claude Code, the network) stays.
+   */
+  noteUsageReading(profile, reading) {
+    const key = this._accountKey(DEFAULT_ENGINE, profile || 'default');
+    const trouble = this._profileTrouble?.[key];
+    const limits = reading?.limits ?? [];
+    if (!trouble || !limits.length) return false;
+    if ((reading.at ?? 0) < (trouble.at ?? trouble.since ?? 0)) return false;
+    const proven = ['signed-out', 'org-blocked', 'subscription-ended', 'unknown'].includes(trouble.cause)
+      || (trouble.cause === 'at-limit' && limits.every((l) => !(l.percent >= 100)));
+    if (!proven) return false;
+    this._clearProfileTrouble(key);
+    this._saveState();
+    this.onChange?.();
+    return true;
+  }
+
   _clearProfileTrouble(profile) {
     if (!profile) return;
     if (this._profileTrouble) delete this._profileTrouble[profile];
@@ -4065,7 +4087,7 @@ export class Supervisor {
     for (const engine of [DEFAULT_ENGINE, 'codex']) {
       listCloudLogins(engine, { home: this.config.home }).forEach((r) => {
         const state = cloudLoginState(r, { now });
-        out.push({ engine, key: r.key, name: r.email || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null });
+        out.push({ engine, key: r.key, name: r.email || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null, limitedUntil: r.limitedUntil ?? null });
       });
     }
     return out;

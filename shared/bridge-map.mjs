@@ -16,6 +16,7 @@ export const REQUEST_CHANNELS = {
   agentUpdate: 'zero:agent-update',
   snapshot: 'zero:snapshot',
   refreshUsage: 'zero:refresh-usage',
+  accountUsage: 'zero:account-usage',
   // Whether a screen reader is running, which is the terminal pane's question
   // before it builds xterm's accessibility tree.
   assistiveTech: 'zero:assistiveTech',

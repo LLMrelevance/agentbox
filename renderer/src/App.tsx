@@ -6667,6 +6667,7 @@ export default function App() {
           tune={tune}
           onSetTune={setTune}
           onResetTune={resetTune}
+          cloud={snap.cloud?.setUp ? snap.cloud : null}
           startPane={settingsPane}
           onNewProject={() => setNewProject(true)}
           // The Priority page: the same running order every project list
