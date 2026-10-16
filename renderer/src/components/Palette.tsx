@@ -2,7 +2,7 @@
 // and keywords (../palette-rows), so a row is found only by words it contains.
 
 import { cloudCommands, type CloudMode, type CloudStatus } from '../cloud-menu';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import type { Product, View } from '../types';
 import { commandKeys } from '../palette-keys';
 import { emptyLine, lookRows, matchesQuery, rankMatches } from '../palette-rows';
@@ -11,7 +11,7 @@ import { type ThemeChoice } from '../theme';
 import { NAME } from '../../../shared/product-name.mjs';
 import { CHECK_SAY, MOVE_SAY } from '../update-row';
 
-interface Command {
+export interface Command {
   id: string;
   label: string;
   hint?: string;
@@ -22,7 +22,7 @@ interface Command {
   run: () => void;
 }
 
-export function Palette({ products, supervisorPaused, itemCommands = [], batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onStanding, onSettings, onShortcuts, panelUp, onTogglePanel, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode }: {
+export function Palette({ products, supervisorPaused, itemCommands = [], batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onStanding, onSettings, onShortcuts, panelUp, onTogglePanel, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode, open = true, commandsRef }: {
   products: Product[];
   supervisorPaused: boolean;
   itemCommands?: Command[];
@@ -86,13 +86,11 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
   /** The cloud, when this Mac is set up for it; null hides its rows. */
   cloud?: CloudStatus | null;
   onCloudMode?: (mode: CloudMode) => void;
+  /** Drawn only while open; the list is worked out either way, so Neo can
+   *  run any of it by name (../neo/useNeo.ts). */
+  open?: boolean;
+  commandsRef?: MutableRefObject<Command[]>;
 }) {
-  const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => inputRef.current?.focus(), []);
-
   const commands: Command[] = useMemo(() => [
     // First, and labelled "project" because that is the word people type.
     { id: 'new-project', label: 'New project…', hint: 'name it, and it is yours', run: onNewProject },
@@ -233,11 +231,14 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
     // Its own row, so reaching the import does not mean walking the onboarding
     // again; that is why it sits above the onboarding row. "bring" and "across"
     // stay in the keywords from the old label.
+    // Both halves stay short: at 39 and 73 characters this was the longest
+    // label and the longest hint in the palette, and it wrapped onto two lines
+    // each. tests/a-palette-row-never-stacks-onto-two-lines holds the ceiling.
     {
       id: 'import-agents',
-      label: 'Import agents from Claude Code or Codex',
-      hint: 'your last ten days on this computer · they land in your inbox',
-      keywords: 'import agents claude code codex conversations threads sessions subagents existing mine bring across add my recent',
+      label: 'Import chats and agents',
+      hint: 'from Claude Code or Codex · recent or by name',
+      keywords: 'import agents claude code codex conversations threads sessions subagents existing mine bring across add my recent older chat find search by name title past old',
       run: onImportAgents,
     },
     // The tutorial practises and keeps nothing; the onboarding row below sets
@@ -293,6 +294,17 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
     },
 
   ], [itemCommands, batch, products, supervisorPaused, order, onNewProject, filtering, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onStanding, onSettings, onShortcuts, look, machine, onSetLook, staleFiles, updateReady, onInstallUpdate, moveToApplications, onMoveToApplications, panelUp, onTogglePanel, boardUp, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, cloud, onCloudMode]);
+  if (commandsRef) commandsRef.current = commands;
+  return open ? <PaletteBox commands={commands} onClose={onClose} /> : null;
+}
+
+// The box itself, mounted fresh each time ⌘K opens, so it starts empty and focused.
+function PaletteBox({ commands, onClose }: { commands: Command[]; onClose: () => void }) {
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => inputRef.current?.focus(), []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -335,7 +347,7 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
               onClick={c.run}
               onMouseEnter={() => setSelected(i)}
             >
-              <span>{c.label}</span>
+              <span className="palette-label">{c.label}</span>
               {c.keyHint ? <span className="palette-key">{c.keyHint}</span> : c.hint && <span className="palette-hint">{c.hint}</span>}
             </div>
           ))}

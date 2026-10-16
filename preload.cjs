@@ -114,6 +114,9 @@ contextBridge.exposeInMainWorld('zero', {
   // The Claude Code threads she started herself in the last few days, which is
   // what she meant by her agents, and taking one as a task.
   agentThreads: () => ipcRenderer.invoke('zero:agent-threads'),
+  // Every chat the card's name field can search, which reaches a year back
+  // rather than ten days. Read once and kept by the window (w-6418318cd5).
+  searchAgentThreads: (payload) => ipcRenderer.invoke('zero:search-agent-threads', payload ?? {}),
   importThreads: (payload) => ipcRenderer.invoke('zero:import-threads', payload ?? {}),
   badge: (count) => ipcRenderer.invoke('zero:badge', count),
   // What the corner tag says when she is in another app: what is ready for

@@ -11,10 +11,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { createNeo } from '../main/neo/index.mjs';
 
-function fakes({ onListen, getMicImpl, mic = { status: 'granted' } } = {}) {
-  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'neo-main-'));
+function fakes({ onListen, getMicImpl, mic = { status: 'granted' }, userData: given, startLiveImpl } = {}) {
+  const userData = given ?? fs.mkdtempSync(path.join(os.tmpdir(), 'neo-main-'));
   fs.writeFileSync(path.join(userData, 'neo-alpha'), '');
   const registered = [];
+  const windows = {};
   const handlers = new Map();
   const listeners = new Map();
   const ipcMain = { handle: (ch, fn) => handlers.set(ch, fn), on: (ch, fn) => listeners.set(ch, fn) };
@@ -26,7 +27,8 @@ function fakes({ onListen, getMicImpl, mic = { status: 'granted' } } = {}) {
   };
   class BrowserWindow {
     constructor() { this.webContents = neoContents; }
-    setAlwaysOnTop() {} setVisibleOnAllWorkspaces() {} setIgnoreMouseEvents() {} setBounds() {}
+    setAlwaysOnTop() {} setVisibleOnAllWorkspaces() {} setIgnoreMouseEvents() {}
+    setBounds(b) { this.bounds = { ...b }; windows.last = this; } getBounds() { return { ...this.bounds }; }
     on() {} showInactive() {} hide() {} isDestroyed() { return false; }
   }
   const mainSent = [];
@@ -37,7 +39,7 @@ function fakes({ onListen, getMicImpl, mic = { status: 'granted' } } = {}) {
     screen: { getCursorScreenPoint: () => ({ x: 0, y: 0 }), getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }) },
     powerMonitor: { on: (ev, fn) => power.set(ev, fn) },
     systemPreferences: { getMediaAccessStatus: () => mic.status, askForMediaAccess: async () => mic.status === 'granted' },
-    getMicImpl, owner: { id: 'com.apple.Terminal', name: 'Terminal' },
+    getMicImpl, startLiveImpl, owner: { id: 'com.apple.Terminal', name: 'Terminal' },
     session: { fromPartition: () => ({ setPermissionRequestHandler() {}, setPermissionCheckHandler() {} }) },
     globalShortcut: { register: (k) => { registered.push(k); return true; }, unregister() {} },
     mainWindow, preload: '/x', load: () => {}, userData,
@@ -45,7 +47,7 @@ function fakes({ onListen, getMicImpl, mic = { status: 'granted' } } = {}) {
   });
   const fromNeo = { sender: neoContents };
   const fromMainWindow = { sender: mainWindow.webContents };
-  return { userData, registered, neo, handlers, listeners, neoSent, mainSent, finishLoad: () => finishLoad?.(), power, fromNeo, fromMainWindow };
+  return { windows, userData, registered, neo, handlers, listeners, neoSent, mainSent, finishLoad: () => finishLoad?.(), power, fromNeo, fromMainWindow };
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -230,5 +232,132 @@ describe('the microphone', () => {
     const f = fakes({ getMicImpl });
     expect(await f.handlers.get('neo:allow-mic')(f.fromMainWindow)).toBe('refused');
     expect(getMicImpl).not.toHaveBeenCalled();
+  });
+});
+
+// "Be able to drag the orb around your screen" (2026-10-16). The window
+// follows the drag, stays whole on the display, and comes back where she
+// left it next time.
+describe('dragging the orb', () => {
+  async function awake(userData) {
+    const f = fakes({ userData });
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    return f;
+  }
+
+  it('moves the window by how far the pointer moved', async () => {
+    const f = await awake();
+    const was = f.windows.last.getBounds();
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -300, dy: -200 });
+    expect(f.windows.last.getBounds()).toMatchObject({ x: was.x - 300, y: was.y - 200 });
+  });
+
+  it('keeps the whole window on the screen', async () => {
+    const f = await awake();
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -5000, dy: 5000 });
+    const b = f.windows.last.getBounds();
+    expect(b.x).toBe(0);
+    expect(b.y + b.height).toBe(1080);
+  });
+
+  it('comes back where she left it the next time Neo wakes', async () => {
+    const f = await awake();
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -400, dy: -300 });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'end' });
+    const left = f.windows.last.getBounds();
+    const again = await awake(f.userData);
+    expect(again.windows.last.getBounds()).toMatchObject({ x: left.x, y: left.y });
+  });
+
+  it('only Neo\'s own window can move it', async () => {
+    const f = await awake();
+    const was = f.windows.last.getBounds();
+    f.listeners.get('neo:drag')(f.fromMainWindow, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromMainWindow, { phase: 'move', dx: -300, dy: 0 });
+    expect(f.windows.last.getBounds()).toEqual(was);
+  });
+});
+
+// "Adjust the voice speed, maybe by hovering on the orb" (2026-10-16). GPT-Live
+// has no speed setting (refused: "Unknown parameter"); told how fast to talk it
+// went from about 3.7 to 4.7 words a second on "fast" and 6.3 on "faster",
+// measured live. So the pace she picks is kept and goes into the next session.
+describe('the voice pace', () => {
+  it('is kept and goes into the session Neo starts', async () => {
+    const startLiveImpl = vi.fn(async () => ({ sdp: 'v=0 answer', id: 's' }));
+    const f = fakes({ startLiveImpl });
+    expect(await f.handlers.get('neo:pace')(null, 'faster')).toBe('faster');
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    const started = f.handlers.get('neo:start-live')(f.fromNeo, { sdp: 'v=0 offer', outside: false });
+    await tick();
+    const [, req] = f.mainSent.filter(([ch]) => ch === 'neo:act').at(-1);
+    f.listeners.get('neo:act-result')(f.fromMainWindow, { id: req.id, result: { ok: true, said: 'screen' } });
+    await started;
+    expect(startLiveImpl.mock.calls[0][0].session.instructions).toMatch(/very fast/i);
+  });
+
+  it('is remembered across launches, and a pace that is not one of the four is refused', async () => {
+    const f = fakes();
+    await f.handlers.get('neo:pace')(null, 'slow');
+    expect(await f.handlers.get('neo:pace')(null, 'ludicrous')).toBe('slow');
+    const again = fakes({ userData: f.userData });
+    expect(await again.handlers.get('neo:pace')(null)).toBe('slow');
+  });
+});
+
+// "When I put it in the top-left corner, the chat container moves
+// appropriately so it's not off-screen" (2026-10-16). Over the left half of
+// the display the card sits on the orb's right, and the orb stays under the
+// pointer as it changes sides.
+describe('the card on the side with room', () => {
+  const ORB_RIGHT = 600 - 24 - 75; // orb centre in the window, card on its left
+  const ORB_LEFT = 24 + 75;        // and with the card on its right
+  async function awake(userData) {
+    const f = fakes({ userData });
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    return f;
+  }
+  const sides = (f) => f.neoSent.filter(([ch]) => ch === 'neo:side').map(([, p]) => p.side);
+
+  it('starts with the card on the orb\'s left, in the bottom-right corner', async () => {
+    const f = await awake();
+    expect(sides(f).at(-1)).toBe('right');
+  });
+
+  it('moves the card to the orb\'s right over the left half, keeping the orb under the pointer', async () => {
+    const f = await awake();
+    const start = f.windows.last.getBounds();
+    const orbAt = start.x + ORB_RIGHT;
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -1500, dy: -800 });
+    expect(sides(f).at(-1)).toBe('left');
+    const b = f.windows.last.getBounds();
+    expect(b.x + ORB_LEFT).toBe(orbAt - 1500);
+    expect(b.y).toBe(start.y - 800);
+  });
+
+  it('lets the orb reach the left edge once the card is on its right', async () => {
+    const f = await awake();
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -5000, dy: -5000 });
+    expect(f.windows.last.getBounds()).toMatchObject({ x: 0, y: 0 });
+  });
+
+  it('keeps the side with the place', async () => {
+    const f = await awake();
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -1500, dy: -800 });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'end' });
+    const again = await awake(f.userData);
+    expect(sides(again).at(-1)).toBe('left');
   });
 });

@@ -12,7 +12,7 @@ import { neoEnabled } from './gate.mjs';
 import { startLive } from './live.mjs';
 import { listenForDoubleCommand } from './cmd-tap.mjs';
 import { getMic, micOwner } from './mic.mjs';
-import { checkCall, neoSession } from '../../shared/neo-tools.mjs';
+import { checkCall, neoSession, PACES } from '../../shared/neo-tools.mjs';
 import { Name } from '../../shared/product-name.mjs';
 
 const WIDTH = 600;
@@ -27,7 +27,7 @@ const today = (now) => new Date(now).toISOString().slice(0, 10);
 export function createNeo({
   app, BrowserWindow, ipcMain, screen, powerMonitor, systemPreferences, session: electronSession, globalShortcut,
   mainWindow, preload, load, userData, now = Date.now, listen = listenForDoubleCommand, platform = process.platform,
-  shell = { openExternal: () => {} }, owner = micOwner(), getMicImpl = getMic,
+  shell = { openExternal: () => {} }, owner = micOwner(), getMicImpl = getMic, startLiveImpl = startLive,
 }) {
   const on = neoEnabled({ userData, platform });
   ipcMain.handle('neo:enabled', () => on);
@@ -36,6 +36,10 @@ export function createNeo({
   const dir = path.join(userData, 'neo');
   fs.mkdirSync(dir, { recursive: true });
   const usageFile = path.join(dir, 'usage.json');
+  // Where she dragged the orb and how fast she wants Neo to talk.
+  const prefsFile = path.join(dir, 'prefs.json');
+  const readPrefs = () => { try { const p = JSON.parse(fs.readFileSync(prefsFile, 'utf8')); return p && typeof p === 'object' ? p : {}; } catch { return {}; } };
+  const writePrefs = (change) => { try { fs.writeFileSync(prefsFile, JSON.stringify({ ...readPrefs(), ...change })); } catch {} };
   const readUsage = () => {
     try { const u = JSON.parse(fs.readFileSync(usageFile, 'utf8')); if (u.date === today(now())) return u; } catch {}
     return { date: today(now()), seconds: 0 };
@@ -70,7 +74,32 @@ export function createNeo({
   const fromNeo = (e) => !!win && e.sender === win.webContents;
   const fromMain = (e) => e.sender === mainWindow.webContents;
 
+  // The whole window stays on the display it is mostly on.
+  function within(x, y) {
+    const { workArea: a } = screen.getDisplayNearestPoint({ x: Math.round(x + WIDTH / 2), y: Math.round(y + HEIGHT / 2) });
+    return {
+      x: Math.round(Math.min(Math.max(x, a.x), a.x + a.width - WIDTH)),
+      y: Math.round(Math.min(Math.max(y, a.y), a.y + a.height - HEIGHT)),
+      width: WIDTH, height: HEIGHT,
+    };
+  }
+
+  // Which side of the orb the card sits on: 'right' puts the orb at the
+  // window's right with the card to its left. Over the left half of a display
+  // it flips, so the card always has room.
+  const ORB_X = { right: WIDTH - 24 - 75, left: 24 + 75 };
+  let side = readPrefs().side === 'left' ? 'left' : 'right';
+  const sideFor = (b) => {
+    const orbX = b.x + ORB_X[side];
+    const { workArea: a } = screen.getDisplayNearestPoint({ x: Math.round(orbX), y: Math.round(b.y + HEIGHT / 2) });
+    return orbX < a.x + a.width / 2 ? 'left' : 'right';
+  };
+  const tellSide = () => win?.webContents.send('neo:side', { side });
+
   function place() {
+    const kept = readPrefs().at;
+    if (kept && Number.isFinite(kept.x) && Number.isFinite(kept.y)) { win.setBounds(within(kept.x, kept.y)); return; }
+    side = 'right';
     const point = screen.getCursorScreenPoint();
     const { workArea } = screen.getDisplayNearestPoint(point);
     win.setBounds({ x: workArea.x + workArea.width - WIDTH - MARGIN, y: workArea.y + workArea.height - HEIGHT - MARGIN, width: WIDTH, height: HEIGHT });
@@ -98,13 +127,13 @@ export function createNeo({
   }
 
   // Asks the main window to do something and waits for its answer.
-  function askMain(name, args = {}) {
+  function askMain(name, args = {}, heard = '') {
     if (mainWindow.isDestroyed()) return Promise.resolve({ ok: false, said: `${Name} is not open.` });
     const id = ++reqSeq;
     return new Promise((resolve) => {
       const timer = setTimeout(() => { waiting.delete(id); resolve({ ok: false, status: 'failed', said: 'The app did not answer in time.' }); }, ACT_TIMEOUT_MS);
       waiting.set(id, (result) => { clearTimeout(timer); resolve(result); });
-      mainWindow.webContents.send('neo:act', { id, name, args });
+      mainWindow.webContents.send('neo:act', { id, name, args, heard });
     });
   }
   ipcMain.on('neo:act-result', (e, { id, result } = {}) => {
@@ -150,14 +179,17 @@ export function createNeo({
     seenCalls.clear();
     const outside = !mainWindow.isFocused();
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send('neo:mode', { on: true });
+    tellSide();
     win.webContents.send('neo:wake', { outside, source });
   }
 
   ipcMain.handle('neo:start-live', async (e, { sdp, outside } = {}) => {
     if (!fromNeo(e) || !live) return { ok: false, error: 'Neo is not awake.' };
-    const screenNow = await askMain('describe_screen', { outside: !!outside });
+    // Tells the app whether she is in another app; what is on screen is not
+    // given to the session (shared/neo-tools.mjs neoSession says why).
+    await askMain('describe_screen', { outside: !!outside });
     try {
-      const answer = await startLive({ sdp, session: neoSession({ screen: screenNow?.said ?? '' }) });
+      const answer = await startLiveImpl({ sdp, session: neoSession({ pace: readPrefs().pace }) });
       log('session started');
       return { ok: true, sdp: answer.sdp };
     } catch (err) {
@@ -168,7 +200,7 @@ export function createNeo({
 
   // One tool call from GPT-Live's backend, as the page received it. Checked,
   // run once, and run one at a time.
-  ipcMain.handle('neo:tool', (e, { callId, name, args } = {}) => {
+  ipcMain.handle('neo:tool', (e, { callId, name, args, heard } = {}) => {
     if (!fromNeo(e) || !live || ending) return { ok: false, status: 'refused', said: 'Neo is not awake.' };
     if (typeof callId !== 'string' || seenCalls.has(callId)) return { ok: false, status: 'refused', said: 'Already done.' };
     seenCalls.add(callId);
@@ -182,7 +214,7 @@ export function createNeo({
     }
     const gen = generation;
     const run = chain.then(() => (live && gen === generation
-      ? askMain(name, checked.args)
+      ? askMain(name, checked.args, typeof heard === 'string' ? heard.slice(0, 500) : '')
       : { ok: false, status: 'refused', said: 'Neo has signed off, so that was not done.' }));
     chain = run.catch(() => {});
     return run;
@@ -213,6 +245,29 @@ export function createNeo({
     log(`allow microphone: ${got}`);
     if (got === 'granted') void wake('mic-allowed');
     return got;
+  });
+
+  // Dragging the orb moves the window with it; where it ends is kept.
+  let dragFrom = null;
+  ipcMain.on('neo:drag', (e, { phase, dx, dy } = {}) => {
+    if (!fromNeo(e) || !win) return;
+    if (phase === 'start') { dragFrom = win.getBounds(); return; }
+    if (!dragFrom) return;
+    if (phase === 'move' && Number.isFinite(dx) && Number.isFinite(dy)) {
+      const next = { x: dragFrom.x + dx, y: dragFrom.y + dy };
+      const now = sideFor(next);
+      // The orb stays under the pointer as the card changes sides.
+      if (now !== side) { const shift = ORB_X[side] - ORB_X[now]; dragFrom.x += shift; next.x += shift; side = now; tellSide(); }
+      win.setBounds(within(next.x, next.y));
+      return;
+    }
+    if (phase === 'end') { const { x, y } = win.getBounds(); writePrefs({ at: { x, y }, side }); dragFrom = null; }
+  });
+
+  // How fast Neo talks, from the next session on. Asked with no value, it answers.
+  ipcMain.handle('neo:pace', (_e, pace) => {
+    if (typeof pace === 'string' && Object.hasOwn(PACES, pace)) writePrefs({ pace });
+    return Object.hasOwn(PACES, readPrefs().pace ?? '') ? readPrefs().pace : 'normal';
   });
 
   ipcMain.on('neo:clickable', (e, on) => {

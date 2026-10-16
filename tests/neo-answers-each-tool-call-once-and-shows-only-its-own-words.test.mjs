@@ -26,7 +26,7 @@ describe('a tool call from the session', () => {
   it('runs the tool and sends its answer back the way the service accepts', async () => {
     const { d, sent, tool } = setup({ ok: true, said: 'Opened it.' });
     await d.handle(call('call_1', 'next_thread'));
-    expect(tool).toHaveBeenCalledWith('call_1', 'next_thread', '{}');
+    expect(tool).toHaveBeenCalledWith('call_1', 'next_thread', '{}', '');
     expect(sent[0].type).toBe('response.item.create');
     expect(sent[0].item).toEqual({ type: 'function_call_output', call_id: 'call_1', output: JSON.stringify({ ok: true, said: 'Opened it.' }) });
     expect(sent[1].type).toBe('response.create');
@@ -85,5 +85,27 @@ describe('usage', () => {
     const { d, usage } = setup();
     await d.handle({ type: 'session.usage.updated', usage: { seconds: 14 } });
     expect(usage).toEqual([14]);
+  });
+});
+
+// The person's own last words travel with each tool call, so "option one"
+// can be taken as the yes it is (renderer/src/neo/bridge.ts).
+describe('what the person last said', () => {
+  it('goes with the tool call, even after Neo said "one sec"', async () => {
+    const { d, tool } = setup();
+    await d.handle({ type: 'session.input_transcript.delta', delta: 'option' });
+    await d.handle({ type: 'session.input_transcript.delta', delta: ' one' });
+    await d.handle({ type: 'session.output_transcript.delta', delta: 'One sec.' });
+    await d.handle(call('c1', 'pick_option', '{"id":"w-a","n":1}'));
+    expect(tool).toHaveBeenCalledWith('c1', 'pick_option', '{"id":"w-a","n":1}', 'option one');
+  });
+
+  it('is only the latest thing they said', async () => {
+    const { d, tool } = setup();
+    await d.handle({ type: 'session.input_transcript.delta', delta: 'what is next' });
+    await d.handle({ type: 'session.output_transcript.delta', delta: 'The pricing one.' });
+    await d.handle({ type: 'session.input_transcript.delta', delta: 'do it' });
+    await d.handle(call('c2', 'pick_option', '{"id":"w-a","n":1}'));
+    expect(tool).toHaveBeenCalledWith('c2', 'pick_option', '{"id":"w-a","n":1}', 'do it');
   });
 });

@@ -290,11 +290,13 @@ export function refineCause(cause, plan) {
 // THE CLOCK A LIMIT LINE NAMES, AND THE ZONE IT NAMED IT IN.
 //
 // The zone used to be dropped on the floor, on the assumption that the CLI
-// prints the clock the Mac is already set to. It does not always: Claude Code
-// printed "resets 12:10am (UTC)" to a Mac on Pacific time (2026-10-16), so
-// both the hour on her row and the moment the fleet waited for were seven
-// hours out. `offset` is minutes east of UTC, and null when the line printed
-// no zone at all — which is still most lines, and still means local.
+// prints the clock the Mac is already set to. A run on the cloud prints the
+// cloud machine's: "resets 12:10am (UTC)" reached a Mac on Pacific time
+// (2026-10-16), and both the hour on the row and the moment the fleet waited
+// for were seven hours out. `offset` is minutes east of UTC, and null when
+// the line printed no zone at all — which is still most lines, and still
+// means local. This reads any offset, and reads it for the sentence as well
+// as for the bench, which the first fix for that incident did not.
 //
 // Both wordings are real: the CLI's own line is "resets 6pm" and the API's is
 // "Your weekly limit resets at 4pm", so the "at" is optional.

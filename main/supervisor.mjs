@@ -70,6 +70,14 @@ function teamPersonEnv() {
  * app is the difference between "this machine is broken" and "something else is
  * already working here".
  */
+// A LIMIT A CLOUD RUN CHARGED TO A MAC ACCOUNT, before cloud runs stopped
+// doing that: its line names UTC, the cloud machine's zone, on a Mac that is
+// not in UTC. Dropped once, as the app opens.
+function dropCloudLimits(trouble) {
+  if (Intl.DateTimeFormat().resolvedOptions().timeZone === 'UTC') return trouble;
+  return Object.fromEntries(Object.entries(trouble).filter(([, t]) => !(t?.cause === 'at-limit' && /\(UTC\)/.test(String(t.raw ?? '')))));
+}
+
 function whoHasIt(made) {
   if (made?.taken !== false) return '';
   return `: its folder is ${made.reason}${made.heldBy ? ` by pid ${made.heldBy}` : ''}`;
@@ -477,7 +485,7 @@ export class Supervisor {
       // long: the first session that survives on an account clears it
       // (`_clearProfileTrouble`), and a cooldown is an absolute moment that has
       // usually already passed by the time the app is back.
-      this._profileTrouble = state.profileTrouble ?? {};
+      this._profileTrouble = dropCloudLimits(state.profileTrouble ?? {});
       this._profileCooldown = state.profileCooldown ?? {};
       // The founder's standing running order over her companies, most
       // important first. Agents never write it. It replaced three buckets
@@ -4606,6 +4614,18 @@ export class Supervisor {
     // and the account's login here is a different login, so nothing is struck
     // against it (Codex's review of the cloud sign-ins, finding 9).
     if (session.cloudLoginTrouble) return;
+    // NOR DOES A CLOUD RUN'S LIMIT, OR ITS SUCCESS: it ran on a cloud account,
+    // which its proxy benches itself (main/cloud/run.mjs `onLimit`), never on
+    // the Mac account named on the session. The reply that hit it is the
+    // account's fault, not the row's.
+    if (session.cloud) {
+      const said = session.resultIsError ? troubleCause(session.result) : 'unknown';
+      if (said === 'at-limit') {
+        session.accountFault = { cause: 'at-limit', account: `cloud:${engineOf(session.engine)}` };
+        this._cloudConfigAt = 0;
+      }
+      return;
+    }
     // A CODEX RUN CANNOT STRIKE A CLAUDE ACCOUNT, and until this slice the only
     // way to be sure of that was to return here: `_noteProfileTrouble` and
     // `_strikeProfile` took `session.profile`, which was one of the Claude

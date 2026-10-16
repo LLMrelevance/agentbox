@@ -119,11 +119,13 @@ export function markCloudLogin(engine, dir, id, patch, { home = os.homedir() } =
   });
 }
 
-// 'none' (never signed in), 'broken' (sign in again), 'renew' (Codex: must
-// be renewed before a run), 'stale' (Codex: may run, renewal due), 'ready'.
+// 'none' (never signed in), 'broken' (sign in again), 'limited' (at its usage
+// limit until `limitedUntil`), 'renew' (Codex: must be renewed before a run),
+// 'stale' (Codex: may run, renewal due), 'ready'.
 export function cloudLoginState(rec, { now = Date.now() } = {}) {
   if (!rec?.id) return 'none';
   if (rec.broken) return 'broken';
+  if (rec.limitedUntil && now < rec.limitedUntil) return 'limited';
   if (rec.engine !== 'codex' || !rec.expiresAt) return 'ready';
   const left = rec.expiresAt - now;
   if (left < CODEX_RUN_NEEDS_MS) return 'renew';
