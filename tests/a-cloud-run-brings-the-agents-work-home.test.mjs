@@ -155,11 +155,18 @@ describe('a cloud run', () => {
     expect(cloudWorkPending(mac)).toBe(false);
   });
 
-  it('never shows the agent a tool that would look at the Mac instead of the sandbox, and refuses a call to it', async () => {
+  // THE SAME TOOLS AS ON THE MAC, AND A CALL TO THE ONE THAT CANNOT WORK HERE
+  // REFUSED (2026-10-16). It used to be left out of the list, and a thread that
+  // moved from the Mac to the cloud was then told "deferred tools are no longer
+  // available (MCP server disconnected): mcp__agentbox__*". Two agents took
+  // that at its word and never tried the store: "I couldn't add the ship label
+  // because my link to your inbox dropped", while their own start-up line said
+  // the server was connected with 17 tools.
+  it('lists the same tools as on the Mac, and refuses a call to the one that would look at the Mac', async () => {
     const run = launch({ message: 'LOOK at the page' });
     expect(await run.done).toBe(0);
     const result = resultOf(run.out());
-    expect(result.names).toEqual(['note']);
+    expect(result.names).toEqual(['note', 'look_at_page']);
     expect(result.said).toMatch(/not available to a cloud run/);
     expect(fs.existsSync(run.storeLog) ? fs.readFileSync(run.storeLog, 'utf8') : '').not.toContain('look_at_page');
   });
@@ -319,7 +326,7 @@ describe('a cloud run', () => {
       homeDir: path.join(tmp, 'home'),
     });
     expect(code, err).toBe(0);
-    expect(JSON.parse(out.trim().split('\n').at(-1))).toEqual({ tools: ['note'], said: 'noted on the Mac for w-1' });
+    expect(JSON.parse(out.trim().split('\n').at(-1))).toEqual({ tools: ['note', 'look_at_page'], said: 'noted on the Mac for w-1' });
     expect(fs.readFileSync(storeLog, 'utf8')).toContain('through the bridge');
   });
 
