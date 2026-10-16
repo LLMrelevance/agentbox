@@ -6221,12 +6221,6 @@ export default function App() {
              exactly that), so the draft is still here afterwards and the
              project just made is the one the thread is addressed to. */
           onNewProject={() => setNewProject(true)}
-          /* "Already had this chat?" on an empty card (w-6418318cd5). The
-             import card takes its place rather than drawing over it, because
-             the two are the same act: you came here to put a thread in your
-             inbox. The draft is saved on every keystroke, and an empty card is
-             the only one this line appears on, so there is nothing to lose. */
-          onImportChats={() => { setModal(null); setComposeInitial(null); setImportAgents(true); }}
           onClose={() => { setModal(null); setComposeInitial(null); }}
           // THE CARD CLOSES ON SEND, NOT ON THE ANSWER (w-461fbd8d2d). On the
           // web and on a phone the answer is a round trip away, and for that

@@ -81,7 +81,7 @@ export interface ThreadSent {
 type MenuKey = 'to' | 'model' | 'project' | 'priority' | 'visibility' | 'later';
 
 export function ThreadComposer({
-  products, items, engines, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, onReorderProjects, onNewProject, onImportChats,
+  products, items, engines, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, onReorderProjects, onNewProject,
 }: {
   products: Product[];
   items: WorkItem[];
@@ -124,20 +124,13 @@ export function ThreadComposer({
    *  for on 2026-10-05: making a project is a thing you should be able to do
    *  from the menu you are already in, whether you have none or ten. */
   onNewProject?: () => void;
-  /**
-   * THE WAY TO A CHAT YOU ALREADY HAD (w-6418318cd5).
-   *
-   *  GitHub #31 put this in the inbox header, beside New thread. That header
-   *  carries what is pressed every day and had already been cut back to four
-   *  controls for reading as cluttered (w-3c51d02de5); bringing in an old chat
-   *  is a thing you do when you remember one, not a thing you do daily.
-   *
-   *  It belongs HERE, on an empty New thread card, because that is the moment
-   *  the thought happens: you opened this card to start a thread, and the
-   *  thread you want already exists in Claude Code. ⌘K is the other door and
-   *  has always been.
-   */
-  onImportChats?: () => void;
+  /* NOTHING HERE OFFERS THE CHAT IMPORT, and that is a decision rather than an
+     omission (w-6418318cd5, 2026-10-16). It was offered here for one round, as
+     a faint line on an empty card. The founder, on the picture of it: "This
+     chat really clutters a component that we use all the time so I would
+     disagree with that." An offer that is only ever one letter from
+     disappearing is still a line on the card every time it opens, and this
+     card opens all day. ⌘K is the door. */
   onClose: () => void;
   /** Called once the send stands, with the words it took off the card (`sent.draft`) for an undo. */
   onSent: (item: WorkItem | null, sent?: ThreadSent) => void;
@@ -879,17 +872,6 @@ export function ThreadComposer({
           }}
         />
         <AttachRow attachments={attachments} onRemove={(i) => setAttachments((x) => x.filter((_, j) => j !== i))} />
-
-        {/* ONLY ON AN EMPTY CARD TO AN AGENT, so it is an offer and never
-            furniture: the first letter you type takes it away. A message to a
-            person is not a thread you could have had in Claude Code, so it
-            never shows there. */}
-        {!person && onImportChats && !text.trim() && attachments.length === 0 && (
-          <div className="tc-had">
-            Already had this chat?{' '}
-            <button type="button" onClick={onImportChats}>Bring it in from Claude Code or Codex</button>
-          </div>
-        )}
 
         {refusal && <div className="tc-note">{refusal}</div>}
         {dropped > 0 && (

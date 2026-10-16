@@ -61,8 +61,15 @@ const row = (() => {
 
 describe('the row is in ⌘K and can be found by the words she would type', () => {
   it('is there, and it says what it does', () => {
-    expect(row.label).toBe('Import agents from Claude Code or Codex');
+    // SHORTER SINCE 2026-10-16, because it was the longest label in the
+    // palette by twelve characters and wrapped onto a second line: "There is
+    // so much text that it's overflowing on both lines." Which tools it reads
+    // moved into the hint, where there was room for it.
+    // tests/a-palette-row-never-stacks-onto-two-lines keeps it from growing
+    // back.
+    expect(row.label).toBe('Import chats and agents');
     expect(row.hint).toBeTruthy();
+    expect(`${row.label} ${row.hint}`).toMatch(/Claude Code or Codex/);
   });
 
   it('is still found by "bring", which is what the row said until 08-25', () => {

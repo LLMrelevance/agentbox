@@ -359,10 +359,21 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
     // It said "your last ten days", which was the whole of the card until the
     // card grew a name field that reaches a year back. Somebody looking for
     // the chat they had in July read that line and stopped here.
+    //
+    // BOTH HALVES ARE SHORTER THAN THEY WERE, AND THAT IS THE POINT (2026-10-16).
+    // The founder, on a picture of this row: "There is so much text that it's
+    // overflowing on both lines." It was: the label wrapped after "or" and the
+    // hint after "land in". Measured across the whole palette, this row had
+    // the longest label of the lot at 39 characters where the next is 27, and
+    // the longest hint at 73 where the next is 63. The panel was not too
+    // narrow; this row was saying far more than its neighbours. What it must
+    // still carry is both tools and the fact that older ones are reachable by
+    // name, and it does, in half the words. Where the rows land is the card's
+    // own sentence and was never this row's to repeat.
     {
       id: 'import-agents',
-      label: 'Import agents from Claude Code or Codex',
-      hint: 'your recent ones, or find an older chat by name · they land in your inbox',
+      label: 'Import chats and agents',
+      hint: 'from Claude Code or Codex · recent or by name',
       keywords: 'import agents claude code codex conversations threads sessions subagents existing mine bring across add my recent older chat find search by name title past old',
       run: onImportAgents,
     },
@@ -558,7 +569,7 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
               onClick={c.run}
               onMouseEnter={() => setSelected(i)}
             >
-              <span>{c.label}</span>
+              <span className="palette-label">{c.label}</span>
               {c.keyHint ? <span className="palette-key">{c.keyHint}</span> : c.hint && <span className="palette-hint">{c.hint}</span>}
             </div>
           ))}

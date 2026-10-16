@@ -3833,12 +3833,32 @@ img.app-mark { opacity: 1; border-radius: 0; }
 .hidden-input { opacity: 0; height: 0; padding: 0; border: none; position: absolute; }
 
 .palette-list { max-height: 320px; overflow-y: auto; padding: 6px 0; }
+/* ONE LINE, WHATEVER IS PUT IN IT (w-6418318cd5, 2026-10-16). This was a bare
+   flex with two spans in it and nothing stopping either from wrapping, so one
+   long label stacked the row onto four lines in a list where every other row
+   is one: "There is so much text that it's overflowing on both lines." The
+   copy that did it is shorter now, but shorter copy is not a rule — the next
+   long one would do it again. So neither half wraps, and whichever cannot fit
+   is cut with an ellipsis, which somebody can see, rather than wrapped, which
+   is what this looked like. */
 .palette-item {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
   padding: 8px 18px;
   cursor: pointer;
   font-size: 14px;
+}
+/* `min-width: 0` on both: without it a flex child refuses to shrink below the
+   width of its own text and overflows the panel instead of truncating, which
+   is the usual way this fix is written and fails. */
+.palette-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .palette-item.selected { background: var(--bg-selected); }
 /* Nothing matched. It sits on the first row's own line — same padding, same
@@ -3850,7 +3870,16 @@ img.app-mark { opacity: 1; border-radius: 0; }
   font-size: 14px;
   color: var(--text-faint);
 }
-.palette-hint { color: var(--text-faint); font-size: 12.5px; }
+.palette-hint {
+  color: var(--text-faint);
+  font-size: 12.5px;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
 .palette-key {
   min-width: 22px;
   height: 20px;

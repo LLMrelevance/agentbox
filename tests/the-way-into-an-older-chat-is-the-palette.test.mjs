@@ -10,10 +10,15 @@
 // The founder, on this row: "the entry point is wrong ... Find the right way
 // in, starting from the New thread flow and ⌘K."
 //
-// So there are two doors and this pins all three facts:
+// The New thread card was tried and rejected too (2026-10-16): "This chat
+// really clutters a component that we use all the time so I would disagree
+// with that." Same objection as the header, and it holds — that card opens all
+// day, and a line one keystroke from vanishing is still drawn every time.
+//
+// So ⌘K is the door, and this pins three facts:
 //   1. ⌘K keeps the row it has always had, and its hint no longer promises
 //      only ten days now that the card reaches a year.
-//   2. New thread offers it on an empty card, where the thought happens.
+//   2. The New thread card carries nothing about importing.
 //   3. The inbox header gains nothing.
 
 import { describe, it, expect } from 'vitest';
@@ -28,6 +33,7 @@ const palette = read('renderer/src/components/Palette.tsx');
 const composer = read('renderer/src/threads/ThreadComposer.tsx');
 const header = read('renderer/src/threads/Pages.tsx');
 const app = read('renderer/src/App.tsx');
+const composerCss = read('renderer/src/threads/thread-composer.css');
 
 describe('the ⌘K row', () => {
   const row = palette.slice(palette.indexOf("id: 'import-agents'"), palette.indexOf("id: 'import-agents'") + 700);
@@ -38,7 +44,10 @@ describe('the ⌘K row', () => {
 
   it('no longer promises only the last ten days, because the card reaches past them', () => {
     expect(row).not.toMatch(/last ten days/i);
-    expect(row).toMatch(/older chat by name/i);
+    // "by name" is the half that says older ones are reachable at all. It was
+    // spelled out until 2026-10-16, when the row was cut for overflowing;
+    // tests/a-palette-row-never-stacks-onto-two-lines keeps it short.
+    expect(row).toMatch(/by name/i);
   });
 
   it('is found by the words somebody looking for an old chat would type', () => {
@@ -48,24 +57,24 @@ describe('the ⌘K row', () => {
 });
 
 describe('the New thread card', () => {
-  it('offers it in English, on the card itself', () => {
-    expect(composer).toContain('Already had this chat?');
-    expect(composer).toContain('Bring it in from Claude Code or Codex');
+  // IT CARRIES NOTHING, and that is the decision (2026-10-16). The offer lived
+  // here for one round as a faint line on an empty card, taken away by the
+  // first letter typed. The founder, on the picture: "This chat really
+  // clutters a component that we use all the time so I would disagree with
+  // that." A line that is one keystroke from gone is still drawn every time
+  // the card opens, and this card opens all day.
+  it('offers nothing about importing: it is opened too often to carry one', () => {
+    expect(composer).not.toMatch(/Already had this chat/i);
+    expect(composer).not.toMatch(/tc-had/);
+    expect(composer).not.toMatch(/onImportChats/);
   });
 
-  it('shows the offer only while the card is empty, so it is never furniture', () => {
-    const offer = composer.slice(composer.indexOf('tc-had') - 400, composer.indexOf('tc-had'));
-    expect(offer).toContain("!text.trim()");
-    expect(offer).toContain('attachments.length === 0');
+  it('is not wired to the import card from the app either', () => {
+    expect(app).not.toMatch(/onImportChats/);
   });
 
-  it('never shows it on a message to a person, who has no Claude Code chat to bring', () => {
-    const offer = composer.slice(composer.indexOf('tc-had') - 400, composer.indexOf('tc-had'));
-    expect(offer).toContain('!person');
-  });
-
-  it('is wired to the import card the palette opens, not to a second one', () => {
-    expect(app).toMatch(/onImportChats=\{\(\) => \{[^}]*setImportAgents\(true\)/);
+  it('left no dead style behind', () => {
+    expect(composerCss).not.toMatch(/tc-had/);
   });
 });
 
