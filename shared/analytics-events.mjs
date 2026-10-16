@@ -43,6 +43,9 @@ export const EVENTS = {
   tag_turned_off: 'The corner tag was turned off',
   import_offered: 'Setup offered agents to import',
   import_taken: 'Setup imported agents',
+  // Sent as the switch goes off and never again, so an install that opted out
+  // is not read as one that stopped using the app.
+  counts_turned_off: 'Counts were turned off',
 };
 
 export const EVENT_NAMES = Object.keys(EVENTS);
