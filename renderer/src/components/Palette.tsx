@@ -2,7 +2,7 @@
 // and keywords (../palette-rows), so a row is found only by words it contains.
 
 import { cloudCommands, type CloudMode, type CloudStatus } from '../cloud-menu';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import type { Product, View } from '../types';
 import { commandKeys } from '../palette-keys';
 import { emptyLine, lookRows, matchesQuery, rankMatches } from '../palette-rows';
@@ -11,7 +11,7 @@ import { type ThemeChoice } from '../theme';
 import { NAME } from '../../../shared/product-name.mjs';
 import { CHECK_SAY, MOVE_SAY } from '../update-row';
 
-interface Command {
+export interface Command {
   id: string;
   label: string;
   hint?: string;
@@ -22,7 +22,7 @@ interface Command {
   run: () => void;
 }
 
-export function Palette({ products, supervisorPaused, itemCommands = [], batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onStanding, onSettings, onShortcuts, panelUp, onTogglePanel, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode }: {
+export function Palette({ products, supervisorPaused, itemCommands = [], batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onStanding, onSettings, onShortcuts, panelUp, onTogglePanel, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode, open = true, commandsRef }: {
   products: Product[];
   supervisorPaused: boolean;
   itemCommands?: Command[];
@@ -86,13 +86,11 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
   /** The cloud, when this Mac is set up for it; null hides its rows. */
   cloud?: CloudStatus | null;
   onCloudMode?: (mode: CloudMode) => void;
+  /** Drawn only while open; the list is worked out either way, so Neo can
+   *  run any of it by name (../neo/useNeo.ts). */
+  open?: boolean;
+  commandsRef?: MutableRefObject<Command[]>;
 }) {
-  const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => inputRef.current?.focus(), []);
-
   const commands: Command[] = useMemo(() => [
     // First, and labelled "project" because that is the word people type.
     { id: 'new-project', label: 'New project…', hint: 'name it, and it is yours', run: onNewProject },
@@ -293,6 +291,17 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
     },
 
   ], [itemCommands, batch, products, supervisorPaused, order, onNewProject, filtering, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onStanding, onSettings, onShortcuts, look, machine, onSetLook, staleFiles, updateReady, onInstallUpdate, moveToApplications, onMoveToApplications, panelUp, onTogglePanel, boardUp, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, cloud, onCloudMode]);
+  if (commandsRef) commandsRef.current = commands;
+  return open ? <PaletteBox commands={commands} onClose={onClose} /> : null;
+}
+
+// The box itself, mounted fresh each time ⌘K opens, so it starts empty and focused.
+function PaletteBox({ commands, onClose }: { commands: Command[]; onClose: () => void }) {
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => inputRef.current?.focus(), []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

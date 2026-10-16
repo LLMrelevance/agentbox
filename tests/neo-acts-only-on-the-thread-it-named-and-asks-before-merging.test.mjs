@@ -261,3 +261,129 @@ describe('films and sounds in the open thread', () => {
     expect(describeScreen(deps)).toMatch(/1\. walkthrough\.mp4/);
   });
 });
+
+// "When it goes into a new task, I expect it to really quickly summarize what
+// I need to know" (2026-10-16). It stayed quiet: opening said only "Opened X".
+describe('opening a thread hands Neo what to brief her with', () => {
+  it('carries the latest from the agent and the options', async () => {
+    const { act } = setup();
+    const r = await act('open_thread', { id: 'w-a' });
+    expect(r.said).toMatch(/Two drafts ready/);
+    expect(r.said).toMatch(/1\. Ship draft A/);
+  });
+
+  it('and so does moving to the next one', async () => {
+    const { act } = setup();
+    const r = await act('next_thread', {});
+    expect(r.said).toMatch(/Pricing page copy/);
+    expect(r.said).toMatch(/Options/);
+  });
+});
+
+describe('any command by name', () => {
+  function withCommands(extra = {}) {
+    const ran = [];
+    const t = setup();
+    t.deps.commands = () => [
+      { id: 'pause', label: 'Pause agents', hint: 'no new sessions spawn', run: () => ran.push('pause') },
+      { id: 'flip-view', label: 'Show as a board', keywords: 'view board list columns', run: () => ran.push('flip-view') },
+      { id: 'done', label: 'Close Task', run: () => ran.push('done') },
+      { id: 'keyhints', label: 'Turn on keyboard shortcut hints', run: () => ran.push('keyhints') },
+    ];
+    Object.assign(t.deps, extra);
+    return { ...t, ran };
+  }
+
+  it('finds commands by her words, best first, without reading out the whole list', async () => {
+    const { act } = withCommands();
+    const r = await act('find_commands', { query: 'board' });
+    expect(r.said).toMatch(/flip-view.*Show as a board/);
+    expect(r.said).not.toMatch(/keyboard shortcut hints/);
+  });
+
+  it('puts the rare word first: "open the settings" finds Settings, not every Open', async () => {
+    const { act, deps } = withCommands();
+    deps.commands = () => [
+      { id: 'open-terminal', label: 'Open Terminal', run: () => {} },
+      { id: 'demo', label: 'Open a demo inbox', run: () => {} },
+      { id: 'settings', label: 'Settings…', hint: 'the workspace, and every project', run: () => {} },
+    ];
+    const r = await act('find_commands', { query: 'open the settings' });
+    expect(r.said.split('\n')[0]).toMatch(/\[settings\]/);
+  });
+
+  it('says when nothing matches', async () => {
+    const { act } = withCommands();
+    expect(await act('find_commands', { query: 'teleport' })).toMatchObject({ ok: false });
+  });
+
+  it('runs a harmless command at once', async () => {
+    const { act, ran } = withCommands();
+    expect(await act('run_command', { id: 'flip-view' })).toMatchObject({ ok: true, said: expect.stringMatching(/Show as a board/) });
+    expect(ran).toEqual(['flip-view']);
+  });
+
+  it('refuses an id that is not in the list now', async () => {
+    const { act, ran } = withCommands();
+    expect(await act('run_command', { id: 'rm-rf' })).toMatchObject({ ok: false, status: 'refused' });
+    expect(ran).toEqual([]);
+  });
+
+  it('asks before one that stops agents or closes work, unless her words named it', async () => {
+    const { act, ran } = withCommands();
+    expect(await act('run_command', { id: 'pause' }, { heard: 'do that' })).toMatchObject({ status: 'needs_yes' });
+    expect(ran).toEqual([]);
+    expect(await act('run_command', { id: 'pause' }, { heard: 'pause the agents' })).toMatchObject({ ok: true });
+    expect(ran).toEqual(['pause']);
+  });
+
+  it('takes a yes after asking', async () => {
+    const { act, ran } = withCommands();
+    await act('run_command', { id: 'done' }, { heard: 'yeah do it' });
+    expect(await act('run_command', { id: 'done', confirmed: true }, { heard: 'yes' })).toMatchObject({ ok: true });
+    expect(ran).toEqual(['done']);
+  });
+});
+
+describe('scrolling and showing', () => {
+  it('scrolls, and says when there is nothing to scroll', async () => {
+    const { act, deps } = setup();
+    deps.scroll = vi.fn(() => true);
+    expect(await act('scroll', { where: 'up' })).toMatchObject({ ok: true });
+    expect(deps.scroll).toHaveBeenCalledWith('up');
+    deps.scroll = () => false;
+    expect(await act('scroll', { where: 'up' })).toMatchObject({ ok: false });
+  });
+
+  it('shows the pictures she named in the layout she asked for', async () => {
+    const { act, deps } = setup({ focused: rows[0] });
+    deps.pictureNames = () => ['a.png', 'b.png', 'c.png'];
+    deps.show = vi.fn(async () => true);
+    expect(await act('show', { pictures: [1, 3], layout: 'side_by_side' })).toMatchObject({ ok: true });
+    expect(deps.show).toHaveBeenCalledWith([1, 3], 'side_by_side');
+  });
+
+  it('refuses a picture number the thread does not have', async () => {
+    const { act, deps } = setup({ focused: rows[0] });
+    deps.pictureNames = () => ['a.png'];
+    deps.show = vi.fn(async () => true);
+    expect(await act('show', { pictures: [1, 3], layout: 'side_by_side' })).toMatchObject({ ok: false, said: expect.stringMatching(/1 picture/) });
+    expect(deps.show).not.toHaveBeenCalled();
+  });
+
+  it('lists the pictures in what Neo is told is on screen', () => {
+    const { deps } = setup({ focused: rows[0] });
+    deps.pictureNames = () => ['round9.png', 'round10.png'];
+    expect(describeScreen(deps)).toMatch(/Pictures:\n1\. round9\.png/);
+  });
+});
+
+describe('what Neo reads of an agent\'s words', () => {
+  it('names a picture rather than spelling out its address, and drops markdown', async () => {
+    const { act, deps } = setup();
+    deps.summary = () => '**Three drafts.** ![design 1](data:image/png;base64,AAAA) and [the doc](https://x.y/z)';
+    const r = await act('open_thread', { id: 'w-a' });
+    expect(r.said).toMatch(/Three drafts\. \[picture: design 1\] and the doc/);
+    expect(r.said).not.toMatch(/base64|https|\*\*/);
+  });
+});

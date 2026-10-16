@@ -8,6 +8,7 @@
 import { useEffect, useRef } from 'react';
 import { describeScreen, neoBridge, type NeoDeps, type NeoRow } from './bridge';
 import { glowOn } from './glow';
+import { pictureName, putAway, show, threadPictures } from './show';
 
 type Z = {
   neoEnabled?: () => Promise<boolean>;
@@ -28,7 +29,18 @@ function sectionFor(name: string, id: string): Element | null {
 
 const settle = () => new Promise((r) => setTimeout(r, 600));
 
-type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close'> & {
+// What she is reading: the nearest scrolling box under the middle of the app.
+function scrollerAt(): HTMLElement | null {
+  let el = document.elementFromPoint(window.innerWidth * 0.45, window.innerHeight * 0.5) as HTMLElement | null;
+  for (; el; el = el.parentElement) {
+    const y = getComputedStyle(el).overflowY;
+    if ((y === 'auto' || y === 'scroll') && el.scrollHeight > el.clientHeight + 1) return el;
+  }
+  const page = document.scrollingElement as HTMLElement | null;
+  return page && page.scrollHeight > page.clientHeight + 1 ? page : null;
+}
+
+type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'scroll' | 'pictureNames' | 'show' | 'media' | 'mediaNames'> & {
   pick(row: R, n: number): Promise<unknown>;
   close(row: R): Promise<unknown>;
 };
@@ -84,6 +96,17 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
           setTimeout(() => glowOn(spot), 300);
           return { name: spot.querySelector('.mention-name')?.textContent?.trim() || 'the film', count: spots.length };
         },
+        commands: () => latest.current.commands?.() ?? [],
+        scroll: (where) => {
+          const box = scrollerAt();
+          if (!box) return false;
+          const page = box.clientHeight * 0.7;
+          const to = where === 'top' ? 0 : where === 'bottom' ? box.scrollHeight : box.scrollTop + (where === 'up' ? -page : page);
+          box.scrollTo({ top: to, behavior: 'smooth' });
+          return true;
+        },
+        pictureNames: () => threadPictures().map((img, i) => pictureName(img, i + 1)),
+        show: (ns, layout) => show(ns, layout),
         // After React has drawn what the act changed, so the glow lands on
         // the section as it now is.
         glow: (id) => { const name = lastName; setTimeout(() => glowOn(sectionFor(name, id)), 180); },
@@ -97,7 +120,7 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
       }));
       if (z.onNeoMode) offs.push(z.onNeoMode(({ on: neoOn }) => {
         document.body.classList.toggle('neo-on', !!neoOn);
-        if (!neoOn) glowOn(null);
+        if (!neoOn) { glowOn(null); putAway(); }
       }));
     });
     return () => { cancelled = true; offs.forEach((f) => f()); offs = []; document.body.classList.remove('neo-on'); };
