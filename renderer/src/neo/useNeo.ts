@@ -11,7 +11,7 @@ import { glowOn } from './glow';
 
 type Z = {
   neoEnabled?: () => Promise<boolean>;
-  onNeoAct?: (fn: (p: { id: number; name: string; args: Record<string, unknown> }) => void) => () => void;
+  onNeoAct?: (fn: (p: { id: number; name: string; args: Record<string, unknown>; heard?: string }) => void) => () => void;
   neoActResult?: (id: number, result: unknown) => void;
   onNeoMode?: (fn: (p: { on: boolean }) => void) => () => void;
 };
@@ -72,15 +72,27 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         compose: (t, p) => latest.current.compose(t, p),
         undo: () => latest.current.undo(),
         outside: () => outside,
+        // The films and sounds the open thread draws (components/Focus.tsx ArtifactMedia).
+        mediaNames: () => [...document.querySelectorAll('.inline-media')].map((el) => el.querySelector('.mention-name')?.textContent?.trim() || 'a film'),
+        media: async (action, n) => {
+          const spots = [...document.querySelectorAll<HTMLElement>('.inline-media')];
+          const spot = spots[n - 1];
+          const player = spot?.querySelector<HTMLMediaElement>('video, audio');
+          if (!spot || !player) return null;
+          spot.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          if (action === 'pause') player.pause(); else await player.play().catch(() => {});
+          setTimeout(() => glowOn(spot), 300);
+          return { name: spot.querySelector('.mention-name')?.textContent?.trim() || 'the film', count: spots.length };
+        },
         // After React has drawn what the act changed, so the glow lands on
         // the section as it now is.
         glow: (id) => { const name = lastName; setTimeout(() => glowOn(sectionFor(name, id)), 180); },
       };
       const act = neoBridge(live);
-      offs.push(z.onNeoAct!(async ({ id, name, args }) => {
+      offs.push(z.onNeoAct!(async ({ id, name, args, heard }) => {
         if (name === 'describe_screen') outside = !!args?.outside;
         lastName = name;
-        const result = name === 'describe_screen' ? { ok: true, status: 'committed', said: describeScreen(live) } : await act(name, args ?? {});
+        const result = name === 'describe_screen' ? { ok: true, status: 'committed', said: describeScreen(live) } : await act(name, args ?? {}, { heard });
         z.neoActResult!(id, result);
       }));
       if (z.onNeoMode) offs.push(z.onNeoMode(({ on: neoOn }) => {

@@ -215,3 +215,49 @@ describe('undo', () => {
     expect(await act('undo', {})).toMatchObject({ ok: false, said: expect.stringMatching(/press Z/) });
   });
 });
+
+// She said "option one" and Neo still asked her to approve (2026-10-16). Her
+// own words naming the option are the yes; a yes is asked for only when Neo
+// is inferring the pick ("do it", "sounds good").
+describe('the person naming the option is the yes', () => {
+  const heard = (words) => ({ heard: words });
+  it.each(['option one', 'Option 1.', 'go with the first one', 'merge it', 'yeah merge it', 'one'])('"%s" picks Merge it at once', async (words) => {
+    const { act, calls } = setup();
+    expect(await act('pick_option', { id: 'w-a', n: 1 }, heard(words.replace('merge', 'ship')))).toMatchObject({ ok: true, status: 'committed' });
+    expect(calls).toContainEqual(['pick', rows[0], 1]);
+  });
+
+  it.each(['do it', 'sounds good', 'yes', 'option two', "don't ship it", 'wait, not option one', 'what does option one do'])('"%s" still asks', async (words) => {
+    const { act, calls } = setup();
+    expect(await act('pick_option', { id: 'w-a', n: 1 }, heard(words))).toMatchObject({ status: 'needs_yes' });
+    expect(calls.some(([n]) => n === 'pick')).toBe(false);
+  });
+});
+
+describe('films and sounds in the open thread', () => {
+  it('plays the one asked for and says its name', async () => {
+    const { act, deps } = setup({ focused: rows[0] });
+    deps.media = vi.fn(async (action, n) => ({ name: `clip-${n}.mp4`, count: 2 }));
+    expect(await act('media', { action: 'play', n: 2 })).toMatchObject({ ok: true, said: expect.stringMatching(/clip-2\.mp4/) });
+    expect(deps.media).toHaveBeenCalledWith('play', 2);
+  });
+
+  it('plays the first when none is named', async () => {
+    const { act, deps } = setup({ focused: rows[0] });
+    deps.media = vi.fn(async () => ({ name: 'a.mp4', count: 1 }));
+    await act('media', { action: 'play' });
+    expect(deps.media).toHaveBeenCalledWith('play', 1);
+  });
+
+  it('says so when the thread has none', async () => {
+    const { act, deps } = setup({ focused: rows[0] });
+    deps.media = vi.fn(async () => null);
+    expect(await act('media', { action: 'play' })).toMatchObject({ ok: false, said: expect.stringMatching(/no film|nothing to play/i) });
+  });
+
+  it('lists them in what Neo is told is on screen', () => {
+    const { deps } = setup({ focused: rows[0] });
+    deps.mediaNames = () => ['walkthrough.mp4', 'voice-a.m4a'];
+    expect(describeScreen(deps)).toMatch(/1\. walkthrough\.mp4/);
+  });
+});

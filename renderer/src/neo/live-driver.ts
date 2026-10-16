@@ -4,7 +4,7 @@
 // (tests/neo-answers-each-tool-call-once-and-shows-only-its-own-words.test.mjs).
 
 type Send = (event: Record<string, unknown>) => void;
-type Tool = (callId: string, name: string, args: string) => Promise<unknown>;
+type Tool = (callId: string, name: string, args: string, heard: string) => Promise<unknown>;
 
 export function liveDriver({ send, tool, onWords, onUsage, onClosed }: {
   send: Send; tool: Tool; onWords: (text: string) => void; onUsage: (seconds: number) => void; onClosed: (reason?: string) => void;
@@ -12,11 +12,15 @@ export function liveDriver({ send, tool, onWords, onUsage, onClosed }: {
   const done = new Set<string>();
   let words = '';
   let personSpokeSince = false;
+  // What the person said last, kept through Neo's "one sec" so it reaches
+  // the tool call it led to.
+  let heard = '';
+  let neoSpokeSince = true;
   let seq = 0;
 
   async function answer(callId: string, name: string, args: string) {
     let result: unknown;
-    try { result = await tool(callId, name, args); } catch { result = { ok: false, status: 'failed', said: 'That did not work.' }; }
+    try { result = await tool(callId, name, args, heard.trim()); } catch { result = { ok: false, status: 'failed', said: 'That did not work.' }; }
     send({ type: 'response.item.create', event_id: `out_${++seq}`, item: { type: 'function_call_output', call_id: callId, output: JSON.stringify(result) } });
     send({ type: 'response.create', event_id: `go_${seq}` });
   }
@@ -35,12 +39,15 @@ export function liveDriver({ send, tool, onWords, onUsage, onClosed }: {
         }
         case 'session.output_transcript.delta': {
           if (personSpokeSince) { words = ''; personSpokeSince = false; }
+          neoSpokeSince = true;
           words = (words + (ev.delta ?? '')).replace(/\s+/g, ' ').trimStart();
           onWords(words);
           return;
         }
         case 'session.input_transcript.delta':
           personSpokeSince = true;
+          if (neoSpokeSince) { heard = ''; neoSpokeSince = false; }
+          heard += ev.delta ?? '';
           return;
         case 'session.usage.updated':
           if (Number.isFinite(ev.usage?.seconds)) onUsage(ev.usage.seconds);

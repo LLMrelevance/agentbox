@@ -8,7 +8,8 @@
 html, body { margin: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; -webkit-font-smoothing: antialiased; user-select: none; }
 #neo { position: relative; width: 100%; height: 100%; }
 
-#orb { position: absolute; right: 24px; bottom: 24px; width: 150px; height: 150px; opacity: 0; transform: scale(.6); transition: opacity .35s ease, transform .5s cubic-bezier(.2, .9, .3, 1.2); cursor: pointer; }
+#orb { position: absolute; right: 24px; bottom: 24px; width: 150px; height: 150px; opacity: 0; transform: scale(.6); transition: opacity .35s ease, transform .5s cubic-bezier(.2, .9, .3, 1.2); cursor: grab; touch-action: none; }
+#orb.dragging { cursor: grabbing; }
 #neo.awake #orb { opacity: 1; transform: scale(1); }
 
 /* The card's middle sits on the orb's middle. */
@@ -37,3 +38,15 @@ html, body { margin: 0; width: 100%; height: 100%; background: transparent; over
   font: 500 13px/1 'Geist', -apple-system, sans-serif; cursor: pointer; }
 .neo-act:hover { background: #f08a52; }
 .neo-act:disabled { opacity: .6; cursor: default; }
+
+/* How fast Neo talks: shown while the pointer is on the orb, above it. */
+.neo-pace { position: absolute; right: 12px; top: 26px; display: flex; align-items: center; gap: 2px; padding: 4px 6px;
+  background: rgba(46, 34, 27, .92); border: 1px solid rgba(255, 214, 170, .10); box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
+  opacity: 0; pointer-events: none; transform: translateY(4px); transition: opacity .2s ease, transform .2s ease; }
+#neo.awake .neo-pace.show { opacity: 1; pointer-events: auto; transform: none; }
+.neo-pace-name, .neo-pace button { font: 500 10px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .14em; text-transform: uppercase; }
+.neo-pace-name { color: #6e6966; padding: 0 8px 0 4px; }
+.neo-pace button { border: 0; background: transparent; color: #8a837c; padding: 6px 7px; border-radius: 2px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+.neo-pace button:hover { color: #ece7e1; background: rgba(255, 214, 170, .06); }
+.neo-pace button.on { color: #ece7e1; }
+.neo-pace button.on::before { content: ''; width: 5px; height: 5px; background: #f07a3a; display: block; }

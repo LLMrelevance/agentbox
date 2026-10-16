@@ -36,7 +36,29 @@ export type NeoDeps<R extends NeoRow> = {
   // (renderer/src/undo-window.ts), and a voice should not answer that for her.
   undo(): Promise<'done' | 'none' | 'old'>;
   glow(id: string): void;
+  // Films and sounds in the open thread: their names, and playing one.
+  mediaNames?(): string[];
+  media?(action: 'play' | 'pause', n: number): Promise<{ name: string; count: number } | null>;
 };
+
+const NUMBER_WORDS = [[], ['one', 'first', '1'], ['two', 'second', '2'], ['three', 'third', '3'], ['four', 'fourth', '4'], ['five', 'fifth', '5'], ['six', 'sixth', '6'], ['seven', 'seventh', '7'], ['eight', 'eighth', '8'], ['nine', 'ninth', '9']];
+const NOT = /\b(don'?t|do not|not|no|never|wait|hold|stop|cancel)\b/;
+const ASKING = /^(what|which|how|why|does|do|is|are|can|could|should|would|will)\b|\?\s*$/;
+
+/**
+ * Did the person's own words pick this option? "option one", "the first",
+ * "merge it" for "Merge it" do; "do it", "yes", a question, or anything with
+ * a no in it do not, so those still get asked.
+ */
+export function namesOption(heard: string | undefined, option: { n: number; text: string }): boolean {
+  const said = String(heard ?? '').toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!said || NOT.test(said) || ASKING.test(String(heard).trim().toLowerCase())) return false;
+  const tokens = new Set(said.split(' '));
+  const numbers = NUMBER_WORDS.flatMap((w, i) => w.filter((x) => tokens.has(x)).map(() => i));
+  if (numbers.length) return numbers.every((i) => i === option.n);
+  const verb = option.text.toLowerCase().match(/\b(merge|ship|deploy|publish|push|release|delete|remove|drop|wipe|force)\b/);
+  return !!verb && tokens.has(verb[1]);
+}
 
 // How many rows Neo is told about. The rest are counted, not listed: a long
 // inbox read into the session costs time on every turn and Neo only ever
@@ -66,6 +88,8 @@ export function describeScreen<R extends NeoRow>(deps: NeoDeps<R>): string {
     if (s) lines.push(`Latest from the agent: ${clip(s.replace(/\s+/g, ' '), SUMMARY_CHARS)}`);
     const opts = deps.options(open);
     if (opts.length) lines.push('Options:', ...opts.map((o) => `${o.n}. ${o.text}`));
+    const films = deps.mediaNames?.() ?? [];
+    if (films.length) lines.push('Films and sounds:', ...films.slice(0, 9).map((f, i) => `${i + 1}. ${f}`));
   } else lines.push('', 'No thread is open.');
   return lines.join('\n');
 }
@@ -85,7 +109,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
   // counts for that and nothing else.
   let asked: { id: string; n: number; words: string } | null = null;
 
-  return async function act(name: string, args: Record<string, any>): Promise<NeoResult> {
+  return async function act(name: string, args: Record<string, any>, ctx: { heard?: string } = {}): Promise<NeoResult> {
     try {
       switch (name) {
         case 'describe_screen':
@@ -118,7 +142,8 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           if (!option) return refused(`That thread has no option ${args.n}.`);
           const words = option.text.replace(/\s*\(recommended\)\s*$/i, '').trim();
           if (needsYes(words)) {
-            const yes = args.confirmed === true && asked?.id === row.id && asked.n === option.n && asked.words === words;
+            const yes = namesOption(ctx.heard, { n: option.n, text: words })
+              || (args.confirmed === true && asked?.id === row.id && asked.n === option.n && asked.words === words);
             asked = null;
             if (!yes) {
               asked = { id: row.id, n: option.n, words };
@@ -165,6 +190,13 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           if (!made) return { ok: false, status: 'failed', said: 'It did not start.' };
           const project = projects.find((p) => p.slug === slug)?.name ?? slug;
           return done(`Started it in ${project}.`);
+        }
+
+        case 'media': {
+          const n = Number.isInteger(args.n) ? args.n : 1;
+          const got = deps.media ? await deps.media(args.action === 'pause' ? 'pause' : 'play', n) : null;
+          if (!got) return refused('There is no film or sound in the open thread, so nothing to play.');
+          return done(args.action === 'pause' ? `Paused ${got.name}.` : `Playing ${got.name}.`);
         }
 
         case 'undo': {
