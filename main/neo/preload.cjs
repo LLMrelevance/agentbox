@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('neo', {
   startLive: (sdp, outside) => ipcRenderer.invoke('neo:start-live', { sdp, outside: !!outside }),
   tool: (callId, name, args) => ipcRenderer.invoke('neo:tool', { callId, name, args }),
   usage: (seconds) => ipcRenderer.send('neo:usage', { seconds }),
+  allowMic: () => ipcRenderer.invoke('neo:allow-mic'),
   ending: () => ipcRenderer.send('neo:ending'),
   closed: () => ipcRenderer.send('neo:closed'),
   clickable: (on) => ipcRenderer.send('neo:clickable', !!on),

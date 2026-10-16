@@ -993,7 +993,7 @@ async function createWindow() {
   // user data folder holds a `neo-alpha` file (main/neo/gate.mjs), so it is
   // in the code for everyone and on for one person.
   createNeo({
-    app, BrowserWindow, ipcMain, screen: electronScreen, powerMonitor, systemPreferences, session, globalShortcut,
+    app, BrowserWindow, ipcMain, screen: electronScreen, powerMonitor, systemPreferences, session, globalShortcut, shell,
     mainWindow: window, userData: app.getPath('userData'),
     preload: path.join(appDir, 'main', 'neo', 'preload.cjs'),
     load: (neoWindow) => {

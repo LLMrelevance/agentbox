@@ -10,7 +10,8 @@ type NeoBridge = {
   onWake(fn: (p: { outside: boolean }) => void): () => void;
   onSleep(fn: (p: { reason: string }) => void): () => void;
   onResting(fn: () => void): () => void;
-  onNoMic(fn: () => void): () => void;
+  onNoMic(fn: (p: { app?: string | null }) => void): () => void;
+  allowMic(): Promise<'granted' | 'settings' | 'refused'>;
   onNotice(fn: (p: { text: string }) => void): () => void;
   startLive(sdp: string, outside: boolean): Promise<{ ok: boolean; sdp?: string; error?: string }>;
   tool(callId: string, name: string, args: string): Promise<unknown>;
@@ -24,6 +25,7 @@ const neo = (window as unknown as { neo: NeoBridge }).neo;
 const root = document.getElementById('neo')!;
 const words = document.getElementById('words')!;
 const label = document.getElementById('label')!;
+const actButton = document.getElementById('act') as HTMLButtonElement;
 const orbCanvas = document.getElementById('orb') as HTMLCanvasElement;
 const orb = dustOrb(orbCanvas);
 
@@ -86,6 +88,7 @@ function driverFor(ch: RTCDataChannel) {
 }
 
 async function wake({ outside }: { outside: boolean }) {
+  dropMicCard();
   const my = ++gen;
   const stale = () => my !== gen || closing;
   if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
@@ -168,7 +171,35 @@ neo.onSleep(({ reason }) => sleep(reason));
 neo.onResting(() => { root.classList.add('awake'); say('I have talked for three hours today, so I am resting until tomorrow.'); setTimeout(() => { root.classList.remove('awake'); neo.closed(); }, 5000); });
 // Main hides the window again on its own; this is not a session.
 neo.onNotice(({ text }) => { if (pc) return; root.classList.add('awake'); label.textContent = 'Neo'; say(text); setTimeout(() => { if (!pc) { root.classList.remove('awake'); say(''); } }, 9500); });
-neo.onNoMic(() => { root.classList.add('awake'); say('I need the microphone. Allow it in System Settings, Privacy, Microphone.'); setTimeout(() => { root.classList.remove('awake'); neo.closed(); }, 6000); });
+// macOS will not ask again for an app it was once told no for, so the card
+// carries the press that clears that and asks (main/neo/mic.mjs).
+let micCard: number | null = null;
+const dropMicCard = () => {
+  if (micCard) clearTimeout(micCard);
+  micCard = null;
+  actButton.hidden = true;
+  actButton.onclick = null;
+};
+neo.onNoMic(({ app }) => {
+  root.classList.add('awake');
+  label.textContent = 'Neo';
+  say(app ? `I need the microphone. ${app} was told no once, so macOS will not ask again by itself.` : 'I need the microphone.');
+  actButton.textContent = 'Allow microphone';
+  actButton.disabled = false;
+  actButton.hidden = false;
+  const close = () => { dropMicCard(); if (!pc) { root.classList.remove('awake'); say(''); neo.closed(); } };
+  actButton.onclick = async () => {
+    if (micCard) clearTimeout(micCard);
+    actButton.disabled = true;
+    actButton.textContent = 'Asking…';
+    const got = await neo.allowMic().catch(() => 'refused' as const);
+    if (got === 'granted') { dropMicCard(); return; }
+    actButton.hidden = true;
+    say('Turn on the switch in the list that just opened, then tap ⌘ twice.');
+    micCard = window.setTimeout(close, 20_000);
+  };
+  micCard = window.setTimeout(close, 20_000);
+});
 
 // Only the orb and the card take the pointer; everywhere else clicks reach the app beneath.
 for (const el of [orbCanvas, document.getElementById('card')!]) {

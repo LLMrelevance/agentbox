@@ -11,6 +11,7 @@ import path from 'node:path';
 import { neoEnabled } from './gate.mjs';
 import { startLive } from './live.mjs';
 import { listenForDoubleCommand } from './cmd-tap.mjs';
+import { getMic, micOwner } from './mic.mjs';
 import { checkCall, neoSession } from '../../shared/neo-tools.mjs';
 import { Name } from '../../shared/product-name.mjs';
 
@@ -26,6 +27,7 @@ const today = (now) => new Date(now).toISOString().slice(0, 10);
 export function createNeo({
   app, BrowserWindow, ipcMain, screen, powerMonitor, systemPreferences, session: electronSession, globalShortcut,
   mainWindow, preload, load, userData, now = Date.now, listen = listenForDoubleCommand, platform = process.platform,
+  shell = { openExternal: () => {} }, owner = micOwner(), getMicImpl = getMic,
 }) {
   const on = neoEnabled({ userData, platform });
   ipcMain.handle('neo:enabled', () => on);
@@ -135,7 +137,7 @@ export function createNeo({
       if (usage.seconds >= DAY_MAX_S) { win.webContents.send('neo:resting', {}); return; }
       if (systemPreferences.getMediaAccessStatus('microphone') !== 'granted') {
         const granted = await systemPreferences.askForMediaAccess('microphone').catch(() => false);
-        if (!granted) { win?.webContents.send('neo:no-mic', {}); return; }
+        if (!granted) { log(`no microphone (${systemPreferences.getMediaAccessStatus('microphone')}, asked for ${owner.id ?? 'unknown'})`); win?.webContents.send('neo:no-mic', { app: owner.name }); return; }
       }
       if (!win || g !== generation) return;
       live = true;
@@ -202,6 +204,15 @@ export function createNeo({
     generation++;
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send('neo:mode', { on: false });
     setTimeout(() => { if (!live) win?.hide(); }, 900);
+  });
+
+  // The card's "Allow microphone" press (./mic.mjs). Then straight into a session.
+  ipcMain.handle('neo:allow-mic', async (e) => {
+    if (!fromNeo(e)) return 'refused';
+    const got = await getMicImpl({ systemPreferences, openExternal: (url) => shell.openExternal(url), owner });
+    log(`allow microphone: ${got}`);
+    if (got === 'granted') void wake('mic-allowed');
+    return got;
   });
 
   ipcMain.on('neo:clickable', (e, on) => {

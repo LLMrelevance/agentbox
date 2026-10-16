@@ -31,3 +31,9 @@ html, body { margin: 0; width: 100%; height: 100%; background: transparent; over
 .br { position: absolute; width: 10px; height: 10px; border: 0 solid rgba(255, 255, 255, .088); }
 .br.tl { left: -7px; top: -7px; border-width: 1px 0 0 1px; } .br.tr { right: -7px; top: -7px; border-width: 1px 1px 0 0; }
 .br.bl { left: -7px; bottom: -7px; border-width: 0 0 1px 1px; } .br.brr { right: -7px; bottom: -7px; border-width: 0 1px 1px 0; }
+
+/* The one button Neo ever shows: the microphone's Allow. */
+.neo-act { position: relative; z-index: 1; margin-top: 12px; padding: 7px 14px; border: 0; border-radius: 3px; background: #e8743a; color: #1d140f;
+  font: 500 13px/1 'Geist', -apple-system, sans-serif; cursor: pointer; }
+.neo-act:hover { background: #f08a52; }
+.neo-act:disabled { opacity: .6; cursor: default; }

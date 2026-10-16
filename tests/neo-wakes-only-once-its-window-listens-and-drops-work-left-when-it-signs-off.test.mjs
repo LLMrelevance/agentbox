@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createNeo } from '../main/neo/index.mjs';
 
-function fakes({ onListen } = {}) {
+function fakes({ onListen, getMicImpl, mic = { status: 'granted' } } = {}) {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'neo-main-'));
   fs.writeFileSync(path.join(userData, 'neo-alpha'), '');
   const registered = [];
@@ -36,7 +36,8 @@ function fakes({ onListen } = {}) {
     app: { on() {} }, BrowserWindow, ipcMain,
     screen: { getCursorScreenPoint: () => ({ x: 0, y: 0 }), getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }) },
     powerMonitor: { on: (ev, fn) => power.set(ev, fn) },
-    systemPreferences: { getMediaAccessStatus: () => 'granted', askForMediaAccess: async () => true },
+    systemPreferences: { getMediaAccessStatus: () => mic.status, askForMediaAccess: async () => mic.status === 'granted' },
+    getMicImpl, owner: { id: 'com.apple.Terminal', name: 'Terminal' },
     session: { fromPartition: () => ({ setPermissionRequestHandler() {}, setPermissionCheckHandler() {} }) },
     globalShortcut: { register: (k) => { registered.push(k); return true; }, unregister() {} },
     mainWindow, preload: '/x', load: () => {}, userData,
@@ -198,5 +199,36 @@ describe('when tapping ⌘ twice cannot work yet', () => {
     const log = fs.readFileSync(path.join(f.userData, 'neo', 'log.txt'), 'utf8');
     expect(log).toMatch(/listener ready/);
     expect(log).toMatch(/listener failed no compiler/);
+  });
+});
+
+describe('the microphone', () => {
+  it('a refused microphone tells the card which app macOS refused', async () => {
+    const f = fakes({ mic: { status: 'denied' } });
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    expect(f.neoSent).toContainEqual(['neo:no-mic', { app: 'Terminal' }]);
+    expect(f.neoSent.some(([ch]) => ch === 'neo:wake')).toBe(false);
+  });
+
+  it('the card\'s Allow press gets the microphone and then starts Neo', async () => {
+    const mic = { status: 'denied' };
+    const getMicImpl = vi.fn(async () => { mic.status = 'granted'; return 'granted'; });
+    const f = fakes({ getMicImpl, mic });
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    expect(await f.handlers.get('neo:allow-mic')(f.fromNeo)).toBe('granted');
+    await tick(); await tick();
+    expect(getMicImpl).toHaveBeenCalledTimes(1);
+    expect(f.neoSent.some(([ch]) => ch === 'neo:wake')).toBe(true);
+  });
+
+  it('only Neo\'s own card can press it', async () => {
+    const getMicImpl = vi.fn(async () => 'granted');
+    const f = fakes({ getMicImpl });
+    expect(await f.handlers.get('neo:allow-mic')(f.fromMainWindow)).toBe('refused');
+    expect(getMicImpl).not.toHaveBeenCalled();
   });
 });
