@@ -3,27 +3,30 @@
 // (shared/neo-tools.mjs) and hands it here, and this does it with the same
 // functions the keys do, so Neo can do nothing a person could not.
 //
-// Two rules, both from the plan review (2026-10-16):
-// - Every action names a thread id, and is refused if that thread is not in
-//   the inbox any more. A spoken "close it" lands seconds after it was said,
-//   and by then the open thread may be another one.
-// - A pick whose words merge, ship, delete or push comes back `needs_yes`
-//   until the call says the person confirmed it, so a misheard word never
-//   ships anything.
+// Every action names a thread id, and is refused if that thread is not in the
+// inbox any more (plan review, 2026-10-16). A spoken "close it" lands seconds
+// after it was said, and by then the open thread may be another one.
+//
+// A pick does NOT ask for a second yes, however consequential its words are
+// (w-5520063011): saying "option one" is the decision, and it acts, says what
+// it did, and leaves Z to take it back, exactly as the key press does.
 //
 // Pure apart from `deps`, so it is tested without the app
 // (tests/neo-acts-only-on-the-thread-it-named-and-asks-before-merging.test.mjs).
-import { needsYes } from '../../../shared/neo-tools.mjs';
 import { Name } from '../../../shared/product-name.mjs';
 
 export type NeoRow = { id: string; product: string; productName?: string; title: string; label?: string; status?: string };
-export type NeoResult = { ok: boolean; status: 'committed' | 'needs_yes' | 'refused' | 'failed'; said: string };
+export type NeoResult = { ok: boolean; status: 'committed' | 'refused' | 'failed'; said: string };
+// A film or a sound drawn in the open thread, in the order they are drawn.
+export type NeoFilm = { name: string; playing: boolean; play(): void; pause(): void; show(): void };
 
 export type NeoDeps<R extends NeoRow> = {
   rows(): R[];
   focused(): R | null;
   outside(): boolean;
   options(row: R): { n: number; text: string }[];
+  // The players drawn in the open thread right now, read from the page.
+  films(): NeoFilm[];
   summary(row: R): string;
   projects(): { slug: string; name: string }[];
   open(row: R): Promise<unknown> | unknown;
@@ -66,6 +69,8 @@ export function describeScreen<R extends NeoRow>(deps: NeoDeps<R>): string {
     if (s) lines.push(`Latest from the agent: ${clip(s.replace(/\s+/g, ' '), SUMMARY_CHARS)}`);
     const opts = deps.options(open);
     if (opts.length) lines.push('Options:', ...opts.map((o) => `${o.n}. ${o.text}`));
+    const films = deps.films();
+    if (films.length) lines.push('On the thread to play:', ...films.map((f, i) => `${i + 1}. ${f.name}${f.playing ? ' (playing)' : ''}`));
   } else lines.push('', 'No thread is open.');
   return lines.join('\n');
 }
@@ -81,9 +86,6 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
     return list.find((r) => r.id === id) ?? (open && open.id === id ? open : null);
   };
   const gone = () => refused('That thread is not in the inbox any more.');
-  // The one pick Neo has asked a yes for, by thread, number and words. A yes
-  // counts for that and nothing else.
-  let asked: { id: string; n: number; words: string } | null = null;
 
   return async function act(name: string, args: Record<string, any>): Promise<NeoResult> {
     try {
@@ -117,19 +119,38 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           const option = deps.options(row).find((o) => o.n === args.n);
           if (!option) return refused(`That thread has no option ${args.n}.`);
           const words = option.text.replace(/\s*\(recommended\)\s*$/i, '').trim();
-          if (needsYes(words)) {
-            const yes = args.confirmed === true && asked?.id === row.id && asked.n === option.n && asked.words === words;
-            asked = null;
-            if (!yes) {
-              asked = { id: row.id, n: option.n, words };
-              deps.glow(row.id);
-              return { ok: false, status: 'needs_yes', said: `Option ${option.n} is "${words}". Ask the person to say yes before picking it.` };
-            }
-          }
           const picked = await deps.pick(row, option.n);
           deps.glow(row.id);
           if (picked === 'asked') return refused(ASKED);
           return done(`Picked option ${option.n}: ${words}.`);
+        }
+
+        // The players are the ones drawn on screen, so these two act on the
+        // open thread and nothing else.
+        case 'play_media': {
+          const row = find(args.id);
+          if (!row) return gone();
+          if (deps.focused()?.id !== row.id) return refused('That thread is not the one open, so its film is not on screen. Open it first.');
+          const films = deps.films();
+          if (!films.length) return refused('There is no film or sound on that thread.');
+          const n = Number.isInteger(args.n) ? args.n : 1;
+          const film = films[n - 1];
+          if (!film) return refused(`That thread has ${films.length} to play, so there is no ${n}.`);
+          for (const other of films) if (other !== film && other.playing) other.pause();
+          film.show();
+          film.play();
+          deps.glow(row.id);
+          return done(`Playing ${film.name}.`);
+        }
+
+        case 'pause_media': {
+          const row = find(args.id);
+          if (!row) return gone();
+          if (deps.focused()?.id !== row.id) return refused('That thread is not the one open.');
+          const playing = deps.films().filter((f) => f.playing);
+          if (!playing.length) return refused('Nothing is playing.');
+          for (const film of playing) film.pause();
+          return done(playing.length === 1 ? `Paused ${playing[0].name}.` : 'Paused.');
         }
 
         case 'reply': {

@@ -6,7 +6,7 @@
 // Mounted always and does nothing unless this Mac has the alpha flag
 // (main/neo/gate.mjs), so the app is the same app for everyone else.
 import { useEffect, useRef } from 'react';
-import { describeScreen, neoBridge, type NeoDeps, type NeoRow } from './bridge';
+import { describeScreen, neoBridge, type NeoDeps, type NeoFilm, type NeoRow } from './bridge';
 import { glowOn } from './glow';
 
 type Z = {
@@ -23,12 +23,28 @@ function sectionFor(name: string, id: string): Element | null {
   const row = q(`.list-pane .row[data-item-id="${CSS.escape(id)}"]`) ?? q(`[data-item-id="${CSS.escape(id)}"]`);
   if (name === 'pick_option') return q('.opt-strip') ?? row;
   if (name === 'reply') return q('.dock-card') ?? row;
+  if (name === 'play_media') return document.querySelector('.focus-pane .inline-media') ?? row;
   return row ?? q('.ts-panel');
+}
+
+// THE FILMS NEO CAN PLAY ARE THE PLAYERS ALREADY ON THE OPEN THREAD
+// (w-5520063011, "it couldn't play the video"). Read from the page rather than
+// from a list of files, so "play it" starts the same player a press would
+// and the shelf keeps it going when the thread moves (../player-shelf.ts).
+function filmsOnScreen(): NeoFilm[] {
+  const players = document.querySelectorAll<HTMLMediaElement>('.focus-pane .inline-media-player > video, .focus-pane .inline-media-player > audio');
+  return Array.from(players, (player) => ({
+    name: player.closest('.inline-media')?.querySelector('.mention-name')?.textContent?.trim() || 'the film',
+    playing: !player.paused && !player.ended,
+    play: () => { void player.play()?.catch?.(() => {}); },
+    pause: () => player.pause(),
+    show: () => player.scrollIntoView({ block: 'center', behavior: 'smooth' }),
+  }));
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 600));
 
-type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close'> & {
+type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'films'> & {
   pick(row: R, n: number): Promise<unknown>;
   close(row: R): Promise<unknown>;
 };
@@ -50,6 +66,7 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         rows: () => latest.current.rows(),
         focused: () => latest.current.focused(),
         options: (r) => latest.current.options(r),
+        films: filmsOnScreen,
         summary: (r) => latest.current.summary(r),
         projects: () => latest.current.projects(),
         open: (r) => latest.current.open(r),

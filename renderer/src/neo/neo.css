@@ -8,12 +8,29 @@
 html, body { margin: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; -webkit-font-smoothing: antialiased; user-select: none; }
 #neo { position: relative; width: 100%; height: 100%; }
 
-#orb { position: absolute; right: 24px; bottom: 24px; width: 150px; height: 150px; opacity: 0; transform: scale(.6); transition: opacity .35s ease, transform .5s cubic-bezier(.2, .9, .3, 1.2); cursor: pointer; }
+/* The window is a strip wide enough to read the card out on either side of the
+   orb, so an orb dragged to the left edge still has its words on screen. Every
+   measurement in it comes from shared/neo-orb.mjs, which is also what places
+   the window, and main.ts puts them here as variables. */
+#orb { position: absolute; left: var(--orb-x); top: var(--orb-y); width: var(--orb); height: var(--orb); opacity: 0; transform: scale(.6); transition: opacity .35s ease, transform .5s cubic-bezier(.2, .9, .3, 1.2); cursor: grab; }
 #neo.awake #orb { opacity: 1; transform: scale(1); }
+#neo.dragging #orb { cursor: grabbing; transition: none; }
 
-/* The card's middle sits on the orb's middle. */
-.neo-frame { position: absolute; right: 184px; top: 141px; transform: translateY(-50%); width: 400px; opacity: 0; transition: opacity .3s ease; }
+/* The card's middle sits on the orb's middle, on the side with room for it. */
+.neo-frame { position: absolute; left: var(--card-x); top: var(--card-y); transform: translateY(-50%); width: var(--card-w); opacity: 0; transition: opacity .3s ease; }
+#neo.card-right .neo-frame { left: var(--card-flip-x); }
 #neo.has-words .neo-frame { opacity: 1; }
+
+/* HOVERING THE ORB REVEALS HOW FAST NEO TALKS (w-5520063011, asked for). It sits
+   above the orb because an orb dragged to the bottom edge has nothing below
+   it, and placeOrb keeps this much room above wherever it is dropped. */
+.neo-speed { position: absolute; left: 0; right: 0; top: 0; height: var(--controls); display: flex; align-items: center; justify-content: center; gap: 4px;
+  opacity: 0; transform: translateY(5px); pointer-events: none; transition: opacity .2s ease, transform .2s ease; }
+#neo.awake.showing-speed .neo-speed { opacity: 1; transform: none; pointer-events: auto; }
+.neo-speed button { padding: 5px 9px; border: 1px solid rgba(255, 214, 170, .10); background: rgba(46, 34, 27, .9); color: #8a837c;
+  font: 500 10px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .08em; cursor: pointer; }
+.neo-speed button:hover { color: #ece7e1; }
+.neo-speed button[aria-pressed="true"] { color: #1d140f; background: #e8743a; border-color: #e8743a; }
 .neo-label { position: absolute; left: 0; top: -27px; font: 500 10px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; color: #8a837c; display: flex; align-items: center; gap: 8px; opacity: .68; }
 .neo-label i { width: 6px; height: 6px; background: #f07a3a; display: block; }
 

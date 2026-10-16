@@ -5,6 +5,8 @@ import './neo.css';
 import { dustOrb } from './dust';
 import { chime } from './chime';
 import { liveDriver } from './live-driver';
+import { NEO, SPEEDS } from '../../../shared/neo-orb.mjs';
+import { speedUpdate } from '../../../shared/neo-tools.mjs';
 
 type NeoBridge = {
   onWake(fn: (p: { outside: boolean }) => void): () => void;
@@ -13,6 +15,10 @@ type NeoBridge = {
   onNoMic(fn: (p: { app?: string | null }) => void): () => void;
   allowMic(): Promise<'granted' | 'settings' | 'refused'>;
   onNotice(fn: (p: { text: string }) => void): () => void;
+  onPlaced(fn: (p: { cardSide: 'left' | 'right'; speed: number }) => void): () => void;
+  dragStart(): void;
+  dragEnd(): void;
+  speed(speed: number): void;
   startLive(sdp: string, outside: boolean): Promise<{ ok: boolean; sdp?: string; error?: string }>;
   tool(callId: string, name: string, args: string): Promise<unknown>;
   usage(seconds: number): void;
@@ -26,6 +32,16 @@ const root = document.getElementById('neo')!;
 const words = document.getElementById('words')!;
 const label = document.getElementById('label')!;
 const actButton = document.getElementById('act') as HTMLButtonElement;
+const speedStrip = document.getElementById('speed')!;
+
+// The window's own measurements, from the module that places it, so the page
+// and the main process cannot drift apart about where the orb is.
+for (const [name, px] of [
+  ['--orb', NEO.orb], ['--orb-x', NEO.cx - NEO.orb / 2], ['--orb-y', NEO.cy - NEO.orb / 2],
+  ['--card-x', NEO.cardLeft], ['--card-flip-x', NEO.cardRight], ['--card-y', NEO.cy], ['--card-w', NEO.cardWidth],
+  ['--controls', NEO.controls],
+] as const) document.documentElement.style.setProperty(name, `${px}px`);
+
 const orbCanvas = document.getElementById('orb') as HTMLCanvasElement;
 const orb = dustOrb(orbCanvas);
 
@@ -46,6 +62,9 @@ let closeTimer: number | null = null;
 // mic open behind it.
 let gen = 0;
 
+function tellSession(event: Record<string, unknown>) {
+  if (channel?.readyState === 'open') channel.send(JSON.stringify(event));
+}
 function say(text: string) {
   words.textContent = text;
   root.classList.toggle('has-words', !!text);
@@ -201,9 +220,71 @@ neo.onNoMic(({ app }) => {
   micCard = window.setTimeout(close, 20_000);
 });
 
-// Only the orb and the card take the pointer; everywhere else clicks reach the app beneath.
-for (const el of [orbCanvas, document.getElementById('card')!]) {
+// Only the orb, the card and the speed control take the pointer; everywhere
+// else clicks reach the app beneath.
+for (const el of [orbCanvas, speedStrip, document.getElementById('card')!]) {
   el.addEventListener('mouseenter', () => neo.clickable(true));
   el.addEventListener('mouseleave', () => neo.clickable(false));
 }
-orbCanvas.addEventListener('click', () => sleep('clicked'));
+
+// HOW FAST NEO TALKS, REVEALED BY HOVERING THE ORB (w-5520063011).
+// The strip stays while the pointer travels from the orb to it, or picking a
+// speed would mean chasing something that has just gone.
+let speed = 1;
+const pills = SPEEDS.map((value) => {
+  const pill = document.createElement('button');
+  pill.type = 'button';
+  pill.textContent = `${value}×`;
+  pill.onclick = () => setSpeed(value, { tell: true });
+  speedStrip.append(pill);
+  return { value, pill };
+});
+function setSpeed(value: number, { tell = false } = {}) {
+  speed = value;
+  for (const { value: v, pill } of pills) pill.setAttribute('aria-pressed', String(v === value));
+  if (!tell) return;
+  // Lands in the sentence Neo is saying now, and main remembers it for the next one.
+  tellSession(speedUpdate(value));
+  neo.speed(value);
+}
+setSpeed(1);
+
+let hideSpeed: number | null = null;
+const showSpeed = (on: boolean) => {
+  if (hideSpeed) { clearTimeout(hideSpeed); hideSpeed = null; }
+  if (on) root.classList.add('showing-speed');
+  else hideSpeed = window.setTimeout(() => root.classList.remove('showing-speed'), 420);
+};
+for (const el of [orbCanvas, speedStrip]) {
+  el.addEventListener('mouseenter', () => showSpeed(true));
+  el.addEventListener('mouseleave', () => showSpeed(false));
+}
+
+// DRAGGING THE ORB (w-5520063011). Main follows the cursor and moves the
+// window; the page only says when the pointer is down. A press that moved is a
+// drag, and one that did not is the click that signs Neo off.
+let grabbed: { x: number; y: number; moved: boolean } | null = null;
+orbCanvas.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  orbCanvas.setPointerCapture(e.pointerId);
+  grabbed = { x: e.screenX, y: e.screenY, moved: false };
+  root.classList.add('dragging');
+  neo.dragStart();
+});
+orbCanvas.addEventListener('pointermove', (e) => {
+  if (!grabbed || grabbed.moved) return;
+  if (Math.abs(e.screenX - grabbed.x) + Math.abs(e.screenY - grabbed.y) > 3) grabbed.moved = true;
+});
+orbCanvas.addEventListener('pointerup', (e) => {
+  if (!grabbed) return;
+  const { moved } = grabbed;
+  grabbed = null;
+  root.classList.remove('dragging');
+  neo.dragEnd();
+  orbCanvas.releasePointerCapture(e.pointerId);
+  if (!moved) sleep('clicked');
+});
+neo.onPlaced(({ cardSide, speed: chosen }) => {
+  root.classList.toggle('card-right', cardSide === 'right');
+  if (chosen !== speed) setSpeed(chosen);
+});

@@ -1,10 +1,12 @@
 // What Neo's tool calls do in the inbox (renderer/src/neo/bridge.ts). The
-// plan review (2026-10-16) found two ways a voice assistant goes wrong here:
-// it acts on whatever row is open by the time the call lands rather than the
-// one it was talking about, and it carries out "merge it" off a misheard word.
-// So every action names a thread id and is refused if that thread is gone,
-// and a pick whose words merge, ship, delete or push comes back `needs_yes`
-// until the call says it was confirmed.
+// plan review (2026-10-16) found the way a voice assistant goes wrong here: it
+// acts on whatever row is open by the time the call lands rather than the one
+// it was talking about. So every action names a thread id and is refused if
+// that thread is gone.
+//
+// The second rule it found, a second yes before an option that says merge or
+// ship, is gone (w-5520063011): naming the option is the decision. The pick's
+// own cases live in tests/choosing-an-option-out-loud-is-the-approval.
 import { describe, expect, it, vi } from 'vitest';
 import { neoBridge, describeScreen } from '../renderer/src/neo/bridge.ts';
 
@@ -24,6 +26,7 @@ function setup({ focused = null, list = rows } = {}) {
     options: (r) => (r.id === 'w-a' ? [{ n: 1, text: 'Ship draft A (recommended)' }, { n: 2, text: 'Rewrite' }] : []),
     summary: (r) => (r.result ?? '').split('\n')[0],
     projects: () => [{ slug: 'p1', name: 'Agentbox' }, { slug: 'p2', name: 'Site' }],
+    films: () => [],
     open: rec('open'), pick: rec('pick'), reply: rec('reply'), close: rec('close'),
     compose: vi.fn(async (text, product) => { calls.push(['compose', text, product]); return { id: 'w-new' }; }),
     undo: vi.fn(async () => { calls.push(['undo']); return 'done'; }),
@@ -68,57 +71,18 @@ describe('acting on a named thread', () => {
 });
 
 describe('picking an option', () => {
-  it('asks first when the option would ship or merge', async () => {
-    const { act, calls } = setup();
-    const r = await act('pick_option', { id: 'w-a', n: 1 });
-    expect(r).toMatchObject({ ok: false, status: 'needs_yes' });
-    expect(r.said).toMatch(/Ship draft A/);
-    expect(calls.some(([n]) => n === 'pick')).toBe(false);
-  });
-
-  it('goes ahead once the person said yes to the option it asked about', async () => {
-    const { act, calls } = setup();
-    await act('pick_option', { id: 'w-a', n: 1 });
-    const r = await act('pick_option', { id: 'w-a', n: 1, confirmed: true });
-    expect(r).toMatchObject({ ok: true, status: 'committed' });
-    expect(calls).toContainEqual(['pick', rows[0], 1]);
-  });
-
-  // Codex review, 2026-10-16: a bare `confirmed: true` was enough, so a yes
-  // could carry out an option nobody had read out.
-  it('asks anyway when the call claims a yes it never asked for', async () => {
-    const { act, calls } = setup();
-    expect(await act('pick_option', { id: 'w-a', n: 1, confirmed: true })).toMatchObject({ status: 'needs_yes' });
-    expect(calls.some(([n]) => n === 'pick')).toBe(false);
-  });
-
-  it('does not let a yes carry over to an option whose words changed meanwhile', async () => {
-    const { act, calls, deps } = setup();
-    await act('pick_option', { id: 'w-a', n: 1 });
-    deps.options = () => [{ n: 1, text: 'Delete the branch' }];
-    expect(await act('pick_option', { id: 'w-a', n: 1, confirmed: true })).toMatchObject({ ok: false, status: 'needs_yes' });
-    expect(calls.some(([n]) => n === 'pick')).toBe(false);
-  });
-
-  it('does not let a yes for one thread pick on another', async () => {
+  it('picks on the thread it named, not the one that is open', async () => {
     const list = [rows[0], { ...rows[1], id: 'w-z' }];
-    const { act, calls, deps } = setup({ list });
+    const { act, calls, deps } = setup({ list, focused: list[1] });
     deps.options = () => [{ n: 1, text: 'Ship draft A (recommended)' }];
-    await act('pick_option', { id: 'w-a', n: 1 });
-    expect(await act('pick_option', { id: 'w-z', n: 1, confirmed: true })).toMatchObject({ status: 'needs_yes' });
-    expect(calls.some(([n]) => n === 'pick')).toBe(false);
+    expect(await act('pick_option', { id: 'w-a', n: 1 })).toMatchObject({ ok: true });
+    expect(calls).toContainEqual(['pick', rows[0], 1]);
   });
 
   it('says so when the app asked its own question instead of picking', async () => {
     const { act, deps } = setup();
     deps.pick = async () => 'asked';
     expect(await act('pick_option', { id: 'w-a', n: 2 })).toMatchObject({ ok: false, said: expect.stringMatching(/on screen/) });
-  });
-
-  it('picks a harmless option without asking', async () => {
-    const { act, calls } = setup();
-    expect(await act('pick_option', { id: 'w-a', n: 2 })).toMatchObject({ ok: true });
-    expect(calls).toContainEqual(['pick', rows[0], 2]);
   });
 
   it('refuses an option number the thread does not offer', async () => {

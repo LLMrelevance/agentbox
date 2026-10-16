@@ -1,16 +1,17 @@
 // Neo acts in the app only through a short list of tools, each bound to a
 // thread by id so an action can never land on a different thread than the one
-// it was talking about (Codex review of the Neo plan, 2026-10-16). Picks that
-// merge, ship or delete need a spoken yes first, because undo cannot take back
-// a merge the agent has already done.
+// it was talking about (Codex review of the Neo plan, 2026-10-16).
+//
+// A pick used to need a spoken yes when its words said merge or ship. That is
+// gone (w-5520063011): naming the option is the decision.
 import { describe, expect, it } from 'vitest';
-import { NEO_TOOLS, checkCall, needsYes, neoSession } from '../shared/neo-tools.mjs';
+import { NEO_TOOLS, checkCall, neoSession, speedUpdate } from '../shared/neo-tools.mjs';
 
 const names = NEO_TOOLS.map((t) => t.name);
 
 describe('the tool list', () => {
   it('has exactly the prototype actions', () => {
-    expect(names.sort()).toEqual(['close_thread', 'get_screen', 'new_thread', 'next_thread', 'open_thread', 'pick_option', 'reply', 'sign_off', 'undo'].sort());
+    expect(names.sort()).toEqual(['close_thread', 'get_screen', 'new_thread', 'next_thread', 'open_thread', 'pause_media', 'pick_option', 'play_media', 'reply', 'sign_off', 'undo'].sort());
   });
 
   it('is shaped as Responses function tools', () => {
@@ -54,17 +55,29 @@ describe('checking a call before it runs', () => {
   });
 });
 
-describe('which picks need a yes first', () => {
-  it('merging, shipping, deploying and deleting do', () => {
-    for (const text of ['Merge it', 'Ship it now', 'Deploy to production', 'Delete the old branch', 'Publish the post', 'Push to main']) {
-      expect(needsYes(text)).toBe(true);
-    }
+describe('a pick takes no confirmation argument at all', () => {
+  it('refuses the `confirmed` the asking rule used to carry', () => {
+    expect(checkCall('pick_option', '{"id":"w-1","n":1,"confirmed":true}').ok).toBe(false);
+  });
+});
+
+describe('how fast Neo speaks', () => {
+  it('starts at the speed it is given', () => {
+    expect(neoSession({ speed: 1.25 }).audio.output.speed).toBe(1.25);
+    expect(neoSession({}).audio.output.speed).toBe(1);
   });
 
-  it('ordinary choices do not', () => {
-    for (const text of ['Take the extra beat off the rare card first', 'Leave it on the branch until I have opened one', 'Monthly default', 'Emerge later']) {
-      expect(needsYes(text)).toBe(false);
-    }
+  it('keeps the voice when one is chosen too', () => {
+    expect(neoSession({ voice: 'marin', speed: 1.5 }).audio.output).toEqual({ voice: 'marin', speed: 1.5 });
+  });
+
+  it('ignores a speed the control cannot offer', () => {
+    expect(neoSession({ speed: 4 }).audio.output.speed).toBe(1);
+  });
+
+  it('changes speed mid-session with one session.update', () => {
+    expect(speedUpdate(0.75)).toEqual({ type: 'session.update', session: { audio: { output: { speed: 0.75 } } } });
+    expect(speedUpdate(99)).toEqual({ type: 'session.update', session: { audio: { output: { speed: 1 } } } });
   });
 });
 

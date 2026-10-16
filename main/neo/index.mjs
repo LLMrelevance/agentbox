@@ -13,11 +13,9 @@ import { startLive } from './live.mjs';
 import { listenForDoubleCommand } from './cmd-tap.mjs';
 import { getMic, micOwner } from './mic.mjs';
 import { checkCall, neoSession } from '../../shared/neo-tools.mjs';
+import { NEO, defaultOrbPoint, okSpeed, placeOrb } from '../../shared/neo-orb.mjs';
 import { Name } from '../../shared/product-name.mjs';
 
-const WIDTH = 600;
-const HEIGHT = 240;
-const MARGIN = 20;
 export const SESSION_MAX_S = 20 * 60;
 export const DAY_MAX_S = 3 * 60 * 60;
 const ACT_TIMEOUT_MS = 10_000;
@@ -27,7 +25,8 @@ const today = (now) => new Date(now).toISOString().slice(0, 10);
 export function createNeo({
   app, BrowserWindow, ipcMain, screen, powerMonitor, systemPreferences, session: electronSession, globalShortcut,
   mainWindow, preload, load, userData, now = Date.now, listen = listenForDoubleCommand, platform = process.platform,
-  shell = { openExternal: () => {} }, owner = micOwner(), getMicImpl = getMic,
+  shell = { openExternal: () => {} }, owner = micOwner(), getMicImpl = getMic, startLiveImpl = startLive,
+  every = (fn, ms) => setInterval(fn, ms), stopEvery = clearInterval,
 }) {
   const on = neoEnabled({ userData, platform });
   ipcMain.handle('neo:enabled', () => on);
@@ -43,6 +42,16 @@ export function createNeo({
   const writeUsage = (u) => { try { fs.writeFileSync(usageFile, JSON.stringify(u)); } catch {} };
   // What Neo did and why it could not, for whoever looks into "nothing happened".
   const log = (line) => { try { fs.appendFileSync(path.join(dir, 'log.txt'), `${new Date(now()).toISOString()} ${line}\n`); } catch {} };
+
+  // Where the orb was dragged to and how fast Neo was asked to talk. Both
+  // outlive the session they were set in, so Neo is where it was left.
+  const settingsFile = path.join(dir, 'settings.json');
+  let settings = { point: null, speed: 1 };
+  try {
+    const s = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    settings = { point: Number.isFinite(s?.point?.x) && Number.isFinite(s?.point?.y) ? { x: s.point.x, y: s.point.y } : null, speed: okSpeed(s?.speed) };
+  } catch {}
+  const saveSettings = () => { try { fs.writeFileSync(settingsFile, JSON.stringify(settings)); } catch {} };
 
   let win = null;
   let loaded = null;         // resolves when Neo's page can hear a wake
@@ -70,10 +79,33 @@ export function createNeo({
   const fromNeo = (e) => !!win && e.sender === win.webContents;
   const fromMain = (e) => e.sender === mainWindow.webContents;
 
-  function place() {
-    const point = screen.getCursorScreenPoint();
-    const { workArea } = screen.getDisplayNearestPoint(point);
-    win.setBounds({ x: workArea.x + workArea.width - WIDTH - MARGIN, y: workArea.y + workArea.height - HEIGHT - MARGIN, width: WIDTH, height: HEIGHT });
+  // Where the orb's centre is now, and which side its card reads out on.
+  let orbPoint = null;
+  let cardSide = 'left';
+  let told = null;
+
+  // Puts the orb's centre at `want`, or back where it was left. The work area
+  // comes from the display that point is on, so an orb left on the second
+  // screen wakes there rather than following the cursor home; when that screen
+  // has gone, `placeOrb` clamps it back into the one that answered.
+  function place(want) {
+    const asked = want ?? settings.point ?? defaultOrbPoint(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea);
+    const { workArea } = screen.getDisplayNearestPoint(asked);
+    const got = placeOrb({ workArea, point: asked });
+    win.setBounds(got.bounds);
+    cardSide = got.cardSide;
+    orbPoint = got.point;
+  }
+
+  // The page draws the card and the speed control from this. Sent after the
+  // page has loaded, because a send before that is lost, and then only when
+  // something it draws has actually changed: a drag moves the window sixty
+  // times a second and the side rarely changes with it.
+  function tellPlaced() {
+    const next = { cardSide, speed: settings.speed };
+    if (told && told.cardSide === next.cardSide && told.speed === next.speed) return;
+    told = next;
+    win?.webContents.send('neo:placed', next);
   }
 
   function ensureWindow() {
@@ -84,14 +116,14 @@ export function createNeo({
       // As the corner tag learned: a window that may not take focus hands a
       // click to the main window, which jumps forward. Shown inactive instead.
       focusable: true, acceptFirstMouse: true, alwaysOnTop: true, type: 'panel',
-      width: WIDTH, height: HEIGHT,
+      width: NEO.width, height: NEO.height,
       // Chimes and Neo's voice play the moment it wakes, with no click in the page.
       webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true, partition: 'neo', backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
     });
     win.setAlwaysOnTop(true, 'floating');
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     win.setIgnoreMouseEvents(true, { forward: true });
-    win.on('closed', () => { win = null; loaded = null; live = false; generation++; });
+    win.on('closed', () => { win = null; loaded = null; live = false; generation++; told = null; stopDrag(); });
     loaded = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
     load(win);
     return win;
@@ -134,6 +166,7 @@ export function createNeo({
       // marked live with nothing listening.
       await loaded;
       if (!win || g !== generation) return;
+      tellPlaced();
       if (usage.seconds >= DAY_MAX_S) { win.webContents.send('neo:resting', {}); return; }
       if (systemPreferences.getMediaAccessStatus('microphone') !== 'granted') {
         const granted = await systemPreferences.askForMediaAccess('microphone').catch(() => false);
@@ -157,7 +190,7 @@ export function createNeo({
     if (!fromNeo(e) || !live) return { ok: false, error: 'Neo is not awake.' };
     const screenNow = await askMain('describe_screen', { outside: !!outside });
     try {
-      const answer = await startLive({ sdp, session: neoSession({ screen: screenNow?.said ?? '' }) });
+      const answer = await startLiveImpl({ sdp, session: neoSession({ screen: screenNow?.said ?? '', speed: settings.speed }) });
       log('session started');
       return { ok: true, sdp: answer.sdp };
     } catch (err) {
@@ -202,6 +235,7 @@ export function createNeo({
     if (!fromNeo(e)) return;
     live = false;
     generation++;
+    stopDrag();
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send('neo:mode', { on: false });
     setTimeout(() => { if (!live) win?.hide(); }, 900);
   });
@@ -215,8 +249,54 @@ export function createNeo({
     return got;
   });
 
+  // A window moving under the cursor can fire a mouseleave on the orb, and
+  // going click-through mid-drag would lose the pointer release.
   ipcMain.on('neo:clickable', (e, on) => {
-    if (fromNeo(e)) win?.setIgnoreMouseEvents(!on, { forward: true });
+    if (fromNeo(e) && !drag) win?.setIgnoreMouseEvents(!on, { forward: true });
+  });
+
+  // DRAGGING THE ORB IS MOVING ITS WINDOW, AND MAIN FOLLOWS THE CURSOR ITSELF
+  // (w-5520063011). The page cannot: its own pointer coordinates are relative
+  // to a window that is moving under the pointer, so every frame would feed
+  // back into the next. Main reads the cursor instead and keeps the grab point
+  // under it.
+  const DRAG_MS = 16;
+  // A release we never heard, because the pointer left the window's clickable
+  // part at speed. Without this the orb would follow the cursor for ever.
+  const DRAG_TICKS = 20_000 / DRAG_MS;
+  let drag = null;
+
+  function stopDrag() {
+    if (!drag) return;
+    stopEvery(drag.timer);
+    drag = null;
+    if (orbPoint) { settings.point = orbPoint; saveSettings(); }
+  }
+
+  ipcMain.on('neo:drag-start', (e) => {
+    if (!fromNeo(e) || drag || !win) return;
+    const cursor = screen.getCursorScreenPoint();
+    const at = orbPoint ?? defaultOrbPoint(screen.getDisplayNearestPoint(cursor).workArea);
+    drag = { dx: cursor.x - at.x, dy: cursor.y - at.y, ticks: 0 };
+    drag.timer = every(() => {
+      if (!drag) return;
+      if (++drag.ticks > DRAG_TICKS) { stopDrag(); return; }
+      const p = screen.getCursorScreenPoint();
+      place({ x: p.x - drag.dx, y: p.y - drag.dy });
+      tellPlaced();
+    }, DRAG_MS);
+  });
+  ipcMain.on('neo:drag-end', (e) => { if (fromNeo(e)) stopDrag(); });
+
+  // The page has already applied the new speed to the open session; this is so
+  // the next one starts there too.
+  ipcMain.on('neo:speed', (e, { speed } = {}) => {
+    if (!fromNeo(e)) return;
+    const picked = okSpeed(speed);
+    if (picked === settings.speed) return;
+    settings.speed = picked;
+    saveSettings();
+    tellPlaced();
   });
 
   // Lock or sleep ends a conversation at once.
