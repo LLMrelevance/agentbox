@@ -33,6 +33,7 @@ import { DocPane, type OpenDoc } from './components/DocPane';
 import { docKind, EVEN_SPLIT, escapeClosesDoc, escapeInTheFileClosesIt, focusIsInTheFile, readSplit, writeSplit } from './doc-pane';
 import { changeOwnsKey } from './code-keys';
 import { askStillStands, bringsBack, closesAgain, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO, UNDID_CLOSING } from './undo-window';
+import { useNeo } from './neo/useNeo';
 import { addUndoMark, UNDO_MARKS_EVENT, type UndidSpec } from './undo-marks';
 import { whatTheFileSentUp } from '../../shared/artifact-keys.mjs';
 import { type Place, placeIsSomewhere, readPlace, writePlace, writeScroll } from './where-she-was';
@@ -40,7 +41,7 @@ import { documentCandidates } from './message-artifacts';
 import { filesFromRuns } from './run-files';
 import { Rail } from './components/Rail';
 import { ThreadComposer } from './threads/ThreadComposer';
-import { joinNames } from './threads/composer-rules';
+import { joinNames, threadMessage } from './threads/composer-rules';
 import { NewProject } from './components/NewProject';
 import { shortFolder } from './project-folder';
 import { ImportAgents } from './components/ImportAgents';
@@ -4598,6 +4599,44 @@ export default function App() {
     if (shown.open) { setFocused(shown.open); markSeen(shown.open); }
     else if (shown.compose) { setFocused(null); setModal('compose'); }
   }, [undoStack, refresh, showToast, markSeen, leaveUndoMarks]);
+
+  // NEO, THE VOICE ALPHA (w-e85fd9144f). Nothing at all unless this Mac has
+  // the alpha flag. When it does, Neo's tool calls are carried out here with
+  // the same functions the keys use, so a voice can do nothing a hand could
+  // not; the rules about which thread and when to ask are in ./neo/bridge.
+  useNeo({
+    rows: () => shownInbox,
+    focused: () => focused,
+    options: (row) => (offerIsLive(row) ? itemOptions(row) : []),
+    summary: (row) => row.result || row.note || row.body || '',
+    projects: () => (snap?.products ?? []).filter((p) => !directSlugs.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name })),
+    open: (row) => { setSearch(null); setFocused(row); markSeen(row); },
+    pick: (row, n) => pickOption(row, n),
+    reply: (row, text) => answerWith(row, text),
+    close: (row) => markDone(row),
+    compose: async (text, product) => {
+      const message = threadMessage(text, []);
+      if (!message) return null;
+      const made = await api.compose({ product, title: message.title, body: message.body || undefined, kind: 'directive', priority: 5 });
+      // Z and Neo's own undo take it back, the same as a task typed into the card.
+      if (made?.id) {
+        pushUndo({ label: `Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`, undoes: 'take back the task you just made',
+          undid: [{ product: made.product, id: made.id, words: 'Undid sending it' }],
+          run: async () => { await api.answer({ product: made.product, id: made.id, status: 'done' }); } });
+        showToast(sentLine({ to: snap?.products.find((p) => p.slug === product)?.name ?? product, when: null, held: false }), { product: made.product, id: made.id });
+        void refresh();
+      }
+      return made;
+    },
+    undo: async () => {
+      if (pendingRef.current) { await undo(); return 'done'; }
+      const { take, instant } = nextUndo(undoStack, Date.now());
+      if (!take) return 'none';
+      if (!instant) return 'old';
+      await undo();
+      return 'done';
+    },
+  });
 
   // INTO THE ROW THE TOAST IS ABOUT, from a click on it or from O
   // (w-f0bfe32859). One path, so the key can never open something the click

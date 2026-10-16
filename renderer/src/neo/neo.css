@@ -1,0 +1,39 @@
+/* Neo's window: the gold dust orb in the corner and the card beside it, as
+   approved (designs/w-e85fd9144f/round9/src/final-approved.html). The window
+   floats over other apps, where a page cannot blur what is behind it, so the
+   frost is a warmer, more solid tint here. */
+@font-face { font-family: 'Geist'; src: url('../assets/fonts/Geist-Variable.woff2') format('woff2'); font-weight: 100 900; }
+@font-face { font-family: 'Geist Mono'; src: url('../assets/fonts/GeistMono-Variable.woff2') format('woff2'); font-weight: 100 900; }
+
+html, body { margin: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; -webkit-font-smoothing: antialiased; user-select: none; }
+#neo { position: relative; width: 100%; height: 100%; }
+
+#orb { position: absolute; right: 24px; bottom: 24px; width: 150px; height: 150px; opacity: 0; transform: scale(.6); transition: opacity .35s ease, transform .5s cubic-bezier(.2, .9, .3, 1.2); cursor: pointer; }
+#neo.awake #orb { opacity: 1; transform: scale(1); }
+
+/* The card's middle sits on the orb's middle. */
+.neo-frame { position: absolute; right: 184px; top: 141px; transform: translateY(-50%); width: 400px; opacity: 0; transition: opacity .3s ease; }
+#neo.has-words .neo-frame { opacity: 1; }
+.neo-label { position: absolute; left: 0; top: -27px; font: 500 10px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; color: #8a837c; display: flex; align-items: center; gap: 8px; opacity: .68; }
+.neo-label i { width: 6px; height: 6px; background: #f07a3a; display: block; }
+
+.neo-card { position: relative; padding: 16px 20px; background: rgba(46, 34, 27, .9); border: 1px solid rgba(255, 214, 170, .10); box-shadow: 0 20px 60px rgba(0, 0, 0, .45); }
+.neo-words { position: relative; z-index: 1; color: #ece7e1; font: 400 15.5px/1.5 'Geist', -apple-system, sans-serif; max-height: 140px; overflow: hidden; display: flex; flex-direction: column-reverse; }
+
+/* Texture at 50%, corner brackets at 25%. */
+.neo-lines { position: absolute; inset: 0; pointer-events: none; opacity: .5;
+  background-image: linear-gradient(rgba(255,214,170,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,214,170,.06) 1px, transparent 1px);
+  background-size: 16px 16px;
+  -webkit-mask: linear-gradient(100deg, transparent 5%, #000 75%); mask: linear-gradient(100deg, transparent 5%, #000 75%); }
+.neo-ruler { position: absolute; left: 0; right: 0; bottom: 0; height: 7px; opacity: .4; pointer-events: none;
+  background: repeating-linear-gradient(90deg, #5c5855 0 1px, transparent 1px 8px) bottom / 100% 4px no-repeat,
+              repeating-linear-gradient(90deg, #6e6966 0 1px, transparent 1px 40px) bottom / 100% 7px no-repeat; }
+.br { position: absolute; width: 10px; height: 10px; border: 0 solid rgba(255, 255, 255, .088); }
+.br.tl { left: -7px; top: -7px; border-width: 1px 0 0 1px; } .br.tr { right: -7px; top: -7px; border-width: 1px 1px 0 0; }
+.br.bl { left: -7px; bottom: -7px; border-width: 0 0 1px 1px; } .br.brr { right: -7px; bottom: -7px; border-width: 0 1px 1px 0; }
+
+/* The one button Neo ever shows: the microphone's Allow. */
+.neo-act { position: relative; z-index: 1; margin-top: 12px; padding: 7px 14px; border: 0; border-radius: 3px; background: #e8743a; color: #1d140f;
+  font: 500 13px/1 'Geist', -apple-system, sans-serif; cursor: pointer; }
+.neo-act:hover { background: #f08a52; }
+.neo-act:disabled { opacity: .6; cursor: default; }
