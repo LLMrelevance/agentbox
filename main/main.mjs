@@ -1060,6 +1060,7 @@ async function createWindow() {
         // that this just sent.
         window.webContents.send('zero:key-in-the-file', {
           key: input.key, meta: !!input.meta, ctrl: !!input.control, alt: !!input.alt, shift: !!input.shift,
+          fromGuest: true,
         });
         return;
       }

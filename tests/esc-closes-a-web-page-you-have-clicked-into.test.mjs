@@ -21,12 +21,14 @@
 //                                           landed nowhere.
 //
 // So Escape only moved the keyboard back to the app, and the SECOND press
-// closed the pane. `focusIsInTheFile` would have refused it anyway: it asks
-// for an IFRAME by name, and a webview is a WEBVIEW.
+// closed the pane.
 //
-// The cases: both elements the pane can draw a page in, the element that must
-// NOT count (the app's own page), and the two halves being wired to the same
-// channel so neither can drift from the other again.
+// Measured in the running app while fixing it: with the guest holding the
+// keyboard, `document.activeElement` in the app's own page is BODY, not the
+// webview element. So the focus check cannot be the gate for a guest's key,
+// and main says where the key came from instead. That check only ever
+// existed to stop a key being answered twice when the window heard it too,
+// which cannot happen for a guest.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -69,6 +71,20 @@ describe('is the keyboard inside the page', () => {
 
 describe('the key really gets out of the page', () => {
   const main = read('main/main.mjs');
+  const app = read('renderer/src/App.tsx');
+
+  it('says it came from a guest, so the focus check does not refuse it', () => {
+    const webviewBranch = main.slice(main.indexOf("contents.getType() !== 'webview'"));
+    expect(webviewBranch).toContain('fromGuest: true');
+    expect(app).toContain('if (!k.fromGuest && !focusIsInTheFile(document.activeElement)) return;');
+  });
+
+  it('still checks focus for a key out of a frame, which the window also hears', () => {
+    // Without this a single press in the app's own page is answered twice.
+    expect(app).toContain('focusIsInTheFile(document.activeElement)');
+    const frameBranch = main.slice(main.indexOf("window.webContents.on('before-input-event'"), main.indexOf("contents.getType() !== 'webview'"));
+    expect(frameBranch).not.toContain('fromGuest');
+  });
 
   it('comes up the one channel the renderer is listening on', () => {
     const webviewBranch = main.slice(main.indexOf("contents.getType() !== 'webview'"));
