@@ -1,30 +1,45 @@
 // The 2026-10-07 screenshot had three meters, zero refresh controls, and no
 // checked time. A cached 100% reading looked current even after switching.
+// Since 2026-10-16 the meters sit under the account in use, on the card for
+// this computer, and the checked time is on that account's row.
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
-import { ClaudeUsageSection, usageCheckedAt } from '../renderer/src/components/Settings';
+import fs from 'node:fs';
+import { AccountMeters, AccountRows, usageCheckedAt } from '../renderer/src/components/Settings';
+
 const now = 1_000_000;
 const reading = { engine: 'claude', profile: '/profiles/one', at: now - 60_000, limits: [{ span: 'week', qualifier: 'all models', name: 'This week', percent: 100 }] };
-const draw = (props = {}) => renderToStaticMarkup(React.createElement(ClaudeUsageSection, { reading, profile: '/profiles/one', email: 'one@example.test', now, ...props }));
-it('offers refresh and names the account and age of the reading', () => {
-  const html = draw();
-  expect(html).toContain('Refresh');
-  expect(html).toContain('one@example.test');
+const account = (profile, email, extra = {}) => ({ profile, email, plan: 'Max 20x', chosen: false, signedIn: true, trouble: null, dir: null, ...extra });
+
+it('names the account in use and the age of its reading, with its meters straight under it', () => {
+  const agent = { engine: 'claude', accounts: [
+    account('/profiles/two', 'two@example.test'),
+    account('/profiles/one', 'one@example.test', { chosen: true, use: usageCheckedAt(reading.at, now) }),
+  ] };
+  const html = renderToStaticMarkup(React.createElement(AccountRows, {
+    agent, onChoose: () => {}, onAdd: () => {},
+    under: (a) => a.chosen && React.createElement(AccountMeters, { reading, now }),
+  }));
   expect(html).toContain('Checked 1 minute ago');
-  expect(html).toContain('100% used');
+  // The account in use leads, and its meter follows it before any other account.
+  expect(html.indexOf('one@example.test')).toBeLessThan(html.indexOf('100% used'));
+  expect(html.indexOf('100% used')).toBeLessThan(html.indexOf('two@example.test'));
 });
+
 it('never draws a different account’s cached percentage', () => {
-  const html = draw({ profile: '/profiles/two', email: 'two@example.test' });
-  expect(html).not.toContain('100% used');
+  const settings = fs.readFileSync(new URL('../renderer/src/components/Settings.tsx', import.meta.url), 'utf8');
+  // Readings are looked up by the account's own folder, never handed across.
+  expect(settings).toContain('accountReadings.find((r) => r.profile === profile && r.limits?.length && r.at)');
+  expect(settings).toContain("return r && (r.profile ?? 'default') === profile ? r : null;");
+});
+
+it('says there is no reading yet rather than drawing empty meters', () => {
+  const html = renderToStaticMarkup(React.createElement(AccountMeters, { reading: null, now }));
   expect(html).toContain('No usage reading yet');
-  expect(html).not.toContain('Checked 1 minute ago');
+  expect(html).not.toContain('% used');
 });
-it('keeps refresh available before the first reading', () => {
-  const html = draw({ reading: null });
-  expect(html).toContain('Refresh');
-  expect(html).not.toContain('disabled');
-});
+
 it('keeps freshness honest at the minute and hour boundaries', () => {
   expect(usageCheckedAt(now, now)).toBe('Checked just now');
   expect(usageCheckedAt(now - 59_999, now)).toBe('Checked just now');

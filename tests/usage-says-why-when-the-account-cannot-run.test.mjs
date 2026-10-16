@@ -4,40 +4,32 @@
 // with Claude Code 2.1.293: `claude -p /usage` on that login printed only the
 // "What's contributing" breakdown and no limits, and any real prompt on it
 // answered "Your organization has disabled Claude subscription access for
-// Claude Code". The app already had that account filed as org-blocked; the
-// usage box just never asked. Now it says the account's own sentence.
+// Claude Code". The account's row says its own sentence; the meters under it
+// must not add "No usage reading yet" beside it.
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
-import { ClaudeUsageSection } from '../renderer/src/components/Settings';
+import { AccountMeters } from '../renderer/src/components/Settings';
 
 const now = 1_000_000;
 const blocked = 'Signed in, but its organization has turned Claude Code off. Only an admin of that workspace can turn it back on.';
 const reading = { engine: 'claude', profile: 'default', at: now - 60_000, limits: [{ span: 'week', qualifier: 'all models', name: 'This week', percent: 40 }] };
-const draw = (props = {}) => renderToStaticMarkup(React.createElement(ClaudeUsageSection, { reading: null, profile: 'default', email: 'one@example.test', now, ...props }));
+const draw = (props = {}) => renderToStaticMarkup(React.createElement(AccountMeters, { reading: null, now, ...props }));
 
-it('says why there is no reading when the account in use cannot run', () => {
-  const html = draw({ trouble: blocked });
-  expect(html).toContain('its organization has turned Claude Code off');
-  expect(html).not.toContain('No usage reading yet');
-  expect(html).toContain('Refresh');
+it('says nothing under an account that cannot run: its row already says why', () => {
+  expect(draw({ trouble: blocked })).toBe('');
 });
 
 it('still says no reading yet when nothing is wrong with the account', () => {
-  const html = draw({ trouble: null });
-  expect(html).toContain('No usage reading yet');
-  expect(html).not.toContain('organization');
+  expect(draw({ trouble: null })).toContain('No usage reading yet');
 });
 
-it('keeps the meters of a reading it has, with the trouble beside them', () => {
+it('says the reader’s own reason when a refresh came back empty', () => {
+  expect(draw({ error: 'Claude Code did not report usage for this account.' })).toContain('did not report usage');
+});
+
+it('keeps the meters of a reading it has, even beside trouble', () => {
   const html = draw({ reading, trouble: 'At its limit. It rejoins on its own when the limit resets.' });
   expect(html).toContain('40% used');
-  expect(html).toContain('At its limit');
   expect(html).not.toContain('No usage reading yet');
-});
-
-it('never shows another account’s trouble once the reading belongs to this one', () => {
-  const html = draw({ reading, trouble: null });
-  expect(html).toContain('40% used');
-  expect(html).not.toContain('organization');
 });

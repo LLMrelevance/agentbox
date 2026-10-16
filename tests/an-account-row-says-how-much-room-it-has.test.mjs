@@ -6,7 +6,7 @@
 // room. And the cloud's own logins, the ones cloud runs actually used, were not
 // on the Claude Code page at all.
 import { describe, it, expect } from 'vitest';
-import { cloudAccountState, cloudModeWords, hourWords, sessionUse } from '../renderer/src/account-words.ts';
+import { cloudAccountState, cloudPlaceLine, hourWords, sessionUse } from '../renderer/src/account-words.ts';
 
 const at = (h, m = 0) => new Date(2026, 9, 16, h, m).getTime();
 const session = (percent, extra = {}) => ({ span: 'session', qualifier: null, name: 'This session', percent, resetsText: null, resetsOn: null, resetsAt: null, zone: null, ...extra });
@@ -46,9 +46,13 @@ describe('a login in the cloud', () => {
     expect(cloudAccountState(a({ state: 'broken' }))).toMatch(/cloud menu/);
   });
 
-  it('the first row says whether the cloud is on, and that it uses its own accounts', () => {
-    expect(cloudModeWords({ mode: 'full' })).toMatch(/not this computer’s/);
-    expect(cloudModeWords({ mode: 'mac' })).toMatch(/^Off/);
+  it('the first row says when threads go there and on which accounts', () => {
+    expect(cloudPlaceLine({ mode: 'full' }, 2)).toBe('Threads start here when this computer is full, on these accounts in turn.');
+    expect(cloudPlaceLine({ mode: 'all' }, 1)).toBe('Threads start here first, on this account.');
+  });
+
+  it('must NOT promise cloud runs while it is off', () => {
+    expect(cloudPlaceLine({ mode: 'mac' }, 2)).toMatch(/^Off, so every thread runs on this computer/);
   });
 
   it('noon and midnight', () => {

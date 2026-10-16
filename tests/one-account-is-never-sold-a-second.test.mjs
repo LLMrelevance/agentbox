@@ -152,7 +152,7 @@ describe('the account rows never tell anybody to get a second subscription', () 
     // "Signed in" ("On this computer" beside the cloud's own logins), none of
     // which can grow a plural whatever the count is.
     expect(said).toMatch(/title=\{agent\.name\}/);
-    expect(said).toMatch(/label=\{cloudHere \? 'On this computer' : 'Signed in'\}/);
+    expect(said).toMatch(/label=\{cloudHere \? 'This computer' : 'Signed in'\}/);
     expect(said).not.toMatch(/label="Accounts"/);
     expect(said).not.toMatch(/Claude accounts/);
   });
@@ -267,14 +267,15 @@ describe('where the account rows live', () => {
   // The claim that survives is the first half of it: the agents lead the page.
   // The agent's page reads in the order a person asks: how much is left, who
   // it is signed in as, then what it may do.
-  it('reads usage, then who is signed in, then permissions', () => {
+  // Since 2026-10-16 the usage of the account in use sits under its own row.
+  it('reads who is signed in with how much is left, then permissions', () => {
     const said = spoken(accountsPane);
-    const usage = said.indexOf('label="Usage"');
     const who = said.indexOf("'Signed in'}");
+    const usage = said.indexOf('<AccountMeters');
     const perms = said.indexOf('label="Permissions"');
-    expect(usage).toBeGreaterThan(-1);
-    expect(who).toBeGreaterThan(usage);
-    expect(perms).toBeGreaterThan(who);
+    expect(who).toBeGreaterThan(-1);
+    expect(usage).toBeGreaterThan(who);
+    expect(perms).toBeGreaterThan(usage);
     expect(said).not.toContain('<Updates');
   });
 });

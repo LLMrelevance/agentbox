@@ -31,9 +31,9 @@ export function cloudAccountState(a: CloudAccount, now = Date.now()): string {
   return 'Ready';
 }
 
-/** Whether cloud runs happen at all, and when. */
-export function cloudModeWords(cloud: Pick<CloudStatus, 'mode'>): string {
-  if (cloud.mode === 'mac') return 'Off. Agents run on this computer only.';
-  if (cloud.mode === 'all') return 'On for everything. Cloud runs use these accounts, not this computer’s.';
-  return 'On when this computer is full. Cloud runs use these accounts, not this computer’s.';
+/** The cloud card's first line: when threads go there, and which logins they use. */
+export function cloudPlaceLine(cloud: Pick<CloudStatus, 'mode'>, accounts: number): string {
+  if (cloud.mode === 'mac') return 'Off, so every thread runs on this computer. Press C to turn it on.';
+  const when = cloud.mode === 'all' ? 'Threads start here first' : 'Threads start here when this computer is full';
+  return `${when}, on ${accounts > 1 ? 'these accounts in turn' : 'this account'}.`;
 }

@@ -120,6 +120,12 @@
 /* An inset row carries its own edges, so the hairlines either side of it go. */
 .settings-screen[data-pane] .set-plate > .set-acct-row.on + .set-row,
 .settings-screen[data-pane] .set-plate > .set-row + .set-acct-row.on { border-top-color: transparent; }
+/* The meters of the account in use, indented under its row so they read as its own. */
+.settings-screen[data-pane] .set-plate:not(.set-keys) > .set-row-sub { padding: 9px 0 9px 16px; }
+.settings-screen[data-pane] .set-plate > .set-row-sub + .set-row-sub,
+.settings-screen[data-pane] .set-plate > .set-acct-row.on + .set-row-sub { border-top-color: transparent; }
+.settings-screen[data-pane] .set-row-sub .set-row-label { font-weight: 400; color: var(--text-dim); }
+.settings-screen[data-pane] .set-plate > .set-row-sub.set-row-warn { padding-left: 16px; }
 /* IN USE is said in the app's label voice, the small mono capitals the
    new-task card's TO and MODEL wear, in the accent. */
 .set-badge {
@@ -127,6 +133,7 @@
   font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--accent);
 }
+.set-badge.set-badge-off { color: var(--text-faint); }
 
 /* ------------------------------- controls ---------------------------------
    THE CONTROLS ARE THE NEW-TASK CARD'S (2026-10-05). The ones this screen had

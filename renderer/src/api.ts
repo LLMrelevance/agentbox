@@ -357,7 +357,8 @@ export const api = {
       if (params.get('accounts') === 'two') {
         const until = new Date(); until.setHours(17, 10, 0, 0);
         base.cloud = {
-          setUp: true, mode: 'full', whenOn: 'full', running: 0,
+          // &cloudmode=mac draws the same accounts with the cloud turned off.
+          setUp: true, mode: params.get('cloudmode') === 'mac' ? 'mac' : 'full', whenOn: 'full', running: 0,
           month: { runs: 14, agentHours: 1.2, estimatedCost: 0.16, costPerAgentHour: 0.13 },
           accounts: [
             { engine: 'claude', key: 'a1', name: null, ready: false, state: 'limited' as any, limitedUntil: until.getTime() },
