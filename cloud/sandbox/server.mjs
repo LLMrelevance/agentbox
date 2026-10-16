@@ -283,13 +283,26 @@ export function createSandbox({
         if (patch.length) await sh('git', ['apply', '--whitespace=nowarn'], cwd, {}, false, patch);
         await sh('git', ['update-ref', '-d', changesRef], cwd).catch(() => {});
       }
+      if (r.spec.docs) fs.mkdirSync(r.spec.docs, { recursive: true });
       for (const f of files) await placeFile(f);
+      // Files that belong in the agent's own home here, wherever the Mac keeps
+      // its: the person's own instructions to Claude (`.claude/CLAUDE.md`).
+      const home = at(runAs?.home || process.env.HOME || '/root');
+      for (const h of r.spec.homeFiles || []) {
+        const p = path.join(home, h.rel);
+        await placeFile({ path: p, url: h.url });
+        if (runAs) await sh('chown', ['-R', `${runAs.uid}:${runAs.gid}`, path.join(home, h.rel.split('/')[0])], '/');
+      }
       fs.rmSync(bundle, { force: true });
       if (r.spec.login) await placeLogin(r);
-      // What the command writes to becomes its own: the task folder, and the
-      // account folder its transcripts and tooling live in.
+      // What the documents folder held before the agent started, so only what
+      // it writes there goes home (`sendDocs`).
+      if (r.spec.docs) r.docsSeen = scanDocs(r.spec.docs);
+      // What the command writes to becomes its own: the task folder, its
+      // documents folder, and the account folder its transcripts and tooling
+      // live in.
       if (runAs) {
-        const own = [cwd];
+        const own = [cwd, ...(r.spec.docs ? [r.spec.docs] : [])];
         // The harness's own home: Claude Code's account folder, or Codex's,
         // where it keeps its state database and writes its sessions.
         for (const k of ['CLAUDE_CONFIG_DIR', 'CODEX_HOME']) {
@@ -704,12 +717,15 @@ export function createSandbox({
     return r.collecting;
   }
 
-  async function collect(r, { bundleUrl, changesUrl, bring = [] }) {
+  async function collect(r, { bundleUrl, changesUrl, docsUrl, bring = [] }) {
     r.attempt = (r.attempt || 0) + 1;
     const tmp = (name) => path.join(r.dir, `${r.attempt}-${name}`);
     const brought = [];
+    // The documents first: they are sent whether or not the folder ever got
+    // as far as a checkout, and hold everything the Mac has not said it laid.
+    const docs = docsUrl ? (await sendDocs(r, docsUrl)).files : [];
     // A run cancelled before checkout has nothing in the folder to bring.
-    if (!r.startSha) return { ok: true, startSha: null, tip: null, commits: 0, uncommitted: false, changesRef: null, brought };
+    if (!r.startSha) return { ok: true, startSha: null, tip: null, commits: 0, uncommitted: false, changesRef: null, brought, docs };
     const cwd = r.spec.cwd;
     const branch = r.spec.branch;
     const tip = (await sh('git', ['rev-parse', `refs/heads/${branch}`], cwd)).trim();
@@ -775,7 +791,76 @@ export function createSandbox({
       fs.rmSync(tarball, { force: true });
       brought.push(b.dir);
     }
-    return { ok: true, startSha: r.startSha, tip: withheld ? r.startSha : tip, head: withheld ? r.startSha : head, headRef, strayHead, commits, uncommitted: dirty, changesRef, brought, ...(withheld ? { withheld } : {}) };
+    return { ok: true, startSha: r.startSha, tip: withheld ? r.startSha : tip, head: withheld ? r.startSha : head, headRef, strayHead, commits, uncommitted: dirty, changesRef, brought, docs, ...(withheld ? { withheld } : {}) };
+  }
+
+  // WHAT THE AGENT WROTE IN THE DOCUMENTS FOLDER SINCE IT WAS LAST ASKED,
+  // uploaded as one archive: files new or changed since the folder was laid
+  // down or last sent, never a deletion. One at a time per run, so the Mac's
+  // asking during the run and the collect at its end never send a file twice
+  // or skip one.
+  // `id` names this archive so the Mac can say it laid it (`ack`, on its next
+  // ask): only then do its files count as home. Until then they go again in
+  // every archive, so one lost on the way costs nothing.
+  function sendDocs(r, url, { id = null, ack = null } = {}) {
+    const go = async () => {
+      const dir = r.spec.docs;
+      if (!dir || !r.docsSeen || !fs.existsSync(dir)) return { ok: true, files: [] };
+      r.docsSent ??= new Map();
+      if (ack && r.docsSent.has(ack)) {
+        for (const [rel, stamp] of r.docsSent.get(ack)) r.docsSeen.set(rel, stamp);
+        r.docsSent.clear();
+      }
+      const now = scanDocs(dir);
+      // A file whose NAME carries the login stays here, unnamed in any answer.
+      const files = [...now.keys()].filter((rel) => now.get(rel) !== r.docsSeen.get(rel) && !(r.secrets || []).some((sec) => rel.includes(sec)));
+      if (!files.length) return { ok: true, files: [] };
+      // COPIED, THEN CLEANED, THEN PACKED: the agent is still running and may
+      // rewrite a file between a clean and the tar reading it, so what goes
+      // home is a copy it cannot reach, with the login taken out of the copy.
+      // Each file is stamped before it is read: one still being written reads
+      // as changed again next time and goes again.
+      const stage = path.join(r.dir, `docs-${Date.now()}`);
+      const stamps = new Map();
+      try {
+        for (const rel of files) {
+          const src = path.join(dir, rel);
+          let st;
+          let body;
+          try {
+            st = fs.lstatSync(src);
+            if (!st.isFile()) continue;
+            body = fs.readFileSync(src);
+          } catch { continue; }
+          if (r.secrets?.length) {
+            let text = body.toString('latin1');
+            if (r.secrets.some((sec) => text.includes(sec))) {
+              for (const sec of r.secrets) text = text.split(sec).join(REDACTED);
+              body = Buffer.from(text, 'latin1');
+            }
+          }
+          const dest = path.join(stage, rel);
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.writeFileSync(dest, body);
+          stamps.set(rel, `${st.size}:${st.mtimeMs}`);
+        }
+        if (!stamps.size) return { ok: true, files: [] };
+        const tarball = `${stage}.tgz`;
+        try {
+          await sh('tar', ['-czf', tarball, '-C', stage, '--null', '-T', '-'], stage, {}, false, [...stamps.keys()].join('\0') + '\0');
+          await upload(fetchImpl, url, fs.readFileSync(tarball));
+        } finally {
+          fs.rmSync(tarball, { force: true });
+        }
+      } finally {
+        fs.rmSync(stage, { recursive: true, force: true });
+      }
+      if (id) r.docsSent.set(String(id), stamps);
+      return { ok: true, files: [...stamps.keys()] };
+    };
+    const next = (r.docsChain || Promise.resolve()).catch(() => {}).then(go);
+    r.docsChain = next;
+    return next;
   }
 
   async function checkpoint(r, { bundleUrl }) {
@@ -855,6 +940,7 @@ export function createSandbox({
         files: (req.files || []).map((f) => ({ ...f, path: at(f.path), ...(f.untar ? { untar: at(f.untar) } : {}) })),
         env: { ...(req.env || {}), AGENTBOX_PATH_ROOT: pathRoot },
         results: req.results && { ...req.results, bring: (req.results.bring || []).map((b) => ({ ...b, dir: at(b.dir) })) },
+        ...(req.docs ? { docs: at(req.docs) } : {}),
       };
       const r = {
         id: req.runId, spec, state: 'preparing', waiters: new Set(), pendingStdin: [], child: null,
@@ -953,6 +1039,12 @@ export function createSandbox({
         cancel(r, sig);
         return { ok: true, running: !!r.child, preparing: r.state === 'preparing' };
       }
+      case 'docs':
+        // The documents the agent has written so far, so they reach the Mac
+        // while it works rather than only at the end.
+        if (!req.url) return { ok: false, error: 'bad-docs' };
+        if (r.state === 'preparing') return { ok: true, files: [] };
+        try { return await sendDocs(r, req.url, { id: req.id, ack: req.ack }); } catch (err) { return { ok: false, error: 'docs-failed', message: err.message }; }
       case 'checkpoint':
         if (r.state !== 'running' && r.state !== 'exited') return { ok: false, error: 'not-ready' };
         try { return await checkpoint(r, req); } catch (err) { return { ok: false, error: 'checkpoint-failed', message: err.message }; }
@@ -1023,6 +1115,10 @@ function invalidStart(req) {
   if (!req.bundleUrl) return 'bundleUrl is required';
   if (!Array.isArray(req.argv) || !req.argv.length) return 'argv is required';
   for (const f of req.files || []) if (!f?.url || !path.isAbsolute(f?.path || '')) return 'every file needs an absolute path and a url';
+  if (req.docs !== undefined && (typeof req.docs !== 'string' || !path.isAbsolute(req.docs))) return 'docs must be an absolute path';
+  for (const h of req.homeFiles || []) {
+    if (!h?.url || typeof h.rel !== 'string' || !/^\.claude\/[A-Za-z0-9._-]+$/.test(h.rel) || h.rel.includes('..')) return 'a home file must be a plain name under .claude/';
+  }
   return null;
 }
 
@@ -1034,7 +1130,8 @@ function killGroup(pid, signal) {
 // What the command may inherit from the sandbox itself: enough to find
 // programs and a home, and nothing the image's own environment happens to hold.
 export function pickBaseEnv(env) {
-  const keep = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'SHELL', 'USER', 'NODE_EXTRA_CA_CERTS'];
+  // The last two find the image's own browser (Dockerfile).
+  const keep = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'SHELL', 'USER', 'NODE_EXTRA_CA_CERTS', 'PLAYWRIGHT_BROWSERS_PATH', 'NODE_PATH'];
   return Object.fromEntries(keep.filter((k) => env[k] !== undefined).map((k) => [k, env[k]]));
 }
 
@@ -1147,6 +1244,30 @@ function sh(cmd, args, cwd, extraEnv = {}, asBuffer = false, input = undefined) 
     });
     if (input !== undefined) child.stdin.end(input);
   });
+}
+
+// Every file in the documents folder, by path inside it, with its size and
+// modified time. Hidden names and links are left out: what goes home is what
+// an agent writes for a person to read.
+const DOCS_MAX_FILE = 200 * 1024 * 1024;
+function scanDocs(dir) {
+  const out = new Map();
+  const walk = (rel) => {
+    let entries = [];
+    try { entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue;
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) { walk(r); continue; }
+      if (!e.isFile() || /[\n\r]/.test(r)) continue;
+      try {
+        const st = fs.statSync(path.join(dir, r));
+        if (st.size <= DOCS_MAX_FILE) out.set(r, `${st.size}:${st.mtimeMs}`);
+      } catch { /* gone */ }
+    }
+  };
+  walk('');
+  return out;
 }
 
 async function download(fetchImpl, url, file) {
