@@ -20,7 +20,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createElement as h } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { isWebsiteAddress, websiteCrumb, canFrameAWebsite, WEBSITE_PARTITION } from '../shared/websites.mjs';
+import { isWebsiteAddress, canFrameAWebsite, WEBSITE_PARTITION } from '../shared/websites.mjs';
+import { addressParts } from '../renderer/src/components/BrowserChrome.tsx';
 import { docKind, opensInPane } from '../renderer/src/doc-pane.ts';
 import { WebsitePane } from '../renderer/src/components/WebsitePane.tsx';
 
@@ -88,26 +89,20 @@ describe('what the pane does with one', () => {
   });
 });
 
-describe('what the header says you are looking at', () => {
-  it('is the site and the way through it, not the scheme', () => {
-    expect(websiteCrumb('https://en.wikipedia.org/wiki/Kestrel')).toEqual(['en.wikipedia.org', 'wiki', 'Kestrel']);
-    expect(websiteCrumb('https://example.com')).toEqual(['example.com']);
-    expect(websiteCrumb('https://example.com/')).toEqual(['example.com']);
+describe('what the bar above the page says', () => {
+  it('is the address, split so the site reads louder than the rest', () => {
+    expect(addressParts('https://en.wikipedia.org/wiki/Kestrel')).toEqual({ host: 'en.wikipedia.org', rest: '/wiki/Kestrel' });
+    expect(addressParts('https://example.com')).toEqual({ host: 'example.com', rest: '' });
+    expect(addressParts('https://example.com/')).toEqual({ host: 'example.com', rest: '' });
   });
 
-  it('drops www, and drops a query and a fragment, which are not places', () => {
-    expect(websiteCrumb('https://www.example.com/a/b?c=1#d')).toEqual(['example.com', 'a', 'b']);
-  });
-
-  it('keeps the tail of a long path, because the end is the page you are on', () => {
-    const crumb = websiteCrumb('https://example.com/one/two/three/four/five');
-    expect(crumb[0]).toBe('example.com');
-    expect(crumb[crumb.length - 1]).toBe('five');
-    expect(crumb.length).toBeLessThanOrEqual(4);
+  it('drops www and keeps a port, the way a browser writes one', () => {
+    expect(addressParts('https://www.example.com/a?b=1')).toEqual({ host: 'example.com', rest: '/a?b=1' });
+    expect(addressParts('http://localhost:3006/orders')).toEqual({ host: 'localhost:3006', rest: '/orders' });
   });
 
   it('says the address back verbatim when it cannot be read as one', () => {
-    expect(websiteCrumb('not a url')).toEqual(['not a url']);
+    expect(addressParts('not a url')).toEqual({ host: 'not a url', rest: '' });
   });
 });
 
@@ -160,44 +155,66 @@ describe('the thread hands a web link to the pane', () => {
 });
 
 describe('the mark that takes the page out to your own browser', () => {
-  it('is the pane\'s own open mark, named for where it goes', () => {
-    const pane = read('renderer/src/components/DocPane.tsx');
-    expect(pane).toContain("'Open in your browser'");
-  });
-
-  it('can actually be pressed, because the header is never hidden under the page', () => {
-    // MEASURED IN THE REAL APP, 2026-10-15. The pane carries `doc-html`, which
-    // is right: it is the class for a card holding a page whose colour the app
-    // cannot see into. That class ALSO turns the header into a toolbar that
-    // fades in under the pointer, and a `<webview>` is a separate compositing
-    // layer that paints over everything the card draws, so the crumb and both
-    // marks sat at 1278,146 118x42 in the DOM with not one pixel of them on
-    // the screen. The way out to your own browser could never be pressed.
-    const pane = read('renderer/src/components/DocPane.tsx');
-    expect(pane).toMatch(/if \(kind === 'website'\) return 'doc-html doc-website';/);
-
-    // So the floating toolbar is put back in the flow for a website, with its
-    // address visible, in the file that floats it.
-    const toolbar = read('renderer/src/workspace-navigation.css');
-    const back = toolbar.slice(toolbar.indexOf('.doc-html.doc-website .doc-head'));
-    expect(back).toContain('position:static');
-    expect(back).toContain('opacity:1');
-    expect(back).toContain('pointer-events:auto');
-    expect(toolbar).toContain('.doc-html.doc-website .doc-crumb { display:flex; }');
-  });
-
-  it('still gets the dark header an opaque page needs, in every theme', () => {
-    // doc-html is what carries it, and a website keeps that class for exactly
-    // this. The block itself is pinned by tests/theme-tokens.test.mjs.
-    const styles = read('renderer/src/styles.css');
-    expect(styles).toContain(':root:not([data-theme="light"]) .doc-pane.doc-html {');
+  it('is in the browser bar, named for where it goes', () => {
+    const bar = read('renderer/src/components/BrowserChrome.tsx');
+    expect(bar).toContain("title=\"Open in your browser\"");
+    expect(bar).toContain('aria-label="Open in your browser"');
   });
 
   it('opens the page you have walked to, not the one the thread named', () => {
-    // A webview navigates inside itself, so the address the mark hands over is
-    // the one the pane is showing, kept in `here`.
+    // A webview navigates inside itself, so the address the mark hands over
+    // is the one the pane is showing, kept in `here`.
     const pane = read('renderer/src/components/DocPane.tsx');
-    expect(pane).toMatch(/kind === 'website'/);
-    expect(pane).toMatch(/here/);
+    expect(pane).toMatch(/browsingKind \? here\.url/);
+  });
+
+  it('can actually be pressed, because the bar is never floated over the page', () => {
+    // MEASURED IN THE REAL APP, 2026-10-15. The pane first wore the document
+    // pane's own header, and on a doc-html card that header is a toolbar that
+    // fades in under the pointer. A `<webview>` is a separate compositing
+    // layer that paints over everything the card draws, so the crumb and both
+    // marks sat at 1278,146 118x42 in the DOM with not one pixel of them on
+    // screen: the way out to your own browser could never be pressed.
+    //
+    // The browser bar is a different element, so none of those rules reach
+    // it. This fails if one ever does.
+    const toolbar = read('renderer/src/workspace-navigation.css');
+    for (const line of toolbar.split('\n')) {
+      if (/position:absolute/.test(line) || /opacity:0/.test(line)) {
+        expect(line, line.trim()).not.toContain('web-bar');
+      }
+    }
+    const styles = read('renderer/src/styles.css');
+    expect(styles).not.toMatch(/\.web-bar\s*\{[^}]*position:\s*absolute/);
+  });
+
+  it('is in the bar a LOCAL APP gets too, which is the same bar', () => {
+    // Their words: "this would be an overhaul of all of our browser tabs,
+    // including what it shows when you're on localhost". A local app is a
+    // page being browsed, so it wears the browser bar rather than a
+    // breadcrumb built for a file on disk.
+    const pane = read('renderer/src/components/DocPane.tsx');
+    expect(pane).toMatch(/kind === 'website' \? 'website' : app\.local \? 'local' : null/);
+    expect(pane).toMatch(/browsingKind \? \(\s*<BrowserChrome/);
+  });
+});
+
+describe('the three layouts drawn for the pick', () => {
+  it('are chosen by one attribute, with every piece in the DOM', () => {
+    // So one build can be photographed three ways, which is how
+    // data-design-toolbar already works. When one is picked the other two go.
+    const styles = read('renderer/src/styles.css');
+    for (const name of ['tab', 'thin']) {
+      expect(styles).toContain(`:root[data-web-chrome="${name}"] .web-bar`);
+    }
+    // The toolbar is the plain `.web-bar` rules, so it needs no attribute and
+    // is what an app with the attribute unset draws.
+    expect(styles).toMatch(/^\.web-bar \{/m);
+  });
+
+  it('give the page the card back, which is the space that was lost', () => {
+    const styles = read('renderer/src/styles.css');
+    const flush = styles.slice(styles.indexOf('.doc-pane.doc-browsing .doc-card'));
+    expect(flush).toMatch(/margin: 0; border: 0; border-radius: 0;/);
   });
 });

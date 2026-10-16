@@ -7202,6 +7202,103 @@ button.cs-row:hover .cs-row-go { color: var(--text); }
    is a separate compositing layer that paints over anything the card draws,
    so a mark that only appears under the pointer is a mark nobody can press. */
 .doc-website-view { display: flex; background: #fff; }
+
+/* ======================================================================
+   A PAGE BEING BROWSED: THE BAR OVER IT (BrowserChrome.tsx).
+   ======================================================================
+
+   One bar for a site on the web and for a local app, because they are the
+   same thing to read. Their words on the first round, which is what every
+   number below is answering: it takes a lot of space at the top, we lose a
+   lot of valuable space, it looks a bit peeling, and it is not clear that it
+   is a browser tab.
+
+   THE PAGE IS FLUSH. A browsed page gives up the card's 14/16 air and its
+   10px corner and runs to the pane's own edge. That is the "peeling": a white
+   page floating on a rounded dark card reads as a sticker coming off, where a
+   browser's page is held by the window. It is also the space back — 30 points
+   of width and 30 of height that were margin.
+
+   THREE LAYOUTS ARE DRAWN AT ONCE and `data-web-chrome` on the root picks
+   between them, the way `data-design-toolbar` already does a few rules down.
+   Every piece is in the DOM always; these rules decide which are seen. When
+   one is picked the other two go, and so does the attribute.
+*/
+.doc-pane.doc-browsing .doc-card {
+  margin: 0; border: 0; border-radius: 0;
+  background: var(--doc-page);
+}
+.doc-pane.doc-browsing .preview-frame { background: #fff; }
+
+.web-bar {
+  display: flex; align-items: center; gap: 8px;
+  flex: 0 0 auto; min-width: 0;
+  padding: 0 8px 0 10px;
+  height: 38px;
+  background: var(--doc-page);
+  border-bottom: 1px solid var(--line);
+}
+.web-bar-nav { display: flex; align-items: center; gap: 1px; flex: 0 0 auto; }
+.web-bar-marks { display: flex; align-items: center; gap: 1px; flex: 0 0 auto; margin-left: auto; }
+.web-bar-step {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0;
+  border: 0; border-radius: var(--radius); background: none;
+  color: var(--text-faint); cursor: pointer;
+}
+.web-bar-step:hover:not(:disabled) { background: var(--doc-wash); color: var(--text); }
+.web-bar-step:disabled { opacity: 0.32; cursor: default; }
+.web-bar-step svg { display: block; }
+
+/* THE ADDRESS, AS A BROWSER WRITES IT: the host in the reading ink and
+   everything after it dimmed, so the eye lands on where you are rather than
+   on the query string. */
+.web-bar-address {
+  display: flex; align-items: center; gap: 6px;
+  flex: 1 1 auto; min-width: 0;
+  height: 26px; padding: 0 10px;
+  border-radius: var(--radius);
+  background: var(--wash);
+  font-size: 12.5px; white-space: nowrap;
+}
+.web-bar-mark { display: inline-flex; flex: 0 0 auto; color: var(--text-faint); }
+.web-bar-host { color: var(--text-dim); flex: 0 0 auto; }
+.web-bar-rest { color: var(--text-faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.web-bar-title { display: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-dim); }
+/* The one moving part: while the page is loading the address field's edge
+   lights, which is every browser's answer and costs no room. */
+.web-bar[data-loading="yes"] .web-bar-address { box-shadow: inset 0 0 0 1px var(--line-strong); }
+
+/* ---- B, THE TAB. The page's own name on a tab joined to the page under it,
+   which is the shape that says "browser" without a word of chrome. The
+   address moves under the name as the quiet half, and the stepping controls
+   go to the right with the rest, because a tab strip has no arrows in it. */
+:root[data-web-chrome="tab"] .web-bar {
+  height: 36px; gap: 6px; padding: 0 8px 0 8px; align-items: flex-end;
+  background: var(--bg-raised);
+}
+:root[data-web-chrome="tab"] .web-bar-nav { order: 2; margin-left: 4px; align-self: center; }
+:root[data-web-chrome="tab"] .web-bar-marks { order: 3; align-self: center; }
+:root[data-web-chrome="tab"] .web-bar-address {
+  order: 1; flex: 0 1 auto; max-width: 56%;
+  height: 29px; padding: 0 12px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--doc-page);
+  box-shadow: 0 -1px 0 var(--line), 1px 0 0 var(--line), -1px 0 0 var(--line);
+}
+:root[data-web-chrome="tab"] .web-bar-title { display: block; }
+:root[data-web-chrome="tab"] .web-bar-host,
+:root[data-web-chrome="tab"] .web-bar-rest { display: none; }
+:root[data-web-chrome="tab"] .web-bar[data-loading="yes"] .web-bar-address { box-shadow: 0 -1px 0 var(--line), 1px 0 0 var(--line), -1px 0 0 var(--line); }
+
+/* ---- C, THE THIN LINE. The least chrome that still says where you are and
+   still gets you out: one 26px strip, the address as plain text rather than a
+   field, no stepping controls at all. The most page of the three. */
+:root[data-web-chrome="thin"] .web-bar { height: 26px; gap: 6px; padding: 0 4px 0 10px; }
+:root[data-web-chrome="thin"] .web-bar-nav { display: none; }
+:root[data-web-chrome="thin"] .web-bar-address { background: none; padding: 0; height: 22px; }
+:root[data-web-chrome="thin"] .web-bar-step { width: 22px; height: 22px; }
+:root[data-web-chrome="thin"] .web-bar-step svg { width: 13px; height: 13px; }
 .doc-missing { flex: 1; padding: 40px; color: var(--text-faint); font-size: 13.5px; }
 
 /* A PICTURE OPEN IN THE PANE. It keeps the card picked on 08-21, the way a

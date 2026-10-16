@@ -806,21 +806,24 @@
 .workspace-layout:is([data-design-toolbar="floating"],[data-design-toolbar="corner"],[data-design-toolbar="edge"])[data-artifact-layout="beside"] .doc-html .doc-card:focus-within > .doc-head {
  opacity:1; pointer-events:auto; transform:translateY(0);
 }
-/* A WEBSITE KEEPS ITS HEADER, AND IT IS NOT A PREFERENCE. The block above
-   hands the whole card to the page and floats the controls over it under the
-   pointer, which is right for a drawing of ours drawn in an iframe. A page
-   off the web is drawn in a `<webview>`, a separate compositing layer that
-   paints over anything the card draws: measured in the real app 2026-10-15,
-   the crumb and both marks were laid out at the top right of the card and not
-   one pixel of them reached the screen, so the one way out to your own
-   browser could never be pressed. So for a website only, the header is back
-   in the flow, visible, with the address in it. */
-.workspace-layout:is([data-design-toolbar="floating"],[data-design-toolbar="corner"],[data-design-toolbar="edge"])[data-artifact-layout="beside"] .doc-html.doc-website .doc-head {
- position:static; opacity:1; pointer-events:auto; transform:none;
- background:var(--doc-page); border:0; border-bottom:1px solid var(--line);
- box-shadow:none; border-radius:0; padding:14px 12px 12px 18px;
+/* A PAGE BEING BROWSED HAS NO DOCUMENT HEADER TO FLOAT. The block above
+   hands the whole card to the page and floats the document header over it
+   under the pointer, which is right for a drawing of ours in an iframe. A
+   browsed page has a browser bar instead (BrowserChrome.tsx, and the layouts
+   in styles.css), which is never floated: a `<webview>` is a separate
+   compositing layer and paints over anything the card draws, so measured in
+   the real app 2026-10-15 the floated header sat at 1278,146 118x42 with not
+   one pixel on screen and the way out to your own browser could not be
+   pressed. These two put back what the beside layout does to a doc-html card,
+   because a browsed page is flush to the pane's edge rather than inset. */
+.workspace-layout[data-artifact-layout="beside"] .doc-browsing .doc-view { border:0; border-radius:0; }
+/* The two that put the 12px inset there (the beside and focus rules above)
+   are written through the whole path, so these have to be as well or they
+   lose the cascade by one class and the page stays floating on the card. */
+.workspace-layout[data-artifact-layout="beside"] > .body > .artifact-host > .doc-pane.doc-browsing .doc-card,
+.workspace-layout[data-artifact-layout="focus"] .doc-pane.doc-browsing .doc-card {
+ margin:0; border:0; border-radius:0;
 }
-.workspace-layout:is([data-design-toolbar="floating"],[data-design-toolbar="corner"],[data-design-toolbar="edge"])[data-artifact-layout="beside"] .doc-html.doc-website .doc-crumb { display:flex; }
 
 @media (hover:none) {
  .workspace-layout[data-design-toolbar][data-artifact-layout="beside"] .doc-html .doc-head { opacity:1; pointer-events:auto; transform:none; }

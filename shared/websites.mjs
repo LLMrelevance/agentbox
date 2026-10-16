@@ -37,32 +37,6 @@ export function isWebsiteAddress(src) {
   }
 }
 
-// How much of a path the header prints. The site itself and the last two steps
-// of the way through it: the end of the path is the page you are standing on,
-// and the middle of a long one is noise in a 12.5px line that already
-// ellipsises.
-const CRUMB_STEPS = 3;
-
-/**
- * What the pane's header says you are looking at: the site, then the way
- * through it. No scheme, no query and no fragment, because none of those is a
- * place. An address that will not parse is printed back as it was, which is
- * more use than printing nothing.
- */
-export function websiteCrumb(src) {
-  const raw = String(src ?? '');
-  try {
-    const url = new URL(raw);
-    const host = url.hostname.replace(/^www\./i, '');
-    const steps = url.pathname.split('/').filter(Boolean).map((part) => {
-      try { return decodeURIComponent(part); } catch { return part; }
-    });
-    return [host, ...steps.slice(-CRUMB_STEPS)];
-  } catch {
-    return [raw];
-  }
-}
-
 /**
  * Can this page embed a website in a browser of its own?
  *

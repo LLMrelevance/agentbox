@@ -39,7 +39,23 @@ declare module 'react' {
   }
 }
 
-type Guest = HTMLElement & { getURL?: () => string };
+type Guest = HTMLElement & {
+  getURL?: () => string;
+  goBack?: () => void;
+  goForward?: () => void;
+  reload?: () => void;
+  canGoBack?: () => boolean;
+  canGoForward?: () => boolean;
+};
+
+/** What the bar above the page can ask of it (BrowserChrome). */
+export type Browsing = {
+  url: string;
+  title: string | null;
+  canBack: boolean;
+  canForward: boolean;
+  loading: boolean;
+};
 
 /**
  * `webview` is whether this page can draw one; the caller asks
@@ -47,22 +63,52 @@ type Guest = HTMLElement & { getURL?: () => string };
  * `onNavigate` is how the header follows the page: a webview navigates inside
  * itself, so after one click the thread's address is no longer where you are.
  */
-export function WebsitePane({ url, webview, ready = true, onNavigate, onReady, onFailed }: {
+export function WebsitePane({ url, webview, ready = true, control, onNavigate, onReady, onFailed }: {
   url: string;
   webview: boolean;
   // Held invisible until the page says it is drawn, so a site that takes a
   // second shows the pane's own quiet cover rather than a white rectangle.
   ready?: boolean;
-  onNavigate: (here: string) => void;
+  // Handed back to the pane so the bar above can step the page. It is a ref
+  // rather than state because pressing Back must reach the guest that is
+  // mounted now, not the one a render closed over.
+  control?: React.MutableRefObject<{ back: () => void; forward: () => void; reload: () => void } | null>;
+  onNavigate: (here: Browsing) => void;
   onReady?: () => void;
   onFailed?: (why: string) => void;
 }) {
   const guest = useRef<Guest | null>(null);
+  // THE PAGE'S NAME, REMEMBERED. `page-title-updated` fires once, and every
+  // navigation event after it reports what it knows, which does not include
+  // the title: without this the tab layout showed the host for a second and
+  // then kept it, because the next did-stop-loading wrote null over the name.
+  const name = useRef<string | null>(null);
 
   useEffect(() => {
     const node = guest.current;
     if (!node || !webview) return;
-    const walked = () => onNavigate(node.getURL?.() ?? url);
+    if (control) {
+      control.current = {
+        back: () => node.goBack?.(),
+        forward: () => node.goForward?.(),
+        reload: () => node.reload?.(),
+      };
+    }
+    const where = (over: Partial<Browsing> = {}): Browsing => ({
+      url: node.getURL?.() || url,
+      title: name.current,
+      canBack: !!node.canGoBack?.(),
+      canForward: !!node.canGoForward?.(),
+      loading: false,
+      ...over,
+    });
+    const walked = () => onNavigate(where());
+    const titled = (e: Event) => {
+      name.current = (e as Event & { title?: string }).title ?? null;
+      onNavigate(where());
+    };
+    const started = () => onNavigate(where({ loading: true }));
+    const left = () => { name.current = null; };
     const ready = () => { onReady?.(); walked(); };
     // A page that cannot be reached at all. -3 is Chromium's "the load was
     // aborted", which every ordinary in-page navigation also reports, so it is
@@ -75,17 +121,26 @@ export function WebsitePane({ url, webview, ready = true, onNavigate, onReady, o
     node.addEventListener('dom-ready', ready);
     node.addEventListener('did-navigate', walked);
     node.addEventListener('did-navigate-in-page', walked);
+    node.addEventListener('did-stop-loading', walked);
+    node.addEventListener('did-start-loading', started);
+    node.addEventListener('did-start-navigation', left);
+    node.addEventListener('page-title-updated', titled);
     node.addEventListener('did-fail-load', failed);
     return () => {
+      if (control) control.current = null;
       node.removeEventListener('dom-ready', ready);
       node.removeEventListener('did-navigate', walked);
       node.removeEventListener('did-navigate-in-page', walked);
+      node.removeEventListener('did-stop-loading', walked);
+      node.removeEventListener('did-start-loading', started);
+      node.removeEventListener('did-start-navigation', left);
+      node.removeEventListener('page-title-updated', titled);
       node.removeEventListener('did-fail-load', failed);
     };
     // `url` is deliberately not a dependency: the webview keeps its own
     // history, and re-running this on every step would tear the listeners off
     // and back on mid-navigation.
-  }, [webview, onNavigate, onReady, onFailed]);
+  }, [webview, control, onNavigate, onReady, onFailed]);
 
   if (webview) {
     return <webview

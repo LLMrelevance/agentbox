@@ -6,8 +6,9 @@ import {PreviewLoading} from './PreviewLoading';
 import { isLocalPreview, type ArtifactMode } from '../artifact-layout';
 import { LOCAL_APP_SANDBOX, previewShows, previewStatus, useLocalPreview } from '../local-preview';
 import { LocalPreviewStatus } from './LocalPreviewStatus';
-import { WebsitePane } from './WebsitePane';
-import { canFrameAWebsite, websiteCrumb } from '../../../shared/websites.mjs';
+import { WebsitePane, type Browsing } from './WebsitePane';
+import { BrowserChrome, type WebChromeKind } from './BrowserChrome';
+import { canFrameAWebsite } from '../../../shared/websites.mjs';
 // THE DOCUMENT PANE. The right half of the window is the file itself.
 //
 // The look is settled and is not a question any more.
@@ -128,9 +129,12 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
   // history, so after one click inside the page the thread's address is no
   // longer the page you are reading: the crumb and the mark that hands it to
   // your own browser both follow this rather than `doc.src`.
-  const [here, setHere] = useState(doc.src);
+  const [here, setHere] = useState<Browsing>({ url: doc.src, title: null, canBack: false, canForward: false, loading: true });
   const [webFailed, setWebFailed] = useState<string | null>(null);
   const [webReady, setWebReady] = useState(false);
+  // What the bar above the page presses. Filled in by the webview while it is
+  // mounted (WebsitePane), null the rest of the time.
+  const browsing = useRef<{ back: () => void; forward: () => void; reload: () => void } | null>(null);
   // Asked once: whether this page can draw a browser of its own. The desktop
   // window can; a tab and a phone get a frame instead.
   const [ownBrowser] = useState(() => canFrameAWebsite(typeof document === 'undefined' ? null : document));
@@ -161,7 +165,8 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
   useEffect(() => {
     let live = true;
     setResolved(null); setText(null); setFailed(null); setMtime(0); setUrl(null); setChange(null);
-    setHere(doc.src); setWebFailed(null); setWebReady(false);
+    setHere({ url: doc.src, title: null, canBack: false, canForward: false, loading: true });
+    setWebFailed(null); setWebReady(false);
     // A WEBSITE IS NOT LOOKED FOR ON DISK. The address is the document; asking
     // the main process to resolve it would hand back the address again with no
     // url, and the pane would print the sentence about reopening the app.
@@ -213,20 +218,48 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
     setDragging(false);
   };
 
-  const crumb = kind === 'website' ? websiteCrumb(here) : crumbParts(resolved ?? doc.src, roots);
+  // A PAGE BEING BROWSED HAS NO BREADCRUMB. It has an address, and the bar
+  // above it draws that (BrowserChrome). The crumb is for a file on disk.
+  const browsingKind: WebChromeKind | null = kind === 'website' ? 'website' : app.local ? 'local' : null;
+  const crumb = crumbParts(resolved ?? doc.src, roots);
   // WHAT THE FIRST MARK DOES, AND FOR A CHANGE IT IS HER EDITOR.On a markdown
   // file or a page it is unchanged and still hands the file to the operating
   // system, which is what she approved on 08-20. ON A WEBSITE IT IS THE
   // BROWSER YOU ACTUALLY USE, and it hands over the page you have walked to
   // rather than the one the thread named.
   const openOutside = () => {
-    const src = kind === 'website' ? here : kind === 'code' ? (fileAt ?? doc.src) : doc.src;
+    const src = browsingKind ? here.url : kind === 'code' ? (fileAt ?? doc.src) : doc.src;
     api.openArtifactExternally({ product: doc.product, src }).then((r) => {
       if (!r.ok) onNotice(r.error ?? 'That file could not be opened.');
     });
   };
 
-  const documentHeader = (
+  // Focus and close belong to the pane whatever is in it, so the browser bar
+  // is handed them rather than drawing its own.
+  const paneMarks = (
+    <>
+      {onMode && focusControlStyle && <FocusControl style={focusControlStyle} focused={!!headerTarget} onClick={() => headerTarget ? onClose() : onMode('focus')} />}
+      <button type="button" className="web-bar-step" title={headerTarget ? 'Exit Focus' : 'Close this page (esc)'} aria-label="Close" onClick={onClose}>
+        {focusControlStyle ? <ArtifactControlGlyph kind="close" /> : <CloseGlyph />}
+      </button>
+    </>
+  );
+
+  const documentHeader = browsingKind ? (
+    <BrowserChrome
+      kind={browsingKind}
+      url={here.url}
+      title={here.title}
+      canBack={here.canBack}
+      canForward={here.canForward}
+      loading={browsingKind === 'website' ? !webReady : !frameReady}
+      onBack={() => browsing.current?.back()}
+      onForward={() => browsing.current?.forward()}
+      onReload={() => (browsing.current ? browsing.current.reload() : app.retry())}
+      onOpenOutside={openOutside}
+      marks={paneMarks}
+    />
+  ) : (
 <div className="doc-head">
           <div className="doc-crumb" title={resolved ?? doc.src}>
             {crumb.map((part, i) => (
@@ -242,7 +275,7 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
             <button
               type="button"
               className="doc-mark"
-              title={kind === 'code' ? 'Open this file in your editor' : kind === 'website' ? 'Open in your browser' : `Open outside ${NAME}`}
+              title={kind === 'code' ? 'Open this file in your editor' : `Open outside ${NAME}`}
               onClick={openOutside}
             >
               {focusControlStyle ? <ArtifactControlGlyph kind="open"/> : <OpenGlyph />}
@@ -256,7 +289,12 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
 
   return (
     <aside
-      className={`doc-pane ${paneKindClass(kind)}${dragging ? ' dragging' : ''}`}
+      // `doc-browsing` is the class the browser bar's layouts key off, and a
+      // LOCAL APP carries it too: http://localhost:3006 has no kind of its own
+      // (docKind answers null and the pane falls back to 'html'), and it is
+      // just as much a page being browsed as a site on the web is. The two
+      // used to wear the document pane's breadcrumb header; neither does now.
+      className={`doc-pane ${paneKindClass(kind)}${browsingKind ? ' doc-browsing' : ''}${dragging ? ' dragging' : ''}`}
       style={{ flexBasis: `${split * 100}%` }}
     >
       {/* The divider. It is a 9px reach around a 1px line: a hairline is the
@@ -294,6 +332,7 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
                     url={doc.src}
                     webview={ownBrowser}
                     ready={webReady}
+                    control={browsing}
                     onNavigate={setHere}
                     onReady={() => setWebReady(true)}
                     onFailed={setWebFailed}
