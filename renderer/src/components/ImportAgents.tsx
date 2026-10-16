@@ -28,7 +28,7 @@
 // folders, no project tags, no second screen." `destinations` still decides
 // where each line lands; the card just no longer draws it.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { type AgentFile } from '../onboarding';
 import {
@@ -243,6 +243,13 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
   // a card that says a number it is about to change.
   const read = !!found && !!others && threads !== null;
   const ready = canBring({ read, picked, dests });
+  // Once per card: a second read on "look again" would count the same offer twice.
+  const toldOffered = useRef(false);
+  useEffect(() => {
+    if (!walk || !read || toldOffered.current) return;
+    toldOffered.current = true;
+    try { window.zero?.track?.('import_offered', lines.length); } catch {}
+  }, [walk, read, lines.length]);
 
   /**
    * LOOKING AGAIN, ON A CARD THAT CAME BACK EMPTY.
@@ -364,6 +371,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
       // not in the number either. A name and a number is all the window may
       // send, which is exactly what this is.
       if (newly.length) { try { window.zero?.track?.('repo_connected', newly.length); } catch {} }
+      if (walk) { try { window.zero?.track?.('import_taken', added); } catch {} }
       // WHICH WORD THE TOAST USES FOR "THAT ONE ALREADY HAS A ROW". Only the
       // singular needs it, and only one kind can be in a press of one.
       const kinds = countKinds(dests, paths);
@@ -372,7 +380,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
         noun: kinds.agents ? 'agent' : 'thread',
       });
     } finally { setBusy(false); }
-  }, [busy, dests, all, onDone, onProjectMade]);
+  }, [busy, dests, all, onDone, onProjectMade, walk]);
 
   // ⌘↵ ADDS WHAT IS TICKED, the key that carries every card in this app, and
   // Escape closes. Plain Enter is left to whichever tick she is standing on.

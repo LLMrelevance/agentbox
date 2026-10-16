@@ -449,6 +449,7 @@ async function createWindow() {
   // process went as soon as this returned, so the last batch was a POST that
   // never left, which on an install that opens the app once is everything we
   // would ever have heard from it (w-60c8ddbab6).
+  quitStep(app, 'before-quit', 'count the quit', () => analytics.track('app_quit', { seconds: Math.round(process.uptime()) }));
   flushBeforeQuit(app, () => analytics.flush());
 
   // Right-click. Electron ships no context menu at all, so links could not be
@@ -977,6 +978,7 @@ async function createWindow() {
   createCornerTag({
     BrowserWindow, screen: electronScreen, ipcMain, Menu, powerMonitor, config, saveConfig, mainWindow: window,
     preload: path.join(appDir, 'main', 'corner-tag-preload.cjs'),
+    count: (name, props) => analytics.track(name, props),
     // `part` is the tag itself or the list beside it, one page drawn twice.
     load: (tagWindow, part) => {
       const devTag = process.env.ZERO_DEV_URL;
