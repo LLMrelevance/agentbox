@@ -302,6 +302,11 @@ contextBridge.exposeInMainWorld('zero', {
     ipcRenderer.on('neo:mode', handler);
     return () => ipcRenderer.removeListener('neo:mode', handler);
   },
+  onNeoOrb: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('neo:orb', handler);
+    return () => ipcRenderer.removeListener('neo:orb', handler);
+  },
   // The corner tag's "Turn off…": opens Settings at the switch that does it.
   onOpenSettings: (fn) => {
     const handler = (_e, payload) => fn(payload);

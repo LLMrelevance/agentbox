@@ -33,7 +33,7 @@ function fakes({ userData = fs.mkdtempSync(path.join(os.tmpdir(), 'neo-orb-')), 
     setAlwaysOnTop() {} setVisibleOnAllWorkspaces() {}
     setIgnoreMouseEvents(on) { through = on; }
     setBounds(b) { bounds = b; }
-    on() {} showInactive() {} hide() {} isDestroyed() { return false; }
+    on() {} showInactive() {} hide() {} moveTop() {} isDestroyed() { return false; }
   }
   // The app's window answers "what is on screen" at once, the way the real one
   // does; without that every session start waits out main's ten-second cap.
@@ -43,7 +43,7 @@ function fakes({ userData = fs.mkdtempSync(path.join(os.tmpdir(), 'neo-orb-')), 
       listeners.get('neo:act-result')({ sender: mainContents }, { id, result: { ok: true, status: 'committed', said: 'The inbox.' } });
     },
   };
-  const mainWindow = { isDestroyed: () => false, isFocused: () => true, webContents: mainContents };
+  const mainWindow = { isDestroyed: () => false, isFocused: () => true, getContentBounds: () => ({ x: 0, y: 0, width: 1920, height: 1080 }), on: () => {}, webContents: mainContents };
   const started = [];
   const timers = [];
   const neo = createNeo({

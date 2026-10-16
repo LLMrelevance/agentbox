@@ -8903,6 +8903,10 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 .neo-halo { position: absolute; pointer-events: none; }
 @keyframes neo-breathe { from { filter: brightness(.88); } to { filter: brightness(1.1); } }
 /* While Neo is on, the summary's Status, Priority and Owner block steps back,
-   and comes forward again under the pointer. */
+   because the orb rests on top of it, and comes forward when the orb is
+   dragged off it (renderer/src/neo/orb-cover.ts says which).
+   It used to come forward on hovering the panel, and the orb sits in that
+   panel's own corner, so reaching for the orb brought the whole block back
+   underneath it (w-5520063011). */
 body.neo-on .ts-panel .ts-foot { opacity: 0; transition: opacity .4s ease; }
-body.neo-on .ts-panel:hover .ts-foot { opacity: 1; }
+body.neo-on.neo-orb-away .ts-panel .ts-foot { opacity: 1; }

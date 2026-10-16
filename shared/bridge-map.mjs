@@ -168,9 +168,11 @@ export const PUSH_CHANNELS = {
   onKeyInTheFile: 'zero:key-in-the-file',
   // A phone connected, left, or the key changed.
   onPhoneChanged: 'zero:phone-changed',
-  // Neo's tool calls for the app to carry out, and Neo waking or signing off.
+  // Neo's tool calls for the app to carry out, Neo waking or signing off, and
+  // where the orb is, so the app knows what it is covering.
   onNeoAct: 'neo:act',
   onNeoMode: 'neo:mode',
+  onNeoOrb: 'neo:orb',
 };
 
 // THE FEW THAT ARE NOT A STRAIGHT HANDOVER. Each is called with bare values

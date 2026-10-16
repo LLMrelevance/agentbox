@@ -24,11 +24,13 @@ html, body { margin: 0; width: 100%; height: 100%; background: transparent; over
 /* HOVERING THE ORB REVEALS HOW FAST NEO TALKS (w-5520063011, asked for). It sits
    above the orb because an orb dragged to the bottom edge has nothing below
    it, and placeOrb keeps this much room above wherever it is dropped. */
-.neo-speed { position: absolute; left: 0; right: 0; top: 0; height: var(--controls); display: flex; align-items: center; justify-content: center; gap: 4px;
+.neo-speed { position: absolute; left: 0; right: 0; top: 0; height: var(--controls); display: flex; align-items: center; justify-content: center;
   opacity: 0; transform: translateY(5px); pointer-events: none; transition: opacity .2s ease, transform .2s ease; }
 #neo.awake.showing-speed .neo-speed { opacity: 1; transform: none; pointer-events: auto; }
-.neo-speed button { padding: 5px 9px; border: 1px solid rgba(255, 214, 170, .10); background: rgba(46, 34, 27, .9); color: #8a837c;
+.neo-speed::before { content: 'SPEED'; margin-right: 8px; font: 500 9px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .16em; color: #8a837c; opacity: .68; }
+.neo-speed button { padding: 5px 9px; border: 1px solid rgba(255, 214, 170, .10); border-left-width: 0; background: rgba(46, 34, 27, .9); color: #8a837c;
   font: 500 10px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .08em; cursor: pointer; }
+.neo-speed button:first-of-type { border-left-width: 1px; }
 .neo-speed button:hover { color: #ece7e1; }
 .neo-speed button[aria-pressed="true"] { color: #1d140f; background: #e8743a; border-color: #e8743a; }
 .neo-label { position: absolute; left: 0; top: -27px; font: 500 10px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; color: #8a837c; display: flex; align-items: center; gap: 8px; opacity: .68; }
