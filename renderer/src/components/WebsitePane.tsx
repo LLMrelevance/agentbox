@@ -51,7 +51,6 @@ type Guest = HTMLElement & {
 /** What the bar above the page can ask of it (BrowserChrome). */
 export type Browsing = {
   url: string;
-  title: string | null;
   canBack: boolean;
   canForward: boolean;
   loading: boolean;
@@ -78,11 +77,6 @@ export function WebsitePane({ url, webview, ready = true, control, onNavigate, o
   onFailed?: (why: string) => void;
 }) {
   const guest = useRef<Guest | null>(null);
-  // THE PAGE'S NAME, REMEMBERED. `page-title-updated` fires once, and every
-  // navigation event after it reports what it knows, which does not include
-  // the title: without this the tab layout showed the host for a second and
-  // then kept it, because the next did-stop-loading wrote null over the name.
-  const name = useRef<string | null>(null);
 
   useEffect(() => {
     const node = guest.current;
@@ -96,19 +90,13 @@ export function WebsitePane({ url, webview, ready = true, control, onNavigate, o
     }
     const where = (over: Partial<Browsing> = {}): Browsing => ({
       url: node.getURL?.() || url,
-      title: name.current,
       canBack: !!node.canGoBack?.(),
       canForward: !!node.canGoForward?.(),
       loading: false,
       ...over,
     });
     const walked = () => onNavigate(where());
-    const titled = (e: Event) => {
-      name.current = (e as Event & { title?: string }).title ?? null;
-      onNavigate(where());
-    };
     const started = () => onNavigate(where({ loading: true }));
-    const left = () => { name.current = null; };
     const ready = () => { onReady?.(); walked(); };
     // A page that cannot be reached at all. -3 is Chromium's "the load was
     // aborted", which every ordinary in-page navigation also reports, so it is
@@ -123,8 +111,6 @@ export function WebsitePane({ url, webview, ready = true, control, onNavigate, o
     node.addEventListener('did-navigate-in-page', walked);
     node.addEventListener('did-stop-loading', walked);
     node.addEventListener('did-start-loading', started);
-    node.addEventListener('did-start-navigation', left);
-    node.addEventListener('page-title-updated', titled);
     node.addEventListener('did-fail-load', failed);
     return () => {
       if (control) control.current = null;
@@ -133,8 +119,6 @@ export function WebsitePane({ url, webview, ready = true, control, onNavigate, o
       node.removeEventListener('did-navigate-in-page', walked);
       node.removeEventListener('did-stop-loading', walked);
       node.removeEventListener('did-start-loading', started);
-      node.removeEventListener('did-start-navigation', left);
-      node.removeEventListener('page-title-updated', titled);
       node.removeEventListener('did-fail-load', failed);
     };
     // `url` is deliberately not a dependency: the webview keeps its own

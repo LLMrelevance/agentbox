@@ -8,11 +8,10 @@
 // and it is not clear that it is a browser tab.
 //
 // So this is a browser's bar rather than a document's header, shared by both
-// panes, and three layouts of it are drawn at once for the pick. The layout is
-// chosen by `data-web-chrome` on the root element and NOTHING here branches on
-// it: every piece is in the DOM and the stylesheet decides which are drawn.
-// That is what lets one build be photographed three ways, and it is how
-// `data-design-toolbar` already works a few rules above these.
+// panes. Three layouts of it were built in the real app and photographed for
+// the pick — this toolbar, a tab carrying the page's name, and a 26px line
+// with no stepping controls — and the toolbar is the one that was chosen
+// (2026-10-15). The other two are gone rather than kept behind a flag.
 //
 // NO FAVICON IS FETCHED, AND THAT IS DELIBERATE. A webview has the site's icon
 // URL ready on `page-favicon-updated`, but drawing it here would make the
@@ -72,14 +71,11 @@ export function addressParts(url: string): { host: string; rest: string } {
 }
 
 export function BrowserChrome({
-  kind, url, title, canBack, canForward, loading,
+  kind, url, canBack, canForward, loading,
   onBack, onForward, onReload, onOpenOutside, marks,
 }: {
   kind: WebChromeKind;
   url: string;
-  // The page's own title, which only the tab layout draws. A webview reports
-  // it; an iframe over a local app cannot, so it falls back to the host.
-  title?: string | null;
   canBack?: boolean;
   canForward?: boolean;
   loading?: boolean;
@@ -101,9 +97,6 @@ export function BrowserChrome({
       </div>
       <div className="web-bar-address" title={url}>
         <span className="web-bar-mark">{mark}</span>
-        {/* The tab layout reads the page's name; the other two read where it
-            is. Both are here always so the stylesheet can choose. */}
-        <span className="web-bar-title">{title || host}</span>
         <span className="web-bar-host">{host}</span>
         <span className="web-bar-rest">{rest}</span>
       </div>

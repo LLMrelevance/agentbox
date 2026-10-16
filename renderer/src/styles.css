@@ -7219,10 +7219,10 @@ button.cs-row:hover .cs-row-go { color: var(--text); }
    browser's page is held by the window. It is also the space back — 30 points
    of width and 30 of height that were margin.
 
-   THREE LAYOUTS ARE DRAWN AT ONCE and `data-web-chrome` on the root picks
-   between them, the way `data-design-toolbar` already does a few rules down.
-   Every piece is in the DOM always; these rules decide which are seen. When
-   one is picked the other two go, and so does the attribute.
+   THIS IS THE ONE THAT WAS PICKED, 2026-10-15. Three were drawn in the real
+   app and photographed: this toolbar, a tab carrying the page's name, and a
+   26px line with no stepping controls. The other two and the attribute that
+   switched between them are gone, which is what a pick is for.
 */
 .doc-pane.doc-browsing .doc-card {
   margin: 0; border: 0; border-radius: 0;
@@ -7264,41 +7264,10 @@ button.cs-row:hover .cs-row-go { color: var(--text); }
 .web-bar-mark { display: inline-flex; flex: 0 0 auto; color: var(--text-faint); }
 .web-bar-host { color: var(--text-dim); flex: 0 0 auto; }
 .web-bar-rest { color: var(--text-faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.web-bar-title { display: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-dim); }
 /* The one moving part: while the page is loading the address field's edge
    lights, which is every browser's answer and costs no room. */
 .web-bar[data-loading="yes"] .web-bar-address { box-shadow: inset 0 0 0 1px var(--line-strong); }
 
-/* ---- B, THE TAB. The page's own name on a tab joined to the page under it,
-   which is the shape that says "browser" without a word of chrome. The
-   address moves under the name as the quiet half, and the stepping controls
-   go to the right with the rest, because a tab strip has no arrows in it. */
-:root[data-web-chrome="tab"] .web-bar {
-  height: 36px; gap: 6px; padding: 0 8px 0 8px; align-items: flex-end;
-  background: var(--bg-raised);
-}
-:root[data-web-chrome="tab"] .web-bar-nav { order: 2; margin-left: 4px; align-self: center; }
-:root[data-web-chrome="tab"] .web-bar-marks { order: 3; align-self: center; }
-:root[data-web-chrome="tab"] .web-bar-address {
-  order: 1; flex: 0 1 auto; max-width: 56%;
-  height: 29px; padding: 0 12px;
-  border-radius: var(--radius) var(--radius) 0 0;
-  background: var(--doc-page);
-  box-shadow: 0 -1px 0 var(--line), 1px 0 0 var(--line), -1px 0 0 var(--line);
-}
-:root[data-web-chrome="tab"] .web-bar-title { display: block; }
-:root[data-web-chrome="tab"] .web-bar-host,
-:root[data-web-chrome="tab"] .web-bar-rest { display: none; }
-:root[data-web-chrome="tab"] .web-bar[data-loading="yes"] .web-bar-address { box-shadow: 0 -1px 0 var(--line), 1px 0 0 var(--line), -1px 0 0 var(--line); }
-
-/* ---- C, THE THIN LINE. The least chrome that still says where you are and
-   still gets you out: one 26px strip, the address as plain text rather than a
-   field, no stepping controls at all. The most page of the three. */
-:root[data-web-chrome="thin"] .web-bar { height: 26px; gap: 6px; padding: 0 4px 0 10px; }
-:root[data-web-chrome="thin"] .web-bar-nav { display: none; }
-:root[data-web-chrome="thin"] .web-bar-address { background: none; padding: 0; height: 22px; }
-:root[data-web-chrome="thin"] .web-bar-step { width: 22px; height: 22px; }
-:root[data-web-chrome="thin"] .web-bar-step svg { width: 13px; height: 13px; }
 .doc-missing { flex: 1; padding: 40px; color: var(--text-faint); font-size: 13.5px; }
 
 /* A PICTURE OPEN IN THE PANE. It keeps the card picked on 08-21, the way a

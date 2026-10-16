@@ -129,7 +129,7 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
   // history, so after one click inside the page the thread's address is no
   // longer the page you are reading: the crumb and the mark that hands it to
   // your own browser both follow this rather than `doc.src`.
-  const [here, setHere] = useState<Browsing>({ url: doc.src, title: null, canBack: false, canForward: false, loading: true });
+  const [here, setHere] = useState<Browsing>({ url: doc.src, canBack: false, canForward: false, loading: true });
   const [webFailed, setWebFailed] = useState<string | null>(null);
   const [webReady, setWebReady] = useState(false);
   // What the bar above the page presses. Filled in by the webview while it is
@@ -165,7 +165,7 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
   useEffect(() => {
     let live = true;
     setResolved(null); setText(null); setFailed(null); setMtime(0); setUrl(null); setChange(null);
-    setHere({ url: doc.src, title: null, canBack: false, canForward: false, loading: true });
+    setHere({ url: doc.src, canBack: false, canForward: false, loading: true });
     setWebFailed(null); setWebReady(false);
     // A WEBSITE IS NOT LOOKED FOR ON DISK. The address is the document; asking
     // the main process to resolve it would hand back the address again with no
@@ -249,7 +249,6 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
     <BrowserChrome
       kind={browsingKind}
       url={here.url}
-      title={here.title}
       canBack={here.canBack}
       canForward={here.canForward}
       loading={browsingKind === 'website' ? !webReady : !frameReady}

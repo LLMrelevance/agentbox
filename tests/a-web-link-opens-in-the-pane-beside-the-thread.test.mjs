@@ -199,22 +199,49 @@ describe('the mark that takes the page out to your own browser', () => {
   });
 });
 
-describe('the three layouts drawn for the pick', () => {
-  it('are chosen by one attribute, with every piece in the DOM', () => {
-    // So one build can be photographed three ways, which is how
-    // data-design-toolbar already works. When one is picked the other two go.
+describe('the layout that was picked', () => {
+  it('is the only one left, with nothing switching between layouts', () => {
+    // Three were built in the real app and photographed on 2026-10-15: this
+    // toolbar, a tab carrying the page's name, and a 26px line with no
+    // stepping controls. The toolbar was picked, so the other two and the
+    // `data-web-chrome` attribute that chose between them are gone. A flag
+    // left behind is two designs to keep working and one nobody looks at.
     const styles = read('renderer/src/styles.css');
-    for (const name of ['tab', 'thin']) {
-      expect(styles).toContain(`:root[data-web-chrome="${name}"] .web-bar`);
-    }
-    // The toolbar is the plain `.web-bar` rules, so it needs no attribute and
-    // is what an app with the attribute unset draws.
+    expect(styles).not.toContain('data-web-chrome');
     expect(styles).toMatch(/^\.web-bar \{/m);
+    // The page's own name was only ever the tab's, so its plumbing went too.
+    expect(read('renderer/src/components/BrowserChrome.tsx')).not.toContain('web-bar-title');
+    expect(read('renderer/src/components/WebsitePane.tsx')).not.toContain('page-title-updated');
   });
 
-  it('give the page the card back, which is the space that was lost', () => {
+  it('gives the page the card back, which is the space that was lost', () => {
     const styles = read('renderer/src/styles.css');
     const flush = styles.slice(styles.indexOf('.doc-pane.doc-browsing .doc-card'));
     expect(flush).toMatch(/margin: 0; border: 0; border-radius: 0;/);
+  });
+
+  it('can step the page, which is what makes it a browser and not a frame', () => {
+    const bar = read('renderer/src/components/BrowserChrome.tsx');
+    for (const name of ['Back', 'Forward', 'Reload']) expect(bar).toContain(`aria-label="${name}"`);
+    // Driven through the guest's own history, reached by ref so a press lands
+    // on the webview that is mounted now rather than one a render closed over.
+    const guest = read('renderer/src/components/WebsitePane.tsx');
+    expect(guest).toMatch(/back: \(\) => node\.goBack\?\.\(\)/);
+    expect(guest).toMatch(/forward: \(\) => node\.goForward\?\.\(\)/);
+    expect(guest).toMatch(/reload: \(\) => node\.reload\?\.\(\)/);
+  });
+
+  it('asks nothing of the site it is drawing, not even its icon', () => {
+    // A webview hands over the favicon URL on page-favicon-updated. Drawing it
+    // would make the APP's own page fetch a file from that domain, on the
+    // app's session rather than the browsing one, and the privacy page says
+    // nothing leaves the machine. The mark is drawn by us.
+    // The prose is not the code: the comment beside this says the word
+    // favicon several times, which is the point of it.
+    const code = (p) => read(p).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const bar = code('renderer/src/components/BrowserChrome.tsx');
+    expect(bar).not.toContain('favicon');
+    expect(bar).not.toMatch(/<img/);
+    expect(code('renderer/src/components/WebsitePane.tsx')).not.toContain('page-favicon-updated');
   });
 });
