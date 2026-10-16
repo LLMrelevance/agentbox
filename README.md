@@ -231,7 +231,7 @@ Nothing, unless you are running a build that was signed and released with a
 PostHog key baked into it. A build made from this repo has no key, so a clone
 and a fork are silent, and with no key the whole path is off at every send.
 
-A released build counts twelve things, and they are counts:
+A released build counts seventeen things, and they are counts:
 
 - the app was opened
 - the app was used today, once a day
@@ -245,6 +245,11 @@ A released build counts twelve things, and they are counts:
 - a task finished
 - an agent started work
 - an agent stopped work
+- the app was quit
+- the corner tag was hidden
+- the corner tag was turned off
+- setup offered agents to import
+- setup imported agents
 
 Each carries a random install id, the app and platform version, and at most
 seven other things: how long something took, how many of a thing there were,

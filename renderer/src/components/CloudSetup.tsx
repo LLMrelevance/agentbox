@@ -44,7 +44,15 @@ function SignIn({ s, existing }: { s: CloudSignIn; existing: boolean }) {
   useEffect(() => {
     if (s.state !== 'needs-code') return;
     sent.current = null;
-    const look = async () => { if (document.hasFocus()) { const c = await api.cloudClipboardCode(); if (c) submit(c); } };
+    // A code already on the clipboard when this sign-in began is from an
+    // earlier one, and Claude refuses it: only one copied since is taken.
+    let before: string | null | undefined;
+    const look = async () => {
+      const c = await api.cloudClipboardCode();
+      if (before === undefined) { before = c; return; }
+      if (c && c !== before && document.hasFocus()) submit(c);
+    };
+    void look();
     const timer = setInterval(look, 2000);
     window.addEventListener('focus', look);
     return () => { clearInterval(timer); window.removeEventListener('focus', look); };

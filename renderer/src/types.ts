@@ -26,6 +26,8 @@ export interface WorkItem {
   talk?: {
     chat: { by: string; ts: number; text: string }[];
     threads: Record<string, { by: string; text: string; replies: { by: string; ts: number; text: string }[] }>;
+    /** Per person, when they last marked it done; what came before is settled for them. */
+    settled?: Record<string, number>;
   };
   status: 'open' | 'claimed' | 'done' | 'blocked';
   title: string;

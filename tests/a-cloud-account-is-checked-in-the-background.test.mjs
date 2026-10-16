@@ -73,3 +73,14 @@ describe('another account while one is being checked', () => {
   });
 });
 
+
+// 2026-10-15: two "Adding…" rows before she had pasted anything. The setup
+// reads Claude's code off the clipboard, and took one left there by an
+// earlier sign-in, which Claude refuses. Only a code copied since counts.
+describe('a code left on the clipboard from before', () => {
+  it('is not taken; one copied since the sign-in began is', () => {
+    const src = fs.readFileSync(new URL('../renderer/src/components/CloudSetup.tsx', import.meta.url), 'utf8');
+    expect(src).toMatch(/if \(before === undefined\) \{ before = c; return; \}/);
+    expect(src).toMatch(/if \(c && c !== before && document\.hasFocus\(\)\) submit\(c\);/);
+  });
+});

@@ -60,7 +60,9 @@ const DONE_STATES = new Set(['collected', 'failed']);
 const SIGNIN_MS = 20 * 60_000;
 // Claude Code prints its one-year token on a line of its own. Taken only once
 // something follows it, so a token split across two reads is never half-read.
-const CLAUDE_TOKEN = /(sk-ant-oat\d*-[A-Za-z0-9_-]{20,})\s/;
+// Ended by anything that cannot be part of it: a space, a line end, or the
+// edge of a box a newer Claude Code draws round it.
+const CLAUDE_TOKEN = /(sk-ant-oat\d*-[A-Za-z0-9_-]{20,})(?=[^A-Za-z0-9_-])/;
 // WHAT CLAUDE SAYS WHEN IT DOES NOT TAKE A CODE, and then waits on forever
 // (2.1.301, 2026-10-15: "OAuth error: Request failed with status code 400
 // Press Enter to retry."). Read only from what it printed after the code.
@@ -118,7 +120,11 @@ export function createSandbox({
   // a Mac, whose `script` takes other flags, passes a plain shell.
   terminal = linuxTerminal,
   signinMs = SIGNIN_MS,
+  // Where the sign-in's steps are told, for the runtime's own log. Never a
+  // secret: `shape` masks every long run of key-like characters first.
+  log = () => {},
   codeAnswerMs = CODE_ANSWER_MS,
+  enterAfterMs = 400,
   // Which Claude account a new token belongs to, so the Mac can name it.
   // Best effort: a token that cannot say is kept all the same, unnamed.
   whoIs = claudeAccountEmail,
@@ -277,13 +283,26 @@ export function createSandbox({
         if (patch.length) await sh('git', ['apply', '--whitespace=nowarn'], cwd, {}, false, patch);
         await sh('git', ['update-ref', '-d', changesRef], cwd).catch(() => {});
       }
+      if (r.spec.docs) fs.mkdirSync(r.spec.docs, { recursive: true });
       for (const f of files) await placeFile(f);
+      // Files that belong in the agent's own home here, wherever the Mac keeps
+      // its: the person's own instructions to Claude (`.claude/CLAUDE.md`).
+      const home = at(runAs?.home || process.env.HOME || '/root');
+      for (const h of r.spec.homeFiles || []) {
+        const p = path.join(home, h.rel);
+        await placeFile({ path: p, url: h.url });
+        if (runAs) await sh('chown', ['-R', `${runAs.uid}:${runAs.gid}`, path.join(home, h.rel.split('/')[0])], '/');
+      }
       fs.rmSync(bundle, { force: true });
       if (r.spec.login) await placeLogin(r);
-      // What the command writes to becomes its own: the task folder, and the
-      // account folder its transcripts and tooling live in.
+      // What the documents folder held before the agent started, so only what
+      // it writes there goes home (`sendDocs`).
+      if (r.spec.docs) r.docsSeen = scanDocs(r.spec.docs);
+      // What the command writes to becomes its own: the task folder, its
+      // documents folder, and the account folder its transcripts and tooling
+      // live in.
       if (runAs) {
-        const own = [cwd];
+        const own = [cwd, ...(r.spec.docs ? [r.spec.docs] : [])];
         // The harness's own home: Claude Code's account folder, or Codex's,
         // where it keeps its state database and writes its sessions.
         for (const k of ['CLAUDE_CONFIG_DIR', 'CODEX_HOME']) {
@@ -455,6 +474,9 @@ export function createSandbox({
     r.secrets = [tokens.access_token, tokens.id_token, tokens.refresh_token].filter((s) => typeof s === 'string' && s.length >= 16);
   }
 
+  const shape = (text) => String(text || '').replace(/[A-Za-z0-9_\-+/=]{16,}/g, '<long>').replace(/\s+/g, ' ').trim().slice(-600);
+  const note = (r, what) => { try { log(`signin ${r.spec.engine} ${String(r.spec.runId || '').slice(-8)}: ${what}`); } catch { /* never in the way */ } };
+
   // A SIGN-IN: the vendor's own command, run here, for a person at the Mac.
   async function startSignin(r) {
     const { engine } = r.spec;
@@ -483,6 +505,7 @@ export function createSandbox({
       seen = (seen + plain(d.toString('utf8'))).slice(-256 * 1024);
       if (engine === 'claude') {
         if (r.codeSent && CLAUDE_CODE_REFUSED.test(seen.slice(r.codeAt ?? 0))) {
+          note(r, `code refused: ${shape(seen.slice(r.codeAt ?? 0))}`);
           r.signinOver = true;
           seen = '';
           killGroup(child.pid, 'SIGTERM');
@@ -491,6 +514,7 @@ export function createSandbox({
         }
         const token = seen.match(CLAUDE_TOKEN)?.[1];
         if (token) {
+          note(r, `token seen ${r.codeSentAt ? Date.now() - r.codeSentAt : '?'} ms after the code`);
           r.signinOver = true;
           clearTimeout(r.codeTimer);
           seen = '';
@@ -510,7 +534,8 @@ export function createSandbox({
     };
     // Where in what it printed the code was sent: only what came after is
     // read for Claude's answer to it.
-    r.markCode = () => { r.codeAt = seen.length; };
+    r.markCode = () => { r.codeAt = seen.length; r.codeSentAt = Date.now(); };
+    r.afterCode = () => seen.slice(r.codeAt ?? 0);
     child.stdout.on('data', read);
     child.stderr.on('data', read);
     child.on('error', () => {});
@@ -536,7 +561,9 @@ export function createSandbox({
     // One word from Claude on that token alone, from an empty folder, before
     // it is kept: a token that does not answer is not a sign-in.
     const check = await scratchFor(r, 'check');
+    const checkAt = Date.now();
     const out = await quiet(['claude', '-p', 'Reply with the single word: ok', '--max-turns', '1'], { cwd: check, env: ownEnv({ CLAUDE_CODE_OAUTH_TOKEN: token, CLAUDE_CONFIG_DIR: check }), timeoutMs: 120_000 });
+    note(r, `check ${out.code === 0 && /ok/i.test(out.stdout) ? 'answered' : `failed (exit ${out.code}): ${shape(out.output)}`} in ${Date.now() - checkAt} ms`);
     if (out.code !== 0 || !/ok/i.test(out.stdout)) return failSignin(r, 'Claude refused the new sign-in; nothing was kept.');
     const email = await Promise.resolve(whoIs(token, fetchImpl)).catch(() => null);
     await saveLogin(r, { engine: 'claude', token, savedAt: Date.now() }, { expiresAt: null, email: typeof email === 'string' ? email : null });
@@ -556,7 +583,8 @@ export function createSandbox({
     for (let i = 0; i < 3; i += 1) {
       try { await upload(fetchImpl, r.spec.saveUrl, body); lastErr = null; break; } catch (err) { lastErr = err; await new Promise((res) => setTimeout(res, uploadRetryMs * (i + 1))); }
     }
-    if (lastErr) return failSignin(r, 'The sign-in worked but could not be kept. Try again.');
+    if (lastErr) { note(r, `could not keep it: ${shape(lastErr.message)}`); return failSignin(r, 'The sign-in worked but could not be kept. Try again.'); }
+    note(r, 'kept');
     clearTimeout(r.signinTimer);
     clearTimeout(r.codeTimer);
     forget(r);
@@ -565,6 +593,7 @@ export function createSandbox({
   }
 
   function failSignin(r, message, extra = {}) {
+    note(r, `failed: ${message}`);
     clearTimeout(r.signinTimer);
     clearTimeout(r.codeTimer);
     r.signinOver = true;
@@ -688,12 +717,15 @@ export function createSandbox({
     return r.collecting;
   }
 
-  async function collect(r, { bundleUrl, changesUrl, bring = [] }) {
+  async function collect(r, { bundleUrl, changesUrl, docsUrl, bring = [] }) {
     r.attempt = (r.attempt || 0) + 1;
     const tmp = (name) => path.join(r.dir, `${r.attempt}-${name}`);
     const brought = [];
+    // The documents first: they are sent whether or not the folder ever got
+    // as far as a checkout, and hold everything the Mac has not said it laid.
+    const docs = docsUrl ? (await sendDocs(r, docsUrl)).files : [];
     // A run cancelled before checkout has nothing in the folder to bring.
-    if (!r.startSha) return { ok: true, startSha: null, tip: null, commits: 0, uncommitted: false, changesRef: null, brought };
+    if (!r.startSha) return { ok: true, startSha: null, tip: null, commits: 0, uncommitted: false, changesRef: null, brought, docs };
     const cwd = r.spec.cwd;
     const branch = r.spec.branch;
     const tip = (await sh('git', ['rev-parse', `refs/heads/${branch}`], cwd)).trim();
@@ -759,7 +791,76 @@ export function createSandbox({
       fs.rmSync(tarball, { force: true });
       brought.push(b.dir);
     }
-    return { ok: true, startSha: r.startSha, tip: withheld ? r.startSha : tip, head: withheld ? r.startSha : head, headRef, strayHead, commits, uncommitted: dirty, changesRef, brought, ...(withheld ? { withheld } : {}) };
+    return { ok: true, startSha: r.startSha, tip: withheld ? r.startSha : tip, head: withheld ? r.startSha : head, headRef, strayHead, commits, uncommitted: dirty, changesRef, brought, docs, ...(withheld ? { withheld } : {}) };
+  }
+
+  // WHAT THE AGENT WROTE IN THE DOCUMENTS FOLDER SINCE IT WAS LAST ASKED,
+  // uploaded as one archive: files new or changed since the folder was laid
+  // down or last sent, never a deletion. One at a time per run, so the Mac's
+  // asking during the run and the collect at its end never send a file twice
+  // or skip one.
+  // `id` names this archive so the Mac can say it laid it (`ack`, on its next
+  // ask): only then do its files count as home. Until then they go again in
+  // every archive, so one lost on the way costs nothing.
+  function sendDocs(r, url, { id = null, ack = null } = {}) {
+    const go = async () => {
+      const dir = r.spec.docs;
+      if (!dir || !r.docsSeen || !fs.existsSync(dir)) return { ok: true, files: [] };
+      r.docsSent ??= new Map();
+      if (ack && r.docsSent.has(ack)) {
+        for (const [rel, stamp] of r.docsSent.get(ack)) r.docsSeen.set(rel, stamp);
+        r.docsSent.clear();
+      }
+      const now = scanDocs(dir);
+      // A file whose NAME carries the login stays here, unnamed in any answer.
+      const files = [...now.keys()].filter((rel) => now.get(rel) !== r.docsSeen.get(rel) && !(r.secrets || []).some((sec) => rel.includes(sec)));
+      if (!files.length) return { ok: true, files: [] };
+      // COPIED, THEN CLEANED, THEN PACKED: the agent is still running and may
+      // rewrite a file between a clean and the tar reading it, so what goes
+      // home is a copy it cannot reach, with the login taken out of the copy.
+      // Each file is stamped before it is read: one still being written reads
+      // as changed again next time and goes again.
+      const stage = path.join(r.dir, `docs-${Date.now()}`);
+      const stamps = new Map();
+      try {
+        for (const rel of files) {
+          const src = path.join(dir, rel);
+          let st;
+          let body;
+          try {
+            st = fs.lstatSync(src);
+            if (!st.isFile()) continue;
+            body = fs.readFileSync(src);
+          } catch { continue; }
+          if (r.secrets?.length) {
+            let text = body.toString('latin1');
+            if (r.secrets.some((sec) => text.includes(sec))) {
+              for (const sec of r.secrets) text = text.split(sec).join(REDACTED);
+              body = Buffer.from(text, 'latin1');
+            }
+          }
+          const dest = path.join(stage, rel);
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.writeFileSync(dest, body);
+          stamps.set(rel, `${st.size}:${st.mtimeMs}`);
+        }
+        if (!stamps.size) return { ok: true, files: [] };
+        const tarball = `${stage}.tgz`;
+        try {
+          await sh('tar', ['-czf', tarball, '-C', stage, '--null', '-T', '-'], stage, {}, false, [...stamps.keys()].join('\0') + '\0');
+          await upload(fetchImpl, url, fs.readFileSync(tarball));
+        } finally {
+          fs.rmSync(tarball, { force: true });
+        }
+      } finally {
+        fs.rmSync(stage, { recursive: true, force: true });
+      }
+      if (id) r.docsSent.set(String(id), stamps);
+      return { ok: true, files: [...stamps.keys()] };
+    };
+    const next = (r.docsChain || Promise.resolve()).catch(() => {}).then(go);
+    r.docsChain = next;
+    return next;
   }
 
   async function checkpoint(r, { bundleUrl }) {
@@ -839,6 +940,7 @@ export function createSandbox({
         files: (req.files || []).map((f) => ({ ...f, path: at(f.path), ...(f.untar ? { untar: at(f.untar) } : {}) })),
         env: { ...(req.env || {}), AGENTBOX_PATH_ROOT: pathRoot },
         results: req.results && { ...req.results, bring: (req.results.bring || []).map((b) => ({ ...b, dir: at(b.dir) })) },
+        ...(req.docs ? { docs: at(req.docs) } : {}),
       };
       const r = {
         id: req.runId, spec, state: 'preparing', waiters: new Set(), pendingStdin: [], child: null,
@@ -865,11 +967,20 @@ export function createSandbox({
         if (!code) return { ok: false, error: 'empty-code' };
         r.codeSent = true;
         r.markCode?.();
-        r.child.stdin.write(`${code}\r`);
+        // THE CODE, THEN ENTER ON ITS OWN. Sent together, Claude reads the
+        // return as part of a paste and never submits a real-length code
+        // (2.1.301, measured 2026-10-15: she sat on Adding; the code showed
+        // as stars and nothing more).
+        r.child.stdin.write(code);
+        await new Promise((res) => setTimeout(res, enterAfterMs));
+        if (!r.child || r.signinOver) return { ok: false, error: 'not-waiting' };
+        r.child.stdin.write('\r');
         signinEvent(r, 'checking');
         clearTimeout(r.codeTimer);
+        note(r, 'code sent');
         r.codeTimer = setTimeout(() => {
           if (r.signinOver) return;
+          note(r, `no answer to the code in ${codeAnswerMs} ms; it printed: ${shape(r.afterCode?.())}`);
           r.signinOver = true;
           if (r.child) killGroup(r.child.pid, 'SIGKILL');
           failSignin(r, 'Claude didn’t answer that code. Try again.');
@@ -928,6 +1039,12 @@ export function createSandbox({
         cancel(r, sig);
         return { ok: true, running: !!r.child, preparing: r.state === 'preparing' };
       }
+      case 'docs':
+        // The documents the agent has written so far, so they reach the Mac
+        // while it works rather than only at the end.
+        if (!req.url) return { ok: false, error: 'bad-docs' };
+        if (r.state === 'preparing') return { ok: true, files: [] };
+        try { return await sendDocs(r, req.url, { id: req.id, ack: req.ack }); } catch (err) { return { ok: false, error: 'docs-failed', message: err.message }; }
       case 'checkpoint':
         if (r.state !== 'running' && r.state !== 'exited') return { ok: false, error: 'not-ready' };
         try { return await checkpoint(r, req); } catch (err) { return { ok: false, error: 'checkpoint-failed', message: err.message }; }
@@ -998,6 +1115,10 @@ function invalidStart(req) {
   if (!req.bundleUrl) return 'bundleUrl is required';
   if (!Array.isArray(req.argv) || !req.argv.length) return 'argv is required';
   for (const f of req.files || []) if (!f?.url || !path.isAbsolute(f?.path || '')) return 'every file needs an absolute path and a url';
+  if (req.docs !== undefined && (typeof req.docs !== 'string' || !path.isAbsolute(req.docs))) return 'docs must be an absolute path';
+  for (const h of req.homeFiles || []) {
+    if (!h?.url || typeof h.rel !== 'string' || !/^\.claude\/[A-Za-z0-9._-]+$/.test(h.rel) || h.rel.includes('..')) return 'a home file must be a plain name under .claude/';
+  }
   return null;
 }
 
@@ -1009,7 +1130,8 @@ function killGroup(pid, signal) {
 // What the command may inherit from the sandbox itself: enough to find
 // programs and a home, and nothing the image's own environment happens to hold.
 export function pickBaseEnv(env) {
-  const keep = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'SHELL', 'USER', 'NODE_EXTRA_CA_CERTS'];
+  // The last two find the image's own browser (Dockerfile).
+  const keep = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'SHELL', 'USER', 'NODE_EXTRA_CA_CERTS', 'PLAYWRIGHT_BROWSERS_PATH', 'NODE_PATH'];
   return Object.fromEntries(keep.filter((k) => env[k] !== undefined).map((k) => [k, env[k]]));
 }
 
@@ -1124,6 +1246,30 @@ function sh(cmd, args, cwd, extraEnv = {}, asBuffer = false, input = undefined) 
   });
 }
 
+// Every file in the documents folder, by path inside it, with its size and
+// modified time. Hidden names and links are left out: what goes home is what
+// an agent writes for a person to read.
+const DOCS_MAX_FILE = 200 * 1024 * 1024;
+function scanDocs(dir) {
+  const out = new Map();
+  const walk = (rel) => {
+    let entries = [];
+    try { entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue;
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) { walk(r); continue; }
+      if (!e.isFile() || /[\n\r]/.test(r)) continue;
+      try {
+        const st = fs.statSync(path.join(dir, r));
+        if (st.size <= DOCS_MAX_FILE) out.set(r, `${st.size}:${st.mtimeMs}`);
+      } catch { /* gone */ }
+    }
+  };
+  walk('');
+  return out;
+}
+
 async function download(fetchImpl, url, file) {
   const res = await fetchImpl(url);
   if (!res.ok) throw new Error(`fetch ${res.status} for ${redact(url)}`);
@@ -1168,6 +1314,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const home = execFileSync('getent', ['passwd', user], { encoding: 'utf8' }).split(':')[5];
     runAs = { uid: id('-u'), gid: id('-g'), home, user };
   }
-  const sandbox = createSandbox({ workRoot: '/var/lib/agentbox', bridgeSocket: '/tmp/agentbox-bridge.sock', runAs });
+  const sandbox = createSandbox({ workRoot: '/var/lib/agentbox', bridgeSocket: '/tmp/agentbox-bridge.sock', runAs, log: (line) => console.error(line) });
   sandbox.listen(Number(process.env.PORT) || 8080).then((a) => console.error(`agentbox sandbox listening on ${a.port}`));
 }
