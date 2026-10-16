@@ -7960,7 +7960,16 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
    and a line under it, above the list, because it changes what the list is.
    It is not a boxed search bar with a magnifier in it: the card has one filled
    thing on it and that is the button. */
-.ia-find { margin: 2px 0 14px; }
+/* THE GAP ABOVE IT IS ITS OWN (w-6418318cd5, 2026-10-16): "spacing here is
+   wack". It had a 2px top margin and leaned on the subtitle above it for the
+   rest, which works until the subtitle is not there. Measured in the built
+   renderer, the same card was 36.9px above the field at rest and 2px mid
+   search, so the field sat against a 21px headline. */
+.ia-find { margin: 0 0 18px; }
+/* Only when the headline is the thing directly above: searching, where the
+   subtitle is not drawn, and the Mac with nothing on it. With `.ia-top`'s own
+   2px that is 16px, which is the gap the subtitle used to stand in. */
+.ia-top + .ia-find { margin-top: 14px; }
 .ia-find-box {
   width: 100%; font: inherit; font-size: 14.5px; line-height: 1.35;
   padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius);
@@ -7970,7 +7979,10 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 .ia-find-box:focus { outline: none; border-color: var(--accent); background: none; }
 /* One line under the field and never two: what it is for, or what it found,
    with the way back at the far end of it. */
-.ia-find-under { display: flex; align-items: baseline; gap: 12px; margin: 7px 2px 0; }
+/* NO INSET: it was the only thing on the card off the spine, starting at 33px
+   from the edge where the headline, the field and the list all start at 31,
+   and ending 2px short on the right. */
+.ia-find-under { display: flex; align-items: baseline; gap: 12px; margin: 10px 0 0; }
 .ia-find-hint { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-faint); }
 .ia-find-clear {
   flex: none; font: inherit; font-size: 12.5px; background: none; border: none; padding: 0;
