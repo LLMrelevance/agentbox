@@ -1,6 +1,7 @@
 import { currentActivity } from './agent-activity.mjs';
 import { harnessFor, supportsHarnessOperation } from './harnesses.mjs';
 import { streamingText, countHelpers, saidNothingSheCanUse } from './harnesses/claude-stream.mjs';
+import { NO_METERED_KEY } from './harnesses/claude.mjs';
 export { streamingText, countHelpers, saidNothingSheCanUse } from './harnesses/claude-stream.mjs';
 import { taskRemoteControl } from './task-remote-control.mjs';
 import { taskFolderPath, real, restoreTaskFolder } from './task-folders.mjs';
@@ -69,6 +70,14 @@ function teamPersonEnv() {
  * app is the difference between "this machine is broken" and "something else is
  * already working here".
  */
+// A LIMIT A CLOUD RUN CHARGED TO A MAC ACCOUNT, before cloud runs stopped
+// doing that: its line names UTC, the cloud machine's zone, on a Mac that is
+// not in UTC. Dropped once, as the app opens.
+function dropCloudLimits(trouble) {
+  if (Intl.DateTimeFormat().resolvedOptions().timeZone === 'UTC') return trouble;
+  return Object.fromEntries(Object.entries(trouble).filter(([, t]) => !(t?.cause === 'at-limit' && /\(UTC\)/.test(String(t.raw ?? '')))));
+}
+
 function whoHasIt(made) {
   if (made?.taken !== false) return '';
   return `: its folder is ${made.reason}${made.heldBy ? ` by pid ${made.heldBy}` : ''}`;
@@ -476,7 +485,7 @@ export class Supervisor {
       // long: the first session that survives on an account clears it
       // (`_clearProfileTrouble`), and a cooldown is an absolute moment that has
       // usually already passed by the time the app is back.
-      this._profileTrouble = state.profileTrouble ?? {};
+      this._profileTrouble = dropCloudLimits(state.profileTrouble ?? {});
       this._profileCooldown = state.profileCooldown ?? {};
       // The founder's standing running order over her companies, most
       // important first. Agents never write it. It replaced three buckets
@@ -744,10 +753,10 @@ export class Supervisor {
       .some((key) => key !== account && !needsHerHands(this._profileTrouble?.[key]?.cause));
   }
 
-  _kill(session) {
+  _kill(session, signal) {
     if (!session) return false;
     session.stoppedByUs = true;
-    try { session.child.kill(); } catch {}
+    try { session.child.kill(signal); } catch {}
     return true;
   }
 
@@ -824,7 +833,10 @@ export class Supervisor {
     // Read by a worker's exit that is still inside its grace (QUIT_GRACE_MS):
     // the app is going, so that death was ours.
     this._quitting = true;
-    for (const session of this.sessions.values()) this._kill(session);
+    // A Claude run in the cloud is left going, not stopped: SIGHUP tells its
+    // proxy the app is quitting (main/cloud/run.mjs), and the run is joined and
+    // brought home when the app opens again.
+    for (const session of this.sessions.values()) this._kill(session, session.cloud && session.engine !== 'codex' ? 'SIGHUP' : undefined);
     this._closeCodex(`${Name} is quitting`);
     this.stopMemoryGate();
     clearInterval(this._leftoverTimer);
@@ -3353,8 +3365,8 @@ export class Supervisor {
   // One score orders every spawn decision: a product's PLACE in the founder's
   // running order is worth a hundred times any item's own priority, so
   // One product's medium outranks another's urgent when it sits above it.
-  // Ties break oldest-first so nothing starves. The item's own number is hers
-  // alone now (itemPriority); an agent's tag no longer moves anything.
+  // Ties break oldest-first so nothing starves. The item's own number counts
+  // whoever set it (itemPriority), and it is the number every screen shows.
   // A THREAD DRAGGED IN THE LIST RUNS WHERE IT WAS PUT (w-6e5b532a95): its
   // place replaces the score outright (`placedScore`, shared/rank.mjs).
   _score(item) {
@@ -4044,6 +4056,8 @@ export class Supervisor {
     }
     return {
       setUp, mode, running: this._cloudLoad(), month: this._cloudMonth.month,
+      // What C turns the cloud back on to (main/settings.mjs cloudWhenOn).
+      whenOn: this.config.cloudWhenOn === 'all' ? 'all' : 'full',
       accounts: setUp ? this._cloudAccounts() : [],
       signIns: setUp ? this._cloudSignInsNow() : [],
     };
@@ -4112,10 +4126,12 @@ export class Supervisor {
     if (action === 'cancel') { if (going) await live.cancel(); this._cloudSignIns.delete(flowKey); this.onChange?.(); return { key: account }; }
     if (action !== 'start') throw new Error(`unknown sign-in step: ${action}`);
     if (going) return { key: account };
-    // One sign-in at a time per engine: a second Add while one is going
-    // gives back the one going.
+    // One sign-in at a time per engine WHILE IT NEEDS HER: a second Add then
+    // gives back the one going. One the cloud is only checking needs nothing
+    // of her, so another account can be added beside it (2026-10-15: she
+    // could not add a second Claude account while the first said Adding…).
     for (const [k, f] of this._cloudSignIns) {
-      if (k.startsWith(`${which}|`) && !['saved', 'failed'].includes(f.status().state)) return { key: k.split('|')[1] };
+      if (k.startsWith(`${which}|`) && ['starting', 'needs-code', 'waiting'].includes(f.status().state)) return { key: k.split('|')[1] };
     }
     // Taken at once, so a second Start before the cloud answers starts nothing.
     const held = { state: 'starting', url: null, code: null, message: null };
@@ -4275,6 +4291,14 @@ export class Supervisor {
     return true;
   }
 
+  // The project's documents folder, which a cloud run takes a copy of and
+  // writes back into (main/cloud/docs.mjs).
+  _cloudDocsEnv(item) {
+    let dir = null;
+    try { dir = this.store.listProducts().find((p) => p.slug === item.product)?.dir ?? null; } catch { /* none */ }
+    return dir ? { AGENTBOX_DOCS: dir } : {};
+  }
+
   // Brings home a cloud run that ended while nothing was there to receive it
   // (an app that quit, an import that failed). One at a time per folder, and
   // not more than every two minutes; a tick picks the folder up once it lands.
@@ -4290,22 +4314,29 @@ export class Supervisor {
       this._homecomings.set(folder, { child: null, at: Date.now() });
       return;
     }
+    // This app's own tool servers as they are now, for a run the last app
+    // left going: the approvals key is made fresh at every start, and one from
+    // before would refuse every card she answers.
+    let mcp = null;
+    try { mcp = this.writeMcpConfig(); } catch { /* the run's own record stands */ }
+    const forget = () => { if (mcp) fs.rmSync(mcp, { force: true }); };
     let child;
     try {
       child = spawn(process.execPath, [this._cloudRunPath(), '--agentbox-import-only'], {
         cwd: folder,
-        env: { ...this._workerEnv(), ELECTRON_RUN_AS_NODE: '1' },
+        env: { ...this._workerEnv(), ELECTRON_RUN_AS_NODE: '1', ...(mcp ? { AGENTBOX_MCP_CONFIG: mcp } : {}) },
         stdio: ['ignore', 'ignore', 'pipe'],
       });
     } catch (error) {
+      forget();
       console.warn(`zero: could not bring a cloud run home in ${folder}:`, error.message);
       return;
     }
     const rec = { child, at: Date.now() };
     this._homecomings.set(folder, rec);
     child.stderr?.on('data', (d) => console.warn(String(d).trim()));
-    child.on('error', () => { rec.child = null; rec.at = Date.now(); });
-    child.once('exit', () => { rec.child = null; rec.at = Date.now(); this.wake?.(); });
+    child.on('error', () => { forget(); rec.child = null; rec.at = Date.now(); });
+    child.once('exit', () => { forget(); rec.child = null; rec.at = Date.now(); this.wake?.(); });
   }
 
   /**
@@ -4556,6 +4587,18 @@ export class Supervisor {
     // and the account's login here is a different login, so nothing is struck
     // against it (Codex's review of the cloud sign-ins, finding 9).
     if (session.cloudLoginTrouble) return;
+    // NOR DOES A CLOUD RUN'S LIMIT, OR ITS SUCCESS: it ran on a cloud account,
+    // which its proxy benches itself (main/cloud/run.mjs `onLimit`), never on
+    // the Mac account named on the session. The reply that hit it is the
+    // account's fault, not the row's.
+    if (session.cloud) {
+      const said = session.resultIsError ? troubleCause(session.result) : 'unknown';
+      if (said === 'at-limit') {
+        session.accountFault = { cause: 'at-limit', account: `cloud:${engineOf(session.engine)}` };
+        this._cloudConfigAt = 0;
+      }
+      return;
+    }
     // A CODEX RUN CANNOT STRIKE A CLAUDE ACCOUNT, and until this slice the only
     // way to be sure of that was to return here: `_noteProfileTrouble` and
     // `_strikeProfile` took `session.profile`, which was one of the Claude
@@ -7296,6 +7339,7 @@ export class Supervisor {
             ...storeRootEnv(this.config.storeRoot),
             ZERO_PRODUCT: item.product,
             ZERO_ITEM: item.id,
+            ...this._cloudDocsEnv(item),
           },
           stdio: ['pipe', 'pipe', 'pipe'],
         });
@@ -8742,6 +8786,14 @@ export class Supervisor {
     add(this.config.storeRoot);
     if (product?.dir) add(product.dir);
     rules.permissions = { ...(rules.permissions ?? {}), additionalDirectories: dirs };
+    // A KEY IN A SETTINGS FILE BILLS THE SAME AS ONE IN THE ENVIRONMENT. The
+    // scrub in `_workerEnv` never sees it: Claude Code reads `env` out of
+    // ~/.claude/settings.json and a project's .claude/settings.json for itself,
+    // and runs `apiKeyHelper`. This file is the layer above both, so a blank
+    // here puts the run back on the login (measured on 2.1.301, w-6d8c543a43).
+    // A base address and token are left alone: a gateway is a choice.
+    rules.env = { ...(rules.env ?? {}), ...NO_METERED_KEY.env };
+    rules.apiKeyHelper = NO_METERED_KEY.apiKeyHelper;
     const gateHooks = this.memoryGateHooks();
     if (gateHooks) rules.hooks = { ...(rules.hooks ?? {}), ...gateHooks };
     // Beside the MCP config, and written the same way: a real file on disk,

@@ -119,11 +119,13 @@ export function markCloudLogin(engine, dir, id, patch, { home = os.homedir() } =
   });
 }
 
-// 'none' (never signed in), 'broken' (sign in again), 'renew' (Codex: must
-// be renewed before a run), 'stale' (Codex: may run, renewal due), 'ready'.
+// 'none' (never signed in), 'broken' (sign in again), 'limited' (at its usage
+// limit until `limitedUntil`), 'renew' (Codex: must be renewed before a run),
+// 'stale' (Codex: may run, renewal due), 'ready'.
 export function cloudLoginState(rec, { now = Date.now() } = {}) {
   if (!rec?.id) return 'none';
   if (rec.broken) return 'broken';
+  if (rec.limitedUntil && now < rec.limitedUntil) return 'limited';
   if (rec.engine !== 'codex' || !rec.expiresAt) return 'ready';
   const left = rec.expiresAt - now;
   if (left < CODEX_RUN_NEEDS_MS) return 'renew';
@@ -238,13 +240,40 @@ async function session({ transport, start, onEvent = () => {}, pollWaitMs = 20_0
 // the link and the one-time code to type on OpenAI's page; then 'checking',
 // and 'saved' or 'failed' with a sentence. A Codex sign-in made with a
 // different ChatGPT account than the one this Mac's folder holds is refused.
-export function startCloudSignIn({ transport, storage, engine, dir, home = os.homedir(), expectEmail = null, onChange = () => {}, onSaved = () => {}, pollWaitMs }) {
+// HOW LONG THE CLOUD MAY CHECK A SIGN-IN AFTER HER PART IS DONE before this
+// Mac stops waiting and says so (2026-10-15: she sat on "Adding…" for over a
+// minute). The cloud gives up on a code Claude does not take at once, and on
+// one it never answers in a minute (cloud/sandbox/server.mjs); this is the
+// backstop for a cloud that never says, past its own two-minute check.
+export const CHECK_MS = 150_000;
+
+export function startCloudSignIn({ transport, storage, engine, dir, home = os.homedir(), expectEmail = null, onChange = () => {}, onSaved = () => {}, pollWaitMs, checkMs = CHECK_MS }) {
   const id = crypto.randomUUID();
   const runId = `signin-${id}`;
   // `attempt` tells one sign-in from the next, which can show the same link.
   let status = { state: 'starting', url: null, code: null, message: null, attempt: runId };
   let cancelled = false;
-  const set = (patch) => { status = { ...status, ...patch }; onChange(status); };
+  let gaveUp = false;
+  let checkTimer = null;
+  const set = (patch) => {
+    status = { ...status, ...patch };
+    // The check's clock starts when her part ends, and stops when it ends.
+    if (status.state === 'checking' && !checkTimer) {
+      checkTimer = setTimeout(() => {
+        if (status.state !== 'checking') return;
+        gaveUp = true;
+        cancelled = true;
+        status = { ...status, state: 'failed', message: `${engine === 'codex' ? 'Codex' : 'Claude'} didn’t finish signing in. Try again.` };
+        onChange(status);
+        transport.invoke(`agentbox-signin-${engine}-${runId}`, { action: 'signal', runId, signal: 'SIGTERM' }).catch(() => {});
+      }, checkMs);
+      checkTimer.unref?.();
+    } else if (status.state !== 'checking' && checkTimer && ['saved', 'failed', 'needs-code'].includes(status.state)) {
+      clearTimeout(checkTimer);
+      checkTimer = null;
+    }
+    onChange(status);
+  };
 
   const done = (async () => {
     const saveUrl = await storage.putUrl(loginObjectKey(engine, id), LINK_SECONDS);
@@ -259,6 +288,8 @@ export function startCloudSignIn({ transport, storage, engine, dir, home = os.ho
         else if (e.state === 'checking') set({ state: 'checking' });
       },
     });
+    // Given up on here already: that sentence stands.
+    if (gaveUp) return status;
     if (end.state !== 'saved') {
       set({ state: 'failed', message: cancelled ? null : (end.message || 'That did not work. Try again.') });
       return status;

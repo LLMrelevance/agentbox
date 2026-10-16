@@ -5,7 +5,7 @@ import {glanceFile,type Glance} from '../file-glance';
 import {ArtifactThumbnail} from './ArtifactThumbnail';
 import './message-files.css';
 
-const KIND_LABEL={html:'Design',image:'Picture',markdown:'Document',code:'Code'} as const;
+const KIND_LABEL={html:'Design',image:'Picture',markdown:'Document',code:'Code',website:'Website'} as const;
 
 /** EVERY FILE A MESSAGE NAMES, AS SMALL FRAMED TILES SIDE BY SIDE
  * (w-9ed13d72b3). These replaced a 200px card per file that printed the raw

@@ -61,10 +61,50 @@
 // to her subscription and never to a key (CLAUDE.md), so passing that advice on
 // would be this app telling her to do the one thing it refuses to do.
 import { NAME, Name } from '../shared/product-name.mjs';
+import { harnessDefinition } from './harness-definitions.mjs';
+
+// A CLAUDE CODE TOO OLD FOR THE LINE AGENTBOX STARTS IT WITH. Its argument
+// parser refuses the line before a single request, in one of two shapes,
+// measured on npm releases 2.1.70 back to 1.0.90 (2026-10-15):
+//
+//   error: option '--permission-mode <mode>' argument 'auto' is invalid. ...
+//   error: unknown option '--effort'
+//
+// ONLY FLAGS THE APP ITSELF SENDS, and only the mode value it sends. Somebody's
+// own session arguments can carry a typo, and an update does not fix a typo,
+// so an unknown flag of theirs stays 'unknown'. Anchored to the start of a
+// line because that is where the CLI prints it, and an agent quoting the same
+// words from some other program's output is not this.
+const CLAUDE = harnessDefinition('claude');
+const OUR_FLAGS = [
+  ...JSON.stringify(CLAUDE.run).match(/--[A-Za-z-]+/g),
+  '--allowedTools', '--disallowedTools', '--permission-mode', '--mcp-config', '--permission-prompt-tool', '--settings', '--model',
+];
+const TOO_OLD = [
+  new RegExp(`^error: unknown option '(${OUR_FLAGS.join('|')})'`, 'm'),
+  /^error: option '--permission-mode <mode>' argument 'auto' is invalid/m,
+];
 const ORG_BLOCKED = [
   /organi[sz]ation has disabled/i,
   /disabled for (your|this) organi[sz]ation/i,
   /ask your admin/i,
+];
+
+// A CODEX SIGNED IN WITH AN API KEY. Our own line, said before the worker
+// starts (main/codex-account.mjs `codexKeyRefusal`), because Codex reads the
+// key out of auth.json past the worker scrub and bills every call to it.
+// Before SIGNED_OUT, whose /invalid api key/ is a different event.
+const API_KEY = [/signed in with an api key/i];
+
+// A CODEX config.toml CODEX WILL NOT READ. Codex's own words, off real runs of
+// codex-cli 0.160.0 on 2026-10-15: the app-server refusing `config/read` for a
+// quote left open or an old `profile = "..."` line, and the terminal's
+// "Error loading config.toml". Not benched like a login: fixing the file
+// changes no sign-in file, so a benched account would never come back.
+const CODEX_CONFIG = [
+  /refused config\/read: failed to (read configuration layers|resolve feature override)/i,
+  /error loading config\.toml/i,
+  /config\.toml:\d+:\d+: /i,
 ];
 
 const SIGNED_OUT = [
@@ -145,6 +185,34 @@ const INTERRUPTED = [
   /overloaded/i,
 ];
 
+// A NETWORK THAT WILL NOT LET A SECURE CONNECTION THROUGH (2026-10-15).
+//
+// A company network that inspects TLS swaps in its own certificate, and a
+// proxy can ask for a login. Neither clears by waiting, which is what made
+// 'interrupted' the wrong home for them: the real Claude Code 2.1.301 behind a
+// self-signed proxy died in 371 ms with "API Error: Unable to connect to API:
+// Self-signed certificate detected (DEPTH_ZERO_SELF_SIGNED_CERT) ...", "unable
+// to connect" filed it as a dropped connection, and the screen said there was
+// nothing to do. Node's own spellings, Codex's (rustls and OpenSSL) and a
+// proxy's 407 are here too. A REFUSED connection is not: "Connection refused
+// — a firewall or proxy may be blocking it (ECONNREFUSED)" is also what an
+// offline laptop prints.
+//
+// The fix is a setting the person's terminal already has, and since
+// main/shell-path.mjs the app reads it from their shell profile at launch, so
+// the sentence says to put it there and reopen the app.
+const NETWORK = [
+  /self[- ]signed certificate/i,
+  /unable to get local issuer certificate/i,
+  /unable to verify the first certificate/i,
+  /\b(DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_GET_ISSUER_CERT_LOCALLY|UNABLE_TO_VERIFY_LEAF_SIGNATURE)\b/,
+  /tls_untrusted_ca/i,
+  /invalid peer certificate/i,
+  /certificate verify failed/i,
+  /proxy authentication required/i,
+];
+const NETWORK_FIX = 'export HTTPS_PROXY and NODE_EXTRA_CA_CERTS in your shell profile';
+
 // A workspace the CLI refuses to run in. Distinct from the two above because
 // the fix is a folder, not an account.
 const WORKSPACE = [
@@ -186,6 +254,10 @@ const MODEL_NOT_ON_PLAN = [
 export function troubleCause(raw) {
   const text = String(raw ?? '');
   if (!text.trim()) return 'unknown';
+  // The CLI's own argument check, before any account is asked anything.
+  if (TOO_OLD.some((re) => re.test(text))) return 'too-old';
+  if (CODEX_CONFIG.some((re) => re.test(text))) return 'codex-config';
+  if (API_KEY.some((re) => re.test(text))) return 'api-key';
   // FIRST, because an organization's refusal mentions the subscription and
   // reads as a signed-out login to the list below.
   if (ORG_BLOCKED.some((re) => re.test(text))) return 'org-blocked';
@@ -193,6 +265,9 @@ export function troubleCause(raw) {
   if (MODEL_NOT_ON_PLAN.some((re) => re.test(text))) return 'model-not-on-plan';
   if (SIGNED_OUT.some((re) => re.test(text))) return 'signed-out';
   if (AT_LIMIT.some((re) => re.test(text))) return 'at-limit';
+  // BEFORE WORKSPACE, whose /untrusted/ would read a certificate as a folder,
+  // and before INTERRUPTED, whose "unable to connect" is in Claude Code's line.
+  if (NETWORK.some((re) => re.test(text))) return 'network';
   if (WORKSPACE.some((re) => re.test(text))) return 'workspace';
   // LAST ON PURPOSE, so every text that already had a name keeps it. A dropped
   // connection is the weakest of the four claims: an account that is signed out
@@ -251,6 +326,12 @@ export function limitResetMoment(raw, from = Date.now()) {
   if (!m) return null;
   const h = (Number(m[1]) % 12) + (m[3] === 'pm' ? 12 : 0);
   const d = new Date(from);
+  // A cloud machine prints its own zone, UTC, which is not the Mac's.
+  if (/resets\s+(?:at\s+)?\S+\s*\(UTC\)/i.test(String(raw))) {
+    d.setUTCHours(h, Number(m[2] ?? 0), 0, 0);
+    if (d.getTime() < from - 60_000) d.setUTCDate(d.getUTCDate() + 1);
+    return d.getTime();
+  }
   d.setHours(h, Number(m[2] ?? 0), 0, 0);
   if (d.getTime() < from - 60_000) d.setDate(d.getDate() + 1);
   return d.getTime();
@@ -265,8 +346,18 @@ export function needsHerHands(cause) {
   // same person: one is her, in a terminal; one is an admin of a workspace she
   // may not run. What they share is the only thing this question asks — trying
   // again in thirty minutes cannot possibly help.
-  return cause === 'signed-out' || cause === 'org-blocked' || cause === 'subscription-ended';
+  // An out-of-date Claude Code is hers too: no retry updates it, and every run
+  // until she does spends nothing but a reply's tries.
+  // A Codex signed in with a key is hers as well, and `codex login` rewrites
+  // auth.json, which is what brings a benched account back.
+  return cause === 'signed-out' || cause === 'org-blocked' || cause === 'subscription-ended' || cause === 'too-old' || cause === 'api-key';
 }
+
+// THE ONE COMMAND THAT UPDATES IT, WHEREVER IT CAME FROM. `claude update`
+// updates a native install itself and, on a Homebrew one, prints the brew line
+// to run instead (read in 2.1.80's own code), so it is the right first thing
+// to type whatever she installed it with.
+const UPDATE = `run claude update in a terminal (${Name} needs version ${CLAUDE.minVersion} or newer)`;
 
 // WHAT SHE READS WHEN NOT ONE AGENT CAN START ANYWHERE.
 // Not "an error occurred". The subject of the sentence is the thing she cares
@@ -278,6 +369,8 @@ export function troubleSentence(cause) {
   if (cause === 'at-limit') return 'No agents can start. Your Claude plan is at its limit.';
   if (cause === 'workspace') return 'No agents can start. Claude will not run in this folder.';
   if (cause === 'interrupted') return 'No agents can start. The connection to Claude keeps dropping.';
+  if (cause === 'network') return 'No agents can start. This network will not let them connect securely.';
+  if (cause === 'too-old') return 'No agents can start. Claude Code on this computer is too old.';
   return 'No agents can start on this computer right now.';
 }
 
@@ -293,6 +386,8 @@ export function troubleRemedy(cause) {
   if (cause === 'at-limit') return 'They start again on their own when it resets.';
   if (cause === 'workspace') return 'Open the folder in Claude once and say yes to trusting it.';
   if (cause === 'interrupted') return `Nothing to do. ${Name} tries them again on its own.`;
+  if (cause === 'network') return `If your company uses a proxy or its own certificate, ${NETWORK_FIX} and reopen ${Name}.`;
+  if (cause === 'too-old') return `To update it, ${UPDATE}. They start again on their own.`;
   return `${Name} keeps trying on its own.`;
 }
 
@@ -323,6 +418,11 @@ export function accountSentence(cause, dir) {
   if (cause === 'at-limit') return 'At its limit. It rejoins on its own when the limit resets.';
   if (cause === 'workspace') return 'Claude would not run in the folder this was asked to work in.';
   if (cause === 'interrupted') return `Its runs keep getting cut off. ${Name} is trying them again.`;
+  // NOT THE ACCOUNT, and said so, because this is the page where she would
+  // otherwise go and sign it in again.
+  if (cause === 'network') return `The account is fine; this network will not let it connect securely. Set your company's proxy or certificate in your shell profile and reopen ${Name}.`;
+  // Not this account either: every account here runs the same Claude Code.
+  if (cause === 'too-old') return `Claude Code on this computer is too old. To update it, ${UPDATE}.`;
   // A cause we cannot name points at the account, not at the app (2026-10-11).
   return 'Claude Code would not start on this account. Check that its plan is active at claude.ai.';
 }
@@ -361,6 +461,9 @@ export function engineTroubleNote(cause, engineWord = 'Codex') {
   if (cause === 'at-limit') return `${engineWord} is at its usage limit, so its tasks are waiting. They start again on their own when it resets.`;
   if (cause === 'workspace') return `${engineWord} would not run in the folder a task asked to work in. Open that folder in ${engineWord} once and allow it.`;
   if (cause === 'interrupted') return `${engineWord} runs keep getting cut off. ${Name} is trying them again on its own.`;
+  if (cause === 'network') return `${engineWord} cannot connect securely through this network, so its tasks are not moving. Set your company's proxy or certificate in your shell profile and reopen ${Name}.`;
+  if (cause === 'api-key') return `${engineWord} is signed in with an API key, which ${Name} never bills, so nothing runs on it. Open a terminal, run codex login, and sign in with ChatGPT.`;
+  if (cause === 'codex-config') return `${engineWord} could not read its config.toml, so nothing runs on it. Run codex in a terminal to see the line it points at, and fix it.`;
   return `${engineWord} sessions are dying on arrival, so its tasks are not moving. ${Name} keeps trying.`;
 }
 
@@ -473,6 +576,10 @@ const DEAD_RUN_OPENERS = {
   'at-limit': 'is at its usage limit, so nothing has been done on this task.',
   interrupted: 'was cut off in the middle, so nothing has been done on this task.',
   'model-not-on-plan': "could not use this task's model on that account's plan, so nothing has been done.",
+  network: 'could not connect securely through this network, so nothing has been done on this task.',
+  'too-old': `on this computer is older than ${Name} needs, so nothing has been done on this task.`,
+  'api-key': `is signed in with an API key, which ${Name} never bills, so nothing has been done.`,
+  'codex-config': 'could not read its config.toml, so nothing has been done on this task.',
   unknown: 'stopped before it did anything, so this task has not been started.',
 };
 
@@ -494,6 +601,10 @@ const RUN_STOPPED = {
   workspace: "This run stopped because it would not start in this project's folder.",
   interrupted: 'This run was cut off in the middle.',
   'model-not-on-plan': "This run stopped because that account's plan does not include the model.",
+  network: 'This run stopped because this network would not let it connect securely.',
+  'too-old': `This run stopped because Claude Code on this computer is older than ${Name} needs.`,
+  'api-key': 'This run stopped because Codex is signed in with an API key.',
+  'codex-config': 'This run stopped because Codex could not read its config.toml.',
   unknown: 'This run stopped before it finished.',
 };
 
@@ -519,12 +630,20 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
       ? ' Renew it at claude.ai, or pick another account in Settings.'
       : cause === 'at-limit'
       ? (resetsAt ? ` It starts again on its own at ${resetsAt}.` : ' It starts again on its own when the limit resets.')
+      : cause === 'too-old'
+      ? ` To update it, ${UPDATE}, and it starts again on its own.`
+      : cause === 'api-key'
+      ? ' Run codex login in a terminal to sign in with your ChatGPT plan, and it picks straight up.'
+      : cause === 'codex-config'
+      ? ` Run codex in a terminal to see the line it points at and fix it; ${Name} tries again on its own.`
       : cause === 'interrupted'
         ? ` ${Name} runs it again on its own.`
         : cause === 'model-not-on-plan'
           ? (elsewhere
             ? ` ${Name} runs it again on a Codex account whose plan has it.`
             : ' Pick another model for this task, or sign in a Codex account whose plan has it.')
+        : cause === 'network'
+          ? ` It will keep failing until this is fixed: if your company uses a proxy or its own certificate, ${NETWORK_FIX} and reopen ${Name}.`
         : ` ${Name} keeps trying, and it will keep failing the same way until this is fixed.`;
 
   return `${opener}${again}${next}`;
@@ -609,6 +728,8 @@ export function causeWord(cause) {
   if (cause === 'workspace') return 'a folder Claude will not run in';
   if (cause === 'interrupted') return 'runs getting cut off';
   if (cause === 'model-not-on-plan') return "a model the account's plan does not include";
+  if (cause === 'network') return 'a network that blocks secure connections';
+  if (cause === 'too-old') return 'an out-of-date Claude Code';
   return 'something we cannot name';
 }
 
@@ -624,6 +745,8 @@ export function causeWhat(cause, count) {
   if (cause === 'workspace') return `${n} in a folder Claude will not run in`;
   if (cause === 'interrupted') return `${n} cut off mid-run`;
   if (cause === 'model-not-on-plan') return `${n} asking for a model no signed-in Codex plan includes`;
+  if (cause === 'network') return `${n} stopped by a network that blocks secure connections`;
+  if (cause === 'too-old') return `${n} stopped by an out-of-date Claude Code`;
   return `${n} stopped for a reason we cannot name`;
 }
 
@@ -637,6 +760,8 @@ export function causeNext(cause, resetsAt = null) {
   if (cause === 'workspace') return 'Open the folder in Claude once and say yes to trusting it.';
   if (cause === 'interrupted') return `Nothing to do. ${Name} is trying them again.`;
   if (cause === 'model-not-on-plan') return 'Pick another model on each, or sign in a Codex account whose plan has it.';
+  if (cause === 'network') return troubleRemedy('network');
+  if (cause === 'too-old') return troubleRemedy('too-old');
   return `${Name} keeps trying on its own.`;
 }
 
@@ -665,7 +790,7 @@ export function causeBreakdown(rows = [], resetsAt = null) {
       what: causeWhat(cause, count),
       next: causeNext(cause, cause === 'at-limit' ? resetsAt : null),
       act: causeAct(cause),
-      hers: needsHerHands(cause) || cause === 'workspace' || cause === 'model-not-on-plan',
+      hers: needsHerHands(cause) || cause === 'workspace' || cause === 'model-not-on-plan' || cause === 'network',
     }))
     .sort((a, b) => (b.hers - a.hers) || (b.count - a.count) || a.cause.localeCompare(b.cause));
 }

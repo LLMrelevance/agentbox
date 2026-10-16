@@ -5,7 +5,7 @@
 
 import { useContext, useEffect, useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { Product, RepeatRule, RunningSession, ThreadCard, View, WorkItem } from '../types';
-import { ago, dayLabel, previewText, stamp } from '../format';
+import { ago, dayAndTime, dayLabel, previewText, stamp } from '../format';
 import { REST_HEADING, URGENT_HEADING, clickIntent, rowKeys, rowSummary, rowTitle, walkRowKeys } from '../list-rules';
 import { isUrgentRow } from '../interrupt';
 // THE SAME PREDICATE THE PANE USES, not a second copy of the rule. The row and
@@ -297,9 +297,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, running,
   // localStorage deferral, still read so nothing already deferred pops back.
   const deferredUntil = (item: WorkItem) => Math.max(item.runAt ?? 0, item.snoozedUntil ?? 0, snoozes?.[item.id] ?? 0);
   const wakeTs = (item: WorkItem) => deferredUntil(item) || item.updatedAt;
-  const wake = (ts: number) => new Date(ts).toLocaleString(undefined, {
-    weekday: 'short', hour: 'numeric', minute: '2-digit',
-  });
+  const wake = (ts: number) => dayAndTime(ts);
 
   // THE ROW SAYING NOTHING IS RUNNING WEARS NO DAY LABEL. It is about right now
   // and it is drawn first; a "Today" over it would be the list filing a fact

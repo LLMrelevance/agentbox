@@ -59,6 +59,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { shellDataDirsNow } from './shell-path.mjs';
 const liveCatalogs=new Map();
 export function rememberCodexModels(home,models){
  const rows=models.filter(m=>typeof m.model==='string'&&m.model).map((m,i)=>({slug:m.model,display_name:m.displayName,visibility:m.hidden?'hide':'list',priority:i,default_reasoning_level:m.defaultReasoningEffort,supported_reasoning_levels:(m.supportedReasoningEfforts||[]).map(l=>({effort:l.reasoningEffort,description:l.description}))}));
@@ -80,8 +81,13 @@ const catalogRows=(home,read)=>liveCatalogs.get(home)??modelRows(read(path.join(
  * offering models out of the wrong one would offer models a different login
  * cannot run.
  */
-export function codexHome({ configured = null, env = process.env, home = os.homedir() } = {}) {
-  return configured || env?.CODEX_HOME || path.join(home, '.codex');
+export function codexHome({ configured = null, env = process.env, home = os.homedir(), shell = shellDataDirsNow().CODEX_HOME } = {}) {
+  // AND THE ONE THE SHELL PROFILE EXPORTS (w-6d8c543a43). The supervisor asks
+  // with the worker's scrubbed environment, which never has CODEX_HOME, so a
+  // home set in .zshrc, the one their terminal's Codex signs in to, was never
+  // reached and every Codex task ran signed out on ~/.codex.
+  const fromShell = typeof shell === 'string' && path.isAbsolute(shell) ? shell : null;
+  return configured || env?.CODEX_HOME || fromShell || path.join(home, '.codex');
 }
 
 /**

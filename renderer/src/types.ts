@@ -26,6 +26,8 @@ export interface WorkItem {
   talk?: {
     chat: { by: string; ts: number; text: string }[];
     threads: Record<string, { by: string; text: string; replies: { by: string; ts: number; text: string }[] }>;
+    /** Per person, when they last marked it done; what came before is settled for them. */
+    settled?: Record<string, number>;
   };
   status: 'open' | 'claimed' | 'done' | 'blocked';
   title: string;
@@ -172,6 +174,8 @@ export interface TeamCallResult {
   error?: string;
   /** A new account that waits on the link in its confirmation email. */
   confirm?: boolean;
+  /** The row a call wrote into, when it wrote one: a message's conversation. */
+  made?: { product: string; id: string };
 }
 
 export type ThreadStateWord = 'waiting' | 'running' | 'scheduled' | 'done';
@@ -427,7 +431,12 @@ export interface SupervisorStatus {
 // shared/spawn-trouble.mjs): its owner renews it, no admin is involved.
 // 'model-not-on-plan' is a Codex login whose plan lacks the model the task asks
 // for; the fix is another model or another login, not this login.
-export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'unknown';
+// 'too-old' is a Claude Code older than the worker's command line (2.1.71), and
+// 'network' a proxy or company certificate the workers never had; both wait on
+// her, and neither is fixed by trying again. 'api-key' is a Codex signed in
+// with an API key, which is refused rather than billed; 'codex-config' is a
+// config.toml Codex cannot read.
+export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'too-old' | 'network' | 'api-key' | 'codex-config' | 'unknown';
 
 // A worker frozen mid-action, waiting on the user's allow/deny.
 export interface Approval {
@@ -836,6 +845,8 @@ export interface ProjectSettings {
 }
 
 export interface WorkspaceSettings {
+  /** Every project on her phone, unless she turned it off (shared/phone-snapshot.mjs). */
+  phoneAll?: boolean;
   agentsRunning: boolean;
   sessionsAtOnce: number;
   /**

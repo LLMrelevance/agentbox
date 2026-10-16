@@ -12,7 +12,7 @@
 // place a grant is reviewed; what changed is that she edits them as fields on
 // the project they belong to instead of in a text editor.
 
-import { phoneProjectsOf, withPhoneProject } from '../shared/phone-snapshot.mjs';
+import { phoneChoiceOf, phoneProjectsOf, withPhoneAll, withPhoneProject, phoneEligible } from '../shared/phone-snapshot.mjs';
 import fs from 'node:fs';
 import { harnessFor } from './harnesses.mjs';
 import os from 'node:os';
@@ -520,6 +520,8 @@ export function readSettings({ config, supervisor, store }) {
     };
   });
 
+  // On her phone: every project unless she kept it here (shared/phone-snapshot.mjs).
+  const phoneSlugs = new Set(phoneProjectsOf(config.phoneProducts, process.env.AGENTBOX_PERSON_ID, phoneEligible(products)));
   const projects = products.map((product) => {
     let instructions = '';
     try { instructions = supervisor.readProjectInstructions(product.slug); } catch {}
@@ -543,7 +545,7 @@ export function readSettings({ config, supervisor, store }) {
       autonomous: (config.autonomousProducts ?? []).includes(product.slug),
       // ON HER PHONE WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md): its threads
       // go up to her own rows online on every sync (main/phone-inbox.mjs).
-      onPhone: phoneProjectsOf(config.phoneProducts, process.env.AGENTBOX_PERSON_ID).includes(product.slug),
+      onPhone: phoneSlugs.has(product.slug),
       permission: override ? permissionMode(override) : 'workspace',
       permissionArgs: override ?? null,
       codexMode: config.projectCodexMode?.[product.slug] ?? 'workspace',
@@ -568,6 +570,8 @@ export function readSettings({ config, supervisor, store }) {
   return {
     archivedProjects,
     workspace: {
+      // THE PHONE AS A WHOLE: on unless she turned it off (shared/phone-snapshot.mjs).
+      phoneAll: phoneChoiceOf(config.phoneProducts, process.env.AGENTBOX_PERSON_ID, phoneEligible(products)).all,
       agentsRunning: !supervisor.paused,
       // The number picked on the menu, for the whole computer, or what is
       // running as the limit now when nothing was picked.
@@ -790,14 +794,14 @@ const withSlug = (list, slug, on) => {
 // `paused` and `driven` were the other three and all three are gone from the
 // app: the first two because she could not tell what they did and would never
 // have used them, the third because the self-driving it belonged to is deleted.
-export function setProjectSetting({ config, supervisor }, { product, key, value }) {
+export function setProjectSetting({ config, supervisor, store }, { product, key, value }) {
   if (!product) throw new Error('no project');
   switch (key) {
     case 'autonomous':
       saveConfig(config, { autonomousProducts: withSlug(config.autonomousProducts, product, !!value) });
       break;
     case 'phone':
-      saveConfig(config, { phoneProducts: withPhoneProject(config.phoneProducts, process.env.AGENTBOX_PERSON_ID, product, !!value) });
+      saveConfig(config, { phoneProducts: withPhoneProject(config.phoneProducts, process.env.AGENTBOX_PERSON_ID, product, !!value, phoneEligible(store?.listProducts?.() ?? [])) });
       break;
     // WHICH OF HER CLAUDE CODE AGENTS THIS PROJECT TOOK. Names only: the files
     // stay where their author put them and Agentbox never copies or moves one,
@@ -1084,8 +1088,31 @@ export function strayFolderSettings({ supervisor }, home = os.homedir()) {
   return { count, now };
 }
 
-export function setWorkspaceSetting({ config, supervisor }, { key, value }) {
+export function cornerTagTurnedOff({ key, value } = {}) {
+  return key === 'cornerTag' && !value;
+}
+
+export function countsTurnedOff({ key, value } = {}) {
+  return key === 'diagnostics' && !value;
+}
+
+export function setWorkspaceSetting({ config, supervisor, store }, { key, value }) {
   switch (key) {
+    // EVERY PROJECT ON HER PHONE, or none (shared/phone-snapshot.mjs). Which
+    // ones she keeps here is remembered either way.
+    case 'phoneAll':
+      saveConfig(config, { phoneProducts: withPhoneAll(config.phoneProducts, process.env.AGENTBOX_PERSON_ID, !!value, phoneEligible(store?.listProducts?.() ?? [])) });
+      break;
+    // THE DROPDOWN'S WHOLE ANSWER AT ONCE: on or off, and which projects stay
+    // on this computer. Only project slugs that exist are kept.
+    case 'phoneProjects': {
+      const person = process.env.AGENTBOX_PERSON_ID;
+      if (!person) throw new Error('sign in first');
+      const every = phoneEligible(store?.listProducts?.() ?? []);
+      const except = Array.isArray(value?.except) ? value.except.filter((s) => every.includes(s)) : [];
+      saveConfig(config, { phoneProducts: { owner: person, all: value?.all !== false, except } });
+      break;
+    }
     case 'agentsRunning':
       supervisor.paused = !value;
       supervisor.onChange?.();
@@ -1152,8 +1179,21 @@ export function setWorkspaceSetting({ config, supervisor }, { key, value }) {
     case 'cloudRuns': {
       const map = { mac: false, full: null, all: 'all' };
       if (!(value in map)) throw new Error(`unknown cloud mode: ${value}`);
-      saveConfig(config, { cloudRuns: map[value] });
-      config.cloudRuns = map[value];
+      // Turning the cloud on to one meaning makes that the one C goes back to.
+      const patch = value === 'mac' ? { cloudRuns: false } : { cloudRuns: map[value], cloudWhenOn: value };
+      saveConfig(config, patch);
+      Object.assign(config, patch);
+      supervisor.wake?.();
+      supervisor.onChange?.();
+      break;
+    }
+    // WHAT "ON" MEANS (renderer/src/cloud-menu.ts): kept while the cloud is
+    // off, and taking effect at once while it is on.
+    case 'cloudWhenOn': {
+      if (value !== 'full' && value !== 'all') throw new Error(`unknown meaning of on: ${value}`);
+      const patch = config.cloudRuns === false ? { cloudWhenOn: value } : { cloudWhenOn: value, cloudRuns: value === 'all' ? 'all' : null };
+      saveConfig(config, patch);
+      Object.assign(config, patch);
       supervisor.wake?.();
       supervisor.onChange?.();
       break;

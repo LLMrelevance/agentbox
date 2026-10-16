@@ -317,8 +317,10 @@ describe('the coaching card promises no dead key either', () => {
     expect(app).toMatch(/\/\^\[1-9\]\$\/\.test\(e\.key\)\) pickOption\(focused, Number\(e\.key\)\)/);
   });
 
-  it('C opens the compose card, which is what beat four says it does', () => {
-    expect(app).toMatch(/case 'c': case 'C':[\s\S]{0,80}setModal\('compose'\)/);
+  // N, which beat four says. C was its twin until it turned to the cloud
+  // (tests/the-cloud-is-on-or-off-with-one-key).
+  it('N opens the compose card, which is what beat four says it does', () => {
+    expect(app).toMatch(/case 'n': case 'N':[\s\S]{0,80}setModal\('compose'\)/);
   });
 
   it('↵ opens the row under the cursor, which is what beat six says', () => {

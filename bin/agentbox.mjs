@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 import { bootHeadless, createServer, newToken } from '../main/serve.mjs';
 import { appHome } from '../main/store/home.mjs';
+import { learnShellDataDirs } from '../main/shell-path.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.dirname(here);
@@ -59,6 +60,11 @@ if (!fs.existsSync(path.join(dist, 'index.html'))) {
   process.exit(1);
 }
 
+// The login folders the shell profile names, read before the first worker can
+// start, as main/main.mjs does. The worker scrub keeps CLAUDE_CONFIG_DIR and
+// CODEX_HOME from reaching a worker by inheritance, so without this a copy's
+// workers signed in to ~/.claude and ~/.codex (w-6d8c543a43).
+await learnShellDataDirs();
 const booted = await bootHeadless({ dataDir, appDir, userDir: dataDir });
 // ZERO_NO_SUPERVISOR: the desktop already honors this (main/main.mjs). This
 // entry is the same inbox, so a launch that asks for no agents must not start

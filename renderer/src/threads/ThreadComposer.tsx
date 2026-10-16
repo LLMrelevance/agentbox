@@ -76,6 +76,8 @@ export interface ThreadSent {
   to?: string;
   /** What the card held when Send was pressed, for Z to put back. */
   draft?: ComposeDraft;
+  /** The conversation a message went into, so its toast can open it with O. */
+  made?: { product: string; id: string };
 }
 
 type MenuKey = 'to' | 'model' | 'project' | 'priority' | 'visibility' | 'later';
@@ -472,7 +474,7 @@ export function ThreadComposer({
       failed(`Not sent: ${res.error ?? 'the team cloud did not answer.'}`);
       return;
     }
-    onSent(null, { kind: 'message', to: person.id, draft: taken, ...(toMany ? { toMany } : {}) });
+    onSent(null, { kind: 'message', to: person.id, draft: taken, ...(toMany ? { toMany } : {}), ...(res.made ? { made: res.made } : {}) });
   };
 
   const send = () => (person ? sendMessage() : sendTask());

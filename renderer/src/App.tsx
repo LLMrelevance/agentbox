@@ -1,4 +1,5 @@
 import { previewFocus } from './preview-focus';
+import { cloudToggleNote, cloudToggleTarget } from './cloud-menu';
 import { usePhoneBack, onCloudPhone, onPhone } from './phone-screen';
 import { holdsReplies, writeHeldWhenHidden } from './phone-holds';
 import { pollEvery } from './phone-polls';
@@ -31,7 +32,8 @@ import type { PendingSaid } from './item-thread';
 import { DocPane, type OpenDoc } from './components/DocPane';
 import { docKind, EVEN_SPLIT, escapeClosesDoc, escapeInTheFileClosesIt, focusIsInTheFile, readSplit, writeSplit } from './doc-pane';
 import { changeOwnsKey } from './code-keys';
-import { askStillStands, bringsBack, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO } from './undo-window';
+import { askStillStands, bringsBack, closesAgain, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO, UNDID_CLOSING } from './undo-window';
+import { useNeo } from './neo/useNeo';
 import { addUndoMark, UNDO_MARKS_EVENT, type UndidSpec } from './undo-marks';
 import { whatTheFileSentUp } from '../../shared/artifact-keys.mjs';
 import { type Place, placeIsSomewhere, readPlace, writePlace, writeScroll } from './where-she-was';
@@ -39,7 +41,7 @@ import { documentCandidates } from './message-artifacts';
 import { filesFromRuns } from './run-files';
 import { Rail } from './components/Rail';
 import { ThreadComposer } from './threads/ThreadComposer';
-import { joinNames } from './threads/composer-rules';
+import { joinNames, threadMessage } from './threads/composer-rules';
 import { NewProject } from './components/NewProject';
 import { shortFolder } from './project-folder';
 import { ImportAgents } from './components/ImportAgents';
@@ -103,6 +105,7 @@ import { FindBar } from './components/FindBar';
 import { Landed, Onboarding, PracticeBand, WayOut } from './components/Onboarding';
 import { PlanBar, PlanSetupCard } from './components/PlanSetup';
 import { CloudSetup } from './components/CloudSetup';
+import { SETUP, newlyFailedSignIns } from './cloud-setup';
 import { AppMark } from './components/AppMark';
 import { needsPlan, type Plan } from './plan-setup';
 import { PRACTICE_REPLY, PRACTICE_ROWS, PRACTICE_SLUG } from '../../shared/first-run-practice.mjs';
@@ -147,7 +150,7 @@ import { SignInPage } from './team/SignInPage';
 import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, flipView, isDirect, nextTab, pageDisplay, pageFor, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
 import { mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
 import { boardStops, listStops, stepFromPlace, stepStop, stopKey, type Stop } from './threads/walk-rules';
-import { opensTheToast, toastParts, type ToastGoes } from './toast-parts';
+import { opensTheToast, toastOpens, toastParts, type ToastGoes } from './toast-parts';
 
 type Modal = null | 'compose' | 'filter' | 'palette' | 'reply' | 'snooze' | 'standing';
 
@@ -839,7 +842,7 @@ export default function App() {
      time instead, against whatever the window is holding by then. A row that has
      since gone (she withdrew it with Z) simply does not answer the click.
   */
-  const [toast, setToast] = useState<{ text: string; goes?: { product: string; id: string } } | null>(null);
+  const [toast, setToast] = useState<{ text: string; goes?: ToastGoes } | null>(null);
   // Dev aid, the same shape again: ?modes=a,b,e draws one of the three unbuilt
   // treatments of the permission question (./components/ModeScreen.tsx), so it
   // can be photographed inside the real app rather than redrawn beside it.
@@ -2238,7 +2241,7 @@ export default function App() {
     : view === 'snoozed' ? snoozed
       : view === 'progress' ? progress
         : done;
-  const shownBox = useMemo(() => filterBox(wholeBox, boxFilter), [wholeBox, boxFilter]);
+  const shownBox = useMemo(() => filterBox(wholeBox, boxFilter, directSlugs), [wholeBox, boxFilter, directSlugs]);
   // THE DISPLAY MENU'S FILTERS AND SORT, on top of the box (approved
   // 2026-10-01). Remembered per page; the Inbox is a list by default and the
   // Team a board.
@@ -2395,12 +2398,12 @@ export default function App() {
   // whole inbox, or the next task opened can be one she has hidden
   // (w-27759abd33).
   const shownInbox = useMemo(
-    () => sortedByDisplay(filterBox(inbox, boxFilter).filter((i) => isTroubleRow(i) || isUpdateRow(i) || keepsDisplay(i, inboxDisplay, now, seenOf(i), directSlugs)), inboxDisplay, undefined, projectOrder, directSlugs),
+    () => sortedByDisplay(filterBox(inbox, boxFilter, directSlugs).filter((i) => isTroubleRow(i) || isUpdateRow(i) || keepsDisplay(i, inboxDisplay, now, seenOf(i), directSlugs)), inboxDisplay, undefined, projectOrder, directSlugs),
     [inbox, boxFilter, inboxDisplay, now, projectOrder, directSlugs, seenOf],
   );
   const boxFilterMenu = useMemo(
-    () => (modal === 'filter' ? filterMenu(wholeBox.filter((i) => !isTroubleRow(i) && !isUpdateRow(i)), boxFilter, snap?.products ?? []) : null),
-    [modal, wholeBox, boxFilter, snap?.products],
+    () => (modal === 'filter' ? filterMenu(wholeBox.filter((i) => !isTroubleRow(i) && !isUpdateRow(i)), boxFilter, snap?.products ?? [], directSlugs) : null),
+    [modal, wholeBox, boxFilter, snap?.products, directSlugs],
   );
   // ONE RULE FOR WHERE A THREAD SITS, THE TABS' OWN (2026-10-01: the board
   // said Running for queued work the tab did not). Needs you wins, then
@@ -2715,8 +2718,15 @@ export default function App() {
   // still in the page and every letter she types goes into the file instead of
   // into the palette's field.
   useEffect(() => {
-    const off = (window.zero as any)?.onKeyInTheFile?.((k: { key: string; meta?: boolean; ctrl?: boolean }) => {
-      if (!focusIsInTheFile(document.activeElement)) return;
+    const off = (window.zero as any)?.onKeyInTheFile?.((k: { key: string; meta?: boolean; ctrl?: boolean; fromGuest?: boolean }) => {
+      // A KEY OUT OF A WEBVIEW NEEDS NO FOCUS CHECK, and must not be given
+      // one. The check below exists to stop a key being answered twice when
+      // the window's own handler also heard it. The window never hears a
+      // guest's keys: a webview is a separate WebContents, not a frame of
+      // this page, and `document.activeElement` stays on BODY while the guest
+      // holds the keyboard (measured in the running app). So main says where
+      // the key came from and only a frame's is checked.
+      if (!k.fromGuest && !focusIsInTheFile(document.activeElement)) return;
       const meant = whatTheFileSentUp(k);
       if (meant === 'close') {
         if (!escapeInTheFileClosesIt(openDoc)) return;
@@ -3269,13 +3279,42 @@ export default function App() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Counts toasts, so each new one is a new element and its clock starts over.
   const toastShown = useRef(0);
-  const showToast = useCallback((text: string, goes?: { product: string; id: string }) => {
+  const showToast = useCallback((text: string, goes?: ToastGoes) => {
     toastShown.current += 1;
     setToast({ text, goes });
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), goes ? TOAST_GOES_MS : 2500);
   }, []);
   showToastRef.current = showToast;
+
+  // C TURNS THE CLOUD ON OR OFF, from anywhere a key reaches (2026-10-16), and
+  // a note says which. Through a ref so the key handlers read the cloud as it
+  // is now. Nothing without a cloud set up.
+  const toggleCloudRef = useRef<(() => void) | null>(null);
+  toggleCloudRef.current = () => {
+    const cloud = snap?.cloud;
+    if (!cloud?.setUp) return;
+    const mode = cloudToggleTarget(cloud);
+    void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode });
+    showToast(cloudToggleNote(mode));
+  };
+
+  // A CLOUD ACCOUNT THAT WAS NOT ADDED, SAID THE MOMENT IT FAILS (2026-10-15):
+  // the check goes on behind her, so when it fails with the setup closed she
+  // is told once, here, and the cloud button keeps the way to try again. Not
+  // for failures already there when the app opened, and not twice.
+  const cloudFailuresSeen = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const cloud = snap?.cloud;
+    if (!cloud) return;
+    if (cloudFailuresSeen.current === null) {
+      cloudFailuresSeen.current = new Set(newlyFailedSignIns(new Set(), cloud).map((s) => s.attempt ?? s.key));
+      return;
+    }
+    const fresh = newlyFailedSignIns(cloudFailuresSeen.current, cloud);
+    for (const s of fresh) cloudFailuresSeen.current.add(s.attempt ?? s.key);
+    if (fresh.length && !cloudSetupOpen) showToast(SETUP.toastFailed(fresh[0].engine));
+  }, [snap?.cloud, cloudSetupOpen, showToast]);
 
   // THE FIRST PRESS THAT WOULD LEAVE A STOPPED AGENT STUCK, HELD ONCE.
   //
@@ -3469,9 +3508,11 @@ export default function App() {
     // (see markDone below) and the key is named as a press, so neither half can
     // be read as part of the other.
     //
-    // A pick she is still looking at needs no way in: `stay` means the pane
-    // never left the row.
-    showToast(`${toast} · press Z to undo`, stay ? undefined : goes);
+    // A REPLY THAT KEEPS HER ON THE ROW NAMES IT TOO (w-5513afd09a). It used
+    // to name nothing when `stay` was set, so the moment she left the thread
+    // the toast had no O. The cap stays off while the row is the one open
+    // (toastOpens), which is the "needs no way in" this used to say.
+    showToast(`${toast} · press Z to undo`, goes);
     if (holdMs <= 0) {
       await run();
       await refresh();
@@ -3563,7 +3604,8 @@ export default function App() {
       setCloseAskOn(keyOf(item));
       return;
     }
-    const undid = [{ product: item.product, id: item.id, words: 'Undid closing it' }];
+    if (closesAgain(pendingRef.current, item)) return;
+    const undid = [{ product: item.product, id: item.id, words: UNDID_CLOSING }];
     await deferCommit(item, async () => {
       await api.answer({ product: item.product, id: item.id, status: 'done' });
       pushUndo({ label: `Reopened: ${clipToSentence(item.title, TOAST_TITLE)}`, undoes: `reopen “${clipToSentence(item.title, TOAST_TITLE)}”`, brings: item, undid, run: async () => { await api.answer({ product: item.product, id: item.id, status: 'open' }); } });
@@ -4018,9 +4060,14 @@ export default function App() {
     // Two true sentences, never one hopeful one. A failed hand-over says so; a
     // send says Sent, which is what it says everywhere else in this app; and a
     // session seen going back to work says the better thing.
+    // AND IT NAMES THE ROW, WITH Z WHEN THERE IS ONE (w-5513afd09a). The row
+    // has just left her inbox for In progress, so O is the way after it, and Z
+    // already took it back below without the toast ever saying so.
+    const back = { product: item.product, id: item.id };
+    const z = out?.key ? ' · Z to undo' : '';
     if (!out?.ok) showToast(out?.reason ?? 'The message could not be handed over.');
-    else if (out.working) showToast(`${agent.name} is working on it`);
-    else showToast(`Sent → ${agent.name}`);
+    else if (out.working) showToast(`${agent.name} is working on it${z}`, back);
+    else showToast(`Sent → ${agent.name}${z}`, back);
     // AND THE ROW HAS MOVED, so there is a way back. The row is in In progress
     // now and it stays there until the session stops, which on a long job is a
     // while; a reply she did not mean to send would otherwise have no undo at
@@ -4359,12 +4406,13 @@ export default function App() {
   // refusal is either a race or a reason nothing can start it, said plainly.
   const runNow = useCallback(async (item: WorkItem) => {
     const r = await window.zero?.runNow?.({ product: item.product, id: item.id });
+    // Started, it names the thread for O (w-5513afd09a); a refusal names nothing.
     showToast(r?.ok ? 'Up next. It starts as soon as an agent is free.'
       : r?.reason === 'running' ? 'Already running.'
       : r?.reason === 'paused' ? 'Agents are paused. Turn them back on to run this.'
       : r?.reason === 'scheduled' ? 'This task is scheduled for later.'
       : r?.reason === 'held' ? 'Another session still holds this task. It starts when that lets go.'
-      : 'This task is no longer waiting.');
+      : 'This task is no longer waiting.', r?.ok ? { product: item.product, id: item.id } : undefined);
     await refresh();
   }, [refresh, showToast]);
 
@@ -4382,7 +4430,8 @@ export default function App() {
     // she can see and in none that she cannot.
     if (item.agent || isTroubleRow(item) || isUpdateRow(item)) return;
     const r = await (window.zero as any)?.redeliver?.({ product: item.product, id: item.id });
-    showToast(r?.ok ? `A fresh agent is picking this up → ${item.productName}` : 'Nothing here to restart');
+    showToast(r?.ok ? `A fresh agent is picking this up → ${item.productName}` : 'Nothing here to restart',
+      r?.ok ? { product: item.product, id: item.id } : undefined);
     await refresh();
   }, [refresh, showToast]);
 
@@ -4398,7 +4447,7 @@ export default function App() {
     // she can see and in none that she cannot.
     if (item.agent || isTroubleRow(item) || isUpdateRow(item)) return;
     await (window.zero as any)?.reopen?.({ product: item.product, id: item.id });
-    showToast(`Back in the queue → ${item.productName}`);
+    showToast(`Back in the queue → ${item.productName}`, { product: item.product, id: item.id });
     // Back in the queue is out of her inbox, so it hands her the next task
     // too.
     leaveResolved(item);
@@ -4444,7 +4493,9 @@ export default function App() {
         .filter(Boolean).join(', ')
       : r?.working
         ? 'Already working on it'
-        : 'Nothing to resume');
+        : 'Nothing to resume',
+    // One thread put back on names it for O; several have no one place to go.
+    list.length === 1 && (started || queued) ? { product: list[0].product, id: list[0].id } : undefined);
     // PUTTING A WORKER BACK ON IT IS A WAY OUT OF HER INBOX TOO, and it was the
     // fifth. ⌘K offers "Resume This Agent" on a row she is reading, a worker
     // claims it, and the row moves to In progress — the same emptying as
@@ -4549,19 +4600,66 @@ export default function App() {
     else if (shown.compose) { setFocused(null); setModal('compose'); }
   }, [undoStack, refresh, showToast, markSeen, leaveUndoMarks]);
 
+  // NEO, THE VOICE ALPHA (w-e85fd9144f). Nothing at all unless this Mac has
+  // the alpha flag. When it does, Neo's tool calls are carried out here with
+  // the same functions the keys use, so a voice can do nothing a hand could
+  // not; the rules about which thread and when to ask are in ./neo/bridge.
+  useNeo({
+    rows: () => shownInbox,
+    focused: () => focused,
+    options: (row) => (offerIsLive(row) ? itemOptions(row) : []),
+    summary: (row) => row.result || row.note || row.body || '',
+    projects: () => (snap?.products ?? []).filter((p) => !directSlugs.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name })),
+    open: (row) => { setSearch(null); setFocused(row); markSeen(row); },
+    pick: (row, n) => pickOption(row, n),
+    reply: (row, text) => answerWith(row, text),
+    close: (row) => markDone(row),
+    compose: async (text, product) => {
+      const message = threadMessage(text, []);
+      if (!message) return null;
+      const made = await api.compose({ product, title: message.title, body: message.body || undefined, kind: 'directive', priority: 5 });
+      // Z and Neo's own undo take it back, the same as a task typed into the card.
+      if (made?.id) {
+        pushUndo({ label: `Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`, undoes: 'take back the task you just made',
+          undid: [{ product: made.product, id: made.id, words: 'Undid sending it' }],
+          run: async () => { await api.answer({ product: made.product, id: made.id, status: 'done' }); } });
+        showToast(sentLine({ to: snap?.products.find((p) => p.slug === product)?.name ?? product, when: null, held: false }), { product: made.product, id: made.id });
+        void refresh();
+      }
+      return made;
+    },
+    undo: async () => {
+      if (pendingRef.current) { await undo(); return 'done'; }
+      const { take, instant } = nextUndo(undoStack, Date.now());
+      if (!take) return 'none';
+      if (!instant) return 'old';
+      await undo();
+      return 'done';
+    },
+  });
+
   // INTO THE ROW THE TOAST IS ABOUT, from a click on it or from O
   // (w-f0bfe32859). One path, so the key can never open something the click
   // would not. The lookup is by id at the moment of the press, against whatever
   // the window holds by then; a row withdrawn with Z simply does not answer.
+  // `openRepeat` is defined well below; it is reached through this ref.
+  const openRepeatRef = useRef<((rule: RepeatRule) => void) | null>(null);
   const openToastRow = useCallback((to: ToastGoes) => {
+    setToast(null);
+    // A NEW REPEATING TASK OPENS AS ITSELF (w-5513afd09a), the way a click on
+    // it in Later does: its latest run if it has one, its own page if not.
+    if (to.repeat) {
+      const rule = repeats.find((r) => r.id === to.id && r.product === to.product);
+      if (rule) { setSearch(null); openRepeatRef.current?.(rule); }
+      return;
+    }
     const row = [...inbox, ...progress, ...snoozed, ...done]
       .find((i) => i.id === to.id && i.product === to.product);
-    setToast(null);
     if (!row) return;
     setSearch(null);
     setFocused(row);
     markSeen(row);
-  }, [inbox, progress, snoozed, done, markSeen]);
+  }, [inbox, progress, snoozed, done, markSeen, repeats]);
 
   /* ------------------------------- keyboard ------------------------------- */
   useEffect(() => {
@@ -4698,7 +4796,7 @@ export default function App() {
       // it means the same thing on the list and inside a task (answering one
       // moves you on, and O brings you back to it). Only while a toast with
       // somewhere to go is up: the cap drawn on it is the only promise of it.
-      const goesTo = opensTheToast(e.key, toast);
+      const goesTo = opensTheToast(e.key, toast, focused ? { product: focused.product, id: focused.id } : null);
       if (goesTo) { e.preventDefault(); openToastRow(goesTo); return; }
       // AN OPEN REPEATING TASK IS A SCREEN, AND EVERY KEY STOPS HERE.
       //
@@ -4794,10 +4892,11 @@ export default function App() {
         // E archives, unconditionally. It must never approve on her behalf.
         else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); markDone(focused); }
         else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setOpenDoc(null); setModal('reply'); }
-        // N (AND THE OLDER C) MEAN THE SAME THING ON BOTH SCREENS. The + in
-        // the top bar is on this screen too and its tooltip says "New task
-        // (N)", so the key is already advertised here.
-        else if (e.key === 'c' || e.key === 'C' || e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
+        // N MEANS THE SAME THING ON BOTH SCREENS. The + in the top bar is on
+        // this screen too and its tooltip says "New task (N)", so the key is
+        // already advertised here. C is the cloud's since 2026-10-16.
+        else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
+        else if (e.key === 'c' || e.key === 'C') { e.preventDefault(); toggleCloudRef.current?.(); }
         // L, NOT S, SINCE 2026-10-01. S was the schedule picker here and the
         // summary panel on the same screen (threads/Summary.tsx listens first
         // and eats it), so the two fought over one letter and a persona test
@@ -4819,7 +4918,8 @@ export default function App() {
           const target = stepStop(stops, { card: openCard }, (e.key === 'j' || e.key === 'J') ? 1 : -1, walkPlace);
           if (target) goToStop(target);
         }
-        else if (e.key === 'c' || e.key === 'C' || e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
+        else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
+        else if (e.key === 'c' || e.key === 'C') { e.preventDefault(); toggleCloudRef.current?.(); }
         else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); }
         return;
       }
@@ -4895,8 +4995,10 @@ export default function App() {
           if (multiSel.size) openSnooze(selectable.filter((i) => multiSel.has(i.id)));
           else if (pointed && (view === 'inbox' || view === 'snoozed')) openSnooze(pointed);
           break;
-        // N does the same as C: the letter she reached for (w-fb9051e597).
-        case 'c': case 'C': case 'n': case 'N': e.preventDefault(); setModal('compose'); break;
+        // N starts a thread (w-fb9051e597). C was its older twin until
+        // 2026-10-16 and turns the cloud on or off now.
+        case 'n': case 'N': e.preventDefault(); setModal('compose'); break;
+        case 'c': case 'C': e.preventDefault(); toggleCloudRef.current?.(); break;
         case 'z': case 'Z': undo(); break;
         // B FLIPS LIST AND BOARD (w-58c8f466e7): "I quite often switch between
         // board and list view". B for board; it shipped as V first and that
@@ -5285,6 +5387,7 @@ export default function App() {
     if (latest) { setFocusedRepeat(null); setCardSel(null); setFocused(latest); markSeen(latest); }
     else { setFocused(null); setFocusedRepeat(rule); }
   };
+  openRepeatRef.current = openRepeat;
   // HER MESSAGE, SPLIT THE SAME WAY IT WAS SPLIT WHEN SHE TYPED IT. The label is
   // derived rather than kept, so the Later row and the instruction cannot drift
   // apart, and the next run reads the new body (main/repeats.mjs briefs it with
@@ -5647,6 +5750,7 @@ export default function App() {
               people={peoplePick}
               cloud={snap.cloud ?? null}
               onCloudMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
+              onCloudWhenOn={(mode) => { void api.setWorkspaceSetting({ key: 'cloudWhenOn', value: mode }); }}
               onCloudSetUp={() => setCloudSetupOpen(true)}
             />
           )}
@@ -6273,7 +6377,9 @@ export default function App() {
             }
             if (how?.kind === 'message') {
               const said = firstNames(how.toMany ?? [how.to ?? '']);
-              showToast(said ? `Sent to ${said}` : 'Message sent');
+              // Named for O, like a new thread (w-5513afd09a). No Z: a message
+              // has reached the team cloud by now and there is no taking it back.
+              showToast(said ? `Sent to ${said}` : 'Message sent', how.made ? { product: how.made.product, id: how.made.id } : undefined);
               await refresh();
               return;
             }
@@ -6287,7 +6393,12 @@ export default function App() {
                   setRepeats(await api.repeats());
                 });
               }
-              showToast(`Repeating → ${to ?? slug} · Z to undo`);
+              // O opens the new repeating task, and Z is promised only when
+              // there is a rule for it to end (w-5513afd09a). The list of rules
+              // is read first, so O finds the one just made.
+              if (how.ruleId) setRepeats(await api.repeats());
+              showToast(how.ruleId ? `Repeating → ${to ?? slug} · Z to undo` : `Repeating → ${to ?? slug}`,
+                how.ruleId ? { product: slug, id: how.ruleId, repeat: true } : undefined);
               await refresh();
               return;
             }
@@ -6313,6 +6424,8 @@ export default function App() {
           component here, we no longer use this". */}
       {modal === 'palette' && (
         <Palette
+          cloud={snap.cloud?.setUp ? snap.cloud : null}
+          onCloudMode={(mode) => { setModal(null); void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
           onFirstRun={walkAgain}
           onTutorial={() => startTutorial(comeBackTo(snap.products, productFilter, rememberedProject()))}
           onImportAgents={() => { setModal(null); setImportAgents(true); }}
@@ -6405,7 +6518,7 @@ export default function App() {
                        label: `Resume Agents (${sel.filter((i) => !working(i)).length} of ${n} selected)`,
                        run: () => { setModal(null); putAgentBackOn(sel.filter((i) => !working(i))); } }]
                   : []),
-                ...priorityCommands(sel).map((c) => ({
+                ...priorityCommands(sel, directSlugs).map((c) => ({
                   ...c, run: () => { setModal(null); void retag(sel, c.value); },
                 })),
               ];
@@ -6502,7 +6615,7 @@ export default function App() {
               // was removed on her word. It had no entry here once, and the
               // one place she went looking for it was the one place it was
               // missing.
-              ...priorityCommands([target]).map((c) => ({
+              ...priorityCommands([target], directSlugs).map((c) => ({
                 ...c, run: () => { setModal(null); void retag([target], c.value); },
               })),
             ];
@@ -7070,16 +7183,22 @@ export default function App() {
           picked out of fourteen drawings over four rounds. */}
       {toast && (() => {
         const { line, undo: undoes } = toastParts(toast.text);
-        const about = toast.goes
-          ? [...inbox, ...progress, ...snoozed, ...done].find((i) => i.id === toast.goes!.id && i.product === toast.goes!.product)
-          : undefined;
+        const about: { label?: string; title: string } | undefined = !toast.goes
+          ? undefined
+          : toast.goes.repeat
+            ? repeats.find((r) => r.id === toast.goes!.id && r.product === toast.goes!.product)
+            : [...inbox, ...progress, ...snoozed, ...done].find((i) => i.id === toast.goes!.id && i.product === toast.goes!.product);
+        // No O over the thread it names while that thread is the one open
+        // (toastOpens): a reply that kept her there names it for after she leaves.
+        const here = focused ? { product: focused.product, id: focused.id } : null;
+        const opens = toastOpens(toast, here);
         const face = (
           <>
             {about && <span className="toast-title">{about.label || about.title}</span>}
             <span className="toast-line">{line}</span>
-            {(toast.goes || undoes) && (
+            {(opens || undoes) && (
               <span className="toast-keys">
-                {toast.goes && <span className="toast-key"><kbd>O</kbd><span className="toast-key-word">Open</span></span>}
+                {opens && <span className="toast-key"><kbd>O</kbd><span className="toast-key-word">Open</span></span>}
                 {undoes && (
                   <span className="toast-key toast-undo" role="button" tabIndex={-1}
                     onClick={(e) => { e.stopPropagation(); setToast(null); void undo(); }}>
@@ -7111,7 +7230,7 @@ export default function App() {
         <HintPlate
           lines={HINTS[shownHint.id]}
           comp={shownHint.el.getBoundingClientRect()}
-          align={shownHint.el.dataset.hintAlign === 'right' ? 'right' : 'left'}
+          align={shownHint.el.dataset.hintAlign === 'right' ? 'right' : shownHint.el.dataset.hintAlign === 'center' ? 'center' : 'left'}
           /* `data-hint-text` names the words inside the component, so the plate
              lines up with the title rather than with the card's edge: a plate
              is expected to be left-aligned with the text, not pushed past it. */

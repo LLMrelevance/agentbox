@@ -327,6 +327,20 @@ export const api = {
       // is a real state worth being able to look at, and it is not the state
       // every other fixtures screenshot wants a card floating over.
       if (!params.has('approvals')) base.approvals = [];
+      // &cloud=mac|full|all draws the cloud button set up, two accounts in,
+      // three threads running there, so its menu can be looked at.
+      const cloud = params.get('cloud');
+      if (cloud === 'mac' || cloud === 'full' || cloud === 'all') {
+        base.cloud = {
+          setUp: true, mode: cloud, whenOn: cloud === 'all' ? 'all' : 'full', running: 3,
+          month: { runs: 6, agentHours: 2.4, estimatedCost: 0.31, costPerAgentHour: 0.13 },
+          accounts: [
+            { engine: 'claude', key: 'a1', name: 'me@example.com', ready: true, state: 'ready' },
+            { engine: 'claude', key: 'a2', name: null, ready: true, state: 'ready' },
+          ],
+          signIns: [],
+        } as typeof base.cloud;
+      }
       return fixtureSecondEngine(base, engineFixtures);
     }
     return window.zero!.snapshot();
@@ -511,7 +525,10 @@ export const api = {
   // one), so a build carrying this channel can be talking to a process that has
   // never heard of it. That answers empty rather than throwing: the door says
   // the app needs reopening, and nothing else on the task is affected.
-  async itemHistory(p: { product: string; id: string }): Promise<{ ok: boolean; lines: LedgerLine[]; error?: string }> {
+  // `before` keeps only the lines written at or before that moment, so a
+  // thread's history as it stood when another was filed from it is not cut off
+  // by the 400 newest lines (renderer/src/recap.ts, recapFor).
+  async itemHistory(p: { product: string; id: string; before?: number }): Promise<{ ok: boolean; lines: LedgerLine[]; error?: string }> {
     if (useFixtures) return { ok: true, lines: (fixtureHistory as any)[p.id] ?? [] };
     const zero = window.zero as any;
     if (!zero?.itemHistory) return { ok: false, lines: [], error: `quit and reopen ${NAME} to see this` };

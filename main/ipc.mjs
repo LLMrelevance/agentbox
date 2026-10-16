@@ -41,7 +41,7 @@ import { readDoc, writeDoc } from './doc-file.mjs';
 import { readChange } from './code-change.mjs';
 import { findFile, readCodeFile, writeCodeFile } from './code-file.mjs';
 import { readNote, writeNote } from './rail-note.mjs';
-import { addClaudeAccount, addCodexAccount, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, recheckClaude, recheckCodex, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
+import { addClaudeAccount, addCodexAccount, cornerTagTurnedOff, countsTurnedOff, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, recheckClaude, recheckCodex, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
 import { ICON_KINDS, clearProjectIcon, setProjectIcon, setProjectName } from './project-identity.mjs';
 import { ClaudeUsage } from './claude-usage.mjs';
 import { usageEngine } from '../shared/usage.mjs';
@@ -720,9 +720,12 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   const teamCall = (fn) => async (_e, arg) => {
     if (!team) return { ok: false, error: 'This build has no team cloud set up.' };
     try {
-      await fn(arg ?? {});
+      const got = await fn(arg ?? {});
       push();
-      return { ok: true, team: team.state() };
+      // A call that wrote a row (a message, into its conversation) says which,
+      // so the toast after it can open it with O (w-5513afd09a).
+      const wrote = typeof got?.id === 'string' && typeof got?.product === 'string';
+      return { ok: true, team: team.state(), ...(wrote ? { made: { product: got.product, id: got.id } } : {}) };
     } catch (err) {
       return { ok: false, error: String(err?.message ?? err), team: team.state() };
     }
@@ -1555,7 +1558,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
 
   ipcMain.handle('zero:settings-set-project', (_e, payload) => {
     try {
-      setProjectSetting({ config, supervisor }, payload ?? {});
+      setProjectSetting({ config, supervisor, store }, payload ?? {});
       push();
       return { ok: true, ...readSettings({ config, supervisor, store }) };
     } catch (err) {
@@ -1591,7 +1594,10 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   });
   ipcMain.handle('zero:settings-set-workspace', (_e, payload) => {
     try {
-      setWorkspaceSetting({ config, supervisor }, payload ?? {});
+      // Before the save: once the switch is off, nothing leaves, not even this.
+      if (countsTurnedOff(payload)) { analytics.track('counts_turned_off'); analytics.flush(); }
+      setWorkspaceSetting({ config, supervisor, store }, payload ?? {});
+      if (cornerTagTurnedOff(payload)) analytics.track('tag_turned_off');
       push();
       return { ok: true, ...readSettings({ config, supervisor, store }) };
     } catch (err) {
@@ -2000,9 +2006,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
 
   // The thread history behind the time under a task's title. Raw ledger lines,
   // read fresh: the renderer owns what they mean, this owns getting them across.
-  ipcMain.handle('zero:item-history', async (_e, { product, id }) => {
+  ipcMain.handle('zero:item-history', async (_e, { product, id, before }) => {
     try {
-      return { ok: true, lines: store.readHistory(product, id) };
+      return { ok: true, lines: store.readHistory(product, id, { before }) };
     } catch (err) {
       return { ok: false, error: err.message, lines: [] };
     }

@@ -420,7 +420,16 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 /* WHERE THREADS RUN: the cloud button and its menu (threads/Pages.tsx). */
 .th-cloud.count { width: auto; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px 0 9px; font: inherit; font-size: 13px; }
 .th-cloud.count b { font-weight: 400; color: var(--text); font-variant-numeric: tabular-nums; }
-.th-cloud-pop .opts > button.picked, .th-cloud-pop .opts > button.picked:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--text); }
+/* Picked is a soft grey here, not an orange box: one small dot beside On is
+   the menu's only orange (picked 2026-10-16 as calmer). */
+.th-cloud-pop .opts > button.picked, .th-cloud-pop .opts > button.picked:hover { border-color: var(--line-strong); background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); }
+.th-cloud-pop .th-cloud-on-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-inline-end: 7px; vertical-align: 1px; }
+/* THE CLOUD ON: the cloud and its count orange, the box left plain. */
+.th-disp.th-cloud.lit svg, .th-disp.th-cloud.lit b { color: var(--accent); }
+.th-pop.th-cloud-pop { width: 540px; }
+.th-cloud-pop .th-cloud-onoff { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.th-cloud-pop .th-cloud-keysay { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-faint); }
+.th-cloud-pop .th-cloud-keysay kbd { font: 11px var(--mono); color: var(--text-dim); border: 1px solid var(--line); border-radius: var(--radius); padding: 0 5px; line-height: 18px; background: none; }
 .th-cloud-pop .th-cloud-note { padding-top: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-faint); }
 .th-cloud-pop .th-cloud-use { font-size: 13px; color: var(--text); }
 .th-cloud-pop .th-cloud-warn > span:last-child { color: var(--accent); }
@@ -441,3 +450,6 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 .th-cloud-manage:hover { color: var(--text); border-color: var(--text-faint); }
 .th-cloud-go { flex: none; height: 26px; padding: 0 12px; border: 1px solid var(--accent); border-radius: var(--tag-radius); background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
 .th-cloud-go:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+
+/* An account being added: the moving mark on the line, beside its words. */
+.th-cloud-banner-say:has(.cs-busy) { display: flex; align-items: center; gap: 9px; }

@@ -21,7 +21,7 @@ import { saveAttachments, attachmentMarkdown } from '../save-attachments.mjs';
 import { hasLapsed, statusEnds } from '../../shared/team-status.mjs';
 import QRCode from 'qrcode';
 import { createPhoneInbox } from '../phone-inbox.mjs';
-import { SNAPSHOT_LIMITS, phoneProjectsOf } from '../../shared/phone-snapshot.mjs';
+import { SNAPSHOT_LIMITS, phoneProjectsOf, phoneEligible } from '../../shared/phone-snapshot.mjs';
 
 // `signingIn` is { url } while a Google sign-in waits on the browser, so the
 // page can offer that link again rather than a button that does nothing.
@@ -188,7 +188,7 @@ export function createTeamService({
       alive: () => phoneInbox === inbox && backend === signedInAs && state.me?.id === owner,
       device: phone.device?.() ?? null,
       projects: () => {
-        const on = new Set(phoneProjectsOf(phone.projects(), owner));
+        const on = new Set(phoneProjectsOf(phone.projects(), owner, phoneEligible(products())));
         return products().filter((p) => on.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name || p.slug }));
       },
       listItems: (slug) => { const p = productOf(slug); try { return p ? disk.readWorkItems(p.dir) : []; } catch { return []; } },
