@@ -53,6 +53,7 @@ import { codexCommand, COMPACTION_COPY } from '../../../shared/codex-commands.mj
 import { DEFAULT_ENGINE } from '../../../shared/engines.mjs';
 import { ago, dayLabel, itemOptions, offerIsLive, optionsFrom, parseOptions, parseRepeat, type ParsedOption } from '../format';
 import { ruleIdOf } from '../../../shared/repeats.mjs';
+import { shownPriority } from '../../../shared/rank.mjs';
 import { WhenPicker } from './When';
 import { ModelPicker } from './Model';
 import type { ModelChoice } from '../models';
@@ -2260,7 +2261,9 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   // tag DISPLAYS the item's real level, though: an urgent thread's reply box
   // showing "medium" read as the reply demoting it.
   const [prio, setPrio] = useState<PriorityId | null>(null);
-  const itemPrio: PriorityId = priorityIdOf(item.priority);
+  // The level it runs at (shared/rank.mjs shownPriority). A conversation is
+  // offered no tag at all, so this is only ever a work thread's.
+  const itemPrio: PriorityId = priorityIdOf(shownPriority(item));
   const shown = prio ?? itemPrio;
   /* * WHICH MODEL PICKS UP WHAT SHE SENDS NEXT.
 

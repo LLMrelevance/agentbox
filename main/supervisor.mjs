@@ -3357,8 +3357,8 @@ export class Supervisor {
   // One score orders every spawn decision: a product's PLACE in the founder's
   // running order is worth a hundred times any item's own priority, so
   // One product's medium outranks another's urgent when it sits above it.
-  // Ties break oldest-first so nothing starves. The item's own number is hers
-  // alone now (itemPriority); an agent's tag no longer moves anything.
+  // Ties break oldest-first so nothing starves. The item's own number counts
+  // whoever set it (itemPriority), and it is the number every screen shows.
   // A THREAD DRAGGED IN THE LIST RUNS WHERE IT WAS PUT (w-6e5b532a95): its
   // place replaces the score outright (`placedScore`, shared/rank.mjs).
   _score(item) {

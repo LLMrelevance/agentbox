@@ -25,6 +25,7 @@ import { stopKey } from './walk-rules';
 import { PinMark } from './ThreadMenu';
 import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type Box } from './board-select';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
+import { shownPriority } from '../../../shared/rank.mjs';
 import { api } from '../api';
 import { CLOUD_KEY, CLOUD_WHEN_ON, cloudButtonCount, cloudIsOn, cloudMonthLine, type CloudMode, type CloudStatus } from '../cloud-menu';
 import { menuSetupLine, SETUP } from '../cloud-setup';
@@ -568,7 +569,7 @@ export function ThreadCells({ item, product, now, person, tab }: {
   // faint words a repeating task uses for its schedule: "a little bit of text
   // that gives you extra information if you need to know."
   return <RowCells live={liveIds.has(item.id)} title={rowTitle(item)} aside={toApproveWords(waiting.get(`${item.product}/${item.id}`))} shared={seen === 'people'} chosen={chosen} lock={lock} held={notStarted(item)} pinned={!!item.pinned && item.status !== 'done'} where={product?.name ?? ''} person={person}
-    priority={item.priority ?? 0} updatedAt={when} now={now} action={action} />;
+    priority={shownPriority(item)} updatedAt={when} now={now} action={action} />;
 }
 
 /* ------------------------------------------------------------ the board */
