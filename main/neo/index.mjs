@@ -25,9 +25,9 @@ const today = (now) => new Date(now).toISOString().slice(0, 10);
 
 export function createNeo({
   app, BrowserWindow, ipcMain, screen, powerMonitor, systemPreferences, session: electronSession, globalShortcut,
-  mainWindow, preload, load, userData, now = Date.now, listen = listenForDoubleCommand,
+  mainWindow, preload, load, userData, now = Date.now, listen = listenForDoubleCommand, platform = process.platform,
 }) {
-  const on = neoEnabled({ userData });
+  const on = neoEnabled({ userData, platform });
   ipcMain.handle('neo:enabled', () => on);
   if (!on) return { enabled: false };
 
@@ -39,6 +39,8 @@ export function createNeo({
     return { date: today(now()), seconds: 0 };
   };
   const writeUsage = (u) => { try { fs.writeFileSync(usageFile, JSON.stringify(u)); } catch {} };
+  // What Neo did and why it could not, for whoever looks into "nothing happened".
+  const log = (line) => { try { fs.appendFileSync(path.join(dir, 'log.txt'), `${new Date(now()).toISOString()} ${line}\n`); } catch {} };
 
   let win = null;
   let loaded = null;         // resolves when Neo's page can hear a wake
@@ -116,6 +118,7 @@ export function createNeo({
   }
 
   async function wake(source) {
+    log(`wake ${source}${live ? ' (asleep now)' : ''}`);
     if (live) { askSleep('tapped'); return; }
     if (starting) return;
     starting = true;
@@ -153,8 +156,10 @@ export function createNeo({
     const screenNow = await askMain('describe_screen', { outside: !!outside });
     try {
       const answer = await startLive({ sdp, session: neoSession({ screen: screenNow?.said ?? '' }) });
+      log('session started');
       return { ok: true, sdp: answer.sdp };
     } catch (err) {
+      log(`session failed ${err.message}`);
       return { ok: false, error: err.message };
     }
   });
@@ -223,10 +228,33 @@ export function createNeo({
     if (fallback) return;
     fallback = globalShortcut.register('Control+Alt+Command+N', () => wake('fallback'));
   };
+  // Said once a launch, on screen, so a ⌘⌘ that cannot work is not just silence.
+  let noticed = false;
+  const notice = (text) => {
+    if (noticed) return;
+    noticed = true;
+    ensureWindow();
+    place();
+    win.showInactive();
+    loaded.then(() => {
+      win?.webContents.send('neo:notice', { text });
+      setTimeout(() => { if (!live) win?.hide(); }, 10_000);
+    });
+  };
+  const SAY = {
+    'no-permission': 'To wake me by tapping ⌘ twice, turn on Input Monitoring for the app that opened Agentbox (System Settings, Privacy & Security), then reopen Agentbox. ⌃⌥⌘N wakes me meanwhile.',
+    failed: 'I could not set up tapping ⌘ twice on this Mac. ⌃⌥⌘N wakes me instead.',
+    stopped: 'Tapping ⌘ twice stopped working. ⌃⌥⌘N wakes me until Agentbox reopens.',
+  };
   const listener = listen({
     outDir: dir,
     onWake: () => wake('double-command'),
-    onState: (state) => { if (state === 'no-permission' || state === 'failed' || state === 'stopped') useFallback(); },
+    onState: (state, why) => {
+      log(`listener ${state}${why ? ` ${String(why).slice(0, 300)}` : ''}`);
+      if (!SAY[state]) return;
+      useFallback();
+      notice(SAY[state]);
+    },
   });
   app.on('will-quit', () => { listener.stop(); if (fallback) globalShortcut.unregister('Control+Alt+Command+N'); });
 

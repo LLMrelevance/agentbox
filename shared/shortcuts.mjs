@@ -199,10 +199,11 @@ export const SHORTCUTS = [
       // (meta||ctrl) && 'k' → the palette, above every other branch, and
       // forwarded from inside an open file by main.mjs as well.
       { keys: ['⌘K', 'Ctrl+K'], join: 'or', what: `The command bar: everything ${NAME} can do, by name.` },
-      // 'n' in both branches → setModal('compose'). C does the same and is
-      // left off: N is the default (w-fb9051e597).
+      // 'n' in both branches → setModal('compose').
       // "Threads", not tasks, since w-ec62ab6b38.
       { keys: ['N'], what: 'Start a new thread.' },
+      // 'c' in all three branches → toggleCloudRef: the cloud on or off.
+      { keys: ['C'], what: 'Turn the cloud on or off.' },
       // '/' above the focused branch → openSearch
       { keys: ['/'], what: 'Search your threads.' },
       // '\\' above the focused branch → togglePanel

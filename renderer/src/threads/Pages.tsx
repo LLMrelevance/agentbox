@@ -25,8 +25,9 @@ import { stopKey } from './walk-rules';
 import { PinMark } from './ThreadMenu';
 import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type Box } from './board-select';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
+import { shownPriority } from '../../../shared/rank.mjs';
 import { api } from '../api';
-import { CLOUD_MODES, cloudButtonCount, cloudMonthLine, type CloudMode, type CloudStatus } from '../cloud-menu';
+import { CLOUD_KEY, CLOUD_WHEN_ON, cloudButtonCount, cloudIsOn, cloudMonthLine, type CloudMode, type CloudStatus } from '../cloud-menu';
 import { menuSetupLine, SETUP } from '../cloud-setup';
 import './pages.css';
 
@@ -119,13 +120,13 @@ export function SearchButton({ onSearch }: { onSearch: () => void }) {
 }
 
 /** New thread, the cloud and the Display icon (and Search on the board), at the right of the Inbox header. */
-export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode, onCloudSetUp }: {
+export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode, onCloudWhenOn, onCloudSetUp }: {
   page: PageId; display: Display; onDisplay: (d: Display) => void; products: Product[]; items?: WorkItem[];
   /** Only where no tabs row draws it (the board). */
   onSearch?: () => void; onCompose: () => void; shown?: number; total?: number; tab?: string;
   people?: PeoplePick;
   /** Where threads run; no button at all on a Mac not set up for the cloud. */
-  cloud?: CloudStatus | null; onCloudMode?: (mode: CloudMode) => void; onCloudSetUp?: () => void;
+  cloud?: CloudStatus | null; onCloudMode?: (mode: CloudMode) => void; onCloudWhenOn?: (mode: Exclude<CloudMode, 'mac'>) => void; onCloudSetUp?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useOutside(open, () => setOpen(false));
@@ -141,7 +142,7 @@ export function HeaderActions({ page, display, onDisplay, products, items, onSea
   return <div className="th-right">
     {onSearch && <SearchButton onSearch={onSearch} />}
     <button type="button" className="th-new" data-hint="new-task" onClick={onCompose} title="New thread (N)"><PenIcon />New thread</button>
-    {cloud?.setUp && <CloudButton cloud={cloud} onMode={onCloudMode} onSetUp={onCloudSetUp} />}
+    {cloud?.setUp && <CloudButton cloud={cloud} onMode={onCloudMode} onWhenOn={onCloudWhenOn} onSetUp={onCloudSetUp} />}
     <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
       <button type="button" className={`th-disp${worn ? ' faces' : ''}${open ? ' open' : ''}`}
         aria-label={whose ? `View and filters, showing ${whose}` : 'View and filters'} title={whose ? `${whose} · View and filters` : 'View and filters'}
@@ -167,11 +168,15 @@ const toggle = <T,>(list: T[], value: T) => (list.includes(value) ? list.filter(
 // (renderer/src/cloud-menu.ts, tests/the-cloud-button-chooses-where-threads-run).
 const CloudIcon = () => <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" /></svg>;
 
-function CloudButton({ cloud, onMode, onSetUp }: { cloud: CloudStatus; onMode?: (mode: CloudMode) => void; onSetUp?: () => void }) {
+function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus; onMode?: (mode: CloudMode) => void; onWhenOn?: (mode: Exclude<CloudMode, 'mac'>) => void; onSetUp?: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useOutside(open, () => setOpen(false));
   const count = cloudButtonCount(cloud);
-  const picked = CLOUD_MODES.find((m) => m.id === cloud.mode) ?? CLOUD_MODES[1];
+  // ON OR OFF, THEN WHAT "ON" MEANS (2026-10-16). The meaning is kept while
+  // the cloud is off, so turning it back on goes where it went before.
+  const on = cloudIsOn(cloud);
+  const whenOn = cloud.whenOn ?? (cloud.mode === 'all' ? 'all' : 'full');
+  const meaning = CLOUD_WHEN_ON.find((c) => c.id === whenOn) ?? CLOUD_WHEN_ON[0];
   // NOT SET UP IS THE WHOLE MENU, NOT A ROW IN IT (2026-10-14: the "Setup"
   // row was "very strange and I don't even notice it"). Until one account can
   // run in the cloud, the choices of where threads run mean nothing, so the
@@ -196,9 +201,9 @@ function CloudButton({ cloud, onMode, onSetUp }: { cloud: CloudStatus; onMode?: 
     goSetUp();
   };
   return <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
-    <button type="button" className={`th-disp th-cloud${count ? ' count' : ''}${open ? ' open' : ''}`}
-      aria-label={count ? `Cloud, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : 'Cloud'} title="Where threads run"
-      onClick={() => setOpen((o) => !o)}>
+    <button type="button" className={`th-disp th-cloud${count ? ' count' : ''}${open ? ' open' : ''}${on && !nobodyReady ? ' lit' : ''}`}
+      aria-label={count ? `Cloud on, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : on ? 'Cloud on' : 'Cloud off'} title={`Cloud ${on ? 'on' : 'off'} (${CLOUD_KEY})`}
+      data-hint="cloud" data-hint-align="center" onClick={() => setOpen((o) => !o)}>
       <CloudIcon />{count && <b>{count}</b>}{!count && (nobodyReady || setup) && <i />}
     </button>
     {open && nobodyReady && <div className="th-pop th-cloud-pop th-cloud-invite" role="dialog" aria-label={SETUP.inviteHead}>
@@ -213,10 +218,17 @@ function CloudButton({ cloud, onMode, onSetUp }: { cloud: CloudStatus; onMode?: 
         <div className="th-cloud-banner-say">{!setup.go && <span className="cs-busy" aria-hidden="true" />}<b>{setup.say}</b></div>
         {setup.go && <button type="button" className="th-cloud-go" onClick={() => void (failed && setup.go === SETUP.tryAgain ? retry() : goSetUp())}>{setup.go}</button>}
       </div>}
-      <div className="line"><span className="lab">Cloud</span><span className="opts">
-        {CLOUD_MODES.map((m) => <button type="button" key={m.id} className={m.id === cloud.mode ? 'on picked' : ''} aria-pressed={m.id === cloud.mode} onClick={() => onMode?.(m.id)}>{m.label}</button>)}
+      <div className="line"><span className="lab">Cloud</span><span className="th-cloud-onoff">
+        <span className="opts">
+          <button type="button" className={on ? 'on picked' : ''} aria-pressed={on} onClick={() => onMode?.(whenOn)}>{on && <i className="th-cloud-on-dot" aria-hidden="true" />}On</button>
+          <button type="button" className={on ? '' : 'on picked'} aria-pressed={!on} onClick={() => onMode?.('mac')}>Off</button>
+        </span>
+        <span className="th-cloud-keysay">turn on or off with <kbd>{CLOUD_KEY}</kbd></span>
       </span></div>
-      <div className="line th-cloud-note"><span className="lab" /><span>{picked.note}</span></div>
+      <div className="line"><span className="lab">When on</span><span className="opts">
+        {CLOUD_WHEN_ON.map((c) => <button type="button" key={c.id} className={c.id === whenOn ? 'on picked' : ''} aria-pressed={c.id === whenOn} onClick={() => onWhenOn?.(c.id)}>{c.label}</button>)}
+      </span></div>
+      <div className="line th-cloud-note"><span className="lab" /><span>{on ? meaning.note : 'Off: every thread runs on this Mac.'}</span></div>
       <div className="rule" />
       <div className="line th-cloud-setup"><span className="lab">Accounts</span><span className="th-cloud-setup-row">
         <span className="th-cloud-setup-say">{SETUP.menuAccounts(accounts.length)}</span>
@@ -557,7 +569,7 @@ export function ThreadCells({ item, product, now, person, tab }: {
   // faint words a repeating task uses for its schedule: "a little bit of text
   // that gives you extra information if you need to know."
   return <RowCells live={liveIds.has(item.id)} title={rowTitle(item)} aside={toApproveWords(waiting.get(`${item.product}/${item.id}`))} shared={seen === 'people'} chosen={chosen} lock={lock} held={notStarted(item)} pinned={!!item.pinned && item.status !== 'done'} where={product?.name ?? ''} person={person}
-    priority={item.priority ?? 0} updatedAt={when} now={now} action={action} />;
+    priority={shownPriority(item)} updatedAt={when} now={now} action={action} />;
 }
 
 /* ------------------------------------------------------------ the board */

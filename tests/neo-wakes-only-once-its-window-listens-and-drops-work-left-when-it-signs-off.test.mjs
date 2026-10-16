@@ -11,9 +11,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { createNeo } from '../main/neo/index.mjs';
 
-function fakes() {
+function fakes({ onListen } = {}) {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'neo-main-'));
   fs.writeFileSync(path.join(userData, 'neo-alpha'), '');
+  const registered = [];
   const handlers = new Map();
   const listeners = new Map();
   const ipcMain = { handle: (ch, fn) => handlers.set(ch, fn), on: (ch, fn) => listeners.set(ch, fn) };
@@ -37,13 +38,13 @@ function fakes() {
     powerMonitor: { on: (ev, fn) => power.set(ev, fn) },
     systemPreferences: { getMediaAccessStatus: () => 'granted', askForMediaAccess: async () => true },
     session: { fromPartition: () => ({ setPermissionRequestHandler() {}, setPermissionCheckHandler() {} }) },
-    globalShortcut: { register: () => true, unregister() {} },
+    globalShortcut: { register: (k) => { registered.push(k); return true; }, unregister() {} },
     mainWindow, preload: '/x', load: () => {}, userData,
-    listen: () => ({ stop() {} }),
+    listen: (o) => { onListen?.(o); return { stop() {} }; }, platform: 'darwin',
   });
   const fromNeo = { sender: neoContents };
   const fromMainWindow = { sender: mainWindow.webContents };
-  return { neo, handlers, listeners, neoSent, mainSent, finishLoad: () => finishLoad?.(), power, fromNeo, fromMainWindow };
+  return { userData, registered, neo, handlers, listeners, neoSent, mainSent, finishLoad: () => finishLoad?.(), power, fromNeo, fromMainWindow };
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -141,5 +142,61 @@ describe('work queued when Neo signs off', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// She tapped ⌘ twice and nothing happened (2026-10-16). When the listener
+// cannot run, the only sign was a shortcut she had no reason to try, so Neo
+// now says why on screen, once, and writes each state to a log.
+describe('when tapping ⌘ twice cannot work yet', () => {
+  function withListener() {
+    let opts;
+    const f = fakes({ onListen: (o) => { opts = o; } });
+    return { ...f, state: (s, why) => opts.onState(s, why) };
+  }
+  const notices = (f) => f.neoSent.filter(([ch]) => ch === 'neo:notice').map(([, p]) => p.text);
+
+  it('says Input Monitoring is missing, and that ⌃⌥⌘N works meanwhile', async () => {
+    const f = withListener();
+    f.state('no-permission');
+    f.finishLoad();
+    await tick();
+    expect(notices(f)).toHaveLength(1);
+    expect(notices(f)[0]).toMatch(/Input Monitoring/);
+    expect(notices(f)[0]).toMatch(/⌃⌥⌘N/);
+    expect(f.registered).toEqual(['Control+Alt+Command+N']);
+  });
+
+  it('says the listener could not be built, and that ⌃⌥⌘N works meanwhile', async () => {
+    const f = withListener();
+    f.state('failed', 'xcrun: error: invalid active developer path');
+    f.finishLoad();
+    await tick();
+    expect(notices(f)[0]).toMatch(/⌃⌥⌘N/);
+  });
+
+  it('says nothing when the listener is ready', async () => {
+    const f = withListener();
+    f.state('ready');
+    await tick();
+    expect(notices(f)).toEqual([]);
+    expect(f.registered).toEqual([]);
+  });
+
+  it('says it once, not on every restart of the helper', async () => {
+    const f = withListener();
+    f.state('stopped'); f.state('stopped');
+    f.finishLoad();
+    await tick();
+    expect(notices(f)).toHaveLength(1);
+  });
+
+  it('writes each state to a log beside its usage, with the reason', () => {
+    const f = withListener();
+    f.state('ready');
+    f.state('failed', 'no compiler');
+    const log = fs.readFileSync(path.join(f.userData, 'neo', 'log.txt'), 'utf8');
+    expect(log).toMatch(/listener ready/);
+    expect(log).toMatch(/listener failed no compiler/);
   });
 });

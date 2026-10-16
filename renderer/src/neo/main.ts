@@ -11,6 +11,7 @@ type NeoBridge = {
   onSleep(fn: (p: { reason: string }) => void): () => void;
   onResting(fn: () => void): () => void;
   onNoMic(fn: () => void): () => void;
+  onNotice(fn: (p: { text: string }) => void): () => void;
   startLive(sdp: string, outside: boolean): Promise<{ ok: boolean; sdp?: string; error?: string }>;
   tool(callId: string, name: string, args: string): Promise<unknown>;
   usage(seconds: number): void;
@@ -165,6 +166,8 @@ function finish() {
 neo.onWake(wake);
 neo.onSleep(({ reason }) => sleep(reason));
 neo.onResting(() => { root.classList.add('awake'); say('I have talked for three hours today, so I am resting until tomorrow.'); setTimeout(() => { root.classList.remove('awake'); neo.closed(); }, 5000); });
+// Main hides the window again on its own; this is not a session.
+neo.onNotice(({ text }) => { if (pc) return; root.classList.add('awake'); label.textContent = 'Neo'; say(text); setTimeout(() => { if (!pc) { root.classList.remove('awake'); say(''); } }, 9500); });
 neo.onNoMic(() => { root.classList.add('awake'); say('I need the microphone. Allow it in System Settings, Privacy, Microphone.'); setTimeout(() => { root.classList.remove('awake'); neo.closed(); }, 6000); });
 
 // Only the orb and the card take the pointer; everywhere else clicks reach the app beneath.

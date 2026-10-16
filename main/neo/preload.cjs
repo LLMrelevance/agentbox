@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('neo', {
   onSleep: listen('neo:sleep'),
   onResting: listen('neo:resting'),
   onNoMic: listen('neo:no-mic'),
+  onNotice: listen('neo:notice'),
   startLive: (sdp, outside) => ipcRenderer.invoke('neo:start-live', { sdp, outside: !!outside }),
   tool: (callId, name, args) => ipcRenderer.invoke('neo:tool', { callId, name, args }),
   usage: (seconds) => ipcRenderer.send('neo:usage', { seconds }),

@@ -1,4 +1,5 @@
 import { previewFocus } from './preview-focus';
+import { cloudToggleNote, cloudToggleTarget } from './cloud-menu';
 import { usePhoneBack, onCloudPhone, onPhone } from './phone-screen';
 import { holdsReplies, writeHeldWhenHidden } from './phone-holds';
 import { pollEvery } from './phone-polls';
@@ -31,7 +32,7 @@ import type { PendingSaid } from './item-thread';
 import { DocPane, type OpenDoc } from './components/DocPane';
 import { docKind, EVEN_SPLIT, escapeClosesDoc, escapeInTheFileClosesIt, focusIsInTheFile, readSplit, writeSplit } from './doc-pane';
 import { changeOwnsKey } from './code-keys';
-import { askStillStands, bringsBack, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO } from './undo-window';
+import { askStillStands, bringsBack, closesAgain, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO, UNDID_CLOSING } from './undo-window';
 import { useNeo } from './neo/useNeo';
 import { addUndoMark, UNDO_MARKS_EVENT, type UndidSpec } from './undo-marks';
 import { whatTheFileSentUp } from '../../shared/artifact-keys.mjs';
@@ -2240,7 +2241,7 @@ export default function App() {
     : view === 'snoozed' ? snoozed
       : view === 'progress' ? progress
         : done;
-  const shownBox = useMemo(() => filterBox(wholeBox, boxFilter), [wholeBox, boxFilter]);
+  const shownBox = useMemo(() => filterBox(wholeBox, boxFilter, directSlugs), [wholeBox, boxFilter, directSlugs]);
   // THE DISPLAY MENU'S FILTERS AND SORT, on top of the box (approved
   // 2026-10-01). Remembered per page; the Inbox is a list by default and the
   // Team a board.
@@ -2397,12 +2398,12 @@ export default function App() {
   // whole inbox, or the next task opened can be one she has hidden
   // (w-27759abd33).
   const shownInbox = useMemo(
-    () => sortedByDisplay(filterBox(inbox, boxFilter).filter((i) => isTroubleRow(i) || isUpdateRow(i) || keepsDisplay(i, inboxDisplay, now, seenOf(i), directSlugs)), inboxDisplay, undefined, projectOrder, directSlugs),
+    () => sortedByDisplay(filterBox(inbox, boxFilter, directSlugs).filter((i) => isTroubleRow(i) || isUpdateRow(i) || keepsDisplay(i, inboxDisplay, now, seenOf(i), directSlugs)), inboxDisplay, undefined, projectOrder, directSlugs),
     [inbox, boxFilter, inboxDisplay, now, projectOrder, directSlugs, seenOf],
   );
   const boxFilterMenu = useMemo(
-    () => (modal === 'filter' ? filterMenu(wholeBox.filter((i) => !isTroubleRow(i) && !isUpdateRow(i)), boxFilter, snap?.products ?? []) : null),
-    [modal, wholeBox, boxFilter, snap?.products],
+    () => (modal === 'filter' ? filterMenu(wholeBox.filter((i) => !isTroubleRow(i) && !isUpdateRow(i)), boxFilter, snap?.products ?? [], directSlugs) : null),
+    [modal, wholeBox, boxFilter, snap?.products, directSlugs],
   );
   // ONE RULE FOR WHERE A THREAD SITS, THE TABS' OWN (2026-10-01: the board
   // said Running for queued work the tab did not). Needs you wins, then
@@ -3286,6 +3287,18 @@ export default function App() {
   }, []);
   showToastRef.current = showToast;
 
+  // C TURNS THE CLOUD ON OR OFF, from anywhere a key reaches (2026-10-16), and
+  // a note says which. Through a ref so the key handlers read the cloud as it
+  // is now. Nothing without a cloud set up.
+  const toggleCloudRef = useRef<(() => void) | null>(null);
+  toggleCloudRef.current = () => {
+    const cloud = snap?.cloud;
+    if (!cloud?.setUp) return;
+    const mode = cloudToggleTarget(cloud);
+    void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode });
+    showToast(cloudToggleNote(mode));
+  };
+
   // A CLOUD ACCOUNT THAT WAS NOT ADDED, SAID THE MOMENT IT FAILS (2026-10-15):
   // the check goes on behind her, so when it fails with the setup closed she
   // is told once, here, and the cloud button keeps the way to try again. Not
@@ -3591,7 +3604,8 @@ export default function App() {
       setCloseAskOn(keyOf(item));
       return;
     }
-    const undid = [{ product: item.product, id: item.id, words: 'Undid closing it' }];
+    if (closesAgain(pendingRef.current, item)) return;
+    const undid = [{ product: item.product, id: item.id, words: UNDID_CLOSING }];
     await deferCommit(item, async () => {
       await api.answer({ product: item.product, id: item.id, status: 'done' });
       pushUndo({ label: `Reopened: ${clipToSentence(item.title, TOAST_TITLE)}`, undoes: `reopen “${clipToSentence(item.title, TOAST_TITLE)}”`, brings: item, undid, run: async () => { await api.answer({ product: item.product, id: item.id, status: 'open' }); } });
@@ -4878,10 +4892,11 @@ export default function App() {
         // E archives, unconditionally. It must never approve on her behalf.
         else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); markDone(focused); }
         else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setOpenDoc(null); setModal('reply'); }
-        // N (AND THE OLDER C) MEAN THE SAME THING ON BOTH SCREENS. The + in
-        // the top bar is on this screen too and its tooltip says "New task
-        // (N)", so the key is already advertised here.
-        else if (e.key === 'c' || e.key === 'C' || e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
+        // N MEANS THE SAME THING ON BOTH SCREENS. The + in the top bar is on
+        // this screen too and its tooltip says "New task (N)", so the key is
+        // already advertised here. C is the cloud's since 2026-10-16.
+        else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
+        else if (e.key === 'c' || e.key === 'C') { e.preventDefault(); toggleCloudRef.current?.(); }
         // L, NOT S, SINCE 2026-10-01. S was the schedule picker here and the
         // summary panel on the same screen (threads/Summary.tsx listens first
         // and eats it), so the two fought over one letter and a persona test
@@ -4903,7 +4918,8 @@ export default function App() {
           const target = stepStop(stops, { card: openCard }, (e.key === 'j' || e.key === 'J') ? 1 : -1, walkPlace);
           if (target) goToStop(target);
         }
-        else if (e.key === 'c' || e.key === 'C' || e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
+        else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
+        else if (e.key === 'c' || e.key === 'C') { e.preventDefault(); toggleCloudRef.current?.(); }
         else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); }
         return;
       }
@@ -4979,8 +4995,10 @@ export default function App() {
           if (multiSel.size) openSnooze(selectable.filter((i) => multiSel.has(i.id)));
           else if (pointed && (view === 'inbox' || view === 'snoozed')) openSnooze(pointed);
           break;
-        // N does the same as C: the letter she reached for (w-fb9051e597).
-        case 'c': case 'C': case 'n': case 'N': e.preventDefault(); setModal('compose'); break;
+        // N starts a thread (w-fb9051e597). C was its older twin until
+        // 2026-10-16 and turns the cloud on or off now.
+        case 'n': case 'N': e.preventDefault(); setModal('compose'); break;
+        case 'c': case 'C': e.preventDefault(); toggleCloudRef.current?.(); break;
         case 'z': case 'Z': undo(); break;
         // B FLIPS LIST AND BOARD (w-58c8f466e7): "I quite often switch between
         // board and list view". B for board; it shipped as V first and that
@@ -5732,6 +5750,7 @@ export default function App() {
               people={peoplePick}
               cloud={snap.cloud ?? null}
               onCloudMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
+              onCloudWhenOn={(mode) => { void api.setWorkspaceSetting({ key: 'cloudWhenOn', value: mode }); }}
               onCloudSetUp={() => setCloudSetupOpen(true)}
             />
           )}
@@ -6405,6 +6424,8 @@ export default function App() {
           component here, we no longer use this". */}
       {modal === 'palette' && (
         <Palette
+          cloud={snap.cloud?.setUp ? snap.cloud : null}
+          onCloudMode={(mode) => { setModal(null); void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
           onFirstRun={walkAgain}
           onTutorial={() => startTutorial(comeBackTo(snap.products, productFilter, rememberedProject()))}
           onImportAgents={() => { setModal(null); setImportAgents(true); }}
@@ -6497,7 +6518,7 @@ export default function App() {
                        label: `Resume Agents (${sel.filter((i) => !working(i)).length} of ${n} selected)`,
                        run: () => { setModal(null); putAgentBackOn(sel.filter((i) => !working(i))); } }]
                   : []),
-                ...priorityCommands(sel).map((c) => ({
+                ...priorityCommands(sel, directSlugs).map((c) => ({
                   ...c, run: () => { setModal(null); void retag(sel, c.value); },
                 })),
               ];
@@ -6594,7 +6615,7 @@ export default function App() {
               // was removed on her word. It had no entry here once, and the
               // one place she went looking for it was the one place it was
               // missing.
-              ...priorityCommands([target]).map((c) => ({
+              ...priorityCommands([target], directSlugs).map((c) => ({
                 ...c, run: () => { setModal(null); void retag([target], c.value); },
               })),
             ];
@@ -7209,7 +7230,7 @@ export default function App() {
         <HintPlate
           lines={HINTS[shownHint.id]}
           comp={shownHint.el.getBoundingClientRect()}
-          align={shownHint.el.dataset.hintAlign === 'right' ? 'right' : 'left'}
+          align={shownHint.el.dataset.hintAlign === 'right' ? 'right' : shownHint.el.dataset.hintAlign === 'center' ? 'center' : 'left'}
           /* `data-hint-text` names the words inside the component, so the plate
              lines up with the title rather than with the card's edge: a plate
              is expected to be left-aligned with the text, not pushed past it. */
