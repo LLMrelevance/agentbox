@@ -1,5 +1,4 @@
 import { previewFocus } from './preview-focus';
-import { openCloudMenu } from './cloud-menu';
 import { usePhoneBack, onCloudPhone, onPhone } from './phone-screen';
 import { holdsReplies, writeHeldWhenHidden } from './phone-holds';
 import { pollEvery } from './phone-polls';
@@ -4936,8 +4935,6 @@ export default function App() {
           break;
         // N does the same as C: the letter she reached for (w-fb9051e597).
         case 'c': case 'C': case 'n': case 'N': e.preventDefault(); setModal('compose'); break;
-        // W: the cloud button's menu, where 1 2 3 pick. Nothing without a cloud.
-        case 'w': case 'W': e.preventDefault(); openCloudMenu(); break;
         case 'z': case 'Z': undo(); break;
         // B FLIPS LIST AND BOARD (w-58c8f466e7): "I quite often switch between
         // board and list view". B for board; it shipped as V first and that
@@ -6362,8 +6359,6 @@ export default function App() {
           component here, we no longer use this". */}
       {modal === 'palette' && (
         <Palette
-          cloudMode={snap.cloud?.setUp ? snap.cloud.mode : null}
-          onCloudMode={(mode) => { setModal(null); void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
           onFirstRun={walkAgain}
           onTutorial={() => startTutorial(comeBackTo(snap.products, productFilter, rememberedProject()))}
           onImportAgents={() => { setModal(null); setImportAgents(true); }}
