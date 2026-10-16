@@ -39,7 +39,7 @@ export type NeoDeps<R extends NeoRow> = {
   // Films and sounds in the open thread: their names, and playing one.
   mediaNames?(): string[];
   // Everything ⌘K offers right now (components/Palette.tsx), searched by words.
-  commands?(): { id: string; label: string; hint?: string; keywords?: string; run: () => void }[];
+  commands?(): { id: string; label: string; hint?: string; keywords?: string; run: () => unknown }[];
   // Scroll what she is reading; false when nothing there scrolls.
   scroll?(where: 'up' | 'down' | 'top' | 'bottom'): boolean;
   // Pictures in the open thread, and showing them (./show.ts).
@@ -85,14 +85,14 @@ export function findCommands<C extends { label: string; hint?: string; keywords?
 const RISKY_COMMAND = /^(pause|done|approve|update|first-run|fresh-user|demo|tutorial|stop|resume|cloud|run-now)/;
 
 function saysWord(heard: string | undefined, word: string): boolean {
-  const said = String(heard ?? '').toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!said || NOT.test(said) || ASKING.test(String(heard).trim().toLowerCase())) return false;
+  const said = String(heard ?? '').toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!said || NOT.test(said) || ASKING.test(said) || /\?\s*$/.test(String(heard))) return false;
   return said.split(' ').includes(word);
 }
 
 export function namesOption(heard: string | undefined, option: { n: number; text: string }): boolean {
-  const said = String(heard ?? '').toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!said || NOT.test(said) || ASKING.test(String(heard).trim().toLowerCase())) return false;
+  const said = String(heard ?? '').toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!said || NOT.test(said) || ASKING.test(said) || /\?\s*$/.test(String(heard))) return false;
   const tokens = new Set(said.split(' '));
   const numbers = NUMBER_WORDS.flatMap((w, i) => w.filter((x) => tokens.has(x)).map(() => i));
   if (numbers.length) return numbers.every((i) => i === option.n);
@@ -264,17 +264,24 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
         case 'run_command': {
           const cmd = (deps.commands?.() ?? []).find((c) => c.id === args.id);
           if (!cmd) return refused('That command is not on offer right now. Search again with find_commands.');
+          // A yes counts for this command, with these words, on this thread:
+          // "approve" means the open thread's approve, and that can change.
+          const what = `${cmd.id}|${cmd.label}|${deps.focused()?.id ?? ''}`;
           if (RISKY_COMMAND.test(cmd.id)) {
             const verb = cmd.label.toLowerCase().match(/[a-z]+/)?.[0] ?? '';
             const saidIt = verb.length > 2 && saysWord(ctx.heard, verb);
-            const yes = saidIt || (args.confirmed === true && askedCommand === cmd.id);
+            const yes = saidIt || (args.confirmed === true && askedCommand === what);
             askedCommand = null;
             if (!yes) {
-              askedCommand = cmd.id;
+              askedCommand = what;
               return { ok: false, status: 'needs_yes', said: `That would "${cmd.label}". Ask the person to say yes first.` };
             }
           }
-          cmd.run();
+          // Closing goes the way close_thread does, which notices the app
+          // stopping to ask its own question first.
+          const open = deps.focused();
+          if (cmd.id === 'done' && open) return (await deps.close(open)) === 'asked' ? refused(ASKED) : done(`Closed ${nameOf(open)}.`);
+          await cmd.run();
           return done(`Done: ${cmd.label}.`);
         }
 

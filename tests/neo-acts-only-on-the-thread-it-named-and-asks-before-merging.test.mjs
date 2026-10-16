@@ -227,7 +227,7 @@ describe('the person naming the option is the yes', () => {
     expect(calls).toContainEqual(['pick', rows[0], 1]);
   });
 
-  it.each(['do it', 'sounds good', 'yes', 'option two', "don't ship it", 'wait, not option one', 'what does option one do'])('"%s" still asks', async (words) => {
+  it.each(['do it', 'sounds good', 'yes', 'option two', "don't ship it", 'wait, not option one', 'what does option one do', 'option one?'])('"%s" still asks', async (words) => {
     const { act, calls } = setup();
     expect(await act('pick_option', { id: 'w-a', n: 1 }, heard(words))).toMatchObject({ status: 'needs_yes' });
     expect(calls.some(([n]) => n === 'pick')).toBe(false);
@@ -385,5 +385,50 @@ describe('what Neo reads of an agent\'s words', () => {
     const r = await act('open_thread', { id: 'w-a' });
     expect(r.said).toMatch(/Three drafts\. \[picture: design 1\] and the doc/);
     expect(r.said).not.toMatch(/base64|https|\*\*/);
+  });
+});
+
+// Codex review, 2026-10-16 (third pass).
+describe('a yes is for the thing it was asked about', () => {
+  it('a yes to approving one thread does not approve the next one opened', async () => {
+    const ran = [];
+    const t = setup({ focused: rows[0] });
+    let target = rows[0];
+    t.deps.focused = () => target;
+    t.deps.commands = () => [{ id: 'approve', label: 'Approve Recommended', run: () => ran.push(target.id) }];
+    expect(await t.act('run_command', { id: 'approve' }, { heard: 'do it' })).toMatchObject({ status: 'needs_yes' });
+    target = rows[1];
+    expect(await t.act('run_command', { id: 'approve', confirmed: true }, { heard: 'yes' })).toMatchObject({ status: 'needs_yes' });
+    expect(ran).toEqual([]);
+  });
+
+  it('a curly apostrophe still says no', async () => {
+    const { act, calls } = setup();
+    expect(await act('pick_option', { id: 'w-a', n: 1 }, { heard: 'don\u2019t ship it' })).toMatchObject({ status: 'needs_yes' });
+    const t2 = setup();
+    t2.deps.commands = () => [{ id: 'pause', label: 'Pause agents', run: () => calls.push(['pause']) }];
+    expect(await t2.act('run_command', { id: 'pause' }, { heard: 'don\u2019t pause the agents' })).toMatchObject({ status: 'needs_yes' });
+    expect(calls.some(([n]) => n === 'pick' || n === 'pause')).toBe(false);
+  });
+});
+
+describe('a command is done when it is done', () => {
+  it('waits for a command that takes a moment, and reports one that fails', async () => {
+    const t = setup();
+    let finished = false;
+    t.deps.commands = () => [
+      { id: 'flip-view', label: 'Show as a board', run: async () => { await new Promise((r) => setTimeout(r, 20)); finished = true; } },
+      { id: 'keyhints', label: 'Turn on hints', run: async () => { throw new Error('no'); } },
+    ];
+    expect(await t.act('run_command', { id: 'flip-view' })).toMatchObject({ ok: true });
+    expect(finished).toBe(true);
+    expect(await t.act('run_command', { id: 'keyhints' })).toMatchObject({ ok: false, status: 'failed' });
+  });
+
+  it('"Close Task" goes the way close_thread does, so a close the app paused on is not called done', async () => {
+    const t = setup({ focused: rows[2] });
+    t.deps.close = async () => 'asked';
+    t.deps.commands = () => [{ id: 'done', label: 'Close Task', run: () => { throw new Error('should go through close'); } }];
+    expect(await t.act('run_command', { id: 'done' }, { heard: 'close it' })).toMatchObject({ ok: false, said: expect.stringMatching(/on screen/) });
   });
 });
