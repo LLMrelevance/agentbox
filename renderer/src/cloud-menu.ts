@@ -1,6 +1,7 @@
 // THE CLOUD MENU'S WORDS AND NUMBERS (tests/the-cloud-button-chooses-where-threads-run).
 // The button and the menu are drawn in threads/Pages.tsx, beside the filters
 // button and built like its menu; what they say lives here.
+import type { UsageLimit } from './types';
 
 export type CloudMode = 'mac' | 'full' | 'all';
 
@@ -39,6 +40,8 @@ export interface CloudAccount {
   state?: 'broken' | 'renew' | 'stale' | 'ready';
   savedAt?: number | null;
   limitedUntil?: number | null;
+  /** Its session and week, read off a reply's own headers in the cloud. */
+  limits?: UsageLimit[] | null;
 }
 
 export interface CloudStatus {

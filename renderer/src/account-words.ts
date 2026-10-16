@@ -10,14 +10,18 @@ export function hourWords(ts: number): string {
   return `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''}${h < 12 ? 'am' : 'pm'}`;
 }
 
-/** How much of its session one login has spent; when it is all spent, when it comes back. Null with no reading. */
-export function sessionUse(limits: UsageLimit[] | undefined | null): string | null {
-  const session = (limits ?? []).find((l) => l.span === 'session');
-  if (!session || !Number.isFinite(session.percent)) return null;
-  const said = `${session.percent}% of this session used`;
-  if (session.percent < 100) return said;
-  const when = session.resetsText ?? (session.resetsAt ? hourWords(session.resetsAt) : null);
-  return when ? `${said}, back at ${when}` : said;
+export interface Meter { key: 'session' | 'week'; word: string; percent: number; back: string | null }
+
+/** The two numbers every account shows: this session and this week (all models). A full one says when it is back. */
+export function meterPair(limits: UsageLimit[] | undefined | null): Meter[] {
+  const all = limits ?? [];
+  const session = all.find((l) => l.span === 'session');
+  const week = all.find((l) => l.span === 'week' && (!l.qualifier || /all/i.test(l.qualifier))) ?? all.find((l) => l.span === 'week');
+  const back = (l: UsageLimit) => (l.percent >= 100 ? l.resetsText ?? (l.resetsAt ? hourWords(l.resetsAt) : null) : null);
+  return [
+    ...(session && Number.isFinite(session.percent) ? [{ key: 'session' as const, word: 'Session', percent: Math.round(session.percent), back: back(session) }] : []),
+    ...(week && Number.isFinite(week.percent) ? [{ key: 'week' as const, word: 'Week', percent: Math.round(week.percent), back: back(week) }] : []),
+  ];
 }
 
 /** One cloud login's state, in the words the Settings row prints. */

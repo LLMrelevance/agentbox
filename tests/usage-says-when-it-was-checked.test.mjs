@@ -1,30 +1,25 @@
 // The 2026-10-07 screenshot had three meters, zero refresh controls, and no
 // checked time. A cached 100% reading looked current even after switching.
-// Since 2026-10-16 the meters sit under the account in use, on the card for
-// this computer, and the checked time is on that account's row.
+// Since 2026-10-16 every account carries its own session and week meters, and
+// the checked time sits beside Refresh at the head of the card.
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
 import fs from 'node:fs';
-import { AccountMeters, AccountRows, usageCheckedAt } from '../renderer/src/components/Settings';
+import { MiniMeters, PlaceRows, usageCheckedAt } from '../renderer/src/components/Settings';
 
 const now = 1_000_000;
-const reading = { engine: 'claude', profile: '/profiles/one', at: now - 60_000, limits: [{ span: 'week', qualifier: 'all models', name: 'This week', percent: 100 }] };
-const account = (profile, email, extra = {}) => ({ profile, email, plan: 'Max 20x', chosen: false, signedIn: true, trouble: null, dir: null, ...extra });
+const limit = (span, percent, extra = {}) => ({ span, qualifier: span === 'week' ? 'all models' : null, name: span, percent, resetsText: null, resetsOn: null, resetsAt: null, zone: null, ...extra });
 
-it('names the account in use and the age of its reading, with its meters straight under it', () => {
-  const agent = { engine: 'claude', accounts: [
-    account('/profiles/two', 'two@example.test'),
-    account('/profiles/one', 'one@example.test', { chosen: true, use: usageCheckedAt(reading.at, now) }),
-  ] };
-  const html = renderToStaticMarkup(React.createElement(AccountRows, {
-    agent, onChoose: () => {}, onAdd: () => {},
-    under: (a) => a.chosen && React.createElement(AccountMeters, { reading, now }),
-  }));
-  expect(html).toContain('Checked 1 minute ago');
-  // The account in use leads, and its meter follows it before any other account.
-  expect(html.indexOf('one@example.test')).toBeLessThan(html.indexOf('100% used'));
-  expect(html.indexOf('100% used')).toBeLessThan(html.indexOf('two@example.test'));
+it('each account shows its own two numbers, the one in use first', () => {
+  const html = renderToStaticMarkup(React.createElement(PlaceRows, { accounts: [
+    { key: 'one', name: 'one@example.test', about: ['Max 20x'], inUse: true, limits: [limit('session', 5), limit('week', 9)] },
+    { key: 'two', name: 'two@example.test', about: ['Max 20x'], limits: [limit('session', 100, { resetsText: '5:09pm' }), limit('week', 15)] },
+  ] }));
+  expect(html.indexOf('one@example.test')).toBeLessThan(html.indexOf('5%'));
+  expect(html.indexOf('5%')).toBeLessThan(html.indexOf('two@example.test'));
+  expect(html).toContain('back 5:09pm');
+  expect(html).toContain('In use');
 });
 
 it('never draws a different account’s cached percentage', () => {
@@ -34,10 +29,9 @@ it('never draws a different account’s cached percentage', () => {
   expect(settings).toContain("return r && (r.profile ?? 'default') === profile ? r : null;");
 });
 
-it('says there is no reading yet rather than drawing empty meters', () => {
-  const html = renderToStaticMarkup(React.createElement(AccountMeters, { reading: null, now }));
-  expect(html).toContain('No usage reading yet');
-  expect(html).not.toContain('% used');
+it('a tile with no reading says so; a row draws no empty meters', () => {
+  expect(renderToStaticMarkup(React.createElement(MiniMeters, { limits: null, stacked: true }))).toContain('No usage reading yet');
+  expect(renderToStaticMarkup(React.createElement(MiniMeters, { limits: null }))).toBe('');
 });
 
 it('keeps freshness honest at the minute and hour boundaries', () => {

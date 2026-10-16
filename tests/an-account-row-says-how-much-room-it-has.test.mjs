@@ -6,28 +6,37 @@
 // room. And the cloud's own logins, the ones cloud runs actually used, were not
 // on the Claude Code page at all.
 import { describe, it, expect } from 'vitest';
-import { cloudAccountState, cloudPlaceLine, hourWords, sessionUse } from '../renderer/src/account-words.ts';
+import { cloudAccountState, cloudPlaceLine, hourWords, meterPair } from '../renderer/src/account-words.ts';
 
 const at = (h, m = 0) => new Date(2026, 9, 16, h, m).getTime();
 const session = (percent, extra = {}) => ({ span: 'session', qualifier: null, name: 'This session', percent, resetsText: null, resetsOn: null, resetsAt: null, zone: null, ...extra });
 
-describe('a login on this Mac', () => {
-  it('her case: the full one says so and when it is back', () => {
-    expect(sessionUse([session(100, { resetsText: '5:09pm' })])).toBe('100% of this session used, back at 5:09pm');
-  });
-
-  it('one with room says only how much is used', () => {
-    expect(sessionUse([session(5, { resetsText: '8pm' })])).toBe('5% of this session used');
-    expect(sessionUse([session(99, { resetsText: '8pm' })])).toBe('99% of this session used');
+describe('the two meters every account shows', () => {
+  it('one with room shows its number, one at 99% is not yet full', () => {
+    expect(meterPair([session(5, { resetsText: '8pm' })])[0]).toEqual({ key: 'session', word: 'Session', percent: 5, back: null });
+    expect(meterPair([session(99, { resetsText: '8pm' })])[0].back).toBeNull();
   });
 
   it('a reset known only as a moment is printed as a clock', () => {
-    expect(sessionUse([session(100, { resetsAt: at(17, 10) })])).toBe('100% of this session used, back at 5:10pm');
+    expect(meterPair([session(100, { resetsAt: at(17, 10) })])[0].back).toBe('5:10pm');
   });
 
-  it('must NOT make up a number: no reading, or only a weekly one, says nothing', () => {
-    expect(sessionUse(null)).toBeNull();
-    expect(sessionUse([{ ...session(40), span: 'week' }])).toBeNull();
+  const week = (percent, extra = {}) => ({ ...session(percent), span: 'week', name: 'This week', qualifier: 'all models', ...extra });
+
+  it('her case: session full and back at 5:09pm, week at 15%', () => {
+    expect(meterPair([session(100, { resetsText: '5:09pm' }), week(15)])).toEqual([
+      { key: 'session', word: 'Session', percent: 100, back: '5:09pm' },
+      { key: 'week', word: 'Week', percent: 15, back: null },
+    ]);
+  });
+
+  it('the week is the all-models one, not a single model’s', () => {
+    expect(meterPair([week(40, { qualifier: 'Fable' }), week(9)])[0].percent).toBe(9);
+  });
+
+  it('must NOT draw a meter it has no number for', () => {
+    expect(meterPair(null)).toEqual([]);
+    expect(meterPair([session(5)]).map((m) => m.key)).toEqual(['session']);
   });
 });
 

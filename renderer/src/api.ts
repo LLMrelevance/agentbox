@@ -361,8 +361,20 @@ export const api = {
           setUp: true, mode: params.get('cloudmode') === 'mac' ? 'mac' : 'full', whenOn: 'full', running: 0,
           month: { runs: 14, agentHours: 1.2, estimatedCost: 0.16, costPerAgentHour: 0.13 },
           accounts: [
-            { engine: 'claude', key: 'a1', name: null, ready: false, state: 'limited' as any, limitedUntil: until.getTime() },
-            { engine: 'claude', key: 'a2', name: null, ready: false, state: 'limited' as any, limitedUntil: until.getTime() },
+            {
+              engine: 'claude', key: 'a1', name: 'you@example.com', ready: false, state: 'limited' as any, limitedUntil: until.getTime(),
+              limits: [
+                { span: 'session', qualifier: null, name: 'This session', percent: 100, resetsText: '5:10pm', resetsOn: null, resetsAt: until.getTime(), zone: null },
+                { span: 'week', qualifier: 'all models', name: 'This week', percent: 31, resetsText: '11:59am', resetsOn: 'Oct 22', resetsAt: null, zone: null },
+              ],
+            },
+            {
+              engine: 'claude', key: 'a2', name: 'work@example.com', ready: true, state: 'ready',
+              limits: [
+                { span: 'session', qualifier: null, name: 'This session', percent: 12, resetsText: '8pm', resetsOn: null, resetsAt: null, zone: null },
+                { span: 'week', qualifier: 'all models', name: 'This week', percent: 9, resetsText: '4pm', resetsOn: 'Oct 22', resetsAt: null, zone: null },
+              ],
+            },
           ],
           signIns: [],
         } as typeof base.cloud;
