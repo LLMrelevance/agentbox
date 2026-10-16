@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="#get-it">Get it</a> ·
+  <a href="#install">Get it</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#what-matters-most-goes-first">Priorities</a> ·
   <a href="#built-for-the-keyboard">Keys</a> ·
