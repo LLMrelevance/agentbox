@@ -4113,10 +4113,12 @@ export class Supervisor {
     if (action === 'cancel') { if (going) await live.cancel(); this._cloudSignIns.delete(flowKey); this.onChange?.(); return { key: account }; }
     if (action !== 'start') throw new Error(`unknown sign-in step: ${action}`);
     if (going) return { key: account };
-    // One sign-in at a time per engine: a second Add while one is going
-    // gives back the one going.
+    // One sign-in at a time per engine WHILE IT NEEDS HER: a second Add then
+    // gives back the one going. One the cloud is only checking needs nothing
+    // of her, so another account can be added beside it (2026-10-15: she
+    // could not add a second Claude account while the first said Adding…).
     for (const [k, f] of this._cloudSignIns) {
-      if (k.startsWith(`${which}|`) && !['saved', 'failed'].includes(f.status().state)) return { key: k.split('|')[1] };
+      if (k.startsWith(`${which}|`) && ['starting', 'needs-code', 'waiting'].includes(f.status().state)) return { key: k.split('|')[1] };
     }
     // Taken at once, so a second Start before the cloud answers starts nothing.
     const held = { state: 'starting', url: null, code: null, message: null };

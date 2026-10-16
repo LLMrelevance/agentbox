@@ -172,6 +172,8 @@ export interface TeamCallResult {
   error?: string;
   /** A new account that waits on the link in its confirmation email. */
   confirm?: boolean;
+  /** The row a call wrote into, when it wrote one: a message's conversation. */
+  made?: { product: string; id: string };
 }
 
 export type ThreadStateWord = 'waiting' | 'running' | 'scheduled' | 'done';
@@ -841,6 +843,8 @@ export interface ProjectSettings {
 }
 
 export interface WorkspaceSettings {
+  /** Every project on her phone, unless she turned it off (shared/phone-snapshot.mjs). */
+  phoneAll?: boolean;
   agentsRunning: boolean;
   sessionsAtOnce: number;
   /**

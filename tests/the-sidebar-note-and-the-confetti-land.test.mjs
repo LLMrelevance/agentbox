@@ -99,7 +99,7 @@ describe('the last card asks one thing and the celebration is in her own project
   });
 
   it('drops the confetti in her own project instead, and takes it down itself', () => {
-    const finished = walk.slice(walk.indexOf('function Finished('), walk.indexOf('LANDING IN HER OWN PROJECT'));
+    const finished = walk.slice(walk.indexOf('function Finished('), walk.indexOf('export const LANDED_MS'));
     expect(finished).not.toContain('fr-burst');
     const landed = walk.slice(walk.indexOf('export function Landed('));
     expect(landed.slice(0, 3000)).toContain('fr-burst');

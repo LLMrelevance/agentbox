@@ -441,3 +441,6 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 .th-cloud-manage:hover { color: var(--text); border-color: var(--text-faint); }
 .th-cloud-go { flex: none; height: 26px; padding: 0 12px; border: 1px solid var(--accent); border-radius: var(--tag-radius); background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
 .th-cloud-go:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+
+/* An account being added: the moving mark on the line, beside its words. */
+.th-cloud-banner-say:has(.cs-busy) { display: flex; align-items: center; gap: 9px; }

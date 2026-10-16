@@ -279,9 +279,13 @@ function historiesOf(file) {
   histories.set(file, { stamp, byId });
   return byId;
 }
-export function readItemHistory(projectDir, id, { max = 400 } = {}) {
+// `before` keeps the lines written at or before that moment, and the cap then
+// counts back from there rather than from the newest line.
+export function readItemHistory(projectDir, id, { max = 400, before } = {}) {
   const lines = historiesOf(ledgerPath(projectDir)).get(id);
-  return lines ? lines.slice(-max) : [];
+  if (!lines) return [];
+  const upTo = Number.isFinite(before) ? lines.filter((l) => l.ts <= before) : lines;
+  return upTo.slice(-max);
 }
 
 /* -------------------------------- mutating ------------------------------- */
