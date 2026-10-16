@@ -21,6 +21,16 @@ RUN apt-get update \
 
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/codex@${CODEX_VERSION}" && npm cache clean --force
 
+# A BROWSER, so an agent can draw a page and photograph it as one on the Mac
+# does. Without it a design thread spent its first minutes fetching Chromium's
+# libraries by hand (2026-10-15). Playwright's Chromium, the libraries and
+# fonts it needs, readable by the agent, and the library found from any folder.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright NODE_PATH=/usr/local/lib/node_modules
+RUN npm install -g playwright@1 \
+ && playwright install --with-deps chromium \
+ && chmod -R a+rX /opt/ms-playwright \
+ && rm -rf /var/lib/apt/lists/* && npm cache clean --force
+
 # The server runs as root: a run happens at the SAME absolute paths it has on
 # the user's machine (/Users/<name>/..., /home/<name>/..., and the Mac's own
 # temp folder for the per-run settings), which only root can create. The agent
