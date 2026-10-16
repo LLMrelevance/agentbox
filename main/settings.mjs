@@ -1092,6 +1092,10 @@ export function cornerTagTurnedOff({ key, value } = {}) {
   return key === 'cornerTag' && !value;
 }
 
+export function countsTurnedOff({ key, value } = {}) {
+  return key === 'diagnostics' && !value;
+}
+
 export function setWorkspaceSetting({ config, supervisor, store }, { key, value }) {
   switch (key) {
     // EVERY PROJECT ON HER PHONE, or none (shared/phone-snapshot.mjs). Which

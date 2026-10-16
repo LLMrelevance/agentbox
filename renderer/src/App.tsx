@@ -32,7 +32,7 @@ import type { PendingSaid } from './item-thread';
 import { DocPane, type OpenDoc } from './components/DocPane';
 import { docKind, EVEN_SPLIT, escapeClosesDoc, escapeInTheFileClosesIt, focusIsInTheFile, readSplit, writeSplit } from './doc-pane';
 import { changeOwnsKey } from './code-keys';
-import { askStillStands, bringsBack, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO } from './undo-window';
+import { askStillStands, bringsBack, closesAgain, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO, UNDID_CLOSING } from './undo-window';
 import { addUndoMark, UNDO_MARKS_EVENT, type UndidSpec } from './undo-marks';
 import { whatTheFileSentUp } from '../../shared/artifact-keys.mjs';
 import { type Place, placeIsSomewhere, readPlace, writePlace, writeScroll } from './where-she-was';
@@ -3603,7 +3603,8 @@ export default function App() {
       setCloseAskOn(keyOf(item));
       return;
     }
-    const undid = [{ product: item.product, id: item.id, words: 'Undid closing it' }];
+    if (closesAgain(pendingRef.current, item)) return;
+    const undid = [{ product: item.product, id: item.id, words: UNDID_CLOSING }];
     await deferCommit(item, async () => {
       await api.answer({ product: item.product, id: item.id, status: 'done' });
       pushUndo({ label: `Reopened: ${clipToSentence(item.title, TOAST_TITLE)}`, undoes: `reopen “${clipToSentence(item.title, TOAST_TITLE)}”`, brings: item, undid, run: async () => { await api.answer({ product: item.product, id: item.id, status: 'open' }); } });
