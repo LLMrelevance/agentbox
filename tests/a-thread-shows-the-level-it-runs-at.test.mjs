@@ -15,11 +15,19 @@
 // the Medium thread that waited; the "High" one waiting (glass card proposals)
 // was an agent's 8, which the fleet also had at 5. Same rows, two levels.
 //
+// AND A LEVEL COUNTS WHOEVER SET IT (2026-10-16). Her answer to the first
+// version of this fix, which made the screen show Medium for the agent's 8:
+// "If agent-determined priorities are ignored, then it seems like the whole
+// prioritization system is ignored. If an agent sets something and I'm like,
+// 'Oh that's the wrong priority,' I'll fix it." So the glass card thread is
+// High on screen and High to the fleet. Only a row nobody tagged (0) is read,
+// on both, as Medium.
+//
 // A conversation with a person is the one exception: the level on it is the
 // message sorter's (main/message-priority.mjs), written as an agent on
 // purpose, and a conversation never spawns, so it keeps the number it carries.
 import { describe, it, expect } from 'vitest';
-import { itemPriority, shownPriority } from '../shared/rank.mjs';
+import { isUrgent, itemPriority, shownPriority } from '../shared/rank.mjs';
 import { cardsFor } from '../shared/thread-cards.mjs';
 import { keeps, rankScore, sorted, teamEntries } from '../renderer/src/threads/page-rules.ts';
 import { filterBox, filterMenu } from '../renderer/src/box-filter.ts';
@@ -52,8 +60,22 @@ describe('the level a work thread shows', () => {
     expect(word({ ...untagged, priority: undefined })).toBe('medium');
   });
 
-  it('does not show an agent\'s own High', () => {
-    expect(word(agentHigh)).toBe('medium');
+  it('shows an agent\'s High as High, and runs it as High', () => {
+    expect(word(agentHigh)).toBe('high');
+    expect(itemPriority(agentHigh)).toBeGreaterThan(itemPriority(herMedium));
+  });
+
+  it('runs an agent\'s Urgent as Urgent, interrupt included', () => {
+    const agentUrgent = { ...agentHigh, priority: 9 };
+    expect(word(agentUrgent)).toBe('urgent');
+    expect(isUrgent(agentUrgent)).toBe(true);
+    expect(isUrgent(agentHigh)).toBe(false);
+  });
+
+  it('runs an agent\'s Low as Low, below a thread nobody tagged', () => {
+    const agentLow = { ...agentHigh, priority: 2 };
+    expect(word(agentLow)).toBe('low');
+    expect(itemPriority(agentLow)).toBeLessThan(itemPriority(untagged));
   });
 
   it('keeps every level she set, Low included', () => {
@@ -77,7 +99,7 @@ describe('every surface reads that one level', () => {
   it('the board draws it', () => {
     const entries = teamEntries({ items: [untagged, agentHigh, herLow], products, cards: [], me: null, now: NOW, stateOf: () => 'running', allMine: true });
     const level = Object.fromEntries(entries.map((e) => [e.item.id, priorityIdOf(e.priority)]));
-    expect(level).toEqual({ links: 'medium', glass: 'medium', low: 'low' });
+    expect(level).toEqual({ links: 'medium', glass: 'high', low: 'low' });
   });
 
   it('a teammate\'s card carries it', () => {
@@ -85,7 +107,7 @@ describe('every surface reads that one level', () => {
     const items = [untagged, agentHigh, herHigh].map((i) => ({ ...i, status: 'open', title: i.id, labels: [], visibility: 'team', createdAt: NOW - 90 * MIN }));
     const cards = cardsFor({ products: [product], readItems: () => items, now: NOW });
     const level = Object.fromEntries(cards.map((c) => [c.threadId, priorityIdOf(c.priority)]));
-    expect(level).toEqual({ links: 'medium', glass: 'medium', env: 'high' });
+    expect(level).toEqual({ links: 'medium', glass: 'high', env: 'high' });
   });
 
   it('the Low filter keeps her Low and not a thread nobody tagged', () => {
@@ -93,15 +115,16 @@ describe('every surface reads that one level', () => {
     expect(keeps(herLow, lowOnly, NOW)).toBe(true);
     expect(keeps(untagged, lowOnly, NOW)).toBe(false);
     const highOnly = { ...lowOnly, priorities: ['high'] };
-    expect(keeps(agentHigh, highOnly, NOW)).toBe(false);
+    expect(keeps(agentHigh, highOnly, NOW)).toBe(true);
     expect(keeps(herHigh, highOnly, NOW)).toBe(true);
   });
 
-  it('Sort by Priority puts her Medium level with the untagged and above her Low', () => {
+  it('Sort by Priority puts an agent\'s High with hers, and the untagged above her Low', () => {
     const d = { view: 'list', sort: 'priority', priorities: [], projects: [], updated: 'any', privacy: 'any' };
     const ids = sorted([herLow, untagged, agentHigh, herHigh, urgent], d).map((r) => r.id);
     expect(ids).toEqual(['launch', 'env', 'glass', 'links', 'low']);
-    expect(rankScore(agentHigh)).toBe(rankScore(herMedium));
+    expect(rankScore(agentHigh)).toBe(rankScore(herHigh));
+    expect(rankScore(untagged)).toBe(rankScore(herMedium));
   });
 
   it('a conversation still sorts and filters by its own level', () => {
@@ -118,12 +141,12 @@ describe('every surface reads that one level', () => {
     expect(filtered.map((r) => r.id)).toEqual(['low']);
     const menu = filterMenu(rows, { project: null, priority: null, harness: null }, [{ slug: 'team', name: 'Agentbox Team' }]);
     const count = Object.fromEntries(menu.priorities.map((p) => [p.value, p.count]));
-    expect(count).toEqual({ urgent: 0, high: 1, medium: 2, low: 1 });
+    expect(count).toEqual({ urgent: 0, high: 2, medium: 1, low: 1 });
   });
 
   it('⌘K marks the level the row really has as current', () => {
     const current = priorityCommands([untagged]).find((c) => c.current);
     expect(current?.id).toBe('priority-medium');
-    expect(priorityCommands([agentHigh]).find((c) => c.current)?.id).toBe('priority-medium');
+    expect(priorityCommands([agentHigh]).find((c) => c.current)?.id).toBe('priority-high');
   });
 });
