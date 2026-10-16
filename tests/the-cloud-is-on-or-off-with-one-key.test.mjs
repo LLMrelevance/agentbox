@@ -60,7 +60,7 @@ describe('the key', () => {
     const anywhere = SHORTCUTS.find((g) => g.label === 'Anywhere in the app');
     expect(anywhere.keys.some((k) => k.keys.includes('C'))).toBe(true);
     const button = read('../renderer/src/threads/Pages.tsx');
-    expect(button).toMatch(/data-hint="cloud" data-hint-align="right"/);
+    expect(button).toMatch(/data-hint="cloud" data-hint-align="center"/);
   });
 
   it('flips the cloud on the list, in an open thread and on a teammate\'s card, and N alone starts a thread', () => {
@@ -128,5 +128,34 @@ describe('what "on" means is kept', () => {
 
   it('a Mac that never chose means when this Mac is full', () => {
     expect(supervisor.cloudStatus().whenOn).toBe('full');
+  });
+});
+
+// CALMER, PICKED 2026-10-16 FROM THREE DRAWINGS ("I really like the one that
+// you picked"): the C label hung off one side of the button, and orange boxed
+// the button and every picked choice in its menu. Now only the cloud and its
+// count are orange while it is on, the label hangs centred under the button,
+// and the menu's picks are grey with one small orange dot beside On.
+describe('the calmer look', () => {
+  it('hangs the label centred under the button', async () => {
+    const { placeHint } = await import('../renderer/src/hint-plate');
+    const comp = { top: 40, left: 1000, right: 1060, bottom: 80, width: 60, height: 40 };
+    const at = placeHint(comp, { width: 180, height: 30 }, { width: 1512, height: 945 }, 'center');
+    expect(at.left).toBe(1030 - 90);
+    // Still kept inside the window when centring would run off it.
+    const edge = placeHint({ ...comp, left: 1440, right: 1500 }, { width: 180, height: 30 }, { width: 1512, height: 945 }, 'center');
+    expect(edge.left).toBe(1512 - 180 - 8);
+    expect(read('../renderer/src/threads/Pages.tsx')).toMatch(/data-hint="cloud" data-hint-align="center"/);
+    expect(read('../renderer/src/App.tsx')).toMatch(/dataset\.hintAlign === 'center' \? 'center'/);
+  });
+
+  it('lights the cloud and its count, never the button\'s box, and keeps orange off the menu\'s picks', () => {
+    const css = read('../renderer/src/threads/pages.css');
+    const lit = css.match(/\.th-disp\.th-cloud\.lit[^{]*\{[^}]*\}/g).join('\n');
+    expect(lit).toMatch(/color: var\(--accent\)/);
+    expect(lit).not.toMatch(/border-color: var\(--accent\)|background:/);
+    const picked = css.match(/\.th-cloud-pop \.opts > button\.picked[^{]*\{[^}]*\}/)[0];
+    expect(picked).not.toMatch(/accent/);
+    expect(read('../renderer/src/threads/Pages.tsx')).toMatch(/\{on && <i className="th-cloud-on-dot" aria-hidden="true" \/>\}On/);
   });
 });

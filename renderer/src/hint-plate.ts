@@ -167,7 +167,7 @@ export function placeHint(
   comp: Rect,
   plate: Size,
   viewport: Size,
-  align: 'left' | 'right' = 'left',
+  align: 'left' | 'right' | 'center' = 'left',
   /**
    * THE WORDS INSIDE THE COMPONENT, when it has any. The plate lines its own
    *  first CAP up with the first LETTER of these rather than with the edge of
@@ -195,9 +195,13 @@ export function placeHint(
   if (comp.width <= 0 && comp.height <= 0) return null;
   const rose = comp.bottom + HINT_GAP + plate.height > viewport.height - HINT_MARGIN;
   const top = rose ? comp.top - HINT_GAP - plate.height : comp.bottom + HINT_GAP;
+  // `center`: under the middle of a small square button, whose plate is
+  // wider than it and would otherwise hang off one side.
   const wanted = align === 'right'
     ? comp.right - plate.width
-    : (text ? text.left - inset : comp.left);
+    : align === 'center'
+      ? comp.left + comp.width / 2 - plate.width / 2
+      : (text ? text.left - inset : comp.left);
   const left = Math.max(HINT_MARGIN, Math.min(wanted, viewport.width - plate.width - HINT_MARGIN));
   return { top: Math.round(top), left: Math.round(left), rose };
 }
