@@ -287,6 +287,21 @@ contextBridge.exposeInMainWorld('zero', {
     ipcRenderer.on('zero:open-item', handler);
     return () => ipcRenderer.removeListener('zero:open-item', handler);
   },
+  // NEO, the voice alpha (main/neo/). Off unless this Mac has the alpha flag;
+  // when on, Neo's tool calls arrive here and the app carries them out with
+  // its own functions (renderer/src/neo/bridge.ts).
+  neoEnabled: () => ipcRenderer.invoke('neo:enabled').catch(() => false),
+  onNeoAct: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('neo:act', handler);
+    return () => ipcRenderer.removeListener('neo:act', handler);
+  },
+  neoActResult: (id, result) => ipcRenderer.send('neo:act-result', { id, result }),
+  onNeoMode: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('neo:mode', handler);
+    return () => ipcRenderer.removeListener('neo:mode', handler);
+  },
   // The corner tag's "Turn off…": opens Settings at the switch that does it.
   onOpenSettings: (fn) => {
     const handler = (_e, payload) => fn(payload);

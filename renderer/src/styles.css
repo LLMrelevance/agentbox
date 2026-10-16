@@ -8889,3 +8889,20 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
    for her Mac, which runs it on the model the thread already has: there is no
    model to pick here, and no sending back that her Mac does not do. */
 :root[data-via="cloud"] .model-pick, :root[data-via="cloud"] .dock-pill .ts-model { display: none; }
+
+/* NEO, the voice alpha (w-e85fd9144f). The glow on what Neo just did:
+   bloom plus lit from within, at the softer strength approved on 2026-10-15,
+   with a quiet dust halo drawn by renderer/src/neo/glow.ts. A layer of its
+   own over the app, so no section's styles know about it. */
+.neo-glow { position: fixed; z-index: 9000; pointer-events: none; transition: opacity .7s ease; }
+.neo-glow.neo-glow-out { opacity: 0; }
+.neo-glow-bloom, .neo-glow-core { position: absolute; inset: 0; border-radius: var(--radius); animation: neo-breathe 2.6s ease-in-out infinite alternate; }
+.neo-glow-bloom { box-shadow: 0 0 0 1px rgba(255,214,170,.12), 0 0 26px 4px rgba(255,176,120,.15), 0 0 80px 18px rgba(255,176,120,.06); }
+.neo-glow-core { background: radial-gradient(ellipse at 50% 50%, rgba(255,200,140,.06), rgba(255,176,120,.02) 70%, transparent);
+  box-shadow: inset 0 0 34px rgba(255,176,120,.12), inset 0 0 0 1px rgba(255,214,170,.18); }
+.neo-halo { position: absolute; pointer-events: none; }
+@keyframes neo-breathe { from { filter: brightness(.88); } to { filter: brightness(1.1); } }
+/* While Neo is on, the summary's Status, Priority and Owner block steps back,
+   and comes forward again under the pointer. */
+body.neo-on .ts-panel .ts-foot { opacity: 0; transition: opacity .4s ease; }
+body.neo-on .ts-panel:hover .ts-foot { opacity: 1; }

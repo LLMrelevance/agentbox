@@ -147,6 +147,8 @@ export function answerWhatOnlyTheWindowAnswered(ipcMain) {
   ipcMain.handle('zero:crash', (_e, payload) => { reportFromRenderer(payload ?? {}); return null; });
   // The phone door belongs to the desktop app (main/phone-link.mjs); a tab is told there is none.
   ipcMain.handle('zero:phone-link', () => null);
+  // Neo, the voice alpha, lives in the desktop app's own window (main/neo/); a tab never has it.
+  ipcMain.handle('neo:enabled', () => false);
 }
 
 /**
