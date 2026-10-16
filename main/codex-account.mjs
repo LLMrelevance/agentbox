@@ -114,6 +114,43 @@ export function codexAccount(home = null, { file = null } = {}) {
 }
 
 /**
+ * WHAT KIND OF LOGIN A CODEX HOME HOLDS: 'chatgpt' (a plan), 'apikey' (a key,
+ * metered per call), or null when it cannot say.
+ *
+ * Codex's own reading: `auth_mode` when the file has one, and an older file
+ * with no mode is a key when it carries a key and no tokens. A ChatGPT login
+ * with a key left beside its tokens is still a ChatGPT login; the mode decides.
+ */
+export function codexLoginMode(home = null, { file = null } = {}) {
+  let auth = null;
+  try { auth = JSON.parse(fs.readFileSync(file ?? codexAuthFile(home), 'utf8')); } catch { return null; }
+  if (!auth || typeof auth !== 'object') return null;
+  const mode = typeof auth.auth_mode === 'string' ? auth.auth_mode.trim().toLowerCase().replace(/[^a-z]/g, '') : '';
+  if (mode) return mode === 'apikey' ? 'apikey' : mode.startsWith('chatgpt') ? 'chatgpt' : mode;
+  if (auth.tokens && typeof auth.tokens === 'object') return 'chatgpt';
+  return typeof auth.OPENAI_API_KEY === 'string' && auth.OPENAI_API_KEY ? 'apikey' : null;
+}
+
+/**
+ * WHY A WORKER MAY NOT RUN ON THIS CODEX LOGIN, OR NULL WHEN IT MAY.
+ *
+ * Workers run on a subscription and never on a key, and the worker scrub
+ * keeps OPENAI_API_KEY out of their environment for it. But `codex login
+ * --with-api-key` keeps the key in auth.json, which Codex reads for itself,
+ * past the scrub: measured 2026-10-15 with codex-cli 0.160.0 on a home laid
+ * out that way (the verify skill's `codex-api-key-login` setup), every request
+ * a worker sent was signed with the key, and the task was answered as though
+ * nothing were wrong. There is no plan in such a home to fall back on, so the
+ * run is refused, in words shared/spawn-trouble.mjs files as 'api-key'. The
+ * key is never in the sentence.
+ */
+export function codexKeyRefusal(home = null, opts = {}) {
+  return codexLoginMode(home, opts) === 'apikey'
+    ? 'Codex is signed in with an API key, which bills every call to that key. Workers only run on a ChatGPT plan: run codex login in a terminal to sign in with ChatGPT.'
+    : null;
+}
+
+/**
  * A FOLDER FOR THE NEXT CODEX LOGIN, MADE BEFORE ANYTHING IS ASKED TO USE IT.
  *
  * The command the card handed her was simply wrong: codex-cli will not create

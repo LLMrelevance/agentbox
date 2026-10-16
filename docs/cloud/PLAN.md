@@ -181,14 +181,23 @@ cloud Codex thread gets an app-server of its OWN, in its sandbox:
 ## v1 scope, and what is deliberately left out
 
 - **Claude Code and Codex.** Other harnesses later, each a small adapter.
-- **No re-attach across an app restart (R1, R2, R5, R6, R7).** Today every app
-  restart stops every local worker and `recoverInterrupted` resumes each one
-  from its transcript. A cloud run does exactly the same: when the app stops a
-  cloud run, for any reason (Stop, archive, preemption, quit), the run is
-  cancelled, its work and transcript are brought home, and the existing resume
-  takes over. That removes replayed store writes, orphaned claims, approvals
-  keyed to a dead app's key, and double runs, because there is never a remote
-  run the app is not holding a live session for.
+- **A quit leaves a Claude run going (2026-10-15).** Stop, archive and
+  preemption cancel a cloud run and bring its work home, as before. Quitting
+  the app sends the proxy SIGHUP instead: the agent's input is closed, so it
+  ends after the turn it is in; a store call the app can no longer answer is
+  answered with an error saying so; and the marker keeps the proxy's place in
+  the event log. When the app opens, the process that brings cloud work home
+  joins the run: it starts the store servers again, says each connection's
+  handshake to them again, serves the calls the agent made meanwhile, and
+  brings the work home when the run ends. The folder's marker holds every new
+  run back until then, so there is never a second run on the row, and the
+  joiner saves its place as it goes so no call is served twice. A Codex run is
+  still cancelled on quit: its app-server ends at once when its input closes.
+- **The project's documents folder travels (2026-10-15).** Its small files and
+  the whole of the thread's own `designs/<id>` go up at the same path
+  (main/cloud/docs.mjs); what the agent writes there comes back every 10 s and
+  at the end, and never over a file changed on the Mac meanwhile, which keeps
+  its place while the run's copy goes beside it.
 - **The Mac sleeping is not a restart.** The app, the proxy, the store server
   and the approvals server all freeze together and thaw together; their memory
   is intact. The sandbox keeps going. A store call it makes while the Mac
@@ -197,8 +206,10 @@ cloud Codex thread gets an app-server of its OWN, in its sandbox:
   clock, exactly as a local one would be (R7); the agent carries on with what
   it may do.
 - **No `look_at_page`** in the cloud: it would open Chrome on the Mac against
-  the Mac's localhost, not the sandbox's (R10). The proxy drops it from the
-  store server's tool list on the way out and refuses a call to it.
+  the Mac's localhost, not the sandbox's (R10). The proxy refuses a call to
+  it. It stays in the tool list: when it was dropped, a thread that moved from
+  the Mac to the cloud was told its store server had disconnected, and
+  believed it (2026-10-16).
 
 ## How it works
 
@@ -247,7 +258,7 @@ stdout and stderr come back byte for byte. Its life:
    not, the cloud commits stay on `refs/agentbox/cloud/<run>` and the run
    reports it), applies the uncommitted work, unpacks the transcripts, removes
    the marker, and exits with the remote exit code.
-7. **Cancel.** On SIGTERM (Stop, archive, preemption, quit) the proxy signals
+7. **Cancel.** On SIGTERM (Stop, archive, preemption) the proxy signals
    the remote command, waits up to 30 s for it to exit, and then does 5 and 6.
    If it cannot reach the sandbox it exits with a failure and leaves the
    marker.

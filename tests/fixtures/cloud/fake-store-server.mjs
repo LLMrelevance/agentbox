@@ -6,6 +6,10 @@
 import fs from 'node:fs';
 
 const log = process.env.FAKE_STORE_LOG;
+// FAKE_STORE_STRICT=1: refuse every call before the handshake, as a real
+// server's library does.
+const strict = process.env.FAKE_STORE_STRICT === '1';
+let ready = false;
 let buf = '';
 process.stdin.on('data', (d) => {
   buf += d;
@@ -13,8 +17,13 @@ process.stdin.on('data', (d) => {
   while ((i = buf.indexOf('\n')) >= 0) {
     const msg = JSON.parse(buf.slice(0, i));
     buf = buf.slice(i + 1);
+    if (strict && !ready && msg.method !== 'initialize' && msg.id !== undefined) {
+      process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, error: { code: -32002, message: 'not initialized' } }) + '\n');
+      continue;
+    }
     // A real MCP client (Codex, Claude Code) opens with this handshake.
     if (msg.method === 'initialize') {
+      ready = true;
       reply(msg.id, { protocolVersion: msg.params?.protocolVersion ?? '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'fake-store', version: '1' } });
     } else if (msg.method === 'tools/list') {
       const schema = { type: 'object', properties: { text: { type: 'string' } } };

@@ -44,7 +44,15 @@ function SignIn({ s, existing }: { s: CloudSignIn; existing: boolean }) {
   useEffect(() => {
     if (s.state !== 'needs-code') return;
     sent.current = null;
-    const look = async () => { if (document.hasFocus()) { const c = await api.cloudClipboardCode(); if (c) submit(c); } };
+    // A code already on the clipboard when this sign-in began is from an
+    // earlier one, and Claude refuses it: only one copied since is taken.
+    let before: string | null | undefined;
+    const look = async () => {
+      const c = await api.cloudClipboardCode();
+      if (before === undefined) { before = c; return; }
+      if (c && c !== before && document.hasFocus()) submit(c);
+    };
+    void look();
     const timer = setInterval(look, 2000);
     window.addEventListener('focus', look);
     return () => { clearInterval(timer); window.removeEventListener('focus', look); };
@@ -160,7 +168,8 @@ export function CloudSetup({ cloud, onMode, onClose }: {
             {s.state === 'checking'
               ? <span className="cs-row-eng cs-row-adding"><Busy />{SETUP.adding}</span>
               : <button type="button" className="cs-quiet cs-again" onClick={() => void send(s.engine, 'cancel', s.key).then(() => send(s.engine, 'start'))}>{SETUP.tryAgain}</button>}
-            {s.state === 'failed' && <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${s.engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}`} title={SETUP.remove} onClick={() => void send(s.engine, 'cancel', s.key)}>×</button>}
+            {/* Being added or failed, it can be let go: a cancel stops the cloud's side too. */}
+            <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${s.engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}`} title={SETUP.remove} onClick={() => void send(s.engine, 'cancel', s.key)}>×</button>
           </span>
         </div>)}
         {choosing && accounts.length > 0 && <div className="cs-choose-head">{SETUP.addWhich}</div>}

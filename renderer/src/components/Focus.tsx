@@ -86,6 +86,7 @@ import { optionIsClipped, optionPeek } from '../option-peek';
 import { askLine, askFull, askIsClipped } from '../ask-line';
 import { replyIsSwallowed, replyReaches } from '../../../shared/agents.mjs';
 import { recapFor, type Recap as RecapValue } from '../recap';
+import type { LedgerLine } from '../thread-history';
 import type { LiveFacts } from '../live-line';
 import { offersRunNow } from '../run-now';
 import { AttachRow } from './AttachRow';
@@ -203,8 +204,19 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
   // undefined: not asked yet; a path: main found it; null: nobody did.
   const [found, setFound] = useState<string | null | undefined>(undefined);
   // A full path the scheme refused or that is not on disk. Said in words, not
-  // as the browser's broken-picture mark.
+  // as the browser's broken-picture mark, and looked for again on the same
+  // schedule as a relative one: a cloud run's picture can land after its
+  // message names it.
   const [broken, setBroken] = useState(false);
+  const [tries, setTries] = useState(0);
+  useEffect(() => {
+    if (!broken) return;
+    const wait = lookAgainAfter(tries);
+    if (wait === null) return;
+    const timer = setTimeout(() => { setTries(tries + 1); setBroken(false); }, wait);
+    return () => clearTimeout(timer);
+  }, [broken, tries]);
+  const again = (url: string) => (tries ? `${url}?look=${tries}` : url);
   const relative = !!src && !/^(data|https?|file):/.test(src) && !src.startsWith('/');
   const exhausted = relative && attempt >= roots.length;
   useEffect(() => {
@@ -253,13 +265,10 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
   // LETS A COPY CARRY THE PICTURE. Without it the picture taints a canvas and
   // ../copy-out.ts has nothing to inline, so a message pasted into an email
   // arrives with a dead url where it should be.
-  if (/^file:\/\//.test(src)) {
-    const file = decodeURIComponent(src.slice(7));
-    return door(file, <img src={pictureUrl(file)} alt={alt ?? ''} className="inline-image" crossOrigin="anonymous" />);
-  }
-  if (src.startsWith('/')) {
-    if (broken) return <span className="missing-artifact">missing image: {src}</span>;
-    return door(src, <img src={pictureUrl(src)} alt={alt ?? ''} className="inline-image" crossOrigin="anonymous" onError={() => setBroken(true)} />);
+  if (/^file:\/\//.test(src) || src.startsWith('/')) {
+    const file = src.startsWith('/') ? src : decodeURIComponent(src.slice(7));
+    if (broken) return <button type="button" className="missing-artifact" title="Look for it again" onClick={() => { setTries(tries + 1); setBroken(false); }}>missing image: {file}</button>;
+    return door(file, <img src={again(pictureUrl(file))} alt={alt ?? ''} className="inline-image" crossOrigin="anonymous" onError={() => setBroken(true)} />);
   }
   const rel = src.replace(/^\.\//, '');
   const candidates = roots.map((r) => pictureUrl(`${r}/${rel}`));
@@ -466,17 +475,26 @@ function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
   onOpen?: () => void;
 }) {
   const [src, setSrc] = useState<string | null>(null);
+  // A page not there yet is looked for again (../picture-looks-again.ts): a
+  // cloud run's page can land after the message that names it.
+  const [looks, setLooks] = useState(0);
+  useEffect(() => { setLooks(0); }, [product, path]);
   useEffect(() => {
     let live = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const api = (window as any).zero;
     if (!api?.openArtifact) { setSrc(fallback ?? null); return () => { live = false; }; }
     api.openArtifact({ product, src: path, mode: 'resolve' })
       .then((r: { ok: boolean; opened?: string }) => {
-        if (live) setSrc(r?.ok && r.opened ? `file://${r.opened}` : null);
+        if (!live) return;
+        const found = r?.ok && r.opened ? `file://${r.opened}` : null;
+        setSrc(found);
+        const wait = found ? null : lookAgainAfter(looks);
+        if (wait !== null) timer = setTimeout(() => { if (live) setLooks(looks + 1); }, wait);
       })
       .catch(() => { if (live) setSrc(null); });
-    return () => { live = false; };
-  }, [product, path]);
+    return () => { live = false; if (timer) clearTimeout(timer); };
+  }, [product, path, looks]);
   if (!src) return null;
   // THE SAME DOCUMENT IS NEVER ON THE SCREEN TWICE. With the pane open on the
   // right, the frame under the message is the same page at half the size, so
@@ -680,7 +698,23 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // starts with somebody else's summary of what she asked is the thing this row
   // is about. An agent row draws its own thread and has no parent of ours to
   // open, so nothing moves there either.
-  const said = recapFor(item, parent);
+  //
+  // THE ASK IS WHAT SHE SAID ON THE PARENT BEFORE THIS THREAD WAS FILED. When
+  // she has replied there since, the parent's `answer` is that later reply, so
+  // its lines up to this row's creation are read to find the one that asked
+  // (../recap.ts, recapFor). Read only then, which is rarely.
+  const [parentLines, setParentLines] = useState<{ key: string; lines: LedgerLine[] } | null>(null);
+  const parentReplyAt = parent?.wrote?.answer?.ts ?? 0;
+  const askKey = parent && !item.answer && parentReplyAt > item.createdAt ? `${parent.product}/${parent.id}@${item.createdAt}` : null;
+  useEffect(() => {
+    if (!askKey || !parent) return;
+    let live = true;
+    api.itemHistory({ product: parent.product, id: parent.id, before: item.createdAt })
+      .then((r) => { if (live) setParentLines({ key: askKey, lines: r?.lines ?? [] }); })
+      .catch(() => { if (live) setParentLines({ key: askKey, lines: [] }); });
+    return () => { live = false; };
+  }, [askKey]);
+  const said = recapFor(item, parent, parentLines?.key === askKey ? parentLines.lines : undefined);
   const openingSaid = !agent && said?.kind === 'said'
     ? { text: said.text, at: said.at, on: said.on }
     : null;
@@ -1032,7 +1066,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       // A PAGE OR A MARKDOWN FILE OPENS IN THE PANE.Everything else still goes
       // to the app that owns it, because Preview draws a png better than we
       // ever will.
-      if (onOpenDoc && ((!/^https?:/.test(href) && opensInPane(href)) || isLocalPreview(href))) { onOpenDoc(href); return; }
+      //
+      // AND SO DOES AN ORDINARY WEB LINK, since 2026-10-15. It used to be
+      // excluded here by hand (`!/^https?:/.test(href)`), so every https
+      // address left the app for the browser and the thread went out of sight.
+      // `docKind` now answers `website` for one, so the question is the same
+      // question for a file and for a page: does the pane draw this.
+      if (onOpenDoc && (opensInPane(href) || isLocalPreview(href))) { onOpenDoc(href); return; }
       const api = (window as any).zero;
       if (!api?.openArtifact) { window.open(resolveSrc(href), '_blank'); return; }
       const source = sourceReference(href);
@@ -1491,7 +1531,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
            thread as its first message, whole (w-23db941885).
          */}
         <Recap
-          recap={openingSaid ? null : recapFor(item, parent)}
+          recap={openingSaid ? null : said}
           onOpen={() => parent && onOpenItem(parent)}
         />
 

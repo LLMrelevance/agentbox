@@ -77,7 +77,10 @@ export function cleanEnv(base = process.env) {
   const out = {};
   for (const [k, v] of Object.entries(base)) {
     if (/^(ZERO_|STORE_|AGENTBOX_|ASTRAL_|ANTHROPIC_|CLAUDE_CODE_|OPENAI_|CODEX_)/.test(k)) continue;
-    if (['CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT', 'MCP_CONNECTION_NONBLOCKING'].includes(k)) continue;
+    // CLAUDE_CONFIG_DIR names THIS Mac's login. The copy reads its shell for
+    // the login folder workers sign in to, so one carried in would put a
+    // setup's workers on the real account.
+    if (['CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT', 'CLAUDE_CONFIG_DIR', 'MCP_CONNECTION_NONBLOCKING'].includes(k)) continue;
     out[k] = v;
   }
   return out;
@@ -101,13 +104,25 @@ async function realCodex() {
  * tiny wrapper, and the real `codex` binary pointed at a scripted model on a
  * loopback port. REAL MODE keeps this Mac's own home, so the copy finds and
  * runs the Claude Code and Codex installed here, signed in as they are.
+ *
+ * SETUP MODE (`--setup <name>`, setups.mjs) is the two at once: the REAL
+ * Claude Code on this Mac, linked into a home laid out the way one kind of
+ * person has theirs (their hooks, connected tools, settings, logins), talking
+ * to a stand-in model on a loopback port. Nothing is billed and nothing of
+ * this Mac's ~/.claude is read; everything of Claude Code's is real. A Codex
+ * setup does the same for the real codex: a person's own Codex home in that
+ * home, the stand-in layered into their config.toml and signed with their own
+ * login, and the copy finding codex and the home as theirs would.
  */
-async function prepare(real) {
+async function prepare(real, setupName = null) {
   const data = path.join(INSTANCE, 'data');
   const storeRoot = path.join(INSTANCE, 'store');
   const accountRoot = path.join(storeRoot, 'accounts', ACCOUNT);
   const receipts = path.join(INSTANCE, 'receipts');
   const home = real ? null : path.join(INSTANCE, 'home');
+  const { setupNamed, layHome, layRepo, layCodexHome } = await import('./setups.mjs');
+  const setup = setupName ? setupNamed(setupName) : null;
+  if (setupName && !setup) stop(`no setup called ${setupName}. Setups: ${(await import('./setups.mjs')).SETUPS.map((s) => s.name).join(', ')}`, 2);
   for (const d of [data, receipts]) fs.mkdirSync(d, { recursive: true });
 
   // Two projects with a real git repo behind each, so a worker has somewhere
@@ -119,6 +134,8 @@ async function prepare(real) {
     fs.mkdirSync(repo, { recursive: true });
     fs.mkdirSync(path.join(accountRoot, p.slug), { recursive: true });
     fs.writeFileSync(path.join(repo, 'README.md'), `# ${p.name}\n\nA throwaway project for verifying Agentbox.\n`);
+    // A setup's project files are committed, as a team's .claude and .mcp.json are.
+    if (setup) layRepo(setup, repo);
     const git = (...a) => execFileSync('git', a, { cwd: repo, stdio: 'ignore' });
     git('init', '-q', '-b', 'main');
     git('add', '-A');
@@ -135,7 +152,32 @@ async function prepare(real) {
   let claudeBin = null;
   let codexBin = null;
   let codexHome = null;
-  if (!real) {
+  let claudeModel = null;
+  let codexModel = null;
+  if (setup) {
+    // The Claude Code this Mac has, found the way the app finds it, then
+    // linked into the setup's home where the installer puts it. `claudeBin`
+    // stays unset, so the copy finds it in that home as a person's would.
+    const { findClaudeBin } = await import(path.join(REPO, 'main', 'claude-bin.mjs'));
+    let mine = null;
+    try { const f = findClaudeBin({}); mine = f.found ? fs.realpathSync(f.path) : null; } catch { /* none */ }
+    if (!mine) stop('setups run the real Claude Code, and this Mac has none.');
+    const port = await freePort();
+    claudeModel = { port, url: `http://127.0.0.1:${port}` };
+    fs.mkdirSync(home, { recursive: true });
+    layHome(setup, { home, url: claudeModel.url, claude: mine, version: path.basename(mine) });
+    // CODEX AS THE PERSON HAS IT. Neither `codexBin` nor `codexHome` goes in
+    // the copy's config: the copy finds the codex on PATH and the home the way
+    // a person's copy does (CODEX_HOME in their shell, else ~/.codex). Setting
+    // `codexHome` here is exactly what hid the .zshrc bug from every run.
+    codexBin = await realCodex();
+    if (setup.engine === 'codex') {
+      if (!codexBin) stop('Codex setups run the real codex, and this Mac has none.');
+      const cport = await freePort();
+      codexModel = { port: cport, url: `http://127.0.0.1:${cport}/v1` };
+      layCodexHome(setup, { home, url: codexModel.url });
+    }
+  } else if (!real) {
     for (const [dir, n] of [['.claude', 'one'], ['.claude-second', 'two']]) {
       fs.mkdirSync(path.join(home, dir), { recursive: true });
       fs.writeFileSync(path.join(home, dir, '.claude.json'), `${JSON.stringify({ oauthAccount: { emailAddress: `${n}@verify.invalid`, accountUuid: `verify-account-${n}` } })}\n`);
@@ -161,7 +203,8 @@ async function prepare(real) {
   }
   const state = {
     repoRoot: REPO, instance: INSTANCE, data, storeRoot, accountRoot, repo: repos[PRODUCT.slug], repos, receipts, plan, home,
-    log: path.join(INSTANCE, 'app.log'), engine: real ? 'real' : 'stub', claudeBin, codexBin, codexHome,
+    log: path.join(INSTANCE, 'app.log'), engine: setup ? 'setup' : real ? 'real' : 'stub', claudeBin, codexBin, codexHome,
+    setup: setup?.name ?? null, claudeModel, codexModel,
   };
   return state;
 }
@@ -269,7 +312,32 @@ async function start(state) {
     // nothing written to the shared project), and any counts go under the one
     // id that names itself as not a person (shared/fresh-user-home.mjs).
     [FRESH_USER_ENV]: '1' };
-  if (state.engine === 'stub') {
+  if (state.claudeModel) {
+    // The setup's stand-in model, on the port its settings already name.
+    const file = path.join(INSTANCE, 'claude-model.json');
+    try { fs.rmSync(file); } catch { /* none yet */ }
+    const server = spawn(process.execPath, [path.join(here, 'stub-claude-server.mjs'), INSTANCE, String(state.claudeModel.port)], { detached: true, stdio: 'ignore' });
+    server.unref();
+    const deadline = Date.now() + 10_000;
+    while (!fs.existsSync(file) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+    if (!fs.existsSync(file)) stop(`the stand-in Claude model did not start on port ${state.claudeModel.port}.`);
+  }
+  if (state.codexModel) {
+    // A Codex setup's stand-in, on the port the person's config.toml already
+    // names. It is the copy's HTTPS proxy too, so anything Codex would send
+    // off this Mac (chatgpt.com, github.com) is logged and refused there
+    // rather than leaving with a made-up login. Loopback is not proxied.
+    const file = path.join(INSTANCE, 'codex-model.json');
+    try { fs.rmSync(file); } catch { /* none yet */ }
+    const server = spawn(process.execPath, [path.join(here, 'stub-codex-server.mjs'), INSTANCE, String(state.codexModel.port), '--setup'], { detached: true, stdio: 'ignore' });
+    server.unref();
+    const deadline = Date.now() + 10_000;
+    while (!fs.existsSync(file) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+    if (!fs.existsSync(file)) stop(`the stand-in Codex model did not start on port ${state.codexModel.port}.`);
+    const proxy = `http://127.0.0.1:${state.codexModel.port}`;
+    Object.assign(env, { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, https_proxy: proxy, http_proxy: proxy, ALL_PROXY: proxy, NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost' });
+  }
+  if (state.engine === 'stub' || state.engine === 'setup') {
     // HOME and CFFIXED_USER_HOME together: macOS asks Core Foundation, not the
     // environment, for some paths (scripts/fresh-user.mjs says why).
     Object.assign(env, { HOME: state.home, CFFIXED_USER_HOME: state.home });
@@ -291,7 +359,8 @@ async function start(state) {
     storeRoot: state.storeRoot,
     accountId: ACCOUNT,
     ...(state.claudeBin ? { claudeBin: state.claudeBin } : {}),
-    ...(state.codexBin ? { codexBin: state.codexBin } : {}),
+    // A setup finds its own codex and Codex home, as a person's copy does.
+    ...(state.codexBin && state.engine !== 'setup' ? { codexBin: state.codexBin } : {}),
     ...(state.codexHome ? { codexHome: state.codexHome } : {}),
     // A first launch writes this itself; set here so the copy is the same on
     // every run and Codex may be picked from the composer.
@@ -339,15 +408,22 @@ async function up(args) {
   }
   const real = args.includes('--real') || args.includes('--real-claude');
   const installed = args.includes('--installed');
+  const at = args.indexOf('--setup');
+  const setupName = at >= 0 ? args[at + 1] : null;
   if (installed && real) stop('--installed runs on the stand-ins; use --real with the browser copy.');
+  if (setupName && (real || installed)) stop('--setup runs the browser copy on its own home; it cannot be combined with --real or --installed.');
   if (installed) {
     const old = appIsStale();
     if (old) buildInstalled(); else say('the installed app is newer than its source; using the one already built');
   }
-  const prepared = await prepare(real);
+  const prepared = await prepare(real, setupName);
   const next = await start(installed ? { ...prepared, installed: true } : prepared);
   say(installed ? `up: the installed app, pid ${next.pid}, window on debugging port ${next.cdpPort}` : `up: ${next.url}`);
-  say(real
+  say(setupName
+    ? (next.codexModel
+      ? `workers: the real codex on the "${setupName}" setup, signed in as that home is, against a stand-in model (nothing billed, nothing leaves this Mac)`
+      : `workers: the real Claude Code on the "${setupName}" setup, against a stand-in model (nothing billed)`)
+    : real
     ? 'workers: the Claude Code and Codex this Mac has, on their own subscriptions'
     : `workers: the Claude stand-in on two fake logins${next.codexBin ? ', and real codex on a scripted model' : '; no codex on this Mac, so Codex drives are skipped'}`);
   say(`store: ${next.storeRoot}`);
@@ -402,6 +478,12 @@ export async function doctor({ quiet = false } = {}) {
   else ok('the built screen is newer than its source');
   if (state.engine === 'stub') {
     try { fs.accessSync(state.claudeBin ?? STUB, fs.constants.X_OK); ok('the stand-in worker is executable'); } catch { bad(`the stand-in worker is not executable: ${state.claudeBin ?? STUB}`); }
+  } else if (state.engine === 'setup') {
+    try { fs.accessSync(path.join(state.home, '.local', 'bin', 'claude'), fs.constants.X_OK); ok(`worker: the real Claude Code, linked into the "${state.setup}" home`); } catch { bad('the Claude Code linked into the setup home does not resolve'); }
+    try { await fetch(`${state.claudeModel.url}/v1/ping`); ok(`the stand-in model answers on ${new URL(state.claudeModel.url).host}`); } catch (err) { bad(`the stand-in model does not answer: ${err.message}`); }
+    if (state.codexModel) {
+      try { await fetch(`${state.codexModel.url}/ping`); ok(`the stand-in Codex model answers on ${new URL(state.codexModel.url).host}`); } catch (err) { bad(`the stand-in Codex model does not answer: ${err.message}`); }
+    }
   } else {
     ok('worker: the Claude Code this Mac has');
   }
@@ -466,6 +548,10 @@ async function drive(args) {
   if (wrong.length) stop(`the instance is not worth driving:\n  ${wrong.join('\n  ')}`);
   if (DRIVES[name].stubOnly && readState().engine !== 'stub') {
     say(`drive ${name}: skipped on real tools (${DRIVES[name].stubOnly}).`);
+    process.exit(0);
+  }
+  if (DRIVES[name].onlyOn && readState().engine !== DRIVES[name].onlyOn) {
+    say(`drive ${name}: skipped (it runs only on a copy started with --${DRIVES[name].onlyOn}).`);
     process.exit(0);
   }
   const at = args.indexOf('--out');

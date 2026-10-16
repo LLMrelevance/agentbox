@@ -231,7 +231,7 @@ Nothing, unless you are running a build that was signed and released with a
 PostHog key baked into it. A build made from this repo has no key, so a clone
 and a fork are silent, and with no key the whole path is off at every send.
 
-A released build counts twelve things, and they are counts:
+A released build counts eighteen things, and they are counts:
 
 - the app was opened
 - the app was used today, once a day
@@ -245,6 +245,12 @@ A released build counts twelve things, and they are counts:
 - a task finished
 - an agent started work
 - an agent stopped work
+- the app was quit
+- the corner tag was hidden
+- the corner tag was turned off
+- setup offered agents to import
+- setup imported agents
+- counts were turned off
 
 Each carries a random install id, the app and platform version, and at most
 seven other things: how long something took, how many of a thing there were,
@@ -261,6 +267,11 @@ accident. Crash reports travel the same way and are scrubbed first
 
 - In the app: Settings, then the "Counts and crash reports" switch.
 - In `zero.config.json`: `"diagnostics": false`.
+
+Either way nothing is sent from that moment, with one exception: turning the
+switch off in the app sends one last count saying counts were turned off, so
+you are not read as someone who stopped using Agentbox. Editing the file sends
+nothing at all.
 
 The update check is separate and is not routed through any of this. It is a
 request to github.com for the latest release, it carries no identity and no

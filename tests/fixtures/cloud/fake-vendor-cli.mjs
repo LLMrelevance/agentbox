@@ -34,19 +34,32 @@ if (name === 'claude' && args[0] === 'setup-token') {
   process.stdout.write('Paste code here if prompted > ');
   let got = '';
   process.stdin.on('data', (d) => {
-    got += d;
+    // A RETURN THAT ARRIVES WITH THE TEXT IS PART OF A PASTE, not a press of
+    // Enter, and is not acted on, as the real command does (2.1.301,
+    // 2026-10-15): only a return on its own submits the code.
+    const chunk = String(d);
+    if (/[\r\n]/.test(chunk) && chunk.replace(/[\r\n]/g, '').length > 0) { got += chunk.replace(/[\r\n]/g, ''); return; }
+    got += chunk;
     if (!/[\r\n]/.test(got)) return;
     const code = got.trim();
-    if (code !== 'good#code') { process.stdout.write('\r\nOAuth error: Invalid code\r\n'); process.exit(1); }
+    // A CODE CLAUDE DOES NOT TAKE, said and then waited on, as the real
+    // command does (measured on 2.1.301, 2026-10-15): it never exits by itself.
+    // Says nothing at all after the code, ever.
+    if (mode === 'claude-silent') { setInterval(() => {}, 1000); return; }
+    if (code !== 'good#code') { process.stdout.write('\r\nOAuth error: Request failed with status code 400 Press Enter to retry.\r\n'); got = ''; return; }
     // The token arrives in two pieces, as a terminal may deliver it.
     process.stdout.write(`\r\nYour OAuth token (valid for 1 year):\r\n\r\n${TOKEN.slice(0, 25)}`);
     setTimeout(() => {
-      process.stdout.write(`${TOKEN.slice(25)}\r\n\r\nStore this token securely.\r\n`);
+      // A newer Claude Code may draw a box round it: no space after the token.
+      if (mode === 'claude-boxed') process.stdout.write(`${TOKEN.slice(25)}│\r\n\r\nStore this token securely.\r\n`);
+      else process.stdout.write(`${TOKEN.slice(25)}\r\n\r\nStore this token securely.\r\n`);
       // The real command waits for a key; the sandbox ends it.
       setInterval(() => {}, 1000);
     }, 50);
   });
 } else if (name === 'claude' && args[0] === '-p') {
+  // A check that takes its time, longer than the wait for the code's answer.
+  if (mode === 'claude-slow-check') await new Promise((r) => setTimeout(r, 700));
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN === TOKEN && mode !== 'claude-refuses' && mode !== 'claude-offline') { process.stdout.write('ok\n'); process.exit(0); }
   process.stderr.write(mode === 'claude-offline' ? 'API Error: Connection error (ECONNRESET)\n' : 'Invalid bearer token\n');
   process.exit(1);
