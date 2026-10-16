@@ -387,7 +387,7 @@ export interface SupervisorStatus {
   capacity: number;
   // Which Claude accounts are in trouble and what kind. Always current, because
   // the only thing that reads it is a page she chose to open.
-  accountTrouble?: Record<string, { cause: TroubleCause; since: number }>;
+  accountTrouble?: Record<string, { cause: TroubleCause; since: number; at?: number }>;
   // THE ONE LINE ABOVE THE LIST, and null unless it is really true and has been
   // for twenty unbroken minutes. Two facts can fill it: tasks nothing has been
   // able to run on (design option four), or nothing being able to start anywhere at
