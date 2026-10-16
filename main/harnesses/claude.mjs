@@ -52,7 +52,7 @@ export const claudeHarness = {
       return spawn(process.execPath, [sup._cloudRunPath(), ...streamInputArgs(definition.run, plan.args)], {
         cwd,
         env: { ...env, ELECTRON_RUN_AS_NODE: '1', STORE_ACCOUNT_ID: sup.config.accountId, ...storeRootEnv(sup.config.storeRoot),
-          CLAUDE_CONFIG_DIR: sup._claudeConfigDir(profile), ZERO_PRODUCT: item.product, ZERO_ITEM: item.id },
+          CLAUDE_CONFIG_DIR: sup._claudeConfigDir(profile), ZERO_PRODUCT: item.product, ZERO_ITEM: item.id, ...sup._cloudDocsEnv(item) },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     }

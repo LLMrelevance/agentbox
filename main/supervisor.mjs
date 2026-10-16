@@ -745,10 +745,10 @@ export class Supervisor {
       .some((key) => key !== account && !needsHerHands(this._profileTrouble?.[key]?.cause));
   }
 
-  _kill(session) {
+  _kill(session, signal) {
     if (!session) return false;
     session.stoppedByUs = true;
-    try { session.child.kill(); } catch {}
+    try { session.child.kill(signal); } catch {}
     return true;
   }
 
@@ -825,7 +825,10 @@ export class Supervisor {
     // Read by a worker's exit that is still inside its grace (QUIT_GRACE_MS):
     // the app is going, so that death was ours.
     this._quitting = true;
-    for (const session of this.sessions.values()) this._kill(session);
+    // A Claude run in the cloud is left going, not stopped: SIGHUP tells its
+    // proxy the app is quitting (main/cloud/run.mjs), and the run is joined and
+    // brought home when the app opens again.
+    for (const session of this.sessions.values()) this._kill(session, session.cloud && session.engine !== 'codex' ? 'SIGHUP' : undefined);
     this._closeCodex(`${Name} is quitting`);
     this.stopMemoryGate();
     clearInterval(this._leftoverTimer);
@@ -4278,6 +4281,14 @@ export class Supervisor {
     return true;
   }
 
+  // The project's documents folder, which a cloud run takes a copy of and
+  // writes back into (main/cloud/docs.mjs).
+  _cloudDocsEnv(item) {
+    let dir = null;
+    try { dir = this.store.listProducts().find((p) => p.slug === item.product)?.dir ?? null; } catch { /* none */ }
+    return dir ? { AGENTBOX_DOCS: dir } : {};
+  }
+
   // Brings home a cloud run that ended while nothing was there to receive it
   // (an app that quit, an import that failed). One at a time per folder, and
   // not more than every two minutes; a tick picks the folder up once it lands.
@@ -4293,22 +4304,29 @@ export class Supervisor {
       this._homecomings.set(folder, { child: null, at: Date.now() });
       return;
     }
+    // This app's own tool servers as they are now, for a run the last app
+    // left going: the approvals key is made fresh at every start, and one from
+    // before would refuse every card she answers.
+    let mcp = null;
+    try { mcp = this.writeMcpConfig(); } catch { /* the run's own record stands */ }
+    const forget = () => { if (mcp) fs.rmSync(mcp, { force: true }); };
     let child;
     try {
       child = spawn(process.execPath, [this._cloudRunPath(), '--agentbox-import-only'], {
         cwd: folder,
-        env: { ...this._workerEnv(), ELECTRON_RUN_AS_NODE: '1' },
+        env: { ...this._workerEnv(), ELECTRON_RUN_AS_NODE: '1', ...(mcp ? { AGENTBOX_MCP_CONFIG: mcp } : {}) },
         stdio: ['ignore', 'ignore', 'pipe'],
       });
     } catch (error) {
+      forget();
       console.warn(`zero: could not bring a cloud run home in ${folder}:`, error.message);
       return;
     }
     const rec = { child, at: Date.now() };
     this._homecomings.set(folder, rec);
     child.stderr?.on('data', (d) => console.warn(String(d).trim()));
-    child.on('error', () => { rec.child = null; rec.at = Date.now(); });
-    child.once('exit', () => { rec.child = null; rec.at = Date.now(); this.wake?.(); });
+    child.on('error', () => { forget(); rec.child = null; rec.at = Date.now(); });
+    child.once('exit', () => { forget(); rec.child = null; rec.at = Date.now(); this.wake?.(); });
   }
 
   /**
@@ -7299,6 +7317,7 @@ export class Supervisor {
             ...storeRootEnv(this.config.storeRoot),
             ZERO_PRODUCT: item.product,
             ZERO_ITEM: item.id,
+            ...this._cloudDocsEnv(item),
           },
           stdio: ['pipe', 'pipe', 'pipe'],
         });
