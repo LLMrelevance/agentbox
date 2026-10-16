@@ -45,7 +45,9 @@ if (name === 'claude' && args[0] === 'setup-token') {
     // The token arrives in two pieces, as a terminal may deliver it.
     process.stdout.write(`\r\nYour OAuth token (valid for 1 year):\r\n\r\n${TOKEN.slice(0, 25)}`);
     setTimeout(() => {
-      process.stdout.write(`${TOKEN.slice(25)}\r\n\r\nStore this token securely.\r\n`);
+      // A newer Claude Code may draw a box round it: no space after the token.
+      if (mode === 'claude-boxed') process.stdout.write(`${TOKEN.slice(25)}│\r\n\r\nStore this token securely.\r\n`);
+      else process.stdout.write(`${TOKEN.slice(25)}\r\n\r\nStore this token securely.\r\n`);
       // The real command waits for a key; the sandbox ends it.
       setInterval(() => {}, 1000);
     }, 50);
