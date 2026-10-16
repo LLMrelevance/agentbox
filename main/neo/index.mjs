@@ -242,9 +242,9 @@ export function createNeo({
     });
   };
   const SAY = {
-    'no-permission': 'To wake me by tapping ⌘ twice, turn on Input Monitoring for the app that opened Agentbox (System Settings, Privacy & Security), then reopen Agentbox. ⌃⌥⌘N wakes me meanwhile.',
+    'no-permission': `To wake me by tapping ⌘ twice, turn on Input Monitoring for the app that opened ${Name} (System Settings, Privacy & Security), then reopen ${Name}. ⌃⌥⌘N wakes me meanwhile.`,
     failed: 'I could not set up tapping ⌘ twice on this Mac. ⌃⌥⌘N wakes me instead.',
-    stopped: 'Tapping ⌘ twice stopped working. ⌃⌥⌘N wakes me until Agentbox reopens.',
+    stopped: `Tapping ⌘ twice stopped working. ⌃⌥⌘N wakes me until ${Name} reopens.`,
   };
   const listener = listen({
     outDir: dir,
