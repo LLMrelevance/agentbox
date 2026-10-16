@@ -29,8 +29,15 @@ import {
 } from '../main/task-folders.mjs';
 
 // `protocol.file.allow` because the submodule here is a local folder, which git
-// refuses to clone from by default since 2.38.1.
-const git = (cwd, ...args) => execFileSync('git', ['-c', 'protocol.file.allow=always', ...args], {
+// refuses to clone from by default since 2.38.1. The identity because the
+// commits made inside a submodule are made in a repository nothing here
+// configures, so without it they fall back to whatever the machine knows about
+// whoever is running the suite, which on a build machine is nobody.
+const git = (cwd, ...args) => execFileSync('git', [
+  '-c', 'protocol.file.allow=always',
+  '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+  ...args,
+], {
   cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
 }).trim();
 

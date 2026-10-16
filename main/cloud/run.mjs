@@ -22,8 +22,8 @@
 //      once and nothing is skipped.
 //   4. Runs the app's MCP servers HERE, from the original config, with the
 //      worker's own environment, exactly as Claude Code would have, and joins
-//      each to its stub in the sandbox. `look_at_page` is withheld: it would
-//      look at this Mac's localhost, not the sandbox's.
+//      each to its stub in the sandbox. A call to `look_at_page` is refused:
+//      it would look at this Mac's localhost, not the sandbox's.
 //   5. When the sandbox reports its results uploaded, fetches them from S3 and,
 //      only if the folder is exactly as it was when the run left, lays them in:
 //      commits fast-forwarded, uncommitted work reapplied, transcripts
@@ -68,6 +68,8 @@ const BRIDGE_SOCK = '/tmp/agentbox-bridge.sock';
 // The image's node, by its full path: Codex starts an MCP server with a bare
 // environment, in which a bare `node` may not be found.
 const SANDBOX_NODE = '/usr/local/bin/node';
+// Refused when called, but still listed: a tool missing from the list reads
+// to the agent as its whole server having disconnected.
 const WITHHELD_TOOLS = new Set(['look_at_page']);
 const MAX_ATTACHMENT = 25 * 1024 * 1024;
 const RESULTS_WAIT_MS = 3 * 60_000;
@@ -489,7 +491,7 @@ export async function cloudRun({
   let cancelledAt = 0;
   let finished = null; // 'collected' | 'collect-failed' | 'failed' | 'lost'
   let loginTrouble = null; // { state: 'missing'|'refused'|'expired', id }
-  const servers = new Map(); // conn -> { proc, name, listIds }
+  const servers = new Map(); // conn -> { proc, name, init, pending, swallow }
   const overdue = () => cancelled && Date.now() - cancelledAt > resultsWaitMs;
 
   // ONE INPUT AT A TIME, KEPT UNTIL ACKNOWLEDGED. Each gets its number once,
@@ -568,7 +570,7 @@ export async function cloudRun({
     const cfg = mcpConfig.mcpServers?.[name];
     if (!cfg) { enqueue({ action: 'mcp-close', conn }); return; }
     const proc = spawn(cfg.command, cfg.args || [], { cwd, env: toolEnv({ ...serverEnv, ...(cfg.env || {}) }), stdio: ['pipe', 'pipe', 'pipe'] });
-    const s = { proc, name, listIds: new Set(), buf: '', closed: false, init: [...init], pending: new Set(), swallow: new Set() };
+    const s = { proc, name, buf: '', closed: false, init: [...init], pending: new Set(), swallow: new Set() };
     servers.set(conn, s);
     for (const line of init) {
       try { const m = JSON.parse(line); if (m?.id !== undefined && m.method) s.swallow.add(m.id); } catch { /* sent as it is */ }
@@ -591,7 +593,7 @@ export async function cloudRun({
           if (s.swallow.delete(reply.id)) continue;
           onAck = () => s.pending.delete(reply.id);
         }
-        enqueue({ action: 'mcp', conn, line: withholdFromList(line, s.listIds), onAck });
+        enqueue({ action: 'mcp', conn, line, onAck });
       }
     });
     proc.stderr.on('data', (d) => stderr.write(d));
@@ -607,7 +609,6 @@ export async function cloudRun({
     if (!s) return;
     let msg = null;
     try { msg = JSON.parse(line); } catch { /* pass through as is */ }
-    if (msg?.method === 'tools/list' && msg.id !== undefined) s.listIds.add(msg.id);
     if ((msg?.method === 'initialize' || msg?.method === 'notifications/initialized') && s.init.length < 2) s.init.push(line);
     if (msg?.method && msg.id !== undefined) s.pending.add(msg.id);
     if (msg?.method === 'tools/call' && WITHHELD_TOOLS.has(msg.params?.name)) {
@@ -1051,15 +1052,6 @@ export function toolVariables(env) {
   return out;
 }
 
-// Drop withheld tools from a server's answer to `tools/list`.
-function withholdFromList(line, listIds) {
-  let msg;
-  try { msg = JSON.parse(line); } catch { return line; }
-  if (msg?.id === undefined || !listIds.has(msg.id) || !Array.isArray(msg.result?.tools)) return line;
-  listIds.delete(msg.id);
-  msg.result.tools = msg.result.tools.filter((t) => !WITHHELD_TOOLS.has(t.name));
-  return JSON.stringify(msg);
-}
 
 function gitIdentity(cwd) {
   const get = (k) => { try { return execFileSync('git', ['config', k], { cwd, encoding: 'utf8' }).trim(); } catch { return ''; } };
