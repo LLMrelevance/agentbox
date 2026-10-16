@@ -4048,6 +4048,8 @@ export class Supervisor {
     }
     return {
       setUp, mode, running: this._cloudLoad(), month: this._cloudMonth.month,
+      // What C turns the cloud back on to (main/settings.mjs cloudWhenOn).
+      whenOn: this.config.cloudWhenOn === 'all' ? 'all' : 'full',
       accounts: setUp ? this._cloudAccounts() : [],
       signIns: setUp ? this._cloudSignInsNow() : [],
     };

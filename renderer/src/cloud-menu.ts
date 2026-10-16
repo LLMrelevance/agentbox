@@ -43,6 +43,8 @@ export interface CloudAccount {
 export interface CloudStatus {
   setUp: boolean;
   mode: CloudMode;
+  /** What "on" means, kept while the cloud is off. */
+  whenOn?: Exclude<CloudMode, 'mac'>;
   running: number;
   month: CloudMonth;
   accounts?: CloudAccount[];
@@ -74,6 +76,46 @@ export const CLOUD_MODES: { id: CloudMode; label: string; note: string }[] = [
   { id: 'full', label: 'When this Mac is full', note: 'Threads that don’t fit here start in the cloud.' },
   { id: 'all', label: 'Everything', note: 'Threads start in the cloud first, wherever they can.' },
 ];
+
+// THE CLOUD IS ON OR OFF (2026-10-16, her pick of five drawings). C flips it;
+// what "on" means, when this Mac is full or everything, is kept as a
+// preference in the menu and survives the cloud being off.
+export const CLOUD_KEY = 'C';
+
+export const CLOUD_WHEN_ON: { id: Exclude<CloudMode, 'mac'>; label: string; note: string }[] = [
+  { id: 'full', label: 'When this Mac is full', note: 'Threads that don’t fit here start in the cloud.' },
+  { id: 'all', label: 'Everything', note: 'Threads start in the cloud first, wherever they can.' },
+];
+
+type OnOff = { mode: CloudMode; whenOn?: Exclude<CloudMode, 'mac'> } | null | undefined;
+
+export const cloudIsOn = (status: OnOff) => !!status && status.mode !== 'mac';
+
+/** Where C takes it: off from either kind of on, back on to what "on" means. */
+export function cloudToggleTarget(status: OnOff): CloudMode {
+  if (cloudIsOn(status)) return 'mac';
+  return status?.whenOn === 'all' ? 'all' : 'full';
+}
+
+/** The note after C, naming where new threads go now. */
+export function cloudToggleNote(mode: CloudMode): string {
+  if (mode === 'mac') return 'Cloud off: new threads run on this Mac';
+  if (mode === 'all') return 'Cloud on: everything starts in the cloud';
+  return 'Cloud on: threads that don’t fit here start in the cloud';
+}
+
+/** ⌘K's rows: on or off with its key first, then each meaning of on. */
+export function cloudCommands(status: OnOff): { mode: CloudMode; label: string; keyHint?: string; hint?: string }[] {
+  const on = cloudIsOn(status);
+  return [
+    { mode: cloudToggleTarget(status), label: on ? 'Turn the cloud off' : 'Turn the cloud on', keyHint: CLOUD_KEY },
+    ...CLOUD_WHEN_ON.map((c) => ({
+      mode: c.id,
+      label: `Cloud on: ${c.label[0].toLowerCase()}${c.label.slice(1)}`,
+      ...(on && status?.mode === c.id ? { hint: 'On now' } : {}),
+    })),
+  ];
+}
 
 // `cloudRuns` in the config, read the way the supervisor reads it: false is
 // off, 'all' is everything, anything else is "when this Mac is full".
