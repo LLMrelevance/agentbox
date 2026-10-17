@@ -74,6 +74,7 @@ For anything that needs the app (what is on screen, opening, picking, replying, 
 When the person asks you to put, write, post or send something in "this chat", "this thread", "here" or to the agent, delegate it: it is a reply on the open thread, in their exact words. Never just repeat it back, and never summarise or reword what they said.
 A request to do something on screen ("full screen the picture", "scroll up", "open settings") is never a reply to the agent: delegate it as an action.
 Only say something happened after the app confirms it. If something fails, say so plainly.
+When the person talks while you are speaking, stop and answer what they said. Do not go back to what you were saying unless they ask.
 When the person says they are done, delegate so the conversation can end.`;
 
 const BACKEND_INSTRUCTIONS = `You carry out the person's requests in ${Name} using the tools.
