@@ -46,6 +46,23 @@ export function threadPictures(root: ParentNode = document): { pictures: HTMLIma
   return { pictures: got.order.map((i) => all[i]), latest: got.latest };
 }
 
+/** The films and sounds the open thread draws (components/Focus.tsx ArtifactMedia), ordered as pictures are. */
+export function threadFilms(root: ParentNode = document): { films: HTMLElement[]; latest: number } {
+  const all = [...root.querySelectorAll<HTMLElement>('.inline-media')].filter((el) => el.isConnected && !el.closest('.neo-show'));
+  const key = (el: HTMLElement) => el.querySelector('video, audio')?.getAttribute('src') || el.querySelector('.mention-name')?.textContent?.trim() || '';
+  const got = orderPictures(all.map((el) => ({ src: key(el), block: el.closest('.thread-block') ?? el.parentElement, mine: !!el.closest('.msg.yours') })), latestAgentBlock(root));
+  return { films: got.order.map((i) => all[i]), latest: got.latest };
+}
+
+export function filmName(el: Element): string {
+  return el.querySelector('.mention-name')?.textContent?.trim() || 'a film';
+}
+
+/** Whether the open thread has drawn an agent message yet, pictures or not. */
+export function threadDrawn(root: ParentNode = document): boolean {
+  return !!latestAgentBlock(root);
+}
+
 function latestAgentBlock(root: ParentNode): Element | undefined {
   const blocks = [...root.querySelectorAll('.focus-scroll .thread-block')].filter((b) => b.querySelector('.msg:not(.yours)'));
   return blocks.at(-1);

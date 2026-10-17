@@ -18,7 +18,7 @@ const q = (s) => {
 };
 
 /**
- * `screen`: { open: { id, title, options:[{n,text}], pictures:[{n,name}], films:[{n,name}], files:[{n,name}] } | null,
+ * `screen`: { open: { id, title, options:[{n,text}], pictures:[{n,name}], films:[{n,name,earlier?}], files:[{n,name}] } | null,
  *             rows: [{ id, title }] (top first), commands: [{ id, label, hint? }], canGoBack }
  * Returns { version, list: [{ value, description, act }] }.
  */
@@ -29,7 +29,7 @@ export function buildOptions(screen) {
 
   if (open) {
     const t = q(open.title);
-    add('reply', `Send a message the person dictates to the agent on the open thread ${t} ("tell it…", "reply saying…", feedback to post)`, { kind: 'reply', id: open.id });
+    add('reply', `Send a message the person dictates to the agent on the open thread ${t} ("tell it…", "reply saying…", feedback to post); only words meant for the agent`, { kind: 'reply', id: open.id });
     for (const o of open.options ?? []) add(`pick:${o.n}`, `Choose option ${o.n} on the open thread: ${q(o.text)} ("option ${o.n}", or saying what it does)`, { kind: 'pick', id: open.id, n: o.n });
     add('later', `Put the open thread ${t} off until later (snooze it for a while)`, { kind: 'later', id: open.id });
     add('close', `Close the open thread ${t}`, { kind: 'close', id: open.id });
@@ -39,8 +39,10 @@ export function buildOptions(screen) {
     for (const p of pics) add(`show:${p.n}`, `Show picture ${p.n} of the open thread (${q(p.name)}) full screen, big${p.n === 1 ? ' ("the picture" means this one)' : ''}`, { kind: 'show', id: open.id, pictures: [p.n] });
     if (pics.length > 1) add('compare', 'Show several of the open thread\'s pictures side by side to compare', { kind: 'compare', id: open.id });
     if (pics.length) add('hide', 'Put away pictures Neo is showing ("close the picture", "hide it")', { kind: 'hide' });
-    for (const f of open.films ?? []) {
-      add(`play:${f.n}`, `Play ${q(f.name)} in the open thread`, { kind: 'media', id: open.id, n: f.n, action: 'play' });
+    const films = open.films ?? [];
+    for (const f of films) {
+      const where = f.earlier ? 'earlier in the thread' : `in the latest message${f === films[0] ? ' ("the video" means this one)' : ''}`;
+      add(`play:${f.n}`, `Play ${q(f.name)}, ${where}`, { kind: 'media', id: open.id, n: f.n, action: 'play' });
     }
     for (const f of open.files ?? []) {
       add(`file:${f.n}`, `Open ${q(f.name)}, a file in the latest message of the open thread, beside it${f.n === 1 ? ' ("the design" or "the page" means this one)' : ''}`, { kind: 'file', id: open.id, n: f.n });
@@ -48,7 +50,7 @@ export function buildOptions(screen) {
     if ((open.films ?? []).length) add('pause', 'Pause the film or sound that is playing', { kind: 'media', id: open.id, action: 'pause' });
   }
 
-  add('next', 'Open the next thread that needs the person', { kind: 'next' });
+  add('next', 'Open the next thread that needs the person ("next", "start on my work", "from the top")', { kind: 'next' });
   if (screen.canGoBack) add('back', 'Go back to the thread the person was on before', { kind: 'back' });
   add('inbox', 'Say which threads need the person', { kind: 'inbox' });
   for (const [where, words] of [['up', 'up'], ['down', 'down'], ['top', 'to the top'], ['bottom', 'to the bottom']]) {
@@ -57,9 +59,12 @@ export function buildOptions(screen) {
   add('new', 'Start a new thread with new work the person describes', { kind: 'new' });
   add('undo', 'Undo the last thing done', { kind: 'undo' });
   add('signoff', 'End the conversation with Neo', { kind: 'signoff' });
+  add('talk', 'The person is talking to Neo about Neo itself: correcting it, complaining about what it just did, explaining a mistake. This is not words for the agent', { kind: 'talk' });
   add('none', 'Do nothing: a greeting, filler, thinking aloud, holding off ("not yet", "wait", "don\'t"), or talk not asking for anything', { kind: 'none' });
 
   for (const c of screen.commands ?? []) {
+    // ⌘K's "Reply" opens the box; named plainly, so "open the reply field" finds it.
+    if (c.id === 'reply') { add('cmd:reply', 'Open the reply box, for the person to type, paste or dictate into ("open the reply field", "let me write back")', { kind: 'command', id: c.id }); continue; }
     add(`cmd:${c.id}`, `Menu command: ${q(c.label)}${c.hint ? ` (${c.hint.slice(0, 60)})` : ''}`, { kind: 'command', id: c.id });
   }
 

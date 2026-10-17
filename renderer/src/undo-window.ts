@@ -100,6 +100,19 @@ export function undoAsk(undoes: string): string {
 }
 
 /**
+ * What Z inside the grace window says. Nothing was written, so the true answer
+ * depends on what was held: a reply's words are back in the box, a close
+ * leaves the thread open, and anything else changed nothing. `said` is the
+ * action's own toast ("Closed: <title>").
+ */
+export function graceUndoneLine(p: { said?: string; restored: boolean }): string {
+  if (p.restored) return 'Undone. Your message is back in the reply box.';
+  const closed = /^Closed: (.+)$/.exec(p.said ?? '');
+  if (closed) return `Undone. Still open: ${closed[1]}`;
+  return 'Undone. Nothing changed.';
+}
+
+/**
  * WHAT A Z PUTS IN FRONT OF HER ONCE IT HAS RUN (w-7eb39d3c97).
  *
  * Inside the grace window the row was never written away, and Z has always

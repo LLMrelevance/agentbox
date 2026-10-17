@@ -123,12 +123,25 @@ export function noProjectYet(
  * THE UNDO IS SAID OUT LOUD, unchanged, because a way back she cannot see is
  * one she will not take.
  */
-export function sentLine(p: { to: string; when?: string | null; held?: boolean }): string {
+export function sentLine(p: {
+  to: string; when?: string | null; held?: boolean;
+  /** The new row's entry in `supervisor.atLimit`: every login of its tool is out of usage. */
+  limit?: { tool: string; until: number } | null; now?: number;
+}): string {
   // "Started in", because "Sent to Office admin" read as a message to a person.
   // And "Added to Later" for the one answer on the Send later menu with no
   // moment in it (w-afb66e6661): it did not start, so saying it did is a lie,
   // and it is not scheduled either.
   if (p.held) return `Added to Later in ${p.to} · Z to undo`;
+  if (p.limit && !p.when) {
+    const now = p.now ?? Date.now();
+    const at = p.limit.until > now
+      ? new Date(p.limit.until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s/g, '').toLowerCase()
+      : null;
+    // Short, because the card holds about thirty characters on this line and
+    // the reason is the half that must survive; its title names the task.
+    return `${at ? `${p.limit.tool} is out until ${at}` : `${p.limit.tool} is out of usage`} · Z to undo`;
+  }
   const where = p.when ? `Scheduled in ${p.to}` : `Started in ${p.to}`;
   return `${p.when ? `${where} · ${p.when}` : where} · Z to undo`;
 }
