@@ -14,7 +14,7 @@ export const UNSURE = 0.4;
 const FINISHES = new Set(['pick_option', 'later', 'close_thread']);
 const MOVES = new Set(['open', 'next', 'back']);
 
-const NEW_LEAD = /^(?:please\s+)?(?:start|create|make|open|kick off|spin up)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:task|thread)\s*(?:to|for|about|:)?\s*/i;
+const NEW_LEAD = /^(?:please\s+)?(?:add|start|create|make|open|kick off|spin up)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:task|thread)\s*(?:to|for|about|:)?\s*/i;
 
 function inputFor(screen, heard) {
   const open = screen.open;
@@ -36,11 +36,12 @@ export const HAND_BACK = 'Nothing for the app to do. Answer the person yourself,
  * Returns { say, choice?, confidence?, ms? }; `say` is never empty, because
  * Live ends the turn after "one sec" when the app gives it nothing to say.
  */
-export async function runDecision({ heard, askMain, state, decideImpl = decide, now = Date.now, compose, history = [] }) {
-  const got = await askMain('neo_screen');
+export async function runDecision({ heard, askMain, state, decideImpl = decide, now = Date.now, compose, history = [], initialScreen }) {
+  const got = initialScreen ?? await askMain('neo_screen');
   if (!got?.ok || !got.screen) return { say: 'Tell the person the app did not answer just now.' };
   const screen = got.screen;
   const { list } = buildOptions(screen);
+  if (state.duration && state.duration.openId !== (screen.open?.id ?? null)) state.duration = null;
   if (state.pending) {
     list.unshift(
       { value: 'yes', description: `The person says yes, go ahead, to: ${state.pending.about}`, act: { kind: 'yes' } },
@@ -49,7 +50,7 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
   }
   // A yes only counts on the thread it was asked about.
   if (state.pending && state.pending.openId !== (screen.open?.id ?? null)) state.pending = null;
-  const input = inputFor(screen, heard);
+  const input = `${inputFor(screen, heard)}${state.duration ? '\nThe app is waiting for a snooze duration for this open thread. A time answers that request; a different request cancels it.' : ''}`;
   const r = await decideImpl({ input, options: list, instructions: FIRST });
   const picked = list.find((o) => o.value === r.choice);
   const meta = { choice: r.choice, confidence: r.confidence, ms: r.ms };
@@ -58,6 +59,7 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
     return { say, ...meta };
   };
   if (!picked) return said('Tell the person you did not catch that, and ask them to say it again.');
+  if (picked.act.kind !== 'later') state.duration = null;
 
   const unsure = r.confidence != null && r.confidence < UNSURE;
   // Anything but her yes or no moves on from a question still waiting.
@@ -82,6 +84,26 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
     // Her "yes" to the question does the likeliest, with what she said first.
     state.pending = { option: picked, heard, about: picked.description, openId: screen.open?.id ?? null };
     return { say: `Not sure the person asked for anything. If they did, ask in a few words whether they mean: ${picked.description}${other ? `, or ${other.description}` : ''}. Otherwise answer them yourself.`, ...meta };
+  }
+
+  // A destination's choices only exist after it has opened and drawn.
+  if (MOVES.has(picked.act.kind)) {
+    const first = await perform(picked, ctx);
+    if (!first.ok) return done(first);
+    const fresh = await askMain('neo_screen');
+    if (!fresh?.ok || !fresh.screen) return done(first);
+    const options = buildOptions(fresh.screen).list;
+    const t = await decideImpl({
+      input: `${inputFor(fresh.screen, heard)}\nThe app has just done this part of it: ${picked.description}.`,
+      options, instructions: THEN,
+    }).catch(() => null);
+    const second = t && options.find((o) => o.value === t.choice);
+    if (!second && t && list.some((o) => o.value === t.choice)) {
+      return done({ ...first, say: `${first.say} The second part is not on this thread, so it was not done.` });
+    }
+    if (!second || TALK.has(second.act.kind) || second.value === picked.value || (t.confidence != null && t.confidence < UNSURE)) return done(first);
+    const next = await perform(second, { ...ctx, screen: fresh.screen });
+    return done({ ...next, say: `${first.say} ${next.say}` });
   }
 
   // Whatever she asked for after it.
@@ -139,6 +161,17 @@ async function perform(picked, { heard, askMain, state, now, compose, history = 
   const open = screen.open;
   const a = picked.act;
   const step = async (name, args = {}) => {
+    if (['reply', 'pick_option', 'close_thread', 'later', 'show', 'media', 'open_file', 'run_command'].includes(name)) {
+      const fresh = await askMain('neo_screen');
+      if (!fresh?.ok || (fresh.screen?.open?.id ?? null) !== (screen.open?.id ?? null)) {
+        return { say: 'The open thread changed while I was deciding, so that was not done. Please say it again.', ok: false, name };
+      }
+      if (name === 'pick_option') {
+        const before = (screen.open?.options ?? []).find((o) => o.n === args.n)?.text;
+        const after = (fresh.screen?.open?.options ?? []).find((o) => o.n === args.n)?.text;
+        if (before !== after) return { say: 'The options changed while I was deciding, so nothing was picked. Please choose again.', ok: false, name };
+      }
+    }
     // A replayed yes keeps its thread: her old words' "this" must not point at a new one.
     const res = await askMain(name, args, replay ? '' : heard);
     if (res?.status === 'needs_yes') {
@@ -186,7 +219,11 @@ async function perform(picked, { heard, askMain, state, now, compose, history = 
     case 'pick': return finish('pick_option', { id: a.id, n: a.n });
     case 'later': {
       const when = laterFrom(heard, now());
-      if (!when) return { say: 'Ask the person how long to put it off for.', ok: false };
+      if (!when) {
+        state.duration = { openId: open?.id ?? null };
+        return { say: 'Ask the person how long to put it off for.', ok: false };
+      }
+      state.duration = null;
       return finish('later', { id: a.id, minutes: Math.max(1, Math.round((when.ts - now()) / 60_000)) });
     }
     case 'close': return finish('close_thread', { id: a.id });
@@ -202,8 +239,15 @@ async function perform(picked, { heard, askMain, state, now, compose, history = 
     case 'command': return step('run_command', { id: a.id });
     case 'undo': return step('undo');
     case 'new': {
-      const text = String(heard).trim().replace(NEW_LEAD, '').trim() || String(heard).trim();
-      return step('new_thread', { text });
+      let text = String(heard).trim().replace(NEW_LEAD, '').trim() || String(heard).trim();
+      const project = (screen.projects ?? []).find((p) => p.slug === a.project);
+      if (project) {
+        const name = project.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (new RegExp(`\\b(?:task|thread)\\s+(?:in|for)\\s+${name}\\b`, 'i').test(heard)) {
+          text = text.replace(new RegExp(`^(?:(?:in|for)\\s+)?${name}\\b\\s*[:,-]?\\s*(?:to\\s+)?`, 'i'), '').trim();
+        }
+      }
+      return step('new_thread', { text, ...(a.project ? { project: a.project } : {}) });
     }
     case 'inbox': {
       const s = await askMain('get_screen', {}, heard);

@@ -4645,7 +4645,12 @@ export default function App() {
       try { await answerWith(row, text); } finally { neoSending.current = false; }
       return attach ? 'no-pictures' : undefined;
     },
-    close: (row) => markDone(row),
+    close: (row, confirmed) => markDone(row, { force: confirmed }),
+    closePrompt: (row) => {
+      const waiting = waitingFiled(row).length;
+      if (waiting) return `This thread has ${waiting} task${waiting === 1 ? '' : 's'} waiting for approval. Ask whether to close it anyway.`;
+      return offerIsLive(row) ? 'The agent is waiting on your answer. Closing leaves it waiting. Ask whether to close it anyway.' : null;
+    },
     later: (row, ts, label) => snoozeUntil(row, ts, label),
     compose: async (text, product) => {
       const message = threadMessage(text, []);

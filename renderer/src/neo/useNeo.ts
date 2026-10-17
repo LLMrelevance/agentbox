@@ -44,7 +44,8 @@ function scrollerAt(): HTMLElement | null {
 
 type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'scroll' | 'pictureNames' | 'show' | 'media' | 'mediaNames' | 'latestFilmCount' | 'latestPictureCount' | 'waitForPictures' | 'fileNames' | 'openFile'> & {
   pick(row: R, n: number): Promise<unknown>;
-  close(row: R): Promise<unknown>;
+  close(row: R, confirmed?: boolean): Promise<unknown>;
+  closePrompt?(row: R): string | null;
 };
 
 export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
@@ -81,10 +82,12 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
           return now && latest.current.options(now).map((o) => o.text).join('\n') === before ? 'asked' : 'done';
         },
         reply: (r, t, o) => latest.current.reply(r, t, o),
-        close: async (r) => {
-          await latest.current.close(r);
+        close: async (r, confirmed) => {
+          await latest.current.close(r, confirmed);
           await settle();
-          return latest.current.rows().some((x) => x.id === r.id) ? 'asked' : 'done';
+          if (!latest.current.rows().some((x) => x.id === r.id)) return 'done';
+          const prompt = latest.current.closePrompt?.(r);
+          return prompt ? { asked: prompt } : 'asked';
         },
         compose: (t, p) => latest.current.compose(t, p),
         undo: () => latest.current.undo(),

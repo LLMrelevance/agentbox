@@ -726,3 +726,117 @@ describe('a drag does not flood the main window', () => {
     expect(f.windows.last.getBounds().x).toBe(here.x - 10);
   });
 });
+
+// Sustained-session audit, 2026-10-17: Decisions requests bypassed the tool
+// queue, and a delayed goodbye could put the next conversation to sleep.
+describe('requests during a long conversation', () => {
+  const SCREEN = { open: null, rows: [], commands: [], canGoBack: false };
+  async function awake(decideImpl, { getScreen = () => SCREEN, onAct = () => null } = {}) {
+    const f = fakes({ decideImpl });
+    const woke = f.neo.wake('test');
+    f.finishLoad();
+    await woke;
+    let seen = 0;
+    const timer = setInterval(() => {
+      const acts = f.mainSent.filter(([ch]) => ch === 'neo:act');
+      for (; seen < acts.length; seen++) {
+        const { id, name, args } = acts[seen][1];
+        f.listeners.get('neo:act-result')(f.fromMainWindow, { id, result: name === 'neo_screen' ? { ok: true, screen: getScreen() } : onAct(name, args) ?? { ok: true, said: 'Nothing open.' } });
+      }
+    }, 1);
+    return { ...f, stop: () => clearInterval(timer) };
+  }
+
+  it('finishes one request before starting the next decision', async () => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const decideImpl = vi.fn(async () => { await held; return { choice: 'none', confidence: 0.99 }; });
+    const f = await awake(decideImpl);
+    let first, second;
+    try {
+      first = f.handlers.get('neo:decide')(f.fromNeo, { heard: 'What needs me?' });
+      second = f.handlers.get('neo:decide')(f.fromNeo, { heard: 'And what is next?' });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(decideImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      release();
+      await Promise.all([first, second]);
+      f.stop();
+    }
+  });
+
+  it('drops a queued decision when the conversation ends', async () => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const decideImpl = vi.fn(async () => { await held; return { choice: 'none', confidence: 0.99 }; });
+    const f = await awake(decideImpl);
+    try {
+      const first = f.handlers.get('neo:decide')(f.fromNeo, { heard: 'What needs me?' });
+      const second = f.handlers.get('neo:decide')(f.fromNeo, { heard: 'Close it.' });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      f.listeners.get('neo:ending')(f.fromNeo);
+      release();
+      await Promise.all([first, second]);
+      expect(decideImpl).toHaveBeenCalledTimes(1);
+    } finally { release(); f.stop(); }
+  });
+
+  it('a Decisions goodbye cannot end the next conversation', async () => {
+    const f = await awake(async () => ({ choice: 'signoff', confidence: 0.99 }));
+    try {
+      await f.handlers.get('neo:decide')(f.fromNeo, { heard: 'Goodbye.' });
+      f.listeners.get('neo:closed')(f.fromNeo);
+      await f.neo.wake('test');
+      const sleeps = f.neoSent.filter(([ch]) => ch === 'neo:sleep').length;
+      await new Promise((resolve) => setTimeout(resolve, 1600));
+      expect(f.neoSent.filter(([ch]) => ch === 'neo:sleep')).toHaveLength(sleeps);
+    } finally { f.stop(); }
+  });
+
+  it('a queued request keeps the thread that was visible when it arrived', async () => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const a = { ...SCREEN, open: { id: 'w-a', title: 'A', options: [] } };
+    const b = { ...SCREEN, open: { id: 'w-b', title: 'B', options: [] } };
+    let visible = a;
+    const f = await awake(async ({ instructions }) => {
+      if (/not done yet/.test(instructions)) return { choice: 'none', confidence: 0.99 };
+      await held;
+      return { choice: 'close', confidence: 0.99 };
+    }, { getScreen: () => visible, onAct: (name) => {
+      if (name === 'close_thread') visible = b;
+      return { ok: true, said: 'Done.' };
+    } });
+    let first, second;
+    try {
+      first = f.handlers.get('neo:decide')(f.fromNeo, { heard: 'Close this.' });
+      second = f.handlers.get('neo:decide')(f.fromNeo, { heard: 'Close this.' });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      release();
+      await Promise.all([first, second]);
+      expect(f.mainSent.filter(([ch, p]) => ch === 'neo:act' && p.name === 'close_thread').map(([, p]) => p.args.id)).toEqual(['w-a']);
+    } finally { release(); await Promise.all([first, second]); f.stop(); }
+  });
+
+  it('a late goodbye result cannot end the next conversation', async () => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const decideImpl = vi.fn(async ({ instructions }) => {
+      if (/not done yet/.test(instructions)) return { choice: 'none', confidence: 0.99 };
+      await held;
+      return { choice: 'signoff', confidence: 0.99 };
+    });
+    const f = await awake(decideImpl);
+    try {
+      const old = f.handlers.get('neo:decide')(f.fromNeo, { heard: 'Goodbye.' });
+      await vi.waitFor(() => expect(decideImpl).toHaveBeenCalled());
+      f.listeners.get('neo:closed')(f.fromNeo);
+      await f.neo.wake('test');
+      const sleeps = f.neoSent.filter(([ch]) => ch === 'neo:sleep').length;
+      release();
+      await old;
+      await new Promise((resolve) => setTimeout(resolve, 1600));
+      expect(f.neoSent.filter(([ch]) => ch === 'neo:sleep')).toHaveLength(sleeps);
+    } finally { release(); f.stop(); }
+  });
+});

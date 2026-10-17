@@ -323,21 +323,33 @@ export function createNeo({
 
   // LIVE ON THE DECISIONS API: what she said, handed over by the voice, is
   // decided, done through the app, and answered with what the voice says.
-  ipcMain.handle('neo:decide', async (e, { heard } = {}) => {
+  ipcMain.handle('neo:decide', (e, { heard } = {}) => {
     if (!fromNeo(e) || !live || ending || typeof heard !== 'string') return { say: '' };
     const gen = generation;
     const file = talkFile;
-    const guarded = (name, args, said) => (live && gen === generation ? askMain(name, args, said) : Promise.resolve({ ok: false, status: 'refused', said: 'Neo has signed off, so that was not done.' }));
-    try {
-      const r = await runDecision({ heard, askMain: guarded, state: decisionState, decideImpl, now, compose: composeImpl, history: said.slice() });
-      writeTalk(file, 'decision', `picked ${r.choice ?? '?'} (${r.confidence?.toFixed?.(2) ?? '?'}) in ${r.ms ?? '?'} ms -> ${r.say || '(nothing)'}`);
-      if (r.signoff) { generation++; ending = true; setTimeout(() => { if (live) win?.webContents.send('neo:sleep', { reason: 'asked' }); }, 1500); }
-      // What is on screen after it, so the voice stays told.
-      return { say: r.say ?? '', context: contextNote(await openThread(guarded)) };
-    } catch (err) {
-      writeTalk(file, 'decision', `failed: ${err.message}`);
-      return { say: 'Tell the person that did not work just now.' };
-    }
+    // Freeze the target when the request arrives, before another queued turn can advance it.
+    const initialScreen = askMain('neo_screen').catch(() => ({ ok: false }));
+    const guarded = (name, args, said) => (live && !ending && gen === generation ? askMain(name, args, said) : Promise.resolve({ ok: false, status: 'refused', said: 'Neo has signed off, so that was not done.' }));
+    const run = chain.then(async () => {
+      if (!live || ending || gen !== generation) return { say: 'Neo has signed off, so that was not done.' };
+      try {
+        const r = await runDecision({ heard, askMain: guarded, state: decisionState, decideImpl, now, compose: composeImpl, history: said.slice(), initialScreen: await initialScreen });
+        if (!live || ending || gen !== generation) return { say: 'Neo has signed off, so that was not done.' };
+        writeTalk(file, 'decision', `picked ${r.choice ?? '?'} (${r.confidence?.toFixed?.(2) ?? '?'}) in ${r.ms ?? '?'} ms -> ${r.say || '(nothing)'}`);
+        if (r.signoff) {
+          generation++;
+          ending = true;
+          const closing = generation;
+          setTimeout(() => { if (live && closing === generation) win?.webContents.send('neo:sleep', { reason: 'asked' }); }, 1500);
+        }
+        return { say: r.say ?? '', context: contextNote(await openThread(guarded)) };
+      } catch (err) {
+        writeTalk(file, 'decision', `failed: ${err.message}`);
+        return { say: 'Tell the person that did not work just now.' };
+      }
+    });
+    chain = run.catch(() => {});
+    return run;
   });
 
   // THE TRIAL RUN. What the Decisions API would have done with what she just

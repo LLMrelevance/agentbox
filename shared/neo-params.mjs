@@ -17,11 +17,13 @@ export function laterFrom(said, now = Date.now()) {
   const span = /\b(\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty|forty-five|sixty) (minute|min|hour|hr|day)s?\b/.exec(s);
   if (span) {
     const n = num(span[1]);
+    if (!(n > 0)) return null;
     const unit = span[2].startsWith('m') ? 60_000 : span[2].startsWith('h') ? 3600_000 : 86400_000;
     const word = span[2].startsWith('m') ? 'minute' : span[2].startsWith('h') ? 'hour' : 'day';
     return { ts: now + n * unit, label: `in ${n} ${word}${n === 1 ? '' : 's'}` };
   }
   const time = /\b(?:at|until|till|by)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/.exec(s.replace(/\b(\d+) (minute|min|hour|hr|day)s?\b/g, ''));
+  if (time && (Number(time[1]) > (time[3] ? 12 : 23) || Number(time[2] ?? 0) > 59 || (time[3] && Number(time[1]) < 1))) return null;
   const hourOf = (h, ampm) => (ampm === 'pm' && h < 12 ? h + 12 : ampm === 'am' && h === 12 ? 0 : !ampm && h < 7 ? h + 12 : h);
   if (/\btomorrow\b/.test(s)) {
     const t = time && /\b(at|until|till|by)\b|am|pm/.test(time[0]) ? atHour(plusDays(now, 1), hourOf(Number(time[1]), time[3]), Number(time[2] ?? 0)) : atHour(plusDays(now, 1), 8);

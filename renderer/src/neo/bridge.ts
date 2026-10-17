@@ -38,7 +38,7 @@ export type NeoDeps<R extends NeoRow> = {
   pick(row: R, n: number): Promise<'done' | 'asked' | void> | 'done' | 'asked' | void;
   // `attach`: send the pictures in her reply box with it. 'no-pictures' when there were none to send.
   reply(row: R, text: string, o?: { attach?: boolean }): Promise<unknown> | unknown;
-  close(row: R): Promise<'done' | 'asked' | void> | 'done' | 'asked' | void;
+  close(row: R, confirmed?: boolean): Promise<'done' | 'asked' | { asked: string } | void> | 'done' | 'asked' | { asked: string } | void;
   compose(text: string, product: string): Promise<{ id?: string } | null | undefined>;
   // 'old' is the app's own rule: past thirty seconds Z asks before it undoes
   // (renderer/src/undo-window.ts), and a voice should not answer that for her.
@@ -104,10 +104,10 @@ export function findCommands<C extends { label: string; hint?: string; keywords?
 // "This one", "the current one": the thread on screen, whatever id came with the call.
 const THIS = /\b(this|current|here)\b/;
 // New work, asked for in words; otherwise what she says goes to a thread that exists.
-const NEW_WORK = /\b(new (task|thread|work)|start (a|an|new)|create (a|an)|kick off|spin up|make (a|an) (task|thread))\b/;
+const NEW_WORK = /\b(new (task|thread|work)|(?:add|open|start|create|make) (?:a |an )?(?:new )?(?:task|thread)|start (a|an|new)|create (a|an)|kick off|spin up)\b/;
 
 const FOLLOW_HOLD_MS = 800;
-const CHANGES_THREAD = new Set(['open_thread', 'next_thread', 'close_thread', 'later', 'run_command', 'pick_option']);
+const CHANGES_THREAD = new Set(['open_thread', 'next_thread', 'go_back', 'close_thread', 'later', 'run_command', 'pick_option']);
 
 const RISKY_COMMAND = /^(pause|done|approve|update|first-run|fresh-user|demo|tutorial|stop|resume|cloud|run-now)/;
 
@@ -217,6 +217,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
   // counts for that and nothing else.
   let asked: { id: string; n: number; words: string } | null = null;
   let askedCommand: string | null = null;
+  let askedClose: string | null = null;
   // What Neo's words last put up, so each is shown once as it talks, and
   // held a moment so a quick list of names does not flicker.
   let followed = '';
@@ -330,8 +331,15 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
         case 'close_thread': {
           const row = meant(args.id, ctx);
           if (!row) return gone();
+          if (args.confirmed && askedClose !== row.id) return refused('That close was not the one waiting for confirmation.');
           deps.glow(row.id);
-          if ((await deps.close(row)) === 'asked') return refused(ASKED);
+          const closed = args.confirmed ? await deps.close(row, true) : await deps.close(row);
+          askedClose = null;
+          if (closed === 'asked') return refused(ASKED);
+          if (closed && typeof closed === 'object' && closed.asked) {
+            askedClose = row.id;
+            return { ok: false, status: 'needs_yes', said: closed.asked };
+          }
           return done(`Closed ${nameOf(row)}.`);
         }
 
@@ -373,6 +381,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           if (!cmd) return refused('That command is not on offer right now. Search again with find_commands.');
           // ⌘K's Later row only opens the time picker; later does it with her time.
           if (cmd.label === 'Later') return refused('Use later with the minutes or time the person said.');
+          if (cmd.id === 'done' && deps.focused()) return act('close_thread', { id: deps.focused()!.id, confirmed: args.confirmed }, ctx);
           // A yes counts for this command, with these words, on this thread:
           // "approve" means the open thread's approve, and that can change.
           const what = `${cmd.id}|${cmd.label}|${deps.focused()?.id ?? ''}`;
@@ -386,10 +395,6 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
               return { ok: false, status: 'needs_yes', said: `That would "${cmd.label}". Ask the person to say yes first.` };
             }
           }
-          // Closing goes the way close_thread does, which notices the app
-          // stopping to ask its own question first.
-          const open = deps.focused();
-          if (cmd.id === 'done' && open) return (await deps.close(open)) === 'asked' ? refused(ASKED) : done(`Closed ${nameOf(open)}.`);
           await cmd.run();
           return done(`Done: ${cmd.label}.`);
         }
@@ -514,6 +519,7 @@ export function screenFor<R extends NeoRow>(deps: NeoDeps<R>, canGoBack: boolean
     } : null,
     rows: [...listed, ...rest].slice(0, most).map((r) => ({ id: r.id, title: nameOf(r) })),
     commands: (deps.commands?.() ?? []).map((c) => ({ id: c.id, label: c.label, ...(c.hint ? { hint: c.hint } : {}) })),
+    projects: deps.projects().map(({ slug, name }) => ({ slug, name })),
     canGoBack,
   };
 }
