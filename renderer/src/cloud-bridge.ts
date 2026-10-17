@@ -19,6 +19,7 @@ import { cloudClient, type CloudClient, type CloudConfig } from './cloud-rest';
 import { installPhoneScreen } from './phone-screen';
 import { atMostEvery } from './phone-polls';
 import { madeHere } from '../../shared/phone-snapshot.mjs';
+import { statusForReply } from './list-rules';
 
 type Push = (payload: unknown) => void;
 
@@ -33,6 +34,11 @@ export interface Waiting { product: string; id: string; at: number; text: string
 // How long a refusal stays on her screen: long enough to be read the next time
 // she looks, not forever.
 const REFUSAL_SHOWN_MS = 24 * 3600_000;
+// A run the Mac has not said is still going for this long is not drawn as
+// running: the Mac went to sleep or lost the network mid-run, and its copy
+// online would otherwise say "working" forever (main/phone-inbox.mjs sends it
+// every two minutes while it runs).
+const LIVE_FOR_MS = 10 * 60_000;
 export const UNDONE = 'refused: taken back on the phone';
 // A PROJECT ON THE PHONE IS A PROJECT ON ONE COMPUTER (Codex's review of
 // step 1, finding 4): the screens know it by its name there and that
@@ -75,6 +81,7 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
   // them (Codex's third review, finding 6).
   const taken = new Set<string>([...rows.threads.map((t) => t.item), ...rows.commands.filter((c) => c.kind === 'new').map((c) => madeHere(c.id))]);
   const used = new Set<string>();
+  const running: any[] = [];
   const threads = [...rows.threads].sort((a, b) => `${a.device}/${a.project}`.localeCompare(`${b.device}/${b.project}`));
   for (const t of threads) {
     const slug = phoneSlug(t.device, t.project);
@@ -88,6 +95,15 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
     used.add(id);
     screenId.set(`${slug}/${t.item}`, id);
     items.set(`${slug}/${t.item}`, { ...t.snapshot.item, id, product: slug, productName: names.get(slug) });
+    const live = t.snapshot.live;
+    if (live && now - Number(live.at) < LIVE_FOR_MS) {
+      running.push({
+        itemId: id, product: slug, startedAt: Number(live.since) || 0,
+        ...(live.where === 'cloud' ? { where: 'cloud' } : {}),
+        tail: [],
+        activity: (Array.isArray(live.doing) ? live.doing : []).map((d: any, i: number) => ({ id: `live-${i}`, label: String(d?.label ?? ''), detail: '', startedAt: Number(d?.startedAt) || 0 })),
+      });
+    }
   }
   const waiting: Waiting[] = [];
   const ordered = [...rows.commands].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
@@ -103,7 +119,12 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
     const row = items.get(key);
     const id = screenId.get(key) ?? c.item;
     const said = (text: string) => waiting.push({ product: slug, id: id as string, at, text, ...(refused ? { refused } : {}) });
-    if (c.kind === 'reply' && c.item) said(String(c.payload?.text ?? ''));
+    if (c.kind === 'reply' && c.item) {
+      said(String(c.payload?.text ?? ''));
+      // Answered, as the window marks a row the moment she sends, so it is In
+      // progress until her Mac takes it and its own copy says what happened.
+      if (row && !refused) items.set(key, { ...row, status: statusForReply(row.status) ?? row.status, answer: String(c.payload?.text ?? ''), wrote: { ...row.wrote, answer: { ts: at, source: 'founder' } }, updatedAt: at });
+    }
     else if (refused && c.item && (c.kind === 'close' || c.kind === 'snooze')) {
       said(c.kind === 'close' ? 'Close this thread' : Number(c.payload?.until) > 0 ? 'Move to Later' : 'Bring back from Later');
     } else if (c.kind === 'close' && row) items.set(key, { ...row, status: 'done', updatedAt: at });
@@ -112,12 +133,12 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
       const made = madeHere(c.id);
       items.set(`${slug}/${made}`, {
         id: made, product: slug, productName: names.get(slug), title: String(c.payload?.title || c.payload?.body || '').slice(0, 200),
-        body: String(c.payload?.body ?? ''), kind: 'directive', labels: [], priority: 0, createdAt: at, updatedAt: at,
+        body: String(c.payload?.body ?? ''), kind: 'directive', labels: ['founder'], priority: 0, createdAt: at, updatedAt: at,
         ...(refused ? { status: 'blocked', result: `Your computer could not start this: ${refused}` } : { status: 'open', waitsForMac: true }),
       });
     }
   }
-  return { products, items: [...items.values()], waiting, aliases };
+  return { products, items: [...items.values()], waiting, aliases, running };
 }
 
 /** The thread's lines as her computer sent them, for the thread view. */
@@ -240,7 +261,9 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       if (!client.signedIn()) rows = EMPTY_ROWS;
       error = String((err as Error)?.message ?? err);
     }
-    const key = JSON.stringify([rows.threads.map((t) => [t.item, t.updated_at]), rows.commands.map((c) => [c.id, c.taken_at]), rows.projects, error, client.signedIn()]);
+    // A run going stale changes nothing online, and still has to stop being drawn.
+    const fresh = rows.threads.map((t) => !!t.snapshot?.live && Date.now() - Number(t.snapshot.live.at) < LIVE_FOR_MS);
+    const key = JSON.stringify([rows.threads.map((t) => [t.item, t.updated_at]), fresh, rows.commands.map((c) => [c.id, c.taken_at]), rows.projects, error, client.signedIn()]);
     if (key !== last) { last = key; changed(null); }
   }
 
@@ -314,7 +337,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       aliases = view.aliases;
       return {
         products: view.products, items: view.items, phoneWaiting: view.waiting,
-        team: team(), agents: [], approvals: [], supervisor: { ...SUPERVISOR, productOrder: view.products.map((p) => p.slug) },
+        team: team(), agents: [], approvals: [], supervisor: { ...SUPERVISOR, running: view.running, productOrder: view.products.map((p) => p.slug) },
         engines: null, runsOn: null, restartNeeded: null, cloud: null,
         config: { browserHome: '', browserPins: [], outsideAgents: 'off' },
       };

@@ -34,13 +34,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
-import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
+import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, hideSecrets, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
 
 // How long a thread started on the phone is remembered as the row it became:
 // long past any reply still waiting for it (second review, finding 8).
 const MADE_KEPT_MS = 60 * 24 * 3600_000;
 // A copy the cloud would not take is tried again, less and less often.
 const RETRY_MS = [60_000, 5 * 60_000, 30 * 60_000, 3600_000];
+// A running thread's step goes up at most this often, and its copy is sent
+// again this often while it runs, so a phone can tell a Mac that went to sleep
+// mid-run (cloud-bridge.ts LIVE_FOR_MS) from one still working.
+const STEP_EVERY_MS = 30_000;
+const STILL_RUNNING_MS = 2 * 60_000;
 
 export class SignedOut extends Error {}
 
@@ -62,6 +67,8 @@ export function createPhoneInbox({
   log = () => {},
   // How a thread's copy is made; a test counts the calls.
   build = threadSnapshot,
+  // (slug, id) -> { since, where: 'mac' | 'cloud', doing: [{ label, startedAt }] } while an agent runs on it, else null.
+  liveOf = () => null,
 }) {
   const state = readState(stateFile);
   const save = () => writeState(stateFile, state);
@@ -90,6 +97,25 @@ export function createPhoneInbox({
   // same row and lines make the same copy.
   const built = new Map();
   const inputsOf = (item, history) => crypto.createHash('sha1').update(JSON.stringify(item)).update('\0').update(JSON.stringify(history)).digest('base64');
+  // What each running thread's copy last said about the run, by thread.
+  const lives = new Map();
+  const liveNow = (sk, slug, id) => {
+    let raw = null;
+    try { raw = liveOf(slug, id); } catch { /* the supervisor's trouble, not the phone's */ }
+    if (!raw) { lives.delete(sk); return null; }
+    const doing = (Array.isArray(raw.doing) ? raw.doing : []).slice(0, 3).map((d) => {
+      const label = hideSecrets(String(d?.label ?? ''), { home }).replace(/\s+/g, ' ').trim();
+      return { label: label.length > 160 ? `${label.slice(0, 159)}…` : label, startedAt: Number(d?.startedAt) || now() };
+    });
+    const was = lives.get(sk);
+    const same = was && was.since === raw.since && was.where === raw.where;
+    const steps = (l) => JSON.stringify(l.doing.map((d) => d.label));
+    if (same && now() - was.at < STEP_EVERY_MS) return was;
+    if (same && now() - was.at < STILL_RUNNING_MS && steps(was) === steps({ doing })) return was;
+    const live = { since: Number(raw.since) || now(), where: raw.where === 'cloud' ? 'cloud' : 'mac', doing, at: now() };
+    lives.set(sk, live);
+    return live;
+  };
   // Each project's pass is one stretch of work; between them the window gets a turn.
   const breathe = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -109,11 +135,14 @@ export function createPhoneInbox({
         const sk = `${p.slug}:${item.id}`;
         const history = historyOf(p.slug, item.id);
         const inputs = inputsOf(item, history);
+        const live = liveNow(sk, p.slug, item.id);
         const was = built.get(sk);
-        if (was && was.inputs === inputs && state.sent[sk] === was.key) continue;
-        const snap = build(item, history, SNAPSHOT_LIMITS, { home });
+        if (was && was.inputs === inputs && was.live === live && state.sent[sk] === was.key) continue;
+        // Only the run moved: the copy of the row and its lines is the one already made.
+        const base = was?.inputs === inputs && was.base ? was.base : build(item, history, SNAPSHOT_LIMITS, { home });
+        const snap = live ? { ...base, live } : base;
         const k = snapshotKey(snap);
-        built.set(sk, { inputs, key: k });
+        built.set(sk, { inputs, key: k, live, base: live ? base : null });
         if (state.sent[sk] === k) continue;
         const failed = state.failed[sk];
         if (failed && failed.key === k && now() < failed.next) continue;

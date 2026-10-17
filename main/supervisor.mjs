@@ -5023,6 +5023,13 @@ export class Supervisor {
      Pausing the whole fleet is still a switch in Settings and a row in
      ⌘K, and stopping one task is still S on the row. */
 
+  /** What the phone is told of the agent running on one thread: since, where, its current steps. Null when none is. */
+  liveFor(product, itemId) {
+    const s = this.sessions.get(itemId);
+    if (!s || s.product !== product || s.remoteIdle) return null;
+    return { since: s.startedAt, where: s.cloud ? 'cloud' : 'mac', doing: currentActivity(s).map((a) => ({ label: a.label, startedAt: a.startedAt })) };
+  }
+
   status() {
     // Stalled: the founder's answer is marked delivered, but nobody is on the
     // item and it never moved. A worker ran and exited without finishing (a
