@@ -24,6 +24,8 @@ export type NeoDeps<R extends NeoRow> = {
   rows(): R[];
   // Every thread the app knows (Needs you, In progress, Later, Done), for finding one by id.
   threadsAnywhere?(): R[];
+  // Any thread by id, even one the tabs hide for a moment (a reply that can still be undone).
+  threadById?(id: string): R | null;
   focused(): R | null;
   outside(): boolean;
   options(row: R): { n: number; text: string }[];
@@ -208,7 +210,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
   };
   const find = (id: unknown) => {
     const open = deps.focused();
-    return deps.rows().find((r) => r.id === id) ?? deps.threadsAnywhere?.().find((r) => r.id === id) ?? (open && open.id === id ? open : null);
+    return deps.rows().find((r) => r.id === id) ?? deps.threadsAnywhere?.().find((r) => r.id === id) ?? (open && open.id === id ? open : null) ?? (typeof id === 'string' ? deps.threadById?.(id) ?? null : null);
   };
   const gone = () => refused('No thread with that id. Call get_screen for the current ids.');
   // The one pick Neo has asked a yes for, by thread, number and words. A yes

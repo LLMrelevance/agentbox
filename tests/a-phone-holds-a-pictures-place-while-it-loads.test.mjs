@@ -64,9 +64,9 @@ describe('a picture on a phone', () => {
 
 describe('the placeholder', () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const css = fs.readFileSync(path.join(root, 'renderer/src/phone.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-  const at = css.indexOf('@media (max-width: 700px), (max-height: 520px)');
-  const inside = css.slice(at);
+  // In the main stylesheet since every window got it
+  // (a-picture-on-its-way-holds-its-place-on-the-computer-too).
+  const inside = fs.readFileSync(path.join(root, 'renderer/src/styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   // Every rule naming it, joined: the button around a loading picture names it too.
   const rule = (sel) => [...inside.matchAll(new RegExp(`([^{}]*${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^{}]*)\\{([^{}]*)\\}`, 'g'))]
     .map((m) => m[2]).join(';');

@@ -12,10 +12,10 @@ import { neoEnabled } from './gate.mjs';
 import { startLive } from './live.mjs';
 import { listenForDoubleCommand } from './cmd-tap.mjs';
 import { getMic, micOwner } from './mic.mjs';
-import { decide, answerQuestion, composeReply } from './decide.mjs';
+import { decide, composeReply } from './decide.mjs';
 import { runDecision } from './decided.mjs';
 import { buildOptions } from '../../shared/neo-options.mjs';
-import { checkCall, neoSession, PACES } from '../../shared/neo-tools.mjs';
+import { checkCall, contextNote, neoSession, PACES } from '../../shared/neo-tools.mjs';
 import { Name } from '../../shared/product-name.mjs';
 
 const WIDTH = 600;
@@ -40,7 +40,6 @@ export function createNeo({
   // The trial run on the Decisions API: decides from what is on screen and
   // writes the pick beside the talk, acting on nothing (plans/neo-decisions.md).
   decideImpl = decide,
-  answerImpl = answerQuestion,
   composeImpl = composeReply,
 }) {
   const on = neoEnabled({ userData, platform });
@@ -126,6 +125,7 @@ export function createNeo({
   // windows' bounds. A drag sends a frame per pointer move and most land on
   // the same pixel, so an unchanged place is not sent again.
   let toldOrb = '';
+  let toldOrbAt = 0;
   function tellOrb() {
     if (!win || win.isDestroyed() || mainWindow.isDestroyed()) return;
     const b = win.getBounds();
@@ -173,6 +173,11 @@ export function createNeo({
     loaded = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
     load(win);
     return win;
+  }
+
+  async function openThread(ask = askMain) {
+    const d = await ask('describe_open', {}, '');
+    return d?.ok ? d.said : 'No thread is open.';
   }
 
   // Asks the main window to do something and waits for its answer.
@@ -247,11 +252,12 @@ export function createNeo({
 
   ipcMain.handle('neo:start-live', async (e, { sdp, outside } = {}) => {
     if (!fromNeo(e) || !live) return { ok: false, error: 'Neo is not awake.' };
-    // Tells the app whether she is in another app; what is on screen is not
-    // given to the session (shared/neo-tools.mjs neoSession says why).
     await askMain('describe_screen', { outside: !!outside });
+    // The open thread goes in as data, so the voice can answer about it
+    // instead of guessing (it made up a task when it had nothing).
+    const context = engine() === 'decisions' ? contextNote(await openThread()) : '';
     try {
-      const answer = await startLiveImpl({ sdp, session: neoSession({ pace: readPrefs().pace, engine: engine() }) });
+      const answer = await startLiveImpl({ sdp, session: neoSession({ pace: readPrefs().pace, engine: engine(), context }) });
       log('session started');
       return { ok: true, sdp: answer.sdp };
     } catch (err) {
@@ -323,10 +329,11 @@ export function createNeo({
     const file = talkFile;
     const guarded = (name, args, said) => (live && gen === generation ? askMain(name, args, said) : Promise.resolve({ ok: false, status: 'refused', said: 'Neo has signed off, so that was not done.' }));
     try {
-      const r = await runDecision({ heard, askMain: guarded, state: decisionState, decideImpl, now, answer: answerImpl, compose: composeImpl, history: said.slice() });
+      const r = await runDecision({ heard, askMain: guarded, state: decisionState, decideImpl, now, compose: composeImpl, history: said.slice() });
       writeTalk(file, 'decision', `picked ${r.choice ?? '?'} (${r.confidence?.toFixed?.(2) ?? '?'}) in ${r.ms ?? '?'} ms -> ${r.say || '(nothing)'}`);
       if (r.signoff) { generation++; ending = true; setTimeout(() => { if (live) win?.webContents.send('neo:sleep', { reason: 'asked' }); }, 1500); }
-      return { say: r.say ?? '' };
+      // What is on screen after it, so the voice stays told.
+      return { say: r.say ?? '', context: contextNote(await openThread(guarded)) };
     } catch (err) {
       writeTalk(file, 'decision', `failed: ${err.message}`);
       return { say: 'Tell the person that did not work just now.' };
@@ -392,16 +399,17 @@ export function createNeo({
     if (!dragFrom) return;
     if (phase === 'move' && Number.isFinite(dx) && Number.isFinite(dy)) {
       const next = { x: dragFrom.x + dx, y: dragFrom.y + dy };
-      const now = sideFor(next);
+      const nowSide = sideFor(next);
       // The orb stays under the pointer as the card changes sides.
-      if (now !== side) { const shift = ORB_X[side] - ORB_X[now]; dragFrom.x += shift; next.x += shift; side = now; tellSide(); }
+      if (nowSide !== side) { const shift = ORB_X[side] - ORB_X[nowSide]; dragFrom.x += shift; next.x += shift; side = nowSide; tellSide(); }
       const nowUp = upFor(next);
       if (nowUp !== up) { const shift = ORB_Y[up ? 'up' : 'down'] - ORB_Y[nowUp ? 'up' : 'down']; dragFrom.y += shift; next.y += shift; up = nowUp; tellSide(); }
       win.setBounds(within(next.x, next.y));
-      tellOrb();
+      // At most every 200 ms mid-drag: each tell redraws part of the main window.
+      if (now() - toldOrbAt >= 200) { toldOrbAt = now(); tellOrb(); }
       return;
     }
-    if (phase === 'end') { const { x, y } = win.getBounds(); writePrefs({ at: { x, y }, side, up }); dragFrom = null; }
+    if (phase === 'end') { const { x, y } = win.getBounds(); writePrefs({ at: { x, y }, side, up }); dragFrom = null; toldOrbAt = 0; tellOrb(); }
   });
 
   // How fast Neo talks, from the next session on. Asked with no value, it answers.

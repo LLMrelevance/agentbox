@@ -25,7 +25,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const css = fs.readFileSync(path.join(root, 'renderer/src/phone.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+// In the main stylesheet since every window got it
+// (a-picture-on-its-way-holds-its-place-on-the-computer-too).
+const css = fs.readFileSync(path.join(root, 'renderer/src/styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** The declarations of every rule whose selector names `sel`, joined. */
 function declarations(text, sel) {
@@ -73,8 +75,8 @@ describe('a picture in a message, while it is on its way', () => {
 
   it('lets go of the width once it has arrived, so a small picture is drawn at its own size', () => {
     // Only a picture still loading widens its button; nothing widens every one.
-    expect(declarations(css, '.inline-image-open {')).not.toMatch(/width:\s*100%/);
-    expect(css).not.toMatch(/\.inline-image-open\s*\{[^}]*width:\s*100%/);
+    expect(declarations(css, '.inline-image-open {')).not.toMatch(/(?<![-\w])width:\s*100%/);
+    expect(css).not.toMatch(/\.inline-image-open\s*\{[^}]*(?<![-\w])width:\s*100%/);
     expect(declarations(css, '.inline-image[data-phone-img="ready"]')).not.toMatch(/(^|;)\s*width:/);
   });
 });
