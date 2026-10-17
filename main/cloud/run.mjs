@@ -50,6 +50,8 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { spawn, execFileSync } from 'node:child_process';
 import { readMarker, writeMarker, clearMarker } from './marker.mjs';
 import { Name, nameSlug } from '../../shared/product-name.mjs';
@@ -58,6 +60,7 @@ import { appendCloudUsage } from './usage.mjs';
 import { docsFolderFor, docsToSend, tarDocs, layDocs } from './docs.mjs';
 import { troubleCause, limitResetMoment } from '../../shared/spawn-trouble.mjs';
 import { HAND_BACK } from '../../shared/cloud-hand-back.mjs';
+import { serveApprovals } from '../approval-prompt-core.mjs';
 
 // WHAT A CLOUD RUN IS TOLD ABOUT WHERE IT IS. Without it an agent there found
 // its film's files, ffmpeg and a key missing, and asked the person to move the
@@ -663,7 +666,8 @@ export async function cloudRun({
   function openServer(conn, name, init = []) {
     const cfg = mcpConfig.mcpServers?.[name];
     if (!cfg) { enqueue({ action: 'mcp-close', conn }); return; }
-    const proc = spawn(cfg.command, cfg.args || [], { cwd, env: toolEnv({ ...serverEnv, ...(cfg.env || {}) }), stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = servedHere(cfg, toolEnv({ ...serverEnv, ...(cfg.env || {}) }), `${runId}-${conn}`)
+      ?? spawn(cfg.command, cfg.args || [], { cwd, env: toolEnv({ ...serverEnv, ...(cfg.env || {}) }), stdio: ['pipe', 'pipe', 'pipe'] });
     const s = { proc, name, buf: '', closed: false, init: [...init], pending: new Set(), swallow: new Set() };
     servers.set(conn, s);
     for (const line of init) {
@@ -1274,4 +1278,47 @@ export async function takeImportSlot({ dir = path.join(os.tmpdir(), `${nameSlug}
     }
     await sleep(everyMs);
   }
+}
+
+// THE APP'S OWN TWO TOOL SERVERS, SERVED IN THIS PROCESS. Each was a process of
+// its own per cloud run (the approvals server about 46 MB, measured on her Mac
+// 2026-10-17), most of it the runtime starting up, not work. In here each
+// connection gets its own channel: the approvals for its own row, the store
+// with its own claims. Any other server is still started as configured.
+export function servedHere(cfg, env, holder) {
+  const cmd = String(cfg?.command || '');
+  if (cmd.endsWith('/approval-server.sh')) return channel((io) => serveApprovals({ env, ...io, warn: (m) => io.output.emit('warn', m) }));
+  if (cmd.endsWith(`/${nameSlug}-mcp.sh`)) {
+    // One store, one account, for every run on this Mac: the store reads where
+    // it is from the environment, so the server's own settings are set on it,
+    // winning over the worker's as they would for a server of its own.
+    for (const [k, v] of Object.entries(cfg.env || {})) process.env[k] = v;
+    return channel(async (io) => (await import('../../mcp/stdio.mjs')).serveStore({ ...io, holder: `mcp-cloud-${holder}` }));
+  }
+  return null;
+}
+
+// A server in this process, shaped like the child process the relay would
+// otherwise have started: lines in on `stdin`, lines out on `stdout`, `close`
+// once it has said its last.
+function channel(serve) {
+  const proc = new EventEmitter();
+  proc.stdin = new PassThrough();
+  proc.stdout = new PassThrough();
+  proc.stderr = new PassThrough();
+  proc.stdout.on('warn', (m) => proc.stderr.write(`${m}\n`));
+  let handle = null;
+  let ended = false;
+  const end = () => {
+    if (ended) return;
+    ended = true;
+    Promise.resolve(handle?.close?.()).catch(() => {}).finally(() => proc.stdout.end());
+  };
+  proc.stdout.on('end', () => proc.emit('close', 0, null));
+  proc.stdin.on('finish', end);
+  proc.kill = () => { end(); return true; };
+  Promise.resolve().then(() => serve({ input: proc.stdin, output: proc.stdout }))
+    .then((h) => { handle = h; if (ended) Promise.resolve(h?.close?.()).catch(() => {}); })
+    .catch((err) => { proc.stderr.write(`${err?.message ?? err}\n`); if (proc.listenerCount('error')) proc.emit('error', err); end(); });
+  return proc;
 }
