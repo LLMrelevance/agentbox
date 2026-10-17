@@ -76,3 +76,28 @@ describe('the voice is told what is on screen', () => {
     expect(sent).toEqual([expect.objectContaining({ type: 'session.commentary.append', delegation_id: 'i1' })]);
   });
 });
+
+// 2026-10-17 19:01: "can we go back to the birthday task" was a faint guess,
+// Neo asked "Do you want me to open that thread?", and her "Yeah" did nothing:
+// that question kept nothing to say yes to.
+describe('a yes to Neo\'s own question does what it asked', () => {
+  it('"Do you want me to open that thread?" then "yeah" opens it', async () => {
+    const screen = { ...SCREEN, rows: [{ id: 'w-r', title: 'Make Princess bday for Rachel' }] };
+    const calls = [];
+    const state = {};
+    const picks = [
+      { choice: 'none', confidence: 0.14, runnersUp: [{ value: 'open:w-r', probability: 0.12 }] },
+      { choice: 'yes', confidence: 0.94, runnersUp: [] },
+    ];
+    const run = (heard) => runDecision({
+      heard, state, now: () => 0, history: [],
+      askMain: async (n, a) => (n === 'neo_screen' ? { ok: true, screen } : (calls.push([n, a]), { ok: true, said: 'Opened it.' })),
+      decideImpl: async ({ options }) => { const p = picks.shift(); if (p.choice === 'yes') expect(options.some((o) => o.value === 'yes')).toBe(true); return p; },
+    });
+    const asked = await run('okay so can we go back to the birthday task');
+    expect(asked.say).toMatch(/Open the thread "Make Princess bday for Rachel"/);
+    expect(calls).toEqual([]);
+    await run('yeah');
+    expect(calls[0]).toEqual(['open_thread', { id: 'w-r' }]);
+  });
+});
