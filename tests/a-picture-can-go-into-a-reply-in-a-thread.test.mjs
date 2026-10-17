@@ -138,11 +138,13 @@ describe('a new message to a person', () => {
 
   it('sends the files it holds with the words', () => {
     expect(src).toMatch(/attachments\.map\(\(\{ name, dataBase64, srcPath \}\) => \(\{ name, dataBase64, srcPath \}\)\)/);
-    expect(src).toMatch(/person \? !!text\.trim\(\) \|\| attachments\.length > 0/);
+    // Addressed to a person AND sent as a message: a task to a person is
+    // held to the task's bar instead (w-c34591721f).
+    expect(src).toMatch(/asMessage \? !!text\.trim\(\) \|\| attachments\.length > 0/);
   });
 
   it('has an attach button beside Send', () => {
-    const from = src.indexOf('{person ? (');
+    const from = src.indexOf("{person && sendAs === 'message' ? (");
     const bar = src.slice(from, src.indexOf('\n        ) : (', from));
     expect(bar).toMatch(/aria-label="Attach files"/);
   });

@@ -145,6 +145,13 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
       const out = await call(`/rest/v1/${table}`, { method: 'POST', headers: { prefer: 'return=representation' }, body: JSON.stringify(row) });
       return Array.isArray(out) ? out[0] : out;
     },
+    /** Links to her own files in a private bucket, each good for `seconds`: path -> address. */
+    async signFiles(bucket: string, paths: string[], seconds = 3600): Promise<Map<string, string>> {
+      const out = await call(`/storage/v1/object/sign/${bucket}`, { method: 'POST', body: JSON.stringify({ expiresIn: seconds, paths }) });
+      const links = new Map<string, string>();
+      for (const r of Array.isArray(out) ? out : []) if (r?.path && typeof r.signedURL === 'string' && !r.error) links.set(r.path, `${base}/storage/v1${r.signedURL.startsWith('/') ? '' : '/'}${r.signedURL}`);
+      return links;
+    },
   };
 }
 

@@ -679,6 +679,32 @@ describe('telling the voice what is on screen', () => {
     expect(startLiveImpl.mock.calls[0][0].session.instructions).toMatch(/What is on screen now[\s\S]*show each agent's account/);
   });
 
+  // tests/neo-speaks-in-the-voice-she-picked.test.mjs
+  it('the session speaks in the voice she picked', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const startLiveImpl = vi.fn(async () => ({ sdp: 'v=0 answer', id: 's' }));
+    const f = fakes({ startLiveImpl });
+    fs.mkdirSync(path.join(f.userData, 'neo'), { recursive: true });
+    fs.writeFileSync(path.join(f.userData, 'neo', 'prefs.json'), JSON.stringify({ voice: 'cedar' }));
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    const stop = answerEveryAct(f, {});
+    await f.handlers.get('neo:start-live')(f.fromNeo, { sdp: 'v=0 offer', outside: false });
+    stop();
+    expect(startLiveImpl.mock.calls[0][0].session.audio).toEqual({ output: { voice: 'cedar' } });
+  });
+
+  it('Settings reads and keeps the voice, marin until one is picked, only one of the ten', async () => {
+    const f = fakes({});
+    const voice = f.handlers.get('neo:voice');
+    expect(await voice(f.fromMainWindow)).toBe('marin');
+    expect(await voice(f.fromMainWindow, 'cedar')).toBe('cedar');
+    expect(await voice(f.fromMainWindow, 'zzz')).toBe('cedar');
+    expect(await fakes({ userData: f.userData }).handlers.get('neo:voice')(f.fromMainWindow)).toBe('cedar');
+  });
+
   it('every decision comes back with what is on screen after it', async () => {
     const f = fakes({ decideImpl: async () => ({ choice: 'next', confidence: 0.9, runnersUp: [] }) });
     const w = f.neo.wake('test');

@@ -39,6 +39,11 @@ function fixture() {
   return { manager, made, tick: (ms) => { clock.t += ms; } };
 }
 
+// She watched it print, then left. A shell holding output she has not read is
+// never closed for idling (a-shell-waits-until-you-have-read-what-it-printed),
+// so these tests read it first to reach the close they are about.
+function sawIt(f, key) { f.manager.read(key, 0); }
+
 describe('a terminal you walked away from is still there when you come back', () => {
   it('is still open after the fifteen minutes she reported', () => {
     const f = fixture();
@@ -70,6 +75,7 @@ describe('and when one is closed, its output comes back with the new shell', () 
     const f = fixture();
     f.manager.open('p:deploy');
     f.made[0].say('$ npm run release\r\nError: notarisation failed (401)\r\n$ ');
+    sawIt(f, 'p:deploy');
     f.tick(61 * MINUTE);
     f.manager.sweepIdle();
     const back = f.manager.open('p:deploy').data;
@@ -81,8 +87,10 @@ describe('and when one is closed, its output comes back with the new shell', () 
 
   it('keeps the output when the cap took the shell, too', () => {
     const f = fixture();
-    for (let i = 0; i < 20; i++) { f.tick(MINUTE); f.manager.open('p:' + i); }
+    f.manager.open('p:0');
     f.made[0].say('the last thing p:0 said\r\n');
+    sawIt(f, 'p:0');
+    for (let i = 1; i < 20; i++) { f.tick(MINUTE); f.manager.open('p:' + i); }
     f.manager.open('p:new');
     const back = f.manager.open('p:0').data;
     expect(back).toContain('the last thing p:0 said');
@@ -93,6 +101,7 @@ describe('and when one is closed, its output comes back with the new shell', () 
     const f = fixture();
     f.manager.open('p:deploy');
     f.made[0].say('Error: once\r\n');
+    sawIt(f, 'p:deploy');
     f.tick(61 * MINUTE);
     f.manager.sweepIdle();
     f.manager.open('p:deploy');
@@ -112,6 +121,7 @@ describe('and when one is closed, its output comes back with the new shell', () 
     const f = fixture();
     f.manager.open('p:a');
     f.made[0].say('only in a\r\n');
+    sawIt(f, 'p:a');
     f.tick(61 * MINUTE);
     f.manager.sweepIdle();
     expect(f.manager.open('p:b').data).not.toContain('only in a');
@@ -122,6 +132,7 @@ describe('and when one is closed, its output comes back with the new shell', () 
     f.manager.open('p:deploy');
     const line = 'x'.repeat(99) + '\n';
     f.made[0].say(line.repeat(2000) + 'Error: at the very end\r\n');
+    sawIt(f, 'p:deploy');
     f.tick(61 * MINUTE);
     f.manager.sweepIdle();
     const back = f.manager.open('p:deploy').data;
