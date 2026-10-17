@@ -80,7 +80,20 @@ export const CLOUD_MODES: { id: CloudMode; label: string; note: string }[] = [
 // THE CLOUD IS ON OR OFF (2026-10-16, her pick of five drawings). C flips it;
 // what "on" means, when this Mac is full or everything, is kept as a
 // preference in the menu and survives the cloud being off.
-export const CLOUD_KEY = 'C';
+export const CLOUD_KEY = '⌘C';
+
+/**
+ * ⌘C (Ctrl+C) TURNS THE CLOUD ON OR OFF (2026-10-17: a plain C was hit by
+ * accident). It is Copy first: never with text selected, in a field, or over a
+ * dialog.
+ */
+export function cloudChord(
+  e: { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean },
+  { inInput, selection, modal }: { inInput: boolean; selection: string; modal: boolean },
+): boolean {
+  if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'c') return false;
+  return !inInput && !modal && !selection.trim();
+}
 
 export const CLOUD_WHEN_ON: { id: Exclude<CloudMode, 'mac'>; label: string; note: string }[] = [
   { id: 'full', label: 'When this Mac is full', note: 'Threads that don’t fit here start in the cloud.' },

@@ -216,6 +216,9 @@ const HUNG_REPEAT_WINDOW_MS = 2 * 3_600_000;
 // with it. Past this the item stops respawning and reads as stopped, which is
 // then a report of three real failures rather than of one unnoticed death.
 const MAX_DELIVERY_ATTEMPTS = 3;
+// How many cloud runs may be packing and sending at once (`_cloudStarting`).
+// Turning the cloud on with Everything once started up to ten together.
+const CLOUD_STARTING_AT_ONCE = 2;
 
 // How long a row we interrupted for an Urgent one is held out of the queue
 // before we give up waiting for that Urgent row to start. A BACKSTOP, not the
@@ -4269,6 +4272,14 @@ export class Supervisor {
     return this.config.cloudRuns === 'all';
   }
 
+  // Cloud runs still being packed and sent: a run's proxy holds its folder,
+  // documents and transcript in memory until its agent has started.
+  _cloudStarting() {
+    let n = 0;
+    for (const s of this.sessions.values()) if (s.cloud && s.sessionId == null && s.result == null) n += 1;
+    return n;
+  }
+
   _maxCloud() {
     const n = Number(this.config.maxCloudSessions);
     return Number.isFinite(n) && n >= 0 ? n : 10;
@@ -4290,7 +4301,7 @@ export class Supervisor {
     // The cloud's own accounts, not this Mac's: a Mac login resting does not
     // stop it, only an engine she has not turned on.
     if (!this.engineChoices().some((e) => e.id === which)) return false;
-    return this._cloudLoad() < this._maxCloud();
+    return this._cloudLoad() < this._maxCloud() && this._cloudStarting() < CLOUD_STARTING_AT_ONCE;
   }
 
   // Which rows may go to the cloud at all. A row needs its own task folder

@@ -53,20 +53,19 @@ describe('on or off', () => {
   });
 });
 
+// The key itself has been ⌘C since 2026-10-17
+// (tests/the-cloud-turns-on-or-off-with-command-c.test.mjs).
 describe('the key', () => {
-  it('is C, said on the button and on the shortcuts page under anywhere', () => {
-    expect(CLOUD_KEY).toBe('C');
-    expect(HINTS.cloud).toEqual([{ key: 'C', what: 'Cloud on or off' }]);
+  it('is said on the button and on the shortcuts page under anywhere', () => {
+    expect(HINTS.cloud).toEqual([{ key: CLOUD_KEY, what: 'Cloud on or off' }]);
     const anywhere = SHORTCUTS.find((g) => g.label === 'Anywhere in the app');
-    expect(anywhere.keys.some((k) => k.keys.includes('C'))).toBe(true);
+    expect(anywhere.keys.some((k) => k.keys.includes(CLOUD_KEY))).toBe(true);
     const button = read('../renderer/src/threads/Pages.tsx');
     expect(button).toMatch(/data-hint="cloud" data-hint-align="center"/);
   });
 
-  it('flips the cloud on the list, in an open thread and on a teammate\'s card, and N alone starts a thread', () => {
+  it('N alone starts a thread', () => {
     const app = read('../renderer/src/App.tsx');
-    expect(app.match(/toggleCloudRef\.current\?\.\(\)/g)).toHaveLength(3);
-    expect(app).toMatch(/case 'c': case 'C': e\.preventDefault\(\); toggleCloudRef\.current\?\.\(\); break;/);
     expect(app).toMatch(/case 'n': case 'N': e\.preventDefault\(\); setModal\('compose'\); break;/);
     expect(app).not.toMatch(/e\.key === 'c' \|\| e\.key === 'C' \|\| e\.key === 'n'/);
   });
@@ -76,12 +75,12 @@ describe('the command bar', () => {
   it('turns the cloud on or off with C beside it, and offers each meaning of on', () => {
     const on = cloudCommands(status('full', 'full'));
     expect(on.map((r) => [r.label, r.mode, r.keyHint ?? null, r.hint ?? null])).toEqual([
-      ['Turn the cloud off', 'mac', 'C', null],
+      ['Turn the cloud off', 'mac', '⌘C', null],
       ['Cloud on: when this Mac is full', 'full', null, 'On now'],
       ['Cloud on: everything', 'all', null, null],
     ]);
     const off = cloudCommands(status('mac', 'all'));
-    expect(off[0]).toMatchObject({ label: 'Turn the cloud on', mode: 'all', keyHint: 'C' });
+    expect(off[0]).toMatchObject({ label: 'Turn the cloud on', mode: 'all', keyHint: '⌘C' });
     expect(off.filter((r) => r.hint)).toEqual([]);
   });
 
