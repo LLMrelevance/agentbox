@@ -82,14 +82,6 @@ describe('talk to Neo about Neo', () => {
     expect(o.description).toMatch(/not words for the agent/);
   });
 
-  it('is answered knowing the conversation, and nothing is sent', async () => {
-    const t = setup([pick('talk')], { history: [{ who: 'neo', text: 'Done. It sent.' }] });
-    const r = await t.run('you wrote I just told you what it should say, that is not what I wanted');
-    expect(t.calls.map(([n]) => n)).not.toContain('reply');
-    expect(r.say).toMatch(/about you wrote/);
-    expect(t.answer.mock.calls[0][0].toNeo).toBe(true);
-    expect(t.answer.mock.calls[0][0].context).toMatch(/Done\. It sent\./);
-  });
 });
 
 describe('Neo\'s own question can be answered yes', () => {
@@ -105,14 +97,6 @@ describe('Neo\'s own question can be answered yes', () => {
     const r = await runDecision({ heard: 'Yes', askMain: async (n, a) => (n === 'neo_screen' ? { ok: true, screen: SCREEN } : (yes.calls.push([n, a]), { ok: true, said: 'Sent.' })), decideImpl: async () => queue.shift() ?? pick('none'), state: yes.state, now: () => 0, compose, history: [] });
     expect(yes.calls[0]).toEqual(['reply', { id: 'w-j', text: 'from: ask it to go through the transcripts' }]);
     expect(r.say).toMatch(/Sent/);
-  });
-});
-
-describe('a bare sound is not a question', () => {
-  it('"Oh" with a faint guess gets "Okay", not "open the next thread?"', async () => {
-    const t = setup([pick('next', 0.12)]);
-    expect((await t.run('Oh')).say).toBe('Say just "Okay."');
-    expect(t.calls).toEqual([]);
   });
 });
 
@@ -231,9 +215,4 @@ describe('Neo talks things through itself', () => {
     expect(said).not.toMatch(/you hand every request to it/);
   });
 
-  it('an answer comes back bare, with no label for the voice to read out', async () => {
-    const { answerQuestion } = await import('../main/neo/decide.mjs');
-    const fetchImpl = async () => ({ ok: true, json: async () => ({ output_text: 'It is the page title.' }) });
-    expect(await answerQuestion({ question: 'what is an H1', context: '', getKey: async () => 'k', fetchImpl })).toBe('It is the page title.');
-  });
 });

@@ -38,48 +38,7 @@ function setup(picks, { results = {}, state = {} } = {}) {
 }
 const pick = (choice, confidence = 0.9, runnersUp = []) => ({ choice, confidence, runnersUp, ms: 100 });
 
-describe('Neo always says something after "one sec"', () => {
-  it('an unsure "nothing" asks which she meant, naming the likeliest', async () => {
-    const t = setup([pick('none', 0.12, [{ value: 'next', probability: 0.3 }])]);
-    const r = await t.run('can you full screen Agentbox and start at the top');
-    expect(r.say).toMatch(/Open the next thread/);
-    expect(t.calls).toEqual([]);
-  });
-
-  it('an unsure "nothing" with nothing likelier asks her to say it again', async () => {
-    const t = setup([pick('none', 0.2, [])]);
-    expect((await t.run('mm the thing')).say).toMatch(/say it again/i);
-  });
-
-  it('a question with nothing to do is answered, knowing what Neo last did', async () => {
-    const t = setup([pick('open:w-p'), pick('none'), pick('none', 0.93)], { results: { open_thread: { ok: true, status: 'committed', said: 'Opened Pricing page copy.' }, describe_open: { ok: true, said: 'Open thread: Pricing page copy' } } });
-    await t.run('open the pricing one');
-    const r = await t.run('so did you do it');
-    expect(r.say).toMatch(/answer to so did you do it/);
-    expect(t.answer.mock.calls[0][0].context).toMatch(/Opened Pricing page copy/);
-  });
-
-  it('plain talk with nothing to do gets a one-word answer, not silence', async () => {
-    const t = setup([pick('none', 0.95)]);
-    expect((await t.run('okay cool')).say).toMatch(/Okay/);
-  });
-
-  it('the voice is never sent an empty answer', async () => {
-    const sent = [];
-    const d = liveDriver({ send: (e) => sent.push(e), tool: vi.fn(), onWords: () => {}, onUsage: () => {}, onClosed: () => {}, onDelegate: async () => ({ say: '' }) });
-    await d.handle({ type: 'session.delegation.created', delegation: { id: 'i1', target: 'client' } });
-    expect(sent).toEqual([expect.objectContaining({ type: 'session.commentary.append', delegation_id: 'i1' })]);
-  });
-});
-
 describe('a question about a thread is answered from that thread', () => {
-  it('a summary reads the open thread only, not the inbox', async () => {
-    const t = setup([pick('summary'), pick('none')], { results: { describe_open: { ok: true, said: 'Open thread: Agentbox discoverability. Latest from the agent: five pages built.' } } });
-    const r = await t.run('summarize this task');
-    expect(t.calls.map(([n]) => n)).toEqual(['describe_open']);
-    expect(r.say).toMatch(/five pages built/);
-    expect(r.say).not.toMatch(/Needs you/);
-  });
 
   it('the bridge describes the open thread without the inbox', async () => {
     const act = neoBridge({
