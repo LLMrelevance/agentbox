@@ -1,34 +1,29 @@
-// THE RECORD SAYS WHETHER IT LEARNED LIGHT FROM A CHAIN — w-0af52d5c86.
+// THE RECORD SAYS WHETHER IT LEARNED LIGHT FROM A CHAIN.
 //
-// WHAT THIS IS FOR. `record` files a chain's observation under the chain key
-// and returns early unless it was light, so a segment key and a program record
-// are fed a LIGHT-ONLY sample of every chain they ever appear in. Agents here
-// nearly always run heavy work as a chain, so on the founder's 16 GB M4 on
-// 2026-10-08 the program record `npx` stood at ten light runs and no other
-// letter, though `npx` is what runs every test suite in this repo. A command
-// whose own key has no record yet falls through to that program record, so
-// `npx vite build renderer 2>&1 | tail -5` came out light: no slot, admitted
-// even while pressure is `tight`, and up to `lightLane` of them at once.
+// WHAT BROKE. `record` tells a chain's parts nothing unless the chain came out
+// light, so a segment key and a program record hear only about light chains.
+// Agents here nearly always run heavy work as a chain, so on a 16 GB M4 the
+// program record `npx` stood at ten light runs and no other letter, though
+// `npx` runs every test suite in this repo. A command whose own key has no
+// record falls through to that program record, so
+// `npx vite build renderer 2>&1 | tail -5` came out light: no slot, started
+// even under `tight` pressure, up to `lightLane` of them at once.
 //
-// WHY THIS CHANGE IS ONLY A RECORDING CHANGE. The obvious fix is to stop
-// generalising from a program record whose light evidence is chain-derived.
-// That cannot be chosen yet, and the reason is the point of this test: the
-// record does not say WHICH of its light observations came from a chain, so the
-// cost of distrusting them cannot be measured from any history that exists, on
-// any machine. Refusing to generalise at all would be a guess, and the guess
-// is dangerous in a known way: a never-seen argument of an ordinary program
-// (`grep <a new pattern>`, `sed <a new file>`) leans on exactly that
-// generalisation, and turning those into `unknown` is the over-holding that
-// w-b689e9fc0c was filed to remove — 89 seconds of waiting to use 0 MB.
+// WHY THIS ONLY RECORDS. The fix would be to stop generalising from a program
+// record whose light evidence is all chain-derived, and that cannot be chosen
+// yet: the record never said which observations came from a chain, so the cost
+// of distrusting them was unmeasurable on any machine. The cost is not
+// hypothetical. A never-seen argument of an ordinary program (`grep <a new
+// pattern>`) leans on that same generalisation, and turning those into
+// `unknown` is the over-holding a previous fix removed, 89 seconds of waiting
+// to use 0 MB.
 //
-// So a chain's light observation is filed on its parts as `c` rather than `l`.
-// Every rule reads `c` exactly as `l`, so NOTHING is classified differently
-// today; the record simply starts carrying the provenance that choosing the
-// rule needs. The chain key itself keeps `l`, because its own reading really
-// did cover everything the command started.
+// So a chain's light run is filed on its parts as `c` instead of `l`. Every
+// rule reads `c` as `l`, so no verdict moved. The chain key keeps `l`: its own
+// reading did cover everything the command started.
 //
-// WHAT THIS PINS: where each letter goes, that `c` survives being saved and
-// loaded, and above all that no verdict moved.
+// WHAT THIS PINS: where each letter goes, that `c` survives a save and load,
+// and above all that no verdict moved.
 
 import { describe, it, expect } from 'vitest';
 import { CommandHistory } from '../main/memory-gate-history.mjs';

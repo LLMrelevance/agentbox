@@ -1,4 +1,4 @@
-// EACH GRANT WRITES DOWN ITS PEAK AND ITS WAIT — w-0af52d5c86.
+// EACH GRANT WRITES DOWN ITS PEAK AND ITS WAIT.
 //
 // WHY. The row asked whether two heavy slots is the right number on a 16 GB
 // Mac, and it could not be answered from anything the app had written down.
@@ -120,8 +120,8 @@ describe('each grant writes down its peak and its wait', () => {
   });
 
   it('writes down a refusal, with the wait that earned it', async () => {
-    // THE LINE THE ROW ACTUALLY WANTED. Fifty of these were found in the
-    // transcripts and none of them could be tied to a cause.
+    // Fifty of these were found in the transcripts and none could be tied to a
+    // cause, which is why the line exists at all.
     const h = new CommandHistory();
     h.keys.set('npm run', 'hhhhh'.split(''));
     h.keys.set('npx vitest', 'hhhhh'.split(''));
@@ -171,11 +171,10 @@ describe('each grant writes down its peak and its wait', () => {
   });
 
   it('writes down the pressure the wait happened under', async () => {
-    // WITHOUT THIS THE WAITS ARE UNREADABLE (Codex's review). While pressure is
-    // `normal` the only thing that can hold a heavy command is the slots being
-    // full, so its wait is evidence about the slot count. While it is `tight`
-    // nothing heavy starts whatever the count is, so the same wait says
-    // nothing about the number and has to be left out of the reckoning.
+    // Without this the waits are unreadable. Under `normal` only full slots can
+    // hold a heavy command, so its wait is evidence about the slot count. Under
+    // `tight` nothing heavy starts whatever the count is, so the same wait says
+    // nothing and has to be left out of the reckoning.
     const h = new CommandHistory();
     h.keys.set('npm run', 'hhhhh'.split(''));
     h.keys.set('npx vitest', 'hhhhh'.split(''));

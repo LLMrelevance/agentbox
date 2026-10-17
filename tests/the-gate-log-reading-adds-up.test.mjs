@@ -1,4 +1,4 @@
-// THE GATE LOG READING ADDS UP — w-0af52d5c86.
+// THE GATE LOG READING ADDS UP.
 //
 // WHY THIS IS TESTED AT ALL. scripts/read-memory-gate-log.mjs is the thing that
 // answers two open questions on that row, and the answers are numbers somebody

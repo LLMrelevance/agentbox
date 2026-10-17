@@ -95,11 +95,9 @@ export class MemoryGateServer {
     socketPath = defaultSocketPath(),
     historyFile = null,
     history = null,
-    // WHAT EVERY GRANT COST, WRITTEN DOWN (w-0af52d5c86). The gate knew each
-    // command's peak and its wait and kept neither past the command, so the
-    // question "is two slots right" had to be answered off agent transcripts,
-    // which hold waiting and running added together and cannot separate them.
-    // One appended line per grant makes the next answer a number.
+    // One appended line per grant, so what the slots cost can be read later.
+    // Without it the only duration anywhere is a transcript's, which is waiting
+    // and running added together and cannot be separated.
     grantLogFile = null,
     grantLogMaxBytes = 4 * 1024 * 1024,
     gate = {},
@@ -525,16 +523,12 @@ export class MemoryGateServer {
 
   /**
    * One line per grant: what it was, how long it queued, how long it ran and
-   * the peak that was measured (w-0af52d5c86).
+   * its measured peak. `shared` says the peak is null because two commands on
+   * one agent process were measured together, without which a week of this
+   * reads as two commands where there was one.
    *
-   * `shared` MATTERS MORE THAN IT LOOKS. Two commands on one agent process are
-   * measured together and neither may claim the figure, so their peak is null
-   * and the line says why. Without that, a week of this reads as two commands
-   * of 900 MB where there was one.
-   *
-   * A LOG THAT CANNOT BE WRITTEN COSTS A LINE AND NOTHING ELSE. This runs on
-   * the path every shell command on the Mac goes through, so a full disk or an
-   * unwritable folder must never reach the agent waiting for an answer.
+   * Every shell command on the Mac waits on this path, so a write that fails
+   * is logged and swallowed rather than returned to the agent.
    */
   _writeGrant({ refused, cls, waitMs, ranMs, peakMb, shared = false, pressure = null, command }) {
     if (!this.grantLogFile) return;

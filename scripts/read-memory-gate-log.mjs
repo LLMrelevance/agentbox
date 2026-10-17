@@ -1,31 +1,14 @@
-// WHAT THE MEMORY GATE ACTUALLY DID, READ OFF ITS OWN RECORDS (w-0af52d5c86).
-//
-// Two questions were left open on that row and both need readings this app had
-// never written down. It writes them now, so this is the thing that answers
-// them. Run it on the Mac that has been running the app:
+// What the memory gate did, read off its own records. Run it on a Mac that has
+// been running the app:
 //
 //     node scripts/read-memory-gate-log.mjs
 //     node scripts/read-memory-gate-log.mjs <grants.jsonl> <history.json>
 //
-// IS TWO HEAVY SLOTS THE RIGHT NUMBER? Only a wait that happened while the
-// Mac's pressure was `normal` is evidence about the number: while pressure is
-// `tight` nothing heavy starts whatever the count is, so waiting then is
-// evidence about the Mac. Every grant line carries the pressure it was decided
-// under for exactly this reason. The figure that decides it is the waiting
-// under `normal`, with the peaks that were held at the time beside it.
+// It answers two things: whether `autoSlots` is the right number, and whether a
+// program record should lend `light` to an argument nobody has seen. Each
+// section ends with how to read it, because both are easy to read backwards.
 //
-// SHOULD A PROGRAM RECORD LEND `light` TO AN ARGUMENT NOBODY HAS SEEN? `record`
-// tells a chain's parts nothing unless the chain came out light, so a program
-// record is fed a light-only sample of every chain it appears in: `npx` stood
-// at ten light runs and no other letter though it runs every test suite here.
-// Those chain-learned runs are now written as `c` rather than `l`, so this can
-// count how much of the evidence behind each `light` verdict is of that weaker
-// kind, and how many commands would stop being light if it were distrusted.
-// THE COUNT IS THE POINT: refusing to generalise at all would turn a never-seen
-// `grep <a new pattern>` into something that waits for a slot, which is the
-// over-holding w-b689e9fc0c was filed to remove.
-//
-// The reading is pure and the printing is not, so the arithmetic is tested in
+// The reading is pure and the printing is not, so the arithmetic is pinned by
 // tests/the-gate-log-reading-adds-up.test.mjs.
 
 import fs from 'node:fs';
@@ -62,11 +45,11 @@ const quantile = (list, p) => {
 };
 
 /**
- * THE SLOT QUESTION. `entries` are parsed grant lines.
+ * The slot question. `entries` are parsed grant lines.
  *
- * `slotPressedWaitMs` is the whole of the answer: time commands spent queueing
- * for a slot while the Mac itself was fine. Anything waited under `tight` is
- * reported apart from it and must not be added in.
+ * `slotPressedWaitMs` is the whole of the answer: time spent queueing for a
+ * slot while the Mac itself was fine. Waiting under `tight` is reported apart
+ * from it and must not be added in.
  */
 export function summariseGrants(entries) {
   const out = {
@@ -125,11 +108,11 @@ export function summariseGrants(entries) {
 }
 
 /**
- * THE CHAIN-LEARNED-LIGHT QUESTION. `raw` is a parsed memory-gate-history.json.
+ * The chain-learned-light question. `raw` is a parsed memory-gate-history.json.
  *
- * `programsThatWouldStopLending` is the cost of requiring direct evidence
- * before a program lends `light` to an argument nobody has seen: these are the
- * program records that pass the test today and would not.
+ * `programs.wouldStopLending` is the cost of requiring direct evidence before a
+ * program lends `light` to an argument nobody has seen: the records that pass
+ * that test today and would not.
  */
 export function summariseProvenance(raw) {
   const out = {
@@ -171,8 +154,6 @@ export function summariseProvenance(raw) {
   out.carriesProvenance = out.letters.c > 0;
   return out;
 }
-
-/* ------------------------------- printing ------------------------------- */
 
 const mins = (ms) => `${(ms / 60_000).toFixed(1)} min`;
 const secs = (ms) => (ms === null ? 'n/a' : `${(ms / 1000).toFixed(1)}s`);
@@ -223,8 +204,6 @@ function printProvenance(s) {
   console.log(`unseen argument of those programs starts waiting for a slot instead. Weigh that`);
   console.log(`against what it buys, which is that a never-seen build stops being called light.`);
 }
-
-/* --------------------------------- main --------------------------------- */
 
 function main(argv) {
   const grantsPath = argv[0] ?? findFile('memory-gate-grants.jsonl');

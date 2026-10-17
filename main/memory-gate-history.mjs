@@ -178,20 +178,19 @@ const programOf = (key) => key.split(' ')[0];
 const measured = (list) => (list ?? []).filter((o) => o !== '?');
 
 /**
- * Light, however it was learned. `l` is a run measured on its own; `c` is one
- * measured only as part of a chain (see `record`). THEY ARE READ THE SAME
- * EVERYWHERE, so writing `c` down moved no verdict; it is there to be counted
- * when the rule that distrusts it is chosen (w-0af52d5c86).
+ * Light, however it was learned: `l` measured on its own, `c` only as part of
+ * a chain. Read the same everywhere, so `c` changes no verdict; it is there to
+ * be counted. Pinned by
+ * tests/the-record-says-whether-it-learned-light-from-a-chain.test.mjs.
  */
 const isLight = (o) => o === 'l' || o === 'c';
 
 /**
  * The learned record. Each key and each program keeps its last ten
- * observations as letters: l light, c light but learned only as part of a
- * chain, m in between, h heavy, ? not measured. A BUILD OLDER THAN
- * w-0af52d5c86 DROPS c WHEN IT LOADS THIS, which costs those runs as evidence
- * and so holds a little more than it needs to; it cannot do the reverse and
- * call anything light that is not.
+ * observations as letters: l light, c light but learned only inside a chain,
+ * m in between, h heavy, ? not measured. A build that predates `c` drops it on
+ * load, which costs those runs as evidence and holds a little more than it
+ * needs to; it cannot call anything light that is not.
  * Both maps are kept in least-recently-seen-first order so the oldest falls off
  * first when either passes `maxKeys`.
  */
@@ -233,20 +232,10 @@ export class CommandHistory {
     if (keys.length > 1 || opaque) {
       this._push(this.keys, chainKey(keys, opaque), obs);
       if (obs !== 'l') return true;
-      // AND A CHAIN ONLY VOUCHES FOR THEM AS A CHAIN (w-0af52d5c86). Because
-      // the line above returns early on anything but light, a segment key and a
-      // program record are fed a LIGHT-ONLY sample of every chain they appear
-      // in. Agents here nearly always run heavy work as a chain, so on a 16 GB
-      // M4 on 2026-10-08 the program record `npx` stood at ten light runs and
-      // no other letter, though `npx` runs every test suite in this repo, and
-      // `npx vite build renderer 2>&1 | tail -5` was therefore called light.
-      //
-      // `c` is that light run, marked as learned only from a chain. EVERY RULE
-      // READS `c` EXACTLY AS `l`, so nothing is classified differently for it;
-      // the record is simply carrying the provenance, because without it the
-      // cost of distrusting this evidence cannot be measured from any history
-      // that exists. Choosing that rule is w-0af52d5c86's remaining question,
-      // and it is not answered by writing the letter down.
+      // And only as a chain: the early return above means these records only
+      // ever hear about the chains that came out light, so they drift light.
+      // `c` marks that weaker evidence so it can be counted. It is read as `l`
+      // everywhere, so nothing is classified differently yet.
       for (const key of keys) {
         this._push(this.keys, key, 'c');
         this._push(this.programs, programOf(key), 'c');
@@ -269,29 +258,13 @@ export class CommandHistory {
       if (v === 'heavy' || verdict === 'heavy') verdict = 'heavy';
       else if (v === 'unknown') verdict = 'unknown';
     };
-    // A COMMAND'S OWN RECORD OUTRANKS THE RECORDS OF ITS PARTS (w-0af52d5c86).
-    // Its own record is the only one that ever covered everything the command
-    // starts. Its parts are judged on a sample `record` feeds them only when a
-    // chain came out light, so they drift light: `npx vitest` stood at ten
-    // light runs while `npx vitest && tail` stood at `hmllllmmlm`, and the
-    // suite was called light because the 'h' had aged past five and both parts
-    // looked light.
-    //
-    // THIS KEY IS COARSER THAN THE COMMAND, and that is the price (Codex's
-    // review). A key is `program firstArg`, so a full suite and one test file
-    // are both `npx vitest`, and a chain keeps its segments but not which
-    // separator joined them. An old heavy run therefore holds back the cheap
-    // variants that share the key. Measured on this Mac's own history: of 86
-    // keys the old rule had settled as light, the wider window newly holds
-    // one, and that one is `npm run`, which earns it.
-    //
-    // A heavy run makes it heavy. A middling one (150-400 MB) only keeps it out
-    // of `light`, which is the lane where `lightLane` of them run at once: four
-    // middling runs in ten is not a reason to hold a command for minutes, and
-    // is every reason not to let eight of it start together. `unknown` is that
-    // answer, and `_holdsSlot` hands the slot back after `specWindowMs` once a
-    // run has been measured under `heavyMb` — so it staggers when middling work
-    // starts and does not cap how much of it runs at once.
+    // A command's own record outranks the records of its parts: it is the only
+    // reading that covered everything the command starts, and the parts drift
+    // light (see `record`). The key is coarser than the command, so an old
+    // heavy run also holds back cheap variants that share it; that is the
+    // price. A middling run only keeps the command out of the light lane, where
+    // `lightLane` of them would start together, and `_holdsSlot` hands the slot
+    // back once a run measures small.
     const own = measured(this.keys.get(keys.length > 1 || opaque ? chainKey(keys, opaque) : keys[0]));
     if (own.includes('h')) return 'heavy';
     if (own.includes('m')) worse('unknown');

@@ -249,15 +249,10 @@ export class MemoryGate {
     this.running.set(w.id, {
       id: w.id, item: w.item, product: w.product, command: w.command, cls: w.cls,
       urgent: w.urgent, session: w.session, background: w.background, startedAt: now, peakMb: null, shared: null,
-      // How long it queued, and the pressure it was let through under, are kept
-      // so the coordinator can write them down when the command ends
-      // (w-0af52d5c86); nothing else reads them.
-      //
-      // THE PRESSURE IS WHAT MAKES THE WAIT READABLE. While pressure is
-      // `normal` the only thing that can hold a command back is the slots
-      // being full, so that wait is evidence about `slots`. While it is
-      // `tight` nothing heavy starts whatever the slot count is, so that wait
-      // is evidence about the Mac and says nothing about the number.
+      // Only the coordinator reads these, to write down what the grant cost.
+      // The pressure is what makes the wait mean anything: under `normal` only
+      // full slots can hold a command back, so the wait is evidence about
+      // `slots`; under `tight` nothing heavy starts whatever the count is.
       waitedMs: now - w.arrived, pressureAt: this.pressure,
     });
     for (const r of w.replies) r({ allow: true, cls: w.cls });
