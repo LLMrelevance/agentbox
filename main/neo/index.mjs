@@ -112,6 +112,27 @@ export function createNeo({
   };
   const tellSide = () => win?.webContents.send('neo:side', { side, up });
 
+  // WHAT THE ORB IS SITTING ON TOP OF (w-5520063011). The app fades the
+  // summary's Status and Owner block while the orb covers it and brings it
+  // back when the orb is dragged off, and only this process knows both
+  // windows' bounds. A drag sends a frame per pointer move and most land on
+  // the same pixel, so an unchanged place is not sent again.
+  let toldOrb = '';
+  function tellOrb() {
+    if (!win || win.isDestroyed() || mainWindow.isDestroyed()) return;
+    const b = win.getBounds();
+    const app = mainWindow.getContentBounds();
+    const at = { x: b.x + ORB_X[side] - app.x, y: b.y + ORB_Y[up ? 'up' : 'down'] - app.y, r: 75 };
+    const key = `${at.x},${at.y}`;
+    if (key === toldOrb) return;
+    toldOrb = key;
+    mainWindow.webContents.send('neo:orb', at);
+  }
+  // Moving or resizing the app window changes what the orb is over without
+  // the orb itself having moved.
+  mainWindow.on('move', tellOrb);
+  mainWindow.on('resize', tellOrb);
+
   function place() {
     const kept = readPrefs().at;
     if (kept && Number.isFinite(kept.x) && Number.isFinite(kept.y)) { win.setBounds(within(kept.x, kept.y)); return; }
@@ -134,7 +155,10 @@ export function createNeo({
       // Chimes and Neo's voice play the moment it wakes, with no click in the page.
       webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true, partition: 'neo', backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
     });
-    win.setAlwaysOnTop(true, 'floating');
+    // Above the corner tag, which also floats: at the same level whichever was
+    // shown last sat on top, so the orb could end up under a window that took
+    // the pointer meant for it (w-5520063011).
+    win.setAlwaysOnTop(true, 'pop-up-menu');
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     win.setIgnoreMouseEvents(true, { forward: true });
     win.on('closed', () => { win = null; loaded = null; live = false; generation++; });
@@ -176,6 +200,11 @@ export function createNeo({
       ensureWindow();
       place();
       win.showInactive();
+      win.moveTop();
+      // Afresh, because the app page may have been reloaded since the last
+      // wake and a reloaded page knows nothing about where the orb is.
+      toldOrb = '';
+      tellOrb();
       // A wake sent before the page has loaded is lost, and Neo would be
       // marked live with nothing listening.
       await loaded;
@@ -303,6 +332,7 @@ export function createNeo({
       const nowUp = upFor(next);
       if (nowUp !== up) { const shift = ORB_Y[up ? 'up' : 'down'] - ORB_Y[nowUp ? 'up' : 'down']; dragFrom.y += shift; next.y += shift; up = nowUp; tellSide(); }
       win.setBounds(within(next.x, next.y));
+      tellOrb();
       return;
     }
     if (phase === 'end') { const { x, y } = win.getBounds(); writePrefs({ at: { x, y }, side, up }); dragFrom = null; }

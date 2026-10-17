@@ -172,6 +172,7 @@ export const PUSH_CHANNELS = {
   // Neo's tool calls for the app to carry out, and Neo waking or signing off.
   onNeoAct: 'neo:act',
   onNeoMode: 'neo:mode',
+  onNeoOrb: 'neo:orb',
 };
 
 // THE FEW THAT ARE NOT A STRAIGHT HANDOVER. Each is called with bare values

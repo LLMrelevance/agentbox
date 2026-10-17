@@ -29,10 +29,10 @@ function fakes({ onListen, getMicImpl, mic = { status: 'granted' }, userData: gi
     constructor() { this.webContents = neoContents; }
     setAlwaysOnTop() {} setVisibleOnAllWorkspaces() {} setIgnoreMouseEvents() {}
     setBounds(b) { this.bounds = { ...b }; windows.last = this; } getBounds() { return { ...this.bounds }; }
-    on() {} showInactive() {} hide() {} isDestroyed() { return false; }
+    on() {} showInactive() {} hide() {} moveTop() {} isDestroyed() { return false; }
   }
   const mainSent = [];
-  const mainWindow = { isDestroyed: () => false, isFocused: () => true, webContents: { send: (ch, p) => mainSent.push([ch, p]) } };
+  const mainWindow = { isDestroyed: () => false, isFocused: () => true, getContentBounds: () => ({ x: 0, y: 0, width: 1920, height: 1080 }), on: () => {}, webContents: { send: (ch, p) => mainSent.push([ch, p]) } };
   const power = new Map();
   const neo = createNeo({
     app: { on() {} }, BrowserWindow, ipcMain,

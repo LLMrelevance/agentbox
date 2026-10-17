@@ -8,6 +8,7 @@
 import { useEffect, useRef } from 'react';
 import { describeScreen, neoBridge, type NeoDeps, type NeoRow } from './bridge';
 import { glowOn } from './glow';
+import { orbCovers, type Orb } from './orb-cover';
 import { pictureName, putAway, show, threadPictures } from './show';
 
 type Z = {
@@ -15,6 +16,7 @@ type Z = {
   onNeoAct?: (fn: (p: { id: number; name: string; args: Record<string, unknown>; heard?: string }) => void) => () => void;
   neoActResult?: (id: number, result: unknown) => void;
   onNeoMode?: (fn: (p: { on: boolean }) => void) => () => void;
+  onNeoOrb?: (fn: (p: Orb) => void) => () => void;
 };
 
 // Which section to light for each kind of act, most specific first. A row in
@@ -129,11 +131,24 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         const result = name === 'describe_screen' ? { ok: true, status: 'committed', said: describeScreen(live) } : await act(name, args ?? {}, { heard });
         z.neoActResult!(id, result);
       }));
+      // The Status and Owner block waits while the orb is on top of it. Until
+      // the orb says where it is, treat it as covered: it wakes in that very
+      // corner, and guessing the other way flashes the block on every wake.
+      let orb: Orb | null = null;
+      const readFade = () => {
+        const foot = document.querySelector('.ts-panel .ts-foot');
+        document.body.classList.toggle('neo-orb-away', !!orb && !orbCovers(orb, foot?.getBoundingClientRect() ?? null));
+      };
+      if (z.onNeoOrb) offs.push(z.onNeoOrb((at) => { orb = at; readFade(); }));
+      // The block moves when the window is resized or the panel is opened.
+      window.addEventListener('resize', readFade);
+      offs.push(() => window.removeEventListener('resize', readFade));
       if (z.onNeoMode) offs.push(z.onNeoMode(({ on: neoOn }) => {
         document.body.classList.toggle('neo-on', !!neoOn);
-        if (!neoOn) { glowOn(null); putAway(); }
+        if (neoOn) readFade();
+        else { glowOn(null); putAway(); document.body.classList.remove('neo-orb-away'); }
       }));
     });
-    return () => { cancelled = true; offs.forEach((f) => f()); offs = []; document.body.classList.remove('neo-on'); };
+    return () => { cancelled = true; offs.forEach((f) => f()); offs = []; document.body.classList.remove('neo-on', 'neo-orb-away'); };
   }, []);
 }
