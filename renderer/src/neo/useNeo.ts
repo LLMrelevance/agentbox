@@ -75,7 +75,7 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
           const now = latest.current.rows().find((x) => x.id === r.id);
           return now && latest.current.options(now).map((o) => o.text).join('\n') === before ? 'asked' : 'done';
         },
-        reply: (r, t) => latest.current.reply(r, t),
+        reply: (r, t, o) => latest.current.reply(r, t, o),
         close: async (r) => {
           await latest.current.close(r);
           await settle();
