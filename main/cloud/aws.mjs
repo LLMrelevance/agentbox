@@ -12,6 +12,8 @@
 import { BedrockAgentCoreClient, InvokeAgentRuntimeCommand, StopRuntimeSessionCommand } from '@aws-sdk/client-bedrock-agentcore';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import fs from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 
 // A link the sandbox uses must outlive the longest run (8 hours) plus the
 // upload at its end, with room to spare.
@@ -58,6 +60,19 @@ export function awsStorage({ region, bucket, profile }) {
         if (err?.name === 'NoSuchKey' || err?.$metadata?.httpStatusCode === 404) return null;
         throw err;
       }
+    },
+    // Straight to a file, a piece at a time; false when it is not there.
+    async getToFile(key, file) {
+      let o;
+      try { o = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key })); } catch (err) {
+        if (err?.name === 'NoSuchKey' || err?.$metadata?.httpStatusCode === 404) return false;
+        throw err;
+      }
+      await pipeline(o.Body, fs.createWriteStream(file));
+      return true;
+    },
+    async putFile(key, file) {
+      await s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: fs.createReadStream(file), ContentLength: fs.statSync(file).size }));
     },
     // Whether an object is there, without reading it.
     async exists(key) {

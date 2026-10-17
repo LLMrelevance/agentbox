@@ -34,7 +34,7 @@ const CONFIG_NAME = 'zero.config.json';
  */
 export const DEFAULT_SESSIONS_AT_ONCE = 3;
 
-const DEFAULTS = {
+export const DEFAULTS = {
   // ONE ACCOUNT FOLDER PER INSTALL, AND NOBODY ELSE'S.
   //
   // This was a literal id for most of the app's life, which meant every copy
@@ -81,9 +81,11 @@ const DEFAULTS = {
   // scripts/cloud-setup.mjs and an account has signed in from the cloud menu,
   // and before that the app is exactly the app it was. `false` turns it off
   // even then.
-  // `maxCloudSessions` is the cloud's own cap, apart from this Mac's.
+  // `maxCloudSessions` is the cloud's own cap, apart from this Mac's. Each
+  // cloud run still costs this Mac about 120 MB (its relay and its tool
+  // servers, measured 2026-10-17), so it rises as that cost comes down.
   cloudRuns: null,
-  maxCloudSessions: 10,
+  maxCloudSessions: 20,
   // STOP WHAT FINISHED AGENTS LEAVE RUNNING (main/leftovers.mjs). Its own
   // switch, off until somebody turns it on; `cleanupLeftoversSince` is the
   // moment they did, so nothing is stopped sooner than the idle time after it.

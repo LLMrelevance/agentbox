@@ -4627,7 +4627,7 @@ export default function App() {
   // the alpha flag. When it does, Neo's tool calls are carried out here with
   // the same functions the keys use, so a voice can do nothing a hand could
   // not; the rules about which thread and when to ask are in ./neo/bridge.
-  useNeo({
+  const neo = useNeo({
     rows: () => shownInbox,
     commands: () => paletteCommands.current,
     threadsAnywhere: () => [...inbox, ...progress, ...snoozed, ...done],
@@ -6737,6 +6737,7 @@ export default function App() {
              has no team in it, and this keeps the team's code in the team's
              files. No team cloud, no pane and no Team row. */
           teamPane={snap?.team?.configured ? <TeamPage team={snap?.team} inviteFocus={inviteFocus} /> : undefined}
+          neoOn={neo.on}
           // WHO SEES A PROJECT'S THREADS (w-b989839656): the button beside a
           // project's name and the Projects list's column, only while someone
           // is signed in to a team, handed in for the same reason as the pane.

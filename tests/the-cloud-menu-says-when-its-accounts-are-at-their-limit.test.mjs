@@ -21,7 +21,7 @@ const cloud = (accounts, running = 0, mode = 'all') => ({ setUp: true, mode, whe
 describe('the last line of the cloud menu', () => {
   it('says every account is at its limit, and when the first comes back', () => {
     const line = cloudFootLine(cloud([acct('a', at(22, 10)), acct('b', at(22, 40))]), now);
-    expect(line).toBe('Your cloud accounts are at their usage limit until 10:10pm. Threads run on this Mac until then.');
+    expect(line).toBe('Your cloud accounts are at their usage limit until 10:10pm. Threads wait for the cloud until then.');
   });
 
   it('says what runs there while any account can still run', () => {
