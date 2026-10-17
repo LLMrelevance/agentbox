@@ -342,6 +342,13 @@ export const api = {
         } as typeof base.cloud;
         // And the first running thread is one of the three in the cloud.
         if (base.supervisor.running[0]) (base.supervisor.running[0] as { where?: string }).where = 'cloud';
+        // &kept draws that thread kept on this Mac instead.
+        const first = base.supervisor.running[0];
+        if (params.has('kept') && first) {
+          delete (first as { where?: string }).where;
+          const kept = base.items.find((i) => i.id === first.itemId);
+          if (kept) kept.onMac = true;
+        }
       }
       return fixtureSecondEngine(base, engineFixtures);
     }

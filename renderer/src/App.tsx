@@ -6108,7 +6108,7 @@ export default function App() {
                   place={focused.agent ? null : threadPlace(focused, snap.supervisor.running.find((r) => r.itemId === focused.id) ?? null, snap.cloud ?? null, snap.products)}
                   onPlace={(keep) => {
                     void api.setThreadOnMac({ [focused.id]: keep ? true : null });
-                    showToast(keep ? 'This thread now runs only on this Mac' : 'The cloud can run this thread again');
+                    showToast(keep ? 'This thread now runs only on this Mac' : 'This thread can run on the cloud again');
                   }}
                   onReveal={() => revealAgent(focused)}
                   // Remind me later and stop this task are neither of the two

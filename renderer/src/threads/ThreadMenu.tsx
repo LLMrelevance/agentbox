@@ -34,7 +34,7 @@ export type ThreadPlace = 'cloud' | 'here' | 'kept';
 export const PLACE_ROW: Record<ThreadPlace, { label: string; detail: string }> = {
   cloud: { label: 'Run on this Mac', detail: 'In the cloud now' },
   here: { label: 'Keep on this Mac', detail: 'Cloud allowed' },
-  kept: { label: 'Let the cloud run it', detail: 'This Mac only' },
+  kept: { label: 'Run on the cloud', detail: 'This Mac only' },
 };
 export interface ThreadMenuRow { id: ThreadMenuRowId; label: string; key: string | null; detail?: string }
 
