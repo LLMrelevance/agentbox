@@ -421,19 +421,22 @@ export function createNeo({
     return readPrefs().captions !== false;
   });
 
-  // THE NEO PAGE IN SETTINGS (w-6a1c405642). One door for the whole document:
-  // asked with nothing it reads, and every change answers with the document
-  // as it now is, so the page never draws a guess at what was saved.
+  // THE NEO PAGE IN SETTINGS (w-6a1c405642). One door for the whole thing:
+  // asked with nothing it reads, and every change answers with what is now
+  // kept, so the page never draws a guess at what was saved. `document` is
+  // the memories as the page writes them, one entry a line.
   ipcMain.handle('neo:memory', (_e, change = {}) => {
+    const answer = (extra) => ({ ...extra, ...memory.read(), document: memory.document() });
     try {
       const c = change && typeof change === 'object' ? change : {};
       if (typeof c.instructions === 'string') memory.setInstructions(c.instructions);
+      if (typeof c.memories === 'string') memory.setMemories(c.memories);
       if (typeof c.add === 'string') memory.add(c.add);
       if (typeof c.forget === 'string') memory.forget(c.forget);
-      return { ok: true, ...memory.read() };
+      return answer({ ok: true });
     } catch (err) {
       log(`memory failed ${err.message}`);
-      return { ok: false, error: err.message, ...memory.read() };
+      return answer({ ok: false, error: err.message });
     }
   });
 

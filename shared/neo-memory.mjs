@@ -54,6 +54,42 @@ export function forgetMemory(from, id) {
   return { doc: doc(d.instructions, d.memories.filter((m) => m !== memory)), memory };
 }
 
+/**
+ * THE MEMORIES AS ONE RUNNING DOCUMENT, one entry a line: that is how the
+ * page draws them and how it edits them back (renderer/src/neo/NeoSettings).
+ * The bullet is the document's, not the entry's; an entry is its words.
+ */
+export function memoriesDocument(from) {
+  return cleanMemory(from).memories.map((m) => `- ${m.text}`).join('\n');
+}
+
+const BULLET = /^\s*(?:[-*•]|\d+[.)])\s+/;
+
+/**
+ * That document edited, back into entries. A line whose words have not
+ * changed keeps its id and the time it was first kept, so rewriting one line
+ * does not reset the rest, and "forget that one" still has a target.
+ */
+export function withMemoriesDocument(from, text, at = Date.now()) {
+  const d = cleanMemory(from);
+  const left = [...d.memories];
+  const taken = new Set(d.memories.map((m) => m.id));
+  const memories = [];
+  for (const raw of String(text ?? '').split('\n')) {
+    const line = oneLine(raw.replace(BULLET, '')).slice(0, LIMITS.text);
+    if (!line || memories.some((m) => same(m.text, line))) continue;
+    const was = left.findIndex((m) => same(m.text, line));
+    if (was >= 0) { memories.push({ ...left[was], text: line }); left.splice(was, 1); }
+    else {
+      const id = idFor(at, taken);
+      taken.add(id);
+      memories.push({ id, text: line, at });
+    }
+    if (memories.length >= LIMITS.memories) break;
+  }
+  return doc(d.instructions, memories);
+}
+
 /** The written instructions replaced. Kept as typed: it is a document, not a line. */
 export function withInstructions(from, text) {
   const d = cleanMemory(from);

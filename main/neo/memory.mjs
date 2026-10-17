@@ -6,7 +6,7 @@
 // to start a conversation over a half-written file is not.
 import fs from 'node:fs';
 import path from 'node:path';
-import { EMPTY, addMemory, cleanMemory, forgetMemory, rememberedText, withInstructions } from '../../shared/neo-memory.mjs';
+import { EMPTY, addMemory, cleanMemory, forgetMemory, memoriesDocument, rememberedText, withInstructions, withMemoriesDocument } from '../../shared/neo-memory.mjs';
 
 export function openMemory({ dir, now = Date.now } = {}) {
   const file = path.join(dir, 'memory.json');
@@ -23,6 +23,7 @@ export function openMemory({ dir, now = Date.now } = {}) {
   return {
     read,
     remembered: () => rememberedText(read()),
+    document: () => memoriesDocument(read()),
     add(text) {
       const r = addMemory(read(), text, now());
       if (r.memory && !r.already) write(r.doc);
@@ -35,6 +36,9 @@ export function openMemory({ dir, now = Date.now } = {}) {
     },
     setInstructions(text) {
       return write(withInstructions(read(), text));
+    },
+    setMemories(text) {
+      return write(withMemoriesDocument(read(), text, now()));
     },
   };
 }

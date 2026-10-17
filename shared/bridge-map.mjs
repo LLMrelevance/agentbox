@@ -155,11 +155,8 @@ export const REQUEST_CHANNELS = {
   // Whether Neo, the voice alpha, is on for this Mac (main/neo/gate.mjs).
   // Answered only by the desktop app; anywhere else the screen reads no.
   neoEnabled: 'neo:enabled',
-  // The Neo page in Settings (main/neo/index.mjs): what Neo remembers, how
-  // fast it talks, whether its words show on the card.
+  // What Neo remembers, for its page in Settings (main/neo/index.mjs).
   neoMemory: 'neo:memory',
-  neoPace: 'neo:pace',
-  neoCaptions: 'neo:captions',
 };
 
 /** Told rather than asked: the app talks and the screen listens. */

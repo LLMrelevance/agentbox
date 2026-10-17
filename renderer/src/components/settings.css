@@ -259,28 +259,3 @@ button.set-badge.set-badge-use:hover { color: var(--accent); }
 .set-phone-rule { height: 1px; background: var(--line); margin: 4px 6px; }
 .set-phone-tick { border-radius: 3px; }
 .set-phone-tick.on { background: var(--accent); border-color: var(--accent); color: var(--find-current-ink, #fff); }
-
-/* THE NEO PAGE (w-6a1c405642, ../neo/NeoSettings.tsx). Groups, plates and
-   rows are the page's own; only the two things this page has and no other
-   page does are here: the writing surface, which is the one the agent
-   instructions already use so the two places a person writes rules look like
-   one place, and the line you type a new memory into. */
-.neo-box {
-  display: block; resize: none; width: 100%; min-height: 128px; field-sizing: content;
-  margin-top: 13px; padding: 14px 16px;
-  border: 0; border-left: 2px solid transparent; border-radius: var(--radius);
-  background: var(--wash); color: var(--text); caret-color: var(--text);
-  font: 14px/1.75 inherit; font-family: inherit;
-  transition: background .12s ease, border-color .12s ease;
-}
-.neo-box:hover { background: color-mix(in srgb, var(--wash) 100%, var(--text) 4%); }
-.neo-box:focus { outline: none; background: color-mix(in srgb, var(--wash) 100%, var(--text) 4%); border-left-color: var(--underline); }
-.neo-box::placeholder { color: var(--text-faint); }
-.neo-save { font-size: 11px; color: var(--text-faint); margin-top: 9px; min-height: 14px; }
-.neo-add { align-items: center; gap: 12px; }
-.neo-add input {
-  flex: 1; min-width: 0; font: inherit; font-size: 14px; color: var(--text);
-  background: var(--wash); border: 0; border-radius: var(--radius); padding: 9px 12px;
-}
-.neo-add input:focus { outline: none; background: color-mix(in srgb, var(--wash) 100%, var(--text) 4%); }
-.neo-add input::placeholder { color: var(--text-faint); }

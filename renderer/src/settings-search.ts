@@ -62,7 +62,6 @@ const ENTRIES: Entry[] = [
   // itself before they have learned the name.
   { page: 'neo', label: 'Instructions for Neo', anchor: 'neo-instructions', words: 'voice jarvis rules prompt assistant preferences never always' },
   { page: 'neo', label: 'What Neo remembers', anchor: 'neo-memories', words: 'memory memories remember forget voice jarvis assistant' },
-  { page: 'neo', label: 'How Neo talks', anchor: 'neo-talks', words: 'speed pace fast slow captions subtitles voice jarvis' },
   { page: 'claude', label: 'Usage', anchor: 'usage', words: 'claude code limits plan left remaining quota' },
   { page: 'claude', label: 'Signed in', anchor: 'usage', words: 'claude code account accounts login subscription add email this computer local' },
   { page: 'claude', label: 'Cloud accounts', anchor: 'cloud-accounts', words: 'claude code cloud remote accounts limit' },

@@ -45,6 +45,22 @@ describe('the menu', () => {
     expect(app).toMatch(/neoOn=\{neo\.on\}/);
     expect(read('renderer/src/neo/useNeo.ts')).toMatch(/return \{ on: enabled \}/);
   });
+
+  /* "This should only be visible to me because no one else should have
+     access to Neo" (2026-10-17). The page rides the gate the rest of Neo
+     rides: a Mac, a file nothing in the app writes, and a door that answers
+     no anywhere else. Nothing about the page relaxes any of that. */
+  it('is behind the gate the rest of Neo is behind, and so is what it reads', () => {
+    expect(read('main/neo/gate.mjs')).toMatch(/platform !== 'darwin'/);
+    expect(read('preload.cjs')).toMatch(/neoEnabled: \(\) => ipcRenderer\.invoke\('neo:enabled'\)\.catch\(\(\) => false\)/);
+    // A browser tab and a phone are told no on both doors, not left to 404.
+    const serve = read('main/serve.mjs');
+    expect(serve).toMatch(/ipcMain\.handle\('neo:enabled', \(\) => false\)/);
+    expect(serve).toMatch(/ipcMain\.handle\('neo:memory', \(\) => null\)/);
+    // And the handler that answers for real is registered past the gate's return.
+    const neo = read('main/neo/index.mjs');
+    expect(neo.indexOf("ipcMain.handle('neo:memory'")).toBeGreaterThan(neo.indexOf('if (!on) return { enabled: false }'));
+  });
 });
 
 describe('the search over Settings', () => {
@@ -56,17 +72,18 @@ describe('the search over Settings', () => {
     ['forget'],
     ['voice'],
     ['jarvis'],
+    ['instructions neo'],
   ])('finds the Neo page for "%s"', (query) => {
     const hits = searchSettings(query, { pages: EVERY });
     expect(hits.filter((h) => h.page === 'neo').length).toBeGreaterThan(0);
   });
 
-  it('lands on the group the hit names, not just the page', () => {
+  it('lands on the section the hit names, not just the page', () => {
     const hit = searchSettings('memories', { pages: EVERY }).find((h) => h.page === 'neo');
     expect(hit.anchor).toBe('neo-memories');
-    // The group draws the anchor as `data-find`, which is what the search scrolls to.
-    expect(page).toContain('data-find={id}');
-    for (const anchor of ['neo-instructions', 'neo-memories', 'neo-talks']) expect(page).toContain(`id="${anchor}"`);
+    // `find` is what the section draws as data-find, which is what the search scrolls to.
+    for (const anchor of ['neo-instructions', 'neo-memories']) expect(page).toContain(`find="${anchor}"`);
+    expect(read('renderer/src/components/InstructionSettings.tsx')).toContain('data-find={find}');
   });
 
   it('offers nothing about Neo where Neo is off', () => {
@@ -87,9 +104,22 @@ describe('the page itself', () => {
     expect(page).not.toMatch(/setWorkspaceSetting|api\.settings/);
   });
 
-  it('offers the three things the founder asked for: instructions, memories, and one way to take one back', () => {
+  it('holds the two documents that were asked for, and nothing else', () => {
     expect(page).toContain('Instructions for Neo');
     expect(page).toContain('What Neo remembers');
-    expect(page).toMatch(/forget: m\.id/);
+  });
+
+  /* "If you look at the design style, we already have components like this in
+     Instructions... just make it similar where possible" (2026-10-17). It is
+     the same component and the same card, not a lookalike built beside it. */
+  it('is drawn with the Instructions page\'s own card and sections', () => {
+    expect(page).toMatch(/import \{ Part.*\} from '\.\.\/components\/InstructionSettings'/);
+    expect(page).toContain('set-inner instructions-page');
+    expect(page).toContain('instr-card');
+    expect(page).not.toMatch(/set-plate|set-row|set-seg/);
+  });
+
+  it('has no stylesheet of its own to drift from that one', () => {
+    expect(read('renderer/src/components/settings.css')).not.toMatch(/\.neo-/);
   });
 });

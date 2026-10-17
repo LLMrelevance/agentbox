@@ -23,15 +23,17 @@ fs.mkdirSync(out, { recursive: true });
 
 const AT = Date.now();
 const DAY = 86_400_000;
+const LINES = [
+  'Never close a thread without asking me first.',
+  'Say the option number before you read out what it does.',
+  'I am usually working on the pricing project in the mornings.',
+  'Do not play a film unless I ask for it by name.',
+];
 const MEMORY = {
   ok: true,
   instructions: 'Never read an id or a file path out loud. If a pick would merge, ship or delete something, ask me first even when I sound sure.\n\nWhen I open a thread, remind me what it is for in one sentence before anything else.',
-  memories: [
-    { id: 'm-1', text: 'Never close a thread without asking me first.', at: AT - 6 * DAY },
-    { id: 'm-2', text: 'Say the option number before you read out what it does.', at: AT - 2 * DAY },
-    { id: 'm-3', text: 'I am usually working on the pricing project in the mornings.', at: AT - DAY },
-    { id: 'm-4', text: 'Do not play a film unless I ask for it by name.', at: AT - 3600_000 },
-  ],
+  memories: LINES.map((text, i) => ({ id: `m-${i}`, text, at: AT - (4 - i) * DAY })),
+  document: LINES.map((t) => `- ${t}`).join('\n'),
 };
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.json': 'application/json' };
@@ -60,8 +62,6 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 940 }, deviceScaleFactor: 2 });
 await page.addInitScript(([snap, memory]) => {
   let kept = memory;
-  let pace = 'normal';
-  let captions = true;
   const w = window;
   w.zero = {
     snapshot: async () => snap,
@@ -76,12 +76,9 @@ await page.addInitScript(([snap, memory]) => {
     neoActResult: () => {},
     neoMemory: async (change = {}) => {
       if (typeof change?.instructions === 'string') kept = { ...kept, instructions: change.instructions };
-      if (typeof change?.forget === 'string') kept = { ...kept, memories: kept.memories.filter((m) => m.id !== change.forget) };
-      if (typeof change?.add === 'string') kept = { ...kept, memories: [...kept.memories, { id: `m-${Date.now()}`, text: change.add, at: Date.now() }] };
+      if (typeof change?.memories === 'string') kept = { ...kept, document: change.memories };
       return kept;
     },
-    neoPace: async (p) => (p ? (pace = p) : pace),
-    neoCaptions: async (on) => (typeof on === 'boolean' ? (captions = on) : captions),
   };
   localStorage.setItem('zero.firstRun.done', '1');
   localStorage.setItem('zero.theme', 'dark');
@@ -100,16 +97,17 @@ await page.goto(`${origin}/?settings=neo`, { waitUntil: 'load' });
 await page.waitForSelector('.neo-page', { timeout: 15_000 });
 await page.waitForTimeout(1200);
 await shoot('neo-page');
-// The foot of the page: the rest of the memories and the two controls under them.
-await page.locator('.set-group[data-find="neo-talks"]').scrollIntoViewIfNeeded();
-await page.waitForTimeout(600);
-await shoot('neo-page-foot');
 
-// The same page next to one that was already there, so the house style is
-// visible rather than argued about.
-await page.goto(`${origin}/?settings=general`, { waitUntil: 'load' });
-await page.waitForTimeout(1500);
-await shoot('settings-general');
+// Writing in it: Edit on the memories turns the list into the running
+// document it is kept as.
+await page.locator('[data-find="neo-memories"] .instr-edit').click();
+await page.waitForTimeout(700);
+await shoot('neo-page-writing');
+
+// The page it was asked to look like, for the comparison.
+await page.goto(`${origin}/?settings=instructions`, { waitUntil: 'load' });
+await page.waitForTimeout(1800);
+await shoot('the-instructions-page');
 
 // The menu with the Neo row in it, so the place it sits is visible too.
 await page.goto(`${origin}/?settings=1`, { waitUntil: 'load' });

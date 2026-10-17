@@ -296,12 +296,9 @@ contextBridge.exposeInMainWorld('zero', {
   // when on, Neo's tool calls arrive here and the app carries them out with
   // its own functions (renderer/src/neo/bridge.ts).
   neoEnabled: () => ipcRenderer.invoke('neo:enabled').catch(() => false),
-  // The Neo page in Settings: what Neo remembers, and the two things about
-  // how it talks that used to live only on the orb's own card. Each answers
-  // null where Neo is off, so the page can say so rather than throw.
+  // What Neo remembers, for its page in Settings. Answers null where Neo is
+  // off, so the page can say so rather than throw.
   neoMemory: (change) => ipcRenderer.invoke('neo:memory', change).catch(() => null),
-  neoPace: (pace) => ipcRenderer.invoke('neo:pace', pace).catch(() => null),
-  neoCaptions: (on) => ipcRenderer.invoke('neo:captions', on).catch(() => null),
   onNeoAct: (fn) => {
     const handler = (_e, payload) => fn(payload);
     ipcRenderer.on('neo:act', handler);
