@@ -693,3 +693,36 @@ describe('telling the voice what is on screen', () => {
     expect(r.context).toMatch(/What is on screen now[\s\S]*Pricing page copy/);
   });
 });
+
+// The main window redrew at every pointer move during a drag, and things lagged
+// (tests/neo-lets-go-of-the-orb-when-the-button-comes-up.test.mjs).
+describe('a drag does not flood the main window', () => {
+  it('tells the main window where the orb is a few times a second and once at the end', async () => {
+    let clock = 0;
+    const f = fakes({ clock: () => clock });
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    const told = () => f.mainSent.filter(([ch]) => ch === 'neo:orb').length;
+    const before = told();
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    for (let i = 1; i <= 60; i++) { clock += 16; f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -i * 3, dy: -i * 2 }); }
+    const during = told() - before;
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'end' });
+    expect(during).toBeLessThanOrEqual(6);
+    expect(told() - before).toBe(during + 1);
+  });
+
+  it('a new press while a drag is open starts from where the window is now', async () => {
+    const f = fakes({});
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -100, dy: 0 });
+    const here = f.windows.last.getBounds();
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -10, dy: 0 });
+    expect(f.windows.last.getBounds().x).toBe(here.x - 10);
+  });
+});
