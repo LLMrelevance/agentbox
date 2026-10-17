@@ -9,7 +9,7 @@ import { useEffect, useRef } from 'react';
 import { describeScreen, neoBridge, screenFor, type NeoDeps, type NeoRow } from './bridge';
 import { glowOn } from './glow';
 import { orbCovers, type Orb } from './orb-cover';
-import { fileName, filmName, latestFiles, pictureName, putAway, show, threadFilms, threadPictures } from './show';
+import { fileName, filmName, latestFiles, pictureName, putAway, show, threadDrawn, threadFilms, threadPictures } from './show';
 
 type Z = {
   neoEnabled?: () => Promise<boolean>;
@@ -118,7 +118,8 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         latestPictureCount: () => threadPictures().latest,
         // A thread draws its messages after its history arrives.
         waitForPictures: async () => {
-          for (let waited = 0; waited < 1500 && !threadPictures().latest && !latestFiles().length; waited += 150) await new Promise((r) => setTimeout(r, 150));
+          // A drawn thread with nothing to show is done after a short grace for file tiles, which load late.
+          for (let waited = 0; waited < 1500 && !threadPictures().latest && !latestFiles().length && !(waited >= 300 && threadDrawn()); waited += 150) await new Promise((r) => setTimeout(r, 150));
         },
         show: (ns, layout) => show(ns, layout),
         fileNames: () => latestFiles().map((t, i) => fileName(t, i + 1)),
