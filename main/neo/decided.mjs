@@ -4,7 +4,7 @@
 // what the voice should say. The pick chooses the action and its thread; the
 // details come from her words (shared/neo-params.mjs).
 import { buildOptions } from '../../shared/neo-options.mjs';
-import { laterFrom, pictureWanted, picturesFrom, replyFrom } from '../../shared/neo-params.mjs';
+import { backSteps, laterFrom, pictureWanted, picturesFrom, replyFrom } from '../../shared/neo-params.mjs';
 import { decide } from './decide.mjs';
 
 // Under this, Neo asks which she meant rather than act. Set from the hard
@@ -42,15 +42,17 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
   const screen = got.screen;
   const { list } = buildOptions(screen);
   if (state.duration && state.duration.openId !== (screen.open?.id ?? null)) state.duration = null;
-  if (state.pending) {
-    list.unshift(
-      { value: 'yes', description: `The person says yes, go ahead, to: ${state.pending.about}`, act: { kind: 'yes' } },
-      { value: 'no', description: `The person says no, or not that, to: ${state.pending.about}`, act: { kind: 'no' } },
-    );
-  }
+  const previous = state.pending;
   // A yes only counts on the thread it was asked about.
   if (state.pending && state.pending.openId !== (screen.open?.id ?? null)) state.pending = null;
-  const input = `${inputFor(screen, heard)}${state.duration ? '\nThe app is waiting for a snooze duration for this open thread. A time answers that request; a different request cancels it.' : ''}`;
+  const waiting = state.pending;
+  if (previous) {
+    list.unshift(
+      { value: 'yes', description: `The person says yes, go ahead, to: ${previous.about}`, act: { kind: 'yes' } },
+      { value: 'no', description: `The person says no, or not that, to: ${previous.about}`, act: { kind: 'no' } },
+    );
+  }
+  const input = `${inputFor(screen, heard)}${waiting ? `\nThe app is waiting for confirmation of: ${waiting.about}. Yes or no answers that question; a different request cancels it.` : ''}${state.duration ? '\nThe app is waiting for a snooze duration for this open thread. A time answers that request; a different request cancels it.' : ''}`;
   const r = await decideImpl({ input, options: list, instructions: FIRST });
   const picked = list.find((o) => o.value === r.choice);
   const meta = { choice: r.choice, confidence: r.confidence, ms: r.ms };
@@ -59,6 +61,7 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
     return { say, ...meta };
   };
   if (!picked) return said('Tell the person you did not catch that, and ask them to say it again.');
+  if (!waiting && ['yes', 'no'].includes(picked.act.kind)) return said('Tell the person the screen changed since the question, so nothing was done.');
   if (picked.act.kind !== 'later') state.duration = null;
 
   const unsure = r.confidence != null && r.confidence < UNSURE;
@@ -67,11 +70,22 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
   // Not an action: the voice answers, knowing what is on screen and what was said.
   if (TALK.has(picked.act.kind)) {
     const other = list.find((o) => o.value === r.runnersUp?.[0]?.value && !TALK.has(o.act.kind));
-    if (unsure && other) return { say: `Not sure whether the person wants something done. If it sounds like it, ask in a few words: ${other.description}? Otherwise answer them yourself.`, ...meta };
+    if (unsure && other) {
+      if (waiting && ['yes', 'no'].includes(other.act.kind)) {
+        state.pending = waiting;
+        return { say: `Ask the person, in a few words, to confirm: ${waiting.about}.`, ...meta };
+      }
+      state.pending = { option: other, heard, about: other.description, openId: screen.open?.id ?? null };
+      return { say: `Not sure whether the person wants something done. If it sounds like it, ask in a few words: ${other.description}? Otherwise answer them yourself.`, ...meta };
+    }
     return { say: HAND_BACK, ...meta };
   }
   const ctx = { heard, askMain, state, now, compose, history, screen };
   if (unsure) {
+    if (waiting && ['yes', 'no'].includes(picked.act.kind)) {
+      state.pending = waiting;
+      return { say: `Ask the person, in a few words, to confirm: ${waiting.about}.`, ...meta };
+    }
     const top2 = r.runnersUp?.[0];
     const other = list.find((o) => o.value === top2?.value && o.value !== 'none');
     // Split between a move and something else: both were asked ("go into
@@ -229,7 +243,7 @@ async function perform(picked, { heard, askMain, state, now, compose, history = 
     case 'close': return finish('close_thread', { id: a.id });
     case 'open': return step('open_thread', { id: a.id });
     case 'next': return step('next_thread');
-    case 'back': return step('go_back');
+    case 'back': return step('go_back', { steps: backSteps(heard) });
     case 'scroll': return step('scroll', { where: a.where });
     case 'show': return step('show', { pictures: a.pictures, layout: 'full_screen' });
     case 'compare': return step('show', { pictures: picturesFrom(heard, (open?.pictures ?? []).length), layout: 'side_by_side' });

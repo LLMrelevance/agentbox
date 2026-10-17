@@ -29,6 +29,7 @@ export function buildOptions(screen) {
 
   if (open) {
     const t = q(open.title);
+    add(`open:${open.id}`, `Open or stay on the currently open thread ${t}, and remind the person what it needs`, { kind: 'open', id: open.id });
     add('reply', `Send a message the person dictates to the agent on the open thread ${t} ("tell it…", "reply saying…", feedback to post, feedback about Neo or JARVIS to pass on); only words meant for the agent`, { kind: 'reply', id: open.id });
     for (const o of open.options ?? []) add(`pick:${o.n}`, `Choose option ${o.n} on the open thread: ${q(o.text)}. Choose this when the person says its number OR asks to do what this option says, including a shorter wording of that action.`, { kind: 'pick', id: open.id, n: o.n });
     add('later', `Put the open thread ${t} off until later (snooze it for a while)`, { kind: 'later', id: open.id });
@@ -51,7 +52,7 @@ export function buildOptions(screen) {
   }
 
   add('next', 'Open the next thread that needs the person ("next", "start on my work", "from the top")', { kind: 'next' });
-  if (screen.canGoBack) add('back', 'Go back to the thread the person was on before', { kind: 'back' });
+  if (screen.canGoBack) add('back', 'Go back to a previously visited thread, one or more steps back ("back two threads", "two earlier")', { kind: 'back' });
   add('inbox', 'Say which threads need the person', { kind: 'inbox' });
   for (const [where, words] of [['up', 'up by one page'], ['down', 'down by one page'], ['top', 'all the way to the beginning'], ['bottom', 'all the way to the end']]) {
     add(`scroll:${where}`, `Scroll ${words} in what the person is reading${where === 'up' || where === 'down' ? ` ("scroll ${where}")` : ''}`, { kind: 'scroll', where });

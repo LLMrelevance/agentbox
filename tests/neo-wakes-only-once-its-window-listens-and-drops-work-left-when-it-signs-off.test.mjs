@@ -52,6 +52,70 @@ function fakes({ onListen, getMicImpl, mic = { status: 'granted' }, userData: gi
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
+async function renewingNeo({decideImpl=async()=>({choice:'none',confidence:1}),act=()=>({ok:true,said:'Current thread'})}={}) {
+  const startLiveImpl=vi.fn(async()=>({sdp:'v=0 answer'}));
+  const f=fakes({decideImpl,startLiveImpl});
+  const push=f.mainSent.push.bind(f.mainSent);
+  f.mainSent.push=(...messages)=>{
+    for(const [channel,request] of messages)if(channel==='neo:act')queueMicrotask(()=>{
+      const result=request.name==='neo_screen'?{ok:true,screen:{open:{id:'w-a',title:'A',options:[],pictures:[],films:[],files:[]},rows:[],commands:[]}}:act(request);
+      f.listeners.get('neo:act-result')(f.fromMainWindow,{id:request.id,result});
+    });
+    return push(...messages);
+  };
+  const waking=f.neo.wake('test');f.finishLoad();await waking;
+  const prepare=async(transportId)=>f.handlers.get('neo:start-live')(f.fromNeo,{sdp:'v=0 offer',transportId});
+  const activate=async(transportId)=>f.handlers.get('neo:activate-live')(f.fromNeo,{transportId});
+  await prepare('first');await activate('first');
+  return {...f,prepare,activate,startLiveImpl};
+}
+
+describe('one conversation across renewed voice connections',()=>{
+  it('keeps confirmation state while rejecting calls from a retired connection',async()=>{
+    const actions=[];
+    const f=await renewingNeo({decideImpl:async({input,instructions})=>({choice:/Yes/.test(input)?'yes':/first of them/.test(instructions)?'close':'none',confidence:1}),act:(r)=>{
+      if(r.name==='close_thread'){actions.push(r.args);return r.args.confirmed?{ok:true,said:'Closed.'}:{ok:false,status:'needs_yes',said:'Close it anyway?'}}
+      return {ok:true,said:'Thread A'};
+    }});
+    await f.handlers.get('neo:decide')(f.fromNeo,{heard:'Close this.',transportId:'first'});
+    await f.prepare('second');await f.activate('second');
+    await f.handlers.get('neo:decide')(f.fromNeo,{heard:'Yes.',transportId:'first'});
+    expect(actions).toHaveLength(1);
+    await f.handlers.get('neo:decide')(f.fromNeo,{heard:'Yes.',transportId:'second'});
+    expect(actions).toEqual([{id:'w-a'},{id:'w-a',confirmed:true}]);
+  });
+
+  it('adds usage from successive connections and late final usage without resetting the daily cap',async()=>{
+    const f=await renewingNeo();
+    const usage=(transportId,seconds)=>f.listeners.get('neo:usage')(f.fromNeo,{transportId,seconds});
+    usage('first',500);await f.prepare('second');await f.activate('second');
+    usage('second',20);usage('first',510);usage('second',19);
+    const saved=JSON.parse(fs.readFileSync(path.join(f.userData,'neo','usage.json'),'utf8'));
+    expect(saved.seconds).toBe(530);
+    usage('second',1300);
+    expect(f.neoSent.filter(([channel])=>channel==='neo:sleep')).toEqual([]);
+  });
+
+  it('restores only completed conversation history, never an unanswered request to replay',async()=>{
+    const f=await renewingNeo();
+    const log=(who,text)=>f.listeners.get('neo:log')(f.fromNeo,{who,text});
+    log('you','Choose option one.');log('neo','Done.');log('you','An unfinished request that must not run again.');
+    await f.prepare('second');
+    const session=f.startLiveImpl.mock.calls.at(-1)[0].session;
+    expect(session.input.at(-1).role).toBe('assistant');
+    expect(JSON.stringify(session.input)).not.toContain('unfinished request');
+  });
+
+  it('the watchdog only classifies and never calls a mutating app action',async()=>{
+    const f=await renewingNeo({decideImpl:async()=>({choice:'action',confidence:1})});
+    f.mainSent.length=0;
+    expect(await f.handlers.get('neo:audit')(f.fromNeo,{heard:'Send this feedback.',transportId:'first'})).toBe(true);
+    expect(f.mainSent.filter(([channel])=>channel==='neo:act').map(([,r])=>r.name)).toEqual(['neo_screen']);
+    await f.prepare('second');await f.activate('second');
+    expect(await f.handlers.get('neo:audit')(f.fromNeo,{heard:'Send this feedback.',transportId:'first'})).toBe(false);
+  });
+});
+
 describe('waking', () => {
   it('waits for the page to load before telling it to wake', async () => {
     const f = fakes();

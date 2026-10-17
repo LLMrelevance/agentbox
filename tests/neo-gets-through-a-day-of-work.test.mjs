@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { runDecision } from '../main/neo/decided.mjs';
 import { neoBridge, screenFor } from '../renderer/src/neo/bridge.ts';
 import { laterFrom } from '../shared/neo-params.mjs';
+import { buildOptions } from '../shared/neo-options.mjs';
 
 function inbox() {
   const rows = [
@@ -40,6 +41,13 @@ function inbox() {
 }
 
 describe('a day of work through the decision runner and real bridge', () => {
+  it('can choose the current thread when asked to open it again', async () => {
+    const t = inbox();
+    const options = buildOptions(screenFor(t.deps, false)).list;
+    expect(options.find((o) => o.value === 'open:w-a')).toMatchObject({act:{kind:'open',id:'w-a'}});
+    await t.run('Open landing page again.', ['open:w-a']);
+    expect(t.deps.focused().id).toBe('w-a');
+  });
   it('remembers which thread a snooze duration answers', async () => {
     const t = inbox();
     expect((await t.run('Snooze this.', ['later'])).say).toMatch(/how long/i);
@@ -80,6 +88,71 @@ describe('a day of work through the decision runner and real bridge', () => {
     await t.run('Go back.', ['back']);
     expect(t.effects).toContainEqual(['show', 'close']);
     expect(t.deps.focused().id).toBe('w-a');
+  });
+
+  it('goes back two visited threads in one request', async () => {
+    const t = inbox();
+    await t.run('Open billing export.', ['open:w-b']);
+    await t.run('Open daily report.', ['open:w-c']);
+    await t.run('Actually go back two threads.', ['back']);
+    expect(t.deps.focused().id).toBe('w-a');
+  });
+
+  it('leaves the screen and history intact when there are not enough previous threads', async () => {
+    const t = inbox();
+    await t.run('Open billing export.', ['open:w-b']);
+    expect((await t.run('Go back two threads.', ['back'])).say).toMatch(/not 2 previous/);
+    expect(t.deps.focused().id).toBe('w-b');
+    await t.run('Go back.', ['back']);
+    expect(t.deps.focused().id).toBe('w-a');
+  });
+
+  it('does not treat a confirmation as approval for an unrelated newer undo', async () => {
+    const t = inbox();
+    t.deps.undo = vi.fn().mockResolvedValueOnce({ asked: 'Withdraw this reply?', confirmation: 'old' }).mockResolvedValueOnce('changed');
+    await t.run('Undo that.', ['undo']);
+    expect((await t.run('Yes.', ['yes'])).say).toMatch(/changed.*nothing was undone/);
+    expect(t.deps.undo).toHaveBeenLastCalledWith('old');
+  });
+
+  it('reports an undo refusal instead of announcing success', async () => {
+    const t = inbox();
+    t.deps.undo = async () => ({ failed: 'The agent already acted on that reply, so it could not be withdrawn.' });
+    const result = await t.run('Undo that.', ['undo']);
+    expect(result.say).toMatch(/could not be withdrawn/);
+    expect(result.say).not.toMatch(/^Undone/);
+  });
+
+  it('keeps a low-confidence spoken clarification ready for a plain yes', async () => {
+    const t = inbox();
+    const result = await t.run('Actually can we undo that?', [], {
+      decideImpl: async () => ({ choice: 'talk', confidence: 0.25, runnersUp: [{ value: 'undo', probability: 0.24 }] }),
+    });
+    expect(result.say).toMatch(/Undo/i);
+    expect(t.state.pending?.option?.value).toBe('undo');
+    const undo = vi.spyOn(t.deps, 'undo');
+    await t.run('Yes.', ['yes']);
+    expect(undo).toHaveBeenCalledOnce();
+  });
+
+  it('confirms an older undo by voice and passes the exact confirmation back', async () => {
+    const t = inbox();
+    t.deps.undo = vi.fn(async (confirmation) => confirmation === 'undo-receipt-2'
+      ? 'done' : { asked: 'Withdraw the reply about receipt exports?', confirmation: 'undo-receipt-2' });
+    const result = await t.run('Undo that.', ['undo']);
+    expect(result.say).toMatch(/Withdraw the reply/);
+    await t.run('Yes.', ['yes']);
+    expect(t.deps.undo).toHaveBeenLastCalledWith('undo-receipt-2');
+  });
+
+  it.each(['yes', 'talk'])('keeps the original confirmation after an uncertain %s', async (choice) => {
+    const t = inbox();
+    t.deps.undo = vi.fn(async (token) => token === 'original' ? 'done' : { asked: 'Withdraw this reply?', confirmation: 'original' });
+    await t.run('Undo that.', ['undo']);
+    await t.run('Yes.', [], { decideImpl: async () => ({ choice, confidence: 0.2, runnersUp: [{value:'yes',probability:0.25}] }) });
+    expect(t.state.pending?.name).toBe('undo');
+    await t.run('Yes, withdraw it.', ['yes']);
+    expect(t.deps.undo).toHaveBeenLastCalledWith('original');
   });
 
   it('cancels the waiting snooze if the person moves to another thread', async () => {

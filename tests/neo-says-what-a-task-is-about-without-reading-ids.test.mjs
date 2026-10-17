@@ -17,6 +17,17 @@ const deps = {
 };
 
 describe('what a task is about comes first', () => {
+  it('distinguishes an answered proposal from a decision still waiting', async () => {
+    const answered = { ...deps, options: () => [], answer: () => 'Keep testing smaller accounts.',
+      summary: () => 'Ready to ship.\n\n## Options\n1. Ship it\n2. Keep testing' };
+    const text = describeOpen(answered, row);
+    expect(text).toContain('Previous agent message: Ready to ship.');
+    expect(text).toContain('The person already replied: Keep testing smaller accounts.');
+    expect(text).toContain('No options are currently waiting');
+    expect(text).not.toContain('1. Ship it');
+    const brief = await neoBridge(answered)('open_thread', { id: row.id });
+    expect(brief.said).toContain('The person already replied');
+  });
   it('the open thread is described by what it is for, then the latest', () => {
     const said = describeOpen(deps, row);
     expect(said).toMatch(/What this task is for: Show which Claude account/);
@@ -45,4 +56,3 @@ describe('ids are never read aloud', () => {
     expect(list.find((o) => o.value === 'pick:1').description).not.toMatch(/ce8c1a9275/);
   });
 });
-

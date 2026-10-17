@@ -6,6 +6,12 @@ const NUM = { one: 1, a: 1, an: 1, two: 2, three: 3, four: 4, five: 5, six: 6, s
 const num = (w) => (/^\d+$/.test(w) ? Number(w) : NUM[w]);
 const clean = (s) => String(s ?? '').toLowerCase().replace(/[‘’]/g, "'").replace(/[^a-z0-9': -]+/g, ' ').replace(/\s+/g, ' ').trim();
 
+export function backSteps(said) {
+  const s = clean(said);
+  const m = /\bback (?:by )?(\d+|one|two|three|four|five|six|seven|eight|nine)\b|\b(\d+|one|two|three|four|five|six|seven|eight|nine) (?:threads? |tasks? |steps? )?(?:back|earlier)\b/.exec(s);
+  return m ? num(m[1] ?? m[2]) : 1;
+}
+
 const atHour = (base, h, m = 0) => { const d = new Date(base); d.setHours(h, m, 0, 0); return d.getTime(); };
 const plusDays = (ts, n) => { const d = new Date(ts); d.setDate(d.getDate() + n); return d.getTime(); };
 const clock = (ts) => new Date(ts).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });

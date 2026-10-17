@@ -22,10 +22,10 @@ export const NEO_TOOLS = [
   { type: 'function', name: 'later', description: 'Put a thread off until later ("snooze it for ten minutes", "later until tomorrow at 9"): give minutes from now, or at as a local date and time like 2026-10-17T09:00. It leaves the inbox until then.', parameters: obj({ id, minutes: { type: 'integer', minimum: 1, maximum: 86400 }, at: { type: 'string', minLength: 10 } }, ['id']) },
   { type: 'function', name: 'find_commands', description: `Search everything ${Name}'s command menu (⌘K) can do, by a few words ("pause agents", "board", "settings", "later"). Returns the matching commands with their ids. Use for anything the other tools do not cover.`, parameters: obj({ query: { type: 'string', minLength: 1 } }, ['query']) },
   { type: 'function', name: 'run_command', description: 'Run one command by the id find_commands gave. Some (pausing agents, closing, approving, restarting) come back asking for a yes; ask, and call again with confirmed true only after a clear yes.', parameters: obj({ id: { type: 'string', minLength: 1 }, confirmed: { type: 'boolean' } }, ['id']) },
-  { type: 'function', name: 'go_back', description: 'Go back to the thread the person was on before Neo moved them ("go back", "back to the JARVIS one").', parameters: obj() },
+  { type: 'function', name: 'go_back', description: 'Go back through previously visited threads ("go back", "back two threads").', parameters: obj({ steps: { type: 'integer', minimum: 1, maximum: 9 } }) },
   { type: 'function', name: 'scroll', description: 'Scroll what the person is reading ("scroll up, I can\'t see that", "go to the bottom").', parameters: obj({ where: { type: 'string', enum: ['up', 'down', 'top', 'bottom'] } }, ['where']) },
   { type: 'function', name: 'show', description: 'Show pictures from the open thread, numbered as get_screen lists them: in_place scrolls to one and lights it up; lifted brings one up over the app; side_by_side compares two to four; full_screen fills the screen. layout close puts them away.', parameters: obj({ pictures: { type: 'array', items: { type: 'integer', minimum: 1, maximum: 9 }, minItems: 1, maxItems: 4 }, layout: { type: 'string', enum: ['in_place', 'lifted', 'side_by_side', 'full_screen', 'close'] } }, ['layout']) },
-  { type: 'function', name: 'undo', description: `Undo the last thing done in ${Name}, by Neo or the person.`, parameters: obj() },
+  { type: 'function', name: 'undo', description: `Undo the last thing done in ${Name}, by Neo or the person. Older actions return needs_yes; ask the person, then call with confirmed true only after a clear yes.`, parameters: obj({ confirmed: { type: 'boolean' } }) },
   { type: 'function', name: 'sign_off', description: 'End the conversation when the person says they are done ("that\'s all", "thanks Neo", "bye").', parameters: obj() },
 ];
 
@@ -119,15 +119,17 @@ export function contextNote(text) {
  * with the Decisions API (main/neo/decided.mjs); 'tools' is the earlier way,
  * a Responses model holding NEO_TOOLS, kept as the way back.
  */
-export function neoSession({ model = 'gpt-live-1', backend = 'gpt-5.6-luna', voice, pace, engine = 'decisions', context = '' } = {}) {
+export function neoSession({ model = 'gpt-live-1', backend = 'gpt-5.6-luna', voice, pace, engine = 'decisions', context = '', history = [] } = {}) {
   const paced = Object.hasOwn(PACES, pace) ? PACES[pace] : '';
   const client = engine !== 'tools';
-  const said = [VOICE_INSTRUCTIONS, client ? CLIENT_NOTE : '', paced, client && context ? `\n${context}` : ''].filter(Boolean).join('\n');
+  const clip = (text, limit) => { let result = '', bytes = 0; for (const point of String(text)) { const size = new TextEncoder().encode(point).length; if (bytes + size > limit) break; result += point; bytes += size; } return result; };
+  const said = [VOICE_INSTRUCTIONS, client ? CLIENT_NOTE : '', paced, client && context ? `\n${clip(context, 2000)}` : ''].filter(Boolean).join('\n');
   return {
     model,
     instructions: said,
     ...(voice ? { audio: { output: { voice } } } : {}),
     store: false,
+    ...(history.length ? { input: history.slice(-8).filter((l) => l.who === 'you' || l.who === 'neo').map((l) => ({ type: 'message', role: l.who === 'you' ? 'user' : 'assistant', content: [{ type: l.who === 'you' ? 'input_text' : 'output_text', text: clip(l.text, 300) }] })) } : {}),
     delegation: client
       ? { type: 'client' }
       : { type: 'responses', responses: { model: backend, instructions: BACKEND_INSTRUCTIONS, tools: NEO_TOOLS, tool_choice: 'auto', parallel_tool_calls: false } },
