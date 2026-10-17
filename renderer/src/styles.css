@@ -8985,57 +8985,91 @@ body.neo-on .ts-panel:hover .ts-foot { opacity: 1; }
 .neo-show-full-screen .neo-show-cell img { max-height: 88vh; box-shadow: none; }
 .neo-show-cell figcaption { font: 500 10px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; color: var(--text-faint); }
 
-/* A picture opened from a thread (components/PictureView.tsx), over the app. */
-.picture-view { position: fixed; inset: 0; z-index: 9400; outline: none; display: flex; flex-direction: column;
-  animation: pv-in .14s ease-out; }
-@keyframes pv-in { from { opacity: 0; } to { opacity: 1; } }
-.pv-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.pv-img { display: block; flex: none; cursor: zoom-in; user-select: none; transition: transform .16s ease-out; will-change: transform; }
+/* A picture opened from a thread (components/PictureView.tsx), full screen over the app.
+   It is a dark room in every theme, like the reader: the picture is what is lit, so the
+   ink is --read-paper rather than --text, which turns nearly black on the light theme. */
+.picture-view { position: fixed; inset: 0; z-index: 9400; outline: none; overflow: hidden;
+  background: var(--read-ground); color: var(--read-paper); animation: pv-in .22s ease-out; }
+@keyframes pv-in { from { opacity: 0; } }
+.pv-stage { position: absolute; inset: 76px 104px 120px; z-index: 1; display: flex; align-items: center; justify-content: center; }
+.pv-img { display: block; flex: none; cursor: zoom-in; user-select: none; border-radius: var(--radius); will-change: transform;
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1); animation: pv-pic-in .32s cubic-bezier(.2, .8, .2, 1); }
+@keyframes pv-pic-in { from { opacity: 0; scale: .97; } }
 .pv-img.pv-zoomed { cursor: grab; transition: none; }
 .pv-img.pv-zoomed:active { cursor: grabbing; }
-.pv-name { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.pv-count { font: 500 11px/1 var(--mono); color: var(--text-faint); white-space: nowrap; }
-.pv-actions { display: flex; gap: 4px; flex: none; }
-.pv-actions button, .pv-close { font: inherit; font-size: 12px; color: var(--text-dim); background: none; border: 0; padding: 5px 8px;
-  border-radius: var(--radius); cursor: pointer; }
-.pv-actions button:hover, .pv-close:hover { color: var(--text); background: var(--wash-strong); }
-.pv-close { font-size: 18px; line-height: 1; padding: 3px 8px; }
-.pv-hint { font: 500 10px/1 var(--mono); letter-spacing: .08em; color: var(--text-faint); border: 1px solid var(--line-strong);
-  border-radius: var(--radius); padding: 3px 5px; }
 
-/* Centered: the thread dims, the picture sits in the middle with its name under it. */
-.pv-centered { background: color-mix(in srgb, var(--read-ground) 88%, transparent); backdrop-filter: blur(3px); padding: 56px 80px 18px; }
-/* Most pictures here are dark screenshots of a dark app; the ring keeps them from melting into the dimmed thread. */
-.pv-centered .pv-img { border-radius: var(--radius); box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-lg); }
-.pv-caption { flex: none; align-self: center; display: flex; align-items: center; gap: 14px; margin-top: 14px; padding: 6px 8px 6px 14px;
-  background: var(--pop); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow-lg); max-width: 100%; }
+/* The controls fade once the pointer rests, leaving only the picture. */
+.pv-chrome { z-index: 2; transition: opacity .35s ease, background .15s, color .15s; }
+.pv-idle { cursor: none; }
+.pv-idle .pv-chrome { opacity: 0; pointer-events: none; }
 
-/* Window: a floating window over the thread, moved by its bar and sized from its corner. */
-.picture-view.pv-window { background: var(--scrim); display: block; }
-.pv-win { position: fixed; display: flex; flex-direction: column; background: var(--pop); border: 1px solid var(--line-strong);
-  border-radius: var(--radius); box-shadow: var(--shadow-lg); overflow: hidden; }
-.pv-bar { flex: none; display: flex; align-items: center; gap: 12px; padding: 6px 6px 6px 14px; border-bottom: 1px solid var(--line);
-  cursor: move; user-select: none; }
-.pv-bar .pv-name { flex: 1; }
-.pv-win .pv-stage { background: var(--bg); margin: 0; }
-.pv-grip { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize;
-  background: linear-gradient(135deg, transparent 50%, var(--line-strong) 50%, var(--line-strong) 58%, transparent 58%, transparent 70%, var(--line-strong) 70%, var(--line-strong) 78%, transparent 78%); }
+.pv-top { position: absolute; top: 0; left: 0; right: 0; height: 64px; display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 0 16px 0 28px; }
+.pv-title { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.pv-name { font-size: 13px; letter-spacing: .01em; color: color-mix(in srgb, var(--read-paper) 86%, transparent);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pv-count { font: 500 11px/1 var(--mono); letter-spacing: .12em; white-space: nowrap; color: color-mix(in srgb, var(--read-paper) 42%, transparent); }
+.pv-tools { display: flex; align-items: center; gap: 2px; flex: none; }
+.pv-icon { width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; background: none; cursor: pointer;
+  border-radius: var(--radius); color: color-mix(in srgb, var(--read-paper) 62%, transparent); transition: color .15s, background .15s; }
+.pv-icon svg { width: 20px; height: 20px; }
+.pv-icon:hover { color: var(--read-paper); background: color-mix(in srgb, var(--read-paper) 9%, transparent); }
+.pv-rule { width: 1px; height: 18px; margin: 0 6px; background: color-mix(in srgb, var(--read-paper) 14%, transparent); }
 
-/* Full: the whole window is the picture, with every picture in the thread along the foot. */
-.pv-full { background: var(--bg); }
-.pv-top { flex: none; display: flex; align-items: center; gap: 14px; padding: 12px 14px 8px 22px; }
-.pv-spacer { flex: 1; }
-/* Static, so the step buttons sit at the window's edges rather than the picture's. */
-.pv-full .pv-stage { margin: 0 64px; position: static; }
-.pv-step { position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 64px; border: 0; border-radius: var(--radius);
-  background: var(--wash-strong); color: var(--text-dim); font-size: 30px; line-height: 1; cursor: pointer; }
-.pv-step:hover:not(:disabled) { color: var(--text); background: var(--line-strong); }
-.pv-step:disabled { opacity: .25; cursor: default; }
-.pv-prev { left: 12px; }
-.pv-next { right: 12px; }
-.pv-strip { flex: none; display: flex; gap: 8px; justify-content: center; padding: 12px 20px 16px; overflow-x: auto; }
-.pv-thumb { flex: none; width: 76px; height: 48px; padding: 0; border: 1px solid var(--line-strong); border-radius: var(--radius);
-  background: var(--bg); overflow: hidden; cursor: pointer; opacity: .55; }
-.pv-thumb.is-on { opacity: 1; border-color: var(--accent); }
-.pv-thumb:hover { opacity: .9; }
+.pv-step { position: absolute; top: 50%; width: 48px; height: 48px; margin-top: -24px; display: grid; place-items: center; padding: 0;
+  border-radius: 50%; cursor: pointer; border: 1px solid color-mix(in srgb, var(--read-paper) 12%, transparent);
+  background: color-mix(in srgb, var(--read-paper) 6%, transparent); color: color-mix(in srgb, var(--read-paper) 80%, transparent);
+  backdrop-filter: blur(12px); }
+.pv-step svg { width: 22px; height: 22px; }
+.pv-step:hover:not(:disabled) { background: color-mix(in srgb, var(--read-paper) 14%, transparent); color: var(--read-paper); }
+.pv-step:disabled { opacity: 0; pointer-events: none; }
+.pv-prev { left: 28px; }
+.pv-next { right: 28px; }
+
+.pv-strip { position: absolute; left: 50%; bottom: 32px; transform: translateX(-50%); display: flex; gap: 10px; padding: 4px;
+  max-width: calc(100% - 64px); overflow-x: auto; }
+.pv-thumb { flex: none; width: 72px; height: 45px; padding: 0; border: 0; border-radius: var(--radius); overflow: hidden; cursor: pointer;
+  background: color-mix(in srgb, var(--read-paper) 6%, transparent); opacity: .38;
+  outline: 1px solid transparent; outline-offset: 3px; transition: opacity .2s, outline-color .2s; }
+.pv-thumb:hover { opacity: .75; }
+.pv-thumb.is-on { opacity: 1; outline-color: color-mix(in srgb, var(--read-paper) 85%, transparent); }
 .pv-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Gallery: a softly lit room, the picture hung in the middle of it. */
+.pv-gallery { background: radial-gradient(120% 90% at 50% 42%, color-mix(in srgb, var(--read-paper) 5%, var(--read-ground)) 0%, var(--read-ground) 62%); }
+.pv-gallery .pv-img { box-shadow: 0 0 0 1px color-mix(in srgb, var(--read-paper) 9%, transparent), var(--shadow-lg); }
+
+/* Ambient: the picture's own colours, blurred, light the room; the controls are frosted glass over it. */
+.pv-glow { position: absolute; inset: -12%; background-size: cover; background-position: center;
+  filter: blur(80px) saturate(1.8) brightness(.95); opacity: .7; animation: pv-in .6s ease-out; }
+.pv-ambient::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(closest-side, transparent 55%, color-mix(in srgb, var(--read-ground) 70%, transparent)); }
+.pv-ambient .pv-top { top: 16px; left: 16px; right: 16px; height: 46px; padding: 0; }
+.pv-ambient .pv-title, .pv-ambient .pv-tools, .pv-ambient .pv-strip {
+  background: color-mix(in srgb, var(--read-ground) 34%, transparent); backdrop-filter: blur(28px) saturate(1.6);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--read-paper) 8%, transparent); border-radius: var(--radius); }
+.pv-ambient .pv-title { height: 46px; align-items: center; padding: 0 18px; }
+.pv-ambient .pv-tools { padding: 4px; }
+.pv-ambient .pv-strip { bottom: 24px; padding: 8px; gap: 8px; }
+.pv-ambient .pv-stage { inset: 86px 104px 116px; }
+.pv-ambient .pv-img { box-shadow: 0 0 0 1px color-mix(in srgb, var(--read-paper) 8%, transparent), var(--shadow-lg); }
+
+/* Quiet: nothing but the picture, its name, and a dot for each of its neighbours. */
+.pv-quiet .pv-stage { inset: 56px 136px 92px; }
+.pv-quiet .pv-title { visibility: hidden; }
+.pv-quiet .pv-top { height: 56px; }
+.pv-quiet .pv-icon { color: color-mix(in srgb, var(--read-paper) 45%, transparent); }
+.pv-quiet .pv-step { top: 0; bottom: 0; width: 120px; height: auto; margin: 0; border: 0; border-radius: 0; background: none;
+  backdrop-filter: none; color: color-mix(in srgb, var(--read-paper) 32%, transparent); }
+.pv-quiet .pv-step svg { width: 30px; height: 30px; }
+.pv-quiet .pv-step:hover:not(:disabled) { background: none; color: var(--read-paper); }
+.pv-quiet .pv-prev { left: 0; }
+.pv-quiet .pv-next { right: 0; }
+.pv-foot { position: absolute; left: 0; right: 0; bottom: 28px; display: flex; flex-direction: column; align-items: center; gap: 12px; pointer-events: none; }
+.pv-foot > * { pointer-events: auto; }
+.pv-foot .pv-name { font-size: 12px; letter-spacing: .02em; color: color-mix(in srgb, var(--read-paper) 55%, transparent); }
+.pv-dots { display: flex; gap: 8px; }
+.pv-dot { width: 6px; height: 6px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
+  background: color-mix(in srgb, var(--read-paper) 22%, transparent); transition: background .2s; }
+.pv-dot:hover { background: color-mix(in srgb, var(--read-paper) 50%, transparent); }
+.pv-dot.is-on { background: var(--read-paper); }

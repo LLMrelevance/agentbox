@@ -1,18 +1,17 @@
-// A picture in a thread opens large in the middle of the window, not in the
-// side pane.
+// A picture in a thread opens full screen over it, not in the side pane.
 //
 // What broke: a click on a picture opened it in the document pane beside the
 // thread, at half the window and squeezed by the message column. The ask was
 // "just to see it larger and in the center". Measured on the build: a click on
 // a picture in a message called onOpenDoc, which is the pane.
 //
-// This pins the part with no picture: which clicks open the floating view, and
+// This pins the part with no picture: which clicks open the full-screen view, and
 // the zoom and stepping arithmetic it uses. The look is in the screenshots on
 // the thread.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import {
-  opensAsPicture, fitScale, clickZoom, zoomBy, stepTo, MAX_ZOOM, moveFrame, MIN_FRAME, panToKeep,
+  opensAsPicture, fitScale, clickZoom, zoomBy, stepTo, MAX_ZOOM, panToKeep,
 } from '../renderer/src/picture-view.ts';
 
 describe('which clicks open the floating view', () => {
@@ -88,34 +87,6 @@ describe('zooming in', () => {
     expect(zoomBy(1, 0.5)).toBe(1);
     expect(zoomBy(MAX_ZOOM, 2)).toBe(MAX_ZOOM);
     expect(zoomBy(2, 1.5)).toBeCloseTo(3);
-  });
-});
-
-// A resize used to store the pointer's start in the window's frame, so the next
-// move of the bar measured from the old corner: a 420 px drag right threw the
-// window 866 px left, off the screen.
-describe('moving and resizing the floating window', () => {
-  const at = { x: 211, y: 87, w: 1498, h: 907 };
-
-  it('a move after a resize lands where it was dragged', () => {
-    const sized = moveFrame(at, 'size', -620, -330);
-    expect(sized).toEqual({ x: 211, y: 87, w: 878, h: 577 });
-    expect(moveFrame(sized, 'move', 420, 120)).toEqual({ x: 631, y: 207, w: 878, h: 577 });
-  });
-
-  it('keeps only the frame, never where the pointer was', () => {
-    expect(Object.keys(moveFrame(at, 'size', 10, 10)).sort()).toEqual(['h', 'w', 'x', 'y']);
-    expect(Object.keys(moveFrame(at, 'move', 10, 10)).sort()).toEqual(['h', 'w', 'x', 'y']);
-  });
-
-  it('never shrinks below a usable size', () => {
-    expect(moveFrame(at, 'size', -5000, -5000)).toEqual({ x: 211, y: 87, w: MIN_FRAME.w, h: MIN_FRAME.h });
-  });
-
-  it('never lets the bar go above the top of the window', () => {
-    expect(moveFrame(at, 'move', 0, -500).y).toBe(0);
-    expect(moveFrame(at, 'move', 0, -87).y).toBe(0);
-    expect(moveFrame(at, 'move', 0, -86).y).toBe(1);
   });
 });
 

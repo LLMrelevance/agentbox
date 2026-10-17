@@ -40,17 +40,6 @@ export function zoomBy(zoom: number, factor: number): number {
   return Math.min(MAX_ZOOM, Math.max(1, zoom * factor));
 }
 
-export type Frame = { x: number; y: number; w: number; h: number };
-export const MIN_FRAME = { w: 320, h: 220 };
-
-/** The floating window after a drag of its bar ('move') or its corner ('size'). Returns only the frame, never the pointer. */
-export function moveFrame(from: Frame, mode: 'move' | 'size', dx: number, dy: number): Frame {
-  const { x, y, w, h } = from;
-  return mode === 'move'
-    ? { x: x + dx, y: Math.max(0, y + dy), w, h }
-    : { x, y, w: Math.max(MIN_FRAME.w, w + dx), h: Math.max(MIN_FRAME.h, h + dy) };
-}
-
 export function stepTo(index: number, count: number, by: number): number {
   return Math.max(0, Math.min(count - 1, index + by));
 }

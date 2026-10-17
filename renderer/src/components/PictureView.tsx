@@ -1,17 +1,21 @@
-// A picture in a thread, opened large over it. The side pane is still one
+// A picture in a thread, opened full screen over it. The side pane is still one
 // press away ("Open beside"), and so is Preview.
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { clickZoom, fitScale, moveFrame, panToKeep, stepTo, zoomBy, type Frame } from '../picture-view';
+import { clickZoom, fitScale, panToKeep, stepTo, zoomBy } from '../picture-view';
+import { CrossIcon } from './CrossIcon';
 
-export type PictureLook = 'centered' | 'window' | 'full';
+export type PictureStyle = 'gallery' | 'ambient' | 'quiet';
 export type Picture = { path: string; url: string | null };
 
-const LOOK_KEY = 'zero.pictureLook';
-export function pictureLook(): PictureLook {
-  const v = typeof localStorage !== 'undefined' ? localStorage.getItem(LOOK_KEY) : null;
-  return v === 'window' || v === 'full' ? v : 'centered';
+const STYLE_KEY = 'zero.pictureStyle';
+export function pictureStyle(): PictureStyle {
+  const v = typeof localStorage !== 'undefined' ? localStorage.getItem(STYLE_KEY) : null;
+  return v === 'ambient' || v === 'quiet' ? v : 'gallery';
 }
+
+/** How long the pointer has to rest before the controls fade and leave only the picture. */
+const IDLE_MS = 2400;
 
 /** Every picture drawn in this thread, in reading order, with the url it loaded from. */
 export function picturesOnScreen(root: ParentNode | null): Picture[] {
@@ -28,8 +32,20 @@ export function picturesOnScreen(root: ParentNode | null): Picture[] {
   return out;
 }
 
-export function PictureView({ look, pictures, start, resolve, onClose, onBeside, onPreview }: {
-  look: PictureLook;
+// The cross's recipe: a 24 grid, a 1.1 hairline, round caps, no fill.
+function Glyph({ d }: { d: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={d} />
+    </svg>
+  );
+}
+const CHEVRON_LEFT = 'M14.5 5.5 8 12l6.5 6.5';
+const CHEVRON_RIGHT = 'M9.5 5.5 16 12l-6.5 6.5';
+const BESIDE = 'M4.5 5.5h15v13h-15zM14 5.5v13';
+const OUTSIDE = 'M13.5 4.5h6v6M19.5 4.5l-8 8M17.5 13.5v6h-13v-13h6';
+
+export function PictureView({ pictures, start, resolve, onClose, onBeside, onPreview }: {
   pictures: Picture[];
   start: number;
   resolve: (path: string) => Promise<string | null>;
@@ -37,6 +53,7 @@ export function PictureView({ look, pictures, start, resolve, onClose, onBeside,
   onBeside: (path: string) => void;
   onPreview: (path: string) => void;
 }) {
+  const look = pictureStyle();
   const [index, setIndex] = useState(start);
   const shown = pictures[index];
   const [url, setUrl] = useState<string | null>(shown?.url ?? null);
@@ -44,11 +61,11 @@ export function PictureView({ look, pictures, start, resolve, onClose, onBeside,
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [idle, setIdle] = useState(false);
   const stage = useRef<HTMLDivElement | null>(null);
   const dialog = useRef<HTMLDivElement | null>(null);
   const drag = useRef<{ px: number; py: number; x: number; y: number; moved: boolean } | null>(null);
-  // The floating window's own place and size, which the person can change.
-  const [frame, setFrame] = useState<Frame | null>(null);
+  const idleTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     setZoom(1); setPan({ x: 0, y: 0 }); setNatural({ w: 0, h: 0 });
@@ -60,12 +77,6 @@ export function PictureView({ look, pictures, start, resolve, onClose, onBeside,
     return () => { live = false; };
   }, [index]);
 
-  useLayoutEffect(() => {
-    if (look !== 'window' || frame) return;
-    const w = Math.round(window.innerWidth * 0.78), h = Math.round(window.innerHeight * 0.84);
-    setFrame({ x: Math.round((window.innerWidth - w) / 2), y: Math.round((window.innerHeight - h) / 2), w, h });
-  }, [look]);
-
   useEffect(() => {
     const el = stage.current;
     if (!el) return;
@@ -74,7 +85,16 @@ export function PictureView({ look, pictures, start, resolve, onClose, onBeside,
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [frame === null]);
+  }, []);
+
+  // The controls stay while the pointer rests on one of them.
+  const wake = (e?: { target: EventTarget | null }) => {
+    setIdle(false);
+    window.clearTimeout(idleTimer.current);
+    if ((e?.target as HTMLElement | null)?.closest?.('.pv-chrome')) return;
+    idleTimer.current = window.setTimeout(() => setIdle(true), IDLE_MS);
+  };
+  useEffect(() => { wake(); return () => window.clearTimeout(idleTimer.current); }, []);
 
   // Taken at the window before the app's own keys, so J, K and Esc act on the
   // picture and not on the thread behind it.
@@ -136,125 +156,88 @@ export function PictureView({ look, pictures, start, resolve, onClose, onBeside,
     }
   };
 
-  // Moving and resizing the floating window.
-  const frameDrag = (e: ReactPointerEvent, mode: 'move' | 'size') => {
-    if (!frame || e.button !== 0) return;
-    e.preventDefault();
-    const from = frame, px = e.clientX, py = e.clientY;
-    const target = e.currentTarget as HTMLElement;
-    target.setPointerCapture(e.pointerId);
-    const onMove = (m: PointerEvent) => {
-      setFrame(moveFrame(from, mode, m.clientX - px, m.clientY - py));
-    };
-    const onUp = () => { target.removeEventListener('pointermove', onMove); target.removeEventListener('pointerup', onUp); };
-    target.addEventListener('pointermove', onMove);
-    target.addEventListener('pointerup', onUp);
-  };
-
   if (!shown) return null;
   const name = shown.path.split('/').pop() ?? shown.path;
   const many = pictures.length > 1;
-  const picture = (
-    <div
-      ref={stage}
-      className="pv-stage"
-      onWheel={wheel}
-      onClick={(e) => { if (e.target === e.currentTarget && look !== 'window') onClose(); }}
-    >
-      {url && (
-        <img
-          key={url}
-          src={url}
-          alt={name}
-          crossOrigin="anonymous"
-          draggable={false}
-          className={`pv-img${zoom > 1 ? ' pv-zoomed' : ''}`}
-          style={{
-            width: drawn.w || undefined, height: drawn.h || undefined,
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-            visibility: natural.w ? 'visible' : 'hidden',
-          }}
-          onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
-          onPointerDown={down}
-          onPointerMove={move}
-          onPointerUp={up}
-        />
-      )}
-      {look === 'full' && many && (
-        <>
-          <button type="button" className="pv-step pv-prev" disabled={index === 0} onClick={() => setIndex(stepTo(index, pictures.length, -1))} aria-label="Previous picture">‹</button>
-          <button type="button" className="pv-step pv-next" disabled={index === pictures.length - 1} onClick={() => setIndex(stepTo(index, pictures.length, 1))} aria-label="Next picture">›</button>
-        </>
-      )}
-    </div>
-  );
-  const actions = (
-    <span className="pv-actions">
-      <button type="button" onClick={() => onBeside(shown.path)}>Open beside</button>
-      <button type="button" onClick={() => onPreview(shown.path)}>Open in Preview</button>
-    </span>
-  );
-  const count = many ? <span className="pv-count">{index + 1} of {pictures.length}</span> : null;
-  const close = <button type="button" className="pv-close" onClick={onClose} aria-label="Close">×</button>;
+  const go = (by: number) => setIndex(stepTo(index, pictures.length, by));
 
-  let body;
-  if (look === 'window' && frame) {
-    body = (
-      <div className="pv-win" style={{ left: frame.x, top: frame.y, width: frame.w, height: frame.h }}>
-        <div className="pv-bar" onPointerDown={(e) => { if ((e.target as HTMLElement).closest('button')) return; frameDrag(e, 'move'); }}>
-          <span className="pv-name">{name}</span>
-          {count}
-          {actions}
-          {close}
-        </div>
-        {picture}
-        <span className="pv-grip" onPointerDown={(e) => frameDrag(e, 'size')} aria-hidden="true" />
-      </div>
-    );
-  } else if (look === 'full') {
-    body = (
-      <>
-        <div className="pv-top">
-          <span className="pv-name">{name}</span>
-          {count}
-          <span className="pv-spacer" />
-          {actions}
-          {close}
-        </div>
-        {picture}
-        {many && (
-          <div className="pv-strip">
-            {pictures.map((p, i) => (
-              <button key={p.path} type="button" className={`pv-thumb${i === index ? ' is-on' : ''}`} onClick={() => setIndex(i)} title={p.path}>
-                {p.url && <img src={p.url} alt="" crossOrigin="anonymous" />}
-              </button>
-            ))}
-          </div>
-        )}
-      </>
-    );
-  } else {
-    body = (
-      <>
-        {picture}
-        <div className="pv-caption">
-          <span className="pv-name">{name}</span>
-          {count}
-          {actions}
-          <span className="pv-hint">esc</span>
-        </div>
-      </>
-    );
-  }
   return createPortal(
     <div
       ref={dialog}
       tabIndex={-1}
       role="dialog"
       aria-label={name}
-      className={`picture-view pv-${look}`}
+      className={`picture-view pv-${look}${idle && zoom === 1 ? ' pv-idle' : ''}`}
+      onPointerMove={wake}
+      onPointerDown={wake}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >{body}</div>,
+    >
+      {look === 'ambient' && url && <div className="pv-glow" style={{ backgroundImage: `url("${url}")` }} aria-hidden="true" />}
+      <div ref={stage} className="pv-stage" onWheel={wheel} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+        {url && (
+          <img
+            key={url}
+            src={url}
+            alt={name}
+            crossOrigin="anonymous"
+            draggable={false}
+            className={`pv-img${zoom > 1 ? ' pv-zoomed' : ''}`}
+            style={{
+              width: drawn.w || undefined, height: drawn.h || undefined,
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              visibility: natural.w ? 'visible' : 'hidden',
+            }}
+            onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+            onPointerDown={down}
+            onPointerMove={move}
+            onPointerUp={up}
+          />
+        )}
+      </div>
+
+      <header className="pv-top pv-chrome">
+        <span className="pv-title">
+          <span className="pv-name">{name}</span>
+          {many && <span className="pv-count">{index + 1} / {pictures.length}</span>}
+        </span>
+        <span className="pv-tools">
+          <button type="button" className="pv-icon" onClick={() => onBeside(shown.path)} title="Open beside the thread" aria-label="Open beside the thread"><Glyph d={BESIDE} /></button>
+          <button type="button" className="pv-icon" onClick={() => onPreview(shown.path)} title="Open in Preview" aria-label="Open in Preview"><Glyph d={OUTSIDE} /></button>
+          <span className="pv-rule" aria-hidden="true" />
+          <button type="button" className="pv-icon pv-close" onClick={onClose} title="Close (esc)" aria-label="Close"><CrossIcon /></button>
+        </span>
+      </header>
+
+      {many && (
+        <>
+          <button type="button" className="pv-step pv-prev pv-chrome" disabled={index === 0} onClick={() => go(-1)} aria-label="Previous picture"><Glyph d={CHEVRON_LEFT} /></button>
+          <button type="button" className="pv-step pv-next pv-chrome" disabled={index === pictures.length - 1} onClick={() => go(1)} aria-label="Next picture"><Glyph d={CHEVRON_RIGHT} /></button>
+        </>
+      )}
+
+      {many && look !== 'quiet' && (
+        <div className="pv-strip pv-chrome">
+          {pictures.map((p, i) => (
+            <button key={p.path} type="button" className={`pv-thumb${i === index ? ' is-on' : ''}`} onClick={() => setIndex(i)} title={p.path.split('/').pop()}>
+              {p.url && <img src={p.url} alt="" crossOrigin="anonymous" />}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {look === 'quiet' && (
+        <footer className="pv-foot pv-chrome">
+          <span className="pv-name">{name}</span>
+          {many && (
+            <span className="pv-dots">
+              {pictures.map((p, i) => (
+                <button key={p.path} type="button" className={`pv-dot${i === index ? ' is-on' : ''}`} onClick={() => setIndex(i)} aria-label={`Picture ${i + 1}`} />
+              ))}
+            </span>
+          )}
+        </footer>
+      )}
+    </div>,
     document.body,
   );
 }
