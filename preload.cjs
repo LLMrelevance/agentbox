@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('zero', {
   agentUpdate: (payload) => ipcRenderer.invoke('zero:agent-update', payload),
   snapshot: () => ipcRenderer.invoke('zero:snapshot'),
   refreshUsage: () => ipcRenderer.invoke('zero:refresh-usage'),
+  accountUsage: (payload) => ipcRenderer.invoke('zero:account-usage', payload),
   assistiveTech: () => ipcRenderer.invoke('zero:assistiveTech'),
   olderItems: (payload) => ipcRenderer.invoke('zero:older-items', payload),
   dashboard: (slug) => ipcRenderer.invoke('zero:dashboard', slug),
@@ -114,6 +115,9 @@ contextBridge.exposeInMainWorld('zero', {
   // The Claude Code threads she started herself in the last few days, which is
   // what she meant by her agents, and taking one as a task.
   agentThreads: () => ipcRenderer.invoke('zero:agent-threads'),
+  // Every chat the card's name field can search, which reaches a year back
+  // rather than ten days. Read once and kept by the window (w-6418318cd5).
+  searchAgentThreads: (payload) => ipcRenderer.invoke('zero:search-agent-threads', payload ?? {}),
   importThreads: (payload) => ipcRenderer.invoke('zero:import-threads', payload ?? {}),
   badge: (count) => ipcRenderer.invoke('zero:badge', count),
   // What the corner tag says when she is in another app: what is ready for
@@ -286,6 +290,26 @@ contextBridge.exposeInMainWorld('zero', {
     const handler = (_e, payload) => fn(payload);
     ipcRenderer.on('zero:open-item', handler);
     return () => ipcRenderer.removeListener('zero:open-item', handler);
+  },
+  // NEO, the voice alpha (main/neo/). Off unless this Mac has the alpha flag;
+  // when on, Neo's tool calls arrive here and the app carries them out with
+  // its own functions (renderer/src/neo/bridge.ts).
+  neoEnabled: () => ipcRenderer.invoke('neo:enabled').catch(() => false),
+  onNeoAct: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('neo:act', handler);
+    return () => ipcRenderer.removeListener('neo:act', handler);
+  },
+  neoActResult: (id, result) => ipcRenderer.send('neo:act-result', { id, result }),
+  onNeoMode: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('neo:mode', handler);
+    return () => ipcRenderer.removeListener('neo:mode', handler);
+  },
+  onNeoOrb: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('neo:orb', handler);
+    return () => ipcRenderer.removeListener('neo:orb', handler);
   },
   // The corner tag's "Turn off…": opens Settings at the switch that does it.
   onOpenSettings: (fn) => {

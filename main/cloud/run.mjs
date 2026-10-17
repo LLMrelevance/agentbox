@@ -56,6 +56,22 @@ import { Name, nameSlug } from '../../shared/product-name.mjs';
 import { codexTranscriptFile } from '../codex-session.mjs';
 import { appendCloudUsage } from './usage.mjs';
 import { docsFolderFor, docsToSend, tarDocs, layDocs } from './docs.mjs';
+import { troubleCause, limitResetMoment } from '../../shared/spawn-trouble.mjs';
+
+// How long a cloud account whose limit named no hour sits out.
+const LIMIT_REST_MS = 30 * 60_000;
+
+// THE CLOUD ACCOUNT'S LIMIT, off one line of Claude Code's stream: the moment
+// it resets when the line is a failed result that says the account is at its
+// limit, else null. A result that worked is never a limit, whatever it quotes.
+export function limitInResultLine(line, now = Date.now()) {
+  let msg;
+  try { msg = JSON.parse(line); } catch { return null; }
+  if (msg?.type !== 'result' || msg.is_error !== true) return null;
+  const text = String(msg.result ?? '');
+  if (troubleCause(text) !== 'at-limit') return null;
+  return limitResetMoment(text, now) ?? now + LIMIT_REST_MS;
+}
 
 export const IMPORT_FAILED = 75;
 export const LOGIN_TROUBLE = 77;
@@ -210,6 +226,8 @@ export async function cloudRun({
   login = null,
   // Told when the sandbox says the login was missing, refused or ran out.
   onLoginTrouble = () => {},
+  // Told the moment the account's limit resets, when a run ends on it.
+  onLimit = () => {},
   stdin = process.stdin, stdout = process.stdout, stderr = process.stderr,
   remoteCommand = 'claude',
   homeDir = os.homedir(),
@@ -492,6 +510,8 @@ export async function cloudRun({
   let finished = null; // 'collected' | 'collect-failed' | 'failed' | 'lost'
   let loginTrouble = null; // { state: 'missing'|'refused'|'expired', id }
   const servers = new Map(); // conn -> { proc, name, init, pending, swallow }
+  const outDecoder = new StringDecoder('utf8');
+  let outLine = '';
   const overdue = () => cancelled && Date.now() - cancelledAt > resultsWaitMs;
 
   // ONE INPUT AT A TIME, KEPT UNTIL ACKNOWLEDGED. Each gets its number once,
@@ -618,6 +638,18 @@ export async function cloudRun({
     s.proc.stdin.write(line + '\n');
   }
 
+  function noteLimit(buf) {
+    outLine += outDecoder.write(buf);
+    let i;
+    while ((i = outLine.indexOf('\n')) >= 0) {
+      const line = outLine.slice(0, i);
+      outLine = outLine.slice(i + 1);
+      if (!line.includes('"result"')) continue;
+      const until = limitInResultLine(line);
+      if (until) { try { onLimit({ until }); } catch { /* noted elsewhere */ } }
+    }
+  }
+
   async function write(stream, buf) {
     if (!stream.write(buf)) await new Promise((r) => stream.once('drain', r));
   }
@@ -629,7 +661,11 @@ export async function cloudRun({
     if (env.AGENTBOX_CLOUD_DEBUG && e.kind.startsWith('mcp')) say(`${e.kind} ${e.conn}${e.server ? ` ${e.server}` : ''}${e.line ? ` ${String(e.line).slice(0, 80)}` : ''}`);
     // A joined run has nobody reading its stream: the app reads its
     // transcript once it is home.
-    if (e.kind === 'stdout') { if (!joining) await write(stdout, Buffer.from(e.data, 'base64')); }
+    if (e.kind === 'stdout') {
+      const buf = Buffer.from(e.data, 'base64');
+      if (!codex) noteLimit(buf);
+      if (!joining) await write(stdout, buf);
+    }
     else if (e.kind === 'stderr') { if (!joining) await write(stderr, Buffer.from(e.data, 'base64')); }
     else if (e.kind === 'mcp-open') openServer(e.conn, e.server);
     else if (e.kind === 'mcp') toServer(e.conn, e.line);

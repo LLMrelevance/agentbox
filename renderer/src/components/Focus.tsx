@@ -53,6 +53,7 @@ import { codexCommand, COMPACTION_COPY } from '../../../shared/codex-commands.mj
 import { DEFAULT_ENGINE } from '../../../shared/engines.mjs';
 import { ago, dayLabel, itemOptions, offerIsLive, optionsFrom, parseOptions, parseRepeat, type ParsedOption } from '../format';
 import { ruleIdOf } from '../../../shared/repeats.mjs';
+import { shownPriority } from '../../../shared/rank.mjs';
 import { WhenPicker } from './When';
 import { ModelPicker } from './Model';
 import type { ModelChoice } from '../models';
@@ -2260,7 +2261,9 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   // tag DISPLAYS the item's real level, though: an urgent thread's reply box
   // showing "medium" read as the reply demoting it.
   const [prio, setPrio] = useState<PriorityId | null>(null);
-  const itemPrio: PriorityId = priorityIdOf(item.priority);
+  // The level it runs at (shared/rank.mjs shownPriority). A conversation is
+  // offered no tag at all, so this is only ever a work thread's.
+  const itemPrio: PriorityId = priorityIdOf(shownPriority(item));
   const shown = prio ?? itemPrio;
   /* * WHICH MODEL PICKS UP WHAT SHE SENDS NEXT.
 
@@ -2438,6 +2441,22 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
       touched ? { model, effort } : undefined);
   };
   const hasDraft = !!text.trim() || attachments.length > 0;
+  // NEO SENDS FROM THIS BOX WHEN THE PICTURES IN IT GO WITH ITS WORDS, so the
+  // pictures go out the way her own send takes them (renderer/src/neo/useNeo.ts).
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  const attachedRef = useRef(attachments);
+  attachedRef.current = attachments;
+  useEffect(() => {
+    const take = (e: Event) => {
+      const { key, text: words, answer } = (e as CustomEvent<{ key: string; text: string; answer: (sent: boolean) => void }>).detail;
+      if (key !== draftKey(item) || !attachedRef.current.length) return;
+      answer(true);
+      void sendRef.current(words);
+    };
+    window.addEventListener('neo:send-from-box', take);
+    return () => window.removeEventListener('neo:send-from-box', take);
+  }, [item.product, item.id]);
   // THE SLASH MENU, AND THE MODE THAT IS ALWAYS ON THE SCREEN.
   //
   // It does. Claude Code has no backslash TRIGGER: `/` opens its commands and

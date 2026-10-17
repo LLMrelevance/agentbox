@@ -192,6 +192,43 @@ export function effectiveProfiles(configured, { home = os.homedir(), shellDir = 
 }
 
 /**
+ * WHAT IS WRONG WITH THE SUBSCRIPTION THIS ROW STANDS FOR, not merely with the
+ *  folder it is named after.
+ *
+ *  Trouble is filed per FOLDER, because a folder is what a worker is handed.
+ *  `effectiveProfiles` above lists one row per SUBSCRIPTION, dropping a second
+ *  folder holding an account it already has. So a limit hit in the dropped
+ *  folder is filed under a key no row carries and is drawn nowhere, while the
+ *  row for that same subscription goes on showing whatever was last filed on
+ *  the listed folder, however old.
+ *
+ *  Measured 2026-10-16: ~/.claude-3 hit a session limit at 3:15pm and the row
+ *  for that subscription showed an "organization has turned Claude Code off"
+ *  filed on ~/.claude five days earlier. Both folders hold accountUuid
+ *  8fe4a357; the newest fact about the account was the invisible one.
+ *
+ *  THE NEWEST READING WINS, because that is the only honest answer when two
+ *  folders of one subscription disagree: each entry is what was true when a
+ *  run last died there, and nothing clears a folder nothing spawns on.
+ *  Codex keys are never considered — an account's key carries its engine. */
+export function troubleForProfile(troubles, profile, { home = os.homedir() } = {}) {
+  const dflt = defaultClaudeHome(home);
+  const dirOf = (p) => (p === 'default' ? dflt : p);
+  const idOf = (p) => accountIdentity(dirOf(p) === dflt ? null : dirOf(p), { home });
+  const own = troubles?.[profile] ?? null;
+  const mine = idOf(profile)?.accountUuid;
+  if (!mine) return own;
+  const when = (t) => t?.at ?? t?.since ?? 0;
+  let best = own;
+  for (const [key, t] of Object.entries(troubles ?? {})) {
+    if (!t || key === profile || key.startsWith('codex:')) continue;
+    if (idOf(key)?.accountUuid !== mine) continue;
+    if (when(t) > when(best)) best = t;
+  }
+  return best;
+}
+
+/**
  * Test seam only: forget the cached directory listing. Nothing in the app
  *  calls this — the mtime check is what keeps it honest at runtime. */
 export function forgetDiscovery() {

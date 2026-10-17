@@ -25,6 +25,7 @@ import { stopKey } from './walk-rules';
 import { PinMark } from './ThreadMenu';
 import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type Box } from './board-select';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
+import { shownPriority } from '../../../shared/rank.mjs';
 import { api } from '../api';
 import { CLOUD_KEY, CLOUD_WHEN_ON, cloudButtonCount, cloudIsOn, cloudMonthLine, type CloudMode, type CloudStatus } from '../cloud-menu';
 import { menuSetupLine, SETUP } from '../cloud-setup';
@@ -202,7 +203,7 @@ function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus;
   return <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
     <button type="button" className={`th-disp th-cloud${count ? ' count' : ''}${open ? ' open' : ''}${on && !nobodyReady ? ' lit' : ''}`}
       aria-label={count ? `Cloud on, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : on ? 'Cloud on' : 'Cloud off'} title={`Cloud ${on ? 'on' : 'off'} (${CLOUD_KEY})`}
-      data-hint="cloud" data-hint-align="right" onClick={() => setOpen((o) => !o)}>
+      data-hint="cloud" data-hint-align="center" onClick={() => setOpen((o) => !o)}>
       <CloudIcon />{count && <b>{count}</b>}{!count && (nobodyReady || setup) && <i />}
     </button>
     {open && nobodyReady && <div className="th-pop th-cloud-pop th-cloud-invite" role="dialog" aria-label={SETUP.inviteHead}>
@@ -219,7 +220,7 @@ function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus;
       </div>}
       <div className="line"><span className="lab">Cloud</span><span className="th-cloud-onoff">
         <span className="opts">
-          <button type="button" className={on ? 'on picked' : ''} aria-pressed={on} onClick={() => onMode?.(whenOn)}>On</button>
+          <button type="button" className={on ? 'on picked' : ''} aria-pressed={on} onClick={() => onMode?.(whenOn)}>{on && <i className="th-cloud-on-dot" aria-hidden="true" />}On</button>
           <button type="button" className={on ? '' : 'on picked'} aria-pressed={!on} onClick={() => onMode?.('mac')}>Off</button>
         </span>
         <span className="th-cloud-keysay">turn on or off with <kbd>{CLOUD_KEY}</kbd></span>
@@ -568,7 +569,7 @@ export function ThreadCells({ item, product, now, person, tab }: {
   // faint words a repeating task uses for its schedule: "a little bit of text
   // that gives you extra information if you need to know."
   return <RowCells live={liveIds.has(item.id)} title={rowTitle(item)} aside={toApproveWords(waiting.get(`${item.product}/${item.id}`))} shared={seen === 'people'} chosen={chosen} lock={lock} held={notStarted(item)} pinned={!!item.pinned && item.status !== 'done'} where={product?.name ?? ''} person={person}
-    priority={item.priority ?? 0} updatedAt={when} now={now} action={action} />;
+    priority={shownPriority(item)} updatedAt={when} now={now} action={action} />;
 }
 
 /* ------------------------------------------------------------ the board */
