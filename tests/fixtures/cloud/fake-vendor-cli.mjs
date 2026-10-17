@@ -24,6 +24,7 @@ const name = direct ? process.argv[2] : null;
 const args = process.argv.slice(3);
 const mode = process.env.FAKE_VENDOR_MODE || '';
 export const TOKEN = 'sk-ant-oat01-' + 'Q'.repeat(60); // public-check: allow (made up)
+export const ORG = '00000000-0000-4000-8000-0000000000aa'; // public-check: allow (made up)
 
 const jwt = (exp) => ['e30', Buffer.from(JSON.stringify({ exp })).toString('base64url'), 'sig'].join('.');
 
@@ -60,7 +61,18 @@ if (name === 'claude' && args[0] === 'setup-token') {
 } else if (name === 'claude' && args[0] === '-p') {
   // A check that takes its time, longer than the wait for the code's answer.
   if (mode === 'claude-slow-check') await new Promise((r) => setTimeout(r, 700));
-  if (process.env.CLAUDE_CODE_OAUTH_TOKEN === TOKEN && mode !== 'claude-refuses' && mode !== 'claude-offline') { process.stdout.write('ok\n'); process.exit(0); }
+  if (process.env.CLAUDE_CODE_OAUTH_TOKEN === TOKEN && mode !== 'claude-refuses' && mode !== 'claude-offline') {
+    // ANTHROPIC_LOG=debug: the request, token and all, then the reply's
+    // headers, as Claude Code 2.1.302 prints them. Two replies, the second newer.
+    if (process.env.ANTHROPIC_LOG === 'debug') {
+      process.stderr.write(`[debug] request { "authorization": "Bearer ${TOKEN}" }\n`);
+      for (const [five, week] of [['0.30', '0.10'], ['0.36', '0.14']]) {
+        process.stderr.write(`[debug] response { "anthropic-organization-id": "${ORG}", "anthropic-ratelimit-unified-5h-utilization": "${five}", "anthropic-ratelimit-unified-5h-reset": "1792206000", "anthropic-ratelimit-unified-7d-utilization": "${week}", "anthropic-ratelimit-unified-7d-reset": "1792710000" }\n`);
+      }
+    }
+    process.stdout.write('ok\n');
+    process.exit(0);
+  }
   process.stderr.write(mode === 'claude-offline' ? 'API Error: Connection error (ECONNRESET)\n' : 'Invalid bearer token\n');
   process.exit(1);
 } else if (name === 'codex' && args[0] === 'login' && args.includes('--device-auth')) {

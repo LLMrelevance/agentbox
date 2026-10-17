@@ -430,7 +430,9 @@ export function AccountRows({ agent, onChoose, onAdd }: {
 export type PlaceAccount = {
   key: string;
   name: string;
-  /** Plan, check time or state, joined with a dot. */
+  /** The plan, set against the name. */
+  plan?: string | null;
+  /** A state to say where nothing is in use or offered, joined with a dot. */
   about: string[];
   inUse?: boolean;
   limits?: UsageLimit[] | null;
@@ -460,9 +462,10 @@ export function MiniMeters({ limits }: { limits?: UsageLimit[] | null }) {
   );
 }
 
+// IN USE is a mark; switching is a link in sentence case, so the two cannot be read as the same kind of thing.
 function UseMark({ a }: { a: PlaceAccount }) {
   if (a.inUse) return <span className="set-badge">In use</span>;
-  return a.use ? <button type="button" className="set-badge set-badge-use" onClick={a.use.onUse}>{a.use.word}</button> : null;
+  return a.use ? <button type="button" className="acct-use" onClick={a.use.onUse}>{a.use.word}</button> : null;
 }
 
 /** One tile per account, two to a line, its meters stacked inside. */
@@ -471,8 +474,11 @@ export function PlaceTiles({ accounts, onAdd }: { accounts: PlaceAccount[]; onAd
     <div className="acct-tiles">
       {accounts.map((a) => (
         <div className={`acct-tile${a.inUse ? ' on' : ''}${a.trouble ? ' trouble' : ''}`} key={a.key}>
-          <div className="acct-tile-name">{a.name}</div>
-          <div className="acct-tile-about"><UseMark a={a} />{a.about.join(' · ')}</div>
+          <div className="acct-tile-head">
+            <span className="acct-tile-name">{a.name}</span>
+            {a.plan && <span className="acct-tile-plan">{a.plan}</span>}
+          </div>
+          <div className="acct-tile-about">{a.inUse || a.use ? <UseMark a={a} /> : a.about.join(' · ')}</div>
           {a.trouble ? (
             <>
               <div className="acct-tile-trouble">{a.trouble}</div>
@@ -508,9 +514,9 @@ export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex
   return all.filter((a) => a.engine === engine).map((a) => {
     const state = cloudAccountState(a, now);
     const read = !!a.limits?.length;
-    // A full meter already says when it is back. Without a reading the state is all there is.
-    const said = read && (state === 'Ready' || state.startsWith('At its limit'));
-    return { key: a.key, name: accountLabel(a, all), about: said ? [] : [state], limits: a.limits ?? null, meters: read };
+    // A full meter already says when it is back, so beside one the state is said short.
+    const about = read && state.startsWith('At its limit') ? 'At its limit' : state;
+    return { key: a.key, name: accountLabel(a, all), about: [about], limits: a.limits ?? null, meters: read };
   });
 }
 
@@ -1612,11 +1618,12 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
       .map((a) => ({
         key: a.profile,
         name: a.email ?? 'Not signed in',
-        about: [a.signedIn ? (a.plan ?? 'Signed in') : 'Finish signing in to use it'],
+        plan: a.signedIn ? a.plan : null,
+        about: a.signedIn ? [] : ['Finish signing in to use it'],
         inUse: picked && a.chosen,
         limits: readingOf(a.profile)?.limits ?? null,
-        use: !(picked && a.chosen) && agent.accounts.length > 1
-          ? { word: picked ? 'Use this one' : 'Use only this one', onUse: () => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile: a.profile } })) }
+        use: a.signedIn && !(picked && a.chosen) && agent.accounts.length > 1
+          ? { word: picked ? 'Switch to this account' : 'Use only this account', onUse: () => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile: a.profile } })) }
           : null,
         trouble: a.trouble,
         cmd: a.trouble && a.dir ? `CLAUDE_CONFIG_DIR=${a.dir} claude` : null,
@@ -1718,7 +1725,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                 {w.permission === 'custom' ? (
                   <Row label="Permission mode" desc={PERMISSION_SENTENCE.custom} />
                 ) : (
-                  <Row label="Permission mode" desc={PERMISSION_SENTENCE[w.permission]}>
+                  <Row label={cloudHere ? 'On this computer' : 'Permission mode'} desc={PERMISSION_SENTENCE[w.permission]}>
                     {/* The caveat that your own allow and deny rules sit on top
                         of the mode rides on the picker rather than as a
                         paragraph under the card. */}
@@ -1729,6 +1736,21 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                       value={w.permission}
                       options={PERMISSION_OPTIONS}
                       onChange={(v) => setWorkspace('permission', v)}
+                    />
+                  </Row>
+                )}
+                {/* THE CLOUD'S OWN MODE: a cloud run works on a throwaway copy
+                    with nobody there to approve anything, so it may be looser
+                    than this computer. Unset, it follows this computer. */}
+                {cloudHere && (
+                  <Row label="In the cloud" desc={w.cloudPermission ? PERMISSION_SENTENCE[w.cloudPermission] : 'The same as on this computer.'}>
+                    <Picker
+                      bare
+                      label="Permission mode in the cloud"
+                      title={`The mode every cloud run starts in. ${RULES_ALWAYS_APPLY}`}
+                      value={w.cloudPermission ?? 'same'}
+                      options={[{ value: 'same', label: 'Same as this computer' }, ...PERMISSION_OPTIONS]}
+                      onChange={(v) => write(api.setWorkspaceSetting({ key: 'cloudPermission', value: v === 'same' ? null : v }))}
                     />
                   </Row>
                 )}

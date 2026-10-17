@@ -43,7 +43,7 @@ import { cloudWorkPending, readMarker } from './cloud/marker.mjs';
 import { ownDesignsFit } from './cloud/docs.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
 import { readCloudConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
-import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey } from './cloud/logins.mjs';
+import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits } from './cloud/logins.mjs';
 import { execFileSync } from 'node:child_process';
 import { holdUntilHome } from './cloud/codex-cloud.mjs';
 import { readCloudUsage, summarizeCloudUsage } from './cloud/usage.mjs';
@@ -86,7 +86,7 @@ function whoHasIt(made) {
 }
 import { agentSpokeSince, answerSettled, answerTs, stoppedByHer } from '../shared/answers.mjs';
 import { DEFAULT_SESSIONS_AT_ONCE } from './config.mjs';
-import { toolingLine } from './account-tooling.mjs';
+import { accountIdentity, nameForOrganization, toolingLine } from './account-tooling.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
 import { writeChangeForRun, changePath } from './code-change.mjs';
@@ -219,6 +219,8 @@ const MAX_DELIVERY_ATTEMPTS = 3;
 // How many cloud runs may be packing and sending at once (`_cloudStarting`).
 // Turning the cloud on with Everything once started up to ten together.
 const CLOUD_STARTING_AT_ONCE = 2;
+// How long a cloud run may take to start before it stops holding others back.
+const CLOUD_START_PATIENCE_MS = 10 * 60_000;
 
 // How long a row we interrupted for an Urgent one is held out of the queue
 // before we give up waiting for that Urgent row to start. A BACKSTOP, not the
@@ -828,7 +830,11 @@ export class Supervisor {
       if (opts?.continuation && item?.answer) this.redeliverAnswer(item, item.answer);
     }
     this._preparing?.clear();
-    for (const s of this.sessions.values()) this._kill(s);
+    // THIS IS A QUIT TOO. The window's close calls it, and closing the window
+    // or installing an update gets here BEFORE `killAll` does, so a Claude
+    // cloud run is left going from here as well: SIGTERM would cancel it.
+    this._quitting = true;
+    for (const s of this.sessions.values()) this._kill(s, s.cloud && s.engine !== 'codex' ? 'SIGHUP' : undefined);
     this.sessions.clear();
   }
 
@@ -4174,13 +4180,45 @@ export class Supervisor {
   _cloudAccounts() {
     const now = Date.now();
     const out = [];
+    let here = null;
     for (const engine of [DEFAULT_ENGINE, 'codex']) {
       listCloudLogins(engine, { home: this.config.home }).forEach((r) => {
         const state = cloudLoginState(r, { now });
-        out.push({ engine, key: r.key, name: r.email || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null, limitedUntil: r.limitedUntil ?? null });
+        // A Claude login in the cloud can say its organization, not its email.
+        here ??= this._profiles().map((p) => accountIdentity(p === 'default' ? null : p, { home: this.config.home || os.homedir() }));
+        const name = r.email || (engine === DEFAULT_ENGINE ? nameForOrganization(r.org, here) : null);
+        out.push({
+          engine, key: r.key, name: name || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null,
+          limitedUntil: r.limitedUntil ?? null, limits: cloudLimits(r.limits), readAt: r.readAt ?? null,
+        });
       });
     }
     return out;
+  }
+
+  /**
+   * THE CLOUD'S CLAUDE LOGINS LOOKED AT, one at a time, each at most every ten
+   * minutes unless `force`, for the Settings page. Each look is a sandbox
+   * session and one tiny reply on that login (main/cloud/logins.mjs).
+   */
+  async lookAtCloudLogins({ force = false } = {}) {
+    if (this._cloudLooking || !readCloudConfig(process.env, this.config.home)) return;
+    const now = Date.now();
+    const due = listCloudLogins(DEFAULT_ENGINE, { home: this.config.home })
+      .filter((r) => !r.broken && (force || !r.readAt || now - r.readAt > 10 * 60_000));
+    if (!due.length) return;
+    this._cloudLooking = true;
+    try {
+      const { transport, storage } = await this._cloudClients();
+      for (const r of due) {
+        await lookAtCloudLogin({ transport, storage, key: r.key, home: this.config.home }).catch(() => 'failed');
+        this.onChange?.();
+      }
+    } catch (e) {
+      console.warn('zero: could not look at the cloud sign-ins:', e.message);
+    } finally {
+      this._cloudLooking = false;
+    }
   }
 
   // The sign-ins going on, or just ended, for the setup screen to draw.
@@ -4323,10 +4361,33 @@ export class Supervisor {
 
   // Cloud runs still being packed and sent: a run's proxy holds its folder,
   // documents and transcript in memory until its agent has started.
-  _cloudStarting() {
+  // A start older than CLOUD_START_PATIENCE_MS is stuck, not starting, and
+  // holds nothing back.
+  _cloudStarting(now = Date.now()) {
     let n = 0;
-    for (const s of this.sessions.values()) if (s.cloud && s.sessionId == null && s.result == null) n += 1;
+    for (const s of this.sessions.values()) {
+      if (s.cloud && s.sessionId == null && s.result == null && now - (s.startedAt ?? now) < CLOUD_START_PATIENCE_MS) n += 1;
+    }
     return n;
+  }
+
+  // Room in the cloud apart from the runs still starting.
+  _cloudRoom(engine) {
+    const which = engineOf(engine);
+    if (!this._cloudReady(which)) return false;
+    // The cloud's own accounts, not this Mac's: a Mac login resting does not
+    // stop it, only an engine she has not turned on.
+    if (!this.engineChoices().some((e) => e.id === which)) return false;
+    return this._cloudLoad() < this._maxCloud();
+  }
+
+  // EVERYTHING WAITS ITS TURN FOR THE CLOUD while two runs are still starting,
+  // rather than starting on this Mac. Read by `_roomFor` (so neither the tick
+  // nor the sweep that resumes interrupted rows starts it, or takes a slot
+  // from another row for it) and by `_whereToRun`.
+  _waitsForCloud(item, engine) {
+    return this._cloudFirst() && !!item?.id && this._cloudStarting() >= CLOUD_STARTING_AT_ONCE
+      && this._cloudEligible(item) && this._cloudRoom(engine);
   }
 
   _maxCloud() {
@@ -4345,12 +4406,7 @@ export class Supervisor {
   // the proxy's command; Codex as its own app-server in the sandbox
   // (main/cloud/codex-cloud.mjs).
   _cloudSlotFor(engine) {
-    const which = engineOf(engine);
-    if (!this._cloudReady(which)) return false;
-    // The cloud's own accounts, not this Mac's: a Mac login resting does not
-    // stop it, only an engine she has not turned on.
-    if (!this.engineChoices().some((e) => e.id === which)) return false;
-    return this._cloudLoad() < this._maxCloud() && this._cloudStarting() < CLOUD_STARTING_AT_ONCE;
+    return this._cloudRoom(engine) && this._cloudStarting() < CLOUD_STARTING_AT_ONCE;
   }
 
   // Which rows may go to the cloud at all. A row needs its own task folder
@@ -4380,6 +4436,7 @@ export class Supervisor {
     // signing off with everything still working (docs/cloud/PLAN.md).
     const cloudOk = () => this._mayRunInCloud(item, product, cwd, { remoteOnly }) && this._cloudSlotFor(engine);
     if (this._cloudFirst() && cloudOk()) return 'cloud';
+    if (this._waitsForCloud(item, engine) && this._mayRunInCloud(item, product, cwd, { remoteOnly })) return 'cloud-wait';
     if (!localFull && this._localSlotFor(engine)) return 'local';
     if (cloudOk()) return 'cloud';
     return continuation ? 'local' : null;
@@ -4533,6 +4590,7 @@ export class Supervisor {
     // the brake a run of Claude failures arms (a cloud run is the same
     // subscription failing the same way), this Mac's slots and the cloud's.
     if (!this._hasSlotFor(engine, item)) return false;
+    if (this._waitsForCloud(item, engine)) return false;
     const cloudOk = () => !!item?.id && this._cloudSlotFor(engine) && this._cloudEligible(item);
     if (this._cloudFirst() && cloudOk()) return true;
     // No slot here, so the one `_hasSlotFor` found is in the cloud.
@@ -5736,7 +5794,8 @@ export class Supervisor {
         // exit before its slot is really free, and an exit nudges a tick, so
         // the ordinary cost of this is seconds rather than the fifteen-second
         // poll.
-        if (!spent.has(engine) && this._preemptFor(item, items, engine)) spent.add(engine);
+        // Not for a row only waiting its turn for the cloud: no slot here helps it.
+        if (!spent.has(engine) && !this._waitsForCloud(item, engine) && this._preemptFor(item, items, engine)) spent.add(engine);
         // AND ON DOWN THE QUEUE, because the next row may be on the engine
         // that is still idle. See `spent` above for what this used to be.
         continue;
@@ -7844,6 +7903,15 @@ export class Supervisor {
 
     const plan = this.spawnPlan(item, product, { continuation, resumeSessionId, engine, shipFailure });
     const { args } = plan;
+    // Waiting its turn for the cloud, unless it runs here anyway: a command, or
+    // a Codex resume (below), when there is room (Codex's review, 2026-10-16).
+    if (where === 'cloud-wait') {
+      if ((plan.command || (engine === 'codex' && plan.resumeId)) && mayRunHereInstead()) where = 'local';
+      else {
+        if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
+        return;
+      }
+    }
     // A command she typed is over in seconds and needs nothing a sandbox has.
     if (where === 'cloud' && plan.command) where = 'local';
     // A CODEX THREAD GOES TO THE CLOUD FRESH, NEVER AS A RESUME. This Mac's

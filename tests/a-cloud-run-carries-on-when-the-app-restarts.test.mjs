@@ -27,6 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { createSandbox } from '../cloud/sandbox/server.mjs';
 import { cloudRun, IMPORT_FAILED, toolVariables } from '../main/cloud/run.mjs';
 import { readMarker } from '../main/cloud/marker.mjs';
+import { Supervisor } from '../main/supervisor.mjs';
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const FAKE_CLAUDE = here('./fixtures/cloud/fake-claude.mjs');
@@ -156,6 +157,23 @@ describe('when the app quits with a run in the cloud', () => {
     expect(readMarker(mac)).toBe(null);
   });
 
+  // THE WINDOW CLOSING SENT A STOP RIGHT AFTER (2026-10-16): her restarts at
+  // 6:47 and 6:52pm left every cloud run going, and the supervisor's stop on
+  // the window's close then sent each one SIGTERM, which cancelled it ("leaving
+  // the cloud run going" followed by "stopping the cloud run (asked to stop)"
+  // in six run logs). The window's stop now says SIGHUP too (below, "the
+  // app"); a SIGTERM is a Stop she meant, during a quit as at any other time
+  // (Codex's review, 2026-10-16).
+  it('still stops when she presses Stop while the app is quitting', async () => {
+    const run = launch('LATE please');
+    await untilRunning();
+    await sleep(400);
+    run.signals.emit('SIGHUP');
+    run.signals.emit('SIGTERM');
+    await run.done;
+    expect(run.err()).toMatch(/stopping the cloud run \(asked to stop\)/);
+  });
+
   // The approvals server's key is made fresh at every start of the app, so the
   // servers the run began with are out of date by the time it is joined.
   it('serves it with the app\'s tool servers as they are now, not as they were', async () => {
@@ -247,6 +265,33 @@ describe('the app', () => {
   it('quits a Claude cloud run with SIGHUP, and everything else as before', () => {
     const quit = sup.slice(sup.indexOf('  killAll() {'), sup.indexOf('  killAll() {') + 800);
     expect(quit).toMatch(/this\._kill\(session, session\.cloud && session\.engine !== 'codex' \? 'SIGHUP' : undefined\)/);
+  });
+  it('does not stop a Claude cloud run as its window closes after the quit', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-quit-'));
+    const s = new Supervisor({ storeRoot: root, home: root, maxConcurrentSessions: 3 }, { listItems: () => [], listProducts: () => [], isDue: () => true }, root);
+    const sent = { cloud: [], codex: [], mac: [] };
+    const add = (id, extra) => s.sessions.set(id, { itemId: id, child: { kill: (sig) => sent[id].push(sig ?? 'SIGTERM') }, tail: [], ...extra });
+    add('cloud', { cloud: true, engine: 'claude' });
+    add('codex', { cloud: true, engine: 'codex' });
+    add('mac', { cloud: false, engine: 'claude' });
+    s.killAll();
+    s.stop();
+    expect(sent.cloud).toEqual(['SIGHUP', 'SIGHUP']);
+    expect(sent.codex).toEqual(['SIGTERM', 'SIGTERM']);
+    expect(sent.mac).toEqual(['SIGTERM', 'SIGTERM']);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  // Closing the last window, or installing an update, closes the window BEFORE
+  // the quit that runs killAll (tests/closing-the-window-does-not-kill-the-app-
+  // before-it-counts), so stop() comes first and alone (Claude's review).
+  it('leaves a Claude cloud run going when the window closes before the quit', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-close-'));
+    const s = new Supervisor({ storeRoot: root, home: root, maxConcurrentSessions: 3 }, { listItems: () => [], listProducts: () => [], isDue: () => true }, root);
+    const sent = [];
+    s.sessions.set('cloud', { itemId: 'cloud', cloud: true, engine: 'claude', child: { kill: (sig) => sent.push(sig ?? 'SIGTERM') }, tail: [] });
+    s.stop();
+    expect(sent).toEqual(['SIGHUP']);
+    fs.rmSync(root, { recursive: true, force: true });
   });
   it('hands the process that brings a run home its tool servers as they are now', () => {
     const home = sup.slice(sup.indexOf('  _bringCloudHome(folder) {'), sup.indexOf('  _bringCloudHome(folder) {') + 2500);

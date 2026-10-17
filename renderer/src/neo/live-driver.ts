@@ -14,7 +14,7 @@ export type Line = { who: 'you' | 'neo' | 'tool'; text: string };
 export function liveDriver({ send, tool, onWords, onUsage, onClosed, onLine = () => {}, onDelegate }: {
   send: Send; tool: Tool; onWords: (text: string) => void; onUsage: (seconds: number) => void; onClosed: (reason?: string) => void;
   // The app decides (main/neo/decided.mjs): handed what she said, answers what the voice should say.
-  onDelegate?: (id: string, heard: string) => Promise<{ say: string }>;
+  onDelegate?: (id: string, heard: string) => Promise<{ say: string; context?: string }>;
   // Each turn whole, for the transcript (main/neo/index.mjs).
   onLine?: (line: Line) => void;
 }) {
@@ -30,6 +30,7 @@ export function liveDriver({ send, tool, onWords, onUsage, onClosed, onLine = ()
   let handedOver = false;
   let neoSpokeSince = true;
   let seq = 0;
+  let toldContext = '';
 
   async function answer(callId: string, name: string, args: string) {
     let result: unknown;
@@ -75,7 +76,18 @@ export function liveDriver({ send, tool, onWords, onUsage, onClosed, onLine = ()
           for (let waited = 0; waited < SETTLE_MOST && Date.now() - heardAt < SETTLE; waited += 50) await new Promise((r) => setTimeout(r, 50));
           handedOver = true;
           let say = '';
-          try { say = (await onDelegate(id, heard.trim()))?.say ?? ''; } catch { say = 'Tell the person that did not work.'; }
+          let context = '';
+          try {
+            const r = await onDelegate(id, heard.trim());
+            say = r?.say ?? '';
+            context = r?.context ?? '';
+          } catch { say = 'Tell the person that did not work.'; }
+          // What is on screen now, so the voice answers from it rather than guessing.
+          // Only inside a hand-off: Live refuses it anywhere else (measured).
+          if (context && context !== toldContext) {
+            send({ type: 'session.instructions.append', event_id: `ctx_${++seq}`, delegation_id: id, content: context });
+            toldContext = context;
+          }
           onLine({ who: 'tool', text: `decided -> ${say.slice(0, 300) || '(nothing to say)'}` });
           // Never thinking.append: Live ends the turn on it, silent after "one sec".
           send({ type: 'session.commentary.append', event_id: `say_${++seq}`, delegation_id: id, content: (say || 'Say just "Okay."').slice(0, 1800) });
