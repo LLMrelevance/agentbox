@@ -338,11 +338,11 @@ describe('the card on the side with room', () => {
     const start = f.windows.last.getBounds();
     const orbAt = start.x + ORB_RIGHT;
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
-    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -1500, dy: -800 });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -1500, dy: -300 });
     expect(sides(f).at(-1)).toBe('left');
     const b = f.windows.last.getBounds();
     expect(b.x + ORB_LEFT).toBe(orbAt - 1500);
-    expect(b.y).toBe(start.y - 800);
+    expect(b.y).toBe(start.y - 300);
   });
 
   it('lets the orb reach the left edge once the card is on its right', async () => {
@@ -457,5 +457,45 @@ describe('listening in', () => {
     f.listeners.get('neo:usage')(f.fromNeo, { seconds: 30 });
     f.listeners.get('neo:closed')(f.fromNeo);
     expect(onReview).toHaveBeenCalledTimes(1);
+  });
+});
+
+// "I quite often want to drag Jarvis anywhere on the screen, further up from
+// where it is. I feel like I've hit a limit" (her words, 2026-10-16). The orb
+// sat at the foot of its window, so it stopped 66px short of the top. In the
+// upper part of the display the window turns over: orb on top, card below.
+describe('dragging the orb up', () => {
+  async function awake() {
+    const f = fakes();
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    return f;
+  }
+  const last = (f) => f.neoSent.filter(([ch]) => ch === 'neo:side').at(-1)?.[1];
+
+  it('turns the window over near the top, keeping the orb under the pointer', async () => {
+    const f = await awake();
+    const start = f.windows.last.getBounds();
+    const orbY = start.y + (240 - 24 - 75);
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: 0, dy: -700 });
+    expect(last(f)).toMatchObject({ up: true });
+    expect(f.windows.last.getBounds().y + (24 + 75)).toBe(orbY - 700);
+  });
+
+  it('lets the orb reach the top of the screen', async () => {
+    const f = await awake();
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: 0, dy: -5000 });
+    expect(f.windows.last.getBounds().y).toBe(0);
+    expect(last(f)).toMatchObject({ up: true });
+  });
+
+  it('stays the right way up lower down', async () => {
+    const f = await awake();
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: 0, dy: -200 });
+    expect(last(f)?.up).toBeFalsy();
   });
 });

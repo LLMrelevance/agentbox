@@ -10,7 +10,7 @@ const names = NEO_TOOLS.map((t) => t.name);
 
 describe('the tool list', () => {
   it('has exactly the prototype actions', () => {
-    expect(names.sort()).toEqual(['close_thread', 'find_commands', 'get_screen', 'later', 'media', 'run_command', 'scroll', 'show', 'new_thread', 'next_thread', 'open_thread', 'pick_option', 'reply', 'sign_off', 'undo'].sort());
+    expect(names.sort()).toEqual(['close_thread', 'find_commands', 'get_screen', 'go_back', 'later', 'media', 'run_command', 'scroll', 'show', 'new_thread', 'next_thread', 'open_thread', 'pick_option', 'reply', 'sign_off', 'undo'].sort());
   });
 
   it('is shaped as Responses function tools', () => {

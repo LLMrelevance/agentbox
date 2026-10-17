@@ -83,8 +83,11 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         },
         compose: (t, p) => latest.current.compose(t, p),
         undo: () => latest.current.undo(),
+        // Said done only once the thread has actually left the inbox.
         later: async (r, ts, label) => {
           await latest.current.later?.(r, ts, label);
+          await settle();
+          return latest.current.rows().some((x) => x.id === r.id) ? 'asked' : 'done';
         },
         outside: () => outside,
         // The films and sounds the open thread draws (components/Focus.tsx ArtifactMedia).

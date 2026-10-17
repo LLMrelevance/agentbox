@@ -8984,3 +8984,10 @@ body.neo-on .ts-panel:hover .ts-foot { opacity: 1; }
 .neo-show-lifted .neo-show-cell img { max-height: 80vh; max-width: 80vw; }
 .neo-show-full-screen .neo-show-cell img { max-height: 88vh; box-shadow: none; }
 .neo-show-cell figcaption { font: 500 10px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; color: var(--text-faint); }
+
+/* Neo's own pick: beside the thread, never over it. No backdrop, and only the
+   panel takes the pointer, so the app under it stays usable. */
+.neo-show.neo-show-peek { inset: auto; top: 72px; right: 24px; width: min(520px, 34vw); max-height: calc(100vh - 260px); background: none; pointer-events: none; display: block; }
+.neo-show-peek .neo-show-row { flex-direction: column; gap: 12px; max-width: none; max-height: none; pointer-events: auto; padding: 12px; overflow-y: auto; max-height: calc(100vh - 260px);
+  background: var(--surface); border: 1px solid rgba(255, 214, 170, .12); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.neo-show-peek .neo-show-cell img { max-height: 32vh; box-shadow: 0 0 0 1px rgba(255, 214, 170, .1); }

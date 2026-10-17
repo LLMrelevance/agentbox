@@ -4,7 +4,8 @@
 // a click outside the pictures, or Neo's "close" puts away.
 import { glowOn } from './glow';
 
-export type Layout = 'in_place' | 'lifted' | 'side_by_side' | 'full_screen' | 'close';
+// `peek` is the one Neo picks by itself: beside the thread, never over it.
+export type Layout = 'in_place' | 'peek' | 'lifted' | 'side_by_side' | 'full_screen' | 'close';
 
 let layer: HTMLElement | null = null;
 let offKey: (() => void) | null = null;
@@ -15,16 +16,17 @@ const sameFile = (src: string) => src.replace(/[?#].*$/, '');
 /**
  * Which pictures Neo counts, and in what order: each file once, the latest
  * message's first in their own order, then older ones newest first. `block`
- * is the message a picture is drawn in, in thread order.
+ * is the message a picture is drawn in, in thread order; `mine` marks one she
+ * pasted herself, which is never the latest agent message's.
  */
-export function orderPictures(found: { src: string; block: unknown }[]): { order: number[]; srcs: string[]; latest: number } {
+export function orderPictures(found: { src: string; block: unknown; mine?: boolean }[]): { order: number[]; srcs: string[]; latest: number } {
   if (!found.length) return { order: [], srcs: [], latest: 0 };
-  const last = found[found.length - 1].block;
+  const last = [...found].reverse().find((p) => !p.mine)?.block;
   const seen = new Set<string>();
   const latest: number[] = [];
   found.forEach((p, i) => {
     const key = sameFile(p.src);
-    if (p.block === last && !seen.has(key)) { seen.add(key); latest.push(i); }
+    if (!p.mine && last !== undefined && p.block === last && !seen.has(key)) { seen.add(key); latest.push(i); }
   });
   const earlier: number[] = [];
   for (let i = found.length - 1; i >= 0; i--) {
@@ -38,7 +40,7 @@ export function orderPictures(found: { src: string; block: unknown }[]): { order
 export function threadPictures(root: ParentNode = document): { pictures: HTMLImageElement[]; latest: number } {
   const all = [...root.querySelectorAll<HTMLImageElement>('.focus-scroll img.inline-image, .thread-block img.inline-image')]
     .filter((img, i, list) => img.isConnected && !img.closest('.neo-show') && list.indexOf(img) === i);
-  const got = orderPictures(all.map((img) => ({ src: img.getAttribute('src') ?? '', block: img.closest('.thread-block') ?? img.parentElement })));
+  const got = orderPictures(all.map((img) => ({ src: img.getAttribute('src') ?? '', block: img.closest('.thread-block') ?? img.parentElement, mine: !!img.closest('.msg.yours') })));
   return { pictures: got.order.map((i) => all[i]), latest: got.latest };
 }
 
@@ -69,6 +71,7 @@ export async function show(numbers: number[], layout: Layout): Promise<boolean> 
   }
 
   const many = layout === 'lifted' ? chosen.slice(0, 1) : chosen;
+  const peek = layout === 'peek';
   layer = document.createElement('div');
   layer.className = `neo-show neo-show-${layout.replace(/_/g, '-')}`;
   const row = document.createElement('div');

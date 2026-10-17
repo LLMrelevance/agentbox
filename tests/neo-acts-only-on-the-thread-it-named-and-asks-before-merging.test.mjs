@@ -51,7 +51,7 @@ describe('acting on a named thread', () => {
   it('replies on the named thread, not on the one that is open', async () => {
     const { act, calls } = setup({ focused: rows[0] });
     await act('reply', { id: 'w-b', text: 'Thanks, close it after the test.' });
-    expect(calls).toContainEqual(['reply', rows[1], 'Thanks, close it after the test.', { attach: false }]);
+    expect(calls).toContainEqual(['reply', rows[1], 'Thanks, close it after the test.', { attach: true }]);
   });
 
   it('closes the named thread', async () => {
@@ -473,23 +473,25 @@ describe('opening a thread shows what she needs to decide', () => {
     return t;
   }
 
-  it('lifts a single picture', async () => {
+  // Put up beside the thread, never over it (her words: "make sure any
+  // screenshot used for context does not take over the user's screen").
+  it('puts a single picture up beside the thread', async () => {
     const t = withPictures(1, ['only.png', 'older.png']);
     const r = await t.act('open_thread', { id: 'w-a' });
-    expect(t.deps.show).toHaveBeenCalledWith([1], 'lifted');
-    expect(r.said).toMatch(/on screen now/i);
+    expect(t.deps.show).toHaveBeenCalledWith([1], 'peek');
+    expect(r.said).toMatch(/beside the thread now/i);
   });
 
-  it('puts two to four side by side', async () => {
+  it('and two to four the same way', async () => {
     const t = withPictures(3, ['a.png', 'b.png', 'c.png', 'old.png']);
     await t.act('next_thread', {});
-    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3], 'side_by_side');
+    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3], 'peek');
   });
 
   it('shows the first four of more', async () => {
     const t = withPictures(6, ['1', '2', '3', '4', '5', '6']);
     await t.act('open_thread', { id: 'w-a' });
-    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3, 4], 'side_by_side');
+    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3, 4], 'peek');
   });
 
   it('shows nothing when the latest message has no pictures, even if older ones do', async () => {
@@ -573,5 +575,87 @@ describe('a picture Neo put up comes down when the thread changes', () => {
     t.deps.show = vi.fn(async () => true);
     await t.act(name, args);
     expect(t.deps.show.mock.calls[0]).toEqual([[], 'close']);
+  });
+});
+
+// From the report that landed on the wrong thread (her screenshot, 2026-10-16):
+// "The assistant switched to the wrong task, snoozed the wrong item, and then
+// was unable to return to the original JARVIS task ... confirm the actual
+// state change before reporting success, and provide a reliable way to
+// return to the task the user requested."
+describe('acting on the thread she means, and getting back to it', () => {
+  it('"this one" means the thread on screen, whatever id came with the call', async () => {
+    const t = setup({ focused: rows[1] });
+    t.deps.later = vi.fn(async () => 'done');
+    t.deps.now = () => Date.parse('2026-10-16T17:00:00');
+    await t.act('later', { id: 'w-a', minutes: 10 }, { heard: 'snooze this one for ten minutes' });
+    expect(t.deps.later.mock.calls[0][0]).toBe(rows[1]);
+  });
+
+  it('a thread named by id with no "this" is the one named', async () => {
+    const t = setup({ focused: rows[1] });
+    t.deps.later = vi.fn(async () => 'done');
+    t.deps.now = () => Date.parse('2026-10-16T17:00:00');
+    await t.act('later', { id: 'w-a', minutes: 10 }, { heard: 'snooze the pricing one for ten minutes' });
+    expect(t.deps.later.mock.calls[0][0]).toBe(rows[0]);
+  });
+
+  it('does not say a thread was put off when it is still there', async () => {
+    const t = setup({ focused: rows[0] });
+    t.deps.later = vi.fn(async () => 'asked');
+    t.deps.now = () => Date.parse('2026-10-16T17:00:00');
+    expect(await t.act('later', { id: 'w-a', minutes: 10 })).toMatchObject({ ok: false });
+  });
+
+  it('goes back to the thread she was on before Neo moved her', async () => {
+    let open = rows[0];
+    const t = setup();
+    t.deps.focused = () => open;
+    t.deps.open = vi.fn((r) => { open = r; });
+    await t.act('next_thread', {});
+    expect(open).toBe(rows[1]);
+    expect(await t.act('go_back', {})).toMatchObject({ ok: true, said: expect.stringMatching(/Pricing page copy/) });
+    expect(open).toBe(rows[0]);
+  });
+
+  it('says so when there is nowhere to go back to', async () => {
+    const t = setup({ focused: rows[0] });
+    expect(await t.act('go_back', {})).toMatchObject({ ok: false });
+  });
+});
+
+// "When I ask Neo to give feedback, it often appears to create a new task or
+// thread instead of adding the feedback to the existing JARVIS task"
+// (2026-10-16).
+describe('feedback is a reply, not new work', () => {
+  it('refuses a new thread she did not ask for in words', async () => {
+    const t = setup({ focused: rows[0] });
+    expect(await t.act('new_thread', { text: 'Neo kept the picture up' }, { heard: 'give that as feedback' })).toMatchObject({ ok: false, said: expect.stringMatching(/reply/) });
+    expect(t.calls.some(([n]) => n === 'compose')).toBe(false);
+  });
+
+  it('starts one when she asks for new work', async () => {
+    const t = setup({ focused: rows[0] });
+    expect(await t.act('new_thread', { text: 'Redo the pricing page' }, { heard: 'start a new task to redo the pricing page' })).toMatchObject({ ok: true });
+  });
+});
+
+// "If a screenshot is present alongside feedback, it should probably be
+// treated as an implicit request to send that screenshot with the message"
+// (her words, 2026-10-16).
+describe('a screenshot in the reply box goes with the words by default', () => {
+  it('asks for the box\'s pictures without being told to, and says nothing when there were none', async () => {
+    const t = setup();
+    t.deps.reply = vi.fn(async () => 'no-pictures');
+    const r = await t.act('reply', { id: 'w-b', text: 'feedback' });
+    expect(t.deps.reply).toHaveBeenCalledWith(rows[1], 'feedback', { attach: true });
+    expect(r.said).toBe('Sent.');
+  });
+
+  it('leaves them out when she says so', async () => {
+    const t = setup();
+    t.deps.reply = vi.fn(async () => undefined);
+    await t.act('reply', { id: 'w-b', text: 'just the words', attach: false });
+    expect(t.deps.reply).toHaveBeenCalledWith(rows[1], 'just the words', { attach: false });
   });
 });

@@ -97,17 +97,26 @@ export function createNeo({
   // it flips, so the card always has room.
   const ORB_X = { right: WIDTH - 24 - 75, left: 24 + 75 };
   let side = readPrefs().side === 'left' ? 'left' : 'right';
+  // And top to bottom: in the upper third the orb sits at the window's top.
+  const ORB_Y = { down: HEIGHT - 24 - 75, up: 24 + 75 };
+  let up = readPrefs().up === true;
   const sideFor = (b) => {
     const orbX = b.x + ORB_X[side];
     const { workArea: a } = screen.getDisplayNearestPoint({ x: Math.round(orbX), y: Math.round(b.y + HEIGHT / 2) });
     return orbX < a.x + a.width / 2 ? 'left' : 'right';
   };
-  const tellSide = () => win?.webContents.send('neo:side', { side });
+  const upFor = (b) => {
+    const orbY = b.y + ORB_Y[up ? 'up' : 'down'];
+    const { workArea: a } = screen.getDisplayNearestPoint({ x: Math.round(b.x + WIDTH / 2), y: Math.round(orbY) });
+    return orbY < a.y + a.height / 3;
+  };
+  const tellSide = () => win?.webContents.send('neo:side', { side, up });
 
   function place() {
     const kept = readPrefs().at;
     if (kept && Number.isFinite(kept.x) && Number.isFinite(kept.y)) { win.setBounds(within(kept.x, kept.y)); return; }
     side = 'right';
+    up = false;
     const point = screen.getCursorScreenPoint();
     const { workArea } = screen.getDisplayNearestPoint(point);
     win.setBounds({ x: workArea.x + workArea.width - WIDTH - MARGIN, y: workArea.y + workArea.height - HEIGHT - MARGIN, width: WIDTH, height: HEIGHT });
@@ -291,10 +300,12 @@ export function createNeo({
       const now = sideFor(next);
       // The orb stays under the pointer as the card changes sides.
       if (now !== side) { const shift = ORB_X[side] - ORB_X[now]; dragFrom.x += shift; next.x += shift; side = now; tellSide(); }
+      const nowUp = upFor(next);
+      if (nowUp !== up) { const shift = ORB_Y[up ? 'up' : 'down'] - ORB_Y[nowUp ? 'up' : 'down']; dragFrom.y += shift; next.y += shift; up = nowUp; tellSide(); }
       win.setBounds(within(next.x, next.y));
       return;
     }
-    if (phase === 'end') { const { x, y } = win.getBounds(); writePrefs({ at: { x, y }, side }); dragFrom = null; }
+    if (phase === 'end') { const { x, y } = win.getBounds(); writePrefs({ at: { x, y }, side, up }); dragFrom = null; }
   });
 
   // How fast Neo talks, from the next session on. Asked with no value, it answers.

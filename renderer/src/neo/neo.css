@@ -59,3 +59,8 @@ html, body { margin: 0; width: 100%; height: 100%; background: transparent; over
 /* Captions off: Neo only talks. A card that needs her (the microphone, a notice) still shows. */
 #neo.no-captions:not(.must-show) .neo-frame { opacity: 0; pointer-events: none; }
 .neo-pace-sep { width: 1px; height: 14px; background: rgba(255, 214, 170, .14); margin: 0 6px; }
+
+/* In the upper third of the screen: orb at the top, card beside it, speed row below. */
+#neo.up #orb { bottom: auto; top: 24px; }
+#neo.up .neo-frame { top: 99px; }
+#neo.up .neo-pace { top: auto; bottom: 26px; }

@@ -54,3 +54,18 @@ describe('what Neo is told about them', () => {
     expect(describeScreen(deps(['n1.png'], 1))).not.toMatch(/Earlier/);
   });
 });
+
+// "Screenshots may be getting shown on screen ... but they end up blocking the
+// screen entirely" (2026-10-16). Neo lifted her own pasted screenshot of the
+// app over the app. Her own pictures are never the "latest message's".
+describe('her own pasted pictures', () => {
+  it('are not what Neo puts up: the latest agent message\'s pictures are', () => {
+    const got = orderPictures([pic('design.png', 1), { src: 'attachments/pasted-1.png', block: 2, mine: true }]);
+    expect(got.order.map((i) => got.srcs[i])).toEqual(['design.png', 'attachments/pasted-1.png']);
+    expect(got.latest).toBe(1);
+  });
+
+  it('a thread whose only pictures are hers has none to put up', () => {
+    expect(orderPictures([{ src: 'attachments/pasted-1.png', block: 1, mine: true }]).latest).toBe(0);
+  });
+});
