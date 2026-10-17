@@ -116,6 +116,9 @@ const MAX_ATTACHMENT = 25 * 1024 * 1024;
 const RESULTS_WAIT_MS = 3 * 60_000;
 // How often a run's new documents are fetched while it works.
 const DOCS_EVERY_MS = 10_000;
+// Four missed reads of the run's events: asleep, or off the network for good.
+const OFFLINE_AFTER_MS = 90_000;
+export const INPUT_CLOSED_IN_CLOUD = 'agentbox_input_closed_in_cloud';
 // A run the app left going when it quit, and the process bringing it home.
 const LEFT_RUNNING = new Set(['detached', 'attached']);
 const MAC_GONE = 'The app on the Mac restarted during this call, so its answer was lost. Check whether it took effect, then try again.';
@@ -283,8 +286,14 @@ export async function cloudRun({
   engine = 'claude',
   docsEveryMs = DOCS_EVERY_MS,
   leaveFlushMs = LEAVE_FLUSH_MS,
+  // How long the sandbox waits without word from this Mac before it counts
+  // it asleep (cloud/sandbox/server.mjs "WHILE THE MAC IS AWAY").
+  offlineAfterMs = OFFLINE_AFTER_MS,
 }) {
   const say = (msg) => stderr.write(`agentbox cloud: ${msg}\n`);
+  // Whether the sandbox keeps this run going while the Mac sleeps, so its
+  // tool calls are asked about before they are made (`claimCalls`).
+  let offlineOn = false;
   const codex = engine === 'codex';
   const configDir = env.CLAUDE_CONFIG_DIR || path.join(homeDir, '.claude');
   const codexHome = env.CODEX_HOME || path.join(homeDir, '.codex');
@@ -324,7 +333,7 @@ export async function cloudRun({
     if (earlier.pid && earlier.pid !== process.pid && alive(earlier.pid)) { say('an earlier cloud run in this folder is already being brought home'); return IMPORT_FAILED; }
     const st = await retry(() => transport.invoke(earlier.sessionId, { action: 'status', runId: earlier.runId }), { what: 'reach the run the app left going', forever: false });
     if (!st) { say('the cloud could not be reached; the run the app left going is tried again later'); return IMPORT_FAILED; }
-    if (st.runId === earlier.runId && (st.state === 'preparing' || st.state === 'running')) { joining = earlier; joinedAt = st; }
+    if (st.runId === earlier.runId && (st.state === 'preparing' || st.state === 'running')) { joining = earlier; joinedAt = st; offlineOn = !!earlier.offline; }
   }
   if (earlier && !joining) {
     const back = await bringHome(earlier, { recovering: true });
@@ -523,6 +532,10 @@ export async function cloudRun({
     ...(homeFiles.length ? { homeFiles } : {}),
     login: { engine: login.engine, id: login.id, url: loginUrl },
     results,
+    // The run carries on while this Mac sleeps: a tool call is told it could
+    // not reach the app, and a Claude Code turn that has ended has its input
+    // closed there. A Codex turn ends only with the Mac, as before.
+    offline: { afterMs: offlineAfterMs, endTurn: codex ? null : 'claude-stream-json' },
   }), { what: 'start the cloud run', forever: false });
   if (!started) {
     signals.off('SIGHUP', early);
@@ -542,6 +555,9 @@ export async function cloudRun({
     clearMarker(cwd);
     return 1;
   }
+  offlineOn = (started.caps || []).includes('offline');
+  if (!offlineOn) say('this cloud image stops at its next tool call while this Mac sleeps; rebuild it (node scripts/cloud-setup.mjs) to keep runs going');
+  marker.offline = offlineOn;
   writeMarker(cwd, { ...marker, pid: process.pid, state: 'running' });
   }
 
@@ -554,6 +570,20 @@ export async function cloudRun({
   let finished = null; // 'collected' | 'collect-failed' | 'failed' | 'lost'
   let loginTrouble = null; // { state: 'missing'|'refused'|'expired', id }
   const servers = new Map(); // conn -> { proc, name, init, pending, swallow }
+  let awayNoted = false;
+  // Calls in this page the sandbox said not to make, by event number.
+  const refused = new Set();
+  async function claimCalls(events) {
+    const asks = [];
+    for (const e of events) {
+      if (e.kind !== 'mcp' || e.seq <= cursor) continue;
+      try { const msg = JSON.parse(e.line); if (msg?.method !== undefined && msg.id !== undefined) asks.push({ seq: e.seq, conn: e.conn, id: msg.id }); } catch { /* not a call */ }
+    }
+    if (!asks.length) return;
+    const res = await retry(() => transport.invoke(sessionId, { action: 'mcp-claim', runId, calls: asks.map(({ conn, id }) => ({ conn, id })) }), { what: 'ask about its tool calls', forever: true, stop: () => overdue() || leaving });
+    const said = new Map((res?.calls || []).map((c) => [`${c.conn}\u0000${JSON.stringify(c.id)}`, c.go]));
+    for (const a of asks) if (said.get(`${a.conn}\u0000${JSON.stringify(a.id)}`) === false) refused.add(a.seq);
+  }
   const outDecoder = new StringDecoder('utf8');
   let outLine = '';
   const overdue = () => cancelled && Date.now() - cancelledAt > resultsWaitMs;
@@ -712,7 +742,14 @@ export async function cloudRun({
     }
     else if (e.kind === 'stderr') { if (!joining) await write(stderr, Buffer.from(e.data, 'base64')); }
     else if (e.kind === 'mcp-open') openServer(e.conn, e.server);
-    else if (e.kind === 'mcp') toServer(e.conn, e.line);
+    else if (e.kind === 'mcp') { if (!refused.has(e.seq)) toServer(e.conn, e.line); refused.delete(e.seq); }
+    else if (e.kind === 'mcp-offline' || e.kind === 'mcp-abandoned') {
+      if (!awayNoted) { awayNoted = true; say('this Mac was asleep; the cloud run carried on, and the tool calls it made meanwhile did not reach the app'); }
+    }
+    // Its input closed in the cloud at the end of a turn while this Mac was
+    // away: said to the app's own reader (main/claude-input.mjs) as the end
+    // of the run it is.
+    else if (e.kind === 'input-closed') { if (!joining) await write(stdout, Buffer.from(`${JSON.stringify({ type: 'system', subtype: INPUT_CLOSED_IN_CLOUD })}\n`)); }
     else if (e.kind === 'mcp-close') { const s = servers.get(e.conn); servers.delete(e.conn); if (s) { s.closed = true; s.proc.stdin.end(); setTimeout(() => s.proc.kill(), 2000); } }
     else if (e.kind === 'error') say(e.message);
     else if (e.kind === 'login') loginTrouble = { state: e.state, id: e.id ?? login?.id ?? null };
@@ -791,6 +828,10 @@ export async function cloudRun({
       const page = await retry(() => transport.invoke(sessionId, { action: 'events', runId, since: cursor, waitMs: pollWaitMs }), { what: 'read the cloud run', forever: true, stop: () => overdue() || leaving });
       if (!page) continue;
       if (!page.ok && page.error === 'no-run') { finished = 'lost'; break; }
+      // A call the sandbox may have given up on while this Mac was away is
+      // made only once the sandbox says it has not: the agent was told it
+      // did not reach the app (cloud/sandbox/server.mjs `mcp-claim`).
+      if (offlineOn) await claimCalls(page.events || []);
       for (const e of page.events || []) { if (leaving) break; await absorb(e); }
       // A joined run keeps its place as it goes: a process that died without
       // saying must not hand its tools the same calls twice.
@@ -932,7 +973,7 @@ export async function cloudRun({
       for await (const l of lines) {
         if (!l) continue;
         const e = JSON.parse(l);
-        if (replay && e.seq > from && (e.kind === 'stdout' || e.kind === 'stderr' || e.kind === 'login')) await replay(e);
+        if (replay && e.seq > from && (e.kind === 'stdout' || e.kind === 'stderr' || e.kind === 'login' || e.kind === 'input-closed')) await replay(e);
         else if (recovering && e.kind === 'login') { try { onLoginTrouble({ state: e.state, id: e.id ?? null }); } catch { /* noted elsewhere */ } }
       }
     }

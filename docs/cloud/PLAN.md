@@ -425,11 +425,16 @@ tool servers (approvals ~46 MB, the store), and every store call or approval
 waits for the Mac; the end of a turn waits for the Mac to close the agent's
 input. In order:
 
-1. **A turn ends without the Mac.** A Claude-specific wrapper in the sandbox
-   that parses the JSON lines, recognises the end of a turn and closes input
-   with an acknowledged cutoff (a reply still queued on the Mac goes to a
-   later run). Codex separately. Negotiated by capability, not a flag an old
-   image silently ignores. Needs the image rebuilt.
+1. **Done (2026-10-17): a run keeps going and ends while the Mac sleeps.**
+   The start asks for it (`offline`), the image says it can (`caps`). Away
+   (no word from the Mac for 90 s), a tool call is answered in the sandbox
+   "not made" (the handshake and tool list from the app's own earlier
+   answers), a call the Mac had not taken up is answered "maybe" and is
+   refused when the waking Mac asks to make it (`mcp-claim`), and a Claude
+   Code turn that has ended, with every message taken up and nothing in the
+   background, has its input closed there; the Mac reads that as the end of
+   the run, and a reply that arrived too late is kept for the next one.
+   Codex turns still end only with the Mac. Needs the image rebuilt.
 2. **Fewer processes per run.** One tool server per kind shared by all cloud
    runs, keeping each connection's identity, request ids, claims, approval
    context and cleanup; then measure. A single relay for all runs only if that
@@ -443,8 +448,9 @@ input. In order:
 
 ## Known limits
 
-- A cloud run waits for the Mac whenever it calls the store or asks for an
-  approval, so with the lid shut it keeps working until its next such call.
+- With the lid shut a cloud run keeps working, but what it asks of the app
+  (a note on its row, an approval) is not made: it is told so and says it in
+  its last message. Starting new runs with the Mac shut is step 3 of "Next" above.
 - A run that ended on another branch, or whose folder changed on this Mac
   while it was away, is kept on `refs/agentbox/cloud/<run>` and its folder
   stays marked until a person looks (the app logs which folder).
