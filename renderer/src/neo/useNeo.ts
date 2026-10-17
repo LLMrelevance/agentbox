@@ -65,6 +65,7 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         focused: () => latest.current.focused(),
         options: (r) => latest.current.options(r),
         summary: (r) => latest.current.summary(r),
+        about: (r) => latest.current.about?.(r) ?? '',
         projects: () => latest.current.projects(),
         open: (r) => latest.current.open(r),
         // The app can stop to ask its own question (a filed task, the close

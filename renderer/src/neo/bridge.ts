@@ -14,6 +14,7 @@
 // Pure apart from `deps`, so it is tested without the app
 // (tests/neo-acts-only-on-the-thread-it-named-and-asks-before-merging.test.mjs).
 import { needsYes } from '../../../shared/neo-tools.mjs';
+import { followTarget } from '../../../shared/neo-follow.mjs';
 import { Name } from '../../../shared/product-name.mjs';
 
 export type NeoRow = { id: string; product: string; productName?: string; title: string; label?: string; status?: string };
@@ -27,6 +28,8 @@ export type NeoDeps<R extends NeoRow> = {
   outside(): boolean;
   options(row: R): { n: number; text: string }[];
   summary(row: R): string;
+  // What the task is for (the summary's context), so Neo can say it before the latest news.
+  about?(row: R): string;
   projects(): { slug: string; name: string }[];
   open(row: R): Promise<unknown> | unknown;
   // 'asked' when the app stopped to ask its own question instead.
@@ -101,6 +104,7 @@ const THIS = /\b(this|current|here)\b/;
 // New work, asked for in words; otherwise what she says goes to a thread that exists.
 const NEW_WORK = /\b(new (task|thread|work)|start (a|an|new)|create (a|an)|kick off|spin up|make (a|an) (task|thread))\b/;
 
+const FOLLOW_HOLD_MS = 800;
 const CHANGES_THREAD = new Set(['open_thread', 'next_thread', 'close_thread', 'later', 'run_command', 'pick_option']);
 
 const RISKY_COMMAND = /^(pause|done|approve|update|first-run|fresh-user|demo|tutorial|stop|resume|cloud|run-now)/;
@@ -133,6 +137,8 @@ export const spoken = (s: string) => s
   .replace(/!\[([^\]]*)\]\([^)]*\)/g, (_m, alt) => `[picture${alt ? `: ${alt}` : ''}]`)
   .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
   .replace(/[*_`#>]+/g, '')
+  // Read aloud, an id is noise she has to talk over ("W-ce 8c 1a9275").
+  .replace(/\b[wr]-[0-9a-f]{6,}(?:-\d+)?\b/gi, 'another thread')
   .replace(/\s+/g, ' ')
   .trim();
 const nameOf = (r: NeoRow) => (r.label?.trim() || r.title || '').replace(/\s+/g, ' ').replace(/[.!]+$/, '');
@@ -161,11 +167,13 @@ export function describeScreen<R extends NeoRow>(deps: NeoDeps<R>): string {
 /** The open thread alone: what a question about it is answered from, without the inbox. */
 export function describeOpen<R extends NeoRow>(deps: NeoDeps<R>, open: R): string {
   const lines: string[] = [];
-  lines.push(`Open thread: ${nameOf(open)} [${open.id}] (${open.productName ?? open.product})`);
+  lines.push(`Open thread: ${nameOf(open)} (${open.productName ?? open.product})`);
+  const about = spoken(deps.about?.(open) ?? '');
+  if (about) lines.push(`What this task is for: ${clip(about, SUMMARY_CHARS)}`);
   const s = spoken(deps.summary(open));
   if (s) lines.push(`Latest from the agent: ${clip(s, SUMMARY_CHARS)}`);
   const opts = deps.options(open);
-  if (opts.length) lines.push('Options:', ...opts.map((o) => `${o.n}. ${o.text}`));
+  if (opts.length) lines.push('Options:', ...opts.map((o) => `${o.n}. ${spoken(o.text)}`));
   const pics = (deps.pictureNames?.() ?? []).slice(0, 9);
   const latest = Math.min(deps.latestPictureCount?.() ?? pics.length, pics.length);
   if (latest) lines.push('Pictures in the latest message:', ...pics.slice(0, latest).map((f, i) => `${i + 1}. ${f}`));
@@ -207,36 +215,56 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
   // counts for that and nothing else.
   let asked: { id: string; n: number; words: string } | null = null;
   let askedCommand: string | null = null;
+  // What Neo's words last put up, so each is shown once as it talks, and
+  // held a moment so a quick list of names does not flicker.
+  let followed = '';
+  let followedAt = 0;
+  let followLater: ReturnType<typeof setTimeout> | null = null;
+  const putUp = async (target: { kind: 'picture' | 'file'; n: number }) => {
+    followed = `${target.kind}:${target.n}`;
+    followedAt = deps.now?.() ?? Date.now();
+    if (target.kind === 'picture') await deps.show?.([target.n], 'peek');
+    else await deps.openFile?.(target.n);
+  };
   // The latest message's pictures go up by themselves as Neo briefs her: one
   // lifted, two to four side by side.
   const showLatest = async () => {
     if (!deps.show || !deps.latestPictureCount) return '';
     await deps.waitForPictures?.();
-    const n = Math.min(deps.latestPictureCount(), 4);
+    const n = Math.min(deps.latestPictureCount(), 9);
     if (!n) return openLatestFile();
-    const ns = Array.from({ length: n }, (_, i) => i + 1);
-    if (!(await deps.show(ns, 'peek'))) return '';
+    if (!(await deps.show([1], 'peek'))) return '';
+    followed = 'picture:1';
     const names = (deps.pictureNames?.() ?? []).slice(0, n);
-    return ` Beside the thread now: ${n === 1 ? 'its picture' : `its ${n} pictures, numbered ${ns.join(', ')}`} (${names.join(', ')}). Refer to them by number as you brief.`;
+    if (n === 1) return ` Beside the thread now: its picture (${names[0]}).`;
+    return ` Beside the thread now: picture 1. Its pictures, in order: ${names.map((f, i) => `${i + 1}. ${f}`).join(' ')}.`;
   };
   // With no picture in the latest message, its design page is the thing to see.
   const openLatestFile = async () => {
     const files = deps.fileNames?.() ?? [];
     if (!files.length || !deps.openFile || !(await deps.openFile(1))) return '';
-    return ` Open beside the thread now: ${files[0]}, from the latest message.`;
+    followed = 'file:1';
+    if (files.length === 1) return ` Open beside the thread now: ${files[0]}, from the latest message.`;
+    return ` Open beside the thread now: ${files[0]}. Its design pages, in order: ${files.map((f, i) => `${i + 1}. ${f}`).join(' ')}.`;
   };
   // What Neo needs to brief her on a thread it just opened.
   const brief = (row: R) => {
     const s = spoken(deps.summary(row));
+    const about = spoken(deps.about?.(row) ?? '');
     const opts = deps.options(row);
-    return `${s ? ` Latest from the agent: ${clip(s, SUMMARY_CHARS)}` : ''}${opts.length ? ` Options: ${opts.map((o) => `${o.n}. ${o.text}`).join(' ')}` : ' No options to pick.'}`;
+    return `${about ? ` What this task is for: ${clip(about, SUMMARY_CHARS)}` : ''}${s ? ` Latest from the agent: ${clip(s, SUMMARY_CHARS)}` : ''}${opts.length ? ` Options: ${opts.map((o) => `${o.n}. ${spoken(o.text)}`).join(' ')}` : ' No options to pick.'}`;
   };
 
   const act = async function act(name: string, args: Record<string, any>, ctx: { heard?: string } = {}): Promise<NeoResult> {
     noteMove();
     try {
       // A picture Neo put up comes down when the thread changes under it.
-      if (CHANGES_THREAD.has(name)) await deps.show?.([], 'close');
+      if (CHANGES_THREAD.has(name)) {
+        await deps.show?.([], 'close');
+        followed = '';
+        followedAt = 0;
+        if (followLater) { clearTimeout(followLater); followLater = null; }
+      }
       switch (name) {
         case 'describe_screen':
         case 'get_screen':
@@ -402,6 +430,24 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           if (want.some((n) => n > have.length)) return refused(`The open thread has ${have.length} picture${have.length === 1 ? '' : 's'}.`);
           const shown = await deps.show?.(want, args.layout);
           return shown ? done(`Showing ${want.map((n) => have[n - 1]).join(' and ')}.`) : refused('Those pictures could not be shown.');
+        }
+
+        case 'follow': {
+          const open = deps.focused();
+          if (!open || !deps.show) return done('');
+          const latest = deps.latestPictureCount?.() ?? 0;
+          const target = followTarget(String(args.said ?? ''), {
+            pictures: (deps.pictureNames?.() ?? []).slice(0, latest),
+            files: deps.fileNames?.() ?? [],
+            options: deps.options(open).length,
+          });
+          const key = target ? `${target.kind}:${target.n}` : '';
+          if (followLater) { clearTimeout(followLater); followLater = null; }
+          if (!target || key === followed) return done('');
+          const wait = FOLLOW_HOLD_MS - ((deps.now?.() ?? Date.now()) - followedAt);
+          if (wait <= 0) await putUp(target);
+          else followLater = setTimeout(() => { followLater = null; void putUp(target); }, wait);
+          return done('');
         }
 
         case 'describe_open': {
