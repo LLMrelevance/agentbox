@@ -1842,7 +1842,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                 {w.permission === 'custom' ? (
                   <Row label="Permission mode" desc={PERMISSION_SENTENCE.custom} />
                 ) : (
-                  <Row label="Permission mode" desc={PERMISSION_SENTENCE[w.permission]}>
+                  <Row label={cloudHere ? 'On this computer' : 'Permission mode'} desc={PERMISSION_SENTENCE[w.permission]}>
                     {/* The caveat that your own allow and deny rules sit on top
                         of the mode rides on the picker rather than as a
                         paragraph under the card. */}
@@ -1853,6 +1853,21 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                       value={w.permission}
                       options={PERMISSION_OPTIONS}
                       onChange={(v) => setWorkspace('permission', v)}
+                    />
+                  </Row>
+                )}
+                {/* THE CLOUD'S OWN MODE: a cloud run works on a throwaway copy
+                    with nobody there to approve anything, so it may be looser
+                    than this computer. Unset, it follows this computer. */}
+                {cloudHere && (
+                  <Row label="In the cloud" desc={w.cloudPermission ? PERMISSION_SENTENCE[w.cloudPermission] : 'The same as on this computer.'}>
+                    <Picker
+                      bare
+                      label="Permission mode in the cloud"
+                      title={`The mode every cloud run starts in. ${RULES_ALWAYS_APPLY}`}
+                      value={w.cloudPermission ?? 'same'}
+                      options={[{ value: 'same', label: 'Same as this computer' }, ...PERMISSION_OPTIONS]}
+                      onChange={(v) => write(api.setWorkspaceSetting({ key: 'cloudPermission', value: v === 'same' ? null : v }))}
                     />
                   </Row>
                 )}
