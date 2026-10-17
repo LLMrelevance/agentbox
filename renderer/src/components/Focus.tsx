@@ -53,6 +53,7 @@ import { codexCommand, COMPACTION_COPY } from '../../../shared/codex-commands.mj
 import { DEFAULT_ENGINE } from '../../../shared/engines.mjs';
 import { ago, dayLabel, itemOptions, offerIsLive, optionsFrom, parseOptions, parseRepeat, type ParsedOption } from '../format';
 import { ruleIdOf } from '../../../shared/repeats.mjs';
+import { shownPriority } from '../../../shared/rank.mjs';
 import { WhenPicker } from './When';
 import { ModelPicker } from './Model';
 import type { ModelChoice } from '../models';
@@ -69,6 +70,8 @@ import { changePathFor } from '../code-artifact';
 import { fileCount, figuresFrom, figuresLabel, signed, type ChangeFigures } from '../change-figures';
 import { embeddedDocuments, isBookkeeping } from '../message-artifacts';
 import { opensInPane } from '../doc-pane';
+import { opensAsPicture } from '../picture-view';
+import { PictureView, picturesOnScreen, type Picture } from './PictureView';
 import { watchScrollGutter } from '../scroll-gutter';
 import { artifactUrlTransform, isMediaPath, productPath, remarkArtifactPaths } from '../remark-artifact-paths';
 import { api } from '../api';
@@ -86,6 +89,7 @@ import { optionIsClipped, optionPeek } from '../option-peek';
 import { askLine, askFull, askIsClipped } from '../ask-line';
 import { replyIsSwallowed, replyReaches } from '../../../shared/agents.mjs';
 import { recapFor, type Recap as RecapValue } from '../recap';
+import type { LedgerLine } from '../thread-history';
 import type { LiveFacts } from '../live-line';
 import { offersRunNow } from '../run-now';
 import { AttachRow } from './AttachRow';
@@ -105,7 +109,7 @@ import {
   PriorityPicker, priorityIdOf, priorityValueOf, type PriorityId,
 } from './Priority';
 import { SummaryPanel, SummaryRail, ThreadCrumb, ThreadStateMark, useSummaryOpen, useSummaryShortcut, type RepeatHandle } from '../threads/Summary';
-import { ThreadMenu } from '../threads/ThreadMenu';
+import { ThreadMenu, type ThreadPlace } from '../threads/ThreadMenu';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { useChatMentions } from '../team/ChatAgents';
 import { AGENT_SCHEME } from '../team/agent-mentions';
@@ -203,8 +207,19 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
   // undefined: not asked yet; a path: main found it; null: nobody did.
   const [found, setFound] = useState<string | null | undefined>(undefined);
   // A full path the scheme refused or that is not on disk. Said in words, not
-  // as the browser's broken-picture mark.
+  // as the browser's broken-picture mark, and looked for again on the same
+  // schedule as a relative one: a cloud run's picture can land after its
+  // message names it.
   const [broken, setBroken] = useState(false);
+  const [tries, setTries] = useState(0);
+  useEffect(() => {
+    if (!broken) return;
+    const wait = lookAgainAfter(tries);
+    if (wait === null) return;
+    const timer = setTimeout(() => { setTries(tries + 1); setBroken(false); }, wait);
+    return () => clearTimeout(timer);
+  }, [broken, tries]);
+  const again = (url: string) => (tries ? `${url}?look=${tries}` : url);
   const relative = !!src && !/^(data|https?|file):/.test(src) && !src.startsWith('/');
   const exhausted = relative && attempt >= roots.length;
   useEffect(() => {
@@ -253,21 +268,18 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
   // LETS A COPY CARRY THE PICTURE. Without it the picture taints a canvas and
   // ../copy-out.ts has nothing to inline, so a message pasted into an email
   // arrives with a dead url where it should be.
-  if (/^file:\/\//.test(src)) {
-    const file = decodeURIComponent(src.slice(7));
-    return door(file, <img src={pictureUrl(file)} alt={alt ?? ''} className="inline-image" crossOrigin="anonymous" />);
-  }
-  if (src.startsWith('/')) {
-    if (broken) return <span className="missing-artifact">missing image: {src}</span>;
-    return door(src, <img src={pictureUrl(src)} alt={alt ?? ''} className="inline-image" crossOrigin="anonymous" onError={() => setBroken(true)} />);
+  if (/^file:\/\//.test(src) || src.startsWith('/')) {
+    const file = src.startsWith('/') ? src : decodeURIComponent(src.slice(7));
+    if (broken) return <button type="button" className="missing-artifact" title="Look for it again" onClick={() => { setTries(tries + 1); setBroken(false); }}>missing image: {file}</button>;
+    return door(file, <img src={again(pictureUrl(file))} alt={alt ?? ''} className="inline-image" crossOrigin="anonymous" onError={() => setBroken(true)} />);
   }
   const rel = src.replace(/^\.\//, '');
   const candidates = roots.map((r) => pictureUrl(`${r}/${rel}`));
   if (attempt >= candidates.length) {
     const asked = find ? found : null;
     if (asked) return door(asked, <img src={pictureUrl(asked)} alt={alt ?? ''} className="inline-image" crossOrigin="anonymous" onError={() => setFound(null)} />);
-    // Still asking: nothing yet, rather than a "missing" that turns into a picture.
-    if (asked === undefined) return null;
+    // Still asking: a picture's box, rather than a "missing" that turns into a picture.
+    if (asked === undefined) return <span className="inline-image arriving" aria-hidden="true" />;
     if (find) return <button type="button" className="missing-artifact" title="Look for it again" onClick={lookNow}>missing image: {rel}</button>;
     return <span className="missing-artifact">missing image: {rel}</span>;
   }
@@ -355,6 +367,8 @@ export function ArtifactMedia({ src, label, roots, onOpen }: { src: string; labe
 // it is pointing at, and the folder beside them also holds every older round,
 // so it stays one line rather than drawing the same pictures twice.
 const FOLDER_SHOWS = 6;
+// What each folder showed last, so a thread opened again draws it at once.
+const folderSeen = new Map<string, { pictures: string[]; total: number }>();
 //
 // ITS NAME SAYS IT IS A FOLDER (w-a3a7d1a1ec). It was an orange path,
 // `designs/w-7a670f07bb/`, that said nothing about being a folder until she
@@ -365,16 +379,22 @@ export function FolderPreview({ product, folder, onOpen, quiet, thread }: {
   product: string; folder: string; onOpen: (src: string) => void; quiet?: boolean; thread?: string;
 }) {
   const navigation = useContext(TicketNavigation);
-  const [shown, setShown] = useState<{ pictures: string[]; total: number } | null>(null);
+  const key = `${product}\n${folder}`;
+  const [shown, setShown] = useState<{ pictures: string[]; total: number } | null>(() => folderSeen.get(key) ?? null);
+  const [asking, setAsking] = useState(!quiet && !folderSeen.has(key));
   useEffect(() => {
     const api = (window as any).zero;
-    if (quiet || !api?.folderPictures) return;
+    if (quiet || !api?.folderPictures) { setAsking(false); return; }
     let live = true;
     api.folderPictures({ product, src: folder })
       .then((r: { ok: boolean; pictures?: string[]; total?: number }) => {
-        if (live && r?.ok && r.pictures) setShown({ pictures: r.pictures, total: r.total ?? r.pictures.length });
+        if (!live) return;
+        const got = r?.ok && r.pictures ? { pictures: r.pictures, total: r.total ?? r.pictures.length } : null;
+        if (got) folderSeen.set(key, got);
+        setShown(got);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { if (live) setAsking(false); });
     return () => { live = false; };
   }, [product, folder, quiet]);
   const short = folder.replace(/\/+$/, '');
@@ -386,7 +406,17 @@ export function FolderPreview({ product, folder, onOpen, quiet, thread }: {
       {count && <span className="folder-preview-count">{count}</span>}
     </button>
   );
-  if (!shown?.pictures.length) return name;
+  if (!shown?.pictures.length) {
+    if (!asking) return name;
+    return (
+      <span className="folder-preview">
+        {name}
+        <span className="folder-preview-grid" aria-hidden="true">
+          {[0, 1, 2].map((i) => <span key={i} className="folder-preview-shot arriving" />)}
+        </span>
+      </span>
+    );
+  }
   const pictures = shown.pictures.slice(0, FOLDER_SHOWS);
   const more = shown.total - pictures.length;
   return (
@@ -459,25 +489,35 @@ function linkLabel(href: string, children: ReactNode): ReactNode {
 // when the file is not there. The old frame guessed one root and, when the
 // guess was wrong, printed a white rectangle with the path over it, which reads
 // like a document that has gone blank rather than a path we could not find.
-function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
+export function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
   product: string; path: string; fallback?: string;
   // Is this the document already open in the pane on the right.
   open?: boolean;
   onOpen?: () => void;
 }) {
-  const [src, setSrc] = useState<string | null>(null);
+  // undefined while the first answer is out; null once it said not there.
+  const [src, setSrc] = useState<string | null | undefined>(undefined);
+  // A page not there yet is looked for again (../picture-looks-again.ts): a
+  // cloud run's page can land after the message that names it.
+  const [looks, setLooks] = useState(0);
+  useEffect(() => { setLooks(0); }, [product, path]);
   useEffect(() => {
     let live = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const api = (window as any).zero;
     if (!api?.openArtifact) { setSrc(fallback ?? null); return () => { live = false; }; }
     api.openArtifact({ product, src: path, mode: 'resolve' })
       .then((r: { ok: boolean; opened?: string }) => {
-        if (live) setSrc(r?.ok && r.opened ? `file://${r.opened}` : null);
+        if (!live) return;
+        const found = r?.ok && r.opened ? `file://${r.opened}` : null;
+        setSrc(found);
+        const wait = found ? null : lookAgainAfter(looks);
+        if (wait !== null) timer = setTimeout(() => { if (live) setLooks(looks + 1); }, wait);
       })
       .catch(() => { if (live) setSrc(null); });
-    return () => { live = false; };
-  }, [product, path]);
-  if (!src) return null;
+    return () => { live = false; if (timer) clearTimeout(timer); };
+  }, [product, path, looks]);
+  if (src === null) return null;
   // THE SAME DOCUMENT IS NEVER ON THE SCREEN TWICE. With the pane open on the
   // right, the frame under the message is the same page at half the size, so
   // it stands down to one line that says where its document went.
@@ -494,9 +534,11 @@ function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
     <div className="artifact-embed">
       <div className="artifact-embed-bar">
         <button type="button" className="artifact-embed-path" onClick={onOpen}>{path}</button>
-        <a href={src} target="_blank" rel="noreferrer">open ↗</a>
+        {src && <a href={src} target="_blank" rel="noreferrer">open ↗</a>}
       </div>
-      <iframe src={src} tabIndex={-1} sandbox="allow-scripts" title={path} />
+      {src
+        ? <iframe src={src} tabIndex={-1} sandbox="allow-scripts" title={path} />
+        : <span className="artifact-embed-arriving arriving" aria-hidden="true" />}
     </div>
   );
 }
@@ -519,7 +561,7 @@ function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null }: {
   previewSample?: string;
   /** The repeating task this thread is a run of, drawn in its summary. */
   repeat?: RepeatHandle | null;
@@ -649,6 +691,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // Pin thread / Unpin thread, the menu's row (w-20323283e6). Absent where a
   // thread cannot be pinned.
   onPin?: (pin: boolean) => void;
+  // Where it runs, and the menu's row that moves it (ThreadMenu PLACE_ROW).
+  place?: ThreadPlace | null;
+  onPlace?: (keep: boolean) => void;
   // Only ever called on an agent row a reply cannot reach: brings the app that
   // session is running inside to the front.
   onReveal?: () => void;
@@ -680,7 +725,23 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // starts with somebody else's summary of what she asked is the thing this row
   // is about. An agent row draws its own thread and has no parent of ours to
   // open, so nothing moves there either.
-  const said = recapFor(item, parent);
+  //
+  // THE ASK IS WHAT SHE SAID ON THE PARENT BEFORE THIS THREAD WAS FILED. When
+  // she has replied there since, the parent's `answer` is that later reply, so
+  // its lines up to this row's creation are read to find the one that asked
+  // (../recap.ts, recapFor). Read only then, which is rarely.
+  const [parentLines, setParentLines] = useState<{ key: string; lines: LedgerLine[] } | null>(null);
+  const parentReplyAt = parent?.wrote?.answer?.ts ?? 0;
+  const askKey = parent && !item.answer && parentReplyAt > item.createdAt ? `${parent.product}/${parent.id}@${item.createdAt}` : null;
+  useEffect(() => {
+    if (!askKey || !parent) return;
+    let live = true;
+    api.itemHistory({ product: parent.product, id: parent.id, before: item.createdAt })
+      .then((r) => { if (live) setParentLines({ key: askKey, lines: r?.lines ?? [] }); })
+      .catch(() => { if (live) setParentLines({ key: askKey, lines: [] }); });
+    return () => { live = false; };
+  }, [askKey]);
+  const said = recapFor(item, parent, parentLines?.key === askKey ? parentLines.lines : undefined);
   const openingSaid = !agent && said?.kind === 'said'
     ? { text: said.text, at: said.at, on: said.on }
     : null;
@@ -990,8 +1051,15 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // Parent callbacks change on polling and when a document opens. Keep the
   // current actions without making them React component identities: replacing
   // an `a` renderer remounts all its players and resets missing-file retries.
-  const markdownActions = useRef({ onOpenDoc, onNotice });
-  useLayoutEffect(() => { markdownActions.current = { onOpenDoc, onNotice }; });
+  const [picture, setPicture] = useState<{ pictures: Picture[]; start: number } | null>(null);
+  const openPicture = (href: string) => {
+    const pictures = picturesOnScreen(paneRef.current);
+    const start = pictures.findIndex((p) => p.path === href);
+    if (start >= 0) setPicture({ pictures, start });
+    else setPicture({ pictures: [{ path: href, url: null }], start: 0 });
+  };
+  const markdownActions = useRef({ onOpenDoc, onNotice, openPicture });
+  useLayoutEffect(() => { markdownActions.current = { onOpenDoc, onNotice, openPicture }; });
 
   // Everything the markdown renderer closes over, memoized as ONE stable
   // object. The component functions' identity is what React reconciles by:
@@ -1028,11 +1096,19 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     // A miss now SAYS SO.
     const openHref = (href?: string) => {
       if (!href) return;
-      const { onOpenDoc, onNotice } = markdownActions.current;
+      const { onOpenDoc, onNotice, openPicture } = markdownActions.current;
+      // A picture opens large over the thread; the pane squeezed it to half the window.
+      if (opensAsPicture(href)) { openPicture(href); return; }
       // A PAGE OR A MARKDOWN FILE OPENS IN THE PANE.Everything else still goes
       // to the app that owns it, because Preview draws a png better than we
       // ever will.
-      if (onOpenDoc && ((!/^https?:/.test(href) && opensInPane(href)) || isLocalPreview(href))) { onOpenDoc(href); return; }
+      //
+      // AND SO DOES AN ORDINARY WEB LINK, since 2026-10-15. It used to be
+      // excluded here by hand (`!/^https?:/.test(href)`), so every https
+      // address left the app for the browser and the thread went out of sight.
+      // `docKind` now answers `website` for one, so the question is the same
+      // question for a file and for a page: does the pane draw this.
+      if (onOpenDoc && (opensInPane(href) || isLocalPreview(href))) { onOpenDoc(href); return; }
       const api = (window as any).zero;
       if (!api?.openArtifact) { window.open(resolveSrc(href), '_blank'); return; }
       const source = sourceReference(href);
@@ -1310,6 +1386,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       // A finished thread has nothing to be pinned for.
       pinned={canFinish && onPin ? !!item.pinned : null}
       onPin={onPin}
+      // A finished thread runs nowhere.
+      place={canFinish ? runsIn : null}
+      onPlace={onPlace}
     />
   );
 
@@ -1435,6 +1514,16 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         that stood beside it (w-e731ca9376) moved onto the summary itself on
         w-a3482b8c2c: the rail opens it, the icon beside its title closes it. */}
     {cornerHeaderTarget && createPortal(<span className="ts-top">{threadMenu}</span>, cornerHeaderTarget)}
+    {picture && (
+      <PictureView
+        pictures={picture.pictures}
+        start={picture.start}
+        resolve={(src) => api.resolveDoc({ product, src }).then((r) => (r?.ok && r.opened ? pictureUrl(r.opened) : null))}
+        onClose={() => setPicture(null)}
+        onBeside={(src) => { setPicture(null); onOpenDoc?.(src); }}
+        onPreview={(src) => { api.openArtifactExternally({ product, src }).then((r) => { if (!r.ok) onNotice(r.error || `${src} could not be opened.`); }); }}
+      />
+    )}
     <div className="focus-scroll" ref={scrollRef}>
     <div className="focus">
       {/* ONE LEFT EDGE FOR EVERY WORD, the list's rule applied here: the title, the meta
@@ -1491,7 +1580,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
            thread as its first message, whole (w-23db941885).
          */}
         <Recap
-          recap={openingSaid ? null : recapFor(item, parent)}
+          recap={openingSaid ? null : said}
           onOpen={() => parent && onOpenItem(parent)}
         />
 
@@ -2220,7 +2309,9 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   // tag DISPLAYS the item's real level, though: an urgent thread's reply box
   // showing "medium" read as the reply demoting it.
   const [prio, setPrio] = useState<PriorityId | null>(null);
-  const itemPrio: PriorityId = priorityIdOf(item.priority);
+  // The level it runs at (shared/rank.mjs shownPriority). A conversation is
+  // offered no tag at all, so this is only ever a work thread's.
+  const itemPrio: PriorityId = priorityIdOf(shownPriority(item));
   const shown = prio ?? itemPrio;
   /* * WHICH MODEL PICKS UP WHAT SHE SENDS NEXT.
 
@@ -2398,6 +2489,22 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
       touched ? { model, effort } : undefined);
   };
   const hasDraft = !!text.trim() || attachments.length > 0;
+  // NEO SENDS FROM THIS BOX WHEN THE PICTURES IN IT GO WITH ITS WORDS, so the
+  // pictures go out the way her own send takes them (renderer/src/neo/useNeo.ts).
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  const attachedRef = useRef(attachments);
+  attachedRef.current = attachments;
+  useEffect(() => {
+    const take = (e: Event) => {
+      const { key, text: words, answer } = (e as CustomEvent<{ key: string; text: string; answer: (sent: boolean) => void }>).detail;
+      if (key !== draftKey(item) || !attachedRef.current.length) return;
+      answer(true);
+      void sendRef.current(words);
+    };
+    window.addEventListener('neo:send-from-box', take);
+    return () => window.removeEventListener('neo:send-from-box', take);
+  }, [item.product, item.id]);
   // THE SLASH MENU, AND THE MODE THAT IS ALWAYS ON THE SCREEN.
   //
   // It does. Claude Code has no backslash TRIGGER: `/` opens its commands and

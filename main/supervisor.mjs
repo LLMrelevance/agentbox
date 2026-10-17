@@ -1,6 +1,7 @@
 import { currentActivity } from './agent-activity.mjs';
 import { harnessFor, supportsHarnessOperation } from './harnesses.mjs';
 import { streamingText, countHelpers, saidNothingSheCanUse } from './harnesses/claude-stream.mjs';
+import { NO_METERED_KEY } from './harnesses/claude.mjs';
 export { streamingText, countHelpers, saidNothingSheCanUse } from './harnesses/claude-stream.mjs';
 import { taskRemoteControl } from './task-remote-control.mjs';
 import { taskFolderPath, real, restoreTaskFolder } from './task-folders.mjs';
@@ -39,8 +40,9 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, readMarker } from './cloud/marker.mjs';
+import { handsBack } from '../shared/cloud-hand-back.mjs';
 import { readCloudConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
-import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey } from './cloud/logins.mjs';
+import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
 import { execFileSync } from 'node:child_process';
 import { holdUntilHome } from './cloud/codex-cloud.mjs';
 import { readCloudUsage, summarizeCloudUsage } from './cloud/usage.mjs';
@@ -69,13 +71,21 @@ function teamPersonEnv() {
  * app is the difference between "this machine is broken" and "something else is
  * already working here".
  */
+// A LIMIT A CLOUD RUN CHARGED TO A MAC ACCOUNT, before cloud runs stopped
+// doing that: its line names UTC, the cloud machine's zone, on a Mac that is
+// not in UTC. Dropped once, as the app opens.
+function dropCloudLimits(trouble) {
+  if (Intl.DateTimeFormat().resolvedOptions().timeZone === 'UTC') return trouble;
+  return Object.fromEntries(Object.entries(trouble).filter(([, t]) => !(t?.cause === 'at-limit' && /\(UTC\)/.test(String(t.raw ?? '')))));
+}
+
 function whoHasIt(made) {
   if (made?.taken !== false) return '';
   return `: its folder is ${made.reason}${made.heldBy ? ` by pid ${made.heldBy}` : ''}`;
 }
 import { agentSpokeSince, answerSettled, answerTs, stoppedByHer } from '../shared/answers.mjs';
 import { DEFAULT_SESSIONS_AT_ONCE } from './config.mjs';
-import { toolingLine } from './account-tooling.mjs';
+import { accountIdentity, nameForOrganization, toolingLine } from './account-tooling.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
 import { writeChangeForRun, changePath } from './code-change.mjs';
@@ -205,6 +215,11 @@ const HUNG_REPEAT_WINDOW_MS = 2 * 3_600_000;
 // with it. Past this the item stops respawning and reads as stopped, which is
 // then a report of three real failures rather than of one unnoticed death.
 const MAX_DELIVERY_ATTEMPTS = 3;
+// How many cloud runs may be packing and sending at once (`_cloudStarting`).
+// Turning the cloud on with Everything once started up to ten together.
+const CLOUD_STARTING_AT_ONCE = 2;
+// How long a cloud run may take to start before it stops holding others back.
+const CLOUD_START_PATIENCE_MS = 10 * 60_000;
 
 // How long a row we interrupted for an Urgent one is held out of the queue
 // before we give up waiting for that Urgent row to start. A BACKSTOP, not the
@@ -476,7 +491,7 @@ export class Supervisor {
       // long: the first session that survives on an account clears it
       // (`_clearProfileTrouble`), and a cooldown is an absolute moment that has
       // usually already passed by the time the app is back.
-      this._profileTrouble = state.profileTrouble ?? {};
+      this._profileTrouble = dropCloudLimits(state.profileTrouble ?? {});
       this._profileCooldown = state.profileCooldown ?? {};
       // The founder's standing running order over her companies, most
       // important first. Agents never write it. It replaced three buckets
@@ -493,6 +508,8 @@ export class Supervisor {
       this.threadPlaces = Object.fromEntries(Object.entries(state.threadPlaces ?? {}).filter(([, v]) => Number.isFinite(v)));
       // Threads she pinned to the top of the list (w-20323283e6).
       this.threadPins = Object.fromEntries(Object.entries(state.threadPins ?? {}).filter(([, v]) => v === true));
+      // Threads she keeps on this Mac whatever the cloud is set to.
+      this.threadOnMac = Object.fromEntries(Object.entries(state.threadOnMac ?? {}).filter(([, v]) => v === true));
     } catch {
       this._handledAnswers = new Set();
       this._resumedWaits = new Set();
@@ -510,6 +527,7 @@ export class Supervisor {
       this.hiddenProducts = new Set();
       this.threadPlaces = {};
       this.threadPins = {};
+      this.threadOnMac = {};
     }
     // WHICH ROWS NOTHING HAS BEEN ABLE TO RUN ON, as of the last tick, for the
     // line above her list. Deliberately NOT persisted: it is derived from
@@ -683,11 +701,25 @@ export class Supervisor {
    * gets. With only one login, a park of half an hour meant every Resume and
    * "continue" in between left the rows queued. If she is still signed out
    * the trial dies in two seconds and parks it again on the spot. Where another
-   * login is working, the dead one stays out: the work is moving without it. */
+   * login is working, the dead one stays out: the work is moving without it.
+   *
+   * AND A LIMIT IS THE SAME SHAPE, which this missed (w-4338a63da6). Her hand
+   * resets a sign-in; it does not reset a usage limit, and the bench a limit
+   * earns is the only thing holding the work off a login that cannot do it.
+   * Measured 2026-10-16: ~/.claude-3 carried at-limit with a reset seven hours
+   * out and a cooldown of 0, because a reply had been typed in between, so the
+   * capped login was still live, still picked, and still holding the chat while
+   * two logins with room sat idle. */
   liftBrakeForHer() {
     this._spawnCooldownUntil = 0;
+    // EVERY ACCOUNT IS JUDGED AGAINST THE SAME BENCH. Reading the live map
+    // would make the answer depend on which key came first, so the account
+    // lifted earliest in the loop would look like somewhere the work could go.
+    const benched = { ...(this._profileCooldown ?? {}) };
     for (const account of Object.keys(this._profileCooldown ?? {})) {
-      if (needsHerHands(this._profileTrouble?.[account]?.cause) && this._anotherAccountCanRun(account)) continue;
+      const cause = this._profileTrouble?.[account]?.cause;
+      const notHersToMend = needsHerHands(cause) || cause === 'at-limit';
+      if (notHersToMend && this._anotherAccountCanRun(account, benched)) continue;
       this._profileCooldown[account] = 0;
     }
   }
@@ -736,18 +768,25 @@ export class Supervisor {
   }
 
   // Whether some OTHER login on this account's engine could run once her hand
-  // has lifted what time alone would lift, i.e. one not waiting on a person.
-  _anotherAccountCanRun(account) {
+  // has lifted what time alone would lift: one that is neither waiting on a
+  // person nor sitting out a limit of its own.
+  _anotherAccountCanRun(account, benched = this._profileCooldown) {
     const engine = String(account).startsWith('codex:') ? 'codex' : DEFAULT_ENGINE;
+    const now = Date.now();
     return this._profilesFor(engine)
       .map((p) => this._accountKey(engine, p))
-      .some((key) => key !== account && !needsHerHands(this._profileTrouble?.[key]?.cause));
+      .some((key) => {
+        if (key === account) return false;
+        const cause = this._profileTrouble?.[key]?.cause;
+        if (needsHerHands(cause)) return false;
+        return !(cause === 'at-limit' && (benched?.[key] ?? 0) > now);
+      });
   }
 
-  _kill(session) {
+  _kill(session, signal) {
     if (!session) return false;
     session.stoppedByUs = true;
-    try { session.child.kill(); } catch {}
+    try { session.child.kill(signal); } catch {}
     return true;
   }
 
@@ -790,7 +829,11 @@ export class Supervisor {
       if (opts?.continuation && item?.answer) this.redeliverAnswer(item, item.answer);
     }
     this._preparing?.clear();
-    for (const s of this.sessions.values()) this._kill(s);
+    // THIS IS A QUIT TOO. The window's close calls it, and closing the window
+    // or installing an update gets here BEFORE `killAll` does, so a Claude
+    // cloud run is left going from here as well: SIGTERM would cancel it.
+    this._quitting = true;
+    for (const s of this.sessions.values()) this._kill(s, s.cloud && s.engine !== 'codex' ? 'SIGHUP' : undefined);
     this.sessions.clear();
   }
 
@@ -824,7 +867,10 @@ export class Supervisor {
     // Read by a worker's exit that is still inside its grace (QUIT_GRACE_MS):
     // the app is going, so that death was ours.
     this._quitting = true;
-    for (const session of this.sessions.values()) this._kill(session);
+    // A Claude run in the cloud is left going, not stopped: SIGHUP tells its
+    // proxy the app is quitting (main/cloud/run.mjs), and the run is joined and
+    // brought home when the app opens again.
+    for (const session of this.sessions.values()) this._kill(session, session.cloud && session.engine !== 'codex' ? 'SIGHUP' : undefined);
     this._closeCodex(`${Name} is quitting`);
     this.stopMemoryGate();
     clearInterval(this._leftoverTimer);
@@ -2316,7 +2362,14 @@ export class Supervisor {
   // the row may have been rewritten since, because a later session or the
   // founder herself may have changed the title and the body underneath it.
   replyBrief(item, { product = null } = {}) {
+    const moved = this._handedBack?.delete(item?.id) ? [
+      'This thread has just moved from the cloud to this computer, because the',
+      'request below needed something the cloud machine did not have. This',
+      'computer has the files, programs and keys. Do the request here, from the start.',
+      '',
+    ] : [];
     const parts = [
+      ...moved,
       'The founder has replied on the work item you were just working on. This is',
       'that same session: everything you read and wrote is still here, so do not go',
       'back over the files or the item to catch up.',
@@ -2613,7 +2666,8 @@ export class Supervisor {
     const ranClean = session?.result != null && !session.resultIsError;
     const carried = this.carriedThrough(item, session);
     const finished = ranClean && (command || this.spokeOnTheRow(item, carried));
-    if (finished) {
+    // Handed back by the cloud: run again here, whatever it wrote on the row.
+    if (finished && !session.handedBack) {
       delete this._deliveryAttempts[key];
       this._saveState();
       // AND WRITE IT ON THE ITEM, not only in here. This memory is invisible to
@@ -2641,7 +2695,7 @@ export class Supervisor {
     // AND A FOURTH: the ACCOUNT refused it (signed out, out of usage, switched
     // off). Her words never reached a worker, so they wait for the account
     // rather than being spent on it (`accountFault`, noteExitForBackoff).
-    if (signal || session?.stoppedByUs || session?.transportFault || session?.accountFault) {
+    if (signal || session?.stoppedByUs || session?.transportFault || session?.accountFault || session?.handedBack) {
       this.redeliverAnswer(item, answerAtSpawn); // saves state
       return 'interrupted';
     }
@@ -2947,7 +3001,13 @@ export class Supervisor {
         cause,
         runs,
         resetsAt,
-        elsewhere: session.accountFault?.cause === 'model-not-on-plan',
+        // A LIMIT ON ONE LOGIN IS NOT A WAIT WHEN ANOTHER HAS ROOM. The row
+        // was promising a reset hours away while `restingUntil` was already
+        // waking it for the free login, so the sentence and the fleet said
+        // different things about the same task (w-4338a63da6).
+        elsewhere: session.accountFault?.cause === 'model-not-on-plan'
+          || (cause === 'at-limit' && !!session.accountFault?.account
+            && this._anotherLoginIsFree(item, session.accountFault.account)),
       });
       const written = this.store.recordSessionResult(item.product, item.id, { result, status: 'open' });
       // REMEMBER THAT WE SAID IT, keyed on the run we said it about. The pass
@@ -3353,8 +3413,8 @@ export class Supervisor {
   // One score orders every spawn decision: a product's PLACE in the founder's
   // running order is worth a hundred times any item's own priority, so
   // One product's medium outranks another's urgent when it sits above it.
-  // Ties break oldest-first so nothing starves. The item's own number is hers
-  // alone now (itemPriority); an agent's tag no longer moves anything.
+  // Ties break oldest-first so nothing starves. The item's own number counts
+  // whoever set it (itemPriority), and it is the number every screen shows.
   // A THREAD DRAGGED IN THE LIST RUNS WHERE IT WAS PUT (w-6e5b532a95): its
   // place replaces the score outright (`placedScore`, shared/rank.mjs).
   _score(item) {
@@ -3402,14 +3462,53 @@ export class Supervisor {
     this.onChange?.();
   }
 
-  // The snapshot's items with each one's place and pin on it, which is all the
-  // screen needs to sort by them. A row with neither is handed back untouched.
+  // A THREAD KEPT ON THIS MAC (2026-10-16), as a patch like the pins: true
+  // keeps it here, null lets the cloud have it again. One that is running in
+  // the cloud now is stopped the way Stop stops it, so its work and transcript
+  // come home, and the sweep that resumes interrupted sessions brings it back
+  // here, where `_cloudEligible` now keeps it.
+  setThreadOnMac(patch) {
+    let changed = false;
+    for (const [id, keep] of Object.entries(patch ?? {})) {
+      const was = this.threadOnMac[id] === true;
+      if (keep === true) this.threadOnMac[id] = true;
+      else if (keep === null || keep === false) delete this.threadOnMac[id];
+      changed ||= was !== (this.threadOnMac[id] === true);
+      const session = this.sessions.get(id);
+      if (keep === true && session?.cloud) {
+        this._kill(session);
+        this._recoverPending = true;
+      }
+    }
+    if (!changed) return;
+    this._saveState();
+    this.onChange?.();
+  }
+
+  // A CLOUD RUN THAT ENDED ON THE MARKED LINE (shared/cloud-hand-back.mjs):
+  // its request needs this Mac. The thread is kept here from now on, nothing
+  // it said goes on the row, and the same request runs again here, told why
+  // (`replyBrief`). True when it was one.
+  _noteCloudHandBack(item, session) {
+    if (!session?.cloud || session.resultIsError || !handsBack(session.result)) return false;
+    session.handedBack = true;
+    this._handedBack ??= new Set();
+    this._handedBack.add(item.id);
+    // Not `setThreadOnMac`, which would stop this session as it ends.
+    this.threadOnMac[item.id] = true;
+    this._saveState();
+    return true;
+  }
+
+  // The snapshot's items with each one's place, pin and keep-on-this-Mac on
+  // it, which is all the screen needs. A row with none is handed back untouched.
   withPlaces(items) {
     return items.map((i) => {
       const place = this.threadPlaces[i.id];
       const pinned = this.threadPins[i.id] === true;
-      if (!Number.isFinite(place) && !pinned) return i;
-      return { ...i, ...(pinned ? { pinned: true } : {}), ...(Number.isFinite(place) ? { place } : {}) };
+      const onMac = this.threadOnMac[i.id] === true;
+      if (!Number.isFinite(place) && !pinned && !onMac) return i;
+      return { ...i, ...(pinned ? { pinned: true } : {}), ...(Number.isFinite(place) ? { place } : {}), ...(onMac ? { onMac: true } : {}) };
     });
   }
 
@@ -3756,6 +3855,28 @@ export class Supervisor {
     return forgot;
   }
 
+  /**
+   * A USAGE READING IS PROOF THE ACCOUNT RUNS. Limits only come back for a
+   * login that is signed in and allowed to use Claude Code, and an account she
+   * has not picked never gets the surviving session that would otherwise clear
+   * its mark. A limit mark goes only when nothing in the reading is at 100%.
+   * Trouble that is not the account's (an old Claude Code, the network) stays.
+   */
+  noteUsageReading(profile, reading) {
+    const key = this._accountKey(DEFAULT_ENGINE, profile || 'default');
+    const trouble = this._profileTrouble?.[key];
+    const limits = reading?.limits ?? [];
+    if (!trouble || !limits.length) return false;
+    if ((reading.at ?? 0) < (trouble.at ?? trouble.since ?? 0)) return false;
+    const proven = ['signed-out', 'org-blocked', 'subscription-ended', 'unknown'].includes(trouble.cause)
+      || (trouble.cause === 'at-limit' && limits.every((l) => !(l.percent >= 100)));
+    if (!proven) return false;
+    this._clearProfileTrouble(key);
+    this._saveState();
+    this.onChange?.();
+    return true;
+  }
+
   _clearProfileTrouble(profile) {
     if (!profile) return;
     if (this._profileTrouble) delete this._profileTrouble[profile];
@@ -4044,6 +4165,8 @@ export class Supervisor {
     }
     return {
       setUp, mode, running: this._cloudLoad(), month: this._cloudMonth.month,
+      // What C turns the cloud back on to (main/settings.mjs cloudWhenOn).
+      whenOn: this.config.cloudWhenOn === 'all' ? 'all' : 'full',
       accounts: setUp ? this._cloudAccounts() : [],
       signIns: setUp ? this._cloudSignInsNow() : [],
     };
@@ -4056,13 +4179,45 @@ export class Supervisor {
   _cloudAccounts() {
     const now = Date.now();
     const out = [];
+    let here = null;
     for (const engine of [DEFAULT_ENGINE, 'codex']) {
       listCloudLogins(engine, { home: this.config.home }).forEach((r) => {
         const state = cloudLoginState(r, { now });
-        out.push({ engine, key: r.key, name: r.email || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null });
+        // A Claude login in the cloud can say its organization, not its email.
+        here ??= this._profiles().map((p) => accountIdentity(p === 'default' ? null : p, { home: this.config.home || os.homedir() }));
+        const name = r.email || (engine === DEFAULT_ENGINE ? nameForOrganization(r.org, here) : null);
+        out.push({
+          engine, key: r.key, name: name || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null,
+          limitedUntil: r.limitedUntil ?? null, limits: cloudLimits(r.limits), readAt: r.readAt ?? null, duplicateOf: r.duplicateOf ?? null,
+        });
       });
     }
     return out;
+  }
+
+  /**
+   * THE CLOUD'S CLAUDE LOGINS LOOKED AT, one at a time, each at most every ten
+   * minutes unless `force`, for the Settings page. Each look is a sandbox
+   * session and one tiny reply on that login (main/cloud/logins.mjs).
+   */
+  async lookAtCloudLogins({ force = false } = {}) {
+    if (this._cloudLooking || !readCloudConfig(process.env, this.config.home)) return;
+    const now = Date.now();
+    const due = listCloudLogins(DEFAULT_ENGINE, { home: this.config.home })
+      .filter((r) => !r.broken && (force || !r.readAt || now - r.readAt > 10 * 60_000));
+    if (!due.length) return;
+    this._cloudLooking = true;
+    try {
+      const { transport, storage } = await this._cloudClients();
+      for (const r of due) {
+        await lookAtCloudLogin({ transport, storage, key: r.key, home: this.config.home }).catch(() => 'failed');
+        this.onChange?.();
+      }
+    } catch (e) {
+      console.warn('zero: could not look at the cloud sign-ins:', e.message);
+    } finally {
+      this._cloudLooking = false;
+    }
   }
 
   // The sign-ins going on, or just ended, for the setup screen to draw.
@@ -4112,10 +4267,12 @@ export class Supervisor {
     if (action === 'cancel') { if (going) await live.cancel(); this._cloudSignIns.delete(flowKey); this.onChange?.(); return { key: account }; }
     if (action !== 'start') throw new Error(`unknown sign-in step: ${action}`);
     if (going) return { key: account };
-    // One sign-in at a time per engine: a second Add while one is going
-    // gives back the one going.
+    // One sign-in at a time per engine WHILE IT NEEDS HER: a second Add then
+    // gives back the one going. One the cloud is only checking needs nothing
+    // of her, so another account can be added beside it (2026-10-15: she
+    // could not add a second Claude account while the first said Adding…).
     for (const [k, f] of this._cloudSignIns) {
-      if (k.startsWith(`${which}|`) && !['saved', 'failed'].includes(f.status().state)) return { key: k.split('|')[1] };
+      if (k.startsWith(`${which}|`) && ['starting', 'needs-code', 'waiting'].includes(f.status().state)) return { key: k.split('|')[1] };
     }
     // Taken at once, so a second Start before the cloud answers starts nothing.
     const held = { state: 'starting', url: null, code: null, message: null };
@@ -4147,6 +4304,35 @@ export class Supervisor {
     this._cloudSignIns.set(flowKey, flow);
     this.onChange?.();
     return { key: account };
+  }
+
+  // WHICH CLAUDE ACCOUNT EACH CLOUD SIGN-IN IS (main/cloud/org.mjs), asked
+  // once per account that has no `org` yet, one at a time, so the same
+  // account added twice is known (main/cloud/logins.mjs `duplicatesIn`). An
+  // account the cloud would not say for is asked again after ten minutes.
+  async _noteCloudOrgs(now = Date.now()) {
+    if (!this._cloudConfig || this._cloudOrgBusy) return;
+    this._cloudOrgTried ??= new Map();
+    const rec = listCloudLogins('claude', { home: this.config.home })
+      .find((r) => !r.org && !r.broken && now - (this._cloudOrgTried.get(`${r.key}:${r.id}`) ?? 0) > 10 * 60_000);
+    if (!rec) return;
+    this._cloudOrgBusy = true;
+    this._cloudOrgTried.set(`${rec.key}:${rec.id}`, now);
+    try {
+      const org = await this._readCloudOrg(rec);
+      if (org) markCloudLogin('claude', rec.key, rec.id, { org }, { home: this.config.home });
+    } catch (e) {
+      console.warn('zero: could not read which account a cloud sign-in is:', e.message);
+    } finally {
+      this._cloudOrgBusy = false;
+      this._cloudConfigAt = 0;
+      this.onChange?.();
+    }
+  }
+
+  async _readCloudOrg(rec) {
+    const { readCloudOrg } = await import('./cloud/org.mjs');
+    return readCloudOrg(rec, await this._cloudClients());
   }
 
   // CODEX LOGINS RENEWED BEFORE THEY RUN OUT, on the supervisor's own clock
@@ -4201,13 +4387,70 @@ export class Supervisor {
     return this.config.cloudRuns === 'all';
   }
 
+  // Cloud runs still being packed and sent: a run's proxy holds its folder,
+  // documents and transcript in memory until its agent has started.
+  // A start older than CLOUD_START_PATIENCE_MS is stuck, not starting, and
+  // holds nothing back.
+  _cloudStarting(now = Date.now()) {
+    let n = 0;
+    for (const s of this.sessions.values()) {
+      if (s.cloud && s.sessionId == null && s.result == null && now - (s.startedAt ?? now) < CLOUD_START_PATIENCE_MS) n += 1;
+    }
+    return n;
+  }
+
+  // Room in the cloud apart from the runs still starting.
+  _cloudRoom(engine) {
+    const which = engineOf(engine);
+    if (!this._cloudReady(which)) return false;
+    // The cloud's own accounts, not this Mac's: a Mac login resting does not
+    // stop it, only an engine she has not turned on.
+    if (!this.engineChoices().some((e) => e.id === which)) return false;
+    return this._cloudLoad() < this._maxCloud();
+  }
+
+  // WITH EVERYTHING, A THREAD THAT MAY GO TO THE CLOUD WAITS FOR A CLOUD SLOT,
+  // never this Mac: while two runs are still starting, while the cloud is at
+  // its cap, and while every cloud account of its engine is at its limit
+  // (2026-10-17: her Mac overloaded with Everything on). Only an engine with no
+  // cloud sign-in at all, or turned off, runs here. Read by `_roomFor` (so
+  // neither the tick nor the sweep that resumes interrupted rows starts it, or
+  // takes a slot from another row for it) and by `_whereToRun`.
+  _waitsForCloud(item, engine) {
+    return this._cloudFirst() && !!item?.id && this._cloudSignedInAtAll(engine)
+      && this._cloudEligible(item) && !this._mustRunHere(item, engine) && !this._cloudSlotFor(engine);
+  }
+
+  // A Codex reply resumes the thread this Mac's app-server holds, so it runs
+  // here and never waits for the cloud (the spawn keeps it here too).
+  _mustRunHere(item, engine) {
+    if (engineOf(engine) !== 'codex' || !item?.answer || item.answer === '(withdrawn)') return false;
+    const product = this.store.listProducts?.().find((p) => p.slug === item.product);
+    return !!(product && this.rowSessionFor(item, product));
+  }
+
+  // Set up, the engine offered, and an account of it signed in in the cloud,
+  // working or resting at its limit; not one that must sign in again.
+  _cloudSignedInAtAll(engine = DEFAULT_ENGINE) {
+    const which = engineOf(engine);
+    if (this.config.cloudRuns === false || !readCloudConfig(process.env, this.config.home)) return false;
+    if (!this.engineChoices().some((e) => e.id === which)) return false;
+    const now = Date.now();
+    return listCloudLogins(which, { home: this.config.home }).some((r) => {
+      const state = cloudLoginState(r, { now });
+      // Resting at its limit, or a Codex sign-in being renewed: back soon.
+      return mayRunOn(state) || state === 'limited' || state === 'renew';
+    });
+  }
+
   _maxCloud() {
     const n = Number(this.config.maxCloudSessions);
-    return Number.isFinite(n) && n >= 0 ? n : 10;
+    return Number.isFinite(n) && n >= 0 ? n : 20;
   }
 
   _localSlotFor(engine) {
     const which = engineOf(engine);
+    if (which === DEFAULT_ENGINE && this._spawnBraked()) return false;
     return this._loadFor(which) < this._capacityFor(which) && this._load() < this._capacity();
   }
 
@@ -4216,9 +4459,7 @@ export class Supervisor {
   // the proxy's command; Codex as its own app-server in the sandbox
   // (main/cloud/codex-cloud.mjs).
   _cloudSlotFor(engine) {
-    const which = engineOf(engine);
-    if (!this._cloudReady(which)) return false;
-    return this._capacityFor(which) > 0 && this._cloudLoad() < this._maxCloud();
+    return this._cloudRoom(engine) && this._cloudStarting() < CLOUD_STARTING_AT_ONCE;
   }
 
   // Which rows may go to the cloud at all. A row needs its own task folder
@@ -4226,10 +4467,10 @@ export class Supervisor {
   // command she typed, or a Remote Control session stays on this Mac.
   _mayRunInCloud(item, product, cwd, { remoteOnly = false } = {}) {
     if (remoteOnly) return false;
+    if (item?.id && this.threadOnMac?.[item.id] === true) return false;
     if (!product?.repoPath || !cwd || cwd === product.repoPath) return false;
     if ((this.config.personalProducts || []).includes(product.slug)) return false;
-    if (item?.id?.startsWith?.('digest-')) return false;
-    return true;
+    return !item?.id?.startsWith?.('digest-');
   }
 
   // 'local', 'cloud', or null for "wait". A folder whose earlier cloud run
@@ -4247,6 +4488,7 @@ export class Supervisor {
     // signing off with everything still working (docs/cloud/PLAN.md).
     const cloudOk = () => this._mayRunInCloud(item, product, cwd, { remoteOnly }) && this._cloudSlotFor(engine);
     if (this._cloudFirst() && cloudOk()) return 'cloud';
+    if (this._waitsForCloud(item, engine) && this._mayRunInCloud(item, product, cwd, { remoteOnly })) return 'cloud-wait';
     if (!localFull && this._localSlotFor(engine)) return 'local';
     if (cloudOk()) return 'cloud';
     return continuation ? 'local' : null;
@@ -4275,6 +4517,14 @@ export class Supervisor {
     return true;
   }
 
+  // The project's documents folder, which a cloud run takes a copy of and
+  // writes back into (main/cloud/docs.mjs).
+  _cloudDocsEnv(item) {
+    let dir = null;
+    try { dir = this.store.listProducts().find((p) => p.slug === item.product)?.dir ?? null; } catch { /* none */ }
+    return dir ? { AGENTBOX_DOCS: dir } : {};
+  }
+
   // Brings home a cloud run that ended while nothing was there to receive it
   // (an app that quit, an import that failed). One at a time per folder, and
   // not more than every two minutes; a tick picks the folder up once it lands.
@@ -4290,22 +4540,29 @@ export class Supervisor {
       this._homecomings.set(folder, { child: null, at: Date.now() });
       return;
     }
+    // This app's own tool servers as they are now, for a run the last app
+    // left going: the approvals key is made fresh at every start, and one from
+    // before would refuse every card she answers.
+    let mcp = null;
+    try { mcp = this.writeMcpConfig(); } catch { /* the run's own record stands */ }
+    const forget = () => { if (mcp) fs.rmSync(mcp, { force: true }); };
     let child;
     try {
       child = spawn(process.execPath, [this._cloudRunPath(), '--agentbox-import-only'], {
         cwd: folder,
-        env: { ...this._workerEnv(), ELECTRON_RUN_AS_NODE: '1' },
+        env: { ...this._workerEnv(), ELECTRON_RUN_AS_NODE: '1', ...(mcp ? { AGENTBOX_MCP_CONFIG: mcp } : {}) },
         stdio: ['ignore', 'ignore', 'pipe'],
       });
     } catch (error) {
+      forget();
       console.warn(`zero: could not bring a cloud run home in ${folder}:`, error.message);
       return;
     }
     const rec = { child, at: Date.now() };
     this._homecomings.set(folder, rec);
     child.stderr?.on('data', (d) => console.warn(String(d).trim()));
-    child.on('error', () => { rec.child = null; rec.at = Date.now(); });
-    child.once('exit', () => { rec.child = null; rec.at = Date.now(); this.wake?.(); });
+    child.on('error', () => { forget(); rec.child = null; rec.at = Date.now(); });
+    child.once('exit', () => { forget(); rec.child = null; rec.at = Date.now(); this.wake?.(); });
   }
 
   /**
@@ -4363,7 +4620,8 @@ export class Supervisor {
   // this file goes through this method, so scoping it here scopes all of them.
   _hasSlotFor(engine, item = null) {
     const which = engineOf(engine);
-    if (which === DEFAULT_ENGINE && this._spawnBraked()) return false;
+    // The brake is about this Mac's accounts (`_localSlotFor` holds it); the
+    // cloud runs on its own.
     // A slot on this Mac, or one in the cloud. Which of the two a row gets is
     // `_whereToRun`'s answer, at the spawn, once its folder is known. A cloud
     // slot is room only for a row that can go there: counting it for one that
@@ -4384,6 +4642,7 @@ export class Supervisor {
     // the brake a run of Claude failures arms (a cloud run is the same
     // subscription failing the same way), this Mac's slots and the cloud's.
     if (!this._hasSlotFor(engine, item)) return false;
+    if (this._waitsForCloud(item, engine)) return false;
     const cloudOk = () => !!item?.id && this._cloudSlotFor(engine) && this._cloudEligible(item);
     if (this._cloudFirst() && cloudOk()) return true;
     // No slot here, so the one `_hasSlotFor` found is in the cloud.
@@ -4424,10 +4683,10 @@ export class Supervisor {
   // The part of `_mayRunInCloud` that can be asked before a row has a folder.
   _cloudEligible(item) {
     if (!item || String(item.id || '').startsWith('digest-')) return false;
+    if (this.threadOnMac?.[item.id] === true) return false;
     const product = this.store.listProducts?.().find((p) => p.slug === item.product);
     if (!product?.repoPath) return false;
-    if ((this.config.personalProducts || []).includes(product.slug)) return false;
-    return true;
+    return !(this.config.personalProducts || []).includes(product.slug);
   }
 
   /**
@@ -4500,8 +4759,9 @@ export class Supervisor {
    * Whether anything OTHER than the braked engine could still start work. What
    *  keeps the tick's early return exactly as it was on every Mac with no Codex
    *  on it, which is every downloaded copy of Agentbox. */
+  // Or the cloud, whose accounts are not this Mac's.
   _anotherEngineCanRun() {
-    return ENGINE_IDS.some((id) => id !== DEFAULT_ENGINE && this._capacityFor(id) > 0);
+    return ENGINE_IDS.some((id) => id !== DEFAULT_ENGINE && this._capacityFor(id) > 0) || this._cloudSlotFor(DEFAULT_ENGINE);
   }
 
   /*
@@ -4556,6 +4816,18 @@ export class Supervisor {
     // and the account's login here is a different login, so nothing is struck
     // against it (Codex's review of the cloud sign-ins, finding 9).
     if (session.cloudLoginTrouble) return;
+    // NOR DOES A CLOUD RUN'S LIMIT, OR ITS SUCCESS: it ran on a cloud account,
+    // which its proxy benches itself (main/cloud/run.mjs `onLimit`), never on
+    // the Mac account named on the session. The reply that hit it is the
+    // account's fault, not the row's.
+    if (session.cloud) {
+      const said = session.resultIsError ? troubleCause(session.result) : 'unknown';
+      if (said === 'at-limit') {
+        session.accountFault = { cause: 'at-limit', account: `cloud:${engineOf(session.engine)}` };
+        this._cloudConfigAt = 0;
+      }
+      return;
+    }
     // A CODEX RUN CANNOT STRIKE A CLAUDE ACCOUNT, and until this slice the only
     // way to be sure of that was to return here: `_noteProfileTrouble` and
     // `_strikeProfile` took `session.profile`, which was one of the Claude
@@ -4742,6 +5014,7 @@ export class Supervisor {
         hiddenProducts: [...this.hiddenProducts],
         threadPlaces: this.threadPlaces,
         threadPins: this.threadPins,
+        threadOnMac: this.threadOnMac,
         liveSessions: this._liveSessions,
         rowSessions: this._rowSessions,
         compactions: this._compactions,
@@ -4803,6 +5076,13 @@ export class Supervisor {
      session, nobody knew the feature existed, and nothing had ever used it.
      Pausing the whole fleet is still a switch in Settings and a row in
      ⌘K, and stopping one task is still S on the row. */
+
+  /** What the phone is told of the agent running on one thread: since, where, its current steps. Null when none is. */
+  liveFor(product, itemId) {
+    const s = this.sessions.get(itemId);
+    if (!s || s.product !== product || s.remoteIdle) return null;
+    return { since: s.startedAt, where: s.cloud ? 'cloud' : 'mac', doing: currentActivity(s).map((a) => ({ label: a.label, startedAt: a.startedAt })) };
+  }
 
   status() {
     // Stalled: the founder's answer is marked delivered, but nobody is on the
@@ -4958,8 +5238,11 @@ export class Supervisor {
       // Which accounts are in trouble and what kind, for the Accounts page.
       // This is always true the moment it is true: a page you go and look at
       // can afford to be exact, because nothing about it interrupts her.
+      // `at` rides along because two folders can hold one subscription and the
+      // page draws one row for it: when both carry a reason, the newest is the
+      // one that is still true (`troubleForProfile`).
       accountTrouble: Object.fromEntries(
-        Object.entries(this._profileTrouble ?? {}).map(([p, t]) => [p, { cause: t.cause, since: t.since }]),
+        Object.entries(this._profileTrouble ?? {}).map(([p, t]) => [p, { cause: t.cause, since: t.since, at: t.at }]),
       ),
       // THE ONE LINE ABOVE HER LIST, and only when it is really true.
       //
@@ -5224,7 +5507,7 @@ export class Supervisor {
     try { this._forgetResetLimits(); } catch (e) { console.warn('zero: could not let a reset limit go:', e.message); }
     try { this._forgetRenewedSubscriptions(); } catch (e) { console.warn('zero: could not let a renewed subscription back in:', e.message); }
     // _cloudReady reads the cloud's setup (at most once a minute) first.
-    try { this._cloudReady('codex'); this._renewCloudLogins(); } catch (e) { console.warn('zero: could not check the cloud sign-ins:', e.message); }
+    try { this._cloudReady('codex'); this._renewCloudLogins(); void this._noteCloudOrgs(); } catch (e) { console.warn('zero: could not check the cloud sign-ins:', e.message); }
     try { if (this._cloudConfig) this._forgetOldCloudTokens(); } catch { /* tried */ }
     // A COOLDOWN STOPS THE SPAWNING AND IT MUST NOT STOP THE TELLING. The brake
     // goes on when there is no healthy account left anywhere, for up to half an
@@ -5569,7 +5852,8 @@ export class Supervisor {
         // exit before its slot is really free, and an exit nudges a tick, so
         // the ordinary cost of this is seconds rather than the fifteen-second
         // poll.
-        if (!spent.has(engine) && this._preemptFor(item, items, engine)) spent.add(engine);
+        // Not for a row only waiting its turn for the cloud: no slot here helps it.
+        if (!spent.has(engine) && !this._waitsForCloud(item, engine) && this._preemptFor(item, items, engine)) spent.add(engine);
         // AND ON DOWN THE QUEUE, because the next row may be on the engine
         // that is still idle. See `spent` above for what this used to be.
         continue;
@@ -7296,6 +7580,7 @@ export class Supervisor {
             ...storeRootEnv(this.config.storeRoot),
             ZERO_PRODUCT: item.product,
             ZERO_ITEM: item.id,
+            ...this._cloudDocsEnv(item),
           },
           stdio: ['pipe', 'pipe', 'pipe'],
         });
@@ -7337,6 +7622,23 @@ export class Supervisor {
       // meter. The home goes with it because there is one app-server per login
       // and a reading belongs to the one that gave it.
       onNotification: (method, params) => this._codexUsage().saw(method, params, home),
+      // A REQUEST CODEX INVENTED SINCE WE LAST READ ITS SCHEMA (w-36c51443df).
+      //
+      // The transport refuses it, which is the right answer and is not in
+      // question. What was missing is anybody finding out: six known requests
+      // shared one anonymous refusal for a slice, and the only way to learn that
+      // `account/chatgptAuthTokens/refresh` was among them was to dump the
+      // schema by hand. A new method is a new Codex release changing what it
+      // expects of a client, which is worth one line rather than a silence.
+      //
+      // Once per method per app-server, for the reason `sayUnasked` gives: a
+      // line repeated on every beat is a line nobody reads.
+      onUnknownRequest: (method) => {
+        this._unknownCodexRequests ??= new Set();
+        if (this._unknownCodexRequests.has(method)) return;
+        this._unknownCodexRequests.add(method);
+        console.warn(`zero: codex app-server asked for "${method}", which this version of ${NAME} does not recognise, so it was refused. If Codex now needs it, main/codex-app-server.mjs is where it is decided.`);
+      },
     });
     const handshake = client.initialize();
     // The rejection is kept for the workers that chain off it and ALSO swallowed
@@ -7676,6 +7978,15 @@ export class Supervisor {
 
     const plan = this.spawnPlan(item, product, { continuation, resumeSessionId, engine, shipFailure });
     const { args } = plan;
+    // Waiting its turn for the cloud, unless it runs here anyway: a command, or
+    // a Codex resume (below), when there is room (Codex's review, 2026-10-16).
+    if (where === 'cloud-wait') {
+      if ((plan.command || (engine === 'codex' && plan.resumeId)) && mayRunHereInstead()) where = 'local';
+      else {
+        if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
+        return;
+      }
+    }
     // A command she typed is over in seconds and needs nothing a sandbox has.
     if (where === 'cloud' && plan.command) where = 'local';
     // A CODEX THREAD GOES TO THE CLOUD FRESH, NEVER AS A RESUME. This Mac's
@@ -7731,7 +8042,8 @@ export class Supervisor {
         (this._warnedNoCloudSignIn ??= new Set()).add(`${engine}:${profile}`);
         console.warn(`zero: the ${engine} account ${profile} cannot sign in in the cloud right now, so its threads run here only`);
       }
-      if (mayRunHereInstead()) where = 'local';
+      // With Everything, a thread waits for a cloud account to come back rather than load this Mac.
+      if (!(this._cloudFirst() && this._cloudSignedInAtAll(engine)) && mayRunHereInstead()) where = 'local';
       else {
         this.removeSpawnFiles({ spawnFiles });
         if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
@@ -8057,6 +8369,7 @@ export class Supervisor {
       session.exitFailed = !!(signal || code !== 0 || session.transportFault || session.resultIsError || session.result == null);
       this.count?.('run_finished', runEndedProps(session, Date.now()));
       onLine(`session exited (${code})`);
+      if (this._noteCloudHandBack(item, session)) onLine('the cloud handed this thread back to this computer');
       // WHAT THE RUN CHANGED, SAVED WHERE SHE CAN OPEN IT.
       //
       // A tester could not see code on their onboarding call because there was no
@@ -8182,7 +8495,7 @@ export class Supervisor {
       // has nothing left in it, the same reasoning settleDelivery uses. Its
       // own `if`: the settle above is about the user's words and this is about the
       // run, and a run that carried a live reply still has to be noted here.
-      if (!continuation && !session.stoppedByUs) {
+      if (!continuation && !session.stoppedByUs && !session.handedBack) {
         // A session that never got an id and never said a word never started:
         // Claude Code announces itself with `session_id` on its first line of
         // output, so a session with neither died before the CLI was running.
@@ -8633,6 +8946,7 @@ export class Supervisor {
   // store, and its whole life is printing a table and exiting. The call site
   // says why this had to change and what it cost her.
   speaksForTheSession(session, { command = false } = {}) {
+    if (session?.handedBack) return false;
     if (this.storeMcpCommand() && !command) return false;
     return this.runFinished(session);
   }
@@ -8691,7 +9005,7 @@ export class Supervisor {
   // was refused: that session was told to end saying nothing, and its closing
   // line would land on a row another session is holding.
   closingMessageIsTheAnswer(session) {
-    if (!this.storeMcpCommand() || session?.command) return false;
+    if (!this.storeMcpCommand() || session?.command || session?.handedBack) return false;
     if (!this.runFinished(session) || !String(session.result).trim()) return false;
     if (session.claimRefused) return false;
     try {
@@ -8742,6 +9056,14 @@ export class Supervisor {
     add(this.config.storeRoot);
     if (product?.dir) add(product.dir);
     rules.permissions = { ...(rules.permissions ?? {}), additionalDirectories: dirs };
+    // A KEY IN A SETTINGS FILE BILLS THE SAME AS ONE IN THE ENVIRONMENT. The
+    // scrub in `_workerEnv` never sees it: Claude Code reads `env` out of
+    // ~/.claude/settings.json and a project's .claude/settings.json for itself,
+    // and runs `apiKeyHelper`. This file is the layer above both, so a blank
+    // here puts the run back on the login (measured on 2.1.301, w-6d8c543a43).
+    // A base address and token are left alone: a gateway is a choice.
+    rules.env = { ...(rules.env ?? {}), ...NO_METERED_KEY.env };
+    rules.apiKeyHelper = NO_METERED_KEY.apiKeyHelper;
     const gateHooks = this.memoryGateHooks();
     if (gateHooks) rules.hooks = { ...(rules.hooks ?? {}), ...gateHooks };
     // Beside the MCP config, and written the same way: a real file on disk,
@@ -8931,6 +9253,7 @@ export class Supervisor {
       // A test runs its own coordinator beside the real one; it names a port.
       ...(Number.isInteger(this.config.memoryGateLockPort) ? { lockPort: this.config.memoryGateLockPort } : {}),
       historyFile: path.join(this.userDir, 'memory-gate-history.json'),
+      grantLogFile: path.join(this.userDir, 'memory-gate-grants.jsonl'),
       gate: { slots: this.memoryGateSlots() },
       scoreFor: (product, itemId) => this.memoryGateScore(product, itemId),
       ownerOf: (sessionId) => this.memoryGateOwner(sessionId),

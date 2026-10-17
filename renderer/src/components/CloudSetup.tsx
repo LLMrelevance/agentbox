@@ -18,7 +18,7 @@ import { AskList } from './PlanSetup';
 import { Cap } from './Onboarding';
 import { NAME } from '../../../shared/product-name.mjs';
 import { accountLabel, engineWord, pageToOpen, type CloudAccount, type CloudMode, type CloudSignIn, type CloudStatus } from '../cloud-menu';
-import { SETUP, WHERE_ROWS, activeSignIn, addingRows, mayFinish, signInView } from '../cloud-setup';
+import { SETUP, WHERE_ROWS, activeSignIn, addingRows, doneAsksWhere, mayFinish, signInView } from '../cloud-setup';
 
 const Plus = () => <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>;
 const Chevron = () => <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" /></svg>;
@@ -44,7 +44,15 @@ function SignIn({ s, existing }: { s: CloudSignIn; existing: boolean }) {
   useEffect(() => {
     if (s.state !== 'needs-code') return;
     sent.current = null;
-    const look = async () => { if (document.hasFocus()) { const c = await api.cloudClipboardCode(); if (c) submit(c); } };
+    // A code already on the clipboard when this sign-in began is from an
+    // earlier one, and Claude refuses it: only one copied since is taken.
+    let before: string | null | undefined;
+    const look = async () => {
+      const c = await api.cloudClipboardCode();
+      if (before === undefined) { before = c; return; }
+      if (c && c !== before && document.hasFocus()) submit(c);
+    };
+    void look();
     const timer = setInterval(look, 2000);
     window.addEventListener('focus', look);
     return () => { clearInterval(timer); window.removeEventListener('focus', look); };
@@ -83,6 +91,9 @@ export function CloudSetup({ cloud, onMode, onClose }: {
   const checking = (key: string) => (cloud.signIns || []).find((s) => s.key === key && (s.state === 'checking' || s.state === 'failed')) ?? null;
   const [where, setWhere] = useState(false);
   const [choosing, setChoosing] = useState(false);
+  // Read as the screen opens: adding an account to a cloud already set up
+  // ends on Done, without the first-time question.
+  const firstSetup = useRef(doneAsksWhere(cloud.accounts || []));
 
   // The vendor's page opens in the browser by itself, once per sign-in.
   const opened = useRef<string | null>(null);
@@ -137,9 +148,9 @@ export function CloudSetup({ cloud, onMode, onClose }: {
       <div className="fr-card cs-accounts">
         {accounts.map((a: CloudAccount) => {
           const again = checking(a.key);
-          return <div key={a.key} className={`cs-row${fresh === a.key ? ' fresh' : ''}${a.state === 'broken' || again?.state === 'failed' ? ' broken' : ''}`}>
+          return <div key={a.key} className={`cs-row${fresh === a.key ? ' fresh' : ''}${a.state === 'broken' || a.state === 'duplicate' || again?.state === 'failed' ? ' broken' : ''}`}>
             <span className="cs-row-mark"><EngineLogo engine={a.engine} /></span>
-            <span className="cs-row-name">{accountLabel(a, accounts)}{again?.state === 'failed' && again.message && <small className="cs-row-why">{again.message}</small>}</span>
+            <span className="cs-row-name">{accountLabel(a, accounts)}{again?.state === 'failed' && again.message && <small className="cs-row-why">{again.message}</small>}{a.state === 'duplicate' && <small className="cs-row-why">{SETUP.sameAccount}</small>}</span>
             <span className="cs-row-end">
               {again?.state === 'checking'
                 ? <span className="cs-row-eng cs-row-adding"><Busy />{SETUP.adding}</span>
@@ -160,7 +171,8 @@ export function CloudSetup({ cloud, onMode, onClose }: {
             {s.state === 'checking'
               ? <span className="cs-row-eng cs-row-adding"><Busy />{SETUP.adding}</span>
               : <button type="button" className="cs-quiet cs-again" onClick={() => void send(s.engine, 'cancel', s.key).then(() => send(s.engine, 'start'))}>{SETUP.tryAgain}</button>}
-            {s.state === 'failed' && <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${s.engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}`} title={SETUP.remove} onClick={() => void send(s.engine, 'cancel', s.key)}>×</button>}
+            {/* Being added or failed, it can be let go: a cancel stops the cloud's side too. */}
+            <button type="button" className="cs-remove" aria-label={`${SETUP.remove} ${s.engine === 'codex' ? SETUP.kindCodex : SETUP.kindClaude}`} title={SETUP.remove} onClick={() => void send(s.engine, 'cancel', s.key)}>×</button>
           </span>
         </div>)}
         {choosing && accounts.length > 0 && <div className="cs-choose-head">{SETUP.addWhich}</div>}
@@ -178,7 +190,7 @@ export function CloudSetup({ cloud, onMode, onClose }: {
               <span className="cs-row-name">{SETUP.addOne}</span>
             </button>}
       </div>
-      {mayFinish(cloud) && <div className="ps-acts"><button type="button" className="fr-finish-go cs-go" onClick={() => setWhere(true)}>{SETUP.done}</button></div>}
+      {mayFinish(cloud) && <div className="ps-acts"><button type="button" className="fr-finish-go cs-go" onClick={() => (firstSetup.current ? setWhere(true) : onClose())}>{SETUP.done}</button></div>}
     </div>;
   }
 

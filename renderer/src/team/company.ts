@@ -3,6 +3,7 @@
 // tests read them directly (tests/team-the-company-list.test.mjs).
 import type { Person, Product, TeamState, WorkItem } from '../types';
 import { isShared, heldByAPerson, runnerOf } from '../../../shared/team-rules.mjs';
+import { dayAndTime } from '../format';
 
 export const firstName = (person: Person | undefined | null) => (person?.name || person?.email || 'Someone').split(/\s+/)[0];
 
@@ -48,7 +49,7 @@ export function companyLines(items: WorkItem[], products: Product[], team: TeamS
       key: `${item.product}/${item.id}`, item, title: item.label || item.title, mine: !shared,
       project: product.name, owner, state,
       stateText: state === 'run' ? 'Running'
-        : state === 'sched' ? `Starts ${new Date(item.runAt!).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`
+        : state === 'sched' ? `Starts ${dayAndTime(item.runAt!, now)}`
           : `Waiting on ${name(owner)}`,
       movedAt: item.updatedAt,
     };

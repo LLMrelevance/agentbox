@@ -62,13 +62,15 @@ afterEach(async () => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-function makeSandbox({ mode = '', signinMs, whoIs = async () => null } = {}) {
+function makeSandbox({ mode = '', signinMs, codeAnswerMs, log, whoIs = async () => null } = {}) {
   sandbox = createSandbox({
     workRoot: path.join(tmp, 'vm-work'),
     pathRoot: path.join(tmp, 'vm'),
     bridgeSocket: path.join(tmp, 'bridge.sock'),
     baseEnv: { ...pickBaseEnv(process.env), PATH: `${bin}:${process.env.PATH}`, ...(mode ? { FAKE_VENDOR_MODE: mode } : {}) },
     terminal: (line) => ['sh', '-c', line], whoIs,
+    ...(codeAnswerMs ? { codeAnswerMs } : {}),
+    ...(log ? { log } : {}),
     uploadRetryMs: 10,
     ...(signinMs ? { signinMs } : {}),
   });
@@ -132,8 +134,69 @@ describe('signing in to Claude in the cloud', () => {
     await sandbox.handle({ action: 'signin-code', runId: 'si-2', code: 'wrong' });
     const end = await until(async () => { const s = await lastSignin(); return ['saved', 'failed'].includes(s?.state) && s; }, 'the end');
     expect(end.state).toBe('failed');
-    expect(end.message).toMatch(/did not accept that code/);
+    expect(end.message).toMatch(/didn’t accept that code/);
     expect(files.has('/login-claude')).toBe(false);
+  });
+
+  // 2026-10-15: she pasted a code and sat on "Adding…" for over a minute.
+  // Claude prints its refusal and waits ("Press Enter to retry"), and the
+  // sandbox never read it, so the sign-in ran on to its 20-minute limit.
+  // Measured against the real cloud the same day: still checking at 150 s.
+  it('says at once when Claude does not take the code, and stops waiting on it', async () => {
+    makeSandbox({ signinMs: 60_000 });
+    await sandbox.handle({ action: 'signin', runId: 'si-r', engine: 'claude', saveUrl: `${base}/login-claude` });
+    await until(async () => (await signinStates()).find((e) => e.state === 'needs-code'), 'the link');
+    const t0 = Date.now();
+    await sandbox.handle({ action: 'signin-code', runId: 'si-r', code: 'stale#code' });
+    const end = await until(async () => { const s = await lastSignin(); return ['saved', 'failed'].includes(s?.state) && s; }, 'the end');
+    expect(end).toMatchObject({ state: 'failed', message: expect.stringMatching(/didn’t accept that code/) });
+    expect(Date.now() - t0).toBeLessThan(5000);
+  });
+
+  it('gives up on a sign-in that goes quiet after the code', async () => {
+    makeSandbox({ mode: 'claude-silent', codeAnswerMs: 300 });
+    await sandbox.handle({ action: 'signin', runId: 'si-q', engine: 'claude', saveUrl: `${base}/login-claude` });
+    await until(async () => (await signinStates()).find((e) => e.state === 'needs-code'), 'the link');
+    await sandbox.handle({ action: 'signin-code', runId: 'si-q', code: 'good#code' });
+    const end = await until(async () => { const s = await lastSignin(); return ['saved', 'failed'].includes(s?.state) && s; }, 'the end');
+    expect(end).toMatchObject({ state: 'failed', message: expect.stringMatching(/didn’t answer/) });
+    expect(files.has('/login-claude')).toBe(false);
+  });
+
+  // 2026-10-15: a sign-in Claude took sat on "Adding" and the runtime's log
+  // said nothing of where. Each step is noted now, with no secret in it.
+  it('notes each step for the runtime\'s log, and never the login', async () => {
+    const lines = [];
+    makeSandbox({ log: (l) => lines.push(l) });
+    await sandbox.handle({ action: 'signin', runId: 'si-l', engine: 'claude', saveUrl: `${base}/login-claude` });
+    await until(async () => (await signinStates()).find((e) => e.state === 'needs-code'), 'the link');
+    await sandbox.handle({ action: 'signin-code', runId: 'si-l', code: 'good#code' });
+    await until(async () => (await lastSignin())?.state === 'saved', 'saved');
+    const text = lines.join('\n');
+    expect(text).toMatch(/code sent/);
+    expect(text).toMatch(/token seen/);
+    expect(text).toMatch(/check answered/);
+    expect(text).toMatch(/kept/);
+    expect(text).not.toMatch(/sk-ant|good#code|Q{20}/);
+  });
+
+  it('takes a login printed with a box edge right after it', async () => {
+    makeSandbox({ mode: 'claude-boxed' });
+    await sandbox.handle({ action: 'signin', runId: 'si-b', engine: 'claude', saveUrl: `${base}/login-claude` });
+    await until(async () => (await signinStates()).find((e) => e.state === 'needs-code'), 'the link');
+    await sandbox.handle({ action: 'signin-code', runId: 'si-b', code: 'good#code' });
+    const end = await until(async () => { const s = await lastSignin(); return ['saved', 'failed'].includes(s?.state) && s; }, 'the end');
+    expect(end.state, end.message).toBe('saved');
+    expect(JSON.parse(files.get('/login-claude')).token).toBe(TOKEN);
+  });
+
+  it('does not cut off the check that follows a good code', async () => {
+    makeSandbox({ mode: 'claude-slow-check', codeAnswerMs: 250 });
+    await sandbox.handle({ action: 'signin', runId: 'si-g', engine: 'claude', saveUrl: `${base}/login-claude` });
+    await until(async () => (await signinStates()).find((e) => e.state === 'needs-code'), 'the link');
+    await sandbox.handle({ action: 'signin-code', runId: 'si-g', code: 'good#code' });
+    const end = await until(async () => { const s = await lastSignin(); return ['saved', 'failed'].includes(s?.state) && s; }, 'the end');
+    expect(end.state, end.message).toBe('saved');
   });
 
   it('keeps nothing when the token does not answer', async () => {

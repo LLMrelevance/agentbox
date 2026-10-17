@@ -71,11 +71,16 @@ export function lastSpeaker(item) {
  * first, with how many replies are new, who wrote them, what the thread is
  * about and its newest words. Null for a row with no record of who spoke where
  * (one from before threads), which then reads by `lastSpeaker` as it always did.
+ *
+ * Marking the chat done settles everything said before it, for you
+ * (`talk.settled`, w-8a14927b21), so your own message reopening it brings
+ * nothing old back.
  */
 export function whatWaits(item, me) {
   const talk = item?.talk;
   if (!talk || !me) return null;
-  const since = (list) => { let n = 0; for (let k = list.length - 1; k >= 0 && list[k].by !== me; k -= 1) n += 1; return n; };
+  const settled = talk.settled?.[me] ?? 0;
+  const since = (list) => { let n = 0; for (let k = list.length - 1; k >= 0 && list[k].by !== me && list[k].ts > settled; k -= 1) n += 1; return n; };
   const threads = [];
   for (const [uid, t] of Object.entries(talk.threads ?? {})) {
     const replies = t.replies ?? [];

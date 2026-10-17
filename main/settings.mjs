@@ -24,7 +24,7 @@ import { analyticsKey, diagnosticsOn } from './analytics.mjs';
 import { CLAUDE_PERMISSION_MODES } from '../shared/work-items.mjs';
 import { accountSentence, engineTroubleNote, refineCause } from '../shared/spawn-trouble.mjs';
 import { readPlan } from './claude-plan.mjs';
-import { effectiveProfiles } from './account-discovery.mjs';
+import { effectiveProfiles, troubleForProfile } from './account-discovery.mjs';
 import { machineSlots, machineNote, autoAgents, MAX_SLOTS } from './machine.mjs';
 import { shortPath } from './agent-files.mjs';
 import { NAME, Name } from '../shared/product-name.mjs';
@@ -215,6 +215,8 @@ export function buildSessionArgs(base, mode) {
   const grant = ['--permission-mode', mode];
   return [...model, ...(tools.length ? ['--allowedTools', ...tools] : []), ...grant, ...parsed.other];
 }
+
+export { cloudPermissionArgs } from './cloud-permission.mjs';
 
 // THE MODEL, WRITTEN BACK INTO THE SAME LIST buildSessionArgs READS FROM.The
 // screen had no control over this at all; the flag was already there and only
@@ -470,10 +472,17 @@ export function readSettings({ config, supervisor, store }) {
   // waiting, because a page she chose to open interrupts nobody.
   const troubles = status.accountTrouble ?? {};
   const accounts = (profiles.length ? profiles : ['default']).map((profile) => {
-    const plan = readPlan(profile);
+    // THE HOME THE WORKSPACE IS CONFIGURED WITH, not this process's own. Both
+    // of these read a login out of a folder, and both of them defaulted to
+    // `os.homedir()` while the list of folders above came from `config.home`,
+    // so a workspace pointed anywhere else drew rows for its own folders and
+    // read somebody else's login into them.
+    const plan = readPlan(profile, { home: config.home });
     // A reason filed before an ended subscription had its own name still reads
     // as an admin's block; the login's file says which it is.
-    const filed = troubles[profile] ?? null;
+    // THE SUBSCRIPTION'S TROUBLE, not the folder's: one row stands for every
+    // folder holding this account (account-discovery.mjs says why).
+    const filed = troubleForProfile(troubles, profile, { home: config.home });
     const trouble = filed ? { ...filed, cause: refineCause(filed.cause, plan) } : null;
     const resting = (supervisor._profileCooldown?.[profile] ?? 0) >= now;
     // WHOSE SUBSCRIPTION THIS ROW IS, not merely which folder it lives in.
@@ -481,7 +490,7 @@ export function readSettings({ config, supervisor, store }) {
     // person that one of their accounts had been replaced by the other;
     // main/account-tooling.mjs has how that happens. Null when the
     // folder holds no login, and then the row reads as it always did.
-    const identity = accountIdentity(profile === 'default' ? null : profile);
+    const identity = accountIdentity(profile === 'default' ? null : profile, { home: config.home });
     return {
       profile,
       email: identity?.email ?? null,
@@ -619,6 +628,8 @@ export function readSettings({ config, supervisor, store }) {
       ...engineSettings(supervisor, config),
       permission: permissionMode(workspaceArgs),
       permissionArgs: workspaceArgs,
+      // The cloud's own mode, or null for this computer's.
+      cloudPermission: config.cloudPermission ?? null,
       // ONE SWITCH FOR EVERYTHING THAT LEAVES THE MACHINE, and it is on when
       // Agentbox is installed (legal/privacy.html, section 10). Off stops the
       // counts AND the crash reports; there is deliberately no partial mode and
@@ -1088,6 +1099,14 @@ export function strayFolderSettings({ supervisor }, home = os.homedir()) {
   return { count, now };
 }
 
+export function cornerTagTurnedOff({ key, value } = {}) {
+  return key === 'cornerTag' && !value;
+}
+
+export function countsTurnedOff({ key, value } = {}) {
+  return key === 'diagnostics' && !value;
+}
+
 export function setWorkspaceSetting({ config, supervisor, store }, { key, value }) {
   switch (key) {
     // EVERY PROJECT ON HER PHONE, or none (shared/phone-snapshot.mjs). Which
@@ -1171,9 +1190,32 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
     case 'cloudRuns': {
       const map = { mac: false, full: null, all: 'all' };
       if (!(value in map)) throw new Error(`unknown cloud mode: ${value}`);
-      saveConfig(config, { cloudRuns: map[value] });
-      config.cloudRuns = map[value];
+      // Turning the cloud on to one meaning makes that the one C goes back to.
+      const patch = value === 'mac' ? { cloudRuns: false } : { cloudRuns: map[value], cloudWhenOn: value };
+      saveConfig(config, patch);
+      Object.assign(config, patch);
       supervisor.wake?.();
+      supervisor.onChange?.();
+      break;
+    }
+    // WHAT "ON" MEANS (renderer/src/cloud-menu.ts): kept while the cloud is
+    // off, and taking effect at once while it is on.
+    case 'cloudWhenOn': {
+      if (value !== 'full' && value !== 'all') throw new Error(`unknown meaning of on: ${value}`);
+      const patch = config.cloudRuns === false ? { cloudWhenOn: value } : { cloudWhenOn: value, cloudRuns: value === 'all' ? 'all' : null };
+      saveConfig(config, patch);
+      Object.assign(config, patch);
+      supervisor.wake?.();
+      supervisor.onChange?.();
+      break;
+    }
+    // THE CLOUD'S OWN PERMISSION MODE, or null for this computer's. Read at
+    // each cloud run's spawn (main/harnesses/claude.mjs).
+    case 'cloudPermission': {
+      if (value != null && !CLAUDE_MODES.includes(value)) throw new Error(`unknown permission mode: ${value}`);
+      const patch = { cloudPermission: value ?? null };
+      saveConfig(config, patch);
+      Object.assign(config, patch);
       supervisor.onChange?.();
       break;
     }

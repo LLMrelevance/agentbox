@@ -11,9 +11,16 @@
 //     the `agentbox` server and puts the reply in its result;
 //   - commits `cloud.txt` and leaves `loose.txt` uncommitted;
 //   - writes its transcript where Claude Code would;
+//   - says back each message it takes up, as Claude Code does with
+//     --replay-user-messages;
 //   - prints the result, then waits for stdin to close, as Claude Code does.
 // A message whose text includes "HANG" makes it ignore SIGTERM for a moment and
 // then sit still, so a test can cancel it. "LOOK" makes it call look_at_page.
+// "LATE" makes it wait a moment after its handshake and before its tool call,
+// so a test can quit the app in between.
+// "DOCS:<folder>" makes it read and write the project's documents folder:
+// it reports what it found there, draws a picture in its own designs folder
+// and waits a moment, then edits the notes just before its result.
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execSync } from 'node:child_process';
@@ -58,13 +65,23 @@ process.stdin.on('data', (d) => {
     ibuf = ibuf.slice(i + 1);
     let msg; try { msg = JSON.parse(line); } catch { continue; }
     if (msg.type !== 'user') continue;
+    // Taken up, said back as Claude Code does with --replay-user-messages.
+    out({ type: 'user', ...(msg.uuid ? { uuid: msg.uuid } : {}), message: msg.message, parent_tool_use_id: null });
     const text = typeof msg.message?.content === 'string' ? msg.message.content : JSON.stringify(msg.message?.content);
     busy = busy.then(() => turn(text));
   }
 });
 process.stdin.on('end', async () => { await busy; server.stdin.end(); process.exit(0); });
 
+let inited = false;
 async function turn(text) {
+  // A real client opens every server with this handshake.
+  if (!inited) {
+    inited = true;
+    await call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fake-claude', version: '1' } });
+    server.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
+  }
+  if (text.includes('LATE')) await new Promise((r) => setTimeout(r, 1500));
   if (text.includes('HANG')) {
     process.on('SIGTERM', () => setTimeout(() => process.exit(143), 200));
     await new Promise(() => {});
@@ -79,11 +96,33 @@ async function turn(text) {
   fs.appendFileSync('cloud.txt', 'made in the cloud\n');
   execSync('git add cloud.txt && git commit -q -m "From the cloud"');
   fs.writeFileSync('loose.txt', 'not committed\n');
+  const docs = (text.match(/DOCS:(\S+)/) || [])[1];
+  let found = null;
+  if (docs) {
+    const d = at(docs);
+    const has = (rel) => fs.existsSync(path.join(d, rel));
+    found = { plan: has('plans/plan.md') ? fs.readFileSync(path.join(d, 'plans/plan.md'), 'utf8') : null, big: has('reports/big.bin'), other: has('designs/w-2/old.png'), own: has('designs/w-1/round1/a.png') };
+    fs.mkdirSync(path.join(d, 'designs/w-1/round2'), { recursive: true });
+    fs.writeFileSync(path.join(d, 'designs/w-1/round2/b.png'), 'picture from the cloud');
+    fs.writeFileSync(path.join(d, 'designs/w-1/round2/env.txt'), `login=${process.env.CLAUDE_CODE_OAUTH_TOKEN}\n`);
+    fs.writeFileSync(path.join(d, `designs/w-1/round2/${process.env.CLAUDE_CODE_OAUTH_TOKEN}.txt`), 'named after the login');
+    // Still working until the picture is home on the Mac (`docs` is the Mac's
+    // own path), not for a fixed 1.5 s, which a loaded machine overran inside
+    // the ship's suite (2026-10-16). Twenty seconds at most.
+    const home = path.join(docs, 'designs/w-1/round2/b.png');
+    for (let waited = 0; waited < 20_000 && !fs.existsSync(home); waited += 100) await new Promise((r) => setTimeout(r, 100));
+    fs.writeFileSync(path.join(d, 'notes.md'), 'the cloud wrote this\n');
+  }
   const attachment = (text.match(/ATTACH:(\S+)/) || [])[1];
   const attached = attachment ? fs.readFileSync(at(attachment), 'utf8').trim() : null;
   const dir = path.join(at(process.env.CLAUDE_CONFIG_DIR), 'projects', process.cwd().slice(root.length).replace(/[^a-zA-Z0-9]/g, '-'));
   fs.mkdirSync(dir, { recursive: true });
   fs.appendFileSync(path.join(dir, `${sessionId}.jsonl`), JSON.stringify({ type: 'user', text }) + '\n');
   out({ type: 'assistant', message: { content: [{ type: 'text', text: 'working' }] } });
-  out({ type: 'result', subtype: 'success', is_error: false, session_id: sessionId, result: JSON.stringify({ said, names, attached, token: process.env.CLAUDE_CODE_OAUTH_TOKEN || null, home: process.env.HOME === undefined ? null : 'set' }) });
+  out({ type: 'result', subtype: 'success', is_error: false, session_id: sessionId, result: JSON.stringify({ said, names, attached, found, memory: readMemory(), token: process.env.CLAUDE_CODE_OAUTH_TOKEN || null, home: process.env.HOME === undefined ? null : 'set' }) });
+}
+
+// Her own instructions, where Claude Code reads them: the home folder.
+function readMemory() {
+  try { return fs.readFileSync(path.join(at(process.env.HOME || ''), '.claude', 'CLAUDE.md'), 'utf8'); } catch { return null; }
 }

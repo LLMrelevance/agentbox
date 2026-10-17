@@ -4,12 +4,12 @@ import {updateFixture} from './agent-update-fixture';
 // bridge; fixtures mode (?fixtures=1) serves canned data so the UI can be
 // developed, reviewed, and screenshotted without a live store or any agents.
 
-import type { AgentConversation, AnswerMode, DemoOpened, FolderListing, FreshUser, PermissionMode, PhoneLink, PhoneRoute, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, TeamMessageFile, ThreadEditPatch, UpdateState, Usage, WorkItem } from './types';
+import type { AccountUsageReading, AgentConversation, AnswerMode, DemoOpened, FolderListing, FreshUser, PermissionMode, PhoneLink, PhoneRoute, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, TeamMessageFile, ThreadEditPatch, UpdateState, Usage, WorkItem } from './types';
 import type { LedgerLine } from './thread-history';
 import type { AgentFile as AgentFileRow } from './onboarding';
 import type { AgentFolder, SessionThread } from './agent-import-card';
 import type { EngineSetupState } from './plan-setup';
-import { fixtureAgents, fixtureSnapshot, fixtureDashboards, fixtureRepeats, fixtureRuns, fixtureMock, fixtureMockDashboards, fixtureTraces, fixtureHistory, fixtureSettings, fixtureConversation, fixtureAgentFiles, fixtureSessionThreads } from './fixtures';
+import { fixtureAgents, fixtureSnapshot, fixtureDashboards, fixtureRepeats, fixtureRuns, fixtureMock, fixtureMockDashboards, fixtureTraces, fixtureHistory, fixtureSettings, fixtureConversation, fixtureAgentFiles, fixtureSessionThreads, fixtureSearchableThreads } from './fixtures';
 import { fixtureEngineWorld, fixtureEngineSettings, fixtureSecondEngine } from './fixtures';
 import { fixtureFolders } from './fixtures';
 import { NAME, Name } from '../../shared/product-name.mjs';
@@ -154,6 +154,33 @@ if (accountTroubleNotes[accountTrouble]) {
     trouble: { cause: accountTrouble, since: Date.now(), note: accountTroubleNotes[accountTrouble] },
     ...(accountTrouble === 'subscription-ended' ? { plan: { label: 'Subscription ended', max: false } } : {}),
   });
+}
+
+// ?accounts=two: two logins, the second picked and nearly empty, the first full,
+// and the cloud's two unnamed logins at their limit (2026-10-16).
+const twoLogins = params.get('accounts') === 'two';
+if (twoLogins) {
+  const [first, second] = fixtureSettingsState.workspace.accounts;
+  if (first) first.chosen = false;
+  if (second) second.chosen = true;
+  // &cloudperm=<mode> draws the cloud on its own permission mode.
+  fixtureSettingsState.workspace.permission = 'auto';
+  fixtureSettingsState.workspace.cloudPermission = params.get('cloudperm') || null;
+}
+
+function fixtureAccountUsage(): AccountUsageReading[] {
+  const now = Date.now();
+  const at = (h: number, m = 0) => { const d = new Date(now); d.setHours(h, m, 0, 0); return d.getTime(); };
+  const limit = (span: 'session' | 'week', percent: number, resetsText: string, resetsAt: number, qualifier: string | null = null) => ({
+    span, qualifier, percent, resetsText, resetsOn: span === 'week' ? 'Oct 22' : null, resetsAt, zone: null,
+    name: span === 'session' ? 'This session' : qualifier === 'Fable' ? 'This week, Fable' : 'This week',
+  });
+  const [first, second] = fixtureSettingsState.workspace.accounts;
+  const week = now + 6 * 86_400_000;
+  return [
+    { profile: first.profile, at: now - 60_000, limits: [limit('session', twoLogins ? 100 : 42, '5:09pm', at(17, 9)), limit('week', 15, '11:59am', week, 'all models')] },
+    { profile: second.profile, at: now - 60_000, limits: [limit('session', 5, '8pm', at(20)), limit('week', 9, '4pm', week, 'all models')] },
+  ];
 }
 
 function fixtureWrite(scope: 'project' | 'workspace', p: any): Settings {
@@ -327,6 +354,66 @@ export const api = {
       // is a real state worth being able to look at, and it is not the state
       // every other fixtures screenshot wants a card floating over.
       if (!params.has('approvals')) base.approvals = [];
+      // &cloud=mac|full|all draws the cloud button set up, two accounts in,
+      // three threads running there, so its menu can be looked at.
+      const cloud = params.get('cloud');
+      if (params.get('accounts') === 'two') {
+        const until = new Date(); until.setHours(17, 10, 0, 0);
+        // &cloudread draws the cloud logins as they will read once the cloud
+        // reports each one's email and usage; without it, as they read today.
+        const read = params.has('cloudread');
+        base.cloud = {
+          // &cloudmode=mac draws the same accounts with the cloud turned off.
+          setUp: true, mode: params.get('cloudmode') === 'mac' ? 'mac' : 'full', whenOn: 'full', running: 0,
+          month: { runs: 14, agentHours: 1.2, estimatedCost: 0.16, costPerAgentHour: 0.13 },
+          accounts: [
+            {
+              engine: 'claude', key: 'a1', name: read ? 'you@example.com' : null, ready: false, state: 'limited' as any, limitedUntil: until.getTime(),
+              limits: read ? [
+                { span: 'session', qualifier: null, name: 'This session', percent: 100, resetsText: '5:10pm', resetsOn: null, resetsAt: until.getTime(), zone: null },
+                { span: 'week', qualifier: 'all models', name: 'This week', percent: 31, resetsText: '11:59am', resetsOn: 'Oct 22', resetsAt: null, zone: null },
+              ] : null,
+            },
+            {
+              engine: 'claude', key: 'a2', name: read ? 'work@example.com' : null, ready: true, state: 'ready',
+              limits: read ? [
+                { span: 'session', qualifier: null, name: 'This session', percent: 12, resetsText: '8pm', resetsOn: null, resetsAt: null, zone: null },
+                { span: 'week', qualifier: 'all models', name: 'This week', percent: 9, resetsText: '4pm', resetsOn: 'Oct 22', resetsAt: null, zone: null },
+              ] : null,
+            },
+          ],
+          signIns: [],
+        } as typeof base.cloud;
+      } else if (cloud === 'mac' || cloud === 'full' || cloud === 'all') {
+        base.cloud = {
+          setUp: true, mode: cloud, whenOn: cloud === 'all' ? 'all' : 'full', running: 3,
+          month: { runs: 6, agentHours: 2.4, estimatedCost: 0.31, costPerAgentHour: 0.13 },
+          accounts: [
+            { engine: 'claude', key: 'a1', name: 'me@example.com', ready: true, state: 'ready' },
+            { engine: 'claude', key: 'a2', name: null, ready: true, state: 'ready' },
+          ],
+          signIns: [],
+        } as typeof base.cloud;
+        // And the first running thread is one of the three in the cloud.
+        if (base.supervisor.running[0]) (base.supervisor.running[0] as { where?: string }).where = 'cloud';
+        // &cloudlimit draws both cloud accounts at their usage limit for two hours.
+        if (params.has('cloudlimit') && base.cloud) {
+          base.cloud.running = 0;
+          base.cloud.accounts = (base.cloud.accounts ?? []).map((a) => ({ ...a, ready: false, state: 'limited' as const, limitedUntil: Date.now() + 2 * 3600_000 }));
+        }
+        // &dup draws the second cloud account as the same account as the first.
+        const accounts = base.cloud?.accounts;
+        if (params.has('dup') && accounts?.[1]) {
+          accounts[1] = { ...accounts[1], ready: false, state: 'duplicate' as const, duplicateOf: accounts[0].key };
+        }
+        // &kept draws that thread kept on this Mac instead.
+        const first = base.supervisor.running[0];
+        if (params.has('kept') && first) {
+          delete (first as { where?: string }).where;
+          const kept = base.items.find((i) => i.id === first.itemId);
+          if (kept) kept.onMac = true;
+        }
+      }
       return fixtureSecondEngine(base, engineFixtures);
     }
     return window.zero!.snapshot();
@@ -341,6 +428,13 @@ export const api = {
     if (!window.zero?.refreshUsage) return { ok: false, error: RESTART_NOTE };
     try { return await window.zero.refreshUsage(); }
     catch { return { ok: false, error: USAGE_UNREADABLE }; }
+  },
+
+  /** Every Claude login's own usage, for Settings. Empty from a main process that predates it. */
+  async accountUsage(p: { refresh?: boolean } = {}): Promise<AccountUsageReading[]> {
+    if (useFixtures) return fixtureAccountUsage();
+    if (!window.zero?.accountUsage) return [];
+    try { return (await window.zero.accountUsage(p)).readings ?? []; } catch { return []; }
   },
 
   // THE NEXT PAGE OF FINISHED THREADS THE SNAPSHOT LEFT OUT (w-fda2165ec6),
@@ -511,7 +605,10 @@ export const api = {
   // one), so a build carrying this channel can be talking to a process that has
   // never heard of it. That answers empty rather than throwing: the door says
   // the app needs reopening, and nothing else on the task is affected.
-  async itemHistory(p: { product: string; id: string }): Promise<{ ok: boolean; lines: LedgerLine[]; error?: string }> {
+  // `before` keeps only the lines written at or before that moment, so a
+  // thread's history as it stood when another was filed from it is not cut off
+  // by the 400 newest lines (renderer/src/recap.ts, recapFor).
+  async itemHistory(p: { product: string; id: string; before?: number }): Promise<{ ok: boolean; lines: LedgerLine[]; error?: string }> {
     if (useFixtures) return { ok: true, lines: (fixtureHistory as any)[p.id] ?? [] };
     const zero = window.zero as any;
     if (!zero?.itemHistory) return { ok: false, lines: [], error: `quit and reopen ${NAME} to see this` };
@@ -628,6 +725,12 @@ export const api = {
   async setThreadPins(pins: Record<string, true | null>): Promise<void> {
     if (useFixtures || !window.zero?.setThreadPins) return;
     await window.zero.setThreadPins({ pins });
+  },
+
+  /** Keep a thread on this Mac whatever the cloud is set to, or let it go again. */
+  async setThreadOnMac(onMac: Record<string, true | null>): Promise<void> {
+    if (useFixtures || !window.zero?.setThreadOnMac) return;
+    await window.zero.setThreadOnMac({ onMac });
   },
 
   async compose(p: { product: string; title: string; body?: string; kind?: string; priority?: number; runAt?: number; start?: 'later' | 'now'; labels?: string[]; model?: string; engine?: string; effort?: string; assignee?: string; due?: string; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[] }): Promise<WorkItem | null> {
@@ -1307,6 +1410,27 @@ export const api = {
       const r = await zero.agentThreads();
       return Array.isArray(r?.threads) ? r.threads : [];
     } catch { return []; }
+  },
+
+  /**
+   * EVERYTHING THE NAME FIELD CAN FIND, which is a year rather than ten days.
+   *
+   *  Taken once, the first time somebody types into the field, and held by the
+   *  main process for the life of the window, so the keystrokes after it cost
+   *  nothing. `reached` is the moment the read gave up at and zero when it got
+   *  through the lot; the card prints it rather than answering "no such chat"
+   *  over a read that stopped months ago. */
+  async searchAgentThreads(p: { again?: boolean } = {}): Promise<{ threads: SessionThread[]; reached: number }> {
+    if (useFixtures) {
+      if (emptyFixtures || params.has('noThreads')) return { threads: [], reached: 0 };
+      return { threads: fixtureSearchableThreads(), reached: 0 };
+    }
+    const zero = window.zero as any;
+    if (!zero?.searchAgentThreads) return { threads: [], reached: 0 };
+    try {
+      const r = await zero.searchAgentThreads(p);
+      return { threads: Array.isArray(r?.threads) ? r.threads : [], reached: Number(r?.reached ?? 0) };
+    } catch { return { threads: [], reached: 0 }; }
   },
 
   // Ids only; the thread itself is the main process's own copy, so a row never

@@ -10,10 +10,18 @@ import { claudeModelRows } from '../claude-models.mjs';
 import { linkAccountTooling } from '../account-tooling.mjs';
 import { streamInputArgs, attachClaudeInput } from '../claude-input.mjs';
 import { claudeLaunchEnv } from '../claude-launch-env.mjs';
+import { cloudPermissionArgs } from '../cloud-permission.mjs';
 import { claudeActivity } from '../agent-activity.mjs';
 import { captureStream, streamingText, summarizeStreamLine, traceStreamLine } from './claude-stream.mjs';
 import { definitionMethods, commonUpdatePlan } from './common.mjs';
 const definition = harnessDefinition('claude');
+
+// THE SETTINGS LAYER THAT TAKES A METERED KEY BACK OFF A RUN. Claude Code reads
+// `env.ANTHROPIC_API_KEY` and `apiKeyHelper` out of a person's own and a
+// project's settings files, past any scrub of the environment, and `--settings`
+// outranks both (measured on 2.1.301, w-6d8c543a43). Every Claude Code run the
+// app starts carries it: workers in their settings file, small calls inline.
+export const NO_METERED_KEY = Object.freeze({ env: Object.freeze({ ANTHROPIC_API_KEY: '' }), apiKeyHelper: '' });
 
 export const claudeHarness = {
   ...definitionMethods(definition),
@@ -42,10 +50,10 @@ export const claudeHarness = {
     // because the run unpacks the transcript and tooling into exactly that
     // path. No memory-gate variables: that gate is about this Mac's memory.
     if (cloud) {
-      return spawn(process.execPath, [sup._cloudRunPath(), ...streamInputArgs(definition.run, plan.args)], {
+      return spawn(process.execPath, [sup._cloudRunPath(), ...streamInputArgs(definition.run, cloudPermissionArgs(plan.args, sup.config.cloudPermission))], {
         cwd,
         env: { ...env, ELECTRON_RUN_AS_NODE: '1', STORE_ACCOUNT_ID: sup.config.accountId, ...storeRootEnv(sup.config.storeRoot),
-          CLAUDE_CONFIG_DIR: sup._claudeConfigDir(profile), ZERO_PRODUCT: item.product, ZERO_ITEM: item.id },
+          CLAUDE_CONFIG_DIR: sup._claudeConfigDir(profile), ZERO_PRODUCT: item.product, ZERO_ITEM: item.id, ...sup._cloudDocsEnv(item) },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     }
@@ -88,7 +96,7 @@ export const claudeHarness = {
   change: () => null,
   release: () => {},
   memoryGate: (sup, item) => sup.memoryGateEnv(item),
-  smallModelArgs: (prompt, model) => ['-p', prompt, '--model', model],
+  smallModelArgs: (prompt, model) => ['-p', prompt, '--model', model, '--settings', JSON.stringify(NO_METERED_KEY)],
   updateSettings: ({ home }) => {
     try { return JSON.parse(fs.readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'), 'settings.json'), 'utf8')); }
     catch { return {}; }

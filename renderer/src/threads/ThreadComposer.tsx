@@ -77,6 +77,8 @@ export interface ThreadSent {
   to?: string;
   /** What the card held when Send was pressed, for Z to put back. */
   draft?: ComposeDraft;
+  /** The conversation a message went into, so its toast can open it with O. */
+  made?: { product: string; id: string };
 }
 
 type MenuKey = 'to' | 'model' | 'sendAs' | 'dueOn' | 'project' | 'priority' | 'visibility' | 'later';
@@ -125,6 +127,13 @@ export function ThreadComposer({
    *  for on 2026-10-05: making a project is a thing you should be able to do
    *  from the menu you are already in, whether you have none or ten. */
   onNewProject?: () => void;
+  /* NOTHING HERE OFFERS THE CHAT IMPORT, and that is a decision rather than an
+     omission (w-6418318cd5, 2026-10-16). It was offered here for one round, as
+     a faint line on an empty card. The founder, on the picture of it: "This
+     chat really clutters a component that we use all the time so I would
+     disagree with that." An offer that is only ever one letter from
+     disappearing is still a line on the card every time it opens, and this
+     card opens all day. ⌘K is the door. */
   onClose: () => void;
   /** Called once the send stands, with the words it took off the card (`sent.draft`) for an undo. */
   onSent: (item: WorkItem | null, sent?: ThreadSent) => void;
@@ -489,7 +498,7 @@ export function ThreadComposer({
       failed(`Not sent: ${res.error ?? 'the team cloud did not answer.'}`);
       return;
     }
-    onSent(null, { kind: 'message', to: person.id, draft: taken, ...(toMany ? { toMany } : {}) });
+    onSent(null, { kind: 'message', to: person.id, draft: taken, ...(toMany ? { toMany } : {}), ...(res.made ? { made: res.made } : {}) });
   };
 
   // Send As decides which of the two a person gets: a task is a row in a

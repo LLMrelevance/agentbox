@@ -181,14 +181,25 @@ cloud Codex thread gets an app-server of its OWN, in its sandbox:
 ## v1 scope, and what is deliberately left out
 
 - **Claude Code and Codex.** Other harnesses later, each a small adapter.
-- **No re-attach across an app restart (R1, R2, R5, R6, R7).** Today every app
-  restart stops every local worker and `recoverInterrupted` resumes each one
-  from its transcript. A cloud run does exactly the same: when the app stops a
-  cloud run, for any reason (Stop, archive, preemption, quit), the run is
-  cancelled, its work and transcript are brought home, and the existing resume
-  takes over. That removes replayed store writes, orphaned claims, approvals
-  keyed to a dead app's key, and double runs, because there is never a remote
-  run the app is not holding a live session for.
+- **A quit leaves a Claude run going (2026-10-15).** Stop, archive and
+  preemption cancel a cloud run and bring its work home, as before. Quitting
+  the app sends the proxy SIGHUP instead: the agent's input is closed, so it
+  ends after the turn it is in; a store call the app can no longer answer is
+  answered with an error saying so; and the marker keeps the proxy's place in
+  the event log. When the app opens, the process that brings cloud work home
+  joins the run: it starts the store servers again, says each connection's
+  handshake to them again, serves the calls the agent made meanwhile, and
+  brings the work home when the run ends. The folder's marker holds every new
+  run back until then, so there is never a second run on the row, and the
+  joiner saves its place as it goes so no call is served twice. A Codex run is
+  still cancelled on quit: its app-server ends at once when its input closes.
+- **The project's documents folder travels (2026-10-15).** Its small files and
+  the thread's own `designs/<id>`, newest first within 50 MB (2026-10-17: a
+  thread whose designs did not all fit used to stay on the Mac, and those were
+  the busy ones), go up at the same path (main/cloud/docs.mjs); what the agent
+  writes there comes back every 10 s and at the end, never over a file changed
+  on the Mac meanwhile, and never over one the run did not take (`docs.sent` in
+  the marker): those keep their place and the run's copy goes beside them.
 - **The Mac sleeping is not a restart.** The app, the proxy, the store server
   and the approvals server all freeze together and thaw together; their memory
   is intact. The sandbox keeps going. A store call it makes while the Mac
@@ -197,8 +208,10 @@ cloud Codex thread gets an app-server of its OWN, in its sandbox:
   clock, exactly as a local one would be (R7); the agent carries on with what
   it may do.
 - **No `look_at_page`** in the cloud: it would open Chrome on the Mac against
-  the Mac's localhost, not the sandbox's (R10). The proxy drops it from the
-  store server's tool list on the way out and refuses a call to it.
+  the Mac's localhost, not the sandbox's (R10). The proxy refuses a call to
+  it. It stays in the tool list: when it was dropped, a thread that moved from
+  the Mac to the cloud was told its store server had disconnected, and
+  believed it (2026-10-16).
 
 ## How it works
 
@@ -247,7 +260,7 @@ stdout and stderr come back byte for byte. Its life:
    not, the cloud commits stay on `refs/agentbox/cloud/<run>` and the run
    reports it), applies the uncommitted work, unpacks the transcripts, removes
    the marker, and exits with the remote exit code.
-7. **Cancel.** On SIGTERM (Stop, archive, preemption, quit) the proxy signals
+7. **Cancel.** On SIGTERM (Stop, archive, preemption) the proxy signals
    the remote command, waits up to 30 s for it to exit, and then does 5 and 6.
    If it cannot reach the sandbox it exits with a failure and leaves the
    marker.
@@ -264,8 +277,12 @@ stdout and stderr come back byte for byte. Its life:
   fault (redeliver, no attempt spent) rather than a finished run.
 - **Slots (R13).** Local capacity counts local sessions only. A Claude thread
   may take a cloud slot when no local slot is free, cloud runs are on, fewer
-  than `maxCloudSessions` (default 10) cloud runs are live, and an account is
-  healthy. Account cooldowns and the fleet brake apply to cloud runs exactly as
+  than `maxCloudSessions` (default 20; each run still costs the Mac ~120 MB)
+  cloud runs are live, and an account is healthy. With Everything
+  (`cloudRuns: 'all'`) a thread that may go to the cloud waits for a cloud slot
+  (cap, two starting, accounts at their limit or renewing) and never falls back
+  to the Mac (2026-10-17, her Mac overloaded with Everything on). At most two
+  runs bring their work home at once, through files, across every process. Account cooldowns and the fleet brake apply to cloud runs exactly as
   to local ones.
 - **Hangs.** The reaper is unchanged: silence plus an expired claim. The store
   server runs on the Mac, so its heartbeat renews the claim for a cloud run
@@ -401,10 +418,39 @@ a-thread-running-in-the-cloud-says-so.
 That is all: cloud runs are on for a Mac that has been set up, and nowhere
 else. `"cloudRuns": false` in zero.config.json turns them off.
 
+## Next: the Mac shut, and fewer Mac resources per run (reviewed by Codex 2026-10-17)
+
+Each cloud run is still one relay process on the Mac (~75 MB) with its own
+tool servers (approvals ~46 MB, the store), and every store call or approval
+waits for the Mac; the end of a turn waits for the Mac to close the agent's
+input. In order:
+
+1. **Done (2026-10-17): a run keeps going and ends while the Mac sleeps.**
+   The start asks for it (`offline`), the image says it can (`caps`). Away
+   (no word from the Mac for 90 s), a tool call is answered in the sandbox
+   "not made" (the handshake and tool list from the app's own earlier
+   answers), a call the Mac had not taken up is answered "maybe" and is
+   refused when the waking Mac asks to make it (`mcp-claim`), and a Claude
+   Code turn that has ended, with every message taken up and nothing in the
+   background, has its input closed there; the Mac reads that as the end of
+   the run, and a reply that arrived too late is kept for the next one.
+   Codex turns still end only with the Mac. Needs the image rebuilt.
+2. **Fewer processes per run.** One tool server per kind shared by all cloud
+   runs, keeping each connection's identity, request ids, claims, approval
+   context and cleanup; then measure. A single relay for all runs only if that
+   misses.
+3. **The store reachable from the cloud, and a scheduler there.** Answering
+   store writes optimistically in the sandbox was rejected (created ids,
+   claims and epochs make a later refusal unrecoverable). Real store access
+   from the cloud needs durable, deduplicated, ownership-checked writes; with a
+   scheduler (AWS rights of its own) it is also what starts new runs and
+   phone replies with the Mac shut.
+
 ## Known limits
 
-- A cloud run waits for the Mac whenever it calls the store or asks for an
-  approval, so with the lid shut it keeps working until its next such call.
+- With the lid shut a cloud run keeps working, but what it asks of the app
+  (a note on its row, an approval) is not made: it is told so and says it in
+  its last message. Starting new runs with the Mac shut is step 3 of "Next" above.
 - A run that ended on another branch, or whose folder changed on this Mac
   while it was away, is kept on `refs/agentbox/cloud/<run>` and its folder
   stays marked until a person looks (the app logs which folder).

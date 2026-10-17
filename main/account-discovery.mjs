@@ -48,6 +48,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { accountIdentity, defaultClaudeHome } from './account-tooling.mjs';
+import { shellDataDirsNow } from './shell-path.mjs';
 
 // The listing, held against the home folder's mtime. Creating or deleting a
 // folder there moves it; signing IN does not, which is why only the listing is
@@ -120,7 +121,7 @@ function isHomeFolder(dir, home) {
  *  'default' for ~/.claude (which is what spawning with no CLAUDE_CONFIG_DIR
  *  means), and an absolute folder path for anything else. It always answers
  *  with at least ['default'], because somewhere has to be spawnable. */
-export function effectiveProfiles(configured, { home = os.homedir() } = {}) {
+export function effectiveProfiles(configured, { home = os.homedir(), shellDir = shellDataDirsNow().CLAUDE_CONFIG_DIR } = {}) {
   const mine = (Array.isArray(configured) ? configured : []).map((p) => p || 'default');
   const dflt = defaultClaudeHome(home);
   const dirOf = (p) => (p === 'default' ? dflt : p);
@@ -154,7 +155,31 @@ export function effectiveProfiles(configured, { home = os.homedir() } = {}) {
     list.push(p);
   }
   if (!list.length) list.push('default');
+
+  // THE LOGIN THE PERSON'S SHELL PROFILE POINTS AT (w-6d8c543a43). Their
+  // terminal's `claude` reads the folder `CLAUDE_CONFIG_DIR` names in .zshrc,
+  // which an app opened from the Dock never sees. When the default holds no
+  // login, or the same account, the shell's folder takes its place; a
+  // different account at ~/.claude keeps running beside it. It is always a
+  // folder, never 'default', even when it IS ~/.claude: Claude Code names its
+  // keychain entry after the variable, so naming the folder out loud is a
+  // different sign-in from naming nothing.
+  const shell = typeof shellDir === 'string' && path.isAbsolute(shellDir) ? shellDir : null;
+  const shellId = shell ? accountIdentity(shell, { home }) : null;
+  if (shellId?.accountUuid && !list.includes(shell)) {
+    const dfltId = idOf('default');
+    const takesDefault = !dfltId?.accountUuid || dfltId.accountUuid === shellId.accountUuid;
+    if (takesDefault && list.some(isDefault)) {
+      list.splice(list.findIndex(isDefault), 1, shell);
+      for (let i = list.length - 1; i >= 0; i--) if (list[i] !== shell && isDefault(list[i])) list.splice(i, 1);
+      have.add(shellId.accountUuid);
+    } else if (!have.has(shellId.accountUuid)) {
+      have.add(shellId.accountUuid);
+      list.push(shell);
+    }
+  }
   const listed = new Set(list.map((p) => dirOf(p)));
+  if (shell && list.includes(shell)) listed.add(dflt);
 
   for (const found of discoverProfiles({ home })) {
     if (listed.has(found.dir)) continue;
@@ -164,6 +189,43 @@ export function effectiveProfiles(configured, { home = os.homedir() } = {}) {
     list.push(found.dir === dflt ? 'default' : found.dir);
   }
   return list;
+}
+
+/**
+ * WHAT IS WRONG WITH THE SUBSCRIPTION THIS ROW STANDS FOR, not merely with the
+ *  folder it is named after.
+ *
+ *  Trouble is filed per FOLDER, because a folder is what a worker is handed.
+ *  `effectiveProfiles` above lists one row per SUBSCRIPTION, dropping a second
+ *  folder holding an account it already has. So a limit hit in the dropped
+ *  folder is filed under a key no row carries and is drawn nowhere, while the
+ *  row for that same subscription goes on showing whatever was last filed on
+ *  the listed folder, however old.
+ *
+ *  Measured 2026-10-16: ~/.claude-3 hit a session limit at 3:15pm and the row
+ *  for that subscription showed an "organization has turned Claude Code off"
+ *  filed on ~/.claude five days earlier. Both folders hold accountUuid
+ *  8fe4a357; the newest fact about the account was the invisible one.
+ *
+ *  THE NEWEST READING WINS, because that is the only honest answer when two
+ *  folders of one subscription disagree: each entry is what was true when a
+ *  run last died there, and nothing clears a folder nothing spawns on.
+ *  Codex keys are never considered — an account's key carries its engine. */
+export function troubleForProfile(troubles, profile, { home = os.homedir() } = {}) {
+  const dflt = defaultClaudeHome(home);
+  const dirOf = (p) => (p === 'default' ? dflt : p);
+  const idOf = (p) => accountIdentity(dirOf(p) === dflt ? null : dirOf(p), { home });
+  const own = troubles?.[profile] ?? null;
+  const mine = idOf(profile)?.accountUuid;
+  if (!mine) return own;
+  const when = (t) => t?.at ?? t?.since ?? 0;
+  let best = own;
+  for (const [key, t] of Object.entries(troubles ?? {})) {
+    if (!t || key === profile || key.startsWith('codex:')) continue;
+    if (idOf(key)?.accountUuid !== mine) continue;
+    if (when(t) > when(best)) best = t;
+  }
+  return best;
 }
 
 /**

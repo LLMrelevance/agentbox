@@ -128,13 +128,19 @@ describe('where a thread runs', () => {
   });
 
   it('sends a Codex row as well, once a Codex login can sign in there', () => {
+    // Codex turned on in the app (its gate is the engine being on, not this
+    // Mac's Codex logins: tests/the-cloud-keeps-working-while-this-macs-account-rests).
+    const codexOn = () => { sup.engineChoices = () => [{ id: 'claude' }, { id: 'codex' }]; };
     build();
     fill(2);
-    sup._capacityFor = () => 3;
+    codexOn();
     expect(sup._cloudSlotFor('codex')).toBe(true);
     expect(sup._mayRunInCloud(row(), product, folder, {})).toBe(true);
     build({ signedIn: false });
-    sup._capacityFor = () => 3;
+    codexOn();
+    expect(sup._cloudSlotFor('codex')).toBe(false);
+    build();
+    sup.engineChoices = () => [{ id: 'claude' }];
     expect(sup._cloudSlotFor('codex')).toBe(false);
   });
 

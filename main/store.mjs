@@ -256,9 +256,9 @@ export class Store {
   // Read once per change of the ledger, not once per call (main/store/
   // work-items.mjs readItemHistory): the phone pass asks for 300 threads in a
   // row, and reading the file for each blocked the app for 21 s (2026-10-14).
-  readHistory(slug, id, { max = 400 } = {}) {
+  readHistory(slug, id, { max = 400, before } = {}) {
     if (!ROW_ID.test(String(id ?? ''))) return [];
-    return this.modules.workItemsDisk.readItemHistory(this.productDir(slug), id, { max });
+    return this.modules.workItemsDisk.readItemHistory(this.productDir(slug), id, { max, before });
   }
 
   // THE CONVERSATION ON ONE ROW, oldest first, for the brief a spawning worker

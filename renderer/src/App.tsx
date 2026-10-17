@@ -1,4 +1,5 @@
 import { previewFocus } from './preview-focus';
+import { cloudChord, cloudToggleNote, cloudToggleTarget, threadPlace } from './cloud-menu';
 import { usePhoneBack, onCloudPhone, onPhone } from './phone-screen';
 import { holdsReplies, writeHeldWhenHidden } from './phone-holds';
 import { pollEvery } from './phone-polls';
@@ -31,7 +32,9 @@ import type { PendingSaid } from './item-thread';
 import { DocPane, type OpenDoc } from './components/DocPane';
 import { docKind, EVEN_SPLIT, escapeClosesDoc, escapeInTheFileClosesIt, focusIsInTheFile, readSplit, writeSplit } from './doc-pane';
 import { changeOwnsKey } from './code-keys';
-import { askStillStands, bringsBack, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO } from './undo-window';
+import { askStillStands, bringsBack, closesAgain, graceUndoneLine, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO, UNDID_CLOSING } from './undo-window';
+import { answeredAlready, TOO_LATE_TO_WITHDRAW } from './withdraw-send';
+import { useNeo } from './neo/useNeo';
 import { addUndoMark, UNDO_MARKS_EVENT, type UndidSpec } from './undo-marks';
 import { whatTheFileSentUp } from '../../shared/artifact-keys.mjs';
 import { type Place, placeIsSomewhere, readPlace, writePlace, writeScroll } from './where-she-was';
@@ -39,14 +42,14 @@ import { documentCandidates } from './message-artifacts';
 import { filesFromRuns } from './run-files';
 import { Rail } from './components/Rail';
 import { ThreadComposer } from './threads/ThreadComposer';
-import { joinNames } from './threads/composer-rules';
+import { joinNames, threadMessage } from './threads/composer-rules';
 import { NewProject } from './components/NewProject';
 import { shortFolder } from './project-folder';
 import { ImportAgents } from './components/ImportAgents';
 import { importedLine } from './agent-import-card';
 import { whenLabel } from './components/When';
 import { RepeatFocus } from './components/RepeatFocus';
-import { Palette } from './components/Palette';
+import { Palette, type Command as CommandRow } from './components/Palette';
 import { Standing, STANDING } from './components/Standing';
 import { Settings } from './components/Settings';
 import { Snooze } from './components/Snooze';
@@ -70,7 +73,7 @@ import { approvalReads } from './approval-card';
 // there is anything to confirm the card has closed.
 import { sentLine, sendingLine } from './compose-says';
 import { wearJustMade, type JustMade } from './just-made';
-import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
+import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
 import { opensATextField } from './keys';
 import { sidebarFits, useRoomyToggle, useWindowWidth } from './room';
@@ -148,7 +151,7 @@ import { SignInPage } from './team/SignInPage';
 import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, flipView, isDirect, nextTab, pageDisplay, pageFor, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
 import { mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
 import { boardStops, listStops, stepFromPlace, stepStop, stopKey, type Stop } from './threads/walk-rules';
-import { opensTheToast, toastParts, type ToastGoes } from './toast-parts';
+import { opensTheToast, toastOpens, toastParts, type ToastGoes } from './toast-parts';
 
 type Modal = null | 'compose' | 'filter' | 'palette' | 'reply' | 'snooze' | 'standing';
 
@@ -794,7 +797,9 @@ export default function App() {
      * (./undo-window).
      */
     undoes: string;
-    run: () => Promise<void>;
+    // `refused` when it found it could not be undone after all: the sentence
+    // to show, and the row to open. Nothing was changed.
+    run: () => Promise<void | { refused: string; open?: WorkItem }>;
     restore?: () => Restored;
     /** The row this puts back, which a Z opens once it has run (./undo-window, `shownAfterUndo`). */
     brings?: WorkItem;
@@ -840,7 +845,7 @@ export default function App() {
      time instead, against whatever the window is holding by then. A row that has
      since gone (she withdrew it with Z) simply does not answer the click.
   */
-  const [toast, setToast] = useState<{ text: string; goes?: { product: string; id: string } } | null>(null);
+  const [toast, setToast] = useState<{ text: string; goes?: ToastGoes } | null>(null);
   // Dev aid, the same shape again: ?modes=a,b,e draws one of the three unbuilt
   // treatments of the permission question (./components/ModeScreen.tsx), so it
   // can be photographed inside the real app rather than redrawn beside it.
@@ -1511,6 +1516,8 @@ export default function App() {
     restore?: () => Restored;
     // What the thread says if this one is undone (./undo-marks).
     undid?: UndidSpec[];
+    // The action's own toast, so the undo can say what it left (graceUndoneLine).
+    said?: string;
   } | null>(null);
 
   const flushPending = useCallback(async () => {
@@ -1556,10 +1563,11 @@ export default function App() {
   const justMade = useRef<JustMade[]>([]);
   const refresh = useCallback(async () => {
     const next = await api.snapshot();
-    if (isCarrying()) { setTimeout(() => refreshAgain.current(), 300); return; }
+    if (isCarrying()) { setTimeout(() => refreshAgain.current(), 300); return next; }
     const worn = next ? wearJustMade(next.items, justMade.current, Date.now()) : null;
     if (worn) justMade.current = worn.held;
     setSnap(next && { ...next, items: overlayPins(overlayPlaces(worn!.items, unsavedPlaces.current), unsavedPins.current) });
+    return next;
   }, []);
   // A new thread in the list the moment the computer says it is written, a
   // whole fetch sooner than the snapshot would bring it (w-461fbd8d2d).
@@ -1569,7 +1577,7 @@ export default function App() {
     setSnap((s) => s && { ...s, items: wearJustMade(s.items, justMade.current, Date.now()).items });
   }, []);
   refreshAgain.current = () => { void refresh(); };
-  const refreshRef = useRef<() => Promise<void>>();
+  const refreshRef = useRef<() => Promise<unknown>>();
   refreshRef.current = refresh;
 
   useEffect(() => {
@@ -1808,10 +1816,15 @@ export default function App() {
     // An agent is working on it right now: In progress, whatever it says
     // (`live` in list-rules, w-bc976fd247). Ahead of every branch here,
     // the team ones included, because none of them can see a session.
-    if (liveIds.has(i.id)) return false;
+    //
+    // Both vetoes carry the one exception the rule carries, and have to: these
+    // two lines answer before `belongsInInbox` is ever called, so without it
+    // the exception would hold in the rule and not in the app (w-fe48447cab).
+    // A row still asking you something is never hidden by either.
+    if (liveIds.has(i.id) && !stillAsksYou(i)) return false;
     // And the app is still to ship it, which is the same: nobody needs to look
     // until it has (`shipping` in list-rules, w-0c1ba766eb).
-    if (shippingIds.has(i.id)) return false;
+    if (shippingIds.has(i.id) && !stillAsksYou(i)) return false;
     if (owedAnAnswer.has(i.id)) return true;
     // The rule itself lives in list-rules.ts, pure and pinned by tests. What
     // is left here is the view's own business: the grace window, the clock,
@@ -2239,7 +2252,7 @@ export default function App() {
     : view === 'snoozed' ? snoozed
       : view === 'progress' ? progress
         : done;
-  const shownBox = useMemo(() => filterBox(wholeBox, boxFilter), [wholeBox, boxFilter]);
+  const shownBox = useMemo(() => filterBox(wholeBox, boxFilter, directSlugs), [wholeBox, boxFilter, directSlugs]);
   // THE DISPLAY MENU'S FILTERS AND SORT, on top of the box (approved
   // 2026-10-01). Remembered per page; the Inbox is a list by default and the
   // Team a board.
@@ -2396,12 +2409,12 @@ export default function App() {
   // whole inbox, or the next task opened can be one she has hidden
   // (w-27759abd33).
   const shownInbox = useMemo(
-    () => sortedByDisplay(filterBox(inbox, boxFilter).filter((i) => isTroubleRow(i) || isUpdateRow(i) || keepsDisplay(i, inboxDisplay, now, seenOf(i), directSlugs)), inboxDisplay, undefined, projectOrder, directSlugs),
+    () => sortedByDisplay(filterBox(inbox, boxFilter, directSlugs).filter((i) => isTroubleRow(i) || isUpdateRow(i) || keepsDisplay(i, inboxDisplay, now, seenOf(i), directSlugs)), inboxDisplay, undefined, projectOrder, directSlugs),
     [inbox, boxFilter, inboxDisplay, now, projectOrder, directSlugs, seenOf],
   );
   const boxFilterMenu = useMemo(
-    () => (modal === 'filter' ? filterMenu(wholeBox.filter((i) => !isTroubleRow(i) && !isUpdateRow(i)), boxFilter, snap?.products ?? []) : null),
-    [modal, wholeBox, boxFilter, snap?.products],
+    () => (modal === 'filter' ? filterMenu(wholeBox.filter((i) => !isTroubleRow(i) && !isUpdateRow(i)), boxFilter, snap?.products ?? [], directSlugs) : null),
+    [modal, wholeBox, boxFilter, snap?.products, directSlugs],
   );
   // ONE RULE FOR WHERE A THREAD SITS, THE TABS' OWN (2026-10-01: the board
   // said Running for queued work the tab did not). Needs you wins, then
@@ -2716,8 +2729,15 @@ export default function App() {
   // still in the page and every letter she types goes into the file instead of
   // into the palette's field.
   useEffect(() => {
-    const off = (window.zero as any)?.onKeyInTheFile?.((k: { key: string; meta?: boolean; ctrl?: boolean }) => {
-      if (!focusIsInTheFile(document.activeElement)) return;
+    const off = (window.zero as any)?.onKeyInTheFile?.((k: { key: string; meta?: boolean; ctrl?: boolean; fromGuest?: boolean }) => {
+      // A KEY OUT OF A WEBVIEW NEEDS NO FOCUS CHECK, and must not be given
+      // one. The check below exists to stop a key being answered twice when
+      // the window's own handler also heard it. The window never hears a
+      // guest's keys: a webview is a separate WebContents, not a frame of
+      // this page, and `document.activeElement` stays on BODY while the guest
+      // holds the keyboard (measured in the running app). So main says where
+      // the key came from and only a frame's is checked.
+      if (!k.fromGuest && !focusIsInTheFile(document.activeElement)) return;
       const meant = whatTheFileSentUp(k);
       if (meant === 'close') {
         if (!escapeInTheFileClosesIt(openDoc)) return;
@@ -3270,13 +3290,25 @@ export default function App() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Counts toasts, so each new one is a new element and its clock starts over.
   const toastShown = useRef(0);
-  const showToast = useCallback((text: string, goes?: { product: string; id: string }) => {
+  const showToast = useCallback((text: string, goes?: ToastGoes) => {
     toastShown.current += 1;
     setToast({ text, goes });
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), goes ? TOAST_GOES_MS : 2500);
   }, []);
   showToastRef.current = showToast;
+
+  // C TURNS THE CLOUD ON OR OFF, from anywhere a key reaches (2026-10-16), and
+  // a note says which. Through a ref so the key handlers read the cloud as it
+  // is now. Nothing without a cloud set up.
+  const toggleCloudRef = useRef<(() => void) | null>(null);
+  toggleCloudRef.current = () => {
+    const cloud = snap?.cloud;
+    if (!cloud?.setUp) return;
+    const mode = cloudToggleTarget(cloud);
+    void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode });
+    showToast(cloudToggleNote(mode));
+  };
 
   // A CLOUD ACCOUNT THAT WAS NOT ADDED, SAID THE MOMENT IT FAILS (2026-10-15):
   // the check goes on behind her, so when it fails with the setup closed she
@@ -3447,6 +3479,10 @@ export default function App() {
 
   // Every resolving action goes through here: the UI advances instantly, the
   // write happens after the grace window (unless Z cancels it first).
+  // WHILE NEO SENDS, HER REPLY BOX STAYS AS IT IS. A send closes the box, and
+  // a pasted screenshot too big for the saved draft goes with it: "you removed
+  // an image I had previously attached" (2026-10-16).
+  const neoSending = useRef(false);
   const deferCommit = useCallback(async (
     item: WorkItem,
     run: () => Promise<void>,
@@ -3478,7 +3514,7 @@ export default function App() {
   ) => {
     await flushPending(); // a new action commits the previous one immediately
     if (!stay) leaveResolved(item);
-    setModal(null);
+    if (!neoSending.current) setModal(null);
     setPendingId(item.id); // out of the inbox NOW; the write can wait, the signal cannot
     // "PRESS Z", NOT A BARE LETTER. The toast used to read "Closed: Added the
     // sign-in route. Tests g · Z to undo": the title had been cut mid-word at
@@ -3487,9 +3523,11 @@ export default function App() {
     // (see markDone below) and the key is named as a press, so neither half can
     // be read as part of the other.
     //
-    // A pick she is still looking at needs no way in: `stay` means the pane
-    // never left the row.
-    showToast(`${toast} · press Z to undo`, stay ? undefined : goes);
+    // A REPLY THAT KEEPS HER ON THE ROW NAMES IT TOO (w-5513afd09a). It used
+    // to name nothing when `stay` was set, so the moment she left the thread
+    // the toast had no O. The cap stays off while the row is the one open
+    // (toastOpens), which is the "needs no way in" this used to say.
+    showToast(`${toast} · press Z to undo`, goes);
     if (holdMs <= 0) {
       await run();
       await refresh();
@@ -3503,7 +3541,7 @@ export default function App() {
       await refresh();
       setPendingId((p) => (p === item.id ? null : p));
     }, UNDO_GRACE_MS);
-    pendingRef.current = { item, timer, run, restore, undid };
+    pendingRef.current = { item, timer, run, restore, undid, said: toast };
   }, [flushPending, leaveResolved, refresh, showToast]);
 
   // It closes the ROW and touches nothing else — no message, no signal, and the
@@ -3581,7 +3619,8 @@ export default function App() {
       setCloseAskOn(keyOf(item));
       return;
     }
-    const undid = [{ product: item.product, id: item.id, words: 'Undid closing it' }];
+    if (closesAgain(pendingRef.current, item)) return;
+    const undid = [{ product: item.product, id: item.id, words: UNDID_CLOSING }];
     await deferCommit(item, async () => {
       await api.answer({ product: item.product, id: item.id, status: 'done' });
       pushUndo({ label: `Reopened: ${clipToSentence(item.title, TOAST_TITLE)}`, undoes: `reopen “${clipToSentence(item.title, TOAST_TITLE)}”`, brings: item, undid, run: async () => { await api.answer({ product: item.product, id: item.id, status: 'open' }); } });
@@ -3773,7 +3812,7 @@ export default function App() {
     const isRunning = snap?.supervisor.running.some((run) => run.itemId === item.id && run.product === item.product);
     if (isRunning) {
       setFollowing({ product: item.product, id: item.id });
-      setModal(null);
+      if (!neoSending.current) setModal(null);
       // ON THE SCREEN BEFORE ANYTHING IS ASKED OF ANYBODY. The moment she
       // presses send, her message is the last thing in the conversation, where
       // she is already looking, and it says in its own head that the agent has
@@ -4036,9 +4075,14 @@ export default function App() {
     // Two true sentences, never one hopeful one. A failed hand-over says so; a
     // send says Sent, which is what it says everywhere else in this app; and a
     // session seen going back to work says the better thing.
+    // AND IT NAMES THE ROW, WITH Z WHEN THERE IS ONE (w-5513afd09a). The row
+    // has just left her inbox for In progress, so O is the way after it, and Z
+    // already took it back below without the toast ever saying so.
+    const back = { product: item.product, id: item.id };
+    const z = out?.key ? ' · Z to undo' : '';
     if (!out?.ok) showToast(out?.reason ?? 'The message could not be handed over.');
-    else if (out.working) showToast(`${agent.name} is working on it`);
-    else showToast(`Sent → ${agent.name}`);
+    else if (out.working) showToast(`${agent.name} is working on it${z}`, back);
+    else showToast(`Sent → ${agent.name}${z}`, back);
     // AND THE ROW HAS MOVED, so there is a way back. The row is in In progress
     // now and it stays there until the session stops, which on a long job is a
     // while; a reply she did not mean to send would otherwise have no undo at
@@ -4139,7 +4183,7 @@ export default function App() {
   // is the one question this card must never make her ask. The withdraw stops
   // the worker as well as closing the row: main/ipc.mjs kills the session on any
   // archive, and her archive outranks whatever a straggler writes afterwards.
-  const noteNewTask = useCallback((label: string, undoes: string, sent: ComposeDraft, withdraw: () => Promise<void>, undid?: UndidSpec[]) => {
+  const noteNewTask = useCallback((label: string, undoes: string, sent: ComposeDraft, withdraw: Undoable['run'], undid?: UndidSpec[]) => {
     pushUndo({
       label,
       undoes,
@@ -4377,12 +4421,13 @@ export default function App() {
   // refusal is either a race or a reason nothing can start it, said plainly.
   const runNow = useCallback(async (item: WorkItem) => {
     const r = await window.zero?.runNow?.({ product: item.product, id: item.id });
+    // Started, it names the thread for O (w-5513afd09a); a refusal names nothing.
     showToast(r?.ok ? 'Up next. It starts as soon as an agent is free.'
       : r?.reason === 'running' ? 'Already running.'
       : r?.reason === 'paused' ? 'Agents are paused. Turn them back on to run this.'
       : r?.reason === 'scheduled' ? 'This task is scheduled for later.'
       : r?.reason === 'held' ? 'Another session still holds this task. It starts when that lets go.'
-      : 'This task is no longer waiting.');
+      : 'This task is no longer waiting.', r?.ok ? { product: item.product, id: item.id } : undefined);
     await refresh();
   }, [refresh, showToast]);
 
@@ -4400,7 +4445,8 @@ export default function App() {
     // she can see and in none that she cannot.
     if (item.agent || isTroubleRow(item) || isUpdateRow(item)) return;
     const r = await (window.zero as any)?.redeliver?.({ product: item.product, id: item.id });
-    showToast(r?.ok ? `A fresh agent is picking this up → ${item.productName}` : 'Nothing here to restart');
+    showToast(r?.ok ? `A fresh agent is picking this up → ${item.productName}` : 'Nothing here to restart',
+      r?.ok ? { product: item.product, id: item.id } : undefined);
     await refresh();
   }, [refresh, showToast]);
 
@@ -4416,7 +4462,7 @@ export default function App() {
     // she can see and in none that she cannot.
     if (item.agent || isTroubleRow(item) || isUpdateRow(item)) return;
     await (window.zero as any)?.reopen?.({ product: item.product, id: item.id });
-    showToast(`Back in the queue → ${item.productName}`);
+    showToast(`Back in the queue → ${item.productName}`, { product: item.product, id: item.id });
     // Back in the queue is out of her inbox, so it hands her the next task
     // too.
     leaveResolved(item);
@@ -4462,7 +4508,9 @@ export default function App() {
         .filter(Boolean).join(', ')
       : r?.working
         ? 'Already working on it'
-        : 'Nothing to resume');
+        : 'Nothing to resume',
+    // One thread put back on names it for O; several have no one place to go.
+    list.length === 1 && (started || queued) ? { product: list[0].product, id: list[0].id } : undefined);
     // PUTTING A WORKER BACK ON IT IS A WAY OUT OF HER INBOX TOO, and it was the
     // fifth. ⌘K offers "Resume This Agent" on a row she is reading, a worker
     // claims it, and the row moves to In progress — the same emptying as
@@ -4496,7 +4544,7 @@ export default function App() {
       const now = Date.now();
       leaveUndoMarks(pending.undid, now, now);
       setFocused(pending.item);
-      showToast(restored ? 'Undone. Your message is back in the reply box.' : 'Undone. Nothing was sent.');
+      showToast(graceUndoneLine({ said: pending.said, restored: !!restored }));
       return;
     }
     // PAST THE GRACE WINDOW, Z REACHES THE LAST THING SHE DID, AND AFTER THIRTY
@@ -4536,11 +4584,18 @@ export default function App() {
     // `from` is taken before the undo writes anything, so the mark it leaves
     // spans exactly its own lines and the thread can fold them under it.
     const from = Date.now();
+    let outcome: Awaited<ReturnType<Undoable['run']>>;
     try {
-      await last.run();
+      outcome = await last.run();
     } catch (err) {
       setUndoStack((u) => [...u, last]);
       showToast(`Could not undo that. ${(err as Error)?.message ?? err}`);
+      return;
+    }
+    if (outcome && 'refused' in outcome) {
+      showToast(outcome.refused);
+      await refresh();
+      if (outcome.open) { setFocused(outcome.open); markSeen(outcome.open); }
       return;
     }
     leaveUndoMarks(last.undid, from, Date.now());
@@ -4567,19 +4622,87 @@ export default function App() {
     else if (shown.compose) { setFocused(null); setModal('compose'); }
   }, [undoStack, refresh, showToast, markSeen, leaveUndoMarks]);
 
+  const paletteCommands = useRef<CommandRow[]>([]);
+  // NEO, THE VOICE ALPHA (w-e85fd9144f). Nothing at all unless this Mac has
+  // the alpha flag. When it does, Neo's tool calls are carried out here with
+  // the same functions the keys use, so a voice can do nothing a hand could
+  // not; the rules about which thread and when to ask are in ./neo/bridge.
+  const neo = useNeo({
+    rows: () => shownInbox,
+    commands: () => paletteCommands.current,
+    threadsAnywhere: () => [...inbox, ...progress, ...snoozed, ...done],
+    threadById: (id) => items.find((i) => i.id === id) ?? null,
+    focused: () => focused,
+    options: (row) => (offerIsLive(row) ? itemOptions(row) : []),
+    summary: (row) => row.result || row.note || row.body || '',
+    about: (row) => row.problem || '',
+    projects: () => (snap?.products ?? []).filter((p) => !directSlugs.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name })),
+    open: (row) => { setSearch(null); setFocused(row); markSeen(row); },
+    pick: (row, n) => pickOption(row, n),
+    reply: async (row, text, { attach } = {}) => {
+      // The pictures in her reply box go out with the words, through the box's own send.
+      if (attach) {
+        let taken = false;
+        window.dispatchEvent(new CustomEvent('neo:send-from-box', { detail: { key: draftKey(row), text, answer: (sent: boolean) => { taken = sent; } } }));
+        if (taken) return 'with-pictures';
+      }
+      neoSending.current = true;
+      try { await answerWith(row, text); } finally { neoSending.current = false; }
+      return attach ? 'no-pictures' : undefined;
+    },
+    close: (row) => markDone(row),
+    later: (row, ts, label) => snoozeUntil(row, ts, label),
+    compose: async (text, product) => {
+      const message = threadMessage(text, []);
+      if (!message) return null;
+      const made = await api.compose({ product, title: message.title, body: message.body || undefined, kind: 'directive', priority: 5 });
+      // Z and Neo's own undo take it back, the same as a task typed into the card.
+      if (made?.id) {
+        pushUndo({ label: `Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`, undoes: 'take back the task you just made',
+          undid: [{ product: made.product, id: made.id, words: 'Undid sending it' }],
+          run: async () => {
+            const row = (await api.snapshot())?.items.find((i) => i.id === made.id && i.product === made.product);
+            if (answeredAlready(row)) return { refused: TOO_LATE_TO_WITHDRAW, open: row };
+            await api.answer({ product: made.product, id: made.id, status: 'done' });
+          } });
+        const next = await refresh();
+        showToast(sentLine({ to: snap?.products.find((p) => p.slug === product)?.name ?? product, when: null, held: false,
+          limit: next?.supervisor?.atLimit?.[made.id] }), { product: made.product, id: made.id });
+      }
+      return made;
+    },
+    undo: async () => {
+      if (pendingRef.current) { await undo(); return 'done'; }
+      const { take, instant } = nextUndo(undoStack, Date.now());
+      if (!take) return 'none';
+      if (!instant) return 'old';
+      await undo();
+      return 'done';
+    },
+  });
+
   // INTO THE ROW THE TOAST IS ABOUT, from a click on it or from O
   // (w-f0bfe32859). One path, so the key can never open something the click
   // would not. The lookup is by id at the moment of the press, against whatever
   // the window holds by then; a row withdrawn with Z simply does not answer.
+  // `openRepeat` is defined well below; it is reached through this ref.
+  const openRepeatRef = useRef<((rule: RepeatRule) => void) | null>(null);
   const openToastRow = useCallback((to: ToastGoes) => {
+    setToast(null);
+    // A NEW REPEATING TASK OPENS AS ITSELF (w-5513afd09a), the way a click on
+    // it in Later does: its latest run if it has one, its own page if not.
+    if (to.repeat) {
+      const rule = repeats.find((r) => r.id === to.id && r.product === to.product);
+      if (rule) { setSearch(null); openRepeatRef.current?.(rule); }
+      return;
+    }
     const row = [...inbox, ...progress, ...snoozed, ...done]
       .find((i) => i.id === to.id && i.product === to.product);
-    setToast(null);
     if (!row) return;
     setSearch(null);
     setFocused(row);
     markSeen(row);
-  }, [inbox, progress, snoozed, done, markSeen]);
+  }, [inbox, progress, snoozed, done, markSeen, repeats]);
 
   /* ------------------------------- keyboard ------------------------------- */
   useEffect(() => {
@@ -4667,6 +4790,11 @@ export default function App() {
         setMultiSel((m) => m.size >= list.length && list.length > 0 ? new Set() : new Set(list.map((i) => i.id)));
         return;
       }
+      if (cloudChord(e, { inInput, selection: String(window.getSelection?.() ?? ''), modal: !!modal })) {
+        e.preventDefault();
+        toggleCloudRef.current?.();
+        return;
+      }
       // cmd-Y / cmd-N (answer the oldest approval card) live in the MAIN
       // process (before-input-event in main.mjs): menu accelerators and
       // renderer handlers both go quiet while an iframe holds focus, and these
@@ -4716,7 +4844,7 @@ export default function App() {
       // it means the same thing on the list and inside a task (answering one
       // moves you on, and O brings you back to it). Only while a toast with
       // somewhere to go is up: the cap drawn on it is the only promise of it.
-      const goesTo = opensTheToast(e.key, toast);
+      const goesTo = opensTheToast(e.key, toast, focused ? { product: focused.product, id: focused.id } : null);
       if (goesTo) { e.preventDefault(); openToastRow(goesTo); return; }
       // AN OPEN REPEATING TASK IS A SCREEN, AND EVERY KEY STOPS HERE.
       //
@@ -4812,10 +4940,10 @@ export default function App() {
         // E archives, unconditionally. It must never approve on her behalf.
         else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); markDone(focused); }
         else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setOpenDoc(null); setModal('reply'); }
-        // N (AND THE OLDER C) MEAN THE SAME THING ON BOTH SCREENS. The + in
-        // the top bar is on this screen too and its tooltip says "New task
-        // (N)", so the key is already advertised here.
-        else if (e.key === 'c' || e.key === 'C' || e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
+        // N MEANS THE SAME THING ON BOTH SCREENS. The + in the top bar is on
+        // this screen too and its tooltip says "New task (N)", so the key is
+        // already advertised here.
+        else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
         // L, NOT S, SINCE 2026-10-01. S was the schedule picker here and the
         // summary panel on the same screen (threads/Summary.tsx listens first
         // and eats it), so the two fought over one letter and a persona test
@@ -4837,7 +4965,7 @@ export default function App() {
           const target = stepStop(stops, { card: openCard }, (e.key === 'j' || e.key === 'J') ? 1 : -1, walkPlace);
           if (target) goToStop(target);
         }
-        else if (e.key === 'c' || e.key === 'C' || e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
+        else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
         else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); }
         return;
       }
@@ -4913,8 +5041,8 @@ export default function App() {
           if (multiSel.size) openSnooze(selectable.filter((i) => multiSel.has(i.id)));
           else if (pointed && (view === 'inbox' || view === 'snoozed')) openSnooze(pointed);
           break;
-        // N does the same as C: the letter she reached for (w-fb9051e597).
-        case 'c': case 'C': case 'n': case 'N': e.preventDefault(); setModal('compose'); break;
+        // N starts a thread (w-fb9051e597). C does nothing: the cloud is ⌘C.
+        case 'n': case 'N': e.preventDefault(); setModal('compose'); break;
         case 'z': case 'Z': undo(); break;
         // B FLIPS LIST AND BOARD (w-58c8f466e7): "I quite often switch between
         // board and list view". B for board; it shipped as V first and that
@@ -5303,6 +5431,7 @@ export default function App() {
     if (latest) { setFocusedRepeat(null); setCardSel(null); setFocused(latest); markSeen(latest); }
     else { setFocused(null); setFocusedRepeat(rule); }
   };
+  openRepeatRef.current = openRepeat;
   // HER MESSAGE, SPLIT THE SAME WAY IT WAS SPLIT WHEN SHE TYPED IT. The label is
   // derived rather than kept, so the Later row and the instruction cannot drift
   // apart, and the next run reads the new body (main/repeats.mjs briefs it with
@@ -5665,6 +5794,7 @@ export default function App() {
               people={peoplePick}
               cloud={snap.cloud ?? null}
               onCloudMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
+              onCloudWhenOn={(mode) => { void api.setWorkspaceSetting({ key: 'cloudWhenOn', value: mode }); }}
               onCloudSetUp={() => setCloudSetupOpen(true)}
             />
           )}
@@ -6018,6 +6148,11 @@ export default function App() {
                   onStop={() => stopAgent(focused)}
                   onRunNow={() => runNow(focused)}
                   onPin={focused.agent ? undefined : (pin) => pinThread(focused.id, pin, true)}
+                  place={focused.agent ? null : threadPlace(focused, snap.supervisor.running.find((r) => r.itemId === focused.id) ?? null, snap.cloud ?? null, snap.products)}
+                  onPlace={(keep) => {
+                    void api.setThreadOnMac({ [focused.id]: keep ? true : null });
+                    showToast(keep ? 'This thread now runs only on this Mac' : 'This thread can run on the cloud again');
+                  }}
                   onReveal={() => revealAgent(focused)}
                   // Remind me later and stop this task are neither of the two
                   // ways a task ends, and the card beside the bar names exactly
@@ -6291,7 +6426,9 @@ export default function App() {
             }
             if (how?.kind === 'message') {
               const said = firstNames(how.toMany ?? [how.to ?? '']);
-              showToast(said ? `Sent to ${said}` : 'Message sent');
+              // Named for O, like a new thread (w-5513afd09a). No Z: a message
+              // has reached the team cloud by now and there is no taking it back.
+              showToast(said ? `Sent to ${said}` : 'Message sent', how.made ? { product: how.made.product, id: how.made.id } : undefined);
               await refresh();
               return;
             }
@@ -6305,21 +6442,31 @@ export default function App() {
                   setRepeats(await api.repeats());
                 });
               }
-              showToast(`Repeating → ${to ?? slug} · Z to undo`);
+              // O opens the new repeating task, and Z is promised only when
+              // there is a rule for it to end (w-5513afd09a). The list of rules
+              // is read first, so O finds the one just made.
+              if (how.ruleId) setRepeats(await api.repeats());
+              showToast(how.ruleId ? `Repeating → ${to ?? slug} · Z to undo` : `Repeating → ${to ?? slug}`,
+                how.ruleId ? { product: slug, id: how.ruleId, repeat: true } : undefined);
               await refresh();
               return;
             }
             if (made?.id) {
               noteNewTask(`Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`, 'take back the task you just made', sent, async () => {
+                const row = (await api.snapshot())?.items.find((i) => i.id === made.id && i.product === made.product);
+                if (answeredAlready(row)) return { refused: TOO_LATE_TO_WITHDRAW, open: row };
                 await api.answer({ product: made.product, id: made.id, status: 'done' });
               }, [{ product: made.product, id: made.id, words: 'Undid sending it' }]);
             }
+            // Read before the line is said: a tool with no login left in
+            // usage means nothing started, and the line has to say so.
+            const next = await refresh();
             showToast(sentLine({
               to: to ?? slug,
               when: how?.runAt ? whenLabel({ runAt: how.runAt, repeat: null }) : null,
               held: how?.start === 'later',
+              limit: made?.id ? next?.supervisor?.atLimit?.[made.id] : null,
             }), made?.id ? { product: made.product, id: made.id } : undefined);
-            await refresh();
           }}
         />
       )}
@@ -6329,230 +6476,233 @@ export default function App() {
           a `scripted` prop for that now, so the tutorial opens the same card
           everybody else opens. Her words: "the tutorial is using the wrong
           component here, we no longer use this". */}
-      {modal === 'palette' && (
-        <Palette
-          onFirstRun={walkAgain}
-          onTutorial={() => startTutorial(comeBackTo(snap.products, productFilter, rememberedProject()))}
-          onImportAgents={() => { setModal(null); setImportAgents(true); }}
-          onFreshUser={openAsNewUser}
-          onDemo={openDemoInbox}
-          products={rankedProducts}
-          supervisorPaused={snap.supervisor.paused}
-          batch={multiSel.size > 0}
-          look={look}
-          machine={machine}
-          onSetLook={(l) => { setLook(l); setModal(null); }}
-          staleFiles={snap.restartNeeded?.files ?? []}
-          /*
-           * A newer Agentbox that has already downloaded itself. The palette is
-             the glance surface for it, not the rail (main/updater.mjs).
+      {/* Always worked out, drawn only while open: Neo runs its commands by name. */}
+      <Palette
+        open={modal === 'palette'}
+        commandsRef={paletteCommands}
+        cloud={snap.cloud?.setUp ? snap.cloud : null}
+        onCloudMode={(mode) => { setModal(null); void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
+        onFirstRun={walkAgain}
+        onTutorial={() => startTutorial(comeBackTo(snap.products, productFilter, rememberedProject()))}
+        onImportAgents={() => { setModal(null); setImportAgents(true); }}
+        onFreshUser={openAsNewUser}
+        onDemo={openDemoInbox}
+        products={rankedProducts}
+        supervisorPaused={snap.supervisor.paused}
+        batch={multiSel.size > 0}
+        look={look}
+        machine={machine}
+        onSetLook={(l) => { setLook(l); setModal(null); }}
+        staleFiles={snap.restartNeeded?.files ?? []}
+        /*
+         * A newer Agentbox that has already downloaded itself. The palette is
+           the glance surface for it, not the rail (main/updater.mjs).
 
-             `closed` is empty ON PURPOSE and it is the whole of "rejecting an
-             update loses nothing": closing the row hides the ROW, and ⌘K goes
-             on carrying the restart for the version she closed. What it shares
-             with the row is the walk: ⌘K is a beat of the tutorial, and a
-             command about a new version appearing in the middle of the one she
-             is being taught is the same interruption the walk must not have. */
-          updateReady={announcesUpdate(snap.update, { walking, closed: '' })
-            ? (snap.update?.newVersion ?? null)
-            : null}
-          onInstallUpdate={() => { setModal(null); void api.updateInstall(); }}
-          /* LOOKING NOW, FROM ⌘K (w-39d6c237f7). The palette closes and the
-             answer arrives as a toast in the Settings row's own words, so the
-             two surfaces can never disagree about what was found. A check takes
-             a second or two against GitHub, so the toast says it is looking
-             first rather than leaving the press unanswered. */
-          onCheckUpdate={() => {
-            setModal(null);
-            showToast(CHECK_SAY.looking);
-            void api.updateCheck().then((got) => showToast(updateLook(got).sentence));
-          }}
-          /* AND THE MOVE, for a copy that cannot update itself from where it
-             is. A successful move relaunches the app, so there is nothing to
-             draw after it; a failure answers with its own reason and the
-             sidebar and Settings go on offering the press. */
-          moveToApplications={announcesMove(snap.update, { walking, closed: '' })}
-          onMoveToApplications={() => {
-            setModal(null);
-            void api.updateMove().then((got) => { if (!got.moved && got.error) showToast(got.error); });
-          }}
-          panelUp={panelShownNow}
-          onTogglePanel={() => { setModal(null); togglePanel(); }}
-          boardUp={inboxDisplay.view === 'board'}
-          onFlipView={!inFullScreen && search === null && !teamShown && !openCard
-            ? () => { setModal(null); setInboxDisplay(flipView(inboxDisplay)); setSelected(0); }
-            : undefined}
-          keyHints={keyHints}
-          onSetKeyHints={(v) => { setModal(null); setHints(v); }}
-          onSearch={openSearch}
-          itemCommands={(() => {
-            // A cmd-A (or shift-J/K) selection turns the palette into batch
-            // mode: every command it offers acts on the whole selection, and
-            // single-item commands (Reply, Approve) drop out rather than
-            // silently acting on one row of a many-row selection.
-            if (multiSel.size) {
-              const sel = selectable.filter((i) => multiSel.has(i.id));
-              const n = sel.length;
-              return [
-                ...(view !== 'snoozed'
-                  ? [{ id: 'done', label: `Close (${n} selected)`, keyHint: 'E', run: () => { setModal(null); batchDone(multiSel); } }]
-                  : []),
-                { id: 'snooze', label: `Later (${n} selected)`, keywords: LATER_KEYWORDS, keyHint: 'L', run: () => openSnooze(sel) },
-                ...(sel.some((i) => returnAt(i) > Date.now())
-                  ? [{ id: 'unsnooze', label: `Back to Inbox (${n} selected)`, run: () => unsnooze(sel) }]
-                  : []),
-                { id: 'read', label: `Mark Read (${n} selected)`, run: () => {
-                  setSeen((s) => new Set([...s, ...sel.map((i) => i.id)]));
-                  setMultiSel(new Set());
-                  setModal(null);
-                } },
-                // Resume only what she ticked. Some of what stops is work she
-                // has moved past, and all-or-nothing made her choose between
-                // restarting things she had written off and restarting nothing
-                // (2026-08-07). Counted by what will actually move, not by the
-                // ticks: a row a worker is already on is not resumed by asking.
-                //
-                // ONE command, deliberately. It used to reach only stalled rows,
-                // which left the ones that most need reviving (a worker's `done`
-                // over a live thread) unreachable by every path there is. Adding
-                // a second command for those put two matches under "resum",
-                // which is the choice this command was rewritten this morning to
-                // stop her having to make correctly at speed.
-                ...(sel.filter((i) => !working(i)).length
-                  ? [{ id: 'resume',
-                       label: `Resume Agents (${sel.filter((i) => !working(i)).length} of ${n} selected)`,
-                       run: () => { setModal(null); putAgentBackOn(sel.filter((i) => !working(i))); } }]
-                  : []),
-                ...priorityCommands(sel).map((c) => ({
-                  ...c, run: () => { setModal(null); void retag(sel, c.value); },
-                })),
-              ];
-            }
-            // The same row the hint and the keys are on, so ⌘K opened over a
-            // row cannot mean a different task than E pressed over it.
-            const target = focused ?? pointed;
-            if (!target) return [];
-            const options = itemOptions(target);
-            const recommended = options.find((o) => o.recommended) ?? options[0];
-            const open = () => { setFocused(target); markSeen(target); };
+           `closed` is empty ON PURPOSE and it is the whole of "rejecting an
+           update loses nothing": closing the row hides the ROW, and ⌘K goes
+           on carrying the restart for the version she closed. What it shares
+           with the row is the walk: ⌘K is a beat of the tutorial, and a
+           command about a new version appearing in the middle of the one she
+           is being taught is the same interruption the walk must not have. */
+        updateReady={announcesUpdate(snap.update, { walking, closed: '' })
+          ? (snap.update?.newVersion ?? null)
+          : null}
+        onInstallUpdate={() => { setModal(null); void api.updateInstall(); }}
+        /* LOOKING NOW, FROM ⌘K (w-39d6c237f7). The palette closes and the
+           answer arrives as a toast in the Settings row's own words, so the
+           two surfaces can never disagree about what was found. A check takes
+           a second or two against GitHub, so the toast says it is looking
+           first rather than leaving the press unanswered. */
+        onCheckUpdate={() => {
+          setModal(null);
+          showToast(CHECK_SAY.looking);
+          void api.updateCheck().then((got) => showToast(updateLook(got).sentence));
+        }}
+        /* AND THE MOVE, for a copy that cannot update itself from where it
+           is. A successful move relaunches the app, so there is nothing to
+           draw after it; a failure answers with its own reason and the
+           sidebar and Settings go on offering the press. */
+        moveToApplications={announcesMove(snap.update, { walking, closed: '' })}
+        onMoveToApplications={() => {
+          setModal(null);
+          void api.updateMove().then((got) => { if (!got.moved && got.error) showToast(got.error); });
+        }}
+        panelUp={panelShownNow}
+        onTogglePanel={() => { setModal(null); togglePanel(); }}
+        boardUp={inboxDisplay.view === 'board'}
+        onFlipView={!inFullScreen && search === null && !teamShown && !openCard
+          ? () => { setModal(null); setInboxDisplay(flipView(inboxDisplay)); setSelected(0); }
+          : undefined}
+        keyHints={keyHints}
+        onSetKeyHints={(v) => { setModal(null); setHints(v); }}
+        onSearch={openSearch}
+        itemCommands={(() => {
+          // A cmd-A (or shift-J/K) selection turns the palette into batch
+          // mode: every command it offers acts on the whole selection, and
+          // single-item commands (Reply, Approve) drop out rather than
+          // silently acting on one row of a many-row selection.
+          if (multiSel.size) {
+            const sel = selectable.filter((i) => multiSel.has(i.id));
+            const n = sel.length;
             return [
-              ...(focused
-                ? [{id:'remote-control',label:'Remote Control',keywords:'phone mobile continue claude rc',run:()=>{setModal(null);window.dispatchEvent(new Event('task-remote-control-open'));}}, {id:'open-terminal',label:'Open Terminal',keywords:'shell command console',run:()=>{setModal(null);window.dispatchEvent(new Event('task-terminal-open'));}}]
+              ...(view !== 'snoozed'
+                ? [{ id: 'done', label: `Close (${n} selected)`, keyHint: 'E', run: () => { setModal(null); batchDone(multiSel); } }]
                 : []),
-              // Approve lives here by NAME only, for everything resolve
-              // covers; no key drives it. E is archive, never approval.
-              ...(!target.agent && !target.answer && (target.kind === 'review' || (target.kind === 'question' && recommended)
-                || (target.status === 'open' && target.kind !== 'question' && !(target.labels ?? []).includes('founder')))
-                ? [{ id: 'approve',
-                    label: target.kind === 'question' ? 'Approve Recommended'
-                      : target.kind === 'review' ? 'Approve (Proceed as Proposed)' : 'Approve (Run It)',
-                    run: () => { setModal(null); resolve(target); } }]
+              { id: 'snooze', label: `Later (${n} selected)`, keywords: LATER_KEYWORDS, keyHint: 'L', run: () => openSnooze(sel) },
+              ...(sel.some((i) => returnAt(i) > Date.now())
+                ? [{ id: 'unsnooze', label: `Back to Inbox (${n} selected)`, run: () => unsnooze(sel) }]
                 : []),
-              // RUN NOW, by the same rule as the three-dot menu (run-now.ts).
-              // It had no entry here, and ⌘K is where she looked for it.
-              ...runNowCommands(target, {
-                session: snap.supervisor.running.find((r) => r.itemId === target.id) ?? null,
-                queued: snap.supervisor.queued,
-                runNow: snap.supervisor.runNow,
-                inProgress: belongsInProgress(target, { deferredUntil: dueAt(target), now, live: liveIds.has(target.id) }),
-              }, () => { setModal(null); void runNow(target); }),
-              { id: 'done', label: target.agent ? DONE.verb : `${DONE.verb} Task`, keyHint: 'E', run: () => { setModal(null); markDone(target); } },
-              { id: 'reply', label: 'Reply', keyHint: 'R', run: () => { open(); setModal('reply'); } },
-              // Carry on with this row. Offered on ANY status a worker is not
-              // already on, because the row that needed it most was `done`:
-              // filed by the worker that answered her one-word question, and
-              // then unreachable by every path that spawns anything. Resume is
-              // for a row that has STOPPED. A row already under way is
-              // excluded, and the stop above is what it gets instead.
-              ...(!target.agent && !working(target) && !stoppableNow(target)
-                ? [{ id: 'resume-any',
-                     label: target.status === 'done' ? 'Resume This Agent (Reopen and Carry On)' : 'Resume This Agent',
-                     run: () => { setModal(null); putAgentBackOn([target]); } }]
-                : []),
-              // No Decline here, by design. Close This Task above
-              // is the one way to say no.
-              seen.has(target.id)
-                ? { id: 'unread', label: 'Mark Unread', run: () => { setSeen((s) => { const c = new Set(s); c.delete(target.id); return c; }); setModal(null); } }
-                : { id: 'read', label: 'Mark Read', run: () => { markSeen(target); setModal(null); } },
-              ...(returnAt(target) > Date.now()
-                ? [{
-                    id: 'unsnooze',
-                    label: parkedByAgent(target, now) ? 'Let It Run Now' : 'Back to Inbox',
-                    keyHint: 'E',
-                    run: () => unsnooze(target),
-                  }]
-                : []),
-              { id: 'snooze', label: 'Later', keywords: LATER_KEYWORDS, keyHint: 'L', run: () => openSnooze(target) },
-              // THE FIRST PLACE SHE LOOKED. It asked `supervisor.running`, so on
-              // a task she had just composed there was no Stop in ⌘K at all —
-              // and, because nothing was running, the one agent command that DID
-              // appear was "Resume This Agent". It now asks the same question
-              // the tab asks.
+              { id: 'read', label: `Mark Read (${n} selected)`, run: () => {
+                setSeen((s) => new Set([...s, ...sel.map((i) => i.id)]));
+                setMultiSel(new Set());
+                setModal(null);
+              } },
+              // Resume only what she ticked. Some of what stops is work she
+              // has moved past, and all-or-nothing made her choose between
+              // restarting things she had written off and restarting nothing
+              // (2026-08-07). Counted by what will actually move, not by the
+              // ticks: a row a worker is already on is not resumed by asking.
               //
-              // A stop that only says "stopped" reads as parked, and a parked
-              // row is one that gets forgotten for days. The row does land in the inbox (the
-              // IPC parks it blocked, and `belongsInInbox` ends on exactly
-              // that), so this is the surface catching up with what already
-              // happens.
-              //
-              // So the two surfaces carry the same promise in different lengths
-              // on purpose: the footer button has a whole row to itself and
-              // keeps her longer sentence, the ⌘K row sits in a column of short
-              // commands and must not stick out of it. Her exact string, and
-              // the agent variant shortened the same way, since it is the same
-              // row with a worker running.
-              ...(stoppableNow(target)
-                ? [{ id: 'stop',
-                     label: working(target)
-                       ? 'Stop Agent (Moves to Inbox)'
-                       : 'Stop Task (Moves to Inbox)',
-                     hint: working(target) ? undefined : 'nothing has started on it yet',
-                     run: () => { setModal(null); stopAgent(target); } }]
+              // ONE command, deliberately. It used to reach only stalled rows,
+              // which left the ones that most need reviving (a worker's `done`
+              // over a live thread) unreachable by every path there is. Adding
+              // a second command for those put two matches under "resum",
+              // which is the choice this command was rewritten this morning to
+              // stop her having to make correctly at speed.
+              ...(sel.filter((i) => !working(i)).length
+                ? [{ id: 'resume',
+                     label: `Resume Agents (${sel.filter((i) => !working(i)).length} of ${n} selected)`,
+                     run: () => { setModal(null); putAgentBackOn(sel.filter((i) => !working(i))); } }]
                 : []),
-              ...(target.status === 'blocked'
-                ? [{ id: 'send-back', label: 'Send Back to Agent', run: () => { setModal(null); sendBack(target); } }]
-                : []),
-              ...(snap.supervisor.stalled?.includes(target.id)
-                ? [{ id: 'redeliver', label: 'Restart the Agent (It Stopped)', run: () => { setModal(null); redeliver(target); } }]
-                : []),
-              ...(!focused ? [{ id: 'open', label: 'Open', keyHint: '↵', run: () => { setModal(null); open(); } }] : []),
-              // ⌘K is the ONLY keyboard route to a level now: the ⌘1..4 chord
-              // was removed on her word. It had no entry here once, and the
-              // one place she went looking for it was the one place it was
-              // missing.
-              ...priorityCommands([target]).map((c) => ({
-                ...c, run: () => { setModal(null); void retag([target], c.value); },
+              ...priorityCommands(sel, directSlugs).map((c) => ({
+                ...c, run: () => { setModal(null); void retag(sel, c.value); },
               })),
             ];
-          })()}
-          filtering={isFiltering(boxFilter)}
-          // "Filter…" hands the keyboard straight to the corner's menu, so ⌘K
-          // is one line however many projects she has (w-aa3fa4cbf0).
-          onOpenFilter={() => setModal('filter')}
-          onClearFilter={() => { setBoxFilter(NO_FILTER); setModal(null); }}
-          onView={(v) => { setView(v); setModal(null); setSelected(0); }}
-          onPause={async (paused) => { await api.pauseSupervisor(paused); setModal(null); await refresh(); }}
-          order={snap.supervisor.productOrder ?? []}
-          onRankFirst={async (slug) => {
-            setModal(null);
-            // The palette can only say "put this at the top", because a running
-            // order is not something to type your way through one step at a
-            // time. Fine grained ordering is the drag in the composer.
-            const next = moveProduct(rankedProducts.map((p) => p.slug), slug, 0);
-            await (window.zero as any)?.setProductOrder?.({ order: next });
-            const name = snap.products.find((p) => p.slug === slug)?.name ?? slug;
-            showToast(`${name} is now first`);
-            await refresh();
-          }}
-          onResume={() => { setModal(null); resumeAgents(null); }}
-          onNewProject={() => { setModal(null); setNewProject(true); }}
-          onStanding={() => setModal('standing')}
-          onSettings={() => { setModal(null); setSettingsPane(null); setSettingsOpen(true); }}
-          onShortcuts={() => { setModal(null); setSettingsPane('shortcuts'); setSettingsOpen(true); }}
-          onOpenProjects={() => { setModal(null); setTeamOpen(false); setSettingsPane('projects'); setSettingsOpen(true); }}
-          onClose={() => setModal(null)}
-        />
-      )}
+          }
+          // The same row the hint and the keys are on, so ⌘K opened over a
+          // row cannot mean a different task than E pressed over it.
+          const target = focused ?? pointed;
+          if (!target) return [];
+          const options = itemOptions(target);
+          const recommended = options.find((o) => o.recommended) ?? options[0];
+          const open = () => { setFocused(target); markSeen(target); };
+          return [
+            ...(focused
+              ? [{id:'remote-control',label:'Remote Control',keywords:'phone mobile continue claude rc',run:()=>{setModal(null);window.dispatchEvent(new Event('task-remote-control-open'));}}, {id:'open-terminal',label:'Open Terminal',keywords:'shell command console',run:()=>{setModal(null);window.dispatchEvent(new Event('task-terminal-open'));}}]
+              : []),
+            // Approve lives here by NAME only, for everything resolve
+            // covers; no key drives it. E is archive, never approval.
+            ...(!target.agent && !target.answer && (target.kind === 'review' || (target.kind === 'question' && recommended)
+              || (target.status === 'open' && target.kind !== 'question' && !(target.labels ?? []).includes('founder')))
+              ? [{ id: 'approve',
+                  label: target.kind === 'question' ? 'Approve Recommended'
+                    : target.kind === 'review' ? 'Approve (Proceed as Proposed)' : 'Approve (Run It)',
+                  run: () => { setModal(null); resolve(target); } }]
+              : []),
+            // RUN NOW, by the same rule as the three-dot menu (run-now.ts).
+            // It had no entry here, and ⌘K is where she looked for it.
+            ...runNowCommands(target, {
+              session: snap.supervisor.running.find((r) => r.itemId === target.id) ?? null,
+              queued: snap.supervisor.queued,
+              runNow: snap.supervisor.runNow,
+              inProgress: belongsInProgress(target, { deferredUntil: dueAt(target), now, live: liveIds.has(target.id) }),
+            }, () => { setModal(null); void runNow(target); }),
+            { id: 'done', label: target.agent ? DONE.verb : `${DONE.verb} Task`, keyHint: 'E', run: () => { setModal(null); markDone(target); } },
+            { id: 'reply', label: 'Reply', keyHint: 'R', run: () => { open(); setModal('reply'); } },
+            // Carry on with this row. Offered on ANY status a worker is not
+            // already on, because the row that needed it most was `done`:
+            // filed by the worker that answered her one-word question, and
+            // then unreachable by every path that spawns anything. Resume is
+            // for a row that has STOPPED. A row already under way is
+            // excluded, and the stop above is what it gets instead.
+            ...(!target.agent && !working(target) && !stoppableNow(target)
+              ? [{ id: 'resume-any',
+                   label: target.status === 'done' ? 'Resume This Agent (Reopen and Carry On)' : 'Resume This Agent',
+                   run: () => { setModal(null); putAgentBackOn([target]); } }]
+              : []),
+            // No Decline here, by design. Close This Task above
+            // is the one way to say no.
+            seen.has(target.id)
+              ? { id: 'unread', label: 'Mark Unread', run: () => { setSeen((s) => { const c = new Set(s); c.delete(target.id); return c; }); setModal(null); } }
+              : { id: 'read', label: 'Mark Read', run: () => { markSeen(target); setModal(null); } },
+            ...(returnAt(target) > Date.now()
+              ? [{
+                  id: 'unsnooze',
+                  label: parkedByAgent(target, now) ? 'Let It Run Now' : 'Back to Inbox',
+                  keyHint: 'E',
+                  run: () => unsnooze(target),
+                }]
+              : []),
+            { id: 'snooze', label: 'Later', keywords: LATER_KEYWORDS, keyHint: 'L', run: () => openSnooze(target) },
+            // THE FIRST PLACE SHE LOOKED. It asked `supervisor.running`, so on
+            // a task she had just composed there was no Stop in ⌘K at all —
+            // and, because nothing was running, the one agent command that DID
+            // appear was "Resume This Agent". It now asks the same question
+            // the tab asks.
+            //
+            // A stop that only says "stopped" reads as parked, and a parked
+            // row is one that gets forgotten for days. The row does land in the inbox (the
+            // IPC parks it blocked, and `belongsInInbox` ends on exactly
+            // that), so this is the surface catching up with what already
+            // happens.
+            //
+            // So the two surfaces carry the same promise in different lengths
+            // on purpose: the footer button has a whole row to itself and
+            // keeps her longer sentence, the ⌘K row sits in a column of short
+            // commands and must not stick out of it. Her exact string, and
+            // the agent variant shortened the same way, since it is the same
+            // row with a worker running.
+            ...(stoppableNow(target)
+              ? [{ id: 'stop',
+                   label: working(target)
+                     ? 'Stop Agent (Moves to Inbox)'
+                     : 'Stop Task (Moves to Inbox)',
+                   hint: working(target) ? undefined : 'nothing has started on it yet',
+                   run: () => { setModal(null); stopAgent(target); } }]
+              : []),
+            ...(target.status === 'blocked'
+              ? [{ id: 'send-back', label: 'Send Back to Agent', run: () => { setModal(null); sendBack(target); } }]
+              : []),
+            ...(snap.supervisor.stalled?.includes(target.id)
+              ? [{ id: 'redeliver', label: 'Restart the Agent (It Stopped)', run: () => { setModal(null); redeliver(target); } }]
+              : []),
+            ...(!focused ? [{ id: 'open', label: 'Open', keyHint: '↵', run: () => { setModal(null); open(); } }] : []),
+            // ⌘K is the ONLY keyboard route to a level now: the ⌘1..4 chord
+            // was removed on her word. It had no entry here once, and the
+            // one place she went looking for it was the one place it was
+            // missing.
+            ...priorityCommands([target], directSlugs).map((c) => ({
+              ...c, run: () => { setModal(null); void retag([target], c.value); },
+            })),
+          ];
+        })()}
+        filtering={isFiltering(boxFilter)}
+        // "Filter…" hands the keyboard straight to the corner's menu, so ⌘K
+        // is one line however many projects she has (w-aa3fa4cbf0).
+        onOpenFilter={() => setModal('filter')}
+        onClearFilter={() => { setBoxFilter(NO_FILTER); setModal(null); }}
+        onView={(v) => { setView(v); setModal(null); setSelected(0); }}
+        onPause={async (paused) => { await api.pauseSupervisor(paused); setModal(null); await refresh(); }}
+        order={snap.supervisor.productOrder ?? []}
+        onRankFirst={async (slug) => {
+          setModal(null);
+          // The palette can only say "put this at the top", because a running
+          // order is not something to type your way through one step at a
+          // time. Fine grained ordering is the drag in the composer.
+          const next = moveProduct(rankedProducts.map((p) => p.slug), slug, 0);
+          await (window.zero as any)?.setProductOrder?.({ order: next });
+          const name = snap.products.find((p) => p.slug === slug)?.name ?? slug;
+          showToast(`${name} is now first`);
+          await refresh();
+        }}
+        onResume={() => { setModal(null); resumeAgents(null); }}
+        onNewProject={() => { setModal(null); setNewProject(true); }}
+        onStanding={() => setModal('standing')}
+        onSettings={() => { setModal(null); setSettingsPane(null); setSettingsOpen(true); }}
+        onShortcuts={() => { setModal(null); setSettingsPane('shortcuts'); setSettingsOpen(true); }}
+        onOpenProjects={() => { setModal(null); setTeamOpen(false); setSettingsPane('projects'); setSettingsOpen(true); }}
+        onClose={() => setModal(null)}
+      />
       {/* SETTINGS, as a screen over everything. Not inside the modal stack:
           its own General pane opens the standing-instructions box, and a single
           state for both would have that box close the screen it was opened
@@ -6572,6 +6722,7 @@ export default function App() {
           tune={tune}
           onSetTune={setTune}
           onResetTune={resetTune}
+          cloud={snap.cloud?.setUp ? snap.cloud : null}
           startPane={settingsPane}
           onNewProject={() => setNewProject(true)}
           // The Priority page: the same running order every project list
@@ -6586,6 +6737,7 @@ export default function App() {
              has no team in it, and this keeps the team's code in the team's
              files. No team cloud, no pane and no Team row. */
           teamPane={snap?.team?.configured ? <TeamPage team={snap?.team} inviteFocus={inviteFocus} /> : undefined}
+          neoOn={neo.on}
           // WHO SEES A PROJECT'S THREADS (w-b989839656): the button beside a
           // project's name and the Projects list's column, only while someone
           // is signed in to a team, handed in for the same reason as the pane.
@@ -7088,16 +7240,22 @@ export default function App() {
           picked out of fourteen drawings over four rounds. */}
       {toast && (() => {
         const { line, undo: undoes } = toastParts(toast.text);
-        const about = toast.goes
-          ? [...inbox, ...progress, ...snoozed, ...done].find((i) => i.id === toast.goes!.id && i.product === toast.goes!.product)
-          : undefined;
+        const about: { label?: string; title: string } | undefined = !toast.goes
+          ? undefined
+          : toast.goes.repeat
+            ? repeats.find((r) => r.id === toast.goes!.id && r.product === toast.goes!.product)
+            : [...inbox, ...progress, ...snoozed, ...done].find((i) => i.id === toast.goes!.id && i.product === toast.goes!.product);
+        // No O over the thread it names while that thread is the one open
+        // (toastOpens): a reply that kept her there names it for after she leaves.
+        const here = focused ? { product: focused.product, id: focused.id } : null;
+        const opens = toastOpens(toast, here);
         const face = (
           <>
             {about && <span className="toast-title">{about.label || about.title}</span>}
             <span className="toast-line">{line}</span>
-            {(toast.goes || undoes) && (
+            {(opens || undoes) && (
               <span className="toast-keys">
-                {toast.goes && <span className="toast-key"><kbd>O</kbd><span className="toast-key-word">Open</span></span>}
+                {opens && <span className="toast-key"><kbd>O</kbd><span className="toast-key-word">Open</span></span>}
                 {undoes && (
                   <span className="toast-key toast-undo" role="button" tabIndex={-1}
                     onClick={(e) => { e.stopPropagation(); setToast(null); void undo(); }}>
@@ -7129,7 +7287,7 @@ export default function App() {
         <HintPlate
           lines={HINTS[shownHint.id]}
           comp={shownHint.el.getBoundingClientRect()}
-          align={shownHint.el.dataset.hintAlign === 'right' ? 'right' : 'left'}
+          align={shownHint.el.dataset.hintAlign === 'right' ? 'right' : shownHint.el.dataset.hintAlign === 'center' ? 'center' : 'left'}
           /* `data-hint-text` names the words inside the component, so the plate
              lines up with the title rather than with the card's edge: a plate
              is expected to be left-aligned with the text, not pushed past it. */

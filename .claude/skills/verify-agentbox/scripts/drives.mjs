@@ -72,6 +72,77 @@ export async function until(fn, ms) {
 
 const WORD = 'PINEAPPLE';
 
+/** Every line the Codex stand-in logged: its requests, and the CONNECTs it refused as the copy's proxy. */
+export function codexModelLog(state) {
+  try {
+    return fs.readFileSync(path.join(state.instance, 'codex-model.log'), 'utf8').split('\n').filter(Boolean)
+      .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  } catch { return []; }
+}
+
+/**
+ * ONE TASK ON A PERSON'S OWN CODEX SETUP: sent to Codex from the composer, run
+ * by the real codex on their home, against the stand-in signed with their own
+ * login. A setup that must not run (`expect.answers` false) is checked for
+ * the opposite: no request went out on that login at all, and the thread says
+ * in a plain sentence why and what to do.
+ */
+async function codexSetupTask({ tab, state, claim, capture, setup }) {
+  const expect = setup.expect;
+  const known = (k) => ({ known: setup.known?.[k] ?? null });
+  const tok = `cs${Date.now().toString(36)}`;
+  const title = `Setup ${tok}: reply with exactly the word ${WORD} and nothing else. [[tok:${tok}]]`;
+  const { row, picked } = await compose(tab, state, title, { engine: 'codex' });
+  claim(picked, 'the composer offers Codex and it can be picked', picked ?? 'no Codex column in the model menu');
+  await capture('sent');
+  if (!claim(row, 'the store holds the thread', row?.id)) return;
+  claim(row.engine === 'codex', 'the thread is stored as a Codex thread', `engine ${row.engine ?? 'unset'}`);
+  const mine = () => codexModelLog(state).filter((e) => e.token === tok || (e.item && e.item === row.id));
+  const current = () => rows(state).find((r) => r.id === row.id) ?? row;
+  const result = () => String(current().result ?? '');
+
+  if (expect.answers) {
+    claim(await until(() => mine().length, 60_000), 'the real codex asked the model about this thread', `${mine().length} request(s)`);
+    const answered = await until(() => result().includes(WORD), 120_000);
+    claim(answered, 'the answer lands on the thread', result().slice(0, 80) || '(none)', known('answers'));
+  } else {
+    // Long enough for a worker to have started and died, and for the app to
+    // have written what it has to say.
+    const said = await until(() => {
+      const r = current();
+      const text = [r.result, r.note, r.error, r.statusNote].filter(Boolean).join(' ');
+      return expect.says.test(text) ? text : null;
+    }, 90_000);
+    await openThread(tab, current());
+    await tab.wait(800);
+    const screen = await tab.text();
+    const shown = expect.says.test(screen);
+    claim(said || shown, 'the thread says, in a plain sentence, why it cannot run and what to do',
+      String(said || screen.split('\n').find((l) => expect.says.test(l)) || result() || '(nothing on the thread)').slice(0, 200), known('answers'));
+    await capture('refused');
+    claim(!mine().length, 'no worker sent this task to a model on that login', `${mine().length} request(s)`, known('billing'));
+  }
+
+  const asked = mine().filter((e) => e.item || e.token);
+  if (expect.store) {
+    const offered = asked.find((e) => e.mcp?.some((n) => /update_work_item$/.test(n)));
+    claim(offered, 'Codex offered the worker the app\'s store tools',
+      offered ? offered.mcp.filter((n) => /work_item/.test(n)).slice(0, 2).join(', ') : `mcp tools: ${asked[0]?.mcp?.slice(0, 4).join(', ') || 'none'}`, known('store'));
+    const note = await until(() => readLedger(state, row.product).some((l) => l.id === row.id && String(l.patch?.note ?? '').includes(tok)), 10_000);
+    const back = asked.find((e) => e.toolResult)?.toolResult;
+    claim(note, 'the worker\'s note reached the thread through the store tool',
+      note ? 'in the ledger' : back ? `tool said: ${back.slice(0, 120)}` : 'never called', known('store'));
+  }
+  const signed = [...new Set(asked.map((e) => e.auth))];
+  const away = [...new Set(codexModelLog(state).filter((e) => e.connect).map((e) => e.connect))];
+  claim(!signed.includes('api-key') && (!expect.answers || signed.includes('chatgpt')),
+    'the model was paid for by a ChatGPT plan, never an API key',
+    `signed: ${signed.join(', ') || 'nothing'}${away.length ? `; refused on the way off this Mac: ${away.join(', ')}` : ''}`, known('billing'));
+  for (const c of setup.check?.(state.home, { codexLog: asked }) ?? []) claim(c.ok, c.sentence, c.evidence, known(c.key ?? 'check'));
+  claim(await openThread(tab, current()), 'the thread opens from the list');
+  await capture('thread');
+}
+
 /**
  * A CLAUDE AND A CODEX TASK, CAUGHT MID-RUN BY THE APP STOPPING, THEN THE APP
  * STARTED AGAIN. `how` is 'quit' (the app alone is signalled and stops its own
@@ -123,15 +194,55 @@ export async function clickTab(tab, words) {
   return hit;
 }
 
+/**
+ * WHO THE OPEN THREAD SAYS OPENED IT: 'you', 'agent', or null for neither.
+ *
+ * Two forms, and both are right. An opening with no words of its own draws the
+ * quiet sentence; one that carries words draws as a message, its author's
+ * byline over them and no sentence anywhere. A row its worker has named carries
+ * words either way, since the title is then said in the opening
+ * (renderer/src/thread-history.ts, withTitleSaid), which is why real Claude
+ * Code's rows read one way and the stand-in's the other.
+ */
+export function whoOpenedThread({ agentSaid = false, youSaid = false, opener = null } = {}) {
+  if (agentSaid) return { who: 'agent', saw: 'An agent opened this' };
+  if (youSaid) return { who: 'you', saw: 'You opened this' };
+  const name = String(opener ?? '').trim();
+  if (!name) return { who: null, saw: 'neither line on screen' };
+  if (name === 'You') return { who: 'you', saw: 'your byline over the opening' };
+  if (name === 'The agent') return { who: 'agent', saw: 'the agent\'s byline over the opening' };
+  return { who: null, saw: `the opening is bylined "${name}"` };
+}
+
+/** The same question asked of the open thread on the screen. */
+export async function whoOpenedOnScreen(tab) {
+  return whoOpenedThread(await tab.evaluate(`(() => {
+    const t = document.body.innerText;
+    return {
+      agentSaid: /An agent opened this/.test(t),
+      youSaid: /\\bOpened this|You opened this/.test(t),
+      opener: document.querySelector('.thread .msg .msg-who')?.textContent.trim() ?? null,
+    };
+  })()`));
+}
+
 async function openThread(tab, row) {
-  await clickTab(tab, /^all\b/i);
   const names = [row.label, row.title].filter(Boolean).map((n) => String(n).slice(0, 24));
-  const clicked = await tab.until(`(() => {
+  const find = `(() => {
     const names = ${JSON.stringify(names)};
     const hit = [...document.querySelectorAll('*')].find((e) => e.children.length === 0 && names.some((n) => e.textContent.trim().startsWith(n)));
     if (hit) hit.click();
     return !!hit;
-  })()`, { ms: 8000, why: 'the thread to be in the All list' }).catch(() => false);
+  })()`;
+  // There is no "All" list any more: the thread is under whichever tab its
+  // state puts it, and a thread that just finished moves from In progress to
+  // Needs you while the drive looks. So each tab in turn, as a person would.
+  let clicked = false;
+  for (const words of [/^all\b/i, /^needs you/i, /^in progress/i, /^later/i, /^done/i]) {
+    if (!(await clickTab(tab, words))) continue;
+    clicked = await tab.until(find, { ms: 3000, why: 'the thread to be in this list' }).catch(() => false);
+    if (clicked) break;
+  }
   await tab.wait(800);
   return clicked;
 }
@@ -271,10 +382,8 @@ export const DRIVES = {
         const shown = await tab.until(`document.body.innerText.includes(${JSON.stringify(String(answered.result).trim().split('\n')[0].slice(0, 40))})`, { why: 'the answer to show in the open thread', ms: 15_000 }).catch(() => false);
         claim(shown, 'the open thread shows the answer');
       }
-      // The page draws the person's birth as "Opened this" beside their mark,
-      // and an agent's as "An agent opened this".
-      const opened = await tab.evaluate(`(() => { const t = document.body.innerText; return /An agent opened this/.test(t) ? 'An agent opened this' : /\\bOpened this|You opened this/.test(t) ? 'Opened this' : null; })()`);
-      claim(opened === 'Opened this', 'the thread says you opened it, not an agent', opened ?? 'neither line on screen');
+      const opened = await whoOpenedOnScreen(tab);
+      claim(opened.who === 'you', 'the thread says you opened it, not an agent', opened.saw);
       await tab.wait(600);
       await capture('thread');
     },
@@ -458,12 +567,104 @@ export const DRIVES = {
       await tab.press('Escape');
       const next = (await compose(tab, state, `After Codex ran out [[tok:AC${Date.now().toString(36)}]]`, { engine: 'codex' })).row;
       if (!claim(next, 'a new Codex task can still be sent')) return;
+      await tab.until(`/Codex is out|Started in/.test(document.querySelector('.toast-line')?.innerText ?? '')`, { why: 'the line after Send', ms: 8000 }).catch(() => {});
+      const sentSaid = await tab.evaluate(`document.querySelector('.toast-line')?.innerText ?? ''`);
+      await capture('sent-while-codex-is-out');
+      claim(/^Codex is out/.test(sentSaid) && !/Started/.test(sentSaid),
+        'the line after Send says it is waiting for Codex, not "Started" (the breaker\'s finding, 2026-10-15)', sentSaid);
       await tab.wait(3000);
       await openThread(tab, rows(state).find((r) => r.id === next.id) ?? next);
       const text = await tab.text();
       claim(/Codex is at its usage limit, so this starts on its own when it resets/.test(text) && !/as soon as one is free/.test(text),
         'a new Codex task says Codex is at its usage limit, not that it is queued', (text.match(/Codex is at[^\n]*|Queued[^\n]*/) ?? ['neither'])[0].slice(0, 120));
       await capture('new-codex-task-at-limit');
+    },
+  },
+  'undo-says-what-happened': {
+    what: 'Z says what really happened: on a task the agent already answered it says too late, and after a close it says the thread is still open (the breaker\'s findings, 2026-10-15)',
+    stubOnly: 'needs a task that takes thirty seconds on demand',
+    async run({ tab, state, claim, capture }) {
+      const toast = () => tab.evaluate(`document.querySelector('.toast-line')?.innerText ?? ''`);
+      const pressZ = async () => {
+        await tab.press('z');
+        await tab.wait(400);
+        // Past thirty seconds a first Z only asks; the second one does it.
+        if (/Press Z again/.test(await toast())) { await tab.press('z'); await tab.wait(400); }
+      };
+
+      // 1. A quick task, answered before Z.
+      const quick = (await compose(tab, state, `Quick one [[tok:UQ${Date.now().toString(36)}]]`, { engine: 'claude' })).row;
+      if (!claim(quick, 'the quick task is stored')) return;
+      claim(await until(() => String(rows(state).find((r) => r.id === quick.id)?.result ?? '').includes('UQ'), 30_000), 'the agent answered it');
+      await pressZ();
+      const tooLate = await toast();
+      await capture('z-after-answer');
+      claim(/Too late/.test(tooLate) && !/Withdrawn/.test(tooLate), 'Z on an answered task says it was too late, not "Withdrawn"', tooLate);
+      claim(rows(state).find((r) => r.id === quick.id)?.status !== 'done', 'and the answered task is not closed away into Done');
+      claim(!(await tab.evaluate(`!!document.querySelector('textarea.tc-text')`)), 'and the words are not put back in a composer to send twice');
+      await tab.press('Escape');
+
+      // 2. Close a running task, then Z inside the window.
+      const slow = (await compose(tab, state, `Slow one [[stub:slow:30000]] [[tok:US${Date.now().toString(36)}]]`, { engine: 'claude' })).row;
+      if (!claim(slow, 'the slow task is stored')) return;
+      await until(() => sessionLogs(state, slow.id).length, 20_000);
+      await openThread(tab, rows(state).find((r) => r.id === slow.id) ?? slow);
+      await tab.press('e');
+      await tab.wait(500);
+      await tab.press('z');
+      await tab.wait(400);
+      const reopened = await toast();
+      await capture('z-after-close');
+      claim(/Still open/.test(reopened) && !/Nothing was sent/.test(reopened), 'Z after closing a running task says it is still open, not "Nothing was sent"', reopened);
+      await tab.wait(3500);
+      claim(rows(state).find((r) => r.id === slow.id)?.status !== 'done', 'and the task was not closed');
+      // Close it for real, so its worker stops and frees the login for the
+      // drives after this one.
+      await tab.press('e');
+      await until(() => rows(state).find((r) => r.id === slow.id)?.status === 'done', 10_000);
+      await tab.press('Escape');
+      // The third finding, a task sent while Codex is out of usage, is checked
+      // in every-login-runs-out: only the last drive may leave a login resting.
+    },
+  },
+  'setup-task': {
+    what: 'on a person\'s own Claude Code setup (live.mjs up --setup): one task, and the real Claude Code answers it, writes to the thread through the store tools, and bills nobody\'s API key',
+    onlyOn: 'setup',
+    async run({ tab, state, claim, capture }) {
+      const { setupNamed } = await import('./setups.mjs');
+      const setup = setupNamed(state.setup);
+      if (setup.engine === 'codex') return codexSetupTask({ tab, state, claim, capture, setup });
+      const expect = setup.expect;
+      const known = (k) => ({ known: setup.known?.[k] ?? null });
+      const tok = `su${Date.now().toString(36)}`;
+      const title = `Setup ${tok}: reply with exactly the word ${WORD} and nothing else. [[tok:${tok}]]`;
+      const { row } = await compose(tab, state, title, { engine: 'claude' });
+      await capture('sent');
+      if (!claim(row, 'the store holds the thread', row?.id)) return;
+      claim(await until(() => sessionLogs(state, row.id).length, 30_000), 'a worker was started on it');
+      const answered = await until(() => rows(state).find((r) => r.id === row.id && String(r.result ?? '').trim()), 120_000);
+      const result = String(rows(state).find((r) => r.id === row.id)?.result ?? '');
+      claim(!!answered === expect.answers && (!expect.answers || result.includes(WORD)), 'the answer lands on the thread', result.slice(0, 80) || '(none)', known('answers'));
+
+      // What Claude Code sent the model, as this person's setup shaped it.
+      const asked = fs.existsSync(path.join(state.instance, 'claude-model.log'))
+        ? fs.readFileSync(path.join(state.instance, 'claude-model.log'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.task && e.token === tok)
+        : [];
+      claim(asked.length, 'the real Claude Code asked the model about this thread', `${asked.length} task turn(s)`);
+      const offered = asked.find((e) => e.mcp.some((n) => /__update_work_item$/.test(n)));
+      claim(!!offered === expect.store, 'Claude Code offered the worker the app\'s store tools',
+        offered ? offered.mcp.filter((n) => /work_item/.test(n)).slice(0, 2).join(', ') : `mcp tools: ${asked[0]?.mcp.slice(0, 4).join(', ') || 'none'}${asked[0]?.deferred ? ' (tools deferred behind ToolSearch)' : ''}`, known('store'));
+      const note = await until(() => readLedger(state, row.product).some((l) => l.id === row.id && String(l.patch?.note ?? '').includes(tok)), 10_000);
+      const toolBack = asked.find((e) => e.toolResult)?.toolResult;
+      claim(!!note === expect.store, 'the worker\'s note reached the thread through the store tool',
+        note ? 'in the ledger' : toolBack ? `tool said: ${toolBack.text.slice(0, 120)}` : 'never called', known('store'));
+      const signed = [...new Set(asked.map((e) => e.auth))];
+      const billedKey = signed.includes('api-key');
+      claim(expect.billing === 'subscription' ? !billedKey : billedKey, 'no API key the person left in a settings file was used (the plan pays, not a key)',
+        `signed: ${signed.join(', ') || 'nothing'}`, known('billing'));
+      for (const c of setup.check?.(state.home) ?? []) claim(c.ok, c.sentence, c.evidence, known(c.key ?? 'check'));
+      claim(await openThread(tab, rows(state).find((r) => r.id === row.id) ?? row), 'the thread opens from the list');
+      await capture('thread');
     },
   },
   'reply': {
@@ -497,7 +698,9 @@ export const DRIVES = {
       // MEMORY, PROVED BY BEHAVIOUR. The stand-in leaves no Claude Code
       // transcript, so the app (rightly) cannot resume it and re-briefs instead;
       // only a real session can show the thread's context carried over.
-      if (state.engine !== 'stub' && answered) claim(String(answered.result).includes(WORD), `the answer remembers the first turn (${WORD})`, String(answered.result).slice(0, 60));
+      // On a setup, a gap already filed for that setup reads KNOWN.
+      const memoryKnown = state.setup ? ((await import('./setups.mjs')).setupNamed(state.setup)?.known?.memory ?? null) : null;
+      if (state.engine !== 'stub' && answered) claim(String(answered.result).includes(WORD), `the answer remembers the first turn (${WORD})`, String(answered.result).slice(0, 60), { known: memoryKnown });
       await tab.wait(800);
       await capture('after-reply');
     },

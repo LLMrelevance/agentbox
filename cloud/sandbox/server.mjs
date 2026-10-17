@@ -45,6 +45,16 @@ const CHUNK = 48 * 1024;
 const PAGE_BYTES = 8 * 1024 * 1024;
 // A single MCP line from the harness larger than this is refused.
 const MAX_MCP_LINE = 32 * 1024 * 1024;
+// What this server can do beyond the first version, said in a start's answer,
+// so a Mac knows rather than guesses whether its asks are honoured.
+const CAPS = ['offline'];
+// WHILE THE MAC IS AWAY (a start's `offline`). Never a made-up success: the
+// agent is told the call did not reach the app, and carries on.
+const NOT_MADE = 'The computer this run reports to is asleep, so this call could not reach the app and was not made. Carry on without it, and say in your last message what you could not record.';
+const MAYBE_MADE = 'The computer this run reports to went to sleep during this call, so its answer did not arrive: it may or may not have happened. Carry on without it, and say in your last message what you could not check.';
+// A finished background job wakes the agent within seconds; a turn whose last
+// job ended is left this long for that wake before its input is closed.
+const WAKE_GRACE_MS = 2 * 60 * 1000;
 // How long a cancelled command gets before its group is killed outright.
 const KILL_GRACE_MS = 15_000;
 // AgentCore ends a session at 8 hours; stop the command a quarter hour before.
@@ -60,7 +70,16 @@ const DONE_STATES = new Set(['collected', 'failed']);
 const SIGNIN_MS = 20 * 60_000;
 // Claude Code prints its one-year token on a line of its own. Taken only once
 // something follows it, so a token split across two reads is never half-read.
-const CLAUDE_TOKEN = /(sk-ant-oat\d*-[A-Za-z0-9_-]{20,})\s/;
+// Ended by anything that cannot be part of it: a space, a line end, or the
+// edge of a box a newer Claude Code draws round it.
+const CLAUDE_TOKEN = /(sk-ant-oat\d*-[A-Za-z0-9_-]{20,})(?=[^A-Za-z0-9_-])/;
+// WHAT CLAUDE SAYS WHEN IT DOES NOT TAKE A CODE, and then waits on forever
+// (2.1.301, 2026-10-15: "OAuth error: Request failed with status code 400
+// Press Enter to retry."). Read only from what it printed after the code.
+const CLAUDE_CODE_REFUSED = /OAuth error|Press Enter to retry|Invalid code/i;
+// After the code, Claude answers within seconds; this long with neither a
+// token nor an error is a sign-in that will not finish.
+const CODE_ANSWER_MS = 60_000;
 // A link is taken only once something ends it: a half-read link is not one.
 const CLAUDE_SIGNIN_URL = /(https:\/\/claude\.(?:com|ai)\/\S*oauth\/authorize\?[^\s"'<>]+)\s/;
 const CODEX_DEVICE_URL = /(https:\/\/auth\.openai\.com\/[^\s"'<>]+)\s/;
@@ -111,6 +130,11 @@ export function createSandbox({
   // a Mac, whose `script` takes other flags, passes a plain shell.
   terminal = linuxTerminal,
   signinMs = SIGNIN_MS,
+  // Where the sign-in's steps are told, for the runtime's own log. Never a
+  // secret: `shape` masks every long run of key-like characters first.
+  log = () => {},
+  codeAnswerMs = CODE_ANSWER_MS,
+  enterAfterMs = 400,
   // Which Claude account a new token belongs to, so the Mac can name it.
   // Best effort: a token that cannot say is kept all the same, unnamed.
   whoIs = claudeAccountEmail,
@@ -194,6 +218,147 @@ export function createSandbox({
     return text;
   };
 
+  /* --------------------------- WHILE THE MAC IS AWAY ---------------------- */
+  // The Mac reads a run's events every 20 seconds or so; one it has not heard
+  // from for `afterMs` is asleep or gone. Then a tool call is answered here,
+  // with why; a call it was sent and has not taken up is answered "maybe" and
+  // can no longer be taken up (`mcp-claim`); and a finished turn has its input
+  // closed so the run ends and its results go up. While the Mac is there it
+  // does all of this itself.
+  const macAway = (r) => !!r.offline && Date.now() - r.macSeenAt > r.offline.afterMs;
+  const callKey = (conn, id) => `${conn}\u0000${JSON.stringify(id)}`;
+  // The handshake and the tool list are the app's own answers, kept from when
+  // the Mac was there, so a server opened while it is away still opens.
+  const HANDSHAKE = new Set(['initialize', 'tools/list']);
+  function answerHere(sock, msg, text) {
+    const reply = msg.method === 'tools/call'
+      ? { jsonrpc: '2.0', id: msg.id, result: { isError: true, content: [{ type: 'text', text }] } }
+      : { jsonrpc: '2.0', id: msg.id, error: { code: -32001, message: text } };
+    try { sock.write(JSON.stringify(reply) + '\n'); } catch { /* the agent went */ }
+  }
+  // True when the call was answered here and must not go to the Mac.
+  function offlineCall(r, conn, sock, line) {
+    let msg = null;
+    try { msg = JSON.parse(line); } catch { return false; }
+    if (msg?.id === undefined || typeof msg.method !== 'string') return false;
+    const k = callKey(conn, msg.id);
+    if (macAway(r)) {
+      const kept = r.handshakes.get(`${r.connServer.get(conn)}\u0000${msg.method}`);
+      if (HANDSHAKE.has(msg.method) && kept) {
+        // Answered with what the app said before, and still sent on, so the
+        // Mac's own server is opened too; its answer is dropped.
+        try { sock.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: kept }) + '\n'); } catch { /* gone */ }
+        r.calls.set(k, { conn, msg, sock, state: 'answered-here', handshake: true });
+        return false;
+      }
+      answerHere(sock, msg, NOT_MADE);
+      emit({ kind: 'mcp-offline', conn, id: msg.id }, r);
+      return true;
+    }
+    r.calls.set(k, { conn, msg, sock, state: 'sent' });
+    return false;
+  }
+  // The Mac asks before it makes a call: one given up on here is not made.
+  function claimCalls(r, calls) {
+    return (Array.isArray(calls) ? calls : []).map(({ conn, id }) => {
+      const k = callKey(conn, id);
+      const c = r.calls.get(k);
+      if (!c) return { conn, id, go: false };
+      if (c.state === 'abandoned') { r.calls.delete(k); return { conn, id, go: false }; }
+      if (c.state === 'sent') c.state = 'claimed';
+      return { conn, id, go: true };
+    });
+  }
+  // The Mac's answer to a call: true when this side already answered it.
+  function fromMac(r, conn, line) {
+    if (!r.offline) return false;
+    let msg = null;
+    try { msg = JSON.parse(line); } catch { return false; }
+    if (msg?.id === undefined || msg.method !== undefined) return false;
+    const k = callKey(conn, msg.id);
+    const c = r.calls.get(k);
+    r.calls.delete(k);
+    if (!c) return false;
+    if (HANDSHAKE.has(c.msg.method) && msg.result !== undefined) r.handshakes.set(`${r.connServer.get(conn)}\u0000${c.msg.method}`, msg.result);
+    return c.state === 'abandoned' || c.state === 'answered-here';
+  }
+  function forgetConn(r, conn) {
+    for (const [k, c] of r.calls) if (c.conn === conn) r.calls.delete(k);
+    r.connServer.delete(conn);
+  }
+  // The agent's own lines, read for where its turn is (Claude Code's
+  // stream-json). A result ends a turn; the agent speaking, a tool, a new
+  // session or its own stream starts one; control answers and other notes do
+  // neither. A message the Mac wrote that the agent has not said back yet
+  // (it says back each one it takes, --replay-user-messages) is a turn still
+  // to come, unless two turns have ended since without it: then it was
+  // dropped (an interrupted or internal message), and waiting for it would
+  // keep the run open for good.
+  const TURN_GOING = (e) => e?.type === 'assistant' || e?.type === 'stream_event'
+    || (e?.type === 'user') || (e?.type === 'system' && e.subtype === 'init');
+  function readTurn(r, buf) {
+    if (r.offline?.endTurn !== 'claude-stream-json') return;
+    const t = r.turn;
+    t.line += buf.toString('utf8');
+    if (t.line.length > MAX_MCP_LINE) t.line = t.line.slice(-MAX_MCP_LINE);
+    let i;
+    while ((i = t.line.indexOf('\n')) >= 0) {
+      const line = t.line.slice(0, i);
+      t.line = t.line.slice(i + 1);
+      let e = null;
+      try { e = JSON.parse(line); } catch { continue; }
+      if (e?.type === 'result') {
+        t.atResult = true;
+        for (const [id, m] of t.unread) { m.results += 1; if (m.results >= 2) t.unread.delete(id); }
+        continue;
+      }
+      if (e?.type === 'system' && e.subtype === 'background_tasks_changed' && Array.isArray(e.tasks)) {
+        const before = t.waiting;
+        t.waiting = e.tasks.length;
+        if (before && !t.waiting) t.lastJobEndedAt = Date.now();
+        continue;
+      }
+      if (e?.type === 'user' && !e.parent_tool_use_id) {
+        if (typeof e.uuid === 'string' && t.unread.has(e.uuid)) t.unread.delete(e.uuid);
+        else for (const [id, m] of t.unread) if (m.anonymous) { t.unread.delete(id); break; }
+      }
+      if (TURN_GOING(e)) t.atResult = false;
+    }
+  }
+  // Messages the Mac writes to the agent, by their own id where they carry one.
+  function noteInput(r, data) {
+    if (r.offline?.endTurn !== 'claude-stream-json' || !data) return;
+    for (const line of Buffer.from(data, 'base64').toString('utf8').split('\n')) {
+      let m = null;
+      try { m = JSON.parse(line); } catch { continue; }
+      if (m?.type !== 'user') continue;
+      const id = typeof m.uuid === 'string' ? m.uuid : `anon-${r.turn.anonymous += 1}`;
+      r.turn.unread.set(id, { results: 0, anonymous: typeof m.uuid !== 'string' });
+    }
+  }
+  function watchWhileAway(r) {
+    if (r.awayTimer) return;
+    r.awayTimer = setInterval(() => {
+      if (!macAway(r) || DONE_STATES.has(r.state)) return;
+      for (const [k, c] of r.calls) {
+        if (c.state !== 'sent' && c.state !== 'claimed') continue;
+        // Kept until the Mac's late answer arrives (dropped) or the connection
+        // closes: answered once is answered.
+        c.state = c.state === 'claimed' ? 'answered-here' : 'abandoned';
+        answerHere(c.sock, c.msg, MAYBE_MADE);
+        emit({ kind: 'mcp-abandoned', conn: c.conn, id: c.msg.id }, r);
+      }
+      const t = r.turn;
+      const woken = !t.lastJobEndedAt || Date.now() - t.lastJobEndedAt > WAKE_GRACE_MS;
+      if (r.child && !r.inputClosed && t.atResult && !t.waiting && !t.unread.size && woken) {
+        r.inputClosed = 'cloud';
+        try { r.child.stdin.end(); } catch { /* gone */ }
+        emit({ kind: 'input-closed', by: 'cloud' }, r);
+      }
+    }, Math.min(1000, Math.max(50, Math.floor(r.offline.afterMs / 4))));
+    r.awayTimer.unref?.();
+  }
+
   /* ------------------------------ THE BRIDGE ------------------------------ */
   // Each MCP server the harness is configured with is replaced, in here, by
   // cloud/sandbox/mcp-stub.mjs. A stub connects to this socket and names its
@@ -228,15 +393,18 @@ export function createSandbox({
             next += 1;
             conn = `c${next}`;
             bridge.conns.set(conn, { sock, run: r });
+            r.connServer?.set(conn, String(hello.server));
             emit({ kind: 'mcp-open', conn, server: String(hello.server) }, r);
             continue;
           }
+          if (r.offline && offlineCall(r, conn, sock, line)) continue;
           emit({ kind: 'mcp', conn, line: redactLine(r, line) }, r);
         }
       });
       sock.on('close', () => {
         if (conn && bridge?.conns.get(conn)?.sock === sock) {
           bridge.conns.delete(conn);
+          if (r?.offline) forgetConn(r, conn);
           emit({ kind: 'mcp-close', conn }, r);
         }
       });
@@ -269,13 +437,26 @@ export function createSandbox({
         if (patch.length) await sh('git', ['apply', '--whitespace=nowarn'], cwd, {}, false, patch);
         await sh('git', ['update-ref', '-d', changesRef], cwd).catch(() => {});
       }
+      if (r.spec.docs) fs.mkdirSync(r.spec.docs, { recursive: true });
       for (const f of files) await placeFile(f);
+      // Files that belong in the agent's own home here, wherever the Mac keeps
+      // its: the person's own instructions to Claude (`.claude/CLAUDE.md`).
+      const home = at(runAs?.home || process.env.HOME || '/root');
+      for (const h of r.spec.homeFiles || []) {
+        const p = path.join(home, h.rel);
+        await placeFile({ path: p, url: h.url });
+        if (runAs) await sh('chown', ['-R', `${runAs.uid}:${runAs.gid}`, path.join(home, h.rel.split('/')[0])], '/');
+      }
       fs.rmSync(bundle, { force: true });
       if (r.spec.login) await placeLogin(r);
-      // What the command writes to becomes its own: the task folder, and the
-      // account folder its transcripts and tooling live in.
+      // What the documents folder held before the agent started, so only what
+      // it writes there goes home (`sendDocs`).
+      if (r.spec.docs) r.docsSeen = scanDocs(r.spec.docs);
+      // What the command writes to becomes its own: the task folder, its
+      // documents folder, and the account folder its transcripts and tooling
+      // live in.
       if (runAs) {
-        const own = [cwd];
+        const own = [cwd, ...(r.spec.docs ? [r.spec.docs] : [])];
         // The harness's own home: Claude Code's account folder, or Codex's,
         // where it keeps its state database and writes its sessions.
         for (const k of ['CLAUDE_CONFIG_DIR', 'CODEX_HOME']) {
@@ -322,7 +503,7 @@ export function createSandbox({
     }
     r.child = child;
     r.meter = usageMeter(usage);
-    child.stdout.on('data', (d) => emitChunks('stdout', d, r));
+    child.stdout.on('data', (d) => { emitChunks('stdout', d, r); readTurn(r, d); });
     child.stderr.on('data', (d) => emitChunks('stderr', d, r));
     child.stdin.on('error', () => {});
     for (const p of r.pendingStdin.splice(0)) writeStdin(r, p);
@@ -354,6 +535,7 @@ export function createSandbox({
         }
       }
       emit({ kind: 'exit', code, signal, ...(r.cancelled ? { cancelled: true } : {}) }, r);
+      if (r.awayTimer) { clearInterval(r.awayTimer); r.awayTimer = null; }
       r.state = 'exited';
       statusChangedAt = Math.floor(Date.now() / 1000);
       // Whether the login is why: asked of the login itself, never read from
@@ -447,6 +629,9 @@ export function createSandbox({
     r.secrets = [tokens.access_token, tokens.id_token, tokens.refresh_token].filter((s) => typeof s === 'string' && s.length >= 16);
   }
 
+  const shape = (text) => String(text || '').replace(/[A-Za-z0-9_\-+/=]{16,}/g, '<long>').replace(/\s+/g, ' ').trim().slice(-600);
+  const note = (r, what) => { try { log(`signin ${r.spec.engine} ${String(r.spec.runId || '').slice(-8)}: ${what}`); } catch { /* never in the way */ } };
+
   // A SIGN-IN: the vendor's own command, run here, for a person at the Mac.
   async function startSignin(r) {
     const { engine } = r.spec;
@@ -474,9 +659,19 @@ export function createSandbox({
       if (r.signinOver) return;
       seen = (seen + plain(d.toString('utf8'))).slice(-256 * 1024);
       if (engine === 'claude') {
+        if (r.codeSent && CLAUDE_CODE_REFUSED.test(seen.slice(r.codeAt ?? 0))) {
+          note(r, `code refused: ${shape(seen.slice(r.codeAt ?? 0))}`);
+          r.signinOver = true;
+          seen = '';
+          killGroup(child.pid, 'SIGTERM');
+          failSignin(r, 'Claude didn’t accept that code. Copy the newest code from Claude’s page and try again.');
+          return;
+        }
         const token = seen.match(CLAUDE_TOKEN)?.[1];
         if (token) {
+          note(r, `token seen ${r.codeSentAt ? Date.now() - r.codeSentAt : '?'} ms after the code`);
           r.signinOver = true;
+          clearTimeout(r.codeTimer);
           seen = '';
           killGroup(child.pid, 'SIGTERM');
           finishClaude(r, token);
@@ -492,6 +687,10 @@ export function createSandbox({
         if (url && code) { r.signinUrl = url; signinEvent(r, 'waiting', { url, code }); }
       }
     };
+    // Where in what it printed the code was sent: only what came after is
+    // read for Claude's answer to it.
+    r.markCode = () => { r.codeAt = seen.length; r.codeSentAt = Date.now(); };
+    r.afterCode = () => seen.slice(r.codeAt ?? 0);
     child.stdout.on('data', read);
     child.stderr.on('data', read);
     child.on('error', () => {});
@@ -501,7 +700,7 @@ export function createSandbox({
       r.signinOver = true;
       if (engine === 'codex' && code === 0 && !r.cancelled) { finishCodex(r); return; }
       if (r.cancelled) failSignin(r, 'The sign-in was cancelled.');
-      else if (r.codeSent) failSignin(r, 'Claude did not accept that code. Try signing in again.');
+      else if (r.codeSent) failSignin(r, 'Claude didn’t accept that code. Copy the newest code from Claude’s page and try again.');
       else failSignin(r, engine === 'claude' ? 'The sign-in ended before Claude finished it.' : 'Codex did not finish signing in.');
     }));
     r.signinTimer = setTimeout(() => {
@@ -517,10 +716,44 @@ export function createSandbox({
     // One word from Claude on that token alone, from an empty folder, before
     // it is kept: a token that does not answer is not a sign-in.
     const check = await scratchFor(r, 'check');
+    const checkAt = Date.now();
     const out = await quiet(['claude', '-p', 'Reply with the single word: ok', '--max-turns', '1'], { cwd: check, env: ownEnv({ CLAUDE_CODE_OAUTH_TOKEN: token, CLAUDE_CONFIG_DIR: check }), timeoutMs: 120_000 });
+    note(r, `check ${out.code === 0 && /ok/i.test(out.stdout) ? 'answered' : `failed (exit ${out.code}): ${shape(out.output)}`} in ${Date.now() - checkAt} ms`);
     if (out.code !== 0 || !/ok/i.test(out.stdout)) return failSignin(r, 'Claude refused the new sign-in; nothing was kept.');
     const email = await Promise.resolve(whoIs(token, fetchImpl)).catch(() => null);
-    await saveLogin(r, { engine: 'claude', token, savedAt: Date.now() }, { expiresAt: null, email: typeof email === 'string' ? email : null });
+    const seen = await lookAt(r, token).catch(() => null);
+    await saveLogin(r, { engine: 'claude', token, savedAt: Date.now() }, {
+      expiresAt: null, email: typeof email === 'string' ? email : null, org: seen?.org ?? null, limits: seen?.limits ?? [],
+    });
+  }
+
+  // One tiny reply on the token, its headers read. Its output also carries the
+  // request and the token, so it is read here and never noted or sent.
+  async function lookAt(r, token) {
+    const dir = await scratchFor(r, 'look');
+    const out = await quiet(['claude', '-p', 'Reply with the single word: ok', '--max-turns', '1', '--model', 'haiku'], {
+      cwd: dir, env: ownEnv({ CLAUDE_CODE_OAUTH_TOKEN: token, CLAUDE_CONFIG_DIR: dir, ANTHROPIC_LOG: 'debug' }), timeoutMs: 120_000,
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+    return readReplyHeaders(out.output);
+  }
+
+  // A SAVED CLAUDE LOGIN LOOKED AT, for the Mac to name it and draw its usage.
+  // Ends 'saved' with what was read, or 'failed'; nothing is kept.
+  async function look(r) {
+    setState('looking', {}, r);
+    let login = null;
+    try {
+      const res = await fetchImpl(r.spec.loginUrl);
+      if (res.ok) login = JSON.parse(Buffer.from(await res.arrayBuffer()).toString('utf8'));
+    } catch { /* read as missing */ }
+    if (!login?.token) return failSignin(r, 'The Claude sign-in could not be reached.');
+    const seen = await lookAt(r, login.token).catch(() => null);
+    forget(r);
+    if (!seen) return failSignin(r, 'Claude did not say whose account this is.');
+    note(r, 'looked');
+    signinEvent(r, 'saved', { org: seen.org, limits: seen.limits });
+    setState('collected', {}, r);
   }
 
   async function finishCodex(r) {
@@ -537,15 +770,19 @@ export function createSandbox({
     for (let i = 0; i < 3; i += 1) {
       try { await upload(fetchImpl, r.spec.saveUrl, body); lastErr = null; break; } catch (err) { lastErr = err; await new Promise((res) => setTimeout(res, uploadRetryMs * (i + 1))); }
     }
-    if (lastErr) return failSignin(r, 'The sign-in worked but could not be kept. Try again.');
+    if (lastErr) { note(r, `could not keep it: ${shape(lastErr.message)}`); return failSignin(r, 'The sign-in worked but could not be kept. Try again.'); }
+    note(r, 'kept');
     clearTimeout(r.signinTimer);
+    clearTimeout(r.codeTimer);
     forget(r);
     signinEvent(r, 'saved', meta);
     setState('collected', {}, r);
   }
 
   function failSignin(r, message, extra = {}) {
+    note(r, `failed: ${message}`);
     clearTimeout(r.signinTimer);
+    clearTimeout(r.codeTimer);
     r.signinOver = true;
     if (r.child) killGroup(r.child.pid, 'SIGKILL');
     forget(r);
@@ -667,12 +904,15 @@ export function createSandbox({
     return r.collecting;
   }
 
-  async function collect(r, { bundleUrl, changesUrl, bring = [] }) {
+  async function collect(r, { bundleUrl, changesUrl, docsUrl, bring = [] }) {
     r.attempt = (r.attempt || 0) + 1;
     const tmp = (name) => path.join(r.dir, `${r.attempt}-${name}`);
     const brought = [];
+    // The documents first: they are sent whether or not the folder ever got
+    // as far as a checkout, and hold everything the Mac has not said it laid.
+    const docs = docsUrl ? (await sendDocs(r, docsUrl)).files : [];
     // A run cancelled before checkout has nothing in the folder to bring.
-    if (!r.startSha) return { ok: true, startSha: null, tip: null, commits: 0, uncommitted: false, changesRef: null, brought };
+    if (!r.startSha) return { ok: true, startSha: null, tip: null, commits: 0, uncommitted: false, changesRef: null, brought, docs };
     const cwd = r.spec.cwd;
     const branch = r.spec.branch;
     const tip = (await sh('git', ['rev-parse', `refs/heads/${branch}`], cwd)).trim();
@@ -738,7 +978,76 @@ export function createSandbox({
       fs.rmSync(tarball, { force: true });
       brought.push(b.dir);
     }
-    return { ok: true, startSha: r.startSha, tip: withheld ? r.startSha : tip, head: withheld ? r.startSha : head, headRef, strayHead, commits, uncommitted: dirty, changesRef, brought, ...(withheld ? { withheld } : {}) };
+    return { ok: true, startSha: r.startSha, tip: withheld ? r.startSha : tip, head: withheld ? r.startSha : head, headRef, strayHead, commits, uncommitted: dirty, changesRef, brought, docs, ...(withheld ? { withheld } : {}) };
+  }
+
+  // WHAT THE AGENT WROTE IN THE DOCUMENTS FOLDER SINCE IT WAS LAST ASKED,
+  // uploaded as one archive: files new or changed since the folder was laid
+  // down or last sent, never a deletion. One at a time per run, so the Mac's
+  // asking during the run and the collect at its end never send a file twice
+  // or skip one.
+  // `id` names this archive so the Mac can say it laid it (`ack`, on its next
+  // ask): only then do its files count as home. Until then they go again in
+  // every archive, so one lost on the way costs nothing.
+  function sendDocs(r, url, { id = null, ack = null } = {}) {
+    const go = async () => {
+      const dir = r.spec.docs;
+      if (!dir || !r.docsSeen || !fs.existsSync(dir)) return { ok: true, files: [] };
+      r.docsSent ??= new Map();
+      if (ack && r.docsSent.has(ack)) {
+        for (const [rel, stamp] of r.docsSent.get(ack)) r.docsSeen.set(rel, stamp);
+        r.docsSent.clear();
+      }
+      const now = scanDocs(dir);
+      // A file whose NAME carries the login stays here, unnamed in any answer.
+      const files = [...now.keys()].filter((rel) => now.get(rel) !== r.docsSeen.get(rel) && !(r.secrets || []).some((sec) => rel.includes(sec)));
+      if (!files.length) return { ok: true, files: [] };
+      // COPIED, THEN CLEANED, THEN PACKED: the agent is still running and may
+      // rewrite a file between a clean and the tar reading it, so what goes
+      // home is a copy it cannot reach, with the login taken out of the copy.
+      // Each file is stamped before it is read: one still being written reads
+      // as changed again next time and goes again.
+      const stage = path.join(r.dir, `docs-${Date.now()}`);
+      const stamps = new Map();
+      try {
+        for (const rel of files) {
+          const src = path.join(dir, rel);
+          let st;
+          let body;
+          try {
+            st = fs.lstatSync(src);
+            if (!st.isFile()) continue;
+            body = fs.readFileSync(src);
+          } catch { continue; }
+          if (r.secrets?.length) {
+            let text = body.toString('latin1');
+            if (r.secrets.some((sec) => text.includes(sec))) {
+              for (const sec of r.secrets) text = text.split(sec).join(REDACTED);
+              body = Buffer.from(text, 'latin1');
+            }
+          }
+          const dest = path.join(stage, rel);
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.writeFileSync(dest, body);
+          stamps.set(rel, `${st.size}:${st.mtimeMs}`);
+        }
+        if (!stamps.size) return { ok: true, files: [] };
+        const tarball = `${stage}.tgz`;
+        try {
+          await sh('tar', ['-czf', tarball, '-C', stage, '--null', '-T', '-'], stage, {}, false, [...stamps.keys()].join('\0') + '\0');
+          await upload(fetchImpl, url, fs.readFileSync(tarball));
+        } finally {
+          fs.rmSync(tarball, { force: true });
+        }
+      } finally {
+        fs.rmSync(stage, { recursive: true, force: true });
+      }
+      if (id) r.docsSent.set(String(id), stamps);
+      return { ok: true, files: [...stamps.keys()] };
+    };
+    const next = (r.docsChain || Promise.resolve()).catch(() => {}).then(go);
+    r.docsChain = next;
+    return next;
   }
 
   async function checkpoint(r, { bundleUrl }) {
@@ -787,8 +1096,8 @@ export function createSandbox({
       if (!run) return { ok: true, state: 'none' };
       return { ok: true, runId: run.id, state: run.state, seq: run.log.index.length, inSeq: run.inSeq, exitCode: run.exitCode ?? null, manifest: run.manifest || null };
     }
-    if (action === 'signin' || action === 'renew') {
-      if (run && run.id === req.runId) return { ok: true, already: true, state: run.state, seq: run.log.index.length };
+    if (action === 'signin' || action === 'renew' || action === 'look') {
+      if (run && run.id === req.runId) return { ok: true, already: true, state: run.state, seq: run.log.index.length, caps: CAPS };
       if (run && !DONE_STATES.has(run.state)) return { ok: false, error: 'busy', runId: run.id };
       const problem = invalidSignin(action, req);
       if (problem) return { ok: false, error: 'bad-start', message: problem };
@@ -802,11 +1111,11 @@ export function createSandbox({
       openLog(r);
       run = r;
       setState('preparing', {}, r);
-      if (action === 'signin') startSignin(r); else renew(r);
+      if (action === 'signin') startSignin(r); else if (action === 'look') look(r); else renew(r);
       return { ok: true, seq: r.log.index.length };
     }
     if (action === 'start') {
-      if (run && run.id === req.runId) return { ok: true, already: true, state: run.state, seq: run.log.index.length };
+      if (run && run.id === req.runId) return { ok: true, already: true, state: run.state, seq: run.log.index.length, caps: CAPS };
       if (run && !DONE_STATES.has(run.state)) return { ok: false, error: 'busy', runId: run.id };
       const problem = invalidStart(req);
       if (problem) return { ok: false, error: 'bad-start', message: problem };
@@ -818,21 +1127,29 @@ export function createSandbox({
         files: (req.files || []).map((f) => ({ ...f, path: at(f.path), ...(f.untar ? { untar: at(f.untar) } : {}) })),
         env: { ...(req.env || {}), AGENTBOX_PATH_ROOT: pathRoot },
         results: req.results && { ...req.results, bring: (req.results.bring || []).map((b) => ({ ...b, dir: at(b.dir) })) },
+        ...(req.docs ? { docs: at(req.docs) } : {}),
       };
       const r = {
         id: req.runId, spec, state: 'preparing', waiters: new Set(), pendingStdin: [], child: null,
         exitCode: null, startSha: null, inSeq: 0, cancelled: null, manifest: null,
         dir: path.join(workRoot, '.agentbox', safe(req.runId)),
+        macSeenAt: Date.now(),
+        offline: req.offline ? { afterMs: Math.max(50, Number(req.offline.afterMs) || 90_000), endTurn: req.offline.endTurn ?? null } : null,
+        calls: new Map(), handshakes: new Map(), connServer: new Map(), inputClosed: null,
+        turn: { line: '', atResult: false, waiting: 0, lastJobEndedAt: 0, unread: new Map(), anonymous: 0 },
       };
       openLog(r);
       run = r;
+      if (r.offline) watchWhileAway(r);
       setState('preparing', {}, r);
       prepareAndSpawn(r);
-      return { ok: true, seq: r.log.index.length };
+      return { ok: true, seq: r.log.index.length, caps: CAPS };
     }
     if (!run) return { ok: false, error: 'no-run' };
     if (req.runId && req.runId !== run.id) return { ok: false, error: 'no-run', runId: run.id };
     const r = run;
+    // Every ask is the Mac, there; a `peek` is something else reading.
+    if (!(action === 'events' && req.peek)) r.macSeenAt = Date.now();
     // A sign-in session takes its code and a cancel, and nothing a run takes:
     // input to it would be typed into the vendor's own sign-in.
     if (r.spec.kind && !['events', 'signal', 'signin-code'].includes(action)) return { ok: false, error: 'not-a-run' };
@@ -843,8 +1160,25 @@ export function createSandbox({
         const code = String(req.code || '').replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 4096);
         if (!code) return { ok: false, error: 'empty-code' };
         r.codeSent = true;
-        r.child.stdin.write(`${code}\r`);
+        r.markCode?.();
+        // THE CODE, THEN ENTER ON ITS OWN. Sent together, Claude reads the
+        // return as part of a paste and never submits a real-length code
+        // (2.1.301, measured 2026-10-15: she sat on Adding; the code showed
+        // as stars and nothing more).
+        r.child.stdin.write(code);
+        await new Promise((res) => setTimeout(res, enterAfterMs));
+        if (!r.child || r.signinOver) return { ok: false, error: 'not-waiting' };
+        r.child.stdin.write('\r');
         signinEvent(r, 'checking');
+        clearTimeout(r.codeTimer);
+        note(r, 'code sent');
+        r.codeTimer = setTimeout(() => {
+          if (r.signinOver) return;
+          note(r, `no answer to the code in ${codeAnswerMs} ms; it printed: ${shape(r.afterCode?.())}`);
+          r.signinOver = true;
+          if (r.child) killGroup(r.child.pid, 'SIGKILL');
+          failSignin(r, 'Claude didn’t answer that code. Try again.');
+        }, codeAnswerMs);
         return { ok: true };
       }
       case 'events': {
@@ -863,6 +1197,11 @@ export function createSandbox({
       case 'stdin':
         return sequenced(r, req, () => {
           if (['exited', 'collected', 'collect-failed', 'failed'].includes(r.state)) return { ok: false, error: 'exited', consumed: true };
+          // Closed here while the Mac was away: a reply written now is the
+          // app's to keep for the next run, and it learns that from this.
+          if (r.inputClosed === 'cloud') return { ok: false, error: 'turn-closed', consumed: true };
+          if (req.end) r.inputClosed = 'mac';
+          noteInput(r, req.data);
           writeStdin(r, req);
           return { ok: true };
         });
@@ -881,8 +1220,11 @@ export function createSandbox({
           }
           return { ok: true };
         });
+      case 'mcp-claim':
+        return { ok: true, calls: r.offline ? claimCalls(r, req.calls) : (req.calls || []).map((c) => ({ ...c, go: true })) };
       case 'mcp':
         return sequenced(r, req, () => {
+          if (fromMac(r, req.conn, String(req.line))) return { ok: true, dropped: true };
           const c = bridge?.conns.get(req.conn);
           if (!c || c.run !== r) return { ok: false, error: 'no-conn', consumed: true };
           c.sock.write(String(req.line) + '\n');
@@ -899,6 +1241,12 @@ export function createSandbox({
         cancel(r, sig);
         return { ok: true, running: !!r.child, preparing: r.state === 'preparing' };
       }
+      case 'docs':
+        // The documents the agent has written so far, so they reach the Mac
+        // while it works rather than only at the end.
+        if (!req.url) return { ok: false, error: 'bad-docs' };
+        if (r.state === 'preparing') return { ok: true, files: [] };
+        try { return await sendDocs(r, req.url, { id: req.id, ack: req.ack }); } catch (err) { return { ok: false, error: 'docs-failed', message: err.message }; }
       case 'checkpoint':
         if (r.state !== 'running' && r.state !== 'exited') return { ok: false, error: 'not-ready' };
         try { return await checkpoint(r, req); } catch (err) { return { ok: false, error: 'checkpoint-failed', message: err.message }; }
@@ -953,8 +1301,33 @@ export function createSandbox({
 
 /* -------------------------------- helpers --------------------------------- */
 
+/**
+ * WHOSE ACCOUNT A TOKEN IS, AND HOW MUCH OF IT IS LEFT, off a reply's own
+ * headers as Claude Code prints them under ANTHROPIC_LOG=debug. A setup-token
+ * token cannot read its own profile, but every reply names its organization
+ * and carries the session (5h) and week (7d) usage. The newest reply wins.
+ * Null when the text holds none of it.
+ */
+export function readReplyHeaders(text) {
+  const s = String(text ?? '');
+  const last = (name) => {
+    let v = null;
+    for (const m of s.matchAll(new RegExp(`"${name}"\\s*:\\s*"([^"]+)"`, 'gi'))) v = m[1];
+    return v;
+  };
+  const org = last('anthropic-organization-id');
+  const limits = [['5h', 'session'], ['7d', 'week']].flatMap(([key, span]) => {
+    const used = last(`anthropic-ratelimit-unified-${key}-utilization`);
+    if (used == null || !Number.isFinite(Number(used))) return [];
+    const reset = Number(last(`anthropic-ratelimit-unified-${key}-reset`));
+    return [{ span, percent: Math.round(Number(used) * 100), resetsAt: Number.isFinite(reset) && reset > 0 ? reset * 1000 : null }];
+  });
+  return org || limits.length ? { org, limits } : null;
+}
+
 function invalidSignin(action, req) {
   if (!req.runId || typeof req.runId !== 'string') return 'runId is required';
+  if (action === 'look') return req.engine === 'claude' && req.loginUrl ? null : 'a look is at a Claude login, by its link';
   if (!req.saveUrl) return 'saveUrl is required';
   if (action === 'signin' && !['claude', 'codex'].includes(req.engine)) return 'engine must be claude or codex';
   if (action === 'renew' && (req.engine !== 'codex' || !req.loginUrl)) return 'a renewal is for a Codex login, by its link';
@@ -968,7 +1341,12 @@ function invalidStart(req) {
   if (!req.branch) return 'branch is required';
   if (!req.bundleUrl) return 'bundleUrl is required';
   if (!Array.isArray(req.argv) || !req.argv.length) return 'argv is required';
+  if (req.offline != null && (typeof req.offline !== 'object' || (req.offline.endTurn != null && req.offline.endTurn !== 'claude-stream-json'))) return 'offline must be { afterMs, endTurn: "claude-stream-json" or null }';
   for (const f of req.files || []) if (!f?.url || !path.isAbsolute(f?.path || '')) return 'every file needs an absolute path and a url';
+  if (req.docs !== undefined && (typeof req.docs !== 'string' || !path.isAbsolute(req.docs))) return 'docs must be an absolute path';
+  for (const h of req.homeFiles || []) {
+    if (!h?.url || typeof h.rel !== 'string' || !/^\.claude\/[A-Za-z0-9._-]+$/.test(h.rel) || h.rel.includes('..')) return 'a home file must be a plain name under .claude/';
+  }
   return null;
 }
 
@@ -980,7 +1358,8 @@ function killGroup(pid, signal) {
 // What the command may inherit from the sandbox itself: enough to find
 // programs and a home, and nothing the image's own environment happens to hold.
 export function pickBaseEnv(env) {
-  const keep = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'SHELL', 'USER', 'NODE_EXTRA_CA_CERTS'];
+  // The last two find the image's own browser (Dockerfile).
+  const keep = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TMPDIR', 'SHELL', 'USER', 'NODE_EXTRA_CA_CERTS', 'PLAYWRIGHT_BROWSERS_PATH', 'NODE_PATH'];
   return Object.fromEntries(keep.filter((k) => env[k] !== undefined).map((k) => [k, env[k]]));
 }
 
@@ -1095,6 +1474,30 @@ function sh(cmd, args, cwd, extraEnv = {}, asBuffer = false, input = undefined) 
   });
 }
 
+// Every file in the documents folder, by path inside it, with its size and
+// modified time. Hidden names and links are left out: what goes home is what
+// an agent writes for a person to read.
+const DOCS_MAX_FILE = 200 * 1024 * 1024;
+function scanDocs(dir) {
+  const out = new Map();
+  const walk = (rel) => {
+    let entries = [];
+    try { entries = fs.readdirSync(path.join(dir, rel), { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue;
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) { walk(r); continue; }
+      if (!e.isFile() || /[\n\r]/.test(r)) continue;
+      try {
+        const st = fs.statSync(path.join(dir, r));
+        if (st.size <= DOCS_MAX_FILE) out.set(r, `${st.size}:${st.mtimeMs}`);
+      } catch { /* gone */ }
+    }
+  };
+  walk('');
+  return out;
+}
+
 async function download(fetchImpl, url, file) {
   const res = await fetchImpl(url);
   if (!res.ok) throw new Error(`fetch ${res.status} for ${redact(url)}`);
@@ -1103,7 +1506,8 @@ async function download(fetchImpl, url, file) {
 }
 
 async function upload(fetchImpl, url, body) {
-  const res = await fetchImpl(url, { method: 'PUT', body });
+  // Never an upload that hangs a session: two minutes is far past any we make.
+  const res = await fetchImpl(url, { method: 'PUT', body, signal: AbortSignal.timeout(120_000) });
   if (!res.ok) throw new Error(`upload ${res.status} for ${redact(url)}`);
 }
 
@@ -1138,6 +1542,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const home = execFileSync('getent', ['passwd', user], { encoding: 'utf8' }).split(':')[5];
     runAs = { uid: id('-u'), gid: id('-g'), home, user };
   }
-  const sandbox = createSandbox({ workRoot: '/var/lib/agentbox', bridgeSocket: '/tmp/agentbox-bridge.sock', runAs });
+  const sandbox = createSandbox({ workRoot: '/var/lib/agentbox', bridgeSocket: '/tmp/agentbox-bridge.sock', runAs, log: (line) => console.error(line) });
   sandbox.listen(Number(process.env.PORT) || 8080).then((a) => console.error(`agentbox sandbox listening on ${a.port}`));
 }
