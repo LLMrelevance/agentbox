@@ -102,6 +102,12 @@ describe('a page on the phone', () => {
     expect(withStyles('<link rel="stylesheet" href="gone.css">', 'd/page.html', new Map(), () => null)).toBe('');
   });
 
+  it('keeps a stylesheet\'s media, and leaves out one for print, an alternative or one switched off (Codex\'s second review, finding 4)', () => {
+    const styles = new Map([['d/a.css', 'a{}'], ['d/p.css', 'body{display:none}'], ['d/alt.css', 'b{}'], ['d/off.css', 'c{}']]);
+    const html = '<link rel="stylesheet" href="a.css" media="(max-width: 600px)"><link rel="stylesheet" href="p.css" media="print"><link rel="alternate stylesheet" href="alt.css"><link rel="stylesheet" href="off.css" disabled>';
+    expect(withStyles(html, 'd/page.html', styles, () => null)).toBe('<style media="(max-width: 600px)">a{}</style>');
+  });
+
   it('runs no code of the page\'s own', () => {
     expect(page('<p>a</p><script>alert(1)</script><SCRIPT src="x.js"></SCRIPT><script src="y.js"/><p>b</p>')).toBe('<p>a</p><p>b</p>');
   });

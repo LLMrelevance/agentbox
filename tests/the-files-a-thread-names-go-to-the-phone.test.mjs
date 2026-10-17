@@ -55,13 +55,14 @@ describe('which files a thread names', () => {
     expect(keys).toEqual(['@repo/designs/logo.svg', 'designs/w-aaaaaaaaaa/cut.mp4', 'designs/w-aaaaaaaaaa/quiet-1.png', 'reports/week one.html']);
   });
 
-  it('never a file outside the project, through a link that leads out, under .git, or of a kind it does not draw', () => {
+  it('never a file outside the project, through a link that leads out, under .git, of a kind it does not draw, or a spreadsheet (Codex\'s second review, finding 1)', () => {
     put(path.join(outside, 'secret.png'));
     put(path.join(docs, '.git', 'shot.png'));
     put(path.join(docs, 'notes.txt'));
+    put(path.join(docs, 'export.csv'), 'user,password\ndemo,hunter22');
     put(path.join(docs, 'key.pem'));
     fs.symlinkSync(path.join(outside, 'secret.png'), path.join(docs, 'looks-inside.png'));
-    const text = `${outside}/secret.png ../elsewhere/secret.png looks-inside.png .git/shot.png notes.txt key.pem /etc/hosts.png`;
+    const text = `${outside}/secret.png ../elsewhere/secret.png looks-inside.png .git/shot.png notes.txt key.pem /etc/hosts.png export.csv`;
     expect(filesNamed(snap(text), { dir: docs, repoPath: repo, home })).toEqual([]);
   });
 

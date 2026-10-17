@@ -174,18 +174,22 @@ export function pageStyles(html: string, pageKey: string): string[] {
  * pointed at their links: a stylesheet from the cloud is not one the site lets
  * a page load, and its url()s would name files beside a name that is not theirs.
  */
+// A stylesheet that is for print, an alternative or switched off is not the page as drawn.
+const NOT_DRAWN = (tag: string) => /\balternate\b/i.test(/\brel\s*=\s*["']([^"']*)["']/i.exec(tag)?.[1] ?? '') || /\sdisabled\b/i.test(tag) || /^\s*print\s*$/i.test(/\bmedia\s*=\s*["']([^"']*)["']/i.exec(tag)?.[1] ?? '');
 export function withStyles(html: string, pageKey: string, styles: Map<string, string>, linkOf: (key: string) => string | null): string {
   return String(html).replace(STYLESHEET, (whole, ref) => {
     if (!/\.css$/i.test(ref) || OUTSIDE.test(ref.trim())) return whole;
+    if (NOT_DRAWN(whole)) return '';
     const key = keyBeside(pageKey, ref);
     const css = styles.get(key);
     if (css === undefined) return '';
+    const media = /\bmedia\s*=\s*["']([^"'<>]*)["']/i.exec(whole)?.[1];
     const pointed = css.replace(/(url\(\s*["']?)([^"')#?]+)([^"')]*["']?\s*\))/gi, (u, a, r, z) => {
       if (OUTSIDE.test(r.trim())) return u;
       const to = linkOf(keyBeside(key, r));
       return to ? `${a}${to}${z.replace(/^\?[^#"')]*/, '')}` : u;
     });
-    return `<style>${pointed.replace(/<\/style/gi, '<\\/style')}</style>`;
+    return `<style${media && media.trim() !== 'all' ? ` media="${media}"` : ''}>${pointed.replace(/<\/style/gi, '<\\/style')}</style>`;
   });
 }
 

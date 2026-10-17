@@ -27,7 +27,7 @@ const TYPES = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.svg': 'image/svg+xml',
   '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg',
   '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/mp4', '.webm': 'video/webm',
-  '.html': 'text/html', '.htm': 'text/html', '.pdf': 'application/pdf', '.md': 'text/markdown', '.markdown': 'text/markdown', '.csv': 'text/csv',
+  '.html': 'text/html', '.htm': 'text/html', '.pdf': 'application/pdf', '.md': 'text/markdown', '.markdown': 'text/markdown',
 };
 // What a page may bring with it, besides the kinds above.
 const PAGE_PARTS = { '.css': 'text/css', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.otf': 'font/otf' };
@@ -40,9 +40,25 @@ const SKIP_SEGMENTS = new Set(['node_modules', '.git']);
 // A file whose name says it holds a secret never goes, whatever its kind.
 const SECRET_NAME = /(secret|credential|passw|token|private[-_.]?key|(^|[/.])env($|[/.]))/i;
 // Words, not pictures: what goes up is the text with its keys hidden, as a thread's words are.
-const TEXT = /\.(html?|md|markdown|csv|css|svg)$/i;
+// Not a spreadsheet: a password in a column has no name beside it to hide it by.
+const TEXT = /\.(html?|md|markdown|css|svg)$/i;
 // A page or stylesheet bigger than this is listed but not read for what it draws.
 const PAGE_READ_MAX = 2 * 1024 * 1024;
+// And all the pages one thread names, read for what they draw, at most this much.
+const PAGES_READ_MAX = 6 * 1024 * 1024;
+
+/** At most `max` bytes of a file, through one open handle; null for a bigger one. */
+function readAtMost(file, max) {
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    const buf = Buffer.alloc(max + 1);
+    let n = 0;
+    for (let got; n <= max && (got = fs.readSync(fd, buf, n, max + 1 - n, null)) > 0;) n += got;
+    return n > max ? null : buf.subarray(0, n);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
 
 export const typeOf = (file) => TYPES[path.extname(file).toLowerCase()] ?? PAGE_PARTS[path.extname(file).toLowerCase()] ?? null;
 
@@ -154,13 +170,15 @@ export function partsOf(text) {
 }
 
 /** A page's own files, as [{ key, file }], one stylesheet deep, inside the project's folders only. */
-export function pageParts(page, { docs, repo }) {
+export function pageParts(page, { docs, repo, budget = { bytes: PAGES_READ_MAX } }) {
   const out = new Map();
   const visit = (file, depth) => {
     let text;
     try {
-      if (fs.statSync(file).size > PAGE_READ_MAX) return;
-      text = fs.readFileSync(file, 'utf8');
+      const raw = readAtMost(file, Math.min(PAGE_READ_MAX, budget.bytes));
+      if (!raw) return;
+      budget.bytes -= raw.length;
+      text = raw.toString('utf8');
     } catch { return; }
     for (const ref of partsOf(text)) {
       const part = real(path.join(path.dirname(file), ref));
@@ -216,9 +234,11 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
       const where = { docs: real(dir), repo: repoPath && real(repoPath) };
       // Each page with its own files right after it.
       const all = new Map();
+      const budget = { bytes: PAGES_READ_MAX };
       for (const f of named) {
+        if (all.size >= limits.files) break;
         if (!all.has(f.key)) all.set(f.key, f.file);
-        if (/\.html?$/i.test(f.file)) for (const p of pageParts(f, where)) if (!all.has(p.key)) all.set(p.key, p.file);
+        if (/\.html?$/i.test(f.file) && budget.bytes > 0) for (const p of pageParts(f, { ...where, budget })) if (!all.has(p.key)) all.set(p.key, p.file);
       }
       for (const f of folders) for (const p of f.pictures) if (!all.has(p.key)) all.set(p.key, p.file);
       const files = {};
@@ -263,7 +283,12 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
       const st = await fh.stat();
       const there = fs.statSync(file);
       if (!st.isFile() || st.ino !== there.ino || st.dev !== there.dev || real(file) !== file || st.size > limits.fileBytes) return null;
-      const raw = await fh.readFile();
+      const buf = Buffer.alloc(st.size + 1);
+      let n = 0;
+      for (let got; n <= st.size && (got = (await fh.read(buf, n, st.size + 1 - n, n)).bytesRead) > 0;) n += got;
+      // Grew while it was read: the next pass looks at it again.
+      if (n !== st.size) return null;
+      const raw = buf.subarray(0, n);
       return { st, data: TEXT.test(file) ? Buffer.from(hideSecrets(raw.toString('utf8'), { home })) : raw };
     } finally {
       await fh.close();

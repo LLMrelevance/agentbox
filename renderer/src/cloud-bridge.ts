@@ -220,6 +220,9 @@ function findFolder(place: Place, src: string): { folder: string; keys: string[]
   return keys ? { folder: key.startsWith('@repo/') ? `${place.repo}/${key.slice(6)}` : `${place.dir}/${key}`, keys } : null;
 }
 
+const LINK_LIFE_MS = 12 * 3600_000;
+const LINK_RENEW_MS = 3600_000;
+
 const SUPERVISOR = { paused: false, pausedProducts: [], running: [], stalled: [], queued: [], scheduled: [], productOrder: [], hiddenProducts: [], personalProducts: [], capacity: 0 };
 const EMPTY_ROWS: PhoneRows = { projects: [], threads: [], commands: [] };
 
@@ -239,8 +242,9 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
   let aliases: Aliases = {};
   let error: string | null = null;
   let last = '';
-  // Her files' links, by name in the bucket, each signed for an hour and asked
-  // for again ten minutes before it runs out; and each page made ready, by name.
+  // Her files' links, by name in the bucket, each signed for twelve hours and
+  // asked for again an hour before it runs out, so a film is not pulled from
+  // under her mid-play by a new link; and each page made ready.
   let places = new Map<string, Place>();
   const links = new Map<string, { url: string; until: number }>();
   // A page made ready is good while every file it points at keeps its name
@@ -251,13 +255,13 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
   async function signLinks() {
     const want: string[] = [];
     for (const place of places.values()) for (const e of place.files.values()) {
-      if (e.n && !((links.get(e.n)?.until ?? 0) - Date.now() > 10 * 60_000)) want.push(objectOf(place, e.n));
+      if (e.n && !((links.get(e.n)?.until ?? 0) - Date.now() > LINK_RENEW_MS)) want.push(objectOf(place, e.n));
     }
     const asked = client.generation();
     for (let i = 0; i < want.length; i += 300) {
-      const got = await client.signFiles(BUCKET, [...new Set(want.slice(i, i + 300))], 3600);
+      const got = await client.signFiles(BUCKET, [...new Set(want.slice(i, i + 300))], LINK_LIFE_MS / 1000);
       if (client.generation() !== asked) return;
-      for (const [object, url] of got) links.set(object.slice(object.lastIndexOf('/') + 1), { url, until: Date.now() + 3600_000 });
+      for (const [object, url] of got) links.set(object.slice(object.lastIndexOf('/') + 1), { url, until: Date.now() + LINK_LIFE_MS });
     }
   }
   const linkOfEntry = (n?: string) => (n ? links.get(n)?.url ?? null : null);
@@ -441,7 +445,8 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
         dropPage(cacheKey);
         const asked = client.generation();
         const used = new Set<string>([found.key]);
-        const linkOf = (key: string) => { const n = found.place.files.get(key)?.n; const l = linkOfEntry(n); if (l) used.add(key); return l; };
+        // Every file it names counts, here or not yet, so one that arrives later makes the page again.
+        const linkOf = (key: string) => { used.add(key); return linkOfEntry(found.place.files.get(key)?.n); };
         const read = async (url: string) => { const res = await fetch(url); if (!res.ok) throw new Error('This page could not be read.'); return res.text(); };
         try {
           let html = await read(link);
@@ -452,7 +457,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
           }
           if (client.generation() !== asked) return { ok: false, error: 'You signed out.' };
           html = pageForPhone(withStyles(html, found.key, styles, linkOf), found.key, linkOf);
-          const until = Math.min(...[...used].map((k) => links.get(found.place.files.get(k)?.n ?? '')?.until ?? Date.now())) - 10 * 60_000;
+          const until = Math.min(Infinity, ...[...used].map((k) => links.get(found.place.files.get(k)?.n ?? '')?.until).filter((u): u is number => !!u)) - LINK_RENEW_MS;
           const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
           pages.set(cacheKey, { url, keys: [...used], names: namesOf([...used]), until });
           while (pages.size > 12) dropPage(pages.keys().next().value!);
