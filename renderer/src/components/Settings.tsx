@@ -36,8 +36,10 @@ import { api, RESTART_NOTE } from '../api';
 import { updateLook } from '../update-row';
 import { InstructionSettings, sizeLabel } from './InstructionSettings';
 import { EVERY } from '../instruction-scope';
-import type {Usage, WorkspaceSettings} from '../types';
-import { limitRows, USAGE_UNREADABLE } from '../../../shared/usage.mjs';
+import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
+import { accountLabel, type CloudStatus } from '../cloud-menu';
+import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
+import { limitRows } from '../../../shared/usage.mjs';
 import { LOOKS, lookMeans, SKINS, TUNE_DEFAULT, TUNE_LIMITS, type Look, type SkinId, type SkinTune } from '../skins';
 import { readySkin } from '../look-switch';
 import { MatchMark } from './MatchMark';
@@ -365,51 +367,6 @@ export function usageCheckedAt(at: number | null | undefined, now: number): stri
   return `Checked ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
 }
 
-/** A reading names its account; switching cannot reuse the old account's meter.
- *
- *  AN ACCOUNT THAT CANNOT RUN HAS NO USAGE TO READ, AND "TRY AGAIN" IS A LIE
- *  ABOUT IT. One whose organization has Claude Code off prints no limits from
- *  `/usage` at all (2026-10-11, Claude Code 2.1.293), so the box said "No usage
- *  reading yet" and every Refresh "Could not refresh usage. Try again." The
- *  account row already carried main's sentence for it; `trouble` is that
- *  sentence, and it stands in for both. */
-export function ClaudeUsageSection({ reading, profile, email, now, trouble = null }: {
-  reading: Usage | null; profile: string; email?: string | null; now: number; trouble?: string | null;
-}) {
-  const [fresh, setFresh] = useState<Usage | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const waiting = useRef(false);
-  const selected = useRef(profile);
-  selected.current = profile;
-  const belongs = (r: Usage | null) => r && (r.profile ?? 'default') === profile ? r : null;
-  const incoming = belongs(reading), refreshed = belongs(fresh);
-  const current = refreshed && (!incoming || refreshed.at >= incoming.at) ? refreshed : incoming;
-  useEffect(() => { setFresh(null); setError(null); }, [profile]);
-  const refresh = async () => {
-    if (waiting.current) return;
-    waiting.current = true;
-    const account = profile;
-    setBusy(true); setError(null);
-    try {
-      const result = await api.refreshUsage();
-      if (selected.current !== account) return;
-      if (result.ok && result.reading && (result.reading.profile ?? 'default') === account) setFresh(result.reading);
-      else setError(result.error ?? 'The account changed. Refresh usage again.');
-    } catch { if (selected.current === account) setError(USAGE_UNREADABLE); }
-    finally { waiting.current = false; setBusy(false); }
-  };
-  return (
-    <Group id="usage" label="Usage" action={<button type="button" className="set-ghost" disabled={busy} onClick={() => void refresh()}>{busy ? 'Refreshing…' : 'Refresh'}</button>}>
-      <Row label={email || 'Claude Code'} desc={busy ? 'Checking usage…' : usageCheckedAt(current?.at, now) || undefined} />
-      <UsageRows reading={current} now={now} trouble={trouble ?? error} />
-      {trouble
-        ? <div className="set-row set-row-warn" role="alert">{trouble}</div>
-        : error && <div className="set-row set-row-warn" role="alert">{error}</div>}
-    </Group>
-  );
-}
-
 /**
  * THE ACCOUNTS, one row each.
  *
@@ -430,7 +387,17 @@ export function AccountRows({ agent, onChoose, onAdd }: {
   const picked = accounts.some((a) => a.chosen);
   return (
     <>
-      {accounts.map((a) => {
+      {accounts.map((a) => <Fragment key={a.profile}>{accountRow(a)}</Fragment>)}
+      {/* BOTH AGENTS OFFER IT SINCE 2026-09-22 (w-3498e0cad2): a work login and
+          a personal login, both live on one Mac. A DOOR, NOT A PITCH: the row
+          says what it does and nothing about what a second one would add. */}
+      <Row label="Add account">
+        <button type="button" className="set-ghost" onClick={() => onAdd(agent)}>Add</button>
+      </Row>
+    </>
+  );
+
+  function accountRow(a: CardAccount) {
         const live = picked ? a.chosen : false;
         const label = a.email ?? 'Not signed in';
         if (a.trouble) {
@@ -459,15 +426,95 @@ export function AccountRows({ agent, onChoose, onAdd }: {
             )}
           </div>
         );
-      })}
-      {/* BOTH AGENTS OFFER IT SINCE 2026-09-22 (w-3498e0cad2): a work login and
-          a personal login, both live on one Mac. A DOOR, NOT A PITCH: the row
-          says what it does and nothing about what a second one would add. */}
-      <Row label="Add account">
-        <button type="button" className="set-ghost" onClick={() => onAdd(agent)}>Add</button>
-      </Row>
-    </>
+  }
+}
+
+/** One account as a place card draws it, whether it lives here or in the cloud. */
+export type PlaceAccount = {
+  key: string;
+  name: string;
+  /** Plan, check time or state, joined with a dot. */
+  about: string[];
+  inUse?: boolean;
+  limits?: UsageLimit[] | null;
+  /** Offered when picking it would change something, with the words for it. */
+  use?: { word: string; onUse: () => void } | null;
+  /** Why it cannot run, in main's words; replaces the meters. */
+  trouble?: string | null;
+  cmd?: string | null;
+  /** False where no usage can be read at all, so no "no reading yet" is promised. */
+  meters?: boolean;
+};
+
+/** SESSION AND WEEK, the same two meters for every account. A full one says when it is back. */
+export function MiniMeters({ limits }: { limits?: UsageLimit[] | null }) {
+  const meters = meterPair(limits);
+  if (!meters.length) return <div className="acct-meters-none">No usage reading yet</div>;
+  return (
+    <span className="acct-meters">
+      {meters.map((m) => (
+        <span className={`acct-meter${m.percent >= 100 ? ' full' : ''}`} key={m.key}>
+          <span className="acct-meter-word">{m.word}</span>
+          <span className="usage-meter" aria-hidden="true"><i style={{ width: `${Math.min(100, m.percent)}%` }} /></span>
+          <span className="acct-meter-pct">{m.back ? `back ${m.back}` : `${m.percent}%`}</span>
+        </span>
+      ))}
+    </span>
   );
+}
+
+function UseMark({ a }: { a: PlaceAccount }) {
+  if (a.inUse) return <span className="set-badge">In use</span>;
+  return a.use ? <button type="button" className="set-badge set-badge-use" onClick={a.use.onUse}>{a.use.word}</button> : null;
+}
+
+/** One tile per account, two to a line, its meters stacked inside. */
+export function PlaceTiles({ accounts, onAdd }: { accounts: PlaceAccount[]; onAdd?: () => void }) {
+  return (
+    <div className="acct-tiles">
+      {accounts.map((a) => (
+        <div className={`acct-tile${a.inUse ? ' on' : ''}${a.trouble ? ' trouble' : ''}`} key={a.key}>
+          <div className="acct-tile-name">{a.name}</div>
+          <div className="acct-tile-about"><UseMark a={a} />{a.about.join(' · ')}</div>
+          {a.trouble ? (
+            <>
+              <div className="acct-tile-trouble">{a.trouble}</div>
+              {a.cmd && <div className="acct-tile-cmd"><CopyCmd cmd={a.cmd} /></div>}
+            </>
+          ) : a.meters !== false && <MiniMeters limits={a.limits} />}
+        </div>
+      ))}
+      {onAdd && <button type="button" className="acct-tile acct-tile-add" onClick={onAdd}>Add account</button>}
+    </div>
+  );
+}
+
+/**
+ * ONE PLACE AGENTS RUN: its name, whether it is on, one line on when threads
+ *  go there, and a tile per account. */
+export function Place({ id, name, state = null, line = null, action, warn, accounts, onAdd }: {
+  id: string; name: string; state?: 'On' | 'Off' | null; line?: string | null; action?: ReactNode; warn?: string | null;
+  accounts: PlaceAccount[]; onAdd?: () => void;
+}) {
+  const label = <>{name}{state && <span className={`set-badge${state === 'On' ? '' : ' set-badge-off'}`}>{state}</span>}</>;
+  return (
+    <Group id={id} label={label} action={action} bare>
+      {(warn || line) && <div className="acct-place-line" role="status">{warn ?? line}</div>}
+      <PlaceTiles accounts={accounts} onAdd={onAdd} />
+    </Group>
+  );
+}
+
+/** The cloud's own logins, as a place card reads them. */
+export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex', now: number): PlaceAccount[] {
+  const all = cloud.accounts ?? [];
+  return all.filter((a) => a.engine === engine).map((a) => {
+    const state = cloudAccountState(a, now);
+    const read = !!a.limits?.length;
+    // A full meter already says when it is back. Without a reading the state is all there is.
+    const said = read && (state === 'Ready' || state.startsWith('At its limit'));
+    return { key: a.key, name: accountLabel(a, all), about: said ? [] : [state], limits: a.limits ?? null, meters: read };
+  });
 }
 
 /*
@@ -513,13 +560,15 @@ function SettingsTerminal({ command, onFinished }: { command?: string; onFinishe
  *  "a lot of text under components, gets a bit ugly", so a group no longer
  *  takes one. Anything a row needs to say is in the row. A warning about the
  *  whole group is the card's first line, inside it. */
-const Group = ({ id, label, warn, action, children }: { id?: string; label?: string; warn?: string | null; action?: ReactNode; children: React.ReactNode }) => (
+const Group = ({ id, label, warn, action, bare = false, children }: { id?: string; label?: ReactNode; warn?: string | null; action?: ReactNode; bare?: boolean; children: React.ReactNode }) => (
   <div className="set-group" data-find={id}>
-    {label && <div className={`set-group-label${action ? ' set-group-head' : ''}`}>{label}{action}</div>}
-    <div className="set-plate">
-      {warn && <div className="set-row set-row-warn" role="status">{warn}</div>}
-      {children}
-    </div>
+    {label && <div className={`set-group-label${action ? ' set-group-head' : ''}`}><span>{label}</span>{action}</div>}
+    {bare ? children : (
+      <div className="set-plate">
+        {warn && <div className="set-row set-row-warn" role="status">{warn}</div>}
+        {children}
+      </div>
+    )}
   </div>
 );
 
@@ -1447,10 +1496,12 @@ function paneFrom(want: string, has: { team: boolean }): Pane {
 
 /* --------------------------------- screen --------------------------------- */
 
-export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback }: {
+export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null }: {
   /** Opens the feedback card. A phone has no Feedback button in its corner,
    *  so its own Settings page offers it (2026-10-12). */
   onFeedback?: () => void;
+  /** The cloud, when this Mac is set up for it: its own logins are listed on the agent's page. */
+  cloud?: CloudStatus | null;
   // ONE control for the three of them. Light, dark and each picture are one
   // list, because a picture IS dark (skins.ts) and asking her to set a theme
   // and then a background is two decisions for one choice.
@@ -1527,6 +1578,20 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Every login's own usage, read when the Claude Code page opens and on
+  // Refresh. A reading can take back a stale mark, so the page reloads after.
+  const [accountReadings, setAccountReadings] = useState<AccountUsageReading[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const readAccounts = useCallback(async (refresh = false) => {
+    if (refresh) setRefreshing(true);
+    try {
+      const readings = await api.accountUsage({ refresh });
+      setAccountReadings(readings);
+      if (readings.length) await load();
+    } finally { if (refresh) setRefreshing(false); }
+  }, [load]);
+  useEffect(() => { if (pane !== 'claude') return; void readAccounts(); }, [pane, readAccounts]);
 
   /* THE SEARCH (w-ccadd13c46). Typing replaces the menu with what matches;
      ↑ and ↓ move through it and Enter opens one. Escape empties the box first
@@ -1651,8 +1716,46 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   const enginePage = (engine: 'claude' | 'codex') => {
     if (!w) return null;
     const agent = agentStory(w, usageReadings, engine);
-    const usageAccount = agent.accounts.find(a => a.chosen) ?? agent.accounts[0];
-    const status = { found: agent.found, certain: agent.certain, bin: agent.bin, chosen: agent.chosen, url: agent.url, trouble: agent.trouble, onChecked: load };
+    // Each login's own reading, never another's: by its folder, or the corner's if it is the same login.
+    const readingOf = (profile: string): Usage | null => {
+      const own = accountReadings.find((r) => r.profile === profile && r.limits?.length && r.at);
+      if (own) return { engine: 'claude', limits: own.limits!, at: own.at!, profile };
+      const r = agent.reading;
+      return r && (r.profile ?? 'default') === profile ? r : null;
+    };
+    const picked = agent.accounts.some((a) => a.chosen);
+    const hereAccounts: PlaceAccount[] = [...agent.accounts]
+      .sort((x, y) => Number(y.chosen) - Number(x.chosen))
+      .map((a) => ({
+        key: a.profile,
+        name: a.email ?? 'Not signed in',
+        about: [a.signedIn ? (a.plan ?? 'Signed in') : 'Finish signing in to use it'],
+        inUse: picked && a.chosen,
+        limits: readingOf(a.profile)?.limits ?? null,
+        use: !(picked && a.chosen) && agent.accounts.length > 1
+          ? { word: picked ? 'Use this one' : 'Use only this one', onUse: () => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile: a.profile } })) }
+          : null,
+        trouble: a.trouble,
+        cmd: a.trouble && a.dir ? `CLAUDE_CONFIG_DIR=${a.dir} claude` : null,
+      }));
+    const lastRead = Math.max(0, ...agent.accounts.map((a) => readingOf(a.profile)?.at ?? 0));
+    const checked = lastRead ? usageCheckedAt(lastRead, now) : '';
+    const cloudHere = cloud?.setUp && (cloud.accounts ?? []).some((a) => a.engine === engine) ? cloud : null;
+    // WHERE AGENTS GO FIRST IS DRAWN FIRST: the cloud while it is on, this computer while it is off.
+    const cloudFirst = !!cloudHere && cloudHere.mode !== 'mac';
+    const cloudAccounts = cloudHere ? cloudPlaceAccounts(cloudHere, engine, now) : [];
+    const cloudCard = cloudHere && (
+      <Place id="cloud-accounts" name="Cloud" state={cloudHere.mode === 'mac' ? 'Off' : 'On'}
+        line={cloudPlaceLine(cloudHere, cloudAccounts.length)} accounts={cloudAccounts} />
+    );
+    const addAccount = async (a: Agent) => {
+      const r = a.engine === 'codex' ? await api.addCodexAccount() : await api.addClaudeAccount();
+      setAdding(r.ok ? { engine: a.engine, name: a.name, command: r.command } : { engine: a.engine, name: a.name, error: r.error });
+      // A Codex row appears now, reading "Not signed in". A Claude one appears
+      // only once its sign-in lands, so an abandoned one is never listed.
+      await load();
+    };
+    const status ={ found: agent.found, certain: agent.certain, bin: agent.bin, chosen: agent.chosen, url: agent.url, trouble: agent.trouble, onChecked: load };
     return (
       <Page title={agent.name}>
         {/* THE STATE SPEAKS ONLY WHEN IT IS BAD -- OR WHEN YOU MADE IT THIS WAY
@@ -1664,33 +1767,37 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
           && (engine === 'codex' ? <CodexCli {...status} /> : <ClaudeCode {...status} />)}
         {agent.found && (
           <>
-            {engine === 'claude' ? (
-              <ClaudeUsageSection key={usageAccount?.profile ?? 'default'} reading={agent.reading} profile={usageAccount?.profile ?? 'default'} email={usageAccount?.email} trouble={usageAccount?.trouble ?? null} now={now} />
-            ) : (
-              <Group id="usage" label="Usage"><UsageRows reading={agent.reading} now={now} /></Group>
-            )}
+            {cloudFirst && cloudCard}
+            {engine === 'codex' && <Group id="usage" label="Usage"><UsageRows reading={agent.reading} now={now} /></Group>}
             {/* "SIGNED IN", NOT "ACCOUNTS": a heading that works at any
-                number, so one account is never shown a plural to fill. */}
-            <Group
-              id="accounts"
-              label="Signed in"
-              /* TWO FOLDERS, ONE SUBSCRIPTION, SAID ABOVE THE ROWS
-                 (w-f2a5c9894e). Main's sentence, about the pair. */
-              warn={engine === 'claude' ? w.accountsNote : null}
-            >
-              <AccountRows
-                agent={agent}
-                onChoose={(e, profile) => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine: e, profile } }))}
-                onAdd={async (a) => {
-                  const r = a.engine === 'codex' ? await api.addCodexAccount() : await api.addClaudeAccount();
-                  setAdding(r.ok ? { engine: a.engine, name: a.name, command: r.command } : { engine: a.engine, name: a.name, error: r.error });
-                  // A Codex row appears now, reading "Not signed in". A Claude
-                  // one appears only once its sign-in lands, so an abandoned
-                  // one is never listed as an account.
-                  await load();
-                }}
+                number, so one account is never shown a plural to fill. Beside
+                the cloud it names the place instead. */}
+            {engine === 'claude' ? (
+              <Place
+                id="usage"
+                name={cloudHere ? 'This computer' : 'Signed in'}
+                action={(
+                  <span className="acct-place-act">
+                    {!refreshing && checked && <span className="acct-checked">{checked}</span>}
+                    <button type="button" className="set-ghost" disabled={refreshing} onClick={() => void readAccounts(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
+                  </span>
+                )}
+                /* TWO FOLDERS, ONE SUBSCRIPTION, SAID ABOVE THE ROWS
+                   (w-f2a5c9894e). Main's sentence, about the pair. */
+                warn={w.accountsNote}
+                accounts={hereAccounts}
+                onAdd={() => void addAccount(agent)}
               />
-            </Group>
+            ) : (
+              <Group id="accounts" label={cloudHere ? 'This computer' : 'Signed in'}>
+                <AccountRows
+                  agent={agent}
+                  onChoose={(e, profile) => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine: e, profile } }))}
+                  onAdd={(a) => void addAccount(a)}
+                />
+              </Group>
+            )}
+            {!cloudFirst && cloudCard}
             {/* SIGNING A SECOND ACCOUNT IN, IN THE APP (w-c2904cc8d9). Main
                 makes the folder and registers the login, and the shell below
                 is left with the one part that is genuinely hers, signing in to

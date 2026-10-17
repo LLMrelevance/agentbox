@@ -1,6 +1,7 @@
 // THE CLOUD MENU'S WORDS AND NUMBERS (tests/the-cloud-button-chooses-where-threads-run).
 // The button and the menu are drawn in threads/Pages.tsx, beside the filters
 // button and built like its menu; what they say lives here.
+import type { UsageLimit } from './types';
 
 export type CloudMode = 'mac' | 'full' | 'all';
 
@@ -38,6 +39,9 @@ export interface CloudAccount {
   // renewed), 'limited' (at its usage limit until it resets), 'ready'.
   state?: 'broken' | 'renew' | 'stale' | 'limited' | 'ready';
   savedAt?: number | null;
+  limitedUntil?: number | null;
+  /** Its session and week, read off a reply's own headers in the cloud. */
+  limits?: UsageLimit[] | null;
 }
 
 export interface CloudStatus {
@@ -80,7 +84,20 @@ export const CLOUD_MODES: { id: CloudMode; label: string; note: string }[] = [
 // THE CLOUD IS ON OR OFF (2026-10-16, her pick of five drawings). C flips it;
 // what "on" means, when this Mac is full or everything, is kept as a
 // preference in the menu and survives the cloud being off.
-export const CLOUD_KEY = 'C';
+export const CLOUD_KEY = '⌘C';
+
+/**
+ * ⌘C (Ctrl+C) TURNS THE CLOUD ON OR OFF (2026-10-17: a plain C was hit by
+ * accident). It is Copy first: never with text selected, in a field, or over a
+ * dialog.
+ */
+export function cloudChord(
+  e: { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean },
+  { inInput, selection, modal }: { inInput: boolean; selection: string; modal: boolean },
+): boolean {
+  if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'c') return false;
+  return !inInput && !modal && !selection.trim();
+}
 
 export const CLOUD_WHEN_ON: { id: Exclude<CloudMode, 'mac'>; label: string; note: string }[] = [
   { id: 'full', label: 'When this Mac is full', note: 'Threads that don’t fit here start in the cloud.' },
@@ -136,4 +153,23 @@ const hours = (n: number) => String(Math.round(n * 10) / 10);
 export function cloudMonthLine(month: CloudMonth): string {
   if (!month.runs) return 'Nothing in the cloud yet this month';
   return `${hours(month.agentHours)} agent-hours`;
+}
+
+/**
+ * WHERE ONE THREAD RUNS, for its menu's row (threads/ThreadMenu.tsx): in the
+ * cloud now, kept on this Mac, or here and free to go to the cloud. Null where
+ * the cloud could never run it: no cloud set up, the cloud off and the thread
+ * not kept, or a project with no code folder of its own.
+ */
+export function threadPlace(
+  item: { id: string; product: string; onMac?: boolean },
+  session: { where?: string } | null,
+  cloud: CloudStatus | null,
+  products: { slug: string; repoPath?: string | null }[],
+): 'cloud' | 'here' | 'kept' | null {
+  if (!cloud?.setUp) return null;
+  if (item.onMac) return 'kept';
+  if (session?.where === 'cloud') return 'cloud';
+  if (!cloudIsOn(cloud)) return null;
+  return products.some((p) => p.slug === item.product && p.repoPath) ? 'here' : null;
 }

@@ -12,6 +12,9 @@ import { neoEnabled } from './gate.mjs';
 import { startLive } from './live.mjs';
 import { listenForDoubleCommand } from './cmd-tap.mjs';
 import { getMic, micOwner } from './mic.mjs';
+import { decide, answerQuestion, composeReply } from './decide.mjs';
+import { runDecision } from './decided.mjs';
+import { buildOptions } from '../../shared/neo-options.mjs';
 import { checkCall, neoSession, PACES } from '../../shared/neo-tools.mjs';
 import { Name } from '../../shared/product-name.mjs';
 
@@ -34,6 +37,11 @@ export function createNeo({
   // Handed the transcripts of every few minutes of talk, for a review that
   // patches what went wrong (main/main.mjs files them on a thread).
   onReview = null,
+  // The trial run on the Decisions API: decides from what is on screen and
+  // writes the pick beside the talk, acting on nothing (plans/neo-decisions.md).
+  decideImpl = decide,
+  answerImpl = answerQuestion,
+  composeImpl = composeReply,
 }) {
   const on = neoEnabled({ userData, platform });
   ipcMain.handle('neo:enabled', () => on);
@@ -97,17 +105,47 @@ export function createNeo({
   // it flips, so the card always has room.
   const ORB_X = { right: WIDTH - 24 - 75, left: 24 + 75 };
   let side = readPrefs().side === 'left' ? 'left' : 'right';
+  // And top to bottom: in the upper third the orb sits at the window's top.
+  const ORB_Y = { down: HEIGHT - 24 - 75, up: 24 + 75 };
+  let up = readPrefs().up === true;
   const sideFor = (b) => {
     const orbX = b.x + ORB_X[side];
     const { workArea: a } = screen.getDisplayNearestPoint({ x: Math.round(orbX), y: Math.round(b.y + HEIGHT / 2) });
     return orbX < a.x + a.width / 2 ? 'left' : 'right';
   };
-  const tellSide = () => win?.webContents.send('neo:side', { side });
+  const upFor = (b) => {
+    const orbY = b.y + ORB_Y[up ? 'up' : 'down'];
+    const { workArea: a } = screen.getDisplayNearestPoint({ x: Math.round(b.x + WIDTH / 2), y: Math.round(orbY) });
+    return orbY < a.y + a.height / 3;
+  };
+  const tellSide = () => win?.webContents.send('neo:side', { side, up });
+
+  // WHAT THE ORB IS SITTING ON TOP OF (w-5520063011). The app fades the
+  // summary's Status and Owner block while the orb covers it and brings it
+  // back when the orb is dragged off, and only this process knows both
+  // windows' bounds. A drag sends a frame per pointer move and most land on
+  // the same pixel, so an unchanged place is not sent again.
+  let toldOrb = '';
+  function tellOrb() {
+    if (!win || win.isDestroyed() || mainWindow.isDestroyed()) return;
+    const b = win.getBounds();
+    const app = mainWindow.getContentBounds();
+    const at = { x: b.x + ORB_X[side] - app.x, y: b.y + ORB_Y[up ? 'up' : 'down'] - app.y, r: 75 };
+    const key = `${at.x},${at.y}`;
+    if (key === toldOrb) return;
+    toldOrb = key;
+    mainWindow.webContents.send('neo:orb', at);
+  }
+  // Moving or resizing the app window changes what the orb is over without
+  // the orb itself having moved.
+  mainWindow.on('move', tellOrb);
+  mainWindow.on('resize', tellOrb);
 
   function place() {
     const kept = readPrefs().at;
     if (kept && Number.isFinite(kept.x) && Number.isFinite(kept.y)) { win.setBounds(within(kept.x, kept.y)); return; }
     side = 'right';
+    up = false;
     const point = screen.getCursorScreenPoint();
     const { workArea } = screen.getDisplayNearestPoint(point);
     win.setBounds({ x: workArea.x + workArea.width - WIDTH - MARGIN, y: workArea.y + workArea.height - HEIGHT - MARGIN, width: WIDTH, height: HEIGHT });
@@ -125,7 +163,10 @@ export function createNeo({
       // Chimes and Neo's voice play the moment it wakes, with no click in the page.
       webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true, partition: 'neo', backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
     });
-    win.setAlwaysOnTop(true, 'floating');
+    // Above the corner tag, which also floats: at the same level whichever was
+    // shown last sat on top, so the orb could end up under a window that took
+    // the pointer meant for it (w-5520063011).
+    win.setAlwaysOnTop(true, 'pop-up-menu');
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     win.setIgnoreMouseEvents(true, { forward: true });
     win.on('closed', () => { win = null; loaded = null; live = false; generation++; });
@@ -167,6 +208,11 @@ export function createNeo({
       ensureWindow();
       place();
       win.showInactive();
+      win.moveTop();
+      // Afresh, because the app page may have been reloaded since the last
+      // wake and a reloaded page knows nothing about where the orb is.
+      toldOrb = '';
+      tellOrb();
       // A wake sent before the page has loaded is lost, and Neo would be
       // marked live with nothing listening.
       await loaded;
@@ -183,6 +229,8 @@ export function createNeo({
     }
     if (!live) return;
     ending = false;
+    decisionState = {};
+    said.length = 0;
     sessionSeconds = 0;
     talkFile = path.join(dir, 'talk', `${new Date(now()).toISOString().replace(/[:.]/g, '-')}.jsonl`);
     seenCalls.clear();
@@ -198,7 +246,7 @@ export function createNeo({
     // given to the session (shared/neo-tools.mjs neoSession says why).
     await askMain('describe_screen', { outside: !!outside });
     try {
-      const answer = await startLiveImpl({ sdp, session: neoSession({ pace: readPrefs().pace }) });
+      const answer = await startLiveImpl({ sdp, session: neoSession({ pace: readPrefs().pace, engine: engine() }) });
       log('session started');
       return { ok: true, sdp: answer.sdp };
     } catch (err) {
@@ -239,13 +287,64 @@ export function createNeo({
     if (sessionSeconds >= SESSION_MAX_S || usage.seconds >= DAY_MAX_S) askSleep('limit');
   });
 
+  const writeTalk = (file, who, text) => {
+    if (!file) return;
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.appendFileSync(file, `${JSON.stringify({ at: new Date(now()).toISOString(), who, text: text.slice(0, 4000) })}\n`);
+    } catch {}
+  };
+
   ipcMain.on('neo:log', (e, { who, text } = {}) => {
     if (!fromNeo(e) || !talkFile || !WHO.has(who) || typeof text !== 'string' || !text.trim()) return;
-    try {
-      fs.mkdirSync(path.dirname(talkFile), { recursive: true });
-      fs.appendFileSync(talkFile, `${JSON.stringify({ at: new Date(now()).toISOString(), who, text: text.slice(0, 4000) })}\n`);
-    } catch {}
+    writeTalk(talkFile, who, text);
+    if (who === 'you' || who === 'neo') { said.push({ who, text }); if (said.length > 12) said.shift(); }
+    // The trial run only matters while the earlier way is the one acting.
+    if (who === 'you' && engine() === 'tools') void shadowDecide(text, talkFile);
   });
+
+  // Which way decides: the app with the Decisions API, or the earlier tool model.
+  const engine = () => (readPrefs().engine === 'tools' ? 'tools' : 'decisions');
+  // What waits on her yes, for this session only.
+  let decisionState = {};
+  // The last few turns, so "what I just told you" can be found.
+  const said = [];
+
+  // LIVE ON THE DECISIONS API: what she said, handed over by the voice, is
+  // decided, done through the app, and answered with what the voice says.
+  ipcMain.handle('neo:decide', async (e, { heard } = {}) => {
+    if (!fromNeo(e) || !live || ending || typeof heard !== 'string') return { say: '' };
+    const gen = generation;
+    const file = talkFile;
+    const guarded = (name, args, said) => (live && gen === generation ? askMain(name, args, said) : Promise.resolve({ ok: false, status: 'refused', said: 'Neo has signed off, so that was not done.' }));
+    try {
+      const r = await runDecision({ heard, askMain: guarded, state: decisionState, decideImpl, now, answer: answerImpl, compose: composeImpl, history: said.slice() });
+      writeTalk(file, 'decision', `picked ${r.choice ?? '?'} (${r.confidence?.toFixed?.(2) ?? '?'}) in ${r.ms ?? '?'} ms -> ${r.say || '(nothing)'}`);
+      if (r.signoff) { generation++; ending = true; setTimeout(() => { if (live) win?.webContents.send('neo:sleep', { reason: 'asked' }); }, 1500); }
+      return { say: r.say ?? '' };
+    } catch (err) {
+      writeTalk(file, 'decision', `failed: ${err.message}`);
+      return { say: 'Tell the person that did not work just now.' };
+    }
+  });
+
+  // THE TRIAL RUN. What the Decisions API would have done with what she just
+  // said, from the options on screen as they are now. Written down, never done.
+  async function shadowDecide(said, file) {
+    const got = await askMain('neo_screen');
+    if (!got?.ok || !got.screen) return;
+    const { version, list } = buildOptions(got.screen);
+    const open = got.screen.open;
+    const input = `${open ? `Screen: the open thread is "${String(open.title).slice(0, 70)}" (${(open.options ?? []).length} numbered options, ${(open.pictures ?? []).length} pictures).` : 'Screen: no thread is open.'} ${(got.screen.rows ?? []).length} threads are listed.\nThe person just said: "${said.slice(0, 600)}"`;
+    try {
+      const r = await decideImpl({ input, options: list });
+      const picked = list.find((o) => o.value === r.choice);
+      const others = (r.runnersUp ?? []).map((p) => `${p.value} ${p.probability.toFixed(2)}`).join(', ');
+      writeTalk(file, 'shadow', `would do: ${r.choice} (${r.confidence?.toFixed(2) ?? '?'}) ${picked?.description ?? ''} [${r.ms} ms, ${list.length} options, v${version}${others ? `; next: ${others}` : ''}]`);
+    } catch (err) {
+      writeTalk(file, 'shadow', `failed: ${err.message}`);
+    }
+  }
 
   // After a session, its talk counts toward the next review.
   function countTowardReview() {
@@ -291,10 +390,13 @@ export function createNeo({
       const now = sideFor(next);
       // The orb stays under the pointer as the card changes sides.
       if (now !== side) { const shift = ORB_X[side] - ORB_X[now]; dragFrom.x += shift; next.x += shift; side = now; tellSide(); }
+      const nowUp = upFor(next);
+      if (nowUp !== up) { const shift = ORB_Y[up ? 'up' : 'down'] - ORB_Y[nowUp ? 'up' : 'down']; dragFrom.y += shift; next.y += shift; up = nowUp; tellSide(); }
       win.setBounds(within(next.x, next.y));
+      tellOrb();
       return;
     }
-    if (phase === 'end') { const { x, y } = win.getBounds(); writePrefs({ at: { x, y }, side }); dragFrom = null; }
+    if (phase === 'end') { const { x, y } = win.getBounds(); writePrefs({ at: { x, y }, side, up }); dragFrom = null; }
   });
 
   // How fast Neo talks, from the next session on. Asked with no value, it answers.

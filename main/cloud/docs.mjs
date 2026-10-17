@@ -79,6 +79,35 @@ export function docsToSend(dir, { item = null, limits = DOCS_LIMITS } = {}) {
   return picked;
 }
 
+/**
+ * Whether ALL of this thread's own designs would go up with a cloud run. One
+ * that would go up only in part (the launch film's was 18 GB) stays on the Mac.
+ * Stops reading as soon as the answer is no.
+ */
+export function ownDesignsFit(dir, item, limits = DOCS_LIMITS) {
+  if (!dir || !item || !/^[A-Za-z0-9_-]+$/.test(item)) return true;
+  const stack = [path.join(dir, 'designs', item)];
+  let total = 0;
+  let count = 0;
+  while (stack.length) {
+    const at = stack.pop();
+    let entries = [];
+    try { entries = fs.readdirSync(at, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue;
+      const p = path.join(at, e.name);
+      if (e.isDirectory()) { stack.push(p); continue; }
+      if (!e.isFile()) continue;
+      let size = 0;
+      try { size = fs.statSync(p).size; } catch { continue; }
+      total += size;
+      count += 1;
+      if (size > limits.ownFile || total > limits.own || count > limits.files) return false;
+    }
+  }
+  return true;
+}
+
 /** Those files as one gzipped tar, paths inside `dir`. */
 export function tarDocs(dir, files) {
   return execFileSync('tar', ['-czf', '-', '-C', dir, '--null', '-T', '-'], { input: files.join('\0') + '\0', maxBuffer: 1024 * 1024 * 1024, env: { ...process.env, COPYFILE_DISABLE: '1' } });

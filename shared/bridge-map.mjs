@@ -16,6 +16,7 @@ export const REQUEST_CHANNELS = {
   agentUpdate: 'zero:agent-update',
   snapshot: 'zero:snapshot',
   refreshUsage: 'zero:refresh-usage',
+  accountUsage: 'zero:account-usage',
   // Whether a screen reader is running, which is the terminal pane's question
   // before it builds xterm's accessibility tree.
   assistiveTech: 'zero:assistiveTech',
@@ -145,6 +146,7 @@ export const REQUEST_CHANNELS = {
   setProductOrder: 'zero:set-product-order',
   setThreadPlaces: 'zero:set-thread-places',
   setThreadPins: 'zero:set-thread-pins',
+  setThreadOnMac: 'zero:set-thread-on-mac',
   setProductHidden: 'zero:set-product-hidden',
   approve: 'zero:approve',
   // The phone door's Settings page (main/phone-link.mjs): its state, on, off,
@@ -172,6 +174,7 @@ export const PUSH_CHANNELS = {
   // Neo's tool calls for the app to carry out, and Neo waking or signing off.
   onNeoAct: 'neo:act',
   onNeoMode: 'neo:mode',
+  onNeoOrb: 'neo:orb',
 };
 
 // THE FEW THAT ARE NOT A STRAIGHT HANDOVER. Each is called with bare values

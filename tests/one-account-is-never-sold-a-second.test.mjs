@@ -149,9 +149,10 @@ describe('the account rows never tell anybody to get a second subscription', () 
   */
   it('heads the list with one phrase that works at any number', () => {
     // The page is titled with the agent's name, and the rows are headed
-    // "Signed in", neither of which can grow a plural whatever the count is.
+    // "Signed in" ("On this computer" beside the cloud's own logins), none of
+    // which can grow a plural whatever the count is.
     expect(said).toMatch(/title=\{agent\.name\}/);
-    expect(said).toMatch(/label="Signed in"/);
+    expect(said).toMatch(/label=\{cloudHere \? 'This computer' : 'Signed in'\}/);
     expect(said).not.toMatch(/label="Accounts"/);
     expect(said).not.toMatch(/Claude accounts/);
   });
@@ -183,7 +184,8 @@ describe('the account rows never tell anybody to get a second subscription', () 
   it('still raises the two-folders-one-subscription line above the list', () => {
     // Above the rows rather than inside one of them, because it is a fact
     // about the pair, and only on Claude Code's page, whose pair it is.
-    expect(said).toMatch(/warn=\{engine === 'claude' \? w\.accountsNote : null\}/);
+    // The Place card is drawn only on Claude Code's page.
+    expect(said).toMatch(/engine === 'claude' \? \(\s*<Place[\s\S]{0,900}warn=\{w\.accountsNote\}/);
   });
 
   /*
@@ -266,14 +268,15 @@ describe('where the account rows live', () => {
   // The claim that survives is the first half of it: the agents lead the page.
   // The agent's page reads in the order a person asks: how much is left, who
   // it is signed in as, then what it may do.
-  it('reads usage, then who is signed in, then permissions', () => {
+  // Since 2026-10-16 the usage of the account in use sits under its own row.
+  it('reads who is signed in with how much is left, then permissions', () => {
     const said = spoken(accountsPane);
-    const usage = said.indexOf('label="Usage"');
-    const who = said.indexOf('label="Signed in"');
+    const who = said.indexOf("'Signed in'}");
+    const usage = said.indexOf('accounts={hereAccounts}');
     const perms = said.indexOf('label="Permissions"');
-    expect(usage).toBeGreaterThan(-1);
-    expect(who).toBeGreaterThan(usage);
-    expect(perms).toBeGreaterThan(who);
+    expect(who).toBeGreaterThan(-1);
+    expect(usage).toBeGreaterThan(who);
+    expect(perms).toBeGreaterThan(usage);
     expect(said).not.toContain('<Updates');
   });
 });

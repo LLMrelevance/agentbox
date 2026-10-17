@@ -6,7 +6,7 @@
 // and a pick whose words merge, ship, delete or push comes back `needs_yes`
 // until the call says it was confirmed.
 import { describe, expect, it, vi } from 'vitest';
-import { neoBridge, describeScreen } from '../renderer/src/neo/bridge.ts';
+import { neoBridge, describeScreen, screenFor } from '../renderer/src/neo/bridge.ts';
 
 const rows = [
   { id: 'w-a', product: 'p1', productName: 'Agentbox', title: 'Pricing page copy', status: 'open', result: 'Two drafts ready. Which one?\n\n## Options\n1. Ship draft A (recommended)\n2. Rewrite' },
@@ -51,7 +51,7 @@ describe('acting on a named thread', () => {
   it('replies on the named thread, not on the one that is open', async () => {
     const { act, calls } = setup({ focused: rows[0] });
     await act('reply', { id: 'w-b', text: 'Thanks, close it after the test.' });
-    expect(calls).toContainEqual(['reply', rows[1], 'Thanks, close it after the test.', { attach: false }]);
+    expect(calls).toContainEqual(['reply', rows[1], 'Thanks, close it after the test.', { attach: true }]);
   });
 
   it('closes the named thread', async () => {
@@ -473,29 +473,31 @@ describe('opening a thread shows what she needs to decide', () => {
     return t;
   }
 
-  it('lifts a single picture', async () => {
+  // Put up beside the thread, never over it (her words: "make sure any
+  // screenshot used for context does not take over the user's screen").
+  it('puts a single picture up beside the thread', async () => {
     const t = withPictures(1, ['only.png', 'older.png']);
     const r = await t.act('open_thread', { id: 'w-a' });
-    expect(t.deps.show).toHaveBeenCalledWith([1], 'lifted');
-    expect(r.said).toMatch(/on screen now/i);
+    expect(t.deps.show).toHaveBeenCalledWith([1], 'peek');
+    expect(r.said).toMatch(/beside the thread now/i);
   });
 
-  it('puts two to four side by side', async () => {
+  it('and two to four the same way', async () => {
     const t = withPictures(3, ['a.png', 'b.png', 'c.png', 'old.png']);
     await t.act('next_thread', {});
-    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3], 'side_by_side');
+    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3], 'peek');
   });
 
   it('shows the first four of more', async () => {
     const t = withPictures(6, ['1', '2', '3', '4', '5', '6']);
     await t.act('open_thread', { id: 'w-a' });
-    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3, 4], 'side_by_side');
+    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3, 4], 'peek');
   });
 
   it('shows nothing when the latest message has no pictures, even if older ones do', async () => {
     const t = withPictures(0, ['old.png']);
     await t.act('open_thread', { id: 'w-a' });
-    expect(t.deps.show).not.toHaveBeenCalled();
+    expect(t.deps.show.mock.calls.filter(([, layout]) => layout !== 'close')).toEqual([]);
   });
 });
 
@@ -515,5 +517,208 @@ describe('a picture in her reply box goes with Neo\'s words when she means it', 
     const t = setup();
     t.deps.reply = vi.fn(async () => 'no-pictures');
     expect((await t.act('reply', { id: 'w-b', text: 'see the image', attach: true })).said).toMatch(/no picture in the reply box/);
+  });
+});
+
+// "When I ask Neo to snooze the current thread for 10 minutes, Neo confirms
+// that it was snoozed, but the thread remains visible on the screen and the
+// PNG image is still displayed" (2026-10-16). Neo ran ⌘K's Later row, which
+// only opens the time picker, and said it was done; the picture it had put
+// up stayed up.
+describe('putting a thread off', () => {
+  function withLater() {
+    const t = setup({ focused: rows[0] });
+    t.deps.later = vi.fn(async () => {});
+    t.deps.show = vi.fn(async () => true);
+    t.deps.now = () => Date.parse('2026-10-16T17:00:00');
+    return t;
+  }
+
+  it('moves the thread to Later for the minutes she said, with the time on it', async () => {
+    const t = withLater();
+    const r = await t.act('later', { id: 'w-a', minutes: 10 });
+    expect(t.deps.later).toHaveBeenCalledWith(rows[0], Date.parse('2026-10-16T17:10:00'), expect.stringMatching(/10 minutes/));
+    expect(r).toMatchObject({ ok: true, said: expect.stringMatching(/Later.*10 minutes/) });
+  });
+
+  it('takes a clock time too', async () => {
+    const t = withLater();
+    await t.act('later', { id: 'w-a', at: '2026-10-17T09:00' });
+    expect(t.deps.later).toHaveBeenCalledWith(rows[0], Date.parse('2026-10-17T09:00:00'), expect.any(String));
+  });
+
+  it('refuses a time in the past or with nothing to go on, and moves nothing', async () => {
+    const t = withLater();
+    expect(await t.act('later', { id: 'w-a', at: '2026-10-15T09:00' })).toMatchObject({ ok: false });
+    expect(await t.act('later', { id: 'w-a' })).toMatchObject({ ok: false });
+    expect(t.deps.later).not.toHaveBeenCalled();
+  });
+
+  it('takes down any picture it had up', async () => {
+    const t = withLater();
+    await t.act('later', { id: 'w-a', minutes: 10 });
+    expect(t.deps.show).toHaveBeenCalledWith([], 'close');
+  });
+
+  it('will not run ⌘K\'s Later row, which only opens the picker, and says to use a time', async () => {
+    const t = withLater();
+    const ran = [];
+    t.deps.commands = () => [{ id: 'snooze', label: 'Later', run: () => ran.push('later-picker') }];
+    expect(await t.act('run_command', { id: 'snooze' })).toMatchObject({ ok: false, said: expect.stringMatching(/later/) });
+    expect(ran).toEqual([]);
+  });
+});
+
+describe('a picture Neo put up comes down when the thread changes', () => {
+  it.each([['next_thread', {}], ['open_thread', { id: 'w-b' }], ['close_thread', { id: 'w-a' }]])('%s takes it down first', async (name, args) => {
+    const t = setup({ focused: rows[0] });
+    t.deps.show = vi.fn(async () => true);
+    await t.act(name, args);
+    expect(t.deps.show.mock.calls[0]).toEqual([[], 'close']);
+  });
+});
+
+// From the report that landed on the wrong thread (her screenshot, 2026-10-16):
+// "The assistant switched to the wrong task, snoozed the wrong item, and then
+// was unable to return to the original JARVIS task ... confirm the actual
+// state change before reporting success, and provide a reliable way to
+// return to the task the user requested."
+describe('acting on the thread she means, and getting back to it', () => {
+  it('"this one" means the thread on screen, whatever id came with the call', async () => {
+    const t = setup({ focused: rows[1] });
+    t.deps.later = vi.fn(async () => 'done');
+    t.deps.now = () => Date.parse('2026-10-16T17:00:00');
+    await t.act('later', { id: 'w-a', minutes: 10 }, { heard: 'snooze this one for ten minutes' });
+    expect(t.deps.later.mock.calls[0][0]).toBe(rows[1]);
+  });
+
+  it('a thread named by id with no "this" is the one named', async () => {
+    const t = setup({ focused: rows[1] });
+    t.deps.later = vi.fn(async () => 'done');
+    t.deps.now = () => Date.parse('2026-10-16T17:00:00');
+    await t.act('later', { id: 'w-a', minutes: 10 }, { heard: 'snooze the pricing one for ten minutes' });
+    expect(t.deps.later.mock.calls[0][0]).toBe(rows[0]);
+  });
+
+  it('does not say a thread was put off when it is still there', async () => {
+    const t = setup({ focused: rows[0] });
+    t.deps.later = vi.fn(async () => 'asked');
+    t.deps.now = () => Date.parse('2026-10-16T17:00:00');
+    expect(await t.act('later', { id: 'w-a', minutes: 10 })).toMatchObject({ ok: false });
+  });
+
+  it('goes back to the thread she was on before Neo moved her', async () => {
+    let open = rows[0];
+    const t = setup();
+    t.deps.focused = () => open;
+    t.deps.open = vi.fn((r) => { open = r; });
+    await t.act('next_thread', {});
+    expect(open).toBe(rows[1]);
+    expect(await t.act('go_back', {})).toMatchObject({ ok: true, said: expect.stringMatching(/Pricing page copy/) });
+    expect(open).toBe(rows[0]);
+  });
+
+  it('says so when there is nowhere to go back to', async () => {
+    const t = setup({ focused: rows[0] });
+    expect(await t.act('go_back', {})).toMatchObject({ ok: false });
+  });
+});
+
+// "When I ask Neo to give feedback, it often appears to create a new task or
+// thread instead of adding the feedback to the existing JARVIS task"
+// (2026-10-16).
+describe('feedback is a reply, not new work', () => {
+  it('refuses a new thread she did not ask for in words', async () => {
+    const t = setup({ focused: rows[0] });
+    expect(await t.act('new_thread', { text: 'Neo kept the picture up' }, { heard: 'give that as feedback' })).toMatchObject({ ok: false, said: expect.stringMatching(/reply/) });
+    expect(t.calls.some(([n]) => n === 'compose')).toBe(false);
+  });
+
+  it('starts one when she asks for new work', async () => {
+    const t = setup({ focused: rows[0] });
+    expect(await t.act('new_thread', { text: 'Redo the pricing page' }, { heard: 'start a new task to redo the pricing page' })).toMatchObject({ ok: true });
+  });
+});
+
+// "If a screenshot is present alongside feedback, it should probably be
+// treated as an implicit request to send that screenshot with the message"
+// (her words, 2026-10-16).
+describe('a screenshot in the reply box goes with the words by default', () => {
+  it('asks for the box\'s pictures without being told to, and says nothing when there were none', async () => {
+    const t = setup();
+    t.deps.reply = vi.fn(async () => 'no-pictures');
+    const r = await t.act('reply', { id: 'w-b', text: 'feedback' });
+    expect(t.deps.reply).toHaveBeenCalledWith(rows[1], 'feedback', { attach: true });
+    expect(r.said).toBe('Sent.');
+  });
+
+  it('leaves them out when she says so', async () => {
+    const t = setup();
+    t.deps.reply = vi.fn(async () => undefined);
+    await t.act('reply', { id: 'w-b', text: 'just the words', attach: false });
+    expect(t.deps.reply).toHaveBeenCalledWith(rows[1], 'just the words', { attach: false });
+  });
+});
+
+// What the Decisions trial run is told is on screen (plans/neo-decisions.md).
+describe('the screen for the trial run', () => {
+  it('has the open thread with its options and pictures, the threads listed, and the commands', () => {
+    const t = setup({ focused: rows[0] });
+    t.deps.pictureNames = () => ['a.png', 'b.png'];
+    t.deps.commands = () => [{ id: 'pause', label: 'Pause agents', run: () => {} }];
+    t.deps.threadsAnywhere = () => [...rows, { id: 'w-run', product: 'p1', title: 'Working one', status: 'claimed' }, { id: 'w-old', product: 'p1', title: 'Done one', status: 'done' }];
+    const s = screenFor(t.deps, true);
+    expect(s.open).toMatchObject({ id: 'w-a', title: 'Pricing page copy', options: [{ n: 1, text: 'Ship draft A (recommended)' }, { n: 2, text: 'Rewrite' }], pictures: [{ n: 1, name: 'a.png' }, { n: 2, name: 'b.png' }] });
+    expect(s.rows.map((r) => r.id)).toEqual(['w-a', 'w-b', 'w-c', 'w-run']);
+    expect(s.commands).toEqual([{ id: 'pause', label: 'Pause agents' }]);
+    expect(s.canGoBack).toBe(true);
+  });
+
+  it('has no open thread when none is open', () => {
+    expect(screenFor(setup().deps, false).open).toBeNull();
+  });
+
+  it('knows when there is somewhere to go back to', async () => {
+    let open = rows[0];
+    const t = setup();
+    t.deps.focused = () => open;
+    t.deps.open = (r) => { open = r; };
+    const act = neoBridge(t.deps);
+    expect(act.canGoBack()).toBe(false);
+    await act('next_thread', {});
+    expect(act.canGoBack()).toBe(true);
+  });
+});
+
+// Same report: with no picture in the latest message, its design page is what
+// she needs to decide, so opening the thread opens that beside it.
+describe('opening a thread shows the latest message\'s design page when it has no picture', () => {
+  it('opens the first file of the latest message', async () => {
+    const t = setup();
+    t.deps.pictureNames = () => ['old.jpg'];
+    t.deps.latestPictureCount = () => 0;
+    t.deps.waitForPictures = async () => {};
+    t.deps.show = vi.fn(async () => true);
+    t.deps.fileNames = () => ['section3-into-2m04-r3.html'];
+    t.deps.openFile = vi.fn(async () => true);
+    const r = await t.act('open_thread', { id: 'w-a' });
+    expect(t.deps.openFile).toHaveBeenCalledWith(1);
+    expect(t.deps.show.mock.calls.filter(([, l]) => l !== 'close')).toEqual([]);
+    expect(r.said).toMatch(/section3-into-2m04-r3\.html/);
+  });
+
+  it('a file can be opened by its number', async () => {
+    const t = setup({ focused: rows[0] });
+    t.deps.fileNames = () => ['a.html', 'b.html'];
+    t.deps.openFile = vi.fn(async () => true);
+    expect(await t.act('open_file', { n: 2 })).toMatchObject({ ok: true, said: expect.stringMatching(/b\.html/) });
+    expect(t.deps.openFile).toHaveBeenCalledWith(2);
+    expect(await t.act('open_file', { n: 3 })).toMatchObject({ ok: false });
+  });
+
+  it('the screen for the Decisions API lists the files', () => {
+    const t = setup({ focused: rows[0] });
+    t.deps.fileNames = () => ['a.html'];
+    expect(screenFor(t.deps, false).open.files).toEqual([{ n: 1, name: 'a.html' }]);
   });
 });

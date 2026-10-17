@@ -1,5 +1,5 @@
 import { previewFocus } from './preview-focus';
-import { cloudToggleNote, cloudToggleTarget } from './cloud-menu';
+import { cloudChord, cloudToggleNote, cloudToggleTarget, threadPlace } from './cloud-menu';
 import { usePhoneBack, onCloudPhone, onPhone } from './phone-screen';
 import { holdsReplies, writeHeldWhenHidden } from './phone-holds';
 import { pollEvery } from './phone-polls';
@@ -4631,6 +4631,7 @@ export default function App() {
       return attach ? 'no-pictures' : undefined;
     },
     close: (row) => markDone(row),
+    later: (row, ts, label) => snoozeUntil(row, ts, label),
     compose: async (text, product) => {
       const message = threadMessage(text, []);
       if (!message) return null;
@@ -4762,6 +4763,11 @@ export default function App() {
         e.preventDefault();
         setFocused(null);
         setMultiSel((m) => m.size >= list.length && list.length > 0 ? new Set() : new Set(list.map((i) => i.id)));
+        return;
+      }
+      if (cloudChord(e, { inInput, selection: String(window.getSelection?.() ?? ''), modal: !!modal })) {
+        e.preventDefault();
+        toggleCloudRef.current?.();
         return;
       }
       // cmd-Y / cmd-N (answer the oldest approval card) live in the MAIN
@@ -4911,9 +4917,8 @@ export default function App() {
         else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setOpenDoc(null); setModal('reply'); }
         // N MEANS THE SAME THING ON BOTH SCREENS. The + in the top bar is on
         // this screen too and its tooltip says "New task (N)", so the key is
-        // already advertised here. C is the cloud's since 2026-10-16.
+        // already advertised here.
         else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
-        else if (e.key === 'c' || e.key === 'C') { e.preventDefault(); toggleCloudRef.current?.(); }
         // L, NOT S, SINCE 2026-10-01. S was the schedule picker here and the
         // summary panel on the same screen (threads/Summary.tsx listens first
         // and eats it), so the two fought over one letter and a persona test
@@ -4936,7 +4941,6 @@ export default function App() {
           if (target) goToStop(target);
         }
         else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
-        else if (e.key === 'c' || e.key === 'C') { e.preventDefault(); toggleCloudRef.current?.(); }
         else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); }
         return;
       }
@@ -5012,10 +5016,8 @@ export default function App() {
           if (multiSel.size) openSnooze(selectable.filter((i) => multiSel.has(i.id)));
           else if (pointed && (view === 'inbox' || view === 'snoozed')) openSnooze(pointed);
           break;
-        // N starts a thread (w-fb9051e597). C was its older twin until
-        // 2026-10-16 and turns the cloud on or off now.
+        // N starts a thread (w-fb9051e597). C does nothing: the cloud is ⌘C.
         case 'n': case 'N': e.preventDefault(); setModal('compose'); break;
-        case 'c': case 'C': e.preventDefault(); toggleCloudRef.current?.(); break;
         case 'z': case 'Z': undo(); break;
         // B FLIPS LIST AND BOARD (w-58c8f466e7): "I quite often switch between
         // board and list view". B for board; it shipped as V first and that
@@ -6121,6 +6123,11 @@ export default function App() {
                   onStop={() => stopAgent(focused)}
                   onRunNow={() => runNow(focused)}
                   onPin={focused.agent ? undefined : (pin) => pinThread(focused.id, pin, true)}
+                  place={focused.agent ? null : threadPlace(focused, snap.supervisor.running.find((r) => r.itemId === focused.id) ?? null, snap.cloud ?? null, snap.products)}
+                  onPlace={(keep) => {
+                    void api.setThreadOnMac({ [focused.id]: keep ? true : null });
+                    showToast(keep ? 'This thread now runs only on this Mac' : 'This thread can run on the cloud again');
+                  }}
                   onReveal={() => revealAgent(focused)}
                   // Remind me later and stop this task are neither of the two
                   // ways a task ends, and the card beside the bar names exactly
@@ -6685,6 +6692,7 @@ export default function App() {
           tune={tune}
           onSetTune={setTune}
           onResetTune={resetTune}
+          cloud={snap.cloud?.setUp ? snap.cloud : null}
           startPane={settingsPane}
           onNewProject={() => setNewProject(true)}
           // The Priority page: the same running order every project list

@@ -44,6 +44,8 @@ import { readNote, writeNote } from './rail-note.mjs';
 import { addClaudeAccount, addCodexAccount, cornerTagTurnedOff, countsTurnedOff, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, recheckClaude, recheckCodex, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
 import { ICON_KINDS, clearProjectIcon, setProjectIcon, setProjectName } from './project-identity.mjs';
 import { ClaudeUsage } from './claude-usage.mjs';
+import { AccountUsage } from './account-usage.mjs';
+import { effectiveProfiles } from './account-discovery.mjs';
 import { usageEngine } from '../shared/usage.mjs';
 import { DEFAULT_ENGINE, isEngine } from '../shared/engines.mjs';
 import * as agents from './agents.mjs';
@@ -267,13 +269,29 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     bin: () => config.claudeBin,
     // The account marked In use, asked each time so a switch is read at once.
     account: () => supervisor.usageAccount(),
-    onChange: push,
+    onChange: () => {
+      const reading = usage.peek();
+      if (reading) supervisor.noteUsageReading(reading.profile, reading);
+      push();
+    },
   });
 
   ipcMain.handle('zero:refresh-usage', async event => {
     if (event.senderFrame?.parent || (event.sender && event.sender !== window.webContents)) throw Error('Usage refresh is only available in the main app window.');
     const result = await usage.refreshNow();
     return result.reading ? { ...result, reading: { engine: DEFAULT_ENGINE, ...result.reading } } : result;
+  });
+
+  // Every Claude login's own reading, asked for only by the Settings page.
+  const accountUsage = new AccountUsage({
+    bin: () => config.claudeBin,
+    env: () => supervisor._workerEnv(DEFAULT_ENGINE),
+    onReading: (profile, reading) => supervisor.noteUsageReading(profile, reading),
+  });
+  ipcMain.handle('zero:account-usage', async (event, { refresh = false } = {}) => {
+    if (event.senderFrame?.parent || (event.sender && event.sender !== window.webContents)) throw Error('Usage is only available in the main app window.');
+    const profiles = effectiveProfiles(config.authProfiles, { home: config.home });
+    return { readings: await accountUsage.readAll(profiles.length ? profiles : ['default'], { refresh: !!refresh }) };
   });
 
   // Agents this run has already counted. In memory on purpose: a fresh launch
@@ -674,6 +692,13 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // places the drop worked out (`dropPlaces`, shared/rank.mjs), id to number.
   ipcMain.handle('zero:set-thread-places', (_e, { places }) => {
     supervisor.setThreadPlaces(places);
+    push();
+    return { ok: true };
+  });
+
+  // THREADS KEPT ON THIS MAC whatever the cloud is set to: id to true, or null.
+  ipcMain.handle('zero:set-thread-on-mac', (_e, { onMac }) => {
+    supervisor.setThreadOnMac(onMac);
     push();
     return { ok: true };
   });

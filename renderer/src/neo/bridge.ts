@@ -39,8 +39,12 @@ export type NeoDeps<R extends NeoRow> = {
   // (renderer/src/undo-window.ts), and a voice should not answer that for her.
   undo(): Promise<'done' | 'none' | 'old'>;
   glow(id: string): void;
-  // Films and sounds in the open thread: their names, and playing one.
+  // Moves a thread to Later until ts, the Later picker's own step in App.tsx.
+  later?(row: R, ts: number, label: string): Promise<'done' | 'asked' | void>;
+  now?(): number;
+  // Films and sounds in the open thread, the latest message's first: their names, and playing one.
   mediaNames?(): string[];
+  latestFilmCount?(): number;
   // Everything ⌘K offers right now (components/Palette.tsx), searched by words.
   commands?(): { id: string; label: string; hint?: string; keywords?: string; run: () => unknown }[];
   // Scroll what she is reading; false when nothing there scrolls.
@@ -51,7 +55,10 @@ export type NeoDeps<R extends NeoRow> = {
   latestPictureCount?(): number;
   // Resolves once the opened thread has drawn its pictures, or soon after if it has none.
   waitForPictures?(): Promise<void>;
-  show?(pictures: number[], layout: 'in_place' | 'lifted' | 'side_by_side' | 'full_screen' | 'close'): Promise<boolean>;
+  show?(pictures: number[], layout: 'in_place' | 'peek' | 'lifted' | 'side_by_side' | 'full_screen' | 'close'): Promise<boolean>;
+  // Files the latest message names (a design page, a document), and opening one beside the thread.
+  fileNames?(): string[];
+  openFile?(n: number): Promise<boolean>;
   media?(action: 'play' | 'pause', n: number): Promise<{ name: string; count: number } | null>;
 };
 
@@ -89,6 +96,13 @@ export function findCommands<C extends { label: string; hint?: string; keywords?
 }
 
 // Commands that stop, close, approve, restart or open another copy of the app.
+// "This one", "the current one": the thread on screen, whatever id came with the call.
+const THIS = /\b(this|current|here)\b/;
+// New work, asked for in words; otherwise what she says goes to a thread that exists.
+const NEW_WORK = /\b(new (task|thread|work)|start (a|an|new)|create (a|an)|kick off|spin up|make (a|an) (task|thread))\b/;
+
+const CHANGES_THREAD = new Set(['open_thread', 'next_thread', 'close_thread', 'later', 'run_command', 'pick_option']);
+
 const RISKY_COMMAND = /^(pause|done|approve|update|first-run|fresh-user|demo|tutorial|stop|resume|cloud|run-now)/;
 
 function saysWord(heard: string | undefined, word: string): boolean {
@@ -140,19 +154,26 @@ export function describeScreen<R extends NeoRow>(deps: NeoDeps<R>): string {
   const waiting = new Set(list.map((r) => r.id));
   const others = (deps.threadsAnywhere?.() ?? []).filter((r) => !waiting.has(r.id) && r.status !== 'done').slice(0, LISTED);
   if (others.length) lines.push('Also open:', ...others.map((r) => `[${r.id}] ${nameOf(r)} (${r.productName ?? r.product})`));
-  if (open) {
-    lines.push('', `Open thread: ${nameOf(open)} [${open.id}] (${open.productName ?? open.product})`);
-    const s = spoken(deps.summary(open));
-    if (s) lines.push(`Latest from the agent: ${clip(s, SUMMARY_CHARS)}`);
-    const opts = deps.options(open);
-    if (opts.length) lines.push('Options:', ...opts.map((o) => `${o.n}. ${o.text}`));
-    const pics = (deps.pictureNames?.() ?? []).slice(0, 9);
-    const latest = Math.min(deps.latestPictureCount?.() ?? pics.length, pics.length);
-    if (latest) lines.push('Pictures in the latest message:', ...pics.slice(0, latest).map((f, i) => `${i + 1}. ${f}`));
-    if (pics.length > latest) lines.push('Earlier in the thread:', ...pics.slice(latest).map((f, i) => `${latest + i + 1}. ${f}`));
-    const films = deps.mediaNames?.() ?? [];
-    if (films.length) lines.push('Films and sounds:', ...films.slice(0, 9).map((f, i) => `${i + 1}. ${f}`));
-  } else lines.push('', 'No thread is open.');
+  lines.push('', open ? describeOpen(deps, open) : 'No thread is open.');
+  return lines.join('\n');
+}
+
+/** The open thread alone: what a question about it is answered from, without the inbox. */
+export function describeOpen<R extends NeoRow>(deps: NeoDeps<R>, open: R): string {
+  const lines: string[] = [];
+  lines.push(`Open thread: ${nameOf(open)} [${open.id}] (${open.productName ?? open.product})`);
+  const s = spoken(deps.summary(open));
+  if (s) lines.push(`Latest from the agent: ${clip(s, SUMMARY_CHARS)}`);
+  const opts = deps.options(open);
+  if (opts.length) lines.push('Options:', ...opts.map((o) => `${o.n}. ${o.text}`));
+  const pics = (deps.pictureNames?.() ?? []).slice(0, 9);
+  const latest = Math.min(deps.latestPictureCount?.() ?? pics.length, pics.length);
+  if (latest) lines.push('Pictures in the latest message:', ...pics.slice(0, latest).map((f, i) => `${i + 1}. ${f}`));
+  if (pics.length > latest) lines.push('Earlier in the thread:', ...pics.slice(latest).map((f, i) => `${latest + i + 1}. ${f}`));
+  const films = (deps.mediaNames?.() ?? []).slice(0, 9);
+  const newFilms = Math.min(deps.latestFilmCount?.() ?? films.length, films.length);
+  if (newFilms) lines.push('Films and sounds in the latest message:', ...films.slice(0, newFilms).map((f, i) => `${i + 1}. ${f}`));
+  if (films.length > newFilms) lines.push('Films and sounds earlier in the thread:', ...films.slice(newFilms).map((f, i) => `${newFilms + i + 1}. ${f}`));
   return lines.join('\n');
 }
 
@@ -161,6 +182,22 @@ const refused = (said: string): NeoResult => ({ ok: false, status: 'refused', sa
 const ASKED = `${Name} is asking something about it on screen. Tell the person to look.`;
 
 export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
+  // The threads Neo moved her away from, newest last, for "go back".
+  const trail: string[] = [];
+  const leaving = () => { const at = deps.focused()?.id; if (at && trail.at(-1) !== at) trail.push(at); };
+  // The inbox moves on by itself after a reply, and she clicks: those moves count for "back" too.
+  let seen = deps.focused()?.id;
+  const noteMove = () => {
+    const at = deps.focused()?.id;
+    if (seen && at !== seen && trail.at(-1) !== seen) trail.push(seen);
+    seen = at;
+  };
+  // The thread she means: "this one" is the one on screen.
+  const meant = (id: unknown, ctx: { heard?: string }) => {
+    const open = deps.focused();
+    if (open && THIS.test(String(ctx.heard ?? '').toLowerCase().replace(/this (chat|thread)/g, 'this')) && open.id !== id) return open;
+    return find(id);
+  };
   const find = (id: unknown) => {
     const open = deps.focused();
     return deps.rows().find((r) => r.id === id) ?? deps.threadsAnywhere?.().find((r) => r.id === id) ?? (open && open.id === id ? open : null);
@@ -176,11 +213,17 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
     if (!deps.show || !deps.latestPictureCount) return '';
     await deps.waitForPictures?.();
     const n = Math.min(deps.latestPictureCount(), 4);
-    if (!n) return '';
+    if (!n) return openLatestFile();
     const ns = Array.from({ length: n }, (_, i) => i + 1);
-    if (!(await deps.show(ns, n === 1 ? 'lifted' : 'side_by_side'))) return '';
+    if (!(await deps.show(ns, 'peek'))) return '';
     const names = (deps.pictureNames?.() ?? []).slice(0, n);
-    return ` On screen now: ${n === 1 ? 'its picture' : `its ${n} pictures side by side, numbered ${ns.join(', ')}`} (${names.join(', ')}). Refer to them by number as you brief.`;
+    return ` Beside the thread now: ${n === 1 ? 'its picture' : `its ${n} pictures, numbered ${ns.join(', ')}`} (${names.join(', ')}). Refer to them by number as you brief.`;
+  };
+  // With no picture in the latest message, its design page is the thing to see.
+  const openLatestFile = async () => {
+    const files = deps.fileNames?.() ?? [];
+    if (!files.length || !deps.openFile || !(await deps.openFile(1))) return '';
+    return ` Open beside the thread now: ${files[0]}, from the latest message.`;
   };
   // What Neo needs to brief her on a thread it just opened.
   const brief = (row: R) => {
@@ -189,8 +232,11 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
     return `${s ? ` Latest from the agent: ${clip(s, SUMMARY_CHARS)}` : ''}${opts.length ? ` Options: ${opts.map((o) => `${o.n}. ${o.text}`).join(' ')}` : ' No options to pick.'}`;
   };
 
-  return async function act(name: string, args: Record<string, any>, ctx: { heard?: string } = {}): Promise<NeoResult> {
+  const act = async function act(name: string, args: Record<string, any>, ctx: { heard?: string } = {}): Promise<NeoResult> {
+    noteMove();
     try {
+      // A picture Neo put up comes down when the thread changes under it.
+      if (CHANGES_THREAD.has(name)) await deps.show?.([], 'close');
       switch (name) {
         case 'describe_screen':
         case 'get_screen':
@@ -199,6 +245,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
         case 'open_thread': {
           const row = find(args.id);
           if (!row) return gone();
+          leaving();
           await deps.open(row);
           deps.glow(row.id);
           return done(`Opened ${nameOf(row)}.${brief(row)}${await showLatest()}`);
@@ -210,6 +257,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           const at = open ? list.findIndex((r) => r.id === open.id) : -1;
           const next = list[at + 1];
           if (!next) return refused(list.length ? 'That was the last one.' : 'Nothing is waiting.');
+          leaving();
           await deps.open(next);
           deps.glow(next.id);
           return done(`Opened ${nameOf(next)}.${brief(next)}${await showLatest()}`);
@@ -238,18 +286,19 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
         }
 
         case 'reply': {
-          const row = find(args.id);
+          const row = meant(args.id, ctx);
           if (!row) return gone();
           const text = String(args.text ?? '').trim();
           if (!text) return refused('There was nothing to send.');
-          const how = await deps.reply(row, text, { attach: args.attach === true });
+          // A screenshot she put in the reply box goes with her feedback unless she says not to.
+          const how = await deps.reply(row, text, { attach: args.attach !== false });
           deps.glow(row.id);
-          if (how === 'no-pictures') return done('Sent the words. There was no picture in the reply box to send with them.');
+          if (how === 'no-pictures' && args.attach === true) return done('Sent the words. There was no picture in the reply box to send with them.');
           return done(how === 'with-pictures' ? 'Sent, with the pictures from the reply box.' : 'Sent.');
         }
 
         case 'close_thread': {
-          const row = find(args.id);
+          const row = meant(args.id, ctx);
           if (!row) return gone();
           deps.glow(row.id);
           if ((await deps.close(row)) === 'asked') return refused(ASKED);
@@ -257,6 +306,9 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
         }
 
         case 'new_thread': {
+          if (ctx.heard !== undefined && !NEW_WORK.test(String(ctx.heard).toLowerCase())) {
+            return refused('The person did not ask for new work. Feedback or a note goes as a reply on the thread they mean: the open one, or the one they named.');
+          }
           const text = String(args.text ?? '').trim();
           if (!text) return refused('There was nothing to start.');
           const projects = deps.projects();
@@ -289,6 +341,8 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
         case 'run_command': {
           const cmd = (deps.commands?.() ?? []).find((c) => c.id === args.id);
           if (!cmd) return refused('That command is not on offer right now. Search again with find_commands.');
+          // ⌘K's Later row only opens the time picker; later does it with her time.
+          if (cmd.label === 'Later') return refused('Use later with the minutes or time the person said.');
           // A yes counts for this command, with these words, on this thread:
           // "approve" means the open thread's approve, and that can change.
           const what = `${cmd.id}|${cmd.label}|${deps.focused()?.id ?? ''}`;
@@ -310,6 +364,33 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           return done(`Done: ${cmd.label}.`);
         }
 
+        case 'later': {
+          const row = meant(args.id, ctx);
+          if (!row) return gone();
+          const now = deps.now?.() ?? Date.now();
+          const ts = Number.isInteger(args.minutes) ? now + args.minutes * 60_000 : typeof args.at === 'string' ? Date.parse(args.at) : NaN;
+          if (!Number.isFinite(ts)) return refused('Say how long or until when.');
+          if (ts <= now) return refused('That time has already passed.');
+          if (!deps.later) return refused('Putting threads off is not available here.');
+          const label = Number.isInteger(args.minutes) ? `in ${args.minutes} minute${args.minutes === 1 ? '' : 's'}` : `at ${new Date(ts).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`;
+          leaving();
+          if ((await deps.later(row, ts, label)) === 'asked') return refused(`${nameOf(row)} is still in the inbox, so it was not put off.`);
+          return done(`Moved ${nameOf(row)} to Later. It comes back ${label}.`);
+        }
+
+        case 'go_back': {
+          while (trail.length) {
+            const row = find(trail.pop());
+            if (row && row.id !== deps.focused()?.id) {
+              await deps.open(row);
+              deps.glow(row.id);
+              seen = row.id;
+              return done(`Back on ${nameOf(row)}.${brief(row)}`);
+            }
+          }
+          return refused('There is no thread to go back to.');
+        }
+
         case 'scroll':
           return deps.scroll?.(args.where) ? done('Scrolled.') : refused('There is nothing there to scroll.');
 
@@ -321,6 +402,31 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           if (want.some((n) => n > have.length)) return refused(`The open thread has ${have.length} picture${have.length === 1 ? '' : 's'}.`);
           const shown = await deps.show?.(want, args.layout);
           return shown ? done(`Showing ${want.map((n) => have[n - 1]).join(' and ')}.`) : refused('Those pictures could not be shown.');
+        }
+
+        case 'describe_open': {
+          const open = deps.focused();
+          return open ? done(describeOpen(deps, open)) : refused('No thread is open.');
+        }
+
+        case 'brief_open': {
+          // The inbox moves to the next thread a render after a close or a put-off.
+          let row = deps.focused();
+          const most = Number.isFinite(args.wait) ? args.wait : 800;
+          for (let waited = 0; waited < most && (!row || row.id === args.from); waited += 50) {
+            await new Promise((r) => setTimeout(r, 50));
+            row = deps.focused();
+          }
+          if (!row || row.id === args.from) return refused('Nothing new is open.');
+          return done(`Now open: ${nameOf(row)}.${brief(row)}${await showLatest()}`);
+        }
+
+        case 'open_file': {
+          const files = deps.fileNames?.() ?? [];
+          const n = Number(args.n) || 1;
+          if (!files.length) return refused('The latest message has no files.');
+          if (n > files.length) return refused(`The latest message has ${files.length} file${files.length === 1 ? '' : 's'}.`);
+          return (await deps.openFile?.(n)) ? done(`Opened ${files[n - 1]} beside the thread.`) : refused('That file could not be opened.');
         }
 
         case 'undo': {
@@ -335,5 +441,31 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
     } catch (err) {
       return { ok: false, status: 'failed', said: `That did not work: ${String((err as Error)?.message ?? err).slice(0, 120)}` };
     }
+  };
+  return Object.assign(act, { canGoBack: () => { noteMove(); return trail.length > 0; } });
+}
+
+/**
+ * What is on screen, for the Decisions trial run (shared/neo-options.mjs builds
+ * the choices from it): the open thread with its options, pictures and films,
+ * the threads listed (Needs you first, then the rest still open), and ⌘K's commands.
+ */
+export function screenFor<R extends NeoRow>(deps: NeoDeps<R>, canGoBack: boolean, most = 120) {
+  const open = deps.focused();
+  const listed = deps.rows();
+  const seen = new Set(listed.map((r) => r.id));
+  const rest = (deps.threadsAnywhere?.() ?? []).filter((r) => !seen.has(r.id) && r.status !== 'done');
+  return {
+    open: open ? {
+      id: open.id,
+      title: nameOf(open),
+      options: deps.options(open).map(({ n, text }) => ({ n, text })),
+      pictures: (deps.pictureNames?.() ?? []).slice(0, 9).map((name, i) => ({ n: i + 1, name })),
+      films: (deps.mediaNames?.() ?? []).slice(0, 9).map((name, i) => ({ n: i + 1, name, ...(i >= (deps.latestFilmCount?.() ?? Infinity) ? { earlier: true } : {}) })),
+      files: (deps.fileNames?.() ?? []).slice(0, 9).map((name, i) => ({ n: i + 1, name })),
+    } : null,
+    rows: [...listed, ...rest].slice(0, most).map((r) => ({ id: r.id, title: nameOf(r) })),
+    commands: (deps.commands?.() ?? []).map((c) => ({ id: c.id, label: c.label, ...(c.hint ? { hint: c.hint } : {}) })),
+    canGoBack,
   };
 }
