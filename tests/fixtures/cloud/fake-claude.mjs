@@ -11,6 +11,8 @@
 //     the `agentbox` server and puts the reply in its result;
 //   - commits `cloud.txt` and leaves `loose.txt` uncommitted;
 //   - writes its transcript where Claude Code would;
+//   - says back each message it takes up, as Claude Code does with
+//     --replay-user-messages;
 //   - prints the result, then waits for stdin to close, as Claude Code does.
 // A message whose text includes "HANG" makes it ignore SIGTERM for a moment and
 // then sit still, so a test can cancel it. "LOOK" makes it call look_at_page.
@@ -63,6 +65,8 @@ process.stdin.on('data', (d) => {
     ibuf = ibuf.slice(i + 1);
     let msg; try { msg = JSON.parse(line); } catch { continue; }
     if (msg.type !== 'user') continue;
+    // Taken up, said back as Claude Code does with --replay-user-messages.
+    out({ type: 'user', ...(msg.uuid ? { uuid: msg.uuid } : {}), message: msg.message, parent_tool_use_id: null });
     const text = typeof msg.message?.content === 'string' ? msg.message.content : JSON.stringify(msg.message?.content);
     busy = busy.then(() => turn(text));
   }

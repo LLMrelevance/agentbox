@@ -1199,6 +1199,11 @@ declare global {
       // finishing* on two channels.
       messageRulesRead?(): Promise<{ text: string; error?: string }>;
       messageRulesWrite?(p: { text: string }): Promise<{ ok: boolean; error?: string }>;
+      // WHAT NEO KEEPS, on the Neo page (renderer/src/neo/NeoSettings.tsx).
+      // Answers null where Neo is off, which is everywhere but the one Mac
+      // that opted in (main/neo/gate.mjs).
+      neoEnabled?(): Promise<boolean>;
+      neoMemory?(change?: { add?: string; forget?: string; instructions?: string; memories?: string }): Promise<NeoMemory | null>;
       // The settings screen. Every write answers with the whole settings object
       // again, so the screen redraws from what the main process now believes
       // rather than from what the click assumed.
@@ -1265,6 +1270,10 @@ declare global {
   }
 }
 
+
+/** What Neo keeps between conversations (shared/neo-memory.mjs). `document`
+ *  is the memories as the page writes them, one entry a line. */
+export type NeoMemory = { ok?: boolean; error?: string; instructions: string; memories: { id: string; text: string; at: number }[]; document: string };
 
 /**
  * ONE FOLDER'S WORTH OF THE DISK, as the app's own picker reads it.

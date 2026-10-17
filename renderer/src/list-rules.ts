@@ -35,6 +35,44 @@ export interface InboxItem {
 const hers = (i: InboxItem) => (i.labels ?? []).includes('founder');
 const liveAnswer = (i: InboxItem) => (i.answer && i.answer !== '(withdrawn)' ? i.answer : undefined);
 
+/* ------------------- the one thing nothing may take away ------------------ */
+/**
+ * A ROW THAT IS STILL ASKING YOU SOMETHING (w-fe48447cab).
+ *
+ * `live` and `shipping` take a row out of Needs you because something is
+ * happening to it. Both were written as unconditional early returns, for rows
+ * where nothing was being asked of anybody. The cost was that an agent asking
+ * you a question and then carrying on working removed its own question from
+ * the person it was asking: the row read "working" in In progress and the
+ * options card addressed to you was in no list you read.
+ *
+ * That is a decision this codebase has already made once, about a different
+ * field. `parkedByAgent` gates WORKERS and never the inbox for exactly this
+ * reason, and `isProposal` refuses to hide a question or a review for it too.
+ * This is the same rule reaching the last two places that did not have it.
+ *
+ * Their ranking for this part of the app, 2026-10-09: "If we have false
+ * negatives, we lose tasks, which is a really big problem... false negatives
+ * are worse than false positives." A question shown next to a working agent
+ * costs a glance; a question hidden behind one costs the task.
+ *
+ * It is deliberately NARROW. Only the two kinds an agent addresses TO you, only
+ * while they are unanswered, and never once finished — those go to the archive
+ * rule, which is its own question. A withdrawn approval is not an answer
+ * (`liveAnswer`), and everything else on a row with a session on it is
+ * unchanged: both incidents above keep their exact behaviour.
+ *
+ * The row stays in In progress as well, because a session really is on it. That
+ * is not the "one row, two tabs" fault this file warns about: a claimed
+ * question is in both lists today, and these two vetoes were the only case
+ * where attaching a session to one changed that.
+ */
+export function stillAsksYou(i: InboxItem): boolean {
+  if (i.kind !== 'question' && i.kind !== 'review') return false;
+  if (i.status === 'done') return false;
+  return !liveAnswer(i);
+}
+
 // The user's own open row, carrying a result a worker wrote after her last
 // word, with no reply from her yet. It goes to the inbox and leaves In
 // progress, but stays open so her reply still lands on the thread. A claimed
@@ -102,11 +140,14 @@ export function belongsInInbox(
   // In Later and not begun: it waits for a person, not a clock, so it is in
   // Later and nowhere else.
   if (notStarted(i)) return false;
-  // A session is still on it, so it is In progress until it exits.
-  if (live) return false;
+  // A session is still on it, so it is In progress until it exits. Unless it is
+  // still asking you something (w-fe48447cab): the one thing a session may not
+  // do is take away the question it is asking (`stillAsksYou`).
+  if (live && !stillAsksYou(i)) return false;
   // The ship queue owes it a ship. It comes back once the queue ships it or
-  // hands it back to its agent.
-  if (shipping) return false;
+  // hands it back to its agent. Same exception: a ship in flight is not an
+  // answer to a question either.
+  if (shipping && !stillAsksYou(i)) return false;
   if (hiddenUntil > now) return false;    // she put it away herself
   // A repeating-task run hides only when a worker explicitly marked it clean.
   // The marker is required to hide and never to show, because a run that died
