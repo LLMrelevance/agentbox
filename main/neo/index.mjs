@@ -12,7 +12,7 @@ import { neoEnabled } from './gate.mjs';
 import { startLive } from './live.mjs';
 import { listenForDoubleCommand } from './cmd-tap.mjs';
 import { getMic, micOwner } from './mic.mjs';
-import { decide, answerQuestion } from './decide.mjs';
+import { decide, answerQuestion, composeReply } from './decide.mjs';
 import { runDecision } from './decided.mjs';
 import { buildOptions } from '../../shared/neo-options.mjs';
 import { checkCall, neoSession, PACES } from '../../shared/neo-tools.mjs';
@@ -41,6 +41,7 @@ export function createNeo({
   // writes the pick beside the talk, acting on nothing (plans/neo-decisions.md).
   decideImpl = decide,
   answerImpl = answerQuestion,
+  composeImpl = composeReply,
 }) {
   const on = neoEnabled({ userData, platform });
   ipcMain.handle('neo:enabled', () => on);
@@ -229,6 +230,7 @@ export function createNeo({
     if (!live) return;
     ending = false;
     decisionState = {};
+    said.length = 0;
     sessionSeconds = 0;
     talkFile = path.join(dir, 'talk', `${new Date(now()).toISOString().replace(/[:.]/g, '-')}.jsonl`);
     seenCalls.clear();
@@ -296,6 +298,7 @@ export function createNeo({
   ipcMain.on('neo:log', (e, { who, text } = {}) => {
     if (!fromNeo(e) || !talkFile || !WHO.has(who) || typeof text !== 'string' || !text.trim()) return;
     writeTalk(talkFile, who, text);
+    if (who === 'you' || who === 'neo') { said.push({ who, text }); if (said.length > 12) said.shift(); }
     // The trial run only matters while the earlier way is the one acting.
     if (who === 'you' && engine() === 'tools') void shadowDecide(text, talkFile);
   });
@@ -304,6 +307,8 @@ export function createNeo({
   const engine = () => (readPrefs().engine === 'tools' ? 'tools' : 'decisions');
   // What waits on her yes, for this session only.
   let decisionState = {};
+  // The last few turns, so "what I just told you" can be found.
+  const said = [];
 
   // LIVE ON THE DECISIONS API: what she said, handed over by the voice, is
   // decided, done through the app, and answered with what the voice says.
@@ -313,7 +318,7 @@ export function createNeo({
     const file = talkFile;
     const guarded = (name, args, said) => (live && gen === generation ? askMain(name, args, said) : Promise.resolve({ ok: false, status: 'refused', said: 'Neo has signed off, so that was not done.' }));
     try {
-      const r = await runDecision({ heard, askMain: guarded, state: decisionState, decideImpl, now, answer: answerImpl });
+      const r = await runDecision({ heard, askMain: guarded, state: decisionState, decideImpl, now, answer: answerImpl, compose: composeImpl, history: said.slice() });
       writeTalk(file, 'decision', `picked ${r.choice ?? '?'} (${r.confidence?.toFixed?.(2) ?? '?'}) in ${r.ms ?? '?'} ms -> ${r.say || '(nothing)'}`);
       if (r.signoff) { generation++; ending = true; setTimeout(() => { if (live) win?.webContents.send('neo:sleep', { reason: 'asked' }); }, 1500); }
       return { say: r.say ?? '' };

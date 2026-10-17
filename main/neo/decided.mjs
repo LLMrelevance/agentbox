@@ -4,7 +4,7 @@
 // what the voice should say. The pick chooses the action and its thread; the
 // details come from her words (shared/neo-params.mjs).
 import { buildOptions } from '../../shared/neo-options.mjs';
-import { laterFrom, picturesFrom, replyFrom } from '../../shared/neo-params.mjs';
+import { laterFrom, pictureWanted, picturesFrom, replyFrom } from '../../shared/neo-params.mjs';
 import { decide } from './decide.mjs';
 
 // Under this, Neo asks which she meant rather than act. Set from the hard
@@ -34,7 +34,7 @@ const ASKING = /^(?:so\s+|and\s+|but\s+|um+,?\s+|uh+,?\s+)*(what|which|how|why|d
  * Returns { say, choice?, confidence?, ms? }; `say` is never empty, because
  * Live ends the turn after "one sec" when the app gives it nothing to say.
  */
-export async function runDecision({ heard, askMain, state, decideImpl = decide, now = Date.now, answer }) {
+export async function runDecision({ heard, askMain, state, decideImpl = decide, now = Date.now, answer, compose, history = [] }) {
   const got = await askMain('neo_screen');
   if (!got?.ok || !got.screen) return { say: 'Tell the person the app did not answer just now.' };
   const screen = got.screen;
@@ -56,17 +56,20 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
   if (!picked) return said('Tell the person you did not catch that, and ask them to say it again.');
 
   const unsure = r.confidence != null && r.confidence < UNSURE;
+  // A sound ("Oh", "mm") with a faint guess is not worth a question.
+  if (unsure && r.confidence < 0.2 && String(heard).trim().split(/\s+/).length <= 3) return { say: 'Say just "Okay."', ...meta };
   if (picked.act.kind === 'none') {
     const other = list.find((o) => o.value === r.runnersUp?.[0]?.value && o.act.kind !== 'none');
     if (unsure) return { say: other ? `Not sure what the person meant. Ask, in a few words: ${other.description}?` : 'Tell the person, in a few words, you did not catch what to do, and ask them to say it again.', ...meta };
     if (ASKING.test(String(heard).trim()) && answer) {
       const open = await askMain('describe_open', {}, heard);
-      const context = `${open?.ok ? open.said : 'No thread is open.'}\nWhat Neo last told the person: ${state.lastSaid ?? 'nothing yet'}`;
+      const context = `${open?.ok ? open.said : 'No thread is open.'}\nWhat Neo last told the person: ${state.lastSaid ?? 'nothing yet'}${conversation(history)}`;
       return { say: await answer({ question: heard, context }), ...meta };
     }
     return { say: 'Say just "Okay."', ...meta };
   }
-  const ctx = { heard, askMain, state, now, answer, screen };
+  const ctx = { heard, askMain, state, now, answer, compose, history, screen };
+  if (picked.act.kind === 'talk') return said((await perform(picked, ctx)).say);
   if (unsure) {
     const top2 = r.runnersUp?.[0];
     const other = list.find((o) => o.value === top2?.value && o.value !== 'none');
@@ -77,6 +80,8 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
     // Two moves is two look-alike threads, not two requests.
     const move = moves.length === 1 && moves[0];
     if (move) return said((await both2(...(await inOrder(picked, other, input, decideImpl)), ctx)).say);
+    // Her "yes" to the question does the likeliest, with what she said first.
+    state.pending = { option: picked, heard, about: picked.description };
     return { say: `Not sure what the person meant. Ask, in a few words: ${picked.description}${other ? `, or ${other.description}` : ''}?`, ...meta };
   }
 
@@ -110,6 +115,11 @@ async function both2(a, b, ctx) {
   return { say: `${first.say} ${(await performOn(b, ctx)).say}` };
 }
 
+function conversation(history) {
+  const lines = (history ?? []).slice(-10).map((l) => `${l.who === 'you' ? 'person' : 'Neo'}: ${String(l.text).slice(0, 400)}`);
+  return lines.length ? `\nThe conversation so far, oldest first:\n${lines.join('\n')}` : '';
+}
+
 // Which of two parts she said first.
 async function inOrder(a, b, input, decideImpl) {
   const r = await decideImpl({
@@ -129,7 +139,7 @@ async function performOn(option, ctx) {
 }
 
 /** Does one picked option. Returns { say, ok, name? }; `ok` false stops a second part. */
-async function perform(picked, { heard, askMain, state, now, answer, screen }) {
+async function perform(picked, { heard, askMain, state, now, answer, compose, history = [], screen }) {
   const open = screen.open;
   const a = picked.act;
   const step = async (name, args = {}) => {
@@ -152,21 +162,39 @@ async function perform(picked, { heard, askMain, state, now, answer, screen }) {
     return d?.ok ? d.said : (await askMain('get_screen', {}, heard))?.said ?? 'nothing is on screen.';
   };
   const say = (text) => ({ say: text, ok: true });
+  // Words to Neo about Neo: answered as Neo, knowing what was said.
+  const talk = async () => {
+    const context = `${await thread()}\nWhat Neo last told the person: ${state.lastSaid ?? 'nothing yet'}${conversation(history)}`;
+    if (!answer) return 'Answer the person in a few words, as Neo.';
+    return answer({ question: heard, context, toNeo: true });
+  };
 
   switch (a.kind) {
     case 'yes': {
       const p = state.pending;
       state.pending = null;
       if (!p) return say('Say just "Okay."');
+      if (p.option) return perform(p.option, { heard: p.heard, askMain, state, now, answer, compose, history, screen });
       return (FINISHES.has(p.name) ? finish : step)(p.name, { ...p.args, confirmed: true });
     }
     case 'no':
       state.pending = null;
       return say('Okay, left it as it is.');
     case 'reply': {
-      const { text, attach } = replyFrom(heard);
-      return step('reply', { id: a.id, text, attach });
+      let { text } = replyFrom(heard);
+      if (compose) {
+        const wrote = await compose({ heard, history, thread: open?.title ?? '' }).catch(() => undefined);
+        if (wrote?.send === null) return { say: `Nothing was sent to the agent. ${await talk()}`, ok: false };
+        if (wrote?.send) text = wrote.send;
+      }
+      const attach = pictureWanted(heard);
+      const r = await step('reply', { id: a.id, text, ...(attach === undefined ? {} : { attach }) });
+      if (!r.ok) return r;
+      // A reply often moves the inbox on: say where she is now.
+      const next = await askMain('brief_open', { from: a.id, wait: 300 }, heard);
+      return next?.ok ? { ...r, say: `${r.say} ${next.said}` } : r;
     }
+    case 'talk': return say(await talk());
     case 'pick': return finish('pick_option', { id: a.id, n: a.n });
     case 'later': {
       const when = laterFrom(heard, now());
@@ -195,7 +223,7 @@ async function perform(picked, { heard, askMain, state, now, answer, screen }) {
       return say(`Tell the person briefly, in one or two sentences: ${s?.said ?? 'nothing is on screen.'}`);
     }
     case 'ask': {
-      const context = `${await thread()}\nWhat Neo last told the person: ${state.lastSaid ?? 'nothing yet'}`;
+      const context = `${await thread()}\nWhat Neo last told the person: ${state.lastSaid ?? 'nothing yet'}${conversation(history)}`;
       if (!answer) return say(`Answer the person's question from this, briefly: ${context}`);
       return say(await answer({ question: heard, context }));
     }

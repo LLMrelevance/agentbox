@@ -185,6 +185,13 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
   // The threads Neo moved her away from, newest last, for "go back".
   const trail: string[] = [];
   const leaving = () => { const at = deps.focused()?.id; if (at && trail.at(-1) !== at) trail.push(at); };
+  // The inbox moves on by itself after a reply, and she clicks: those moves count for "back" too.
+  let seen = deps.focused()?.id;
+  const noteMove = () => {
+    const at = deps.focused()?.id;
+    if (seen && at !== seen && trail.at(-1) !== seen) trail.push(seen);
+    seen = at;
+  };
   // The thread she means: "this one" is the one on screen.
   const meant = (id: unknown, ctx: { heard?: string }) => {
     const open = deps.focused();
@@ -226,6 +233,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
   };
 
   const act = async function act(name: string, args: Record<string, any>, ctx: { heard?: string } = {}): Promise<NeoResult> {
+    noteMove();
     try {
       // A picture Neo put up comes down when the thread changes under it.
       if (CHANGES_THREAD.has(name)) await deps.show?.([], 'close');
@@ -376,6 +384,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
             if (row && row.id !== deps.focused()?.id) {
               await deps.open(row);
               deps.glow(row.id);
+              seen = row.id;
               return done(`Back on ${nameOf(row)}.${brief(row)}`);
             }
           }
@@ -403,7 +412,8 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
         case 'brief_open': {
           // The inbox moves to the next thread a render after a close or a put-off.
           let row = deps.focused();
-          for (let waited = 0; waited < 800 && (!row || row.id === args.from); waited += 50) {
+          const most = Number.isFinite(args.wait) ? args.wait : 800;
+          for (let waited = 0; waited < most && (!row || row.id === args.from); waited += 50) {
             await new Promise((r) => setTimeout(r, 50));
             row = deps.focused();
           }
@@ -432,7 +442,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
       return { ok: false, status: 'failed', said: `That did not work: ${String((err as Error)?.message ?? err).slice(0, 120)}` };
     }
   };
-  return Object.assign(act, { canGoBack: () => trail.length > 0 });
+  return Object.assign(act, { canGoBack: () => { noteMove(); return trail.length > 0; } });
 }
 
 /**

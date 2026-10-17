@@ -62,6 +62,15 @@ const LEAD = /^(?:please\s+)?(?:(?:tell|let)\s+(?:the agent|the thread|it|them|h
 const NO_PICTURE = /[,;]?\s*(?:but\s+)?(?:without|no|not with|don'?t (?:send|include|attach))\s+(?:the\s+)?(?:screenshot|picture|image|attachment)s?\.?\s*$/i;
 
 /** { text, attach }: the words she wants sent, without the instruction around them. */
+const PICTURE = /\b(?:screenshot|screen shot|picture|image|photo|png)s?\b/i;
+
+/** false when she said not to send a picture, true when she asked for one, else undefined. */
+export function pictureWanted(said) {
+  const t = String(said ?? '');
+  if (NO_PICTURE.test(t.trim())) return false;
+  return PICTURE.test(t) ? true : undefined;
+}
+
 export function replyFrom(said) {
   let text = String(said ?? '').trim();
   const attach = !NO_PICTURE.test(text);
