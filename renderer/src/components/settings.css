@@ -134,6 +134,7 @@
 .acct-meters-none { margin-top: 16px; font-size: 12px; color: var(--text-faint); }
 .acct-place-act { display: inline-flex; align-items: center; gap: 12px; }
 .acct-checked { font-size: 12px; font-weight: 400; color: var(--text-faint); }
+.acct-reading-time { margin-top: 12px; font-size: 12px; color: var(--text-faint); }
 /* Switching is a link, in sentence case, so it never reads as a second mark beside IN USE. */
 .acct-use { padding: 0; border: 0; background: none; font: inherit; font-size: 12px; color: var(--text-dim); cursor: pointer; }
 .acct-use:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }

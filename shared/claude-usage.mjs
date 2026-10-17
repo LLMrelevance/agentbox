@@ -153,6 +153,33 @@ export function readUsage(text, now = Date.now(), zoneNow = localZone()) {
   return out;
 }
 
+/** Provider limits from Claude Code's get_usage response, without local activity estimates. */
+export function readUsageReport(value) {
+  let report = value;
+  if (typeof report === 'string') {
+    try { report = JSON.parse(report); } catch { return []; }
+  }
+  if (report?.rate_limits_available !== true || !report.rate_limits) return [];
+  const data = report.rate_limits;
+  const windows = [
+    ['session', null, data.five_hour],
+    ['week', 'all models', data.seven_day],
+    ['week', 'OAuth apps', data.seven_day_oauth_apps],
+    ['week', 'Opus', data.seven_day_opus],
+    ['week', 'Sonnet', data.seven_day_sonnet],
+    ...(Array.isArray(data.model_scoped) ? data.model_scoped : [])
+      .filter(row => typeof row?.display_name === 'string' && row.display_name.trim())
+      .map(row => ['week', row.display_name, row]),
+  ];
+  return windows.flatMap(([span, qualifier, row]) => {
+    const percent = row?.utilization;
+    if (typeof percent !== 'number' || !Number.isFinite(percent) || percent < 0 || percent > 100) return [];
+    const at = typeof row.resets_at === 'string' ? Date.parse(row.resets_at) : NaN;
+    return [{ span, qualifier, name: limitName(span, qualifier), percent,
+      resetsAt: Number.isFinite(at) ? at : null, resetsText: null, resetsOn: null, zone: null }];
+  });
+}
+
 /**
  * WHAT THE PILL SAYS. Null when there is nothing honest to print, and then
  * nothing is drawn at all rather than a pill saying it does not know.

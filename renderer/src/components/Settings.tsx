@@ -427,6 +427,13 @@ export function AccountRows({ agent, onChoose, onAdd }: {
   }
 }
 
+export function accountReadingFor(profile: string, readings: AccountUsageReading[], current: Usage | null): Usage | null {
+  const own = readings.find(r => r.profile === profile && r.limits?.length && r.at);
+  const candidates = [own ? { engine: 'claude' as const, profile, at: own.at!, limits: own.limits! } : null,
+    current && (current.profile ?? 'default') === profile ? current : null];
+  return candidates.filter((r): r is Usage => !!r).sort((a, b) => b.at - a.at)[0] ?? null;
+}
+
 /** One account as a place card draws it, whether it lives here or in the cloud. */
 export type PlaceAccount = {
   key: string;
@@ -437,6 +444,8 @@ export type PlaceAccount = {
   about: string[];
   inUse?: boolean;
   limits?: UsageLimit[] | null;
+  checkedAt?: number | null;
+  usageError?: string | null;
   /** Offered when picking it would change something, with the words for it. */
   use?: { word: string; onUse: () => void } | null;
   /** Why it cannot run, in main's words; replaces the meters. */
@@ -471,7 +480,7 @@ function UseMark({ a }: { a: PlaceAccount }) {
 }
 
 /** One tile per account, two to a line, its meters stacked inside. */
-export function PlaceTiles({ accounts, onAdd }: { accounts: PlaceAccount[]; onAdd?: () => void }) {
+export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: PlaceAccount[]; onAdd?: () => void; now?: number }) {
   return (
     <div className="acct-tiles">
       {accounts.map((a) => (
@@ -486,7 +495,11 @@ export function PlaceTiles({ accounts, onAdd }: { accounts: PlaceAccount[]; onAd
               <div className="acct-tile-trouble">{a.trouble}</div>
               {a.cmd && <div className="acct-tile-cmd"><CopyCmd cmd={a.cmd} /></div>}
             </>
-          ) : a.meters !== false && <MiniMeters limits={a.limits} />}
+          ) : a.meters !== false && <>
+            {(!a.usageError || a.limits?.length) && <MiniMeters limits={a.limits} />}
+            {a.usageError && <div className="acct-tile-trouble" role="status">{a.usageError}</div>}
+          </>}
+          {!!a.checkedAt && <div className="acct-reading-time">{a.usageError ? 'Last reading · ' : ''}{usageCheckedAt(a.checkedAt, now)}</div>}
         </div>
       ))}
       {onAdd && <button type="button" className="acct-tile acct-tile-add" onClick={onAdd}>Add account</button>}
@@ -497,15 +510,15 @@ export function PlaceTiles({ accounts, onAdd }: { accounts: PlaceAccount[]; onAd
 /**
  * ONE PLACE AGENTS RUN: its name, whether it is on, one line on when threads
  *  go there, and a tile per account. */
-export function Place({ id, name, state = null, line = null, action, warn, accounts, onAdd }: {
+export function Place({ id, name, state = null, line = null, action, warn, accounts, onAdd, now }: {
   id: string; name: string; state?: 'On' | 'Off' | null; line?: string | null; action?: ReactNode; warn?: string | null;
-  accounts: PlaceAccount[]; onAdd?: () => void;
+  accounts: PlaceAccount[]; onAdd?: () => void; now?: number;
 }) {
   const label = <>{name}{state && <span className={`set-badge${state === 'On' ? '' : ' set-badge-off'}`}>{state}</span>}</>;
   return (
     <Group id={id} label={label} action={action} bare>
       {(warn || line) && <div className="acct-place-line" role="status">{warn ?? line}</div>}
-      <PlaceTiles accounts={accounts} onAdd={onAdd} />
+      <PlaceTiles accounts={accounts} onAdd={onAdd} now={now} />
     </Group>
   );
 }
@@ -518,7 +531,7 @@ export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex
     const read = !!a.limits?.length;
     // A full meter already says when it is back, so beside one the state is said short.
     const about = read && state.startsWith('At its limit') ? 'At its limit' : state;
-    return { key: a.key, name: accountLabel(a, all), about: [about], limits: a.limits ?? null, meters: read };
+    return { key: a.key, name: accountLabel(a, all), about: [about], limits: a.limits ?? null, meters: read, checkedAt: read ? a.readAt : null };
   });
 }
 
@@ -1625,10 +1638,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     const agent = agentStory(w, usageReadings, engine);
     // Each login's own reading, never another's: by its folder, or the corner's if it is the same login.
     const readingOf = (profile: string): Usage | null => {
-      const own = accountReadings.find((r) => r.profile === profile && r.limits?.length && r.at);
-      if (own) return { engine: 'claude', limits: own.limits!, at: own.at!, profile };
-      const r = agent.reading;
-      return r && (r.profile ?? 'default') === profile ? r : null;
+      return accountReadingFor(profile, accountReadings, agent.reading);
     };
     const picked = agent.accounts.some((a) => a.chosen);
     const hereAccounts: PlaceAccount[] = [...agent.accounts]
@@ -1640,21 +1650,21 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
         about: a.signedIn ? [] : ['Finish signing in to use it'],
         inUse: picked && a.chosen,
         limits: readingOf(a.profile)?.limits ?? null,
+        checkedAt: readingOf(a.profile)?.at ?? null,
+        usageError: accountReadings.find((r) => r.profile === a.profile)?.error ?? null,
         use: a.signedIn && !(picked && a.chosen) && agent.accounts.length > 1
           ? { word: picked ? 'Switch to this account' : 'Use only this account', onUse: () => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile: a.profile } })) }
           : null,
         trouble: a.trouble,
         cmd: a.trouble && a.dir ? `CLAUDE_CONFIG_DIR=${a.dir} claude` : null,
       }));
-    const lastRead = Math.max(0, ...agent.accounts.map((a) => readingOf(a.profile)?.at ?? 0));
-    const checked = lastRead ? usageCheckedAt(lastRead, now) : '';
     const cloudHere = cloud?.setUp && (cloud.accounts ?? []).some((a) => a.engine === engine) ? cloud : null;
     // WHERE AGENTS GO FIRST IS DRAWN FIRST: the cloud while it is on, this computer while it is off.
     const cloudFirst = !!cloudHere && cloudHere.mode !== 'mac';
     const cloudAccounts = cloudHere ? cloudPlaceAccounts(cloudHere, engine, now) : [];
     const cloudCard = cloudHere && (
       <Place id="cloud-accounts" name="Cloud" state={cloudHere.mode === 'mac' ? 'Off' : 'On'}
-        line={cloudPlaceLine(cloudHere, cloudAccounts.length)} accounts={cloudAccounts} />
+        line={cloudPlaceLine(cloudHere, cloudAccounts.length)} accounts={cloudAccounts} now={now} />
     );
     const addAccount = async (a: Agent) => {
       const r = a.engine === 'codex' ? await api.addCodexAccount() : await api.addClaudeAccount();
@@ -1686,7 +1696,6 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                 name={cloudHere ? 'This computer' : 'Signed in'}
                 action={(
                   <span className="acct-place-act">
-                    {!refreshing && checked && <span className="acct-checked">{checked}</span>}
                     <button type="button" className="set-ghost" disabled={refreshing} onClick={() => void readAccounts(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
                   </span>
                 )}
@@ -1694,6 +1703,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                    (w-f2a5c9894e). Main's sentence, about the pair. */
                 warn={w.accountsNote}
                 accounts={hereAccounts}
+                now={now}
                 onAdd={() => void addAccount(agent)}
               />
             ) : (
