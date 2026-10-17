@@ -80,7 +80,10 @@ img.tm-av { background: var(--bg-selected); }
 .tm-tabs { display: flex; align-items: center; gap: 22px; }
 .tm-tab { display: inline-flex; align-items: baseline; gap: 8px; height: 30px; line-height: 30px; padding: 0; background: none; border: 0;
   border-bottom: 1px solid transparent; font: 11px/30px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); cursor: pointer; }
-.tm-tab b { font-weight: 400; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+/* Every count keeps the lit chip's room, so Needs You lighting moves nothing
+   (w-22da913d00). No letter spacing, or the digit sits left of the chip's middle. */
+.tm-tab b { font-weight: 400; color: var(--text-dim); font-variant-numeric: tabular-nums; display: inline-block; padding: 0 5px; line-height: 16px; border-radius: 2px; letter-spacing: 0; }
+.tm-tab.fresh b { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent), 0 0 10px color-mix(in srgb, var(--accent) 22%, transparent); }
 .tm-tab.on { color: var(--text); border-bottom-color: var(--accent); }
 .tm-tab.on b { color: var(--text); }
 .tm-faces { margin-left: auto; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }

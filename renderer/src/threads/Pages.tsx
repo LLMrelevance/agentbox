@@ -331,14 +331,16 @@ export const INBOX_TABS: { view: TabView; label: string }[] = [
 const COUNTED: TabView[] = ['inbox', 'progress', 'snoozed'];
 
 /** `needs` renames the first tab (Waiting, once a teammate is on the page). */
-export function StateTabs({ view, counts, onView, needs, onSearch }: {
+export function StateTabs({ view, counts, onView, needs, onSearch, lit = false }: {
   view: TabView; counts: Partial<Record<TabView, number>>; onView: (v: TabView) => void; needs?: string;
   /** Draws Search at the row's right end (w-3c51d02de5). */
   onSearch?: () => void;
+  /** Something landed in Needs You since it was last open (w-22da913d00). */
+  lit?: boolean;
 }) {
   return <div className="th-bar"><div className="tm-tabs">
     {/* Every tab wears the Tab plate (hint-plate.ts, 'state-tab'). */}
-    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view ? ' on' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
+    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view ? ' on' : ''}${t.view === 'inbox' && lit && view !== 'inbox' ? ' fresh' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
   </div>{onSearch && <SearchButton onSearch={onSearch} />}</div>;
 }
 
