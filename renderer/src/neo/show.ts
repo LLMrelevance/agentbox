@@ -58,6 +58,11 @@ export function filmName(el: Element): string {
   return el.querySelector('.mention-name')?.textContent?.trim() || 'a film';
 }
 
+/** Whether the open thread has drawn an agent message yet, pictures or not. */
+export function threadDrawn(root: ParentNode = document): boolean {
+  return !!latestAgentBlock(root);
+}
+
 function latestAgentBlock(root: ParentNode): Element | undefined {
   const blocks = [...root.querySelectorAll('.focus-scroll .thread-block')].filter((b) => b.querySelector('.msg:not(.yours)'));
   return blocks.at(-1);
