@@ -194,6 +194,38 @@ export async function clickTab(tab, words) {
   return hit;
 }
 
+/**
+ * WHO THE OPEN THREAD SAYS OPENED IT: 'you', 'agent', or null for neither.
+ *
+ * Two forms, and both are right. An opening with no words of its own draws the
+ * quiet sentence; one that carries words draws as a message, its author's
+ * byline over them and no sentence anywhere. A row its worker has named carries
+ * words either way, since the title is then said in the opening
+ * (renderer/src/thread-history.ts, withTitleSaid), which is why real Claude
+ * Code's rows read one way and the stand-in's the other.
+ */
+export function whoOpenedThread({ agentSaid = false, youSaid = false, opener = null } = {}) {
+  if (agentSaid) return { who: 'agent', saw: 'An agent opened this' };
+  if (youSaid) return { who: 'you', saw: 'You opened this' };
+  const name = String(opener ?? '').trim();
+  if (!name) return { who: null, saw: 'neither line on screen' };
+  if (name === 'You') return { who: 'you', saw: 'your byline over the opening' };
+  if (name === 'The agent') return { who: 'agent', saw: 'the agent\'s byline over the opening' };
+  return { who: null, saw: `the opening is bylined "${name}"` };
+}
+
+/** The same question asked of the open thread on the screen. */
+export async function whoOpenedOnScreen(tab) {
+  return whoOpenedThread(await tab.evaluate(`(() => {
+    const t = document.body.innerText;
+    return {
+      agentSaid: /An agent opened this/.test(t),
+      youSaid: /\\bOpened this|You opened this/.test(t),
+      opener: document.querySelector('.thread .msg .msg-who')?.textContent.trim() ?? null,
+    };
+  })()`));
+}
+
 async function openThread(tab, row) {
   const names = [row.label, row.title].filter(Boolean).map((n) => String(n).slice(0, 24));
   const find = `(() => {
@@ -350,10 +382,8 @@ export const DRIVES = {
         const shown = await tab.until(`document.body.innerText.includes(${JSON.stringify(String(answered.result).trim().split('\n')[0].slice(0, 40))})`, { why: 'the answer to show in the open thread', ms: 15_000 }).catch(() => false);
         claim(shown, 'the open thread shows the answer');
       }
-      // The page draws the person's birth as "Opened this" beside their mark,
-      // and an agent's as "An agent opened this".
-      const opened = await tab.evaluate(`(() => { const t = document.body.innerText; return /An agent opened this/.test(t) ? 'An agent opened this' : /\\bOpened this|You opened this/.test(t) ? 'Opened this' : null; })()`);
-      claim(opened === 'Opened this', 'the thread says you opened it, not an agent', opened ?? 'neither line on screen');
+      const opened = await whoOpenedOnScreen(tab);
+      claim(opened.who === 'you', 'the thread says you opened it, not an agent', opened.saw);
       await tab.wait(600);
       await capture('thread');
     },
