@@ -120,6 +120,9 @@ export function contextNote(text) {
  * with the Decisions API (main/neo/decided.mjs); 'tools' is the earlier way,
  * a Responses model holding NEO_TOOLS, kept as the way back.
  */
+// The voices GPT-Live takes; any other name fails the whole session.
+export const VOICES = ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse'];
+
 export function neoSession({ model = 'gpt-live-1', backend = 'gpt-5.6-luna', voice, pace, engine = 'decisions', context = '' } = {}) {
   const paced = Object.hasOwn(PACES, pace) ? PACES[pace] : '';
   const client = engine !== 'tools';
@@ -127,7 +130,7 @@ export function neoSession({ model = 'gpt-live-1', backend = 'gpt-5.6-luna', voi
   return {
     model,
     instructions: said,
-    ...(voice ? { audio: { output: { voice } } } : {}),
+    ...(VOICES.includes(voice) ? { audio: { output: { voice } } } : {}),
     store: false,
     delegation: client
       ? { type: 'client' }

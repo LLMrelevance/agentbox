@@ -257,7 +257,7 @@ export function createNeo({
     // instead of guessing (it made up a task when it had nothing).
     const context = engine() === 'decisions' ? contextNote(await openThread()) : '';
     try {
-      const answer = await startLiveImpl({ sdp, session: neoSession({ pace: readPrefs().pace, engine: engine(), context }) });
+      const answer = await startLiveImpl({ sdp, session: neoSession({ pace: readPrefs().pace, voice: readPrefs().voice, engine: engine(), context }) });
       log('session started');
       return { ok: true, sdp: answer.sdp };
     } catch (err) {
