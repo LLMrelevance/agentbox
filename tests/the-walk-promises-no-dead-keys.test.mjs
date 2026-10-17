@@ -191,8 +191,10 @@ describe('a Mac with no agent files is offered nothing at all', () => {
     expect(card).toMatch(/read && !some \? \(alreadyIn > 0 \? CARD\.headAllIn : CARD\.headNone\) : LIST\.head/);
     // The line over the list is not said over an empty card, because there is
     // nothing under it and it would be the same contradiction in a smaller
-    // typeface.
-    expect(card).toMatch(/read && some && <p className="ia-line">/);
+    // typeface. And not over a search either (w-6418318cd5): "From the last 10
+    // days" over a list of matches from July is the same sentence being wrong
+    // in the other direction.
+    expect(card).toMatch(/read && some && !searching && <p className="ia-line">/);
     // And the key the walk teaches still does something on it.
     expect(card).toMatch(/if \(walk && !some\) \{ walk\.onSkip\(\); return; \}/);
   });
@@ -315,8 +317,10 @@ describe('the coaching card promises no dead key either', () => {
     expect(app).toMatch(/\/\^\[1-9\]\$\/\.test\(e\.key\)\) pickOption\(focused, Number\(e\.key\)\)/);
   });
 
-  it('C opens the compose card, which is what beat four says it does', () => {
-    expect(app).toMatch(/case 'c': case 'C':[\s\S]{0,80}setModal\('compose'\)/);
+  // N, which beat four says. C was its twin until it turned to the cloud
+  // (tests/the-cloud-is-on-or-off-with-one-key).
+  it('N opens the compose card, which is what beat four says it does', () => {
+    expect(app).toMatch(/case 'n': case 'N':[\s\S]{0,80}setModal\('compose'\)/);
   });
 
   it('↵ opens the row under the cursor, which is what beat six says', () => {

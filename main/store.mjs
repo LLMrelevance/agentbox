@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadStore } from './store-modules.mjs';
 import { Repeats } from './repeats.mjs';
+import { CLEAN_LABEL, isCleanRun } from '../shared/repeats.mjs';
 import { answerFor, describeFor } from './first-run.mjs';
 import { checkProjectFolder } from '../shared/project-folder-check.mjs';
 import { EXAMPLES, stampsFor } from '../shared/first-run-examples.mjs';
@@ -34,6 +35,13 @@ import {
   answerMode as readAnswerMode, answerModes, clearAnswerMode as clearAnswerModeFile, setAnswerMode,
   touchAnswerMode as touchAnswerModeFile,
 } from './answer-modes.mjs';
+
+// WHAT A ROW'S ID LOOKS LIKE, for the reads that take one from the window: a
+// task, `w-` and hex, or a run of a repeating task, `r-<rule>-<YYYYMMDD>`
+// (shared/repeats.mjs occurrenceId). Runs were refused until a repeating task
+// began opening as its latest run (w-5e3f2e047f), and a run's page then had no
+// conversation to draw.
+const ROW_ID = /^(w-[0-9a-f]{6,}|r-[0-9a-f]{6,}-\d{8})$/;
 
 export class Store {
   constructor(config) {
@@ -244,19 +252,13 @@ export class Store {
   // The lease lines go here rather than there because they are the bulk of the
   // file and none of them are news: a worker holding a task for an hour writes
   // a heartbeat a minute, and's 39 lines are 15 events.
-  readHistory(slug, id, { max = 400 } = {}) {
-    const { workItemsDisk } = this.modules;
-    if (!/^w-[0-9a-f]{6,}$/.test(String(id ?? ''))) return [];
-    const file = workItemsDisk._internals.ledgerPath(this.productDir(slug));
-    const lines = [];
-    for (const raw of workItemsDisk._internals.readLines(file)) {
-      let line = null;
-      try { line = JSON.parse(raw); } catch { continue; }
-      if (!line || line.id !== id) continue;
-      if (line.heartbeat || line.release) continue;
-      lines.push(line);
-    }
-    return lines.slice(-max);
+  //
+  // Read once per change of the ledger, not once per call (main/store/
+  // work-items.mjs readItemHistory): the phone pass asks for 300 threads in a
+  // row, and reading the file for each blocked the app for 21 s (2026-10-14).
+  readHistory(slug, id, { max = 400, before } = {}) {
+    if (!ROW_ID.test(String(id ?? ''))) return [];
+    return this.modules.workItemsDisk.readItemHistory(this.productDir(slug), id, { max, before });
   }
 
   // THE CONVERSATION ON ONE ROW, oldest first, for the brief a spawning worker
@@ -269,7 +271,7 @@ export class Store {
   // here would silently decide it twice.
   readThread(slug, id) {
     const { workItemsDisk, workItemsCore } = this.modules;
-    if (!/^w-[0-9a-f]{6,}$/.test(String(id ?? ''))) return [];
+    if (!ROW_ID.test(String(id ?? ''))) return [];
     const file = workItemsDisk._internals.ledgerPath(this.productDir(slug));
     return workItemsCore.threadOf(workItemsDisk._internals.readLines(file), id);
   }
@@ -328,7 +330,7 @@ export class Store {
   // `inReplyTo` makes the answer a reply in a thread (w-920461cbe6): the uid
   // of the message it answers, on THE SAME LINE as the words, so the reply's
   // own uid (what its reactions hang off) is the line that says where it goes.
-  answerItem(slug, id, { answer, status, priority, permissionMode, model, effort, inReplyTo }) {
+  answerItem(slug, id, { answer, status, priority, permissionMode, model, effort, inReplyTo, fromPhone }) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
     let item = null;
@@ -343,7 +345,15 @@ export class Store {
     // special-cased in both engines' argument builders.
     if (model !== undefined) item = workItemsDisk.updateWorkItem(dir, id, { model: model ?? '' }, { source: 'founder' });
     if (effort !== undefined) item = workItemsDisk.updateWorkItem(dir, id, { effort: effort ?? '' }, { source: 'founder' });
-    if (answer) item = workItemsDisk.updateWorkItem(dir, id, inReplyTo ? { answer, inReplyTo } : { answer }, { source: 'founder' });
+    if (answer) item = workItemsDisk.updateWorkItem(dir, id, { answer, ...(inReplyTo ? { inReplyTo } : {}), ...(fromPhone ? { fromPhone } : {}) }, { source: 'founder' });
+    // A REPLY ON A RUN THAT FINISHED QUIETLY MAKES IT NEWS AGAIN (w-5e3f2e047f).
+    // A quiet run is kept out of her inbox, and a repeating task now opens on
+    // its latest run, so without this the answer to what she just asked there
+    // could never reach her. Written as the app rather than as her, so the
+    // worker can still mark a later quiet finish of its own.
+    if (answer && answer !== '(withdrawn)' && isCleanRun(item)) {
+      item = workItemsDisk.updateWorkItem(dir, id, { labels: item.labels.filter((l) => l !== CLEAN_LABEL) }, { source: 'system' });
+    }
     // The pane may still show a running row after Stop or a provider result.
     // Resolve omitted reply status against the ledger that was just written.
     if (status == null && typeof answer === 'string' && answer.trim() && answer !== '(withdrawn)'
@@ -482,7 +492,7 @@ export class Store {
   // Put the existing thread back in the person's inbox later. This never
   // changes its execution schedule, answer, status, claim or delivery marks.
   snoozeItem(slug, id, snoozedUntil) {
-    if (!Number.isFinite(snoozedUntil)) throw new Error('Snooze needs a valid time');
+    if (!Number.isFinite(snoozedUntil)) throw new Error('Later needs a valid time');
     return this.modules.workItemsDisk.updateWorkItem(
       this.productDir(slug), id, { snoozedUntil: Math.max(0, Math.trunc(snoozedUntil)) }, { source: 'founder' },
     );
@@ -516,13 +526,20 @@ export class Store {
   threadEdit(slug, id, patch) {
     // `start` is how a thread leaves Later: the summary and the thread page
     // both write 'now' on it, which is what makes `isDue` true again.
-    const fields = ['problem', 'progress', 'solution', 'visibility', 'visibleTo', 'priority', 'blockedBy', 'blocks', 'start'];
+    // `label` is a rename (w-ab3d51dc7d): the name every row shows. Never
+    // `title`, which is the message the thread was started with and briefs
+    // every run. Written on her authority, it outranks the namer's.
+    const fields = ['problem', 'progress', 'solution', 'visibility', 'visibleTo', 'priority', 'blockedBy', 'blocks', 'start', 'label'];
     const allowed = Object.fromEntries(Object.entries(patch ?? {}).filter(([k]) => fields.includes(k)));
+    if ('label' in allowed) {
+      allowed.label = String(allowed.label ?? '').replace(/\s+/g, ' ').trim();
+      if (!allowed.label) throw new Error('a thread needs a name');
+    }
     if (!Object.keys(allowed).length) throw new Error('nothing to change');
     return this.modules.workItemsDisk.updateWorkItem(this.productDir(slug), id, allowed, { source: 'founder' });
   }
 
-  composeItem(slug, { title, body, kind = 'directive', priority = 0, labels, runAt, start, engine, model, effort, assignee, due, people, visibility, visibleTo }) {
+  composeItem(slug, { title, body, kind = 'directive', priority = 0, labels, runAt, start, engine, model, effort, assignee, due, people, visibility, visibleTo, fromPhone }) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
     // The 'founder' label is the human-in-the-loop marker: only items the
@@ -531,7 +548,9 @@ export class Store {
     const allLabels = [...new Set(['founder', ...(labels ?? [])])];
     const created = workItemsDisk.createWorkItem(
       dir,
-      { title, kind, priority, labels: allLabels },
+      // The phone command that asked for it, on the very line that makes the
+      // row, so no row it made is ever without it (Codex's fourth review).
+      { title, kind, priority, labels: allLabels, ...(fromPhone ? { fromPhone: String(fromPhone) } : {}) },
       { source: 'system' }
     );
     // The founder's words carry founder authority; the lifecycle does not.
@@ -632,11 +651,25 @@ export class Store {
   // An ordinary agent-filed item: a PROPOSAL, which is what puts it in her
   // inbox and keeps it there until she answers. Used for the miss alert, which
   // is news about a repeating task rather than work she asked for.
-  fileItem(slug, { title, body, kind = 'review', priority = 5, labels = [] }) {
+  // `problem` is the summary's Context, the few sentences a reader gets before
+  // they open anything. Without one the panel falls back to the first sentence
+  // of the body (summaryOf, shared/thread-cards.mjs), which on a row whose body
+  // is a list reads as that list with its line breaks taken out.
+  fileItem(slug, { title, body, problem, kind = 'review', priority = 5, labels = [] }) {
     const { workItemsDisk } = this.modules;
     return workItemsDisk.createWorkItem(
-      this.productDir(slug), { title, body, kind, priority, labels }, { source: 'agent' },
+      this.productDir(slug), { title, body, problem, kind, priority, labels }, { source: 'agent' },
     );
+  }
+
+  // NEWS THE APP ITSELF HAS, ON A ROW THAT ALREADY EXISTS. The app's own words,
+  // so 'system' and a note: the answer is theirs and the result is the agent's.
+  // A note is a thread field, so a second one reads as the next thing said on
+  // the row rather than overwriting the first. Used by main/main-went-red.mjs
+  // to say main is green again on the row that reported the red.
+  noteItem(slug, id, note) {
+    const { workItemsDisk } = this.modules;
+    return workItemsDisk.updateWorkItem(this.productDir(slug), id, { note }, { source: 'system' });
   }
 
   // New product: rare and deliberate. A directory, a project.json, and a first

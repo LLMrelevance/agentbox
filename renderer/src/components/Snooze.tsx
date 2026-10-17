@@ -7,7 +7,7 @@
 
 import { useMemo } from 'react';
 import type { WorkItem } from '../types';
-import { parseWhen } from '../format';
+import { dayAndTime, parseWhen } from '../format';
 import { scheduleSubtitle } from '../list-rules';
 import { SchedulePicker } from './SchedulePicker';
 
@@ -28,9 +28,7 @@ function presets(now = Date.now()): Preset[] {
   return list;
 }
 
-const fmt = (ts: number) => new Date(ts).toLocaleString(undefined, {
-  weekday: 'short', hour: 'numeric', minute: '2-digit',
-}).toUpperCase();
+const fmt = (ts: number) => dayAndTime(ts).toUpperCase();
 
 export function Snooze({ item, count = 1, onPick, onNow, onClose }: {
   item: WorkItem;
@@ -50,7 +48,7 @@ export function Snooze({ item, count = 1, onPick, onNow, onClose }: {
 
   return (
     <SchedulePicker<number>
-      title="Snooze"
+      title="Later"
       subtitle={scheduleSubtitle(item, count)}
       placeholder="Try: 30m, 3h, 8am, tomorrow, next week"
       hintWhenRefused="try 3h, 8am, tomorrow"

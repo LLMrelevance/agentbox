@@ -79,6 +79,7 @@
    ones. THE CARD IS THE ONLY ROUNDED THING HERE: anything that wears a
    highlighted edge is square and sits clear of the card's corners, because a
    bright rule bent round a corner "looks whack". */
+.settings-screen[data-pane] .set-group-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .settings-screen[data-pane] .set-plate:not(.set-keys) {
   padding: 0 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--wash);
 }
@@ -119,6 +120,35 @@
 /* An inset row carries its own edges, so the hairlines either side of it go. */
 .settings-screen[data-pane] .set-plate > .set-acct-row.on + .set-row,
 .settings-screen[data-pane] .set-plate > .set-row + .set-acct-row.on { border-top-color: transparent; }
+/* SESSION AND WEEK, the same pair on every account. A full one turns to the
+   accent and says when it is back instead of a number. */
+.acct-meters { display: flex; flex-direction: column; align-items: stretch; gap: 10px; margin-top: 16px; }
+.acct-meter { display: grid; grid-template-columns: 56px 1fr auto; align-items: center; gap: 10px; font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.acct-meter-word { color: var(--text-faint); }
+.acct-meter .usage-meter { width: auto; }
+.acct-meter.full .acct-meter-pct { color: var(--accent); }
+.acct-tile-cmd { margin-top: 10px; }
+.acct-meters-none { margin-top: 16px; font-size: 12px; color: var(--text-faint); }
+.acct-place-act { display: inline-flex; align-items: center; gap: 12px; }
+.acct-checked { font-size: 12px; font-weight: 400; color: var(--text-faint); }
+/* Switching is a link, in sentence case, so it never reads as a second mark beside IN USE. */
+.acct-use { padding: 0; border: 0; background: none; font: inherit; font-size: 12px; color: var(--text-dim); cursor: pointer; }
+.acct-use:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+/* TILES: an account each, two to a line, every one the same shape. The one in
+   use is lifted by its fill and its IN USE, not by a different edge, so the
+   tiles line up. */
+.acct-place-line { margin: -4px 0 12px; font-size: 12.5px; line-height: 1.5; color: var(--text-dim); }
+.acct-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.acct-tile { padding: 16px 16px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--wash); text-align: left; }
+.acct-tile.on { background: var(--film-strong); border-color: var(--line-strong); }
+.acct-tile-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.acct-tile-name { min-width: 0; font-size: 13.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-tile-plan { flex: none; font-size: 12px; color: var(--text-faint); }
+.acct-tile-about { display: flex; align-items: center; min-height: 18px; margin-top: 6px; font-size: 12px; color: var(--text-faint); }
+.acct-tile-about .set-badge { margin: 0; }
+.acct-tile-trouble { margin-top: 16px; font-size: 12px; line-height: 1.5; color: var(--text-dim); }
+.acct-tile-add { min-height: 112px; border-style: dashed; background: none; color: var(--text-faint); font: inherit; font-size: 13px; text-align: center; cursor: pointer; }
+.acct-tile-add:hover { color: var(--text); }
 /* IN USE is said in the app's label voice, the small mono capitals the
    new-task card's TO and MODEL wear, in the accent. */
 .set-badge {
@@ -126,6 +156,7 @@
   font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--accent);
 }
+.set-badge.set-badge-off { color: var(--text-faint); }
 
 /* ------------------------------- controls ---------------------------------
    THE CONTROLS ARE THE NEW-TASK CARD'S (2026-10-05). The ones this screen had
@@ -216,3 +247,19 @@
   0%, 30% { border-color: var(--text-faint); box-shadow: 0 0 0 3px var(--wash); }
   100% { border-color: var(--line); box-shadow: 0 0 0 3px transparent; }
 }
+
+/* The phone page's QR code: white behind it whatever the theme, because a
+   phone camera reads dark on light, and big enough to scan off a laptop. */
+.set-phone-qr { display: flex; gap: 18px; align-items: center; }
+.set-phone-qr img { width: 168px; height: 168px; flex: none; background: #fff; border-radius: 10px; padding: 8px; }
+.set-phone-qr code { font-size: 11px; opacity: .7; word-break: break-all; }
+
+/* WHICH PROJECTS GO TO HER PHONE (Settings › Phone): the dropdown's own rows,
+   a line of small print under the two choices and a tick beside each project. */
+.set-phone-menu { min-width: 260px; max-height: 360px; overflow-y: auto; }
+.set-phone-row { display: flex; align-items: center; gap: 9px; white-space: normal; }
+.set-phone-row-text { display: flex; flex-direction: column; gap: 1px; }
+.set-phone-row-text small { font-size: 11.5px; font-weight: 400; color: var(--text-faint); }
+.set-phone-rule { height: 1px; background: var(--line); margin: 4px 6px; }
+.set-phone-tick { border-radius: 3px; }
+.set-phone-tick.on { background: var(--accent); border-color: var(--accent); color: var(--find-current-ink, #fff); }

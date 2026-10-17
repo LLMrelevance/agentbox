@@ -148,10 +148,15 @@ const HANDLED = {
   // Control-K is the same chord where there is no Command key. The handler
   // is `(e.metaKey || e.ctrlKey)`, so the excerpt is the ctrl half of it.
   'Ctrl+K': [[chords, 'e.ctrlKey'], [chords, "e.key.toLowerCase() === 'k'"], [chords, "setModal((m) => (m === 'palette' ? null : 'palette'))"]],
-  'C': [[focused, "e.key === 'c' || e.key === 'C' || e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }"], [list, "case 'c': case 'C': case 'n': case 'N': e.preventDefault(); setModal('compose'); break;"]],
-  'N': [[focused, "e.key === 'c' || e.key === 'C' || e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }"], [list, "case 'c': case 'C': case 'n': case 'N': e.preventDefault(); setModal('compose'); break;"]],
+  // The cloud on or off, with the other chords, everywhere.
+  '⌘C': [[chords, 'if (cloudChord(e, { inInput'], [chords, 'toggleCloudRef.current?.();']],
+  // And a new thread, in both the open task and the list.
+  'N': [[focused, "else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }"], [list, "case 'n': case 'N': e.preventDefault(); setModal('compose'); break;"]],
   '/': [[chords, "if (e.key === '/')"], [chords, 'openSearch();']],
   '\\': [[chords, "if (e.key === '\\\\')"], [chords, 'togglePanel();']],
+  // Into the task the toast is about, on the list and inside a task alike
+  // (w-f0bfe32859). Gated on the toast in toast-parts.ts, which has its own test.
+  'O': [[chords, 'const goesTo = opensTheToast(e.key, toast, focused ? { product: focused.product, id: focused.id } : null);'], [chords, 'openToastRow(goesTo);']],
 };
 
 describe('every key the shortcuts page draws is one the app answers', () => {
@@ -293,11 +298,20 @@ describe('the page stays a page and not a wall', () => {
   // across the board's columns, so without the row nobody learns the board
   // can be walked at all. It fills the inbox group to exactly seven, so the
   // next inbox key has to make room rather than add.
+  //
+  // AND 24 SINCE 2026-10-07, FOR O (w-f0bfe32859). The argument: asked for in
+  // so many words ("I very often, after submitting a task, click 'Open it' in
+  // the toast ... having a keyboard shortcut for that would be very nice"),
+  // and the toast draws the cap, so a cap on a toast that this page never
+  // mentions is the same nuisance. It sits beside Z, its other half, in a
+  // group of four that becomes five.
   it('is four groups, none of them longer than seven keys', () => {
     expect(SHORTCUTS).toHaveLength(4);
     for (const g of SHORTCUTS) expect(g.keys.length).toBeLessThanOrEqual(7);
     // Rows, not caps: everyKey() flattens the caps and a row can draw two.
-    expect(SHORTCUTS.reduce((n, g) => n + g.keys.length, 0)).toBeLessThanOrEqual(23);
+    // 25 since 2026-10-16, for C, the cloud on or off, which she asked to see
+    // here ("it's good, naturally, to have it in the keyboard shortcuts").
+    expect(SHORTCUTS.reduce((n, g) => n + g.keys.length, 0)).toBeLessThanOrEqual(25);
   });
 
   it('groups by when the keys work, not by which handler runs them', () => {

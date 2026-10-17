@@ -183,7 +183,10 @@ describe('the half of her rule the code has to keep', () => {
   });
 
   it('makes each project pointing at the folder its agents are already in', () => {
-    expect(card).toMatch(/createProduct\(\{ name: f\.name, repoPath: f\.folder \}\)/);
+    // The name and the folder are what this is about; anything else the call
+    // carries is not (`ofMany` since 2026-10-08 is how the press counts itself
+    // once, tests/a-codex-agent-and-a-reply-into-a-live-session-are-counted).
+    expect(card).toMatch(/createProduct\(\{ name: f\.name, repoPath: f\.folder[,}]/);
   });
 
   it('never lists a folder\'s agents under a project that is not that folder', () => {
@@ -212,7 +215,10 @@ describe('the half of her rule the code has to keep', () => {
     // read slower again: a Mac with nine conversations and no agent files must
     // not be told it has nothing while the walk of ~/.claude/projects is running.
     expect(card).toContain('const read = !!found && !!others && threads !== null;');
-    expect(card).toContain('{read && !some && (');
+    // The search has its own empty answer (w-6418318cd5), so the Mac's one
+    // waits for the field to be empty too: "no agent files on this Mac" over
+    // a list of matches would be the same contradiction.
+    expect(card).toContain('{read && !some && !searching && (');
     expect(card).toContain('{!read && <div className="ia-empty">');
   });
 });

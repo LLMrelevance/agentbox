@@ -94,7 +94,7 @@ export function ModelPicker({ value, onChange, title, onOpenChange, engine = nul
   const pick = (id: string) => { onChange(id === fallback ? null : id); setOpen(false); };
 
   return (
-    <span className="compose-word-wrap" ref={wrap}>
+    <span className="compose-word-wrap model-pick" ref={wrap}>
       {open && (
         <span className="prio-menu model-menu" role="listbox" aria-label="Model">
           {showUpdate&&<span className="model-update-row"><span>{updateEngine==='codex'?'Codex':'Claude Code'}</span><button type="button" title={`Update ${updateEngine==='codex'?'Codex':'Claude Code'} in the app terminal`} onClick={()=>{setOpen(false);start(updateEngine);}}>{update.state==='running'?'Updating…':'Update now'}</button></span>}

@@ -155,6 +155,12 @@ export const WORK_ITEM_FIELDS = [
   // mark on ONE line rather than a value the row holds, so the fold skips it;
   // the chat reads it per line (renderer/src/thread-history.ts).
   'inReplyTo',
+  // WHICH COMMAND FROM HER PHONE WROTE THIS LINE (docs/cloud/PHONE-PLAN.md):
+  // the command's id, on the line of the reply or the new thread it made. It
+  // is how the computer, starting again after stopping half way through a
+  // command, knows for certain whether that command already landed, rather
+  // than guessing from the words (Codex's third review of step 1, finding 5).
+  'fromPhone',
 ];
 
 // THE SUMMARY IS SHARED BETWEEN THE PERSON AND THE AGENT. Everywhere else the
@@ -366,6 +372,14 @@ function str(value, max) {
   return trimmed.slice(0, lo) + mark(trimmed.length - lo);
 }
 
+// A text field whose empty string MEANS something: nothing chosen. Only a
+// string may clear it, so a `null` that reached here without going through
+// `answerItem` is still dropped rather than guessed at.
+function clearable(value, max) {
+  if (typeof value !== 'string') return undefined;
+  return value.trim() ? str(value, max) : '';
+}
+
 function coerceField(field, value) {
   switch (field) {
     case 'title': return str(value, MAX_TITLE);
@@ -388,7 +402,23 @@ function coerceField(field, value) {
     // shared/effort-levels.mjs, and the spawn gates on them, so a value this
     // module does not recognise is a run at Claude Code's own choice rather
     // than a row that never runs.
-    case 'kind': case 'product': case 'parent': case 'engine': case 'model': case 'effort': return str(value, MAX_SHORT);
+    case 'kind': case 'product': case 'parent': case 'engine': return str(value, MAX_SHORT);
+    // THESE TWO ARE CLEARED BY WRITING '' AND SO '' IS A REAL VALUE, exactly
+    // as runAt's 0 and start's 'now' are, and for the same reason: a field that
+    // coerces to undefined is dropped by the fold, so without a falsy value
+    // that survives, a model could be chosen and never unchosen.
+    //
+    // They used to sit on the line above, which cost us the most common crash
+    // of launch week. The reply box's drawer hands a pick back as null for
+    // "nothing chosen" and sends `{ model, effort }` whenever it was touched at
+    // all; `answerItem` turns null into '' because `modelForEngine` reads the
+    // empty string as nothing chosen. `str()` then dropped it, `pickFields`
+    // answered null, and `buildLine` threw — before the answer was written,
+    // because the model is written first on purpose. So opening the drawer,
+    // picking a model and pressing send lost the message, with nothing on
+    // screen to say so. Five of the 14 crashes since the Oct 6 launch, on two
+    // installs (PostHog, 2026-10-08).
+    case 'model': case 'effort': return clearable(value, MAX_SHORT);
     case 'status': return WORK_ITEM_STATUSES.includes(value) ? value : undefined;
     case 'priority': return Number.isFinite(value) ? Math.trunc(value) : undefined;
     // When this item may next be acted on, in epoch ms. 0 means unscheduled,
@@ -440,6 +470,7 @@ function coerceField(field, value) {
       return value.off === true ? { on, emoji, off: true } : { on, emoji };
     }
     case 'inReplyTo': return shortId(value) ?? undefined;
+    case 'fromPhone': return typeof value === 'string' && /^[0-9a-f-]{8,64}$/i.test(value) ? value : undefined;
     case 'visibility': return value === 'private' || value === 'team' || value === 'people' ? value : undefined;
     // An empty list is a real value: it is how the last chosen person comes
     // off a thread, and the thread then reaches nobody until she names one.
@@ -560,6 +591,11 @@ export function foldWorkItems(lines, now = Date.now()) {
     if (line.by && words && words.trim()) {
       (item.said ??= []).push({ uid: line.uid ?? null, by: line.by, ts: line.ts, text: words.trim().slice(0, TALK_TEXT), inReplyTo: patch.inReplyTo ?? null, body: typeof patch.answer !== 'string' });
     }
+    // Who closed the chat and when, so `whatWaits` can tell a reopen by your own
+    // message (still settled) from an undo of the close (not).
+    if (line.by && typeof patch.status === 'string') {
+      (item.closes ??= []).push({ by: line.by, ts: line.ts, done: patch.status === 'done', spoke: !!(words && words.trim()) });
+    }
 
     for (const [field, value] of Object.entries(patch)) {
       // A REACTION IS ACCUMULATED, NOT HELD. Every other field below keeps one
@@ -614,10 +650,16 @@ export function foldWorkItems(lines, now = Date.now()) {
       delete item.reacts;
       if (chips) item.reactions = chips;
     }
+    const closes = item.closes;
+    delete item.closes;
     if (item.said) {
       const said = item.said;
       delete item.said;
-      if (Array.isArray(item.people) && item.people.length) item.talk = talkOf(said);
+      if (Array.isArray(item.people) && item.people.length) {
+        item.talk = talkOf(said);
+        const settled = settledBy(closes ?? []);
+        if (settled) item.talk.settled = settled;
+      }
     }
   }
 
@@ -640,6 +682,20 @@ const TALK_KEEP = 100;
  * `whatWaits` (shared/team-rules.mjs) and the row's one line; the messages
  * themselves are read off the ledger by the thread view, as before.
  */
+/**
+ * For each person, the moment they last marked the chat done, or nothing if
+ * they reopened it since without saying anything (an undo). A reopen that
+ * carries their words keeps the moment: speaking is not taking the close back.
+ */
+function settledBy(closes) {
+  const at = {};
+  for (const c of [...closes].sort((a, b) => a.ts - b.ts)) {
+    if (c.done) at[c.by] = c.ts;
+    else if (!c.spoke) delete at[c.by];
+  }
+  return Object.keys(at).length ? at : null;
+}
+
 function talkOf(said) {
   const lines = [...said].sort((a, b) => a.ts - b.ts);
   const chat = [];

@@ -134,7 +134,10 @@ describe('each grant writes down its peak and its wait', () => {
     g.at(20 * 60_000 + 1);
     await g.tick();
     const body = await refused;
-    expect(body).toContain('short of memory');
+    // Under `normal` the refusal says the queue was long rather than that the
+    // Mac was short, which is the distinction `refusal` draws from the same
+    // pressure this line records.
+    expect(body).toContain('behind heavier work');
 
     const refusals = g.lines().filter((l) => l.refused);
     expect(refusals).toHaveLength(1);

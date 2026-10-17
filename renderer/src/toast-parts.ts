@@ -1,0 +1,48 @@
+// PURE. What the toast draws, and which press opens the task it is about.
+//
+// w-f0bfe32859. The toast after a send or an answer could only be opened with
+// the mouse, and it said its keys in prose: "Started in Agentbox Team · Z to
+// undo  Open it". Now Z and O are drawn as keycaps, and O works.
+
+// `repeat` when it is a repeating task's rule rather than a thread: its id is a
+// rule's, so it is opened the way the Later list opens one.
+export type ToastGoes = { product: string; id: string; repeat?: boolean };
+type Here = { product: string; id: string } | null;
+
+// The undo clause about a dozen callers bake onto the end of their sentence.
+// Only a trailing one after a middle dot: a sentence that MENTIONS Z in the
+// middle is the toast explaining something and keeps its words.
+const UNDO_TAIL = / · (?:press )?Z to undo$/;
+
+export function toastParts(text: string): { line: string; undo: boolean } {
+  return UNDO_TAIL.test(text)
+    ? { line: text.replace(UNDO_TAIL, ''), undo: true }
+    : { line: text, undo: false };
+}
+
+/**
+ * WHETHER THE TOAST OFFERS O: it names somewhere to go, and that is not the
+ * thread already open (`here`).
+ *
+ * w-5513afd09a: "normally when I send, start agent threads, or reply to them,
+ * I can hit O to see them. Sometimes the toast just doesn't have that." Every
+ * send, start and reply names its thread now, including a reply that keeps
+ * you on it, so that O works the moment you leave. While you are still on it
+ * the cap is not drawn, because pressing it would go nowhere.
+ */
+export function toastOpens(toast: { goes?: ToastGoes } | null, here: Here): boolean {
+  const goes = toast?.goes;
+  if (!goes) return false;
+  return goes.repeat || !here || here.id !== goes.id || here.product !== goes.product;
+}
+
+/**
+ * O OPENS THE TASK THE TOAST IS ABOUT, while that toast is on screen. A toast
+ * with nowhere to go, or none at all, leaves O alone: the key is only ever
+ * promised by the cap drawn on the toast, so it only works while that cap is
+ * there to be read.
+ */
+export function opensTheToast(key: string, toast: { goes?: ToastGoes } | null, here: Here = null): ToastGoes | null {
+  if (key !== 'o' && key !== 'O') return null;
+  return toastOpens(toast, here) ? toast!.goes! : null;
+}

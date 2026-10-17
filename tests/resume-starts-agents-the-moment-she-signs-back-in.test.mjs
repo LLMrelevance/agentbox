@@ -127,13 +127,19 @@ describe('where another login is working, the signed-out one stays out', () => {
     expect(sup._profileResting('default')).toBe(false);
   });
 
-  it('a second login merely at its limit counts as working, because her hand lifts that too', () => {
+  // A LOGIN AT ITS LIMIT IS NOT A LOGIN THAT IS WORKING, and this test used to
+  // say it was: her hand lifted a limit, so the capped login read as somewhere
+  // the work could go and the signed-out one was held back for it. w-4338a63da6
+  // overturned the premise. Her hand resets a sign-in; nothing she presses
+  // resets a usage limit, so the capped login keeps its bench and the
+  // signed-out one, which she may just have mended, gets the try instead.
+  it('a second login at its limit is not somewhere with room, so both get a try', () => {
     const sup = supervisor(['default', '/second']);
     sup.noteExitForBackoff(deadOnArrival(SIGNED_OUT, '/second'));
     for (let i = 0; i < 3; i++) sup.noteExitForBackoff(deadOnArrival(AT_LIMIT, 'default'));
     sup.liftBrakeForHer();
     expect(sup._profileResting('default')).toBe(false);
-    expect(sup._profileResting('/second')).toBe(true);
+    expect(sup._profileResting('/second')).toBe(false);
   });
 
   it('nothing she did: a signed-out login stays parked', () => {
