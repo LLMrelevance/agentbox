@@ -150,8 +150,10 @@ describe('the line under a message with replies', () => {
 });
 
 describe('the panel width', () => {
-  it('starts at the drawn width', () => {
-    expect(THREAD_WIDTH.start).toBe(440);
+  // 440 in the drawing; 480 since w-140ac855b1 asked for "a little bigger",
+  // so the reply box holds the chat's formatting bar and Send.
+  it('starts a little wider than the drawn width', () => {
+    expect(THREAD_WIDTH.start).toBe(480);
   });
 
   it('holds what you dragged it to when there is room', () => {
@@ -235,7 +237,10 @@ describe('the panel', () => {
   });
 
   it('has a reply box of its own', () => {
-    expect(html).toContain('placeholder="Reply in thread…"');
+    // The chat's editor since w-0d55a2b160, which draws its words, and so its
+    // placeholder, only once it is in a window.
+    expect(html).toContain('class="chat-thread-input rich-reply"');
+    expect(fs.readFileSync(new URL('../renderer/src/team/ThreadPanel.tsx', import.meta.url), 'utf8')).toContain('placeholder="Reply in thread…"');
   });
 
   it('can be dragged wider or narrower from its left edge', () => {

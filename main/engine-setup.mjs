@@ -140,7 +140,15 @@ export function createEngineSetup({ find, spawn = realSpawn, wait = sleep, env =
         ended = false;
         watchLogin(login);
       }
-      if (ended) return fail(j, `The sign-in was closed before it finished.${lastLine(j.log) ? ` ${lastLine(j.log)}` : ''}`);
+      // ASK ONCE MORE BEFORE CALLING IT CLOSED. A sign-in that finishes while
+      // the check above is running exits before that check answers, and the
+      // check, asked a moment too early, says no. Without this, somebody who
+      // had just approved it was told it was closed.
+      if (ended) {
+        if (await signedIn(j, hit.path)) { if (live()) ready(j); return; }
+        if (!live()) return;
+        return fail(j, `The sign-in was closed before it finished.${lastLine(j.log) ? ` ${lastLine(j.log)}` : ''}`);
+      }
     }
   }
 

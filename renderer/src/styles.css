@@ -768,6 +768,8 @@
   border-radius: var(--radius);
   padding: 2px 8px;
 }
+/* One a finder can ask again is pressed to look now, and looks the same. */
+button.missing-artifact { background: none; cursor: pointer; }
 
 html, body, #root { height: 100%; }
 
@@ -1963,8 +1965,23 @@ body {
 .code-wrap:hover .code-copy, .code-wrap .code-copy.copied { opacity: 1; }
 .code-wrap .code-copy:hover { color: var(--text); border-color: var(--text-faint); }
 .code-wrap .code-copy.copied { color: var(--chip-review); }
+/* A Mermaid chart sits on the same surface a code block does. */
+.diagram { background: var(--bg-raised); padding: 18px 14px; border-radius: var(--radius); margin: 10px 0; overflow-x: auto; text-align: center; }
+.diagram svg { max-width: 100%; height: auto; }
+/* The library's drop shadow reads as a glow on a dark surface. */
+.diagram svg * { filter: none !important; }
+.diagram-pending { min-height: 240px; }
 .markdown blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(--text-dim); margin: 8px 0; }
 .markdown strong { font-weight: 650; }
+/* A TABLE IS A GRID. With no rule here an agent's table came out in the
+   browser's defaults: no lines, centred headers, cells floating mid-row. A
+   table wider than the message scrolls sideways rather than crushing its
+   columns; a block table still lays its cells out as a table. */
+.markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 14px 0; font-size: 14px; line-height: 1.45; }
+.markdown th, .markdown td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; vertical-align: top; }
+/* Half the raised grey: the full one pulled the eye to the header first. */
+.markdown th { background: color-mix(in srgb, var(--bg-raised) 50%, transparent); font-weight: 650; }
+.markdown td:first-child { font-weight: 600; }
 .inline-image { max-width: 100%; border-radius: 0; border: 1px solid var(--line); margin: 8px 0; }
 
 
@@ -1975,27 +1992,79 @@ body {
 .inline-image-open:hover .inline-image { border-color: var(--text-faint); }
 .inline-image-open:focus-visible .inline-image { outline: 1px solid var(--text-faint); outline-offset: 2px; }
 
+/* A PICTURE HOLDS ITS PLACE WHILE IT LOADS, as a shimmering box, then fades
+   in, in every window. Without it a picture with no bytes yet is a 2 x 2 dot
+   and the words under it jump when it lands. The state is set by phone-files.ts
+   watchPicture, which main.tsx starts; the names say phone because it was
+   built for the phone first. The half-drawn picture and the broken mark are
+   kept out of sight while the box shows.
+
+   The button around a loading picture is as wide as the column, because a
+   button shrinks to what is in it and the box would be 4:3 of nothing.
+   `auto 4 / 3` takes the picture's own shape the moment its first bytes give
+   it. Four :root outweigh the phone's own picture rules in phone.css. */
+:root:root:root:root .inline-image-open:has(> .inline-image[data-phone-img="loading"]) { width: 100%; }
+:root:root:root:root .inline-image[data-phone-img="loading"],
+:root:root:root:root .doc-picture[data-phone-img="loading"] {
+  display: block; width: 100%; max-width: 100%; height: auto; aspect-ratio: auto 4 / 3;
+  color: transparent; object-position: -99999px 0;
+  background: linear-gradient(100deg, transparent 30%, var(--wash) 50%, transparent 70%) 0 0 / 200% 100%, var(--bg-raised);
+  animation: phone-shimmer 1.3s linear infinite;
+}
+:root:root:root:root .attach-row img[data-phone-img="loading"] {
+  color: transparent; object-position: -99999px 0;
+  background: linear-gradient(100deg, transparent 30%, var(--wash) 50%, transparent 70%) 0 0 / 200% 100%, var(--bg-raised);
+  animation: phone-shimmer 1.3s linear infinite;
+}
+:root:root:root:root .inline-image[data-phone-img="ready"],
+:root:root:root:root .doc-picture[data-phone-img="ready"],
+:root:root:root:root .attach-row img[data-phone-img="ready"] { animation: phone-fade-in .25s ease-out; }
+@keyframes phone-shimmer { from { background-position: 100% 0, 0 0; } to { background-position: -100% 0, 0 0; } }
+@keyframes phone-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ANYTHING ELSE A MESSAGE DRAWS LATE wears the same shimmer at the size it
+   will have, so the words under it hold still
+   (tests/whatever-a-message-draws-late-holds-its-place). */
+.arriving, .message-file-face.arriving, .folder-preview-shot.arriving {
+  background: linear-gradient(100deg, transparent 30%, var(--wash) 50%, transparent 70%) 0 0 / 200% 100%, var(--bg-raised);
+  animation: phone-shimmer 1.3s linear infinite;
+}
+.inline-image.arriving { display: block; width: 100%; aspect-ratio: 4 / 3; }
+
 /* A sound or a film a worker named: its name, then the player, one per line
    even when five were written on one line (ArtifactMedia in Focus.tsx). */
 .inline-media { display: block; margin: 8px 0; }
-.inline-media-name {
-  display: block; padding: 0; border: 0; background: none; cursor: pointer;
-  font: inherit; color: var(--accent); text-align: left; margin-bottom: 4px;
+/* Its name is a mention (mention.css) on a line of its own above the player. */
+.inline-media-name.mention {
+  display: inline-block; border: 0; background: transparent; text-align: left;
+  margin: 0 -3px 6px;
 }
+/* Where the player kept on the shelf is put (../player-shelf.ts). */
+.inline-media-player { display: block; }
 .inline-media audio { display: block; width: min(420px, 100%); height: 36px; }
-.inline-media-missing .inline-media-name { display: inline; margin: 0; }
-.inline-media video { display: block; max-width: 100%; max-height: 360px; border: 1px solid var(--line); }
+.inline-media-missing .inline-media-name.mention { display: inline; margin: 0 -3px; }
+/* The column's width at a fixed height from the first frame: before its size is
+   known a film is the browser's 300 x 150, and it resized once it was. */
+.inline-media video { display: block; width: 100%; height: 360px; object-fit: contain; background: var(--bg-raised); border: 1px solid var(--line); }
 
 /* A folder a worker named on its own line: its name, then its newest pictures,
    three across (FolderPreview in Focus.tsx). Spans, because it sits in a <p>. */
 .folder-preview { display: block; margin: 8px 0 4px; }
+/* Its name is a folder icon and what the folder goes by, in the text colour
+   rather than the accent (w-a3a7d1a1ec); hover firms an underline in. */
 .folder-preview-name {
-  display: inline-flex; align-items: baseline; gap: 10px; padding: 0; border: 0;
-  background: none; cursor: pointer; font: inherit; text-align: left;
+  display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0;
+  background: none; cursor: pointer; font: inherit; text-align: left; color: var(--text);
 }
-.folder-preview-path { color: var(--accent); font-family: var(--mono, ui-monospace, monospace); font-size: 0.9em; }
-.folder-preview-count { color: var(--text-faint); font-size: 0.86em; }
-.folder-preview-name:hover .folder-preview-path { text-decoration: underline; }
+.folder-preview-name .mention-icon { width: 15px; height: 15px; margin: 0; vertical-align: 0; }
+.folder-preview-name:hover .mention-icon { color: var(--text); transition-duration: 120ms; }
+.folder-preview-path {
+  font-weight: 500;
+  text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 4px;
+  transition: text-decoration-color 200ms cubic-bezier(.2, 0, 0, 1);
+}
+.folder-preview-count { color: var(--text-faint); font-size: 0.9em; margin-left: 2px; }
+.folder-preview-name:hover .folder-preview-path { text-decoration-color: var(--text-faint); transition-duration: 120ms; }
 .folder-preview-grid {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 8px;
 }
@@ -2007,6 +2076,7 @@ body {
   display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top;
   border: 1px solid var(--line); background: var(--bg-raised);
 }
+.folder-preview-shot.arriving { aspect-ratio: 16 / 10; border: 1px solid var(--line); cursor: default; }
 .folder-preview-shot:hover img { border-color: var(--text-faint); }
 .folder-preview-shot:focus-visible img { outline: 1px solid var(--text-faint); outline-offset: 2px; }
 .folder-preview-label {
@@ -3464,6 +3534,11 @@ img.app-mark { opacity: 1; border-radius: 0; }
   padding-bottom: 25vh;
 }
 
+/* THE IMPORT CARD THAT ENDS SETUP WAS DRAWN DIMMED. Setup's veil is 299 and
+   this backdrop was 40, so the veil lay over the card. It goes at 301, with
+   setup's own card, and stays under setup's way out (302, 303). */
+.modal-backdrop.in-walk { z-index: 301; }
+
 .modal-title { padding: 14px 18px 2px; font-weight: 600; }
 .modal-subtitle { padding: 0 18px 10px; color: var(--text-dim); font-size: 13px; }
 .modal-hint { padding: 10px 18px 12px; color: var(--text-faint); font-size: 12px; display: flex; align-items: center; gap: 10px; }
@@ -3802,12 +3877,32 @@ img.app-mark { opacity: 1; border-radius: 0; }
 .hidden-input { opacity: 0; height: 0; padding: 0; border: none; position: absolute; }
 
 .palette-list { max-height: 320px; overflow-y: auto; padding: 6px 0; }
+/* ONE LINE, WHATEVER IS PUT IN IT (w-6418318cd5, 2026-10-16). This was a bare
+   flex with two spans in it and nothing stopping either from wrapping, so one
+   long label stacked the row onto four lines in a list where every other row
+   is one: "There is so much text that it's overflowing on both lines." The
+   copy that did it is shorter now, but shorter copy is not a rule — the next
+   long one would do it again. So neither half wraps, and whichever cannot fit
+   is cut with an ellipsis, which somebody can see, rather than wrapped, which
+   is what this looked like. */
 .palette-item {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
   padding: 8px 18px;
   cursor: pointer;
   font-size: 14px;
+}
+/* `min-width: 0` on both: without it a flex child refuses to shrink below the
+   width of its own text and overflows the panel instead of truncating, which
+   is the usual way this fix is written and fails. */
+.palette-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .palette-item.selected { background: var(--bg-selected); }
 /* Nothing matched. It sits on the first row's own line — same padding, same
@@ -3819,7 +3914,16 @@ img.app-mark { opacity: 1; border-radius: 0; }
   font-size: 14px;
   color: var(--text-faint);
 }
-.palette-hint { color: var(--text-faint); font-size: 12.5px; }
+.palette-hint {
+  color: var(--text-faint);
+  font-size: 12.5px;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
 .palette-key {
   min-width: 22px;
   height: 20px;
@@ -3869,6 +3973,7 @@ img.app-mark { opacity: 1; border-radius: 0; }
   border-bottom: 1px solid var(--line);
 }
 .artifact-embed-bar a { color: var(--accent); text-decoration: none; }
+.artifact-embed-arriving { display: block; height: 480px; }
 .artifact-embed iframe {
   display: block;
   width: 100%;
@@ -6440,6 +6545,77 @@ a.set-ghost { text-decoration: none; display: inline-block; }
 .ps-bar button:hover { background: var(--bg-hover); color: var(--text); }
 /* The same setup card over the inbox, when the bar is pressed. */
 .ps-over { position: fixed; inset: 0; z-index: 60; }
+/* THE CLOUD'S SETUP (components/CloudSetup.tsx): the setup card above, with
+   the one thing a step asks for inside its row. Claude's code is pasted into a
+   field shaped like the name card's; Codex's is shown large enough to type
+   from across the room. */
+.cs-accounts { padding: 6px; }
+/* Every row of the card, accounts and adding alike, on the same three
+   columns: the mark, the name, and everything else on the row's right edge,
+   in one group, so a word, a button and a chevron all end on one line. No
+   column is held for the remove button: it takes the quiet word's place while
+   the row is pointed at (2026-10-15: "too much white space on the right ...
+   these don't feel properly lined up"). */
+.cs-row {
+  display: grid; grid-template-columns: 24px 1fr auto; column-gap: 14px; align-items: center;
+  width: 100%; min-height: 48px; padding: 0 14px; box-sizing: border-box;
+  border: 0; border-radius: var(--radius); background: none; text-align: left;
+  font: inherit; color: var(--text); transition: background .6s ease;
+}
+.cs-row + .cs-row { box-shadow: inset 0 1px 0 var(--line); }
+.cs-row.fresh { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.cs-row-mark { display: flex; align-items: center; justify-content: center; color: var(--text); }
+.cs-row-name { font-size: 14.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-row-eng { font-size: 12.5px; color: var(--text-faint); }
+.cs-row-go { display: flex; justify-content: center; color: var(--text-faint); margin-inline-end: -3.5px; }
+/* The chevron and the × are drawn inside boxes with room round them; these
+   pull what is drawn onto the same right edge as the words beside them. */
+.cs-row-end { display: inline-flex; align-items: center; justify-content: flex-end; gap: 10px; justify-self: end; min-height: 26px; }
+.cs-row.broken .cs-row-name { color: var(--text-dim); }
+/* AN ACCOUNT BEING ADDED IN THE BACKGROUND, and why one was not (2026-10-15). */
+.cs-row-adding { display: inline-flex; align-items: center; gap: 7px; }
+.cs-row-why { display: block; font-size: 12.5px; color: var(--code-minus); white-space: normal; padding: 2px 0 8px; }
+.cs-row:has(.cs-row-why) { padding-top: 8px; }
+button.cs-row { cursor: pointer; }
+button.cs-row:hover { background: var(--wash-strong, var(--wash)); box-shadow: none; }
+button.cs-row:hover + .cs-row { box-shadow: none; }
+button.cs-row:hover .cs-row-go { color: var(--text); }
+.cs-add .cs-row-mark { color: var(--text-faint); }
+.cs-add .cs-row-name { color: var(--text-dim); }
+.cs-add:hover .cs-row-mark { color: var(--accent); }
+.cs-add:hover .cs-row-name { color: var(--text); }
+.cs-remove { display: none; place-items: center; width: 24px; height: 24px; padding: 0; margin-inline-end: -8px; border: 0; background: none; color: var(--text-faint); font-size: 16px; line-height: 1; cursor: pointer; border-radius: 5px; }
+.cs-row:hover .cs-remove, .cs-remove:focus-visible { display: inline-grid; }
+.cs-row:hover .cs-row-swap { display: none; }
+.cs-remove:hover { color: var(--text); background: var(--wash); }
+.cs-quiet { font: inherit; font-size: 12.5px; color: var(--text-dim); background: none; border: 1px solid var(--line-strong); border-radius: var(--tag-radius); padding: 4px 10px; cursor: pointer; }
+.cs-quiet:hover { color: var(--text); border-color: var(--text-faint); }
+.cs-again { border-color: var(--accent); color: var(--text); }
+.cs-signin-mark { display: flex; margin-bottom: 16px; }
+.cs-choose-head { margin-top: 6px; padding: 12px 12px 6px; box-shadow: inset 0 1px 0 var(--line-strong); font: 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
+.cs-choose-head + .cs-row { box-shadow: none; }
+.cs-paste-card { position: relative; padding: 8px; }
+.cs-paste-card input {
+  display: block; width: 100%; box-sizing: border-box; padding: 12px 120px 12px 14px;
+  font: 15px/1.4 var(--mono); color: var(--text); background: none; border: 0;
+}
+.cs-paste-card input:focus { outline: none; }
+.cs-paste-card .fr-submit { top: 50%; bottom: auto; right: 14px; transform: translateY(-50%); display: inline-flex; align-items: center; gap: 8px; }
+.cs-code { display: flex; align-items: center; gap: 16px; }
+.cs-code code {
+  padding: 14px 24px; font: 500 30px/1.2 var(--mono); letter-spacing: .14em; color: var(--text);
+  background: var(--skin-solid); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow-lg);
+}
+.fr-lede.cs-trouble { color: var(--text); }
+.cs-busy {
+  display: inline-block; width: 12px; height: 12px; margin-right: 10px; vertical-align: -1px;
+  border: 1.6px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%;
+  animation: cs-spin .8s linear infinite;
+}
+@keyframes cs-spin { to { transform: rotate(360deg); } }
+.ps-acts .cs-go { display: inline-flex; align-items: center; gap: 10px; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.ps-acts .cs-go:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+
 .fr-card.fr-name-card { border-radius: var(--radius); }
 .fr-name-card .fr-name { margin: 17px 18px; padding-right: 130px; font-size: 17px; }
 .fr-name-card .fr-submit { bottom: 50%; transform: translateY(50%); display: inline-flex; align-items: center; gap: 8px; }
@@ -7098,6 +7274,67 @@ a.set-ghost { text-decoration: none; display: inline-block; }
    page brings its own black, 0 on markdown) and it is a stated cost of a card
    with a header, not a bug to chase. */
 .doc-view { flex: 1; width: 100%; min-height: 0; border: 0; background: transparent; }
+/* `display: flex` is Electron's requirement for a `<webview>` to fill its
+   box; without it the tag lays out inline and the page draws a few pixels
+   tall. The ground is white because a page off the web expects a white
+   canvas, so a site that paints no background of its own would otherwise
+   show the window's charcoal through the gap. */
+.doc-website-view { display: flex; background: #fff; }
+
+/* A PAGE BEING BROWSED: THE BAR OVER IT (BrowserChrome.tsx).
+
+   One bar for a site on the web and for a local app, because they are the
+   same thing to read. The page is flush: a browsed page gives up the card's
+   air and its corner and runs to the pane's own edge, which is both the
+   space back and the fix for a white page reading as a sticker coming off a
+   rounded dark card.
+
+   Picked out of three built in the real app and photographed; the other two
+   were a tab carrying the page's name and a 26px line with no stepping
+   controls. */
+.doc-pane.doc-browsing .doc-card {
+  margin: 0; border: 0; border-radius: 0;
+  background: var(--doc-page);
+}
+.doc-pane.doc-browsing .preview-frame { background: #fff; }
+
+.web-bar {
+  display: flex; align-items: center; gap: 8px;
+  flex: 0 0 auto; min-width: 0;
+  padding: 0 8px 0 10px;
+  height: 38px;
+  background: var(--doc-page);
+  border-bottom: 1px solid var(--line);
+}
+.web-bar-nav { display: flex; align-items: center; gap: 1px; flex: 0 0 auto; }
+.web-bar-marks { display: flex; align-items: center; gap: 1px; flex: 0 0 auto; margin-left: auto; }
+.web-bar-step {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0;
+  border: 0; border-radius: var(--radius); background: none;
+  color: var(--text-faint); cursor: pointer;
+}
+.web-bar-step:hover:not(:disabled) { background: var(--doc-wash); color: var(--text); }
+.web-bar-step:disabled { opacity: 0.32; cursor: default; }
+.web-bar-step svg { display: block; }
+
+/* The host in the reading ink and the rest dimmed, so the eye lands on where
+   you are rather than on the query string. */
+.web-bar-address {
+  display: flex; align-items: center; gap: 6px;
+  flex: 1 1 auto; min-width: 0;
+  height: 26px; padding: 0 10px;
+  border-radius: var(--radius);
+  background: var(--wash);
+  font-size: 12.5px; white-space: nowrap;
+}
+.web-bar-mark { display: inline-flex; flex: 0 0 auto; color: var(--text-faint); }
+.web-bar-host { color: var(--text-dim); flex: 0 0 auto; }
+.web-bar-rest { color: var(--text-faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Loading lights the field's edge: every browser's answer, and it costs no
+   room. */
+.web-bar[data-loading="yes"] .web-bar-address { box-shadow: inset 0 0 0 1px var(--line-strong); }
+
 .doc-missing { flex: 1; padding: 40px; color: var(--text-faint); font-size: 13.5px; }
 
 /* A PICTURE OPEN IN THE PANE. It keeps the card picked on 08-21, the way a
@@ -7529,26 +7766,22 @@ a.set-ghost { text-decoration: none; display: inline-block; }
   gap: 14px; text-align: left;
 }
 
-/* It looked wrong because it WAS wrong. A footnote is what you use for
-   something the reader may ignore, and this is the one thing on the card they
-   cannot ignore. So on the rare Mac that gets here the whole card changes job:
-   the missing sentence stops being a footnote in faint ink under a button and
-   becomes the card's own line, at the card's own size, directly under a
-   headline that names it. There is nothing else on the card to compete with it,
-   no confetti behind it and no way past it. Nothing here is a new shape. Same
-   card, same corner, same width, same headline and line sizes; only what is IN
-   it changes.
-*/
-.fr-finish.gate .fr-finish-line { margin-bottom: 6px; color: var(--text); }
-.fr-gate-do {
-  margin: 0 0 22px; font-size: 13px; line-height: 1.55; color: var(--text-faint);
-}
-/* THE TWO MOVES, SIDE BY SIDE, WITH THE ONE THAT SOLVES IT FIRST. Get Claude
-   Code wears the button the ending wore, because it is now the thing this card
-   is for; check again is the quieter of the two, because pressing it before
-   installing anything changes nothing. */
-.fr-gate-acts { display: flex; align-items: center; justify-content: center; gap: 10px; }
-.fr-gate-acts .fr-finish-go { text-decoration: none; display: inline-block; }
+/* THE GATE IS A QUESTION SCREEN NOW (w-ce8c1a9275, 2026-10-09). It was the
+   ending's 520px card with three buttons in a row, and four rules here dressed
+   that up: `.fr-finish.gate`, `.fr-gate-do`, `.fr-gate-acts` and
+   `.fr-gate-still`. The founder, on a photograph of it: "UI wise this is very
+   rough. In onboarding we already have a component for geting setup/selecting
+   your harness I feel like that's a better design an dpossibly placement."
+
+   So it wears `.fr-stack-folders` like the plan question and the folder screen,
+   and those four are deleted rather than left to be found by somebody grepping
+   for a class nothing renders.
+
+   `.fr-gate-again` STAYS, and it is the one that nearly went with them: it was
+   named for the gate and it is worn by the setup card's own two buttons, Open
+   the sign-in page again and Skip for now (components/PlanSetup.tsx). Deleting
+   it would have left those two unstyled on the one screen a brand new person
+   meets when a sign-in has gone wrong. */
 .fr-gate-again {
   font: inherit; font-size: 13.5px;
   padding: 9px 16px; border-radius: var(--radius); cursor: pointer;
@@ -7556,12 +7789,10 @@ a.set-ghost { text-decoration: none; display: inline-block; }
 }
 .fr-gate-again:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
 .fr-gate-again:disabled { cursor: default; opacity: 0.6; }
-/* AFTER A CHECK THAT FOUND NOTHING. Reserved space is not worth it: this line
-   only ever appears after a press, and the card is centred on the window, so it
-   grows downward from a fixed middle rather than shifting the buttons. */
-.fr-gate-still {
-  margin: 16px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text-faint);
-}
+/* A ROW THAT IS A LINK IS STILL A ROW. `.fr-folder` is a <button> everywhere
+   else; the gate's install row is an <a>, so the browser would underline it and
+   paint it link-coloured in the middle of a list where nothing else is. */
+.fr-folder[href] { text-decoration: none; color: inherit; }
 /* ==========================================================================
    THE CHANGE THE AGENT MADE —, 2026-08-23.Nothing here is a new surface. The
    change is a third kind of file in the pane that already opens markdown and
@@ -7843,6 +8074,40 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 .modal.ia-card.ia-one { width: 720px; }
 .ia-one .ia-line { margin: 0 0 14px; }
 .ia-lines { max-height: min(56vh, 520px); border-top: 1px solid var(--line); }
+/* FINDING AN OLDER ONE BY NAME (w-6418318cd5). A field the width of the card
+   and a line under it, above the list, because it changes what the list is.
+   It is not a boxed search bar with a magnifier in it: the card has one filled
+   thing on it and that is the button. */
+/* THE GAP ABOVE IT IS ITS OWN (w-6418318cd5, 2026-10-16): "spacing here is
+   wack". It had a 2px top margin and leaned on the subtitle above it for the
+   rest, which works until the subtitle is not there. Measured in the built
+   renderer, the same card was 36.9px above the field at rest and 2px mid
+   search, so the field sat against a 21px headline. */
+.ia-find { margin: 0 0 18px; }
+/* Only when the headline is the thing directly above: searching, where the
+   subtitle is not drawn, and the Mac with nothing on it. With `.ia-top`'s own
+   2px that is 16px, which is the gap the subtitle used to stand in. */
+.ia-top + .ia-find { margin-top: 14px; }
+.ia-find-box {
+  width: 100%; font: inherit; font-size: 14.5px; line-height: 1.35;
+  padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius);
+  background: var(--wash); color: var(--text);
+}
+.ia-find-box::placeholder { color: var(--text-faint); }
+.ia-find-box:focus { outline: none; border-color: var(--accent); background: none; }
+/* One line under the field and never two: what it is for, or what it found,
+   with the way back at the far end of it. */
+/* NO INSET: it was the only thing on the card off the spine, starting at 33px
+   from the edge where the headline, the field and the list all start at 31,
+   and ending 2px short on the right. */
+.ia-find-under { display: flex; align-items: baseline; gap: 12px; margin: 10px 0 0; }
+.ia-find-hint { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-faint); }
+.ia-find-clear {
+  flex: none; font: inherit; font-size: 12.5px; background: none; border: none; padding: 0;
+  cursor: pointer; color: var(--text-faint); text-decoration: underline; text-underline-offset: 3px;
+}
+.ia-find-clear:hover { color: var(--text-dim); }
+.ia-find-reach { color: var(--text-faint); }
 .ia-agent.ia-line-row {
   display: flex; align-items: center; gap: 12px; width: 100%;
   padding: 11px 2px; border-bottom: 1px solid var(--line); --tick-line: 14px;
@@ -8719,3 +8984,119 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 }
 .fp-use { background: var(--accent); border-color: transparent; color: var(--on-solid); }
 .fp-use:disabled { opacity: .45; cursor: default; }
+
+/* THE PHONE WHOSE KEY WAS RESET (renderer/src/browser-bridge.ts). */
+#phone-locked-out { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 32px; background: var(--surface); color: var(--text); font: 16px/1.45 system-ui, sans-serif; text-align: center; }
+#phone-locked-out p { margin-top: 8px; opacity: .8; }
+/* Her Mac turned a reply from the phone down (renderer/src/cloud-bridge.ts). */
+.msg-sending.msg-refused { color: var(--code-minus); }
+
+/* THE PHONE WITH THE MAC SHUT (renderer/src/cloud-bridge.ts) leaves a reply
+   for her Mac, which runs it on the model the thread already has: there is no
+   model to pick here, and no sending back that her Mac does not do. */
+:root[data-via="cloud"] .model-pick, :root[data-via="cloud"] .dock-pill .ts-model { display: none; }
+
+/* NEO, the voice alpha (w-e85fd9144f). The glow on what Neo just did:
+   bloom plus lit from within, at the softer strength approved on 2026-10-15,
+   with a quiet dust halo drawn by renderer/src/neo/glow.ts. A layer of its
+   own over the app, so no section's styles know about it. */
+.neo-glow { position: fixed; z-index: 9000; pointer-events: none; transition: opacity .7s ease; }
+.neo-glow.neo-glow-out { opacity: 0; }
+.neo-glow-bloom, .neo-glow-core { position: absolute; inset: 0; border-radius: var(--radius); animation: neo-breathe 2.6s ease-in-out infinite alternate; }
+.neo-glow-bloom { box-shadow: 0 0 0 1px rgba(255,214,170,.12), 0 0 26px 4px rgba(255,176,120,.15), 0 0 80px 18px rgba(255,176,120,.06); }
+.neo-glow-core { background: radial-gradient(ellipse at 50% 50%, rgba(255,200,140,.06), rgba(255,176,120,.02) 70%, transparent);
+  box-shadow: inset 0 0 34px rgba(255,176,120,.12), inset 0 0 0 1px rgba(255,214,170,.18); }
+.neo-halo { position: absolute; pointer-events: none; }
+@keyframes neo-breathe { from { filter: brightness(.88); } to { filter: brightness(1.1); } }
+/* While Neo is on, the summary's Status, Priority and Owner block steps back,
+   because the orb rests on top of it, and comes forward when the orb is
+   dragged off it (renderer/src/neo/orb-cover.ts says which).
+   It used to come forward on hovering the panel, and the orb sits in that
+   panel's own corner, so reaching for the orb brought the whole block back
+   underneath it (w-5520063011). */
+body.neo-on .ts-panel .ts-foot { opacity: 0; transition: opacity .4s ease; }
+body.neo-on.neo-orb-away .ts-panel .ts-foot { opacity: 1; }
+
+/* Neo's "show" (renderer/src/neo/show.ts): pictures from the open thread over
+   the app, lifted, side by side or full screen. */
+.neo-show { position: fixed; inset: 0; z-index: 9500; display: flex; align-items: center; justify-content: center;
+  background: rgba(10, 8, 7, .72); opacity: 0; transition: opacity .25s ease; }
+.neo-show.in { opacity: 1; }
+.neo-show-full-screen { background: rgba(8, 7, 6, .96); }
+.neo-show-row { display: flex; gap: 24px; align-items: center; justify-content: center; max-width: 92vw; max-height: 86vh; }
+.neo-show-full-screen .neo-show-row { max-width: 98vw; max-height: 94vh; gap: 16px; }
+.neo-show-cell { margin: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; flex: 1 1 0; align-items: center; }
+.neo-show-cell img { display: block; max-width: 100%; max-height: 78vh; object-fit: contain; border-radius: var(--radius);
+  box-shadow: 0 0 0 1px rgba(255, 214, 170, .12), 0 0 26px 4px rgba(255, 176, 120, .12), var(--shadow-lg); }
+.neo-show-lifted .neo-show-cell img { max-height: 80vh; max-width: 80vw; }
+.neo-show-full-screen .neo-show-cell img { max-height: 88vh; box-shadow: none; }
+.neo-show-cell figcaption { font: 500 10px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; color: var(--text-faint); }
+/* Neo's own pick: beside the thread, never over it. No backdrop, and only the
+   panel takes the pointer, so the app under it stays usable. */
+.neo-show.neo-show-peek { inset: auto; top: 72px; right: 24px; width: min(520px, 34vw); max-height: calc(100vh - 260px); background: none; pointer-events: none; display: block; }
+.neo-show-peek .neo-show-row { flex-direction: column; gap: 12px; max-width: none; max-height: none; pointer-events: auto; padding: 12px; overflow-y: auto; max-height: calc(100vh - 260px);
+  background: var(--surface); border: 1px solid rgba(255, 214, 170, .12); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.neo-show-peek .neo-show-cell img { max-height: 32vh; box-shadow: 0 0 0 1px rgba(255, 214, 170, .1); }
+
+/* A picture opened from a thread (components/PictureView.tsx), full screen over the app.
+   It is a dark room in every theme, like the reader: the picture is what is lit, so the
+   ink is --read-paper rather than --text, which turns nearly black on the light theme. */
+.picture-view { position: fixed; inset: 0; z-index: 9400; outline: none; overflow: hidden;
+  background: var(--read-ground); color: var(--read-paper); animation: pv-in .22s ease-out; }
+@keyframes pv-in { from { opacity: 0; } }
+.pv-stage { position: absolute; inset: 86px 104px 116px; z-index: 1; display: flex; align-items: center; justify-content: center; }
+.pv-img { display: block; flex: none; cursor: zoom-in; user-select: none; border-radius: var(--radius); will-change: transform;
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1); animation: pv-pic-in .32s cubic-bezier(.2, .8, .2, 1); }
+@keyframes pv-pic-in { from { opacity: 0; scale: .97; } }
+.pv-img.pv-zoomed { cursor: grab; transition: none; }
+.pv-img.pv-zoomed:active { cursor: grabbing; }
+
+/* The controls fade once the pointer rests, leaving only the picture. */
+.pv-chrome { z-index: 2; transition: opacity .35s ease, background .15s, color .15s; }
+.pv-idle { cursor: none; }
+.pv-idle .pv-chrome { opacity: 0; pointer-events: none; }
+
+.pv-top { position: absolute; top: 16px; left: 16px; right: 16px; height: 46px; display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; }
+.pv-title { display: flex; align-items: center; gap: 12px; min-width: 0; height: 46px; padding: 0 18px; }
+.pv-name { font-size: 13px; letter-spacing: .01em; color: color-mix(in srgb, var(--read-paper) 86%, transparent);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pv-count { font: 500 11px/1 var(--mono); letter-spacing: .12em; white-space: nowrap; color: color-mix(in srgb, var(--read-paper) 42%, transparent); }
+.pv-tools { display: flex; align-items: center; gap: 2px; flex: none; }
+.pv-icon { width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; background: none; cursor: pointer;
+  border-radius: var(--radius); color: color-mix(in srgb, var(--read-paper) 62%, transparent); transition: color .15s, background .15s; }
+.pv-icon svg { width: 20px; height: 20px; }
+.pv-icon:hover { color: var(--read-paper); background: color-mix(in srgb, var(--read-paper) 9%, transparent); }
+.pv-rule { width: 1px; height: 18px; margin: 0 6px; background: color-mix(in srgb, var(--read-paper) 14%, transparent); }
+
+.pv-strip { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 8px;
+  max-width: calc(100% - 64px); overflow-x: auto; }
+.pv-thumb { flex: none; width: 72px; height: 45px; padding: 0; border: 0; border-radius: var(--radius); overflow: hidden; cursor: pointer;
+  background: color-mix(in srgb, var(--read-paper) 6%, transparent); opacity: .38;
+  outline: 1px solid transparent; outline-offset: 3px; transition: opacity .2s, outline-color .2s; }
+.pv-thumb:hover { opacity: .75; }
+.pv-thumb.is-on { opacity: 1; outline-color: color-mix(in srgb, var(--read-paper) 85%, transparent); }
+.pv-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* The picture's own colours, blurred, light the room; the controls are frosted glass over it. */
+.pv-glow { position: absolute; inset: -12%; background-size: cover; background-position: center;
+  filter: blur(80px) saturate(1.8) brightness(.95); opacity: .7; animation: pv-in .6s ease-out; }
+.picture-view::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(closest-side, transparent 55%, color-mix(in srgb, var(--read-ground) 70%, transparent)); }
+.pv-title, .pv-tools, .pv-strip {
+  background: color-mix(in srgb, var(--read-ground) 34%, transparent); backdrop-filter: blur(28px) saturate(1.6);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--read-paper) 8%, transparent); border-radius: var(--radius); }
+.pv-tools { padding: 4px; }
+.pv-img { box-shadow: 0 0 0 1px color-mix(in srgb, var(--read-paper) 8%, transparent), var(--shadow-lg); }
+
+/* The step arrows: a thin chevron, and the edge of the window is the button. It stops short of
+   the bar above and the strip below, or it lies over the close button and the thumbnails. */
+.pv-step { position: absolute; top: 78px; bottom: 96px; width: 104px; display: grid; place-items: center; padding: 0; border: 0; cursor: pointer;
+  background: none; color: color-mix(in srgb, var(--read-paper) 40%, transparent); }
+.pv-step svg { width: 30px; height: 30px; }
+.pv-step:hover:not(:disabled) { color: var(--read-paper); }
+.pv-step:disabled { color: color-mix(in srgb, var(--read-paper) 14%, transparent); cursor: default; }
+.pv-prev { left: 0; }
+.pv-next { right: 0; }
+.pv-prev:hover:not(:disabled) { background: linear-gradient(to right, color-mix(in srgb, var(--read-ground) 45%, transparent), transparent); }
+.pv-next:hover:not(:disabled) { background: linear-gradient(to left, color-mix(in srgb, var(--read-ground) 45%, transparent), transparent); }

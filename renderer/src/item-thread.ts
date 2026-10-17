@@ -32,6 +32,7 @@
 
 import { changedFile, commandWork, isBookkeeping, plainCommand, saidCount, shortPath, threadWindow, unleaked, workVerb } from '../../shared/agents.mjs';
 import { said, traceLines } from './terminal';
+import { handsBack } from '../../shared/cloud-hand-back.mjs';
 import type { TraceSession } from './notes';
 import { threadEvents, withRuns, type LedgerLine, type ThreadEvent } from './thread-history';
 import type { AgentEvent, AgentSaid, AgentTurn, AgentWork } from './types';
@@ -102,6 +103,8 @@ export interface PendingSaid {
   // Inside the three seconds in which Z still takes it back (w-5281ef1221).
   // The message carries it to its own head; see `held` in types.ts.
   held?: boolean;
+  // Her Mac turned it down, and why (renderer/src/cloud-bridge.ts).
+  refused?: string;
 }
 
 export interface ItemThread {
@@ -174,6 +177,15 @@ function workLine(at: number, name: string, hint: string): AgentWork {
 export function runNodes(session: TraceSession): AgentEvent[] {
   const out: AgentEvent[] = [];
   for (const line of traceLines(session)) {
+    // A cloud run that handed the thread back to this computer said so in one
+    // marked line, and is drawn as the move, once.
+    if (handsBack(line.text)) {
+      const last = out[out.length - 1];
+      if (!(last && 'kind' in last && last.kind === 'work' && last.verb === 'moved')) {
+        out.push({ kind: 'work', at: line.at, verb: 'moved', subject: 'to this Mac', output: '', lines: 0, failed: false });
+      }
+      continue;
+    }
     if (line.kind === 'tool') {
       const parts = TOOL.exec(line.text);
       // THE STORE'S OWN RECORDS ARE NOT ACTIVITY. Taking the item and writing
@@ -628,7 +640,7 @@ export function itemThread(
       && p.node.who === 'you' && (p.node.at ?? 0) >= mine.at
       && said(p.node.text ?? '') === words);
     if (landed) { spent.add(landed); continue; }
-    placed.push({ node: { at: mine.at, who: 'you', text: mine.text, pending: true, held: mine.held }, run: null, answer: null });
+    placed.push({ node: { at: mine.at, who: 'you', text: mine.text, pending: true, held: mine.held, ...(mine.refused ? { refused: mine.refused } : {}) }, run: null, answer: null });
   }
 
   // TOOL-CALL SCAFFOLDING OFF EVERY MESSAGE FIRST, before two of them are

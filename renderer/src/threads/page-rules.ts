@@ -11,7 +11,7 @@ import type { Product, ThreadCard, ThreadStateWord, WorkItem } from '../types';
 import { priorityIdOf, priorityValueOf, type PriorityId } from '../priority';
 import { firstRealLine } from '../format';
 import { threadState } from '../../../shared/thread-cards.mjs';
-import { dropPlaces, placeScore, placedScore } from '../../../shared/rank.mjs';
+import { dropPlaces, placeScore, placedScore, shownPriority } from '../../../shared/rank.mjs';
 import { plainWords } from '../team/agent-mentions';
 import { whatWaits } from '../../../shared/team-rules.mjs';
 
@@ -136,9 +136,9 @@ const startOfDay = (now: number) => { const t = new Date(now); t.setHours(0, 0, 
  *  A MESSAGE TO YOU PASSES THE PROJECT FILTER (w-5a432fb112): `direct` names
  *  the conversation projects, which no chip offers, so any lit chip hid every
  *  message. "Messages to me ARE my tasks." */
-export function keeps(item: Pick<WorkItem, 'priority' | 'product' | 'updatedAt'>, d: Display, now: number, seen?: Seen | null, direct?: ReadonlySet<string>): boolean {
+export function keeps(item: Pick<WorkItem, 'priority' | 'product' | 'updatedAt'> & { wrote?: WorkItem['wrote'] }, d: Display, now: number, seen?: Seen | null, direct?: ReadonlySet<string>): boolean {
   if (!keepsPrivacy(seen, d.privacy)) return false;
-  if (d.priorities.length && !d.priorities.includes(priorityIdOf(item.priority))) return false;
+  if (d.priorities.length && !d.priorities.includes(priorityIdOf(shownPriority(item, !!direct?.has(item.product))))) return false;
   if (d.projects.length && item.product && !d.projects.includes(item.product) && !direct?.has(item.product)) return false;
   if (d.updated === 'today' && !(item.updatedAt >= startOfDay(now))) return false;
   if (d.updated === 'week' && !(item.updatedAt >= now - 7 * 86_400_000)) return false;
@@ -168,12 +168,12 @@ export function keeps(item: Pick<WorkItem, 'priority' | 'product' | 'updatedAt'>
 // which replaces it (`placedScore`, shared/rank.mjs). A drop works out that
 // place from this same number (`dropPlaces`).
 export const rankScore = (r: Ranked, projectOrder: string[] = [], direct?: ReadonlySet<string>): number =>
-  placedScore(r.place, placeScore(projectOrder, r.product ?? '', direct) + priorityValueOf(priorityIdOf(r.priority)));
+  placedScore(r.place, placeScore(projectOrder, r.product ?? '', direct) + priorityValueOf(priorityIdOf(shownPriority(r, !!direct?.has(r.product ?? '')))));
 export const byPriority = (projectOrder: string[] = [], direct?: ReadonlySet<string>) => (a: Ranked, b: Ranked) =>
   rankScore(b, projectOrder, direct) - rankScore(a, projectOrder, direct) || b.updatedAt - a.updatedAt;
 const byUpdated = (a: Ranked, b: Ranked) => b.updatedAt - a.updatedAt;
 /** `product` is the project's slug, which is what the running order holds. */
-export type Ranked = { priority?: number | null; updatedAt: number; status?: string; wrote?: WorkItem['wrote']; product?: string | null; place?: number };
+export type Ranked = { priority?: number | null; updatedAt: number; status?: string; wrote?: WorkItem['wrote']; product?: string | null; place?: number; pinned?: boolean };
 
 /**
  * WHEN A THREAD WAS FINISHED: the moment its status was written as done, which
@@ -190,19 +190,17 @@ const byFinished = (a: Ranked, b: Ranked) => finishedAt(b) - finishedAt(a);
 // it was a wall of Urgent rows in no order a reader could follow, and nothing
 // in it is waiting on a priority any more. So Done always runs newest finished
 // first, and every other tab keeps the Display's sort.
-//
-// ALL IS EVERYTHING, FINISHED THREADS INCLUDED (w-fda2165ec6, 2026-10-07): it
-// held only open ones, about 40 of 1,339 on her store. What is still open
-// comes first, in the Display's sort; what is finished follows, newest
-// finished first, the way Done reads.
 type Cmp = (a: Ranked, b: Ranked) => number;
-const isFinished = (r: Ranked) => (r.status === 'done' ? 1 : 0);
-const finishedLast = (open: Cmp): Cmp => (a, b) =>
-  isFinished(a) - isFinished(b) || (isFinished(a) ? byFinished(a, b) : open(a, b));
+//
+// A PINNED THREAD COMES FIRST (w-20323283e6), in every tab but Done and under
+// either sort, so the few threads you still mean to finish today are not dug
+// out of fifty. Among themselves the pinned ones keep the Display's sort, and
+// a drag orders them the way it orders anything else (`dropWithPins`).
+const pinnedOpen = (r: Ranked) => (r.pinned && r.status !== 'done' ? 1 : 0);
+const pinnedFirst = (then: Cmp): Cmp => (a, b) => pinnedOpen(b) - pinnedOpen(a) || then(a, b);
 export const order = (d: Pick<Display, 'sort'>, tab?: string, projectOrder: string[] = [], direct?: ReadonlySet<string>): Cmp => {
   if (tab === 'done') return byFinished;
-  const open = d.sort === 'updated' ? byUpdated : byPriority(projectOrder, direct);
-  return tab === 'all' ? finishedLast(open) : open;
+  return pinnedFirst(d.sort === 'updated' ? byUpdated : byPriority(projectOrder, direct));
 };
 
 /** The time column's heading: on Done it is when each thread was finished. */
@@ -233,7 +231,7 @@ export function sorted<T extends Ranked & { product?: string }>(rows: T[], d: Di
 
 /** The same order, for the board's cards, which carry a level and a project
  *  slug. A card of yours is timed by its thread, so Done reads when it finished. */
-const timed = (e: BoardEntry): Ranked => ({ ...e, product: e.projectSlug, ...(e.item ? { status: e.item.status, wrote: e.item.wrote, place: e.item.place } : {}) });
+const timed = (e: BoardEntry): Ranked => ({ ...e, product: e.projectSlug, ...(e.item ? { status: e.item.status, wrote: e.item.wrote, place: e.item.place, pinned: e.item.pinned } : {}) });
 export function sortedEntries(entries: BoardEntry[], d: Display, column?: string, projectOrder: string[] = [], direct?: ReadonlySet<string>): BoardEntry[] {
   const by = order(d, column, projectOrder, direct);
   return entries.slice().sort((a, b) => by(timed(a), timed(b)));
@@ -263,6 +261,19 @@ export function overlayPlaces<T extends { id: string; place?: number }>(items: T
   return items.map((i) => (i.id in unsaved ? { ...i, place: unsaved[i.id].place } : i));
 }
 
+/** The same wait for a pin just set or cleared (w-20323283e6). */
+export type UnsavedPins = Record<string, { pinned: boolean; at: number }>;
+export function overlayPins<T extends { id: string; pinned?: boolean }>(items: T[], unsaved: UnsavedPins, now = Date.now()): T[] {
+  const ids = Object.keys(unsaved);
+  if (!ids.length) return items;
+  const byId = new Map(items.map((i) => [i.id, i]));
+  for (const id of ids) {
+    const it = byId.get(id);
+    if (!it || !!it.pinned === unsaved[id].pinned || now - unsaved[id].at > PLACE_WAIT) delete unsaved[id];
+  }
+  return items.map((i) => (i.id in unsaved ? { ...i, pinned: unsaved[i.id].pinned } : i));
+}
+
 /**
  * The places a drop writes (w-6e5b532a95), for rows as drawn: `id` let go in
  * front of `beforeId`, or at the end for null. The list and every board column
@@ -274,9 +285,39 @@ export function placesForDrop(rows: { id: string; score: number }[], id: string,
   return dropPlaces(rows, from, at < 0 ? rows.length : at);
 }
 
+/**
+ * The same drop, with the line between the pinned threads and the rest
+ * (w-20323283e6). A row let go among the pinned ones is pinned, and one let go
+ * among the rest is unpinned, so dragging is a way to pin as well as to order.
+ * The gap ON the line, under the last pinned row and over the first of the
+ * rest, belongs to whichever side the row came from: dragging a pinned row to
+ * the foot of its group must not unpin it. `pin` is null when it stays as it was.
+ *
+ * THE PLACE IS WORKED OUT AMONG THE GROUP IT LANDS IN, never across the line
+ * (w-844ae75078, 2026-10-13: "Suddenly I can't seem to drag threads"). The
+ * pins are drawn above the rest whatever they score, so at the line the two
+ * neighbours' scores can be upside down, and a place between them put a thread
+ * dragged to the top of the rest back at the bottom, and a pin dragged to the
+ * foot of the pins back at the top.
+ */
+export function dropWithPins(rows: { id: string; score: number; pinned?: boolean }[], id: string, beforeId: string | null): { places: Record<string, number> | null; pin: boolean | null } {
+  const moved = rows.find((r) => r.id === id);
+  if (!moved || !placesForDrop(rows, id, beforeId)) return { places: null, pin: null };
+  const rest = rows.filter((r) => r.id !== id);
+  const at = beforeId ? rest.findIndex((r) => r.id === beforeId) : -1;
+  const below = at < 0 ? undefined : rest[at];
+  const above = at < 0 ? rest[rest.length - 1] : rest[at - 1];
+  const onTheLine = !!above?.pinned && !!below && !below.pinned;
+  const lands = onTheLine ? !!moved.pinned : !!(below ?? above ?? moved).pinned;
+  // Let go on the line among the pins is the foot of the pins.
+  const group = rows.filter((r) => r.id === id || !!r.pinned === lands);
+  const before = below && !!below.pinned === lands ? below.id : null;
+  return { places: placesForDrop(group, id, before), pin: lands === !!moved.pinned ? null : lands };
+}
+
 /* ------------------------------------------------------- the tabs and Tab */
 
-export type TabName = 'inbox' | 'progress' | 'snoozed' | 'done' | 'all';
+export type TabName = 'inbox' | 'progress' | 'snoozed' | 'done';
 
 /**
  * WHERE A PRESS OF TAB LANDS: on the threads page, Tab cycles the states.
@@ -323,7 +364,6 @@ export function filteredEmptyWords(view: TabName | string, hidden: number): { he
     progress: 'Nothing in your filter is running',
     snoozed: 'Nothing in your filter is in Later',
     done: 'Nothing in your filter is closed',
-    all: 'No threads match your filter',
   }[view as string] ?? 'Nothing in your filter needs you';
   const line = hidden === 1
     ? 'One more thread is behind your filters.'
@@ -579,7 +619,7 @@ export function teamEntries({ items, products, cards, me, now, since = null, sta
     if (state === 'done' && !(item.updatedAt >= today)) continue;
     out.push({
       key: `mine/${item.product}/${item.id}`, ownerId: me, state, title: item.label || item.title, project: product.name,
-      projectSlug: product.slug, priority: item.priority ?? null, updatedAt: item.updatedAt, item, card: null,
+      projectSlug: product.slug, priority: shownPriority(item), updatedAt: item.updatedAt, item, card: null,
       live: !!live?.has(item.id),
     });
   }

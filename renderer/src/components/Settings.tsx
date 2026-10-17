@@ -28,11 +28,14 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentMode, CodexModeId, PermissionMode, ProjectSettings, Settings as SettingsModel, UpdateState } from '../types';
+import { onPhone } from '../phone-screen';
 import { api, RESTART_NOTE } from '../api';
 import { updateLook } from '../update-row';
 import { InstructionSettings, sizeLabel } from './InstructionSettings';
 import { EVERY } from '../instruction-scope';
-import type {Usage, WorkspaceSettings} from '../types';
+import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
+import { accountLabel, type CloudStatus } from '../cloud-menu';
+import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
 import { limitRows } from '../../../shared/usage.mjs';
 import { LOOKS, lookMeans, SKINS, TUNE_DEFAULT, TUNE_LIMITS, type Look, type SkinId, type SkinTune } from '../skins';
 import { readySkin } from '../look-switch';
@@ -303,6 +306,7 @@ function agentStory(w: WorkspaceSettings, readings: Usage[], engine: 'claude' | 
       found: !!w.codex?.found, certain: !!w.codex?.certain,
       trouble: w.codex?.trouble ?? null,
       bin: w.codex?.bin ?? '',
+      chosen: !!w.codex?.chosen,
       url: w.codex?.url ?? '',
       accounts: (w.codex?.accounts ?? []).map((a): CardAccount => ({
         profile: a.profile, email: a.email, plan: a.plan, chosen: a.chosen,
@@ -315,6 +319,7 @@ function agentStory(w: WorkspaceSettings, readings: Usage[], engine: 'claude' | 
     found: !!w.claudeFound, certain: w.claudeCertain !== false,
     trouble: null,
     bin: w.claudeBin ?? '',
+    chosen: !!w.claudeChosen,
     url: w.claudeInstallUrl ?? '',
     accounts: (w.accounts ?? []).map((a): CardAccount => ({
       profile: a.profile,
@@ -333,9 +338,9 @@ type Agent = ReturnType<typeof agentStory>;
 /**
  * THE METERS, one row each: the window's name, when it resets, and how much of
  *  it is spent. Same `usage-meter` markup the sidebar's usage corner draws. */
-function UsageRows({ reading, now }: { reading: Usage | null; now: number }) {
+function UsageRows({ reading, now, trouble = null }: { reading: Usage | null; now: number; trouble?: string | null }) {
   const rows = reading?.limits?.length ? limitRows(reading.limits, now) : [];
-  if (!rows.length) return <Row label="No usage reading yet" />;
+  if (!rows.length) return trouble ? null : <Row label="No usage reading yet" />;
   return (
     <>
       {rows.map((r) => (
@@ -359,42 +364,6 @@ export function usageCheckedAt(at: number | null | undefined, now: number): stri
   return `Checked ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
 }
 
-/** A reading names its account; switching cannot reuse the old account's meter. */
-export function ClaudeUsageSection({ reading, profile, email, now }: {
-  reading: Usage | null; profile: string; email?: string | null; now: number;
-}) {
-  const [fresh, setFresh] = useState<Usage | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const waiting = useRef(false);
-  const selected = useRef(profile);
-  selected.current = profile;
-  const belongs = (r: Usage | null) => r && (r.profile ?? 'default') === profile ? r : null;
-  const incoming = belongs(reading), refreshed = belongs(fresh);
-  const current = refreshed && (!incoming || refreshed.at >= incoming.at) ? refreshed : incoming;
-  useEffect(() => { setFresh(null); setError(null); }, [profile]);
-  const refresh = async () => {
-    if (waiting.current) return;
-    waiting.current = true;
-    const account = profile;
-    setBusy(true); setError(null);
-    try {
-      const result = await api.refreshUsage();
-      if (selected.current !== account) return;
-      if (result.ok && result.reading && (result.reading.profile ?? 'default') === account) setFresh(result.reading);
-      else setError(result.error ?? 'The account changed. Refresh usage again.');
-    } catch { if (selected.current === account) setError('Could not refresh usage. Try again.'); }
-    finally { waiting.current = false; setBusy(false); }
-  };
-  return (
-    <Group id="usage" label="Usage" action={<button type="button" className="set-ghost" disabled={busy} onClick={() => void refresh()}>{busy ? 'Refreshing…' : 'Refresh'}</button>}>
-      <Row label={email || 'Claude Code'} desc={busy ? 'Checking usage…' : usageCheckedAt(current?.at, now) || undefined} />
-      <UsageRows reading={current} now={now} />
-      {error && <div className="set-row set-row-warn" role="alert">{error}</div>}
-    </Group>
-  );
-}
-
 /**
  * THE ACCOUNTS, one row each.
  *
@@ -415,7 +384,17 @@ export function AccountRows({ agent, onChoose, onAdd }: {
   const picked = accounts.some((a) => a.chosen);
   return (
     <>
-      {accounts.map((a) => {
+      {accounts.map((a) => <Fragment key={a.profile}>{accountRow(a)}</Fragment>)}
+      {/* BOTH AGENTS OFFER IT SINCE 2026-09-22 (w-3498e0cad2): a work login and
+          a personal login, both live on one Mac. A DOOR, NOT A PITCH: the row
+          says what it does and nothing about what a second one would add. */}
+      <Row label="Add account">
+        <button type="button" className="set-ghost" onClick={() => onAdd(agent)}>Add</button>
+      </Row>
+    </>
+  );
+
+  function accountRow(a: CardAccount) {
         const live = picked ? a.chosen : false;
         const label = a.email ?? 'Not signed in';
         if (a.trouble) {
@@ -444,15 +423,101 @@ export function AccountRows({ agent, onChoose, onAdd }: {
             )}
           </div>
         );
-      })}
-      {/* BOTH AGENTS OFFER IT SINCE 2026-09-22 (w-3498e0cad2): a work login and
-          a personal login, both live on one Mac. A DOOR, NOT A PITCH: the row
-          says what it does and nothing about what a second one would add. */}
-      <Row label="Add account">
-        <button type="button" className="set-ghost" onClick={() => onAdd(agent)}>Add</button>
-      </Row>
-    </>
+  }
+}
+
+/** One account as a place card draws it, whether it lives here or in the cloud. */
+export type PlaceAccount = {
+  key: string;
+  name: string;
+  /** The plan, set against the name. */
+  plan?: string | null;
+  /** A state to say where nothing is in use or offered, joined with a dot. */
+  about: string[];
+  inUse?: boolean;
+  limits?: UsageLimit[] | null;
+  /** Offered when picking it would change something, with the words for it. */
+  use?: { word: string; onUse: () => void } | null;
+  /** Why it cannot run, in main's words; replaces the meters. */
+  trouble?: string | null;
+  cmd?: string | null;
+  /** False where no usage can be read at all, so no "no reading yet" is promised. */
+  meters?: boolean;
+};
+
+/** SESSION AND WEEK, the same two meters for every account. A full one says when it is back. */
+export function MiniMeters({ limits }: { limits?: UsageLimit[] | null }) {
+  const meters = meterPair(limits);
+  if (!meters.length) return <div className="acct-meters-none">No usage reading yet</div>;
+  return (
+    <span className="acct-meters">
+      {meters.map((m) => (
+        <span className={`acct-meter${m.percent >= 100 ? ' full' : ''}`} key={m.key}>
+          <span className="acct-meter-word">{m.word}</span>
+          <span className="usage-meter" aria-hidden="true"><i style={{ width: `${Math.min(100, m.percent)}%` }} /></span>
+          <span className="acct-meter-pct">{m.back ? `back ${m.back}` : `${m.percent}%`}</span>
+        </span>
+      ))}
+    </span>
   );
+}
+
+// IN USE is a mark; switching is a link in sentence case, so the two cannot be read as the same kind of thing.
+function UseMark({ a }: { a: PlaceAccount }) {
+  if (a.inUse) return <span className="set-badge">In use</span>;
+  return a.use ? <button type="button" className="acct-use" onClick={a.use.onUse}>{a.use.word}</button> : null;
+}
+
+/** One tile per account, two to a line, its meters stacked inside. */
+export function PlaceTiles({ accounts, onAdd }: { accounts: PlaceAccount[]; onAdd?: () => void }) {
+  return (
+    <div className="acct-tiles">
+      {accounts.map((a) => (
+        <div className={`acct-tile${a.inUse ? ' on' : ''}${a.trouble ? ' trouble' : ''}`} key={a.key}>
+          <div className="acct-tile-head">
+            <span className="acct-tile-name">{a.name}</span>
+            {a.plan && <span className="acct-tile-plan">{a.plan}</span>}
+          </div>
+          <div className="acct-tile-about">{a.inUse || a.use ? <UseMark a={a} /> : a.about.join(' · ')}</div>
+          {a.trouble ? (
+            <>
+              <div className="acct-tile-trouble">{a.trouble}</div>
+              {a.cmd && <div className="acct-tile-cmd"><CopyCmd cmd={a.cmd} /></div>}
+            </>
+          ) : a.meters !== false && <MiniMeters limits={a.limits} />}
+        </div>
+      ))}
+      {onAdd && <button type="button" className="acct-tile acct-tile-add" onClick={onAdd}>Add account</button>}
+    </div>
+  );
+}
+
+/**
+ * ONE PLACE AGENTS RUN: its name, whether it is on, one line on when threads
+ *  go there, and a tile per account. */
+export function Place({ id, name, state = null, line = null, action, warn, accounts, onAdd }: {
+  id: string; name: string; state?: 'On' | 'Off' | null; line?: string | null; action?: ReactNode; warn?: string | null;
+  accounts: PlaceAccount[]; onAdd?: () => void;
+}) {
+  const label = <>{name}{state && <span className={`set-badge${state === 'On' ? '' : ' set-badge-off'}`}>{state}</span>}</>;
+  return (
+    <Group id={id} label={label} action={action} bare>
+      {(warn || line) && <div className="acct-place-line" role="status">{warn ?? line}</div>}
+      <PlaceTiles accounts={accounts} onAdd={onAdd} />
+    </Group>
+  );
+}
+
+/** The cloud's own logins, as a place card reads them. */
+export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex', now: number): PlaceAccount[] {
+  const all = cloud.accounts ?? [];
+  return all.filter((a) => a.engine === engine).map((a) => {
+    const state = cloudAccountState(a, now);
+    const read = !!a.limits?.length;
+    // A full meter already says when it is back, so beside one the state is said short.
+    const about = read && state.startsWith('At its limit') ? 'At its limit' : state;
+    return { key: a.key, name: accountLabel(a, all), about: [about], limits: a.limits ?? null, meters: read };
+  });
 }
 
 /*
@@ -498,13 +563,15 @@ function SettingsTerminal({ command, onFinished }: { command?: string; onFinishe
  *  "a lot of text under components, gets a bit ugly", so a group no longer
  *  takes one. Anything a row needs to say is in the row. A warning about the
  *  whole group is the card's first line, inside it. */
-const Group = ({ id, label, warn, action, children }: { id?: string; label?: string; warn?: string | null; action?: ReactNode; children: React.ReactNode }) => (
+const Group = ({ id, label, warn, action, bare = false, children }: { id?: string; label?: ReactNode; warn?: string | null; action?: ReactNode; bare?: boolean; children: React.ReactNode }) => (
   <div className="set-group" data-find={id}>
-    {label && <div className={`set-group-label${action ? ' set-group-head' : ''}`}>{label}{action}</div>}
-    <div className="set-plate">
-      {warn && <div className="set-row set-row-warn" role="status">{warn}</div>}
-      {children}
-    </div>
+    {label && <div className={`set-group-label${action ? ' set-group-head' : ''}`}><span>{label}</span>{action}</div>}
+    {bare ? children : (
+      <div className="set-plate">
+        {warn && <div className="set-row set-row-warn" role="status">{warn}</div>}
+        {children}
+      </div>
+    )}
   </div>
 );
 
@@ -521,7 +588,6 @@ const Group = ({ id, label, warn, action, children }: { id?: string; label?: str
 export function agentCountOptions(w: {
   accounts?: unknown[]; agentsTotal?: number; capacity?: number; slotsMax?: number; sessionsAtOnce?: number;
 }) {
-  const accounts = Math.max(1, w.accounts?.length ?? 1);
   const auto = w.agentsTotal ?? w.capacity ?? 1;
   const say = (n: number) => `${n} ${n === 1 ? 'agent' : 'agents'}`;
   // NO DASH BETWEEN THE TWO HALVES. This read "Automatic — 6 agents" until she
@@ -530,7 +596,10 @@ export function agentCountOptions(w: {
   // is read exactly as a sentence is, so the rule covers it too. A bracket is
   // what the rest of this file reaches for when a label carries a second fact.
   const options = [{ value: 'auto', label: `Automatic (${say(auto)})` }];
-  for (let n = 1; n <= (w.slotsMax ?? 12); n++) options.push({ value: String(n), label: say(n * accounts) });
+  // EVERY NUMBER IS FOR THE WHOLE COMPUTER AND IS STORED AS ITSELF
+  // (w-ec27ff1a51). The label used to multiply a per-login number by the
+  // logins, so a 7 read "14 agents" and nobody had picked 14.
+  for (let n = 1; n <= (w.slotsMax ?? 12); n++) options.push({ value: String(n), label: say(n) });
   return options;
 }
 
@@ -550,7 +619,7 @@ export function agentCountOptions(w: {
  */
 function Reading({ running, capacity, gate }: {
   running?: number; capacity?: number;
-  gate?: { on: boolean; reading?: { heavy: number | null; waiting: number | null; pressure: string | null; usedPct: number | null; asked: number | null; waited: number | null; refused: number | null } };
+  gate?: { on: boolean; reading?: { heavy: number | null; waiting: number | null; pressure: string | null; usedPct: number | null; asked: number | null; waited: number | null; refused: number | null; holding?: boolean } };
 }) {
   const r = gate?.on ? gate.reading : null;
   if (!r) return null;
@@ -566,7 +635,10 @@ function Reading({ running, capacity, gate }: {
   const tally = r.asked
     ? `Today: ${r.asked} commands asked, ${r.waited ?? 0} waited, ${r.refused ? `${r.refused} turned away` : 'none turned away'}.`
     : null;
-  if (!cells.length && !tally) return null;
+  // NEW AGENTS HELD FOR MEMORY (w-ec27ff1a51) is said while it is happening,
+  // because a queue that is not moving and says nothing reads as broken.
+  const holding = r.holding ? 'New agents wait until memory frees up. Urgent tasks still start.' : null;
+  if (!cells.length && !tally && !holding) return null;
   return (
     <div className="set-group">
       <div className="set-plate">
@@ -580,6 +652,7 @@ function Reading({ running, capacity, gate }: {
             <i className="set-bar"><i className={r.pressure === 'normal' ? '' : 'hot'} style={{ width: `${r.usedPct}%` }} /></i>
           </div>
         )}
+        {holding && <div className="set-row set-row-warn">{holding}</div>}
         {tally && <div className="set-row set-row-warn">{tally}</div>}
       </div>
     </div>
@@ -588,6 +661,133 @@ function Reading({ running, capacity, gate }: {
 
 /** A page: its title, the sentence under it when there is one worth saying,
  *  and its groups. */
+/* --------------------------------- phone --------------------------------- */
+// FEEDBACK FROM A PHONE. Its corner has no Feedback button, by choice ("not
+// important to be big for mobile"), which left no way to send any ("not sure
+// how to give feedback on mobile", 2026-10-12).
+function PhoneFeedbackGroup({ onFeedback }: { onFeedback: () => void }) {
+  return (
+    <Group id="phone-feedback" label="Feedback">
+      <Row label="Send feedback" desc={`Tell us what works and what does not. It goes straight to the people who make ${Name}.`}>
+        <button type="button" className="set-ghost" onClick={onFeedback}>Send feedback</button>
+      </Row>
+    </Group>
+  );
+}
+
+// WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md, step 1). The projects she
+// puts on her phone go to her account online on every sync; the phone site
+// reads them and leaves what she sends for this Mac to do when it wakes.
+// THE ONLY WAY IN IS A WEBSITE WE HOST (2026-10-14), not a link to this
+// computer: the code is only its address, so it carries no key. The relay and
+// the same-Wi-Fi door are gone (2026-10-16: "Should only ever be one way to
+// access mobile: through the Cloud").
+// ALL OF HER PROJECTS, BY DEFAULT (2026-10-15: "95% of people just want all
+// of their projects connected"). One row and one dropdown, the way every
+// other choice on this page is made ("it's more of a dropdown kind of
+// thing"): Every project, None, or a tick beside each project.
+type MacShut = { site: string | null; siteQr: string | null; all: boolean; projects: ProjectSettings[]; onChoose: (all: boolean, except: string[]) => void };
+function PhoneProjectsPicker({ macShut }: { macShut: MacShut }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e: MouseEvent) => { if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  const slugs = macShut.projects.map((p) => p.slug);
+  const kept = macShut.all ? macShut.projects.filter((p) => !p.onPhone).map((p) => p.slug) : slugs;
+  const on = (slug: string) => !kept.includes(slug);
+  const every = macShut.all && kept.length === 0;
+  const none = !macShut.all || kept.length === slugs.length;
+  const word = every ? 'Every project' : none ? 'None' : `${slugs.length - kept.length} of ${slugs.length}`;
+  const tick = (slug: string) => {
+    const next = on(slug) ? [...kept, slug] : kept.filter((s) => s !== slug);
+    macShut.onChoose(next.length < slugs.length, next.length < slugs.length ? next : []);
+  };
+  const Tick = ({ checked }: { checked: boolean }) => (
+    <span className={`ps-tick set-phone-tick${checked ? ' on' : ''}`} aria-hidden="true">
+      {checked && <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3.8 8.4 6.6 11.2 12.2 5" /></svg>}
+    </span>
+  );
+  return (
+    <div className={`set-picker set-picker-bare${open ? ' open' : ''}`}>
+      <span className="set-picker-wrap" ref={wrap}>
+        <button type="button" className="set-picker-now" aria-label="Projects on your phone" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          {word}
+          <svg className="set-picker-chev" width="9" height="9" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M2.2 4 L5 6.8 L7.8 4" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        {open && (
+          <span className="set-picker-menu set-phone-menu" role="menu" aria-label="Projects on your phone">
+            <button type="button" role="menuitemradio" aria-checked={every} className={`set-picker-row set-phone-row${every ? ' on' : ''}`} onClick={() => macShut.onChoose(true, [])}>
+              <span className="set-phone-row-text">Every project<small>New ones too</small></span>
+            </button>
+            <button type="button" role="menuitemradio" aria-checked={none} className={`set-picker-row set-phone-row${none ? ' on' : ''}`} onClick={() => macShut.onChoose(false, [])}>
+              <span className="set-phone-row-text">None<small>Everything stays on this computer</small></span>
+            </button>
+            <span className="set-phone-rule" role="separator" />
+            {macShut.projects.map((p) => (
+              <button key={p.slug} type="button" role="menuitemcheckbox" aria-checked={on(p.slug)} className="set-picker-row set-phone-row" onClick={() => tick(p.slug)}>
+                <Tick checked={on(p.slug)} />
+                <span className="set-phone-row-text">{p.name}</span>
+              </button>
+            ))}
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+function MacShutGroup({ macShut }: { macShut: MacShut }) {
+  const site = macShut.site?.replace(/^https?:\/\//, '').replace(/\/$/, '') ?? null;
+  return (
+    <>
+      <Group id="phone-mac-shut" label="On your phone">
+        <Row label="Projects on your phone" desc="A copy of their threads is kept in your account, so your phone can read and reply with this computer closed.">
+          <PhoneProjectsPicker macShut={macShut} />
+        </Row>
+      </Group>
+      <Group id="phone-site" label="Open on your phone">
+        {site && macShut.siteQr ? (
+          <div className="set-row set-phone-qr">
+            <img alt={`QR code that opens ${site} on a phone`} src={`data:image/svg+xml;utf8,${encodeURIComponent(macShut.siteQr)}`} />
+            <div className="set-row-desc">
+              Scan with your phone's camera, or go to <code>{site}</code>. Sign in with this account, then add the page to your home screen and it opens like an app. Replies wait there until this computer wakes.
+            </div>
+          </div>
+        ) : (
+          <Row label="Not set up yet" desc="The phone site has no address yet." />
+        )}
+      </Group>
+    </>
+  );
+}
+
+function PhonePage({ onFeedback, macShut }: { onFeedback?: () => void; macShut?: MacShut }) {
+  const feedback = onFeedback && onPhone() ? <PhoneFeedbackGroup onFeedback={onFeedback} /> : null;
+  if (!macShut) {
+    return (
+      <Page title="Phone">
+        <Group>
+          <Row label="Sign in to use your phone" desc={`Your phone reads and replies through your ${Name} account, so it works with this computer closed. Sign in on the Team page, then come back here for the code.`} />
+        </Group>
+        {feedback}
+      </Page>
+    );
+  }
+  return (
+    <Page title="Phone" lede="Read and reply from your phone, even with this computer closed.">
+      <MacShutGroup macShut={macShut} />
+      {feedback}
+    </Page>
+  );
+}
+
 const Page = ({ title, lede, children }: { title: string; lede?: string; children: ReactNode }) => (
   <div className="set-inner">
     <h1 className="set-title">{title}</h1>
@@ -706,6 +906,19 @@ const CLAUDE = {
   still: 'Still nothing here. A fresh install can take a moment to appear.',
   stillUnsure: `${Name} still could not get an answer. Nothing is necessarily wrong; try once more in a minute.`,
   where: (bin: string) => `${Name} runs it from ${bin}.`,
+  /* * AND THE ROW THAT MEANS NOBODY WAITS FOR A RELEASE (w-ce8c1a9275).
+     ${Name} asks your own login shell first and then looks in sixteen places,
+     which between them cover every ordinary install. What they cannot cover is a
+     copy somewhere nobody would guess, and until this row existed that was a
+     path WE ship and a release YOU wait for. */
+  point: 'Choose the file',
+  pointLabel: 'Keep it somewhere else?',
+  pointSay: `If ${Name} is looking in the wrong place, show it where Claude Code is.`,
+  picking: 'Choosing',
+  chosenLabel: 'You chose this one',
+  chosenSay: `You showed ${Name} where it is, so it stopped looking. Let it look again if that was wrong.`,
+  chosenGoneSay: `The file you chose is not there any more. Choose another, or let ${Name} look.`,
+  searchAgain: 'Look for it instead',
 } as const;
 
 /* ------------------ AND THE SAME QUESTION ABOUT THE SECOND ---------------- */
@@ -737,6 +950,15 @@ const CODEX = {
   still: 'Still nothing here. A fresh install can take a moment to appear.',
   stillUnsure: `${Name} still could not get an answer. Nothing is necessarily wrong; try once more in a minute.`,
   where: (bin: string) => `${Name} runs it from ${bin}.`,
+  // The same row, with Codex as the subject. See the note on Claude Code's.
+  point: 'Choose the file',
+  pointLabel: 'Keep it somewhere else?',
+  pointSay: `If ${Name} is looking in the wrong place, show it where Codex is.`,
+  picking: 'Choosing',
+  chosenLabel: 'You chose this one',
+  chosenSay: `You showed ${Name} where it is, so it stopped looking. Let it look again if that was wrong.`,
+  chosenGoneSay: `The file you chose is not there any more. Choose another, or let ${Name} look.`,
+  searchAgain: 'Look for it instead',
 } as const;
 
 type ConnectionCopy = typeof CLAUDE | typeof CODEX;
@@ -782,13 +1004,21 @@ function accountSay(account: EngineAccount): string {
    for the reason the walk and this screen share one vocabulary: two drawings of
    the same three states drift within a week, and the state that drifts is
    always the unsure one, because it is the one nobody is looking at. */
-function Connection({ copy, check, found, certain, bin, url, trouble = null, account = null, onChecked }: {
+function Connection({ copy, check, engine, found, certain, bin, chosen = false, url, trouble = null, account = null, onChecked }: {
   copy: ConnectionCopy;
+  /**
+   * WHICH AGENT THIS CARD IS ABOUT, and the only thing the window hands over
+   *  when somebody points at the file themselves. The path comes back from the
+   *  panel main opened; it never goes the other way (main/ipc.mjs,
+   *  `zero:engine-bin`). */
+  engine: 'claude' | 'codex';
   /**
    * The search this card's button runs. It is the engine's own, because
    *  looking for Claude Code tells you nothing about Codex. */
   check: () => Promise<{ found: boolean }>;
   found: boolean; certain: boolean; bin: string; url: string;
+  /** Whether this path is one somebody chose rather than one we found. */
+  chosen?: boolean;
   /**
    * WHO THIS MAC IS SIGNED IN AS, when the engine can say. Every field is
    *  independently null, so a login with no email still draws whatever it does
@@ -811,6 +1041,10 @@ function Connection({ copy, check, found, certain, bin, url, trouble = null, acc
   // because "still nothing here" said to somebody who has not pressed anything
   // is a screen answering a question nobody asked.
   const [again, setAgain] = useState<boolean | null>(null);
+  // The panel is open, or main is refusing what came out of it in words. Both
+  // belong to the one row below and to nothing else on this card.
+  const [picking, setPicking] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
 
   const look = async () => {
     setChecking(true);
@@ -823,6 +1057,24 @@ function Connection({ copy, check, found, certain, bin, url, trouble = null, acc
       await onChecked();
     } finally {
       setChecking(false);
+    }
+  };
+
+  /*
+   * POINT AT THE FILE, OR HAND THE CHOICE BACK. One trip either way: main opens
+   * the panel and applies what came out of it in the same call, so a cancel is
+   * ok-with-nothing-changed and a refusal is a sentence rather than an error.
+   * The page then re-reads itself, like every other write on this screen.
+   */
+  const point = async (action?: 'search') => {
+    setPicking(true);
+    setRefused(null);
+    try {
+      const r = await api.engineBin(engine, action);
+      if (r?.refused) setRefused(r.refused);
+      if (!r?.canceled) await onChecked();
+    } finally {
+      setPicking(false);
     }
   };
 
@@ -868,8 +1120,37 @@ function Connection({ copy, check, found, certain, bin, url, trouble = null, acc
       )}
       {/* The path, and only when there is one. Its own row at the foot of the
           card, never in the status sentence, because it is the one thing here
-          that is for somebody who already knows what it means. */}
+          that is for somebody who already knows what it means. It is also the
+          one row that says where a CHOSEN path is, so the row below never
+          repeats it. */}
       {found && bin && <Row label="Runs from" desc={copy.where(bin)} />}
+      {/* AND THE WAY OUT THAT IS NOT A RELEASE (w-ce8c1a9275).
+          The search asks the login shell first and then looks in sixteen
+          places, which between them cover every ordinary install; what they
+          cannot cover is a copy somewhere nobody would guess, and every one of
+          those used to be a path we ship and a release somebody waits for.
+
+          ONE ROW, TWO STATES, because that is the whole decision: either show
+          it where the file is, or -- if that turned out wrong -- let it look
+          again. Drawn whether or not the agent was found, since somebody with a
+          connected agent in the wrong place has exactly the same thing to say.
+
+          THE REFUSAL REPLACES THE LINE IT CONTRADICTS, the same way `trouble`
+          does above: picking a folder by mistake is answered where the press
+          was, not in a second place. */}
+      <Row
+        label={chosen ? copy.chosenLabel : copy.pointLabel}
+        desc={refused ?? (chosen ? (found ? copy.chosenSay : copy.chosenGoneSay) : copy.pointSay)}
+      >
+        <button
+          type="button"
+          className="set-ghost"
+          disabled={picking}
+          onClick={() => void point(chosen ? 'search' : undefined)}
+        >
+          {picking ? copy.picking : chosen ? copy.searchAgain : copy.point}
+        </button>
+      </Row>
     </Group>
   );
 }
@@ -880,12 +1161,14 @@ function Connection({ copy, check, found, certain, bin, url, trouble = null, acc
    handed to the other page by accident. */
 type EngineConnection = Omit<React.ComponentProps<typeof Connection>, 'copy' | 'check'>;
 
-const ClaudeCode = (props: EngineConnection) => (
-  <Connection copy={CLAUDE} check={api.recheckClaude} {...props} />
+type EngineConnectionProps = Omit<EngineConnection, 'engine'>;
+
+const ClaudeCode = (props: EngineConnectionProps) => (
+  <Connection copy={CLAUDE} check={api.recheckClaude} engine="claude" {...props} />
 );
 
-const CodexCli = (props: EngineConnection) => (
-  <Connection copy={CODEX} check={api.recheckCodex} {...props} />
+const CodexCli = (props: EngineConnectionProps) => (
+  <Connection copy={CODEX} check={api.recheckCodex} engine="codex" {...props} />
 );
 
 /* THE UPDATES GROUP CAME BACK, AS ONE ROW WITH ONE BUTTON (w-39d6c237f7,
@@ -924,6 +1207,11 @@ function Updates({ state }: { state?: UpdateState | null }) {
   const press = async () => {
     if (look.busy) return;
     if (look.restart) { void api.updateInstall(); return; }
+    // THE COPY THAT CANNOT UPDATE ITSELF FROM WHERE IT IS: the press moves the
+    // app into Applications and macOS relaunches it, so nothing after a
+    // success here is ever drawn. A refusal arrives in the state, through the
+    // snapshot, like every other failure (shared/where-it-runs-from.mjs).
+    if (look.move) { void api.updateMove(); return; }
     setChecking(true);
     try {
       const got = await api.updateCheck();
@@ -1065,6 +1353,7 @@ function NavIcon({ id }: { id: SettingsPageId }) {
     general: <><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="12" r="2" /><circle cx="17" cy="17" r="2" /></>,
     appearance: <><circle cx="12" cy="12" r="8" /><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none" /></>,
     shortcuts: <><rect x="3.5" y="6.5" width="17" height="11" rx="2" /><path d="M7.5 10.5h.01M11 10.5h.01M14.5 10.5h.01M8.5 14h7" /></>,
+    phone: <><rect x="7" y="3" width="10" height="18" rx="2.2" /><path d="M11 17.5h2" /></>,
     claude: <><rect x="3.5" y="5" width="17" height="14" rx="2" /><path d="m7.5 10 2.5 2-2.5 2M12.5 14.5h4" /></>,
     codex: <><path d="m9 8-4 4 4 4M15 8l4 4-4 4" /></>,
     running: <><circle cx="12" cy="12" r="8" /><path d="M10.5 9.2v5.6l4.5-2.8z" /></>,
@@ -1096,7 +1385,12 @@ function paneFrom(want: string, has: { team: boolean }): Pane {
 
 /* --------------------------------- screen --------------------------------- */
 
-export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, projectShare, projectWho, account, update = null, onClose }: {
+export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null }: {
+  /** Opens the feedback card. A phone has no Feedback button in its corner,
+   *  so its own Settings page offers it (2026-10-12). */
+  onFeedback?: () => void;
+  /** The cloud, when this Mac is set up for it: its own logins are listed on the agent's page. */
+  cloud?: CloudStatus | null;
   // ONE control for the three of them. Light, dark and each picture are one
   // list, because a picture IS dark (skins.ts) and asking her to set a theme
   // and then a background is two decisions for one choice.
@@ -1136,6 +1430,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   /** Who is signed in, for the Account group on General. Absent when nobody
    *  is, and then there is no group. */
   account?: { email: string; team?: string | null; onSignOut: () => void };
+  /** HER PHONE WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md): present while
+   *  she is signed in, with the phone site's address once there is one. */
+  phoneCloud?: { site: string | null; siteQr: string | null };
   /**
    * WHETHER A NEWER AGENTBOX IS WAITING, as the whole app already reads it
    *  (the sidebar card and ⌘K read the same field). Handed in rather than
@@ -1149,8 +1446,11 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   // ?settings=claude, or ?settings=project:kestrel. Anything else (including the
   // bare ?settings=1 that only means "open") lands on General. `startPane` is
   // the same question asked from inside the app, and it wins.
+  // ON A PHONE IT OPENS ON THE PHONE'S OWN PAGE, its alerts: "we probably need
+  // a way in Settings for me to configure [notifications]" (2026-10-12). The
+  // page was there, a tab along a strip that opened on General.
   const [pane, setPane] = useState<Pane>(() => paneFrom(
-    startPane || new URLSearchParams(location.search).get('settings') || '',
+    startPane || new URLSearchParams(location.search).get('settings') || (onPhone() ? 'phone' : ''),
     { team: !!teamPane },
   ));
   // WHICH PAGE IS UP, for the window around this screen.
@@ -1167,6 +1467,20 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Every login's own usage, read when the Claude Code page opens and on
+  // Refresh. A reading can take back a stale mark, so the page reloads after.
+  const [accountReadings, setAccountReadings] = useState<AccountUsageReading[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const readAccounts = useCallback(async (refresh = false) => {
+    if (refresh) setRefreshing(true);
+    try {
+      const readings = await api.accountUsage({ refresh });
+      setAccountReadings(readings);
+      if (readings.length) await load();
+    } finally { if (refresh) setRefreshing(false); }
+  }, [load]);
+  useEffect(() => { if (pane !== 'claude') return; void readAccounts(); }, [pane, readAccounts]);
 
   /* THE SEARCH (w-ccadd13c46). Typing replaces the menu with what matches;
      ↑ and ↓ move through it and Enter opens one. Escape empties the box first
@@ -1291,41 +1605,89 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   const enginePage = (engine: 'claude' | 'codex') => {
     if (!w) return null;
     const agent = agentStory(w, usageReadings, engine);
-    const usageAccount = agent.accounts.find(a => a.chosen) ?? agent.accounts[0];
-    const status = { found: agent.found, certain: agent.certain, bin: agent.bin, url: agent.url, trouble: agent.trouble, onChecked: load };
+    // Each login's own reading, never another's: by its folder, or the corner's if it is the same login.
+    const readingOf = (profile: string): Usage | null => {
+      const own = accountReadings.find((r) => r.profile === profile && r.limits?.length && r.at);
+      if (own) return { engine: 'claude', limits: own.limits!, at: own.at!, profile };
+      const r = agent.reading;
+      return r && (r.profile ?? 'default') === profile ? r : null;
+    };
+    const picked = agent.accounts.some((a) => a.chosen);
+    const hereAccounts: PlaceAccount[] = [...agent.accounts]
+      .sort((x, y) => Number(y.chosen) - Number(x.chosen))
+      .map((a) => ({
+        key: a.profile,
+        name: a.email ?? 'Not signed in',
+        plan: a.signedIn ? a.plan : null,
+        about: a.signedIn ? [] : ['Finish signing in to use it'],
+        inUse: picked && a.chosen,
+        limits: readingOf(a.profile)?.limits ?? null,
+        use: a.signedIn && !(picked && a.chosen) && agent.accounts.length > 1
+          ? { word: picked ? 'Switch to this account' : 'Use only this account', onUse: () => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile: a.profile } })) }
+          : null,
+        trouble: a.trouble,
+        cmd: a.trouble && a.dir ? `CLAUDE_CONFIG_DIR=${a.dir} claude` : null,
+      }));
+    const lastRead = Math.max(0, ...agent.accounts.map((a) => readingOf(a.profile)?.at ?? 0));
+    const checked = lastRead ? usageCheckedAt(lastRead, now) : '';
+    const cloudHere = cloud?.setUp && (cloud.accounts ?? []).some((a) => a.engine === engine) ? cloud : null;
+    // WHERE AGENTS GO FIRST IS DRAWN FIRST: the cloud while it is on, this computer while it is off.
+    const cloudFirst = !!cloudHere && cloudHere.mode !== 'mac';
+    const cloudAccounts = cloudHere ? cloudPlaceAccounts(cloudHere, engine, now) : [];
+    const cloudCard = cloudHere && (
+      <Place id="cloud-accounts" name="Cloud" state={cloudHere.mode === 'mac' ? 'Off' : 'On'}
+        line={cloudPlaceLine(cloudHere, cloudAccounts.length)} accounts={cloudAccounts} />
+    );
+    const addAccount = async (a: Agent) => {
+      const r = a.engine === 'codex' ? await api.addCodexAccount() : await api.addClaudeAccount();
+      setAdding(r.ok ? { engine: a.engine, name: a.name, command: r.command } : { engine: a.engine, name: a.name, error: r.error });
+      // A Codex row appears now, reading "Not signed in". A Claude one appears
+      // only once its sign-in lands, so an abandoned one is never listed.
+      await load();
+    };
+    const status ={ found: agent.found, certain: agent.certain, bin: agent.bin, chosen: agent.chosen, url: agent.url, trouble: agent.trouble, onChecked: load };
     return (
       <Page title={agent.name}>
-        {/* THE STATE SPEAKS ONLY WHEN IT IS BAD. */}
-        {(!agent.found || agent.trouble) && (engine === 'codex' ? <CodexCli {...status} /> : <ClaudeCode {...status} />)}
+        {/* THE STATE SPEAKS ONLY WHEN IT IS BAD -- OR WHEN YOU MADE IT THIS WAY
+            (w-ce8c1a9275). A path somebody chose themselves is the one healthy
+            state worth a row, because the card is the only place that choice can
+            be given back: a choice that could only be undone by hand-editing a
+            file nobody is told about is not a door, it is a trap. */}
+        {(!agent.found || agent.trouble || agent.chosen)
+          && (engine === 'codex' ? <CodexCli {...status} /> : <ClaudeCode {...status} />)}
         {agent.found && (
           <>
-            {engine === 'claude' ? (
-              <ClaudeUsageSection key={usageAccount?.profile ?? 'default'} reading={agent.reading} profile={usageAccount?.profile ?? 'default'} email={usageAccount?.email} now={now} />
-            ) : (
-              <Group id="usage" label="Usage"><UsageRows reading={agent.reading} now={now} /></Group>
-            )}
+            {cloudFirst && cloudCard}
+            {engine === 'codex' && <Group id="usage" label="Usage"><UsageRows reading={agent.reading} now={now} /></Group>}
             {/* "SIGNED IN", NOT "ACCOUNTS": a heading that works at any
-                number, so one account is never shown a plural to fill. */}
-            <Group
-              id="accounts"
-              label="Signed in"
-              /* TWO FOLDERS, ONE SUBSCRIPTION, SAID ABOVE THE ROWS
-                 (w-f2a5c9894e). Main's sentence, about the pair. */
-              warn={engine === 'claude' ? w.accountsNote : null}
-            >
-              <AccountRows
-                agent={agent}
-                onChoose={(e, profile) => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine: e, profile } }))}
-                onAdd={async (a) => {
-                  const r = a.engine === 'codex' ? await api.addCodexAccount() : await api.addClaudeAccount();
-                  setAdding(r.ok ? { engine: a.engine, name: a.name, command: r.command } : { engine: a.engine, name: a.name, error: r.error });
-                  // The row for the new login appears immediately, reading
-                  // "Not signed in", so an abandoned sign in leaves something
-                  // she can see rather than a folder nothing mentions.
-                  await load();
-                }}
+                number, so one account is never shown a plural to fill. Beside
+                the cloud it names the place instead. */}
+            {engine === 'claude' ? (
+              <Place
+                id="usage"
+                name={cloudHere ? 'This computer' : 'Signed in'}
+                action={(
+                  <span className="acct-place-act">
+                    {!refreshing && checked && <span className="acct-checked">{checked}</span>}
+                    <button type="button" className="set-ghost" disabled={refreshing} onClick={() => void readAccounts(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
+                  </span>
+                )}
+                /* TWO FOLDERS, ONE SUBSCRIPTION, SAID ABOVE THE ROWS
+                   (w-f2a5c9894e). Main's sentence, about the pair. */
+                warn={w.accountsNote}
+                accounts={hereAccounts}
+                onAdd={() => void addAccount(agent)}
               />
-            </Group>
+            ) : (
+              <Group id="accounts" label={cloudHere ? 'This computer' : 'Signed in'}>
+                <AccountRows
+                  agent={agent}
+                  onChoose={(e, profile) => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine: e, profile } }))}
+                  onAdd={(a) => void addAccount(a)}
+                />
+              </Group>
+            )}
+            {!cloudFirst && cloudCard}
             {/* SIGNING A SECOND ACCOUNT IN, IN THE APP (w-c2904cc8d9). Main
                 makes the folder and registers the login, and the shell below
                 is left with the one part that is genuinely hers, signing in to
@@ -1363,7 +1725,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                 {w.permission === 'custom' ? (
                   <Row label="Permission mode" desc={PERMISSION_SENTENCE.custom} />
                 ) : (
-                  <Row label="Permission mode" desc={PERMISSION_SENTENCE[w.permission]}>
+                  <Row label={cloudHere ? 'On this computer' : 'Permission mode'} desc={PERMISSION_SENTENCE[w.permission]}>
                     {/* The caveat that your own allow and deny rules sit on top
                         of the mode rides on the picker rather than as a
                         paragraph under the card. */}
@@ -1374,6 +1736,21 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                       value={w.permission}
                       options={PERMISSION_OPTIONS}
                       onChange={(v) => setWorkspace('permission', v)}
+                    />
+                  </Row>
+                )}
+                {/* THE CLOUD'S OWN MODE: a cloud run works on a throwaway copy
+                    with nobody there to approve anything, so it may be looser
+                    than this computer. Unset, it follows this computer. */}
+                {cloudHere && (
+                  <Row label="In the cloud" desc={w.cloudPermission ? PERMISSION_SENTENCE[w.cloudPermission] : 'The same as on this computer.'}>
+                    <Picker
+                      bare
+                      label="Permission mode in the cloud"
+                      title={`The mode every cloud run starts in. ${RULES_ALWAYS_APPLY}`}
+                      value={w.cloudPermission ?? 'same'}
+                      options={[{ value: 'same', label: 'Same as this computer' }, ...PERMISSION_OPTIONS]}
+                      onChange={(v) => write(api.setWorkspaceSetting({ key: 'cloudPermission', value: v === 'same' ? null : v }))}
                     />
                   </Row>
                 )}
@@ -1505,12 +1882,12 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             {/* THE CORNER TAG (w-dafae58a23). The tag itself only hides for a
                 while; this is the one place it turns off for good, so it can
                 never become a thing she closed once and forgot. */}
-            <Group id="corner-tag" label="While you're in other apps">
+            <Group id="corner-tag" label="Agent Tray">
               <Row
-                label="Show what's ready in the corner"
-                desc="A small tag over your other apps says when an agent has something for you. Drag it anywhere. Hide it for a while from the tag itself."
+                label="Show the Agent Tray"
+                desc="A small tag over your other apps says when an agent has something for you. Drag it anywhere; it keeps that corner on every screen, and sizes itself to the screen it is on. Drag its bottom-left corner to make it bigger or smaller, or right-click it for that, for hiding it a while, and for turning it off."
               >
-                <Switch label="Show what's ready in the corner" on={w.cornerTag !== false} onChange={(v) => setWorkspace('cornerTag', v)} />
+                <Switch label="Show the Agent Tray" on={w.cornerTag !== false} onChange={(v) => setWorkspace('cornerTag', v)} />
               </Row>
             </Group>
             {/* ONE SWITCH OVER EVERYTHING THAT LEAVES THE MACHINE, and there is
@@ -1614,7 +1991,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
               {w.memoryGate && (
                 <Row
                   label="Hold heavy work when memory is short"
-                  desc={`Tests and builds take turns, urgent first. Everything else runs as normal.${twoEngines ? ' Claude Code and Codex both.' : ''}`}
+                  desc={`Tests and builds take turns, urgent first, and new agents wait to start until memory frees up.${twoEngines ? ' Claude Code and Codex both.' : ''}`}
                 >
                   <Switch label="Hold heavy work when memory is short" on={w.memoryGate.on} onChange={(v) => setWorkspace('memoryGate', v)} />
                 </Row>
@@ -1791,6 +2168,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             is what a person actually presses, grouped by the moment they would
             want it; ../shortcuts.ts holds the list. Every key on it works today
             (`tests/the-shortcuts-page-lists-keys-that-work.test.mjs`). */}
+        {pane === 'phone' && <PhonePage onFeedback={onFeedback} macShut={phoneCloud ? { ...phoneCloud, all: model?.workspace?.phoneAll !== false, projects: projects.filter((p) => p.slug !== 'practice'), onChoose: (all, except) => setWorkspace('phoneProjects', { all, except }) } : undefined} />}
         {pane === 'shortcuts' && (
           <div className="set-inner set-keys-page">
             <h1 className="set-title">Shortcuts</h1>

@@ -20,6 +20,7 @@
 // window to the front, and the reworked version passed 12 of 12 real checks.
 import { describe, expect, it } from 'vitest';
 import { createCornerTag, CLOSE_AFTER_MS, DRAG_FROM_PX, OPEN_AFTER_MS } from '../main/corner-tag.mjs';
+import { EDGE_SLACK } from '../shared/corner-tag.mjs';
 
 function rig({ config = {}, focused = false, at = 1_000_000 } = {}) {
   const handlers = {};
@@ -128,26 +129,25 @@ const READY = (now) => ({ ready: [
 ], working: 18 });
 
 describe('it shows up when something needs you, and only then', () => {
-  it('appears once its page is ready, when something fresh is ready and you are in another app', () => {
+  it('appears once its page is ready, when something is ready and you are in another app', () => {
     const r = rig();
-    r.call('zero:corner-tag', READY(1_000_000));
+    r.call('zero:corner-tag', READY(1_000_000_000));
     expect(r.win().visible).toBe(false);
     r.call('corner-tag:ready', { part: 'tag' });
     expect(r.win().visible).toBe(true);
     const state = r.win().sent.filter((s) => s[0] === 'corner-tag:state').at(-1)[1];
-    expect(state.ready.map((x) => x.id)).toEqual(['w-1']);
+    expect(state.ready.map((x) => x.id)).toEqual(['w-1', 'w-old']);
   });
 
-  it('counts nothing from an inbox of only old threads, and says how many are working instead', () => {
-    const r = rig();
+  // A day-old cut once made a Needs you of 58 read "3 waiting" (w-0961e5523b).
+  it('counts an old thread as waiting too, rather than saying how many are working', () => {
     const now = 1_000_000_000;
     const rr = rig({ at: now });
     rr.call('zero:corner-tag', { ready: [{ id: 'old', title: 'x', says: 'y', since: now - 3 * 24 * 3600_000 }], working: 4 });
     rr.call('corner-tag:ready', { part: 'tag' });
     const state = rr.win().sent.filter((s) => s[0] === 'corner-tag:state').at(-1)[1];
-    expect(state.ready).toEqual([]);
-    expect(state.working).toBe(4);
-    expect(r.windows).toHaveLength(0);
+    expect(state.ready.map((x) => x.id)).toEqual(['old']);
+    expect(rr.win().visible).toBe(true);
   });
 
   // The system's frosted material only comes with the system's own rounded
@@ -329,7 +329,7 @@ describe('pointing opens the list, a click opens the app, a press that moves is 
     expect(r.main.shown).toBe(0);
   });
 
-  it('a drag shuts an open list and cannot be dragged off the screen', () => {
+  it('a drag shuts an open list and may tuck it past the edge, but no further', () => {
     const r = rig();
     r.showTag();
     r.point();
@@ -337,7 +337,12 @@ describe('pointing opens the list, a click opens the app, a press that moves is 
     r.pressAndMove(900, 900);
     expect(r.win('card').visible).toBe(false);
     r.call('corner-tag:release', { cancelled: false });
-    expect(r.config.cornerTagSpot).toEqual({ x: 1728 - 80, y: 1080 - 26 });
+    // She asked for this on 2026-10-13: a drag to the right used to stop flush
+    // against the edge and spring back from anything beyond it ("I often want
+    // it a little bit further to the right side of the screen"). It may hang
+    // off by the slack now, which is a tuck and never a disappearance.
+    expect(r.config.cornerTagSpot).toEqual({ x: 1728 - 80 + EDGE_SLACK, y: 1080 - 26 + EDGE_SLACK });
+    expect(EDGE_SLACK).toBeLessThan(80 / 2);
   });
 
   it('a press whose release never comes lets go by itself after a minute', () => {
@@ -517,12 +522,21 @@ describe('hiding it for a while', () => {
     expect(r.saved.filter((p) => 'cornerTagHiddenUntil' in p)).toHaveLength(0);
   });
 
-  it('offers the hides and a way to Settings on right-click, and nothing that closes it for good', () => {
+  it('offers the sizes, the hides and a way to Settings on right-click, and nothing that closes it for good', () => {
     const r = rig();
     r.showTag();
     r.call('corner-tag:menu');
     const labels = r.tag.menu.filter((m) => m.label).map((m) => m.label);
-    expect(labels).toEqual(['Hide for 5 minutes', 'Hide for 30 minutes', 'Hide for the rest of today', 'Turn off in Settings…']);
+    // The sizes joined this menu on 2026-10-13, when she asked to be able to
+    // resize the tray: dragging its corner is the way most people will find,
+    // and this is the way somebody looks second, plus the only way back to the
+    // automatic size. Nothing here still closes it for good.
+    expect(labels).toEqual([
+      'Bigger', 'Smaller', 'Size for this screen',
+      'Hide for 5 minutes', 'Hide for 30 minutes', 'Hide for the rest of today',
+      'Turn off in Settings…',
+    ]);
+    expect(labels.some((l) => /close|quit|never|for good/i.test(l))).toBe(false);
   });
 
   it('shows again after waking from sleep once a hide has run out meanwhile', () => {
@@ -592,7 +606,9 @@ describe('the app window closing, and screens changing', () => {
     r.area.height = 800;
     r.screenListeners['display-metrics-changed']();
     expect(r.win('card').visible).toBe(false);
-    expect(r.win().bounds.x + r.win().bounds.width).toBeLessThanOrEqual(1200);
-    expect(r.win().bounds.y + r.win().bounds.height).toBeLessThanOrEqual(800);
+    // back on the smaller screen, give or take the tuck she is allowed
+    expect(r.win().bounds.x + r.win().bounds.width).toBeLessThanOrEqual(1200 + EDGE_SLACK);
+    expect(r.win().bounds.y + r.win().bounds.height).toBeLessThanOrEqual(800 + EDGE_SLACK);
+    expect(r.win().bounds.x).toBeLessThan(1200);
   });
 });

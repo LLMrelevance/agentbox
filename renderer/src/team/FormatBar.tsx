@@ -14,7 +14,17 @@
 import { useRef, useState } from 'react';
 import { EmojiPick } from './ChatActions';
 import { applyFormat, insertAt, type Format } from './compose-format';
+import { CHAT_KEYS } from './chat-editor';
+import type { RichBox } from './RichReply';
 import './chat.css';
+
+// EACH BUTTON SAYS ITS KEY when pointed at, the way Slack's do, so the keys
+// are found from the bar rather than from somebody else telling you.
+const MOD = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘' : 'Ctrl+';
+const KEYS_SHOWN: Partial<Record<Format, string>> = Object.fromEntries(Object.entries(CHAT_KEYS).map(([key, what]) => [
+  what,
+  key.replace('Mod-', MOD).replace('Shift-', MOD === '⌘' ? '⇧' : 'Shift+').replace(/-?([a-z0-9])$/, (_m, k: string) => k.toUpperCase()),
+]));
 
 // The eight that write markdown, in the order the drawing has them, each with
 // the glyph it wears. Stroked SVG rather than a letter where a letter would be
@@ -54,6 +64,19 @@ const WRITES: { what: Format; title: string; glyph: JSX.Element }[] = [
   ) },
 ];
 
+// ATTACH IS A PAPERCLIP, NOT A PLUS (w-140ac855b1, 2026-10-13). The bar drew a
+// +, and the person using it said "there doesn't seem to be an easy way to
+// attach something" with that + on the screen in front of them. A + says "add"
+// and could mean anything; a paperclip says attach. The thread panel's box
+// draws the same one (./ThreadPanel.tsx).
+export function ClipGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m13.6 7.6-5.5 5.5a3.4 3.4 0 0 1-4.8-4.8l5.6-5.6a2.3 2.3 0 0 1 3.3 3.3L6.6 11.6a1.15 1.15 0 0 1-1.6-1.6l5.1-5.1" />
+    </svg>
+  );
+}
+
 export function FormatBar({ box, onChange, onAttach }: {
   /** The reply box itself: the bar works on the selection that is in it. */
   box: { current: HTMLTextAreaElement | null };
@@ -63,6 +86,13 @@ export function FormatBar({ box, onChange, onAttach }: {
 }) {
   const [picking, setPicking] = useState(false);
   const emojiWrap = useRef<HTMLSpanElement>(null);
+  // THE BOX MAY BE THE EDITOR THAT SHOWS ITS FORMATTING (./RichReply.tsx), in
+  // which case B makes the words bold rather than typing asterisks round them.
+  const rich = () => (box.current as RichBox | null)?.rich ?? null;
+  // A LINK NEEDS AN ADDRESS, and an editor has no brackets to leave the caret
+  // in, so the button asks for it in a line of its own above the bar.
+  const [asking, setAsking] = useState(false);
+  const [href, setHref] = useState('');
 
   // EVERY BUTTON WORKS ON THE SELECTION THAT WAS IN THE BOX, which means the
   // box must not lose it. A plain button steals focus on mousedown and the
@@ -70,6 +100,7 @@ export function FormatBar({ box, onChange, onAttach }: {
   // prevented at mousedown and the focus is handed straight back afterwards.
   const onText = (make: (text: string, from: number, to: number) => { text: string; from: number; to: number }) => {
     const el = box.current;
+    if (rich()) return;
     if (!el) return;
     const out = make(el.value, el.selectionStart ?? el.value.length, el.selectionEnd ?? el.value.length);
     onChange(out.text);
@@ -83,17 +114,49 @@ export function FormatBar({ box, onChange, onAttach }: {
 
   const hold = (e: React.MouseEvent) => e.preventDefault();
 
+  const press = (what: Format) => {
+    const editor = rich();
+    if (!editor) { onText((text, from, to) => applyFormat(text, from, to, what)); return; }
+    if (what === 'link') { setHref(''); setAsking(true); return; }
+    editor.format(what);
+  };
+  const put = (what: string) => {
+    const editor = rich();
+    if (editor) editor.insert(what);
+    else onText((text, from, to) => insertAt(text, from, to, what));
+  };
+  const linkDone = (apply: boolean) => {
+    setAsking(false);
+    if (apply) rich()?.link(href);
+    else box.current?.focus();
+  };
+
   return (
     <div className="fmt-bar" role="toolbar" aria-label="Formatting">
+      {asking && (
+        <input
+          className="fmt-link-ask"
+          autoFocus
+          placeholder="Paste a link, then Return"
+          aria-label="Link address"
+          value={href}
+          onChange={(e) => setHref(e.target.value)}
+          onBlur={() => setAsking(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); linkDone(true); }
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); linkDone(false); }
+          }}
+        />
+      )}
       {WRITES.map(({ what, title, glyph }) => (
         <button
           key={what}
           type="button"
           className="fmt-btn"
-          title={title}
+          title={KEYS_SHOWN[what] ? `${title} (${KEYS_SHOWN[what]})` : title}
           aria-label={title}
           onMouseDown={hold}
-          onClick={() => onText((text, from, to) => applyFormat(text, from, to, what))}
+          onClick={() => press(what)}
         >{glyph}</button>
       ))}
       {/* THE GAP THE DRAWING HAS. The three on the right are not formatting:
@@ -101,15 +164,13 @@ export function FormatBar({ box, onChange, onAttach }: {
           already there, and the space is what says so. */}
       <span className="fmt-gap" aria-hidden="true" />
       <button type="button" className="fmt-btn" title="Mention someone" aria-label="Mention someone"
-        onMouseDown={hold} onClick={() => onText((text, from, to) => insertAt(text, from, to, '@'))}>
+        onMouseDown={hold} onClick={() => put('@')}>
         <span className="fmt-letter">@</span>
       </button>
       {onAttach && (
         <button type="button" className="fmt-btn" title="Attach a file" aria-label="Attach a file"
           onMouseDown={hold} onClick={onAttach}>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
-            <path d="M8 3v10M3 8h10" />
-          </svg>
+          <ClipGlyph />
         </button>
       )}
       <span className="fmt-emoji-wrap" ref={emojiWrap}>
@@ -117,7 +178,7 @@ export function FormatBar({ box, onChange, onAttach }: {
           <EmojiPick
             title="Add an emoji"
             onClose={() => setPicking(false)}
-            onPick={(emoji) => { setPicking(false); onText((text, from, to) => insertAt(text, from, to, emoji)); }}
+            onPick={(emoji) => { setPicking(false); put(emoji); }}
           />
         )}
         <button type="button" className="fmt-btn" title="Add an emoji" aria-label="Add an emoji"

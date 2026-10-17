@@ -13,7 +13,7 @@
 // not, midnight, and a tag dragged to every quarter of the screen.
 import { describe, expect, it } from 'vitest';
 import {
-  HIDE_CHOICES, hiddenUntil, tagSays, tagShows, waitedFor, cardLines, readyNow, RECENT_MS,
+  HIDE_CHOICES, hiddenUntil, tagSays, tagShows, waitedFor, cardLines, readyNow,
   restingSpot, keepCorner, cardPlacement, MARGIN,
 } from '../shared/corner-tag.mjs';
 
@@ -129,35 +129,20 @@ describe('the list under the tag', () => {
   });
 });
 
-describe('only what is fresh counts (the first version counted the whole inbox)', () => {
+// Everything waiting counts, old or new; only the order keeps the old ones
+// out of the way. tests/the-corner-tag-counts-everything-that-needs-you.test.mjs
+// holds the cases (a day-old cut once made a Needs you of 58 read "3 waiting").
+describe('what counts', () => {
   const now = Date.UTC(2026, 9, 8, 12, 0, 0);
   const hour = 60 * 60_000;
 
-  it('keeps what became ready in the last day, newest first', () => {
+  it('keeps everything waiting, newest first', () => {
     const r = readyNow([
       { id: 'old', since: now - 3 * 24 * hour },
       { id: 'an-hour', since: now - hour },
       { id: 'just-now', since: now - 60_000 },
     ], now);
-    expect(r.map((x) => x.id)).toEqual(['just-now', 'an-hour']);
-  });
-
-  it('draws the line at a day: one minute inside counts, one minute past does not', () => {
-    const r = readyNow([
-      { id: 'inside', since: now - RECENT_MS + 60_000 },
-      { id: 'past', since: now - RECENT_MS - 60_000 },
-    ], now);
-    expect(r.map((x) => x.id)).toEqual(['inside']);
-  });
-
-  it('always counts an agent stopped on a yes, which has no moment it became ready', () => {
-    const r = readyNow([{ id: 'ask', since: undefined }, { id: 'old', since: now - 5 * 24 * hour }], now);
-    expect(r.map((x) => x.id)).toEqual(['ask']);
-  });
-
-  it('counts nothing from an inbox of only old threads', () => {
-    const old = Array.from({ length: 22 }, (_, i) => ({ id: `w-${i}`, since: now - (2 + i) * 24 * hour }));
-    expect(readyNow(old, now)).toHaveLength(0);
+    expect(r.map((x) => x.id)).toEqual(['just-now', 'an-hour', 'old']);
   });
 });
 
@@ -210,8 +195,28 @@ describe('which way the list opens', () => {
     const short = { x: 0, y: 0, width: 1728, height: 300 };
     const low = { x: 1570, y: 160, width: 140, height: 26 };
     const p = cardPlacement(low, { width: 360, height: 200 }, short);
-    expect(p.card.y).toBeGreaterThanOrEqual(0);
-    expect(p.card.y + p.card.height).toBeLessThanOrEqual(300);
+    expect(p.above).toBe(true);
+    expect(p.card.y + p.card.height).toBeLessThanOrEqual(low.y);
+  });
+
+  it('never covers the tag, whichever side it ends up on', () => {
+    // She sizes the tray from this list (2026-10-13): "this component should
+    // not cover up the actual little tray component that shows. Otherwise you
+    // can't decide on the sizing." On a screen too short for either side, the
+    // list runs off the screen's own edge rather than over the tag.
+    const covers = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    const screens = [area, { x: 0, y: 0, width: 1728, height: 300 }, { x: 0, y: 0, width: 900, height: 240 }];
+    const cards = [card, { width: 360, height: 200 }, { width: 420, height: 260 }];
+    for (const screen of screens) {
+      for (const c of cards) {
+        for (const y of [screen.y, screen.y + screen.height / 2 - 13, screen.y + screen.height - 26]) {
+          for (const x of [screen.x, screen.x + screen.width - 140]) {
+            const tag = { x, y, width: 140, height: 26 };
+            expect(covers(cardPlacement(tag, c, screen).card, tag)).toBe(false);
+          }
+        }
+      }
+    }
   });
 
   it('stays on screen when the tag sits right against an edge', () => {
