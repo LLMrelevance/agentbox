@@ -419,6 +419,7 @@ async function createWindow() {
       projects: () => config.phoneProducts ?? null,
       ready: () => !!phoneApply,
       apply: (cmd) => phoneApply(cmd),
+      live: (slug, id) => supervisor.liveFor(slug, id),
       stateFile: path.join(config.storeRoot, '.phone-inbox.json'),
       // This installation and this store together (main/phone-inbox.mjs).
       device: () => phoneDevice(userDir, config.storeRoot),
