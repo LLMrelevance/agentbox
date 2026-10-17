@@ -48,13 +48,16 @@ describe('what Z says when it is too late', () => {
 });
 
 describe('the wiring in App.tsx', () => {
-  it('reads the row fresh before taking a new task back, and refuses when it is answered', () => {
-    const at = app.indexOf("'take back the task you just made'");
-    expect(at).toBeGreaterThan(-1);
-    const near = app.slice(at, at + 900);
-    expect(near).toMatch(/api\.snapshot\(\)/);
-    expect(near).toMatch(/answeredAlready\(/);
-    expect(near).toMatch(/refused: TOO_LATE_TO_WITHDRAW/);
+  // Every place a task is made: the new-thread card, and Neo's compose.
+  it('reads the row fresh before taking a new task back, and refuses when it is answered, everywhere a task is made', () => {
+    const places = [...app.matchAll(/'take back the task you just made'/g)].map((m) => m.index);
+    expect(places.length).toBeGreaterThanOrEqual(2);
+    for (const at of places) {
+      const near = app.slice(at, at + 900);
+      expect(near).toMatch(/api\.snapshot\(\)/);
+      expect(near).toMatch(/answeredAlready\(/);
+      expect(near).toMatch(/refused: TOO_LATE_TO_WITHDRAW/);
+    }
   });
 
   it('a refused undo leaves no "Undid sending it" mark and gives no words back', () => {

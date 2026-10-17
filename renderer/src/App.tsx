@@ -4653,9 +4653,14 @@ export default function App() {
       if (made?.id) {
         pushUndo({ label: `Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`, undoes: 'take back the task you just made',
           undid: [{ product: made.product, id: made.id, words: 'Undid sending it' }],
-          run: async () => { await api.answer({ product: made.product, id: made.id, status: 'done' }); } });
-        showToast(sentLine({ to: snap?.products.find((p) => p.slug === product)?.name ?? product, when: null, held: false }), { product: made.product, id: made.id });
-        void refresh();
+          run: async () => {
+            const row = (await api.snapshot())?.items.find((i) => i.id === made.id && i.product === made.product);
+            if (answeredAlready(row)) return { refused: TOO_LATE_TO_WITHDRAW, open: row };
+            await api.answer({ product: made.product, id: made.id, status: 'done' });
+          } });
+        const next = await refresh();
+        showToast(sentLine({ to: snap?.products.find((p) => p.slug === product)?.name ?? product, when: null, held: false,
+          limit: next?.supervisor?.atLimit?.[made.id] }), { product: made.product, id: made.id });
       }
       return made;
     },
