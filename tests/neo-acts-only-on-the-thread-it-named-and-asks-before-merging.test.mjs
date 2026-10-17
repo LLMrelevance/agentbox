@@ -51,7 +51,7 @@ describe('acting on a named thread', () => {
   it('replies on the named thread, not on the one that is open', async () => {
     const { act, calls } = setup({ focused: rows[0] });
     await act('reply', { id: 'w-b', text: 'Thanks, close it after the test.' });
-    expect(calls).toContainEqual(['reply', rows[1], 'Thanks, close it after the test.']);
+    expect(calls).toContainEqual(['reply', rows[1], 'Thanks, close it after the test.', { attach: false }]);
   });
 
   it('closes the named thread', async () => {
@@ -374,7 +374,7 @@ describe('scrolling and showing', () => {
   it('lists the pictures in what Neo is told is on screen', () => {
     const { deps } = setup({ focused: rows[0] });
     deps.pictureNames = () => ['round9.png', 'round10.png'];
-    expect(describeScreen(deps)).toMatch(/Pictures:\n1\. round9\.png/);
+    expect(describeScreen(deps)).toMatch(/Pictures in the latest message:\n1\. round9\.png/);
   });
 });
 
@@ -430,5 +430,90 @@ describe('a command is done when it is done', () => {
     t.deps.close = async () => 'asked';
     t.deps.commands = () => [{ id: 'done', label: 'Close Task', run: () => { throw new Error('should go through close'); } }];
     expect(await t.act('run_command', { id: 'done' }, { heard: 'close it' })).toMatchObject({ ok: false, said: expect.stringMatching(/on screen/) });
+  });
+});
+
+// "Tried to reopen it, but that thread's not in the inbox anymore" while the
+// JARVIS thread sat at the top of her search, marked Working (2026-10-16): Neo
+// looked only in Needs you, and a thread an agent is on is In progress.
+describe('a thread is found wherever it is', () => {
+  it('opens a thread that is in progress, not only one that needs her', async () => {
+    const t = setup();
+    const working = { id: 'w-run', product: 'p1', productName: 'Agentbox', title: 'JARVIS for Agentbox', status: 'claimed' };
+    t.deps.threadsAnywhere = () => [...rows, working];
+    expect(await t.act('open_thread', { id: 'w-run' })).toMatchObject({ ok: true });
+    expect(t.calls).toContainEqual(['open', working]);
+  });
+
+  it('still says so when a thread is nowhere at all', async () => {
+    const t = setup();
+    t.deps.threadsAnywhere = () => rows;
+    expect(await t.act('open_thread', { id: 'w-nowhere' })).toMatchObject({ ok: false, said: expect.not.stringMatching(/inbox/) });
+  });
+
+  it('get_screen offers the threads that are in progress too, so Neo can name them', () => {
+    const t = setup();
+    t.deps.threadsAnywhere = () => [...rows, { id: 'w-run', product: 'p1', productName: 'Agentbox', title: 'JARVIS for Agentbox', status: 'claimed' }];
+    expect(describeScreen(t.deps)).toMatch(/Also open:[\s\S]*\[w-run\] JARVIS for Agentbox/);
+  });
+});
+
+// "It'd be very helpful for the agent to just do that as it's describing it.
+// The idea is principally that Neo or our JARVIS shows us, without using our
+// hands, exactly what we need to know to make a decision as quickly as
+// possible" (her words, 2026-10-16). Opening a thread puts the latest
+// message's pictures up by itself.
+describe('opening a thread shows what she needs to decide', () => {
+  function withPictures(latest, names) {
+    const t = setup();
+    t.deps.pictureNames = () => names;
+    t.deps.latestPictureCount = () => latest;
+    t.deps.waitForPictures = async () => {};
+    t.deps.show = vi.fn(async () => true);
+    return t;
+  }
+
+  it('lifts a single picture', async () => {
+    const t = withPictures(1, ['only.png', 'older.png']);
+    const r = await t.act('open_thread', { id: 'w-a' });
+    expect(t.deps.show).toHaveBeenCalledWith([1], 'lifted');
+    expect(r.said).toMatch(/on screen now/i);
+  });
+
+  it('puts two to four side by side', async () => {
+    const t = withPictures(3, ['a.png', 'b.png', 'c.png', 'old.png']);
+    await t.act('next_thread', {});
+    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3], 'side_by_side');
+  });
+
+  it('shows the first four of more', async () => {
+    const t = withPictures(6, ['1', '2', '3', '4', '5', '6']);
+    await t.act('open_thread', { id: 'w-a' });
+    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3, 4], 'side_by_side');
+  });
+
+  it('shows nothing when the latest message has no pictures, even if older ones do', async () => {
+    const t = withPictures(0, ['old.png']);
+    await t.act('open_thread', { id: 'w-a' });
+    expect(t.deps.show).not.toHaveBeenCalled();
+  });
+});
+
+// "I had an image in the chat that I wanted to provide along with the
+// feedback you were going to paste. You kept sending messages but never sent
+// the image" (her words, 2026-10-16).
+describe('a picture in her reply box goes with Neo\'s words when she means it', () => {
+  it('asks the app to send the box\'s pictures with the words', async () => {
+    const t = setup();
+    t.deps.reply = vi.fn(async () => 'with-pictures');
+    const r = await t.act('reply', { id: 'w-b', text: 'Here is the bug, see the screenshot.', attach: true });
+    expect(t.deps.reply).toHaveBeenCalledWith(rows[1], 'Here is the bug, see the screenshot.', { attach: true });
+    expect(r.said).toMatch(/with the pictures/);
+  });
+
+  it('says so when there was no picture to send', async () => {
+    const t = setup();
+    t.deps.reply = vi.fn(async () => 'no-pictures');
+    expect((await t.act('reply', { id: 'w-b', text: 'see the image', attach: true })).said).toMatch(/no picture in the reply box/);
   });
 });

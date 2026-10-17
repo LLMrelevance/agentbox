@@ -170,3 +170,25 @@ describe('a request to the app is never sent to the agent', () => {
     expect(reply.description).toMatch(/only when the person asks to send/i);
   });
 });
+
+// Her words, 2026-10-16: "In the future, when I give feedback, preserve my
+// exact wording wherever possible instead of summarizing it." Neo had been
+// told to send her words "cleaned of filler", and it summarised them.
+describe('what she asks Neo to send goes word for word', () => {
+  it('every instruction about replies says her exact words, never summarised', () => {
+    const s = neoSession({});
+    const reply = NEO_TOOLS.find((t) => t.name === 'reply').description;
+    for (const said of [s.instructions, s.delegation.responses.instructions, reply]) {
+      expect(said).toMatch(/exact(ly)? (words|as they said)/i);
+      expect(said).toMatch(/never summaris/i);
+    }
+    expect(s.delegation.responses.instructions).not.toMatch(/cleaned of filler/);
+  });
+});
+
+describe('reply can carry the pictures in her reply box', () => {
+  it('takes attach as true or false and nothing else', () => {
+    expect(checkCall('reply', '{"id":"w-1","text":"see this","attach":true}')).toMatchObject({ ok: true });
+    expect(checkCall('reply', '{"id":"w-1","text":"see this","attach":"yes"}')).toMatchObject({ ok: false });
+  });
+});

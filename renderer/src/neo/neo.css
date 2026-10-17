@@ -55,3 +55,7 @@ html, body { margin: 0; width: 100%; height: 100%; background: transparent; over
 #neo.left #orb { right: auto; left: 24px; }
 #neo.left .neo-frame { right: auto; left: 184px; }
 #neo.left .neo-pace { right: auto; left: 12px; }
+
+/* Captions off: Neo only talks. A card that needs her (the microphone, a notice) still shows. */
+#neo.no-captions:not(.must-show) .neo-frame { opacity: 0; pointer-events: none; }
+.neo-pace-sep { width: 1px; height: 14px; background: rgba(255, 214, 170, .14); margin: 0 6px; }

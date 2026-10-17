@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createNeo } from '../main/neo/index.mjs';
 
-function fakes({ onListen, getMicImpl, mic = { status: 'granted' }, userData: given, startLiveImpl } = {}) {
+function fakes({ onListen, getMicImpl, mic = { status: 'granted' }, userData: given, startLiveImpl, onReview, clock } = {}) {
   const userData = given ?? fs.mkdtempSync(path.join(os.tmpdir(), 'neo-main-'));
   fs.writeFileSync(path.join(userData, 'neo-alpha'), '');
   const registered = [];
@@ -39,7 +39,7 @@ function fakes({ onListen, getMicImpl, mic = { status: 'granted' }, userData: gi
     screen: { getCursorScreenPoint: () => ({ x: 0, y: 0 }), getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }) },
     powerMonitor: { on: (ev, fn) => power.set(ev, fn) },
     systemPreferences: { getMediaAccessStatus: () => mic.status, askForMediaAccess: async () => mic.status === 'granted' },
-    getMicImpl, startLiveImpl, owner: { id: 'com.apple.Terminal', name: 'Terminal' },
+    getMicImpl, startLiveImpl, onReview, ...(clock ? { now: clock } : {}), owner: { id: 'com.apple.Terminal', name: 'Terminal' },
     session: { fromPartition: () => ({ setPermissionRequestHandler() {}, setPermissionCheckHandler() {} }) },
     globalShortcut: { register: (k) => { registered.push(k); return true; }, unregister() {} },
     mainWindow, preload: '/x', load: () => {}, userData,
@@ -359,5 +359,103 @@ describe('the card on the side with room', () => {
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'end' });
     const again = await awake(f.userData);
     expect(sides(again).at(-1)).toBe('left');
+  });
+});
+
+// "Quite often I'd like to use Neo in a mode where I basically don't even have
+// to see the little chat that comes up. Sometimes I want it, sometimes I
+// don't" (her words, 2026-10-16). Captions on or off, kept like the pace.
+describe('captions', () => {
+  it('are on until she turns them off, and stay as she left them', async () => {
+    const f = fakes();
+    expect(await f.handlers.get('neo:captions')(null)).toBe(true);
+    expect(await f.handlers.get('neo:captions')(null, false)).toBe(false);
+    const again = fakes({ userData: f.userData });
+    expect(await again.handlers.get('neo:captions')(null)).toBe(false);
+    expect(await again.handlers.get('neo:captions')(null, true)).toBe(true);
+  });
+
+  it('a value that is not on or off changes nothing', async () => {
+    const f = fakes();
+    await f.handlers.get('neo:captions')(null, false);
+    expect(await f.handlers.get('neo:captions')(null, 'off')).toBe(false);
+  });
+});
+
+// "Listen in on our conversations, track our conversations, and as we run
+// into issues, maybe every few minutes of usage, patch them as we go. Just
+// sort of do that continuously for the first couple weeks" (her words,
+// 2026-10-16). The transcript is kept on this Mac; every few minutes of talk
+// it is handed to a review.
+describe('listening in', () => {
+  async function talking(opts = {}) {
+    const f = fakes(opts);
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    return f;
+  }
+  const say = (f, who, text) => f.listeners.get('neo:log')(f.fromNeo, { who, text });
+
+  it('keeps what was said, word for word, in a file of this session on this Mac', async () => {
+    const f = await talking();
+    say(f, 'you', 'Full screen the picture.');
+    say(f, 'neo', 'One sec. Done.');
+    const dir = path.join(f.userData, 'neo', 'talk');
+    const [file] = fs.readdirSync(dir);
+    const lines = fs.readFileSync(path.join(dir, file), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    expect(lines.map((l) => [l.who, l.text])).toEqual([['you', 'Full screen the picture.'], ['neo', 'One sec. Done.']]);
+    expect(typeof lines[0].at).toBe('string');
+  });
+
+  it('takes lines only from Neo\'s own window, and only of the three kinds', async () => {
+    const f = await talking();
+    f.listeners.get('neo:log')(f.fromMainWindow, { who: 'you', text: 'not from neo' });
+    say(f, 'system', 'odd');
+    const dir = path.join(f.userData, 'neo', 'talk');
+    expect(fs.existsSync(dir) ? fs.readdirSync(dir) : []).toEqual([]);
+  });
+
+  it('hands the talk to a review once a few minutes have been spoken, at the end of that session', async () => {
+    const onReview = vi.fn();
+    const f = await talking({ onReview });
+    say(f, 'you', 'that was wrong');
+    f.listeners.get('neo:usage')(f.fromNeo, { seconds: 200 });
+    expect(onReview).not.toHaveBeenCalled();
+    f.listeners.get('neo:closed')(f.fromNeo);
+    expect(onReview).toHaveBeenCalledTimes(1);
+    const [{ files, seconds }] = onReview.mock.calls[0];
+    expect(seconds).toBe(200);
+    expect(files).toHaveLength(1);
+    expect(fs.readFileSync(files[0], 'utf8')).toMatch(/that was wrong/);
+  });
+
+  it('waits for more when a session was short, and counts it toward the next', async () => {
+    const onReview = vi.fn();
+    const f = await talking({ onReview });
+    say(f, 'you', 'hi');
+    f.listeners.get('neo:usage')(f.fromNeo, { seconds: 60 });
+    f.listeners.get('neo:closed')(f.fromNeo);
+    expect(onReview).not.toHaveBeenCalled();
+    const w = f.neo.wake('test'); await w;
+    say(f, 'you', 'second time');
+    f.listeners.get('neo:usage')(f.fromNeo, { seconds: 150 });
+    f.listeners.get('neo:closed')(f.fromNeo);
+    expect(onReview).toHaveBeenCalledTimes(1);
+    expect(onReview.mock.calls[0][0].files).toHaveLength(2);
+    expect(onReview.mock.calls[0][0].seconds).toBe(210);
+  });
+
+  it('starts counting again after a review', async () => {
+    const onReview = vi.fn();
+    const f = await talking({ onReview });
+    say(f, 'you', 'a');
+    f.listeners.get('neo:usage')(f.fromNeo, { seconds: 200 });
+    f.listeners.get('neo:closed')(f.fromNeo);
+    const w = f.neo.wake('test'); await w;
+    say(f, 'you', 'b');
+    f.listeners.get('neo:usage')(f.fromNeo, { seconds: 30 });
+    f.listeners.get('neo:closed')(f.fromNeo);
+    expect(onReview).toHaveBeenCalledTimes(1);
   });
 });

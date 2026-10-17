@@ -19,9 +19,11 @@ contextBridge.exposeInMainWorld('neo', {
   tool: (callId, name, args, heard) => ipcRenderer.invoke('neo:tool', { callId, name, args, heard }),
   drag: (phase, dx, dy) => ipcRenderer.send('neo:drag', { phase, dx, dy }),
   pace: (value) => ipcRenderer.invoke('neo:pace', value),
+  captions: (on) => ipcRenderer.invoke('neo:captions', on),
   usage: (seconds) => ipcRenderer.send('neo:usage', { seconds }),
   allowMic: () => ipcRenderer.invoke('neo:allow-mic'),
   ending: () => ipcRenderer.send('neo:ending'),
+  log: (line) => ipcRenderer.send('neo:log', line),
   closed: () => ipcRenderer.send('neo:closed'),
   clickable: (on) => ipcRenderer.send('neo:clickable', !!on),
 });

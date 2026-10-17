@@ -40,7 +40,7 @@ function scrollerAt(): HTMLElement | null {
   return page && page.scrollHeight > page.clientHeight + 1 ? page : null;
 }
 
-type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'scroll' | 'pictureNames' | 'show' | 'media' | 'mediaNames'> & {
+type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'scroll' | 'pictureNames' | 'show' | 'media' | 'mediaNames' | 'latestPictureCount' | 'waitForPictures'> & {
   pick(row: R, n: number): Promise<unknown>;
   close(row: R): Promise<unknown>;
 };
@@ -105,7 +105,12 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
           box.scrollTo({ top: to, behavior: 'smooth' });
           return true;
         },
-        pictureNames: () => threadPictures().map((img, i) => pictureName(img, i + 1)),
+        pictureNames: () => threadPictures().pictures.map((img, i) => pictureName(img, i + 1)),
+        latestPictureCount: () => threadPictures().latest,
+        // A thread draws its messages after its history arrives.
+        waitForPictures: async () => {
+          for (let waited = 0; waited < 1500 && !threadPictures().latest; waited += 150) await new Promise((r) => setTimeout(r, 150));
+        },
         show: (ns, layout) => show(ns, layout),
         // After React has drawn what the act changed, so the glow lands on
         // the section as it now is.

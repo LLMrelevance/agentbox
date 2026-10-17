@@ -21,6 +21,9 @@ const MARGIN = 20;
 export const SESSION_MAX_S = 20 * 60;
 export const DAY_MAX_S = 3 * 60 * 60;
 const ACT_TIMEOUT_MS = 10_000;
+// "Maybe every few minutes of usage": talk is handed to a review once this much has built up.
+export const REVIEW_AFTER_S = 180;
+const WHO = new Set(['you', 'neo', 'tool']);
 
 const today = (now) => new Date(now).toISOString().slice(0, 10);
 
@@ -28,6 +31,9 @@ export function createNeo({
   app, BrowserWindow, ipcMain, screen, powerMonitor, systemPreferences, session: electronSession, globalShortcut,
   mainWindow, preload, load, userData, now = Date.now, listen = listenForDoubleCommand, platform = process.platform,
   shell = { openExternal: () => {} }, owner = micOwner(), getMicImpl = getMic, startLiveImpl = startLive,
+  // Handed the transcripts of every few minutes of talk, for a review that
+  // patches what went wrong (main/main.mjs files them on a thread).
+  onReview = null,
 }) {
   const on = neoEnabled({ userData, platform });
   ipcMain.handle('neo:enabled', () => on);
@@ -55,6 +61,8 @@ export function createNeo({
   // Bumped whenever a session ends or is asked to, so a tool call queued in
   // that session is refused rather than carried out after Neo has gone.
   let generation = 0;
+  // This session's transcript, on this Mac only.
+  let talkFile = null;
   let ending = false;        // asked to sign off; takes no new work
   let sessionSeconds = 0;
   const seenCalls = new Set();
@@ -176,6 +184,7 @@ export function createNeo({
     if (!live) return;
     ending = false;
     sessionSeconds = 0;
+    talkFile = path.join(dir, 'talk', `${new Date(now()).toISOString().replace(/[:.]/g, '-')}.jsonl`);
     seenCalls.clear();
     const outside = !mainWindow.isFocused();
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send('neo:mode', { on: true });
@@ -230,8 +239,32 @@ export function createNeo({
     if (sessionSeconds >= SESSION_MAX_S || usage.seconds >= DAY_MAX_S) askSleep('limit');
   });
 
+  ipcMain.on('neo:log', (e, { who, text } = {}) => {
+    if (!fromNeo(e) || !talkFile || !WHO.has(who) || typeof text !== 'string' || !text.trim()) return;
+    try {
+      fs.mkdirSync(path.dirname(talkFile), { recursive: true });
+      fs.appendFileSync(talkFile, `${JSON.stringify({ at: new Date(now()).toISOString(), who, text: text.slice(0, 4000) })}\n`);
+    } catch {}
+  });
+
+  // After a session, its talk counts toward the next review.
+  function countTowardReview() {
+    const was = readPrefs().review ?? { seconds: 0, files: [] };
+    const files = [...(was.files ?? []), ...(talkFile && fs.existsSync(talkFile) ? [talkFile] : [])];
+    const seconds = (was.seconds ?? 0) + sessionSeconds;
+    talkFile = null;
+    if (files.length && seconds >= REVIEW_AFTER_S && onReview) {
+      writePrefs({ review: { seconds: 0, files: [] } });
+      log(`review after ${seconds}s of talk`);
+      try { onReview({ files, seconds }); } catch (err) { log(`review failed ${err.message}`); }
+      return;
+    }
+    writePrefs({ review: { seconds, files } });
+  }
+
   ipcMain.on('neo:closed', (e) => {
     if (!fromNeo(e)) return;
+    if (live) countTowardReview();
     live = false;
     generation++;
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send('neo:mode', { on: false });
@@ -268,6 +301,12 @@ export function createNeo({
   ipcMain.handle('neo:pace', (_e, pace) => {
     if (typeof pace === 'string' && Object.hasOwn(PACES, pace)) writePrefs({ pace });
     return Object.hasOwn(PACES, readPrefs().pace ?? '') ? readPrefs().pace : 'normal';
+  });
+
+  // Whether Neo's words show on the card or it only talks. Asked with no value, it answers.
+  ipcMain.handle('neo:captions', (_e, on) => {
+    if (typeof on === 'boolean') writePrefs({ captions: on });
+    return readPrefs().captions !== false;
   });
 
   ipcMain.on('neo:clickable', (e, on) => {

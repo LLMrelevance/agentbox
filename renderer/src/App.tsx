@@ -3468,6 +3468,10 @@ export default function App() {
 
   // Every resolving action goes through here: the UI advances instantly, the
   // write happens after the grace window (unless Z cancels it first).
+  // WHILE NEO SENDS, HER REPLY BOX STAYS AS IT IS. A send closes the box, and
+  // a pasted screenshot too big for the saved draft goes with it: "you removed
+  // an image I had previously attached" (2026-10-16).
+  const neoSending = useRef(false);
   const deferCommit = useCallback(async (
     item: WorkItem,
     run: () => Promise<void>,
@@ -3499,7 +3503,7 @@ export default function App() {
   ) => {
     await flushPending(); // a new action commits the previous one immediately
     if (!stay) leaveResolved(item);
-    setModal(null);
+    if (!neoSending.current) setModal(null);
     setPendingId(item.id); // out of the inbox NOW; the write can wait, the signal cannot
     // "PRESS Z", NOT A BARE LETTER. The toast used to read "Closed: Added the
     // sign-in route. Tests g · Z to undo": the title had been cut mid-word at
@@ -3797,7 +3801,7 @@ export default function App() {
     const isRunning = snap?.supervisor.running.some((run) => run.itemId === item.id && run.product === item.product);
     if (isRunning) {
       setFollowing({ product: item.product, id: item.id });
-      setModal(null);
+      if (!neoSending.current) setModal(null);
       // ON THE SCREEN BEFORE ANYTHING IS ASKED OF ANYBODY. The moment she
       // presses send, her message is the last thing in the conversation, where
       // she is already looking, and it says in its own head that the agent has
@@ -4608,13 +4612,24 @@ export default function App() {
   useNeo({
     rows: () => shownInbox,
     commands: () => paletteCommands.current,
+    threadsAnywhere: () => [...inbox, ...progress, ...snoozed, ...done],
     focused: () => focused,
     options: (row) => (offerIsLive(row) ? itemOptions(row) : []),
     summary: (row) => row.result || row.note || row.body || '',
     projects: () => (snap?.products ?? []).filter((p) => !directSlugs.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name })),
     open: (row) => { setSearch(null); setFocused(row); markSeen(row); },
     pick: (row, n) => pickOption(row, n),
-    reply: (row, text) => answerWith(row, text),
+    reply: async (row, text, { attach } = {}) => {
+      // The pictures in her reply box go out with the words, through the box's own send.
+      if (attach) {
+        let taken = false;
+        window.dispatchEvent(new CustomEvent('neo:send-from-box', { detail: { key: draftKey(row), text, answer: (sent: boolean) => { taken = sent; } } }));
+        if (taken) return 'with-pictures';
+      }
+      neoSending.current = true;
+      try { await answerWith(row, text); } finally { neoSending.current = false; }
+      return attach ? 'no-pictures' : undefined;
+    },
     close: (row) => markDone(row),
     compose: async (text, product) => {
       const message = threadMessage(text, []);

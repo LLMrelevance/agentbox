@@ -9,9 +9,37 @@ export type Layout = 'in_place' | 'lifted' | 'side_by_side' | 'full_screen' | 'c
 let layer: HTMLElement | null = null;
 let offKey: (() => void) | null = null;
 
-/** The pictures the open thread draws, in order (components/Focus.tsx ArtifactImg). */
-export function threadPictures(root: ParentNode = document): HTMLImageElement[] {
-  return [...root.querySelectorAll<HTMLImageElement>('img.inline-image')].filter((img) => img.isConnected && !img.closest('.neo-show'));
+// The same file drawn twice, or asked for again (?look=2), is one picture.
+const sameFile = (src: string) => src.replace(/[?#].*$/, '');
+
+/**
+ * Which pictures Neo counts, and in what order: each file once, the latest
+ * message's first in their own order, then older ones newest first. `block`
+ * is the message a picture is drawn in, in thread order.
+ */
+export function orderPictures(found: { src: string; block: unknown }[]): { order: number[]; srcs: string[]; latest: number } {
+  if (!found.length) return { order: [], srcs: [], latest: 0 };
+  const last = found[found.length - 1].block;
+  const seen = new Set<string>();
+  const latest: number[] = [];
+  found.forEach((p, i) => {
+    const key = sameFile(p.src);
+    if (p.block === last && !seen.has(key)) { seen.add(key); latest.push(i); }
+  });
+  const earlier: number[] = [];
+  for (let i = found.length - 1; i >= 0; i--) {
+    const key = sameFile(found[i].src);
+    if (!seen.has(key)) { seen.add(key); earlier.push(i); }
+  }
+  return { order: [...latest, ...earlier], srcs: found.map((p) => p.src), latest: latest.length };
+}
+
+/** The pictures the open thread draws (components/Focus.tsx ArtifactImg), as Neo numbers them. */
+export function threadPictures(root: ParentNode = document): { pictures: HTMLImageElement[]; latest: number } {
+  const all = [...root.querySelectorAll<HTMLImageElement>('.focus-scroll img.inline-image, .thread-block img.inline-image')]
+    .filter((img, i, list) => img.isConnected && !img.closest('.neo-show') && list.indexOf(img) === i);
+  const got = orderPictures(all.map((img) => ({ src: img.getAttribute('src') ?? '', block: img.closest('.thread-block') ?? img.parentElement })));
+  return { pictures: got.order.map((i) => all[i]), latest: got.latest };
 }
 
 export function pictureName(img: HTMLImageElement, n: number): string {
@@ -29,7 +57,7 @@ export function putAway() {
 export async function show(numbers: number[], layout: Layout): Promise<boolean> {
   putAway();
   if (layout === 'close') return true;
-  const all = threadPictures();
+  const all = threadPictures().pictures;
   const chosen = numbers.map((n) => ({ n, img: all[n - 1] })).filter((p) => p.img);
   if (!chosen.length) return false;
 
