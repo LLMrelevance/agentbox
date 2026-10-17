@@ -24,6 +24,13 @@
 // no fall-back to the shared checkout. What was wrong is the WORDING: a git
 // fatal about a path nobody recognises, where "another session is building this
 // folder, it will be along in a moment" is both true and actionable.
+//
+// RE-MEASURED 2026-10-17 ON A BUSY MACHINE, which showed two things one run at
+// a time never did. Git has a fifth wording, and on a slow enough loser the
+// winner has already FINISHED -- the folder is at its own path and nobody is
+// building anything, so "building" is the wrong word and asking again is the
+// right move. Both are in main/task-folders.mjs now, and the guard no longer
+// calls a branch checked out in somebody's finished work a race.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -78,6 +85,15 @@ describe('reading a failed `worktree add` for what it actually means', () => {
     expect(somebodyIsBuilding(`fatal: 'agentbox/w-x' is already used by worktree at '${buildingFolderPath(dir, 'w-x')}'`)).toBe(true);
   });
 
+  // A FIFTH WORDING, AND IT TOOK A BUSY MACHINE TO SHOW IT. Measured 2026-10-17
+  // on git 2.39.5: the race test run on its own passed five times out of five,
+  // and the same test run beside twenty-four others failed with this. Git's
+  // bookkeeping for staging is mid-flight -- registered by the winner, gone
+  // from the disk -- and the loser's second add says so.
+  it('calls it building when git says the staging path is not a working tree', () => {
+    expect(somebodyIsBuilding(`fatal: '${buildingFolderPath(dir, 'w-x')}' is not a working tree`)).toBe(true);
+  });
+
   // AND THE CASES THAT MUST NOT MATCH, which is the half that makes this worth
   // having: a full disk or a missing ref is NOT somebody else building, and
   // reporting it as "another session has this" would send whoever reads the row
@@ -94,6 +110,19 @@ describe('reading a failed `worktree add` for what it actually means', () => {
     // A branch that exists is handled on its own road (`hasBranch()` then
     // attach), and it is a different failure with a different answer.
     expect(somebodyIsBuilding("fatal: a branch named 'agentbox/w-x' already exists")).toBe(false);
+  });
+
+  // THE ONE THIS GUARD GOT WRONG, caught by a test main gained on 2026-10-15
+  // (tests/a-task-folder-is-made-when-the-repository-has-a-failing-post-checkout-hook).
+  // The branch wordings above are only about a race when the path git names is a
+  // STAGING folder. Named anywhere else, the branch is checked out in somebody's
+  // finished work and nobody is building anything: that is a real failure with a
+  // real answer, and swallowing it as "building" leaves the row waiting for a
+  // session that will never arrive.
+  it('does not call a branch checked out in a finished folder somebody else building', () => {
+    const elsewhere = path.join(dir, 'elsewhere');
+    expect(somebodyIsBuilding(`fatal: 'agentbox/w-x' is already checked out at '${elsewhere}'`)).toBe(false);
+    expect(somebodyIsBuilding(`fatal: 'agentbox/w-x' is already used by worktree at '${elsewhere}'`)).toBe(false);
   });
 
   it('says nothing about an empty or missing message', () => {
