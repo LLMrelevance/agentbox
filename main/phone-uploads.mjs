@@ -22,6 +22,9 @@ import { hideSecrets } from '../shared/phone-snapshot.mjs';
 export const UPLOAD_LIMITS = { fileBytes: 25 * 1024 * 1024, threadBytes: 100 * 1024 * 1024, totalBytes: 900 * 1024 * 1024, files: 60, days: 7 };
 const KEEP_UNNAMED_MS = 3 * 24 * 3600_000;
 const LOOK_AGAIN_MS = 5 * 60_000;
+// After a refused upload (no bucket yet, offline, signed out of storage) the
+// uploader rests, rather than reading every queued file again to be refused again.
+const REST_AFTER_REFUSAL_MS = 30 * 60_000;
 
 const TYPES = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.svg': 'image/svg+xml',
@@ -207,6 +210,7 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
   const queue = new Map(); // file -> { bytes, rank, roots, threads }
   const memo = new Map(); // thread -> { base, at, sig, out }
   let running = null;
+  let restUntil = 0;
 
   const known = (file, st) => {
     const was = names.get(file);
@@ -301,7 +305,8 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
       const [file, job] = [...queue].sort((a, b) => b[1].rank - a[1].rank)[0];
       queue.delete(file);
       try {
-        const read = await readChecked(file, job.roots);
+        // A file gone or changed since it was named is skipped; only a refused upload rests the uploader.
+        const read = await readChecked(file, job.roots).catch(() => null);
         if (!read) continue;
         const name = `${crypto.createHash('sha256').update(read.data).digest('hex')}${path.extname(file).toLowerCase()}`;
         names.set(file, { size: read.st.size, mtimeMs: read.st.mtimeMs, name });
@@ -315,7 +320,9 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
         // The threads that name it look again at what they list.
         for (const sk of job.threads) { const m = memo.get(sk); if (m) m.at = -Infinity; }
       } catch (err) {
-        log(`phone: could not send a file (${err?.message ?? err})`);
+        log(`phone: could not send a file, trying again in half an hour (${err?.message ?? err})`);
+        restUntil = now() + REST_AFTER_REFUSAL_MS;
+        return;
       }
     }
   }
@@ -324,7 +331,7 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
     manifest,
     /** Upload what is queued, in the background; the run already going if there is one. */
     kick() {
-      if (!running && queue.size) running = pump().finally(() => { running = null; });
+      if (!running && queue.size && now() >= restUntil) running = pump().finally(() => { running = null; });
       return running ?? Promise.resolve();
     },
     pending: () => queue.size,

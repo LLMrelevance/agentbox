@@ -188,6 +188,24 @@ describe('uploading them', () => {
     expect(Object.keys(up.manifest('t', s, { dir: docs, updatedAt: T, base: '1' }).files)).toEqual(['newer.png', 'new.html', 'film.mp4']);
   });
 
+  it('a refused upload rests the uploader for half an hour instead of reading every file again to be refused again', async () => {
+    put(path.join(docs, 'a.png'), 'a'); put(path.join(docs, 'b.png'), 'b');
+    let tries = 0;
+    let refuse = true;
+    const { up, tick } = uploader({ backend: { async putPhoneFile() { tries += 1; if (refuse) throw new Error('Bucket not found'); }, async dropPhoneFiles() {} } });
+    up.manifest('t', snap('a.png b.png'), { dir: docs, updatedAt: T, base: '1' });
+    await up.kick();
+    expect(tries).toBe(1);
+    tick(10 * 60_000);
+    up.manifest('t', snap('a.png b.png'), { dir: docs, updatedAt: T, base: '1' });
+    await up.kick();
+    expect(tries).toBe(1);
+    refuse = false;
+    tick(25 * 60_000);
+    await up.kick();
+    expect(tries).toBe(3);
+  });
+
   it('nothing goes up once she has signed out', async () => {
     put(path.join(docs, 'a.png'));
     const { up, stored } = uploader({ alive: () => false });
