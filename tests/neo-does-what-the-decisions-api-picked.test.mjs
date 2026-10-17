@@ -71,19 +71,6 @@ describe('what a pick does', () => {
     expect((await t.run('open the pricing one')).say).toMatch(/Opened Pricing page copy/);
   });
 
-  it('nothing to do is nothing done, and a one-word answer', async () => {
-    const t = setup('none');
-    const r = await t.run('hmm');
-    expect(t.calls).toEqual([]);
-    expect(r.say).toBe('Say just "Okay."');
-  });
-
-  it('a question about the thread is answered from what is on screen', async () => {
-    const t = setup('ask', { results: { describe_open: { ok: true, said: 'Open thread: JARVIS ... Latest from the agent: three designs.' } } });
-    const r = await t.run('why did it pick design two?');
-    expect(r.say).toMatch(/answer to why did it pick design two/);
-    expect(t.calls.map((c) => c[0])).toEqual(['describe_open']);
-  });
 });
 
 describe('when unsure, ask', () => {

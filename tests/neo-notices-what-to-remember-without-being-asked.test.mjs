@@ -15,7 +15,7 @@
 // all.
 
 import { describe, expect, it, vi } from 'vitest';
-import { NOTICE, runDecision } from '../main/neo/decided.mjs';
+import { HAND_BACK, NOTICE, runDecision } from '../main/neo/decided.mjs';
 import { addMemory, cleanMemory, forgetMemory, rememberedText } from '../shared/neo-memory.mjs';
 
 const AT = Date.UTC(2026, 9, 17, 9, 0, 0);
@@ -72,10 +72,12 @@ describe('a preference said in passing', () => {
     expect(r.say).toMatch(/did next_thread/);
   });
 
-  it('replaces the bare "Okay." rather than contradicting it', async () => {
+  // A turn with nothing for the app to do goes back to the voice; the note
+  // rides with it rather than being dropped for want of an action to hang on.
+  it('rides along on a turn the voice answers itself', async () => {
     const t = setup({ action: 'none' });
     const r = await t.run('honestly I hate it when things close themselves on me');
-    expect(r.say).not.toMatch(/Say just "Okay\."/);
+    expect(r.say).toContain(HAND_BACK);
     expect(r.say).toContain('Never close a thread without asking me first.');
   });
 

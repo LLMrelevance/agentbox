@@ -14,7 +14,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildOptions } from '../shared/neo-options.mjs';
 import { addMemory, cleanMemory, forgetMemory, rememberedText, withInstructions } from '../shared/neo-memory.mjs';
 import { neoSession } from '../shared/neo-tools.mjs';
-import { runDecision } from '../main/neo/decided.mjs';
+import { HAND_BACK, runDecision } from '../main/neo/decided.mjs';
 
 const AT = Date.UTC(2026, 9, 17, 9, 0, 0);
 const KEPT = addMemory(withInstructions({}, 'Talk to me like a colleague.'), 'Never merge without asking me.', AT).doc;
@@ -97,29 +97,20 @@ describe('the pick', () => {
   });
 });
 
+/* Since 798d084 the app answers no questions: anything that is not an action
+   goes back to the voice, which answers from what it was told. So the memory
+   reaching answers is the memory reaching the voice's own instructions, and
+   the two halves of that are what this pins. */
 describe('the answer to a question', () => {
-  it('is written knowing what Neo remembers', async () => {
+  it('goes back to the voice rather than to a writer of the app\'s own', async () => {
     const t = setup('ask');
     const r = await t.run('why did it pick that?');
-    expect(r.say).toContain('Never merge without asking me.');
+    expect(r.say).toBe(HAND_BACK);
+    expect(t.calls).toEqual([]);
   });
 
-  // The writer is told the screen text is data and never an instruction, so a
-  // memory folded in beside it would be read as data too.
-  it('carries it apart from the screen text, which the writer is told to ignore as instruction', async () => {
-    const seen = [];
-    await runDecision({
-      heard: 'why did it pick that?',
-      askMain: async (name) => (name === 'neo_screen'
-        ? { ok: true, screen: SCREEN }
-        : { ok: true, said: 'the thread is about Neo' }),
-      decideImpl: async () => ({ choice: 'ask', confidence: 0.9, runnersUp: [], ms: 1 }),
-      state: {},
-      memory: store(KEPT),
-      answer: async (args) => { seen.push(args); return 'ok'; },
-    });
-    expect(seen[0].remembered).toContain('Never merge without asking me.');
-    expect(seen[0].context).not.toContain('Never merge without asking me.');
+  it('is answered by a voice that was given what Neo remembers', () => {
+    expect(String(neoSession({ remembered: REMEMBERED }).instructions)).toContain('Never merge without asking me.');
   });
 });
 

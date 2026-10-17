@@ -69,14 +69,19 @@ export function loadCloudConfig(appDir, { packaged = isPackagedElectron(), home 
     path.join(appDir, 'cloud', 'team.config.json'),
     teamConfigOnThisMac(home),
   ];
+  let found = null;
   for (const file of tries) {
     if (!file) continue;
     try {
       const c = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (typeof c.url === 'string' && typeof c.anonKey === 'string') return c;
+      if (typeof c.url !== 'string' || typeof c.anonKey !== 'string') continue;
+      // A field the winning file lacks (phoneSite, added later) comes from a
+      // file further down for the same cloud, never from another cloud's.
+      if (!found) found = c;
+      else if (c.url === found.url) found = { ...c, ...found };
     } catch { /* try the next place; none of them is the single-person app */ }
   }
-  return null;
+  return found;
 }
 
 function fileStorage(file, { encrypt, decrypt }) {

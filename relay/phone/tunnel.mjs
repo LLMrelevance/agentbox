@@ -9,9 +9,16 @@ import { seal, open, packRequest, pieces, FRAME, frameAad, b64u } from '../../sh
 /** What a phone's request may carry; the Mac passes on the same few. */
 const PASS = ['accept', 'content-type', 'range', 'user-agent', 'if-none-match', 'x-agentbox-token', 'x-agentbox-device'];
 
+/**
+ * Hands the worker the key this page was opened with. The worker answers
+ * "key-taken" only when it differs from the one it kept, so a computer that is
+ * really away is not reloaded in a loop.
+ */
+export const TAKE_KEY = `(function(){var m=/(?:^#|&)k=([A-Za-z0-9_-]{24,})/.exec(location.hash),s=navigator.serviceWorker,c=s&&s.controller;if(!m||!c)return;s.addEventListener('message',function(e){if(e.data==='key-taken')location.reload()});c.postMessage({key:m[1]})})()`;
+
 const page = (title, body) => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#1e1b1a"><meta http-equiv="refresh" content="8"><title>${title}</title>
 <style>html,body{margin:0;height:100%;background:#1e1b1a;color:#e8e4dc;font:16px/1.45 -apple-system,system-ui,sans-serif}main{min-height:100%;display:flex;flex-direction:column;justify-content:center;gap:14px;padding:32px 28px;box-sizing:border-box}h1{margin:0;font-size:21px;font-weight:500}p{margin:0;color:#a39e94}button{align-self:flex-start;margin-top:8px;height:40px;padding:0 18px;font:inherit;color:#e8e4dc;background:#34312e;border:1px solid #4a4642}</style></head>
-<body><main><h1>${title}</h1><p>${body}</p><button onclick="location.reload()">Try again</button></main></body></html>`;
+<body><main><h1>${title}</h1><p>${body}</p><button onclick="location.reload()">Try again</button></main><script>${TAKE_KEY}</script></body></html>`;
 
 /**
  * How long opening the app keeps trying before it says the computer is away

@@ -43,7 +43,7 @@ import { cloudWorkPending, readMarker } from './cloud/marker.mjs';
 import { ownDesignsFit } from './cloud/docs.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
 import { readCloudConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
-import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey } from './cloud/logins.mjs';
+import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
 import { execFileSync } from 'node:child_process';
 import { holdUntilHome } from './cloud/codex-cloud.mjs';
 import { readCloudUsage, summarizeCloudUsage } from './cloud/usage.mjs';
@@ -86,7 +86,7 @@ function whoHasIt(made) {
 }
 import { agentSpokeSince, answerSettled, answerTs, stoppedByHer } from '../shared/answers.mjs';
 import { DEFAULT_SESSIONS_AT_ONCE } from './config.mjs';
-import { toolingLine } from './account-tooling.mjs';
+import { accountIdentity, nameForOrganization, toolingLine } from './account-tooling.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
 import { writeChangeForRun, changePath } from './code-change.mjs';
@@ -4180,13 +4180,45 @@ export class Supervisor {
   _cloudAccounts() {
     const now = Date.now();
     const out = [];
+    let here = null;
     for (const engine of [DEFAULT_ENGINE, 'codex']) {
       listCloudLogins(engine, { home: this.config.home }).forEach((r) => {
         const state = cloudLoginState(r, { now });
-        out.push({ engine, key: r.key, name: r.email || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null, limitedUntil: r.limitedUntil ?? null });
+        // A Claude login in the cloud can say its organization, not its email.
+        here ??= this._profiles().map((p) => accountIdentity(p === 'default' ? null : p, { home: this.config.home || os.homedir() }));
+        const name = r.email || (engine === DEFAULT_ENGINE ? nameForOrganization(r.org, here) : null);
+        out.push({
+          engine, key: r.key, name: name || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null,
+          limitedUntil: r.limitedUntil ?? null, limits: cloudLimits(r.limits), readAt: r.readAt ?? null, duplicateOf: r.duplicateOf ?? null,
+        });
       });
     }
     return out;
+  }
+
+  /**
+   * THE CLOUD'S CLAUDE LOGINS LOOKED AT, one at a time, each at most every ten
+   * minutes unless `force`, for the Settings page. Each look is a sandbox
+   * session and one tiny reply on that login (main/cloud/logins.mjs).
+   */
+  async lookAtCloudLogins({ force = false } = {}) {
+    if (this._cloudLooking || !readCloudConfig(process.env, this.config.home)) return;
+    const now = Date.now();
+    const due = listCloudLogins(DEFAULT_ENGINE, { home: this.config.home })
+      .filter((r) => !r.broken && (force || !r.readAt || now - r.readAt > 10 * 60_000));
+    if (!due.length) return;
+    this._cloudLooking = true;
+    try {
+      const { transport, storage } = await this._cloudClients();
+      for (const r of due) {
+        await lookAtCloudLogin({ transport, storage, key: r.key, home: this.config.home }).catch(() => 'failed');
+        this.onChange?.();
+      }
+    } catch (e) {
+      console.warn('zero: could not look at the cloud sign-ins:', e.message);
+    } finally {
+      this._cloudLooking = false;
+    }
   }
 
   // The sign-ins going on, or just ended, for the setup screen to draw.
@@ -4273,6 +4305,35 @@ export class Supervisor {
     this._cloudSignIns.set(flowKey, flow);
     this.onChange?.();
     return { key: account };
+  }
+
+  // WHICH CLAUDE ACCOUNT EACH CLOUD SIGN-IN IS (main/cloud/org.mjs), asked
+  // once per account that has no `org` yet, one at a time, so the same
+  // account added twice is known (main/cloud/logins.mjs `duplicatesIn`). An
+  // account the cloud would not say for is asked again after ten minutes.
+  async _noteCloudOrgs(now = Date.now()) {
+    if (!this._cloudConfig || this._cloudOrgBusy) return;
+    this._cloudOrgTried ??= new Map();
+    const rec = listCloudLogins('claude', { home: this.config.home })
+      .find((r) => !r.org && !r.broken && now - (this._cloudOrgTried.get(`${r.key}:${r.id}`) ?? 0) > 10 * 60_000);
+    if (!rec) return;
+    this._cloudOrgBusy = true;
+    this._cloudOrgTried.set(`${rec.key}:${rec.id}`, now);
+    try {
+      const org = await this._readCloudOrg(rec);
+      if (org) markCloudLogin('claude', rec.key, rec.id, { org }, { home: this.config.home });
+    } catch (e) {
+      console.warn('zero: could not read which account a cloud sign-in is:', e.message);
+    } finally {
+      this._cloudOrgBusy = false;
+      this._cloudConfigAt = 0;
+      this.onChange?.();
+    }
+  }
+
+  async _readCloudOrg(rec) {
+    const { readCloudOrg } = await import('./cloud/org.mjs');
+    return readCloudOrg(rec, await this._cloudClients());
   }
 
   // CODEX LOGINS RENEWED BEFORE THEY RUN OUT, on the supervisor's own clock
@@ -4994,6 +5055,13 @@ export class Supervisor {
      Pausing the whole fleet is still a switch in Settings and a row in
      ⌘K, and stopping one task is still S on the row. */
 
+  /** What the phone is told of the agent running on one thread: since, where, its current steps. Null when none is. */
+  liveFor(product, itemId) {
+    const s = this.sessions.get(itemId);
+    if (!s || s.product !== product || s.remoteIdle) return null;
+    return { since: s.startedAt, where: s.cloud ? 'cloud' : 'mac', doing: currentActivity(s).map((a) => ({ label: a.label, startedAt: a.startedAt })) };
+  }
+
   status() {
     // Stalled: the founder's answer is marked delivered, but nobody is on the
     // item and it never moved. A worker ran and exited without finishing (a
@@ -5417,7 +5485,7 @@ export class Supervisor {
     try { this._forgetResetLimits(); } catch (e) { console.warn('zero: could not let a reset limit go:', e.message); }
     try { this._forgetRenewedSubscriptions(); } catch (e) { console.warn('zero: could not let a renewed subscription back in:', e.message); }
     // _cloudReady reads the cloud's setup (at most once a minute) first.
-    try { this._cloudReady('codex'); this._renewCloudLogins(); } catch (e) { console.warn('zero: could not check the cloud sign-ins:', e.message); }
+    try { this._cloudReady('codex'); this._renewCloudLogins(); void this._noteCloudOrgs(); } catch (e) { console.warn('zero: could not check the cloud sign-ins:', e.message); }
     try { if (this._cloudConfig) this._forgetOldCloudTokens(); } catch { /* tried */ }
     // A COOLDOWN STOPS THE SPAWNING AND IT MUST NOT STOP THE TELLING. The brake
     // goes on when there is no healthy account left anywhere, for up to half an
@@ -7532,6 +7600,23 @@ export class Supervisor {
       // meter. The home goes with it because there is one app-server per login
       // and a reading belongs to the one that gave it.
       onNotification: (method, params) => this._codexUsage().saw(method, params, home),
+      // A REQUEST CODEX INVENTED SINCE WE LAST READ ITS SCHEMA (w-36c51443df).
+      //
+      // The transport refuses it, which is the right answer and is not in
+      // question. What was missing is anybody finding out: six known requests
+      // shared one anonymous refusal for a slice, and the only way to learn that
+      // `account/chatgptAuthTokens/refresh` was among them was to dump the
+      // schema by hand. A new method is a new Codex release changing what it
+      // expects of a client, which is worth one line rather than a silence.
+      //
+      // Once per method per app-server, for the reason `sayUnasked` gives: a
+      // line repeated on every beat is a line nobody reads.
+      onUnknownRequest: (method) => {
+        this._unknownCodexRequests ??= new Set();
+        if (this._unknownCodexRequests.has(method)) return;
+        this._unknownCodexRequests.add(method);
+        console.warn(`zero: codex app-server asked for "${method}", which this version of ${NAME} does not recognise, so it was refused. If Codex now needs it, main/codex-app-server.mjs is where it is decided.`);
+      },
     });
     const handshake = client.initialize();
     // The rejection is kept for the workers that chain off it and ALSO swallowed
@@ -9145,6 +9230,7 @@ export class Supervisor {
       // A test runs its own coordinator beside the real one; it names a port.
       ...(Number.isInteger(this.config.memoryGateLockPort) ? { lockPort: this.config.memoryGateLockPort } : {}),
       historyFile: path.join(this.userDir, 'memory-gate-history.json'),
+      grantLogFile: path.join(this.userDir, 'memory-gate-grants.jsonl'),
       gate: { slots: this.memoryGateSlots() },
       scoreFor: (product, itemId) => this.memoryGateScore(product, itemId),
       ownerOf: (sessionId) => this.memoryGateOwner(sessionId),

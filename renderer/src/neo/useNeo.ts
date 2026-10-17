@@ -66,6 +66,8 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>): { on: boolean } {
       setEnabled(true);
       const live: NeoDeps<R> = {
         rows: () => latest.current.rows(),
+        threadsAnywhere: () => latest.current.threadsAnywhere?.() ?? [],
+        threadById: (id) => latest.current.threadById?.(id) ?? null,
         focused: () => latest.current.focused(),
         options: (r) => latest.current.options(r),
         summary: (r) => latest.current.summary(r),

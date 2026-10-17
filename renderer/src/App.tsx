@@ -73,7 +73,7 @@ import { approvalReads } from './approval-card';
 // there is anything to confirm the card has closed.
 import { sentLine, sendingLine } from './compose-says';
 import { wearJustMade, type JustMade } from './just-made';
-import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
+import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
 import { opensATextField } from './keys';
 import { sidebarFits, useRoomyToggle, useWindowWidth } from './room';
@@ -1816,10 +1816,15 @@ export default function App() {
     // An agent is working on it right now: In progress, whatever it says
     // (`live` in list-rules, w-bc976fd247). Ahead of every branch here,
     // the team ones included, because none of them can see a session.
-    if (liveIds.has(i.id)) return false;
+    //
+    // Both vetoes carry the one exception the rule carries, and have to: these
+    // two lines answer before `belongsInInbox` is ever called, so without it
+    // the exception would hold in the rule and not in the app (w-fe48447cab).
+    // A row still asking you something is never hidden by either.
+    if (liveIds.has(i.id) && !stillAsksYou(i)) return false;
     // And the app is still to ship it, which is the same: nobody needs to look
     // until it has (`shipping` in list-rules, w-0c1ba766eb).
-    if (shippingIds.has(i.id)) return false;
+    if (shippingIds.has(i.id) && !stillAsksYou(i)) return false;
     if (owedAnAnswer.has(i.id)) return true;
     // The rule itself lives in list-rules.ts, pure and pinned by tests. What
     // is left here is the view's own business: the grace window, the clock,
@@ -4626,6 +4631,7 @@ export default function App() {
     rows: () => shownInbox,
     commands: () => paletteCommands.current,
     threadsAnywhere: () => [...inbox, ...progress, ...snoozed, ...done],
+    threadById: (id) => items.find((i) => i.id === id) ?? null,
     focused: () => focused,
     options: (row) => (offerIsLive(row) ? itemOptions(row) : []),
     summary: (row) => row.result || row.note || row.body || '',
