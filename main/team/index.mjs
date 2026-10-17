@@ -17,7 +17,11 @@ import { listSharedProjects, joinSharedProject, markShared, makeDirect } from '.
 import { firstSentence } from '../../shared/thread-cards.mjs';
 import { cardsFor } from '../../shared/thread-cards.mjs';
 import fs from 'node:fs';
+import { saveAttachments, attachmentMarkdown } from '../save-attachments.mjs';
 import { hasLapsed, statusEnds } from '../../shared/team-status.mjs';
+import QRCode from 'qrcode';
+import { createPhoneInbox } from '../phone-inbox.mjs';
+import { SNAPSHOT_LIMITS, phoneProjectsOf, phoneEligible } from '../../shared/phone-snapshot.mjs';
 
 // `signingIn` is { url } while a Google sign-in waits on the browser, so the
 // page can offer that link again rather than a button that does nothing.
@@ -27,18 +31,27 @@ export function createTeamService({
   session, store, disk, accountRoot, stateFile, onChange = () => {}, log = () => {}, intervalMs = 5000, startRetryMs = 1500,
   // The clock, so a test can move past the moment a status runs out.
   now = Date.now,
+  // HER PHONE WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md, step 1): which
+  // projects she put on it (slugs), how a command from it is done, and where
+  // this Mac remembers what it sent. Needs no team, only a sign-in.
+  phone = null,
 }) {
-  let state = { ...EMPTY, configured: !!session?.configured };
+  // The phone site's address, only an https one, and its code for Settings.
+  const site = typeof phone?.site === 'string' && /^https:\/\/[^\s/]+(\/[^\s]*)?$/.test(phone.site) ? phone.site : null;
+  let siteQr = null;
+  let state = { ...EMPTY, configured: !!session?.configured, phoneSite: site, phoneSiteQr: null };
   let backend = null;
   let sync = null;
   let timer = null;
   let unsubscribe = null;
   let pending = null;
+  let phoneInbox = null;
   // The sync cursors and which team this Mac is in, in one file.
   let local = null;
   const kept = () => (local ??= fileSyncState(stateFile, fs));
 
   const set = (patch) => { state = { ...state, ...patch }; onChange(); };
+  if (site) QRCode.toString(site, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }).then((qr) => { siteQr = qr; set({ phoneSiteQr: qr }); }).catch(() => {});
 
   function products() {
     try { return store.listProducts(); } catch { return []; }
@@ -139,10 +152,55 @@ export function createTeamService({
         set({ error: String(err?.message ?? err) });
         return null;
       } finally {
+        // On its own, so a team sync that failed does not hold up her phone,
+        // nor her phone the team.
+        await phoneOnce();
         pending = null;
       }
     });
     return pending;
+  }
+
+  async function phoneOnce() {
+    // Not before the app's handlers exist: a command taken then would be
+    // marked refused for no reason of hers.
+    if (!phoneInbox || phone.ready?.() === false) return;
+    try {
+      await phoneInbox.syncOnce();
+      if (state.phoneError) set({ phoneError: null });
+    } catch (err) {
+      set({ phoneError: String(err?.message ?? err) });
+    }
+  }
+
+  function makePhoneInbox() {
+    if (!phone) return null;
+    const productOf = (slug) => products().find((p) => p.slug === slug) ?? null;
+    // WHO IT SENDS AS, fixed now, and whether that is still who is signed in
+    // (Codex's second review, finding 1).
+    const owner = state.me?.id;
+    const signedInAs = backend;
+    if (!owner) return null;
+    let inbox = null;
+    inbox = createPhoneInbox({
+      backend,
+      owner,
+      alive: () => phoneInbox === inbox && backend === signedInAs && state.me?.id === owner,
+      device: phone.device?.() ?? null,
+      projects: () => {
+        const on = new Set(phoneProjectsOf(phone.projects(), owner, phoneEligible(products())));
+        return products().filter((p) => on.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name || p.slug }));
+      },
+      listItems: (slug) => { const p = productOf(slug); try { return p ? disk.readWorkItems(p.dir) : []; } catch { return []; } },
+      historyOf: (slug, id, { all = false } = {}) => { try { return store.readHistory(slug, id, { max: all ? Number.MAX_SAFE_INTEGER : SNAPSHOT_LIMITS.lines }); } catch { return []; } },
+      apply: phone.apply,
+      // One file per person: what this Mac sent up for one account is not
+      // what the next one to sign in here has.
+      stateFile: phone.stateFile.replace(/(\.json)?$/, `.${owner}.json`),
+      now,
+      log,
+    });
+    return inbox;
   }
 
   function stopLoop() {
@@ -165,9 +223,11 @@ export function createTeamService({
     // no team cloud. So the single-person app opened on no projects at all.
     // Everybody gets one at boot now (main/main.mjs), signed in or not.
     await refreshTeam();
+    phoneInbox = makePhoneInbox();
     sync = createTeamSync({
       backend,
       disk,
+      log,
       state: kept(),
       // ARCHIVED ONES COUNT AS HERE. Asked of the visible list, a shared
       // project you archived read as missing and was joined again beside it.
@@ -256,8 +316,9 @@ export function createTeamService({
       delete process.env.AGENTBOX_PERSON_ID;
       backend = null;
       sync = null;
+      phoneInbox = null;
       // Signed out is a known answer, so the window shows the sign-in page at once.
-      state = { ...EMPTY, configured: !!session?.configured, started: true };
+      state = { ...EMPTY, configured: !!session?.configured, started: true, phoneSite: site, phoneSiteQr: siteQr };
       onChange();
       return state;
     },
@@ -372,7 +433,7 @@ export function createTeamService({
      * later is not a chance to lift it. Nothing picked means nothing sent, so
      * the row keeps composeItem's 0, which the inbox reads as Medium.
      */
-    async message(toIn, body, priority) {
+    async message(toIn, body, priority, files = []) {
       if (!backend || !state.team || !state.me) throw new Error('start or join a team first');
       const me = state.me.id;
       // One person or a few: the same conversation for the same people.
@@ -381,8 +442,9 @@ export function createTeamService({
       if (others.length > 11) throw new Error('a message goes to at most eleven people');
       if (others.some((p) => !state.people.some((q) => q.id === p))) throw new Error('that person is not on your team');
       const to = others.length === 1 ? others[0] : others;
-      const text = String(body ?? '').trim();
-      if (!text) throw new Error('a message needs some words');
+      const words = String(body ?? '').trim();
+      const carried = (Array.isArray(files) ? files : []).filter((f) => f && (f.dataBase64 || f.srcPath));
+      if (!words && !carried.length) throw new Error('a message needs some words');
       // THE RECORD IS REUSED ONLY IF IT IS EXACTLY THE TWO OF YOU AND ONE OF
       // YOU MADE IT. Found by review 2026-10-01: a teammate could make a
       // "direct" record holding you and somebody else, and the next message
@@ -404,6 +466,10 @@ export function createTeamService({
         }
         product = products().find((p) => p.dir === made.dir) ?? { slug: made.slug, dir: made.dir };
       }
+      // ITS FILES, saved into the conversation now that there is one, and
+      // linked under the words the way the reply box links them. The sync
+      // sends each one on before the line that names it (./sync.mjs).
+      const text = [words, attachmentMarkdown(saveAttachments(product.dir, carried))].filter(Boolean).join('\n\n');
       // ONE CONVERSATION PER PERSON (decided 2026-10-01 from user research:
       // people expect to click a name and see what was said before, and a
       // subject line on every message between two coworkers makes talking
@@ -411,7 +477,8 @@ export function createTeamService({
       // conversation the two of you already have, reopened if it was put away,
       // and only the first message ever starts one. Work stays in threads; this
       // is talk.
-      const title = firstSentence(text, 90) || text.slice(0, 90);
+      // Named by its words; a message that is only files is named by them.
+      const title = firstSentence(words, 90) || words.slice(0, 90) || (carried.length === 1 ? String(carried[0].name ?? 'A file') : `${carried.length} files`);
       const convo = conversationIn(product.slug);
       if (convo) {
         store.answerItem(product.slug, convo.id, { answer: text });

@@ -11,6 +11,11 @@ export interface WorkItem {
   // it would otherwise sort by, which it replaces. Kept by the supervisor, on
   // this Mac; absent on every row nobody has dragged.
   place?: number;
+  // PINNED TO THE TOP OF THE LIST (w-20323283e6). Kept by the supervisor, on
+  // this Mac, like the place; absent on every row nobody has pinned.
+  pinned?: boolean;
+  /** Kept on this Mac whatever the cloud is set to (Supervisor#setThreadOnMac). */
+  onMac?: boolean;
   // WHAT PEOPLE PUT ON EACH MESSAGE IN A CONVERSATION (w-560647d4db): by the
   // message's line uid, then by emoji, then the people on it. Folded out of the
   // presses the ledger holds (shared/work-items.mjs); absent on every row
@@ -23,6 +28,8 @@ export interface WorkItem {
   talk?: {
     chat: { by: string; ts: number; text: string }[];
     threads: Record<string, { by: string; text: string; replies: { by: string; ts: number; text: string }[] }>;
+    /** Per person, when they last marked it done; what came before is settled for them. */
+    settled?: Record<string, number>;
   };
   status: 'open' | 'claimed' | 'done' | 'blocked';
   title: string;
@@ -160,12 +167,17 @@ export interface Person {
 }
 
 /** What every team call answers: the team as it now stands, or why not. */
+/** A file a message to a person carries: pasted bytes or a path on this Mac. */
+export interface TeamMessageFile { name: string; dataBase64?: string; srcPath?: string }
+
 export interface TeamCallResult {
   ok: boolean;
   team?: TeamState;
   error?: string;
   /** A new account that waits on the link in its confirmation email. */
   confirm?: boolean;
+  /** The row a call wrote into, when it wrote one: a message's conversation. */
+  made?: { product: string; id: string };
 }
 
 export type ThreadStateWord = 'waiting' | 'running' | 'scheduled' | 'done';
@@ -199,6 +211,10 @@ export interface TeamInvite {
 
 export interface TeamState {
   configured: boolean;
+  /** The phone site's address, for the phone with the Mac shut, once there is one. */
+  phoneSite?: string | null;
+  /** That address as a QR code (svg), drawn on Settings › Phone. It carries no key. */
+  phoneSiteQr?: string | null;
   /** The first look for a saved sign-in is over (false while it is still being found). */
   started?: boolean;
   /** When this person began sharing on this Mac: threads started before it stay theirs unless shared by hand. */
@@ -246,6 +262,9 @@ export interface RunningSession {
   // (main/supervisor.mjs). Absent whenever there are none, which is every
   // ordinary run, so the mark at the foot of a task keeps its one word.
   helpers?: number;
+  /** 'cloud' while this run is in a cloud sandbox (docs/cloud/PLAN.md);
+   *  absent for a run on this Mac. */
+  where?: 'cloud';
 }
 
 /**
@@ -333,6 +352,14 @@ export interface Usage {
   profile?: string;
 }
 
+/** One Claude login's own reading, or why it has none (main/account-usage.mjs). */
+export interface AccountUsageReading {
+  profile: string;
+  limits?: UsageLimit[];
+  at?: number;
+  error?: string | null;
+}
+
 export interface SupervisorStatus {
   paused: boolean;
   running: RunningSession[];
@@ -346,6 +373,9 @@ export interface SupervisorStatus {
   // Rows nothing can start because their tool is signed out, id -> the tool's
   // name. Said instead of "queued", which would promise an agent that cannot come.
   signInNeeded?: Record<string, string>;
+  // Rows nothing can start because every login of their tool is out of usage,
+  // id -> the tool's name and when it resets (0 when no login said).
+  atLimit?: Record<string, { tool: string; until: number }>;
   // Rows the app's ship queue still owes a ship (main/ship-queue.mjs). Waiting
   // on the app, not on a person: In progress, reading "Shipping".
   shipping?: string[];
@@ -367,7 +397,7 @@ export interface SupervisorStatus {
   capacity: number;
   // Which Claude accounts are in trouble and what kind. Always current, because
   // the only thing that reads it is a page she chose to open.
-  accountTrouble?: Record<string, { cause: TroubleCause; since: number }>;
+  accountTrouble?: Record<string, { cause: TroubleCause; since: number; at?: number }>;
   // THE ONE LINE ABOVE THE LIST, and null unless it is really true and has been
   // for twenty unbroken minutes. Two facts can fill it: tasks nothing has been
   // able to run on (design option four), or nothing being able to start anywhere at
@@ -406,8 +436,17 @@ export interface SupervisorStatus {
 // is an account that IS signed in and whose organization has Claude Code
 // turned off. It is apart from 'signed-out' because the remedy has a different
 // person in it: no login she can type will end it, and being told to type one
-// can cost an afternoon.
-export type TroubleCause = 'signed-out' | 'org-blocked' | 'at-limit' | 'workspace' | 'interrupted' | 'unknown';
+// can cost an afternoon. 'subscription-ended' is refused in the same words as
+// 'org-blocked', and told apart by the login's own file (refineCause in
+// shared/spawn-trouble.mjs): its owner renews it, no admin is involved.
+// 'model-not-on-plan' is a Codex login whose plan lacks the model the task asks
+// for; the fix is another model or another login, not this login.
+// 'too-old' is a Claude Code older than the worker's command line (2.1.71), and
+// 'network' a proxy or company certificate the workers never had; both wait on
+// her, and neither is fixed by trying again. 'api-key' is a Codex signed in
+// with an API key, which is refused rather than billed; 'codex-config' is a
+// config.toml Codex cannot read.
+export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'too-old' | 'network' | 'api-key' | 'codex-config' | 'unknown';
 
 // A worker frozen mid-action, waiting on the user's allow/deny.
 export interface Approval {
@@ -516,6 +555,9 @@ export interface AgentTurn {
   // and after it `steer` has put the user's words on the session's stdin and no undo
   // can reach them. So the message says which of the two it is in.
   held?: boolean;
+  // AND, ON THE PHONE WITH THE MAC SHUT, WHY HER MAC DID NOT TAKE IT
+  // (renderer/src/cloud-bridge.ts). Absent on every other message.
+  refused?: string;
   // THE ROW THE WORDS WERE SAID ON, when they came from somewhere other than here.
   //
   // The ask usually lives on the PARENT row, and the pane used to quote it in a
@@ -616,11 +658,22 @@ export interface UpdateState {
   changes?: string[];
   behind?: number | null;
   installing?: boolean;
+  // WHERE THIS COPY IS RUNNING FROM, when that is a place macOS will not let
+  // it update itself (shared/where-it-runs-from.mjs). `canMove` is the one
+  // question the screens ask, `place` is which read-only place it is, and
+  // `moveError` is why the last move did not work. All absent, and `canMove`
+  // false, on every copy that can update itself, which is nearly all of them.
+  canMove?: boolean;
+  place?: string | null;
+  moveError?: string | null;
 }
 
 export interface Snapshot {
   products: Product[];
   items: WorkItem[];
+  // ON THE PHONE WITH THE MAC SHUT ONLY (renderer/src/cloud-bridge.ts): her
+  // replies from the phone her Mac has not taken yet, or turned down.
+  phoneWaiting?: { product: string; id: string; at: number; text: string; refused?: string }[];
   // The team (main/team/index.mjs). Null or absent on a build with no team
   // cloud, which is the single-person app.
   team?: TeamState | null;
@@ -631,6 +684,9 @@ export interface Snapshot {
   // and is not running. ⌘R will not pick it up, only a restart will, and the
   // renderer says so. Null when the running app IS the app on disk.
   restartNeeded?: { files: string[]; since: number } | null;
+  /** Where threads run and this month's cloud use, for the cloud button
+   *  (renderer/src/cloud-menu.ts). Absent from an older main process. */
+  cloud?: import('./cloud-menu').CloudStatus | null;
   /**
    * What was left of her rate limit at the last reading, or null before the
    * first one lands. It rides the snapshot for the same reason `restartNeeded`
@@ -695,7 +751,7 @@ export interface Snapshot {
 }
 
 // FOUR, not five.
-export type View = 'inbox' | 'snoozed' | 'progress' | 'done' | 'all';
+export type View = 'inbox' | 'snoozed' | 'progress' | 'done';
 
 // How many of her own Claude Code sessions the inbox takes. 'all' so she can go
 // through them once and close them, 'waiting' for only the ones stopped on a
@@ -780,6 +836,8 @@ export interface ProjectSettings {
   /** Her mark for this project as a drawable url, or null for the burst. */
   logo: string | null;
   autonomous: boolean;
+  /** Its threads go to her account online for her phone with the Mac shut. */
+  onPhone?: boolean;
   permission: PermissionMode | 'workspace';
   permissionArgs: string[] | null;
   /** This project's own Codex mode, or 'workspace' when it has no opinion. */
@@ -797,6 +855,8 @@ export interface ProjectSettings {
 }
 
 export interface WorkspaceSettings {
+  /** Every project on her phone, unless she turned it off (shared/phone-snapshot.mjs). */
+  phoneAll?: boolean;
   agentsRunning: boolean;
   sessionsAtOnce: number;
   /**
@@ -840,6 +900,8 @@ export interface WorkspaceSettings {
     reading?: {
       heavy: number | null; waiting: number | null; pressure: string | null; usedPct: number | null;
       asked: number | null; waited: number | null; refused: number | null;
+      /** New agents are waiting for memory to free up (main/start-hold.mjs). */
+      holding?: boolean;
     };
   };
   /**
@@ -902,6 +964,8 @@ export interface WorkspaceSettings {
    *  altogether when nobody is signed in (main/codex-account.mjs). */
   codex?: {
     found: boolean; certain: boolean; bin: string; url: string; trouble: string | null;
+    /** Whether somebody pointed at this file themselves. See `claudeChosen`. */
+    chosen?: boolean;
     account?: { email: string | null; name: string | null; plan: string | null; planNamed?: boolean; mode: string | null; accountId: string | null } | null;
     /**
      * EVERY Codex login on this Mac, one per `codexProfiles` word. The
@@ -916,6 +980,8 @@ export interface WorkspaceSettings {
   } | null;
   permission: PermissionMode;
   permissionArgs: string[];
+  /** The mode cloud runs start in, or null for this computer's. */
+  cloudPermission?: PermissionMode | null;
   /** What a Codex worker may do across the workspace. Never 'workspace' here. */
   codexMode: CodexModeId;
   // One switch over everything that leaves the machine, on at install
@@ -944,8 +1010,12 @@ export interface WorkspaceSettings {
   // Whether the search for Claude Code got an answer at all, as opposed to
   // failing to reach the machine. Nothing may say "missing" without it.
   claudeCertain: boolean;
-  // Where to send someone who does not have it. One copy, in main/claude-bin.mjs.
+  // Where to send someone who does not have it. One copy, in main/engine-bin.mjs.
   claudeInstallUrl: string;
+  // Whether somebody pointed at this file themselves rather than it being
+  // found. A chosen path is never searched around, so the row that offers the
+  // search back has to know. Optional so an older main process typechecks.
+  claudeChosen?: boolean;
   // The same two facts about Codex. Either engine is enough to run the app, so
   // the walk's last card shuts the inbox only when both are missing for sure.
   // Optional so an older main process still typechecks.
@@ -1006,11 +1076,34 @@ export interface RepeatRule {
   lastOccurrence?: string;
 }
 
+/** Which address the phone QR code carries (main/phone-link.mjs). */
+export type PhoneRoute = 'wifi' | 'tailscale' | 'anywhere';
+export type PhoneDevice = { id: string; name: string; ip: string | null; firstSeen: number; lastSeen: number; live: boolean; alerts: boolean; alertError: string | null };
+export type PhoneLink = {
+  on: boolean;
+  listening: boolean;
+  error: string | null;
+  port: number;
+  /** The code carries an https address (Tailscale's certificate). */
+  secure: boolean;
+  /** Tailscale is still putting the https address up. */
+  settingUp: boolean;
+  /** Through the relay: whether this Mac is connected to it now. */
+  relay?: { connected: boolean; host: string } | null;
+  via: PhoneRoute | null;
+  routes: Array<{ via: PhoneRoute; host: string }>;
+  url: string | null;
+  /** The QR code as an svg document. */
+  qr: string | null;
+  devices: PhoneDevice[];
+};
+
 declare global {
   interface Window {
     zero?: {
       snapshot(): Promise<Snapshot>;
       refreshUsage?(): Promise<{ ok: boolean; reading?: Usage; error?: string }>;
+      accountUsage?(p: { refresh?: boolean }): Promise<{ readings: AccountUsageReading[] }>;
       // Whether a screen reader is running, which is what decides xterm's
       // accessibility tree. Optional: a preload from before this channel
       // existed has no such function, and `api.assistiveTech` reads that as no.
@@ -1035,6 +1128,8 @@ declare global {
       sendNow(p: { product: string; id: string }): Promise<{ ok: boolean; interrupted: boolean }>;
       setProductOrder(p: { order: string[] }): Promise<unknown>;
       setThreadPlaces(p: { places: Record<string, number | null> }): Promise<unknown>;
+      setThreadPins?(p: { pins: Record<string, true | null> }): Promise<unknown>;
+      setThreadOnMac?(p: { onMac: Record<string, true | null> }): Promise<unknown>;
       setProductHidden(p: { product: string; hidden: boolean }): Promise<unknown>;
       compose(p: { product: string; title: string; body?: string; kind?: string; priority?: number; runAt?: number; start?: 'later' | 'now'; labels?: string[]; model?: string; engine?: string; effort?: string; assignee?: string; due?: string; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[] }): Promise<WorkItem>;
       // Feedback to the Agentbox team (main/feedback.mjs). Optional: an older
@@ -1059,7 +1154,7 @@ declare global {
       teamSync(): Promise<TeamCallResult>;
       teamRoute(p: { product: string; id: string; route: 'agent' | 'me' | 'back' }): Promise<TeamCallResult>;
       teamReact(p: { product: string; id: string; on: string; emoji: string; off?: boolean }): Promise<TeamCallResult>;
-      teamMessage(p: { to: string | string[]; body: string; priority?: number }): Promise<TeamCallResult>;
+      teamMessage(p: { to: string | string[]; body: string; priority?: number; files?: TeamMessageFile[] }): Promise<TeamCallResult>;
       threadEdit(p: { product: string; id: string; patch: ThreadEditPatch }): Promise<{ ok: boolean; error?: string }>;
       schedule(p: { product: string; id: string; runAt: number }): Promise<WorkItem>;
       snooze(p: { product: string; id: string; snoozedUntil: number }): Promise<WorkItem>;
@@ -1143,6 +1238,7 @@ declare global {
       // onto the version that already downloaded itself.
       updateCheck(): Promise<UpdateState>;
       updateInstall(): Promise<{ started: boolean }>;
+      updateMove(): Promise<{ moved: boolean; error: string | null }>;
       // The window moved to a screen that wants the other set.
       onScreenDetail?(fn: (s: { detail: string }) => void): () => void;
       // The wake sweep's one line: agents put back on the work the lid
@@ -1159,6 +1255,8 @@ declare global {
         title: string;
         product?: string | null;
         productName?: string | null;
+        // An approval's thread, by its list name, which heads the phone's alert.
+        thread?: string | null;
         kind: string;
       }>): Promise<void>;
       // She clicked the banner: open this row.
@@ -1188,6 +1286,8 @@ export type FolderListing = {
 /** What a person may change on a thread from its summary (main/store.mjs threadEdit). */
 export type ThreadEditPatch = Partial<{
   problem: string; progress: string; solution: string;
+  /** A rename: the name every row shows. The title stays the message. */
+  label: string;
   /** 'now' is how a thread leaves Later and starts (w-afb66e6661). */
   start: 'later' | 'now';
   visibility: 'team' | 'people' | 'private'; visibleTo: string[]; priority: number;

@@ -3,21 +3,53 @@
 // an agent answering in a chat shows for the tasks it opened, approved in the
 // messages redesign; here it sits under a task whose agent filed threads.
 //
-// AND THE PRESS THAT STARTS ONE (w-9cf2b43110). Every thread an agent files is
-// a proposal waiting on you, and approving it used to mean leaving this thread,
-// finding that one's own row and acting there, once per thread: "it ends up in
-// my inbox with no clear next step. feels confusing, like it wastes my time."
-// The next step is now in the row that names it.
+// AND THE PRESSES THAT ANSWER ONE (w-9cf2b43110, w-554834e749). Every thread an
+// agent files is a proposal waiting on you, and answering it used to mean
+// leaving this thread, finding that one's own row and acting there, once per
+// thread: "it ends up in my inbox with no clear next step." The next step is
+// now in the row that names it.
 //
-// ONE ROW AT A TIME. There is no press that approves the lot, and that is the
+// THE QUIET LIST (w-fcb5fdc2e5), chosen off four looks. The list it replaces
+// stood two boxed presses on every waiting row inside an orange border, and it
+// read as "the really abrupt orange button might be kind of overwhelming...
+// kind of hard to process." Now:
+//
+//   A DOT IS WHAT A PROPOSAL LOOKS LIKE. The small accent dot before a title is
+//   the one mark that says it waits on you, and every proposal carries it. There
+//   is no NEEDS YOU word beside it: drawn in orange next to the orange press it
+//   made two orange words in one list, "and we can't have two pieces of text in
+//   orange. Otherwise it gets very confusing."
+//
+//   ITS ANSWERS ARE ALWAYS BESIDE IT, where the state word would stand. They
+//   were drawn under the cursor only, and the proposal you were not pointing
+//   at looked broken: "it should always show those options even if you're not
+//   hovering over it."
+//
+//   DISMISS, DO HERE, NEW THREAD, with the main one at the right-hand edge:
+//   "don't you think New Thread should logically be on the right?" Answers
+//   hung off a row's right edge end on the one most people pick, it stands in
+//   one column down the list, and the throwaway one is furthest from it. NEW
+//   THREAD is in the accent, the only orange word the list shows.
+//
+//   DISMISS IS BACK. "I sometimes will just want to reject something." It used
+//   to be left out on the grounds that ignoring a proposal is rejecting it;
+//   asked for again, it is the close a proposal's own row makes, with its undo.
+//
+//   WHAT IS ALREADY UNDER WAY GOES GREY while proposals wait: "Once something is
+//   already processed, I think we maybe gray it out to show that it's not meant
+//   to get your attention. It's not a proposal."
+//
+//   AND NOTHING SNAPS. "Everything immediately shades... You typically want
+//   those little transitions." Every hover fades (threads-made.css).
+//
+// ONE ROW AT A TIME. There is no press that answers the lot, and that is the
 // decision rather than an omission: three proposals are three decisions, and
 // this app has already been burned once by a key that approved on her behalf
 // (the E-key history in App.tsx's `resolve`). What each row carries is its own.
 //
-// THE ROW IS A DIV, NOT A BUTTON, which it was until the press arrived: no
-// browser accepts a button inside a button. The press to open is its own
-// control filling the row, so the row looks identical and the two presses can
-// never be mistaken for each other.
+// THE ROW IS A DIV, NOT A BUTTON: no browser accepts a button inside a button.
+// The press to open is its own control filling the row, so the row looks
+// identical and the presses can never be mistaken for each other.
 import type { ThreadStateWord } from '../types';
 import { stateWord } from '../threads-made';
 import './threads-made.css';
@@ -30,81 +62,62 @@ export interface MadeRow {
   approve?: boolean;
 }
 
-export function ThreadsMade({ rows, onOpen, onApprove, onReject, label }: {
+export const START_NEW = 'New thread';
+export const DO_HERE = 'Do here';
+export const DISMISS = 'Dismiss';
+
+/** "2 proposals waiting on you". */
+export const waitingWords = (n: number): string => `${n} proposal${n === 1 ? '' : 's'} waiting on you`;
+
+export function ThreadsMade({ rows, onOpen, onApprove, onHere, onDismiss, label }: {
   rows: MadeRow[];
   onOpen: (id: string) => void;
+  /** Start it as its own thread: the approval that has always been here. */
   onApprove?: (id: string) => void;
   /**
-   * AND THE OTHER HALF OF THE DECISION (w-9cf2b43110). A proposal nobody
-   * answers waits in Later and brings this thread back a day later; rejecting
-   * it is what settles it and stops the asking. Drawn only under the cursor,
-   * because no is the rarer press and the row should read as one offer.
+   * Do it in this thread instead: sends the proposal back to the thread that
+   * filed it and closes it (`doItHereWrites`, ../threads-made.ts).
    */
-  onReject?: (id: string) => void;
+  onHere?: (id: string) => void;
+  /** Drop it: it closes and never runs. */
+  onDismiss?: (id: string) => void;
   label?: string;
 }) {
   if (!rows.length) return null;
-  // WHILE ANY OF THEM WAITS FOR A YES, THE LIST SAYS SO (w-d2744c6daa): "I
-  // often miss these filed tasks... they're not very visible and it's really
-  // easy to skip them." One had waited 22 hours under a closed thread. Chosen
-  // off seven rounds of drawings: the list's outer border goes orange, the
-  // label reads "Still waiting on you" in white, and the waiting rows come
-  // first. Only a row this list can actually answer counts, so a list drawn
-  // without the press, or one holding a review, stays quiet.
+  // Only a row this list can actually answer counts, so a list drawn without
+  // the press, or one holding a review, stays quiet. The waiting rows come
+  // first (w-d2744c6daa).
   const canPress = (r: MadeRow) => !!onApprove && !!r.approve;
-  const waiting = rows.some(canPress);
-  const shown = waiting ? [...rows.filter(canPress), ...rows.filter((r) => !canPress(r))] : rows;
-  // THE PRESS IS THE STATE WORD, NOT A SECOND THING BESIDE IT (2026-10-05).
-  //
-  // It first shipped as a button to the right of the word, which meant every
-  // row without one had to hold the room for one so the column stayed straight,
-  // and the words ended 104px short of the right-hand edge: "look very
-  // unattractive. was more thinking in the place of needs you etc... Right now
-  // this button looks a little weird because of how much space there is."
-  //
-  // So a row waiting on you says APPROVE where it would have said NEEDS YOU.
-  // Nothing is reserved, nothing is said twice, and every row — word or press —
-  // ends at the same right-hand edge. The press wears the app's own square
-  // capitals in the accent, chosen off four drawings.
+  const asks = rows.filter(canPress);
+  const waiting = asks.length > 0;
+  const shown = waiting ? [...asks, ...rows.filter((r) => !canPress(r))] : rows;
+  const heading = waiting ? waitingWords(asks.length) : label;
   return (
     <div className={waiting ? 'made made-waiting' : 'made'}>
-      {(waiting || label) && <div className="made-label">{waiting ? 'Still waiting on you' : label}</div>}
+      {heading && <div className="made-label">{heading}</div>}
       <div className="made-list">
         {shown.map((r) => {
           const press = canPress(r);
+          const cls = press ? 'made-row made-ask' : waiting ? 'made-row made-quiet' : 'made-row';
           return (
-            <div className="made-row" key={r.id}>
+            <div className={cls} key={r.id}>
               {/* The word stays INSIDE the press that opens the thread, so on
-                  every row that carries no Approve the whole width of the row
+                  every row that carries no answer the whole width of the row
                   is still the way in. */}
               <button type="button" className="made-open" onClick={() => onOpen(r.id)}>
+                {press && <span className="made-dot" />}
                 <span className="made-title">{r.title}</span>
                 {!press && <span className={`made-state ${r.state ?? ''}`}>{stateWord(r.state)}</span>}
               </button>
-              {/* NAMED WITH THE THREAD IT WOULD START. Several rows in a list
-                  each say "Approve", so the bare word tells a screen reader, and
-                  a hovering cursor, nothing about which proposal it is. */}
-              {press && onReject && (
-                <button
-                  type="button"
-                  className="made-reject"
-                  aria-label={`Reject: ${r.title}`}
-                  title={`Reject: ${r.title}`}
-                  onClick={() => onReject(r.id)}
-                >
-                  No
-                </button>
-              )}
+              {/* NAMED WITH THE THREAD EACH ONE IS ABOUT. Several rows each say
+                  the same words, so the bare words tell a screen reader, and a
+                  hovering cursor, nothing about which proposal it is. */}
               {press && (
-                <button
-                  type="button"
-                  className="made-approve"
-                  aria-label={`Approve: ${r.title}`}
-                  title={`Approve: ${r.title}`}
-                  onClick={() => onApprove!(r.id)}
-                >
-                  Approve
-                </button>
+                <div className="made-acts">
+                  {onDismiss && <button type="button" className="made-dismiss" aria-label={`${DISMISS}: ${r.title}`} title={`${DISMISS}: it will not run`} onClick={() => onDismiss(r.id)}>{DISMISS}</button>}
+                  {onHere && <button type="button" className="made-here" aria-label={`Do in this thread: ${r.title}`} title={`Do in this thread: ${r.title}`} onClick={() => onHere(r.id)}>{DO_HERE}</button>}
+                  <button type="button" className="made-approve" aria-label={`Start new thread: ${r.title}`} title={`Start new thread: ${r.title}`} onClick={() => onApprove!(r.id)}>{START_NEW}</button>
+                </div>
               )}
             </div>
           );

@@ -3,7 +3,8 @@ import { harnessDefinition } from '../../shared/harness-definitions.mjs';
 import { resolveCodexBin } from '../codex-bin.mjs';
 import { codexLaunchEnv } from '../codex-launch-env.mjs';
 import { codexModels, codexDefaultModel, codexModelLevels } from '../codex-models.mjs';
-import { codexTranscriptFile, workerThreadParams } from '../codex-session.mjs';
+import { codexTranscriptFile, workerThreadParams, refusedCodexWorker } from '../codex-session.mjs';
+import { codexKeyRefusal } from '../codex-account.mjs';
 import { compactCodexThread } from '../codex-compaction.mjs';
 import { captureCodexEvent, codexStreamingText, summarizeCodexEvent, traceCodexEvent, rememberCodexChange, changeFromCodexTurn } from '../codex.mjs';
 import { codexActivity } from '../agent-activity.mjs';
@@ -24,7 +25,18 @@ export const codexHarness = {
   signedIn: (sup, profile) => sup._codexSignedIn(profile),
   profileEnv: (env, profile, sup) => ({ ...env, [definition.homeEnv]: sup._codexProfileHome(profile) }),
   tooling: () => null,
-  spawn: (sup, plan, context) => sup._spawnCodexWorker(plan, context),
+  // Codex carries the person's standing instructions as a thread's
+  // `developerInstructions`, so it needs neither a flag nor a file. It says so
+  // rather than inheriting the refusal meant for an engine that has nowhere to
+  // put them (main/harnesses/instructions-file.mjs).
+  instructions: () => ({ by: 'thread' }),
+  // AN API-KEY LOGIN IS REFUSED HERE, before an app-server is asked anything:
+  // Codex reads the key out of auth.json itself, past the worker scrub, and
+  // bills every call to it (main/codex-account.mjs `codexKeyRefusal`).
+  spawn: (sup, plan, context) => {
+    const refusal = codexKeyRefusal(sup._codexProfileHome(context?.profile ?? 'default'));
+    return refusal ? refusedCodexWorker(refusal) : sup._spawnCodexWorker(plan, context);
+  },
   readers: () => ({ capture: captureCodexEvent, stream: codexStreamingText, summarize: summarizeCodexEvent, trace: traceCodexEvent, activity: codexActivity }),
   subscribe(child, session, absorb) {
     child.on('event', (method, params) => { rememberCodexChange(session, method, params); absorb(method, params); });

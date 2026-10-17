@@ -57,8 +57,10 @@
    that is not an action, so it loses its border and its 240px block and
    answers the pointer the way the app's other quiet controls do, with a
    background. New thread keeps its outline, because it is the thing you
-   press. */
-.th-search { display: inline-flex; align-items: center; gap: 9px; height: 32px; padding: 0 10px; border: 0; border-radius: var(--radius); background: none; color: var(--text-faint); font: inherit; font-size: 13px; cursor: text; }
+   press. Since w-3c51d02de5 it is the magnifier alone, a 32px square, at the
+   right end of the tabs row (and in the header only on the board). */
+.th-search { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--radius); background: none; color: var(--text-dim); font: inherit; cursor: pointer; flex: none; }
+.th-bar > .th-search { margin-left: auto; }
 .th-new { height: 32px; padding: 0 13px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: none; color: var(--text); font: inherit; font-size: 13.5px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .th-new svg { color: var(--text-dim); }
 .th-new:hover, .th-disp:hover { background: var(--wash-strong); }
@@ -110,6 +112,9 @@
    count beside the mark, in the mark's own faint colour. Raised 0.75px
    (2026-10-02): on the baseline it read too low, at 1.5px too high, so it
    sits halfway between. */
+/* PINNED (w-20323283e6): the same faint ink and the same plain inline box, so
+   the row's underline runs through it like the others. */
+.th-pin { display: inline; margin-left: 9px; color: var(--text-faint); vertical-align: -2px; }
 .th-shared-n { display: inline; margin-left: 3px; font: 10.5px var(--mono); color: var(--text-faint); vertical-align: 0.75px; }
 
 /* NOT STARTED, ON THE ROW (w-afb66e6661) was a boxed capital tag here. It is
@@ -411,3 +416,40 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 .th-pop .opts > button .tm-av { width: 16px; height: 16px; line-height: 14px; font-size: 7.5px; }
 /* A teammate's row has no select box: nothing on this Mac can act on it. */
 .th-their-row .mark { visibility: hidden; }
+
+/* WHERE THREADS RUN: the cloud button and its menu (threads/Pages.tsx). */
+.th-cloud.count { width: auto; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px 0 9px; font: inherit; font-size: 13px; }
+.th-cloud.count b { font-weight: 400; color: var(--text); font-variant-numeric: tabular-nums; }
+/* Picked is a soft grey here, not an orange box: one small dot beside On is
+   the menu's only orange (picked 2026-10-16 as calmer). */
+.th-cloud-pop .opts > button.picked, .th-cloud-pop .opts > button.picked:hover { border-color: var(--line-strong); background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); }
+.th-cloud-pop .th-cloud-on-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-inline-end: 7px; vertical-align: 1px; }
+/* THE CLOUD ON: the cloud and its count orange, the box left plain. */
+.th-disp.th-cloud.lit svg, .th-disp.th-cloud.lit b { color: var(--accent); }
+.th-pop.th-cloud-pop { width: 540px; }
+.th-cloud-pop .th-cloud-onoff { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.th-cloud-pop .th-cloud-keysay { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-faint); }
+.th-cloud-pop .th-cloud-keysay kbd { font: 11px var(--mono); color: var(--text-dim); border: 1px solid var(--line); border-radius: var(--radius); padding: 0 5px; line-height: 18px; background: none; }
+.th-cloud-pop .th-cloud-note { padding-top: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-faint); }
+.th-cloud-pop .th-cloud-use { font-size: 13px; color: var(--text); }
+.th-cloud-pop .th-cloud-warn > span:last-child { color: var(--accent); }
+.th-cloud-invite { width: 360px; padding: 26px 26px 22px; align-items: center; text-align: center; }
+.th-cloud-invite-ic { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.th-cloud-invite-ic svg { width: 22px; height: 22px; }
+.th-cloud-invite-head { margin-top: 14px; font-size: 16px; color: var(--text); letter-spacing: -0.01em; }
+.th-cloud-invite-line { margin: 6px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-dim); max-width: 30ch; }
+.th-cloud-invite-go { margin-top: 18px; width: 100%; height: 34px; border: 1px solid var(--accent); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); font: inherit; font-size: 13.5px; cursor: pointer; }
+.th-cloud-invite-go:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.th-cloud-invite-note { margin-top: 10px; font-size: 12px; color: var(--text-faint); }
+.th-cloud-banner { display: flex; align-items: center; gap: 14px; margin: 4px 12px 8px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.th-cloud-banner-say { flex: 1; min-width: 0; display: grid; gap: 3px; font-size: 13px; line-height: 1.45; color: var(--text); }
+.th-cloud-banner-say b { font-weight: 500; }
+.th-cloud-setup-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; }
+.th-cloud-setup-say { flex: 1; min-width: 0; font-size: 13px; color: var(--text); }
+.th-cloud-manage { flex: none; height: 24px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--tag-radius); background: none; color: var(--text-dim); font: inherit; font-size: 12.5px; cursor: pointer; }
+.th-cloud-manage:hover { color: var(--text); border-color: var(--text-faint); }
+.th-cloud-go { flex: none; height: 26px; padding: 0 12px; border: 1px solid var(--accent); border-radius: var(--tag-radius); background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.th-cloud-go:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+
+/* An account being added: the moving mark on the line, beside its words. */
+.th-cloud-banner-say:has(.cs-busy) { display: flex; align-items: center; gap: 9px; }

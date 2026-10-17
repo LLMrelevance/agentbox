@@ -7,8 +7,13 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { recoverShellPath } from '../main/shell-path.mjs';
 
+// This one runs a real zsh. GitHub's Linux runner has none, which kept it red
+// on every push from 2026-10-09 to 2026-10-13 ("spawn /bin/zsh ENOENT"); the
+// macOS run still runs it.
+const hasZsh = fs.existsSync('/bin/zsh');
+
 describe('agents can use the tools in your shell', () => {
-  it('loads nvm-style tools from an interactive login profile even when the profile prints text', async () => {
+  it.skipIf(!hasZsh)('loads nvm-style tools from an interactive login profile even when the profile prints text', async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shell-tools-'));
     try {
       const bin = path.join(home, '.nvm/versions/node/v22.0.0/bin');
@@ -54,16 +59,19 @@ describe('agents can use the tools in your shell', () => {
       .toEqual({ path: '/original', error: 'shell timed out' });
   });
 
-  it('leaves other platforms alone', async () => {
-    const result = await recoverShellPath({ env: { PATH: '/original' }, platform: 'linux', run: () => { throw Error('must not run'); } });
+  // Linux is asked now (tests/a-linux-launcher-start-reads-the-login-shells-path).
+  it('leaves Windows alone', async () => {
+    const result = await recoverShellPath({ env: { PATH: '/original' }, platform: 'win32', run: () => { throw Error('must not run'); } });
     expect(result).toEqual({ path: '/original', error: null });
   });
 
   it('recovers PATH before the app loads configuration or starts workers', () => {
     const src = fs.readFileSync(new URL('../main/main.mjs', import.meta.url), 'utf8');
     const window = src.slice(src.indexOf('async function createWindow()'));
-    expect(window.indexOf('await recoverShellPath(')).toBeGreaterThan(0);
-    expect(window.indexOf('await recoverShellPath(')).toBeLessThan(window.indexOf('loadConfig(dataDir)'));
+    // Awaited, alongside the shell's login folders since w-6d8c543a43.
+    const recovered = window.search(/await (Promise\.all\(\[)?recoverShellPath\(/);
+    expect(recovered).toBeGreaterThan(0);
+    expect(recovered).toBeLessThan(window.indexOf('loadConfig(dataDir)'));
     expect(window.indexOf('process.env.PATH =')).toBeLessThan(window.indexOf('new Supervisor('));
   });
 });

@@ -13,8 +13,8 @@
 // left, however recently it had finished. Either way, output nobody had seen.
 //
 // Now a shell holding output she has not seen is not idle. Reading it starts
-// the ten minutes, and the cap takes a shell she has read before one she has
-// not.
+// the idle clock (an hour since w-6841800f17; ten minutes here, set by the
+// fixture), and the cap takes a shell she has read before one she has not.
 
 import { describe, it, expect, vi } from 'vitest';
 import { TaskTerminals } from '../main/task-terminals.mjs';

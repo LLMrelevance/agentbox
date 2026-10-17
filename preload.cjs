@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('zero', {
   agentUpdate: (payload) => ipcRenderer.invoke('zero:agent-update', payload),
   snapshot: () => ipcRenderer.invoke('zero:snapshot'),
   refreshUsage: () => ipcRenderer.invoke('zero:refresh-usage'),
+  accountUsage: (payload) => ipcRenderer.invoke('zero:account-usage', payload),
   assistiveTech: () => ipcRenderer.invoke('zero:assistiveTech'),
   olderItems: (payload) => ipcRenderer.invoke('zero:older-items', payload),
   dashboard: (slug) => ipcRenderer.invoke('zero:dashboard', slug),
@@ -114,6 +115,9 @@ contextBridge.exposeInMainWorld('zero', {
   // The Claude Code threads she started herself in the last few days, which is
   // what she meant by her agents, and taking one as a task.
   agentThreads: () => ipcRenderer.invoke('zero:agent-threads'),
+  // Every chat the card's name field can search, which reaches a year back
+  // rather than ten days. Read once and kept by the window (w-6418318cd5).
+  searchAgentThreads: (payload) => ipcRenderer.invoke('zero:search-agent-threads', payload ?? {}),
   importThreads: (payload) => ipcRenderer.invoke('zero:import-threads', payload ?? {}),
   badge: (count) => ipcRenderer.invoke('zero:badge', count),
   // What the corner tag says when she is in another app: what is ready for
@@ -127,6 +131,7 @@ contextBridge.exposeInMainWorld('zero', {
   // because nothing needs to; that happens on its own in the background.
   updateCheck: () => ipcRenderer.invoke('zero:update-check'),
   updateInstall: () => ipcRenderer.invoke('zero:update-install'),
+  updateMove: () => ipcRenderer.invoke('zero:update-move'),
   // What just arrived, not what to say about it. Whether she is looking at the
   // window is a fact only the main process holds, so the page reports and does
   // not decide (main/notify.mjs).
@@ -156,6 +161,12 @@ contextBridge.exposeInMainWorld('zero', {
   // it is also what makes the Coding agent row appear, because the path the
   // search lands on is the one that row is drawn from.
   codexRecheck: () => ipcRenderer.invoke('zero:codex-recheck'),
+  // AND WHEN NEITHER SEARCH CAN FIND IT: point at the file yourself, or hand
+  // the choice back so the search takes over again. `{ engine }` opens the
+  // picker in main and applies what it produced in the same trip, so no path
+  // off anybody's disk crosses this bridge in the direction of being trusted;
+  // `{ engine, action: 'search' }` needs no picker at all.
+  engineBin: (payload) => ipcRenderer.invoke('zero:engine-bin', payload),
   // Install a coding agent and start its own sign-in, for somebody who has a
   // plan and nothing installed. Actions: ready, start, status, again, cancel.
   engineSetup: (payload) => ipcRenderer.invoke('zero:engine-setup', payload),
@@ -165,6 +176,8 @@ contextBridge.exposeInMainWorld('zero', {
   claudeAddAccount: () => ipcRenderer.invoke('zero:claude-add-account'),
   setProjectSetting: (payload) => ipcRenderer.invoke('zero:settings-set-project', payload),
   setWorkspaceSetting: (payload) => ipcRenderer.invoke('zero:settings-set-workspace', payload),
+  cloudSignIn: (payload) => ipcRenderer.invoke('zero:cloud-signin', payload),
+  cloudClipboardCode: () => ipcRenderer.invoke('zero:cloud-clipboard-code'),
   // What a project is CALLED, and the mark beside the name. Not settings: both
   // are written into the project's own project.json and travel with the folder.
   // `projectIcon` opens the picker itself, so no path off her disk ever crosses
@@ -224,8 +237,17 @@ contextBridge.exposeInMainWorld('zero', {
   redeliver: (payload) => ipcRenderer.invoke('zero:redeliver', payload),
   setProductOrder: (payload) => ipcRenderer.invoke('zero:set-product-order', payload),
   setThreadPlaces: (payload) => ipcRenderer.invoke('zero:set-thread-places', payload),
+  setThreadPins: (payload) => ipcRenderer.invoke('zero:set-thread-pins', payload),
+  setThreadOnMac: (payload) => ipcRenderer.invoke('zero:set-thread-on-mac', payload),
   setProductHidden: (payload) => ipcRenderer.invoke('zero:set-product-hidden', payload),
   approve: (payload) => ipcRenderer.invoke('zero:approve', payload),
+  // The phone door (main/phone-link.mjs): { action: 'status' | 'on' | 'off' | 'reset' | 'via', via }.
+  phoneLink: (payload) => ipcRenderer.invoke('zero:phone-link', payload),
+  onPhoneChanged: (fn) => {
+    const handler = () => fn();
+    ipcRenderer.on('zero:phone-changed', handler);
+    return () => ipcRenderer.removeListener('zero:phone-changed', handler);
+  },
   // What was just decided, and on which card. The Cmd+Y chord is caught in the
   // main process (it has to outrank the game), so this is the only way the page
   // can know a press landed; the card's exit is drawn from it.
@@ -269,6 +291,26 @@ contextBridge.exposeInMainWorld('zero', {
     const handler = (_e, payload) => fn(payload);
     ipcRenderer.on('zero:open-item', handler);
     return () => ipcRenderer.removeListener('zero:open-item', handler);
+  },
+  // NEO, the voice alpha (main/neo/). Off unless this Mac has the alpha flag;
+  // when on, Neo's tool calls arrive here and the app carries them out with
+  // its own functions (renderer/src/neo/bridge.ts).
+  neoEnabled: () => ipcRenderer.invoke('neo:enabled').catch(() => false),
+  onNeoAct: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('neo:act', handler);
+    return () => ipcRenderer.removeListener('neo:act', handler);
+  },
+  neoActResult: (id, result) => ipcRenderer.send('neo:act-result', { id, result }),
+  onNeoMode: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('neo:mode', handler);
+    return () => ipcRenderer.removeListener('neo:mode', handler);
+  },
+  onNeoOrb: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('neo:orb', handler);
+    return () => ipcRenderer.removeListener('neo:orb', handler);
   },
   // The corner tag's "Turn off…": opens Settings at the switch that does it.
   onOpenSettings: (fn) => {

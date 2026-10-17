@@ -23,9 +23,10 @@
 //     spawn round to an account that is already at its limit. The test is on
 //     `accountUuid`, the id Claude Code stores for the subscription itself,
 //     never on the email, because one email can hold more than one subscription.
-//   - NOTHING THE USER CONFIGURED IS EVER DROPPED OR REORDERED. The config is a
-//     decision; this is only a discovery. Discovered accounts go after the
-//     configured ones.
+//   - NOTHING THE USER CONFIGURED IS REORDERED, and nothing is dropped except
+//     a home-directory folder that fails the two rules above and below: one
+//     with no login, or a second one holding a subscription already listed.
+//     Discovered accounts go after the configured ones.
 //   - A folder with no login is not an account. Folders such as
 //     ~/.claude-swap-backup or ~/.claude-worktrees are exactly that, and
 //     neither is a place to send work.
@@ -47,6 +48,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { accountIdentity, defaultClaudeHome } from './account-tooling.mjs';
+import { shellDataDirsNow } from './shell-path.mjs';
 
 // The listing, held against the home folder's mtime. Creating or deleting a
 // folder there moves it; signing IN does not, which is why only the listing is
@@ -103,30 +105,81 @@ export function discoverProfiles({ home = os.homedir() } = {}) {
   return out.sort((a, b) => (a.dir === dflt ? -1 : b.dir === dflt ? 1 : 0));
 }
 
+/** A `.claude-<anything>` folder directly in the home directory: the shape
+ *  discovery looks for and Add account makes. */
+function isHomeFolder(dir, home) {
+  const full = path.resolve(dir);
+  return path.dirname(full) === path.resolve(home) && path.basename(full).startsWith('.claude-');
+}
+
 /**
- * THE PROFILES THE FLEET ACTUALLY RUNS ON: the configured ones first, exactly
- *  as written, then any subscription found on the disk that none of the
- *  configured ones is already running on.
+ * THE PROFILES THE FLEET ACTUALLY RUNS ON: the configured ones first, in her
+ *  order, then any subscription found on the disk that none of the configured
+ *  ones is already running on.
  *
  *  Profiles are the strings the rest of the app has always used: the literal
  *  'default' for ~/.claude (which is what spawning with no CLAUDE_CONFIG_DIR
  *  means), and an absolute folder path for anything else. It always answers
  *  with at least ['default'], because somewhere has to be spawnable. */
-export function effectiveProfiles(configured, { home = os.homedir() } = {}) {
+export function effectiveProfiles(configured, { home = os.homedir(), shellDir = shellDataDirsNow().CLAUDE_CONFIG_DIR } = {}) {
   const mine = (Array.isArray(configured) ? configured : []).map((p) => p || 'default');
-  const list = mine.length ? [...mine] : ['default'];
   const dflt = defaultClaudeHome(home);
   const dirOf = (p) => (p === 'default' ? dflt : p);
+  const isDefault = (p) => p === 'default' || dirOf(p) === dflt;
+  const idOf = (p) => accountIdentity(isDefault(p) ? null : dirOf(p), { home });
 
-  // Which subscriptions her own list already covers. A configured folder with
-  // no readable login covers nothing, which is right: it cannot run anything,
-  // so it cannot be the reason a working account is left out.
+  // Which subscriptions her own list already covers, the default login's first
+  // so that it is the one kept when a second folder holds the same account.
   const have = new Set();
-  for (const p of list) {
-    const id = accountIdentity(p === 'default' ? null : dirOf(p), { home });
+  for (const p of mine) {
+    const id = isDefault(p) ? idOf(p) : null;
     if (id?.accountUuid) have.add(id.accountUuid);
   }
+
+  // A `.claude-<n>` FOLDER IN THE HOME DIRECTORY IS AN ACCOUNT ONLY WHEN IT IS
+  // SIGNED IN, AND ONLY ONCE PER SUBSCRIPTION, whether discovery found it or
+  // the config names it. Add account used to write its folder into the config
+  // before the sign-in, so an abandoned one sat in Settings as "Not signed in"
+  // and was handed every other task; and one account signed into two folders
+  // was listed twice (tests/an-account-shows-once-and-only-once-it-is-signed-in).
+  // The default login is never judged, and a folder anywhere else is a
+  // hand-written setting and stays exactly as written.
+  const list = [];
+  for (const p of mine) {
+    if (isDefault(p)) { list.push(p); continue; }
+    const id = idOf(p);
+    if (isHomeFolder(dirOf(p), home)) {
+      if (!id?.accountUuid || have.has(id.accountUuid)) continue;
+    }
+    if (id?.accountUuid) have.add(id.accountUuid);
+    list.push(p);
+  }
+  if (!list.length) list.push('default');
+
+  // THE LOGIN THE PERSON'S SHELL PROFILE POINTS AT (w-6d8c543a43). Their
+  // terminal's `claude` reads the folder `CLAUDE_CONFIG_DIR` names in .zshrc,
+  // which an app opened from the Dock never sees. When the default holds no
+  // login, or the same account, the shell's folder takes its place; a
+  // different account at ~/.claude keeps running beside it. It is always a
+  // folder, never 'default', even when it IS ~/.claude: Claude Code names its
+  // keychain entry after the variable, so naming the folder out loud is a
+  // different sign-in from naming nothing.
+  const shell = typeof shellDir === 'string' && path.isAbsolute(shellDir) ? shellDir : null;
+  const shellId = shell ? accountIdentity(shell, { home }) : null;
+  if (shellId?.accountUuid && !list.includes(shell)) {
+    const dfltId = idOf('default');
+    const takesDefault = !dfltId?.accountUuid || dfltId.accountUuid === shellId.accountUuid;
+    if (takesDefault && list.some(isDefault)) {
+      list.splice(list.findIndex(isDefault), 1, shell);
+      for (let i = list.length - 1; i >= 0; i--) if (list[i] !== shell && isDefault(list[i])) list.splice(i, 1);
+      have.add(shellId.accountUuid);
+    } else if (!have.has(shellId.accountUuid)) {
+      have.add(shellId.accountUuid);
+      list.push(shell);
+    }
+  }
   const listed = new Set(list.map((p) => dirOf(p)));
+  if (shell && list.includes(shell)) listed.add(dflt);
 
   for (const found of discoverProfiles({ home })) {
     if (listed.has(found.dir)) continue;
@@ -136,6 +189,43 @@ export function effectiveProfiles(configured, { home = os.homedir() } = {}) {
     list.push(found.dir === dflt ? 'default' : found.dir);
   }
   return list;
+}
+
+/**
+ * WHAT IS WRONG WITH THE SUBSCRIPTION THIS ROW STANDS FOR, not merely with the
+ *  folder it is named after.
+ *
+ *  Trouble is filed per FOLDER, because a folder is what a worker is handed.
+ *  `effectiveProfiles` above lists one row per SUBSCRIPTION, dropping a second
+ *  folder holding an account it already has. So a limit hit in the dropped
+ *  folder is filed under a key no row carries and is drawn nowhere, while the
+ *  row for that same subscription goes on showing whatever was last filed on
+ *  the listed folder, however old.
+ *
+ *  Measured 2026-10-16: ~/.claude-3 hit a session limit at 3:15pm and the row
+ *  for that subscription showed an "organization has turned Claude Code off"
+ *  filed on ~/.claude five days earlier. Both folders hold accountUuid
+ *  8fe4a357; the newest fact about the account was the invisible one.
+ *
+ *  THE NEWEST READING WINS, because that is the only honest answer when two
+ *  folders of one subscription disagree: each entry is what was true when a
+ *  run last died there, and nothing clears a folder nothing spawns on.
+ *  Codex keys are never considered — an account's key carries its engine. */
+export function troubleForProfile(troubles, profile, { home = os.homedir() } = {}) {
+  const dflt = defaultClaudeHome(home);
+  const dirOf = (p) => (p === 'default' ? dflt : p);
+  const idOf = (p) => accountIdentity(dirOf(p) === dflt ? null : dirOf(p), { home });
+  const own = troubles?.[profile] ?? null;
+  const mine = idOf(profile)?.accountUuid;
+  if (!mine) return own;
+  const when = (t) => t?.at ?? t?.since ?? 0;
+  let best = own;
+  for (const [key, t] of Object.entries(troubles ?? {})) {
+    if (!t || key === profile || key.startsWith('codex:')) continue;
+    if (idOf(key)?.accountUuid !== mine) continue;
+    if (when(t) > when(best)) best = t;
+  }
+  return best;
 }
 
 /**

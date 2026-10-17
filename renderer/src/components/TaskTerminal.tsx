@@ -3,7 +3,9 @@ import {createPortal} from 'react-dom';
 import {api} from '../api';
 import {commandRunning,whenACommandFinishes} from '../../../shared/terminal-state.mjs';
 import {linksAtRow} from '../../../shared/terminal-links.mjs';
+import {guardInvalidRange} from '../../../shared/xterm-invalid-range.mjs';
 import {inputQueue} from '../../../shared/terminal-input.mjs';
+import {optionWordKey} from '../../../shared/terminal-keys.mjs';
 import {dragSize,readSavedSize,SIZE_KEY} from '../../../shared/terminal-size.mjs';
 import {CrossIcon} from './CrossIcon';
 import '@xterm/xterm/css/xterm.css';
@@ -99,6 +101,14 @@ export function TaskTerminal({product,id,headerTarget,startOpen=false,commandSes
         const style=getComputedStyle(host.current);
         const terminal=new Terminal({cursorBlink:true,screenReaderMode:assistive,allowTransparency:true,fontFamily:'Menlo, Monaco, monospace',fontSize:12,scrollback:5000,allowProposedApi:false,theme:{background:'#00000000',foreground:style.color},convertEol:false});
         const fit=new FitAddon();const serializer=new SerializeAddon();terminal.loadAddon(serializer);terminal.loadAddon(fit);terminal.open(host.current);
+        // AND THE CRASH THAT TREE CAN STILL THROW, now that it is only built
+        // for the people using it. xterm's AccessibilityManager throws its own
+        // 'invalid range' when a selection maps onto no cells, which three
+        // ordinary selections do; shared/xterm-invalid-range.mjs catches that
+        // one message off the instance and clears the selection. Only has
+        // anything to wrap when `assistive` is true, and only after open(),
+        // which is when the manager exists.
+        guardInvalidRange(terminal);
         // A WEB ADDRESS OPENS IN THE BROWSER on click, wrapped over rows or not
         // (shared/terminal-links.mjs). window.open is the app's one door out:
         // main's window-open handler hands http(s) to the real browser.
@@ -114,6 +124,9 @@ export function TaskTerminal({product,id,headerTarget,startOpen=false,commandSes
         // (shared/terminal-input.mjs), so holding Delete never builds a queue.
         const input=inputQueue(data=>api.terminal({product,id,action:'write',data}),{onError:report});
         const subscription=terminal.onData(data=>input.push(data));
+        // Option+Left/Right jump a word, as in Mac Terminal (shared/terminal-keys.mjs).
+        const mac=/Mac/.test(navigator.platform);
+        terminal.attachCustomKeyEventHandler(event=>{const sequence=optionWordKey(event,mac);if(sequence===undefined)return true;if(sequence)input.push(sequence);event.preventDefault();return false;});
         dispose=()=>{if(ready)screenCache.set(key,{token,screen:serializer.serialize({scrollback:1000}),offset,cols:terminal.cols,rows:terminal.rows});observer.disconnect();subscription.dispose();terminal.dispose();};
         const consume=async(state:any)=>{if(cancelled)return;setCwd(state.cwd);setProcessName(state.process);setExited(state.exited);watch(state.process,state.exited);if(state.truncated){terminal.reset();terminal.writeln('[Earlier terminal output omitted]');}await new Promise<void>(resolve=>terminal.write(state.data,resolve));offset=state.offset;};
         let initial=await api.terminal({product,id,action:'open'});
