@@ -125,12 +125,18 @@ export function layDocs({ tgz, dir, sentAt = 0, laid = {}, sent = null }) {
   const out = { written: [], beside: [], moved: [] };
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentbox-docs-'));
   try {
-    execFileSync('tar', ['-xzf', '-', '-C', tmp], { input: tgz, stdio: ['pipe', 'ignore', 'ignore'], maxBuffer: 1024 * 1024 * 1024 });
+    // From a file, not a pipe: tar may stop reading at the archive's end
+    // marker, and a pipe it stopped reading fails the write (EPIPE) on a busy Mac.
+    const file = path.join(tmp, '.agentbox-docs.tgz');
+    fs.writeFileSync(file, tgz);
+    const into = path.join(tmp, 'docs');
+    fs.mkdirSync(into);
+    execFileSync('tar', ['-xzf', file, '-C', into], { stdio: 'ignore' });
     fs.mkdirSync(dir, { recursive: true });
     const root = fs.realpathSync(dir);
     const files = [];
     const walk = (rel) => {
-      for (const e of fs.readdirSync(path.join(tmp, rel), { withFileTypes: true })) {
+      for (const e of fs.readdirSync(path.join(into, rel), { withFileTypes: true })) {
         const r = rel ? `${rel}/${e.name}` : e.name;
         if (e.isDirectory()) walk(r);
         else if (e.isFile()) files.push(r);
@@ -149,7 +155,7 @@ export function layDocs({ tgz, dir, sentAt = 0, laid = {}, sent = null }) {
     for (const rel of files) {
       const asIs = path.join(root, rel);
       let target = asIs;
-      const body = fs.readFileSync(path.join(tmp, rel));
+      const body = fs.readFileSync(path.join(into, rel));
       const hash = hashOf(body);
       if (laid[rel]?.hash === hash) continue;
       // A file whose folder here is a link out of it is not dropped: it lands
