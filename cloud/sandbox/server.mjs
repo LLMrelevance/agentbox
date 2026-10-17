@@ -58,6 +58,11 @@ const SETUP_TIMEOUT_MS = 15 * 60 * 1000;
 // The command and its setup start with as many open files as the machine
 // allows: test runners watch thousands, and the default is 1024.
 const RAISE_OPEN_FILES = 'ulimit -n 65536 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null; exec "$0" "$@"';
+// As root the ceiling itself can be raised, and only then is the command
+// handed to the agent's user (measured 2026-10-17: the agent alone stayed at
+// 1024, its hard limit).
+const RAISE_THEN_DROP = (uid, gid) => `ulimit -Hn 65536 2>/dev/null; ulimit -n 65536 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null; exec setpriv --reuid=${uid} --regid=${gid} --init-groups -- "$0" "$@"`;
+const SETPRIV = '/usr/bin/setpriv';
 // WHILE THE MAC IS AWAY (a start's `offline`). Never a made-up success: the
 // agent is told the call did not reach the app, and carries on.
 const NOT_MADE = 'The computer this run reports to is asleep, so this call could not reach the app and was not made. Carry on without it, and say in your last message what you could not record.';
@@ -135,6 +140,9 @@ export function createSandbox({
   runAs = null,
   // Where a project's setup output is kept (SETUP_LOG); a test points it elsewhere.
   setupLog = SETUP_LOG,
+  // Where `sudo` (cloud/sandbox/sudo.mjs) hands its commands to this server,
+  // which runs them as itself (root, in the image). Null: no helper.
+  rootSocket = null,
   // Where the usage meter reads the machine (cloud/sandbox/usage.mjs); a
   // test points it at a fake /sys/fs/cgroup and /proc.
   usage = {},
@@ -154,6 +162,7 @@ export function createSandbox({
   const at = (p) => (pathRoot ? path.join(pathRoot, p) : p);
   let run = null;
   let bridge = null;
+  const rootHelper = rootSocket ? openRootHelper(rootSocket) : null;
   let statusChangedAt = Math.floor(Date.now() / 1000);
   let lastPing = null;
 
@@ -229,6 +238,63 @@ export function createSandbox({
     for (const s of r?.secrets || []) text = text.split(s).join(REDACTED);
     return text;
   };
+
+  /* ------------------------------ SUDO ----------------------------------- */
+  // AgentCore's containers carry no_new_privs, so the real sudo cannot raise
+  // anything; `sudo` in the image hands its command here instead, and this
+  // runs it as itself. The machine is the agent's for one run, and holds
+  // nothing it does not already have. Lines: in `i <b64>` input, `I` end of
+  // input, `k <signal>`; out `o <b64>`, `e <b64>`, then `x <code>`.
+  function openRootHelper(sockPath) {
+    try { fs.unlinkSync(sockPath); } catch { /* not there */ }
+    const server = net.createServer((sock) => {
+      let buf = '';
+      let child = null;
+      sock.setEncoding('utf8');
+      const send = (line) => { try { sock.write(line + '\n'); } catch { /* gone */ } };
+      sock.on('data', (d) => {
+        buf += d;
+        let n;
+        while ((n = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, n);
+          buf = buf.slice(n + 1);
+          if (!child) {
+            let req = null;
+            try { req = JSON.parse(line); } catch { /* not a request */ }
+            if (!Array.isArray(req?.argv) || !req.argv.length || !req.argv.every((a) => typeof a === 'string')) { send('e ' + Buffer.from('sudo: a command is needed\n').toString('base64')); send('x 1'); sock.end(); return; }
+            const asked = req.env && typeof req.env === 'object' ? Object.fromEntries(Object.entries(req.env).filter(([k, v]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k) && typeof v === 'string')) : {};
+            const cwd = typeof req.cwd === 'string' && fs.existsSync(req.cwd) ? req.cwd : '/';
+            try {
+              child = spawn(req.argv[0], req.argv.slice(1), {
+                cwd,
+                env: { PATH: baseEnv.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', HOME: process.env.HOME || '/root', DEBIAN_FRONTEND: 'noninteractive', LANG: 'C.UTF-8', ...asked },
+                stdio: ['pipe', 'pipe', 'pipe'],
+                detached: true,
+              });
+            } catch (err) {
+              send('e ' + Buffer.from(`sudo: ${err.message}\n`).toString('base64'));
+              send('x 1');
+              sock.end();
+              return;
+            }
+            child.stdin.on('error', () => {});
+            child.stdout.on('data', (b) => send('o ' + b.toString('base64')));
+            child.stderr.on('data', (b) => send('e ' + b.toString('base64')));
+            child.on('error', (err) => { send('e ' + Buffer.from(`sudo: ${req.argv[0]}: ${err.code === 'ENOENT' ? 'command not found' : err.message}\n`).toString('base64')); });
+            child.on('close', (code, signal) => { send(`x ${code ?? 128 + 15}`); sock.end(); void signal; });
+            continue;
+          }
+          if (line.startsWith('i ')) child.stdin.write(Buffer.from(line.slice(2), 'base64'));
+          else if (line === 'I') child.stdin.end();
+          else if (line.startsWith('k ')) { try { process.kill(-child.pid, /^SIG[A-Z]+$/.test(line.slice(2)) ? line.slice(2) : 'SIGTERM'); } catch { /* gone */ } }
+        }
+      });
+      sock.on('close', () => { if (child && child.exitCode === null) { try { process.kill(-child.pid, 'SIGTERM'); } catch { /* gone */ } } });
+      sock.on('error', () => {});
+    });
+    server.listen(sockPath, () => { try { fs.chmodSync(sockPath, 0o666); } catch { /* gone */ } });
+    return server;
+  }
 
   /* --------------------------- WHILE THE MAC IS AWAY ---------------------- */
   // The Mac reads a run's events every 20 seconds or so; one it has not heard
@@ -430,6 +496,13 @@ export function createSandbox({
   // The project's setup, as the agent (who may sudo), never with the run's
   // sign-in. A setup that fails or overruns is said, and the agent starts all
   // the same: it can read why in the log and do the rest itself.
+  // A command as the agent, with as many open files as the machine allows.
+  function spawnAsAgent(argv, opts) {
+    const asRoot = runAs && process.getuid?.() === 0 && fs.existsSync(SETPRIV);
+    if (asRoot) return spawn('/bin/sh', ['-c', RAISE_THEN_DROP(runAs.uid, runAs.gid), ...argv], opts);
+    return spawn('/bin/sh', ['-c', RAISE_OPEN_FILES, ...argv], { ...opts, ...(runAs ? { uid: runAs.uid, gid: runAs.gid } : {}) });
+  }
+
   function runSetup(r, cwd, env) {
     emit({ kind: 'setup', state: 'running' }, r);
     return new Promise((resolve) => {
@@ -437,12 +510,11 @@ export function createSandbox({
       try { log = fs.openSync(setupLog, 'w', 0o644); } catch { log = 'ignore'; }
       let child;
       try {
-        child = spawn('/bin/sh', ['-c', RAISE_OPEN_FILES, 'bash', SETUP_FILE], {
+        child = spawnAsAgent(['bash', SETUP_FILE], {
           cwd,
           env: { ...baseEnv, ...(runAs ? { HOME: runAs.home, USER: runAs.user, LOGNAME: runAs.user, TMPDIR: '/tmp' } : {}), ...env },
           stdio: ['ignore', log, log],
           detached: true,
-          ...(runAs ? { uid: runAs.uid, gid: runAs.gid } : {}),
         });
       } catch (err) {
         emit({ kind: 'setup', state: 'failed', code: null, message: err.message }, r);
@@ -529,7 +601,7 @@ export function createSandbox({
     openBridge();
     let child;
     try {
-      child = spawn('/bin/sh', ['-c', RAISE_OPEN_FILES, argv[0], ...argv.slice(1)], {
+      child = spawnAsAgent(argv, {
         cwd,
         env: {
           ...baseEnv,
@@ -541,7 +613,6 @@ export function createSandbox({
         stdio: ['pipe', 'pipe', 'pipe'],
         // Its own process group, so a cancel reaches everything it started.
         detached: true,
-        ...(runAs ? { uid: runAs.uid, gid: runAs.gid } : {}),
       });
     } catch (err) {
       emit({ kind: 'error', message: `could not start the command: ${err.message}` }, r);
@@ -1339,6 +1410,7 @@ export function createSandbox({
     if (run) { clearTimeout(run.deadlineTimer); clearTimeout(run.killTimer); for (const w of [...run.waiters]) w(); }
     if (bridge) { for (const c of bridge.conns.values()) c.sock.destroy(); bridge.server.close(); bridge = null; }
     try { fs.unlinkSync(bridgeSocket); } catch { /* gone */ }
+    if (rootHelper) { rootHelper.close(); try { fs.unlinkSync(rootSocket); } catch { /* gone */ } }
     if (httpServer) { httpServer.closeAllConnections?.(); await new Promise((r) => httpServer.close(r)); }
     closeLog(run);
   }
@@ -1589,6 +1661,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const home = execFileSync('getent', ['passwd', user], { encoding: 'utf8' }).split(':')[5];
     runAs = { uid: id('-u'), gid: id('-g'), home, user };
   }
-  const sandbox = createSandbox({ workRoot: '/var/lib/agentbox', bridgeSocket: '/tmp/agentbox-bridge.sock', runAs, log: (line) => console.error(line) });
+  const sandbox = createSandbox({ workRoot: '/var/lib/agentbox', bridgeSocket: '/tmp/agentbox-bridge.sock', rootSocket: '/run/agentbox-root.sock', runAs, log: (line) => console.error(line) });
   sandbox.listen(Number(process.env.PORT) || 8080).then((a) => console.error(`agentbox sandbox listening on ${a.port}`));
 }
