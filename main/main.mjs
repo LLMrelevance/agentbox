@@ -23,10 +23,7 @@ import { startCodexWatch } from './codex-watch.mjs';
 import { readCodexThreads } from './codex-threads.mjs';
 import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
-import { createPhoneLink } from './phone-link.mjs';
 import { applyThrough, phoneDevice } from './phone-inbox.mjs';
-import { relayAddress } from './relay-address.mjs';
-import { atTheComputer } from '../shared/notify-rules.mjs';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
 import * as approvals from './approvals.mjs';
@@ -731,24 +728,15 @@ async function createWindow() {
 
   // The desktop door. `main/serve.mjs` is the other one and hands over plain
   // Node stand-ins for these three; everything else about the call is the same.
-  // THE PHONE DOOR (main/phone-link.mjs) answers with these same handlers, so
-  // each one is filed in a Map as Electron gets it. And every push the window
-  // gets is handed to the phones' event streams too.
+  // What the phone leaves in the cloud is done through these same handlers
+  // (main/phone-inbox.mjs), so each one is filed in a Map as Electron gets it.
   const phoneChannels = new Map();
-  const phoneListeners = new Set();
   const filingIpcMain = {
     handle(channel, fn) { ipcMain.handle(channel, fn); phoneChannels.set(channel, fn); },
   };
   // `readClipboardText` is read only by the cloud setup, and only for a
   // Claude sign-in code (main/ipc.mjs `zero:cloud-clipboard-code`).
   const filingHost = { ipcMain: filingIpcMain, app, dialog, readClipboardText: () => clipboard.readText() };
-  const sendToWindow = window.webContents.send.bind(window.webContents);
-  window.webContents.send = (channel, ...args) => {
-    sendToWindow(channel, ...args);
-    for (const send of phoneListeners) {
-      try { send({ channel, args }); } catch { /* a closed phone is not an error */ }
-    }
-  };
   const ipc = registerIpc({
     store, supervisor, config, window, analytics, docGrants, updater,
     host: filingHost,
@@ -759,40 +747,10 @@ async function createWindow() {
   // See the `installMenu` call above for what writing the file instead did to a
   // Codex card.
   answerApproval = ipc.answerApproval;
-  // What the window answers itself (badge, boot info) a phone gets the plain
-  // stand-ins for, as a browser tab does.
+  // What the window answers itself (badge, boot info) gets the plain stand-ins
+  // a browser tab gets.
   answerWhatOnlyTheWindowAnswered({ handle: (channel, fn) => { if (!phoneChannels.has(channel)) phoneChannels.set(channel, fn); } });
   phoneApply = applyThrough(phoneChannels);
-  const phone = createPhoneLink({
-    file: path.join(userDir, 'phone-link.json'),
-    channels: phoneChannels,
-    listeners: phoneListeners,
-    dist: path.join(appDir, 'renderer', 'dist'),
-    // Pictures and design pages, under the same two rules the window's own
-    // schemes use below: a page the pane was granted, and a picture inside a
-    // root the app owns (main/serve.mjs answerFile).
-    files: { allows: (kind, f) => (kind === 'doc' ? docGrants.allows(f) : servable(f, imageRoots())) },
-    // "Anywhere": the relay a phone reaches this Mac through from any network
-    // (main/relay-client.mjs). It stays beside the hosted phone site until
-    // every copy of the app can sign in to that (docs/cloud/PHONE-PLAN.md).
-    relayUrl: relayAddress({ appDir }),
-    // THE WINDOW IS NULLED ON CLOSE, NOT MERELY DESTROYED (w-60c8ddbab6). This
-    // handler is reached on the way out: `phone.close()` stops the relay and the
-    // relay reports the change back, by which time `window = null` has already
-    // run, and `window.isDestroyed()` on a null threw a TypeError that killed
-    // the whole quit. Three 0.1.13 crash reports, all this line.
-    onChange: () => { if (window?.isDestroyed() === false) sendToWindow('zero:phone-changed'); },
-    // The phone stays quiet while she is using the computer in any app, not
-    // only Agentbox: the desktop banner covers the rest (shared/notify-rules.mjs).
-    atDesk: () => {
-      try { return atTheComputer({ idleMs: powerMonitor.getSystemIdleTime() * 1000 }); } catch { return false; }
-    },
-  });
-  window.on('focus', () => phone.seen());
-  // Settings' own channel, on the window only: a phone does not get to turn
-  // the phone door off or hand out its key.
-  ipcMain.handle('zero:phone-link', (_e, payload) => phone.act(payload ?? {}));
-  quitStep(app, 'before-quit', 'phone.close', () => phone.close());
   updater.start();
   // A task the app just shipped moved main: look now rather than in half an
   // hour, so the restart is offered while she still remembers the task.
@@ -965,7 +923,6 @@ async function createWindow() {
   // Unread badge + notification on new inbox arrivals are driven by the
   // renderer (it owns the definition of "inbox"), through the badge API.
   ipcMain.handle('zero:badge', (_e, count) => {
-    phone.count(count);
     if (process.platform === 'darwin') app.dock.setBadge(count > 0 ? String(count) : '');
   });
   // WHETHER to speak, and what to say, is not the renderer's call: only this
@@ -974,7 +931,7 @@ async function createWindow() {
   // a locked screen all read the same from in there). The renderer says what
   // arrived; main/notify.mjs decides. tell me when I am in another app, never
   // while I am in Agentbox.
-  installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage, onArrivals: (arrivals) => phone.arrivals(arrivals) });
+  installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage });
   // THE CORNER TAG (w-dafae58a23): what is ready for her, floating over
   // whatever app she is in. Its page is built beside the app's own, and comes
   // from the dev server only when the app's own page does.
