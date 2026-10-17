@@ -12,8 +12,7 @@
 // Now a cloud run is told what the cloud machine has. When a request needs
 // anything else it ends on one marked line instead of an answer; the app keeps
 // that thread on this Mac, writes nothing on the row, and runs the same
-// request again here, telling the agent why. A thread whose own designs are
-// bigger than a cloud run can take never goes to the cloud at all.
+// request again here, telling the agent why.
 import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -21,7 +20,6 @@ import path from 'node:path';
 import { Supervisor } from '../main/supervisor.mjs';
 import { HAND_BACK, handsBack } from '../shared/cloud-hand-back.mjs';
 import { argvForTheCloud, CLOUD_NOTE } from '../main/cloud/run.mjs';
-import { ownDesignsFit } from '../main/cloud/docs.mjs';
 
 const read = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 const dirs = [];
@@ -109,34 +107,18 @@ describe('a cloud run that ends on the marked line', () => {
   });
 });
 
-describe('a thread whose own designs are too big for a cloud run', () => {
-  const designs = (root, id, sizes) => {
-    const d = path.join(root, 'designs', id);
-    fs.mkdirSync(d, { recursive: true });
-    sizes.forEach((n, i) => fs.writeFileSync(path.join(d, `f${i}.bin`), Buffer.alloc(n)));
-  };
-  const limits = { ownFile: 1000, own: 2500, files: 50 };
-
-  it('fits when every file and the whole of it are inside the limits', () => {
-    const root = tmp();
-    designs(root, 'w-a', [1000, 1000]);
-    expect(ownDesignsFit(root, 'w-a', limits)).toBe(true);
-    expect(ownDesignsFit(root, 'w-none', limits)).toBe(true);
-  });
-
-  it('does not fit with one file over the limit, or too much in all', () => {
-    const one = tmp(); designs(one, 'w-a', [1001]);
-    expect(ownDesignsFit(one, 'w-a', limits)).toBe(false);
-    const all = tmp(); designs(all, 'w-a', [1000, 1000, 501]);
-    expect(ownDesignsFit(all, 'w-a', limits)).toBe(false);
-  });
-
-  it('stays on this Mac', () => {
+// Since 2026-10-17 such a thread goes to the cloud with its newest designs
+// (tests/a-thread-with-big-designs-goes-to-the-cloud-and-nothing-left-behind-
+// is-overwritten): her Mac was overloaded by the threads this check kept on
+// it. One that needs the rest hands itself back, as above.
+describe('a thread whose own designs are too big to go whole', () => {
+  it('may still go to the cloud', () => {
     const root = tmp();
     const { sup } = make(root);
+    const d = path.join(root, 'designs', 'w-a');
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, 'film.mp4'), Buffer.alloc(26 * 1024 * 1024));
     expect(sup._cloudEligible({ id: 'w-a', product: 'p' })).toBe(true);
-    designs(root, 'w-a', [26 * 1024 * 1024]);
-    expect(sup._cloudEligible({ id: 'w-a', product: 'p' })).toBe(false);
-    expect(sup._mayRunInCloud({ id: 'w-a' }, product, '/r/.claude/worktrees/w-a')).toBe(false);
+    expect(sup._mayRunInCloud({ id: 'w-a' }, product, '/r/.claude/worktrees/w-a')).toBe(true);
   });
 });

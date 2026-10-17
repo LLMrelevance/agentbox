@@ -194,10 +194,12 @@ cloud Codex thread gets an app-server of its OWN, in its sandbox:
   joiner saves its place as it goes so no call is served twice. A Codex run is
   still cancelled on quit: its app-server ends at once when its input closes.
 - **The project's documents folder travels (2026-10-15).** Its small files and
-  the whole of the thread's own `designs/<id>` go up at the same path
-  (main/cloud/docs.mjs); what the agent writes there comes back every 10 s and
-  at the end, and never over a file changed on the Mac meanwhile, which keeps
-  its place while the run's copy goes beside it.
+  the thread's own `designs/<id>`, newest first within 50 MB (2026-10-17: a
+  thread whose designs did not all fit used to stay on the Mac, and those were
+  the busy ones), go up at the same path (main/cloud/docs.mjs); what the agent
+  writes there comes back every 10 s and at the end, never over a file changed
+  on the Mac meanwhile, and never over one the run did not take (`docs.sent` in
+  the marker): those keep their place and the run's copy goes beside them.
 - **The Mac sleeping is not a restart.** The app, the proxy, the store server
   and the approvals server all freeze together and thaw together; their memory
   is intact. The sandbox keeps going. A store call it makes while the Mac
@@ -275,8 +277,12 @@ stdout and stderr come back byte for byte. Its life:
   fault (redeliver, no attempt spent) rather than a finished run.
 - **Slots (R13).** Local capacity counts local sessions only. A Claude thread
   may take a cloud slot when no local slot is free, cloud runs are on, fewer
-  than `maxCloudSessions` (default 10) cloud runs are live, and an account is
-  healthy. Account cooldowns and the fleet brake apply to cloud runs exactly as
+  than `maxCloudSessions` (default 20; each run still costs the Mac ~120 MB)
+  cloud runs are live, and an account is healthy. With Everything
+  (`cloudRuns: 'all'`) a thread that may go to the cloud waits for a cloud slot
+  (cap, two starting, accounts at their limit or renewing) and never falls back
+  to the Mac (2026-10-17, her Mac overloaded with Everything on). At most two
+  runs bring their work home at once, through files, across every process. Account cooldowns and the fleet brake apply to cloud runs exactly as
   to local ones.
 - **Hangs.** The reaper is unchanged: silence plus an expired claim. The store
   server runs on the Mac, so its heartbeat renews the claim for a cloud run
@@ -411,6 +417,29 @@ a-thread-running-in-the-cloud-says-so.
 
 That is all: cloud runs are on for a Mac that has been set up, and nowhere
 else. `"cloudRuns": false` in zero.config.json turns them off.
+
+## Next: the Mac shut, and fewer Mac resources per run (reviewed by Codex 2026-10-17)
+
+Each cloud run is still one relay process on the Mac (~75 MB) with its own
+tool servers (approvals ~46 MB, the store), and every store call or approval
+waits for the Mac; the end of a turn waits for the Mac to close the agent's
+input. In order:
+
+1. **A turn ends without the Mac.** A Claude-specific wrapper in the sandbox
+   that parses the JSON lines, recognises the end of a turn and closes input
+   with an acknowledged cutoff (a reply still queued on the Mac goes to a
+   later run). Codex separately. Negotiated by capability, not a flag an old
+   image silently ignores. Needs the image rebuilt.
+2. **Fewer processes per run.** One tool server per kind shared by all cloud
+   runs, keeping each connection's identity, request ids, claims, approval
+   context and cleanup; then measure. A single relay for all runs only if that
+   misses.
+3. **The store reachable from the cloud, and a scheduler there.** Answering
+   store writes optimistically in the sandbox was rejected (created ids,
+   claims and epochs make a later refusal unrecoverable). Real store access
+   from the cloud needs durable, deduplicated, ownership-checked writes; with a
+   scheduler (AWS rights of its own) it is also what starts new runs and
+   phone replies with the Mac shut.
 
 ## Known limits
 

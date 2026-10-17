@@ -40,7 +40,6 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, readMarker } from './cloud/marker.mjs';
-import { ownDesignsFit } from './cloud/docs.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
 import { readCloudConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
 import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
@@ -4410,18 +4409,43 @@ export class Supervisor {
     return this._cloudLoad() < this._maxCloud();
   }
 
-  // EVERYTHING WAITS ITS TURN FOR THE CLOUD while two runs are still starting,
-  // rather than starting on this Mac. Read by `_roomFor` (so neither the tick
-  // nor the sweep that resumes interrupted rows starts it, or takes a slot
-  // from another row for it) and by `_whereToRun`.
+  // WITH EVERYTHING, A THREAD THAT MAY GO TO THE CLOUD WAITS FOR A CLOUD SLOT,
+  // never this Mac: while two runs are still starting, while the cloud is at
+  // its cap, and while every cloud account of its engine is at its limit
+  // (2026-10-17: her Mac overloaded with Everything on). Only an engine with no
+  // cloud sign-in at all, or turned off, runs here. Read by `_roomFor` (so
+  // neither the tick nor the sweep that resumes interrupted rows starts it, or
+  // takes a slot from another row for it) and by `_whereToRun`.
   _waitsForCloud(item, engine) {
-    return this._cloudFirst() && !!item?.id && this._cloudStarting() >= CLOUD_STARTING_AT_ONCE
-      && this._cloudEligible(item) && this._cloudRoom(engine);
+    return this._cloudFirst() && !!item?.id && this._cloudSignedInAtAll(engine)
+      && this._cloudEligible(item) && !this._mustRunHere(item, engine) && !this._cloudSlotFor(engine);
+  }
+
+  // A Codex reply resumes the thread this Mac's app-server holds, so it runs
+  // here and never waits for the cloud (the spawn keeps it here too).
+  _mustRunHere(item, engine) {
+    if (engineOf(engine) !== 'codex' || !item?.answer || item.answer === '(withdrawn)') return false;
+    const product = this.store.listProducts?.().find((p) => p.slug === item.product);
+    return !!(product && this.rowSessionFor(item, product));
+  }
+
+  // Set up, the engine offered, and an account of it signed in in the cloud,
+  // working or resting at its limit; not one that must sign in again.
+  _cloudSignedInAtAll(engine = DEFAULT_ENGINE) {
+    const which = engineOf(engine);
+    if (this.config.cloudRuns === false || !readCloudConfig(process.env, this.config.home)) return false;
+    if (!this.engineChoices().some((e) => e.id === which)) return false;
+    const now = Date.now();
+    return listCloudLogins(which, { home: this.config.home }).some((r) => {
+      const state = cloudLoginState(r, { now });
+      // Resting at its limit, or a Codex sign-in being renewed: back soon.
+      return mayRunOn(state) || state === 'limited' || state === 'renew';
+    });
   }
 
   _maxCloud() {
     const n = Number(this.config.maxCloudSessions);
-    return Number.isFinite(n) && n >= 0 ? n : 10;
+    return Number.isFinite(n) && n >= 0 ? n : 20;
   }
 
   _localSlotFor(engine) {
@@ -4446,8 +4470,7 @@ export class Supervisor {
     if (item?.id && this.threadOnMac?.[item.id] === true) return false;
     if (!product?.repoPath || !cwd || cwd === product.repoPath) return false;
     if ((this.config.personalProducts || []).includes(product.slug)) return false;
-    if (item?.id?.startsWith?.('digest-')) return false;
-    return ownDesignsFit(product.dir, item?.id);
+    return !item?.id?.startsWith?.('digest-');
   }
 
   // 'local', 'cloud', or null for "wait". A folder whose earlier cloud run
@@ -4663,8 +4686,7 @@ export class Supervisor {
     if (this.threadOnMac?.[item.id] === true) return false;
     const product = this.store.listProducts?.().find((p) => p.slug === item.product);
     if (!product?.repoPath) return false;
-    if ((this.config.personalProducts || []).includes(product.slug)) return false;
-    return ownDesignsFit(product.dir, item.id);
+    return !(this.config.personalProducts || []).includes(product.slug);
   }
 
   /**
@@ -8020,7 +8042,8 @@ export class Supervisor {
         (this._warnedNoCloudSignIn ??= new Set()).add(`${engine}:${profile}`);
         console.warn(`zero: the ${engine} account ${profile} cannot sign in in the cloud right now, so its threads run here only`);
       }
-      if (mayRunHereInstead()) where = 'local';
+      // With Everything, a thread waits for a cloud account to come back rather than load this Mac.
+      if (!(this._cloudFirst() && this._cloudSignedInAtAll(engine)) && mayRunHereInstead()) where = 'local';
       else {
         this.removeSpawnFiles({ spawnFiles });
         if (continuation && item.answer) this.redeliverAnswer(item, item.answer);

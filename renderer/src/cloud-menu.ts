@@ -124,7 +124,7 @@ export function cloudFootLine(cloud: CloudStatus, now = Date.now()): string {
   const back = claude.map((a) => (a.limitedUntil && a.limitedUntil > now ? a.limitedUntil : null));
   if (cloudIsOn(cloud) && claude.length && back.every(Boolean)) {
     const at = new Date(Math.min(...(back as number[]))).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(' ', '').toLowerCase();
-    return `Your cloud accounts are at their usage limit until ${at}. Threads run on this Mac until then.`;
+    return `Your cloud accounts are at their usage limit until ${at}. ${cloud.mode === 'all' ? 'Threads wait for the cloud' : 'Threads run on this Mac'} until then.`;
   }
   return cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now';
 }

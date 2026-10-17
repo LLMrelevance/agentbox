@@ -420,7 +420,7 @@ export async function cloudRun({
   const bundleFile = path.join(os.tmpdir(), `agentbox-cloud-${runId}.bundle`);
   try {
     git(cwd, ['bundle', 'create', '-q', bundleFile, ...refs]);
-    await storage.put(key('in.bundle'), fs.readFileSync(bundleFile));
+    await sendFromFile(storage, key('in.bundle'), bundleFile);
   } finally {
     fs.rmSync(bundleFile, { force: true });
     if (hasOutgoing) gitOk(cwd, ['update-ref', '-d', outgoing]);
@@ -477,9 +477,10 @@ export async function cloudRun({
     files.push(await sendFile(null, path.join(codexHome, 'config.toml'), Buffer.from(codexConfigForTheCloud(toml))));
   }
   // The project's documents folder (main/cloud/docs.mjs), at its own path.
+  let docsSent = [];
   if (docsDir) {
-    const list = docsToSend(docsDir, { item: env.ZERO_ITEM });
-    if (list.length) files.push(await sendFile(null, path.join(docsDir, '.agentbox-docs.tgz'), tarDocs(docsDir, list), docsDir));
+    docsSent = docsToSend(docsDir, { item: env.ZERO_ITEM });
+    if (docsSent.length) files.push(await sendFile(null, path.join(docsDir, '.agentbox-docs.tgz'), tarDocs(docsDir, docsSent), docsDir));
   }
   const system = argValue(argv, '--append-system-prompt') || '';
   for (const f of filesNamedIn(system, { cwd, roots })) files.push(await sendFile(f));
@@ -500,7 +501,8 @@ export async function cloudRun({
 
   // What this run has laid into the documents folder so far, kept with the
   // marker so a run brought home after a restart knows its own files.
-  docs = docsDir ? { dir: docsDir, sentAt, laid: {}, ack: null } : null;
+  // `sent` is what it took, so a file it did not take is never written over.
+  docs = docsDir ? { dir: docsDir, sentAt, sent: docsSent, laid: {}, ack: null } : null;
   // And what a process joining it after a restart needs to serve its tools:
   // the servers, and the worker's own variables they ran with.
   marker = { runId, sessionId, branch, startSha, sent, configDir, engine, bringDirs, docs, mcp: mcpConfig.mcpServers, toolEnv: toolVariables(env) };
@@ -896,6 +898,24 @@ export async function cloudRun({
     }
     if (!done) return { ok: false, why: 'its results never arrived' };
     const record = JSON.parse(done.toString('utf8'));
+    // The heavy half, two runs at a time across every cloud run on this Mac,
+    // and through files rather than memory: twenty runs finishing together
+    // must not unpack twenty sets of bundles and transcripts at once.
+    const release = await takeImportSlot();
+    try {
+      const spool = fs.mkdtempSync(path.join(os.tmpdir(), `${nameSlug}-cloud-home-`));
+      try {
+        return await layHome(rec, record, { recovering, replay, from, spool });
+      } finally {
+        try { fs.rmSync(spool, { recursive: true, force: true }); } catch { /* the tmp folder's own cleaning */ }
+      }
+    } finally {
+      release();
+    }
+  }
+
+  async function layHome(rec, record, { recovering, replay, from, spool }) {
+    const k = (name) => keyOf(rec.runId, name);
     // WHAT THE RUN USED, for setting the plan limits from real work
     // (main/cloud/usage.mjs). Recorded as soon as its results are here,
     // whatever laying them into the folder does next: the machine ran either
@@ -907,8 +927,9 @@ export async function cloudRun({
     // sandbox said about the login, even for an earlier run brought home now
     // (Codex's review, finding 4).
     if (replay || recovering) {
-      const log = await storage.get(k('events.jsonl'));
-      for (const l of (log ? log.toString('utf8').split('\n') : [])) {
+      const logFile = path.join(spool, 'events.jsonl');
+      const lines = (await fetchToFile(storage, k('events.jsonl'), logFile)) ? linesOf(logFile) : [];
+      for await (const l of lines) {
         if (!l) continue;
         const e = JSON.parse(l);
         if (replay && e.seq > from && (e.kind === 'stdout' || e.kind === 'stderr' || e.kind === 'login')) await replay(e);
@@ -925,10 +946,8 @@ export async function cloudRun({
     const keep = `refs/agentbox/cloud/${rec.runId}`;
     const keepChanges = `refs/agentbox/cloud-changes/${rec.runId}`;
     const fetchBundle = async (name, specs, why) => {
-      const b = await storage.get(k(name));
-      if (!b) throw new Error(why);
-      const f = path.join(os.tmpdir(), `agentbox-cloud-${name}-${rec.runId}`);
-      fs.writeFileSync(f, b);
+      const f = path.join(spool, name);
+      if (!(await fetchToFile(storage, k(name), f))) throw new Error(why);
       try { git(cwd, ['fetch', '-q', f, ...specs]); } finally { fs.rmSync(f, { force: true }); }
     };
     if (record.commits > 0 || record.strayHead) {
@@ -940,9 +959,9 @@ export async function cloudRun({
     if (record.uncommitted) await fetchBundle('changes.bundle', [`refs/agentbox/changes:${keepChanges}`], 'the uncommitted work is missing');
     // The conversation's folders, each one the run said it uploaded.
     const conversations = [];
-    for (const b of dirsOf(rec)) {
-      const tgz = await storage.get(k(b.name));
-      if (tgz) conversations.push({ dir: b.dir, tgz });
+    for (const [i, b] of dirsOf(rec).entries()) {
+      const file = path.join(spool, `conversation-${i}.tgz`);
+      if (await fetchToFile(storage, k(b.name), file)) conversations.push({ dir: b.dir, file });
       else if ((record.brought || []).includes(b.dir)) return { ok: false, why: 'the transcript is missing' };
     }
 
@@ -988,7 +1007,7 @@ export async function cloudRun({
       }
       for (const c of conversations) {
         fs.mkdirSync(c.dir, { recursive: true });
-        execFileSync('tar', ['-xzf', '-', '-C', c.dir], { input: c.tgz });
+        execFileSync('tar', ['-xzf', c.file, '-C', c.dir], { stdio: 'ignore' });
       }
     } catch (err) {
       // Every download had already landed, so this is git itself refusing;
@@ -1003,7 +1022,7 @@ export async function cloudRun({
 
   function layArchive(d, tgz) {
     try {
-      const out = layDocs({ tgz, dir: d.dir, sentAt: d.sentAt, laid: d.laid });
+      const out = layDocs({ tgz, dir: d.dir, sentAt: d.sentAt, laid: d.laid, sent: d.sent ?? null });
       for (const b of out.beside) say(`${b} was changed on this Mac while the run had it; the run's copy is beside it`);
       for (const m of out.moved) say(`the run's ${m} could not go where it was written, through a link out of the folder, so it is there instead`);
       return true;
@@ -1141,3 +1160,77 @@ function gitIdentity(cwd) {
 }
 
 function alive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }
+
+// A stored object straight to a file, and a file straight to storage, when the
+// storage can (main/cloud/aws.mjs); a stand-in that cannot goes through memory.
+async function fetchToFile(storage, k, file) {
+  if (storage.getToFile) return storage.getToFile(k, file);
+  const body = await storage.get(k);
+  if (!body) return false;
+  fs.writeFileSync(file, body);
+  return true;
+}
+async function sendFromFile(storage, k, file) {
+  if (storage.putFile) return storage.putFile(k, file);
+  return storage.put(k, fs.readFileSync(file));
+}
+async function* linesOf(file) {
+  const { createInterface } = await import('node:readline');
+  yield* createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
+}
+
+// AT MOST TWO CLOUD RUNS BRING THEIR WORK HOME AT ONCE on this Mac, whichever
+// process each runs in. The slots are files in one folder, looked at and
+// changed only while holding that folder's guard (a directory made only if
+// absent, held for milliseconds), so two processes never both reclaim one.
+// A slot names its holder's process and a token of its own, and its holder
+// touches it while it works: one whose process is gone, or that nobody has
+// touched for ten minutes (a process id reused by something else), is free.
+// If the folder cannot be used at all, the import goes ahead unlimited rather
+// than never.
+export const IMPORT_SLOTS = 2;
+const SLOT_STALE_MS = 10 * 60_000;
+const GUARD_STALE_MS = 30_000;
+export async function takeImportSlot({ dir = path.join(os.tmpdir(), `${nameSlug}-cloud-imports`), slots = IMPORT_SLOTS, everyMs = 500, staleMs = SLOT_STALE_MS } = {}) {
+  const token = `${process.pid}:${crypto.randomUUID()}`;
+  const guard = path.join(dir, 'guard');
+  const unlimited = () => () => {};
+  try { fs.mkdirSync(dir, { recursive: true }); } catch { return unlimited(); }
+  const tryOnce = () => {
+    try { fs.mkdirSync(guard); } catch (err) {
+      if (err?.code !== 'EEXIST') throw err;
+      try { if (Date.now() - fs.statSync(guard).mtimeMs > GUARD_STALE_MS) fs.rmSync(guard, { recursive: true, force: true }); } catch { /* freed meanwhile */ }
+      return null;
+    }
+    try {
+      for (let i = 0; i < slots; i += 1) {
+        const file = path.join(dir, `slot-${i}`);
+        let held = null;
+        try { held = { text: fs.readFileSync(file, 'utf8'), at: fs.statSync(file).mtimeMs }; } catch { /* free */ }
+        const pid = held ? Number(held.text.split(':')[0]) : 0;
+        if (held && pid && alive(pid) && Date.now() - held.at < staleMs) continue;
+        fs.writeFileSync(file, token);
+        return file;
+      }
+      return null;
+    } finally {
+      fs.rmSync(guard, { recursive: true, force: true });
+    }
+  };
+  for (let failures = 0; ;) {
+    let file = null;
+    try { file = tryOnce(); } catch {
+      failures += 1;
+      if (failures >= 20) return unlimited();
+    }
+    if (file) {
+      const touch = setInterval(() => { try { const t = new Date(); fs.utimesSync(file, t, t); } catch { /* gone */ } }, 30_000);
+      touch.unref?.();
+      return () => {
+        clearInterval(touch);
+        try { if (fs.readFileSync(file, 'utf8') === token) fs.rmSync(file, { force: true }); } catch { /* gone */ }
+      };
+    }
+    await sleep(everyMs);
+  }
+}
