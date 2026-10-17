@@ -192,6 +192,7 @@ async function perform(picked, { heard, askMain, state, now, answer, compose, hi
       if (compose) {
         const wrote = await compose({ heard, history, thread: open?.title ?? '' }).catch(() => undefined);
         if (!wrote) return { say: 'Tell the person the message could not be written just now, so nothing was sent; ask them to say it again.', ok: false };
+        if (wrote.unresolved) return { say: 'Nothing was sent. Ask the person, in a few words, which words to send.', ok: false };
         if (wrote.send === null) return { say: `Nothing was sent to the agent. ${await talk()}`, ok: false };
         text = wrote.send;
       }

@@ -29,7 +29,7 @@ export function buildOptions(screen) {
 
   if (open) {
     const t = q(open.title);
-    add('reply', `Send a message the person dictates to the agent on the open thread ${t} ("tell it…", "reply saying…", feedback to post); only words meant for the agent`, { kind: 'reply', id: open.id });
+    add('reply', `Send a message the person dictates to the agent on the open thread ${t} ("tell it…", "reply saying…", feedback to post, feedback about Neo or JARVIS to pass on); only words meant for the agent`, { kind: 'reply', id: open.id });
     for (const o of open.options ?? []) add(`pick:${o.n}`, `Choose option ${o.n} on the open thread: ${q(o.text)} ("option ${o.n}", or saying what it does)`, { kind: 'pick', id: open.id, n: o.n });
     add('later', `Put the open thread ${t} off until later (snooze it for a while)`, { kind: 'later', id: open.id });
     add('close', `Close the open thread ${t}`, { kind: 'close', id: open.id });
@@ -59,7 +59,7 @@ export function buildOptions(screen) {
   add('new', 'Start a new thread with new work the person describes', { kind: 'new' });
   add('undo', 'Undo the last thing done', { kind: 'undo' });
   add('signoff', 'End the conversation with Neo', { kind: 'signoff' });
-  add('talk', 'The person is talking to Neo about Neo itself: correcting it, complaining about what it just did, explaining a mistake. This is not words for the agent', { kind: 'talk' });
+  add('talk', 'The person is talking to Neo about Neo itself: correcting it, complaining about what it just did, explaining a mistake. This is not words for the agent. Feedback the person asks Neo to give, send or pass on is a reply, not this', { kind: 'talk' });
   add('none', 'Do nothing: a greeting, filler, thinking aloud, holding off ("not yet", "wait", "don\'t"), or talk not asking for anything', { kind: 'none' });
 
   for (const c of screen.commands ?? []) {
