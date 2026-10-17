@@ -134,10 +134,17 @@ const LISTED = 12;
 const SUMMARY_CHARS = 400;
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-// An agent's words as they read aloud: a picture or link is named, never spelled out.
+// A thread or run id: a letter, a dash, then hex. Hyphenated English never
+// looks like this, because the tail has to be hex and at least six long.
+const AN_ID = /\b[a-z]-[0-9a-f]{6,}(?:-[0-9a-z]+)*\b/gi;
+
+// An agent's words as they read aloud: a picture, link or id is named, never
+// spelled out. She heard one spelled out and cut in four times to stop it:
+// "also approve W-ce" / "8c1a9275." / "Yeah. It's W-ce" / "8c" / "1a9275."
 export const spoken = (s: string) => s
   .replace(/!\[([^\]]*)\]\([^)]*\)/g, (_m, alt) => `[picture${alt ? `: ${alt}` : ''}]`)
   .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+  .replace(AN_ID, 'that thread')
   .replace(/[*_`#>]+/g, '')
   .replace(/\s+/g, ' ')
   .trim();

@@ -34,7 +34,7 @@ export function buildOptions(screen) {
     add('later', `Put the open thread ${t} off until later (snooze it for a while)`, { kind: 'later', id: open.id });
     add('close', `Close the open thread ${t}`, { kind: 'close', id: open.id });
     add('summary', `Say what the agent on the open thread ${t} said and what it needs`, { kind: 'summary', id: open.id });
-    add('ask', `Answer a question about the open thread ${t} (why, what, how; "what is this again", "what's it asking", "remind me")`, { kind: 'ask', id: open.id });
+    add('ask', `Answer a question about the open thread ${t} (why, what, how; "what is this again", "what's it asking", "remind me", "what do you mean", "I don't know what this is about", "I don't understand"). Saying they do not follow something is asking about it.`, { kind: 'ask', id: open.id });
     const pics = open.pictures ?? [];
     for (const p of pics) add(`show:${p.n}`, `Show picture ${p.n} of the open thread (${q(p.name)}) full screen, big${p.n === 1 ? ' ("the picture" means this one)' : ''}`, { kind: 'show', id: open.id, pictures: [p.n] });
     if (pics.length > 1) add('compare', 'Show several of the open thread\'s pictures at once, side by side ("show me the images", "show them", "show me those", "all of them", "compare 1 and 3") — anything plural means this, not one picture', { kind: 'compare', id: open.id });
@@ -67,7 +67,7 @@ export function buildOptions(screen) {
   // description of almost any sentence. Live on 2026-10-17 it took "full
   // screen Agentbox and start processing my work" (0.12), "go into the task
   // JARVIS for Agentbox" (0.83) and "move on" (0.69), and Neo did nothing.
-  add('none', 'Do nothing. Only a greeting ("hi", "how\'s it going"), filler ("um", "okay", "cool"), thinking aloud to themselves, holding off ("not yet", "wait", "don\'t", "stay silent"), or talk aimed at someone else. A short sentence asking for something is never this, however few words it uses: pick the action it asks for.', { kind: 'none' });
+  add('none', 'Do nothing. Only a greeting ("hi", "how\'s it going"), filler ("um", "okay", "cool"), thinking aloud to themselves, holding off ("not yet", "wait", "don\'t", "stop", "stop talking", "never mind", "stay silent"), or talk aimed at someone else. A short sentence asking for something is never this, however few words it uses: pick the action it asks for.', { kind: 'none' });
 
   for (const c of screen.commands ?? []) {
     // ⌘K's "Reply" opens the box; named plainly, so "open the reply field" finds it.
