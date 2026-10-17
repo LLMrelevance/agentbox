@@ -1,6 +1,9 @@
 # The phone with the Mac closed: the plan
 
 Status: step 1 built 2026-10-14 (commits on w-1dc7ee2408), reviewed by Codex twice. Steps 2 and 3 not built.
+2026-10-17: a thread's copy also carries whether an agent is running on it (`live`)
+and the files it names, uploaded to a private bucket (main/phone-uploads.mjs,
+renderer/src/cloud-files.ts, migration 20261017000000_phone_files.sql).
 
 ## What she asked for
 

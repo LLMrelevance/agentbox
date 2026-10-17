@@ -20,6 +20,8 @@ import { installPhoneScreen } from './phone-screen';
 import { atMostEvery } from './phone-polls';
 import { madeHere } from '../../shared/phone-snapshot.mjs';
 import { statusForReply } from './list-rules';
+import { setPictureLinks } from './picture';
+import { BUCKET, cloudPlaces, findFile, homeOf, installCloudFiles, keyAt, pageForPhone, pageStyles, withStyles, type Place } from './cloud-files';
 
 type Push = (payload: unknown) => void;
 
@@ -72,7 +74,12 @@ export const realItem = (aliases: Aliases, product: string, id: string) => (alia
  */
 export function phoneView(rows: PhoneRows, now = Date.now()) {
   const names = new Map(rows.projects.map((p) => [phoneSlug(p.device, p.project), p.name]));
-  const products = rows.projects.map((p) => ({ slug: phoneSlug(p.device, p.project), name: p.name, dir: '', oneLiner: '', repoPath: '' }));
+  // Each project's stand-in folders, so a path in a message finds its file here (cloud-files.ts).
+  const places = cloudPlaces(rows.threads, phoneSlug);
+  const products = rows.projects.map((p) => {
+    const slug = phoneSlug(p.device, p.project);
+    return { slug, name: p.name, dir: places.get(slug)?.dir ?? '', oneLiner: '', repoPath: places.get(slug)?.repo ?? '' };
+  });
   const items = new Map<string, any>();
   const screenId = new Map<string, string>();
   const aliases: Aliases = {};
@@ -138,7 +145,7 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
       });
     }
   }
-  return { products, items: [...items.values()], waiting, aliases, running };
+  return { products, items: [...items.values()], waiting, aliases, running, places };
 }
 
 /** The thread's lines as her computer sent them, for the thread view. */
@@ -187,7 +194,7 @@ const READS = new Set([
   'firstRunExamples', 'firstRunWalking', 'listFolders', 'folderExists', 'agentFiles', 'agentFolders',
   'agentThreads', 'cornerTag', 'bootInfo', 'updateCheck', 'instructionRead', 'instructionHistory',
   'instructionVersion', 'standingRead', 'messageRulesRead', 'settingsRead', 'engineBin',
-  'cloudClipboardCode', 'projectInstructionsRead', 'folderPictures', 'readDoc', 'codeFile', 'railNote',
+  'cloudClipboardCode', 'projectInstructionsRead', 'codeFile', 'railNote',
   'agentConversation', 'phoneLink', 'teamStatus',
   // Where she dragged a row or a project to: kept on this page, not sent.
   'setThreadPlaces', 'setThreadPins', 'setProductOrder', 'setProductHidden',
@@ -201,6 +208,16 @@ export function readCloudConfig(doc: Document = document): CloudConfig | null {
     const c = JSON.parse(raw);
     return typeof c?.url === 'string' && typeof c?.anonKey === 'string' ? { url: c.url, anonKey: c.anonKey } : null;
   } catch { return null; }
+}
+
+/** A folder a message names, among those her Mac listed: its full path here and its pictures' keys. */
+function findFolder(place: Place, src: string): { folder: string; keys: string[] } | null {
+  let raw = String(src ?? '').replace(/^file:\/\//, '').replace(/\/+$/, '');
+  try { raw = decodeURIComponent(raw); } catch { /* as written */ }
+  const full = raw.startsWith('~/') ? `${homeOf(place.device)}${raw.slice(1)}` : raw;
+  const key = full.startsWith(`${place.dir}/`) ? full.slice(place.dir.length + 1) : full.startsWith(`${place.repo}/`) && place.repo ? `@repo/${full.slice(place.repo.length + 1)}` : full.replace(/^\.\//, '');
+  const keys = place.folders.get(`${key}/`);
+  return keys ? { folder: key.startsWith('@repo/') ? `${place.repo}/${key.slice(6)}` : `${place.dir}/${key}`, keys } : null;
 }
 
 const SUPERVISOR = { paused: false, pausedProducts: [], running: [], stalled: [], queued: [], scheduled: [], productOrder: [], hiddenProducts: [], personalProducts: [], capacity: 0 };
@@ -222,6 +239,34 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
   let aliases: Aliases = {};
   let error: string | null = null;
   let last = '';
+  // Her files' links, by name in the bucket, each signed for an hour and asked
+  // for again ten minutes before it runs out; and each page made ready, by name.
+  let places = new Map<string, Place>();
+  const links = new Map<string, { url: string; until: number }>();
+  // A page made ready is good while every file it points at keeps its name
+  // and its link; at most a few are kept.
+  const pages = new Map<string, { url: string; keys: string[]; names: string; until: number }>();
+  const dropPage = (key: string) => { const p = pages.get(key); if (p) URL.revokeObjectURL(p.url); pages.delete(key); };
+  const objectOf = (place: Place, name: string) => `${client.session()?.user.id}/${place.device}/${name}`;
+  async function signLinks() {
+    const want: string[] = [];
+    for (const place of places.values()) for (const e of place.files.values()) {
+      if (e.n && !((links.get(e.n)?.until ?? 0) - Date.now() > 10 * 60_000)) want.push(objectOf(place, e.n));
+    }
+    const asked = client.generation();
+    for (let i = 0; i < want.length; i += 300) {
+      const got = await client.signFiles(BUCKET, [...new Set(want.slice(i, i + 300))], 3600);
+      if (client.generation() !== asked) return;
+      for (const [object, url] of got) links.set(object.slice(object.lastIndexOf('/') + 1), { url, until: Date.now() + 3600_000 });
+    }
+  }
+  const linkOfEntry = (n?: string) => (n ? links.get(n)?.url ?? null : null);
+  const linkFor = (file: string) => {
+    const at = keyAt(places, file);
+    return at ? linkOfEntry(at.place.files.get(at.key)?.n) : null;
+  };
+  setPictureLinks(linkFor);
+  installCloudFiles(linkFor);
   const listeners = new Map<string, Set<Push>>();
   const deliver = (channel: string, payload?: unknown) => {
     for (const fn of listeners.get(channel) ?? []) { try { fn(payload); } catch { /* its own fault */ } }
@@ -255,7 +300,10 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       // Read for a sign-in that has since ended: not hers to show.
       if (client.generation() !== asked) return;
       rows = { projects, threads, commands: cmds };
+      places = cloudPlaces(threads, phoneSlug);
       error = null;
+      // Links before the screens draw, so a picture is pointed at its file the moment it is drawn.
+      await signLinks().catch(() => { /* the pictures say missing, the words still read */ });
     } catch (err) {
       if (client.generation() !== asked) return;
       if (!client.signedIn()) rows = EMPTY_ROWS;
@@ -263,7 +311,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     }
     // A run going stale changes nothing online, and still has to stop being drawn.
     const fresh = rows.threads.map((t) => !!t.snapshot?.live && Date.now() - Number(t.snapshot.live.at) < LIVE_FOR_MS);
-    const key = JSON.stringify([rows.threads.map((t) => [t.item, t.updated_at]), fresh, rows.commands.map((c) => [c.id, c.taken_at]), rows.projects, error, client.signedIn()]);
+    const key = JSON.stringify([rows.threads.map((t) => [t.item, t.updated_at]), fresh, links.size, rows.commands.map((c) => [c.id, c.taken_at]), rows.projects, error, client.signedIn()]);
     if (key !== last) { last = key; changed(null); }
   }
 
@@ -370,7 +418,68 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       const out = await client.signUp(name, email, password);
       if (out.confirm) throw new Error('Check your email to confirm it, then sign in here.');
     }),
-    teamSignOut: async () => { client.signOut(); rows = EMPTY_ROWS; error = null; changed(null); return { ok: true }; },
+    teamSignOut: async () => {
+      client.signOut(); rows = EMPTY_ROWS; error = null;
+      places = new Map(); links.clear();
+      for (const key of [...pages.keys()]) dropPage(key);
+      changed(null);
+      return { ok: true };
+    },
+    // HER FILES, from the links her Mac's list gives (cloud-files.ts).
+    openArtifact: async (p: { product: string; src: string; mode?: string }) => {
+      const found = findFile(places, p?.product, p?.src);
+      if (!found) return { ok: false, error: 'This file is on your computer.' };
+      if (found.entry.big) return { ok: false, error: 'This file is too big for your phone. Open it on your computer.' };
+      const link = linkOfEntry(found.entry.n);
+      if (!link) return { ok: false, error: 'This file is on its way from your computer.' };
+      if (p.mode === 'resolve') {
+        if (!/\.html?$/i.test(found.key)) return { ok: true, opened: found.file };
+        const cacheKey = `${client.session()?.user.id}|${p.product}|${found.key}`;
+        const namesOf = (keys: string[]) => keys.map((k) => found.place.files.get(k)?.n ?? '').join('|');
+        const kept = pages.get(cacheKey);
+        if (kept && kept.until > Date.now() && kept.names === namesOf(kept.keys)) return { ok: true, opened: found.file, url: kept.url };
+        dropPage(cacheKey);
+        const asked = client.generation();
+        const used = new Set<string>([found.key]);
+        const linkOf = (key: string) => { const n = found.place.files.get(key)?.n; const l = linkOfEntry(n); if (l) used.add(key); return l; };
+        const read = async (url: string) => { const res = await fetch(url); if (!res.ok) throw new Error('This page could not be read.'); return res.text(); };
+        try {
+          let html = await read(link);
+          const styles = new Map<string, string>();
+          for (const key of pageStyles(html, found.key)) {
+            const l = linkOf(key);
+            if (l) styles.set(key, await read(l).catch(() => ''));
+          }
+          if (client.generation() !== asked) return { ok: false, error: 'You signed out.' };
+          html = pageForPhone(withStyles(html, found.key, styles, linkOf), found.key, linkOf);
+          const until = Math.min(...[...used].map((k) => links.get(found.place.files.get(k)?.n ?? '')?.until ?? Date.now())) - 10 * 60_000;
+          const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+          pages.set(cacheKey, { url, keys: [...used], names: namesOf([...used]), until });
+          while (pages.size > 12) dropPage(pages.keys().next().value!);
+          return { ok: true, opened: found.file, url };
+        } catch (err) {
+          return { ok: false, error: String((err as Error)?.message ?? err) };
+        }
+      }
+      window.open(link, '_blank', 'noopener');
+      return { ok: true, opened: found.file };
+    },
+    readDoc: async (p: { product: string; src: string }) => {
+      const found = findFile(places, p?.product, p?.src);
+      const link = found && linkOfEntry(found.entry.n);
+      if (!link) return { ok: false, error: found?.entry.big ? 'This file is too big for your phone.' : 'This file is on your computer.' };
+      const asked = client.generation();
+      const res = await fetch(link);
+      const text = res.ok ? await res.text() : null;
+      if (client.generation() !== asked) return { ok: false, error: 'You signed out.' };
+      return text !== null ? { ok: true, text, mtime: 0 } : { ok: false, error: 'This file could not be read.' };
+    },
+    folderPictures: async (p: { product: string; src: string }) => {
+      const place = places.get(p?.product);
+      const found = place && findFolder(place, p.src);
+      if (!place || !found) return { ok: false, error: 'This folder is on your computer.' };
+      return { ok: true, folder: found.folder, pictures: found.keys.map((k) => (k.startsWith('@repo/') ? `${place.repo}/${k.slice(6)}` : `${place.dir}/${k}`)), total: found.keys.length };
+    },
   });
 
   (window as any).zero = bridge;
