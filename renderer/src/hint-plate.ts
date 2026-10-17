@@ -131,8 +131,8 @@ export const HINTS: Record<string, HintLine[]> = {
   // magnifier says what pressing it costs. A button she points at and gets
   // nothing from is the fault.
   commands: [{ key: '⌘K', what: 'Everything by name' }],
-  // The cloud button (threads/Pages.tsx): C turns the cloud on or off.
-  cloud: [{ key: 'C', what: 'Cloud on or off' }],
+  // The cloud button (threads/Pages.tsx): ⌘C turns the cloud on or off.
+  cloud: [{ key: '⌘C', what: 'Cloud on or off' }],
   search: [{ key: '/', what: 'Search your tasks' }],
   // A task she has opened.
   // THE MARK THAT FINISHED IT IS A ROW NOW (w-e731ca9376, 2026-10-01): Mark
