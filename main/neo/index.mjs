@@ -125,6 +125,7 @@ export function createNeo({
   // windows' bounds. A drag sends a frame per pointer move and most land on
   // the same pixel, so an unchanged place is not sent again.
   let toldOrb = '';
+  let toldOrbAt = 0;
   function tellOrb() {
     if (!win || win.isDestroyed() || mainWindow.isDestroyed()) return;
     const b = win.getBounds();
@@ -398,16 +399,17 @@ export function createNeo({
     if (!dragFrom) return;
     if (phase === 'move' && Number.isFinite(dx) && Number.isFinite(dy)) {
       const next = { x: dragFrom.x + dx, y: dragFrom.y + dy };
-      const now = sideFor(next);
+      const nowSide = sideFor(next);
       // The orb stays under the pointer as the card changes sides.
-      if (now !== side) { const shift = ORB_X[side] - ORB_X[now]; dragFrom.x += shift; next.x += shift; side = now; tellSide(); }
+      if (nowSide !== side) { const shift = ORB_X[side] - ORB_X[nowSide]; dragFrom.x += shift; next.x += shift; side = nowSide; tellSide(); }
       const nowUp = upFor(next);
       if (nowUp !== up) { const shift = ORB_Y[up ? 'up' : 'down'] - ORB_Y[nowUp ? 'up' : 'down']; dragFrom.y += shift; next.y += shift; up = nowUp; tellSide(); }
       win.setBounds(within(next.x, next.y));
-      tellOrb();
+      // At most every 200 ms mid-drag: each tell redraws part of the main window.
+      if (now() - toldOrbAt >= 200) { toldOrbAt = now(); tellOrb(); }
       return;
     }
-    if (phase === 'end') { const { x, y } = win.getBounds(); writePrefs({ at: { x, y }, side, up }); dragFrom = null; }
+    if (phase === 'end') { const { x, y } = win.getBounds(); writePrefs({ at: { x, y }, side, up }); dragFrom = null; toldOrbAt = 0; tellOrb(); }
   });
 
   // How fast Neo talks, from the next session on. Asked with no value, it answers.
