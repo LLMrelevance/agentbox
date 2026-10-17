@@ -36,10 +36,13 @@ export interface CloudAccount {
   name: string | null;
   ready: boolean;
   // 'broken' (stopped working), 'renew' / 'stale' (a Codex login being
-  // renewed), 'limited' (at its usage limit until it resets), 'ready'.
-  state?: 'broken' | 'renew' | 'stale' | 'limited' | 'ready';
+  // renewed), 'limited' (at its usage limit until it resets), 'duplicate'
+  // (the same Claude account as an earlier one), 'ready'.
+  state?: 'broken' | 'renew' | 'stale' | 'limited' | 'duplicate' | 'ready';
   savedAt?: number | null;
   limitedUntil?: number | null;
+  /** The earlier account this one is the same Claude account as (state 'duplicate'). */
+  duplicateOf?: string | null;
   /** Its session and week, read off a reply's own headers in the cloud. */
   limits?: UsageLimit[] | null;
 }
@@ -107,6 +110,24 @@ export const CLOUD_WHEN_ON: { id: Exclude<CloudMode, 'mac'>; label: string; note
 type OnOff = { mode: CloudMode; whenOn?: Exclude<CloudMode, 'mac'> } | null | undefined;
 
 export const cloudIsOn = (status: OnOff) => !!status && status.mode !== 'mac';
+
+/** The accounts that count: one added twice counts once. */
+export const countedAccounts = (accounts: CloudAccount[]) => accounts.filter((a) => a.state !== 'duplicate');
+
+/**
+ * THE MENU'S LAST LINE: what runs in the cloud, or, while the cloud is on and
+ * every Claude account there is at its usage limit, that and when the first
+ * comes back (2026-10-16: "our cloud must be broken", when it was out of usage).
+ */
+export function cloudFootLine(cloud: CloudStatus, now = Date.now()): string {
+  const claude = countedAccounts(cloud.accounts || []).filter((a) => a.engine === 'claude');
+  const back = claude.map((a) => (a.limitedUntil && a.limitedUntil > now ? a.limitedUntil : null));
+  if (cloudIsOn(cloud) && claude.length && back.every(Boolean)) {
+    const at = new Date(Math.min(...(back as number[]))).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(' ', '').toLowerCase();
+    return `Your cloud accounts are at their usage limit until ${at}. Threads run on this Mac until then.`;
+  }
+  return cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now';
+}
 
 /** Where C takes it: off from either kind of on, back on to what "on" means. */
 export function cloudToggleTarget(status: OnOff): CloudMode {
