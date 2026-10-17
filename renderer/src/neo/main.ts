@@ -2,6 +2,7 @@
 // GPT-Live session over WebRTC (the offer goes to the main process, which
 // holds the key and starts the session), shows Neo's words, and signs off.
 import './neo.css';
+import { orbDrag } from './orb-drag';
 import { dustOrb } from './dust';
 import { chime } from './chime';
 import { liveDriver } from './live-driver';
@@ -227,34 +228,28 @@ neo.onNoMic(({ app }) => {
 // Only the orb, the card and the speed row take the pointer; everywhere else
 // clicks reach the app beneath. Not let go of mid-drag, or the drag drops.
 const paceRow = document.getElementById('pace')!;
-let press: { x: number; y: number; moved: boolean } | null = null;
+// A press on the orb that moves drags Neo around the screen; one that does
+// not is the click that sends Neo to sleep (./orb-drag.ts).
+const drag = orbDrag({
+  send: (phase, dx, dy) => {
+    orbCanvas.classList.toggle('dragging', phase === 'move');
+    neo.drag(phase, dx, dy);
+  },
+  sleep: () => sleep('clicked'),
+});
 for (const el of [orbCanvas, document.getElementById('card')!, paceRow]) {
   el.addEventListener('mouseenter', () => neo.clickable(true));
-  el.addEventListener('mouseleave', () => { if (!press) neo.clickable(false); });
+  el.addEventListener('mouseleave', () => { if (!drag.pressed()) neo.clickable(false); });
 }
-
-// A press on the orb that moves drags Neo around the screen; one that does
-// not is the click that sends Neo to sleep.
 orbCanvas.addEventListener('pointerdown', (e) => {
-  press = { x: e.screenX, y: e.screenY, moved: false };
   orbCanvas.setPointerCapture(e.pointerId);
-  neo.drag('start');
+  drag.down(e);
 });
-orbCanvas.addEventListener('pointermove', (e) => {
-  if (!press) return;
-  const dx = e.screenX - press.x, dy = e.screenY - press.y;
-  if (!press.moved && Math.hypot(dx, dy) < 4) return;
-  press.moved = true;
-  orbCanvas.classList.add('dragging');
-  neo.drag('move', dx, dy);
-});
-orbCanvas.addEventListener('pointerup', () => {
-  if (!press) return;
-  const moved = press.moved;
-  press = null;
-  orbCanvas.classList.remove('dragging');
-  if (moved) neo.drag('end'); else sleep('clicked');
-});
+orbCanvas.addEventListener('pointermove', (e) => drag.move(e));
+orbCanvas.addEventListener('pointerup', () => drag.up());
+orbCanvas.addEventListener('pointercancel', () => drag.cancel());
+orbCanvas.addEventListener('lostpointercapture', () => drag.cancel());
+window.addEventListener('blur', () => drag.blur());
 
 // The speed row shows while the pointer is on the orb or on the row itself.
 let paceHide: number | null = null;
@@ -264,7 +259,7 @@ const showPace = (on: boolean) => {
   else paceHide = window.setTimeout(() => paceRow.classList.remove('show'), 500);
 };
 for (const el of [orbCanvas, paceRow]) {
-  el.addEventListener('mouseenter', () => { if (!press) showPace(true); });
+  el.addEventListener('mouseenter', () => { if (!drag.pressed()) showPace(true); });
   el.addEventListener('mouseleave', () => showPace(false));
 }
 const markPace = (pace: string) => {
