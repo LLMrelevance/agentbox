@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createNeo } from '../main/neo/index.mjs';
 
-function fakes({ onListen, getMicImpl, mic = { status: 'granted' }, userData: given, startLiveImpl, onReview, clock } = {}) {
+function fakes({ onListen, getMicImpl, mic = { status: 'granted' }, userData: given, startLiveImpl, onReview, clock, decideImpl } = {}) {
   const userData = given ?? fs.mkdtempSync(path.join(os.tmpdir(), 'neo-main-'));
   fs.writeFileSync(path.join(userData, 'neo-alpha'), '');
   const registered = [];
@@ -39,7 +39,7 @@ function fakes({ onListen, getMicImpl, mic = { status: 'granted' }, userData: gi
     screen: { getCursorScreenPoint: () => ({ x: 0, y: 0 }), getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }) },
     powerMonitor: { on: (ev, fn) => power.set(ev, fn) },
     systemPreferences: { getMediaAccessStatus: () => mic.status, askForMediaAccess: async () => mic.status === 'granted' },
-    getMicImpl, startLiveImpl, onReview, ...(clock ? { now: clock } : {}), owner: { id: 'com.apple.Terminal', name: 'Terminal' },
+    getMicImpl, startLiveImpl, onReview, decideImpl, ...(clock ? { now: clock } : {}), owner: { id: 'com.apple.Terminal', name: 'Terminal' },
     session: { fromPartition: () => ({ setPermissionRequestHandler() {}, setPermissionCheckHandler() {} }) },
     globalShortcut: { register: (k) => { registered.push(k); return true; }, unregister() {} },
     mainWindow, preload: '/x', load: () => {}, userData,
@@ -497,5 +497,157 @@ describe('dragging the orb up', () => {
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: 0, dy: -200 });
     expect(last(f)?.up).toBeFalsy();
+  });
+});
+
+// The trial run of Neo on the Decisions API (plans/neo-decisions.md, approved
+// 2026-10-16: "yes build it"): after each thing she says, Neo also decides
+// from the options on screen and writes what it would have done beside what
+// it did. It acts on nothing.
+describe('the trial run', () => {
+  const SCREEN = { open: { id: 'w-j', title: 'JARVIS for Agentbox', options: [], pictures: [], films: [] }, rows: [], commands: [], canGoBack: false };
+  // The trial run belongs to the earlier way; on the Decisions way the pick is acted on.
+  async function talking(decideImpl) {
+    const f = fakes({ decideImpl });
+    fs.mkdirSync(path.join(f.userData, 'neo'), { recursive: true });
+    fs.writeFileSync(path.join(f.userData, 'neo', 'prefs.json'), JSON.stringify({ engine: 'tools' }));
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    return f;
+  }
+  const answerScreen = async (f) => {
+    for (let i = 0; i < 20; i++) {
+      const asked = f.mainSent.filter(([ch, p]) => ch === 'neo:act' && p.name === 'neo_screen');
+      if (asked.length) { f.listeners.get('neo:act-result')(f.fromMainWindow, { id: asked.at(-1)[1].id, result: { ok: true, screen: SCREEN } }); return; }
+      await tick();
+    }
+    throw new Error('never asked for the screen');
+  };
+  const talkLines = (f) => {
+    const dir = path.join(f.userData, 'neo', 'talk');
+    return fs.readdirSync(dir).flatMap((file) => fs.readFileSync(path.join(dir, file), 'utf8').trim().split('\n')).map((l) => JSON.parse(l));
+  };
+
+  it('decides from what is on screen and writes it beside the talk, acting on nothing', async () => {
+    const decideImpl = vi.fn(async () => ({ choice: 'later', confidence: 0.97, runnersUp: [{ value: 'close', probability: 0.02 }], ms: 140 }));
+    const f = await talking(decideImpl);
+    f.listeners.get('neo:log')(f.fromNeo, { who: 'you', text: 'snooze this for ten minutes' });
+    await answerScreen(f);
+    for (let i = 0; i < 10; i++) await tick();
+    const { input, options } = decideImpl.mock.calls[0][0];
+    expect(input).toMatch(/JARVIS for Agentbox/);
+    expect(input).toMatch(/snooze this for ten minutes/);
+    expect(options.map((o) => o.value)).toContain('later');
+    const shadow = talkLines(f).find((l) => l.who === 'shadow');
+    expect(shadow.text).toMatch(/later \(0\.97\)/);
+    expect(shadow.text).toMatch(/Put the open thread "JARVIS for Agentbox" off/);
+    expect(f.mainSent.filter(([ch, p]) => ch === 'neo:act' && p.name !== 'neo_screen' && p.name !== 'describe_screen')).toEqual([]);
+  });
+
+  it('a failed decision is written down and changes nothing else', async () => {
+    const f = await talking(vi.fn(async () => { throw new Error('OpenAI refused the decision (500).'); }));
+    f.listeners.get('neo:log')(f.fromNeo, { who: 'you', text: 'next' });
+    await answerScreen(f);
+    for (let i = 0; i < 10; i++) await tick();
+    expect(talkLines(f).find((l) => l.who === 'shadow').text).toMatch(/failed/);
+  });
+
+  it('only her words are decided on, not Neo\'s or an action\'s', async () => {
+    const decideImpl = vi.fn();
+    const f = await talking(decideImpl);
+    f.listeners.get('neo:log')(f.fromNeo, { who: 'neo', text: 'One sec.' });
+    f.listeners.get('neo:log')(f.fromNeo, { who: 'tool', text: 'next_thread {} -> committed' });
+    for (let i = 0; i < 5; i++) await tick();
+    expect(decideImpl).not.toHaveBeenCalled();
+  });
+});
+
+// Live on the Decisions API (2026-10-16): the page hands main what she said;
+// main decides, acts through the app, and answers what the voice should say.
+describe('deciding live', () => {
+  const SCREEN = { open: { id: 'w-j', title: 'JARVIS for Agentbox', options: [], pictures: [], films: [] }, rows: [], commands: [], canGoBack: false };
+  async function awake(decideImpl) {
+    const f = fakes({ decideImpl });
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    return f;
+  }
+  // Plays the main window: answers what is on screen and every act.
+  function playWindow(f, results = {}) {
+    let seen = 0;
+    const timer = setInterval(() => {
+      const acts = f.mainSent.filter(([ch]) => ch === 'neo:act');
+      for (; seen < acts.length; seen++) {
+        const { id, name } = acts[seen][1];
+        const result = name === 'neo_screen' ? { ok: true, screen: SCREEN } : results[name] ?? { ok: true, status: 'committed', said: `did ${name}` };
+        f.listeners.get('neo:act-result')(f.fromMainWindow, { id, result });
+      }
+    }, 1);
+    return () => clearInterval(timer);
+  }
+
+  it('decides, acts through the app, and answers what to say', async () => {
+    const decideImpl = vi.fn(async () => ({ choice: 'close', confidence: 0.96, runnersUp: [], ms: 120 }));
+    const f = await awake(decideImpl);
+    const stop = playWindow(f, { close_thread: { ok: true, status: 'committed', said: 'Closed JARVIS for Agentbox.' }, brief_open: { ok: true, status: 'committed', said: 'Now open: Pricing page copy.' } });
+    const r = await f.handlers.get('neo:decide')(f.fromNeo, { heard: 'close it' });
+    stop();
+    expect(r.say).toBe('Done. Now open: Pricing page copy.');
+    expect(f.mainSent.some(([ch, p]) => ch === 'neo:act' && p.name === 'close_thread' && p.args.id === 'w-j')).toBe(true);
+  });
+
+  it('only Neo\'s own window can ask, and only while Neo is awake', async () => {
+    const decideImpl = vi.fn();
+    const f = await awake(decideImpl);
+    expect(await f.handlers.get('neo:decide')(f.fromMainWindow, { heard: 'close it' })).toMatchObject({ say: '' });
+    f.listeners.get('neo:closed')(f.fromNeo);
+    expect(await f.handlers.get('neo:decide')(f.fromNeo, { heard: 'close it' })).toMatchObject({ say: '' });
+    expect(decideImpl).not.toHaveBeenCalled();
+  });
+
+  it('a failed decision tells the voice to say so, and does nothing', async () => {
+    const f = await awake(vi.fn(async () => { throw new Error('OpenAI refused the decision (500).'); }));
+    const stop = playWindow(f);
+    const r = await f.handlers.get('neo:decide')(f.fromNeo, { heard: 'next' });
+    stop();
+    expect(r.say).toMatch(/did not work|could not/i);
+    expect(f.mainSent.filter(([ch, p]) => ch === 'neo:act' && p.name !== 'neo_screen')).toEqual([]);
+  });
+
+  it('the session is started with the app deciding, unless the earlier way was chosen', async () => {
+    const startLiveImpl = vi.fn(async () => ({ sdp: 'v=0 answer', id: 's' }));
+    const f = fakes({ startLiveImpl });
+    const w = f.neo.wake('test'); f.finishLoad(); await w;
+    const stop = playWindow(f);
+    await f.handlers.get('neo:start-live')(f.fromNeo, { sdp: 'v=0 offer', outside: false });
+    stop();
+    expect(startLiveImpl.mock.calls[0][0].session.delegation).toEqual({ type: 'client' });
+  });
+});
+
+// Neo's words reach the main window so it can show the picture Neo names
+// (tests/neo-shows-each-picture-as-it-names-it.test.mjs).
+describe('following what Neo says', () => {
+  it('hands Neo\'s words to the main window while awake, and only then', async () => {
+    const f = fakes({});
+    const follow = f.listeners.get('neo:follow');
+    follow(f.fromNeo, { said: 'Option two is Instrument.' });
+    expect(f.mainSent.some(([ch, p]) => ch === 'neo:act' && p.name === 'follow')).toBe(false);
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    follow(f.fromNeo, { said: 'Option two is Instrument.' });
+    expect(f.mainSent.find(([ch, p]) => ch === 'neo:act' && p.name === 'follow')?.[1].args).toEqual({ said: 'Option two is Instrument.' });
+  });
+
+  it('takes words only from Neo\'s own window', async () => {
+    const f = fakes({});
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    f.listeners.get('neo:follow')(f.fromMainWindow, { said: 'Option two.' });
+    expect(f.mainSent.some(([ch, p]) => ch === 'neo:act' && p.name === 'follow')).toBe(false);
   });
 });

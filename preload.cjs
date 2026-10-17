@@ -238,6 +238,7 @@ contextBridge.exposeInMainWorld('zero', {
   setProductOrder: (payload) => ipcRenderer.invoke('zero:set-product-order', payload),
   setThreadPlaces: (payload) => ipcRenderer.invoke('zero:set-thread-places', payload),
   setThreadPins: (payload) => ipcRenderer.invoke('zero:set-thread-pins', payload),
+  setThreadOnMac: (payload) => ipcRenderer.invoke('zero:set-thread-on-mac', payload),
   setProductHidden: (payload) => ipcRenderer.invoke('zero:set-product-hidden', payload),
   approve: (payload) => ipcRenderer.invoke('zero:approve', payload),
   // The phone door (main/phone-link.mjs): { action: 'status' | 'on' | 'off' | 'reset' | 'via', via }.

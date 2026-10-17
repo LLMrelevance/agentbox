@@ -125,7 +125,9 @@ describe('the wiring, which is the half a pure test cannot see', () => {
     expect(ipc).toMatch(/if \(status === 'done'\) supervisor\.stopSession\(id\)/);
     // 2026-09-27: the second argument is the plain phrase a late Z asks with,
     // "press Z again to take back the task you just made" (renderer/src/undo-window.ts).
-    expect(app).toMatch(/noteNewTask\(`Withdrawn: \$\{clipToSentence\(made\.title, TOAST_TITLE\)\}`, 'take back the task you just made', sent, async \(\) => \{\s*\n\s*await api\.answer\(\{ product: made\.product, id: made\.id, status: 'done' \}\)/);
+    // 2026-10-16: it reads the row first, and an answered one is not closed
+    // (tests/taking-back-a-task-the-agent-already-answered-says-it-was-too-late).
+    expect(app).toMatch(/noteNewTask\(`Withdrawn: \$\{clipToSentence\(made\.title, TOAST_TITLE\)\}`, 'take back the task you just made', sent, async \(\) => \{[\s\S]{0,300}?await api\.answer\(\{ product: made\.product, id: made\.id, status: 'done' \}\)/);
   });
 
   it('a repeating task is undoable too, or Z means two different things on one card', () => {

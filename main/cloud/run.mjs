@@ -57,6 +57,31 @@ import { codexTranscriptFile } from '../codex-session.mjs';
 import { appendCloudUsage } from './usage.mjs';
 import { docsFolderFor, docsToSend, tarDocs, layDocs } from './docs.mjs';
 import { troubleCause, limitResetMoment } from '../../shared/spawn-trouble.mjs';
+import { HAND_BACK } from '../../shared/cloud-hand-back.mjs';
+
+// WHAT A CLOUD RUN IS TOLD ABOUT WHERE IT IS. Without it an agent there found
+// its film's files, ffmpeg and a key missing, and asked the person to move the
+// thread (2026-10-16). Kept true to cloud/sandbox/Dockerfile and ./docs.mjs.
+export const CLOUD_NOTE = [
+  '# You are running on a cloud machine, not on the person\'s own computer',
+  '',
+  'This turn runs in a Linux cloud sandbox (2 cores, 8 GB). It has: this task folder (its git branch and main, at the same path as on their computer); the project\'s documents folder at its usual path, but only its small files (up to 256 KB each), plus this thread\'s own designs folder up to 50 MB and any attachment the request names; the store tools (look_at_page excepted); git, node, npm, python3 (no pip), make and g++; and Playwright with Chromium already installed (`require(\'playwright\')` works from any folder).',
+  '',
+  'It does not have: any other file from their computer (other threads\' design folders, large media, files under the home folder); files an earlier turn left outside git (node_modules, gitignored folders such as scripts/scratch, /tmp); ffmpeg, curl, wget, unzip, sudo, Homebrew, gh or other programs installed there; API keys, key files or tokens kept there; their computer\'s apps.',
+  '',
+  'Working here: run `npm ci --ignore-scripts` before anything that needs node_modules (about 15 seconds). Open files are capped at 1024, so `vitest related` and `npm run test:changed` fail with EMFILE; run the test files you changed and the ones that import them by name with `npx vitest run <files>`. Fetch with node\'s fetch or python3\'s urllib, and unpack a zip with `python3 -m zipfile -e`.',
+  '',
+  `If this request needs anything it does not have and the paragraph above gives no stand-in for (another checkout or folder, a private repository it cannot reach, credentials, a key, ffmpeg, gh, sudo, Homebrew), stop at once. Do not work around it, do not write to the work item, do not give the person commands to run, and do not offer to move the thread: the app moves it. End your turn with one line and nothing else: ${HAND_BACK} followed by what was missing. That line replaces your usual final answer and its options. The app then runs the same request again on their computer, where all of it is. Otherwise work as usual, and never write that line.`,
+].join('\n');
+
+// The app's own instructions with the cloud note after them.
+export function argvForTheCloud(argv) {
+  const i = argv.indexOf('--append-system-prompt');
+  if (i < 0 || i + 1 >= argv.length) return [...argv, '--append-system-prompt', CLOUD_NOTE];
+  const out = [...argv];
+  out[i + 1] = `${argv[i + 1]}\n\n${CLOUD_NOTE}`;
+  return out;
+}
 
 // How long a cloud account whose limit named no hour sits out.
 const LIMIT_REST_MS = 30 * 60_000;
@@ -104,6 +129,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // a letter or a digit becomes '-'. The supervisor's transcriptFile reads the
 // same rule.
 export function transcriptFolderName(cwd) { return cwd.replace(/[^a-zA-Z0-9]/g, '-'); }
+
+// THE PROJECT'S SAVED MEMORIES on this Mac, for a task folder that is a
+// linked worktree: Claude Code keeps them under the main checkout's folder
+// name. In the cloud the task folder is a repository of its own, so Claude
+// Code looks under the task folder's name instead (its transcripts' folder).
+// Null when there are none, or the folder is the main checkout.
+export function memoryFolderFor(cwd, configDir) {
+  let common;
+  try { common = git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim(); } catch { return null; }
+  const root = path.dirname(common);
+  if (realOrNull(root) === realOrNull(cwd)) return null;
+  const dir = path.join(configDir, 'projects', transcriptFolderName(root), 'memory');
+  try { return fs.readdirSync(dir).length ? dir : null; } catch { return null; }
+}
 
 export function argValue(argv, flag) {
   const i = argv.indexOf(flag);
@@ -408,6 +447,9 @@ export async function cloudRun({
     if (fs.existsSync(t)) files.push(await sendFile(t));
     else say(`no transcript for ${resumeId} on this Mac; the cloud run starts without it`);
   }
+  // Her saved memories for this project, where Claude Code in the cloud looks.
+  const saved = !codex ? memoryFolderFor(cwd, configDir) : null;
+  if (saved) files.push(await sendFile(null, path.join(projectsDir, '.memory.tgz'), tarOf(saved), path.join(projectsDir, 'memory')));
   // The account's own skills, commands and agents, as real folders.
   if (!codex) {
     const tooling = path.join(homeDir, '.claude');
@@ -472,7 +514,7 @@ export async function cloudRun({
   const loginUrl = await storage.getUrl(login.key, LOGIN_LINK_SECONDS);
   const started = await retry(() => transport.invoke(sessionId, {
     action: 'start', runId, cwd, branch, bundleUrl,
-    argv: [remoteCommand, ...argv], env: remoteEnv, files,
+    argv: [remoteCommand, ...(remoteCommand === 'claude' ? argvForTheCloud(argv) : argv)], env: remoteEnv, files,
     changesRef: hasOutgoing ? outgoing : undefined,
     ...(remote ? { remote } : {}),
     ...(docsDir ? { docs: docsDir } : {}),

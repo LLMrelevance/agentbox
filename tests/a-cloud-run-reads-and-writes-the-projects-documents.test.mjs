@@ -124,6 +124,14 @@ function launch({ onResult = () => {} } = {}) {
 
 const resultOf = (out) => JSON.parse(JSON.parse(out.split('\n').find((l) => l.includes('"type":"result"'))).result);
 const picture = () => path.join(docs, 'designs', 'w-1', 'round2', 'b.png');
+// Waits for a fact rather than a fixed time; throws if it never comes.
+async function until(fact, ms = 30_000) {
+  const end = Date.now() + ms;
+  while (!fact()) {
+    if (Date.now() > end) throw new Error('waited 30 s and it never happened');
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
 
 describe('a cloud run and the project\'s documents', () => {
   it('reads the plan and its own designs there, and never the big files or another thread\'s designs', async () => {
@@ -158,7 +166,9 @@ describe('a cloud run and the project\'s documents', () => {
 
   it('keeps a note changed on the Mac while the run was away, and puts the run\'s copy beside it', async () => {
     const run = launch();
-    await new Promise((r) => setTimeout(r, 300));
+    // After the run has left with the folder, however long that takes on a
+    // busy machine (a fixed 300 ms lost the race inside the ship's suite).
+    await until(() => readMarker(mac)?.state === 'running');
     fs.writeFileSync(path.join(docs, 'notes.md'), 'she edited this here\n');
     expect(await run.done, run.err()).toBe(0);
     expect(fs.readFileSync(path.join(docs, 'notes.md'), 'utf8')).toBe('she edited this here\n');
@@ -253,7 +263,9 @@ describe('a document the Mac could not write', () => {
     const own = path.join(docs, 'designs', 'w-1');
     fs.chmodSync(own, 0o555);
     const run = launch();
-    await new Promise((r) => setTimeout(r, 900));
+    // Writable again once an archive has really failed to land, not after a
+    // fixed 900 ms, which a busy machine can pass before the first one comes.
+    await until(() => /could not be laid in yet/.test(run.err()));
     fs.chmodSync(own, 0o755);
     expect(await run.done, run.err()).toBe(0);
     expect(run.err()).toMatch(/could not be laid in yet/);

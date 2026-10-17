@@ -699,6 +699,13 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     return { ok: true };
   });
 
+  // THREADS KEPT ON THIS MAC whatever the cloud is set to: id to true, or null.
+  ipcMain.handle('zero:set-thread-on-mac', (_e, { onMac }) => {
+    supervisor.setThreadOnMac(onMac);
+    push();
+    return { ok: true };
+  });
+
   // PINNED THREADS (w-20323283e6): id to true, or null to unpin.
   ipcMain.handle('zero:set-thread-pins', (_e, { pins }) => {
     supervisor.setThreadPins(pins);

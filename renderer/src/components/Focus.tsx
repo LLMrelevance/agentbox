@@ -70,6 +70,8 @@ import { changePathFor } from '../code-artifact';
 import { fileCount, figuresFrom, figuresLabel, signed, type ChangeFigures } from '../change-figures';
 import { embeddedDocuments, isBookkeeping } from '../message-artifacts';
 import { opensInPane } from '../doc-pane';
+import { opensAsPicture } from '../picture-view';
+import { PictureView, picturesOnScreen, type Picture } from './PictureView';
 import { watchScrollGutter } from '../scroll-gutter';
 import { artifactUrlTransform, isMediaPath, productPath, remarkArtifactPaths } from '../remark-artifact-paths';
 import { api } from '../api';
@@ -107,7 +109,7 @@ import {
   PriorityPicker, priorityIdOf, priorityValueOf, type PriorityId,
 } from './Priority';
 import { SummaryPanel, SummaryRail, ThreadCrumb, ThreadStateMark, useSummaryOpen, useSummaryShortcut, type RepeatHandle } from '../threads/Summary';
-import { ThreadMenu } from '../threads/ThreadMenu';
+import { ThreadMenu, type ThreadPlace } from '../threads/ThreadMenu';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { useChatMentions } from '../team/ChatAgents';
 import { AGENT_SCHEME } from '../team/agent-mentions';
@@ -538,7 +540,7 @@ function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null }: {
   previewSample?: string;
   /** The repeating task this thread is a run of, drawn in its summary. */
   repeat?: RepeatHandle | null;
@@ -668,6 +670,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // Pin thread / Unpin thread, the menu's row (w-20323283e6). Absent where a
   // thread cannot be pinned.
   onPin?: (pin: boolean) => void;
+  // Where it runs, and the menu's row that moves it (ThreadMenu PLACE_ROW).
+  place?: ThreadPlace | null;
+  onPlace?: (keep: boolean) => void;
   // Only ever called on an agent row a reply cannot reach: brings the app that
   // session is running inside to the front.
   onReveal?: () => void;
@@ -1025,8 +1030,15 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // Parent callbacks change on polling and when a document opens. Keep the
   // current actions without making them React component identities: replacing
   // an `a` renderer remounts all its players and resets missing-file retries.
-  const markdownActions = useRef({ onOpenDoc, onNotice });
-  useLayoutEffect(() => { markdownActions.current = { onOpenDoc, onNotice }; });
+  const [picture, setPicture] = useState<{ pictures: Picture[]; start: number } | null>(null);
+  const openPicture = (href: string) => {
+    const pictures = picturesOnScreen(paneRef.current);
+    const start = pictures.findIndex((p) => p.path === href);
+    if (start >= 0) setPicture({ pictures, start });
+    else setPicture({ pictures: [{ path: href, url: null }], start: 0 });
+  };
+  const markdownActions = useRef({ onOpenDoc, onNotice, openPicture });
+  useLayoutEffect(() => { markdownActions.current = { onOpenDoc, onNotice, openPicture }; });
 
   // Everything the markdown renderer closes over, memoized as ONE stable
   // object. The component functions' identity is what React reconciles by:
@@ -1063,7 +1075,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     // A miss now SAYS SO.
     const openHref = (href?: string) => {
       if (!href) return;
-      const { onOpenDoc, onNotice } = markdownActions.current;
+      const { onOpenDoc, onNotice, openPicture } = markdownActions.current;
+      // A picture opens large over the thread; the pane squeezed it to half the window.
+      if (opensAsPicture(href)) { openPicture(href); return; }
       // A PAGE OR A MARKDOWN FILE OPENS IN THE PANE.Everything else still goes
       // to the app that owns it, because Preview draws a png better than we
       // ever will.
@@ -1351,6 +1365,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       // A finished thread has nothing to be pinned for.
       pinned={canFinish && onPin ? !!item.pinned : null}
       onPin={onPin}
+      // A finished thread runs nowhere.
+      place={canFinish ? runsIn : null}
+      onPlace={onPlace}
     />
   );
 
@@ -1476,6 +1493,16 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         that stood beside it (w-e731ca9376) moved onto the summary itself on
         w-a3482b8c2c: the rail opens it, the icon beside its title closes it. */}
     {cornerHeaderTarget && createPortal(<span className="ts-top">{threadMenu}</span>, cornerHeaderTarget)}
+    {picture && (
+      <PictureView
+        pictures={picture.pictures}
+        start={picture.start}
+        resolve={(src) => api.resolveDoc({ product, src }).then((r) => (r?.ok && r.opened ? pictureUrl(r.opened) : null))}
+        onClose={() => setPicture(null)}
+        onBeside={(src) => { setPicture(null); onOpenDoc?.(src); }}
+        onPreview={(src) => { api.openArtifactExternally({ product, src }).then((r) => { if (!r.ok) onNotice(r.error || `${src} could not be opened.`); }); }}
+      />
+    )}
     <div className="focus-scroll" ref={scrollRef}>
     <div className="focus">
       {/* ONE LEFT EDGE FOR EVERY WORD, the list's rule applied here: the title, the meta

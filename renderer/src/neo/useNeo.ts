@@ -6,10 +6,10 @@
 // Mounted always and does nothing unless this Mac has the alpha flag
 // (main/neo/gate.mjs), so the app is the same app for everyone else.
 import { useEffect, useRef } from 'react';
-import { describeScreen, neoBridge, type NeoDeps, type NeoRow } from './bridge';
+import { describeScreen, neoBridge, screenFor, type NeoDeps, type NeoRow } from './bridge';
 import { glowOn } from './glow';
 import { orbCovers, type Orb } from './orb-cover';
-import { pictureName, putAway, show, threadPictures } from './show';
+import { fileName, filmName, latestFiles, pictureName, putAway, show, threadDrawn, threadFilms, threadPictures } from './show';
 
 type Z = {
   neoEnabled?: () => Promise<boolean>;
@@ -42,7 +42,7 @@ function scrollerAt(): HTMLElement | null {
   return page && page.scrollHeight > page.clientHeight + 1 ? page : null;
 }
 
-type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'scroll' | 'pictureNames' | 'show' | 'media' | 'mediaNames' | 'latestPictureCount' | 'waitForPictures'> & {
+type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'scroll' | 'pictureNames' | 'show' | 'media' | 'mediaNames' | 'latestFilmCount' | 'latestPictureCount' | 'waitForPictures' | 'fileNames' | 'openFile'> & {
   pick(row: R, n: number): Promise<unknown>;
   close(row: R): Promise<unknown>;
 };
@@ -65,6 +65,7 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         focused: () => latest.current.focused(),
         options: (r) => latest.current.options(r),
         summary: (r) => latest.current.summary(r),
+        about: (r) => latest.current.about?.(r) ?? '',
         projects: () => latest.current.projects(),
         open: (r) => latest.current.open(r),
         // The app can stop to ask its own question (a filed task, the close
@@ -93,9 +94,10 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         },
         outside: () => outside,
         // The films and sounds the open thread draws (components/Focus.tsx ArtifactMedia).
-        mediaNames: () => [...document.querySelectorAll('.inline-media')].map((el) => el.querySelector('.mention-name')?.textContent?.trim() || 'a film'),
+        mediaNames: () => threadFilms().films.map(filmName),
+        latestFilmCount: () => threadFilms().latest,
         media: async (action, n) => {
-          const spots = [...document.querySelectorAll<HTMLElement>('.inline-media')];
+          const spots = threadFilms().films;
           const spot = spots[n - 1];
           const player = spot?.querySelector<HTMLMediaElement>('video, audio');
           if (!spot || !player) return null;
@@ -117,9 +119,18 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         latestPictureCount: () => threadPictures().latest,
         // A thread draws its messages after its history arrives.
         waitForPictures: async () => {
-          for (let waited = 0; waited < 1500 && !threadPictures().latest; waited += 150) await new Promise((r) => setTimeout(r, 150));
+          // A drawn thread with nothing to show is done after a short grace for file tiles, which load late.
+          for (let waited = 0; waited < 1500 && !threadPictures().latest && !latestFiles().length && !(waited >= 300 && threadDrawn()); waited += 150) await new Promise((r) => setTimeout(r, 150));
         },
         show: (ns, layout) => show(ns, layout),
+        fileNames: () => latestFiles().map((t, i) => fileName(t, i + 1)),
+        openFile: async (n) => {
+          const tile = latestFiles()[n - 1];
+          if (!tile) return false;
+          if (tile.getAttribute('aria-pressed') !== 'true') tile.click();
+          setTimeout(() => glowOn(tile), 300);
+          return true;
+        },
         // After React has drawn what the act changed, so the glow lands on
         // the section as it now is.
         glow: (id) => { const name = lastName; setTimeout(() => glowOn(sectionFor(name, id)), 180); },
@@ -128,7 +139,10 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
       offs.push(z.onNeoAct!(async ({ id, name, args, heard }) => {
         if (name === 'describe_screen') outside = !!args?.outside;
         lastName = name;
-        const result = name === 'describe_screen' ? { ok: true, status: 'committed', said: describeScreen(live) } : await act(name, args ?? {}, { heard });
+        const result = name === 'describe_screen' ? { ok: true, status: 'committed', said: describeScreen(live) }
+          // For the Decisions trial run: what is on screen, read and nothing done.
+          : name === 'neo_screen' ? { ok: true, screen: screenFor(live, act.canGoBack()) }
+          : await act(name, args ?? {}, { heard });
         z.neoActResult!(id, result);
       }));
       // The Status and Owner block waits while the orb is on top of it. Until

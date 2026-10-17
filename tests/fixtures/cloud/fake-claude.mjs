@@ -102,7 +102,11 @@ async function turn(text) {
     fs.writeFileSync(path.join(d, 'designs/w-1/round2/b.png'), 'picture from the cloud');
     fs.writeFileSync(path.join(d, 'designs/w-1/round2/env.txt'), `login=${process.env.CLAUDE_CODE_OAUTH_TOKEN}\n`);
     fs.writeFileSync(path.join(d, `designs/w-1/round2/${process.env.CLAUDE_CODE_OAUTH_TOKEN}.txt`), 'named after the login');
-    await new Promise((r) => setTimeout(r, 1500));
+    // Still working until the picture is home on the Mac (`docs` is the Mac's
+    // own path), not for a fixed 1.5 s, which a loaded machine overran inside
+    // the ship's suite (2026-10-16). Twenty seconds at most.
+    const home = path.join(docs, 'designs/w-1/round2/b.png');
+    for (let waited = 0; waited < 20_000 && !fs.existsSync(home); waited += 100) await new Promise((r) => setTimeout(r, 100));
     fs.writeFileSync(path.join(d, 'notes.md'), 'the cloud wrote this\n');
   }
   const attachment = (text.match(/ATTACH:(\S+)/) || [])[1];

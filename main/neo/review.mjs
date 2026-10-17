@@ -16,7 +16,7 @@ const BRIEF = `This thread reviews Neo, the voice alpha, from what was actually 
 
 And: "In the future, when I give feedback, preserve my exact wording wherever possible instead of summarizing it."
 
-Each message here is a stretch of talk: "you" is the founder, "neo" is Neo, "tool" is an action Neo took and what came of it. For each stretch:
+Each message here is a stretch of talk: "you" is the founder, "neo" is Neo, "tool" is an action Neo took and what came of it, and "shadow" is what the Decisions API trial run would have done instead (plans/neo-decisions.md). Where the two differ, say which was right; that is the evidence for switching. For each stretch:
 1. Find where Neo misheard, did the wrong thing, could not do something it should have, said something untrue, talked when it should not have, or took too long.
 2. Fix those in Neo's code (main/neo/, renderer/src/neo/, shared/neo-*), test first, by the repo's CLAUDE.md, and measure against the live service where it is the model's behaviour that went wrong.
 3. A fix that stays inside Neo's own files and changes nothing she sees may be committed and labelled ship without asking. Anything she would see, or anything outside Neo, goes to her first with screenshots.

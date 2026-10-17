@@ -394,6 +394,15 @@ export const api = {
           ],
           signIns: [],
         } as typeof base.cloud;
+        // And the first running thread is one of the three in the cloud.
+        if (base.supervisor.running[0]) (base.supervisor.running[0] as { where?: string }).where = 'cloud';
+        // &kept draws that thread kept on this Mac instead.
+        const first = base.supervisor.running[0];
+        if (params.has('kept') && first) {
+          delete (first as { where?: string }).where;
+          const kept = base.items.find((i) => i.id === first.itemId);
+          if (kept) kept.onMac = true;
+        }
       }
       return fixtureSecondEngine(base, engineFixtures);
     }
@@ -706,6 +715,12 @@ export const api = {
   async setThreadPins(pins: Record<string, true | null>): Promise<void> {
     if (useFixtures || !window.zero?.setThreadPins) return;
     await window.zero.setThreadPins({ pins });
+  },
+
+  /** Keep a thread on this Mac whatever the cloud is set to, or let it go again. */
+  async setThreadOnMac(onMac: Record<string, true | null>): Promise<void> {
+    if (useFixtures || !window.zero?.setThreadOnMac) return;
+    await window.zero.setThreadOnMac({ onMac });
   },
 
   async compose(p: { product: string; title: string; body?: string; kind?: string; priority?: number; runAt?: number; start?: 'later' | 'now'; labels?: string[]; model?: string; engine?: string; effort?: string; assignee?: string; due?: string; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[] }): Promise<WorkItem | null> {
