@@ -5,7 +5,7 @@
 //
 // Mounted always and does nothing unless this Mac has the alpha flag
 // (main/neo/gate.mjs), so the app is the same app for everyone else.
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { describeScreen, neoBridge, screenFor, type NeoDeps, type NeoRow } from './bridge';
 import { glowOn } from './glow';
 import { orbCovers, type Orb } from './orb-cover';
@@ -47,9 +47,12 @@ type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 
   close(row: R): Promise<unknown>;
 };
 
-export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
+/** Answers whether this Mac has Neo, for the one other thing that asks: the
+ *  Neo page in Settings, which is not drawn anywhere else (./NeoSettings). */
+export function useNeo<R extends NeoRow>(deps: AppDeps<R>): { on: boolean } {
   const latest = useRef(deps);
   latest.current = deps;
+  const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
     const z = (window as unknown as { zero?: Z }).zero;
@@ -60,6 +63,7 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
     let lastName = '';
     void z.neoEnabled().catch(() => false).then((on) => {
       if (!on || cancelled) return;
+      setEnabled(true);
       const live: NeoDeps<R> = {
         rows: () => latest.current.rows(),
         threadsAnywhere: () => latest.current.threadsAnywhere?.() ?? [],
@@ -167,4 +171,6 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
     });
     return () => { cancelled = true; offs.forEach((f) => f()); offs = []; document.body.classList.remove('neo-on', 'neo-orb-away'); };
   }, []);
+
+  return { on: enabled };
 }
