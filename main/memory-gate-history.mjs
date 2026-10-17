@@ -178,8 +178,20 @@ const programOf = (key) => key.split(' ')[0];
 const measured = (list) => (list ?? []).filter((o) => o !== '?');
 
 /**
+ * Light, however it was learned. `l` is a run measured on its own; `c` is one
+ * measured only as part of a chain (see `record`). THEY ARE READ THE SAME
+ * EVERYWHERE, so writing `c` down moved no verdict; it is there to be counted
+ * when the rule that distrusts it is chosen (w-0af52d5c86).
+ */
+const isLight = (o) => o === 'l' || o === 'c';
+
+/**
  * The learned record. Each key and each program keeps its last ten
- * observations as letters: l light, m in between, h heavy, ? not measured.
+ * observations as letters: l light, c light but learned only as part of a
+ * chain, m in between, h heavy, ? not measured. A BUILD OLDER THAN
+ * w-0af52d5c86 DROPS c WHEN IT LOADS THIS, which costs those runs as evidence
+ * and so holds a little more than it needs to; it cannot do the reverse and
+ * call anything light that is not.
  * Both maps are kept in least-recently-seen-first order so the oldest falls off
  * first when either passes `maxKeys`.
  */
@@ -221,6 +233,25 @@ export class CommandHistory {
     if (keys.length > 1 || opaque) {
       this._push(this.keys, chainKey(keys, opaque), obs);
       if (obs !== 'l') return true;
+      // AND A CHAIN ONLY VOUCHES FOR THEM AS A CHAIN (w-0af52d5c86). Because
+      // the line above returns early on anything but light, a segment key and a
+      // program record are fed a LIGHT-ONLY sample of every chain they appear
+      // in. Agents here nearly always run heavy work as a chain, so on a 16 GB
+      // M4 on 2026-10-08 the program record `npx` stood at ten light runs and
+      // no other letter, though `npx` runs every test suite in this repo, and
+      // `npx vite build renderer 2>&1 | tail -5` was therefore called light.
+      //
+      // `c` is that light run, marked as learned only from a chain. EVERY RULE
+      // READS `c` EXACTLY AS `l`, so nothing is classified differently for it;
+      // the record is simply carrying the provenance, because without it the
+      // cost of distrusting this evidence cannot be measured from any history
+      // that exists. Choosing that rule is w-0af52d5c86's remaining question,
+      // and it is not answered by writing the letter down.
+      for (const key of keys) {
+        this._push(this.keys, key, 'c');
+        this._push(this.programs, programOf(key), 'c');
+      }
+      return true;
     }
     for (const key of keys) {
       this._push(this.keys, key, obs);
@@ -273,10 +304,10 @@ export class CommandHistory {
     const own = this.keys.get(key);
     const recent = measured(own?.slice(-5));
     if (recent.includes('h')) return 'heavy';
-    if (recent.length >= 2 && recent.every((o) => o === 'l')) return 'light';
-    if (recent.some((o) => o !== 'l')) return 'unknown';
+    if (recent.length >= 2 && recent.every(isLight)) return 'light';
+    if (recent.some((o) => !isLight(o))) return 'unknown';
     const prog = measured(this.programs.get(programOf(key))?.slice(-10));
-    if (prog.length >= 5 && prog.every((o) => o === 'l')) return 'light';
+    if (prog.length >= 5 && prog.every(isLight)) return 'light';
     return 'unknown';
   }
 
@@ -300,7 +331,7 @@ export class CommandHistory {
       if (!Array.isArray(entries)) return;
       for (const e of entries) {
         if (Array.isArray(e) && typeof e[0] === 'string' && Array.isArray(e[1])) {
-          map.set(e[0], e[1].filter((o) => ['l', 'm', 'h', '?'].includes(o)).slice(-10));
+          map.set(e[0], e[1].filter((o) => ['l', 'c', 'm', 'h', '?'].includes(o)).slice(-10));
         }
       }
     };

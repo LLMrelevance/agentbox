@@ -39,12 +39,16 @@ function harness({ grantLogFile, grantLogMaxBytes, slots = 1, history = new Comm
   dirs.push(dir);
   let procs = [CLAUDE];
   let now = 0;
+  // The Mac's own reading, so a test can hold it `tight` across a poll the way
+  // a loaded Mac does; `_poll` reads it every time and would otherwise put it
+  // back to `normal` underneath the test.
+  let reading = { level: 1, freePct: 50 };
   const server = new MemoryGateServer({
     socketPath: path.join(dir, 'g.sock'),
     history,
     grantLogFile: grantLogFile === undefined ? path.join(dir, 'grants.jsonl') : grantLogFile,
     ...(grantLogMaxBytes === undefined ? {} : { grantLogMaxBytes }),
-    readPressure: async () => ({ level: 1, freePct: 50 }),
+    readPressure: async () => reading,
     sampleProcesses: async () => procs,
     pollMs: 60_000,
     clock: () => now,
@@ -62,6 +66,8 @@ function harness({ grantLogFile, grantLogMaxBytes, slots = 1, history = new Comm
     post: (id, durationMs = 30_000) => server._post({ hook: { tool_use_id: id, duration_ms: durationMs } }),
     at: (ms) => { now = ms; },
     tick: async () => { await server._poll(); },
+    // 2 is the kernel's own "warn", which `pressureFrom` reads as tight.
+    squeeze: () => { reading = { level: 2, freePct: 50 }; },
     show: (list) => { procs = [CLAUDE, ...list]; },
     server,
     lines: () => fs.readFileSync(path.join(dir, 'grants.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)),
@@ -159,6 +165,34 @@ describe('each grant writes down its peak and its wait', () => {
       expect(line.shared).toBe(true);
       expect(line.peakMb).toBe(null);
     }
+  });
+
+  it('writes down the pressure the wait happened under', async () => {
+    // WITHOUT THIS THE WAITS ARE UNREADABLE (Codex's review). While pressure is
+    // `normal` the only thing that can hold a heavy command is the slots being
+    // full, so its wait is evidence about the slot count. While it is `tight`
+    // nothing heavy starts whatever the count is, so the same wait says
+    // nothing about the number and has to be left out of the reckoning.
+    const h = new CommandHistory();
+    h.keys.set('npm run', 'hhhhh'.split(''));
+    h.keys.set('npx vitest', 'hhhhh'.split(''));
+    const g = harness({ history: h, slots: 1 });
+
+    await g.ask('normal', 'npm run test:changed');
+    g.at(5_000);
+    g.post('normal', 5_000);
+
+    g.squeeze();
+    await g.tick();
+    const held = g.ask('whileTight', 'npx vitest run tests/a.test.mjs');
+    g.at(20 * 60_000 + 5_001);
+    await g.tick();
+    await held;
+
+    const lines = g.lines();
+    expect(lines[0].pressure).toBe('normal');
+    expect(lines[1].refused).toBe(true);
+    expect(lines[1].pressure).toBe('tight');
   });
 
   it('writes nothing at all when no log was asked for', async () => {

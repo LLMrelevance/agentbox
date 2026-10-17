@@ -172,7 +172,9 @@ export class MemoryGate {
     for (const w of [...this.waiting.values()]) {
       if (now - w.arrived >= this.maxWaitMs) {
         this.waiting.delete(w.id);
-        for (const r of w.replies) r({ allow: false, reason: refusal(now - w.arrived), cls: w.cls, waitedMs: now - w.arrived });
+        for (const r of w.replies) {
+          r({ allow: false, reason: refusal(now - w.arrived), cls: w.cls, waitedMs: now - w.arrived, pressure: this.pressure });
+        }
       }
     }
     if (this.pressure === 'critical') return;
@@ -199,9 +201,16 @@ export class MemoryGate {
     this.waiting.delete(w.id);
     this.running.set(w.id, {
       id: w.id, item: w.item, product: w.product, command: w.command, cls: w.cls,
-      // How long it queued is kept so the coordinator can write it down when
-      // the command ends (w-0af52d5c86); nothing else reads it.
-      background: w.background, startedAt: now, peakMb: null, waitedMs: now - w.arrived,
+      // How long it queued, and what the Mac's pressure was when it was let
+      // through, are kept so the coordinator can write them down when the
+      // command ends (w-0af52d5c86); nothing else reads them.
+      //
+      // THE PRESSURE IS WHAT MAKES THE WAIT READABLE. While pressure is
+      // `normal` the only thing that can hold a command back is the slots
+      // being full, so that wait is evidence about `slots`. While it is
+      // `tight` nothing heavy starts whatever the slot count is, so that wait
+      // is evidence about the Mac and says nothing about the number.
+      background: w.background, startedAt: now, peakMb: null, waitedMs: now - w.arrived, pressureAt: this.pressure,
     });
     for (const r of w.replies) r({ allow: true, cls: w.cls });
   }

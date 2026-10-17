@@ -340,7 +340,10 @@ export class MemoryGateServer {
         res.end('');
       } else {
         this.counts.refused++;
-        this._writeGrant({ refused: true, cls: decision.cls, waitMs: decision.waitedMs, ranMs: null, peakMb: null, command });
+        this._writeGrant({
+          refused: true, cls: decision.cls, waitMs: decision.waitedMs, ranMs: null, peakMb: null,
+          pressure: decision.pressure, command,
+        });
         res.end(denyOutput(decision.reason));
       }
     });
@@ -372,6 +375,7 @@ export class MemoryGateServer {
       ranMs: this.clock() - was.startedAt,
       peakMb: grant?.ambiguous ? null : was.peakMb,
       shared: !!grant?.ambiguous,
+      pressure: was.pressureAt,
       command: was.command,
     });
     const filed = this.history.record(was.command, {
@@ -505,7 +509,7 @@ export class MemoryGateServer {
    * the path every shell command on the Mac goes through, so a full disk or an
    * unwritable folder must never reach the agent waiting for an answer.
    */
-  _writeGrant({ refused, cls, waitMs, ranMs, peakMb, shared = false, command }) {
+  _writeGrant({ refused, cls, waitMs, ranMs, peakMb, shared = false, pressure = null, command }) {
     if (!this.grantLogFile) return;
     try {
       if (this.grantBytes === undefined) {
@@ -523,6 +527,9 @@ export class MemoryGateServer {
         waitMs: Number.isFinite(waitMs) ? waitMs : null,
         ranMs: Number.isFinite(ranMs) ? ranMs : null,
         peakMb: Number.isFinite(peakMb) ? peakMb : null,
+        // Only a wait that happened while this was `normal` is evidence about
+        // the slot count; under `tight` nothing heavy starts whatever it is.
+        pressure: pressure ?? null,
         ...(shared ? { shared: true } : {}),
         ...(refused ? { refused: true } : {}),
         cmd: String(command ?? '').slice(0, 300),
