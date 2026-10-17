@@ -5,8 +5,6 @@ import './neo.css';
 import { dustOrb } from './dust';
 import { chime } from './chime';
 import { liveDriver } from './live-driver';
-import { NEO, SPEEDS } from '../../../shared/neo-orb.mjs';
-import { speedUpdate } from '../../../shared/neo-tools.mjs';
 
 type NeoBridge = {
   onWake(fn: (p: { outside: boolean }) => void): () => void;
@@ -15,14 +13,15 @@ type NeoBridge = {
   onNoMic(fn: (p: { app?: string | null }) => void): () => void;
   allowMic(): Promise<'granted' | 'settings' | 'refused'>;
   onNotice(fn: (p: { text: string }) => void): () => void;
-  onPlaced(fn: (p: { cardSide: 'left' | 'right'; speed: number }) => void): () => void;
-  dragStart(): void;
-  dragEnd(): void;
-  speed(speed: number): void;
+  onSide(fn: (p: { side: 'left' | 'right'; up?: boolean }) => void): () => void;
   startLive(sdp: string, outside: boolean): Promise<{ ok: boolean; sdp?: string; error?: string }>;
-  tool(callId: string, name: string, args: string): Promise<unknown>;
+  tool(callId: string, name: string, args: string, heard: string): Promise<unknown>;
+  drag(phase: 'start' | 'move' | 'end', dx?: number, dy?: number): void;
+  pace(value?: string): Promise<string>;
+  captions(on?: boolean): Promise<boolean>;
   usage(seconds: number): void;
   ending(): void;
+  log(line: { who: string; text: string }): void;
   closed(): void;
   clickable(on: boolean): void;
 };
@@ -32,16 +31,6 @@ const root = document.getElementById('neo')!;
 const words = document.getElementById('words')!;
 const label = document.getElementById('label')!;
 const actButton = document.getElementById('act') as HTMLButtonElement;
-const speedStrip = document.getElementById('speed')!;
-
-// The window's own measurements, from the module that places it, so the page
-// and the main process cannot drift apart about where the orb is.
-for (const [name, px] of [
-  ['--orb', NEO.orb], ['--orb-x', NEO.cx - NEO.orb / 2], ['--orb-y', NEO.cy - NEO.orb / 2],
-  ['--card-x', NEO.cardLeft], ['--card-flip-x', NEO.cardRight], ['--card-y', NEO.cy], ['--card-w', NEO.cardWidth],
-  ['--controls', NEO.controls],
-] as const) document.documentElement.style.setProperty(name, `${px}px`);
-
 const orbCanvas = document.getElementById('orb') as HTMLCanvasElement;
 const orb = dustOrb(orbCanvas);
 
@@ -62,9 +51,6 @@ let closeTimer: number | null = null;
 // mic open behind it.
 let gen = 0;
 
-function tellSession(event: Record<string, unknown>) {
-  if (channel?.readyState === 'open') channel.send(JSON.stringify(event));
-}
 function say(text: string) {
   words.textContent = text;
   root.classList.toggle('has-words', !!text);
@@ -99,10 +85,11 @@ function listenTo(stream: MediaStream) {
 function driverFor(ch: RTCDataChannel) {
   return liveDriver({
     send: (event) => { if (channel === ch && ch.readyState === 'open') ch.send(JSON.stringify(event)); },
-    tool: (callId, name, args) => { poke(); return neo.tool(callId, name, args); },
+    tool: (callId, name, args, heard) => { poke(); return neo.tool(callId, name, args, heard); },
     onWords: (text) => { if (channel === ch) { poke(); say(text); } },
     onUsage: (seconds) => { if (channel === ch) neo.usage(seconds); },
     onClosed: () => { if (channel === ch) finish(); },
+    onLine: (line) => neo.log(line),
   });
 }
 
@@ -186,10 +173,12 @@ function finish() {
 }
 
 neo.onWake(wake);
+// Over the left half of the screen the card sits on the orb's right.
+neo.onSide(({ side, up }) => { root.classList.toggle('left', side === 'left'); root.classList.toggle('up', !!up); });
 neo.onSleep(({ reason }) => sleep(reason));
 neo.onResting(() => { root.classList.add('awake'); say('I have talked for three hours today, so I am resting until tomorrow.'); setTimeout(() => { root.classList.remove('awake'); neo.closed(); }, 5000); });
 // Main hides the window again on its own; this is not a session.
-neo.onNotice(({ text }) => { if (pc) return; root.classList.add('awake'); label.textContent = 'Neo'; say(text); setTimeout(() => { if (!pc) { root.classList.remove('awake'); say(''); } }, 9500); });
+neo.onNotice(({ text }) => { if (pc) return; root.classList.add('awake', 'must-show'); label.textContent = 'Neo'; say(text); setTimeout(() => { if (!pc) { root.classList.remove('awake', 'must-show'); say(''); } }, 9500); });
 // macOS will not ask again for an app it was once told no for, so the card
 // carries the press that clears that and asks (main/neo/mic.mjs).
 let micCard: number | null = null;
@@ -198,9 +187,10 @@ const dropMicCard = () => {
   micCard = null;
   actButton.hidden = true;
   actButton.onclick = null;
+  root.classList.remove('must-show');
 };
 neo.onNoMic(({ app }) => {
-  root.classList.add('awake');
+  root.classList.add('awake', 'must-show');
   label.textContent = 'Neo';
   say(app ? `I need the microphone. ${app} was told no once, so macOS will not ask again by itself.` : 'I need the microphone.');
   actButton.textContent = 'Allow microphone';
@@ -220,71 +210,62 @@ neo.onNoMic(({ app }) => {
   micCard = window.setTimeout(close, 20_000);
 });
 
-// Only the orb, the card and the speed control take the pointer; everywhere
-// else clicks reach the app beneath.
-for (const el of [orbCanvas, speedStrip, document.getElementById('card')!]) {
+// Only the orb, the card and the speed row take the pointer; everywhere else
+// clicks reach the app beneath. Not let go of mid-drag, or the drag drops.
+const paceRow = document.getElementById('pace')!;
+let press: { x: number; y: number; moved: boolean } | null = null;
+for (const el of [orbCanvas, document.getElementById('card')!, paceRow]) {
   el.addEventListener('mouseenter', () => neo.clickable(true));
-  el.addEventListener('mouseleave', () => neo.clickable(false));
+  el.addEventListener('mouseleave', () => { if (!press) neo.clickable(false); });
 }
 
-// HOW FAST NEO TALKS, REVEALED BY HOVERING THE ORB (w-5520063011).
-// The strip stays while the pointer travels from the orb to it, or picking a
-// speed would mean chasing something that has just gone.
-let speed = 1;
-const pills = SPEEDS.map((value) => {
-  const pill = document.createElement('button');
-  pill.type = 'button';
-  pill.textContent = `${value}×`;
-  pill.onclick = () => setSpeed(value, { tell: true });
-  speedStrip.append(pill);
-  return { value, pill };
-});
-function setSpeed(value: number, { tell = false } = {}) {
-  speed = value;
-  for (const { value: v, pill } of pills) pill.setAttribute('aria-pressed', String(v === value));
-  if (!tell) return;
-  // Lands in the sentence Neo is saying now, and main remembers it for the next one.
-  tellSession(speedUpdate(value));
-  neo.speed(value);
-}
-setSpeed(1);
-
-let hideSpeed: number | null = null;
-const showSpeed = (on: boolean) => {
-  if (hideSpeed) { clearTimeout(hideSpeed); hideSpeed = null; }
-  if (on) root.classList.add('showing-speed');
-  else hideSpeed = window.setTimeout(() => root.classList.remove('showing-speed'), 420);
-};
-for (const el of [orbCanvas, speedStrip]) {
-  el.addEventListener('mouseenter', () => showSpeed(true));
-  el.addEventListener('mouseleave', () => showSpeed(false));
-}
-
-// DRAGGING THE ORB (w-5520063011). Main follows the cursor and moves the
-// window; the page only says when the pointer is down. A press that moved is a
-// drag, and one that did not is the click that signs Neo off.
-let grabbed: { x: number; y: number; moved: boolean } | null = null;
+// A press on the orb that moves drags Neo around the screen; one that does
+// not is the click that sends Neo to sleep.
 orbCanvas.addEventListener('pointerdown', (e) => {
-  if (e.button !== 0) return;
+  press = { x: e.screenX, y: e.screenY, moved: false };
   orbCanvas.setPointerCapture(e.pointerId);
-  grabbed = { x: e.screenX, y: e.screenY, moved: false };
-  root.classList.add('dragging');
-  neo.dragStart();
+  neo.drag('start');
 });
 orbCanvas.addEventListener('pointermove', (e) => {
-  if (!grabbed || grabbed.moved) return;
-  if (Math.abs(e.screenX - grabbed.x) + Math.abs(e.screenY - grabbed.y) > 3) grabbed.moved = true;
+  if (!press) return;
+  const dx = e.screenX - press.x, dy = e.screenY - press.y;
+  if (!press.moved && Math.hypot(dx, dy) < 4) return;
+  press.moved = true;
+  orbCanvas.classList.add('dragging');
+  neo.drag('move', dx, dy);
 });
-orbCanvas.addEventListener('pointerup', (e) => {
-  if (!grabbed) return;
-  const { moved } = grabbed;
-  grabbed = null;
-  root.classList.remove('dragging');
-  neo.dragEnd();
-  orbCanvas.releasePointerCapture(e.pointerId);
-  if (!moved) sleep('clicked');
+orbCanvas.addEventListener('pointerup', () => {
+  if (!press) return;
+  const moved = press.moved;
+  press = null;
+  orbCanvas.classList.remove('dragging');
+  if (moved) neo.drag('end'); else sleep('clicked');
 });
-neo.onPlaced(({ cardSide, speed: chosen }) => {
-  root.classList.toggle('card-right', cardSide === 'right');
-  if (chosen !== speed) setSpeed(chosen);
+
+// The speed row shows while the pointer is on the orb or on the row itself.
+let paceHide: number | null = null;
+const showPace = (on: boolean) => {
+  if (paceHide) clearTimeout(paceHide);
+  if (on) paceRow.classList.add('show');
+  else paceHide = window.setTimeout(() => paceRow.classList.remove('show'), 500);
+};
+for (const el of [orbCanvas, paceRow]) {
+  el.addEventListener('mouseenter', () => { if (!press) showPace(true); });
+  el.addEventListener('mouseleave', () => showPace(false));
+}
+const markPace = (pace: string) => {
+  for (const b of paceRow.querySelectorAll<HTMLButtonElement>('button[data-pace]')) b.classList.toggle('on', b.dataset.pace === pace);
+};
+// Captions on or off: the card with Neo's words, or only the voice.
+const captionsButton = document.getElementById('captions')!;
+const markCaptions = (on: boolean) => { captionsButton.classList.toggle('on', on); root.classList.toggle('no-captions', !on); };
+void neo.captions().then(markCaptions).catch(() => {});
+captionsButton.addEventListener('click', async () => markCaptions(await neo.captions(!captionsButton.classList.contains('on'))));
+void neo.pace().then(markPace).catch(() => {});
+paceRow.addEventListener('click', async (e) => {
+  const pace = (e.target as HTMLElement).closest<HTMLButtonElement>('button')?.dataset.pace;
+  if (!pace) return;
+  markPace(await neo.pace(pace));
+  // A session already running keeps the pace it started with.
+  if (pc) { label.textContent = 'Neo · new speed from next wake'; setTimeout(() => { if (pc) label.textContent = 'Neo · listening'; }, 3000); }
 });

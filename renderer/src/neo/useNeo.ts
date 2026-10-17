@@ -6,13 +6,14 @@
 // Mounted always and does nothing unless this Mac has the alpha flag
 // (main/neo/gate.mjs), so the app is the same app for everyone else.
 import { useEffect, useRef } from 'react';
-import { describeScreen, neoBridge, type NeoDeps, type NeoFilm, type NeoRow } from './bridge';
+import { describeScreen, neoBridge, type NeoDeps, type NeoRow } from './bridge';
 import { glowOn } from './glow';
 import { orbCovers, type Orb } from './orb-cover';
+import { pictureName, putAway, show, threadPictures } from './show';
 
 type Z = {
   neoEnabled?: () => Promise<boolean>;
-  onNeoAct?: (fn: (p: { id: number; name: string; args: Record<string, unknown> }) => void) => () => void;
+  onNeoAct?: (fn: (p: { id: number; name: string; args: Record<string, unknown>; heard?: string }) => void) => () => void;
   neoActResult?: (id: number, result: unknown) => void;
   onNeoMode?: (fn: (p: { on: boolean }) => void) => () => void;
   onNeoOrb?: (fn: (p: Orb) => void) => () => void;
@@ -25,28 +26,23 @@ function sectionFor(name: string, id: string): Element | null {
   const row = q(`.list-pane .row[data-item-id="${CSS.escape(id)}"]`) ?? q(`[data-item-id="${CSS.escape(id)}"]`);
   if (name === 'pick_option') return q('.opt-strip') ?? row;
   if (name === 'reply') return q('.dock-card') ?? row;
-  if (name === 'play_media') return document.querySelector('.focus-pane .inline-media') ?? row;
   return row ?? q('.ts-panel');
-}
-
-// THE FILMS NEO CAN PLAY ARE THE PLAYERS ALREADY ON THE OPEN THREAD
-// (w-5520063011, "it couldn't play the video"). Read from the page rather than
-// from a list of files, so "play it" starts the same player a press would
-// and the shelf keeps it going when the thread moves (../player-shelf.ts).
-function filmsOnScreen(): NeoFilm[] {
-  const players = document.querySelectorAll<HTMLMediaElement>('.focus-pane .inline-media-player > video, .focus-pane .inline-media-player > audio');
-  return Array.from(players, (player) => ({
-    name: player.closest('.inline-media')?.querySelector('.mention-name')?.textContent?.trim() || 'the film',
-    playing: !player.paused && !player.ended,
-    play: () => { void player.play()?.catch?.(() => {}); },
-    pause: () => player.pause(),
-    show: () => player.scrollIntoView({ block: 'center', behavior: 'smooth' }),
-  }));
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 600));
 
-type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'films'> & {
+// What she is reading: the nearest scrolling box under the middle of the app.
+function scrollerAt(): HTMLElement | null {
+  let el = document.elementFromPoint(window.innerWidth * 0.45, window.innerHeight * 0.5) as HTMLElement | null;
+  for (; el; el = el.parentElement) {
+    const y = getComputedStyle(el).overflowY;
+    if ((y === 'auto' || y === 'scroll') && el.scrollHeight > el.clientHeight + 1) return el;
+  }
+  const page = document.scrollingElement as HTMLElement | null;
+  return page && page.scrollHeight > page.clientHeight + 1 ? page : null;
+}
+
+type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'scroll' | 'pictureNames' | 'show' | 'media' | 'mediaNames' | 'latestPictureCount' | 'waitForPictures'> & {
   pick(row: R, n: number): Promise<unknown>;
   close(row: R): Promise<unknown>;
 };
@@ -68,7 +64,6 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         rows: () => latest.current.rows(),
         focused: () => latest.current.focused(),
         options: (r) => latest.current.options(r),
-        films: filmsOnScreen,
         summary: (r) => latest.current.summary(r),
         projects: () => latest.current.projects(),
         open: (r) => latest.current.open(r),
@@ -90,16 +85,50 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         },
         compose: (t, p) => latest.current.compose(t, p),
         undo: () => latest.current.undo(),
+        // Said done only once the thread has actually left the inbox.
+        later: async (r, ts, label) => {
+          await latest.current.later?.(r, ts, label);
+          await settle();
+          return latest.current.rows().some((x) => x.id === r.id) ? 'asked' : 'done';
+        },
         outside: () => outside,
+        // The films and sounds the open thread draws (components/Focus.tsx ArtifactMedia).
+        mediaNames: () => [...document.querySelectorAll('.inline-media')].map((el) => el.querySelector('.mention-name')?.textContent?.trim() || 'a film'),
+        media: async (action, n) => {
+          const spots = [...document.querySelectorAll<HTMLElement>('.inline-media')];
+          const spot = spots[n - 1];
+          const player = spot?.querySelector<HTMLMediaElement>('video, audio');
+          if (!spot || !player) return null;
+          spot.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          if (action === 'pause') player.pause(); else await player.play().catch(() => {});
+          setTimeout(() => glowOn(spot), 300);
+          return { name: spot.querySelector('.mention-name')?.textContent?.trim() || 'the film', count: spots.length };
+        },
+        commands: () => latest.current.commands?.() ?? [],
+        scroll: (where) => {
+          const box = scrollerAt();
+          if (!box) return false;
+          const page = box.clientHeight * 0.7;
+          const to = where === 'top' ? 0 : where === 'bottom' ? box.scrollHeight : box.scrollTop + (where === 'up' ? -page : page);
+          box.scrollTo({ top: to, behavior: 'smooth' });
+          return true;
+        },
+        pictureNames: () => threadPictures().pictures.map((img, i) => pictureName(img, i + 1)),
+        latestPictureCount: () => threadPictures().latest,
+        // A thread draws its messages after its history arrives.
+        waitForPictures: async () => {
+          for (let waited = 0; waited < 1500 && !threadPictures().latest; waited += 150) await new Promise((r) => setTimeout(r, 150));
+        },
+        show: (ns, layout) => show(ns, layout),
         // After React has drawn what the act changed, so the glow lands on
         // the section as it now is.
         glow: (id) => { const name = lastName; setTimeout(() => glowOn(sectionFor(name, id)), 180); },
       };
       const act = neoBridge(live);
-      offs.push(z.onNeoAct!(async ({ id, name, args }) => {
+      offs.push(z.onNeoAct!(async ({ id, name, args, heard }) => {
         if (name === 'describe_screen') outside = !!args?.outside;
         lastName = name;
-        const result = name === 'describe_screen' ? { ok: true, status: 'committed', said: describeScreen(live) } : await act(name, args ?? {});
+        const result = name === 'describe_screen' ? { ok: true, status: 'committed', said: describeScreen(live) } : await act(name, args ?? {}, { heard });
         z.neoActResult!(id, result);
       }));
       // The Status and Owner block waits while the orb is on top of it. Until
@@ -108,8 +137,7 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
       let orb: Orb | null = null;
       const readFade = () => {
         const foot = document.querySelector('.ts-panel .ts-foot');
-        const away = !!orb && !orbCovers(orb, foot?.getBoundingClientRect() ?? null);
-        document.body.classList.toggle('neo-orb-away', away);
+        document.body.classList.toggle('neo-orb-away', !!orb && !orbCovers(orb, foot?.getBoundingClientRect() ?? null));
       };
       if (z.onNeoOrb) offs.push(z.onNeoOrb((at) => { orb = at; readFade(); }));
       // The block moves when the window is resized or the panel is opened.
@@ -118,7 +146,7 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
       if (z.onNeoMode) offs.push(z.onNeoMode(({ on: neoOn }) => {
         document.body.classList.toggle('neo-on', !!neoOn);
         if (neoOn) readFade();
-        else { glowOn(null); document.body.classList.remove('neo-orb-away'); }
+        else { glowOn(null); putAway(); document.body.classList.remove('neo-orb-away'); }
       }));
     });
     return () => { cancelled = true; offs.forEach((f) => f()); offs = []; document.body.classList.remove('neo-on', 'neo-orb-away'); };

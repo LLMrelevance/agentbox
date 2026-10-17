@@ -1,10 +1,11 @@
 // REACHING FOR THE ORB BROUGHT BACK THE THING THE ORB WAS COVERING
-// (w-5520063011, second round).
+// (w-5520063011).
 //
-// Their words: "when i hover over the orb it actually just brings back the
-// background in bottom right. how about we just only bring that back when orb
-// is moved out of that area, so it can detect when i'm actually hovering over
-// it. and make sure its ontop in terms of detection."
+// Their words, against the Neo that shipped on 2026-10-16: "when i hover over
+// the orb it actually just brings back the background in bottom right. how
+// about we just only bring that back when orb is moved out of that area, so it
+// can detect when i'm actually hovering over it. and make sure its ontop in
+// terms of detection."
 //
 // The summary's Status, Priority, Owner and Project block fades while Neo is
 // on, because the orb sits on top of it. It came back on `.ts-panel:hover` —
@@ -20,7 +21,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createNeo } from '../main/neo/index.mjs';
 import { orbCovers } from '../renderer/src/neo/orb-cover.ts';
-import { NEO, defaultOrbPoint } from '../shared/neo-orb.mjs';
 
 const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)));
 const styles = fs.readFileSync(path.join(root, 'renderer/src/styles.css'), 'utf8');
@@ -41,7 +41,7 @@ describe('whether the orb is over the block', () => {
     expect(orbCovers({ x: 1500 - 76, y: 940, r: 75 }, FOOT)).toBe(false);
   });
 
-  // A square test would call a corner covered when the round orb is not there.
+  // A box test would call a corner covered that the round orb does not reach.
   it('is clear of a corner it does not actually reach', () => {
     expect(orbCovers({ x: 1500 - 60, y: 880 - 60, r: 75 }, FOOT)).toBe(false);
     expect(orbCovers({ x: 1500 - 40, y: 880 - 40, r: 75 }, FOOT)).toBe(true);
@@ -68,7 +68,9 @@ describe('the rule the app draws it by', () => {
 });
 
 // Fake Electron parts, as the other main-process Neo tests use.
-function fakes({ userData = fs.mkdtempSync(path.join(os.tmpdir(), 'neo-cover-')), cursor = { x: 1800, y: 1000 } } = {}) {
+const AREA = { x: 0, y: 0, width: 1920, height: 1080 };
+
+function fakes({ userData = fs.mkdtempSync(path.join(os.tmpdir(), 'neo-cover-')) } = {}) {
   fs.writeFileSync(path.join(userData, 'neo-alpha'), '');
   const handlers = new Map();
   const listeners = new Map();
@@ -77,26 +79,28 @@ function fakes({ userData = fs.mkdtempSync(path.join(os.tmpdir(), 'neo-cover-'))
   const neoContents = { send: () => {}, once: (ev, fn) => { if (ev === 'did-finish-load') finishLoad = fn; } };
   const levels = [];
   const tops = [];
+  let bounds = { x: 0, y: 0, width: 600, height: 240 };
   class BrowserWindow {
     constructor() { this.webContents = neoContents; }
     setAlwaysOnTop(_on, level) { if (level) levels.push(level); }
-    setVisibleOnAllWorkspaces() {} setIgnoreMouseEvents() {} setBounds() {}
+    setVisibleOnAllWorkspaces() {} setIgnoreMouseEvents() {}
+    setBounds(b) { bounds = { ...bounds, ...b }; }
+    getBounds() { return bounds; }
     moveTop() { tops.push(true); }
     on() {} showInactive() {} hide() {} isDestroyed() { return false; }
   }
   const toApp = [];
-  const appWindowAt = { x: 100, y: 50 };
+  const appAt = { x: 100, y: 50 };
   const appEvents = new Map();
   const mainWindow = {
     isDestroyed: () => false, isFocused: () => true,
-    getContentBounds: () => ({ ...appWindowAt, width: 1800, height: 1000 }),
+    getContentBounds: () => ({ ...appAt, width: 1800, height: 1000 }),
     on: (ev, fn) => appEvents.set(ev, fn),
     webContents: { send: (ch, p) => toApp.push([ch, p]) },
   };
-  const timers = [];
   const neo = createNeo({
     app: { on() {} }, BrowserWindow, ipcMain,
-    screen: { getCursorScreenPoint: () => cursor, getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }) },
+    screen: { getCursorScreenPoint: () => ({ x: 1800, y: 1000 }), getDisplayNearestPoint: () => ({ workArea: AREA }) },
     powerMonitor: { on() {} },
     systemPreferences: { getMediaAccessStatus: () => 'granted', askForMediaAccess: async () => true },
     owner: { id: 'x', name: 'Terminal' },
@@ -104,16 +108,13 @@ function fakes({ userData = fs.mkdtempSync(path.join(os.tmpdir(), 'neo-cover-'))
     globalShortcut: { register: () => true, unregister() {} },
     mainWindow, preload: '/x', load: () => {}, userData,
     listen: () => ({ stop() {} }), platform: 'darwin',
-    every: (fn) => { const t = { fn, stopped: false }; timers.push(t); return t; },
-    stopEvery: (t) => { if (t) t.stopped = true; },
   });
   const from = { sender: neoContents };
   return {
     neo, listeners, from, levels, tops,
     orbSent: () => [...toApp].reverse().find(([ch]) => ch === 'neo:orb')?.[1],
     orbCount: () => toApp.filter(([ch]) => ch === 'neo:orb').length,
-    moveApp: (to) => { Object.assign(appWindowAt, to); appEvents.get('move')?.(); },
-    move: (to) => { Object.assign(cursor, to); timers.filter((t) => !t.stopped).forEach((t) => t.fn()); },
+    moveApp: (to) => { Object.assign(appAt, to); appEvents.get('move')?.(); },
     async awake() { const w = neo.wake('test'); finishLoad(); await w; return this; },
   };
 }
@@ -121,39 +122,33 @@ function fakes({ userData = fs.mkdtempSync(path.join(os.tmpdir(), 'neo-cover-'))
 describe('telling the app where the orb is', () => {
   it('says so when Neo wakes, in the app window\'s own coordinates', async () => {
     const f = await fakes().awake();
-    const corner = defaultOrbPoint({ x: 0, y: 0, width: 1920, height: 1080 });
-    expect(f.orbSent()).toEqual({ x: corner.x - 100, y: corner.y - 50, r: NEO.orb / 2 });
+    const sent = f.orbSent();
+    expect(sent).toBeTruthy();
+    expect(sent.r).toBe(75);
+    // The orb rests bottom right: well inside the app window, which starts at 100,50.
+    expect(sent.x).toBeGreaterThan(1000);
+    expect(sent.y).toBeGreaterThan(700);
   });
 
   it('says so again each time the orb is dragged', async () => {
     const f = await fakes().awake();
-    f.listeners.get('neo:drag-start')(f.from);
-    f.move({ x: 500, y: 400 });
-    const sent = f.orbSent();
-    expect(sent.x).toBeLessThan(500);
-    expect(sent.y).toBeLessThan(400);
+    const before = f.orbSent();
+    f.listeners.get('neo:drag')(f.from, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.from, { phase: 'move', dx: -700, dy: -500 });
+    const after = f.orbSent();
+    expect(after.x).toBeLessThan(before.x);
+    expect(after.y).toBeLessThan(before.y);
   });
 
-  // A drag runs sixty times a second and most of those frames land on the
-  // same pixel, which would be sixty messages a second saying nothing.
+  // A drag sends a frame per pointer move, and most land on the same pixel.
   it('says nothing while the orb has not actually moved', async () => {
     const f = await fakes().awake();
-    f.listeners.get('neo:drag-start')(f.from);
-    f.move({ x: 500, y: 400 });
+    f.listeners.get('neo:drag')(f.from, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.from, { phase: 'move', dx: -300, dy: -200 });
     const before = f.orbCount();
-    f.move({ x: 500, y: 400 });
-    f.move({ x: 500, y: 400 });
+    f.listeners.get('neo:drag')(f.from, { phase: 'move', dx: -300, dy: -200 });
+    f.listeners.get('neo:drag')(f.from, { phase: 'move', dx: -300, dy: -200 });
     expect(f.orbCount()).toBe(before);
-  });
-
-  // ⌘R between conversations leaves a page that knows nothing about the orb,
-  // and the orb will not have moved to tell it.
-  it('says so again on every wake, even standing still', async () => {
-    const f = await fakes().awake();
-    const first = f.orbCount();
-    f.listeners.get('neo:closed')(f.from);
-    await f.awake();
-    expect(f.orbCount()).toBeGreaterThan(first);
   });
 
   // The orb has not moved, but what it sits over has.

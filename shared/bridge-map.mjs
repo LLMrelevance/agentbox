@@ -75,6 +75,7 @@ export const REQUEST_CHANNELS = {
   agentFolders: 'zero:agent-folders',
   importAgents: 'zero:import-agents',
   agentThreads: 'zero:agent-threads',
+  searchAgentThreads: 'zero:search-agent-threads',
   importThreads: 'zero:import-threads',
   badge: 'zero:badge',
   cornerTag: 'zero:corner-tag',
@@ -168,8 +169,7 @@ export const PUSH_CHANNELS = {
   onKeyInTheFile: 'zero:key-in-the-file',
   // A phone connected, left, or the key changed.
   onPhoneChanged: 'zero:phone-changed',
-  // Neo's tool calls for the app to carry out, Neo waking or signing off, and
-  // where the orb is, so the app knows what it is covering.
+  // Neo's tool calls for the app to carry out, and Neo waking or signing off.
   onNeoAct: 'neo:act',
   onNeoMode: 'neo:mode',
   onNeoOrb: 'neo:orb',

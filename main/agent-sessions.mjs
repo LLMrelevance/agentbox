@@ -221,7 +221,7 @@ function messageText(row) {
 
 /** `skipped` counts why each transcript was left out, so a change to a filter
  *  can be measured. */
-function readTerminalThreads({ home, dirs, cutoff, max, skipIds = new Set() }) {
+function readTerminalThreads({ home, dirs, cutoff, max, budgetMs = READ_BUDGET_MS, skipIds = new Set() }) {
   const skipped = { old: 0, scratch: 0, started: 0, subagent: 0, empty: 0, unread: 0, desktopDupe: 0, copy: 0 };
   const out = [];
   // Every data folder is pooled and sorted newest first before any file is
@@ -248,12 +248,19 @@ function readTerminalThreads({ home, dirs, cutoff, max, skipIds = new Set() }) {
   // workers, the newest thousand transcripts can all be Agentbox's own.
   const started = Date.now();
   let opened = 0;
+  // The moment the read gave up at, zero when it read the whole window. A
+  // name is only known once the file is open, so a search that stopped in
+  // August must not answer "no such chat" as if it had looked at September.
+  let reached = 0;
+  let lastOpened = 0;
   for (const { file, when } of recent) {
-    if (out.length >= max || Date.now() - started > READ_BUDGET_MS) {
+    if (out.length >= max || Date.now() - started > budgetMs) {
       skipped.unread = recent.length - opened;
+      reached = lastOpened;
       break;
     }
     opened += 1;
+    lastOpened = when;
     const id = path.basename(file, '.jsonl');
     // The desktop app writes a thread twice, as a transcript here and as its
     // own record joined by `cliSessionId`. Its record wins because it has a
@@ -279,7 +286,7 @@ function readTerminalThreads({ home, dirs, cutoff, max, skipIds = new Set() }) {
       path: file,
     });
   }
-  return { threads: out, skipped };
+  return { threads: out, skipped, reached };
 }
 
 /** Lists every transcript, subagents included so the caller can count them.
@@ -357,16 +364,21 @@ export function readSessionThreads({
   days = RECENT_DAYS,
   now = Date.now(),
   max = MAX_READS,
+  // The card's list keeps the three seconds it was measured for; a search is
+  // allowed longer, reaching back a year with somebody waiting on it.
+  budgetMs = READ_BUDGET_MS,
 } = {}) {
   const cutoff = now - Math.max(0, Number(days) || 0) * 86400 * 1000;
   // The desktop side goes first so its ids are known before the transcripts
   // are walked, which stops one thread appearing twice.
   const desk = readDesktopThreads({ home, cutoff, max });
-  const term = readTerminalThreads({ home, dirs, cutoff, max, skipIds: desk.owned });
+  const term = readTerminalThreads({ home, dirs, cutoff, max, budgetMs, skipIds: desk.owned });
   const threads = [...term.threads, ...desk.threads].sort((a, b) => b.when - a.when);
   return {
     threads,
     skipped: { ...term.skipped, desktopOld: desk.skipped.old, archived: desk.skipped.archived },
+    /** Zero when the whole window was read. See `reached` above. */
+    reached: term.reached,
   };
 }
 

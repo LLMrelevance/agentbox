@@ -35,8 +35,8 @@ export interface CloudAccount {
   name: string | null;
   ready: boolean;
   // 'broken' (stopped working), 'renew' / 'stale' (a Codex login being
-  // renewed), 'ready'.
-  state?: 'broken' | 'renew' | 'stale' | 'ready';
+  // renewed), 'limited' (at its usage limit until it resets), 'ready'.
+  state?: 'broken' | 'renew' | 'stale' | 'limited' | 'ready';
   savedAt?: number | null;
 }
 
