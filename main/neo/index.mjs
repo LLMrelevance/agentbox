@@ -185,6 +185,11 @@ export function createNeo({
       mainWindow.webContents.send('neo:act', { id, name, args, heard });
     });
   }
+  // What Neo is saying, so the main window can show the picture it names.
+  ipcMain.on('neo:follow', (e, { said } = {}) => {
+    if (!fromNeo(e) || !live || ending || typeof said !== 'string' || !said.trim()) return;
+    void askMain('follow', { said: said.slice(-2000) });
+  });
   ipcMain.on('neo:act-result', (e, { id, result } = {}) => {
     if (!fromMain(e)) return;
     const done = waiting.get(id);

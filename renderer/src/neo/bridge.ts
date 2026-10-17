@@ -14,6 +14,7 @@
 // Pure apart from `deps`, so it is tested without the app
 // (tests/neo-acts-only-on-the-thread-it-named-and-asks-before-merging.test.mjs).
 import { needsYes } from '../../../shared/neo-tools.mjs';
+import { followTarget } from '../../../shared/neo-follow.mjs';
 import { Name } from '../../../shared/product-name.mjs';
 
 export type NeoRow = { id: string; product: string; productName?: string; title: string; label?: string; status?: string };
@@ -101,6 +102,7 @@ const THIS = /\b(this|current|here)\b/;
 // New work, asked for in words; otherwise what she says goes to a thread that exists.
 const NEW_WORK = /\b(new (task|thread|work)|start (a|an|new)|create (a|an)|kick off|spin up|make (a|an) (task|thread))\b/;
 
+const FOLLOW_HOLD_MS = 800;
 const CHANGES_THREAD = new Set(['open_thread', 'next_thread', 'close_thread', 'later', 'run_command', 'pick_option']);
 
 const RISKY_COMMAND = /^(pause|done|approve|update|first-run|fresh-user|demo|tutorial|stop|resume|cloud|run-now)/;
@@ -207,23 +209,37 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
   // counts for that and nothing else.
   let asked: { id: string; n: number; words: string } | null = null;
   let askedCommand: string | null = null;
+  // What Neo's words last put up, so each is shown once as it talks, and
+  // held a moment so a quick list of names does not flicker.
+  let followed = '';
+  let followedAt = 0;
+  let followLater: ReturnType<typeof setTimeout> | null = null;
+  const putUp = async (target: { kind: 'picture' | 'file'; n: number }) => {
+    followed = `${target.kind}:${target.n}`;
+    followedAt = deps.now?.() ?? Date.now();
+    if (target.kind === 'picture') await deps.show?.([target.n], 'peek');
+    else await deps.openFile?.(target.n);
+  };
   // The latest message's pictures go up by themselves as Neo briefs her: one
   // lifted, two to four side by side.
   const showLatest = async () => {
     if (!deps.show || !deps.latestPictureCount) return '';
     await deps.waitForPictures?.();
-    const n = Math.min(deps.latestPictureCount(), 4);
+    const n = Math.min(deps.latestPictureCount(), 9);
     if (!n) return openLatestFile();
-    const ns = Array.from({ length: n }, (_, i) => i + 1);
-    if (!(await deps.show(ns, 'peek'))) return '';
+    if (!(await deps.show([1], 'peek'))) return '';
+    followed = 'picture:1';
     const names = (deps.pictureNames?.() ?? []).slice(0, n);
-    return ` Beside the thread now: ${n === 1 ? 'its picture' : `its ${n} pictures, numbered ${ns.join(', ')}`} (${names.join(', ')}). Refer to them by number as you brief.`;
+    if (n === 1) return ` Beside the thread now: its picture (${names[0]}).`;
+    return ` Beside the thread now: picture 1. Its pictures, in order: ${names.map((f, i) => `${i + 1}. ${f}`).join(' ')}.`;
   };
   // With no picture in the latest message, its design page is the thing to see.
   const openLatestFile = async () => {
     const files = deps.fileNames?.() ?? [];
     if (!files.length || !deps.openFile || !(await deps.openFile(1))) return '';
-    return ` Open beside the thread now: ${files[0]}, from the latest message.`;
+    followed = 'file:1';
+    if (files.length === 1) return ` Open beside the thread now: ${files[0]}, from the latest message.`;
+    return ` Open beside the thread now: ${files[0]}. Its design pages, in order: ${files.map((f, i) => `${i + 1}. ${f}`).join(' ')}.`;
   };
   // What Neo needs to brief her on a thread it just opened.
   const brief = (row: R) => {
@@ -236,7 +252,12 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
     noteMove();
     try {
       // A picture Neo put up comes down when the thread changes under it.
-      if (CHANGES_THREAD.has(name)) await deps.show?.([], 'close');
+      if (CHANGES_THREAD.has(name)) {
+        await deps.show?.([], 'close');
+        followed = '';
+        followedAt = 0;
+        if (followLater) { clearTimeout(followLater); followLater = null; }
+      }
       switch (name) {
         case 'describe_screen':
         case 'get_screen':
@@ -402,6 +423,24 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           if (want.some((n) => n > have.length)) return refused(`The open thread has ${have.length} picture${have.length === 1 ? '' : 's'}.`);
           const shown = await deps.show?.(want, args.layout);
           return shown ? done(`Showing ${want.map((n) => have[n - 1]).join(' and ')}.`) : refused('Those pictures could not be shown.');
+        }
+
+        case 'follow': {
+          const open = deps.focused();
+          if (!open || !deps.show) return done('');
+          const latest = deps.latestPictureCount?.() ?? 0;
+          const target = followTarget(String(args.said ?? ''), {
+            pictures: (deps.pictureNames?.() ?? []).slice(0, latest),
+            files: deps.fileNames?.() ?? [],
+            options: deps.options(open).length,
+          });
+          const key = target ? `${target.kind}:${target.n}` : '';
+          if (followLater) { clearTimeout(followLater); followLater = null; }
+          if (!target || key === followed) return done('');
+          const wait = FOLLOW_HOLD_MS - ((deps.now?.() ?? Date.now()) - followedAt);
+          if (wait <= 0) await putUp(target);
+          else followLater = setTimeout(() => { followLater = null; void putUp(target); }, wait);
+          return done('');
         }
 
         case 'describe_open': {
