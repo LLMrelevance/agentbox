@@ -838,6 +838,14 @@ const CODEX_MODE_OPTIONS: Array<{ value: CodexModeId; label: string }> = CODEX_M
   (value) => ({ value, label: CODEX_MODES[value].label }),
 );
 
+const SAME_AS_HERE = 'The same as on this computer.';
+
+// Full access's own sentence says "on this computer", which a cloud run is not.
+const CODEX_CLOUD_WHAT: Record<CodexModeId, string> = {
+  ...Object.fromEntries(CODEX_MODE_ORDER.map((id) => [id, CODEX_MODES[id].what])) as Record<CodexModeId, string>,
+  'full-access': 'Anything on its own throwaway cloud machine, without asking.',
+};
+
 /* -------------------- the model is not asked here ------------------------- */
 // The new task card asks which model a run goes out on, keeps the answer
 // between cards, and is the only place it is asked (w-12081d32cc). The
@@ -1718,7 +1726,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                 {/* AND NOT `RULES_ALWAYS_APPLY` UNDER THIS ONE. That caveat is
                     about Claude Code's allow and deny rules sitting on top of a
                     mode. Codex has no such list. */}
-                <Row label="Permission mode" desc={CODEX_MODES[w.codexMode]?.what}>
+                <Row label={cloudHere ? 'On this computer' : 'Permission mode'} desc={CODEX_MODES[w.codexMode]?.what}>
                   <Picker
                     bare
                     label="Permission mode"
@@ -1728,6 +1736,18 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                     onChange={(v) => setWorkspace('codexMode', v)}
                   />
                 </Row>
+                {cloudHere && (
+                  <Row label="In the cloud" desc={w.cloudCodexMode && w.cloudCodexMode !== 'same' ? CODEX_CLOUD_WHAT[w.cloudCodexMode] : SAME_AS_HERE}>
+                    <Picker
+                      bare
+                      label="Permission mode in the cloud"
+                      title="The mode every cloud run starts in."
+                      value={w.cloudCodexMode ?? 'same'}
+                      options={[{ value: 'same', label: 'Same as this computer' }, ...CODEX_MODE_OPTIONS]}
+                      onChange={(v) => write(api.setWorkspaceSetting({ key: 'cloudCodexMode', value: v }))}
+                    />
+                  </Row>
+                )}
               </Group>
             ) : (
               <Group id="permissions" label="Permissions">
@@ -1749,17 +1769,17 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                   </Row>
                 )}
                 {/* THE CLOUD'S OWN MODE: a cloud run works on a throwaway copy
-                    with nobody there to approve anything, so it may be looser
-                    than this computer. Unset, it follows this computer. */}
+                    with nobody there to approve anything, so by default it
+                    does not ask (main/cloud-permission.mjs). */}
                 {cloudHere && (
-                  <Row label="In the cloud" desc={w.cloudPermission ? PERMISSION_SENTENCE[w.cloudPermission] : 'The same as on this computer.'}>
+                  <Row label="In the cloud" desc={w.cloudPermission && w.cloudPermission !== 'same' ? PERMISSION_SENTENCE[w.cloudPermission] : SAME_AS_HERE}>
                     <Picker
                       bare
                       label="Permission mode in the cloud"
                       title={`The mode every cloud run starts in. ${RULES_ALWAYS_APPLY}`}
                       value={w.cloudPermission ?? 'same'}
                       options={[{ value: 'same', label: 'Same as this computer' }, ...PERMISSION_OPTIONS]}
-                      onChange={(v) => write(api.setWorkspaceSetting({ key: 'cloudPermission', value: v === 'same' ? null : v }))}
+                      onChange={(v) => write(api.setWorkspaceSetting({ key: 'cloudPermission', value: v }))}
                     />
                   </Row>
                 )}
