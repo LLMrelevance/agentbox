@@ -163,6 +163,9 @@ if (twoLogins) {
   const [first, second] = fixtureSettingsState.workspace.accounts;
   if (first) first.chosen = false;
   if (second) second.chosen = true;
+  // &cloudperm=<mode> draws the cloud on its own permission mode.
+  fixtureSettingsState.workspace.permission = 'auto';
+  fixtureSettingsState.workspace.cloudPermission = params.get('cloudperm') || null;
 }
 
 function fixtureAccountUsage(): AccountUsageReading[] {

@@ -216,6 +216,8 @@ export function buildSessionArgs(base, mode) {
   return [...model, ...(tools.length ? ['--allowedTools', ...tools] : []), ...grant, ...parsed.other];
 }
 
+export { cloudPermissionArgs } from './cloud-permission.mjs';
+
 // THE MODEL, WRITTEN BACK INTO THE SAME LIST buildSessionArgs READS FROM.The
 // screen had no control over this at all; the flag was already there and only
 // a text editor could change it.
@@ -626,6 +628,8 @@ export function readSettings({ config, supervisor, store }) {
       ...engineSettings(supervisor, config),
       permission: permissionMode(workspaceArgs),
       permissionArgs: workspaceArgs,
+      // The cloud's own mode, or null for this computer's.
+      cloudPermission: config.cloudPermission ?? null,
       // ONE SWITCH FOR EVERYTHING THAT LEAVES THE MACHINE, and it is on when
       // Agentbox is installed (legal/privacy.html, section 10). Off stops the
       // counts AND the crash reports; there is deliberately no partial mode and
@@ -1202,6 +1206,16 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
       saveConfig(config, patch);
       Object.assign(config, patch);
       supervisor.wake?.();
+      supervisor.onChange?.();
+      break;
+    }
+    // THE CLOUD'S OWN PERMISSION MODE, or null for this computer's. Read at
+    // each cloud run's spawn (main/harnesses/claude.mjs).
+    case 'cloudPermission': {
+      if (value != null && !CLAUDE_MODES.includes(value)) throw new Error(`unknown permission mode: ${value}`);
+      const patch = { cloudPermission: value ?? null };
+      saveConfig(config, patch);
+      Object.assign(config, patch);
       supervisor.onChange?.();
       break;
     }

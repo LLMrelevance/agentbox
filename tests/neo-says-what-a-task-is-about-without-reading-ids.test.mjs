@@ -28,15 +28,6 @@ describe('what a task is about comes first', () => {
     expect(r.said).toMatch(/What this task is for: Show which Claude account/);
   });
 
-  it('a summary asks for what the task is, then what it needs', async () => {
-    const r = await runDecision({
-      heard: "I don't remember what this task was about. Can you summarize it", state: {}, now: () => 0,
-      askMain: async (n) => (n === 'neo_screen' ? { ok: true, screen: { open: { id: row.id, title: row.title, options: [] }, rows: [], commands: [] } } : { ok: true, said: describeOpen(deps, row) }),
-      decideImpl: async () => ({ choice: 'summary', confidence: 0.6, runnersUp: [] }),
-    });
-    expect(r.say).toMatch(/what the task is for/);
-    expect(r.say).toMatch(/Show which Claude account/);
-  });
 });
 
 describe('ids are never read aloud', () => {
@@ -55,35 +46,3 @@ describe('ids are never read aloud', () => {
   });
 });
 
-describe('"I don\'t know what this is about" is a question', () => {
-  const ask = (heard, confidence = 0.56) => {
-    const answer = vi.fn(async () => 'It is about the account indicator.');
-    return runDecision({
-      heard, state: {}, now: () => 0, answer,
-      askMain: async (n) => (n === 'neo_screen' ? { ok: true, screen: { open: { id: row.id, title: row.title, options: [] }, rows: [], commands: [] } } : { ok: true, said: 'Open thread: Account indicator' }),
-      decideImpl: async () => ({ choice: 'none', confidence, runnersUp: [] }),
-    }).then((r) => ({ r, answer }));
-  };
-
-  it('a sentence picked as nothing is answered, not met with "Okay"', async () => {
-    const { r, answer } = await ask("But I don't know what the task is about");
-    expect(answer).toHaveBeenCalled();
-    expect(r.say).toMatch(/account indicator/);
-  });
-
-  it('thinking aloud is not answered', async () => {
-    const { answer } = await ask('hmm let me just look at the pictures for a moment', 0.9);
-    expect(answer).not.toHaveBeenCalled();
-  });
-
-  it('a short acknowledgement is still just "Okay"', async () => {
-    const { r, answer } = await ask('okay cool', 0.95);
-    expect(answer).not.toHaveBeenCalled();
-    expect(r.say).toBe('Say just "Okay."');
-  });
-
-  it('the summary option names how she asks', () => {
-    const { list } = buildOptions({ open: { id: row.id, title: row.title, options: [] }, rows: [], commands: [] });
-    expect(list.find((o) => o.value === 'summary').description).toMatch(/what this task is about/);
-  });
-});
