@@ -44,13 +44,15 @@ import { readNote, writeNote } from './rail-note.mjs';
 import { addClaudeAccount, addCodexAccount, cornerTagTurnedOff, countsTurnedOff, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, recheckClaude, recheckCodex, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
 import { ICON_KINDS, clearProjectIcon, setProjectIcon, setProjectName } from './project-identity.mjs';
 import { ClaudeUsage } from './claude-usage.mjs';
+import { AccountUsage } from './account-usage.mjs';
+import { effectiveProfiles } from './account-discovery.mjs';
 import { usageEngine } from '../shared/usage.mjs';
 import { DEFAULT_ENGINE, isEngine } from '../shared/engines.mjs';
 import * as agents from './agents.mjs';
 import { findAgentFolders, readAgentFiles, readFolderAgents } from './agent-files.mjs';
 import { readCodexThreads } from './codex-threads.mjs';
 import { appSessionFolders } from './agent-homes.mjs';
-import { readImportableThreads } from './importable-threads.mjs';
+import { readImportableThreads, readSearchableThreads } from './importable-threads.mjs';
 import { markImported } from '../shared/agent-import.mjs';
 import { codexIdOf, importChoice, isCodexImportRow, isNotImportedRow } from '../shared/codex-import.mjs';
 import { checkProjectFolder } from '../shared/project-folder-check.mjs';
@@ -267,13 +269,29 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     bin: () => config.claudeBin,
     // The account marked In use, asked each time so a switch is read at once.
     account: () => supervisor.usageAccount(),
-    onChange: push,
+    onChange: () => {
+      const reading = usage.peek();
+      if (reading) supervisor.noteUsageReading(reading.profile, reading);
+      push();
+    },
   });
 
   ipcMain.handle('zero:refresh-usage', async event => {
     if (event.senderFrame?.parent || (event.sender && event.sender !== window.webContents)) throw Error('Usage refresh is only available in the main app window.');
     const result = await usage.refreshNow();
     return result.reading ? { ...result, reading: { engine: DEFAULT_ENGINE, ...result.reading } } : result;
+  });
+
+  // Every Claude login's own reading, asked for only by the Settings page.
+  const accountUsage = new AccountUsage({
+    bin: () => config.claudeBin,
+    env: () => supervisor._workerEnv(DEFAULT_ENGINE),
+    onReading: (profile, reading) => supervisor.noteUsageReading(profile, reading),
+  });
+  ipcMain.handle('zero:account-usage', async (event, { refresh = false } = {}) => {
+    if (event.senderFrame?.parent || (event.sender && event.sender !== window.webContents)) throw Error('Usage is only available in the main app window.');
+    const profiles = effectiveProfiles(config.authProfiles, { home: config.home });
+    return { readings: await accountUsage.readAll(profiles.length ? profiles : ['default'], { refresh: !!refresh }) };
   });
 
   // Agents this run has already counted. In memory on purpose: a fresh launch
@@ -1191,6 +1209,39 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     let items = [];
     try { items = store.listItems(); } catch { items = []; }
     return { threads: markImported(threads, items) };
+  });
+
+  /**
+   * EVERY CHAT THE NAME FIELD CAN SEARCH, read once and kept (w-6418318cd5).
+   *
+   *  The card's own list is ten days. Typing a name has to reach past that, and
+   *  a name lives inside a transcript, so finding one means opening files —
+   *  29,703 of them on the Mac this was written on. It is taken ONCE, the first
+   *  time somebody types, and held for the life of the window: every keystroke
+   *  after the first is a filter in the renderer, not a disk walk. `Look again`
+   *  on the card drops it, which is the one way back to the disk.
+   *
+   *  `reached` is the moment the read gave up at, zero when it read the whole
+   *  year. The card prints it, because "no chat with that name" over a read
+   *  that stopped in August would be a lie nobody could see.
+   *
+   *  The results join `lastThreads` as well, because importing resolves an id
+   *  against that list and a chat found by name has to be importable.
+   */
+  let searchable = null;
+  ipcMain.handle('zero:search-agent-threads', (_e, { again = false } = {}) => {
+    if (again) searchable = null;
+    if (!searchable) {
+      let got = { threads: [], reached: 0 };
+      try { got = readSearchableThreads({ config, supervisor }); } catch { got = { threads: [], reached: 0 }; }
+      searchable = got;
+      const byId = new Map(lastThreads.map((t) => [String(t?.id ?? ''), t]));
+      for (const t of got.threads) byId.set(String(t?.id ?? ''), t);
+      lastThreads = [...byId.values()];
+    }
+    let items = [];
+    try { items = store.listItems(); } catch { items = []; }
+    return { threads: markImported(searchable.threads, items), reached: searchable.reached };
   });
 
   // So this is `zero:import-agents` with the agent taken out of it. No ticks are

@@ -368,8 +368,12 @@ describe('the wiring the card needs is really there', () => {
     expect(logic.slice(logic.indexOf('export function picksOf'))).toContain('.items.map((a) => a.path)');
     expect(logic).not.toMatch(/d\.items\.some\(/);
     // The one count on the card now is the button's, and it counts every
-    // ticked line, threads and agent files alike (w-db6f5e331e).
-    expect(card).toContain('{LIST.add(picked.length)}');
+    // ticked line, threads and agent files alike (w-db6f5e331e). Since
+    // w-6418318cd5 that list is `onScreen`, which is `picked` unless a name is
+    // typed into the field, when it is what you ticked among the matches: one
+    // reader either way, and always the rows actually drawn under the button.
+    expect(card).toContain('{LIST.add(onScreen.length)}');
+    expect(card).toContain('? hits.filter((h) => keptPaths.has(h.path)).map((h) => h.path) : picked');
   });
 
   it('takes the thread objects off main rather than off the screen', () => {

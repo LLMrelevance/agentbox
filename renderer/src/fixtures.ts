@@ -1265,6 +1265,39 @@ export function fixtureSessionThreads() {
   }));
 }
 
+/**
+ * WHAT THE NAME FIELD SEARCHES, on a fake disk (w-6418318cd5).
+ *
+ *  The nine above are all inside a week, because they are the card's own
+ *  ten-day list. The point of the field is the ones that are not, so this is
+ *  that list with months of older chats under it: without them a photograph of
+ *  the search shows a search that found nothing a search was needed for. */
+export function fixtureSearchableThreads() {
+  const now = Date.now();
+  const day = 24 * 3600 * 1000;
+  const zero = { folder: '/Users/you/Desktop/dev/zero', folderName: 'zero', short: '~/Desktop/dev/zero' };
+  const dd = { folder: '/Users/you/Desktop/dev/harbour', folderName: 'harbour', short: '~/Desktop/dev/harbour' };
+  const older: [string, string, number, typeof zero, 'terminal' | 'codex'][] = [
+    ['o1', 'Open the pricing page in a second window so I can compare them', 19, zero, 'terminal'],
+    ['o2', 'the opening animation on the booster is too slow, can you halve it', 34, zero, 'codex'],
+    ['o3', 'Reopen the old onboarding and tell me which screen the drop-off is on', 58, dd, 'terminal'],
+    ['o4', 'open a port for the preview and keep it running while I test', 96, zero, 'codex'],
+    ['o5', 'Work out why the welcome email opens at 11% and the rest at 40%', 131, dd, 'terminal'],
+    ['o6', 'open the stripe dashboard numbers and put them beside ours', 204, dd, 'terminal'],
+  ];
+  return [
+    ...fixtureSessionThreads(),
+    ...older.map(([id, title, ago, where, source]) => ({
+      id,
+      source,
+      title,
+      when: now - ago * day,
+      path: `/Users/you/.claude/projects/${where.folderName}/${id}.jsonl`,
+      ...where,
+    })),
+  ];
+}
+
 import { NAME } from '../../shared/product-name.mjs';
 
 // A FAKE DISK FOR ?fixtures=1, so the picker can be drawn and photographed

@@ -700,11 +700,25 @@ export class Supervisor {
    * gets. With only one login, a park of half an hour meant every Resume and
    * "continue" in between left the rows queued. If she is still signed out
    * the trial dies in two seconds and parks it again on the spot. Where another
-   * login is working, the dead one stays out: the work is moving without it. */
+   * login is working, the dead one stays out: the work is moving without it.
+   *
+   * AND A LIMIT IS THE SAME SHAPE, which this missed (w-4338a63da6). Her hand
+   * resets a sign-in; it does not reset a usage limit, and the bench a limit
+   * earns is the only thing holding the work off a login that cannot do it.
+   * Measured 2026-10-16: ~/.claude-3 carried at-limit with a reset seven hours
+   * out and a cooldown of 0, because a reply had been typed in between, so the
+   * capped login was still live, still picked, and still holding the chat while
+   * two logins with room sat idle. */
   liftBrakeForHer() {
     this._spawnCooldownUntil = 0;
+    // EVERY ACCOUNT IS JUDGED AGAINST THE SAME BENCH. Reading the live map
+    // would make the answer depend on which key came first, so the account
+    // lifted earliest in the loop would look like somewhere the work could go.
+    const benched = { ...(this._profileCooldown ?? {}) };
     for (const account of Object.keys(this._profileCooldown ?? {})) {
-      if (needsHerHands(this._profileTrouble?.[account]?.cause) && this._anotherAccountCanRun(account)) continue;
+      const cause = this._profileTrouble?.[account]?.cause;
+      const notHersToMend = needsHerHands(cause) || cause === 'at-limit';
+      if (notHersToMend && this._anotherAccountCanRun(account, benched)) continue;
       this._profileCooldown[account] = 0;
     }
   }
@@ -753,12 +767,19 @@ export class Supervisor {
   }
 
   // Whether some OTHER login on this account's engine could run once her hand
-  // has lifted what time alone would lift, i.e. one not waiting on a person.
-  _anotherAccountCanRun(account) {
+  // has lifted what time alone would lift: one that is neither waiting on a
+  // person nor sitting out a limit of its own.
+  _anotherAccountCanRun(account, benched = this._profileCooldown) {
     const engine = String(account).startsWith('codex:') ? 'codex' : DEFAULT_ENGINE;
+    const now = Date.now();
     return this._profilesFor(engine)
       .map((p) => this._accountKey(engine, p))
-      .some((key) => key !== account && !needsHerHands(this._profileTrouble?.[key]?.cause));
+      .some((key) => {
+        if (key === account) return false;
+        const cause = this._profileTrouble?.[key]?.cause;
+        if (needsHerHands(cause)) return false;
+        return !(cause === 'at-limit' && (benched?.[key] ?? 0) > now);
+      });
   }
 
   _kill(session, signal) {
@@ -2975,7 +2996,13 @@ export class Supervisor {
         cause,
         runs,
         resetsAt,
-        elsewhere: session.accountFault?.cause === 'model-not-on-plan',
+        // A LIMIT ON ONE LOGIN IS NOT A WAIT WHEN ANOTHER HAS ROOM. The row
+        // was promising a reset hours away while `restingUntil` was already
+        // waking it for the free login, so the sentence and the fleet said
+        // different things about the same task (w-4338a63da6).
+        elsewhere: session.accountFault?.cause === 'model-not-on-plan'
+          || (cause === 'at-limit' && !!session.accountFault?.account
+            && this._anotherLoginIsFree(item, session.accountFault.account)),
       });
       const written = this.store.recordSessionResult(item.product, item.id, { result, status: 'open' });
       // REMEMBER THAT WE SAID IT, keyed on the run we said it about. The pass
@@ -3823,6 +3850,28 @@ export class Supervisor {
     return forgot;
   }
 
+  /**
+   * A USAGE READING IS PROOF THE ACCOUNT RUNS. Limits only come back for a
+   * login that is signed in and allowed to use Claude Code, and an account she
+   * has not picked never gets the surviving session that would otherwise clear
+   * its mark. A limit mark goes only when nothing in the reading is at 100%.
+   * Trouble that is not the account's (an old Claude Code, the network) stays.
+   */
+  noteUsageReading(profile, reading) {
+    const key = this._accountKey(DEFAULT_ENGINE, profile || 'default');
+    const trouble = this._profileTrouble?.[key];
+    const limits = reading?.limits ?? [];
+    if (!trouble || !limits.length) return false;
+    if ((reading.at ?? 0) < (trouble.at ?? trouble.since ?? 0)) return false;
+    const proven = ['signed-out', 'org-blocked', 'subscription-ended', 'unknown'].includes(trouble.cause)
+      || (trouble.cause === 'at-limit' && limits.every((l) => !(l.percent >= 100)));
+    if (!proven) return false;
+    this._clearProfileTrouble(key);
+    this._saveState();
+    this.onChange?.();
+    return true;
+  }
+
   _clearProfileTrouble(profile) {
     if (!profile) return;
     if (this._profileTrouble) delete this._profileTrouble[profile];
@@ -4128,7 +4177,7 @@ export class Supervisor {
     for (const engine of [DEFAULT_ENGINE, 'codex']) {
       listCloudLogins(engine, { home: this.config.home }).forEach((r) => {
         const state = cloudLoginState(r, { now });
-        out.push({ engine, key: r.key, name: r.email || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null });
+        out.push({ engine, key: r.key, name: r.email || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null, limitedUntil: r.limitedUntil ?? null });
       });
     }
     return out;
@@ -5073,8 +5122,11 @@ export class Supervisor {
       // Which accounts are in trouble and what kind, for the Accounts page.
       // This is always true the moment it is true: a page you go and look at
       // can afford to be exact, because nothing about it interrupts her.
+      // `at` rides along because two folders can hold one subscription and the
+      // page draws one row for it: when both carry a reason, the newest is the
+      // one that is still true (`troubleForProfile`).
       accountTrouble: Object.fromEntries(
-        Object.entries(this._profileTrouble ?? {}).map(([p, t]) => [p, { cause: t.cause, since: t.since }]),
+        Object.entries(this._profileTrouble ?? {}).map(([p, t]) => [p, { cause: t.cause, since: t.since, at: t.at }]),
       ),
       // THE ONE LINE ABOVE HER LIST, and only when it is really true.
       //

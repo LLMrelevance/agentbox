@@ -3835,12 +3835,32 @@ img.app-mark { opacity: 1; border-radius: 0; }
 .hidden-input { opacity: 0; height: 0; padding: 0; border: none; position: absolute; }
 
 .palette-list { max-height: 320px; overflow-y: auto; padding: 6px 0; }
+/* ONE LINE, WHATEVER IS PUT IN IT (w-6418318cd5, 2026-10-16). This was a bare
+   flex with two spans in it and nothing stopping either from wrapping, so one
+   long label stacked the row onto four lines in a list where every other row
+   is one: "There is so much text that it's overflowing on both lines." The
+   copy that did it is shorter now, but shorter copy is not a rule — the next
+   long one would do it again. So neither half wraps, and whichever cannot fit
+   is cut with an ellipsis, which somebody can see, rather than wrapped, which
+   is what this looked like. */
 .palette-item {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
   padding: 8px 18px;
   cursor: pointer;
   font-size: 14px;
+}
+/* `min-width: 0` on both: without it a flex child refuses to shrink below the
+   width of its own text and overflows the panel instead of truncating, which
+   is the usual way this fix is written and fails. */
+.palette-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .palette-item.selected { background: var(--bg-selected); }
 /* Nothing matched. It sits on the first row's own line — same padding, same
@@ -3852,7 +3872,16 @@ img.app-mark { opacity: 1; border-radius: 0; }
   font-size: 14px;
   color: var(--text-faint);
 }
-.palette-hint { color: var(--text-faint); font-size: 12.5px; }
+.palette-hint {
+  color: var(--text-faint);
+  font-size: 12.5px;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
 .palette-key {
   min-width: 22px;
   height: 20px;
@@ -8002,6 +8031,40 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 .modal.ia-card.ia-one { width: 720px; }
 .ia-one .ia-line { margin: 0 0 14px; }
 .ia-lines { max-height: min(56vh, 520px); border-top: 1px solid var(--line); }
+/* FINDING AN OLDER ONE BY NAME (w-6418318cd5). A field the width of the card
+   and a line under it, above the list, because it changes what the list is.
+   It is not a boxed search bar with a magnifier in it: the card has one filled
+   thing on it and that is the button. */
+/* THE GAP ABOVE IT IS ITS OWN (w-6418318cd5, 2026-10-16): "spacing here is
+   wack". It had a 2px top margin and leaned on the subtitle above it for the
+   rest, which works until the subtitle is not there. Measured in the built
+   renderer, the same card was 36.9px above the field at rest and 2px mid
+   search, so the field sat against a 21px headline. */
+.ia-find { margin: 0 0 18px; }
+/* Only when the headline is the thing directly above: searching, where the
+   subtitle is not drawn, and the Mac with nothing on it. With `.ia-top`'s own
+   2px that is 16px, which is the gap the subtitle used to stand in. */
+.ia-top + .ia-find { margin-top: 14px; }
+.ia-find-box {
+  width: 100%; font: inherit; font-size: 14.5px; line-height: 1.35;
+  padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius);
+  background: var(--wash); color: var(--text);
+}
+.ia-find-box::placeholder { color: var(--text-faint); }
+.ia-find-box:focus { outline: none; border-color: var(--accent); background: none; }
+/* One line under the field and never two: what it is for, or what it found,
+   with the way back at the far end of it. */
+/* NO INSET: it was the only thing on the card off the spine, starting at 33px
+   from the edge where the headline, the field and the list all start at 31,
+   and ending 2px short on the right. */
+.ia-find-under { display: flex; align-items: baseline; gap: 12px; margin: 10px 0 0; }
+.ia-find-hint { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-faint); }
+.ia-find-clear {
+  flex: none; font: inherit; font-size: 12.5px; background: none; border: none; padding: 0;
+  cursor: pointer; color: var(--text-faint); text-decoration: underline; text-underline-offset: 3px;
+}
+.ia-find-clear:hover { color: var(--text-dim); }
+.ia-find-reach { color: var(--text-faint); }
 .ia-agent.ia-line-row {
   display: flex; align-items: center; gap: 12px; width: 100%;
   padding: 11px 2px; border-bottom: 1px solid var(--line); --tick-line: 14px;
@@ -8903,6 +8966,32 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 .neo-halo { position: absolute; pointer-events: none; }
 @keyframes neo-breathe { from { filter: brightness(.88); } to { filter: brightness(1.1); } }
 /* While Neo is on, the summary's Status, Priority and Owner block steps back,
-   and comes forward again under the pointer. */
+   because the orb rests on top of it, and comes forward when the orb is
+   dragged off it (renderer/src/neo/orb-cover.ts says which).
+   It used to come forward on hovering the panel, and the orb sits in that
+   panel's own corner, so reaching for the orb brought the whole block back
+   underneath it (w-5520063011). */
 body.neo-on .ts-panel .ts-foot { opacity: 0; transition: opacity .4s ease; }
-body.neo-on .ts-panel:hover .ts-foot { opacity: 1; }
+body.neo-on.neo-orb-away .ts-panel .ts-foot { opacity: 1; }
+
+/* Neo's "show" (renderer/src/neo/show.ts): pictures from the open thread over
+   the app, lifted, side by side or full screen. */
+.neo-show { position: fixed; inset: 0; z-index: 9500; display: flex; align-items: center; justify-content: center;
+  background: rgba(10, 8, 7, .72); opacity: 0; transition: opacity .25s ease; }
+.neo-show.in { opacity: 1; }
+.neo-show-full-screen { background: rgba(8, 7, 6, .96); }
+.neo-show-row { display: flex; gap: 24px; align-items: center; justify-content: center; max-width: 92vw; max-height: 86vh; }
+.neo-show-full-screen .neo-show-row { max-width: 98vw; max-height: 94vh; gap: 16px; }
+.neo-show-cell { margin: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; flex: 1 1 0; align-items: center; }
+.neo-show-cell img { display: block; max-width: 100%; max-height: 78vh; object-fit: contain; border-radius: var(--radius);
+  box-shadow: 0 0 0 1px rgba(255, 214, 170, .12), 0 0 26px 4px rgba(255, 176, 120, .12), var(--shadow-lg); }
+.neo-show-lifted .neo-show-cell img { max-height: 80vh; max-width: 80vw; }
+.neo-show-full-screen .neo-show-cell img { max-height: 88vh; box-shadow: none; }
+.neo-show-cell figcaption { font: 500 10px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; color: var(--text-faint); }
+
+/* Neo's own pick: beside the thread, never over it. No backdrop, and only the
+   panel takes the pointer, so the app under it stays usable. */
+.neo-show.neo-show-peek { inset: auto; top: 72px; right: 24px; width: min(520px, 34vw); max-height: calc(100vh - 260px); background: none; pointer-events: none; display: block; }
+.neo-show-peek .neo-show-row { flex-direction: column; gap: 12px; max-width: none; max-height: none; pointer-events: auto; padding: 12px; overflow-y: auto; max-height: calc(100vh - 260px);
+  background: var(--surface); border: 1px solid rgba(255, 214, 170, .12); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.neo-show-peek .neo-show-cell img { max-height: 32vh; box-shadow: 0 0 0 1px rgba(255, 214, 170, .1); }

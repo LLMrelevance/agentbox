@@ -352,6 +352,14 @@ export interface Usage {
   profile?: string;
 }
 
+/** One Claude login's own reading, or why it has none (main/account-usage.mjs). */
+export interface AccountUsageReading {
+  profile: string;
+  limits?: UsageLimit[];
+  at?: number;
+  error?: string | null;
+}
+
 export interface SupervisorStatus {
   paused: boolean;
   running: RunningSession[];
@@ -389,7 +397,7 @@ export interface SupervisorStatus {
   capacity: number;
   // Which Claude accounts are in trouble and what kind. Always current, because
   // the only thing that reads it is a page she chose to open.
-  accountTrouble?: Record<string, { cause: TroubleCause; since: number }>;
+  accountTrouble?: Record<string, { cause: TroubleCause; since: number; at?: number }>;
   // THE ONE LINE ABOVE THE LIST, and null unless it is really true and has been
   // for twenty unbroken minutes. Two facts can fill it: tasks nothing has been
   // able to run on (design option four), or nothing being able to start anywhere at
@@ -1093,6 +1101,7 @@ declare global {
     zero?: {
       snapshot(): Promise<Snapshot>;
       refreshUsage?(): Promise<{ ok: boolean; reading?: Usage; error?: string }>;
+      accountUsage?(p: { refresh?: boolean }): Promise<{ readings: AccountUsageReading[] }>;
       // Whether a screen reader is running, which is what decides xterm's
       // accessibility tree. Optional: a preload from before this channel
       // existed has no such function, and `api.assistiveTech` reads that as no.

@@ -4,19 +4,32 @@
 // (tests/neo-answers-each-tool-call-once-and-shows-only-its-own-words.test.mjs).
 
 type Send = (event: Record<string, unknown>) => void;
-type Tool = (callId: string, name: string, args: string) => Promise<unknown>;
+type Tool = (callId: string, name: string, args: string, heard: string) => Promise<unknown>;
 
-export function liveDriver({ send, tool, onWords, onUsage, onClosed }: {
+export type Line = { who: 'you' | 'neo' | 'tool'; text: string };
+
+export function liveDriver({ send, tool, onWords, onUsage, onClosed, onLine = () => {}, onDelegate }: {
   send: Send; tool: Tool; onWords: (text: string) => void; onUsage: (seconds: number) => void; onClosed: (reason?: string) => void;
+  // The app decides (main/neo/decided.mjs): handed what she said, answers what the voice should say.
+  onDelegate?: (id: string, heard: string) => Promise<{ say: string }>;
+  // Each turn whole, for the transcript (main/neo/index.mjs).
+  onLine?: (line: Line) => void;
 }) {
   const done = new Set<string>();
+  const delegations = new Set<string>();
   let words = '';
   let personSpokeSince = false;
+  // What the person said last, kept through Neo's "one sec" so it reaches
+  // the tool call it led to.
+  let heard = '';
+  let neoSpokeSince = true;
   let seq = 0;
 
   async function answer(callId: string, name: string, args: string) {
     let result: unknown;
-    try { result = await tool(callId, name, args); } catch { result = { ok: false, status: 'failed', said: 'That did not work.' }; }
+    try { result = await tool(callId, name, args, heard.trim()); } catch { result = { ok: false, status: 'failed', said: 'That did not work.' }; }
+    const r = (result ?? {}) as { status?: string; said?: string };
+    onLine({ who: 'tool', text: `${name} ${args} -> ${r.status ?? 'done'}: ${String(r.said ?? '').split('\n')[0].slice(0, 300)}` });
     send({ type: 'response.item.create', event_id: `out_${++seq}`, item: { type: 'function_call_output', call_id: callId, output: JSON.stringify(result) } });
     send({ type: 'response.create', event_id: `go_${seq}` });
   }
@@ -35,17 +48,34 @@ export function liveDriver({ send, tool, onWords, onUsage, onClosed }: {
         }
         case 'session.output_transcript.delta': {
           if (personSpokeSince) { words = ''; personSpokeSince = false; }
+          if (!neoSpokeSince && heard.trim()) onLine({ who: 'you', text: heard.trim() });
+          neoSpokeSince = true;
           words = (words + (ev.delta ?? '')).replace(/\s+/g, ' ').trimStart();
           onWords(words);
           return;
         }
         case 'session.input_transcript.delta':
           personSpokeSince = true;
+          if (neoSpokeSince) { if (words.trim()) onLine({ who: 'neo', text: words.trim() }); heard = ''; neoSpokeSince = false; }
+          heard += ev.delta ?? '';
           return;
+        case 'session.delegation.created': {
+          const id = ev.delegation?.id;
+          if (!onDelegate || ev.delegation?.target !== 'client' || typeof id !== 'string' || delegations.has(id)) return;
+          delegations.add(id);
+          let say = '';
+          try { say = (await onDelegate(id, heard.trim()))?.say ?? ''; } catch { say = 'Tell the person that did not work.'; }
+          onLine({ who: 'tool', text: `decided -> ${say.slice(0, 300) || '(nothing to say)'}` });
+          if (say) send({ type: 'session.commentary.append', event_id: `say_${++seq}`, delegation_id: id, content: say.slice(0, 1800) });
+          else send({ type: 'session.thinking.append', event_id: `quiet_${++seq}`, delegation_id: id, content: 'Nothing to do; stay quiet.' });
+          return;
+        }
         case 'session.usage.updated':
           if (Number.isFinite(ev.usage?.seconds)) onUsage(ev.usage.seconds);
           return;
         case 'session.closed':
+          if (neoSpokeSince && words.trim()) onLine({ who: 'neo', text: words.trim() });
+          else if (!neoSpokeSince && heard.trim()) onLine({ who: 'you', text: heard.trim() });
           onClosed(ev.reason);
           return;
         default:
