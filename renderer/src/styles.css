@@ -8991,7 +8991,7 @@ body.neo-on .ts-panel:hover .ts-foot { opacity: 1; }
 .picture-view { position: fixed; inset: 0; z-index: 9400; outline: none; overflow: hidden;
   background: var(--read-ground); color: var(--read-paper); animation: pv-in .22s ease-out; }
 @keyframes pv-in { from { opacity: 0; } }
-.pv-stage { position: absolute; inset: 76px 104px 120px; z-index: 1; display: flex; align-items: center; justify-content: center; }
+.pv-stage { position: absolute; inset: 86px 104px 116px; z-index: 1; display: flex; align-items: center; justify-content: center; }
 .pv-img { display: block; flex: none; cursor: zoom-in; user-select: none; border-radius: var(--radius); will-change: transform;
   transition: transform .2s cubic-bezier(.2, .8, .2, 1); animation: pv-pic-in .32s cubic-bezier(.2, .8, .2, 1); }
 @keyframes pv-pic-in { from { opacity: 0; scale: .97; } }
@@ -9003,9 +9003,9 @@ body.neo-on .ts-panel:hover .ts-foot { opacity: 1; }
 .pv-idle { cursor: none; }
 .pv-idle .pv-chrome { opacity: 0; pointer-events: none; }
 
-.pv-top { position: absolute; top: 0; left: 0; right: 0; height: 64px; display: flex; align-items: center; justify-content: space-between;
-  gap: 16px; padding: 0 16px 0 28px; }
-.pv-title { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.pv-top { position: absolute; top: 16px; left: 16px; right: 16px; height: 46px; display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; }
+.pv-title { display: flex; align-items: center; gap: 12px; min-width: 0; height: 46px; padding: 0 18px; }
 .pv-name { font-size: 13px; letter-spacing: .01em; color: color-mix(in srgb, var(--read-paper) 86%, transparent);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .pv-count { font: 500 11px/1 var(--mono); letter-spacing: .12em; white-space: nowrap; color: color-mix(in srgb, var(--read-paper) 42%, transparent); }
@@ -9016,17 +9016,7 @@ body.neo-on .ts-panel:hover .ts-foot { opacity: 1; }
 .pv-icon:hover { color: var(--read-paper); background: color-mix(in srgb, var(--read-paper) 9%, transparent); }
 .pv-rule { width: 1px; height: 18px; margin: 0 6px; background: color-mix(in srgb, var(--read-paper) 14%, transparent); }
 
-.pv-step { position: absolute; top: 50%; width: 48px; height: 48px; margin-top: -24px; display: grid; place-items: center; padding: 0;
-  border-radius: 50%; cursor: pointer; border: 1px solid color-mix(in srgb, var(--read-paper) 12%, transparent);
-  background: color-mix(in srgb, var(--read-paper) 6%, transparent); color: color-mix(in srgb, var(--read-paper) 80%, transparent);
-  backdrop-filter: blur(12px); }
-.pv-step svg { width: 22px; height: 22px; }
-.pv-step:hover:not(:disabled) { background: color-mix(in srgb, var(--read-paper) 14%, transparent); color: var(--read-paper); }
-.pv-step:disabled { opacity: 0; pointer-events: none; }
-.pv-prev { left: 28px; }
-.pv-next { right: 28px; }
-
-.pv-strip { position: absolute; left: 50%; bottom: 32px; transform: translateX(-50%); display: flex; gap: 10px; padding: 4px;
+.pv-strip { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 8px;
   max-width: calc(100% - 64px); overflow-x: auto; }
 .pv-thumb { flex: none; width: 72px; height: 45px; padding: 0; border: 0; border-radius: var(--radius); overflow: hidden; cursor: pointer;
   background: color-mix(in srgb, var(--read-paper) 6%, transparent); opacity: .38;
@@ -9035,41 +9025,50 @@ body.neo-on .ts-panel:hover .ts-foot { opacity: 1; }
 .pv-thumb.is-on { opacity: 1; outline-color: color-mix(in srgb, var(--read-paper) 85%, transparent); }
 .pv-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
-/* Gallery: a softly lit room, the picture hung in the middle of it. */
-.pv-gallery { background: radial-gradient(120% 90% at 50% 42%, color-mix(in srgb, var(--read-paper) 5%, var(--read-ground)) 0%, var(--read-ground) 62%); }
-.pv-gallery .pv-img { box-shadow: 0 0 0 1px color-mix(in srgb, var(--read-paper) 9%, transparent), var(--shadow-lg); }
-
-/* Ambient: the picture's own colours, blurred, light the room; the controls are frosted glass over it. */
+/* The picture's own colours, blurred, light the room; the controls are frosted glass over it. */
 .pv-glow { position: absolute; inset: -12%; background-size: cover; background-position: center;
   filter: blur(80px) saturate(1.8) brightness(.95); opacity: .7; animation: pv-in .6s ease-out; }
-.pv-ambient::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+.picture-view::after { content: ''; position: absolute; inset: 0; pointer-events: none;
   background: radial-gradient(closest-side, transparent 55%, color-mix(in srgb, var(--read-ground) 70%, transparent)); }
-.pv-ambient .pv-top { top: 16px; left: 16px; right: 16px; height: 46px; padding: 0; }
-.pv-ambient .pv-title, .pv-ambient .pv-tools, .pv-ambient .pv-strip {
+.pv-title, .pv-tools, .pv-strip {
   background: color-mix(in srgb, var(--read-ground) 34%, transparent); backdrop-filter: blur(28px) saturate(1.6);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--read-paper) 8%, transparent); border-radius: var(--radius); }
-.pv-ambient .pv-title { height: 46px; align-items: center; padding: 0 18px; }
-.pv-ambient .pv-tools { padding: 4px; }
-.pv-ambient .pv-strip { bottom: 24px; padding: 8px; gap: 8px; }
-.pv-ambient .pv-stage { inset: 86px 104px 116px; }
-.pv-ambient .pv-img { box-shadow: 0 0 0 1px color-mix(in srgb, var(--read-paper) 8%, transparent), var(--shadow-lg); }
+.pv-tools { padding: 4px; }
+.pv-img { box-shadow: 0 0 0 1px color-mix(in srgb, var(--read-paper) 8%, transparent), var(--shadow-lg); }
 
-/* Quiet: nothing but the picture, its name, and a dot for each of its neighbours. */
-.pv-quiet .pv-stage { inset: 56px 136px 92px; }
-.pv-quiet .pv-title { visibility: hidden; }
-.pv-quiet .pv-top { height: 56px; }
-.pv-quiet .pv-icon { color: color-mix(in srgb, var(--read-paper) 45%, transparent); }
-.pv-quiet .pv-step { top: 0; bottom: 0; width: 120px; height: auto; margin: 0; border: 0; border-radius: 0; background: none;
-  backdrop-filter: none; color: color-mix(in srgb, var(--read-paper) 32%, transparent); }
-.pv-quiet .pv-step svg { width: 30px; height: 30px; }
-.pv-quiet .pv-step:hover:not(:disabled) { background: none; color: var(--read-paper); }
-.pv-quiet .pv-prev { left: 0; }
-.pv-quiet .pv-next { right: 0; }
-.pv-foot { position: absolute; left: 0; right: 0; bottom: 28px; display: flex; flex-direction: column; align-items: center; gap: 12px; pointer-events: none; }
-.pv-foot > * { pointer-events: auto; }
-.pv-foot .pv-name { font-size: 12px; letter-spacing: .02em; color: color-mix(in srgb, var(--read-paper) 55%, transparent); }
-.pv-dots { display: flex; gap: 8px; }
-.pv-dot { width: 6px; height: 6px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
-  background: color-mix(in srgb, var(--read-paper) 22%, transparent); transition: background .2s; }
-.pv-dot:hover { background: color-mix(in srgb, var(--read-paper) 50%, transparent); }
-.pv-dot.is-on { background: var(--read-paper); }
+/* The step arrows. Square corners throughout: the app has no rounded controls. */
+.pv-step { position: absolute; display: grid; place-items: center; padding: 0; border: 0; cursor: pointer;
+  color: color-mix(in srgb, var(--read-paper) 80%, transparent); }
+.pv-step svg { width: 22px; height: 22px; }
+.pv-step:hover:not(:disabled) { color: var(--read-paper); }
+.pv-step:disabled { opacity: 0; pointer-events: none; }
+
+/* Tile: a frosted square, the same glass as the bar above it. */
+.pv-arrows-tile .pv-step { top: 50%; width: 46px; height: 46px; margin-top: -23px; border-radius: var(--radius);
+  background: color-mix(in srgb, var(--read-ground) 34%, transparent); backdrop-filter: blur(28px) saturate(1.6);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--read-paper) 8%, transparent); }
+.pv-arrows-tile .pv-step:hover:not(:disabled) { background: color-mix(in srgb, var(--read-ground) 18%, transparent); }
+.pv-arrows-tile .pv-prev { left: 28px; }
+.pv-arrows-tile .pv-next { right: 28px; }
+
+/* Bare: a thin chevron, and the whole edge of the window is the button. */
+.pv-arrows-bare .pv-step { top: 0; bottom: 0; width: 104px; background: none; color: color-mix(in srgb, var(--read-paper) 40%, transparent); }
+.pv-arrows-bare .pv-step svg { width: 30px; height: 30px; }
+.pv-arrows-bare .pv-prev { left: 0; }
+.pv-arrows-bare .pv-next { right: 0; }
+.pv-arrows-bare .pv-prev:hover:not(:disabled) { background: linear-gradient(to right, color-mix(in srgb, var(--read-ground) 45%, transparent), transparent); }
+.pv-arrows-bare .pv-next:hover:not(:disabled) { background: linear-gradient(to left, color-mix(in srgb, var(--read-ground) 45%, transparent), transparent); }
+
+/* Slab: a tall pane of glass set flush against the edge of the window. */
+.pv-arrows-slab .pv-step { top: 50%; width: 40px; height: 120px; margin-top: -60px; border-radius: 0;
+  background: color-mix(in srgb, var(--read-ground) 34%, transparent); backdrop-filter: blur(28px) saturate(1.6); }
+.pv-arrows-slab .pv-step:hover:not(:disabled) { width: 48px; background: color-mix(in srgb, var(--read-ground) 50%, transparent); }
+.pv-arrows-slab .pv-prev { left: 0; box-shadow: inset -1px 0 0 color-mix(in srgb, var(--read-paper) 10%, transparent); }
+.pv-arrows-slab .pv-next { right: 0; box-shadow: inset 1px 0 0 color-mix(in srgb, var(--read-paper) 10%, transparent); }
+
+/* Tray: no arrows at the sides; they sit at either end of the thumbnails. */
+.pv-tray-step { flex: none; width: 34px; height: 45px; display: grid; place-items: center; padding: 0; border: 0; cursor: pointer;
+  background: none; border-radius: var(--radius); color: color-mix(in srgb, var(--read-paper) 70%, transparent); transition: color .15s, background .15s; }
+.pv-tray-step svg { width: 20px; height: 20px; }
+.pv-tray-step:hover:not(:disabled) { color: var(--read-paper); background: color-mix(in srgb, var(--read-paper) 9%, transparent); }
+.pv-tray-step:disabled { opacity: .25; cursor: default; }
