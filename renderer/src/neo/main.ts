@@ -16,6 +16,7 @@ type NeoBridge = {
   onSide(fn: (p: { side: 'left' | 'right'; up?: boolean }) => void): () => void;
   startLive(sdp: string, outside: boolean): Promise<{ ok: boolean; sdp?: string; error?: string }>;
   tool(callId: string, name: string, args: string, heard: string): Promise<unknown>;
+  decide(heard: string): Promise<{ say: string }>;
   drag(phase: 'start' | 'move' | 'end', dx?: number, dy?: number): void;
   pace(value?: string): Promise<string>;
   captions(on?: boolean): Promise<boolean>;
@@ -90,6 +91,8 @@ function driverFor(ch: RTCDataChannel) {
     onUsage: (seconds) => { if (channel === ch) neo.usage(seconds); },
     onClosed: () => { if (channel === ch) finish(); },
     onLine: (line) => neo.log(line),
+    // The app decides what she asked for (main/neo/decided.mjs).
+    onDelegate: (_id, heard) => { poke(); return neo.decide(heard); },
   });
 }
 

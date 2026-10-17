@@ -506,8 +506,11 @@ describe('dragging the orb up', () => {
 // it did. It acts on nothing.
 describe('the trial run', () => {
   const SCREEN = { open: { id: 'w-j', title: 'JARVIS for Agentbox', options: [], pictures: [], films: [] }, rows: [], commands: [], canGoBack: false };
+  // The trial run belongs to the earlier way; on the Decisions way the pick is acted on.
   async function talking(decideImpl) {
     const f = fakes({ decideImpl });
+    fs.mkdirSync(path.join(f.userData, 'neo'), { recursive: true });
+    fs.writeFileSync(path.join(f.userData, 'neo', 'prefs.json'), JSON.stringify({ engine: 'tools' }));
     const w = f.neo.wake('test');
     f.finishLoad();
     await w;
@@ -557,5 +560,69 @@ describe('the trial run', () => {
     f.listeners.get('neo:log')(f.fromNeo, { who: 'tool', text: 'next_thread {} -> committed' });
     for (let i = 0; i < 5; i++) await tick();
     expect(decideImpl).not.toHaveBeenCalled();
+  });
+});
+
+// Live on the Decisions API (2026-10-16): the page hands main what she said;
+// main decides, acts through the app, and answers what the voice should say.
+describe('deciding live', () => {
+  const SCREEN = { open: { id: 'w-j', title: 'JARVIS for Agentbox', options: [], pictures: [], films: [] }, rows: [], commands: [], canGoBack: false };
+  async function awake(decideImpl) {
+    const f = fakes({ decideImpl });
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    return f;
+  }
+  // Plays the main window: answers what is on screen and every act.
+  function playWindow(f, results = {}) {
+    let seen = 0;
+    const timer = setInterval(() => {
+      const acts = f.mainSent.filter(([ch]) => ch === 'neo:act');
+      for (; seen < acts.length; seen++) {
+        const { id, name } = acts[seen][1];
+        const result = name === 'neo_screen' ? { ok: true, screen: SCREEN } : results[name] ?? { ok: true, status: 'committed', said: `did ${name}` };
+        f.listeners.get('neo:act-result')(f.fromMainWindow, { id, result });
+      }
+    }, 1);
+    return () => clearInterval(timer);
+  }
+
+  it('decides, acts through the app, and answers what to say', async () => {
+    const decideImpl = vi.fn(async () => ({ choice: 'close', confidence: 0.96, runnersUp: [], ms: 120 }));
+    const f = await awake(decideImpl);
+    const stop = playWindow(f, { close_thread: { ok: true, status: 'committed', said: 'Closed JARVIS for Agentbox.' } });
+    const r = await f.handlers.get('neo:decide')(f.fromNeo, { heard: 'close it' });
+    stop();
+    expect(r.say).toMatch(/Closed JARVIS/);
+    expect(f.mainSent.some(([ch, p]) => ch === 'neo:act' && p.name === 'close_thread' && p.args.id === 'w-j')).toBe(true);
+  });
+
+  it('only Neo\'s own window can ask, and only while Neo is awake', async () => {
+    const decideImpl = vi.fn();
+    const f = await awake(decideImpl);
+    expect(await f.handlers.get('neo:decide')(f.fromMainWindow, { heard: 'close it' })).toMatchObject({ say: '' });
+    f.listeners.get('neo:closed')(f.fromNeo);
+    expect(await f.handlers.get('neo:decide')(f.fromNeo, { heard: 'close it' })).toMatchObject({ say: '' });
+    expect(decideImpl).not.toHaveBeenCalled();
+  });
+
+  it('a failed decision tells the voice to say so, and does nothing', async () => {
+    const f = await awake(vi.fn(async () => { throw new Error('OpenAI refused the decision (500).'); }));
+    const stop = playWindow(f);
+    const r = await f.handlers.get('neo:decide')(f.fromNeo, { heard: 'next' });
+    stop();
+    expect(r.say).toMatch(/did not work|could not/i);
+    expect(f.mainSent.filter(([ch, p]) => ch === 'neo:act' && p.name !== 'neo_screen')).toEqual([]);
+  });
+
+  it('the session is started with the app deciding, unless the earlier way was chosen', async () => {
+    const startLiveImpl = vi.fn(async () => ({ sdp: 'v=0 answer', id: 's' }));
+    const f = fakes({ startLiveImpl });
+    const w = f.neo.wake('test'); f.finishLoad(); await w;
+    const stop = playWindow(f);
+    await f.handlers.get('neo:start-live')(f.fromNeo, { sdp: 'v=0 offer', outside: false });
+    stop();
+    expect(startLiveImpl.mock.calls[0][0].session.delegation).toEqual({ type: 'client' });
   });
 });

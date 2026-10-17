@@ -104,16 +104,26 @@ export const PACES = {
   faster: 'Speak very fast, much faster than your usual pace, like an auctioneer but still clear.',
 };
 
-export function neoSession({ model = 'gpt-live-1', backend = 'gpt-5.6-luna', voice, pace } = {}) {
+// With the app deciding (plans/neo-decisions.md), the voice hands every
+// request to the app and says what comes back.
+const CLIENT_NOTE = `The app decides and does what the person asks; you hand every request to it by delegating, then say what it tells you in a few words, as yours. Say nothing it did not tell you.`;
+
+/**
+ * `engine`: 'decisions' (default) hands each request to the app, which picks
+ * with the Decisions API (main/neo/decided.mjs); 'tools' is the earlier way,
+ * a Responses model holding NEO_TOOLS, kept as the way back.
+ */
+export function neoSession({ model = 'gpt-live-1', backend = 'gpt-5.6-luna', voice, pace, engine = 'decisions' } = {}) {
   const paced = Object.hasOwn(PACES, pace) ? PACES[pace] : '';
+  const client = engine !== 'tools';
+  const said = [VOICE_INSTRUCTIONS, client ? CLIENT_NOTE : '', paced].filter(Boolean).join('\n');
   return {
     model,
-    instructions: paced ? `${VOICE_INSTRUCTIONS}\n${paced}` : VOICE_INSTRUCTIONS,
+    instructions: said,
     ...(voice ? { audio: { output: { voice } } } : {}),
     store: false,
-    delegation: {
-      type: 'responses',
-      responses: { model: backend, instructions: BACKEND_INSTRUCTIONS, tools: NEO_TOOLS, tool_choice: 'auto', parallel_tool_calls: false },
-    },
+    delegation: client
+      ? { type: 'client' }
+      : { type: 'responses', responses: { model: backend, instructions: BACKEND_INSTRUCTIONS, tools: NEO_TOOLS, tool_choice: 'auto', parallel_tool_calls: false } },
   };
 }

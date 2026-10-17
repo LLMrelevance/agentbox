@@ -29,16 +29,16 @@ export function buildOptions(screen) {
 
   if (open) {
     const t = q(open.title);
-    add('reply', `Send the person's words as a reply on the open thread ${t}`, { kind: 'reply', id: open.id });
-    for (const o of open.options ?? []) add(`pick:${o.n}`, `On the open thread ${t}, pick option ${o.n}: ${q(o.text)}`, { kind: 'pick', id: open.id, n: o.n });
+    add('reply', `Send a message the person dictates to the agent on the open thread ${t} ("tell it…", "reply saying…", feedback to post)`, { kind: 'reply', id: open.id });
+    for (const o of open.options ?? []) add(`pick:${o.n}`, `Choose option ${o.n} on the open thread: ${q(o.text)} ("option ${o.n}", or saying what it does)`, { kind: 'pick', id: open.id, n: o.n });
     add('later', `Put the open thread ${t} off until later (snooze it for a while)`, { kind: 'later', id: open.id });
     add('close', `Close the open thread ${t}`, { kind: 'close', id: open.id });
     add('summary', `Say what the agent on the open thread ${t} said and what it needs`, { kind: 'summary', id: open.id });
     add('ask', `Answer a question about the open thread ${t} (why, what, how)`, { kind: 'ask', id: open.id });
     const pics = open.pictures ?? [];
-    for (const p of pics) add(`show:${p.n}`, `Show picture ${p.n} of the open thread (${q(p.name)}) big`, { kind: 'show', id: open.id, pictures: [p.n] });
+    for (const p of pics) add(`show:${p.n}`, `Show picture ${p.n} of the open thread (${q(p.name)}) full screen, big${p.n === 1 ? ' ("the picture" means this one)' : ''}`, { kind: 'show', id: open.id, pictures: [p.n] });
     if (pics.length > 1) add('compare', 'Show several of the open thread\'s pictures side by side to compare', { kind: 'compare', id: open.id });
-    if (pics.length) add('hide', 'Put away the pictures that are showing', { kind: 'hide' });
+    if (pics.length) add('hide', 'Put away pictures Neo is showing ("close the picture", "hide it")', { kind: 'hide' });
     for (const f of open.films ?? []) {
       add(`play:${f.n}`, `Play ${q(f.name)} in the open thread`, { kind: 'media', id: open.id, n: f.n, action: 'play' });
     }
@@ -54,7 +54,7 @@ export function buildOptions(screen) {
   add('new', 'Start a new thread with new work the person describes', { kind: 'new' });
   add('undo', 'Undo the last thing done', { kind: 'undo' });
   add('signoff', 'End the conversation with Neo', { kind: 'signoff' });
-  add('none', 'Nothing to do: a greeting, filler, thinking aloud, or talk not asking for anything', { kind: 'none' });
+  add('none', 'Do nothing: a greeting, filler, thinking aloud, holding off ("not yet", "wait", "don\'t"), or talk not asking for anything', { kind: 'none' });
 
   for (const c of screen.commands ?? []) {
     add(`cmd:${c.id}`, `Menu command: ${q(c.label)}${c.hint ? ` (${c.hint.slice(0, 60)})` : ''}`, { kind: 'command', id: c.id });

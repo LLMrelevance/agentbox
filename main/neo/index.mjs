@@ -12,7 +12,8 @@ import { neoEnabled } from './gate.mjs';
 import { startLive } from './live.mjs';
 import { listenForDoubleCommand } from './cmd-tap.mjs';
 import { getMic, micOwner } from './mic.mjs';
-import { decide } from './decide.mjs';
+import { decide, answerQuestion } from './decide.mjs';
+import { runDecision } from './decided.mjs';
 import { buildOptions } from '../../shared/neo-options.mjs';
 import { checkCall, neoSession, PACES } from '../../shared/neo-tools.mjs';
 import { Name } from '../../shared/product-name.mjs';
@@ -39,6 +40,7 @@ export function createNeo({
   // The trial run on the Decisions API: decides from what is on screen and
   // writes the pick beside the talk, acting on nothing (plans/neo-decisions.md).
   decideImpl = decide,
+  answerImpl = answerQuestion,
 }) {
   const on = neoEnabled({ userData, platform });
   ipcMain.handle('neo:enabled', () => on);
@@ -226,6 +228,7 @@ export function createNeo({
     }
     if (!live) return;
     ending = false;
+    decisionState = {};
     sessionSeconds = 0;
     talkFile = path.join(dir, 'talk', `${new Date(now()).toISOString().replace(/[:.]/g, '-')}.jsonl`);
     seenCalls.clear();
@@ -241,7 +244,7 @@ export function createNeo({
     // given to the session (shared/neo-tools.mjs neoSession says why).
     await askMain('describe_screen', { outside: !!outside });
     try {
-      const answer = await startLiveImpl({ sdp, session: neoSession({ pace: readPrefs().pace }) });
+      const answer = await startLiveImpl({ sdp, session: neoSession({ pace: readPrefs().pace, engine: engine() }) });
       log('session started');
       return { ok: true, sdp: answer.sdp };
     } catch (err) {
@@ -293,7 +296,31 @@ export function createNeo({
   ipcMain.on('neo:log', (e, { who, text } = {}) => {
     if (!fromNeo(e) || !talkFile || !WHO.has(who) || typeof text !== 'string' || !text.trim()) return;
     writeTalk(talkFile, who, text);
-    if (who === 'you') void shadowDecide(text, talkFile);
+    // The trial run only matters while the earlier way is the one acting.
+    if (who === 'you' && engine() === 'tools') void shadowDecide(text, talkFile);
+  });
+
+  // Which way decides: the app with the Decisions API, or the earlier tool model.
+  const engine = () => (readPrefs().engine === 'tools' ? 'tools' : 'decisions');
+  // What waits on her yes, for this session only.
+  let decisionState = {};
+
+  // LIVE ON THE DECISIONS API: what she said, handed over by the voice, is
+  // decided, done through the app, and answered with what the voice says.
+  ipcMain.handle('neo:decide', async (e, { heard } = {}) => {
+    if (!fromNeo(e) || !live || ending || typeof heard !== 'string') return { say: '' };
+    const gen = generation;
+    const file = talkFile;
+    const guarded = (name, args, said) => (live && gen === generation ? askMain(name, args, said) : Promise.resolve({ ok: false, status: 'refused', said: 'Neo has signed off, so that was not done.' }));
+    try {
+      const r = await runDecision({ heard, askMain: guarded, state: decisionState, decideImpl, now, answer: answerImpl });
+      writeTalk(file, 'decision', `picked ${r.choice ?? '?'} (${r.confidence?.toFixed?.(2) ?? '?'}) in ${r.ms ?? '?'} ms -> ${r.say || '(nothing)'}`);
+      if (r.signoff) { generation++; ending = true; setTimeout(() => { if (live) win?.webContents.send('neo:sleep', { reason: 'asked' }); }, 1500); }
+      return { say: r.say ?? '' };
+    } catch (err) {
+      writeTalk(file, 'decision', `failed: ${err.message}`);
+      return { say: 'Tell the person that did not work just now.' };
+    }
   });
 
   // THE TRIAL RUN. What the Decisions API would have done with what she just

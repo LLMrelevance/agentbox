@@ -142,3 +142,52 @@ describe('the transcript', () => {
     expect(lines).toContainEqual({ who: 'neo', text: 'Signing off.' });
   });
 });
+
+// With the app deciding (2026-10-16), the voice hands each request to the app
+// as a client delegation; the answer goes back as commentary, which the voice
+// says. Shapes from OpenAI's GPT-Live delegation guide, checked live.
+describe('a request handed to the app', () => {
+  function delegating(result) {
+    const sent = [];
+    const onDelegate = vi.fn(async () => result);
+    const d = liveDriver({ send: (e) => sent.push(e), tool: vi.fn(), onWords: () => {}, onUsage: () => {}, onClosed: () => {}, onDelegate });
+    return { d, sent, onDelegate };
+  }
+  const delegated = (id = 'item_1') => ({ type: 'session.delegation.created', delegation: { id, type: 'delegation', target: 'client' } });
+
+  it('passes what she said to the app and sends back what to say', async () => {
+    const { d, sent, onDelegate } = delegating({ say: 'Closed it.' });
+    await d.handle({ type: 'session.input_transcript.delta', delta: 'close' });
+    await d.handle({ type: 'session.input_transcript.delta', delta: ' it' });
+    await d.handle(delegated());
+    expect(onDelegate).toHaveBeenCalledWith('item_1', 'close it');
+    expect(sent).toEqual([expect.objectContaining({ type: 'session.commentary.append', delegation_id: 'item_1', content: 'Closed it.' })]);
+    expect(typeof sent[0].event_id).toBe('string');
+  });
+
+  it('says nothing aloud when there was nothing to do', async () => {
+    const { d, sent } = delegating({ say: '' });
+    await d.handle(delegated());
+    expect(sent).toEqual([expect.objectContaining({ type: 'session.thinking.append', delegation_id: 'item_1' })]);
+  });
+
+  it('answers each delegation once', async () => {
+    const { d, onDelegate } = delegating({ say: 'Done.' });
+    await d.handle(delegated('item_9'));
+    await d.handle(delegated('item_9'));
+    expect(onDelegate).toHaveBeenCalledTimes(1);
+  });
+
+  it('still answers when the app fails, so the voice does not wait forever', async () => {
+    const sent = [];
+    const d = liveDriver({ send: (e) => sent.push(e), tool: vi.fn(), onWords: () => {}, onUsage: () => {}, onClosed: () => {}, onDelegate: async () => { throw new Error('boom'); } });
+    await d.handle(delegated());
+    expect(sent[0]).toMatchObject({ type: 'session.commentary.append', content: expect.stringMatching(/did not work/) });
+  });
+
+  it('a delegation to Responses is not the app\'s to answer', async () => {
+    const { d, onDelegate } = delegating({ say: 'x' });
+    await d.handle({ type: 'session.delegation.created', delegation: { id: 'r1', target: 'responses' } });
+    expect(onDelegate).not.toHaveBeenCalled();
+  });
+});

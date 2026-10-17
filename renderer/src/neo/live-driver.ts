@@ -8,12 +8,15 @@ type Tool = (callId: string, name: string, args: string, heard: string) => Promi
 
 export type Line = { who: 'you' | 'neo' | 'tool'; text: string };
 
-export function liveDriver({ send, tool, onWords, onUsage, onClosed, onLine = () => {} }: {
+export function liveDriver({ send, tool, onWords, onUsage, onClosed, onLine = () => {}, onDelegate }: {
   send: Send; tool: Tool; onWords: (text: string) => void; onUsage: (seconds: number) => void; onClosed: (reason?: string) => void;
+  // The app decides (main/neo/decided.mjs): handed what she said, answers what the voice should say.
+  onDelegate?: (id: string, heard: string) => Promise<{ say: string }>;
   // Each turn whole, for the transcript (main/neo/index.mjs).
   onLine?: (line: Line) => void;
 }) {
   const done = new Set<string>();
+  const delegations = new Set<string>();
   let words = '';
   let personSpokeSince = false;
   // What the person said last, kept through Neo's "one sec" so it reaches
@@ -56,6 +59,17 @@ export function liveDriver({ send, tool, onWords, onUsage, onClosed, onLine = ()
           if (neoSpokeSince) { if (words.trim()) onLine({ who: 'neo', text: words.trim() }); heard = ''; neoSpokeSince = false; }
           heard += ev.delta ?? '';
           return;
+        case 'session.delegation.created': {
+          const id = ev.delegation?.id;
+          if (!onDelegate || ev.delegation?.target !== 'client' || typeof id !== 'string' || delegations.has(id)) return;
+          delegations.add(id);
+          let say = '';
+          try { say = (await onDelegate(id, heard.trim()))?.say ?? ''; } catch { say = 'Tell the person that did not work.'; }
+          onLine({ who: 'tool', text: `decided -> ${say.slice(0, 300) || '(nothing to say)'}` });
+          if (say) send({ type: 'session.commentary.append', event_id: `say_${++seq}`, delegation_id: id, content: say.slice(0, 1800) });
+          else send({ type: 'session.thinking.append', event_id: `quiet_${++seq}`, delegation_id: id, content: 'Nothing to do; stay quiet.' });
+          return;
+        }
         case 'session.usage.updated':
           if (Number.isFinite(ev.usage?.seconds)) onUsage(ev.usage.seconds);
           return;

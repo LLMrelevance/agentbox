@@ -69,7 +69,7 @@ describe('which picks need a yes first', () => {
 });
 
 describe('the session Neo starts', () => {
-  const s = neoSession({ screen: 'You are in the inbox. 3 threads need you.' });
+  const s = neoSession({ screen: 'You are in the inbox. 3 threads need you.', engine: 'tools' });
 
   it('uses GPT-Live and hands app work to a model that holds the tools', () => {
     expect(s.model).toBe('gpt-live-1');
@@ -108,7 +108,7 @@ describe('what she asked for after the first real session (2026-10-16)', () => {
   });
 
   it('"put it in this chat" is a reply on the open thread, in her words', () => {
-    const s = neoSession({ screen: 'x' });
+    const s = neoSession({ screen: 'x', engine: 'tools' });
     expect(s.instructions).toMatch(/this chat/i);
     expect(s.delegation.responses.instructions).toMatch(/this chat/i);
     expect(s.delegation.responses.instructions).toMatch(/reply/);
@@ -149,7 +149,7 @@ describe('commands, scrolling and showing', () => {
   });
 
   it('briefs her when it opens a task, and is told to', () => {
-    const backend = neoSession({}).delegation.responses.instructions;
+    const backend = neoSession({ engine: 'tools' }).delegation.responses.instructions;
     expect(backend).toMatch(/find_commands/);
     expect(neoSession({}).instructions).toMatch(/open a thread for the person/i);
   });
@@ -159,7 +159,7 @@ describe('commands, scrolling and showing', () => {
 // (2026-10-16): a request to the app went to the agent as a reply.
 describe('a request to the app is never sent to the agent', () => {
   it('both instructions say a reply is only for words she wants sent', () => {
-    const s = neoSession({});
+    const s = neoSession({ engine: 'tools' });
     for (const said of [s.instructions, s.delegation.responses.instructions]) {
       expect(said).toMatch(/never a reply/i);
     }
@@ -176,7 +176,7 @@ describe('a request to the app is never sent to the agent', () => {
 // told to send her words "cleaned of filler", and it summarised them.
 describe('what she asks Neo to send goes word for word', () => {
   it('every instruction about replies says her exact words, never summarised', () => {
-    const s = neoSession({});
+    const s = neoSession({ engine: 'tools' });
     const reply = NEO_TOOLS.find((t) => t.name === 'reply').description;
     for (const said of [s.instructions, s.delegation.responses.instructions, reply]) {
       expect(said).toMatch(/exact(ly)? (words|as they said)/i);
@@ -198,5 +198,22 @@ describe('later', () => {
     expect(checkCall('later', '{"id":"w-1","minutes":10}')).toMatchObject({ ok: true });
     expect(checkCall('later', '{"id":"w-1","at":"2026-10-17T09:00"}')).toMatchObject({ ok: true });
     expect(checkCall('later', '{"id":"w-1","minutes":0}')).toMatchObject({ ok: false });
+  });
+});
+
+// The switch to the Decisions API (2026-10-16): the voice hands each request
+// to the app; the earlier tool model stays as the way back.
+describe('which way the session decides', () => {
+  it('by default the app decides: the voice delegates to it', () => {
+    const s = neoSession({});
+    expect(s.delegation).toEqual({ type: 'client' });
+    expect(s.instructions).toMatch(/The app decides/);
+  });
+
+  it('the earlier way is one setting away', () => {
+    const s = neoSession({ engine: 'tools' });
+    expect(s.delegation.type).toBe('responses');
+    expect(s.delegation.responses.tools.length).toBeGreaterThan(5);
+    expect(s.instructions).not.toMatch(/The app decides/);
   });
 });
