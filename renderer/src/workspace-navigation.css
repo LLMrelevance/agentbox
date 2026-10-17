@@ -305,9 +305,6 @@
 .instr-part-tools .set-sw { flex:none; }
 /* The app's own task brief, behind a line she has to open (w-3dc46f3a67). It is
    quieter than the two boxes above it because it is ours and not hers. */
-.instruction-advanced { margin-top:40px; border-top:1px solid var(--line); padding-top:20px; }
-.instruction-advanced-toggle { font:inherit; font-size:12px; color:var(--text-faint); border:0; background:transparent; padding:0; cursor:pointer; }
-.instruction-advanced-toggle:hover { color:var(--text-dim); }
 
 :root .workspace-layout > .settings-embedded { background: transparent; }
 

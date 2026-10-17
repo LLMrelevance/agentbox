@@ -235,14 +235,13 @@ function ScopeSwitch({scope,projects,onScope}:{scope:Scope;projects:ProjectSetti
 }
 /* One document for all the user's rules, followed by the optional ADHD mode.
    The heading switches projects. Sections already visible need no sidebar.
-   The app's task brief remains behind Advanced. */
+   The app's task brief is its own card under them, shown, not folded away. */
 export function InstructionSettings({projects=[],scope:asked=EVERY,onScope,onSaved=()=>{}}:{projects?:ProjectSettings[];scope?:Scope;onScope?:(s:Scope)=>void;onSaved?:()=>void}){
  const [own,setOwn]=useState<Scope>(asked);
  useEffect(()=>setOwn(asked),[asked]);
  const scope=resolveScope(own,projects);
  const pick=(s:Scope)=>{setOwn(s);onScope?.(s);};
  const project=projects.find(p=>p.slug===scope);
- const [showAdvanced,setShowAdvanced]=useState(false);
  return <div className="set-inner instructions-page">
   <ScopeSwitch scope={scope} projects={projects} onScope={pick}/>
   <div className="instr-body">
@@ -252,10 +251,7 @@ export function InstructionSettings({projects=[],scope:asked=EVERY,onScope,onSav
       ? <><SharedPart section={rules}/><AdhdPart/></>
       : project && <ProjectPart project={project} onSaved={onSaved}/>}
     </div>
-    {scope===EVERY && <div className="instruction-advanced">
-     <button className="instruction-advanced-toggle" aria-expanded={showAdvanced} onClick={()=>setShowAdvanced(v=>!v)}>{showAdvanced?'Hide advanced':'Advanced'}</button>
-     {showAdvanced && <div className="instr-card instr-card-ours"><SharedPart section={system}/></div>}
-    </div>}
+    {scope===EVERY && <div className="instr-card instr-card-ours"><SharedPart section={system}/></div>}
    </div>
   </div>
  </div>;
