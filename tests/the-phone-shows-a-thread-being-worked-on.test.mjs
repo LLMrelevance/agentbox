@@ -71,7 +71,7 @@ describe('the Mac\'s copy of a thread being worked on', () => {
   });
 
   it('carries at most three steps, each short, with nothing secret in them', async () => {
-    const key = 'sk-ant-oat01-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789';
+    const key = 'sk-ant-oat01-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'; // a made-up key, to prove it is hidden. public-check: allow
     const steps = [`Running curl -H "Authorization: Bearer ${key}"`, 'x'.repeat(500), 'Three', 'Four'].map((label) => ({ label, startedAt: T }));
     const p = publisher({ live: (id) => (id === 'w-aaaaaaaaaa' ? { since: T, where: 'mac', doing: steps } : null) });
     await p.inbox.syncOnce();

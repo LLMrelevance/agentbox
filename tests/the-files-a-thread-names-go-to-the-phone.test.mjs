@@ -145,7 +145,7 @@ describe('uploading them', () => {
   it('never a file named for a secret, and a text file goes with its keys hidden (Codex\'s review, finding 1)', async () => {
     put(path.join(docs, 'credentials.md'), 'password: hunter2');
     put(path.join(docs, '.env.html'), 'x');
-    const key = 'sk-ant-oat01-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789';
+    const key = 'sk-ant-oat01-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'; // a made-up key, to prove it is hidden. public-check: allow
     put(path.join(docs, 'notes.md'), `The key is ${key} and the folder ${home}/x`);
     const { up, stored } = uploader();
     expect(filesNamed(snap('credentials.md .env.html notes.md'), { dir: docs, home }).map((f) => f.key)).toEqual(['notes.md']);
