@@ -281,6 +281,18 @@ describe('the app', () => {
     expect(sent.mac).toEqual(['SIGTERM', 'SIGTERM']);
     fs.rmSync(root, { recursive: true, force: true });
   });
+  // Closing the last window, or installing an update, closes the window BEFORE
+  // the quit that runs killAll (tests/closing-the-window-does-not-kill-the-app-
+  // before-it-counts), so stop() comes first and alone (Claude's review).
+  it('leaves a Claude cloud run going when the window closes before the quit', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-close-'));
+    const s = new Supervisor({ storeRoot: root, home: root, maxConcurrentSessions: 3 }, { listItems: () => [], listProducts: () => [], isDue: () => true }, root);
+    const sent = [];
+    s.sessions.set('cloud', { itemId: 'cloud', cloud: true, engine: 'claude', child: { kill: (sig) => sent.push(sig ?? 'SIGTERM') }, tail: [] });
+    s.stop();
+    expect(sent).toEqual(['SIGHUP']);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
   it('hands the process that brings a run home its tool servers as they are now', () => {
     const home = sup.slice(sup.indexOf('  _bringCloudHome(folder) {'), sup.indexOf('  _bringCloudHome(folder) {') + 2500);
     expect(home).toMatch(/this\.writeMcpConfig\(\)/);

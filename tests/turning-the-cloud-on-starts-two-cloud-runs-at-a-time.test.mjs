@@ -54,7 +54,8 @@ describe('cloud runs starting', () => {
   // starting, the next thread started on the Mac instead of waiting its turn.
   it('with Everything, the next thread waits its turn rather than starting on this Mac', () => {
     const sup = make();
-    const product = { slug: 'p', dir: '/nowhere', repoPath: '/r' };
+    const product = { slug: 'p', dir: sup.config.storeRoot, repoPath: '/r' };
+    sup.store.listProducts = () => [product];
     const item = { id: 'w-next', product: 'p' };
     add(sup, 'w-1', {});
     add(sup, 'w-2', {});
@@ -67,6 +68,45 @@ describe('cloud runs starting', () => {
     delete sup.threadOnMac['w-next'];
     sup.config.cloudRuns = null;
     expect(sup._whereToRun({ item, product, cwd: '/r/.claude/worktrees/w-next', engine: 'claude' })).toBe('local');
+  });
+
+  // Claude's review: the tick and the sweep that resumes interrupted rows asked
+  // `_roomFor`, which said yes, then the spawn quietly waited, so a resume was
+  // counted as done and never came back.
+  it('a thread waiting its turn is not room here, so nothing starts it or makes room for it', () => {
+    const sup = make();
+    const product = { slug: 'p', dir: sup.config.storeRoot, repoPath: '/r' };
+    sup.store.listProducts = () => [product];
+    const item = { id: 'w-next', product: 'p' };
+    add(sup, 'w-1', {});
+    add(sup, 'w-2', {});
+    expect(sup._waitsForCloud(item, 'claude')).toBe(true);
+    expect(sup._roomFor('claude', item)).toBe(false);
+    // A row that cannot go to the cloud is not held.
+    sup.threadOnMac['w-next'] = true;
+    expect(sup._roomFor('claude', item)).toBe(true);
+  });
+
+  it('a start that never got going stops holding others back after ten minutes', () => {
+    const sup = make();
+    const product = { slug: 'p', dir: sup.config.storeRoot, repoPath: '/r' };
+    sup.store.listProducts = () => [product];
+    add(sup, 'w-1', { startedAt: Date.now() - 11 * 60_000 });
+    add(sup, 'w-2', { startedAt: Date.now() - 11 * 60_000 });
+    expect(sup._cloudStarting()).toBe(0);
+    expect(sup._waitsForCloud({ id: 'w-next', product: 'p' }, 'claude')).toBe(false);
+    sup.sessions.get('w-2').startedAt = Date.now() - 60_000;
+    expect(sup._cloudStarting()).toBe(1);
+  });
+
+  it('an engine with no cloud does not wait for it', () => {
+    const sup = make();
+    const product = { slug: 'p', dir: sup.config.storeRoot, repoPath: '/r' };
+    sup.store.listProducts = () => [product];
+    add(sup, 'w-1', {});
+    add(sup, 'w-2', {});
+    sup.engineChoices = () => [{ id: 'claude' }];
+    expect(sup._waitsForCloud({ id: 'w-next', product: 'p' }, 'codex')).toBe(false);
   });
 
   // Codex's review: the wait came before the spawn knew a run was one that
