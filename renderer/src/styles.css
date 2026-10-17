@@ -9036,39 +9036,13 @@ body.neo-on .ts-panel:hover .ts-foot { opacity: 1; }
 .pv-tools { padding: 4px; }
 .pv-img { box-shadow: 0 0 0 1px color-mix(in srgb, var(--read-paper) 8%, transparent), var(--shadow-lg); }
 
-/* The step arrows. Square corners throughout: the app has no rounded controls. */
-.pv-step { position: absolute; display: grid; place-items: center; padding: 0; border: 0; cursor: pointer;
-  color: color-mix(in srgb, var(--read-paper) 80%, transparent); }
-.pv-step svg { width: 22px; height: 22px; }
+/* The step arrows: a thin chevron, and the whole edge of the window is the button. */
+.pv-step { position: absolute; top: 0; bottom: 0; width: 104px; display: grid; place-items: center; padding: 0; border: 0; cursor: pointer;
+  background: none; color: color-mix(in srgb, var(--read-paper) 40%, transparent); }
+.pv-step svg { width: 30px; height: 30px; }
 .pv-step:hover:not(:disabled) { color: var(--read-paper); }
 .pv-step:disabled { opacity: 0; pointer-events: none; }
-
-/* Tile: a frosted square, the same glass as the bar above it. */
-.pv-arrows-tile .pv-step { top: 50%; width: 46px; height: 46px; margin-top: -23px; border-radius: var(--radius);
-  background: color-mix(in srgb, var(--read-ground) 34%, transparent); backdrop-filter: blur(28px) saturate(1.6);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--read-paper) 8%, transparent); }
-.pv-arrows-tile .pv-step:hover:not(:disabled) { background: color-mix(in srgb, var(--read-ground) 18%, transparent); }
-.pv-arrows-tile .pv-prev { left: 28px; }
-.pv-arrows-tile .pv-next { right: 28px; }
-
-/* Bare: a thin chevron, and the whole edge of the window is the button. */
-.pv-arrows-bare .pv-step { top: 0; bottom: 0; width: 104px; background: none; color: color-mix(in srgb, var(--read-paper) 40%, transparent); }
-.pv-arrows-bare .pv-step svg { width: 30px; height: 30px; }
-.pv-arrows-bare .pv-prev { left: 0; }
-.pv-arrows-bare .pv-next { right: 0; }
-.pv-arrows-bare .pv-prev:hover:not(:disabled) { background: linear-gradient(to right, color-mix(in srgb, var(--read-ground) 45%, transparent), transparent); }
-.pv-arrows-bare .pv-next:hover:not(:disabled) { background: linear-gradient(to left, color-mix(in srgb, var(--read-ground) 45%, transparent), transparent); }
-
-/* Slab: a tall pane of glass set flush against the edge of the window. */
-.pv-arrows-slab .pv-step { top: 50%; width: 40px; height: 120px; margin-top: -60px; border-radius: 0;
-  background: color-mix(in srgb, var(--read-ground) 34%, transparent); backdrop-filter: blur(28px) saturate(1.6); }
-.pv-arrows-slab .pv-step:hover:not(:disabled) { width: 48px; background: color-mix(in srgb, var(--read-ground) 50%, transparent); }
-.pv-arrows-slab .pv-prev { left: 0; box-shadow: inset -1px 0 0 color-mix(in srgb, var(--read-paper) 10%, transparent); }
-.pv-arrows-slab .pv-next { right: 0; box-shadow: inset 1px 0 0 color-mix(in srgb, var(--read-paper) 10%, transparent); }
-
-/* Tray: no arrows at the sides; they sit at either end of the thumbnails. */
-.pv-tray-step { flex: none; width: 34px; height: 45px; display: grid; place-items: center; padding: 0; border: 0; cursor: pointer;
-  background: none; border-radius: var(--radius); color: color-mix(in srgb, var(--read-paper) 70%, transparent); transition: color .15s, background .15s; }
-.pv-tray-step svg { width: 20px; height: 20px; }
-.pv-tray-step:hover:not(:disabled) { color: var(--read-paper); background: color-mix(in srgb, var(--read-paper) 9%, transparent); }
-.pv-tray-step:disabled { opacity: .25; cursor: default; }
+.pv-prev { left: 0; }
+.pv-next { right: 0; }
+.pv-prev:hover:not(:disabled) { background: linear-gradient(to right, color-mix(in srgb, var(--read-ground) 45%, transparent), transparent); }
+.pv-next:hover:not(:disabled) { background: linear-gradient(to left, color-mix(in srgb, var(--read-ground) 45%, transparent), transparent); }

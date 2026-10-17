@@ -7,14 +7,6 @@ import { CrossIcon } from './CrossIcon';
 
 export type Picture = { path: string; url: string | null };
 
-// Which arrows step through the thread's pictures, while that is being chosen.
-export type PictureArrows = 'tile' | 'bare' | 'slab' | 'tray';
-const ARROWS_KEY = 'zero.pictureArrows';
-export function pictureArrows(): PictureArrows {
-  const v = typeof localStorage !== 'undefined' ? localStorage.getItem(ARROWS_KEY) : null;
-  return v === 'bare' || v === 'slab' || v === 'tray' ? v : 'tile';
-}
-
 /** How long the pointer has to rest before the controls fade and leave only the picture. */
 const IDLE_MS = 2400;
 
@@ -54,7 +46,6 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
   onBeside: (path: string) => void;
   onPreview: (path: string) => void;
 }) {
-  const arrows = pictureArrows();
   const [index, setIndex] = useState(start);
   const shown = pictures[index];
   const [url, setUrl] = useState<string | null>(shown?.url ?? null);
@@ -168,7 +159,7 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
       tabIndex={-1}
       role="dialog"
       aria-label={name}
-      className={`picture-view pv-arrows-${arrows}${idle && zoom === 1 ? ' pv-idle' : ''}`}
+      className={`picture-view${idle && zoom === 1 ? ' pv-idle' : ''}`}
       onPointerMove={wake}
       onPointerDown={wake}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
@@ -209,7 +200,7 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
         </span>
       </header>
 
-      {many && arrows !== 'tray' && (
+      {many && (
         <>
           <button type="button" className="pv-step pv-prev pv-chrome" disabled={index === 0} onClick={() => go(-1)} aria-label="Previous picture"><Glyph d={CHEVRON_LEFT} /></button>
           <button type="button" className="pv-step pv-next pv-chrome" disabled={index === pictures.length - 1} onClick={() => go(1)} aria-label="Next picture"><Glyph d={CHEVRON_RIGHT} /></button>
@@ -218,13 +209,11 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
 
       {many && (
         <div className="pv-strip pv-chrome">
-          {arrows === 'tray' && <button type="button" className="pv-tray-step" disabled={index === 0} onClick={() => go(-1)} aria-label="Previous picture"><Glyph d={CHEVRON_LEFT} /></button>}
           {pictures.map((p, i) => (
             <button key={p.path} type="button" className={`pv-thumb${i === index ? ' is-on' : ''}`} onClick={() => setIndex(i)} title={p.path.split('/').pop()}>
               {p.url && <img src={p.url} alt="" crossOrigin="anonymous" />}
             </button>
           ))}
-          {arrows === 'tray' && <button type="button" className="pv-tray-step" disabled={index === pictures.length - 1} onClick={() => go(1)} aria-label="Next picture"><Glyph d={CHEVRON_RIGHT} /></button>}
         </div>
       )}
     </div>,
