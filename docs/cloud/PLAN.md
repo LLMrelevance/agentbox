@@ -277,8 +277,8 @@ stdout and stderr come back byte for byte. Its life:
   fault (redeliver, no attempt spent) rather than a finished run.
 - **Slots (R13).** Local capacity counts local sessions only. A Claude thread
   may take a cloud slot when no local slot is free, cloud runs are on, fewer
-  than `maxCloudSessions` (default 20; each run still costs the Mac ~120 MB)
-  cloud runs are live, and an account is healthy. With Everything
+  than `maxCloudSessions` cloud runs are live (default 50 through the shared
+  host, 20 without it), and an account is healthy. With Everything
   (`cloudRuns: 'all'`) a thread that may go to the cloud waits for a cloud slot
   (cap, two starting, accounts at their limit or renewing) and never falls back
   to the Mac (2026-10-17, her Mac overloaded with Everything on). At most two
@@ -435,10 +435,19 @@ input. In order:
    background, has its input closed there; the Mac reads that as the end of
    the run, and a reply that arrived too late is kept for the next one.
    Codex turns still end only with the Mac. Needs the image rebuilt.
-2. **Fewer processes per run.** One tool server per kind shared by all cloud
-   runs, keeping each connection's identity, request ids, claims, approval
-   context and cleanup; then measure. A single relay for all runs only if that
-   misses.
+2. **Done (2026-10-17): one process for every cloud run.** Every run's relay
+   lives in one host (main/cloud/host.mjs), started detached by the supervisor
+   and ending a minute after its last run; the supervisor holds, per run, a
+   Perl stand-in (scripts/cloud-shim.pl) that carries input, output, signals
+   and the exit code, so a cloud run is still one process to it. The relay
+   serves the approvals and store servers in-process, one channel per
+   connection. Measured on a Linux box with 50 idle runs, each with both
+   servers open: about 11 MB a run (host 99 MB in all, stand-ins 9 MB each),
+   against about 110 MB a run with a relay and servers of their own. A machine
+   without /usr/bin/perl runs each relay on its own, as before. Still to do:
+   the pack and the import use blocking git calls, which in the shared host
+   hold every run's relay for their length (two at a time, by the start and
+   import limits).
 3. **The store reachable from the cloud, and a scheduler there.** Answering
    store writes optimistically in the sandbox was rejected (created ids,
    claims and epochs make a later refusal unrecoverable). Real store access

@@ -292,6 +292,10 @@ export async function cloudRun({
   // How long the sandbox waits without word from this Mac before it counts
   // it asleep (cloud/sandbox/server.mjs "WHILE THE MAC IS AWAY").
   offlineAfterMs = OFFLINE_AFTER_MS,
+  // The process that stands for this run, written in its marker so another
+  // can tell whether it is still alive: this one, or, when many runs share a
+  // host process, the run's own small stand-in (main/cloud/host.mjs).
+  pid: selfPid = process.pid,
 }) {
   const say = (msg) => stderr.write(`agentbox cloud: ${msg}\n`);
   // Whether the sandbox keeps this run going while the Mac sleeps, so its
@@ -331,9 +335,12 @@ export async function cloudRun({
   const earlier = readMarker(cwd);
   let joining = null;
   let joinedAt = null;
-  if (earlier && LEFT_RUNNING.has(earlier.state)) {
+  // A run whose relay died without a word (the shared host crashed) is left
+  // going too, not stopped.
+  const orphaned = earlier?.state === 'running' && earlier.pid && earlier.pid !== selfPid && !alive(earlier.pid);
+  if (earlier && (LEFT_RUNNING.has(earlier.state) || orphaned)) {
     if (!importOnly) { say('an earlier cloud run in this folder is still going; it comes home before another starts'); return IMPORT_FAILED; }
-    if (earlier.pid && earlier.pid !== process.pid && alive(earlier.pid)) { say('an earlier cloud run in this folder is already being brought home'); return IMPORT_FAILED; }
+    if (earlier.pid && earlier.pid !== selfPid && alive(earlier.pid)) { say('an earlier cloud run in this folder is already being brought home'); return IMPORT_FAILED; }
     const st = await retry(() => transport.invoke(earlier.sessionId, { action: 'status', runId: earlier.runId }), { what: 'reach the run the app left going', forever: false });
     if (!st) { say('the cloud could not be reached; the run the app left going is tried again later'); return IMPORT_FAILED; }
     if (st.runId === earlier.runId && (st.state === 'preparing' || st.state === 'running')) { joining = earlier; joinedAt = st; offlineOn = !!earlier.offline; }
@@ -412,7 +419,7 @@ export async function cloudRun({
     stdinClosed = true;
     sentFiles = new Set();
     sendFile = async () => { throw new Error('a joined run sends no files'); };
-    writeMarker(cwd, { ...marker, pid: process.pid, state: 'attached', cursor: startCursor, n: startN, conns: startConns });
+    writeMarker(cwd, { ...marker, pid: selfPid, state: 'attached', cursor: startCursor, n: startN, conns: startConns });
     say('joining the cloud run the app left going, to bring it home when it finishes');
   } else {
   runId = crypto.randomUUID();
@@ -518,7 +525,7 @@ export async function cloudRun({
   // And what a process joining it after a restart needs to serve its tools:
   // the servers, and the worker's own variables they ran with.
   marker = { runId, sessionId, branch, startSha, sent, configDir, engine, bringDirs, docs, mcp: mcpConfig.mcpServers, toolEnv: toolVariables(env) };
-  writeMarker(cwd, { ...marker, pid: process.pid, state: 'starting' });
+  writeMarker(cwd, { ...marker, pid: selfPid, state: 'starting' });
 
   // 3. Start. Starting the same run twice is answered "already", so a start
   // whose reply was lost is simply asked again. A start that was REFUSED
@@ -561,7 +568,7 @@ export async function cloudRun({
   offlineOn = (started.caps || []).includes('offline');
   if (!offlineOn) say('this cloud image stops at its next tool call while this Mac sleeps; rebuild it (node scripts/cloud-setup.mjs) to keep runs going');
   marker.offline = offlineOn;
-  writeMarker(cwd, { ...marker, pid: process.pid, state: 'running' });
+  writeMarker(cwd, { ...marker, pid: selfPid, state: 'running' });
   }
 
   // 4. The pump.
@@ -805,7 +812,7 @@ export async function cloudRun({
     const unsent = outbox.filter((m) => m.action === 'stdin').map(({ n: num, ...m }) => ({ ...m, ...(num ? { n: num } : {}) }));
     const state = leaving ? 'detached' : joining ? 'attached' : 'running';
     try {
-      writeMarker(cwd, { ...marker, pid: process.pid, state, ...(leaving || joining ? { cursor, conns: connsNow(), unsent } : {}), ...extra });
+      writeMarker(cwd, { ...marker, pid: selfPid, state, cursor, conns: connsNow(), unsent, ...extra });
     } catch (err) { say(`could not note where the cloud run got to: ${err.message}`); }
   }
   // A joined run is never stopped by this process: Stop belongs to a thread
@@ -821,6 +828,7 @@ export async function cloudRun({
   // answered with why, and the agent's input the last process never sent goes.
   for (const [conn, c] of Object.entries(startConns)) { openServer(conn, c.name, c.init || []); answerUnanswered(conn, c.pending || []); }
   for (const m of joining?.unsent || []) { const { n: num, ...rest } = m; if (!(num && num <= startN)) enqueue(rest); }
+  if (joining?.state === 'running') enqueue({ action: 'stdin', end: true });
   if (quitEarly) leave('the app quit while the run was starting');
 
   try {
@@ -837,9 +845,9 @@ export async function cloudRun({
       // did not reach the app (cloud/sandbox/server.mjs `mcp-claim`).
       if (offlineOn) await claimCalls(page.events || []);
       for (const e of page.events || []) { if (leaving) break; await absorb(e); }
-      // A joined run keeps its place as it goes: a process that died without
+      // Every run keeps its place as it goes: a process that died without
       // saying must not hand its tools the same calls twice.
-      if (joining && !leaving && page.events?.some((e) => e.kind.startsWith('mcp'))) saveMarker();
+      if (!leaving && page.events?.some((e) => e.kind.startsWith('mcp'))) saveMarker();
     }
   } finally {
     signals.off('SIGTERM', onTerm);
@@ -906,7 +914,7 @@ export async function cloudRun({
     if (rec.state === 'diverged') return { ok: false, state: 'diverged', why: rec.why || 'it needs a person to look at it' };
     let done = await storage.get(k('done.json'));
     if (!done && recovering) {
-      if (rec.pid && rec.pid !== process.pid && alive(rec.pid)) return { ok: false, why: 'its own process is still bringing it back' };
+      if (rec.pid && rec.pid !== selfPid && alive(rec.pid)) return { ok: false, why: 'its own process is still bringing it back' };
       // Ask the sandbox where the run stands. No answer is not an answer: the
       // run may be alive, so nothing is given up.
       const st = await retry(() => transport.invoke(rec.sessionId, { action: 'status', runId: rec.runId }), { what: 'reach the earlier run', forever: false });
@@ -1290,9 +1298,11 @@ export function servedHere(cfg, env, holder) {
   if (cmd.endsWith('/approval-server.sh')) return channel((io) => serveApprovals({ env, ...io, warn: (m) => io.output.emit('warn', m) }));
   if (cmd.endsWith(`/${nameSlug}-mcp.sh`)) {
     // One store, one account, for every run on this Mac: the store reads where
-    // it is from the environment, so the server's own settings are set on it,
-    // winning over the worker's as they would for a server of its own.
-    for (const [k, v] of Object.entries(cfg.env || {})) process.env[k] = v;
+    // it is and whose lines it writes from the environment, so this run's are
+    // set on it, the server's own winning as they would for a server of its
+    // own, and a person id this run has none of is taken away.
+    const want = { AGENTBOX_PERSON_ID: env.AGENTBOX_PERSON_ID, ...cfg.env };
+    for (const [k, v] of Object.entries(want)) { if (v == null) delete process.env[k]; else process.env[k] = v; }
     return channel(async (io) => (await import('../../mcp/stdio.mjs')).serveStore({ ...io, holder: `mcp-cloud-${holder}` }));
   }
   return null;

@@ -20,8 +20,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { buildTools } from './tools.mjs';
 import { NAME, Name, nameSlug } from '../shared/product-name.mjs';
 
@@ -74,9 +73,7 @@ async function main() {
 }
 
 // Started as a program (mcp/agentbox-mcp.sh), not imported by a cloud run's relay.
-const startedAsProgram = (() => {
-  try { return !!process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1]); } catch { return false; }
-})();
+const startedAsProgram = path.basename(process.argv[1] || '') === 'stdio.mjs';
 if (startedAsProgram) main().catch((err) => {
   // A startup failure is almost always configuration (no account, wrong
   // STORE_HOME), so it must be readable on stderr rather than a stack trace

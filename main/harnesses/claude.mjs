@@ -50,11 +50,10 @@ export const claudeHarness = {
     // because the run unpacks the transcript and tooling into exactly that
     // path. No memory-gate variables: that gate is about this Mac's memory.
     if (cloud) {
-      return spawn(process.execPath, [sup._cloudRunPath(), ...streamInputArgs(definition.run, cloudPermissionArgs(plan.args, sup.config.cloudPermission))], {
+      return sup._spawnCloudRelay(streamInputArgs(definition.run, cloudPermissionArgs(plan.args, sup.config.cloudPermission)), {
         cwd,
-        env: { ...env, ELECTRON_RUN_AS_NODE: '1', STORE_ACCOUNT_ID: sup.config.accountId, ...storeRootEnv(sup.config.storeRoot),
+        env: { ...env, STORE_ACCOUNT_ID: sup.config.accountId, ...storeRootEnv(sup.config.storeRoot),
           CLAUDE_CONFIG_DIR: sup._claudeConfigDir(profile), ZERO_PRODUCT: item.product, ZERO_ITEM: item.id, ...sup._cloudDocsEnv(item) },
-        stdio: ['pipe', 'pipe', 'pipe'],
       });
     }
     // The binary is the one this definition names, not a field spelled out

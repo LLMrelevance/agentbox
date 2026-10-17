@@ -49,6 +49,14 @@ export function serveApprovals({ env = process.env, input = process.stdin, outpu
   // main/approvals.mjs holds the whole argument, including what it does not
   // close.
   const PUBLIC_KEY = env.ZERO_APPROVALS_PUBKEY;
+  // Closed when its run has gone: a question still waiting stops at once.
+  let closed = false;
+  const sleepers = new Set();
+  const nap = () => new Promise((resolve) => {
+    const wake = () => { clearTimeout(timer); sleepers.delete(wake); resolve(); };
+    const timer = setTimeout(wake, POLL_MS);
+    sleepers.add(wake);
+  });
   const send = (msg) => { if (!output.writableEnded && !output.destroyed) output.write(JSON.stringify(msg) + '\n'); };
   async function decide(args) {
     try {
@@ -75,7 +83,7 @@ export function serveApprovals({ env = process.env, input = process.stdin, outpu
       }
       const answerName = `${id}.answer.json`;
       const deadline = Date.now() + TIMEOUT_MS;
-      while (Date.now() < deadline) {
+      while (!closed && Date.now() < deadline) {
         // `lstat` rather than `existsSync`, so this sees exactly what the app's
         // own `listPending` sees: an entry by that name, whatever it is.
         if (spoolEntryExists(SPOOL, answerName)) {
@@ -93,7 +101,7 @@ export function serveApprovals({ env = process.env, input = process.stdin, outpu
           if (!answerIsHers(id, answer, PUBLIC_KEY)) {
             removeSpoolEntry(SPOOL, answerName);
             warn(`zero: an answer for approval ${id} that the founder did not write has been deleted; the question is still waiting`);
-            await new Promise((r) => setTimeout(r, POLL_MS));
+            await nap();
             continue;
           }
           // AND HER DECISION IS ABOUT AN ACTION, NOT ABOUT AN ID. The request
@@ -118,7 +126,11 @@ export function serveApprovals({ env = process.env, input = process.stdin, outpu
           if (answer.allow) return { behavior: 'allow', updatedInput: args.input ?? {} };
           return { behavior: 'deny', message: answer.note || 'The founder declined this action. Work with what you are already allowed to do, or park the remainder as a review.' };
         }
-        await new Promise((r) => setTimeout(r, POLL_MS));
+        await nap();
+      }
+      if (closed) {
+        finish(id, request, { allow: false, gone: true });
+        return { behavior: 'deny', message: 'the run that asked has ended' };
       }
       finish(id, request, { allow: false, timeout: true });
       return {
@@ -168,5 +180,5 @@ export function serveApprovals({ env = process.env, input = process.stdin, outpu
       send({ jsonrpc: '2.0', id, result: {} });
     }
   });
-  return { close: () => rl.close() };
+  return { close: () => { closed = true; for (const wake of [...sleepers]) wake(); rl.close(); } };
 }

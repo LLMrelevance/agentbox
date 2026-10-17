@@ -55,6 +55,24 @@ describe('the approvals channel', () => {
     proc.stdin.end();
     await closed;
   });
+
+  // Closing only stopped reading: a question already asked went on polling
+  // for fifteen minutes after its run had gone, and took an answer given then.
+  it('stops waiting on a question once its run has gone, and takes the card down', async () => {
+    const spool = path.join(tmp, 'spool-gone');
+    const proc = servedHere({ command: '/nowhere/scripts/approval-server.sh' }, { ZERO_APPROVALS_DIR: spool, ZERO_APPROVALS_PUBKEY: 'k', ZERO_ITEM: 'w-1' }, 'r-c2');
+    await talk(proc, [hello]);
+    proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'approval_prompt', arguments: { tool_name: 'Bash', input: { command: 'ls' } } } }) + '\n');
+    const cards = () => (fs.existsSync(spool) ? fs.readdirSync(spool).filter((f) => f.endsWith('.request.json')) : []);
+    for (let i = 0; i < 100 && cards().length === 0; i += 1) await new Promise((r) => setTimeout(r, 20));
+    expect(cards()).toHaveLength(1);
+    const closed = new Promise((r) => proc.on('close', r));
+    const at = Date.now();
+    proc.stdin.end();
+    await closed;
+    expect(Date.now() - at).toBeLessThan(1500);
+    expect(cards()).toEqual([]);
+  });
 });
 
 describe('the store', () => {
@@ -66,6 +84,23 @@ describe('the store', () => {
     expect(toolsA.result.tools.map((t) => t.name)).toContain('claim_work_item');
     expect(toolsB.result.tools.length).toBe(toolsA.result.tools.length);
     for (const p of [a, b]) { const closed = new Promise((r) => p.on('close', r)); p.stdin.end(); await closed; }
+  });
+
+  // The store reads whose lines it writes from its process's environment, and
+  // one process serves every run, so a person id set for one run stayed for
+  // the next, after a sign-out too.
+  it('writes as the person each run was started for, and as nobody when none', async () => {
+    const env = { STORE_ACCOUNT_ID: ACCOUNT, AGENTBOX_HOME: path.join(tmp, 'store') };
+    const was = process.env.AGENTBOX_PERSON_ID;
+    try {
+      const a = servedHere({ command: '/nowhere/mcp/agentbox-mcp.sh', env }, { ...env, AGENTBOX_PERSON_ID: 'p-1' }, 'r-c4');
+      expect(process.env.AGENTBOX_PERSON_ID).toBe('p-1');
+      const b = servedHere({ command: '/nowhere/mcp/agentbox-mcp.sh', env }, env, 'r-c5');
+      expect(process.env.AGENTBOX_PERSON_ID).toBeUndefined();
+      for (const p of [a, b]) { const closed = new Promise((r) => p.on('close', r)); p.stdout.resume(); p.stdin.end(); await closed; }
+    } finally {
+      if (was === undefined) delete process.env.AGENTBOX_PERSON_ID; else process.env.AGENTBOX_PERSON_ID = was;
+    }
   });
 });
 

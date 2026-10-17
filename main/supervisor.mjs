@@ -45,6 +45,7 @@ import { readCloudConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
 import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
 import { execFileSync } from 'node:child_process';
 import { holdUntilHome } from './cloud/codex-cloud.mjs';
+import { hostSocketPath, perlRunsTheShim, HOST_ALREADY_THERE } from './cloud/host.mjs';
 import { readCloudUsage, summarizeCloudUsage } from './cloud/usage.mjs';
 import { buildSessionArgs, CLAUDE_MODES, permissionMode } from './settings.mjs';
 import fs from 'node:fs';
@@ -292,6 +293,8 @@ const FIRST_RUN_HOLD_MS = 20 * 60_000;
 // keeping the old word in the code so as to keep reading the old word in the
 // config would keep alive exactly the reference the rename was meant to remove.
 const STORE_SERVER = nameSlug;
+// Every Mac has it; a Linux machine without it runs each cloud relay on its own.
+const PERL = '/usr/bin/perl';
 
 /**
  * HER `sessionArgs`, WITH A STORE GRANT SPELLED UNDER AN OLDER NAME OF OURS
@@ -4444,8 +4447,16 @@ export class Supervisor {
   }
 
   _maxCloud() {
-    const n = Number(this.config.maxCloudSessions);
-    return Number.isFinite(n) && n >= 0 ? n : 20;
+    const set = this.config.maxCloudSessions;
+    const n = Number(set);
+    if (set !== null && set !== undefined && set !== '' && Number.isFinite(n) && n >= 0) return n;
+    return this._cloudHostAvailable() ? 50 : 20;
+  }
+
+  _cloudHostAvailable() {
+    if (this.config.cloudHost === false || !fs.existsSync(unpacked(path.join(this.appDir, 'scripts', 'cloud-shim.pl')))) return false;
+    this._perlRunsTheShim ??= perlRunsTheShim(PERL);
+    return this._perlRunsTheShim;
   }
 
   _localSlotFor(engine) {
@@ -4498,6 +4509,53 @@ export class Supervisor {
     return fileURLToPath(new URL('./cloud/run-cli.mjs', import.meta.url));
   }
 
+  // A cloud run: a stand-in for it on the shared host (main/cloud/host.mjs)
+  // where perl can run one, otherwise a relay process of its own. Either way
+  // one process here, with the run's input, output, signals and exit code.
+  _spawnCloudRelay(args, { cwd, env, stdio = ['pipe', 'pipe', 'pipe'] }) {
+    const shim = unpacked(path.join(this.appDir, 'scripts', 'cloud-shim.pl'));
+    const sock = this._cloudHostAvailable() ? this._cloudHost() : null;
+    if (sock) {
+      const { ELECTRON_RUN_AS_NODE: _node, ...plain } = env;
+      const child = spawn(PERL, [shim, sock, ...args], { cwd, env: plain, stdio });
+      // No host answered: the next run looks for one afresh.
+      child.on('exit', (code) => { if (code === 75 && this._cloudHostProc?.exitCode !== null) this._cloudHostProc = null; });
+      return child;
+    }
+    return spawn(process.execPath, [this._cloudRunPath(), ...args], { cwd, env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, stdio });
+  }
+
+  // The host's socket, starting the host if none of this app's is running. It
+  // outlives the app (detached), so a quit leaves its runs going in the cloud
+  // with their state saved, and it ends itself a minute after its last run.
+  // One that has taken its socket away is ending, and one that found another
+  // host there left it to that one.
+  _cloudHost() {
+    this._cloudHostSock ??= hostSocketPath();
+    const had = this._cloudHostProc;
+    const there = fs.existsSync(this._cloudHostSock);
+    const running = had?.exitCode === null && had.signalCode === null;
+    if (running && (there || Date.now() - this._cloudHostAt < 10_000)) return this._cloudHostSock;
+    if (had?.exitCode === HOST_ALREADY_THERE && there) return this._cloudHostSock;
+    try {
+      const log = fs.openSync(path.join(this.userDir, 'cloud-host.log'), 'a');
+      const proc = spawn(process.execPath, [fileURLToPath(new URL('./cloud/host.mjs', import.meta.url)), this._cloudHostSock], {
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+        detached: true,
+        stdio: ['ignore', log, log],
+      });
+      fs.closeSync(log);
+      proc.on('error', () => {});
+      proc.unref();
+      this._cloudHostProc = proc;
+      this._cloudHostAt = Date.now();
+      return this._cloudHostSock;
+    } catch (error) {
+      console.warn('zero: the cloud host could not start, so cloud runs each run their own relay:', error.message);
+      return null;
+    }
+  }
+
   // The Claude account folder a profile names, spelled out, because the
   // cloud run unpacks transcripts and tooling into exactly that path.
   _claudeConfigDir(profile) {
@@ -4548,9 +4606,9 @@ export class Supervisor {
     const forget = () => { if (mcp) fs.rmSync(mcp, { force: true }); };
     let child;
     try {
-      child = spawn(process.execPath, [this._cloudRunPath(), '--agentbox-import-only'], {
+      child = this._spawnCloudRelay(['--agentbox-import-only'], {
         cwd: folder,
-        env: { ...this._workerEnv(), ELECTRON_RUN_AS_NODE: '1', ...(mcp ? { AGENTBOX_MCP_CONFIG: mcp } : {}) },
+        env: { ...this._workerEnv(), ...(mcp ? { AGENTBOX_MCP_CONFIG: mcp } : {}) },
         stdio: ['ignore', 'ignore', 'pipe'],
       });
     } catch (error) {
@@ -7580,11 +7638,10 @@ export class Supervisor {
     const procExit = new Promise((resolve) => { resolveExit = resolve; });
     const client = createCodexAppServer({
       spawn: () => {
-        const proc = spawn(process.execPath, [this._cloudRunPath(), '--agentbox-codex', 'app-server'], {
+        const proc = this._spawnCloudRelay(['--agentbox-codex', 'app-server'], {
           cwd,
           env: {
             ...this._workerEnv('codex'),
-            ELECTRON_RUN_AS_NODE: '1',
             CODEX_HOME: home,
             STORE_ACCOUNT_ID: this.config.accountId,
             ...storeRootEnv(this.config.storeRoot),
