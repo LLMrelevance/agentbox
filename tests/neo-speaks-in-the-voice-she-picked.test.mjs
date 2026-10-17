@@ -18,3 +18,17 @@ describe('the voice Neo speaks in', () => {
     expect(neoSession({ voice: 'zzz' }).audio).toBeUndefined();
   });
 });
+
+// "I want to keep our voice and then give people a way to maybe choose between
+// the other voices." Marin stays the default; Settings › Neo lists the ten,
+// each with a sample to hear, and the pick is kept for the next session.
+describe('choosing a voice in Settings', async () => {
+  const fs = await import('node:fs');
+  it('every voice has a sample to hear', () => {
+    for (const v of VOICES) expect(fs.existsSync(new URL(`../renderer/src/neo/voices/${v}.m4a`, import.meta.url)), v).toBe(true);
+  });
+
+  it('marin is the default, and is first', () => {
+    expect(VOICES[0]).toBe('marin');
+  });
+});

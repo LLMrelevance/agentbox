@@ -696,6 +696,15 @@ describe('telling the voice what is on screen', () => {
     expect(startLiveImpl.mock.calls[0][0].session.audio).toEqual({ output: { voice: 'cedar' } });
   });
 
+  it('Settings reads and keeps the voice, marin until one is picked, only one of the ten', async () => {
+    const f = fakes({});
+    const voice = f.handlers.get('neo:voice');
+    expect(await voice(f.fromMainWindow)).toBe('marin');
+    expect(await voice(f.fromMainWindow, 'cedar')).toBe('cedar');
+    expect(await voice(f.fromMainWindow, 'zzz')).toBe('cedar');
+    expect(await fakes({ userData: f.userData }).handlers.get('neo:voice')(f.fromMainWindow)).toBe('cedar');
+  });
+
   it('every decision comes back with what is on screen after it', async () => {
     const f = fakes({ decideImpl: async () => ({ choice: 'next', confidence: 0.9, runnersUp: [] }) });
     const w = f.neo.wake('test');

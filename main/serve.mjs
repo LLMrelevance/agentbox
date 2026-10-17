@@ -152,6 +152,7 @@ export function answerWhatOnlyTheWindowAnswered(ipcMain) {
   // with nothing rather than 404ing the tab into a crash loop.
   ipcMain.handle('neo:enabled', () => false);
   ipcMain.handle('neo:memory', () => null);
+  ipcMain.handle('neo:voice', () => null);
 }
 
 /**

@@ -106,6 +106,7 @@ describe('the page itself', () => {
 
   it('holds the two documents that were asked for, and nothing else', () => {
     expect(page).toContain('Instructions for Neo');
+    expect(page).toContain('data-find="neo-voice"');
     expect(page).toContain('What Neo remembers');
   });
 
@@ -116,7 +117,25 @@ describe('the page itself', () => {
     expect(page).toMatch(/import \{ Part.*\} from '\.\.\/components\/InstructionSettings'/);
     expect(page).toContain('set-inner instructions-page');
     expect(page).toContain('instr-card');
-    expect(page).not.toMatch(/set-plate|set-row|set-seg/);
+  });
+
+  /* "the voice stuff is unrelated. This is a totally different section in the
+     Neo settings so it shouldn't follow that design pattern. Look at the other
+     settings pages and, more so, follow those design patterns" (2026-10-17).
+     So the voice is a settings card with a row and the settings dropdown, and
+     only the voice: the instructions stay on the instructions card. */
+  it('puts the voice on a settings card, like every other page, and only the voice', () => {
+    const voice = page.slice(page.indexOf('function VoiceRow'));
+    expect(voice).toMatch(/set-row/);
+    expect(voice).toMatch(/set-picker/);
+    expect(page).toMatch(/data-find="neo-voice"[\s\S]*set-plate/);
+    const instructions = page.slice(page.indexOf('<div className="instr-card">'), page.indexOf('data-find="neo-voice"'));
+    expect(instructions).not.toMatch(/set-plate|set-row|set-seg/);
+  });
+
+  it('the instructions card is rounded like the settings card', () => {
+    expect(read('renderer/src/workspace-navigation.css')).toMatch(/\.instr-card \{[^}]*border-radius:10px/);
+    expect(read('renderer/src/components/settings.css')).toMatch(/\.set-plate:not\(\.set-keys\) \{[^}]*border-radius: 10px/);
   });
 
   it('has no stylesheet of its own to drift from that one', () => {

@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Part, type Writing } from '../components/InstructionSettings';
 import type { NeoMemory } from '../types';
+import { VOICES } from '../../../shared/neo-tools.mjs';
 
 const zero = () => (window as Window).zero;
 
@@ -65,15 +66,94 @@ function useWriting(loaded: string | null | undefined, save: (v: string) => Prom
   return { text, status, edit };
 }
 
+const voiceName = (v: string) => v[0].toUpperCase() + v.slice(1);
+const PLAY = <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2.6v6.8L9.6 6z" fill="currentColor" /></svg>;
+const STOP = <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="3" y="3" width="6" height="6" rx="1" fill="currentColor" /></svg>;
+
+/* Which of the ten voices Neo speaks in: a row in a settings card, with the
+   dropdown every other Settings page picks one-of-many with (Settings.tsx
+   Picker), plus a sample to hear for each (./voices/). The
+   pick holds from the next time Neo wakes. */
+function VoiceRow() {
+  const [voice, setVoice] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [playing, setPlaying] = useState<string | null>(null);
+  const player = useRef<HTMLAudioElement | null>(null);
+  const wrap = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void zero()?.neoVoice?.().then((v) => { if (alive && v) setVoice(v); });
+    return () => { alive = false; player.current?.pause(); };
+  }, []);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e: MouseEvent) => { if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  const hear = (v: string) => {
+    player.current?.pause();
+    if (playing === v) { setPlaying(null); return; }
+    const a = new Audio(new URL(`./voices/${v}.m4a`, import.meta.url).href);
+    a.onended = () => setPlaying((p) => (p === v ? null : p));
+    player.current = a;
+    setPlaying(v);
+    void a.play().catch(() => setPlaying(null));
+  };
+  const pick = async (v: string) => {
+    setVoice(v);
+    setOpen(false);
+    const kept = await zero()?.neoVoice?.(v);
+    if (kept) setVoice(kept);
+  };
+  const now = voice ?? VOICES[0];
+  return (
+    <div className="set-row">
+      <div className="set-row-text">
+        <div className="set-row-label">Neo's voice</div>
+        <div className="set-row-desc">How Neo sounds, from the next time it wakes. Play any of them to hear it first.</div>
+      </div>
+      <div className="set-row-ctl neo-voice-ctl">
+        <button type="button" className="neo-voice-play" aria-label={`${playing === now ? 'Stop' : 'Play'} ${now}`} onClick={() => hear(now)}>{playing === now ? STOP : PLAY}</button>
+        <div className={`set-picker set-picker-bare${open ? ' open' : ''}`}>
+          <span className="set-picker-wrap" ref={wrap}>
+            <button type="button" className="set-picker-now" aria-label="Neo's voice" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+              {voiceName(now)}
+              <svg className="set-picker-chev" width="9" height="9" viewBox="0 0 10 10" aria-hidden="true">
+                <path d="M2.2 4 L5 6.8 L7.8 4" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            {open && (
+              <span className="set-picker-menu neo-voice-menu" role="listbox" aria-label="Neo's voice">
+                {VOICES.map((v) => (
+                  <span key={v} className={`neo-voice-item${v === now ? ' on' : ''}`}>
+                    <button type="button" className="neo-voice-play" aria-label={`${playing === v ? 'Stop' : 'Play'} ${v}`} onClick={() => hear(v)}>{playing === v ? STOP : PLAY}</button>
+                    <button type="button" role="option" aria-selected={v === now} className={`set-picker-row${v === now ? ' on' : ''}`} onClick={() => void pick(v)}>
+                      {voiceName(v)}{v === VOICES[0] && <span className="neo-voice-tag">Default</span>}
+                    </button>
+                  </span>
+                ))}
+              </span>
+            )}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function NeoSettings() {
   const { doc, trouble, change } = useNeoMemory();
   const rules = useWriting(doc?.instructions, (v) => change({ instructions: v }));
   const memories = useWriting(doc?.document, (v) => change({ memories: v }));
   return (
     <div className="set-inner instructions-page neo-page">
-      <h1 className="instr-lead">Instructions for Neo</h1>
+      <h1 className="instr-lead">Neo</h1>
       {trouble && <div className="set-error">{trouble}</div>}
       <div className="instr-body">
+        <div className="set-group-label neo-section">Instructions for Neo</div>
         <div className="instr-card">
           <Part
             id="neo-rules"
@@ -89,6 +169,11 @@ export function NeoSettings() {
             description="One memory a line. Say “remember that…” while Neo is listening and the line turns up here."
             writing={memories}
           />
+        </div>
+        {/* Not instructions, so not that card: a settings card like every other page's. */}
+        <div className="set-group neo-section" data-find="neo-voice">
+          <div className="set-group-label">Voice</div>
+          <div className="set-plate"><VoiceRow /></div>
         </div>
       </div>
     </div>

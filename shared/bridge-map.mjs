@@ -157,6 +157,7 @@ export const REQUEST_CHANNELS = {
   neoEnabled: 'neo:enabled',
   // What Neo remembers, for its page in Settings (main/neo/index.mjs).
   neoMemory: 'neo:memory',
+  neoVoice: 'neo:voice',
 };
 
 /** Told rather than asked: the app talks and the screen listens. */

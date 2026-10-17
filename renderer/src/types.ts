@@ -1204,6 +1204,7 @@ declare global {
       // that opted in (main/neo/gate.mjs).
       neoEnabled?(): Promise<boolean>;
       neoMemory?(change?: { add?: string; forget?: string; instructions?: string; memories?: string }): Promise<NeoMemory | null>;
+      neoVoice?(voice?: string): Promise<string | null>;
       // The settings screen. Every write answers with the whole settings object
       // again, so the screen redraws from what the main process now believes
       // rather than from what the click assumed.

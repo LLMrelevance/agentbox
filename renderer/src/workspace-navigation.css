@@ -223,7 +223,8 @@
 .instr-scope-menu hr { border:0; border-top:1px solid var(--line); margin:5px 4px; }
 /* A single readable column for shared and project instructions. */
 .instr-body { width:100%; }
-.instr-card { border:1px solid var(--line); border-radius:var(--radius); background:var(--film-strong); }
+/* Rounded like the settings card (settings.css .set-plate), so the two sit together. */
+.instr-card { border:1px solid var(--line); border-radius:10px; background:var(--film-strong); }
 .instr-part { padding:16px 26px 22px; scroll-margin-top:16px; }
 .instr-part + .instr-part { border-top:1px solid var(--line); }
 .instr-part-head { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:30px; }
@@ -1077,3 +1078,16 @@ body {
 :root:root .workspace-navigation .workspace-tab.active { font-weight: 400; }
 :root:root .workspace-title { font-weight: 400; letter-spacing: -.03em; }
 :root:root .row .subject { font-weight: 400; letter-spacing: -.01em; }
+
+/* Settings › Neo: the voice row's play buttons, beside the dropdown and in it
+   (renderer/src/neo/NeoSettings.tsx). */
+.neo-voice-ctl { display:flex; align-items:center; gap:6px; }
+.neo-voice-play { display:grid; place-items:center; width:26px; height:26px; flex:none; border:none; border-radius:var(--radius); background:transparent; color:var(--text-dim); cursor:pointer; padding:0; }
+.neo-voice-play svg { width:12px; height:12px; }
+.neo-voice-play:hover { color:var(--text); background:var(--wash); }
+.neo-voice-menu { min-width:190px; }
+.neo-voice-item { display:flex; align-items:center; gap:2px; }
+.neo-voice-item .set-picker-row { flex:1; display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
+.neo-voice-tag { font-size:11px; color:var(--text-faint); }
+.neo-page .neo-section { margin-top:0; }
+.neo-page .set-group.neo-section { margin-top:40px; }
