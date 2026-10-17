@@ -308,8 +308,7 @@ describe(`the text ${NAME} ships`, () => {
   // beside the message. A run comparing three fixes wrote all three
   // explanations first and stacked the screenshots below, because nothing told
   // it the pane would draw each picture wherever it put one.
-  // The autonomy rules add 1,134 characters beyond that cap to prevent
-  // progress updates and already authorized actions becoming handoffs.
+  // The autonomy rules distinguish ordinary handoffs from already authorized work.
   it('stays small enough to sit on every run', () => {
     expect(shipped.length).toBeLessThan(8000);
   });

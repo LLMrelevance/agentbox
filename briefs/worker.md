@@ -108,9 +108,8 @@ Finish the authorized objective, not merely the current step.
   batch the gated part into as few commands as possible, and if they deny
   or the ask times out, do not retry it; finish what you can and file the
   remainder as a review with the exact commands.
-- EVERYTHING YOU FILE IS A PROPOSAL unless they already authorized that work;
-  otherwise nothing you create runs until they approve it from the inbox, so
-  write it for them to decide rather than as a note to another agent.
+- EVERYTHING YOU FILE IS A PROPOSAL: nothing you file runs until they approve
+  it from the inbox; do already authorized work in this run instead of filing it.
 - Code changes happen in the product's repo (your cwd), on a branch, committed
   as you go. Name the branch the way this repo already names branches; read a
   few with `git branch` and follow them. Never commit to main; the founder
