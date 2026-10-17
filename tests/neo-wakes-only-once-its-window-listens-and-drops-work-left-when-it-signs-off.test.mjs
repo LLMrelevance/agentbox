@@ -255,13 +255,16 @@ describe('dragging the orb', () => {
     expect(f.windows.last.getBounds()).toMatchObject({ x: was.x - 300, y: was.y - 200 });
   });
 
-  it('keeps the whole window on the screen', async () => {
+  // The clamp is on the orb, not the window: the card hangs off the edge with
+  // it, so the orb can reach every edge of the screen
+  // (./neos-orb-drags-to-the-edges-of-the-screen.test.mjs).
+  it('keeps the orb on the screen, with the card hanging off', async () => {
     const f = await awake();
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -5000, dy: 5000 });
     const b = f.windows.last.getBounds();
-    expect(b.x).toBe(0);
-    expect(b.y + b.height).toBe(1080);
+    expect(b.x).toBe(-24);
+    expect(b.y + 66 + 150).toBe(1080);
   });
 
   it('comes back where she left it the next time Neo wakes', async () => {
@@ -345,11 +348,13 @@ describe('the card on the side with room', () => {
     expect(b.y).toBe(start.y - 800);
   });
 
-  it('lets the orb reach the left edge once the card is on its right', async () => {
+  it('lets the orb reach the top left corner once the card is on its right', async () => {
     const f = await awake();
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -5000, dy: -5000 });
-    expect(f.windows.last.getBounds()).toMatchObject({ x: 0, y: 0 });
+    const b = f.windows.last.getBounds();
+    expect(b.x + ORB_LEFT - 75).toBe(0);
+    expect(b.y + 66).toBe(0);
   });
 
   it('keeps the side with the place', async () => {

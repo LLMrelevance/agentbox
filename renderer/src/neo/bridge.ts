@@ -88,8 +88,21 @@ export function findCommands<C extends { label: string; hint?: string; keywords?
     .map((x) => x.c);
 }
 
-// Commands that stop, close, approve, restart or open another copy of the app.
-const RISKY_COMMAND = /^(pause|done|approve|update|first-run|fresh-user|demo|tutorial|stop|resume|cloud|run-now)/;
+// Commands that stop, close, approve, restart or open another copy of the app,
+// or take a thread out of the inbox and hand it back to its agent.
+const RISKY_COMMAND = /^(pause|done|approve|update|first-run|fresh-user|demo|tutorial|stop|resume|cloud|run-now|unsnooze|send-back|redeliver)/;
+
+// Commands that only put a card on screen for her to finish. Running one
+// changes nothing, so none of them needs a yes — and none of them may be
+// reported as done. "Later" opened the Later card and Neo said "Done, 10
+// minutes", which is the whole of w-7d1d41a9e0's first bug.
+const OPENS_A_CARD = new Set(['snooze', 'reply', 'search', 'filter', 'new-project']);
+
+// Commands that act on whichever thread the app has open, which Neo cannot
+// name in the call. So the answer says which one it was: "you ended up on the
+// wrong task, and you ended up actually snoozing something wrong" was Neo
+// running one of these on a thread it had drifted onto without ever saying so.
+const ON_A_THREAD = /^(done|read|unread|open|unsnooze|stop|resume|send-back|redeliver|approve|run-now|priority|level)/;
 
 function saysWord(heard: string | undefined, word: string): boolean {
   const said = String(heard ?? '').toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -170,17 +183,21 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
   // counts for that and nothing else.
   let asked: { id: string; n: number; words: string } | null = null;
   let askedCommand: string | null = null;
-  // The latest message's pictures go up by themselves as Neo briefs her: one
-  // lifted, two to four side by side.
+  // The latest message's pictures come into view as Neo briefs her, IN THE
+  // THREAD. They used to go up over the app, and that layer is what she met
+  // three times in one session: "I still see the PNG shot", the options she
+  // was being read hidden behind it, and "it ends up blocking my screen
+  // entirely... definitely shouldn't block my screen like this". Nothing of
+  // Neo's covers the app now unless she asks for it.
   const showLatest = async () => {
     if (!deps.show || !deps.latestPictureCount) return '';
     await deps.waitForPictures?.();
     const n = Math.min(deps.latestPictureCount(), 4);
     if (!n) return '';
     const ns = Array.from({ length: n }, (_, i) => i + 1);
-    if (!(await deps.show(ns, n === 1 ? 'lifted' : 'side_by_side'))) return '';
+    if (!(await deps.show(ns, 'in_place'))) return '';
     const names = (deps.pictureNames?.() ?? []).slice(0, n);
-    return ` On screen now: ${n === 1 ? 'its picture' : `its ${n} pictures side by side, numbered ${ns.join(', ')}`} (${names.join(', ')}). Refer to them by number as you brief.`;
+    return ` In the thread, scrolled to and lit up: ${n === 1 ? 'its picture' : `its ${n} pictures, numbered ${ns.join(', ')}`} (${names.join(', ')}). Refer to them by number as you brief.`;
   };
   // What Neo needs to brief her on a thread it just opened.
   const brief = (row: R) => {
@@ -242,9 +259,15 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           if (!row) return gone();
           const text = String(args.text ?? '').trim();
           if (!text) return refused('There was nothing to send.');
-          const how = await deps.reply(row, text, { attach: args.attach === true });
+          // A picture in her reply box goes with the words unless she said it
+          // should not: "if I've got a screenshot in the chat and I'm asking to
+          // give feedback, it's probably implies that I want you to send that
+          // screenshot". Only a picture she asked for BY NAME and that is not
+          // there is worth saying out loud.
+          const named = args.attach === true;
+          const how = await deps.reply(row, text, { attach: args.attach !== false });
           deps.glow(row.id);
-          if (how === 'no-pictures') return done('Sent the words. There was no picture in the reply box to send with them.');
+          if (how === 'no-pictures') return done(named ? 'Sent the words. There was no picture in the reply box to send with them.' : 'Sent.');
           return done(how === 'with-pictures' ? 'Sent, with the pictures from the reply box.' : 'Sent.');
         }
 
@@ -260,16 +283,19 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           const text = String(args.text ?? '').trim();
           if (!text) return refused('There was nothing to start.');
           const projects = deps.projects();
+          const named = String(args.project ?? '').trim();
           let slug: string | undefined;
-          if (args.project) {
-            const want = String(args.project).trim().toLowerCase();
+          if (named) {
+            const want = named.toLowerCase();
             slug = projects.find((p) => p.slug.toLowerCase() === want || p.name.trim().toLowerCase() === want)?.slug;
-            if (!slug) return refused(`There is no project called ${args.project}. The projects are ${projects.map((p) => p.name).join(', ')}.`);
+            if (!slug) return refused(`There is no project called ${named}. The projects are ${projects.map((p) => p.name).join(', ')}.`);
           } else slug = deps.focused()?.product ?? projects[0]?.slug;
           if (!slug) return refused('There is no project to start it in.');
           const made = await deps.compose(text, slug);
           if (!made) return { ok: false, status: 'failed', said: 'It did not start.' };
           const project = projects.find((p) => p.slug === slug)?.name ?? slug;
+          // A project nobody named was a guess, so it is said as one.
+          if (!named) return done(`Started it in ${project}, the open thread's project, because no project was named. Say so, in case it belongs somewhere else.`);
           return done(`Started it in ${project}.`);
         }
 
@@ -292,6 +318,11 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           // A yes counts for this command, with these words, on this thread:
           // "approve" means the open thread's approve, and that can change.
           const what = `${cmd.id}|${cmd.label}|${deps.focused()?.id ?? ''}`;
+          if (OPENS_A_CARD.has(cmd.id)) {
+            const on = deps.focused();
+            await cmd.run();
+            return done(`"${cmd.label}" is on screen now${on ? ` for ${nameOf(on)}` : ''}. Nothing has changed yet: tell the person to finish it there, and say which thread it is for.`);
+          }
           if (RISKY_COMMAND.test(cmd.id)) {
             const verb = cmd.label.toLowerCase().match(/[a-z]+/)?.[0] ?? '';
             const saidIt = verb.length > 2 && saysWord(ctx.heard, verb);
@@ -307,7 +338,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           const open = deps.focused();
           if (cmd.id === 'done' && open) return (await deps.close(open)) === 'asked' ? refused(ASKED) : done(`Closed ${nameOf(open)}.`);
           await cmd.run();
-          return done(`Done: ${cmd.label}.`);
+          return done(ON_A_THREAD.test(cmd.id) && open ? `Done: ${cmd.label}, on ${nameOf(open)}.` : `Done: ${cmd.label}.`);
         }
 
         case 'scroll':

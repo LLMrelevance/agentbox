@@ -18,6 +18,10 @@ import { Name } from '../../shared/product-name.mjs';
 const WIDTH = 600;
 const HEIGHT = 240;
 const MARGIN = 20;
+// Where the orb sits inside the window, from renderer/src/neo/neo.css (#orb).
+const ORB = 150;
+const ORB_INSET = 24;
+const ORB_TOP = HEIGHT - ORB_INSET - ORB;
 export const SESSION_MAX_S = 20 * 60;
 export const DAY_MAX_S = 3 * 60 * 60;
 const ACT_TIMEOUT_MS = 10_000;
@@ -82,12 +86,17 @@ export function createNeo({
   const fromNeo = (e) => !!win && e.sender === win.webContents;
   const fromMain = (e) => e.sender === mainWindow.webContents;
 
-  // The whole window stays on the display it is mostly on.
+  // THE ORB stays on the display it is on, and the card hangs off the edge
+  // with it. Clamping the whole window instead kept the orb 66px from the top
+  // of the screen and 24px from the bottom, which is the limit she felt: "I
+  // quite often want to drag Jarvis anywhere on the screen, further up from
+  // where it is. But I feel like I've hit a limit."
   function within(x, y) {
-    const { workArea: a } = screen.getDisplayNearestPoint({ x: Math.round(x + WIDTH / 2), y: Math.round(y + HEIGHT / 2) });
+    const left = ORB_X[side] - ORB / 2;
+    const { workArea: a } = screen.getDisplayNearestPoint({ x: Math.round(x + ORB_X[side]), y: Math.round(y + ORB_TOP + ORB / 2) });
     return {
-      x: Math.round(Math.min(Math.max(x, a.x), a.x + a.width - WIDTH)),
-      y: Math.round(Math.min(Math.max(y, a.y), a.y + a.height - HEIGHT)),
+      x: Math.round(Math.min(Math.max(x, a.x - left), a.x + a.width - left - ORB)),
+      y: Math.round(Math.min(Math.max(y, a.y - ORB_TOP), a.y + a.height - ORB_TOP - ORB)),
       width: WIDTH, height: HEIGHT,
     };
   }
@@ -95,7 +104,7 @@ export function createNeo({
   // Which side of the orb the card sits on: 'right' puts the orb at the
   // window's right with the card to its left. Over the left half of a display
   // it flips, so the card always has room.
-  const ORB_X = { right: WIDTH - 24 - 75, left: 24 + 75 };
+  const ORB_X = { right: WIDTH - ORB_INSET - ORB / 2, left: ORB_INSET + ORB / 2 };
   let side = readPrefs().side === 'left' ? 'left' : 'right';
   const sideFor = (b) => {
     const orbX = b.x + ORB_X[side];

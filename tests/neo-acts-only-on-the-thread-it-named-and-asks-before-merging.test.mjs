@@ -51,7 +51,7 @@ describe('acting on a named thread', () => {
   it('replies on the named thread, not on the one that is open', async () => {
     const { act, calls } = setup({ focused: rows[0] });
     await act('reply', { id: 'w-b', text: 'Thanks, close it after the test.' });
-    expect(calls).toContainEqual(['reply', rows[1], 'Thanks, close it after the test.', { attach: false }]);
+    expect(calls).toContainEqual(['reply', rows[1], 'Thanks, close it after the test.', { attach: true }]);
   });
 
   it('closes the named thread', async () => {
@@ -473,23 +473,25 @@ describe('opening a thread shows what she needs to decide', () => {
     return t;
   }
 
-  it('lifts a single picture', async () => {
+  // In the thread, never over the app: "definitely shouldn't block my screen
+  // like this" (2026-10-17, ./neo-sends-the-picture-in-her-reply-box-and-never-covers-her-screen.test.mjs).
+  it('brings a single picture into view where it is', async () => {
     const t = withPictures(1, ['only.png', 'older.png']);
     const r = await t.act('open_thread', { id: 'w-a' });
-    expect(t.deps.show).toHaveBeenCalledWith([1], 'lifted');
-    expect(r.said).toMatch(/on screen now/i);
+    expect(t.deps.show).toHaveBeenCalledWith([1], 'in_place');
+    expect(r.said).toMatch(/in the thread/i);
   });
 
-  it('puts two to four side by side', async () => {
+  it('lights up two to four of them', async () => {
     const t = withPictures(3, ['a.png', 'b.png', 'c.png', 'old.png']);
     await t.act('next_thread', {});
-    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3], 'side_by_side');
+    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3], 'in_place');
   });
 
   it('shows the first four of more', async () => {
     const t = withPictures(6, ['1', '2', '3', '4', '5', '6']);
     await t.act('open_thread', { id: 'w-a' });
-    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3, 4], 'side_by_side');
+    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3, 4], 'in_place');
   });
 
   it('shows nothing when the latest message has no pictures, even if older ones do', async () => {
