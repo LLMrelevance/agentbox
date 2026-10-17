@@ -27,7 +27,7 @@ import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
 import { shownPriority } from '../../../shared/rank.mjs';
 import { api } from '../api';
-import { CLOUD_KEY, CLOUD_WHEN_ON, cloudButtonCount, cloudIsOn, cloudMonthLine, type CloudMode, type CloudStatus } from '../cloud-menu';
+import { CLOUD_KEY, CLOUD_WHEN_ON, cloudButtonCount, cloudFootLine, cloudIsOn, cloudMonthLine, type CloudMode, type CloudStatus } from '../cloud-menu';
 import { menuSetupLine, SETUP } from '../cloud-setup';
 import './pages.css';
 
@@ -236,7 +236,7 @@ function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus;
       </span></div>
       <div className="line"><span className="lab">This month</span><span className="th-cloud-use">{cloudMonthLine(cloud.month)}</span></div>
       <div className="rule" />
-      <div className="foot"><span>{cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now'}</span></div>
+      <div className="foot"><span>{cloudFootLine(cloud)}</span></div>
     </div>}
   </span>;
 }

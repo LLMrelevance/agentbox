@@ -108,6 +108,21 @@ type OnOff = { mode: CloudMode; whenOn?: Exclude<CloudMode, 'mac'> } | null | un
 
 export const cloudIsOn = (status: OnOff) => !!status && status.mode !== 'mac';
 
+/**
+ * THE MENU'S LAST LINE: what runs in the cloud, or, while the cloud is on and
+ * every Claude account there is at its usage limit, that and when the first
+ * comes back (2026-10-16: "our cloud must be broken", when it was out of usage).
+ */
+export function cloudFootLine(cloud: CloudStatus, now = Date.now()): string {
+  const claude = (cloud.accounts || []).filter((a) => a.engine === 'claude');
+  const back = claude.map((a) => (a.limitedUntil && a.limitedUntil > now ? a.limitedUntil : null));
+  if (cloudIsOn(cloud) && claude.length && back.every(Boolean)) {
+    const at = new Date(Math.min(...(back as number[]))).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(' ', '').toLowerCase();
+    return `Your cloud accounts are at their usage limit until ${at}. Threads run on this Mac until then.`;
+  }
+  return cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now';
+}
+
 /** Where C takes it: off from either kind of on, back on to what "on" means. */
 export function cloudToggleTarget(status: OnOff): CloudMode {
   if (cloudIsOn(status)) return 'mac';
