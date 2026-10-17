@@ -3,4 +3,4 @@ export const NEO_TOOLS: ReadonlyArray<{ type: 'function'; name: string; descript
 export function checkCall(name: string, rawArgs: string): { ok: true; args: Record<string, unknown> } | { ok: false; error: string };
 export function needsYes(optionText: string): boolean;
 export const PACES: Record<'slow' | 'normal' | 'fast' | 'faster', string>;
-export function neoSession(o?: { screen?: string; model?: string; backend?: string; voice?: string; pace?: string }): Record<string, unknown>;
+export function neoSession(o?: { screen?: string; model?: string; backend?: string; voice?: string; pace?: string; engine?: 'decisions' | 'tools' }): Record<string, unknown>;

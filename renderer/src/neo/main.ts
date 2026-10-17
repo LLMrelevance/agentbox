@@ -13,9 +13,10 @@ type NeoBridge = {
   onNoMic(fn: (p: { app?: string | null }) => void): () => void;
   allowMic(): Promise<'granted' | 'settings' | 'refused'>;
   onNotice(fn: (p: { text: string }) => void): () => void;
-  onSide(fn: (p: { side: 'left' | 'right' }) => void): () => void;
+  onSide(fn: (p: { side: 'left' | 'right'; up?: boolean }) => void): () => void;
   startLive(sdp: string, outside: boolean): Promise<{ ok: boolean; sdp?: string; error?: string }>;
   tool(callId: string, name: string, args: string, heard: string): Promise<unknown>;
+  decide(heard: string): Promise<{ say: string }>;
   drag(phase: 'start' | 'move' | 'end', dx?: number, dy?: number): void;
   pace(value?: string): Promise<string>;
   captions(on?: boolean): Promise<boolean>;
@@ -90,6 +91,8 @@ function driverFor(ch: RTCDataChannel) {
     onUsage: (seconds) => { if (channel === ch) neo.usage(seconds); },
     onClosed: () => { if (channel === ch) finish(); },
     onLine: (line) => neo.log(line),
+    // The app decides what she asked for (main/neo/decided.mjs).
+    onDelegate: (_id, heard) => { poke(); return neo.decide(heard); },
   });
 }
 
@@ -174,7 +177,7 @@ function finish() {
 
 neo.onWake(wake);
 // Over the left half of the screen the card sits on the orb's right.
-neo.onSide(({ side }) => root.classList.toggle('left', side === 'left'));
+neo.onSide(({ side, up }) => { root.classList.toggle('left', side === 'left'); root.classList.toggle('up', !!up); });
 neo.onSleep(({ reason }) => sleep(reason));
 neo.onResting(() => { root.classList.add('awake'); say('I have talked for three hours today, so I am resting until tomorrow.'); setTimeout(() => { root.classList.remove('awake'); neo.closed(); }, 5000); });
 // Main hides the window again on its own; this is not a session.

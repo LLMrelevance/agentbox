@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('zero', {
   agentUpdate: (payload) => ipcRenderer.invoke('zero:agent-update', payload),
   snapshot: () => ipcRenderer.invoke('zero:snapshot'),
   refreshUsage: () => ipcRenderer.invoke('zero:refresh-usage'),
+  accountUsage: (payload) => ipcRenderer.invoke('zero:account-usage', payload),
   assistiveTech: () => ipcRenderer.invoke('zero:assistiveTech'),
   olderItems: (payload) => ipcRenderer.invoke('zero:older-items', payload),
   dashboard: (slug) => ipcRenderer.invoke('zero:dashboard', slug),
@@ -304,6 +305,11 @@ contextBridge.exposeInMainWorld('zero', {
     const handler = (_e, payload) => fn(payload);
     ipcRenderer.on('neo:mode', handler);
     return () => ipcRenderer.removeListener('neo:mode', handler);
+  },
+  onNeoOrb: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('neo:orb', handler);
+    return () => ipcRenderer.removeListener('neo:orb', handler);
   },
   // The corner tag's "Turn off…": opens Settings at the switch that does it.
   onOpenSettings: (fn) => {

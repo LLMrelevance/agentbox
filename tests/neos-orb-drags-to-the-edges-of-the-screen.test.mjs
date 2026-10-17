@@ -33,7 +33,7 @@ function fakes() {
     constructor() { this.webContents = neoContents; }
     setAlwaysOnTop() {} setVisibleOnAllWorkspaces() {} setIgnoreMouseEvents() {}
     setBounds(b) { this.bounds = { ...b }; windows.last = this; } getBounds() { return { ...this.bounds }; }
-    on() {} showInactive() {} hide() {} isDestroyed() { return false; }
+    on() {} showInactive() {} hide() {} moveTop() {} isDestroyed() { return false; }
   }
   const neo = createNeo({
     app: { on() {} }, BrowserWindow,
@@ -44,7 +44,7 @@ function fakes() {
     owner: { id: 'com.apple.Terminal', name: 'Terminal' },
     session: { fromPartition: () => ({ setPermissionRequestHandler() {}, setPermissionCheckHandler() {} }) },
     globalShortcut: { register: () => true, unregister() {} },
-    mainWindow: { isDestroyed: () => false, isFocused: () => true, webContents: { send: () => {} } },
+    mainWindow: { isDestroyed: () => false, isFocused: () => true, moveTop: () => {}, getContentBounds: () => ({ x: 0, y: 0, width: 1920, height: 1080 }), on: () => {}, webContents: { send: () => {} } },
     preload: '/x', load: () => {}, userData, listen: () => ({ stop() {} }), platform: 'darwin',
   });
   return { neo, windows, listeners, finishLoad: () => finishLoad?.(), from: { sender: neoContents } };

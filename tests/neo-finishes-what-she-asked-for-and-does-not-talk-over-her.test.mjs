@@ -18,7 +18,7 @@ import { neoSession } from '../shared/neo-tools.mjs';
 
 const session = neoSession({});
 const voice = session.instructions;
-const backend = session.delegation.responses.instructions;
+const backend = neoSession({ engine: 'tools' }).delegation.responses.instructions;
 
 describe('an ask with two halves', () => {
   it('tells the backend to carry on and send after it has opened the thread', () => {

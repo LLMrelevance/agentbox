@@ -40,7 +40,7 @@ html, body { margin: 0; width: 100%; height: 100%; background: transparent; over
 .neo-act:disabled { opacity: .6; cursor: default; }
 
 /* How fast Neo talks: shown while the pointer is on the orb, above it. */
-.neo-pace { position: absolute; right: 12px; top: 26px; display: flex; align-items: center; gap: 2px; padding: 4px 6px;
+.neo-pace { position: absolute; right: 12px; top: 26px; display: flex; align-items: center; gap: 0; padding: 4px 6px;
   background: rgba(46, 34, 27, .92); border: 1px solid rgba(255, 214, 170, .10); box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
   opacity: 0; pointer-events: none; transform: translateY(4px); transition: opacity .2s ease, transform .2s ease; }
 #neo.awake .neo-pace.show { opacity: 1; pointer-events: auto; transform: none; }
@@ -48,8 +48,16 @@ html, body { margin: 0; width: 100%; height: 100%; background: transparent; over
 .neo-pace-name { color: #6e6966; padding: 0 8px 0 4px; }
 .neo-pace button { border: 0; background: transparent; color: #8a837c; padding: 6px 7px; border-radius: 2px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
 .neo-pace button:hover { color: #ece7e1; background: rgba(255, 214, 170, .06); }
+/* THE FOUR SPEEDS ARE ONE STRIP OF JOINED BOXES after the name, the look
+   picked on 2026-10-16 from three (designs/w-5520063011): the one you are on
+   is filled, so the speed reads at a glance without a marker to decode. Only
+   the speeds, so the Captions button past the separator stays its own. */
+.neo-pace button[data-pace] { border: 1px solid rgba(255, 214, 170, .10); border-left-width: 0; background: rgba(46, 34, 27, .9);
+  padding: 6px 9px; border-radius: 0; display: block; }
+.neo-pace button[data-pace]:first-of-type { border-left-width: 1px; }
+.neo-pace button[data-pace]:hover { background: rgba(46, 34, 27, .9); }
+.neo-pace button[data-pace].on { color: #1d140f; background: #e8743a; border-color: #e8743a; }
 .neo-pace button.on { color: #ece7e1; }
-.neo-pace button.on::before { content: ''; width: 5px; height: 5px; background: #f07a3a; display: block; }
 
 /* Over the left half of the screen: orb on the left, card and speed on its right. */
 #neo.left #orb { right: auto; left: 24px; }
@@ -59,3 +67,8 @@ html, body { margin: 0; width: 100%; height: 100%; background: transparent; over
 /* Captions off: Neo only talks. A card that needs her (the microphone, a notice) still shows. */
 #neo.no-captions:not(.must-show) .neo-frame { opacity: 0; pointer-events: none; }
 .neo-pace-sep { width: 1px; height: 14px; background: rgba(255, 214, 170, .14); margin: 0 6px; }
+
+/* In the upper third of the screen: orb at the top, card beside it, speed row below. */
+#neo.up #orb { bottom: auto; top: 24px; }
+#neo.up .neo-frame { top: 99px; }
+#neo.up .neo-pace { top: auto; bottom: 26px; }

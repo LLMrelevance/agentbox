@@ -4631,6 +4631,7 @@ export default function App() {
       return attach ? 'no-pictures' : undefined;
     },
     close: (row) => markDone(row),
+    later: (row, ts, label) => snoozeUntil(row, ts, label),
     compose: async (text, product) => {
       const message = threadMessage(text, []);
       if (!message) return null;
@@ -6685,6 +6686,7 @@ export default function App() {
           tune={tune}
           onSetTune={setTune}
           onResetTune={resetTune}
+          cloud={snap.cloud?.setUp ? snap.cloud : null}
           startPane={settingsPane}
           onNewProject={() => setNewProject(true)}
           // The Priority page: the same running order every project list

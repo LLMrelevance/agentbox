@@ -4,7 +4,8 @@
 // a click outside the pictures, or Neo's "close" puts away.
 import { glowOn } from './glow';
 
-export type Layout = 'in_place' | 'lifted' | 'side_by_side' | 'full_screen' | 'close';
+// `peek` is the one Neo picks by itself: beside the thread, never over it.
+export type Layout = 'in_place' | 'peek' | 'lifted' | 'side_by_side' | 'full_screen' | 'close';
 
 let layer: HTMLElement | null = null;
 let offKey: (() => void) | null = null;
@@ -15,16 +16,19 @@ const sameFile = (src: string) => src.replace(/[?#].*$/, '');
 /**
  * Which pictures Neo counts, and in what order: each file once, the latest
  * message's first in their own order, then older ones newest first. `block`
- * is the message a picture is drawn in, in thread order.
+ * is the message a picture is drawn in, in thread order; `mine` marks one she
+ * pasted herself, which is never the latest agent message's. `latestBlock` is
+ * the agent's latest message: when it has no pictures, none are latest, so an
+ * older message's never stand in for it.
  */
-export function orderPictures(found: { src: string; block: unknown }[]): { order: number[]; srcs: string[]; latest: number } {
+export function orderPictures(found: { src: string; block: unknown; mine?: boolean }[], latestBlock?: unknown): { order: number[]; srcs: string[]; latest: number } {
   if (!found.length) return { order: [], srcs: [], latest: 0 };
-  const last = found[found.length - 1].block;
+  const last = latestBlock ?? [...found].reverse().find((p) => !p.mine)?.block;
   const seen = new Set<string>();
   const latest: number[] = [];
   found.forEach((p, i) => {
     const key = sameFile(p.src);
-    if (p.block === last && !seen.has(key)) { seen.add(key); latest.push(i); }
+    if (!p.mine && last !== undefined && p.block === last && !seen.has(key)) { seen.add(key); latest.push(i); }
   });
   const earlier: number[] = [];
   for (let i = found.length - 1; i >= 0; i--) {
@@ -38,8 +42,44 @@ export function orderPictures(found: { src: string; block: unknown }[]): { order
 export function threadPictures(root: ParentNode = document): { pictures: HTMLImageElement[]; latest: number } {
   const all = [...root.querySelectorAll<HTMLImageElement>('.focus-scroll img.inline-image, .thread-block img.inline-image')]
     .filter((img, i, list) => img.isConnected && !img.closest('.neo-show') && list.indexOf(img) === i);
-  const got = orderPictures(all.map((img) => ({ src: img.getAttribute('src') ?? '', block: img.closest('.thread-block') ?? img.parentElement })));
+  const got = orderPictures(all.map((img) => ({ src: img.getAttribute('src') ?? '', block: img.closest('.thread-block') ?? img.parentElement, mine: !!img.closest('.msg.yours') })), latestAgentBlock(root));
   return { pictures: got.order.map((i) => all[i]), latest: got.latest };
+}
+
+/**
+ * The films and sounds the open thread draws (components/Focus.tsx
+ * ArtifactMedia), numbered the way the pictures are: the agent's latest
+ * message first, then earlier ones newest first. In document order "the
+ * video" was the oldest film in the thread, and "Can you play the video for
+ * me" played one from the top of a long conversation.
+ */
+export function orderMedia(found: { block: unknown; mine?: boolean }[], latestBlock?: unknown): number[] {
+  if (found.length < 2) return found.map((_, i) => i);
+  const last = latestBlock ?? [...found].reverse().find((f) => !f.mine)?.block;
+  const latest: number[] = [];
+  const earlier: number[] = [];
+  found.forEach((f, i) => (f.block === last ? latest : earlier).push(i));
+  return [...latest, ...earlier.reverse()];
+}
+
+export function threadMedia(root: ParentNode = document): HTMLElement[] {
+  const all = [...root.querySelectorAll<HTMLElement>('.inline-media')].filter((el) => el.isConnected);
+  const found = all.map((el) => ({ block: el.closest('.thread-block') ?? el.parentElement, mine: !!el.closest('.msg.yours') }));
+  return orderMedia(found, latestAgentBlock(root)).map((i) => all[i]);
+}
+
+function latestAgentBlock(root: ParentNode): Element | undefined {
+  const blocks = [...root.querySelectorAll('.focus-scroll .thread-block')].filter((b) => b.querySelector('.msg:not(.yours)'));
+  return blocks.at(-1);
+}
+
+/** The latest message's files (components/MessageFiles.tsx), the tiles that open one beside the thread. */
+export function latestFiles(root: ParentNode = document): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>('.focus-scroll .message-file')].filter((b) => b.isConnected && !b.closest('.neo-show'));
+}
+
+export function fileName(tile: HTMLElement, n: number): string {
+  return tile.querySelector('.message-file-name')?.textContent?.trim() || `file ${n}`;
 }
 
 export function pictureName(img: HTMLImageElement, n: number): string {
@@ -69,6 +109,7 @@ export async function show(numbers: number[], layout: Layout): Promise<boolean> 
   }
 
   const many = layout === 'lifted' ? chosen.slice(0, 1) : chosen;
+  const peek = layout === 'peek';
   layer = document.createElement('div');
   layer.className = `neo-show neo-show-${layout.replace(/_/g, '-')}`;
   const row = document.createElement('div');

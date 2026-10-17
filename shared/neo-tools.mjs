@@ -17,10 +17,12 @@ export const NEO_TOOLS = [
   { type: 'function', name: 'pick_option', description: 'Pick one of the numbered options on a thread, as if the person pressed its number. Some picks (merge, ship, deploy, delete) come back asking for a yes; ask the person, and call again with confirmed true only after they clearly say yes.', parameters: obj({ id, n: { type: 'integer', minimum: 1, maximum: 9 }, confirmed: { type: 'boolean' } }, ['id', 'n']) },
   { type: 'function', name: 'reply', description: 'Send the person\'s reply to the agent on a thread. text is their own words exactly as they said them, every sentence of what they want sent, never summarised or reworded. Only when the person asks to send, tell, write or put something in the thread; a request to do something on screen is never a reply.', parameters: obj({ id, text: { type: 'string', minLength: 1 }, attach: { type: 'boolean', description: 'Leave this out and a picture in the reply box goes with the words. false only when the person says it should not go; true when they name it ("with the image", "include the screenshot").' } }, ['id', 'text']) },
   { type: 'function', name: 'close_thread', description: 'Close a thread the person is done with.', parameters: obj({ id }, ['id']) },
-  { type: 'function', name: 'new_thread', description: 'Start a new thread with the person\'s words as the task. Use when they describe new work or an idea. text is their own words exactly as they said them, all of the ask and never summarised, including who or what it is for.', parameters: obj({ text: { type: 'string', minLength: 1 }, project: { type: 'string', description: 'Project name, only if the person named one. Leave it out otherwise; do not guess.' } }, ['text']) },
+  { type: 'function', name: 'new_thread', description: 'Start a new thread with the person\'s words as the task. Only when they ask for new work in words ("new task", "start a thread"); feedback and notes are replies on an existing thread. text is their own words exactly as they said them, all of the ask and never summarised, including who or what it is for.', parameters: obj({ text: { type: 'string', minLength: 1 }, project: { type: 'string', description: 'Project name, only if the person named one. Leave it out otherwise; do not guess.' } }, ['text']) },
   { type: 'function', name: 'media', description: 'Play or pause a film or sound in the open thread ("show me the video", "play it", "stop"). n counts them in the order get_screen lists them; leave it out for the first.', parameters: obj({ action: { type: 'string', enum: ['play', 'pause'] }, n: { type: 'integer', minimum: 1, maximum: 9 } }, ['action']) },
+  { type: 'function', name: 'later', description: 'Put a thread off until later ("snooze it for ten minutes", "later until tomorrow at 9"): give minutes from now, or at as a local date and time like 2026-10-17T09:00. It leaves the inbox until then.', parameters: obj({ id, minutes: { type: 'integer', minimum: 1, maximum: 86400 }, at: { type: 'string', minLength: 10 } }, ['id']) },
   { type: 'function', name: 'find_commands', description: `Search everything ${Name}'s command menu (⌘K) can do, by a few words ("pause agents", "board", "settings", "later"). Returns the matching commands with their ids. Use for anything the other tools do not cover.`, parameters: obj({ query: { type: 'string', minLength: 1 } }, ['query']) },
-  { type: 'function', name: 'run_command', description: 'Run one command by the id find_commands gave. Some (pausing agents, closing, approving, restarting, taking a thread out of the inbox) come back asking for a yes; ask, and call again with confirmed true only after a clear yes. Some only put a card on screen for the person to finish, and say so: pass that on as it is, naming the thread, and never call it done.', parameters: obj({ id: { type: 'string', minLength: 1 }, confirmed: { type: 'boolean' } }, ['id']) },
+  { type: 'function', name: 'run_command', description: 'Run one command by the id find_commands gave. Some (pausing agents, closing, approving, restarting) come back asking for a yes; ask, and call again with confirmed true only after a clear yes. Some only put a card on screen for the person to finish, and say so: pass that on as it is, and never call it done.', parameters: obj({ id: { type: 'string', minLength: 1 }, confirmed: { type: 'boolean' } }, ['id']) },
+  { type: 'function', name: 'go_back', description: 'Go back to the thread the person was on before Neo moved them ("go back", "back to the JARVIS one").', parameters: obj() },
   { type: 'function', name: 'scroll', description: 'Scroll what the person is reading ("scroll up, I can\'t see that", "go to the bottom").', parameters: obj({ where: { type: 'string', enum: ['up', 'down', 'top', 'bottom'] } }, ['where']) },
   { type: 'function', name: 'show', description: 'Show pictures from the open thread, numbered as get_screen lists them: in_place scrolls to one and lights it up; lifted brings one up over the app; side_by_side compares two to four; full_screen fills the screen. layout close puts them away.', parameters: obj({ pictures: { type: 'array', items: { type: 'integer', minimum: 1, maximum: 9 }, minItems: 1, maxItems: 4 }, layout: { type: 'string', enum: ['in_place', 'lifted', 'side_by_side', 'full_screen', 'close'] } }, ['layout']) },
   { type: 'function', name: 'undo', description: `Undo the last thing done in ${Name}, by Neo or the person.`, parameters: obj() },
@@ -81,7 +83,9 @@ When the person says they are done, delegate so the conversation can end.`;
 const BACKEND_INSTRUCTIONS = `You carry out the person's requests in ${Name} using the tools.
 Call get_screen first when you need to know which thread is meant; use the ids it returns, never guess one.
 "Next", "skip" and "what's next" mean next_thread. "One", "option two", "go with the second" mean pick_option on the open thread; the person naming the option is their yes.
+"Feedback" is a reply, never a new thread: feedback about Neo or JARVIS goes to the thread titled with JARVIS or Neo (get_screen lists it under Also open), any other feedback to the open thread or the one they name. Say which thread before sending. Start a new thread only when they ask for new work in words.
 "Put this in this chat", "tell the agent", "send that", "write that here" mean reply on the open thread. The text is the person's own words exactly as they said them, word for word, all of what they asked to send: never summarise, shorten or reword it.
+"Snooze", "later", "remind me", "put it off" mean later, with the minutes or the time she said.
 "Show me the video", "play it", "stop it" mean media on the open thread.
 new_thread takes all of the person's words for the task, word for word and never summarised, including who or what the work is for: a name at the end of the ask ("for the site", "for that repo") says whose work it is and is never dropped. Pass project only when they named one.
 A picture in the person's reply box goes with the words by itself, so leave attach out. Pass attach true only when they name the picture ("with the image", "send the screenshot I pasted"), and attach false only when they say the picture should not go.
@@ -106,16 +110,26 @@ export const PACES = {
   faster: 'Speak very fast, much faster than your usual pace, like an auctioneer but still clear.',
 };
 
-export function neoSession({ model = 'gpt-live-1', backend = 'gpt-5.6-luna', voice, pace } = {}) {
+// With the app deciding (plans/neo-decisions.md), the voice hands every
+// request to the app and says what comes back.
+const CLIENT_NOTE = `The app decides and does what the person asks; you hand every request to it by delegating, then say what it tells you in a few words, as yours. Say nothing it did not tell you. When it starts with "Done.", say just "Done." and never what was done, then brief what it says is open now.`;
+
+/**
+ * `engine`: 'decisions' (default) hands each request to the app, which picks
+ * with the Decisions API (main/neo/decided.mjs); 'tools' is the earlier way,
+ * a Responses model holding NEO_TOOLS, kept as the way back.
+ */
+export function neoSession({ model = 'gpt-live-1', backend = 'gpt-5.6-luna', voice, pace, engine = 'decisions' } = {}) {
   const paced = Object.hasOwn(PACES, pace) ? PACES[pace] : '';
+  const client = engine !== 'tools';
+  const said = [VOICE_INSTRUCTIONS, client ? CLIENT_NOTE : '', paced].filter(Boolean).join('\n');
   return {
     model,
-    instructions: paced ? `${VOICE_INSTRUCTIONS}\n${paced}` : VOICE_INSTRUCTIONS,
+    instructions: said,
     ...(voice ? { audio: { output: { voice } } } : {}),
     store: false,
-    delegation: {
-      type: 'responses',
-      responses: { model: backend, instructions: BACKEND_INSTRUCTIONS, tools: NEO_TOOLS, tool_choice: 'auto', parallel_tool_calls: false },
-    },
+    delegation: client
+      ? { type: 'client' }
+      : { type: 'responses', responses: { model: backend, instructions: BACKEND_INSTRUCTIONS, tools: NEO_TOOLS, tool_choice: 'auto', parallel_tool_calls: false } },
   };
 }

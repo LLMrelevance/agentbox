@@ -20,7 +20,7 @@ import { neoSession, NEO_TOOLS } from '../shared/neo-tools.mjs';
 
 const session = neoSession({});
 const voice = session.instructions;
-const backend = session.delegation.responses.instructions;
+const backend = neoSession({ engine: 'tools' }).delegation.responses.instructions;
 const newThread = NEO_TOOLS.find((t) => t.name === 'new_thread');
 
 const open = { id: 'w-b3a', product: 'p1', productName: 'Agentbox Team', title: 'Account status display', status: 'open' };

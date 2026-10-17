@@ -54,3 +54,37 @@ describe('what Neo is told about them', () => {
     expect(describeScreen(deps(['n1.png'], 1))).not.toMatch(/Earlier/);
   });
 });
+
+// "Screenshots may be getting shown on screen ... but they end up blocking the
+// screen entirely" (2026-10-16). Neo lifted her own pasted screenshot of the
+// app over the app. Her own pictures are never the "latest message's".
+describe('her own pasted pictures', () => {
+  it('are not what Neo puts up: the latest agent message\'s pictures are', () => {
+    const got = orderPictures([pic('design.png', 1), { src: 'attachments/pasted-1.png', block: 2, mine: true }]);
+    expect(got.order.map((i) => got.srcs[i])).toEqual(['design.png', 'attachments/pasted-1.png']);
+    expect(got.latest).toBe(1);
+  });
+
+  it('a thread whose only pictures are hers has none to put up', () => {
+    expect(orderPictures([{ src: 'attachments/pasted-1.png', block: 1, mine: true }]).latest).toBe(0);
+  });
+});
+
+// "Whenever Neo puts up pictures she picks the first in the thread, super
+// outdated. almost always we're only talking about the most recent message
+// tho, esp regarding artifacts, like 99% of the time" (her words,
+// 2026-10-16). The latest message held a design page and no pictures, so
+// "latest" fell back to the last message that had pictures, far up the thread.
+describe('the latest message is the latest message', () => {
+  it('when the agent\'s latest message has no pictures, none count as latest', () => {
+    const got = orderPictures([pic('storyboard.jpg', 1), pic('options2.jpg', 1)], 9);
+    expect(got.latest).toBe(0);
+    expect(got.order).toHaveLength(2);
+  });
+
+  it('pictures in the agent\'s latest message are the latest', () => {
+    const got = orderPictures([pic('old.jpg', 1), pic('new.jpg', 9)], 9);
+    expect(got.order.map((i) => got.srcs[i])).toEqual(['new.jpg', 'old.jpg']);
+    expect(got.latest).toBe(1);
+  });
+});
