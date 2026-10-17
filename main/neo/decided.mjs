@@ -132,7 +132,11 @@ async function decideTurn({ heard, askMain, state, decideImpl = decide, now = Da
   // Not an action: the voice answers, knowing what is on screen and what was said.
   if (TALK.has(picked.act.kind)) {
     const other = list.find((o) => o.value === r.runnersUp?.[0]?.value && !TALK.has(o.act.kind));
-    if (unsure && other) return { say: `Not sure whether the person wants something done. If it sounds like it, ask in a few words: ${other.description}? Otherwise answer them yourself.`, ...meta };
+    if (unsure && other) {
+      // Her "yes" to the question does it.
+      state.pending = { option: other, heard, about: other.description, openId: screen.open?.id ?? null };
+      return { say: `Not sure whether the person wants something done. If it sounds like it, ask in a few words: ${other.description}? Otherwise answer them yourself.`, ...meta };
+    }
     return { say: HAND_BACK, ...meta };
   }
   const ctx = { heard, askMain, state, now, compose, history, screen, memory, rememberWith };
