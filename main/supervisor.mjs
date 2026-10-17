@@ -43,7 +43,7 @@ import { cloudWorkPending, readMarker } from './cloud/marker.mjs';
 import { ownDesignsFit } from './cloud/docs.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
 import { readCloudConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
-import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey } from './cloud/logins.mjs';
+import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits } from './cloud/logins.mjs';
 import { execFileSync } from 'node:child_process';
 import { holdUntilHome } from './cloud/codex-cloud.mjs';
 import { readCloudUsage, summarizeCloudUsage } from './cloud/usage.mjs';
@@ -86,7 +86,7 @@ function whoHasIt(made) {
 }
 import { agentSpokeSince, answerSettled, answerTs, stoppedByHer } from '../shared/answers.mjs';
 import { DEFAULT_SESSIONS_AT_ONCE } from './config.mjs';
-import { toolingLine } from './account-tooling.mjs';
+import { accountIdentity, nameForOrganization, toolingLine } from './account-tooling.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
 import { writeChangeForRun, changePath } from './code-change.mjs';
@@ -4180,13 +4180,45 @@ export class Supervisor {
   _cloudAccounts() {
     const now = Date.now();
     const out = [];
+    let here = null;
     for (const engine of [DEFAULT_ENGINE, 'codex']) {
       listCloudLogins(engine, { home: this.config.home }).forEach((r) => {
         const state = cloudLoginState(r, { now });
-        out.push({ engine, key: r.key, name: r.email || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null, limitedUntil: r.limitedUntil ?? null });
+        // A Claude login in the cloud can say its organization, not its email.
+        here ??= this._profiles().map((p) => accountIdentity(p === 'default' ? null : p, { home: this.config.home || os.homedir() }));
+        const name = r.email || (engine === DEFAULT_ENGINE ? nameForOrganization(r.org, here) : null);
+        out.push({
+          engine, key: r.key, name: name || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null,
+          limitedUntil: r.limitedUntil ?? null, limits: cloudLimits(r.limits), readAt: r.readAt ?? null,
+        });
       });
     }
     return out;
+  }
+
+  /**
+   * THE CLOUD'S CLAUDE LOGINS LOOKED AT, one at a time, each at most every ten
+   * minutes unless `force`, for the Settings page. Each look is a sandbox
+   * session and one tiny reply on that login (main/cloud/logins.mjs).
+   */
+  async lookAtCloudLogins({ force = false } = {}) {
+    if (this._cloudLooking || !readCloudConfig(process.env, this.config.home)) return;
+    const now = Date.now();
+    const due = listCloudLogins(DEFAULT_ENGINE, { home: this.config.home })
+      .filter((r) => !r.broken && (force || !r.readAt || now - r.readAt > 10 * 60_000));
+    if (!due.length) return;
+    this._cloudLooking = true;
+    try {
+      const { transport, storage } = await this._cloudClients();
+      for (const r of due) {
+        await lookAtCloudLogin({ transport, storage, key: r.key, home: this.config.home }).catch(() => 'failed');
+        this.onChange?.();
+      }
+    } catch (e) {
+      console.warn('zero: could not look at the cloud sign-ins:', e.message);
+    } finally {
+      this._cloudLooking = false;
+    }
   }
 
   // The sign-ins going on, or just ended, for the setup screen to draw.

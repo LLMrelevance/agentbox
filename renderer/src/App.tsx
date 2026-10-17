@@ -4631,6 +4631,7 @@ export default function App() {
     rows: () => shownInbox,
     commands: () => paletteCommands.current,
     threadsAnywhere: () => [...inbox, ...progress, ...snoozed, ...done],
+    threadById: (id) => items.find((i) => i.id === id) ?? null,
     focused: () => focused,
     options: (row) => (offerIsLive(row) ? itemOptions(row) : []),
     summary: (row) => row.result || row.note || row.body || '',

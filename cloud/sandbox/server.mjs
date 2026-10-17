@@ -566,7 +566,39 @@ export function createSandbox({
     note(r, `check ${out.code === 0 && /ok/i.test(out.stdout) ? 'answered' : `failed (exit ${out.code}): ${shape(out.output)}`} in ${Date.now() - checkAt} ms`);
     if (out.code !== 0 || !/ok/i.test(out.stdout)) return failSignin(r, 'Claude refused the new sign-in; nothing was kept.');
     const email = await Promise.resolve(whoIs(token, fetchImpl)).catch(() => null);
-    await saveLogin(r, { engine: 'claude', token, savedAt: Date.now() }, { expiresAt: null, email: typeof email === 'string' ? email : null });
+    const seen = await lookAt(r, token).catch(() => null);
+    await saveLogin(r, { engine: 'claude', token, savedAt: Date.now() }, {
+      expiresAt: null, email: typeof email === 'string' ? email : null, org: seen?.org ?? null, limits: seen?.limits ?? [],
+    });
+  }
+
+  // One tiny reply on the token, its headers read. Its output also carries the
+  // request and the token, so it is read here and never noted or sent.
+  async function lookAt(r, token) {
+    const dir = await scratchFor(r, 'look');
+    const out = await quiet(['claude', '-p', 'Reply with the single word: ok', '--max-turns', '1', '--model', 'haiku'], {
+      cwd: dir, env: ownEnv({ CLAUDE_CODE_OAUTH_TOKEN: token, CLAUDE_CONFIG_DIR: dir, ANTHROPIC_LOG: 'debug' }), timeoutMs: 120_000,
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+    return readReplyHeaders(out.output);
+  }
+
+  // A SAVED CLAUDE LOGIN LOOKED AT, for the Mac to name it and draw its usage.
+  // Ends 'saved' with what was read, or 'failed'; nothing is kept.
+  async function look(r) {
+    setState('looking', {}, r);
+    let login = null;
+    try {
+      const res = await fetchImpl(r.spec.loginUrl);
+      if (res.ok) login = JSON.parse(Buffer.from(await res.arrayBuffer()).toString('utf8'));
+    } catch { /* read as missing */ }
+    if (!login?.token) return failSignin(r, 'The Claude sign-in could not be reached.');
+    const seen = await lookAt(r, login.token).catch(() => null);
+    forget(r);
+    if (!seen) return failSignin(r, 'Claude did not say whose account this is.');
+    note(r, 'looked');
+    signinEvent(r, 'saved', { org: seen.org, limits: seen.limits });
+    setState('collected', {}, r);
   }
 
   async function finishCodex(r) {
@@ -909,7 +941,7 @@ export function createSandbox({
       if (!run) return { ok: true, state: 'none' };
       return { ok: true, runId: run.id, state: run.state, seq: run.log.index.length, inSeq: run.inSeq, exitCode: run.exitCode ?? null, manifest: run.manifest || null };
     }
-    if (action === 'signin' || action === 'renew') {
+    if (action === 'signin' || action === 'renew' || action === 'look') {
       if (run && run.id === req.runId) return { ok: true, already: true, state: run.state, seq: run.log.index.length };
       if (run && !DONE_STATES.has(run.state)) return { ok: false, error: 'busy', runId: run.id };
       const problem = invalidSignin(action, req);
@@ -924,7 +956,7 @@ export function createSandbox({
       openLog(r);
       run = r;
       setState('preparing', {}, r);
-      if (action === 'signin') startSignin(r); else renew(r);
+      if (action === 'signin') startSignin(r); else if (action === 'look') look(r); else renew(r);
       return { ok: true, seq: r.log.index.length };
     }
     if (action === 'start') {
@@ -1099,8 +1131,33 @@ export function createSandbox({
 
 /* -------------------------------- helpers --------------------------------- */
 
+/**
+ * WHOSE ACCOUNT A TOKEN IS, AND HOW MUCH OF IT IS LEFT, off a reply's own
+ * headers as Claude Code prints them under ANTHROPIC_LOG=debug. A setup-token
+ * token cannot read its own profile, but every reply names its organization
+ * and carries the session (5h) and week (7d) usage. The newest reply wins.
+ * Null when the text holds none of it.
+ */
+export function readReplyHeaders(text) {
+  const s = String(text ?? '');
+  const last = (name) => {
+    let v = null;
+    for (const m of s.matchAll(new RegExp(`"${name}"\\s*:\\s*"([^"]+)"`, 'gi'))) v = m[1];
+    return v;
+  };
+  const org = last('anthropic-organization-id');
+  const limits = [['5h', 'session'], ['7d', 'week']].flatMap(([key, span]) => {
+    const used = last(`anthropic-ratelimit-unified-${key}-utilization`);
+    if (used == null || !Number.isFinite(Number(used))) return [];
+    const reset = Number(last(`anthropic-ratelimit-unified-${key}-reset`));
+    return [{ span, percent: Math.round(Number(used) * 100), resetsAt: Number.isFinite(reset) && reset > 0 ? reset * 1000 : null }];
+  });
+  return org || limits.length ? { org, limits } : null;
+}
+
 function invalidSignin(action, req) {
   if (!req.runId || typeof req.runId !== 'string') return 'runId is required';
+  if (action === 'look') return req.engine === 'claude' && req.loginUrl ? null : 'a look is at a Claude login, by its link';
   if (!req.saveUrl) return 'saveUrl is required';
   if (action === 'signin' && !['claude', 'codex'].includes(req.engine)) return 'engine must be claude or codex';
   if (action === 'renew' && (req.engine !== 'codex' || !req.loginUrl)) return 'a renewal is for a Codex login, by its link';
