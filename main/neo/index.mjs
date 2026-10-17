@@ -16,7 +16,7 @@ import { decide, composeReply, composeMemory } from './decide.mjs';
 import { runDecision } from './decided.mjs';
 import { openMemory } from './memory.mjs';
 import { buildOptions } from '../../shared/neo-options.mjs';
-import { checkCall, contextNote, neoSession, PACES } from '../../shared/neo-tools.mjs';
+import { checkCall, contextNote, neoSession, PACES, VOICES } from '../../shared/neo-tools.mjs';
 import { Name } from '../../shared/product-name.mjs';
 
 const WIDTH = 600;
@@ -421,6 +421,13 @@ export function createNeo({
   ipcMain.handle('neo:pace', (_e, pace) => {
     if (typeof pace === 'string' && Object.hasOwn(PACES, pace)) writePrefs({ pace });
     return Object.hasOwn(PACES, readPrefs().pace ?? '') ? readPrefs().pace : 'normal';
+  });
+
+  // Which voice Neo speaks in, from the next session on (Settings › Neo).
+  // Marin until one of the ten is picked; asked with no value, it answers.
+  ipcMain.handle('neo:voice', (_e, voice) => {
+    if (typeof voice === 'string' && VOICES.includes(voice)) writePrefs({ voice });
+    return VOICES.includes(readPrefs().voice) ? readPrefs().voice : VOICES[0];
   });
 
   // Whether Neo's words show on the card or it only talks. Asked with no value, it answers.
