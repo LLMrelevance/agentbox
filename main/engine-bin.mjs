@@ -290,6 +290,9 @@ export function shellRunner(env = process.env) {
         // sit waiting for input, and this runs on the boot path.
         stdio: ['ignore', 'pipe', 'ignore'],
         timeout,
+        // Not SIGTERM: a shell's exit hook can wait forever on it, and this
+        // spawn blocks the whole app until the shell has exited (2026-10-16).
+        killSignal: 'SIGKILL',
         env,
       });
     } catch (e) {

@@ -25,6 +25,9 @@ it('draws the hand-back as one step that says the thread moved', () => {
   const moved = nodes.filter((n) => n.verb === 'moved');
   expect(moved).toHaveLength(1);
   expect(activitySummary(moved)).toBe('Moved to this Mac');
+  // Folded with the steps before it, it still says where (seen in a real run
+  // as "Ran commands, moved").
+  expect(activitySummary(nodes.filter((n) => n.kind === 'work'))).toBe('Read files, moved to this Mac');
   expect(nodes.some((n) => /AGENTBOX|needs the computer/.test(`${n.text ?? ''} ${n.verb ?? ''} ${n.subject ?? ''}`))).toBe(false);
 });
 
