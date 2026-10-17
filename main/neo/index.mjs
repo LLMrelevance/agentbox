@@ -329,7 +329,7 @@ export function createNeo({
     const guarded = (name, args, said) => (live && gen === generation ? askMain(name, args, said) : Promise.resolve({ ok: false, status: 'refused', said: 'Neo has signed off, so that was not done.' }));
     try {
       const r = await runDecision({ heard, askMain: guarded, state: decisionState, decideImpl, now, answer: answerImpl, compose: composeImpl, history: said.slice(), memory, rememberWith: rememberImpl });
-      writeTalk(file, 'decision', `picked ${r.choice ?? '?'} (${r.confidence?.toFixed?.(2) ?? '?'}) in ${r.ms ?? '?'} ms -> ${r.say || '(nothing)'}`);
+      writeTalk(file, 'decision', `picked ${r.choice ?? '?'} (${r.confidence?.toFixed?.(2) ?? '?'}) in ${r.ms ?? '?'} ms${r.kept ? `, kept "${r.kept}"` : ''} -> ${r.say || '(nothing)'}`);
       if (r.signoff) { generation++; ending = true; setTimeout(() => { if (live) win?.webContents.send('neo:sleep', { reason: 'asked' }); }, 1500); }
       return { say: r.say ?? '' };
     } catch (err) {
