@@ -33,6 +33,8 @@ describe('the review thread', () => {
     const [[kind, made]] = t.calls;
     expect(kind).toBe('compose');
     expect(made.product).toBe('agentbox');
+    // Her talk with Neo is hers, in a project the team may share.
+    expect(made.visibility).toBe('private');
     expect(made.body).toMatch(/listen in on our conversations/);
     expect(made.body).toMatch(/exact words/i);
     expect(made.body).toMatch(/Full screen the picture\./);

@@ -61,6 +61,8 @@ export async function fileReview({ files, seconds, product, channels, stateFile,
   }
   const made = await channels.get('zero:compose')({ sender: null }, {
     product, title: `Neo beta: review what was said and patch it`, body: `${BRIEF}\n\n---\n\n${said}`, kind: 'directive', priority: 7,
+    // Her own words to Neo: never the team's to read, whoever the project is shared with.
+    visibility: 'private',
   });
   if (made?.id) fs.writeFileSync(stateFile, JSON.stringify({ product, id: made.id, since: state.since ?? at }));
   return 'made';
