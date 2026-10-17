@@ -114,10 +114,12 @@ Do not delegate a question the conversation already answers: a follow-up on what
  * with the Decisions API (main/neo/decided.mjs); 'tools' is the earlier way,
  * a Responses model holding NEO_TOOLS, kept as the way back.
  */
-export function neoSession({ model = 'gpt-live-1', backend = 'gpt-5.6-luna', voice, pace, engine = 'decisions' } = {}) {
+export function neoSession({ model = 'gpt-live-1', backend = 'gpt-5.6-luna', voice, pace, engine = 'decisions', remembered = '' } = {}) {
   const paced = Object.hasOwn(PACES, pace) ? PACES[pace] : '';
   const client = engine !== 'tools';
-  const said = [VOICE_INSTRUCTIONS, client ? CLIENT_NOTE : '', paced].filter(Boolean).join('\n');
+  // Last, so the person's own standing instructions are the newest thing said
+  // rather than a paragraph buried in the habits (shared/neo-memory.mjs).
+  const said = [VOICE_INSTRUCTIONS, client ? CLIENT_NOTE : '', paced, String(remembered ?? '').trim()].filter(Boolean).join('\n');
   return {
     model,
     instructions: said,

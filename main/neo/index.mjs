@@ -12,8 +12,9 @@ import { neoEnabled } from './gate.mjs';
 import { startLive } from './live.mjs';
 import { listenForDoubleCommand } from './cmd-tap.mjs';
 import { getMic, micOwner } from './mic.mjs';
-import { decide, answerQuestion, composeReply } from './decide.mjs';
+import { decide, answerQuestion, composeReply, composeMemory } from './decide.mjs';
 import { runDecision } from './decided.mjs';
+import { openMemory } from './memory.mjs';
 import { buildOptions } from '../../shared/neo-options.mjs';
 import { checkCall, neoSession, PACES } from '../../shared/neo-tools.mjs';
 import { Name } from '../../shared/product-name.mjs';
@@ -42,6 +43,7 @@ export function createNeo({
   decideImpl = decide,
   answerImpl = answerQuestion,
   composeImpl = composeReply,
+  rememberImpl = composeMemory,
 }) {
   const on = neoEnabled({ userData, platform });
   ipcMain.handle('neo:enabled', () => on);
@@ -52,6 +54,9 @@ export function createNeo({
   const usageFile = path.join(dir, 'usage.json');
   // Where she dragged the orb and how fast she wants Neo to talk.
   const prefsFile = path.join(dir, 'prefs.json');
+  // What Neo keeps between sessions: the instructions written on the Neo page
+  // in Settings, and the lines it was told to remember (./memory.mjs).
+  const memory = openMemory({ dir, now });
   const readPrefs = () => { try { const p = JSON.parse(fs.readFileSync(prefsFile, 'utf8')); return p && typeof p === 'object' ? p : {}; } catch { return {}; } };
   const writePrefs = (change) => { try { fs.writeFileSync(prefsFile, JSON.stringify({ ...readPrefs(), ...change })); } catch {} };
   const readUsage = () => {
@@ -251,7 +256,7 @@ export function createNeo({
     // given to the session (shared/neo-tools.mjs neoSession says why).
     await askMain('describe_screen', { outside: !!outside });
     try {
-      const answer = await startLiveImpl({ sdp, session: neoSession({ pace: readPrefs().pace, engine: engine() }) });
+      const answer = await startLiveImpl({ sdp, session: neoSession({ pace: readPrefs().pace, engine: engine(), remembered: memory.remembered() }) });
       log('session started');
       return { ok: true, sdp: answer.sdp };
     } catch (err) {
@@ -323,7 +328,7 @@ export function createNeo({
     const file = talkFile;
     const guarded = (name, args, said) => (live && gen === generation ? askMain(name, args, said) : Promise.resolve({ ok: false, status: 'refused', said: 'Neo has signed off, so that was not done.' }));
     try {
-      const r = await runDecision({ heard, askMain: guarded, state: decisionState, decideImpl, now, answer: answerImpl, compose: composeImpl, history: said.slice() });
+      const r = await runDecision({ heard, askMain: guarded, state: decisionState, decideImpl, now, answer: answerImpl, compose: composeImpl, history: said.slice(), memory, rememberWith: rememberImpl });
       writeTalk(file, 'decision', `picked ${r.choice ?? '?'} (${r.confidence?.toFixed?.(2) ?? '?'}) in ${r.ms ?? '?'} ms -> ${r.say || '(nothing)'}`);
       if (r.signoff) { generation++; ending = true; setTimeout(() => { if (live) win?.webContents.send('neo:sleep', { reason: 'asked' }); }, 1500); }
       return { say: r.say ?? '' };
@@ -414,6 +419,22 @@ export function createNeo({
   ipcMain.handle('neo:captions', (_e, on) => {
     if (typeof on === 'boolean') writePrefs({ captions: on });
     return readPrefs().captions !== false;
+  });
+
+  // THE NEO PAGE IN SETTINGS (w-6a1c405642). One door for the whole document:
+  // asked with nothing it reads, and every change answers with the document
+  // as it now is, so the page never draws a guess at what was saved.
+  ipcMain.handle('neo:memory', (_e, change = {}) => {
+    try {
+      const c = change && typeof change === 'object' ? change : {};
+      if (typeof c.instructions === 'string') memory.setInstructions(c.instructions);
+      if (typeof c.add === 'string') memory.add(c.add);
+      if (typeof c.forget === 'string') memory.forget(c.forget);
+      return { ok: true, ...memory.read() };
+    } catch (err) {
+      log(`memory failed ${err.message}`);
+      return { ok: false, error: err.message, ...memory.read() };
+    }
   });
 
   ipcMain.on('neo:clickable', (e, on) => {

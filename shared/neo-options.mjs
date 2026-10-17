@@ -19,7 +19,8 @@ const q = (s) => {
 
 /**
  * `screen`: { open: { id, title, options:[{n,text}], pictures:[{n,name}], films:[{n,name,earlier?}], files:[{n,name}] } | null,
- *             rows: [{ id, title }] (top first), commands: [{ id, label, hint? }], canGoBack }
+ *             rows: [{ id, title }] (top first), commands: [{ id, label, hint? }], canGoBack,
+ *             memories: [{ id, text }] (what Neo already remembers) }
  * Returns { version, list: [{ value, description, act }] }.
  */
 export function buildOptions(screen) {
@@ -57,6 +58,13 @@ export function buildOptions(screen) {
     add(`scroll:${where}`, `Scroll ${words} in what the person is reading`, { kind: 'scroll', where });
   }
   add('new', 'Start a new thread with new work the person describes', { kind: 'new' });
+  // WHAT NEO KEEPS AFTER THE CONVERSATION (shared/neo-memory.mjs). One option
+  // for keeping anything, rather than a rule in the code for each kind of
+  // preference somebody might have.
+  add('remember', 'Keep something the person wants Neo to remember for good: how they want Neo to work, something to always or never do, what to call them, a fact about them or their work ("remember that…", "never do X again", "from now on always…")', { kind: 'remember' });
+  const memories = screen.memories ?? [];
+  for (const m of memories) add(`forget:${m.id}`, `Stop remembering: ${q(m.text)}`, { kind: 'forget', id: m.id });
+  if (memories.length) add('remembered', 'Say what Neo remembers about the person and how they want things done ("what do you remember", "what are your instructions")', { kind: 'remembered' });
   add('undo', 'Undo the last thing done', { kind: 'undo' });
   add('signoff', 'End the conversation with Neo', { kind: 'signoff' });
   add('talk', 'The person is talking to Neo about Neo itself: correcting it, complaining about what it just did, explaining a mistake. This is not words for the agent. Feedback the person asks Neo to give, send or pass on is a reply, not this', { kind: 'talk' });
