@@ -28,6 +28,8 @@ export type NeoDeps<R extends NeoRow> = {
   outside(): boolean;
   options(row: R): { n: number; text: string }[];
   summary(row: R): string;
+  // What the task is for (the summary's context), so Neo can say it before the latest news.
+  about?(row: R): string;
   projects(): { slug: string; name: string }[];
   open(row: R): Promise<unknown> | unknown;
   // 'asked' when the app stopped to ask its own question instead.
@@ -135,6 +137,8 @@ export const spoken = (s: string) => s
   .replace(/!\[([^\]]*)\]\([^)]*\)/g, (_m, alt) => `[picture${alt ? `: ${alt}` : ''}]`)
   .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
   .replace(/[*_`#>]+/g, '')
+  // Read aloud, an id is noise she has to talk over ("W-ce 8c 1a9275").
+  .replace(/\b[wr]-[0-9a-f]{6,}(?:-\d+)?\b/gi, 'another thread')
   .replace(/\s+/g, ' ')
   .trim();
 const nameOf = (r: NeoRow) => (r.label?.trim() || r.title || '').replace(/\s+/g, ' ').replace(/[.!]+$/, '');
@@ -163,11 +167,13 @@ export function describeScreen<R extends NeoRow>(deps: NeoDeps<R>): string {
 /** The open thread alone: what a question about it is answered from, without the inbox. */
 export function describeOpen<R extends NeoRow>(deps: NeoDeps<R>, open: R): string {
   const lines: string[] = [];
-  lines.push(`Open thread: ${nameOf(open)} [${open.id}] (${open.productName ?? open.product})`);
+  lines.push(`Open thread: ${nameOf(open)} (${open.productName ?? open.product})`);
+  const about = spoken(deps.about?.(open) ?? '');
+  if (about) lines.push(`What this task is for: ${clip(about, SUMMARY_CHARS)}`);
   const s = spoken(deps.summary(open));
   if (s) lines.push(`Latest from the agent: ${clip(s, SUMMARY_CHARS)}`);
   const opts = deps.options(open);
-  if (opts.length) lines.push('Options:', ...opts.map((o) => `${o.n}. ${o.text}`));
+  if (opts.length) lines.push('Options:', ...opts.map((o) => `${o.n}. ${spoken(o.text)}`));
   const pics = (deps.pictureNames?.() ?? []).slice(0, 9);
   const latest = Math.min(deps.latestPictureCount?.() ?? pics.length, pics.length);
   if (latest) lines.push('Pictures in the latest message:', ...pics.slice(0, latest).map((f, i) => `${i + 1}. ${f}`));
@@ -244,8 +250,9 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
   // What Neo needs to brief her on a thread it just opened.
   const brief = (row: R) => {
     const s = spoken(deps.summary(row));
+    const about = spoken(deps.about?.(row) ?? '');
     const opts = deps.options(row);
-    return `${s ? ` Latest from the agent: ${clip(s, SUMMARY_CHARS)}` : ''}${opts.length ? ` Options: ${opts.map((o) => `${o.n}. ${o.text}`).join(' ')}` : ' No options to pick.'}`;
+    return `${about ? ` What this task is for: ${clip(about, SUMMARY_CHARS)}` : ''}${s ? ` Latest from the agent: ${clip(s, SUMMARY_CHARS)}` : ''}${opts.length ? ` Options: ${opts.map((o) => `${o.n}. ${spoken(o.text)}`).join(' ')}` : ' No options to pick.'}`;
   };
 
   const act = async function act(name: string, args: Record<string, any>, ctx: { heard?: string } = {}): Promise<NeoResult> {
