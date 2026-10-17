@@ -209,6 +209,10 @@ export const PROPOSAL_PATIENCE = 24 * 3_600_000;
  * A proposal whose parent is not in `items` is skipped. A thread the user
  * closed stays closed, without answering its proposals; reopening it turns
  * the reminder back on.
+ *
+ * While a reply is on its way to an agent, or an agent is on the thread, the
+ * reminder waits: Needs you wins over In progress, so it made the reply look
+ * swallowed. Once the agent has answered, the thread comes back.
  */
 export function threadsOwedAnAnswer<T extends InboxItem & { id: string; parent?: string }>(
   items: readonly T[],
@@ -222,6 +226,7 @@ export function threadsOwedAnAnswer<T extends InboxItem & { id: string; parent?:
     const parent = i.parent ? byId.get(i.parent) : undefined;
     if (!parent) continue;
     if (parent.status === 'done' && parent.wrote?.status?.source === 'founder') continue;
+    if (parent.status === 'claimed' || (liveAnswer(parent) && !answerSettled(parent))) continue;
     owed.add(parent.id);
   }
   return owed;

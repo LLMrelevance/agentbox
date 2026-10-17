@@ -27,11 +27,8 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { AgentMode, CodexModeId, PermissionMode, PhoneLink, PhoneRoute, ProjectSettings, Settings as SettingsModel, UpdateState } from '../types';
-import { ago } from '../format';
-import { ALERTS_SAY, alertsState, testAlert, turnOffAlerts, turnOnAlerts, type AlertsState } from '../phone-alerts';
+import type { AgentMode, CodexModeId, PermissionMode, ProjectSettings, Settings as SettingsModel, UpdateState } from '../types';
 import { onPhone } from '../phone-screen';
-import { pollEvery } from '../phone-polls';
 import { api, RESTART_NOTE } from '../api';
 import { updateLook } from '../update-row';
 import { InstructionSettings, sizeLabel } from './InstructionSettings';
@@ -665,58 +662,26 @@ function Reading({ running, capacity, gate }: {
 /** A page: its title, the sentence under it when there is one worth saying,
  *  and its groups. */
 /* --------------------------------- phone --------------------------------- */
-// THE PHONE DOOR (main/phone-link.mjs). Off until turned on. The QR code is the
-// key, so it is drawn only on this page and only while the door is open.
-const PHONE_ROUTE_OPTIONS: Array<{ value: PhoneRoute; label: string }> = [
-  // Shown only once there is a relay to use (main/relay-address.mjs).
-  { value: 'anywhere', label: 'Anywhere' },
-  { value: 'tailscale', label: 'Tailscale, secure' },
-  { value: 'wifi', label: 'Same Wi-Fi, not secure' },
-];
-
-/** The Phone page as the phone itself draws it: this phone's alerts. */
-function PhoneAlertsPage({ onFeedback }: { onFeedback?: () => void }) {
-  const [state, setState] = useState<AlertsState | null>(null);
-  const [said, setSaid] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { void alertsState().then(setState); }, []);
-  const run = async (fn: () => Promise<AlertsState>) => {
-    setBusy(true); setSaid(null);
-    try { setState(await fn()); } catch (e) { setSaid(String((e as Error).message ?? e)); } finally { setBusy(false); }
-  };
+// FEEDBACK FROM A PHONE. Its corner has no Feedback button, by choice ("not
+// important to be big for mobile"), which left no way to send any ("not sure
+// how to give feedback on mobile", 2026-10-12).
+function PhoneFeedbackGroup({ onFeedback }: { onFeedback: () => void }) {
   return (
-    <Page title="Phone">
-      <Group id="phone-alerts" label="Alerts on this phone">
-        <Row label={state === 'on' ? 'Alerts are on' : 'Alerts'} desc={said ?? (state ? ALERTS_SAY[state] : 'Checking…')}>
-          {(state === 'on' || state === 'off') && (
-            <Switch on={state === 'on'} busy={busy} label="Alerts" onChange={(v) => void run(v ? turnOnAlerts : turnOffAlerts)} />
-          )}
-        </Row>
-        {state === 'on' && (
-          <Row label="Send a test alert" desc="Lock the phone after tapping, and it should arrive within a few seconds.">
-            <button type="button" className="set-ghost" disabled={busy} onClick={() => { setBusy(true); void testAlert().then((ok) => setSaid(ok ? 'Sent.' : 'The computer could not send it.')).catch((e) => setSaid(String(e.message ?? e))).finally(() => setBusy(false)); }}>Send test</button>
-          </Row>
-        )}
-      </Group>
-      {/* FEEDBACK FROM A PHONE. Its corner has no Feedback button, by choice
-          ("not important to be big for mobile"), which left no way to send any
-          ("not sure how to give feedback on mobile", 2026-10-12). */}
-      {onFeedback && (
-        <Group id="phone-feedback" label="Feedback">
-          <Row label="Send feedback" desc={`Tell us what works and what does not. It goes straight to the people who make ${Name}.`}>
-            <button type="button" className="set-ghost" onClick={onFeedback}>Send feedback</button>
-          </Row>
-        </Group>
-      )}
-    </Page>
+    <Group id="phone-feedback" label="Feedback">
+      <Row label="Send feedback" desc={`Tell us what works and what does not. It goes straight to the people who make ${Name}.`}>
+        <button type="button" className="set-ghost" onClick={onFeedback}>Send feedback</button>
+      </Row>
+    </Group>
   );
 }
 
 // WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md, step 1). The projects she
 // puts on her phone go to her account online on every sync; the phone site
 // reads them and leaves what she sends for this Mac to do when it wakes.
-// THE WAY IN IS A WEBSITE WE HOST (2026-10-14), not a relay to this computer:
-// the code is only its address, so it carries no key and needs no resetting.
+// THE ONLY WAY IN IS A WEBSITE WE HOST (2026-10-14), not a link to this
+// computer: the code is only its address, so it carries no key. The relay and
+// the same-Wi-Fi door are gone (2026-10-16: "Should only ever be one way to
+// access mobile: through the Cloud").
 // ALL OF HER PROJECTS, BY DEFAULT (2026-10-15: "95% of people just want all
 // of their projects connected"). One row and one dropdown, the way every
 // other choice on this page is made ("it's more of a dropdown kind of
@@ -804,103 +769,21 @@ function MacShutGroup({ macShut }: { macShut: MacShut }) {
 }
 
 function PhonePage({ onFeedback, macShut }: { onFeedback?: () => void; macShut?: MacShut }) {
-  const [link, setLink] = useState<PhoneLink | null | undefined>(undefined);
-  const [busy, setBusy] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
-  const run = useCallback(async (action: 'status' | 'on' | 'off' | 'reset' | 'via', via?: PhoneRoute) => {
-    setBusy(true);
-    try { setLink(await api.phoneLink({ action, via })); } finally { setBusy(false); }
-  }, []);
-  useEffect(() => {
-    void run('status');
-    const off = api.onPhoneChanged(() => { void api.phoneLink({ action: 'status' }).then(setLink); });
-    // "Last seen" moves without a push.
-    const tick = window.setInterval(() => { setNow(Date.now()); void api.phoneLink({ action: 'status' }).then(setLink); }, pollEvery(15_000, onPhone()));
-    return () => { off(); window.clearInterval(tick); };
-  }, [run]);
-
-  if (link === undefined) return <Page title="Phone">{null}</Page>;
-  if (link === null) {
-    // On the phone itself: its own alerts. Anywhere else (a browser tab on
-    // the computer) there is nothing to set here.
-    if (document.documentElement.dataset.door === 'phone') return <PhoneAlertsPage onFeedback={onFeedback} />;
+  const feedback = onFeedback && onPhone() ? <PhoneFeedbackGroup onFeedback={onFeedback} /> : null;
+  if (!macShut) {
     return (
       <Page title="Phone">
-        {macShut && <MacShutGroup macShut={macShut} />}
         <Group>
-          <Row label="Set up from the desktop app" desc={`A phone is connected from the ${Name} app's own window, not from a browser tab.`} />
+          <Row label="Sign in to use your phone" desc={`Your phone reads and replies through your ${Name} account, so it works with this computer closed. Sign in on the Team page, then come back here for the code.`} />
         </Group>
+        {feedback}
       </Page>
     );
   }
-  const hasTailscale = link.routes.some((r) => r.via === 'tailscale');
-  const reset = () => {
-    if (window.confirm('Make a new key? Every connected phone is disconnected and has to scan the new code.')) void run('reset');
-  };
   return (
-    <Page title="Phone" lede={macShut
-      ? 'Read and reply from your phone, even with this computer closed.'
-      : `Use this inbox on your phone. Scan the code with the phone's camera, then add the page to the home screen and it opens like an app.`}>
-      {macShut && <MacShutGroup macShut={macShut} />}
-      <Group id="phone" label={macShut ? 'Straight to this computer, without signing in' : 'Phone access'}>
-        <Row label="Let phones connect" desc={link.on ? (link.error ?? (link.listening ? `Open on port ${link.port}.` : 'Starting…')) : 'Off. Nothing outside this computer can reach the inbox.'}>
-          <Switch on={link.on} busy={busy} label="Let phones connect" onChange={(v) => void run(v ? 'on' : 'off')} />
-        </Row>
-        {link.on && (
-          <Row
-            label="Reach it over"
-            desc={link.via === 'anywhere'
-              ? link.relay?.connected
-                ? 'Works on any Wi-Fi or mobile data, with nothing to install. Everything is locked on this computer and unlocked only on your phone, so the relay in between cannot read it.'
-                : link.error ?? 'Connecting to the relay…'
-              : link.via === 'tailscale'
-              ? link.settingUp
-                ? 'Setting up a secure address with Tailscale…'
-                : link.secure
-                  ? 'A secure address only your own devices on Tailscale can reach. Works anywhere your phone has Tailscale on.'
-                  : 'Works anywhere your phone has Tailscale on, but without a secure address, so the phone shows Not Secure.'
-              : hasTailscale
-                ? 'Works only on the same Wi-Fi, and the phone shows Not Secure because nothing is encrypted. Pick Tailscale for a secure address that also works away from home.'
-                : 'Works only on the same Wi-Fi, and the phone shows Not Secure because nothing is encrypted. Install Tailscale on both for a secure address.'}
-          >
-            <Picker bare label="Reach it over" value={link.via ?? 'wifi'} options={PHONE_ROUTE_OPTIONS.filter((o) => link.routes.some((r) => r.via === o.value))} onChange={(v) => void run('via', v)} />
-          </Row>
-        )}
-      </Group>
-      {link.on && (
-        <Group id="phone-code" label="Scan with your phone">
-          {link.qr && link.url ? (
-            <div className="set-row set-phone-qr">
-              <img alt="QR code that opens this inbox on a phone" src={`data:image/svg+xml;utf8,${encodeURIComponent(link.qr)}`} />
-              <div className="set-row-desc">
-                Anyone who scans this code can run agents on this computer, so treat it like a password. If it was seen by someone else, reset the key.
-                <br />
-                <code>{link.url.replace(/(token=|#k=).*/, '$1…')}</code>
-              </div>
-            </div>
-          ) : (
-            <Row label="No network" desc="This computer is not on Wi-Fi or Tailscale right now, so a phone has no way to reach it." />
-          )}
-          <Row label="Reset key" desc="Makes a new code. Every phone is disconnected until it scans again.">
-            <button type="button" className="set-ghost" disabled={busy} onClick={reset}>Reset key</button>
-          </Row>
-        </Group>
-      )}
-      {link.on && (
-        <Group id="phone-devices" label="Connected devices">
-          {link.devices.length === 0 ? (
-            <Row label="None yet" desc="A phone shows here as soon as it opens the inbox." />
-          ) : link.devices.map((d) => (
-            <Row
-              key={d.id}
-              label={d.name}
-              desc={`${d.live ? 'Connected now' : `Last seen ${ago(d.lastSeen, now)} ago`}${d.ip ? ` · ${d.ip}` : ''} · first seen ${ago(d.firstSeen, now)} ago${d.alerts ? ' · alerts on' : ''}${d.alertError ? ` · last alert failed: ${d.alertError}` : ''}`}
-            >
-              {d.alerts && <button type="button" className="set-ghost" disabled={busy} onClick={() => void api.phoneLink({ action: 'stop-alerts', device: d.id }).then(setLink)}>Stop alerts</button>}
-            </Row>
-          ))}
-        </Group>
-      )}
+    <Page title="Phone" lede="Read and reply from your phone, even with this computer closed.">
+      <MacShutGroup macShut={macShut} />
+      {feedback}
     </Page>
   );
 }

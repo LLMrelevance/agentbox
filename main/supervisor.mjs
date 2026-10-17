@@ -9194,6 +9194,7 @@ export class Supervisor {
       // A test runs its own coordinator beside the real one; it names a port.
       ...(Number.isInteger(this.config.memoryGateLockPort) ? { lockPort: this.config.memoryGateLockPort } : {}),
       historyFile: path.join(this.userDir, 'memory-gate-history.json'),
+      grantLogFile: path.join(this.userDir, 'memory-gate-grants.jsonl'),
       gate: { slots: this.memoryGateSlots() },
       scoreFor: (product, itemId) => this.memoryGateScore(product, itemId),
       ownerOf: (sessionId) => this.memoryGateOwner(sessionId),
