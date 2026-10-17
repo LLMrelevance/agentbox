@@ -114,7 +114,10 @@ describe('the card says which list it is', () => {
 });
 
 describe('the folders only the login shell knows', () => {
-  it('reads CLAUDE_CONFIG_DIR and CODEX_HOME out of a real zsh profile, ignoring what the profile prints', async () => {
+  // A real zsh, which GitHub's Linux runner does not have: it read nothing
+  // there and was red on every push from 2026-10-09 to 2026-10-13. The macOS
+  // run still runs it.
+  it.skipIf(!fs.existsSync('/bin/zsh'))('reads CLAUDE_CONFIG_DIR and CODEX_HOME out of a real zsh profile, ignoring what the profile prints', async () => {
     fs.writeFileSync(path.join(home, '.zshrc'), [
       'echo hello from the profile',
       `export CLAUDE_CONFIG_DIR="${away}/claude-config"`,

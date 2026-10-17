@@ -16,6 +16,7 @@ export const REQUEST_CHANNELS = {
   agentUpdate: 'zero:agent-update',
   snapshot: 'zero:snapshot',
   refreshUsage: 'zero:refresh-usage',
+  accountUsage: 'zero:account-usage',
   // Whether a screen reader is running, which is the terminal pane's question
   // before it builds xterm's accessibility tree.
   assistiveTech: 'zero:assistiveTech',
@@ -75,12 +76,14 @@ export const REQUEST_CHANNELS = {
   agentFolders: 'zero:agent-folders',
   importAgents: 'zero:import-agents',
   agentThreads: 'zero:agent-threads',
+  searchAgentThreads: 'zero:search-agent-threads',
   importThreads: 'zero:import-threads',
   badge: 'zero:badge',
   cornerTag: 'zero:corner-tag',
   bootInfo: 'zero:boot-info',
   updateCheck: 'zero:update-check',
   updateInstall: 'zero:update-install',
+  updateMove: 'zero:update-move',
   notify: 'zero:notify',
   stopSession: 'zero:stop-session',
   runNow: 'zero:run-now',
@@ -96,11 +99,19 @@ export const REQUEST_CHANNELS = {
   settingsRead: 'zero:settings-read',
   claudeRecheck: 'zero:claude-recheck',
   codexRecheck: 'zero:codex-recheck',
+  // Point at the coding agent yourself, or hand the choice back to the search.
+  // The browser tab has no file panel, so main answers it ok-with-nothing-done
+  // there (main/serve.mjs stubs showOpenDialog) and the row stays honest.
+  engineBin: 'zero:engine-bin',
   engineSetup: 'zero:engine-setup',
   codexAddAccount: 'zero:codex-add-account',
   claudeAddAccount: 'zero:claude-add-account',
   setProjectSetting: 'zero:settings-set-project',
   setWorkspaceSetting: 'zero:settings-set-workspace',
+  // The cloud setup's sign-in for one account, made in the cloud (main/cloud/logins.mjs).
+  cloudSignIn: 'zero:cloud-signin',
+  // Claude's sign-in code, read from the clipboard while one is waiting for it.
+  cloudClipboardCode: 'zero:cloud-clipboard-code',
   projectRename: 'zero:project-rename',
   projectArchive: 'zero:project-archive',
   projectSeenBy: 'zero:project-seen-by',
@@ -134,8 +145,16 @@ export const REQUEST_CHANNELS = {
   redeliver: 'zero:redeliver',
   setProductOrder: 'zero:set-product-order',
   setThreadPlaces: 'zero:set-thread-places',
+  setThreadPins: 'zero:set-thread-pins',
+  setThreadOnMac: 'zero:set-thread-on-mac',
   setProductHidden: 'zero:set-product-hidden',
   approve: 'zero:approve',
+  // The phone door's Settings page (main/phone-link.mjs): its state, on, off,
+  // a new key, and which address the QR code carries. The desktop window only.
+  phoneLink: 'zero:phone-link',
+  // Whether Neo, the voice alpha, is on for this Mac (main/neo/gate.mjs).
+  // Answered only by the desktop app; anywhere else the screen reads no.
+  neoEnabled: 'neo:enabled',
 };
 
 /** Told rather than asked: the app talks and the screen listens. */
@@ -150,6 +169,12 @@ export const PUSH_CHANNELS = {
   onScreenDetail: 'zero:screen-detail',
   onEscapeBrowser: 'zero:escape-browser',
   onKeyInTheFile: 'zero:key-in-the-file',
+  // A phone connected, left, or the key changed.
+  onPhoneChanged: 'zero:phone-changed',
+  // Neo's tool calls for the app to carry out, and Neo waking or signing off.
+  onNeoAct: 'neo:act',
+  onNeoMode: 'neo:mode',
+  onNeoOrb: 'neo:orb',
 };
 
 // THE FEW THAT ARE NOT A STRAIGHT HANDOVER. Each is called with bare values
@@ -169,4 +194,6 @@ export const WRAPPED_ARGS = {
 // `onWriteHeld` is the desktop's ⌘R asking the page to write what the undo
 // window holds before it reloads (main/write-before-reload.mjs). A browser
 // reload asks nobody; the page writes on `pagehide` there instead.
-export const DESKTOP_ONLY = ['pathForFile', 'onWriteHeld'];
+//
+// `neoActResult` answers a call only the desktop's Neo window ever makes.
+export const DESKTOP_ONLY = ['pathForFile', 'onWriteHeld', 'neoActResult'];

@@ -155,10 +155,11 @@ describe('the pane draws a player for audio and video', () => {
   });
 
   it('asks for the file on the app scheme, never file://, which her window cannot load', () => {
-    const media = focus.slice(focus.indexOf('export function ArtifactMedia'), focus.indexOf('function ArtifactLink'));
+    // The players are made on the shelf just above it, so a film keeps playing
+    // while the thread moves (tests/a-film-keeps-playing-while-the-thread-moves).
+    const media = focus.slice(focus.indexOf('const players = playerShelf'), focus.indexOf('function ArtifactLink'));
     expect(media).toContain('pictureUrl(');
-    expect(media).toContain('<audio');
-    expect(media).toContain('<video');
+    expect(media).toContain("createElement(film ? 'video' : 'audio')");
     expect(media).not.toContain('file://');
   });
 

@@ -20,6 +20,7 @@
 //   that says she is done here, and the words are one click away.
 
 import type { WorkItem } from './types';
+import type { LedgerLine } from './thread-history';
 
 /* * `said` IS DATA FOR THE THREAD NOW, AND NEVER A BOX.
 
@@ -100,14 +101,45 @@ export function leadField(item: WorkItem): 'result' | 'note' | null {
   return null;
 }
 
-export function recapFor(item: WorkItem, parent: WorkItem | null): Recap {
+// THE LAST THING SHE SAID ON A ROW AT OR BEFORE A MOMENT, read from its ledger
+// lines. A send she took back writes '(withdrawn)' over it, so that line takes
+// the reply it withdrew off the pile rather than being a reply itself.
+export function askedBefore(lines: readonly LedgerLine[], moment: number): { text: string; at: number } | null {
+  const pile: { text: string; at: number }[] = [];
+  for (const line of lines) {
+    if (line.ts > moment) continue;
+    const answer = line.patch?.answer;
+    if (typeof answer !== 'string') continue;
+    if (answer.trim() === '(withdrawn)') { pile.pop(); continue; }
+    const text = words(answer);
+    if (text) pile.push({ text, at: line.ts });
+  }
+  return pile[pile.length - 1] ?? null;
+}
+
+// A THREAD FILED FROM ANOTHER OPENS WITH THE MESSAGE THAT ASKED FOR IT. That is
+// the parent's reply at or before this row was filed, not its newest one: the
+// fold keeps only the newest, so every later reply on the parent used to
+// replace this thread's opening line with something written after it existed
+// (tests/a-filed-thread-opens-with-the-message-that-asked-for-it). When the
+// parent's newest reply is later than this row, only `parentLines` can say what
+// came before it, and until they are read this says nothing rather than
+// something wrong.
+export function recapFor(item: WorkItem, parent: WorkItem | null, parentLines?: readonly LedgerLine[]): Recap {
   const mine = words(item.answer);
   if (mine) return { kind: 'replied', text: mine, at: when(item, 'answer') };
   if (!parent) return null;
 
   const onParent = words(parent.answer);
-  if (onParent) {
+  const repliedAt = parent.wrote?.answer?.ts;
+  const afterThis = onParent != null && Number.isFinite(repliedAt) && Number.isFinite(item.createdAt) && (repliedAt as number) > item.createdAt;
+  if (onParent && !afterThis) {
     return { kind: 'said', text: onParent, at: when(parent, 'answer'), on: parent.title };
+  }
+  if (afterThis) {
+    if (!parentLines) return null;
+    const asked = askedBefore(parentLines, item.createdAt);
+    if (asked) return { kind: 'said', text: asked.text, at: asked.at, on: parent.title };
   }
 
   // A directive is a row she composed, so its body is the user's words even though no

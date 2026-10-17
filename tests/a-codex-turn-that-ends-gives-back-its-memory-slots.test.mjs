@@ -186,7 +186,9 @@ describe('a Codex turn that ends', () => {
 
   it('the worker\'s exit handler is where it is told', () => {
     const src = fs.readFileSync(new URL('../main/supervisor.mjs', import.meta.url), 'utf8');
-    const exit = src.slice(src.indexOf("child.on('exit', (code, signal, how) => {"));
+    // The exit handler's work is `settleExit` since a stop signal's death waits
+    // a moment to be judged (tests/a-worker-stopped-with-the-app-is-not-a-failed-run).
+    const exit = src.slice(src.indexOf('const settleExit = (code, signal, how) => {'));
     expect(exit.slice(0, 1500)).toContain('this.memoryGateTurnEnded(session)');
   });
 });

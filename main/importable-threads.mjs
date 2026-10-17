@@ -36,3 +36,44 @@ export function readImportableThreads({ config = null, supervisor = null, env = 
   if (recent.length) return recent;
   return read(OLDER_DAYS, OLDER_MOST).slice(0, OLDER_MOST);
 }
+
+/* ------------------------ AND THE ONE THE SEARCH USES ---------------------- */
+// THE CARD'S LIST IS TEN DAYS. THE NAME FIELD IS NOT (w-6418318cd5, from
+// GitHub #31). A chat you had in July could not be brought in at all, so a
+// field that only searched the same ten days would be decoration.
+//
+// IT IS A SECOND READ, NOT A WIDER FIRST ONE. The ten-day list is what the
+// card draws the moment it opens and it has to be quick; this one is taken
+// once, lazily, the first time somebody types, and the window keeps it (see
+// `zero:search-agent-threads` in main/ipc.mjs) so every keystroke after that
+// is a filter rather than a disk walk.
+//
+// AND IT CANNOT PROMISE EVERYTHING. A chat's name lives inside its transcript,
+// and the Mac this was written on holds 29,703 of them. So it goes newest
+// first until the cap or the budget stops it and reports `reached`, the moment
+// it gave up at, which the card prints. Eight seconds rather than three: this
+// is the read somebody is waiting on, watching a spinner, having already typed
+// the word they want.
+
+export const SEARCH_DAYS = 365;
+const SEARCH_MOST = 6000;
+const SEARCH_BUDGET_MS = 8000;
+
+export function readSearchableThreads({
+  config = null, supervisor = null, env = process.env, shellEnv, home = os.homedir(), now = Date.now(),
+  days = SEARCH_DAYS, max = SEARCH_MOST, budgetMs = SEARCH_BUDGET_MS,
+} = {}) {
+  const { dirs, codexDirs } = appSessionFolders({ config, supervisor, env, home, ...(shellEnv ? { shellEnv } : {}) });
+  let claude = [];
+  let codex = [];
+  let reached = 0;
+  try {
+    ({ threads: claude, reached } = readSessionThreads({ home, dirs, now, days, max, budgetMs }));
+  } catch { claude = []; }
+  // Codex keeps its names in an index of its own (main/codex-threads.mjs), so
+  // its side costs no transcript reads and never gives up early. Only the
+  // Claude side can run out of budget, which is why `reached` comes off it.
+  try { ({ threads: codex } = readCodexThreads({ home, codexDirs, now, days })); } catch { codex = []; }
+  const threads = [...claude, ...codex].sort((a, b) => (b.when ?? 0) - (a.when ?? 0));
+  return { threads, reached };
+}

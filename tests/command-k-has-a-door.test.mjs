@@ -171,8 +171,10 @@ describe('the header on the sidebar layout', () => {
     expect(right).not.toContain('aria-label="Commands"');
   });
 
+  // Search is drawn here only on the board since w-3c51d02de5 (2026-10-14);
+  // on the list it is at the end of the tabs row. Where it is drawn, it is first.
   it('puts Search first, then New thread, then Display', () => {
-    const search = right.indexOf('data-hint="search"');
+    const search = right.indexOf('<SearchButton');
     const compose = right.indexOf('data-hint="new-task"');
     // The filters button's label carries whose threads are on the page since
     // 538593f, so it is an expression now, not the plain attribute this read.

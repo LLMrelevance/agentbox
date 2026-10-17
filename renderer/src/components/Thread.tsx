@@ -30,6 +30,7 @@ import { activitySummary, keepActivityKeyLocal } from '../activity-summary';
 import { actWhen, actWords } from '../act-line';
 import { herTurnEnds, herTurnStarts } from '../her-turns';
 import { holdAtBottom } from '../thread-bottom';
+import { onCloudPhone, onPhone } from '../phone-screen';
 import { typedParts } from '../typed-message';
 import { clock, dayHeading } from '../thread-history';
 import { chatLayout } from '../team/chat-layout';
@@ -188,7 +189,8 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
   // rebuilt every time somebody says something.
   useEffect(() => {
     const box = foot.current?.closest('.focus-scroll') as HTMLElement | null;
-    return holdAtBottom(box);
+    // A phone's Safari does not keep her place when something above changes height.
+    return holdAtBottom(box, { keepPlace: onPhone() });
   }, [landOn]);
 
   // Where the missing middle is: after the opening, which is always kept. Drawn
@@ -255,7 +257,7 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
         AGENT IS IN, which can be a command minutes long, with
         the one way to stop waiting (w-f37a34def6). */}
     {e.pending
-      ? <span className="msg-when msg-sending">{e.held ? 'Sending… press Z to undo' : cutting ? 'Sending now…' : onSendNow ? 'Waiting for its current step' : 'Sending…'}</span>
+      ? <span className={`msg-when msg-sending${e.refused ? ' msg-refused' : ''}`}>{e.refused ? `Not sent: ${e.refused}` : e.held ? 'Sending… press Z to undo' : onCloudPhone() ? 'Waiting for your computer' : cutting ? 'Sending now…' : onSendNow ? 'Waiting for its current step' : 'Sending…'}</span>
       : <span className="msg-when">{time}</span>}
     {e.pending && !e.held && !cutting && onSendNow && (
       <button type="button" className="msg-now" onClick={() => { setCutting(true); onSendNow(); }}>
@@ -349,7 +351,7 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
                     {headFacts(e, clock(e.at))}
                   </div>
                 )}
-                <ChatFold>{md(e.text ?? '')}</ChatFold>
+                <ChatFold lines={e.who === 'you'}>{md(e.text ?? '')}</ChatFold>
                 {/* THE CHIPS, AND THE BAR WHEN YOU POINT AT IT (w-560647d4db).
                     Both hang off the message's own uid, which is the name the
                     store keeps a reaction under and the only name a message has

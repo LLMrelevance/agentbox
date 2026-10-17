@@ -10,6 +10,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from '../api';
 import { Name } from '../../../shared/product-name.mjs';
 import { AppMark } from '../components/AppMark';
+import { onCloudPhone } from '../phone-screen';
 import './sign-in.css';
 
 const GoogleMark = () => (
@@ -94,6 +95,8 @@ export function SignInPage({ signedOut = false, error: startError = null, waitin
   const lede = mode === 'sign-up' ? 'Your teammates will see this name beside your threads and messages.'
     : mode === 'check-email' ? `We sent a link to ${email}. Follow it to confirm your address, then sign in here.`
       : signedOut ? 'Sign in again to get back to your inbox and your team.'
+        // On the phone with the Mac shut: what signing in here gets her.
+        : onCloudPhone() ? 'Use the account your computer is signed in with. Your threads are here even when it is closed.'
         : 'Your threads, your agents and your team, in one inbox.';
   const canSubmit = !!email.trim() && !!password && (mode !== 'sign-up' || !!name.trim());
 

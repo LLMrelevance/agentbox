@@ -240,10 +240,15 @@ describe('what the imported row says to her', () => {
     expect(startedIn('desktop')).toBe('in the Claude Code desktop app');
   });
 
-  it('says it does not carry the conversation on, because she chose that', () => {
-    expect(row.body).toContain('replying starts a fresh session rather than carrying the old one on');
-    expect(row.body).toContain(`${Name} has not read the conversation`);
-    expect(row.body).toContain(`${NAME} runs it here in ${NAME}`);
+  // It used to say the opposite: that the app had not read the conversation and
+  // a reply started fresh. GitHub #44 asked for the conversation to carry on,
+  // and the first reply now resumes it as a copy
+  // (an-imported-claude-code-thread-carries-on-its-conversation.test.mjs).
+  it('says the reply carries the conversation on, and that the original is left alone', () => {
+    expect(row.body).toContain(`${NAME} picks this conversation up where you left it here in ${NAME}`);
+    expect(row.body).toContain('the original stays as it was');
+    expect(row.body).not.toContain('has not read the conversation');
+    expect(row.body).not.toContain('fresh session');
   });
 
   it('waits for her rather than starting on its own', () => {
@@ -363,8 +368,12 @@ describe('the wiring the card needs is really there', () => {
     expect(logic.slice(logic.indexOf('export function picksOf'))).toContain('.items.map((a) => a.path)');
     expect(logic).not.toMatch(/d\.items\.some\(/);
     // The one count on the card now is the button's, and it counts every
-    // ticked line, threads and agent files alike (w-db6f5e331e).
-    expect(card).toContain('{LIST.add(picked.length)}');
+    // ticked line, threads and agent files alike (w-db6f5e331e). Since
+    // w-6418318cd5 that list is `onScreen`, which is `picked` unless a name is
+    // typed into the field, when it is what you ticked among the matches: one
+    // reader either way, and always the rows actually drawn under the button.
+    expect(card).toContain('{LIST.add(onScreen.length)}');
+    expect(card).toContain('? hits.filter((h) => keptPaths.has(h.path)).map((h) => h.path) : picked');
   });
 
   it('takes the thread objects off main rather than off the screen', () => {

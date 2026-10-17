@@ -179,8 +179,10 @@ export const SHORTCUTS = [
       // the summary inside a thread and still meant the schedule picker in the
       // list, so this page taught one letter for two different things and an
       // office manager testing the app met both inside a minute. One meaning
-      // per letter: S is the summary, L is later.
-      { keys: ['L'], what: 'Put the task off until a time you pick.' },
+      // per letter: S is the summary, L is later. And the page says the word
+      // the key stands for, because that word is the action's name now
+      // (w-66e3ece93d): the ⌘K row, the picker and the toast all say Later.
+      { keys: ['L'], what: 'Later: put the task off until a time you pick.' },
       // focused branch and list switch: 'z' → undo
       { keys: ['Z'], what: 'Undo the last thing you did.' },
       // opensTheToast(e.key, toast) above the focused branch → openToastRow.
@@ -197,10 +199,11 @@ export const SHORTCUTS = [
       // (meta||ctrl) && 'k' → the palette, above every other branch, and
       // forwarded from inside an open file by main.mjs as well.
       { keys: ['⌘K', 'Ctrl+K'], join: 'or', what: `The command bar: everything ${NAME} can do, by name.` },
-      // 'n' in both branches → setModal('compose'). C does the same and is
-      // left off: N is the default (w-fb9051e597).
+      // 'n' in both branches → setModal('compose').
       // "Threads", not tasks, since w-ec62ab6b38.
       { keys: ['N'], what: 'Start a new thread.' },
+      // cloudChord in the chords → toggleCloudRef: the cloud on or off.
+      { keys: ['⌘C'], what: 'Turn the cloud on or off, when no text is selected.' },
       // '/' above the focused branch → openSearch
       { keys: ['/'], what: 'Search your threads.' },
       // '\\' above the focused branch → togglePanel

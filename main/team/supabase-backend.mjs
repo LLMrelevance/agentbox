@@ -19,6 +19,9 @@ function must({ data, error }, what) {
   return data;
 }
 
+const COMMAND_COLUMNS = 'id,owner,device,project,item,kind,payload,created_at,claimed_at,taken_at,outcome';
+const commandOut = (r) => ({ id: r.id, owner: r.owner, device: r.device, project: r.project, item: r.item, kind: r.kind, payload: r.payload ?? {}, createdAt: r.created_at, claimedAt: r.claimed_at ?? null, takenAt: r.taken_at ?? null, outcome: r.outcome ?? null });
+
 export function supabaseBackend(client) {
   let personId = null;
   async function myId() {
@@ -219,8 +222,103 @@ export function supabaseBackend(client) {
       }));
     },
 
+    // THE FILES A CONVERSATION'S MESSAGES LINK TO (w-140ac855b1). Row level
+    // security decides who may read and add one (20261013000000_message_files.sql).
+    async hasFiles(projectId, names) {
+      if (!names.length) return [];
+      const rows = must(await client.from('message_files').select('name').eq('project_id', projectId).in('name', names), 'asking which pictures your team has');
+      return rows.map((r) => r.name);
+    },
+
+    async getFile(projectId, name) {
+      const rows = must(await client.from('message_files').select('data').eq('project_id', projectId).eq('name', name).limit(1), 'taking a picture a teammate sent');
+      return rows[0]?.data ?? null;
+    },
+
+    async putFile(projectId, name, data) {
+      const me = await myId();
+      const rows = must(await client.from('message_files').upsert({ project_id: projectId, name, by_person: me, data }, { onConflict: 'project_id,name', ignoreDuplicates: true }).select('name'), 'sending a picture');
+      return (rows?.length ?? 0) > 0;
+    },
+
+    // HER OWN ROWS FOR HER PHONE (20261014000200_phone_inbox.sql). The owner
+    // column defaults to her, and row level security keeps every row hers.
+    // Every row names the computer it belongs to (`device`).
+    // Each write names who it is for, so a write begun before a sign-out
+    // that lands after somebody else signed in is refused by the database
+    // (`owner = auth.uid()`) rather than written into their account.
+    async putPhoneProject({ owner, device, project, name }) {
+      await myId();
+      must(await client.from('phone_projects').upsert({ ...(owner ? { owner } : {}), device, project, name, updated_at: new Date().toISOString() }, { onConflict: 'owner,device,project' }), 'putting a project on your phone');
+    },
+    async dropPhoneProject(device, project, owner) {
+      const me = await myId();
+      // Its threads go with it (the database cascades).
+      must(await client.from('phone_projects').delete().eq('owner', owner ?? me).eq('device', device).eq('project', project), 'taking a project off your phone');
+    },
+    async putPhoneThreads(device, project, rows, owner) {
+      await myId();
+      const at = new Date().toISOString();
+      for (let i = 0; i < rows.length; i += 50) {
+        const batch = rows.slice(i, i + 50).map((r) => ({ ...(owner ? { owner } : {}), device, project, item: r.item, snapshot: r.snapshot, updated_at: at }));
+        must(await client.from('phone_threads').upsert(batch, { onConflict: 'owner,device,project,item' }), 'sending threads to your phone');
+      }
+    },
+    async dropPhoneThreads(device, project, items, owner) {
+      const me = await myId();
+      for (let i = 0; i < items.length; i += 100) {
+        must(await client.from('phone_threads').delete().eq('owner', owner ?? me).eq('device', device).eq('project', project).in('item', items.slice(i, i + 100)), 'taking threads off your phone');
+      }
+    },
+    // What her phone reads and sends.
+    async phoneProjects() {
+      const me = await myId();
+      const rows = must(await client.from('phone_projects').select('owner,device,project,name').order('name'), 'reading the projects on your phone');
+      return (rows ?? []).filter((r) => r.owner === me);
+    },
+    async phoneThreads() {
+      const me = await myId();
+      const rows = must(await client.from('phone_threads').select('owner,device,project,item,snapshot,updated_at').order('updated_at', { ascending: false }).limit(1000), 'reading the threads on your phone');
+      return (rows ?? []).filter((r) => r.owner === me).map((r) => ({ owner: r.owner, device: r.device, project: r.project, item: r.item, snapshot: r.snapshot, updatedAt: Date.parse(r.updated_at) }));
+    },
+    async addPhoneCommand({ device, project, item = null, kind, payload = {} }) {
+      await myId();
+      const row = must(await client.from('phone_commands').insert({ device, project, item, kind, payload }).select(COMMAND_COLUMNS).single(), 'sending that to your computer');
+      return commandOut(row);
+    },
+    async phoneCommands() {
+      await myId();
+      const rows = must(await client.from('phone_commands').select(COMMAND_COLUMNS).order('created_at', { ascending: true }).limit(500), 'reading what your phone sent');
+      return (rows ?? []).map(commandOut);
+    },
+    // This computer's, every one still waiting, oldest first, a page at a time.
+    async waitingPhoneCommands(device) {
+      await myId();
+      const out = [];
+      for (let from = 0; ; from += 200) {
+        const rows = must(await client.from('phone_commands').select(COMMAND_COLUMNS).eq('device', device).is('taken_at', null).order('created_at', { ascending: true }).range(from, from + 199), 'reading what your phone sent');
+        out.push(...(rows ?? []).map(commandOut));
+        if (!rows || rows.length < 200) return out;
+      }
+    },
+    // THE COMPUTER CLAIMS ONE BEFORE IT DOES IT; the phone takes one back only
+    // while nobody has (renderer/src/cloud-bridge.ts). The database lets one win.
+    async claimPhoneCommand(id, owner) {
+      const me = await myId();
+      const who = owner ?? me;
+      const won = must(await client.from('phone_commands').update({ claimed_at: new Date().toISOString() }).eq('id', id).eq('owner', who).is('taken_at', null).is('claimed_at', null).select('id'), 'starting what your phone sent');
+      if (won?.length) return 'claimed';
+      const row = must(await client.from('phone_commands').select('taken_at,claimed_at').eq('id', id).eq('owner', who).maybeSingle(), 'reading what your phone sent');
+      return row && !row.taken_at && row.claimed_at ? 'ours' : 'gone';
+    },
+    async markPhoneCommand(id, outcome, owner) {
+      const me = await myId();
+      must(await client.from('phone_commands').update({ taken_at: new Date().toISOString(), outcome }).eq('id', id).eq('owner', owner ?? me).is('taken_at', null), 'marking what your phone sent as done');
+    },
+
     subscribe(onChange) {
       const channel = client.channel(`team-${Math.random().toString(36).slice(2)}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'phone_commands' }, () => onChange())
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'lines' }, () => onChange())
         .on('postgres_changes', { event: '*', schema: 'public', table: 'thread_cards' }, () => onChange())
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'people' }, () => onChange())

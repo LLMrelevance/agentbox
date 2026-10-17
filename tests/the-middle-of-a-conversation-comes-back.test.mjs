@@ -279,7 +279,7 @@ describe('the ask she typed opens the conversation', () => {
     expect(focus).toMatch(/const openingSaid = !agent && said\?\.kind === 'said'/);
     expect(focus).toMatch(/opening=\{openingSaid\}/);
     // And the box is not drawn when they did.
-    expect(focus).toMatch(/recap=\{openingSaid \? null : recapFor\(item, parent\)\}/);
+    expect(focus).toMatch(/recap=\{openingSaid \? null : said\}/);
   });
 
   it('draws it as a message, not as a heading over the conversation', () => {
