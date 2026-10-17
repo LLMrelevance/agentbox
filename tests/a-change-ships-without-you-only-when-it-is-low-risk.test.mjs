@@ -61,6 +61,13 @@ describe('the rules decide without asking anyone', () => {
     expect(rulesTier(facts(file('main/supervisor.mjs', { removed: ["scrub: ['^ANTHROPIC_']"] }))).tier).toBe('risky');
   });
 
+  it('those words in a comment do not make it risky, because a comment changes nothing', () => {
+    for (const line of ['  // keeps CODEX_HOME out of the worker', ' * the billing scrub', '/* spawn( */', '# OPENAI_API_KEY']) {
+      expect(rulesTier(facts(file('main/supervisor.mjs', { added: [line] }))).tier, line).toBe(null);
+    }
+    expect(rulesTier(facts(file('main/supervisor.mjs', { added: ['env.CODEX_HOME = dir; // a home'] }))).tier).toBe('risky');
+  });
+
   it('those words inside a test or a doc do not make it risky', () => {
     expect(rulesTier(facts(file('tests/x.test.mjs', { status: 'A', added: ["spawn('claude')"] }))).tier).toBe('low');
     expect(rulesTier(facts(file('docs/a.md', { added: ['never pass --chrome'] }))).tier).toBe('low');
@@ -199,6 +206,22 @@ describe('reading a real branch and the gate file', () => {
     expect(f.files.map((x) => [x.path, x.status]).sort()).toEqual([['a.mjs', 'M'], ['tests/old.test.mjs', 'D']]);
     expect(f.files.find((x) => x.path === 'a.mjs')).toMatchObject({ added: ['two'], removed: ['one'] });
     expect(f.messages).toContain('Change a and drop a test');
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('a renamed test is not a deleted one', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'risk-'));
+    const git = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
+    git('init', '-q', '-b', 'main');
+    fs.mkdirSync(path.join(dir, 'tests'));
+    fs.writeFileSync(path.join(dir, 'tests/old-name.test.mjs'), lines(20).join('\n'));
+    git('add', '.'); git('commit', '-qm', 'base');
+    git('checkout', '-qb', 'work');
+    git('mv', 'tests/old-name.test.mjs', 'tests/new-name.test.mjs');
+    git('commit', '-qm', 'Rename');
+    const f = readFacts(dir, 'main');
+    expect(f.files).toEqual([{ path: 'tests/new-name.test.mjs', status: 'R', added: [], removed: [] }]);
+    expect(rulesTier(f).tier).toBe('low');
     fs.rmSync(dir, { recursive: true, force: true });
   });
 

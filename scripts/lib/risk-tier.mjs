@@ -45,6 +45,7 @@ const RISKY_LINES = [
   [/\bgit\b.*\b(push|reset|clean)\b|['"](push|reset|clean)['"]|--no-verify|--force\b/, 'pushing or rewriting git'],
 ];
 
+const IS_COMMENT = /^\s*(\/\/|\/\*|\*|#)/;
 const VISUAL = [/^renderer\/.*\.(css|html|svg|png|webp|jpe?g|gif|ico)$/, /^renderer\/public\//];
 const IS_DOC = /^docs\//;
 const IS_TEST = /^tests\//;
@@ -67,7 +68,8 @@ export function rulesTier(facts, { maxLines = 600 } = {}) {
     if (IS_TEST.test(f.path) && f.status === 'D') { raise('risky', `deletes a test, ${f.path}`); continue; }
     if (!quiet(f.path)) {
       size += f.added.length + f.removed.length;
-      const hit = RISKY_LINES.find(([re]) => [...f.added, ...f.removed].some((l) => re.test(l)));
+      const code = [...f.added, ...f.removed].filter((l) => !IS_COMMENT.test(l));
+      const hit = RISKY_LINES.find(([re]) => code.some((l) => re.test(l)));
       if (hit) { raise('risky', `${f.path} changes a line about ${hit[1]}`); continue; }
     }
     if (VISUAL.some((re) => re.test(f.path))) { raise('look', `changes ${f.path}, which is drawn on screen`); continue; }
@@ -150,13 +152,13 @@ export function approvalCovers({ approvedSha, head, ownCommitsSince }) {
 /** What `base...HEAD` changed in `root`: files with their added and removed lines, and the commit messages. */
 export function readFacts(root, base) {
   const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  const files = git('diff', '--name-status', '--no-renames', `${base}...HEAD`).split('\n').filter(Boolean).map((l) => {
-    const [status, p] = l.split('\t');
-    return { path: p, status: status[0], added: [], removed: [] };
+  const files = git('diff', '--name-status', '-M', `${base}...HEAD`).split('\n').filter(Boolean).map((l) => {
+    const parts = l.split('\t');
+    return { path: parts.at(-1), status: parts[0][0], added: [], removed: [] };
   });
   const byPath = new Map(files.map((f) => [f.path, f]));
   let cur = null;
-  for (const l of git('diff', '--no-renames', '--unified=0', '--no-color', `${base}...HEAD`).split('\n')) {
+  for (const l of git('diff', '-M', '--unified=0', '--no-color', `${base}...HEAD`).split('\n')) {
     if (l.startsWith('diff --git ')) { cur = byPath.get(l.slice(l.indexOf(' b/') + 3)) ?? null; continue; }
     if (!cur || l.startsWith('+++') || l.startsWith('---')) continue;
     if (l.startsWith('+')) cur.added.push(l.slice(1));
