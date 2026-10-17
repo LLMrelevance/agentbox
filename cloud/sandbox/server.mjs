@@ -47,7 +47,17 @@ const PAGE_BYTES = 8 * 1024 * 1024;
 const MAX_MCP_LINE = 32 * 1024 * 1024;
 // What this server can do beyond the first version, said in a start's answer,
 // so a Mac knows rather than guesses whether its asks are honoured.
-const CAPS = ['offline'];
+const CAPS = ['offline', 'setup'];
+// A PROJECT'S OWN SETUP: `.agentbox/cloud-setup.sh` in its task folder, run as
+// the agent before the agent, on every cloud run, so a project needing a
+// program the image lacks says so in its own repository rather than in a new
+// image. Its output is kept where the agent can read it.
+export const SETUP_LOG = '/tmp/agentbox-cloud-setup.log';
+const SETUP_FILE = '.agentbox/cloud-setup.sh';
+const SETUP_TIMEOUT_MS = 15 * 60 * 1000;
+// The command and its setup start with as many open files as the machine
+// allows: test runners watch thousands, and the default is 1024.
+const RAISE_OPEN_FILES = 'ulimit -n 65536 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null; exec "$0" "$@"';
 // WHILE THE MAC IS AWAY (a start's `offline`). Never a made-up success: the
 // agent is told the call did not reach the app, and carries on.
 const NOT_MADE = 'The computer this run reports to is asleep, so this call could not reach the app and was not made. Carry on without it, and say in your last message what you could not record.';
@@ -123,6 +133,8 @@ export function createSandbox({
   // unprivileged `agent` user, owning only its folder and its account folder.
   // { uid, gid, home, user }, or null to run as whoever the server is.
   runAs = null,
+  // Where a project's setup output is kept (SETUP_LOG); a test points it elsewhere.
+  setupLog = SETUP_LOG,
   // Where the usage meter reads the machine (cloud/sandbox/usage.mjs); a
   // test points it at a fake /sys/fs/cgroup and /proc.
   usage = {},
@@ -415,6 +427,40 @@ export function createSandbox({
   }
 
   /* ------------------------------- THE RUN -------------------------------- */
+  // The project's setup, as the agent (who may sudo), never with the run's
+  // sign-in. A setup that fails or overruns is said, and the agent starts all
+  // the same: it can read why in the log and do the rest itself.
+  function runSetup(r, cwd, env) {
+    emit({ kind: 'setup', state: 'running' }, r);
+    return new Promise((resolve) => {
+      let log;
+      try { log = fs.openSync(setupLog, 'w', 0o644); } catch { log = 'ignore'; }
+      let child;
+      try {
+        child = spawn('/bin/sh', ['-c', RAISE_OPEN_FILES, 'bash', SETUP_FILE], {
+          cwd,
+          env: { ...baseEnv, ...(runAs ? { HOME: runAs.home, USER: runAs.user, LOGNAME: runAs.user, TMPDIR: '/tmp' } : {}), ...env },
+          stdio: ['ignore', log, log],
+          detached: true,
+          ...(runAs ? { uid: runAs.uid, gid: runAs.gid } : {}),
+        });
+      } catch (err) {
+        emit({ kind: 'setup', state: 'failed', code: null, message: err.message }, r);
+        if (typeof log === 'number') fs.closeSync(log);
+        resolve();
+        return;
+      }
+      const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } }, SETUP_TIMEOUT_MS);
+      child.on('exit', (code, signal) => {
+        clearTimeout(timer);
+        if (typeof log === 'number') { try { fs.closeSync(log); fs.chmodSync(setupLog, 0o644); } catch { /* gone */ } }
+        emit({ kind: 'setup', state: code === 0 ? 'done' : 'failed', code, ...(signal ? { signal } : {}) }, r);
+        resolve();
+      });
+      child.on('error', () => {});
+    });
+  }
+
   async function prepareAndSpawn(r) {
     const { cwd, branch, bundleUrl, argv, env = {}, files = [], remote, changesRef } = r.spec;
     try {
@@ -469,6 +515,7 @@ export function createSandbox({
       setState('failed', {}, r);
       return;
     }
+    if (!r.cancelled && !r.spec.kind && fs.existsSync(path.join(cwd, SETUP_FILE))) await runSetup(r, cwd, env);
     if (r.cancelled) {
       // Cancelled before it ever started: nothing ran, so the results are the
       // folder exactly as it was packed, uploaded so the Mac's import is the
@@ -482,7 +529,7 @@ export function createSandbox({
     openBridge();
     let child;
     try {
-      child = spawn(argv[0], argv.slice(1), {
+      child = spawn('/bin/sh', ['-c', RAISE_OPEN_FILES, argv[0], ...argv.slice(1)], {
         cwd,
         env: {
           ...baseEnv,

@@ -16,7 +16,7 @@ RUN test -n "$CLAUDE_CODE_VERSION" && test -n "$CODEX_VERSION"
 # own command sandbox runs on, and bsdutils for `script`, the terminal
 # `claude setup-token` needs to sign an account in (server.mjs).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git ca-certificates tar gzip python3 make g++ openssh-client procps bubblewrap bsdutils \
+ && apt-get install -y --no-install-recommends git ca-certificates tar gzip python3 python3-pip make g++ openssh-client procps bubblewrap bsdutils sudo curl wget unzip xz-utils \
  && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/codex@${CODEX_VERSION}" && npm cache clean --force
@@ -36,7 +36,14 @@ RUN npm install -g playwright@1 \
 # temp folder for the per-run settings), which only root can create. The agent
 # itself runs as `agent`, owning only its task folder and its account folder
 # (cloud/sandbox/server.mjs, `runAs`).
+# The machine is the agent's for one run and then thrown away, so it may
+# install what its work needs (`sudo apt-get install`), and a project's
+# `.agentbox/cloud-setup.sh` can, rather than every program being baked in
+# here. It holds nothing the agent does not already have: its own sign-in is in
+# its environment. pip installs into a user's own folder without asking.
 RUN useradd --create-home --home-dir /opt/agent --shell /bin/bash agent \
+ && echo 'agent ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/agent && chmod 0440 /etc/sudoers.d/agent \
+ && printf '[global]\nbreak-system-packages = true\n' > /etc/pip.conf \
  && mkdir -p /var/lib/agentbox
 
 COPY server.mjs mcp-stub.mjs usage.mjs /opt/agentbox/
