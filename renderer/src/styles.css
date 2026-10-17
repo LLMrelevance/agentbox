@@ -8984,3 +8984,58 @@ body.neo-on .ts-panel:hover .ts-foot { opacity: 1; }
 .neo-show-lifted .neo-show-cell img { max-height: 80vh; max-width: 80vw; }
 .neo-show-full-screen .neo-show-cell img { max-height: 88vh; box-shadow: none; }
 .neo-show-cell figcaption { font: 500 10px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; color: var(--text-faint); }
+
+/* A picture opened from a thread (components/PictureView.tsx), over the app. */
+.picture-view { position: fixed; inset: 0; z-index: 9400; outline: none; display: flex; flex-direction: column;
+  animation: pv-in .14s ease-out; }
+@keyframes pv-in { from { opacity: 0; } to { opacity: 1; } }
+.pv-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.pv-img { display: block; flex: none; cursor: zoom-in; user-select: none; transition: transform .16s ease-out; will-change: transform; }
+.pv-img.pv-zoomed { cursor: grab; transition: none; }
+.pv-img.pv-zoomed:active { cursor: grabbing; }
+.pv-name { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pv-count { font: 500 11px/1 var(--mono); color: var(--text-faint); white-space: nowrap; }
+.pv-actions { display: flex; gap: 4px; flex: none; }
+.pv-actions button, .pv-close { font: inherit; font-size: 12px; color: var(--text-dim); background: none; border: 0; padding: 5px 8px;
+  border-radius: var(--radius); cursor: pointer; }
+.pv-actions button:hover, .pv-close:hover { color: var(--text); background: var(--wash-strong); }
+.pv-close { font-size: 18px; line-height: 1; padding: 3px 8px; }
+.pv-hint { font: 500 10px/1 var(--mono); letter-spacing: .08em; color: var(--text-faint); border: 1px solid var(--line-strong);
+  border-radius: var(--radius); padding: 3px 5px; }
+
+/* Centered: the thread dims, the picture sits in the middle with its name under it. */
+.pv-centered { background: color-mix(in srgb, var(--read-ground) 88%, transparent); backdrop-filter: blur(3px); padding: 56px 80px 18px; }
+/* Most pictures here are dark screenshots of a dark app; the ring keeps them from melting into the dimmed thread. */
+.pv-centered .pv-img { border-radius: var(--radius); box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-lg); }
+.pv-caption { flex: none; align-self: center; display: flex; align-items: center; gap: 14px; margin-top: 14px; padding: 6px 8px 6px 14px;
+  background: var(--pop); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow-lg); max-width: 100%; }
+
+/* Window: a floating window over the thread, moved by its bar and sized from its corner. */
+.picture-view.pv-window { background: var(--scrim); display: block; }
+.pv-win { position: fixed; display: flex; flex-direction: column; background: var(--pop); border: 1px solid var(--line-strong);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg); overflow: hidden; }
+.pv-bar { flex: none; display: flex; align-items: center; gap: 12px; padding: 6px 6px 6px 14px; border-bottom: 1px solid var(--line);
+  cursor: move; user-select: none; }
+.pv-bar .pv-name { flex: 1; }
+.pv-win .pv-stage { background: var(--bg); margin: 0; }
+.pv-grip { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, var(--line-strong) 50%, var(--line-strong) 58%, transparent 58%, transparent 70%, var(--line-strong) 70%, var(--line-strong) 78%, transparent 78%); }
+
+/* Full: the whole window is the picture, with every picture in the thread along the foot. */
+.pv-full { background: var(--bg); }
+.pv-top { flex: none; display: flex; align-items: center; gap: 14px; padding: 12px 14px 8px 22px; }
+.pv-spacer { flex: 1; }
+/* Static, so the step buttons sit at the window's edges rather than the picture's. */
+.pv-full .pv-stage { margin: 0 64px; position: static; }
+.pv-step { position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 64px; border: 0; border-radius: var(--radius);
+  background: var(--wash-strong); color: var(--text-dim); font-size: 30px; line-height: 1; cursor: pointer; }
+.pv-step:hover:not(:disabled) { color: var(--text); background: var(--line-strong); }
+.pv-step:disabled { opacity: .25; cursor: default; }
+.pv-prev { left: 12px; }
+.pv-next { right: 12px; }
+.pv-strip { flex: none; display: flex; gap: 8px; justify-content: center; padding: 12px 20px 16px; overflow-x: auto; }
+.pv-thumb { flex: none; width: 76px; height: 48px; padding: 0; border: 1px solid var(--line-strong); border-radius: var(--radius);
+  background: var(--bg); overflow: hidden; cursor: pointer; opacity: .55; }
+.pv-thumb.is-on { opacity: 1; border-color: var(--accent); }
+.pv-thumb:hover { opacity: .9; }
+.pv-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
