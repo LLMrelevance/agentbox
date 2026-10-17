@@ -458,8 +458,14 @@ input. In order:
   account's spend, not only cloud runs.
 - The sandbox is Linux: a project that builds with Xcode cannot run there,
   and nothing yet keeps such a project on the Mac.
-- Each run starts on a fresh machine and installs what it needs; a
-  per-project setup step and a saved installed copy are not built yet.
+- Each run starts on a fresh machine. The agent installs what it needs
+  (`sudo` is cloud/sandbox/sudo.mjs, handing the command to the root server,
+  since AgentCore's no_new_privs stops a real sudo), and a project's
+  `.agentbox/cloud-setup.sh` runs before every run (2026-10-17, checked on the
+  real runtime: apt, pip, the setup script). A saved copy of what a setup
+  installed is not built, so a long setup is paid on every run.
+- Open files are capped at 1024 by AgentCore, even for root; the agent is told
+  to run test files by name.
 
 ## The privacy and terms pages
 

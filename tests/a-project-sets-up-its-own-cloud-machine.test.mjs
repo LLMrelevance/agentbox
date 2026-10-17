@@ -92,6 +92,7 @@ describe('the agent on its cloud machine', () => {
     expect(CLOUD_NOTE).toMatch(/sudo apt-get install/);
     expect(CLOUD_NOTE).toMatch(/\.agentbox\/cloud-setup\.sh/);
     expect(CLOUD_NOTE).not.toMatch(/ffmpeg, curl, wget, unzip, sudo/);
-    expect(CLOUD_NOTE).not.toMatch(/Open files are capped at 1024/);
+    // The ceiling is the cloud's own (measured on AgentCore: 1024 hard, even for root), so the agent is told how to work within it.
+    expect(CLOUD_NOTE).toMatch(/Open files are capped at 1024 here/);
   });
 });
