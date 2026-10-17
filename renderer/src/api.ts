@@ -356,24 +356,27 @@ export const api = {
       const cloud = params.get('cloud');
       if (params.get('accounts') === 'two') {
         const until = new Date(); until.setHours(17, 10, 0, 0);
+        // &cloudread draws the cloud logins as they will read once the cloud
+        // reports each one's email and usage; without it, as they read today.
+        const read = params.has('cloudread');
         base.cloud = {
           // &cloudmode=mac draws the same accounts with the cloud turned off.
           setUp: true, mode: params.get('cloudmode') === 'mac' ? 'mac' : 'full', whenOn: 'full', running: 0,
           month: { runs: 14, agentHours: 1.2, estimatedCost: 0.16, costPerAgentHour: 0.13 },
           accounts: [
             {
-              engine: 'claude', key: 'a1', name: 'you@example.com', ready: false, state: 'limited' as any, limitedUntil: until.getTime(),
-              limits: [
+              engine: 'claude', key: 'a1', name: read ? 'you@example.com' : null, ready: false, state: 'limited' as any, limitedUntil: until.getTime(),
+              limits: read ? [
                 { span: 'session', qualifier: null, name: 'This session', percent: 100, resetsText: '5:10pm', resetsOn: null, resetsAt: until.getTime(), zone: null },
                 { span: 'week', qualifier: 'all models', name: 'This week', percent: 31, resetsText: '11:59am', resetsOn: 'Oct 22', resetsAt: null, zone: null },
-              ],
+              ] : null,
             },
             {
-              engine: 'claude', key: 'a2', name: 'work@example.com', ready: true, state: 'ready',
-              limits: [
+              engine: 'claude', key: 'a2', name: read ? 'work@example.com' : null, ready: true, state: 'ready',
+              limits: read ? [
                 { span: 'session', qualifier: null, name: 'This session', percent: 12, resetsText: '8pm', resetsOn: null, resetsAt: null, zone: null },
                 { span: 'week', qualifier: 'all models', name: 'This week', percent: 9, resetsText: '4pm', resetsOn: 'Oct 22', resetsAt: null, zone: null },
-              ],
+              ] : null,
             },
           ],
           signIns: [],

@@ -122,17 +122,12 @@
 .settings-screen[data-pane] .set-plate > .set-row + .set-acct-row.on { border-top-color: transparent; }
 /* SESSION AND WEEK, the same pair on every account. A full one turns to the
    accent and says when it is back instead of a number. */
-.acct-meters { display: inline-flex; align-items: center; gap: 18px; }
-.settings-screen[data-pane] .set-acct-row .set-row-label { white-space: nowrap; }
-.acct-meter { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.acct-meters { display: flex; flex-direction: column; align-items: stretch; gap: 10px; margin-top: 16px; }
+.acct-meter { display: grid; grid-template-columns: 56px 1fr auto; align-items: center; gap: 10px; font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .acct-meter-word { color: var(--text-faint); }
-.acct-meter .usage-meter { width: 52px; }
-.acct-meter-pct { min-width: 72px; text-align: right; }
-.acct-meters.stacked .acct-meter-pct { min-width: 0; }
+.acct-meter .usage-meter { width: auto; }
 .acct-meter.full .acct-meter-pct { color: var(--accent); }
-.acct-meters.stacked { display: flex; flex-direction: column; align-items: stretch; gap: 10px; margin-top: 16px; }
-.acct-meters.stacked .acct-meter { display: grid; grid-template-columns: 56px 1fr auto; gap: 10px; }
-.acct-meters.stacked .usage-meter { width: auto; }
+.acct-tile-cmd { margin-top: 10px; }
 .acct-meters-none { margin-top: 16px; font-size: 12px; color: var(--text-faint); }
 .acct-place-act { display: inline-flex; align-items: center; gap: 12px; }
 .acct-checked { font-size: 12px; font-weight: 400; color: var(--text-faint); }

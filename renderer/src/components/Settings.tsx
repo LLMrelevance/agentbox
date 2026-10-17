@@ -39,9 +39,6 @@ import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
 import { accountLabel, type CloudStatus } from '../cloud-menu';
 import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
-
-// PROPOSAL SWITCH, while two looks are compared (?accountsLook=tiles). Comes out with the pick.
-const TILES = typeof location !== 'undefined' && new URLSearchParams(location.search).get('accountsLook') === 'tiles';
 import { limitRows } from '../../../shared/usage.mjs';
 import { LOOKS, lookMeans, SKINS, TUNE_DEFAULT, TUNE_LIMITS, type Look, type SkinId, type SkinTune } from '../skins';
 import { readySkin } from '../look-switch';
@@ -445,14 +442,16 @@ export type PlaceAccount = {
   /** Why it cannot run, in main's words; replaces the meters. */
   trouble?: string | null;
   cmd?: string | null;
+  /** False where no usage can be read at all, so no "no reading yet" is promised. */
+  meters?: boolean;
 };
 
 /** SESSION AND WEEK, the same two meters for every account. A full one says when it is back. */
-export function MiniMeters({ limits, stacked = false }: { limits?: UsageLimit[] | null; stacked?: boolean }) {
+export function MiniMeters({ limits }: { limits?: UsageLimit[] | null }) {
   const meters = meterPair(limits);
-  if (!meters.length) return stacked ? <div className="acct-meters-none">No usage reading yet</div> : null;
+  if (!meters.length) return <div className="acct-meters-none">No usage reading yet</div>;
   return (
-    <span className={`acct-meters${stacked ? ' stacked' : ''}`}>
+    <span className="acct-meters">
       {meters.map((m) => (
         <span className={`acct-meter${m.percent >= 100 ? ' full' : ''}`} key={m.key}>
           <span className="acct-meter-word">{m.word}</span>
@@ -469,27 +468,7 @@ function UseMark({ a }: { a: PlaceAccount }) {
   return a.use ? <button type="button" className="set-badge set-badge-use" onClick={a.use.onUse}>{a.use.word}</button> : null;
 }
 
-/** LOOK 1: one row per account, the two meters on the right. */
-export function PlaceRows({ accounts, onAdd }: { accounts: PlaceAccount[]; onAdd?: () => void }) {
-  return (
-    <>
-      {accounts.map((a) => (a.trouble ? (
-        <Row key={a.key} label={a.name} desc={a.trouble}>{a.cmd && <CopyCmd cmd={a.cmd} />}</Row>
-      ) : (
-        <div className={`set-row set-acct-row${a.inUse ? ' on' : ''}`} key={a.key}>
-          <div className="set-row-text">
-            <div className="set-row-label">{a.name}<UseMark a={a} /></div>
-            {a.about.length > 0 && <div className="set-row-desc">{a.about.join(' · ')}</div>}
-          </div>
-          <div className="set-row-ctl"><MiniMeters limits={a.limits} /></div>
-        </div>
-      )))}
-      {onAdd && <Row label="Add account"><button type="button" className="set-ghost" onClick={onAdd}>Add</button></Row>}
-    </>
-  );
-}
-
-/** LOOK 2: one tile per account, two to a line, the meters stacked inside. */
+/** One tile per account, two to a line, its meters stacked inside. */
 export function PlaceTiles({ accounts, onAdd }: { accounts: PlaceAccount[]; onAdd?: () => void }) {
   return (
     <div className="acct-tiles">
@@ -497,7 +476,12 @@ export function PlaceTiles({ accounts, onAdd }: { accounts: PlaceAccount[]; onAd
         <div className={`acct-tile${a.inUse ? ' on' : ''}${a.trouble ? ' trouble' : ''}`} key={a.key}>
           <div className="acct-tile-name">{a.name}</div>
           <div className="acct-tile-about"><UseMark a={a} />{a.about.join(' · ')}</div>
-          {a.trouble ? <div className="acct-tile-trouble">{a.trouble}</div> : <MiniMeters limits={a.limits} stacked />}
+          {a.trouble ? (
+            <>
+              <div className="acct-tile-trouble">{a.trouble}</div>
+              {a.cmd && <div className="acct-tile-cmd"><CopyCmd cmd={a.cmd} /></div>}
+            </>
+          ) : a.meters !== false && <MiniMeters limits={a.limits} />}
         </div>
       ))}
       {onAdd && <button type="button" className="acct-tile acct-tile-add" onClick={onAdd}>Add account</button>}
@@ -506,17 +490,17 @@ export function PlaceTiles({ accounts, onAdd }: { accounts: PlaceAccount[]; onAd
 }
 
 /**
- * ONE PLACE AGENTS RUN, AS ONE CARD: its name, whether it is on, one line on
- *  when threads go there, and its accounts. */
-export function Place({ id, name, state = null, line = null, action, warn, accounts, onAdd, tiles = false }: {
+ * ONE PLACE AGENTS RUN: its name, whether it is on, one line on when threads
+ *  go there, and a tile per account. */
+export function Place({ id, name, state = null, line = null, action, warn, accounts, onAdd }: {
   id: string; name: string; state?: 'On' | 'Off' | null; line?: string | null; action?: ReactNode; warn?: string | null;
-  accounts: PlaceAccount[]; onAdd?: () => void; tiles?: boolean;
+  accounts: PlaceAccount[]; onAdd?: () => void;
 }) {
   const label = <>{name}{state && <span className={`set-badge${state === 'On' ? '' : ' set-badge-off'}`}>{state}</span>}</>;
   return (
-    <Group id={id} label={label} action={action} bare={tiles}>
-      {(warn || line) && <div className={tiles ? 'acct-place-line' : 'set-row set-row-warn'} role="status">{warn ?? line}</div>}
-      {tiles ? <PlaceTiles accounts={accounts} onAdd={onAdd} /> : <PlaceRows accounts={accounts} onAdd={onAdd} />}
+    <Group id={id} label={label} action={action} bare>
+      {(warn || line) && <div className="acct-place-line" role="status">{warn ?? line}</div>}
+      <PlaceTiles accounts={accounts} onAdd={onAdd} />
     </Group>
   );
 }
@@ -526,9 +510,10 @@ export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex
   const all = cloud.accounts ?? [];
   return all.filter((a) => a.engine === engine).map((a) => {
     const state = cloudAccountState(a, now);
-    // A full meter already says when it is back.
-    const said = state === 'Ready' || (state.startsWith('At its limit') && a.limits?.length);
-    return { key: a.key, name: accountLabel(a, all), about: said ? [] : [state], limits: a.limits ?? null };
+    const read = !!a.limits?.length;
+    // A full meter already says when it is back. Without a reading the state is all there is.
+    const said = read && (state === 'Ready' || state.startsWith('At its limit'));
+    return { key: a.key, name: accountLabel(a, all), about: said ? [] : [state], limits: a.limits ?? null, meters: read };
   });
 }
 
@@ -1761,7 +1746,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     const cloudAccounts = cloudHere ? cloudPlaceAccounts(cloudHere, engine, now) : [];
     const cloudCard = cloudHere && (
       <Place id="cloud-accounts" name="Cloud" state={cloudHere.mode === 'mac' ? 'Off' : 'On'}
-        line={cloudPlaceLine(cloudHere, cloudAccounts.length)} accounts={cloudAccounts} tiles={TILES} />
+        line={cloudPlaceLine(cloudHere, cloudAccounts.length)} accounts={cloudAccounts} />
     );
     const addAccount = async (a: Agent) => {
       const r = a.engine === 'codex' ? await api.addCodexAccount() : await api.addClaudeAccount();
@@ -1802,7 +1787,6 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                 warn={w.accountsNote}
                 accounts={hereAccounts}
                 onAdd={() => void addAccount(agent)}
-                tiles={TILES}
               />
             ) : (
               <Group id="accounts" label={cloudHere ? 'This computer' : 'Signed in'}>
