@@ -495,7 +495,7 @@ describe('opening a thread shows what she needs to decide', () => {
   it('shows nothing when the latest message has no pictures, even if older ones do', async () => {
     const t = withPictures(0, ['old.png']);
     await t.act('open_thread', { id: 'w-a' });
-    expect(t.deps.show).not.toHaveBeenCalled();
+    expect(t.deps.show.mock.calls.filter(([, layout]) => layout !== 'close')).toEqual([]);
   });
 });
 
@@ -515,5 +515,63 @@ describe('a picture in her reply box goes with Neo\'s words when she means it', 
     const t = setup();
     t.deps.reply = vi.fn(async () => 'no-pictures');
     expect((await t.act('reply', { id: 'w-b', text: 'see the image', attach: true })).said).toMatch(/no picture in the reply box/);
+  });
+});
+
+// "When I ask Neo to snooze the current thread for 10 minutes, Neo confirms
+// that it was snoozed, but the thread remains visible on the screen and the
+// PNG image is still displayed" (2026-10-16). Neo ran ⌘K's Later row, which
+// only opens the time picker, and said it was done; the picture it had put
+// up stayed up.
+describe('putting a thread off', () => {
+  function withLater() {
+    const t = setup({ focused: rows[0] });
+    t.deps.later = vi.fn(async () => {});
+    t.deps.show = vi.fn(async () => true);
+    t.deps.now = () => Date.parse('2026-10-16T17:00:00');
+    return t;
+  }
+
+  it('moves the thread to Later for the minutes she said, with the time on it', async () => {
+    const t = withLater();
+    const r = await t.act('later', { id: 'w-a', minutes: 10 });
+    expect(t.deps.later).toHaveBeenCalledWith(rows[0], Date.parse('2026-10-16T17:10:00'), expect.stringMatching(/10 minutes/));
+    expect(r).toMatchObject({ ok: true, said: expect.stringMatching(/Later.*10 minutes/) });
+  });
+
+  it('takes a clock time too', async () => {
+    const t = withLater();
+    await t.act('later', { id: 'w-a', at: '2026-10-17T09:00' });
+    expect(t.deps.later).toHaveBeenCalledWith(rows[0], Date.parse('2026-10-17T09:00:00'), expect.any(String));
+  });
+
+  it('refuses a time in the past or with nothing to go on, and moves nothing', async () => {
+    const t = withLater();
+    expect(await t.act('later', { id: 'w-a', at: '2026-10-15T09:00' })).toMatchObject({ ok: false });
+    expect(await t.act('later', { id: 'w-a' })).toMatchObject({ ok: false });
+    expect(t.deps.later).not.toHaveBeenCalled();
+  });
+
+  it('takes down any picture it had up', async () => {
+    const t = withLater();
+    await t.act('later', { id: 'w-a', minutes: 10 });
+    expect(t.deps.show).toHaveBeenCalledWith([], 'close');
+  });
+
+  it('will not run ⌘K\'s Later row, which only opens the picker, and says to use a time', async () => {
+    const t = withLater();
+    const ran = [];
+    t.deps.commands = () => [{ id: 'snooze', label: 'Later', run: () => ran.push('later-picker') }];
+    expect(await t.act('run_command', { id: 'snooze' })).toMatchObject({ ok: false, said: expect.stringMatching(/later/) });
+    expect(ran).toEqual([]);
+  });
+});
+
+describe('a picture Neo put up comes down when the thread changes', () => {
+  it.each([['next_thread', {}], ['open_thread', { id: 'w-b' }], ['close_thread', { id: 'w-a' }]])('%s takes it down first', async (name, args) => {
+    const t = setup({ focused: rows[0] });
+    t.deps.show = vi.fn(async () => true);
+    await t.act(name, args);
+    expect(t.deps.show.mock.calls[0]).toEqual([[], 'close']);
   });
 });

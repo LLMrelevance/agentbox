@@ -39,6 +39,9 @@ export type NeoDeps<R extends NeoRow> = {
   // (renderer/src/undo-window.ts), and a voice should not answer that for her.
   undo(): Promise<'done' | 'none' | 'old'>;
   glow(id: string): void;
+  // Moves a thread to Later until ts, the Later picker's own step in App.tsx.
+  later?(row: R, ts: number, label: string): Promise<unknown>;
+  now?(): number;
   // Films and sounds in the open thread: their names, and playing one.
   mediaNames?(): string[];
   // Everything ⌘K offers right now (components/Palette.tsx), searched by words.
@@ -89,6 +92,8 @@ export function findCommands<C extends { label: string; hint?: string; keywords?
 }
 
 // Commands that stop, close, approve, restart or open another copy of the app.
+const CHANGES_THREAD = new Set(['open_thread', 'next_thread', 'close_thread', 'later', 'run_command', 'pick_option']);
+
 const RISKY_COMMAND = /^(pause|done|approve|update|first-run|fresh-user|demo|tutorial|stop|resume|cloud|run-now)/;
 
 function saysWord(heard: string | undefined, word: string): boolean {
@@ -191,6 +196,8 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
 
   return async function act(name: string, args: Record<string, any>, ctx: { heard?: string } = {}): Promise<NeoResult> {
     try {
+      // A picture Neo put up comes down when the thread changes under it.
+      if (CHANGES_THREAD.has(name)) await deps.show?.([], 'close');
       switch (name) {
         case 'describe_screen':
         case 'get_screen':
@@ -289,6 +296,8 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
         case 'run_command': {
           const cmd = (deps.commands?.() ?? []).find((c) => c.id === args.id);
           if (!cmd) return refused('That command is not on offer right now. Search again with find_commands.');
+          // ⌘K's Later row only opens the time picker; later does it with her time.
+          if (cmd.label === 'Later') return refused('Use later with the minutes or time the person said.');
           // A yes counts for this command, with these words, on this thread:
           // "approve" means the open thread's approve, and that can change.
           const what = `${cmd.id}|${cmd.label}|${deps.focused()?.id ?? ''}`;
@@ -308,6 +317,19 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           if (cmd.id === 'done' && open) return (await deps.close(open)) === 'asked' ? refused(ASKED) : done(`Closed ${nameOf(open)}.`);
           await cmd.run();
           return done(`Done: ${cmd.label}.`);
+        }
+
+        case 'later': {
+          const row = find(args.id);
+          if (!row) return gone();
+          const now = deps.now?.() ?? Date.now();
+          const ts = Number.isInteger(args.minutes) ? now + args.minutes * 60_000 : typeof args.at === 'string' ? Date.parse(args.at) : NaN;
+          if (!Number.isFinite(ts)) return refused('Say how long or until when.');
+          if (ts <= now) return refused('That time has already passed.');
+          if (!deps.later) return refused('Putting threads off is not available here.');
+          const label = Number.isInteger(args.minutes) ? `in ${args.minutes} minute${args.minutes === 1 ? '' : 's'}` : `at ${new Date(ts).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`;
+          await deps.later(row, ts, label);
+          return done(`Moved ${nameOf(row)} to Later. It comes back ${label}.`);
         }
 
         case 'scroll':

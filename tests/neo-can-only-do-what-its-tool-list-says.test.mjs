@@ -10,7 +10,7 @@ const names = NEO_TOOLS.map((t) => t.name);
 
 describe('the tool list', () => {
   it('has exactly the prototype actions', () => {
-    expect(names.sort()).toEqual(['close_thread', 'find_commands', 'get_screen', 'media', 'run_command', 'scroll', 'show', 'new_thread', 'next_thread', 'open_thread', 'pick_option', 'reply', 'sign_off', 'undo'].sort());
+    expect(names.sort()).toEqual(['close_thread', 'find_commands', 'get_screen', 'later', 'media', 'run_command', 'scroll', 'show', 'new_thread', 'next_thread', 'open_thread', 'pick_option', 'reply', 'sign_off', 'undo'].sort());
   });
 
   it('is shaped as Responses function tools', () => {
@@ -190,5 +190,13 @@ describe('reply can carry the pictures in her reply box', () => {
   it('takes attach as true or false and nothing else', () => {
     expect(checkCall('reply', '{"id":"w-1","text":"see this","attach":true}')).toMatchObject({ ok: true });
     expect(checkCall('reply', '{"id":"w-1","text":"see this","attach":"yes"}')).toMatchObject({ ok: false });
+  });
+});
+
+describe('later', () => {
+  it('takes minutes or a clock time', () => {
+    expect(checkCall('later', '{"id":"w-1","minutes":10}')).toMatchObject({ ok: true });
+    expect(checkCall('later', '{"id":"w-1","at":"2026-10-17T09:00"}')).toMatchObject({ ok: true });
+    expect(checkCall('later', '{"id":"w-1","minutes":0}')).toMatchObject({ ok: false });
   });
 });

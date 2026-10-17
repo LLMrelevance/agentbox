@@ -83,6 +83,9 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         },
         compose: (t, p) => latest.current.compose(t, p),
         undo: () => latest.current.undo(),
+        later: async (r, ts, label) => {
+          await latest.current.later?.(r, ts, label);
+        },
         outside: () => outside,
         // The films and sounds the open thread draws (components/Focus.tsx ArtifactMedia).
         mediaNames: () => [...document.querySelectorAll('.inline-media')].map((el) => el.querySelector('.mention-name')?.textContent?.trim() || 'a film'),

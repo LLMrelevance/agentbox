@@ -4631,6 +4631,7 @@ export default function App() {
       return attach ? 'no-pictures' : undefined;
     },
     close: (row) => markDone(row),
+    later: (row, ts, label) => snoozeUntil(row, ts, label),
     compose: async (text, product) => {
       const message = threadMessage(text, []);
       if (!message) return null;
