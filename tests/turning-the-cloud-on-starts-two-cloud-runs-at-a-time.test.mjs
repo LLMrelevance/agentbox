@@ -49,6 +49,25 @@ describe('cloud runs starting', () => {
     expect(sup._cloudSlotFor('claude')).toBe(true);
   });
 
+  // Watched on her Mac that evening: with Everything on and two cloud runs
+  // starting, the next thread started on the Mac instead of waiting its turn.
+  it('with Everything, the next thread waits its turn rather than starting on this Mac', () => {
+    const sup = make();
+    const product = { slug: 'p', dir: '/nowhere', repoPath: '/r' };
+    const item = { id: 'w-next', product: 'p' };
+    add(sup, 'w-1', {});
+    add(sup, 'w-2', {});
+    expect(sup._localSlotFor('claude')).toBe(true);
+    expect(sup._whereToRun({ item, product, cwd: '/r/.claude/worktrees/w-next', engine: 'claude' })).toBe(null);
+    // A thread that may not go to the cloud starts here as before.
+    sup.threadOnMac['w-next'] = true;
+    expect(sup._whereToRun({ item, product, cwd: '/r/.claude/worktrees/w-next', engine: 'claude' })).toBe('local');
+    // And with "when this Mac is full", this Mac comes first anyway.
+    delete sup.threadOnMac['w-next'];
+    sup.config.cloudRuns = null;
+    expect(sup._whereToRun({ item, product, cwd: '/r/.claude/worktrees/w-next', engine: 'claude' })).toBe('local');
+  });
+
   it('do not count runs already going, or runs on this Mac', () => {
     const sup = make();
     for (let i = 0; i < 5; i += 1) add(sup, `w-run-${i}`, { sessionId: `s-${i}` });

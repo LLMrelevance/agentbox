@@ -828,7 +828,9 @@ export class Supervisor {
       if (opts?.continuation && item?.answer) this.redeliverAnswer(item, item.answer);
     }
     this._preparing?.clear();
-    for (const s of this.sessions.values()) this._kill(s);
+    // After `killAll` on a quit, a Claude cloud run is still being left going:
+    // SIGTERM here would cancel it.
+    for (const s of this.sessions.values()) this._kill(s, this._quitting && s.cloud && s.engine !== 'codex' ? 'SIGHUP' : undefined);
     this.sessions.clear();
   }
 
@@ -4380,6 +4382,11 @@ export class Supervisor {
     // signing off with everything still working (docs/cloud/PLAN.md).
     const cloudOk = () => this._mayRunInCloud(item, product, cwd, { remoteOnly }) && this._cloudSlotFor(engine);
     if (this._cloudFirst() && cloudOk()) return 'cloud';
+    // And waits its turn while two cloud runs are still starting, rather than
+    // starting on this Mac: the cloud has room once one of them is going.
+    if (this._cloudFirst() && this._cloudStarting() >= CLOUD_STARTING_AT_ONCE
+      && this._mayRunInCloud(item, product, cwd, { remoteOnly }) && this._cloudReady(engineOf(engine))
+      && this._cloudLoad() < this._maxCloud()) return null;
     if (!localFull && this._localSlotFor(engine)) return 'local';
     if (cloudOk()) return 'cloud';
     return continuation ? 'local' : null;
