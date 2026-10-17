@@ -95,6 +95,7 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
     const key = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey) return;
       e.stopImmediatePropagation();
+      wake();
       if (e.key === 'Escape') { e.preventDefault(); onClose(); }
       else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); setIndex((i) => stepTo(i, pictures.length, e.key === 'ArrowRight' ? 1 : -1)); }
       else if (e.key === '=' || e.key === '+') setZoom((z) => zoomBy(z, 1.5));

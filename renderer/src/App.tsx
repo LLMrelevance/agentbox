@@ -4629,6 +4629,7 @@ export default function App() {
     focused: () => focused,
     options: (row) => (offerIsLive(row) ? itemOptions(row) : []),
     summary: (row) => row.result || row.note || row.body || '',
+    about: (row) => row.problem || '',
     projects: () => (snap?.products ?? []).filter((p) => !directSlugs.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name })),
     open: (row) => { setSearch(null); setFocused(row); markSeen(row); },
     pick: (row, n) => pickOption(row, n),

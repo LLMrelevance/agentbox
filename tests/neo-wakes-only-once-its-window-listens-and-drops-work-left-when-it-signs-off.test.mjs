@@ -626,3 +626,28 @@ describe('deciding live', () => {
     expect(startLiveImpl.mock.calls[0][0].session.delegation).toEqual({ type: 'client' });
   });
 });
+
+// Neo's words reach the main window so it can show the picture Neo names
+// (tests/neo-shows-each-picture-as-it-names-it.test.mjs).
+describe('following what Neo says', () => {
+  it('hands Neo\'s words to the main window while awake, and only then', async () => {
+    const f = fakes({});
+    const follow = f.listeners.get('neo:follow');
+    follow(f.fromNeo, { said: 'Option two is Instrument.' });
+    expect(f.mainSent.some(([ch, p]) => ch === 'neo:act' && p.name === 'follow')).toBe(false);
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    follow(f.fromNeo, { said: 'Option two is Instrument.' });
+    expect(f.mainSent.find(([ch, p]) => ch === 'neo:act' && p.name === 'follow')?.[1].args).toEqual({ said: 'Option two is Instrument.' });
+  });
+
+  it('takes words only from Neo\'s own window', async () => {
+    const f = fakes({});
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    f.listeners.get('neo:follow')(f.fromMainWindow, { said: 'Option two.' });
+    expect(f.mainSent.some(([ch, p]) => ch === 'neo:act' && p.name === 'follow')).toBe(false);
+  });
+});

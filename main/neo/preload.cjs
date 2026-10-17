@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('neo', {
   startLive: (sdp, outside) => ipcRenderer.invoke('neo:start-live', { sdp, outside: !!outside }),
   tool: (callId, name, args, heard) => ipcRenderer.invoke('neo:tool', { callId, name, args, heard }),
   decide: (heard) => ipcRenderer.invoke('neo:decide', { heard }),
+  follow: (said) => ipcRenderer.send('neo:follow', { said }),
   drag: (phase, dx, dy) => ipcRenderer.send('neo:drag', { phase, dx, dy }),
   pace: (value) => ipcRenderer.invoke('neo:pace', value),
   captions: (on) => ipcRenderer.invoke('neo:captions', on),
