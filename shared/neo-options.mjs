@@ -18,7 +18,7 @@ const q = (s) => {
 };
 
 /**
- * `screen`: { open: { id, title, options:[{n,text}], pictures:[{n,name}], films:[{n,name}] } | null,
+ * `screen`: { open: { id, title, options:[{n,text}], pictures:[{n,name}], films:[{n,name}], files:[{n,name}] } | null,
  *             rows: [{ id, title }] (top first), commands: [{ id, label, hint? }], canGoBack }
  * Returns { version, list: [{ value, description, act }] }.
  */
@@ -41,6 +41,9 @@ export function buildOptions(screen) {
     if (pics.length) add('hide', 'Put away pictures Neo is showing ("close the picture", "hide it")', { kind: 'hide' });
     for (const f of open.films ?? []) {
       add(`play:${f.n}`, `Play ${q(f.name)} in the open thread`, { kind: 'media', id: open.id, n: f.n, action: 'play' });
+    }
+    for (const f of open.files ?? []) {
+      add(`file:${f.n}`, `Open ${q(f.name)}, a file in the latest message of the open thread, beside it${f.n === 1 ? ' ("the design" or "the page" means this one)' : ''}`, { kind: 'file', id: open.id, n: f.n });
     }
     if ((open.films ?? []).length) add('pause', 'Pause the film or sound that is playing', { kind: 'media', id: open.id, action: 'pause' });
   }

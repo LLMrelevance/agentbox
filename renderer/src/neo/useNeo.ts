@@ -9,7 +9,7 @@ import { useEffect, useRef } from 'react';
 import { describeScreen, neoBridge, screenFor, type NeoDeps, type NeoRow } from './bridge';
 import { glowOn } from './glow';
 import { orbCovers, type Orb } from './orb-cover';
-import { pictureName, putAway, show, threadPictures } from './show';
+import { fileName, latestFiles, pictureName, putAway, show, threadPictures } from './show';
 
 type Z = {
   neoEnabled?: () => Promise<boolean>;
@@ -42,7 +42,7 @@ function scrollerAt(): HTMLElement | null {
   return page && page.scrollHeight > page.clientHeight + 1 ? page : null;
 }
 
-type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'scroll' | 'pictureNames' | 'show' | 'media' | 'mediaNames' | 'latestPictureCount' | 'waitForPictures'> & {
+type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'scroll' | 'pictureNames' | 'show' | 'media' | 'mediaNames' | 'latestPictureCount' | 'waitForPictures' | 'fileNames' | 'openFile'> & {
   pick(row: R, n: number): Promise<unknown>;
   close(row: R): Promise<unknown>;
 };
@@ -117,9 +117,17 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         latestPictureCount: () => threadPictures().latest,
         // A thread draws its messages after its history arrives.
         waitForPictures: async () => {
-          for (let waited = 0; waited < 1500 && !threadPictures().latest; waited += 150) await new Promise((r) => setTimeout(r, 150));
+          for (let waited = 0; waited < 1500 && !threadPictures().latest && !latestFiles().length; waited += 150) await new Promise((r) => setTimeout(r, 150));
         },
         show: (ns, layout) => show(ns, layout),
+        fileNames: () => latestFiles().map((t, i) => fileName(t, i + 1)),
+        openFile: async (n) => {
+          const tile = latestFiles()[n - 1];
+          if (!tile) return false;
+          if (tile.getAttribute('aria-pressed') !== 'true') tile.click();
+          setTimeout(() => glowOn(tile), 300);
+          return true;
+        },
         // After React has drawn what the act changed, so the glow lands on
         // the section as it now is.
         glow: (id) => { const name = lastName; setTimeout(() => glowOn(sectionFor(name, id)), 180); },

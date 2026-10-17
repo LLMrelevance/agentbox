@@ -11,6 +11,8 @@ import { decide } from './decide.mjs';
 // bench (scripts/neo-decide-bench.mjs): its misses all came in under 0.3.
 export const UNSURE = 0.4;
 
+const FINISHES = new Set(['pick_option', 'later', 'close_thread']);
+
 const NEW_LEAD = /^(?:please\s+)?(?:start|create|make|open|kick off|spin up)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:task|thread)\s*(?:to|for|about|:)?\s*/i;
 
 function inputFor(screen, heard) {
@@ -54,6 +56,17 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
     }
     return res?.said ?? (res?.ok ? 'Done.' : 'That did not work.');
   };
+  // A close, put-off or pick is one word, then the thread the inbox moved on to.
+  const finish = async (name, args) => {
+    const res = await askMain(name, args, heard);
+    if (res?.status === 'needs_yes') {
+      state.pending = { name, args, about: picked.description };
+      return res.said;
+    }
+    if (!res?.ok) return res?.said ?? 'That did not work.';
+    const next = await askMain('brief_open', { from: args.id }, heard);
+    return next?.ok ? `Done. ${next.said}` : 'Done.';
+  };
   const relay = (said) => ({ say: said, ...meta });
   const open = screen.open;
   const a = picked.act;
@@ -64,7 +77,7 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
       const p = state.pending;
       state.pending = null;
       if (!p) return { say: '', ...meta };
-      return relay(await run(p.name, { ...p.args, confirmed: true }));
+      return relay(await (FINISHES.has(p.name) ? finish : run)(p.name, { ...p.args, confirmed: true }));
     }
     case 'no':
       state.pending = null;
@@ -73,13 +86,13 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
       const { text, attach } = replyFrom(heard);
       return relay(await run('reply', { id: a.id, text, attach }));
     }
-    case 'pick': return relay(await run('pick_option', { id: a.id, n: a.n }));
+    case 'pick': return relay(await finish('pick_option', { id: a.id, n: a.n }));
     case 'later': {
       const when = laterFrom(heard, now());
       if (!when) return relay('Ask the person how long to put it off for.');
-      return relay(await run('later', { id: a.id, minutes: Math.max(1, Math.round((when.ts - now()) / 60_000)) }));
+      return relay(await finish('later', { id: a.id, minutes: Math.max(1, Math.round((when.ts - now()) / 60_000)) }));
     }
-    case 'close': return relay(await run('close_thread', { id: a.id }));
+    case 'close': return relay(await finish('close_thread', { id: a.id }));
     case 'open': return relay(await run('open_thread', { id: a.id }));
     case 'next': return relay(await run('next_thread'));
     case 'back': return relay(await run('go_back'));
@@ -88,6 +101,7 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
     case 'compare': return relay(await run('show', { pictures: picturesFrom(heard, (open?.pictures ?? []).length), layout: 'side_by_side' }));
     case 'hide': return relay(await run('show', { layout: 'close' }));
     case 'media': return relay(await run('media', { action: a.action, ...(a.n ? { n: a.n } : {}) }));
+    case 'file': return relay(await run('open_file', { n: a.n }));
     case 'command': return relay(await run('run_command', { id: a.id }));
     case 'undo': return relay(await run('undo'));
     case 'new': {

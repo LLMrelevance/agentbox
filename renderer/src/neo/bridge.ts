@@ -55,6 +55,9 @@ export type NeoDeps<R extends NeoRow> = {
   // Resolves once the opened thread has drawn its pictures, or soon after if it has none.
   waitForPictures?(): Promise<void>;
   show?(pictures: number[], layout: 'in_place' | 'peek' | 'lifted' | 'side_by_side' | 'full_screen' | 'close'): Promise<boolean>;
+  // Files the latest message names (a design page, a document), and opening one beside the thread.
+  fileNames?(): string[];
+  openFile?(n: number): Promise<boolean>;
   media?(action: 'play' | 'pause', n: number): Promise<{ name: string; count: number } | null>;
 };
 
@@ -195,11 +198,17 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
     if (!deps.show || !deps.latestPictureCount) return '';
     await deps.waitForPictures?.();
     const n = Math.min(deps.latestPictureCount(), 4);
-    if (!n) return '';
+    if (!n) return openLatestFile();
     const ns = Array.from({ length: n }, (_, i) => i + 1);
     if (!(await deps.show(ns, 'peek'))) return '';
     const names = (deps.pictureNames?.() ?? []).slice(0, n);
     return ` Beside the thread now: ${n === 1 ? 'its picture' : `its ${n} pictures, numbered ${ns.join(', ')}`} (${names.join(', ')}). Refer to them by number as you brief.`;
+  };
+  // With no picture in the latest message, its design page is the thing to see.
+  const openLatestFile = async () => {
+    const files = deps.fileNames?.() ?? [];
+    if (!files.length || !deps.openFile || !(await deps.openFile(1))) return '';
+    return ` Open beside the thread now: ${files[0]}, from the latest message.`;
   };
   // What Neo needs to brief her on a thread it just opened.
   const brief = (row: R) => {
@@ -378,6 +387,25 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           return shown ? done(`Showing ${want.map((n) => have[n - 1]).join(' and ')}.`) : refused('Those pictures could not be shown.');
         }
 
+        case 'brief_open': {
+          // The inbox moves to the next thread a render after a close or a put-off.
+          let row = deps.focused();
+          for (let waited = 0; waited < 800 && (!row || row.id === args.from); waited += 50) {
+            await new Promise((r) => setTimeout(r, 50));
+            row = deps.focused();
+          }
+          if (!row || row.id === args.from) return refused('Nothing new is open.');
+          return done(`Now open: ${nameOf(row)}.${brief(row)}${await showLatest()}`);
+        }
+
+        case 'open_file': {
+          const files = deps.fileNames?.() ?? [];
+          const n = Number(args.n) || 1;
+          if (!files.length) return refused('The latest message has no files.');
+          if (n > files.length) return refused(`The latest message has ${files.length} file${files.length === 1 ? '' : 's'}.`);
+          return (await deps.openFile?.(n)) ? done(`Opened ${files[n - 1]} beside the thread.`) : refused('That file could not be opened.');
+        }
+
         case 'undo': {
           const r = await deps.undo();
           if (r === 'done') return done('Undone.');
@@ -411,6 +439,7 @@ export function screenFor<R extends NeoRow>(deps: NeoDeps<R>, canGoBack: boolean
       options: deps.options(open).map(({ n, text }) => ({ n, text })),
       pictures: (deps.pictureNames?.() ?? []).slice(0, 9).map((name, i) => ({ n: i + 1, name })),
       films: (deps.mediaNames?.() ?? []).slice(0, 9).map((name, i) => ({ n: i + 1, name })),
+      files: (deps.fileNames?.() ?? []).slice(0, 9).map((name, i) => ({ n: i + 1, name })),
     } : null,
     rows: [...listed, ...rest].slice(0, most).map((r) => ({ id: r.id, title: nameOf(r) })),
     commands: (deps.commands?.() ?? []).map((c) => ({ id: c.id, label: c.label, ...(c.hint ? { hint: c.hint } : {}) })),

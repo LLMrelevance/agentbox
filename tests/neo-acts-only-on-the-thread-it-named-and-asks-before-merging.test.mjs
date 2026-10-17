@@ -689,3 +689,36 @@ describe('the screen for the trial run', () => {
     expect(act.canGoBack()).toBe(true);
   });
 });
+
+// Same report: with no picture in the latest message, its design page is what
+// she needs to decide, so opening the thread opens that beside it.
+describe('opening a thread shows the latest message\'s design page when it has no picture', () => {
+  it('opens the first file of the latest message', async () => {
+    const t = setup();
+    t.deps.pictureNames = () => ['old.jpg'];
+    t.deps.latestPictureCount = () => 0;
+    t.deps.waitForPictures = async () => {};
+    t.deps.show = vi.fn(async () => true);
+    t.deps.fileNames = () => ['section3-into-2m04-r3.html'];
+    t.deps.openFile = vi.fn(async () => true);
+    const r = await t.act('open_thread', { id: 'w-a' });
+    expect(t.deps.openFile).toHaveBeenCalledWith(1);
+    expect(t.deps.show.mock.calls.filter(([, l]) => l !== 'close')).toEqual([]);
+    expect(r.said).toMatch(/section3-into-2m04-r3\.html/);
+  });
+
+  it('a file can be opened by its number', async () => {
+    const t = setup({ focused: rows[0] });
+    t.deps.fileNames = () => ['a.html', 'b.html'];
+    t.deps.openFile = vi.fn(async () => true);
+    expect(await t.act('open_file', { n: 2 })).toMatchObject({ ok: true, said: expect.stringMatching(/b\.html/) });
+    expect(t.deps.openFile).toHaveBeenCalledWith(2);
+    expect(await t.act('open_file', { n: 3 })).toMatchObject({ ok: false });
+  });
+
+  it('the screen for the Decisions API lists the files', () => {
+    const t = setup({ focused: rows[0] });
+    t.deps.fileNames = () => ['a.html'];
+    expect(screenFor(t.deps, false).open.files).toEqual([{ n: 1, name: 'a.html' }]);
+  });
+});

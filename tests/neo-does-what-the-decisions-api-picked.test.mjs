@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { runDecision, UNSURE } from '../main/neo/decided.mjs';
 
 const SCREEN = {
-  open: { id: 'w-j', title: 'JARVIS for Agentbox', options: [{ n: 1, text: 'Ship it all (recommended)' }, { n: 2, text: 'Change the layouts first' }], pictures: [{ n: 1, name: 'a.png' }, { n: 2, name: 'b.png' }, { n: 3, name: 'c.png' }], films: [] },
+  open: { id: 'w-j', title: 'JARVIS for Agentbox', options: [{ n: 1, text: 'Ship it all (recommended)' }, { n: 2, text: 'Change the layouts first' }], pictures: [{ n: 1, name: 'a.png' }, { n: 2, name: 'b.png' }, { n: 3, name: 'c.png' }], films: [], files: [{ n: 1, name: 'page.html' }] },
   rows: [{ id: 'w-p', title: 'Pricing page copy' }], commands: [{ id: 'pause', label: 'Pause agents' }], canGoBack: true,
 };
 const NOW = new Date('2026-10-16T15:00:00').getTime();
@@ -39,6 +39,7 @@ describe('what a pick does', () => {
     ['hide', 'hide the pictures', ['show', { layout: 'close' }]],
     ['cmd:pause', 'pause the agents', ['run_command', { id: 'pause' }]],
     ['undo', 'undo that', ['undo', {}]],
+    ['file:1', 'open the design page', ['open_file', { n: 1 }]],
   ])('%s', async (choice, heard, [name, args]) => {
     const t = setup(choice);
     await t.run(heard);
@@ -66,8 +67,8 @@ describe('what a pick does', () => {
   });
 
   it('says what the app said happened', async () => {
-    const t = setup('close', { results: { close_thread: { ok: true, status: 'committed', said: 'Closed JARVIS for Agentbox.' } } });
-    expect((await t.run('close it')).say).toMatch(/Closed JARVIS for Agentbox/);
+    const t = setup('open:w-p', { results: { open_thread: { ok: true, status: 'committed', said: 'Opened Pricing page copy.' } } });
+    expect((await t.run('open the pricing one')).say).toMatch(/Opened Pricing page copy/);
   });
 
   it('nothing to do is nothing done and nothing said', async () => {

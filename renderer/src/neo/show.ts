@@ -17,11 +17,13 @@ const sameFile = (src: string) => src.replace(/[?#].*$/, '');
  * Which pictures Neo counts, and in what order: each file once, the latest
  * message's first in their own order, then older ones newest first. `block`
  * is the message a picture is drawn in, in thread order; `mine` marks one she
- * pasted herself, which is never the latest agent message's.
+ * pasted herself, which is never the latest agent message's. `latestBlock` is
+ * the agent's latest message: when it has no pictures, none are latest, so an
+ * older message's never stand in for it.
  */
-export function orderPictures(found: { src: string; block: unknown; mine?: boolean }[]): { order: number[]; srcs: string[]; latest: number } {
+export function orderPictures(found: { src: string; block: unknown; mine?: boolean }[], latestBlock?: unknown): { order: number[]; srcs: string[]; latest: number } {
   if (!found.length) return { order: [], srcs: [], latest: 0 };
-  const last = [...found].reverse().find((p) => !p.mine)?.block;
+  const last = latestBlock ?? [...found].reverse().find((p) => !p.mine)?.block;
   const seen = new Set<string>();
   const latest: number[] = [];
   found.forEach((p, i) => {
@@ -40,8 +42,22 @@ export function orderPictures(found: { src: string; block: unknown; mine?: boole
 export function threadPictures(root: ParentNode = document): { pictures: HTMLImageElement[]; latest: number } {
   const all = [...root.querySelectorAll<HTMLImageElement>('.focus-scroll img.inline-image, .thread-block img.inline-image')]
     .filter((img, i, list) => img.isConnected && !img.closest('.neo-show') && list.indexOf(img) === i);
-  const got = orderPictures(all.map((img) => ({ src: img.getAttribute('src') ?? '', block: img.closest('.thread-block') ?? img.parentElement, mine: !!img.closest('.msg.yours') })));
+  const got = orderPictures(all.map((img) => ({ src: img.getAttribute('src') ?? '', block: img.closest('.thread-block') ?? img.parentElement, mine: !!img.closest('.msg.yours') })), latestAgentBlock(root));
   return { pictures: got.order.map((i) => all[i]), latest: got.latest };
+}
+
+function latestAgentBlock(root: ParentNode): Element | undefined {
+  const blocks = [...root.querySelectorAll('.focus-scroll .thread-block')].filter((b) => b.querySelector('.msg:not(.yours)'));
+  return blocks.at(-1);
+}
+
+/** The latest message's files (components/MessageFiles.tsx), the tiles that open one beside the thread. */
+export function latestFiles(root: ParentNode = document): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>('.focus-scroll .message-file')].filter((b) => b.isConnected && !b.closest('.neo-show'));
+}
+
+export function fileName(tile: HTMLElement, n: number): string {
+  return tile.querySelector('.message-file-name')?.textContent?.trim() || `file ${n}`;
 }
 
 export function pictureName(img: HTMLImageElement, n: number): string {

@@ -96,3 +96,12 @@ describe('what the picker can be fooled by', () => {
     expect(buildOptions(screen({ canGoBack: false })).version).not.toBe(buildOptions(screen()).version);
   });
 });
+
+describe('files in the latest message', () => {
+  it('each can be opened by name', () => {
+    const s = screen({ open: { ...screen().open, files: [{ n: 1, name: 'section3-into-2m04-r3.html' }] } });
+    const o = buildOptions(s).list.find((x) => x.value === 'file:1');
+    expect(o.description).toMatch(/section3-into-2m04-r3\.html/);
+    expect(o.act).toEqual({ kind: 'file', id: 'w-jarvis', n: 1 });
+  });
+});

@@ -591,10 +591,10 @@ describe('deciding live', () => {
   it('decides, acts through the app, and answers what to say', async () => {
     const decideImpl = vi.fn(async () => ({ choice: 'close', confidence: 0.96, runnersUp: [], ms: 120 }));
     const f = await awake(decideImpl);
-    const stop = playWindow(f, { close_thread: { ok: true, status: 'committed', said: 'Closed JARVIS for Agentbox.' } });
+    const stop = playWindow(f, { close_thread: { ok: true, status: 'committed', said: 'Closed JARVIS for Agentbox.' }, brief_open: { ok: true, status: 'committed', said: 'Now open: Pricing page copy.' } });
     const r = await f.handlers.get('neo:decide')(f.fromNeo, { heard: 'close it' });
     stop();
-    expect(r.say).toMatch(/Closed JARVIS/);
+    expect(r.say).toBe('Done. Now open: Pricing page copy.');
     expect(f.mainSent.some(([ch, p]) => ch === 'neo:act' && p.name === 'close_thread' && p.args.id === 'w-j')).toBe(true);
   });
 
