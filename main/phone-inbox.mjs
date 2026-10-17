@@ -34,13 +34,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
-import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
+import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, hideSecrets, bytesOf, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
+import { createPhoneUploads } from './phone-uploads.mjs';
 
 // How long a thread started on the phone is remembered as the row it became:
 // long past any reply still waiting for it (second review, finding 8).
 const MADE_KEPT_MS = 60 * 24 * 3600_000;
 // A copy the cloud would not take is tried again, less and less often.
 const RETRY_MS = [60_000, 5 * 60_000, 30 * 60_000, 3600_000];
+// A running thread's step goes up at most this often, and its copy is sent
+// again this often while it runs, so a phone can tell a Mac that went to sleep
+// mid-run (cloud-bridge.ts LIVE_FOR_MS) from one still working.
+const STEP_EVERY_MS = 30_000;
+const STILL_RUNNING_MS = 2 * 60_000;
+const SWEEP_EVERY_MS = 3600_000;
 
 export class SignedOut extends Error {}
 
@@ -51,7 +58,7 @@ export function createPhoneInbox({
   alive = () => true,
   // This computer's id online; made here and kept with the rest when none is given.
   device: given = null,
-  // The projects on her phone, read fresh each pass: [{ slug, name }].
+  // The projects on her phone, read fresh each pass: [{ slug, name, dir?, repoPath? }].
   projects,
   listItems, // (slug) -> folded rows
   historyOf, // (slug, id, { all }) -> the thread's history lines (store.readHistory); all of them when asked
@@ -62,6 +69,8 @@ export function createPhoneInbox({
   log = () => {},
   // How a thread's copy is made; a test counts the calls.
   build = threadSnapshot,
+  // (slug, id) -> { since, where: 'mac' | 'cloud', doing: [{ label, startedAt }] } while an agent runs on it, else null.
+  liveOf = () => null,
 }) {
   const state = readState(stateFile);
   const save = () => writeState(stateFile, state);
@@ -78,9 +87,14 @@ export function createPhoneInbox({
     state.forDevice = device;
     state.sent = {};
     state.failed = {};
+    state.uploaded = {};
     save();
   }
   const still = () => { if (!alive()) throw new SignedOut('signed out'); };
+  // The files threads name, when this cloud can hold them (main/phone-uploads.mjs).
+  const uploads = backend.putPhoneFile ? createPhoneUploads({ backend, owner, device, alive, state, save, home, now, log }) : null;
+  let swept = 0;
+  const homeWritten = (p) => (p && home && (p === home || p.startsWith(`${home}/`)) ? `~${p.slice(home.length)}` : p ?? null);
 
   // WHAT EACH THREAD'S COPY WAS LAST BUILT FROM, so a pass skips building the
   // copies of threads that did not change. Building them is the costly part of
@@ -90,6 +104,25 @@ export function createPhoneInbox({
   // same row and lines make the same copy.
   const built = new Map();
   const inputsOf = (item, history) => crypto.createHash('sha1').update(JSON.stringify(item)).update('\0').update(JSON.stringify(history)).digest('base64');
+  // What each running thread's copy last said about the run, by thread.
+  const lives = new Map();
+  const liveNow = (sk, slug, id) => {
+    let raw = null;
+    try { raw = liveOf(slug, id); } catch { /* the supervisor's trouble, not the phone's */ }
+    if (!raw) { lives.delete(sk); return null; }
+    const doing = (Array.isArray(raw.doing) ? raw.doing : []).slice(0, 3).map((d) => {
+      const label = hideSecrets(String(d?.label ?? ''), { home }).replace(/\s+/g, ' ').trim();
+      return { label: label.length > 160 ? `${label.slice(0, 159)}…` : label, startedAt: Number(d?.startedAt) || now() };
+    });
+    const was = lives.get(sk);
+    const same = was && was.since === raw.since && was.where === raw.where;
+    const steps = (l) => JSON.stringify(l.doing.map((d) => d.label));
+    if (same && now() - was.at < STEP_EVERY_MS) return was;
+    if (same && now() - was.at < STILL_RUNNING_MS && steps(was) === steps({ doing })) return was;
+    const live = { since: Number(raw.since) || now(), where: raw.where === 'cloud' ? 'cloud' : 'mac', doing, at: now() };
+    lives.set(sk, live);
+    return live;
+  };
   // Each project's pass is one stretch of work; between them the window gets a turn.
   const breathe = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -109,11 +142,21 @@ export function createPhoneInbox({
         const sk = `${p.slug}:${item.id}`;
         const history = historyOf(p.slug, item.id);
         const inputs = inputsOf(item, history);
+        const live = liveNow(sk, p.slug, item.id);
         const was = built.get(sk);
-        if (was && was.inputs === inputs && state.sent[sk] === was.key) continue;
-        const snap = build(item, history, SNAPSHOT_LIMITS, { home });
+        // Only the run or its files moved: the copy of the row and its lines is the one already made.
+        let base = was?.inputs === inputs ? was.base : null;
+        const made = () => (base ??= build(item, history, SNAPSHOT_LIMITS, { home }));
+        const files = uploads && p.dir ? uploads.manifest(sk, made, { dir: p.dir, repoPath: p.repoPath, updatedAt: item.updatedAt ?? 0, base: inputs }) : null;
+        if (was && was.inputs === inputs && was.live === live && was.files === files && state.sent[sk] === was.key) continue;
+        let snap = live ? { ...made(), live } : made();
+        // Where the files are on this Mac, written from her home as the words are, so the phone can follow a path the words give in full.
+        if (files) {
+          const attached = { dir: homeWritten(p.dir), ...(p.repoPath ? { repo: homeWritten(p.repoPath) } : {}), ...files };
+          if (bytesOf(snap) + bytesOf(attached) < SNAPSHOT_LIMITS.bytes) snap = { ...snap, attached };
+        }
         const k = snapshotKey(snap);
-        built.set(sk, { inputs, key: k });
+        built.set(sk, { inputs, key: k, live, files, base: live || files ? base : null });
         if (state.sent[sk] === k) continue;
         const failed = state.failed[sk];
         if (failed && failed.key === k && now() < failed.next) continue;
@@ -139,6 +182,8 @@ export function createPhoneInbox({
       delete state.sent[k];
       save();
     }
+    uploads?.kick();
+    if (uploads && now() - swept > SWEEP_EVERY_MS) { swept = now(); try { await uploads.sweep(); } catch (err) { log(`phone: could not clear old files: ${err?.message ?? err}`); } }
     return sent;
   }
 
@@ -237,6 +282,8 @@ export function createPhoneInbox({
 
   return {
     device,
+    /** The uploads going on behind the passes; a test waits on them. */
+    filesSettled: () => uploads?.kick() ?? Promise.resolve(),
     async syncOnce() {
       try {
         const taken = await takeCommands();
@@ -293,9 +340,9 @@ function readState(file) {
     const s = JSON.parse(fs.readFileSync(file, 'utf8'));
     const made = {};
     for (const [k, v] of Object.entries(s.made || {})) made[k] = typeof v === 'string' ? { id: v, at: Date.now() } : v;
-    return { device: typeof s.device === 'string' && /^[0-9a-f]{12}$/.test(s.device) ? s.device : null, forDevice: s.forDevice ?? null, sent: s.sent || {}, failed: s.failed || {}, done: s.done || {}, doing: s.doing || {}, made };
+    return { device: typeof s.device === 'string' && /^[0-9a-f]{12}$/.test(s.device) ? s.device : null, forDevice: s.forDevice ?? null, sent: s.sent || {}, failed: s.failed || {}, done: s.done || {}, doing: s.doing || {}, made, uploaded: s.uploaded && typeof s.uploaded === 'object' ? s.uploaded : {} };
   } catch {
-    return { device: null, forDevice: null, sent: {}, failed: {}, done: {}, doing: {}, made: {} };
+    return { device: null, forDevice: null, sent: {}, failed: {}, done: {}, doing: {}, made: {}, uploaded: {} };
   }
 }
 

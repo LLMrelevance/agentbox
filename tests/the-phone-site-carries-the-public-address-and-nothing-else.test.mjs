@@ -65,14 +65,16 @@ describe('the page', () => {
 });
 
 describe('the headers', () => {
-  it('let the page reach itself and the database only, keep its address out of every Referer, and refuse framing', () => {
+  it('let the page reach itself and the database only, keep its address out of every Referer, and refuse framing by any other site', () => {
     config({ url: 'https://abc.supabase.co', anonKey: 'eyJhbGciOi.public-key_1234567890' });
     build();
     const headers = fs.readFileSync(path.join(out, '_headers'), 'utf8');
     expect(headers).toMatch(/connect-src 'self' https:\/\/abc\.supabase\.co;/);
     expect(headers).toMatch(/script-src 'self';/);
     expect(headers).not.toMatch(/unsafe-eval/);
-    expect(headers).toMatch(/frame-ancestors 'none'/);
+    // Its own pages only (2026-10-17): Safari holds a page the phone draws from its own copy to this rule too.
+    expect(headers).toMatch(/frame-ancestors 'self'/);
+    expect(headers).toMatch(/X-Frame-Options: SAMEORIGIN/);
     expect(headers).toMatch(/Referrer-Policy: no-referrer/);
   });
 });
