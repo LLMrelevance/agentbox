@@ -11,7 +11,8 @@ import path from 'node:path';
 import { neoEnabled } from './gate.mjs';
 import { startLive } from './live.mjs';
 import { listenForDoubleCommand } from './cmd-tap.mjs';
-import { checkCall, neoSession } from '../../shared/neo-tools.mjs';
+import { getMic, micOwner } from './mic.mjs';
+import { checkCall, neoSession, PACES } from '../../shared/neo-tools.mjs';
 import { Name } from '../../shared/product-name.mjs';
 
 const WIDTH = 600;
@@ -20,12 +21,19 @@ const MARGIN = 20;
 export const SESSION_MAX_S = 20 * 60;
 export const DAY_MAX_S = 3 * 60 * 60;
 const ACT_TIMEOUT_MS = 10_000;
+// "Maybe every few minutes of usage": talk is handed to a review once this much has built up.
+export const REVIEW_AFTER_S = 180;
+const WHO = new Set(['you', 'neo', 'tool']);
 
 const today = (now) => new Date(now).toISOString().slice(0, 10);
 
 export function createNeo({
   app, BrowserWindow, ipcMain, screen, powerMonitor, systemPreferences, session: electronSession, globalShortcut,
   mainWindow, preload, load, userData, now = Date.now, listen = listenForDoubleCommand, platform = process.platform,
+  shell = { openExternal: () => {} }, owner = micOwner(), getMicImpl = getMic, startLiveImpl = startLive,
+  // Handed the transcripts of every few minutes of talk, for a review that
+  // patches what went wrong (main/main.mjs files them on a thread).
+  onReview = null,
 }) {
   const on = neoEnabled({ userData, platform });
   ipcMain.handle('neo:enabled', () => on);
@@ -34,6 +42,10 @@ export function createNeo({
   const dir = path.join(userData, 'neo');
   fs.mkdirSync(dir, { recursive: true });
   const usageFile = path.join(dir, 'usage.json');
+  // Where she dragged the orb and how fast she wants Neo to talk.
+  const prefsFile = path.join(dir, 'prefs.json');
+  const readPrefs = () => { try { const p = JSON.parse(fs.readFileSync(prefsFile, 'utf8')); return p && typeof p === 'object' ? p : {}; } catch { return {}; } };
+  const writePrefs = (change) => { try { fs.writeFileSync(prefsFile, JSON.stringify({ ...readPrefs(), ...change })); } catch {} };
   const readUsage = () => {
     try { const u = JSON.parse(fs.readFileSync(usageFile, 'utf8')); if (u.date === today(now())) return u; } catch {}
     return { date: today(now()), seconds: 0 };
@@ -49,6 +61,8 @@ export function createNeo({
   // Bumped whenever a session ends or is asked to, so a tool call queued in
   // that session is refused rather than carried out after Neo has gone.
   let generation = 0;
+  // This session's transcript, on this Mac only.
+  let talkFile = null;
   let ending = false;        // asked to sign off; takes no new work
   let sessionSeconds = 0;
   const seenCalls = new Set();
@@ -68,7 +82,62 @@ export function createNeo({
   const fromNeo = (e) => !!win && e.sender === win.webContents;
   const fromMain = (e) => e.sender === mainWindow.webContents;
 
+  // The whole window stays on the display it is mostly on.
+  function within(x, y) {
+    const { workArea: a } = screen.getDisplayNearestPoint({ x: Math.round(x + WIDTH / 2), y: Math.round(y + HEIGHT / 2) });
+    return {
+      x: Math.round(Math.min(Math.max(x, a.x), a.x + a.width - WIDTH)),
+      y: Math.round(Math.min(Math.max(y, a.y), a.y + a.height - HEIGHT)),
+      width: WIDTH, height: HEIGHT,
+    };
+  }
+
+  // Which side of the orb the card sits on: 'right' puts the orb at the
+  // window's right with the card to its left. Over the left half of a display
+  // it flips, so the card always has room.
+  const ORB_X = { right: WIDTH - 24 - 75, left: 24 + 75 };
+  let side = readPrefs().side === 'left' ? 'left' : 'right';
+  // And top to bottom: in the upper third the orb sits at the window's top.
+  const ORB_Y = { down: HEIGHT - 24 - 75, up: 24 + 75 };
+  let up = readPrefs().up === true;
+  const sideFor = (b) => {
+    const orbX = b.x + ORB_X[side];
+    const { workArea: a } = screen.getDisplayNearestPoint({ x: Math.round(orbX), y: Math.round(b.y + HEIGHT / 2) });
+    return orbX < a.x + a.width / 2 ? 'left' : 'right';
+  };
+  const upFor = (b) => {
+    const orbY = b.y + ORB_Y[up ? 'up' : 'down'];
+    const { workArea: a } = screen.getDisplayNearestPoint({ x: Math.round(b.x + WIDTH / 2), y: Math.round(orbY) });
+    return orbY < a.y + a.height / 3;
+  };
+  const tellSide = () => win?.webContents.send('neo:side', { side, up });
+
+  // WHAT THE ORB IS SITTING ON TOP OF (w-5520063011). The app fades the
+  // summary's Status and Owner block while the orb covers it and brings it
+  // back when the orb is dragged off, and only this process knows both
+  // windows' bounds. A drag sends a frame per pointer move and most land on
+  // the same pixel, so an unchanged place is not sent again.
+  let toldOrb = '';
+  function tellOrb() {
+    if (!win || win.isDestroyed() || mainWindow.isDestroyed()) return;
+    const b = win.getBounds();
+    const app = mainWindow.getContentBounds();
+    const at = { x: b.x + ORB_X[side] - app.x, y: b.y + ORB_Y[up ? 'up' : 'down'] - app.y, r: 75 };
+    const key = `${at.x},${at.y}`;
+    if (key === toldOrb) return;
+    toldOrb = key;
+    mainWindow.webContents.send('neo:orb', at);
+  }
+  // Moving or resizing the app window changes what the orb is over without
+  // the orb itself having moved.
+  mainWindow.on('move', tellOrb);
+  mainWindow.on('resize', tellOrb);
+
   function place() {
+    const kept = readPrefs().at;
+    if (kept && Number.isFinite(kept.x) && Number.isFinite(kept.y)) { win.setBounds(within(kept.x, kept.y)); return; }
+    side = 'right';
+    up = false;
     const point = screen.getCursorScreenPoint();
     const { workArea } = screen.getDisplayNearestPoint(point);
     win.setBounds({ x: workArea.x + workArea.width - WIDTH - MARGIN, y: workArea.y + workArea.height - HEIGHT - MARGIN, width: WIDTH, height: HEIGHT });
@@ -86,7 +155,10 @@ export function createNeo({
       // Chimes and Neo's voice play the moment it wakes, with no click in the page.
       webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true, partition: 'neo', backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
     });
-    win.setAlwaysOnTop(true, 'floating');
+    // Above the corner tag, which also floats: at the same level whichever was
+    // shown last sat on top, so the orb could end up under a window that took
+    // the pointer meant for it (w-5520063011).
+    win.setAlwaysOnTop(true, 'pop-up-menu');
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     win.setIgnoreMouseEvents(true, { forward: true });
     win.on('closed', () => { win = null; loaded = null; live = false; generation++; });
@@ -96,13 +168,13 @@ export function createNeo({
   }
 
   // Asks the main window to do something and waits for its answer.
-  function askMain(name, args = {}) {
+  function askMain(name, args = {}, heard = '') {
     if (mainWindow.isDestroyed()) return Promise.resolve({ ok: false, said: `${Name} is not open.` });
     const id = ++reqSeq;
     return new Promise((resolve) => {
       const timer = setTimeout(() => { waiting.delete(id); resolve({ ok: false, status: 'failed', said: 'The app did not answer in time.' }); }, ACT_TIMEOUT_MS);
       waiting.set(id, (result) => { clearTimeout(timer); resolve(result); });
-      mainWindow.webContents.send('neo:act', { id, name, args });
+      mainWindow.webContents.send('neo:act', { id, name, args, heard });
     });
   }
   ipcMain.on('neo:act-result', (e, { id, result } = {}) => {
@@ -128,6 +200,11 @@ export function createNeo({
       ensureWindow();
       place();
       win.showInactive();
+      win.moveTop();
+      // Afresh, because the app page may have been reloaded since the last
+      // wake and a reloaded page knows nothing about where the orb is.
+      toldOrb = '';
+      tellOrb();
       // A wake sent before the page has loaded is lost, and Neo would be
       // marked live with nothing listening.
       await loaded;
@@ -135,7 +212,7 @@ export function createNeo({
       if (usage.seconds >= DAY_MAX_S) { win.webContents.send('neo:resting', {}); return; }
       if (systemPreferences.getMediaAccessStatus('microphone') !== 'granted') {
         const granted = await systemPreferences.askForMediaAccess('microphone').catch(() => false);
-        if (!granted) { win?.webContents.send('neo:no-mic', {}); return; }
+        if (!granted) { log(`no microphone (${systemPreferences.getMediaAccessStatus('microphone')}, asked for ${owner.id ?? 'unknown'})`); win?.webContents.send('neo:no-mic', { app: owner.name }); return; }
       }
       if (!win || g !== generation) return;
       live = true;
@@ -145,17 +222,21 @@ export function createNeo({
     if (!live) return;
     ending = false;
     sessionSeconds = 0;
+    talkFile = path.join(dir, 'talk', `${new Date(now()).toISOString().replace(/[:.]/g, '-')}.jsonl`);
     seenCalls.clear();
     const outside = !mainWindow.isFocused();
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send('neo:mode', { on: true });
+    tellSide();
     win.webContents.send('neo:wake', { outside, source });
   }
 
   ipcMain.handle('neo:start-live', async (e, { sdp, outside } = {}) => {
     if (!fromNeo(e) || !live) return { ok: false, error: 'Neo is not awake.' };
-    const screenNow = await askMain('describe_screen', { outside: !!outside });
+    // Tells the app whether she is in another app; what is on screen is not
+    // given to the session (shared/neo-tools.mjs neoSession says why).
+    await askMain('describe_screen', { outside: !!outside });
     try {
-      const answer = await startLive({ sdp, session: neoSession({ screen: screenNow?.said ?? '' }) });
+      const answer = await startLiveImpl({ sdp, session: neoSession({ pace: readPrefs().pace }) });
       log('session started');
       return { ok: true, sdp: answer.sdp };
     } catch (err) {
@@ -166,7 +247,7 @@ export function createNeo({
 
   // One tool call from GPT-Live's backend, as the page received it. Checked,
   // run once, and run one at a time.
-  ipcMain.handle('neo:tool', (e, { callId, name, args } = {}) => {
+  ipcMain.handle('neo:tool', (e, { callId, name, args, heard } = {}) => {
     if (!fromNeo(e) || !live || ending) return { ok: false, status: 'refused', said: 'Neo is not awake.' };
     if (typeof callId !== 'string' || seenCalls.has(callId)) return { ok: false, status: 'refused', said: 'Already done.' };
     seenCalls.add(callId);
@@ -180,7 +261,7 @@ export function createNeo({
     }
     const gen = generation;
     const run = chain.then(() => (live && gen === generation
-      ? askMain(name, checked.args)
+      ? askMain(name, checked.args, typeof heard === 'string' ? heard.slice(0, 500) : '')
       : { ok: false, status: 'refused', said: 'Neo has signed off, so that was not done.' }));
     chain = run.catch(() => {});
     return run;
@@ -196,12 +277,77 @@ export function createNeo({
     if (sessionSeconds >= SESSION_MAX_S || usage.seconds >= DAY_MAX_S) askSleep('limit');
   });
 
+  ipcMain.on('neo:log', (e, { who, text } = {}) => {
+    if (!fromNeo(e) || !talkFile || !WHO.has(who) || typeof text !== 'string' || !text.trim()) return;
+    try {
+      fs.mkdirSync(path.dirname(talkFile), { recursive: true });
+      fs.appendFileSync(talkFile, `${JSON.stringify({ at: new Date(now()).toISOString(), who, text: text.slice(0, 4000) })}\n`);
+    } catch {}
+  });
+
+  // After a session, its talk counts toward the next review.
+  function countTowardReview() {
+    const was = readPrefs().review ?? { seconds: 0, files: [] };
+    const files = [...(was.files ?? []), ...(talkFile && fs.existsSync(talkFile) ? [talkFile] : [])];
+    const seconds = (was.seconds ?? 0) + sessionSeconds;
+    talkFile = null;
+    if (files.length && seconds >= REVIEW_AFTER_S && onReview) {
+      writePrefs({ review: { seconds: 0, files: [] } });
+      log(`review after ${seconds}s of talk`);
+      try { onReview({ files, seconds }); } catch (err) { log(`review failed ${err.message}`); }
+      return;
+    }
+    writePrefs({ review: { seconds, files } });
+  }
+
   ipcMain.on('neo:closed', (e) => {
     if (!fromNeo(e)) return;
+    if (live) countTowardReview();
     live = false;
     generation++;
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send('neo:mode', { on: false });
     setTimeout(() => { if (!live) win?.hide(); }, 900);
+  });
+
+  // The card's "Allow microphone" press (./mic.mjs). Then straight into a session.
+  ipcMain.handle('neo:allow-mic', async (e) => {
+    if (!fromNeo(e)) return 'refused';
+    const got = await getMicImpl({ systemPreferences, openExternal: (url) => shell.openExternal(url), owner });
+    log(`allow microphone: ${got}`);
+    if (got === 'granted') void wake('mic-allowed');
+    return got;
+  });
+
+  // Dragging the orb moves the window with it; where it ends is kept.
+  let dragFrom = null;
+  ipcMain.on('neo:drag', (e, { phase, dx, dy } = {}) => {
+    if (!fromNeo(e) || !win) return;
+    if (phase === 'start') { dragFrom = win.getBounds(); return; }
+    if (!dragFrom) return;
+    if (phase === 'move' && Number.isFinite(dx) && Number.isFinite(dy)) {
+      const next = { x: dragFrom.x + dx, y: dragFrom.y + dy };
+      const now = sideFor(next);
+      // The orb stays under the pointer as the card changes sides.
+      if (now !== side) { const shift = ORB_X[side] - ORB_X[now]; dragFrom.x += shift; next.x += shift; side = now; tellSide(); }
+      const nowUp = upFor(next);
+      if (nowUp !== up) { const shift = ORB_Y[up ? 'up' : 'down'] - ORB_Y[nowUp ? 'up' : 'down']; dragFrom.y += shift; next.y += shift; up = nowUp; tellSide(); }
+      win.setBounds(within(next.x, next.y));
+      tellOrb();
+      return;
+    }
+    if (phase === 'end') { const { x, y } = win.getBounds(); writePrefs({ at: { x, y }, side, up }); dragFrom = null; }
+  });
+
+  // How fast Neo talks, from the next session on. Asked with no value, it answers.
+  ipcMain.handle('neo:pace', (_e, pace) => {
+    if (typeof pace === 'string' && Object.hasOwn(PACES, pace)) writePrefs({ pace });
+    return Object.hasOwn(PACES, readPrefs().pace ?? '') ? readPrefs().pace : 'normal';
+  });
+
+  // Whether Neo's words show on the card or it only talks. Asked with no value, it answers.
+  ipcMain.handle('neo:captions', (_e, on) => {
+    if (typeof on === 'boolean') writePrefs({ captions: on });
+    return readPrefs().captions !== false;
   });
 
   ipcMain.on('neo:clickable', (e, on) => {

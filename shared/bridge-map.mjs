@@ -76,6 +76,7 @@ export const REQUEST_CHANNELS = {
   agentFolders: 'zero:agent-folders',
   importAgents: 'zero:import-agents',
   agentThreads: 'zero:agent-threads',
+  searchAgentThreads: 'zero:search-agent-threads',
   importThreads: 'zero:import-threads',
   badge: 'zero:badge',
   cornerTag: 'zero:corner-tag',
@@ -172,6 +173,7 @@ export const PUSH_CHANNELS = {
   // Neo's tool calls for the app to carry out, and Neo waking or signing off.
   onNeoAct: 'neo:act',
   onNeoMode: 'neo:mode',
+  onNeoOrb: 'neo:orb',
 };
 
 // THE FEW THAT ARE NOT A STRAIGHT HANDOVER. Each is called with bare values

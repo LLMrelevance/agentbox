@@ -142,7 +142,13 @@ describe('her own hand lifts what time alone would lift', () => {
     expect(sup._hasSlotFor('claude')).toBe(true);
   });
 
-  it('a signed-out login stays out: retrying it cannot help, however often she asks', () => {
+  // WITH THE OTHER LOGIN AT ITS LIMIT THERE IS NOWHERE FOR THE WORK TO GO, so
+  // both get a try. This used to hold the signed-out login back on the grounds
+  // that the capped one was working, which w-4338a63da6 showed it is not: her
+  // hand lifts a sign-in and never a limit. A login she may just have signed
+  // into is the better of two bad tries, and the capped one is only lifted
+  // here because nothing else on the Mac can run at all.
+  it('a signed-out login gets its try when the only other login is capped', () => {
     const two = new Supervisor(
       { home: ONE_ACCOUNT_HOME, storeRoot: root, maxConcurrentSessions: 3, authProfiles: ['default', '/second'] },
       { listItems: () => [], listProducts: () => [] },
@@ -152,7 +158,23 @@ describe('her own hand lifts what time alone would lift', () => {
     two.noteExitForBackoff(deadOnArrival(HER_LIMIT, 'default'));
     two.liftBrakeForHer();
     expect(two._profileResting('default')).toBe(false);
-    expect(two._profileResting('/second')).toBe(true);
+    expect(two._profileResting('/second')).toBe(false);
+    two.stop?.();
+  });
+
+  // AND A HEALTHY LOGIN STILL HOLDS THE CAPPED ONE DOWN, which is the fault
+  // this came from: a reply used to throw the bench away and send the next
+  // spawn straight back to the login that had run out.
+  it('a capped login keeps its bench while a healthy login can take the work', () => {
+    const two = new Supervisor(
+      { home: ONE_ACCOUNT_HOME, storeRoot: root, maxConcurrentSessions: 3, authProfiles: ['default', '/second'] },
+      { listItems: () => [], listProducts: () => [] },
+      '/nonexistent-app',
+    );
+    two.noteExitForBackoff(deadOnArrival(HER_LIMIT, 'default'));
+    two.liftBrakeForHer();
+    expect(two._profileResting('default')).toBe(true);
+    expect(two._profileResting('/second')).toBe(false);
     two.stop?.();
   });
 

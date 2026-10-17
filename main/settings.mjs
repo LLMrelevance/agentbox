@@ -24,7 +24,7 @@ import { analyticsKey, diagnosticsOn } from './analytics.mjs';
 import { CLAUDE_PERMISSION_MODES } from '../shared/work-items.mjs';
 import { accountSentence, engineTroubleNote, refineCause } from '../shared/spawn-trouble.mjs';
 import { readPlan } from './claude-plan.mjs';
-import { effectiveProfiles } from './account-discovery.mjs';
+import { effectiveProfiles, troubleForProfile } from './account-discovery.mjs';
 import { machineSlots, machineNote, autoAgents, MAX_SLOTS } from './machine.mjs';
 import { shortPath } from './agent-files.mjs';
 import { NAME, Name } from '../shared/product-name.mjs';
@@ -470,10 +470,17 @@ export function readSettings({ config, supervisor, store }) {
   // waiting, because a page she chose to open interrupts nobody.
   const troubles = status.accountTrouble ?? {};
   const accounts = (profiles.length ? profiles : ['default']).map((profile) => {
-    const plan = readPlan(profile);
+    // THE HOME THE WORKSPACE IS CONFIGURED WITH, not this process's own. Both
+    // of these read a login out of a folder, and both of them defaulted to
+    // `os.homedir()` while the list of folders above came from `config.home`,
+    // so a workspace pointed anywhere else drew rows for its own folders and
+    // read somebody else's login into them.
+    const plan = readPlan(profile, { home: config.home });
     // A reason filed before an ended subscription had its own name still reads
     // as an admin's block; the login's file says which it is.
-    const filed = troubles[profile] ?? null;
+    // THE SUBSCRIPTION'S TROUBLE, not the folder's: one row stands for every
+    // folder holding this account (account-discovery.mjs says why).
+    const filed = troubleForProfile(troubles, profile, { home: config.home });
     const trouble = filed ? { ...filed, cause: refineCause(filed.cause, plan) } : null;
     const resting = (supervisor._profileCooldown?.[profile] ?? 0) >= now;
     // WHOSE SUBSCRIPTION THIS ROW IS, not merely which folder it lives in.
@@ -481,7 +488,7 @@ export function readSettings({ config, supervisor, store }) {
     // person that one of their accounts had been replaced by the other;
     // main/account-tooling.mjs has how that happens. Null when the
     // folder holds no login, and then the row reads as it always did.
-    const identity = accountIdentity(profile === 'default' ? null : profile);
+    const identity = accountIdentity(profile === 'default' ? null : profile, { home: config.home });
     return {
       profile,
       email: identity?.email ?? null,

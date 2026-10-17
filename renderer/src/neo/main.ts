@@ -10,12 +10,18 @@ type NeoBridge = {
   onWake(fn: (p: { outside: boolean }) => void): () => void;
   onSleep(fn: (p: { reason: string }) => void): () => void;
   onResting(fn: () => void): () => void;
-  onNoMic(fn: () => void): () => void;
+  onNoMic(fn: (p: { app?: string | null }) => void): () => void;
+  allowMic(): Promise<'granted' | 'settings' | 'refused'>;
   onNotice(fn: (p: { text: string }) => void): () => void;
+  onSide(fn: (p: { side: 'left' | 'right'; up?: boolean }) => void): () => void;
   startLive(sdp: string, outside: boolean): Promise<{ ok: boolean; sdp?: string; error?: string }>;
-  tool(callId: string, name: string, args: string): Promise<unknown>;
+  tool(callId: string, name: string, args: string, heard: string): Promise<unknown>;
+  drag(phase: 'start' | 'move' | 'end', dx?: number, dy?: number): void;
+  pace(value?: string): Promise<string>;
+  captions(on?: boolean): Promise<boolean>;
   usage(seconds: number): void;
   ending(): void;
+  log(line: { who: string; text: string }): void;
   closed(): void;
   clickable(on: boolean): void;
 };
@@ -24,6 +30,7 @@ const neo = (window as unknown as { neo: NeoBridge }).neo;
 const root = document.getElementById('neo')!;
 const words = document.getElementById('words')!;
 const label = document.getElementById('label')!;
+const actButton = document.getElementById('act') as HTMLButtonElement;
 const orbCanvas = document.getElementById('orb') as HTMLCanvasElement;
 const orb = dustOrb(orbCanvas);
 
@@ -78,14 +85,16 @@ function listenTo(stream: MediaStream) {
 function driverFor(ch: RTCDataChannel) {
   return liveDriver({
     send: (event) => { if (channel === ch && ch.readyState === 'open') ch.send(JSON.stringify(event)); },
-    tool: (callId, name, args) => { poke(); return neo.tool(callId, name, args); },
+    tool: (callId, name, args, heard) => { poke(); return neo.tool(callId, name, args, heard); },
     onWords: (text) => { if (channel === ch) { poke(); say(text); } },
     onUsage: (seconds) => { if (channel === ch) neo.usage(seconds); },
     onClosed: () => { if (channel === ch) finish(); },
+    onLine: (line) => neo.log(line),
   });
 }
 
 async function wake({ outside }: { outside: boolean }) {
+  dropMicCard();
   const my = ++gen;
   const stale = () => my !== gen || closing;
   if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
@@ -164,15 +173,99 @@ function finish() {
 }
 
 neo.onWake(wake);
+// Over the left half of the screen the card sits on the orb's right.
+neo.onSide(({ side, up }) => { root.classList.toggle('left', side === 'left'); root.classList.toggle('up', !!up); });
 neo.onSleep(({ reason }) => sleep(reason));
 neo.onResting(() => { root.classList.add('awake'); say('I have talked for three hours today, so I am resting until tomorrow.'); setTimeout(() => { root.classList.remove('awake'); neo.closed(); }, 5000); });
 // Main hides the window again on its own; this is not a session.
-neo.onNotice(({ text }) => { if (pc) return; root.classList.add('awake'); label.textContent = 'Neo'; say(text); setTimeout(() => { if (!pc) { root.classList.remove('awake'); say(''); } }, 9500); });
-neo.onNoMic(() => { root.classList.add('awake'); say('I need the microphone. Allow it in System Settings, Privacy, Microphone.'); setTimeout(() => { root.classList.remove('awake'); neo.closed(); }, 6000); });
+neo.onNotice(({ text }) => { if (pc) return; root.classList.add('awake', 'must-show'); label.textContent = 'Neo'; say(text); setTimeout(() => { if (!pc) { root.classList.remove('awake', 'must-show'); say(''); } }, 9500); });
+// macOS will not ask again for an app it was once told no for, so the card
+// carries the press that clears that and asks (main/neo/mic.mjs).
+let micCard: number | null = null;
+const dropMicCard = () => {
+  if (micCard) clearTimeout(micCard);
+  micCard = null;
+  actButton.hidden = true;
+  actButton.onclick = null;
+  root.classList.remove('must-show');
+};
+neo.onNoMic(({ app }) => {
+  root.classList.add('awake', 'must-show');
+  label.textContent = 'Neo';
+  say(app ? `I need the microphone. ${app} was told no once, so macOS will not ask again by itself.` : 'I need the microphone.');
+  actButton.textContent = 'Allow microphone';
+  actButton.disabled = false;
+  actButton.hidden = false;
+  const close = () => { dropMicCard(); if (!pc) { root.classList.remove('awake'); say(''); neo.closed(); } };
+  actButton.onclick = async () => {
+    if (micCard) clearTimeout(micCard);
+    actButton.disabled = true;
+    actButton.textContent = 'Asking…';
+    const got = await neo.allowMic().catch(() => 'refused' as const);
+    if (got === 'granted') { dropMicCard(); return; }
+    actButton.hidden = true;
+    say('Turn on the switch in the list that just opened, then tap ⌘ twice.');
+    micCard = window.setTimeout(close, 20_000);
+  };
+  micCard = window.setTimeout(close, 20_000);
+});
 
-// Only the orb and the card take the pointer; everywhere else clicks reach the app beneath.
-for (const el of [orbCanvas, document.getElementById('card')!]) {
+// Only the orb, the card and the speed row take the pointer; everywhere else
+// clicks reach the app beneath. Not let go of mid-drag, or the drag drops.
+const paceRow = document.getElementById('pace')!;
+let press: { x: number; y: number; moved: boolean } | null = null;
+for (const el of [orbCanvas, document.getElementById('card')!, paceRow]) {
   el.addEventListener('mouseenter', () => neo.clickable(true));
-  el.addEventListener('mouseleave', () => neo.clickable(false));
+  el.addEventListener('mouseleave', () => { if (!press) neo.clickable(false); });
 }
-orbCanvas.addEventListener('click', () => sleep('clicked'));
+
+// A press on the orb that moves drags Neo around the screen; one that does
+// not is the click that sends Neo to sleep.
+orbCanvas.addEventListener('pointerdown', (e) => {
+  press = { x: e.screenX, y: e.screenY, moved: false };
+  orbCanvas.setPointerCapture(e.pointerId);
+  neo.drag('start');
+});
+orbCanvas.addEventListener('pointermove', (e) => {
+  if (!press) return;
+  const dx = e.screenX - press.x, dy = e.screenY - press.y;
+  if (!press.moved && Math.hypot(dx, dy) < 4) return;
+  press.moved = true;
+  orbCanvas.classList.add('dragging');
+  neo.drag('move', dx, dy);
+});
+orbCanvas.addEventListener('pointerup', () => {
+  if (!press) return;
+  const moved = press.moved;
+  press = null;
+  orbCanvas.classList.remove('dragging');
+  if (moved) neo.drag('end'); else sleep('clicked');
+});
+
+// The speed row shows while the pointer is on the orb or on the row itself.
+let paceHide: number | null = null;
+const showPace = (on: boolean) => {
+  if (paceHide) clearTimeout(paceHide);
+  if (on) paceRow.classList.add('show');
+  else paceHide = window.setTimeout(() => paceRow.classList.remove('show'), 500);
+};
+for (const el of [orbCanvas, paceRow]) {
+  el.addEventListener('mouseenter', () => { if (!press) showPace(true); });
+  el.addEventListener('mouseleave', () => showPace(false));
+}
+const markPace = (pace: string) => {
+  for (const b of paceRow.querySelectorAll<HTMLButtonElement>('button[data-pace]')) b.classList.toggle('on', b.dataset.pace === pace);
+};
+// Captions on or off: the card with Neo's words, or only the voice.
+const captionsButton = document.getElementById('captions')!;
+const markCaptions = (on: boolean) => { captionsButton.classList.toggle('on', on); root.classList.toggle('no-captions', !on); };
+void neo.captions().then(markCaptions).catch(() => {});
+captionsButton.addEventListener('click', async () => markCaptions(await neo.captions(!captionsButton.classList.contains('on'))));
+void neo.pace().then(markPace).catch(() => {});
+paceRow.addEventListener('click', async (e) => {
+  const pace = (e.target as HTMLElement).closest<HTMLButtonElement>('button')?.dataset.pace;
+  if (!pace) return;
+  markPace(await neo.pace(pace));
+  // A session already running keeps the pace it started with.
+  if (pc) { label.textContent = 'Neo · new speed from next wake'; setTimeout(() => { if (pc) label.textContent = 'Neo · listening'; }, 3000); }
+});
