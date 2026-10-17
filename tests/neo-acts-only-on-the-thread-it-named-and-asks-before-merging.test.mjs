@@ -6,7 +6,7 @@
 // and a pick whose words merge, ship, delete or push comes back `needs_yes`
 // until the call says it was confirmed.
 import { describe, expect, it, vi } from 'vitest';
-import { neoBridge, describeScreen } from '../renderer/src/neo/bridge.ts';
+import { neoBridge, describeScreen, screenFor } from '../renderer/src/neo/bridge.ts';
 
 const rows = [
   { id: 'w-a', product: 'p1', productName: 'Agentbox', title: 'Pricing page copy', status: 'open', result: 'Two drafts ready. Which one?\n\n## Options\n1. Ship draft A (recommended)\n2. Rewrite' },
@@ -657,5 +657,35 @@ describe('a screenshot in the reply box goes with the words by default', () => {
     t.deps.reply = vi.fn(async () => undefined);
     await t.act('reply', { id: 'w-b', text: 'just the words', attach: false });
     expect(t.deps.reply).toHaveBeenCalledWith(rows[1], 'just the words', { attach: false });
+  });
+});
+
+// What the Decisions trial run is told is on screen (plans/neo-decisions.md).
+describe('the screen for the trial run', () => {
+  it('has the open thread with its options and pictures, the threads listed, and the commands', () => {
+    const t = setup({ focused: rows[0] });
+    t.deps.pictureNames = () => ['a.png', 'b.png'];
+    t.deps.commands = () => [{ id: 'pause', label: 'Pause agents', run: () => {} }];
+    t.deps.threadsAnywhere = () => [...rows, { id: 'w-run', product: 'p1', title: 'Working one', status: 'claimed' }, { id: 'w-old', product: 'p1', title: 'Done one', status: 'done' }];
+    const s = screenFor(t.deps, true);
+    expect(s.open).toMatchObject({ id: 'w-a', title: 'Pricing page copy', options: [{ n: 1, text: 'Ship draft A (recommended)' }, { n: 2, text: 'Rewrite' }], pictures: [{ n: 1, name: 'a.png' }, { n: 2, name: 'b.png' }] });
+    expect(s.rows.map((r) => r.id)).toEqual(['w-a', 'w-b', 'w-c', 'w-run']);
+    expect(s.commands).toEqual([{ id: 'pause', label: 'Pause agents' }]);
+    expect(s.canGoBack).toBe(true);
+  });
+
+  it('has no open thread when none is open', () => {
+    expect(screenFor(setup().deps, false).open).toBeNull();
+  });
+
+  it('knows when there is somewhere to go back to', async () => {
+    let open = rows[0];
+    const t = setup();
+    t.deps.focused = () => open;
+    t.deps.open = (r) => { open = r; };
+    const act = neoBridge(t.deps);
+    expect(act.canGoBack()).toBe(false);
+    await act('next_thread', {});
+    expect(act.canGoBack()).toBe(true);
   });
 });

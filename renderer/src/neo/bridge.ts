@@ -208,7 +208,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
     return `${s ? ` Latest from the agent: ${clip(s, SUMMARY_CHARS)}` : ''}${opts.length ? ` Options: ${opts.map((o) => `${o.n}. ${o.text}`).join(' ')}` : ' No options to pick.'}`;
   };
 
-  return async function act(name: string, args: Record<string, any>, ctx: { heard?: string } = {}): Promise<NeoResult> {
+  const act = async function act(name: string, args: Record<string, any>, ctx: { heard?: string } = {}): Promise<NeoResult> {
     try {
       // A picture Neo put up comes down when the thread changes under it.
       if (CHANGES_THREAD.has(name)) await deps.show?.([], 'close');
@@ -390,5 +390,30 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
     } catch (err) {
       return { ok: false, status: 'failed', said: `That did not work: ${String((err as Error)?.message ?? err).slice(0, 120)}` };
     }
+  };
+  return Object.assign(act, { canGoBack: () => trail.length > 0 });
+}
+
+/**
+ * What is on screen, for the Decisions trial run (shared/neo-options.mjs builds
+ * the choices from it): the open thread with its options, pictures and films,
+ * the threads listed (Needs you first, then the rest still open), and ⌘K's commands.
+ */
+export function screenFor<R extends NeoRow>(deps: NeoDeps<R>, canGoBack: boolean, most = 120) {
+  const open = deps.focused();
+  const listed = deps.rows();
+  const seen = new Set(listed.map((r) => r.id));
+  const rest = (deps.threadsAnywhere?.() ?? []).filter((r) => !seen.has(r.id) && r.status !== 'done');
+  return {
+    open: open ? {
+      id: open.id,
+      title: nameOf(open),
+      options: deps.options(open).map(({ n, text }) => ({ n, text })),
+      pictures: (deps.pictureNames?.() ?? []).slice(0, 9).map((name, i) => ({ n: i + 1, name })),
+      films: (deps.mediaNames?.() ?? []).slice(0, 9).map((name, i) => ({ n: i + 1, name })),
+    } : null,
+    rows: [...listed, ...rest].slice(0, most).map((r) => ({ id: r.id, title: nameOf(r) })),
+    commands: (deps.commands?.() ?? []).map((c) => ({ id: c.id, label: c.label, ...(c.hint ? { hint: c.hint } : {}) })),
+    canGoBack,
   };
 }

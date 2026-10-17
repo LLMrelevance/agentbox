@@ -12,6 +12,8 @@ import { neoEnabled } from './gate.mjs';
 import { startLive } from './live.mjs';
 import { listenForDoubleCommand } from './cmd-tap.mjs';
 import { getMic, micOwner } from './mic.mjs';
+import { decide } from './decide.mjs';
+import { buildOptions } from '../../shared/neo-options.mjs';
 import { checkCall, neoSession, PACES } from '../../shared/neo-tools.mjs';
 import { Name } from '../../shared/product-name.mjs';
 
@@ -34,6 +36,9 @@ export function createNeo({
   // Handed the transcripts of every few minutes of talk, for a review that
   // patches what went wrong (main/main.mjs files them on a thread).
   onReview = null,
+  // The trial run on the Decisions API: decides from what is on screen and
+  // writes the pick beside the talk, acting on nothing (plans/neo-decisions.md).
+  decideImpl = decide,
 }) {
   const on = neoEnabled({ userData, platform });
   ipcMain.handle('neo:enabled', () => on);
@@ -277,13 +282,37 @@ export function createNeo({
     if (sessionSeconds >= SESSION_MAX_S || usage.seconds >= DAY_MAX_S) askSleep('limit');
   });
 
+  const writeTalk = (file, who, text) => {
+    if (!file) return;
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.appendFileSync(file, `${JSON.stringify({ at: new Date(now()).toISOString(), who, text: text.slice(0, 4000) })}\n`);
+    } catch {}
+  };
+
   ipcMain.on('neo:log', (e, { who, text } = {}) => {
     if (!fromNeo(e) || !talkFile || !WHO.has(who) || typeof text !== 'string' || !text.trim()) return;
-    try {
-      fs.mkdirSync(path.dirname(talkFile), { recursive: true });
-      fs.appendFileSync(talkFile, `${JSON.stringify({ at: new Date(now()).toISOString(), who, text: text.slice(0, 4000) })}\n`);
-    } catch {}
+    writeTalk(talkFile, who, text);
+    if (who === 'you') void shadowDecide(text, talkFile);
   });
+
+  // THE TRIAL RUN. What the Decisions API would have done with what she just
+  // said, from the options on screen as they are now. Written down, never done.
+  async function shadowDecide(said, file) {
+    const got = await askMain('neo_screen');
+    if (!got?.ok || !got.screen) return;
+    const { version, list } = buildOptions(got.screen);
+    const open = got.screen.open;
+    const input = `${open ? `Screen: the open thread is "${String(open.title).slice(0, 70)}" (${(open.options ?? []).length} numbered options, ${(open.pictures ?? []).length} pictures).` : 'Screen: no thread is open.'} ${(got.screen.rows ?? []).length} threads are listed.\nThe person just said: "${said.slice(0, 600)}"`;
+    try {
+      const r = await decideImpl({ input, options: list });
+      const picked = list.find((o) => o.value === r.choice);
+      const others = (r.runnersUp ?? []).map((p) => `${p.value} ${p.probability.toFixed(2)}`).join(', ');
+      writeTalk(file, 'shadow', `would do: ${r.choice} (${r.confidence?.toFixed(2) ?? '?'}) ${picked?.description ?? ''} [${r.ms} ms, ${list.length} options, v${version}${others ? `; next: ${others}` : ''}]`);
+    } catch (err) {
+      writeTalk(file, 'shadow', `failed: ${err.message}`);
+    }
+  }
 
   // After a session, its talk counts toward the next review.
   function countTowardReview() {
