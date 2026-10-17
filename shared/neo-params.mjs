@@ -65,9 +65,11 @@ const NO_PICTURE = /[,;]?\s*(?:but\s+)?(?:without|no|not with|don'?t (?:send|inc
 const PICTURE = /\b(?:screenshot|screen shot|picture|image|photo|png)s?\b/i;
 
 /** false when she said not to send a picture, true when she asked for one, else undefined. */
+const NO_PICTURE_ANYWHERE = /\b(?:without|no|not with|don'?t (?:send|include|attach|add)|do not (?:send|include|attach|add)|leave out)\s+(?:the\s+|a\s+|any\s+|my\s+)?(?:screenshot|screen shot|picture|image|attachment|photo)s?\b/i;
+
 export function pictureWanted(said) {
   const t = String(said ?? '');
-  if (NO_PICTURE.test(t.trim())) return false;
+  if (NO_PICTURE.test(t.trim()) || NO_PICTURE_ANYWHERE.test(t)) return false;
   return PICTURE.test(t) ? true : undefined;
 }
 

@@ -13,7 +13,7 @@ export const MAX_OPTIONS = 250;
 const QUOTE = 70;
 
 const q = (s) => {
-  const t = String(s ?? '').replace(/\s+/g, ' ').replace(/"/g, "'").trim();
+  const t = String(s ?? '').replace(/\b[wr]-[0-9a-f]{6,}(?:-\d+)?\b/gi, 'another thread').replace(/\s+/g, ' ').replace(/"/g, "'").trim();
   return `"${t.length > QUOTE ? `${t.slice(0, QUOTE - 1)}…` : t}"`;
 };
 
@@ -29,11 +29,11 @@ export function buildOptions(screen) {
 
   if (open) {
     const t = q(open.title);
-    add('reply', `Send a message the person dictates to the agent on the open thread ${t} ("tell it…", "reply saying…", feedback to post); only words meant for the agent`, { kind: 'reply', id: open.id });
+    add('reply', `Send a message the person dictates to the agent on the open thread ${t} ("tell it…", "reply saying…", feedback to post, feedback about Neo or JARVIS to pass on); only words meant for the agent`, { kind: 'reply', id: open.id });
     for (const o of open.options ?? []) add(`pick:${o.n}`, `Choose option ${o.n} on the open thread: ${q(o.text)} ("option ${o.n}", or saying what it does)`, { kind: 'pick', id: open.id, n: o.n });
     add('later', `Put the open thread ${t} off until later (snooze it for a while)`, { kind: 'later', id: open.id });
     add('close', `Close the open thread ${t}`, { kind: 'close', id: open.id });
-    add('summary', `Say what the agent on the open thread ${t} said and what it needs`, { kind: 'summary', id: open.id });
+    add('summary', `Say what the open thread ${t} is about, what the agent said and what it needs ("what this task is about", "remind me", "summarize it")`, { kind: 'summary', id: open.id });
     add('ask', `Answer a question about the open thread ${t} (why, what, how)`, { kind: 'ask', id: open.id });
     const pics = open.pictures ?? [];
     for (const p of pics) add(`show:${p.n}`, `Show picture ${p.n} of the open thread (${q(p.name)}) full screen, big${p.n === 1 ? ' ("the picture" means this one)' : ''}`, { kind: 'show', id: open.id, pictures: [p.n] });
@@ -59,7 +59,7 @@ export function buildOptions(screen) {
   add('new', 'Start a new thread with new work the person describes', { kind: 'new' });
   add('undo', 'Undo the last thing done', { kind: 'undo' });
   add('signoff', 'End the conversation with Neo', { kind: 'signoff' });
-  add('talk', 'The person is talking to Neo about Neo itself: correcting it, complaining about what it just did, explaining a mistake. This is not words for the agent', { kind: 'talk' });
+  add('talk', 'The person is talking to Neo about Neo itself: correcting it, complaining about what it just did, explaining a mistake. This is not words for the agent. Feedback the person asks Neo to give, send or pass on is a reply, not this', { kind: 'talk' });
   add('none', 'Do nothing: a greeting, filler, thinking aloud, holding off ("not yet", "wait", "don\'t"), or talk not asking for anything', { kind: 'none' });
 
   for (const c of screen.commands ?? []) {

@@ -194,6 +194,38 @@ export async function clickTab(tab, words) {
   return hit;
 }
 
+/**
+ * WHO THE OPEN THREAD SAYS OPENED IT: 'you', 'agent', or null for neither.
+ *
+ * Two forms, and both are right. An opening with no words of its own draws the
+ * quiet sentence; one that carries words draws as a message, its author's
+ * byline over them and no sentence anywhere. A row its worker has named carries
+ * words either way, since the title is then said in the opening
+ * (renderer/src/thread-history.ts, withTitleSaid), which is why real Claude
+ * Code's rows read one way and the stand-in's the other.
+ */
+export function whoOpenedThread({ agentSaid = false, youSaid = false, opener = null } = {}) {
+  if (agentSaid) return { who: 'agent', saw: 'An agent opened this' };
+  if (youSaid) return { who: 'you', saw: 'You opened this' };
+  const name = String(opener ?? '').trim();
+  if (!name) return { who: null, saw: 'neither line on screen' };
+  if (name === 'You') return { who: 'you', saw: 'your byline over the opening' };
+  if (name === 'The agent') return { who: 'agent', saw: 'the agent\'s byline over the opening' };
+  return { who: null, saw: `the opening is bylined "${name}"` };
+}
+
+/** The same question asked of the open thread on the screen. */
+export async function whoOpenedOnScreen(tab) {
+  return whoOpenedThread(await tab.evaluate(`(() => {
+    const t = document.body.innerText;
+    return {
+      agentSaid: /An agent opened this/.test(t),
+      youSaid: /\\bOpened this|You opened this/.test(t),
+      opener: document.querySelector('.thread .msg .msg-who')?.textContent.trim() ?? null,
+    };
+  })()`));
+}
+
 async function openThread(tab, row) {
   const names = [row.label, row.title].filter(Boolean).map((n) => String(n).slice(0, 24));
   const find = `(() => {
@@ -350,10 +382,8 @@ export const DRIVES = {
         const shown = await tab.until(`document.body.innerText.includes(${JSON.stringify(String(answered.result).trim().split('\n')[0].slice(0, 40))})`, { why: 'the answer to show in the open thread', ms: 15_000 }).catch(() => false);
         claim(shown, 'the open thread shows the answer');
       }
-      // The page draws the person's birth as "Opened this" beside their mark,
-      // and an agent's as "An agent opened this".
-      const opened = await tab.evaluate(`(() => { const t = document.body.innerText; return /An agent opened this/.test(t) ? 'An agent opened this' : /\\bOpened this|You opened this/.test(t) ? 'Opened this' : null; })()`);
-      claim(opened === 'Opened this', 'the thread says you opened it, not an agent', opened ?? 'neither line on screen');
+      const opened = await whoOpenedOnScreen(tab);
+      claim(opened.who === 'you', 'the thread says you opened it, not an agent', opened.saw);
       await tab.wait(600);
       await capture('thread');
     },
@@ -537,12 +567,64 @@ export const DRIVES = {
       await tab.press('Escape');
       const next = (await compose(tab, state, `After Codex ran out [[tok:AC${Date.now().toString(36)}]]`, { engine: 'codex' })).row;
       if (!claim(next, 'a new Codex task can still be sent')) return;
+      await tab.until(`/Codex is out|Started in/.test(document.querySelector('.toast-line')?.innerText ?? '')`, { why: 'the line after Send', ms: 8000 }).catch(() => {});
+      const sentSaid = await tab.evaluate(`document.querySelector('.toast-line')?.innerText ?? ''`);
+      await capture('sent-while-codex-is-out');
+      claim(/^Codex is out/.test(sentSaid) && !/Started/.test(sentSaid),
+        'the line after Send says it is waiting for Codex, not "Started" (the breaker\'s finding, 2026-10-15)', sentSaid);
       await tab.wait(3000);
       await openThread(tab, rows(state).find((r) => r.id === next.id) ?? next);
       const text = await tab.text();
       claim(/Codex is at its usage limit, so this starts on its own when it resets/.test(text) && !/as soon as one is free/.test(text),
         'a new Codex task says Codex is at its usage limit, not that it is queued', (text.match(/Codex is at[^\n]*|Queued[^\n]*/) ?? ['neither'])[0].slice(0, 120));
       await capture('new-codex-task-at-limit');
+    },
+  },
+  'undo-says-what-happened': {
+    what: 'Z says what really happened: on a task the agent already answered it says too late, and after a close it says the thread is still open (the breaker\'s findings, 2026-10-15)',
+    stubOnly: 'needs a task that takes thirty seconds on demand',
+    async run({ tab, state, claim, capture }) {
+      const toast = () => tab.evaluate(`document.querySelector('.toast-line')?.innerText ?? ''`);
+      const pressZ = async () => {
+        await tab.press('z');
+        await tab.wait(400);
+        // Past thirty seconds a first Z only asks; the second one does it.
+        if (/Press Z again/.test(await toast())) { await tab.press('z'); await tab.wait(400); }
+      };
+
+      // 1. A quick task, answered before Z.
+      const quick = (await compose(tab, state, `Quick one [[tok:UQ${Date.now().toString(36)}]]`, { engine: 'claude' })).row;
+      if (!claim(quick, 'the quick task is stored')) return;
+      claim(await until(() => String(rows(state).find((r) => r.id === quick.id)?.result ?? '').includes('UQ'), 30_000), 'the agent answered it');
+      await pressZ();
+      const tooLate = await toast();
+      await capture('z-after-answer');
+      claim(/Too late/.test(tooLate) && !/Withdrawn/.test(tooLate), 'Z on an answered task says it was too late, not "Withdrawn"', tooLate);
+      claim(rows(state).find((r) => r.id === quick.id)?.status !== 'done', 'and the answered task is not closed away into Done');
+      claim(!(await tab.evaluate(`!!document.querySelector('textarea.tc-text')`)), 'and the words are not put back in a composer to send twice');
+      await tab.press('Escape');
+
+      // 2. Close a running task, then Z inside the window.
+      const slow = (await compose(tab, state, `Slow one [[stub:slow:30000]] [[tok:US${Date.now().toString(36)}]]`, { engine: 'claude' })).row;
+      if (!claim(slow, 'the slow task is stored')) return;
+      await until(() => sessionLogs(state, slow.id).length, 20_000);
+      await openThread(tab, rows(state).find((r) => r.id === slow.id) ?? slow);
+      await tab.press('e');
+      await tab.wait(500);
+      await tab.press('z');
+      await tab.wait(400);
+      const reopened = await toast();
+      await capture('z-after-close');
+      claim(/Still open/.test(reopened) && !/Nothing was sent/.test(reopened), 'Z after closing a running task says it is still open, not "Nothing was sent"', reopened);
+      await tab.wait(3500);
+      claim(rows(state).find((r) => r.id === slow.id)?.status !== 'done', 'and the task was not closed');
+      // Close it for real, so its worker stops and frees the login for the
+      // drives after this one.
+      await tab.press('e');
+      await until(() => rows(state).find((r) => r.id === slow.id)?.status === 'done', 10_000);
+      await tab.press('Escape');
+      // The third finding, a task sent while Codex is out of usage, is checked
+      // in every-login-runs-out: only the last drive may leave a login resting.
     },
   },
   'setup-task': {

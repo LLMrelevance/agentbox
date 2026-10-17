@@ -97,12 +97,12 @@ that. Maybe we could just have a web application that we host." Settings ›
 Phone shows the site's address as a QR code, which carries no key; she signs
 in there with the same account.
 
-THE RELAY STAYS FOR NOW. It was deployed on 2026-10-12 (shared/relay-address.mjs)
-and every copy of the app offers "Anywhere" through it, including installed
-copies, which have no cloud sign-in at all (`loadCloudConfig` answers null
-when packaged) and so cannot use the hosted site. Taking it out before the
-site is up and every copy can sign in would cut those phones off. It goes once
-both are true. The same-Wi-Fi and Tailscale door also stays.
+THE SITE IS THE ONLY WAY IN (2026-10-16). "Should only ever be one way to
+access mobile: through the Cloud ... the cloudflare relay was temporary to test
+the idea." The app no longer opens its own phone door (same Wi-Fi, Tailscale or
+the relay) and Settings › Phone draws only the site's code. An installed copy,
+which has no cloud sign-in (`loadCloudConfig` answers null when packaged), has
+no phone until it can sign in.
 
 Putting it up: `npm run phone:deploy` (Cloudflare Pages; `npx wrangler login`
 once), then the address goes in `~/.agentbox/team.config.json` as `phoneSite` and in

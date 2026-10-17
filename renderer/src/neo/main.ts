@@ -16,7 +16,8 @@ type NeoBridge = {
   onSide(fn: (p: { side: 'left' | 'right'; up?: boolean }) => void): () => void;
   startLive(sdp: string, outside: boolean): Promise<{ ok: boolean; sdp?: string; error?: string }>;
   tool(callId: string, name: string, args: string, heard: string): Promise<unknown>;
-  decide(heard: string): Promise<{ say: string }>;
+  decide(heard: string): Promise<{ say: string; context?: string }>;
+  follow(said: string): void;
   drag(phase: 'start' | 'move' | 'end', dx?: number, dy?: number): void;
   pace(value?: string): Promise<string>;
   captions(on?: boolean): Promise<boolean>;
@@ -81,13 +82,23 @@ function listenTo(stream: MediaStream) {
   tick();
 }
 
+// Neo's words as they come, so the main window can put up the picture Neo is
+// naming. At most one send per 150 ms, always with the newest words.
+let followTimer: ReturnType<typeof setTimeout> | null = null;
+let followText = '';
+function follow(text: string) {
+  followText = text;
+  if (followTimer) return;
+  followTimer = setTimeout(() => { followTimer = null; neo.follow(followText); }, 150);
+}
+
 // One driver per session, bound to that session's channel, so neither its
 // words nor a slow tool's answer can reach the next one.
 function driverFor(ch: RTCDataChannel) {
   return liveDriver({
     send: (event) => { if (channel === ch && ch.readyState === 'open') ch.send(JSON.stringify(event)); },
     tool: (callId, name, args, heard) => { poke(); return neo.tool(callId, name, args, heard); },
-    onWords: (text) => { if (channel === ch) { poke(); say(text); } },
+    onWords: (text) => { if (channel === ch) { poke(); say(text); follow(text); } },
     onUsage: (seconds) => { if (channel === ch) neo.usage(seconds); },
     onClosed: () => { if (channel === ch) finish(); },
     onLine: (line) => neo.log(line),

@@ -482,16 +482,13 @@ describe('opening a thread shows what she needs to decide', () => {
     expect(r.said).toMatch(/beside the thread now/i);
   });
 
-  it('and two to four the same way', async () => {
+  // Not all at once any more: picture 1, then each as Neo names it
+  // (tests/neo-shows-each-picture-as-it-names-it.test.mjs).
+  it('of several, puts up the first and lists the rest for Neo to name', async () => {
     const t = withPictures(3, ['a.png', 'b.png', 'c.png', 'old.png']);
-    await t.act('next_thread', {});
-    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3], 'peek');
-  });
-
-  it('shows the first four of more', async () => {
-    const t = withPictures(6, ['1', '2', '3', '4', '5', '6']);
-    await t.act('open_thread', { id: 'w-a' });
-    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3, 4], 'peek');
+    const r = await t.act('next_thread', {});
+    expect(t.deps.show.mock.calls.filter(([, l]) => l !== 'close')).toEqual([[[1], 'peek']]);
+    expect(r.said).toMatch(/1\. a\.png 2\. b\.png 3\. c\.png\./);
   });
 
   it('shows nothing when the latest message has no pictures, even if older ones do', async () => {

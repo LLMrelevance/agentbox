@@ -9089,12 +9089,13 @@ body.neo-on.neo-orb-away .ts-panel .ts-foot { opacity: 1; }
 .pv-tools { padding: 4px; }
 .pv-img { box-shadow: 0 0 0 1px color-mix(in srgb, var(--read-paper) 8%, transparent), var(--shadow-lg); }
 
-/* The step arrows: a thin chevron, and the whole edge of the window is the button. */
-.pv-step { position: absolute; top: 0; bottom: 0; width: 104px; display: grid; place-items: center; padding: 0; border: 0; cursor: pointer;
+/* The step arrows: a thin chevron, and the edge of the window is the button. It stops short of
+   the bar above and the strip below, or it lies over the close button and the thumbnails. */
+.pv-step { position: absolute; top: 78px; bottom: 96px; width: 104px; display: grid; place-items: center; padding: 0; border: 0; cursor: pointer;
   background: none; color: color-mix(in srgb, var(--read-paper) 40%, transparent); }
 .pv-step svg { width: 30px; height: 30px; }
 .pv-step:hover:not(:disabled) { color: var(--read-paper); }
-.pv-step:disabled { opacity: 0; pointer-events: none; }
+.pv-step:disabled { color: color-mix(in srgb, var(--read-paper) 14%, transparent); cursor: default; }
 .pv-prev { left: 0; }
 .pv-next { right: 0; }
 .pv-prev:hover:not(:disabled) { background: linear-gradient(to right, color-mix(in srgb, var(--read-ground) 45%, transparent), transparent); }
