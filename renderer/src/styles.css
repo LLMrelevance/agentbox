@@ -1970,7 +1970,7 @@ body {
 .diagram svg { max-width: 100%; height: auto; }
 /* The library's drop shadow reads as a glow on a dark surface. */
 .diagram svg * { filter: none !important; }
-.diagram-pending { min-height: 120px; }
+.diagram-pending { min-height: 240px; }
 .markdown blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(--text-dim); margin: 8px 0; }
 .markdown strong { font-weight: 650; }
 /* A TABLE IS A GRID. With no rule here an agent's table came out in the
@@ -2022,6 +2022,15 @@ body {
 @keyframes phone-shimmer { from { background-position: 100% 0, 0 0; } to { background-position: -100% 0, 0 0; } }
 @keyframes phone-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
+/* ANYTHING ELSE A MESSAGE DRAWS LATE wears the same shimmer at the size it
+   will have, so the words under it hold still
+   (tests/whatever-a-message-draws-late-holds-its-place). */
+.arriving, .message-file-face.arriving, .folder-preview-shot.arriving {
+  background: linear-gradient(100deg, transparent 30%, var(--wash) 50%, transparent 70%) 0 0 / 200% 100%, var(--bg-raised);
+  animation: phone-shimmer 1.3s linear infinite;
+}
+.inline-image.arriving { display: block; width: 100%; aspect-ratio: 4 / 3; }
+
 /* A sound or a film a worker named: its name, then the player, one per line
    even when five were written on one line (ArtifactMedia in Focus.tsx). */
 .inline-media { display: block; margin: 8px 0; }
@@ -2034,7 +2043,9 @@ body {
 .inline-media-player { display: block; }
 .inline-media audio { display: block; width: min(420px, 100%); height: 36px; }
 .inline-media-missing .inline-media-name.mention { display: inline; margin: 0 -3px; }
-.inline-media video { display: block; max-width: 100%; max-height: 360px; border: 1px solid var(--line); }
+/* The column's width at a fixed height from the first frame: before its size is
+   known a film is the browser's 300 x 150, and it resized once it was. */
+.inline-media video { display: block; width: 100%; height: 360px; object-fit: contain; background: var(--bg-raised); border: 1px solid var(--line); }
 
 /* A folder a worker named on its own line: its name, then its newest pictures,
    three across (FolderPreview in Focus.tsx). Spans, because it sits in a <p>. */
@@ -2065,6 +2076,7 @@ body {
   display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top;
   border: 1px solid var(--line); background: var(--bg-raised);
 }
+.folder-preview-shot.arriving { aspect-ratio: 16 / 10; border: 1px solid var(--line); cursor: default; }
 .folder-preview-shot:hover img { border-color: var(--text-faint); }
 .folder-preview-shot:focus-visible img { outline: 1px solid var(--text-faint); outline-offset: 2px; }
 .folder-preview-label {
@@ -3961,6 +3973,7 @@ img.app-mark { opacity: 1; border-radius: 0; }
   border-bottom: 1px solid var(--line);
 }
 .artifact-embed-bar a { color: var(--accent); text-decoration: none; }
+.artifact-embed-arriving { display: block; height: 480px; }
 .artifact-embed iframe {
   display: block;
   width: 100%;
