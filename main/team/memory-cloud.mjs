@@ -11,6 +11,10 @@ import crypto from 'node:crypto';
 import { asPulled } from '../../shared/team-rules.mjs';
 import { cleanStatus } from '../../shared/team-status.mjs';
 
+// The database's own checks on a message's file (20261013000000_message_files.sql).
+const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$/;
+const MAX_FILE_DATA = 14_000_000;
+
 export function createMemoryCloud() {
   return {
     people: new Map(), // id -> { id, email, name, avatarUrl }
@@ -21,6 +25,7 @@ export function createMemoryCloud() {
     projectPeople: [], // { projectId, personId }
     lines: [], // { seq, projectId, uid, byPerson, body, createdAt }
     cards: new Map(), // `${personId}:${threadId}` -> a thread card, as shared/thread-cards.mjs makes them
+    files: new Map(), // `${projectId}:${name}` -> { projectId, name, byPerson, data (base64) }
     seq: 0,
     teamsMade: 0, // the order teams were made in, which is their age
     now: () => Date.now(), // the server's clock
@@ -236,12 +241,122 @@ export function memoryBackend(cloud, personId) {
         .map(({ teamId, ...c }) => structuredClone(c));
     },
 
+    // THE FILES A CONVERSATION'S MESSAGES LINK TO (w-140ac855b1). Read and
+    // written by whoever may see the project, each name stored once and never
+    // replaced: 20261013000000_message_files.sql.
+    async hasFiles(projectId, names) {
+      if (!canSee(projectId)) return [];
+      return names.filter((n) => cloud.files.has(`${projectId}:${n}`));
+    },
+
+    async getFile(projectId, name) {
+      if (!canSee(projectId)) return null;
+      return cloud.files.get(`${projectId}:${name}`)?.data ?? null;
+    },
+
+    async putFile(projectId, name, data) {
+      if (!canSee(projectId)) refuse('send a file to a project you cannot see');
+      if (!FILE_NAME.test(name)) refuse('a file name that is not a plain name');
+      if (data.length > MAX_FILE_DATA) refuse('a file that big');
+      const key = `${projectId}:${name}`;
+      if (cloud.files.has(key)) return false;
+      cloud.files.set(key, { projectId, name, byPerson: personId, data });
+      cloud.events.emit('files', 1);
+      return true;
+    },
+
+    // HER OWN ROWS FOR HER PHONE (20261014000200_phone_inbox.sql): every one
+    // keyed by its owner and the computer it came from, and only ever that
+    // owner's. A command is written once and marked taken once.
+    // Each write may name who it is for; a write for somebody other than
+    // whoever this backend is signed in as is refused, as the database's
+    // `owner = auth.uid()` refuses it.
+    async putPhoneProject({ owner, device, project, name }) {
+      if (owner && owner !== personId) refuse('write to somebody else\'s phone');
+      (cloud.phoneProjects ??= new Map()).set(`${personId}:${device}:${project}`, { owner: personId, device, project, name });
+    },
+    async dropPhoneProject(device, project, owner) {
+      if (owner && owner !== personId) return;
+      cloud.phoneProjects?.delete(`${personId}:${device}:${project}`);
+      for (const k of [...(cloud.phoneThreads?.keys() ?? [])]) if (k.startsWith(`${personId}:${device}:${project}:`)) cloud.phoneThreads.delete(k);
+    },
+    async putPhoneThreads(device, project, rows, owner) {
+      if (owner && owner !== personId) refuse('write to somebody else\'s phone');
+      cloud.phoneThreads ??= new Map();
+      if (!cloud.phoneProjects?.has(`${personId}:${device}:${project}`)) refuse('a thread of a project not on the phone');
+      for (const r of rows) {
+        if (new TextEncoder().encode(JSON.stringify(r.snapshot)).length > 1_000_000) refuse('a thread copy that big');
+      }
+      for (const r of rows) {
+        cloud.phoneThreads.set(`${personId}:${device}:${project}:${r.item}`, { owner: personId, device, project, item: r.item, snapshot: r.snapshot, updatedAt: cloud.now() });
+      }
+      cloud.events.emit('phone', 1);
+    },
+    async dropPhoneThreads(device, project, items, owner) {
+      if (owner && owner !== personId) return;
+      for (const item of items) cloud.phoneThreads?.delete(`${personId}:${device}:${project}:${item}`);
+    },
+    async phoneThreads() {
+      return [...(cloud.phoneThreads?.values() ?? [])].filter((t) => t.owner === personId);
+    },
+    async phoneProjects() {
+      return [...(cloud.phoneProjects?.values() ?? [])].filter((p) => p.owner === personId);
+    },
+    // What her phone does: a command, as herself, for one computer, not yet taken.
+    async addPhoneCommand({ device, project, item = null, kind, payload = {} }) {
+      if (!/^[0-9a-f]{12}$/.test(String(device))) refuse('a command for no computer');
+      if (!['reply', 'new', 'snooze', 'close'].includes(kind)) refuse(`a ${kind} command`);
+      const row = { id: crypto.randomUUID(), owner: personId, device, project, item, kind, payload, createdAt: new Date(cloud.now()).toISOString(), claimedAt: null, takenAt: null, outcome: null };
+      (cloud.phoneCommands ??= []).push(row);
+      cloud.events.emit('phone', 1);
+      return { ...row };
+    },
+    async waitingPhoneCommands(device) {
+      return (cloud.phoneCommands ?? []).filter((c) => c.owner === personId && c.device === device && !c.takenAt).map((c) => ({ ...c }));
+    },
+    async phoneCommands() {
+      return (cloud.phoneCommands ?? []).filter((c) => c.owner === personId).map((c) => ({ ...c }));
+    },
+    // THE COMPUTER CLAIMS ONE BEFORE IT DOES IT; the phone takes one back only
+    // while nobody has. Exactly one of the two wins, as in the database.
+    // 'claimed' is a claim made now, 'ours' one made before (this computer,
+    // starting again), 'gone' a command taken back or already done.
+    async claimPhoneCommand(id, owner) {
+      if (owner && owner !== personId) return 'gone';
+      const c = (cloud.phoneCommands ?? []).find((x) => x.id === id && x.owner === personId);
+      if (!c || c.takenAt) return 'gone';
+      if (c.claimedAt) return 'ours';
+      c.claimedAt = new Date(cloud.now()).toISOString();
+      return 'claimed';
+    },
+    async takeBackPhoneCommand(id, outcome) {
+      const c = (cloud.phoneCommands ?? []).find((x) => x.id === id && x.owner === personId);
+      if (!c || c.takenAt || c.claimedAt) return false;
+      c.takenAt = new Date(cloud.now()).toISOString();
+      c.outcome = outcome;
+      cloud.events.emit('phone', 1);
+      return true;
+    },
+    async markPhoneCommand(id, outcome, owner) {
+      if (owner && owner !== personId) return;
+      // Somebody else's command is not there for you, as row level security
+      // has it: the mark changes nothing rather than failing. Your own is
+      // marked once; a second mark finds nothing waiting and changes nothing,
+      // as the real backend's `taken_at is null` filter has it.
+      const c = (cloud.phoneCommands ?? []).find((x) => x.id === id && x.owner === personId);
+      if (!c || c.takenAt) return;
+      c.takenAt = new Date(cloud.now()).toISOString();
+      c.outcome = outcome;
+      cloud.events.emit('phone', 1);
+    },
+
     subscribe(onChange) {
       const fire = () => onChange();
       cloud.events.on('lines', fire);
       cloud.events.on('cards', fire);
       cloud.events.on('people', fire);
-      return () => { cloud.events.off('lines', fire); cloud.events.off('cards', fire); cloud.events.off('people', fire); };
+      cloud.events.on('phone', fire);
+      return () => { cloud.events.off('lines', fire); cloud.events.off('cards', fire); cloud.events.off('people', fire); cloud.events.off('phone', fire); };
     },
   };
 }

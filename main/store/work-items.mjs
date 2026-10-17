@@ -238,6 +238,56 @@ export function readWorkItem(projectDir, id, now = Date.now()) {
   return item ? aged(item, now) : null;
 }
 
+/**
+ * ONE THREAD'S LINES, OLDEST FIRST, without the lease lines (heartbeats and
+ * releases), the last `max` of them.
+ *
+ * The phone pass (main/phone-inbox.mjs) asks this for every thread of a
+ * project, up to 300, and each ask used to read and parse the whole ledger:
+ * 20,929 ms of blocked main thread on the real 17,797-line agentbox-team
+ * ledger, against 101 ms for one read (2026-10-14, the endless beachball). So
+ * the ledger is read once per change of the file, grouped by thread, and kept,
+ * keyed on the file's identity exactly as the fold is. The lines handed out are
+ * the kept ones, frozen, so no caller can edit what the next one reads.
+ */
+const histories = new Map();
+const HISTORIES_HELD = 8;
+function deepFreeze(v) {
+  if (v && typeof v === 'object' && !Object.isFrozen(v)) {
+    Object.freeze(v);
+    for (const k of Object.keys(v)) deepFreeze(v[k]);
+  }
+  return v;
+}
+function historiesOf(file) {
+  const stamp = ledgerStamp(file);
+  const held = histories.get(file);
+  if (held && held.stamp === stamp) return held.byId;
+  const byId = new Map();
+  if (stamp !== 'absent') {
+    for (const raw of readLines(file)) {
+      let line;
+      try { line = JSON.parse(raw); } catch { continue; }
+      if (!line || typeof line.id !== 'string' || line.heartbeat || line.release) continue;
+      let list = byId.get(line.id);
+      if (!list) byId.set(line.id, (list = []));
+      list.push(deepFreeze(line));
+    }
+  }
+  histories.delete(file);
+  if (histories.size >= HISTORIES_HELD) histories.delete(histories.keys().next().value);
+  histories.set(file, { stamp, byId });
+  return byId;
+}
+// `before` keeps the lines written at or before that moment, and the cap then
+// counts back from there rather than from the newest line.
+export function readItemHistory(projectDir, id, { max = 400, before } = {}) {
+  const lines = historiesOf(ledgerPath(projectDir)).get(id);
+  if (!lines) return [];
+  const upTo = Number.isFinite(before) ? lines.filter((l) => l.ts <= before) : lines;
+  return upTo.slice(-max);
+}
+
 /* -------------------------------- mutating ------------------------------- */
 export function newWorkItemId() {
   return `w-${crypto.randomBytes(5).toString('hex')}`;
@@ -440,4 +490,4 @@ export function readLinesFrom(projectDir, offset = 0) {
 }
 
 export { LEASE_MS };
-export const _internals = { appendLine, readLines, ledgerPath, forgetFolds: () => folded.clear() };
+export const _internals = { appendLine, readLines, ledgerPath, forgetFolds: () => { folded.clear(); histories.clear(); } };

@@ -32,6 +32,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { shellDataDirsNow } from './shell-path.mjs';
 
 const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
 
@@ -128,10 +129,18 @@ export function codexHomesOf(supervisor) {
  *  both lists inside one try, so any one of those left the import reading
  *  nothing beyond the defaults, and without the app's own CLAUDE_CONFIG_DIR or
  *  CODEX_HOME either. */
-export function appSessionFolders({ config = null, supervisor = null, env = process.env, home = os.homedir() } = {}) {
+export function appSessionFolders({ config = null, supervisor = null, env = process.env, shellEnv = shellDataDirsNow(), home = os.homedir() } = {}) {
   let claudeProfiles = [];
   try { claudeProfiles = config?.authProfiles ?? []; } catch { claudeProfiles = []; }
-  return sessionFolders({ claudeProfiles, codexHomes: codexHomesOf(supervisor), env, home });
+  if (!Array.isArray(claudeProfiles)) claudeProfiles = [claudeProfiles];
+  // AND WHAT THE LOGIN SHELL EXPORTS (main/shell-path.mjs), which an app opened
+  // from the Dock never sees in its own environment.
+  return sessionFolders({
+    claudeProfiles: [...claudeProfiles, shellEnv?.CLAUDE_CONFIG_DIR],
+    codexHomes: [...codexHomesOf(supervisor), shellEnv?.CODEX_HOME],
+    env,
+    home,
+  });
 }
 
 /**

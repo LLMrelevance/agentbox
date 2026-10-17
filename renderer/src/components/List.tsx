@@ -5,7 +5,7 @@
 
 import { useContext, useEffect, useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { Product, RepeatRule, RunningSession, ThreadCard, View, WorkItem } from '../types';
-import { ago, dayLabel, previewText, stamp } from '../format';
+import { ago, dayAndTime, dayLabel, previewText, stamp } from '../format';
 import { REST_HEADING, URGENT_HEADING, clickIntent, rowKeys, rowSummary, rowTitle, walkRowKeys } from '../list-rules';
 import { isUrgentRow } from '../interrupt';
 // THE SAME PREDICATE THE PANE USES, not a second copy of the rule. The row and
@@ -139,7 +139,7 @@ export function dayGroups(
   return groups;
 }
 
-export function List({ items, view, keyView, hoveredId, selected, seen, running, engineChoice, engines, stalled, queued, signInNeeded, shipping, silent, paused, multiSel, snoozes, repeats, allItems, terms, phrase, summaries, searchDetails, ranked, emptyText, walk, onSelect, onOpen, onOpenRepeat, onToggle, onRange, onHover: hoverTo, onAnswerImport, team = null, table = false, products = [], mixed = null, personCell, onOpenCard, selectedCard = null, onEnd, onReorder }: {
+export function List({ items, view, keyView, hoveredId, selected, seen, running, engineChoice, engines, stalled, queued, signInNeeded, atLimit, shipping, silent, paused, multiSel, snoozes, repeats, allItems, terms, phrase, summaries, searchDetails, ranked, emptyText, walk, onSelect, onOpen, onOpenRepeat, onToggle, onRange, onHover: hoverTo, onAnswerImport, team = null, table = false, products = [], mixed = null, personCell, onOpenCard, selectedCard = null, onEnd, onReorder }: {
   items: WorkItem[];
   view: View;
   // WHICH VIEW'S KEYS THE ROW HINT PRINTS, which is not always the view this
@@ -171,6 +171,8 @@ export function List({ items, view, keyView, hoveredId, selected, seen, running,
   stalled?: string[];
   queued?: string[];
   signInNeeded?: Record<string, string>;
+  /** `supervisor.atLimit`: rows held because every login of their tool is out of usage. */
+  atLimit?: Record<string, { tool: string; until: number }>;
   /** `supervisor.shipping`: rows the app's ship queue still owes a ship. */
   shipping?: string[];
   // A RUN ENDED ON THIS ROW AND WROTE NOTHING DOWN, keyed by id. The half of
@@ -295,9 +297,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, running,
   // localStorage deferral, still read so nothing already deferred pops back.
   const deferredUntil = (item: WorkItem) => Math.max(item.runAt ?? 0, item.snoozedUntil ?? 0, snoozes?.[item.id] ?? 0);
   const wakeTs = (item: WorkItem) => deferredUntil(item) || item.updatedAt;
-  const wake = (ts: number) => new Date(ts).toLocaleString(undefined, {
-    weekday: 'short', hour: 'numeric', minute: '2-digit',
-  });
+  const wake = (ts: number) => dayAndTime(ts);
 
   // THE ROW SAYING NOTHING IS RUNNING WEARS NO DAY LABEL. It is about right now
   // and it is drawn first; a "Today" over it would be the list filing a fact
@@ -766,6 +766,8 @@ export function List({ items, view, keyView, hoveredId, selected, seen, running,
                         ? <span className="time quiet" title="An agent ran on this and finished without writing anything back. Send it a message to find out what happened.">nothing came back · {ago(silent![item.id].endedAt || item.updatedAt)}</span>
                         : signInNeeded?.[item.id]
                           ? <span className="time" title={`${signInNeeded[item.id]} is signed out, so nothing can start. Sign in again and this starts on its own.`}>signed out</span>
+                        : atLimit?.[item.id]
+                          ? <span className="time" title={`${atLimit[item.id].tool} is at its usage limit, so this starts on its own when it resets.`}>at its limit</span>
                         : shipping?.includes(item.id)
                           ? <span className="time" title="The app is shipping this. It comes back to you once it is live, or goes back to its agent if it fails.">shipping</span>
                         : queued?.includes(item.id)

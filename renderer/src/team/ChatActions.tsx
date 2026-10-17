@@ -12,6 +12,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { EMOJI_GROUPS, findEmoji } from './emoji-list';
+import { chipPressed, quickRow, readRecent, rememberEmoji } from './recent-emoji';
+import { searchKey } from './picker-keys';
 import './chat.css';
 
 // THE EMOJI ON OFFER FIRST: the ones a working chat actually uses, one press
@@ -47,6 +49,7 @@ export function EmojiPick({ onPick, onClose, title = 'React' }: {
   const box = useRef<HTMLDivElement>(null);
   const every = useRef<HTMLDivElement>(null);
   const [all, setAll] = useState<CSSProperties | null>(null);
+  const [typed, setTyped] = useState('');
   // Clicking anywhere else closes it, which is the rule every other small
   // drawer in this app follows (Priority, Model, When). The whole list is
   // drawn elsewhere on the page, so a click in it is not "anywhere else".
@@ -60,15 +63,39 @@ export function EmojiPick({ onPick, onClose, title = 'React' }: {
     document.addEventListener('keydown', key);
     return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', key); };
   }, [onClose]);
+  // TYPING SEARCHES, as in Slack. Focus is still on whatever opened the
+  // picker, so without this a letter reaches the app's own keys and E closes
+  // the conversation. Taken at the window before the app's listeners hear it.
+  useEffect(() => {
+    const typing = (e: KeyboardEvent) => {
+      const ch = searchKey(e);
+      if (ch === null) return;
+      const field = every.current?.querySelector('.chat-emoji-search');
+      if (field && e.target === field) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setTyped((was) => was + ch);
+      if (!field) {
+        const r = box.current?.getBoundingClientRect();
+        if (r) setAll(placeEvery(r));
+      }
+    };
+    window.addEventListener('keydown', typing, true);
+    return () => window.removeEventListener('keydown', typing, true);
+  }, []);
   const more = () => {
-    if (all) { setAll(null); return; }
+    if (all) { setAll(null); setTyped(''); return; }
     const r = box.current?.getBoundingClientRect();
     if (r) setAll(placeEvery(r));
   };
+  // YOUR RECENT ONES FIRST (./recent-emoji.ts), read as the plate opens, and
+  // every pick from here or the full list is remembered.
+  const [recent] = useState(readRecent);
+  const pick = (emoji: string) => { rememberEmoji(emoji); onPick(emoji); };
   return (
     <div className="chat-emoji" ref={box} role="group" aria-label={title}>
-      {CHAT_EMOJI.map((emoji) => (
-        <button key={emoji} type="button" className="chat-emoji-one" title={emoji} onClick={() => onPick(emoji)}>
+      {quickRow(recent, CHAT_EMOJI).map((emoji) => (
+        <button key={emoji} type="button" className="chat-emoji-one" title={emoji} onClick={() => pick(emoji)}>
           {emoji}
         </button>
       ))}
@@ -77,7 +104,7 @@ export function EmojiPick({ onPick, onClose, title = 'React' }: {
           <path d="M8 3v10M3 8h10" />
         </svg>
       </button>
-      {all && createPortal(<EveryEmoji onPick={onPick} at={all} boxRef={every} />, document.body)}
+      {all && createPortal(<EveryEmoji onPick={pick} at={all} boxRef={every} recent={recent} typed={typed} onType={setTyped} />, document.body)}
     </div>
   );
 }
@@ -88,12 +115,29 @@ export function EmojiPick({ onPick, onClose, title = 'React' }: {
  * short list: the group jumps are drawn grey until pointed at, so the only
  * colour in the panel is the emoji you are choosing between.
  */
-export function EveryEmoji({ onPick, at, boxRef }: {
+export function EveryEmoji({ onPick, at, boxRef, recent = [], typed: given, onType }: {
   onPick: (emoji: string) => void;
   at?: CSSProperties;
   boxRef?: RefObject<HTMLDivElement>;
+  /** Yours, newest first, drawn above the groups as Slack draws them. */
+  recent?: string[];
+  /** The search, when the short list holds it so a key typed there lands here. */
+  typed?: string;
+  onType?: (typed: string) => void;
 }) {
-  const [typed, setTyped] = useState('');
+  const [own, setOwn] = useState('');
+  const typed = given ?? own;
+  const setTyped = onType ?? setOwn;
+  const field = useRef<HTMLInputElement>(null);
+  // Back into the box with the caret at the end whenever the search changes
+  // from outside it: opening with a letter already typed, or a letter typed
+  // after a group jump took focus away.
+  useEffect(() => {
+    const f = field.current;
+    if (!f || document.activeElement === f) return;
+    f.focus();
+    f.setSelectionRange(f.value.length, f.value.length);
+  }, [typed]);
   const [jumpTo, setJumpTo] = useState<string | null>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const found = typed.trim() ? findEmoji(typed) : null;
@@ -114,7 +158,7 @@ export function EveryEmoji({ onPick, at, boxRef }: {
         className="chat-emoji-search"
         placeholder="Search emoji"
         aria-label="Search emoji"
-        autoFocus
+        ref={field}
         value={typed}
         onChange={(e) => setTyped(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter' && found?.length) { e.preventDefault(); onPick(found[0][0]); } }}
@@ -132,12 +176,22 @@ export function EveryEmoji({ onPick, at, boxRef }: {
           ? (found.length
             ? <div className="chat-emoji-grid">{found.map(cell)}</div>
             : <div className="chat-emoji-none">No emoji for “{typed.trim()}”</div>)
-          : EMOJI_GROUPS.map((group) => (
-            <section key={group.name} data-group={group.name}>
-              <div className="chat-emoji-group">{group.name}</div>
-              <div className="chat-emoji-grid">{group.emoji.map(cell)}</div>
-            </section>
-          ))}
+          : <>
+            {recent.length > 0 && (
+              <section data-group="Recent">
+                <div className="chat-emoji-group">Recent</div>
+                <div className="chat-emoji-grid">{recent.map((emoji) => (
+                  <button key={emoji} type="button" className="chat-emoji-cell" title={emoji} onClick={() => onPick(emoji)}>{emoji}</button>
+                ))}</div>
+              </section>
+            )}
+            {EMOJI_GROUPS.map((group) => (
+              <section key={group.name} data-group={group.name}>
+                <div className="chat-emoji-group">{group.name}</div>
+                <div className="chat-emoji-grid">{group.emoji.map(cell)}</div>
+              </section>
+            ))}
+          </>}
       </div>
     </div>
   );
@@ -172,7 +226,7 @@ export function Reactions({ on, me, onReact }: {
             className={`chat-chip${mine ? ' mine' : ''}`}
             aria-pressed={mine}
             title={mine ? `You and ${who.length - 1} other${who.length === 2 ? '' : 's'}` : `${who.length}`}
-            onClick={() => onReact(emoji, mine)}
+            onClick={() => { chipPressed(emoji, mine); onReact(emoji, mine); }}
           >
             <span className="chat-chip-emoji">{emoji}</span>
             <span className="chat-chip-count">{who.length}</span>

@@ -1,7 +1,7 @@
 // The app: the agent inbox. Electron shell around a keyboard-first renderer, a
 // file-derived store, and a supervisor of headless sessions.
 
-import { app, BrowserWindow, Menu, Notification, clipboard, crashReporter, dialog, ipcMain, nativeImage, net, powerMonitor, protocol, screen as electronScreen, shell, session, safeStorage } from 'electron';
+import { app, BrowserWindow, Menu, Notification, clipboard, crashReporter, dialog, ipcMain, nativeImage, net, powerMonitor, protocol, screen as electronScreen, shell, session, safeStorage, systemPreferences, globalShortcut } from 'electron';
 import * as workItemsDisk from './store/work-items.mjs';
 import { createTeamService, teamStateFile } from './team/index.mjs';
 import { loadCloudConfig, supabaseSession } from './team/session.mjs';
@@ -23,6 +23,11 @@ import { startCodexWatch } from './codex-watch.mjs';
 import { readCodexThreads } from './codex-threads.mjs';
 import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
+import { createPhoneLink } from './phone-link.mjs';
+import { applyThrough, phoneDevice } from './phone-inbox.mjs';
+import { relayAddress } from './relay-address.mjs';
+import { atTheComputer } from '../shared/notify-rules.mjs';
+import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
 import * as approvals from './approvals.mjs';
 import { recoveryToast } from '../shared/recovery.mjs';
@@ -32,13 +37,18 @@ import { openFreshUser } from './fresh-user.mjs';
 import { installCrashReports, reportFromRenderer, pending as pendingCrashes, setTransport } from './crash-report.mjs';
 import { createAnalytics, createDailyCount } from './analytics.mjs';
 import { createUpdater } from './updater.mjs';
+import { quitStep, flushBeforeQuit } from './quit-sequence.mjs';
+import { createPlace } from '../shared/where-it-runs-from.mjs';
 import { createSourceUpdater } from './source-updater.mjs';
-import { recoverShellPath } from './shell-path.mjs';
+import { learnShellDataDirs, recoverShellPath } from './shell-path.mjs';
 import { installNotifier } from './notify.mjs';
 import { createCornerTag } from './corner-tag.mjs';
+import { createNeo } from './neo/index.mjs';
+import { fileReview } from './neo/review.mjs';
 import { DOC_SCHEMES, DocGrants, docPath } from './doc-scheme.mjs';
 import { quietTheFramesScrollbars } from './frame-scrollbars.mjs';
 import { letLocalAppsShowInThePane } from './local-app-frames.mjs';
+import { hardenAttachedWebview } from './webview-guard.mjs';
 import { IMG_SCHEMES, imgPath, mediaResponse, mediaType, servable } from './img-scheme.mjs';
 import { hotWindowVerdict, storeHasWork } from './dev-window.mjs';
 import { writeHeldThenReload } from './write-before-reload.mjs';
@@ -280,7 +290,12 @@ function reloadRenderer() {
 }
 
 async function createWindow() {
-  const shellPath = await recoverShellPath();
+  // Where the shell says Claude Code and Codex keep their logins and sessions,
+  // never put into this environment (main/shell-path.mjs). WAITED FOR, beside
+  // the PATH read so it costs no extra time: the folders it names are where
+  // workers sign in now (w-6d8c543a43), and a task resumed at launch before
+  // the answer landed ran on ~/.claude signed out.
+  const [shellPath] = await Promise.all([recoverShellPath(), learnShellDataDirs()]);
   process.env.PATH = shellPath.path;
   if (shellPath.error) console.warn('agentbox: could not load your shell PATH; using the inherited PATH:', shellPath.error);
   const config = loadConfig(dataDir);
@@ -370,7 +385,7 @@ async function createWindow() {
   const supervisor = new Supervisor(config, store, appDir, dataDir, userDir);
   // THAT agents start and stop work (main/analytics.mjs checks the switch).
   supervisor.count = (name, props) => analytics.track(name, props);
-  app.on('before-quit', () => supervisor.killAll());
+  quitStep(app, 'before-quit', 'supervisor.killAll', () => supervisor.killAll());
   // THE TEAM. Off entirely on a build with no team cloud (the single-person
   // app). Otherwise it restores whoever was signed in, and from then on every
   // line this Mac writes says who wrote it and shared projects stay in sync.
@@ -381,6 +396,7 @@ async function createWindow() {
   // single-person app, which has no sign-in to keep
   // (tests/the-installed-app-is-the-single-person-app.test.mjs).
   const cloudConfig = loadCloudConfig(appDir, { packaged: app.isPackaged });
+  let phoneApply = null;
   const team = cloudConfig ? createTeamService({
     session: supabaseSession({
       cloudConfig,
@@ -399,10 +415,23 @@ async function createWindow() {
     // exists; until then a change has nobody to tell.
     onChange: () => { try { pushUpdate(); } catch { /* no window yet */ } },
     log: (line) => console.log(line),
+    // HER PHONE WITH THE MAC SHUT (main/phone-inbox.mjs). What it left is done
+    // through the window's own handlers, filed below once the window exists.
+    phone: {
+      // Her yes, with her id on it (shared/phone-snapshot.mjs phoneProjectsOf).
+      projects: () => config.phoneProducts ?? null,
+      ready: () => !!phoneApply,
+      apply: (cmd) => phoneApply(cmd),
+      stateFile: path.join(config.storeRoot, '.phone-inbox.json'),
+      // This installation and this store together (main/phone-inbox.mjs).
+      device: () => phoneDevice(userDir, config.storeRoot),
+      // Where her phone reads it, once the site is up (cloud/team.config.json).
+      site: typeof cloudConfig.phoneSite === 'string' ? cloudConfig.phoneSite : null,
+    },
   }) : null;
   if (team) {
     team.start().then(() => supervisor.wake?.()).catch((err) => console.warn(`team: ${err.message}`));
-    app.on('before-quit', () => team.stop());
+    quitStep(app, 'before-quit', 'team.stop', () => team.stop());
   }
   // HER CODEX CONVERSATIONS ASK TO COME IN. Once a minute: a new one in a
   // folder a project points at gets a row asking yes or no, and the ones she
@@ -417,9 +446,14 @@ async function createWindow() {
     count: (name, props) => analytics.track(name, props),
     readThreads: (opts) => readCodexThreads({ ...opts, codexDirs: appSessionFolders({ config, supervisor }).codexDirs }),
   });
-  app.on('before-quit', () => codexWatch.stop());
-  // Whatever is still queued goes with the app rather than dying in memory.
-  app.on('will-quit', () => { analytics.flush(); });
+  quitStep(app, 'before-quit', 'codexWatch.stop', () => codexWatch.stop());
+  // Whatever is still queued goes with the app rather than dying in memory,
+  // and the quit WAITS for it (main/quit-sequence.mjs). It did not: the
+  // process went as soon as this returned, so the last batch was a POST that
+  // never left, which on an install that opens the app once is everything we
+  // would ever have heard from it (w-60c8ddbab6).
+  quitStep(app, 'before-quit', 'count the quit', () => analytics.track('app_quit', { seconds: Math.round(process.uptime()) }));
+  flushBeforeQuit(app, () => analytics.flush());
 
   // Right-click. Electron ships no context menu at all, so links could not be
   // copied or opened by hand anywhere in the app. Built per click from what is
@@ -678,9 +712,16 @@ async function createWindow() {
   // AND A COPY RUN FROM SOURCE watches its git branch instead of a release
   // feed (main/source-updater.mjs), because that is how teammates run the team
   // build and their updates are pushes to main, not releases.
+  //
+  // AND WHERE THIS COPY IS RUNNING FROM (shared/where-it-runs-from.mjs). An
+  // app run out of the disk image, or out of a read-only copy macOS made of
+  // it, can never update itself, and until 2026-10-12 nothing in the app said
+  // so: two installs sat on 0.1.11 for a week. The fact rides the updater's
+  // state so the Settings row, the sidebar card and ⌘K all read one answer.
   let pushUpdate = () => {};
   const updater = app.isPackaged ? createUpdater({
     app,
+    place: createPlace({ app }),
     onChanged: () => pushUpdate(),
   }) : createSourceUpdater({
     app,
@@ -690,9 +731,27 @@ async function createWindow() {
 
   // The desktop door. `main/serve.mjs` is the other one and hands over plain
   // Node stand-ins for these three; everything else about the call is the same.
+  // THE PHONE DOOR (main/phone-link.mjs) answers with these same handlers, so
+  // each one is filed in a Map as Electron gets it. And every push the window
+  // gets is handed to the phones' event streams too.
+  const phoneChannels = new Map();
+  const phoneListeners = new Set();
+  const filingIpcMain = {
+    handle(channel, fn) { ipcMain.handle(channel, fn); phoneChannels.set(channel, fn); },
+  };
+  // `readClipboardText` is read only by the cloud setup, and only for a
+  // Claude sign-in code (main/ipc.mjs `zero:cloud-clipboard-code`).
+  const filingHost = { ipcMain: filingIpcMain, app, dialog, readClipboardText: () => clipboard.readText() };
+  const sendToWindow = window.webContents.send.bind(window.webContents);
+  window.webContents.send = (channel, ...args) => {
+    sendToWindow(channel, ...args);
+    for (const send of phoneListeners) {
+      try { send({ channel, args }); } catch { /* a closed phone is not an error */ }
+    }
+  };
   const ipc = registerIpc({
     store, supervisor, config, window, analytics, docGrants, updater,
-    host: { ipcMain, app, dialog },
+    host: filingHost,
     team,
   });
   pushUpdate = ipc.push;
@@ -700,11 +759,45 @@ async function createWindow() {
   // See the `installMenu` call above for what writing the file instead did to a
   // Codex card.
   answerApproval = ipc.answerApproval;
+  // What the window answers itself (badge, boot info) a phone gets the plain
+  // stand-ins for, as a browser tab does.
+  answerWhatOnlyTheWindowAnswered({ handle: (channel, fn) => { if (!phoneChannels.has(channel)) phoneChannels.set(channel, fn); } });
+  phoneApply = applyThrough(phoneChannels);
+  const phone = createPhoneLink({
+    file: path.join(userDir, 'phone-link.json'),
+    channels: phoneChannels,
+    listeners: phoneListeners,
+    dist: path.join(appDir, 'renderer', 'dist'),
+    // Pictures and design pages, under the same two rules the window's own
+    // schemes use below: a page the pane was granted, and a picture inside a
+    // root the app owns (main/serve.mjs answerFile).
+    files: { allows: (kind, f) => (kind === 'doc' ? docGrants.allows(f) : servable(f, imageRoots())) },
+    // "Anywhere": the relay a phone reaches this Mac through from any network
+    // (main/relay-client.mjs). It stays beside the hosted phone site until
+    // every copy of the app can sign in to that (docs/cloud/PHONE-PLAN.md).
+    relayUrl: relayAddress({ appDir }),
+    // THE WINDOW IS NULLED ON CLOSE, NOT MERELY DESTROYED (w-60c8ddbab6). This
+    // handler is reached on the way out: `phone.close()` stops the relay and the
+    // relay reports the change back, by which time `window = null` has already
+    // run, and `window.isDestroyed()` on a null threw a TypeError that killed
+    // the whole quit. Three 0.1.13 crash reports, all this line.
+    onChange: () => { if (window?.isDestroyed() === false) sendToWindow('zero:phone-changed'); },
+    // The phone stays quiet while she is using the computer in any app, not
+    // only Agentbox: the desktop banner covers the rest (shared/notify-rules.mjs).
+    atDesk: () => {
+      try { return atTheComputer({ idleMs: powerMonitor.getSystemIdleTime() * 1000 }); } catch { return false; }
+    },
+  });
+  window.on('focus', () => phone.seen());
+  // Settings' own channel, on the window only: a phone does not get to turn
+  // the phone door off or hand out its key.
+  ipcMain.handle('zero:phone-link', (_e, payload) => phone.act(payload ?? {}));
+  quitStep(app, 'before-quit', 'phone.close', () => phone.close());
   updater.start();
   // A task the app just shipped moved main: look now rather than in half an
   // hour, so the restart is offered while she still remembers the task.
   supervisor.onShipped = () => { try { updater.check?.(); } catch {} };
-  app.on('before-quit', () => updater.stop());
+  quitStep(app, 'before-quit', 'updater.stop', () => updater.stop());
 
   // Cmd+Y / Cmd+N answer the oldest approval card from ANYWHERE, including
   // while a child web contents owns the keyboard (menu accelerators turned out
@@ -872,6 +965,7 @@ async function createWindow() {
   // Unread badge + notification on new inbox arrivals are driven by the
   // renderer (it owns the definition of "inbox"), through the badge API.
   ipcMain.handle('zero:badge', (_e, count) => {
+    phone.count(count);
     if (process.platform === 'darwin') app.dock.setBadge(count > 0 ? String(count) : '');
   });
   // WHETHER to speak, and what to say, is not the renderer's call: only this
@@ -880,19 +974,40 @@ async function createWindow() {
   // a locked screen all read the same from in there). The renderer says what
   // arrived; main/notify.mjs decides. tell me when I am in another app, never
   // while I am in Agentbox.
-  installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage });
+  installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage, onArrivals: (arrivals) => phone.arrivals(arrivals) });
   // THE CORNER TAG (w-dafae58a23): what is ready for her, floating over
   // whatever app she is in. Its page is built beside the app's own, and comes
   // from the dev server only when the app's own page does.
   createCornerTag({
     BrowserWindow, screen: electronScreen, ipcMain, Menu, powerMonitor, config, saveConfig, mainWindow: window,
     preload: path.join(appDir, 'main', 'corner-tag-preload.cjs'),
+    count: (name, props) => analytics.track(name, props),
     // `part` is the tag itself or the list beside it, one page drawn twice.
     load: (tagWindow, part) => {
       const devTag = process.env.ZERO_DEV_URL;
       const builtTag = path.join(appDir, 'renderer', 'dist', 'corner-tag.html');
       if (devTag && !fs.existsSync(builtTag)) tagWindow.loadURL(`${devTag.replace(/\/$/, '')}/corner-tag.html?part=${part}`);
       else tagWindow.loadFile(builtTag, { search: `part=${part}` });
+    },
+  });
+  // NEO, the voice alpha (w-e85fd9144f). Nothing at all unless this Mac's
+  // user data folder holds a `neo-alpha` file (main/neo/gate.mjs), so it is
+  // in the code for everyone and on for one person.
+  createNeo({
+    app, BrowserWindow, ipcMain, screen: electronScreen, powerMonitor, systemPreferences, session, globalShortcut, shell,
+    mainWindow: window, userData: app.getPath('userData'),
+    // Every few minutes of talk goes to a review thread in the project this
+    // app is built from, which patches what went wrong (./neo/review.mjs).
+    onReview: ({ files, seconds }) => {
+      const own = store.listProducts().find((p) => p.repoPath && path.resolve(p.repoPath) === path.resolve(appDir));
+      void fileReview({ files, seconds, product: own?.slug ?? null, channels: phoneChannels, stateFile: path.join(app.getPath('userData'), 'neo', 'review.json') }).catch(() => {});
+    },
+    preload: path.join(appDir, 'main', 'neo', 'preload.cjs'),
+    load: (neoWindow) => {
+      const dev = process.env.ZERO_DEV_URL;
+      const built = path.join(appDir, 'renderer', 'dist', 'neo.html');
+      if (dev && !fs.existsSync(built)) neoWindow.loadURL(`${dev.replace(/\/$/, '')}/neo.html`);
+      else neoWindow.loadFile(built);
     },
   });
   // Asked for once by the renderer as it mounts, rather than pushed on
@@ -920,18 +1035,14 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
-  // NO PAGE IN AN EMBEDDED BROWSER STARTS SOUND BEFORE SHE HAS CLICKED IN IT.
+  // WHAT AN EMBEDDED PAGE MAY DO IS DECIDED HERE, NOT ON THE TAG THAT ASKED.
   //
-  // Electron's default is `no-user-gesture-required`, so any page may start
-  // media the moment it loads, and the rest browser reloads her last tab at
-  // every launch, out of sight. Measured 2026-09-10 on Electron 43 in a hidden
-  // webview on a YouTube watch page: default, the video ran from 3s to 15s;
-  // with this rule it sat paused at 0 for all 16s. A click anywhere in the page
-  // is activation, so pressing play, or picking the next video inside YouTube,
-  // works as before. Every webview this window attaches gets it, the junk
-  // browser included, which is what "never" asks for.
-  window.webContents.on('will-attach-webview', (_e, webPreferences) => {
-    webPreferences.autoplayPolicy = 'document-user-activation-required';
+  // The pane draws a website now, which is the first code in this window that
+  // nobody here wrote, so every webview is pinned below the tag: no preload,
+  // sandboxed, context-isolated, node off, web security on, and no sound
+  // before a click. main/webview-guard.mjs is the rule and the reasons.
+  window.webContents.on('will-attach-webview', (_e, webPreferences, params) => {
+    hardenAttachedWebview(webPreferences, params);
   });
 
   // A page in the pane hides its scrollbar until you scroll, like the app's own
@@ -947,10 +1058,34 @@ async function createWindow() {
   // focus and would otherwise swallow the key. Intercept it below the page.
   app.on('web-contents-created', (_event, contents) => {
     if (contents.getType() !== 'webview') return;
+
+    // A LINK IN A WEBSITE THAT WANTS A NEW WINDOW GOES TO YOUR OWN BROWSER.
+    // The pane is one page at a time; a second Electron window would be a
+    // browser we have not designed, and `allowpopups` is off anyway
+    // (webview-guard.mjs), so without this such a link does nothing at all.
+    contents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:/.test(url)) shell.openExternal(url);
+      return { action: 'deny' };
+    });
+
     contents.on('before-input-event', (e, input) => {
+      // ESCAPE HAS TO REACH THE APP FROM INSIDE A PAGE, and a webview is not
+      // a frame of this window, so the handler above never hears it. It comes
+      // up the same channel a frame's does, because the renderer answers that
+      // one and decides there what escape means (whatTheFileSentUp). It used
+      // to be sent on `zero:escape-browser`, the junk browser's own channel,
+      // which no renderer code has listened to since that pane went: the key
+      // landed nowhere and the pane took two presses to close.
       if (input.type === 'keyDown' && input.key === 'Escape' && window && !window.isDestroyed()) {
-        window.webContents.send('zero:escape-browser');
-        window.webContents.focus();
+        // The keyboard is left where it is, exactly as it is for a frame: the
+        // renderer blurs the page before the pane goes. Taking focus back
+        // here first would move `document.activeElement` off the webview, and
+        // the renderer's own check of the same fact would then refuse the key
+        // that this just sent.
+        window.webContents.send('zero:key-in-the-file', {
+          key: input.key, meta: !!input.meta, ctrl: !!input.control, alt: !!input.alt, shift: !!input.shift,
+          fromGuest: true,
+        });
         return;
       }
       // The guest page owns the keyboard while she is in the junk browser, so

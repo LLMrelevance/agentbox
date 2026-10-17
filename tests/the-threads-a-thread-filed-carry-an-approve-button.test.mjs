@@ -90,11 +90,16 @@ describe('the button, drawn in the list', () => {
 
   it('is one press per waiting thread and none on the rest', () => {
     expect(html.match(/class="made-approve"/g)).toHaveLength(1);
-    expect(html).toContain('>Approve<');
+    // RENAMED 2026-10-13 (w-554834e749): the bare "Approve" was the confusing
+    // part, and approving a proposal has always meant starting a new thread.
+    // Shortened to NEW THREAD in the quiet list (w-fcb5fdc2e5); its accessible
+    // name still says it in full.
+    expect(html).toContain('>New thread<');
+    expect(html).not.toContain('>Approve<');
   });
 
   it('names the thread it would start, so the press is never ambiguous', () => {
-    expect(html).toContain('aria-label="Approve: Say why Send is off"');
+    expect(html).toContain('aria-label="Start new thread: Say why Send is off"');
   });
 
   it('still opens the thread, which is a second press and not the same one', () => {
@@ -102,7 +107,7 @@ describe('the button, drawn in the list', () => {
   });
 
   it('nests no button inside another, which no browser would accept', () => {
-    expect(html).toContain('<div class="made-row"');
+    expect(html).toContain('<div class="made-row');
     expect(html).not.toMatch(/<button[^>]*>(?:(?!<\/button>)[\s\S])*<button/);
   });
 
@@ -120,8 +125,8 @@ describe('the button, drawn in the list', () => {
   // A row that can be approved says APPROVE where it would have said NEEDS YOU,
   // and nothing is held in reserve, so every word and every press ends at the
   // same right-hand edge.
-  it('says APPROVE in the place of the state word, not beside it', () => {
-    expect(html).toContain('>Approve<');
+  it('says NEW THREAD in the place of the state word, not beside it', () => {
+    expect(html).toContain('>New thread<');
     // The waiting row's own word is gone; the running row below it keeps its.
     expect(html).not.toContain('>Needs you<');
     expect(html).toContain('>In progress<');
@@ -141,30 +146,19 @@ describe('the button, drawn in the list', () => {
     expect(none.match(/class="made-state/g)).toHaveLength(2);
   });
 
-  // THE OTHER HALF OF THE DECISION (w-9cf2b43110, second round). A proposal
-  // nobody answers now waits in Later and brings its thread back a day later,
-  // so there has to be a way to say no from the same row. It is the ordinary
-  // close — "there is no decline" in App.tsx still holds — and it is drawn
-  // quietly, under the cursor, because a list of three offers should not read
-  // as six buttons.
-  it('offers a No beside the press, named with its thread', () => {
+  // THE NO IS GONE (w-554834e749). It shipped in w-9cf2b43110's second round,
+  // drawn under the cursor, and was taken out on 2026-10-13: "No basically
+  // means reject so it's a different functionality... Ignoring it is
+  // basically rejecting it." Turning one down came back as DISMISS
+  // (w-fcb5fdc2e5, tests/a-proposal-is-a-dot-with-its-answers-always-beside-it), drawn
+  // only where it is wired; the old No and its wiring stay gone.
+  it('draws no No, on any row', () => {
     const both = renderToStaticMarkup(React.createElement(ThreadsMade, {
-      rows, onOpen: () => {}, onApprove: () => {}, onReject: () => {},
+      rows, onOpen: () => {}, onApprove: () => {}, onHere: () => {},
     }));
-    expect(both.match(/class="made-reject"/g)).toHaveLength(1);
-    expect(both).toContain('aria-label="Reject: Say why Send is off"');
-    expect(both).toContain('>No<');
-  });
-
-  it('draws no No on a row with nothing to approve', () => {
-    const none = renderToStaticMarkup(React.createElement(ThreadsMade, {
-      rows: rows.map(({ approve, ...r }) => r), onOpen: () => {}, onApprove: () => {}, onReject: () => {},
-    }));
-    expect(none).not.toContain('made-reject');
-  });
-
-  it('draws none at all where no rejection is wired, which is every other list', () => {
-    expect(html).not.toContain('made-reject');
+    expect(both).not.toContain('made-reject');
+    expect(both).not.toContain('>No<');
+    expect(both).not.toContain('Reject:');
   });
 
   it('draws nothing at all when there are no rows', () => {
@@ -178,7 +172,7 @@ describe('where the press is wired', () => {
 
   it('reaches the opened thread knowing which of its children can be approved', () => {
     expect(app).toMatch(/approve: approvableFiled\(i, stateOfMine\(i\)\)/);
-    expect(app).toMatch(/import \{ threadsMade, approvableFiled \}/);
+    expect(app).toMatch(/import \{ threadsMade, approvableFiled[\w\s,]*\}/);
   });
 
   it('approves the child without taking you off the thread you are reading', () => {
@@ -190,49 +184,34 @@ describe('where the press is wired', () => {
     expect(focus).toMatch(/onApprove=\{[^}]*onApproveFiled/);
   });
 
-  it('says no with the ordinary close, from the thread that proposed it', () => {
-    expect(app).toMatch(/onRejectFiled=\{\(i\) => markDone\(i, \{ stay: true \}\)\}/);
-    expect(focus).toMatch(/onReject=\{onRejectFiled && rejectFiled\}/);
+  it('wires no No from the thread any more (w-554834e749)', () => {
+    expect(app).not.toContain('onRejectFiled');
+    expect(focus).not.toContain('onRejectFiled');
   });
 });
 
-describe('the press looks like a press', () => {
+// THE PRESS IS A WORD NOW, NOT A BOX (w-fcb5fdc2e5). The bordered chip read as
+// "the really abrupt orange button"; in the quiet list it is the app's own
+// mono capitals in the accent, washed in under the cursor, beside two grey
+// words, and they stand where the state words end.
+describe('the press looks like the app', () => {
   const css = read('renderer/src/components/threads-made.css');
   const rule = css.match(/\.made-approve \{[^}]*\}/)[0];
+  const words = css.match(/\n\.made-acts button \{[^}]*\}/)[0];
 
-  it('is a bordered control in the row, not a word pretending to be one', () => {
-    expect(rule).toMatch(/border: 1px solid/);
-  });
-
-  // "a button that matches our own app's style (sharp borders, caps text etc.)",
-  // chosen off four drawings: the same square chip the state words are set in,
-  // in the accent, because the one thing in the list you can press should be
-  // the one coloured thing in it.
-  it('wears the app\'s own capitals, square, in the accent', () => {
-    expect(rule).toMatch(/text-transform: uppercase/);
-    expect(rule).toMatch(/var\(--mono\)/);
-    expect(rule).toMatch(/border-radius: 0/);
+  it('wears the app\'s own capitals, with no box round them, in the accent', () => {
+    expect(words).toMatch(/text-transform: uppercase/);
+    expect(words).toMatch(/var\(--mono\)/);
+    expect(words).toMatch(/border: 0/);
     expect(rule).toMatch(/var\(--accent\)/);
   });
 
-  it('is pushed to the right-hand edge the state words end at', () => {
-    expect(rule).toMatch(/margin-left: auto/);
-    // The reserved spacer is gone with the room it reserved.
-    expect(css).not.toContain('made-approve-room');
-  });
-
-  // "should be closer to the right side tho, feel as tho there's too much
-  // padding on the approve button". Three numbers carry that, and all three
-  // have to hold together or the column bends:
-  //
-  //   the row's right-hand padding, which is what the state words end at;
-  //   the chip's own padding, which was 9px and read as a gap inside a box;
-  //   and 2px of hang, so the chip's BORDER sits a touch past the words while
-  //   its letters stay inside them. A box whose edge lines up exactly with a
-  //   column of text always reads as further out than the text does.
-  it('is tight inside and close to the edge', () => {
+  it('stands at the right-hand edge the state words end at', () => {
+    expect(css).toMatch(/\.made-open \{[^}]*flex: 1/);
     expect(css).toMatch(/\.made-row \{[^}]*padding-right: 10px/);
-    expect(rule).toMatch(/padding: 3px 7px/);
-    expect(rule).toMatch(/margin-right: -2px/);
+    // In the row's flow, hung 2px into its 10px padding: 8px from the edge,
+    // where they stood in the drawing that was picked.
+    expect(css).toMatch(/\n\.made-acts \{[^}]*margin-right: -2px/);
+    expect(css).not.toContain('made-approve-room');
   });
 });

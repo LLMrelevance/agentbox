@@ -48,6 +48,7 @@
 
 import { createRequire } from 'node:module';
 import { Name } from '../shared/product-name.mjs';
+import { MOVE_SAY } from '../shared/where-it-runs-from.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -68,6 +69,14 @@ export function describe(state) {
   const { phase, currentVersion, newVersion, percent, error, checkedAt, readyAt, source, changes, behind } = state;
   const installing = phase === 'installing';
   return {
+    // WHETHER THIS COPY CAN UPDATE ITSELF FROM WHERE IT IS, and the one press
+    // that fixes it when it cannot (main/where-it-runs-from.mjs). It rides the
+    // updater's own state because the three surfaces that would have to ask
+    // separately — the Settings row, the sidebar card and ⌘K — all already
+    // read this one object, and a second channel for it is a second answer.
+    canMove: !!state.canMove,
+    place: state.canMove ? (state.place ?? null) : null,
+    moveError: state.moveError ?? null,
     phase,
     currentVersion,
     newVersion: newVersion ?? null,
@@ -102,7 +111,11 @@ export function describe(state) {
  * packaged build, a signed release and a network, which is the only reason the
  * download bug (see the swallow in `check`) went seven reports unnoticed.
  */
-export function createUpdater({ app, log = console, onChanged = () => {}, autoUpdater: given = null }) {
+export function createUpdater({ app, log = console, onChanged = () => {}, autoUpdater: given = null, place = null }) {
+  // READ ONCE, at construction (main/where-it-runs-from.mjs says why the
+  // bundle cannot move under a running process). A build with no place passed
+  // in — the tests, and `main/serve.mjs` — simply never offers the move.
+  const where = place?.state?.() ?? { place: null, canUpdate: true, offerMove: false };
   let state = {
     phase: 'idle',
     currentVersion: app.getVersion(),
@@ -111,6 +124,9 @@ export function createUpdater({ app, log = console, onChanged = () => {}, autoUp
     error: null,
     checkedAt: null,
     readyAt: null,
+    canMove: !!where.offerMove,
+    place: where.place ?? null,
+    moveError: null,
   };
   let timer = null;
   let stopped = false;
@@ -225,6 +241,18 @@ export function createUpdater({ app, log = console, onChanged = () => {}, autoUp
     return true;
   }
 
+  // THE OTHER BUTTON, for a copy that cannot update itself from where it is.
+  // Electron moves the bundle and relaunches, so a `true` here is the last
+  // thing this process does. A failure goes into the state like every other
+  // failure, so the row and the sidebar card both say it and both offer
+  // another press.
+  function move() {
+    if (!state.canMove) return { moved: false, error: null };
+    const got = place?.move?.() ?? { moved: false, error: null };
+    if (!got.moved) set({ moveError: got.error ?? null });
+    return got;
+  }
+
   function start() {
     if (stopped || timer) return;
     const tick = () => { void check(); };
@@ -239,7 +267,7 @@ export function createUpdater({ app, log = console, onChanged = () => {}, autoUp
     timer = null;
   }
 
-  return { start, stop, check, install, state: () => describe(state) };
+  return { start, stop, check, install, move, state: () => describe(state) };
 }
 
 // electron-updater's errors arrive as Error objects whose `message` is
@@ -258,6 +286,16 @@ export function shortError(e) {
   // releases/download/v0.1.0/latest-mac.yml): HttpErr…" to her. The sentence
   // for exactly that failure was already on the line below it.
   const named = `${e?.code ?? ''} ${raw}`;
+  // SQUIRREL'S OWN PARAGRAPH, WHICH IS 240 CHARACTERS AND HAS A URL IN IT.
+  // "Cannot update while running on a read-only volume. The application is on
+  // a read-only volume. Please move the application and try again. If you'll
+  // need to move the application out of the Downloads directory. See
+  // https://github.com/Squirrel/Squirrel.Mac …" — the whole of what 23 of the
+  // 26 main-rejection reports carried (PostHog, 2026-10-12), and the Settings
+  // row showed the first 160 characters of it. The app knows where it is
+  // running from (shared/where-it-runs-from.mjs), so this is one sentence and
+  // the row beside it is the press that fixes it.
+  if (/read-only volume/i.test(raw)) return MOVE_SAY.cannotUpdateHere;
   if (/ERR_UPDATER_ZIP_FILE_NOT_FOUND/.test(named)) return 'That release has no app in it to install.';
   if (/ERR_UPDATER_CHANNEL_FILE_NOT_FOUND/.test(named)) return 'That release is missing its update file.';
   if (/ERR_UPDATER_NO_PUBLISHED_VERSIONS|LATEST_VERSION_NOT_FOUND/.test(named)) return 'No published version to update to yet.';
