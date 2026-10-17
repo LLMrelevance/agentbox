@@ -43,7 +43,7 @@ export function buildOptions(screen) {
     const films = open.films ?? [];
     for (const f of films) {
       const where = f.earlier ? 'earlier in the thread' : `in the latest message${f === films[0] ? ' ("the video" means this one)' : ''}`;
-      add(`play:${f.n}`, `Play ${q(f.name)}, ${where}`, { kind: 'media', id: open.id, n: f.n, action: 'play' });
+      add(`play:${f.n}`, `Play film or sound number ${f.n}, ${q(f.name)}, ${where}`, { kind: 'media', id: open.id, n: f.n, action: 'play' });
     }
     for (const f of open.files ?? []) {
       add(`file:${f.n}`, `Open ${q(f.name)}, a file in the latest message of the open thread, beside it${f.n === 1 ? ' ("the design" or "the page" means this one)' : ''}`, { kind: 'file', id: open.id, n: f.n });

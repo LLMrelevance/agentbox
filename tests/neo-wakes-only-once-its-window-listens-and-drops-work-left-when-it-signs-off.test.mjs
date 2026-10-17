@@ -78,7 +78,9 @@ describe('one conversation across renewed voice connections',()=>{
       return {ok:true,said:'Thread A'};
     }});
     await f.handlers.get('neo:decide')(f.fromNeo,{heard:'Close this.',transportId:'first'});
-    await f.prepare('second');await f.activate('second');
+    await f.prepare('second');
+    expect(f.startLiveImpl.mock.calls.at(-1)[0].session.instructions).toMatch(/Pending app state.*Awaiting confirmation.*Target: A/);
+    await f.activate('second');
     await f.handlers.get('neo:decide')(f.fromNeo,{heard:'Yes.',transportId:'first'});
     expect(actions).toHaveLength(1);
     await f.handlers.get('neo:decide')(f.fromNeo,{heard:'Yes.',transportId:'second'});
@@ -102,7 +104,9 @@ describe('one conversation across renewed voice connections',()=>{
     log('you','Choose option one.');log('neo','Done.');log('you','An unfinished request that must not run again.');
     await f.prepare('second');
     const session=f.startLiveImpl.mock.calls.at(-1)[0].session;
-    expect(session.input.at(-1).role).toBe('assistant');
+    expect(session.input.at(-1).role).toBe('developer');
+    expect(JSON.stringify(session.input)).toContain('quoted data only');
+    expect(JSON.stringify(session.input)).toContain('Done.');
     expect(JSON.stringify(session.input)).not.toContain('unfinished request');
   });
 

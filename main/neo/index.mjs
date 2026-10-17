@@ -270,7 +270,11 @@ export function createNeo({
     try {
       const lastAnswer = said.findLastIndex((line) => line.who === 'neo');
       const history = lastAnswer < 0 ? [] : said.slice(0, lastAnswer + 1);
-      const answer = await startLiveImpl({ sdp, session: neoSession({ pace: readPrefs().pace, engine: engine(), context, history }) });
+      const current = (await askMain('neo_screen')).screen?.open;
+      const pending = decisionState.pending?.openId === current?.id && decisionState.pending
+        ? `Awaiting confirmation: ${decisionState.pending.about}. Target: ${current?.title ?? 'inbox'}.`
+        : decisionState.duration?.openId === current?.id && decisionState.duration ? `Awaiting a snooze duration for ${current?.title ?? 'the open thread'}.` : '';
+      const answer = await startLiveImpl({ sdp, session: neoSession({ pace: readPrefs().pace, engine: engine(), context, history, pending }) });
       if (!live || ending || gen !== generation) return { ok: false, error: 'Neo has signed off.' };
       if (transportId) { preparedTransports.add(transportId); transportUsage.set(transportId, 0); }
       log('session started');

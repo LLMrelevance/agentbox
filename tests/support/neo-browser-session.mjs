@@ -7,7 +7,7 @@ import { startLive } from '../../main/neo/live.mjs';
 import { decide, composeReply } from '../../main/neo/decide.mjs';
 import { connect } from '../../.claude/skills/verify-agentbox/scripts/cdp.mjs';
 
-export async function neoBrowserSession({ boot, mainTab, wsUrl, url, userData, getKey, record, onDecision }) {
+export async function neoBrowserSession({ boot, mainTab, wsUrl, url, userData, getKey, record, onDecision, onLine = () => {} }) {
   fs.mkdirSync(userData,{recursive:true});
   fs.writeFileSync(path.join(userData,'neo-alpha'),'');
   const handlers = new Map(), listeners = new Map();
@@ -23,10 +23,14 @@ export async function neoBrowserSession({ boot, mainTab, wsUrl, url, userData, g
   const mainWindow = {isDestroyed:()=>false,isFocused:()=>true,getContentBounds:()=>({x:0,y:0,width:1440,height:900}),on(){},webContents:{send:(channel,payload)=>{
     if(channel!=='neo:act'){send(channel,payload);return}
     const {id,name,args,heard}=payload;
+    record({act:{name,args,heard}});
     const run = name==='run_command'&&!['reply','view-inbox','flip-view','settings','view-progress','view-snoozed','view-done'].includes(args?.id)
       ? Promise.resolve({ok:false,status:'refused',said:'That command is outside this silent test.'})
       : mainTab.evaluate(`window.neoTestAsk(${JSON.stringify(name)},${JSON.stringify(args)},${JSON.stringify(heard)})`);
-    void run.catch(error=>({ok:false,status:'failed',said:error.message})).then(result=>listeners.get('neo:act-result')?.({sender:mainWindow.webContents},{id,result}));
+    void run.catch(error=>({ok:false,status:'failed',said:error.message})).then(result=>{
+      record({actResult:{name,status:result?.status,ok:result?.ok,said:result?.said?.slice(0,1200)}});
+      listeners.get('neo:act-result')?.({sender:mainWindow.webContents},{id,result});
+    });
   }}};
   const fromNeo = {sender:contents};
   const controller=createNeo({
@@ -36,13 +40,13 @@ export async function neoBrowserSession({ boot, mainTab, wsUrl, url, userData, g
     session:{fromPartition:()=>({setPermissionRequestHandler(){},setPermissionCheckHandler(){}})},globalShortcut:{register:()=>true,unregister(){}},
     mainWindow,preload:'unused-in-headless-test',load(){},userData,listen:()=>({stop(){}}),platform:'darwin',
     startLiveImpl:(o)=>startLive({...o,getKey}),
-    decideImpl:(o)=>{onDecision();return decide({...o,getKey});},composeImpl:(o)=>composeReply({...o,getKey}),
+    decideImpl:async(o)=>{onDecision();const r=await decide({...o,getKey});record({decision:r});return r;},composeImpl:(o)=>composeReply({...o,getKey}),
   });
   boot.channels.set('neo:test-invoke',async(_e,{channel,payload,event}={})=>{
     if(!channel?.startsWith('neo:'))throw new Error('Not a Neo channel');
     if(event){
       listeners.get(channel)?.(fromNeo,payload);
-      if(channel==='neo:log')record({line:payload});
+      if(channel==='neo:log'){record({line:payload});onLine(payload);}
       if(channel==='neo:closed')closed=true;
       if(channel==='neo:test-wire')record({wire:payload});
       return null;
@@ -53,11 +57,12 @@ export async function neoBrowserSession({ boot, mainTab, wsUrl, url, userData, g
     if(channel==='neo:audit'&&result)record({missingDelegation:payload.heard});
     return result;
   });
-  const tab=await connect(wsUrl);
+  const target=await mainTab.call('Target.createTarget',{url:'about:blank',newWindow:true});
+  const tab=await connect(wsUrl,{targetId:target.targetId});
   await tab.call('Page.addScriptToEvaluateOnNewDocument',{source:`
     const listeners=new Map();
     const listen=(name)=>(fn)=>{listeners.set(name,fn);if(name==='neo:wake')window.neoTestReady=true;return()=>listeners.delete(name)};
-    window.neoTestBusy=0;window.neoTestWordsAt=Date.now();
+    window.neoTestBusy=0;window.neoTestWordsAt=Date.now();window.neoTestChannels=[];
     const rpc=async(channel,payload,event=false)=>{
       const tracked=/neo:(decide|tool|audit|start-live|activate-live)/.test(channel);if(tracked)window.neoTestBusy++;
       try{const r=await fetch('/api/neo%3Atest-invoke',{method:'POST',headers:{'x-agentbox-token':'neo-test-local-only','Content-Type':'application/json'},body:JSON.stringify({channel,payload,event})});if(!r.ok)throw new Error('Neo bridge '+r.status);const value=await r.json();if(channel==='neo:activate-live'&&value?.ok)window.neoTestActivated=(window.neoTestActivated??0)+1;return value}finally{if(tracked)window.neoTestBusy--}
@@ -72,7 +77,7 @@ export async function neoBrowserSession({ boot, mainTab, wsUrl, url, userData, g
       log:line=>void rpc('neo:log',line,true),clickable:on=>void rpc('neo:clickable',on,true),allowMic:()=>Promise.resolve('granted')};
     let ctx,destination;
     const NativePeer=RTCPeerConnection;
-    window.RTCPeerConnection=new Proxy(NativePeer,{construct(Target,args){const peer=new Target(...args),create=peer.createDataChannel.bind(peer);peer.createDataChannel=(...args)=>{const channel=create(...args);channel.addEventListener('message',e=>{const event=JSON.parse(String(e.data));if(!/audio.delta|transcript.delta|usage.updated/.test(event.type))void rpc('neo:test-wire',{type:event.type,delegation:event.delegation,error:event.error,reason:event.reason,usage:event.usage},true)});return channel};return peer}});
+    window.RTCPeerConnection=new Proxy(NativePeer,{construct(Target,args){const peer=new Target(...args),create=peer.createDataChannel.bind(peer);peer.createDataChannel=(...args)=>{const channel=create(...args);window.neoTestChannels.push(channel);channel.addEventListener('message',e=>{const event=JSON.parse(String(e.data));if(!/audio.delta|transcript.delta|usage.updated/.test(event.type))void rpc('neo:test-wire',{type:event.type,delegation:event.delegation,error:event.error,reason:event.reason,usage:event.usage},true)});return channel};return peer}});
     navigator.mediaDevices.getUserMedia=async()=>{ctx=new AudioContext({sampleRate:24000});await ctx.resume();destination=ctx.createMediaStreamDestination();const silence=ctx.createConstantSource();silence.offset.value=0;silence.connect(destination);silence.start();window.neoTestMic=true;window.neoTestMicState=()=>({state:ctx.state,time:ctx.currentTime,tracks:destination.stream.getTracks().map(t=>({enabled:t.enabled,muted:t.muted,state:t.readyState}))});return destination.stream};
     window.neoTestSpeak=async(base64)=>{
       if(!destination)throw new Error('Generated microphone is not ready');
@@ -89,6 +94,8 @@ export async function neoBrowserSession({ boot, mainTab, wsUrl, url, userData, g
   loaded?.();await wake;
   await tab.until('window.neoTestMic && document.getElementById("neo").classList.contains("awake")');
   await tab.until('window.neoTestActivated>0',{ms:45000});
+  await mainTab.call('Page.bringToFront');
+  if(await mainTab.evaluate('document.visibilityState')!=='visible'||await tab.evaluate('document.visibilityState')!=='visible')throw new Error('The app and Neo must both have visible test windows.');
   const stats=()=>{
     let voiceSeconds=0;try{voiceSeconds=JSON.parse(fs.readFileSync(path.join(userData,'neo','usage.json'),'utf8')).seconds??0}catch{}
     return {voiceSeconds,connections:renewals,closed};

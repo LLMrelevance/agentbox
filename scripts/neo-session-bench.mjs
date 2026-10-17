@@ -82,7 +82,7 @@ try {
       if (seed.fixtures.includes('broken-sound')) { const file=path.join(folder,'broken-chime.wav');fs.writeFileSync(file,'Not a playable audio file.');assets.push(file); }
       seed.result=seed.result.replace('## Options',assets.join('\n\n')+'\n\n## Options');
     }
-    const row = boot.store.composeItem('sandbox', { title: seed.title, body: seed.body });
+    const row = boot.store.composeItem('sandbox', { title: seed.title, body: seed.body, engine: 'codex' });
     disk.updateWorkItem(productDir, row.id, { result: seed.result, problem: seed.problem, progress: seed.progress, status: 'done' }, { source: 'agent' });
     seed.id = row.id;
   }
@@ -94,7 +94,7 @@ try {
   await new Promise((r,j) => { app.once('error',j);app.listen(0, '127.0.0.1', r); });
   const url = `http://127.0.0.1:${app.address().port}/?token=${token}`;
   const chrome = spawn(process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
-    '--headless=new', '--mute-audio', '--autoplay-policy=no-user-gesture-required', '--deny-permission-prompts', '--remote-debugging-port=0',
+    '--headless=new', '--mute-audio', '--disable-background-media-suspend', '--autoplay-policy=no-user-gesture-required', '--deny-permission-prompts', '--remote-debugging-port=0',
     `--user-data-dir=${path.join(temp, 'chrome')}`, '--no-first-run', '--window-size=1440,900', 'about:blank',
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
   cleanChrome = guard(chrome, path.join(temp, 'chrome'));
@@ -105,7 +105,11 @@ try {
   });
   tab = await connect(wsUrl);
   const filesBundle = await build({ entryPoints:[path.join(root,'renderer/src/phone-files.ts')],bundle:true,write:false,format:'iife',globalName:'neoTestFiles' });
-  await tab.call('Page.addScriptToEvaluateOnNewDocument', { source: filesBundle.outputFiles[0].text + `\naddEventListener('DOMContentLoaded',()=>neoTestFiles.installPhoneFiles(${JSON.stringify(fileKey(token))}));` });
+  const fileAdapter = filesBundle.outputFiles[0].text + `
+    const mediaSrc=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,'src');
+    Object.defineProperty(HTMLMediaElement.prototype,'src',{...mediaSrc,set(value){mediaSrc.set.call(this,neoTestFiles.phoneFileUrl(value,${JSON.stringify(fileKey(token))}))}});
+    addEventListener('DOMContentLoaded',()=>neoTestFiles.installPhoneFiles(${JSON.stringify(fileKey(token))}));`;
+  await tab.call('Page.addScriptToEvaluateOnNewDocument', { source: fileAdapter });
   await tab.call('Page.addScriptToEvaluateOnNewDocument', { source: `
     let zero;
     Object.defineProperty(window, 'zero', { configurable:true, get:()=>zero, set:(bridge)=>{
@@ -139,13 +143,13 @@ try {
   const screen = async () => ({ ...(await askMain('neo_screen')), text: (await tab.text()).slice(0, 16000),
     saved: seeds.map((s) => { const r = boot.store.readItem('sandbox', s.id); return { title:s.title,id:s.id,answer:r.answer,status:r.status,statusSource:r.wrote?.status?.source,snoozedUntil:r.snoozedUntil }; }),
     images: await tab.evaluate('[...document.images].map(i=>({src:i.currentSrc,loaded:i.complete&&i.naturalWidth>0}))'),
-    frames: await tab.evaluate('[...document.querySelectorAll("iframe")].map(f=>({src:f.src,text:f.contentDocument?.body?.innerText?.slice(0,1000)}))'),
+    frames: await tab.evaluate('[...document.querySelectorAll("iframe")].filter(f=>f.checkVisibility()).map(f=>({src:f.src,text:f.contentDocument?.body?.innerText?.slice(0,1000)}))'),
     media: await tab.evaluate('[...document.querySelectorAll("audio,video")].map(p=>({src:p.currentSrc,paused:p.paused,error:p.error?.code,time:p.currentTime}))'),
     overlays: await tab.evaluate('[...document.querySelectorAll(".neo-show img")].map(p=>p.src)'), words: native?await native.words():words, errors: [...errors,...tab.errors,...(native?.tab.errors??[])], voiceSeconds:native?native.stats().voiceSeconds:voiceSeconds, connections:native?.stats().connections, calls });
   let chain = Promise.resolve();
   const send = (ev) => { if (live?.readyState === 1) live.send(JSON.stringify(ev)); };
   if(process.argv.includes('--webrtc')){
-    native=await neoBrowserSession({boot,mainTab:tab,wsUrl,url,userData:path.join(temp,'neo-data'),getKey,record,onDecision:()=>{if(++calls>600)throw new Error('Decision budget reached');}});
+    native=await neoBrowserSession({boot,mainTab:tab,wsUrl,url,userData:path.join(temp,'neo-data'),getKey,record,onLine:(line)=>history.push(line),onDecision:()=>{if(++calls>600)throw new Error('Decision budget reached');}});
     timer=setInterval(()=>{if(Date.now()-began>35*60_000)void cleanup().then(()=>process.exit(2));},1000);
   }else{
   const source = fs.readFileSync(path.join(root, 'renderer/src/neo/live-driver.ts'), 'utf8');
@@ -196,6 +200,12 @@ try {
       if(q.say && (typeof q.say!=='string'||q.say.length>3000))throw new Error('Use a spoken prompt under 3000 characters');
       if(q.say && (native?native.stats().closed:closed))throw new Error('The Live session has ended');
       if(q.screen){res.end(JSON.stringify(await screen()));return}
+      if(q.voiceError){
+        if(!native)throw new Error('Voice fault injection requires --webrtc');
+        record({injectedVoiceError:true});
+        await native.tab.evaluate('window.neoTestChannels.at(-1).dispatchEvent(new MessageEvent("message",{data:JSON.stringify({type:"error",error:{code:"test_network_interruption"}})}))');
+        res.end(JSON.stringify({injected:true}));return;
+      }
       if(q.capture){await tab.capture(q.capture);res.end(JSON.stringify({capture:q.capture}));return}
       if(q.stop){if(native){const stats=await native.stop();voiceSeconds=stats.voiceSeconds;closed=stats.closed;}else{send({type:'session.close'});for(let i=0;i<100&&!closed;i++)await wait(100);}const final={voiceSeconds,calls,closed,connections:native?.stats().connections};record({final});res.end(JSON.stringify(final));setTimeout(()=>void cleanup().then(()=>process.exit(0)),100);return}
       if(busy)throw new Error('Another turn is in progress');busy=true;ownsBusy=true;

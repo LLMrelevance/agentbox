@@ -41,6 +41,59 @@ function inbox() {
 }
 
 describe('a day of work through the decision runner and real bridge', () => {
+  it.each(['Play the second sound.', 'Play sound number two.'])('does not substitute the first sound for a missing second one: %s',async(heard)=>{
+    const t=inbox();t.deps.mediaNames=()=>['first.wav'];t.deps.media=vi.fn();
+    const result=await t.run(heard,['play:1']);
+    expect(t.deps.media).not.toHaveBeenCalled();
+    expect(result.say).toMatch(/no film or sound number 2/i);
+  });
+
+  it('uses an explicitly requested sound number even if the picker chose the first',async()=>{
+    const t=inbox();t.deps.mediaNames=()=>['first.wav','second.wav'];
+    t.deps.media=vi.fn(async()=>({name:'second.wav'}));
+    await t.run('Play the second sound.',['play:1']);
+    expect(t.deps.media).toHaveBeenCalledWith('play',2);
+  });
+
+  it.each(['Play sound number 0.','Play sound number zero.','Play the tenth sound.','Play the first sound, not the second one.'])('does not play a default sound for an invalid or ambiguous number: %s',async(heard)=>{
+    const t=inbox();t.deps.mediaNames=()=>['first.wav','second.wav'];t.deps.media=vi.fn();
+    const result=await t.run(heard,['play:1']);
+    expect(t.deps.media).not.toHaveBeenCalled();
+    expect(result.say).toMatch(/nothing was played/i);
+  });
+
+  it('never applies a second option to the next thread after a reply advanced the inbox',async()=>{
+    const t=inbox();
+    t.deps.reply=async(row,text)=>{t.effects.push(['reply',row.id,text]);row.done=true;t.focus(t.rows[1]);};
+    const result=await t.run('Tell the agent to keep testing before shipping.', ['reply','pick:1']);
+    expect(t.effects.filter(([kind])=>kind==='pick')).toEqual([]);
+    expect(result.say).toMatch(/second part.*(?:changed|original thread|not done)/i);
+    expect(t.deps.focused().id).toBe('w-b');
+  });
+
+  it('does not reinterpret an option number when its wording changes during the first action',async()=>{
+    const t=inbox();t.rows[0].options[0].text='Keep the layout';
+    t.deps.reply=async()=>{t.rows[0].options[0].text='Completely different choice';};
+    await t.run('Tell the agent this is ready and choose the layout.', ['reply','pick:1']);
+    expect(t.effects.filter(([kind])=>kind==='pick')).toEqual([]);
+  });
+
+  it('compares full option wording when its unchanged prefix is longer than the spoken label',async()=>{
+    const t=inbox(),prefix='A long shared description about how this layout will behave. '.repeat(3);
+    t.rows[0].options[0].text=prefix+'Keep locally';
+    t.deps.reply=async()=>{t.rows[0].options[0].text=prefix+'Send elsewhere';};
+    await t.run('Send this feedback and choose the first option.', ['reply','pick:1']);
+    expect(t.effects.filter(([kind])=>kind==='pick')).toEqual([]);
+  });
+
+  it.each(['done','approve'])('does not retarget the %s command after a reply advances the inbox',async(id)=>{
+    const t=inbox();
+    t.deps.commands=()=>[{id,label:id==='done'?'Close Task':'Approve this task',run:()=>t.effects.push(['command',id,t.deps.focused().id])}];
+    t.deps.reply=async(row)=>{row.done=true;t.focus(t.rows[1]);};
+    await t.run('Tell the agent this is ready and approve it.', ['reply',`cmd:${id}`]);
+    expect(t.effects.filter(([kind])=>kind==='command'||kind==='close')).toEqual([]);
+  });
+
   it('can choose the current thread when asked to open it again', async () => {
     const t = inbox();
     const options = buildOptions(screenFor(t.deps, false)).list;

@@ -38,6 +38,22 @@ describe('long conversation boundaries',()=>{
     expect(t.onDelegate).toHaveBeenCalledOnce();
   });
 
+  it('does not treat a replacement-character noise transcript as a new person interrupting Neo',async()=>{
+    const words=vi.fn(),t=driver({onWords:words});
+    await t.d.handle({type:'session.input_transcript.delta',delta:'Explain this.',start_ms:100,end_ms:500});
+    await t.d.handle({type:'session.output_transcript.delta',delta:'This is '});
+    await t.d.handle({type:'session.input_transcript.delta',delta:'�',start_ms:1000,end_ms:1001});
+    await t.d.handle({type:'session.output_transcript.delta',delta:'the answer.'});
+    expect(words).toHaveBeenLastCalledWith('This is the answer.');
+  });
+
+  it('keeps a space arriving between transcript words',async()=>{
+    const t=driver();
+    for(const delta of ['Open',' ','Billing'])await t.d.handle({type:'session.input_transcript.delta',delta});
+    await t.d.handle(delegated('one'));
+    expect(t.onDelegate).toHaveBeenCalledWith('one','Open Billing');
+  });
+
   it('detects an undelegated request without executing it and blocks a late handoff',async()=>{
     vi.useFakeTimers();
     const recovery=vi.fn(), audit=vi.fn(async()=>true);
@@ -92,8 +108,9 @@ describe('long conversation boundaries',()=>{
   it('bounds startup context and completed history even for multilingual conversations',()=>{
     const session=neoSession({context:contextNote('🦋请检查附件。'.repeat(1000)),history:Array.from({length:20},(_,i)=>({who:i%2?'neo':'you',text:'🦋请检查附件。'.repeat(1000)}))});
     const text=session.instructions+session.input.flatMap(m=>m.content.map(c=>c.text)).join('');
-    expect(Buffer.byteLength(text)).toBeLessThan(8000);
-    expect(session.input).toHaveLength(8);
+    expect(Buffer.byteLength(text)).toBeLessThan(9000);
+    expect(session.input).toHaveLength(1);
+    expect(session.input[0].role).toBe('developer');
   });
 });
 

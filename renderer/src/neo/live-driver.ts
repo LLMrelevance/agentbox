@@ -103,11 +103,14 @@ export function liveDriver({ send, tool, onWords, onUsage, onClosed, onLine = ()
           return;
         }
         case 'session.input_transcript.delta': {
+          const raw = String(ev.delta ?? '');
+          const delta = raw.replace(/\uFFFD/g, '');
+          if (!delta || (delta !== raw && !delta.trim())) return;
           onActivity(); cancelAudit();
           const start = Number.isFinite(ev.start_ms) ? ev.start_ms : undefined;
           const end = Number.isFinite(ev.end_ms) ? ev.end_ms : undefined;
           const same = start !== undefined ? [...turns].reverse().find((t) => t.start !== undefined && t.end !== undefined && start >= t.start && start <= t.end + 300) : undefined;
-          if (same && same !== turn) { same.text += ev.delta ?? ''; same.at = Date.now(); same.end = Math.max(same.end!, end ?? same.end!); return; }
+          if (same && same !== turn) { same.text += delta; same.at = Date.now(); same.end = Math.max(same.end!, end ?? same.end!); return; }
           personSpokeSince = true;
           if (!turn || ((neoSpokeSince || (turn.delegated && !turn.settling) || (start !== undefined && turn.offset !== undefined && start > turn.offset)) && !same)) {
             checkpoint();
@@ -115,7 +118,7 @@ export function liveDriver({ send, tool, onWords, onUsage, onClosed, onLine = ()
             turns.push(turn); if (turns.length > 24) turns.shift();
           }
           neoSpokeSince = false;
-          turn.text += ev.delta ?? '';
+          turn.text += delta;
           turn.at = Date.now();
           if (start !== undefined) turn.start = Math.min(turn.start ?? start, start);
           if (end !== undefined) turn.end = Math.max(turn.end ?? end, end);

@@ -4635,7 +4635,11 @@ export default function App() {
     answer: (row) => (row.wrote?.answer?.ts ?? 0) > (row.wrote?.result?.ts ?? 0) ? row.answer || '' : '',
     about: (row) => row.problem || '',
     projects: () => (snap?.products ?? []).filter((p) => !directSlugs.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name })),
-    open: (row) => { setSearch(null); setFocused(row); markSeen(row); },
+    open: (row) => {
+      setSettingsOpen(false); setSettingsPane(null); setTeamOpen(false); setOpenCard(null); setModal(null);
+      setFocusedRepeat(null); setEditingRule(false);
+      setSearch(null); setFocused(row); markSeen(row);
+    },
     pick: (row, n) => pickOption(row, n),
     reply: async (row, text, { attach } = {}) => {
       // The pictures in her reply box go out with the words, through the box's own send.

@@ -2,7 +2,7 @@
 // checked: how long to put a thread off, which pictures, what to send.
 // The picker only ever chooses the action and its target (./neo-options.mjs).
 
-const NUM = { one: 1, a: 1, an: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, fifteen: 15, twenty: 20, thirty: 30, forty: 40, 'forty-five': 45, sixty: 60, first: 1, second: 2, third: 3, fourth: 4, fifth: 5 };
+const NUM = { zero: 0, one: 1, a: 1, an: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, fifteen: 15, twenty: 20, thirty: 30, forty: 40, 'forty-five': 45, sixty: 60, first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10 };
 const num = (w) => (/^\d+$/.test(w) ? Number(w) : NUM[w]);
 const clean = (s) => String(s ?? '').toLowerCase().replace(/[‘’]/g, "'").replace(/[^a-z0-9': -]+/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -10,6 +10,15 @@ export function backSteps(said) {
   const s = clean(said);
   const m = /\bback (?:by )?(\d+|one|two|three|four|five|six|seven|eight|nine)\b|\b(\d+|one|two|three|four|five|six|seven|eight|nine) (?:threads? |tasks? |steps? )?(?:back|earlier)\b/.exec(s);
   return m ? num(m[1] ?? m[2]) : 1;
+}
+
+export function mediaNumberFrom(said) {
+  const s = clean(said);
+  const number = '(\\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)';
+  const media = '(?:sound|audio|video|film|clip|recording|one)';
+  const matches = [...s.matchAll(new RegExp(`\\b${number} ${media}\\b|\\b${media} (?:number )?${number}\\b`, 'g'))];
+  const numbers = [...new Set(matches.map((m) => num(m[1] ?? m[2])))];
+  return numbers.length > 1 ? 'ambiguous' : numbers[0] ?? null;
 }
 
 const atHour = (base, h, m = 0) => { const d = new Date(base); d.setHours(h, m, 0, 0); return d.getTime(); };
