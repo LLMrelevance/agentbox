@@ -161,19 +161,17 @@ describe('when the app quits with a run in the cloud', () => {
   // 6:47 and 6:52pm left every cloud run going, and the supervisor's stop on
   // the window's close then sent each one SIGTERM, which cancelled it ("leaving
   // the cloud run going" followed by "stopping the cloud run (asked to stop)"
-  // in six run logs). A run being left going stays going.
-  it('stays going when a stop follows the quit', async () => {
+  // in six run logs). The window's stop now says SIGHUP too (below, "the
+  // app"); a SIGTERM is a Stop she meant, during a quit as at any other time
+  // (Codex's review, 2026-10-16).
+  it('still stops when she presses Stop while the app is quitting', async () => {
     const run = launch('LATE please');
     await untilRunning();
     await sleep(400);
     run.signals.emit('SIGHUP');
     run.signals.emit('SIGTERM');
-    expect(await run.done, run.err()).toBe(IMPORT_FAILED);
-    expect(run.err()).not.toMatch(/stopping the cloud run/);
-    await sleep(600);
-    expect((await transport.invoke('x', { action: 'status' })).state).toBe('running');
-    expect(readMarker(mac)).toMatchObject({ state: 'detached' });
-    expect(await bringHome().done).toBe(0);
+    await run.done;
+    expect(run.err()).toMatch(/stopping the cloud run \(asked to stop\)/);
   });
 
   // The approvals server's key is made fresh at every start of the app, so the

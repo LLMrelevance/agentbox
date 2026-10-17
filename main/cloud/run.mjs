@@ -767,9 +767,7 @@ export async function cloudRun({
   }
   // A joined run is never stopped by this process: Stop belongs to a thread
   // the app is running, and this one is only being brought home.
-  // And a run already being left going stays going: the app's window closing
-  // can send its stop just after the quit.
-  const onTerm = () => (joining || leaving ? leave('the app is going') : cancel('asked to stop'));
+  const onTerm = () => (joining ? leave('the app is going') : cancel('asked to stop'));
   const onHup = () => leave('the app is quitting');
   signals.on('SIGTERM', onTerm);
   signals.on('SIGINT', onTerm);

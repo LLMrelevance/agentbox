@@ -14,6 +14,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
 import { Supervisor } from '../main/supervisor.mjs';
 
 const dirs = [];
@@ -58,7 +59,7 @@ describe('cloud runs starting', () => {
     add(sup, 'w-1', {});
     add(sup, 'w-2', {});
     expect(sup._localSlotFor('claude')).toBe(true);
-    expect(sup._whereToRun({ item, product, cwd: '/r/.claude/worktrees/w-next', engine: 'claude' })).toBe(null);
+    expect(sup._whereToRun({ item, product, cwd: '/r/.claude/worktrees/w-next', engine: 'claude' })).toBe('cloud-wait');
     // A thread that may not go to the cloud starts here as before.
     sup.threadOnMac['w-next'] = true;
     expect(sup._whereToRun({ item, product, cwd: '/r/.claude/worktrees/w-next', engine: 'claude' })).toBe('local');
@@ -66,6 +67,38 @@ describe('cloud runs starting', () => {
     delete sup.threadOnMac['w-next'];
     sup.config.cloudRuns = null;
     expect(sup._whereToRun({ item, product, cwd: '/r/.claude/worktrees/w-next', engine: 'claude' })).toBe('local');
+  });
+
+  // Codex's review: the wait came before the spawn knew a run was one that
+  // goes to this Mac anyway, so a typed command or a Codex reply waited too.
+  describe('at the spawn, while waiting its turn', () => {
+    const spawnWith = (plan) => {
+      const sup = make();
+      const root = sup.config.storeRoot;
+      const product = { slug: 'p', dir: root, repoPath: root };
+      sup.store.listProducts = () => [product];
+      sup._whereToRun = () => 'cloud-wait';
+      sup._mayRunHereInstead = () => true;
+      sup._folderFirst = () => false;
+      sup.workFolderFor = () => root;
+      sup.spawnPlan = () => ({ args: [], ...plan });
+      sup.prepareClaudePermissions = () => {};
+      sup._workerEnv = () => ({});
+      sup._saveState = () => {};
+      const child = new (class extends EventEmitter {})();
+      child.stderr = new EventEmitter();
+      sup._spawnCodexWorker = () => child;
+      sup.spawnWorker({ id: 'w-x', product: 'p', title: 't', status: 'open', answer: 'go on' }, { engine: 'codex', profile: 'default', continuation: true });
+      return sup.sessions.get('w-x') ?? null;
+    };
+    it('a Codex reply starts here', () => {
+      const s = spawnWith({ resumeId: 'r-1' });
+      expect(s).toBeTruthy();
+      expect(s.cloud).toBe(false);
+    });
+    it('anything else waits', () => {
+      expect(spawnWith({})).toBe(null);
+    });
   });
 
   it('do not count runs already going, or runs on this Mac', () => {

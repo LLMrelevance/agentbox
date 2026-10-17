@@ -4386,7 +4386,7 @@ export class Supervisor {
     // starting on this Mac: the cloud has room once one of them is going.
     if (this._cloudFirst() && this._cloudStarting() >= CLOUD_STARTING_AT_ONCE
       && this._mayRunInCloud(item, product, cwd, { remoteOnly }) && this._cloudReady(engineOf(engine))
-      && this._cloudLoad() < this._maxCloud()) return null;
+      && this._cloudLoad() < this._maxCloud()) return 'cloud-wait';
     if (!localFull && this._localSlotFor(engine)) return 'local';
     if (cloudOk()) return 'cloud';
     return continuation ? 'local' : null;
@@ -7851,6 +7851,15 @@ export class Supervisor {
 
     const plan = this.spawnPlan(item, product, { continuation, resumeSessionId, engine, shipFailure });
     const { args } = plan;
+    // Waiting its turn for the cloud, unless it runs here anyway: a command, or
+    // a Codex resume (below), when there is room (Codex's review, 2026-10-16).
+    if (where === 'cloud-wait') {
+      if ((plan.command || (engine === 'codex' && plan.resumeId)) && mayRunHereInstead()) where = 'local';
+      else {
+        if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
+        return;
+      }
+    }
     // A command she typed is over in seconds and needs nothing a sandbox has.
     if (where === 'cloud' && plan.command) where = 'local';
     // A CODEX THREAD GOES TO THE CLOUD FRESH, NEVER AS A RESUME. This Mac's
