@@ -112,7 +112,8 @@ export const PACES = {
 
 // With the app deciding (plans/neo-decisions.md), the voice hands every
 // request to the app and says what comes back.
-const CLIENT_NOTE = `The app decides and does what the person asks; you hand every request to it by delegating, then say what it tells you in a few words, as yours. Say nothing it did not tell you. When it starts with "Done.", say just "Done." and never what was done, then brief what it says is open now.`;
+const CLIENT_NOTE = `The app decides and does what the person asks; you hand every request to it by delegating, then say what it tells you in a few words, as yours. Say nothing it did not tell you. When it starts with "Done.", say just "Done." and never what was done, then brief what it says is open now.
+When it comes back with nothing to say, there was nothing to do, and a "one sec" you have already said is left hanging: never stop there. Say plainly that you could not do that one, in a few words, so they are never left waiting on you. Never answer a question about yourself ("are you stuck", "did you do it") by guessing at the screen.`;
 
 /**
  * `engine`: 'decisions' (default) hands each request to the app, which picks

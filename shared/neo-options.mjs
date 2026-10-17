@@ -49,7 +49,10 @@ export function buildOptions(screen) {
   }
 
   add('next', 'Open the next thread that needs the person ("next", "move on", "we\'re on the next one", "skip this", "keep going")', { kind: 'next' });
-  if (screen.canGoBack) add('back', 'Go back to the thread the person was on before ("go back", "back one", "you moved us on", "we were on the one before")', { kind: 'back' });
+  // Always offered, even with nowhere to go. Left off the list, her "I asked
+  // you to go back to the previous task" matched nothing and came back as
+  // do-nothing, so Neo said nothing at all and she asked if it was stuck.
+  add('back', `Go back to the thread the person was on before ("go back", "back one", "you moved us on", "we were on the one before")${screen.canGoBack ? '' : ' — there is nowhere to go back to right now, so this tells them so'}`, { kind: 'back' });
   add('inbox', 'Say which threads need the person ("what needs me", "what\'s next", "does anything need me", "start at the top")', { kind: 'inbox' });
   for (const [where, words] of [['up', 'up'], ['down', 'down'], ['top', 'to the top'], ['bottom', 'to the bottom']]) {
     add(`scroll:${where}`, `Scroll ${words} in what the person is reading`, { kind: 'scroll', where });

@@ -10,6 +10,10 @@ import { decide } from './decide.mjs';
 // Under this, Neo asks which she meant rather than act. Set from the hard
 // bench (scripts/neo-decide-bench.mjs): its misses all came in under 0.3.
 export const UNSURE = 0.4;
+// And under THIS it is not a near miss, it is a guess at noise, so Neo says
+// nothing. She said "Oh"; the pick was `next` at 0.12 and Neo asked whether to
+// open the next thread. Her answer: "No, never mind. S- stop talking".
+export const GUESS = 0.2;
 
 const FINISHES = new Set(['pick_option', 'later', 'close_thread']);
 
@@ -42,6 +46,8 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
   const picked = list.find((o) => o.value === r.choice);
   const meta = { choice: r.choice, confidence: r.confidence, ms: r.ms };
   if (!picked) return { say: 'Tell the person you did not catch that.', ...meta };
+
+  if (picked.act.kind !== 'none' && r.confidence != null && r.confidence < GUESS) return { say: '', ...meta };
 
   if (picked.act.kind !== 'none' && r.confidence != null && r.confidence < UNSURE) {
     const other = list.find((o) => o.value === r.runnersUp?.[0]?.value && o.value !== 'none');
