@@ -63,7 +63,8 @@ export async function answerQuestion({ question, context, toNeo = false, getKey 
   const body = await res.json().catch(() => ({}));
   if (!res.ok) return 'Tell the person you could not answer that just now.';
   const text = body.output_text ?? (body.output ?? []).flatMap((o) => o.content ?? []).map((c) => c.text ?? '').join(' ').trim();
-  return text ? `Say this: ${text}` : 'Tell the person you could not tell from what is on screen.';
+  // The bare answer: a "Say this:" label in front was once read out loud.
+  return text || 'Tell the person you could not tell from what is on screen.';
 }
 
 const COMPOSE = `You write the message a person wants sent to the AI agent working on one thread of their inbox. They are speaking to Neo, their voice assistant, which sends it.

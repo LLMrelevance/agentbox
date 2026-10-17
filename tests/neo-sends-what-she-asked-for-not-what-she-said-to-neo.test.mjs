@@ -60,8 +60,8 @@ describe('a reply is the message she asked for', () => {
     expect(r.say).toMatch(/nothing was sent/i);
   });
 
-  it('without a composer, or if it fails, her words go as before', async () => {
-    const t = setup([pick('reply')], { compose: async () => { throw new Error('down'); } });
+  it('without a composer her words go as before', async () => {
+    const t = setup([pick('reply')]);
     await t.run('tell the agent the orb should go higher');
     expect(t.calls[0][1].text).toBe('The orb should go higher.');
   });
@@ -146,5 +146,94 @@ describe('the message writer', async () => {
     expect(body.reasoning).toEqual({ effort: 'low' });
     expect(body.input).toMatch(/person: tell it the orb is low/);
     expect(body.instructions).toMatch(/screenshots or pictures; the app handles that/);
+  });
+});
+
+// Codex's review of the day's changes (2026-10-17), each confirmed by a probe.
+describe('what Codex found', () => {
+  const A = { ...SCREEN, open: { ...SCREEN.open, id: 'w-a', title: 'A', options: [{ n: 1, text: 'Ship it' }] } };
+  const B = { ...SCREEN, open: { ...SCREEN.open, id: 'w-b', title: 'B', options: [] } };
+  function on(screens, picks, { compose, results = {} } = {}) {
+    const calls = [];
+    let at = 0;
+    const askMain = vi.fn(async (name, args = {}) => {
+      if (name === 'neo_screen') return { ok: true, screen: screens[Math.min(at, screens.length - 1)] };
+      calls.push([name, args]);
+      if (name === 'open_thread') at++;
+      return results[name] ?? { ok: true, status: 'committed', said: `did ${name}` };
+    });
+    const queue = [...picks];
+    const state = {};
+    const run = (heard) => runDecision({ heard, askMain, decideImpl: async () => queue.shift() ?? pick('none'), state, now: () => 0, compose, history: [] });
+    return { run, calls, state, move: () => { at++; } };
+  }
+
+  it('a second part missing from the new thread is not done on the old one', async () => {
+    const t = on([{ ...A, rows: [{ id: 'w-b', title: 'B' }] }, B], [pick('open:w-b'), pick('pick:1'), pick('a')]);
+    const r = await t.run('open B and pick option one');
+    expect(t.calls.map(([n, a]) => [n, a.id])).toEqual([['open_thread', 'w-b']]);
+    expect(r.say).toMatch(/not on this thread/);
+  });
+
+  it('a yes after the screen moved to another thread does nothing', async () => {
+    const t = on([A, B], [pick('close', 0.3), pick('yes')]);
+    await t.run('close this');
+    t.move();
+    const r = await t.run('yes');
+    expect(t.calls).toEqual([]);
+    expect(r.say).toMatch(/changed/);
+  });
+
+  it('a question waiting on a yes is dropped once she asks for something else', async () => {
+    const t = on([A], [pick('close', 0.3), pick('scroll:up'), pick('none')]);
+    await t.run('close this');
+    await t.run('scroll up');
+    expect(t.state.pending).toBeFalsy();
+  });
+
+  it('when the writer fails, nothing is sent', async () => {
+    const t = on([A], [pick('reply')], { compose: async () => { throw new Error('down'); } });
+    const r = await t.run('send the feedback I just gave you');
+    expect(t.calls.filter(([n]) => n === 'reply')).toEqual([]);
+    expect(r.say).toMatch(/nothing was sent/i);
+  });
+
+  it('"don\'t attach the screenshot" anywhere means no screenshot', async () => {
+    const { pictureWanted } = await import('../shared/neo-params.mjs');
+    expect(pictureWanted("Don't attach the screenshot, tell it to fix the layout")).toBe(false);
+    expect(pictureWanted('tell it to fix the layout without the picture please')).toBe(false);
+    expect(pictureWanted('tell it to fix the layout, with the screenshot')).toBe(true);
+  });
+
+  it('a reply that moved the inbox on does not then skip a thread for "next"', async () => {
+    const t = on([A], [pick('reply'), pick('next'), pick('a')], { compose: async () => ({ send: 'Looks good.' }), results: { brief_open: { ok: true, said: 'Now open: B.' } } });
+    await t.run('tell it looks good and go next');
+    expect(t.calls.map(([n]) => n)).toEqual(['reply', 'brief_open']);
+  });
+
+  it('goodbye as the second part still signs off', async () => {
+    const t = on([A], [pick('scroll:top'), pick('signoff')]);
+    expect(await t.run('scroll to the top, then goodbye')).toMatchObject({ signoff: true });
+  });
+});
+
+// "I don't understand this part of what you said" got "one sec" and a command
+// lookup (2026-10-17): the voice was told to hand every request to the app.
+// Measured live (scripts/scratch/neo/followup-probe.mjs): with this rule a
+// follow-up was answered by the voice in 3 of 3 runs, and "close it" was
+// still handed over in 3 of 3.
+describe('Neo talks things through itself', () => {
+  it('the voice answers follow-ups itself and hands over only what needs the app', async () => {
+    const { neoSession } = await import('../shared/neo-tools.mjs');
+    const said = neoSession({}).instructions;
+    expect(said).toMatch(/Do not delegate a question the conversation already answers/);
+    expect(said).toMatch(/I don't understand that part/);
+    expect(said).not.toMatch(/you hand every request to it/);
+  });
+
+  it('an answer comes back bare, with no label for the voice to read out', async () => {
+    const { answerQuestion } = await import('../main/neo/decide.mjs');
+    const fetchImpl = async () => ({ ok: true, json: async () => ({ output_text: 'It is the page title.' }) });
+    expect(await answerQuestion({ question: 'what is an H1', context: '', getKey: async () => 'k', fetchImpl })).toBe('It is the page title.');
   });
 });

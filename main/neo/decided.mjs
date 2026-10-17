@@ -45,6 +45,8 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
       { value: 'no', description: `The person says no, or not that, to: ${state.pending.about}`, act: { kind: 'no' } },
     );
   }
+  // A yes only counts on the thread it was asked about.
+  if (state.pending && state.pending.openId !== (screen.open?.id ?? null)) state.pending = null;
   const input = inputFor(screen, heard);
   const r = await decideImpl({ input, options: list, instructions: FIRST });
   const picked = list.find((o) => o.value === r.choice);
@@ -69,6 +71,8 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
     return { say: 'Say just "Okay."', ...meta };
   }
   const ctx = { heard, askMain, state, now, answer, compose, history, screen };
+  // Anything but her yes or no moves on from a question still waiting.
+  if (picked.act.kind !== 'yes' && picked.act.kind !== 'no') state.pending = null;
   if (picked.act.kind === 'talk') return said((await perform(picked, ctx)).say);
   if (unsure) {
     const top2 = r.runnersUp?.[0];
@@ -81,7 +85,7 @@ export async function runDecision({ heard, askMain, state, decideImpl = decide, 
     const move = moves.length === 1 && moves[0];
     if (move) return said((await both2(...(await inOrder(picked, other, input, decideImpl)), ctx)).say);
     // Her "yes" to the question does the likeliest, with what she said first.
-    state.pending = { option: picked, heard, about: picked.description };
+    state.pending = { option: picked, heard, about: picked.description, openId: screen.open?.id ?? null };
     return { say: `Not sure what the person meant. Ask, in a few words: ${picked.description}${other ? `, or ${other.description}` : ''}?`, ...meta };
   }
 
@@ -112,7 +116,8 @@ async function both2(a, b, ctx) {
   // Closing or putting off usually moves the inbox on to the next thread already.
   const movedOn = first.moved && b?.act.kind === 'next';
   if (!b || !first.ok || first.signoff || movedOn) return first;
-  return { say: `${first.say} ${(await performOn(b, ctx)).say}` };
+  const then = await performOn(b, ctx);
+  return { ...then, say: `${first.say} ${then.say}` };
 }
 
 function conversation(history) {
@@ -133,20 +138,22 @@ async function inOrder(a, b, input, decideImpl) {
 // The screen changed under the first part: the second acts on it as it is now.
 async function performOn(option, ctx) {
   const fresh = await ctx.askMain('neo_screen');
-  const screen = fresh?.ok && fresh.screen ? fresh.screen : ctx.screen;
-  const same = screen === ctx.screen ? option : buildOptions(screen).list.find((o) => o.value === option.value) ?? option;
-  return perform(same, { ...ctx, screen });
+  if (!fresh?.ok || !fresh.screen) return { say: 'Tell the person the second part was not done: the app did not answer.', ok: false };
+  const same = buildOptions(fresh.screen).list.find((o) => o.value === option.value);
+  if (!same) return { say: `Tell the person the second part, ${option.description}, is not on this thread, so it was not done.`, ok: false };
+  return perform(same, { ...ctx, screen: fresh.screen });
 }
 
 /** Does one picked option. Returns { say, ok, name? }; `ok` false stops a second part. */
-async function perform(picked, { heard, askMain, state, now, answer, compose, history = [], screen }) {
+async function perform(picked, { heard, askMain, state, now, answer, compose, history = [], screen, replay = false }) {
   const open = screen.open;
   const a = picked.act;
   const step = async (name, args = {}) => {
-    const res = await askMain(name, args, heard);
+    // A replayed yes keeps its thread: her old words' "this" must not point at a new one.
+    const res = await askMain(name, args, replay ? '' : heard);
     if (res?.status === 'needs_yes') {
-      state.pending = { name, args, about: picked.description };
-      return { say: res.said, ok: false, name };
+      state.pending = { name, args, about: picked.description, openId: screen.open?.id ?? null };
+      return { say: res.said, ok: false, name, asked: true };
     }
     return { say: res?.said ?? (res?.ok ? 'Done.' : 'That did not work.'), ok: !!res?.ok, name };
   };
@@ -173,8 +180,8 @@ async function perform(picked, { heard, askMain, state, now, answer, compose, hi
     case 'yes': {
       const p = state.pending;
       state.pending = null;
-      if (!p) return say('Say just "Okay."');
-      if (p.option) return perform(p.option, { heard: p.heard, askMain, state, now, answer, compose, history, screen });
+      if (!p) return say('Tell the person, in a few words, that the screen changed since the question, so nothing was done.');
+      if (p.option) return perform(p.option, { heard: p.heard, askMain, state, now, answer, compose, history, screen, replay: true });
       return (FINISHES.has(p.name) ? finish : step)(p.name, { ...p.args, confirmed: true });
     }
     case 'no':
@@ -184,15 +191,16 @@ async function perform(picked, { heard, askMain, state, now, answer, compose, hi
       let { text } = replyFrom(heard);
       if (compose) {
         const wrote = await compose({ heard, history, thread: open?.title ?? '' }).catch(() => undefined);
-        if (wrote?.send === null) return { say: `Nothing was sent to the agent. ${await talk()}`, ok: false };
-        if (wrote?.send) text = wrote.send;
+        if (!wrote) return { say: 'Tell the person the message could not be written just now, so nothing was sent; ask them to say it again.', ok: false };
+        if (wrote.send === null) return { say: `Nothing was sent to the agent. ${await talk()}`, ok: false };
+        text = wrote.send;
       }
       const attach = pictureWanted(heard);
       const r = await step('reply', { id: a.id, text, ...(attach === undefined ? {} : { attach }) });
       if (!r.ok) return r;
       // A reply often moves the inbox on: say where she is now.
       const next = await askMain('brief_open', { from: a.id, wait: 300 }, heard);
-      return next?.ok ? { ...r, say: `${r.say} ${next.said}` } : r;
+      return next?.ok ? { ...r, moved: true, say: `${r.say} ${next.said}` } : r;
     }
     case 'talk': return say(await talk());
     case 'pick': return finish('pick_option', { id: a.id, n: a.n });
