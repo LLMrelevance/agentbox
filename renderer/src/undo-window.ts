@@ -146,6 +146,25 @@ export function bringsBack<I>(rows: readonly I[]): I | undefined {
   return rows.length === 1 ? rows[0] : undefined;
 }
 
+/** What a close leaves in the thread when a Z takes it back. */
+export const UNDID_CLOSING = 'Undid closing it';
+
+type Row = { product: string; id: string };
+
+/**
+ * A close on the row a close is already holding is the same press again. On
+ * the board that row stays under the cursor, and a second close would first
+ * write the held one, so a Z in between reopened it and the second close shut
+ * it again.
+ */
+export function closesAgain(
+  held: { item: Row; undid?: readonly { product: string; id: string; words: string }[] } | null,
+  item: Row,
+): boolean {
+  if (!held || held.item.product !== item.product || held.item.id !== item.id) return false;
+  return !!held.undid?.some((u) => u.product === item.product && u.id === item.id && u.words === UNDID_CLOSING);
+}
+
 /** And what a Z says when there is nothing on the pile at all. */
 export const NOTHING_TO_UNDO = 'Nothing to undo yet.';
 

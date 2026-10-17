@@ -47,7 +47,8 @@ async function askLoginShell({ env, platform, run, script, read }) {
   for (const [shell, flags, timeout] of loginShellAttempts(env, platform)) {
     try {
       const stdout = String(await run(shell, [flags, script(shell)], {
-        env: { ...env }, encoding: 'utf8', timeout, maxBuffer: 64 * 1024,
+        // SIGKILL: a shell's exit hook can outlive SIGTERM (main/engine-bin.mjs).
+        env: { ...env }, encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 64 * 1024,
       }));
       return read(stdout);
     } catch (error) {

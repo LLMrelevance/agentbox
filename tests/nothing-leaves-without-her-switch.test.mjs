@@ -59,8 +59,9 @@ describe('the list of what may be sent', () => {
   // Her seven, and since 2026-10-06 the five that count real use rather than
   // the walkthrough (tests/real-use-is-counted.test.mjs says why).
   // And since 2026-10-16 five about the minutes after setup
-  // (tests/what-people-do-after-setup-is-counted.test.mjs).
-  it('is her seventeen and no more', () => {
+  // (tests/what-people-do-after-setup-is-counted.test.mjs) and the switch
+  // going off (tests/turning-counts-off-sends-one-last-count.test.mjs).
+  it('is her eighteen and no more', () => {
     expect(Object.values(EVENTS)).toEqual([
       `${Name} was opened`,
       'First run finished',
@@ -79,6 +80,7 @@ describe('the list of what may be sent', () => {
       'The corner tag was turned off',
       'Setup offered agents to import',
       'Setup imported agents',
+      'Counts were turned off',
     ]);
   });
 
@@ -298,8 +300,8 @@ describe('the README, which is where the privacy notice lives', () => {
       .replace(Name.toLowerCase(), 'the app'));
     const missing = said.filter((sentence) => !text.includes(sentence));
     expect(missing).toEqual([]);
-    expect(text).toContain('seventeen things');
-    expect(EVENT_NAMES).toHaveLength(17);
+    expect(text).toContain('eighteen things');
+    expect(EVENT_NAMES).toHaveLength(18);
   });
 
   it('promises no content leaves, which is what sanitize enforces', () => {

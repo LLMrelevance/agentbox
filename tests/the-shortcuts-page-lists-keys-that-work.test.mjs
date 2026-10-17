@@ -148,8 +148,10 @@ const HANDLED = {
   // Control-K is the same chord where there is no Command key. The handler
   // is `(e.metaKey || e.ctrlKey)`, so the excerpt is the ctrl half of it.
   'Ctrl+K': [[chords, 'e.ctrlKey'], [chords, "e.key.toLowerCase() === 'k'"], [chords, "setModal((m) => (m === 'palette' ? null : 'palette'))"]],
-  'C': [[focused, "e.key === 'c' || e.key === 'C' || e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }"], [list, "case 'c': case 'C': case 'n': case 'N': e.preventDefault(); setModal('compose'); break;"]],
-  'N': [[focused, "e.key === 'c' || e.key === 'C' || e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }"], [list, "case 'c': case 'C': case 'n': case 'N': e.preventDefault(); setModal('compose'); break;"]],
+  // The cloud on or off, with the other chords, everywhere.
+  '⌘C': [[chords, 'if (cloudChord(e, { inInput'], [chords, 'toggleCloudRef.current?.();']],
+  // And a new thread, in both the open task and the list.
+  'N': [[focused, "else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }"], [list, "case 'n': case 'N': e.preventDefault(); setModal('compose'); break;"]],
   '/': [[chords, "if (e.key === '/')"], [chords, 'openSearch();']],
   '\\': [[chords, "if (e.key === '\\\\')"], [chords, 'togglePanel();']],
   // Into the task the toast is about, on the list and inside a task alike
@@ -307,7 +309,9 @@ describe('the page stays a page and not a wall', () => {
     expect(SHORTCUTS).toHaveLength(4);
     for (const g of SHORTCUTS) expect(g.keys.length).toBeLessThanOrEqual(7);
     // Rows, not caps: everyKey() flattens the caps and a row can draw two.
-    expect(SHORTCUTS.reduce((n, g) => n + g.keys.length, 0)).toBeLessThanOrEqual(24);
+    // 25 since 2026-10-16, for C, the cloud on or off, which she asked to see
+    // here ("it's good, naturally, to have it in the keyboard shortcuts").
+    expect(SHORTCUTS.reduce((n, g) => n + g.keys.length, 0)).toBeLessThanOrEqual(25);
   });
 
   it('groups by when the keys work, not by which handler runs them', () => {

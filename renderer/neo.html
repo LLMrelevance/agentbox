@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Neo</title>
+  </head>
+  <body>
+    <div id="neo">
+      <div class="neo-frame" id="frame">
+        <div class="neo-label"><i></i><span id="label">Neo · listening</span></div>
+        <div class="neo-card" id="card">
+          <div class="neo-lines"></div>
+          <div class="neo-ruler"></div>
+          <div class="neo-words" id="words"></div>
+          <button type="button" class="neo-act" id="act" hidden></button>
+          <span class="br tl"></span><span class="br tr"></span><span class="br bl"></span><span class="br brr"></span>
+        </div>
+      </div>
+      <canvas id="orb"></canvas>
+      <div class="neo-pace" id="pace" >
+        <span class="neo-pace-name" title="How fast Neo talks, from the next time you wake it">Speed</span>
+        <button type="button" data-pace="slow">Slow</button>
+        <button type="button" data-pace="normal">Normal</button>
+        <button type="button" data-pace="fast">Fast</button>
+        <button type="button" data-pace="faster">Faster</button>
+        <span class="neo-pace-sep"></span>
+        <button type="button" id="captions" title="Show what Neo says on a card, or only hear it">Captions</button>
+      </div>
+    </div>
+    <script type="module" src="/src/neo/main.ts"></script>
+  </body>
+</html>

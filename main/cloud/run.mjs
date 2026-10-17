@@ -22,8 +22,8 @@
 //      once and nothing is skipped.
 //   4. Runs the app's MCP servers HERE, from the original config, with the
 //      worker's own environment, exactly as Claude Code would have, and joins
-//      each to its stub in the sandbox. `look_at_page` is withheld: it would
-//      look at this Mac's localhost, not the sandbox's.
+//      each to its stub in the sandbox. A call to `look_at_page` is refused:
+//      it would look at this Mac's localhost, not the sandbox's.
 //   5. When the sandbox reports its results uploaded, fetches them from S3 and,
 //      only if the folder is exactly as it was when the run left, lays them in:
 //      commits fast-forwarded, uncommitted work reapplied, transcripts
@@ -56,6 +56,47 @@ import { Name, nameSlug } from '../../shared/product-name.mjs';
 import { codexTranscriptFile } from '../codex-session.mjs';
 import { appendCloudUsage } from './usage.mjs';
 import { docsFolderFor, docsToSend, tarDocs, layDocs } from './docs.mjs';
+import { troubleCause, limitResetMoment } from '../../shared/spawn-trouble.mjs';
+import { HAND_BACK } from '../../shared/cloud-hand-back.mjs';
+
+// WHAT A CLOUD RUN IS TOLD ABOUT WHERE IT IS. Without it an agent there found
+// its film's files, ffmpeg and a key missing, and asked the person to move the
+// thread (2026-10-16). Kept true to cloud/sandbox/Dockerfile and ./docs.mjs.
+export const CLOUD_NOTE = [
+  '# You are running on a cloud machine, not on the person\'s own computer',
+  '',
+  'This turn runs in a Linux cloud sandbox (2 cores, 8 GB). It has: this task folder (its git branch and main, at the same path as on their computer); the project\'s documents folder at its usual path, but only its small files (up to 256 KB each), plus this thread\'s own designs folder up to 50 MB and any attachment the request names; the store tools (look_at_page excepted); git, node, npm, python3 (no pip), make and g++; and Playwright with Chromium already installed (`require(\'playwright\')` works from any folder).',
+  '',
+  'It does not have: any other file from their computer (other threads\' design folders, large media, files under the home folder); files an earlier turn left outside git (node_modules, gitignored folders such as scripts/scratch, /tmp); ffmpeg, curl, wget, unzip, sudo, Homebrew, gh or other programs installed there; API keys, key files or tokens kept there; their computer\'s apps.',
+  '',
+  'Working here: run `npm ci --ignore-scripts` before anything that needs node_modules (about 15 seconds). Open files are capped at 1024, so `vitest related` and `npm run test:changed` fail with EMFILE; run the test files you changed and the ones that import them by name with `npx vitest run <files>`. Fetch with node\'s fetch or python3\'s urllib, and unpack a zip with `python3 -m zipfile -e`.',
+  '',
+  `If this request needs anything it does not have, stop at once. Do not explain it to the person, do not offer workarounds, and do not write to the work item. End your turn with exactly one line: ${HAND_BACK} followed by what was missing. The app then moves this thread to their computer and runs the same request again there. Otherwise work as usual, and never write that line.`,
+].join('\n');
+
+// The app's own instructions with the cloud note after them.
+export function argvForTheCloud(argv) {
+  const i = argv.indexOf('--append-system-prompt');
+  if (i < 0 || i + 1 >= argv.length) return [...argv, '--append-system-prompt', CLOUD_NOTE];
+  const out = [...argv];
+  out[i + 1] = `${argv[i + 1]}\n\n${CLOUD_NOTE}`;
+  return out;
+}
+
+// How long a cloud account whose limit named no hour sits out.
+const LIMIT_REST_MS = 30 * 60_000;
+
+// THE CLOUD ACCOUNT'S LIMIT, off one line of Claude Code's stream: the moment
+// it resets when the line is a failed result that says the account is at its
+// limit, else null. A result that worked is never a limit, whatever it quotes.
+export function limitInResultLine(line, now = Date.now()) {
+  let msg;
+  try { msg = JSON.parse(line); } catch { return null; }
+  if (msg?.type !== 'result' || msg.is_error !== true) return null;
+  const text = String(msg.result ?? '');
+  if (troubleCause(text) !== 'at-limit') return null;
+  return limitResetMoment(text, now) ?? now + LIMIT_REST_MS;
+}
 
 export const IMPORT_FAILED = 75;
 export const LOGIN_TROUBLE = 77;
@@ -68,6 +109,8 @@ const BRIDGE_SOCK = '/tmp/agentbox-bridge.sock';
 // The image's node, by its full path: Codex starts an MCP server with a bare
 // environment, in which a bare `node` may not be found.
 const SANDBOX_NODE = '/usr/local/bin/node';
+// Refused when called, but still listed: a tool missing from the list reads
+// to the agent as its whole server having disconnected.
 const WITHHELD_TOOLS = new Set(['look_at_page']);
 const MAX_ATTACHMENT = 25 * 1024 * 1024;
 const RESULTS_WAIT_MS = 3 * 60_000;
@@ -86,6 +129,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // a letter or a digit becomes '-'. The supervisor's transcriptFile reads the
 // same rule.
 export function transcriptFolderName(cwd) { return cwd.replace(/[^a-zA-Z0-9]/g, '-'); }
+
+// THE PROJECT'S SAVED MEMORIES on this Mac, for a task folder that is a
+// linked worktree: Claude Code keeps them under the main checkout's folder
+// name. In the cloud the task folder is a repository of its own, so Claude
+// Code looks under the task folder's name instead (its transcripts' folder).
+// Null when there are none, or the folder is the main checkout.
+export function memoryFolderFor(cwd, configDir) {
+  let common;
+  try { common = git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim(); } catch { return null; }
+  const root = path.dirname(common);
+  if (realOrNull(root) === realOrNull(cwd)) return null;
+  const dir = path.join(configDir, 'projects', transcriptFolderName(root), 'memory');
+  try { return fs.readdirSync(dir).length ? dir : null; } catch { return null; }
+}
 
 export function argValue(argv, flag) {
   const i = argv.indexOf(flag);
@@ -208,6 +265,8 @@ export async function cloudRun({
   login = null,
   // Told when the sandbox says the login was missing, refused or ran out.
   onLoginTrouble = () => {},
+  // Told the moment the account's limit resets, when a run ends on it.
+  onLimit = () => {},
   stdin = process.stdin, stdout = process.stdout, stderr = process.stderr,
   remoteCommand = 'claude',
   homeDir = os.homedir(),
@@ -388,6 +447,9 @@ export async function cloudRun({
     if (fs.existsSync(t)) files.push(await sendFile(t));
     else say(`no transcript for ${resumeId} on this Mac; the cloud run starts without it`);
   }
+  // Her saved memories for this project, where Claude Code in the cloud looks.
+  const saved = !codex ? memoryFolderFor(cwd, configDir) : null;
+  if (saved) files.push(await sendFile(null, path.join(projectsDir, '.memory.tgz'), tarOf(saved), path.join(projectsDir, 'memory')));
   // The account's own skills, commands and agents, as real folders.
   if (!codex) {
     const tooling = path.join(homeDir, '.claude');
@@ -452,7 +514,7 @@ export async function cloudRun({
   const loginUrl = await storage.getUrl(login.key, LOGIN_LINK_SECONDS);
   const started = await retry(() => transport.invoke(sessionId, {
     action: 'start', runId, cwd, branch, bundleUrl,
-    argv: [remoteCommand, ...argv], env: remoteEnv, files,
+    argv: [remoteCommand, ...(remoteCommand === 'claude' ? argvForTheCloud(argv) : argv)], env: remoteEnv, files,
     changesRef: hasOutgoing ? outgoing : undefined,
     ...(remote ? { remote } : {}),
     ...(docsDir ? { docs: docsDir } : {}),
@@ -489,7 +551,9 @@ export async function cloudRun({
   let cancelledAt = 0;
   let finished = null; // 'collected' | 'collect-failed' | 'failed' | 'lost'
   let loginTrouble = null; // { state: 'missing'|'refused'|'expired', id }
-  const servers = new Map(); // conn -> { proc, name, listIds }
+  const servers = new Map(); // conn -> { proc, name, init, pending, swallow }
+  const outDecoder = new StringDecoder('utf8');
+  let outLine = '';
   const overdue = () => cancelled && Date.now() - cancelledAt > resultsWaitMs;
 
   // ONE INPUT AT A TIME, KEPT UNTIL ACKNOWLEDGED. Each gets its number once,
@@ -568,7 +632,7 @@ export async function cloudRun({
     const cfg = mcpConfig.mcpServers?.[name];
     if (!cfg) { enqueue({ action: 'mcp-close', conn }); return; }
     const proc = spawn(cfg.command, cfg.args || [], { cwd, env: toolEnv({ ...serverEnv, ...(cfg.env || {}) }), stdio: ['pipe', 'pipe', 'pipe'] });
-    const s = { proc, name, listIds: new Set(), buf: '', closed: false, init: [...init], pending: new Set(), swallow: new Set() };
+    const s = { proc, name, buf: '', closed: false, init: [...init], pending: new Set(), swallow: new Set() };
     servers.set(conn, s);
     for (const line of init) {
       try { const m = JSON.parse(line); if (m?.id !== undefined && m.method) s.swallow.add(m.id); } catch { /* sent as it is */ }
@@ -591,7 +655,7 @@ export async function cloudRun({
           if (s.swallow.delete(reply.id)) continue;
           onAck = () => s.pending.delete(reply.id);
         }
-        enqueue({ action: 'mcp', conn, line: withholdFromList(line, s.listIds), onAck });
+        enqueue({ action: 'mcp', conn, line, onAck });
       }
     });
     proc.stderr.on('data', (d) => stderr.write(d));
@@ -607,7 +671,6 @@ export async function cloudRun({
     if (!s) return;
     let msg = null;
     try { msg = JSON.parse(line); } catch { /* pass through as is */ }
-    if (msg?.method === 'tools/list' && msg.id !== undefined) s.listIds.add(msg.id);
     if ((msg?.method === 'initialize' || msg?.method === 'notifications/initialized') && s.init.length < 2) s.init.push(line);
     if (msg?.method && msg.id !== undefined) s.pending.add(msg.id);
     if (msg?.method === 'tools/call' && WITHHELD_TOOLS.has(msg.params?.name)) {
@@ -615,6 +678,18 @@ export async function cloudRun({
       return;
     }
     s.proc.stdin.write(line + '\n');
+  }
+
+  function noteLimit(buf) {
+    outLine += outDecoder.write(buf);
+    let i;
+    while ((i = outLine.indexOf('\n')) >= 0) {
+      const line = outLine.slice(0, i);
+      outLine = outLine.slice(i + 1);
+      if (!line.includes('"result"')) continue;
+      const until = limitInResultLine(line);
+      if (until) { try { onLimit({ until }); } catch { /* noted elsewhere */ } }
+    }
   }
 
   async function write(stream, buf) {
@@ -628,7 +703,11 @@ export async function cloudRun({
     if (env.AGENTBOX_CLOUD_DEBUG && e.kind.startsWith('mcp')) say(`${e.kind} ${e.conn}${e.server ? ` ${e.server}` : ''}${e.line ? ` ${String(e.line).slice(0, 80)}` : ''}`);
     // A joined run has nobody reading its stream: the app reads its
     // transcript once it is home.
-    if (e.kind === 'stdout') { if (!joining) await write(stdout, Buffer.from(e.data, 'base64')); }
+    if (e.kind === 'stdout') {
+      const buf = Buffer.from(e.data, 'base64');
+      if (!codex) noteLimit(buf);
+      if (!joining) await write(stdout, buf);
+    }
     else if (e.kind === 'stderr') { if (!joining) await write(stderr, Buffer.from(e.data, 'base64')); }
     else if (e.kind === 'mcp-open') openServer(e.conn, e.server);
     else if (e.kind === 'mcp') toServer(e.conn, e.line);
@@ -1051,15 +1130,6 @@ export function toolVariables(env) {
   return out;
 }
 
-// Drop withheld tools from a server's answer to `tools/list`.
-function withholdFromList(line, listIds) {
-  let msg;
-  try { msg = JSON.parse(line); } catch { return line; }
-  if (msg?.id === undefined || !listIds.has(msg.id) || !Array.isArray(msg.result?.tools)) return line;
-  listIds.delete(msg.id);
-  msg.result.tools = msg.result.tools.filter((t) => !WITHHELD_TOOLS.has(t.name));
-  return JSON.stringify(msg);
-}
 
 function gitIdentity(cwd) {
   const get = (k) => { try { return execFileSync('git', ['config', k], { cwd, encoding: 'utf8' }).trim(); } catch { return ''; } };

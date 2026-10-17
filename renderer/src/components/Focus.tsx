@@ -53,6 +53,7 @@ import { codexCommand, COMPACTION_COPY } from '../../../shared/codex-commands.mj
 import { DEFAULT_ENGINE } from '../../../shared/engines.mjs';
 import { ago, dayLabel, itemOptions, offerIsLive, optionsFrom, parseOptions, parseRepeat, type ParsedOption } from '../format';
 import { ruleIdOf } from '../../../shared/repeats.mjs';
+import { shownPriority } from '../../../shared/rank.mjs';
 import { WhenPicker } from './When';
 import { ModelPicker } from './Model';
 import type { ModelChoice } from '../models';
@@ -106,7 +107,7 @@ import {
   PriorityPicker, priorityIdOf, priorityValueOf, type PriorityId,
 } from './Priority';
 import { SummaryPanel, SummaryRail, ThreadCrumb, ThreadStateMark, useSummaryOpen, useSummaryShortcut, type RepeatHandle } from '../threads/Summary';
-import { ThreadMenu } from '../threads/ThreadMenu';
+import { ThreadMenu, type ThreadPlace } from '../threads/ThreadMenu';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { useChatMentions } from '../team/ChatAgents';
 import { AGENT_SCHEME } from '../team/agent-mentions';
@@ -537,7 +538,7 @@ function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null }: {
   previewSample?: string;
   /** The repeating task this thread is a run of, drawn in its summary. */
   repeat?: RepeatHandle | null;
@@ -667,6 +668,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // Pin thread / Unpin thread, the menu's row (w-20323283e6). Absent where a
   // thread cannot be pinned.
   onPin?: (pin: boolean) => void;
+  // Where it runs, and the menu's row that moves it (ThreadMenu PLACE_ROW).
+  place?: ThreadPlace | null;
+  onPlace?: (keep: boolean) => void;
   // Only ever called on an agent row a reply cannot reach: brings the app that
   // session is running inside to the front.
   onReveal?: () => void;
@@ -1350,6 +1354,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       // A finished thread has nothing to be pinned for.
       pinned={canFinish && onPin ? !!item.pinned : null}
       onPin={onPin}
+      // A finished thread runs nowhere.
+      place={canFinish ? runsIn : null}
+      onPlace={onPlace}
     />
   );
 
@@ -2260,7 +2267,9 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   // tag DISPLAYS the item's real level, though: an urgent thread's reply box
   // showing "medium" read as the reply demoting it.
   const [prio, setPrio] = useState<PriorityId | null>(null);
-  const itemPrio: PriorityId = priorityIdOf(item.priority);
+  // The level it runs at (shared/rank.mjs shownPriority). A conversation is
+  // offered no tag at all, so this is only ever a work thread's.
+  const itemPrio: PriorityId = priorityIdOf(shownPriority(item));
   const shown = prio ?? itemPrio;
   /* * WHICH MODEL PICKS UP WHAT SHE SENDS NEXT.
 
@@ -2438,6 +2447,22 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
       touched ? { model, effort } : undefined);
   };
   const hasDraft = !!text.trim() || attachments.length > 0;
+  // NEO SENDS FROM THIS BOX WHEN THE PICTURES IN IT GO WITH ITS WORDS, so the
+  // pictures go out the way her own send takes them (renderer/src/neo/useNeo.ts).
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  const attachedRef = useRef(attachments);
+  attachedRef.current = attachments;
+  useEffect(() => {
+    const take = (e: Event) => {
+      const { key, text: words, answer } = (e as CustomEvent<{ key: string; text: string; answer: (sent: boolean) => void }>).detail;
+      if (key !== draftKey(item) || !attachedRef.current.length) return;
+      answer(true);
+      void sendRef.current(words);
+    };
+    window.addEventListener('neo:send-from-box', take);
+    return () => window.removeEventListener('neo:send-from-box', take);
+  }, [item.product, item.id]);
   // THE SLASH MENU, AND THE MODE THAT IS ALWAYS ON THE SCREEN.
   //
   // It does. Claude Code has no backslash TRIGGER: `/` opens its commands and

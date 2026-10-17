@@ -287,18 +287,52 @@ export function refineCause(cause, plan) {
   return cause === 'org-blocked' && plan?.ended ? 'subscription-ended' : cause;
 }
 
-// WHEN THE LIMIT LETS GO, straight off the line the CLI printed.
+// THE CLOCK A LIMIT LINE NAMES, AND THE ZONE IT NAMED IT IN.
+//
+// The zone used to be dropped on the floor, on the assumption that the CLI
+// prints the clock the Mac is already set to. A run on the cloud prints the
+// cloud machine's: "resets 12:10am (UTC)" reached a Mac on Pacific time
+// (2026-10-16), and both the hour on the row and the moment the fleet waited
+// for were seven hours out. `offset` is minutes east of UTC, and null when
+// the line printed no zone at all — which is still most lines, and still
+// means local. This reads any offset, and reads it for the sentence as well
+// as for the bench, which the first fix for that incident did not.
+//
+// Both wordings are real: the CLI's own line is "resets 6pm" and the API's is
+// "Your weekly limit resets at 4pm", so the "at" is optional.
+function resetClock(raw) {
+  const m = /resets\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:\(\s*(?:UTC|GMT)\s*(?:([+-])(\d{1,2})(?::?(\d{2}))?)?\s*\))?/i
+    .exec(String(raw ?? ''));
+  if (!m) return null;
+  const zoned = /\(\s*(?:UTC|GMT)/i.test(m[0]);
+  return {
+    h: (Number(m[1]) % 12) + (m[3].toLowerCase() === 'pm' ? 12 : 0),
+    min: Number(m[2] ?? 0),
+    offset: zoned ? (m[4] === '-' ? -1 : 1) * (Number(m[5] ?? 0) * 60 + Number(m[6] ?? 0)) : null,
+  };
+}
+
+// The CLI's own wording for a clock time, so a converted hour reads exactly
+// the way a quoted one always has.
+function clockWords(h, min) {
+  return `${h % 12 || 12}${min ? `:${String(min).padStart(2, '0')}` : ''}${h < 12 ? 'am' : 'pm'}`;
+}
+
+// WHEN THE LIMIT LETS GO, IN THE CLOCK SHE IS LOOKING AT.
 //
 // carries the one thing she actually wants to know, and we were throwing it
-// away and then telling her the vaguer "when the limit resets". The timezone
-// is dropped rather than shown: the limit line prints the zone the Mac is
-// already set to, so naming it would only add a word she has to read. Null when there is no time to quote, and then
-// the sentence falls back to the wording that has always been there.
-export function limitResetsAt(raw) {
-  // Both wordings are real: the CLI's own line is "resets 6pm" and the API's
-  // is "Your weekly limit resets at 4pm", so the "at" is optional.
-  const m = /resets\s+(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm))/i.exec(String(raw ?? ''));
-  return m ? m[1].replace(/\s+/g, '').toLowerCase() : null;
+// away and then telling her the vaguer "when the limit resets". A line that
+// names its own zone is converted to this Mac's clock rather than quoted, so
+// the hour on the row is an hour she can act on; a line that names none is
+// already local and is quoted as it stands. Null when there is no time to
+// quote, and then the sentence falls back to the wording that has always been
+// there.
+export function limitResetsAt(raw, from = Date.now()) {
+  const clock = resetClock(raw);
+  if (!clock) return null;
+  if (clock.offset == null) return clockWords(clock.h, clock.min);
+  const at = new Date(limitResetMoment(raw, from));
+  return clockWords(at.getHours(), at.getMinutes());
 }
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
@@ -320,15 +354,22 @@ export function limitResetMoment(raw, from = Date.now()) {
       return new Date(Number(dated[3]), month, Number(dated[2]), h, Number(dated[5]), 0, 0).getTime();
     }
   }
-  const hour = limitResetsAt(raw);
-  if (!hour) return null;
-  const m = /^(\d{1,2})(?::(\d{2}))?(am|pm)$/.exec(hour);
-  if (!m) return null;
-  const h = (Number(m[1]) % 12) + (m[3] === 'pm' ? 12 : 0);
-  const d = new Date(from);
-  d.setHours(h, Number(m[2] ?? 0), 0, 0);
-  if (d.getTime() < from - 60_000) d.setDate(d.getDate() + 1);
-  return d.getTime();
+  const clock = resetClock(raw);
+  if (!clock) return null;
+  if (clock.offset == null) {
+    const d = new Date(from);
+    d.setHours(clock.h, clock.min, 0, 0);
+    if (d.getTime() < from - 60_000) d.setDate(d.getDate() + 1);
+    return d.getTime();
+  }
+  // The named zone's own calendar day is not this Mac's, so the candidate is
+  // built in UTC and then walked to the one occurrence that sits in the next
+  // twenty-four hours. The grace is for the two clocks disagreeing by seconds.
+  const asked = new Date(from);
+  let t = Date.UTC(asked.getUTCFullYear(), asked.getUTCMonth(), asked.getUTCDate(), clock.h, clock.min) - clock.offset * 60_000;
+  while (t < from - 60_000) t += 86_400_000;
+  while (t - from >= 86_400_000) t -= 86_400_000;
+  return t;
 }
 
 // AN ACCOUNT THAT CANNOT BE USED AT ALL UNTIL A PERSON DOES SOMETHING.
@@ -606,8 +647,11 @@ export function runStoppedLine(raw) {
   return RUN_STOPPED[troubleCause(raw)] ?? RUN_STOPPED.unknown;
 }
 
-// `elsewhere` is only read for 'model-not-on-plan': whether another signed-in
-// login's plan has the model, so the task moves there rather than waiting on her.
+// `elsewhere` says another signed-in login can take this task now, so the
+// sentence promises the move instead of a wait. Read for 'model-not-on-plan'
+// (another login's plan has the model) and for 'at-limit' (another login has
+// room). An hour away is the wrong thing to say about a task that is about to
+// run somewhere else.
 export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, elsewhere = false } = {}) {
   const opener = `${engineWord} ${DEAD_RUN_OPENERS[cause] ?? DEAD_RUN_OPENERS.unknown}`;
 
@@ -623,7 +667,9 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
       : cause === 'subscription-ended'
       ? ' Renew it at claude.ai, or pick another account in Settings.'
       : cause === 'at-limit'
-      ? (resetsAt ? ` It starts again on its own at ${resetsAt}.` : ' It starts again on its own when the limit resets.')
+      ? (elsewhere
+        ? ` ${Name} runs it again on another account that has room.`
+        : resetsAt ? ` It starts again on its own at ${resetsAt}.` : ' It starts again on its own when the limit resets.')
       : cause === 'too-old'
       ? ` To update it, ${UPDATE}, and it starts again on its own.`
       : cause === 'api-key'

@@ -206,8 +206,10 @@ cloud Codex thread gets an app-server of its OWN, in its sandbox:
   clock, exactly as a local one would be (R7); the agent carries on with what
   it may do.
 - **No `look_at_page`** in the cloud: it would open Chrome on the Mac against
-  the Mac's localhost, not the sandbox's (R10). The proxy drops it from the
-  store server's tool list on the way out and refuses a call to it.
+  the Mac's localhost, not the sandbox's (R10). The proxy refuses a call to
+  it. It stays in the tool list: when it was dropped, a thread that moved from
+  the Mac to the cloud was told its store server had disconnected, and
+  believed it (2026-10-16).
 
 ## How it works
 

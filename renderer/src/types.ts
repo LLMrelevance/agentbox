@@ -14,6 +14,8 @@ export interface WorkItem {
   // PINNED TO THE TOP OF THE LIST (w-20323283e6). Kept by the supervisor, on
   // this Mac, like the place; absent on every row nobody has pinned.
   pinned?: boolean;
+  /** Kept on this Mac whatever the cloud is set to (Supervisor#setThreadOnMac). */
+  onMac?: boolean;
   // WHAT PEOPLE PUT ON EACH MESSAGE IN A CONVERSATION (w-560647d4db): by the
   // message's line uid, then by emoji, then the people on it. Folded out of the
   // presses the ledger holds (shared/work-items.mjs); absent on every row
@@ -26,6 +28,8 @@ export interface WorkItem {
   talk?: {
     chat: { by: string; ts: number; text: string }[];
     threads: Record<string, { by: string; text: string; replies: { by: string; ts: number; text: string }[] }>;
+    /** Per person, when they last marked it done; what came before is settled for them. */
+    settled?: Record<string, number>;
   };
   status: 'open' | 'claimed' | 'done' | 'blocked';
   title: string;
@@ -348,6 +352,14 @@ export interface Usage {
   profile?: string;
 }
 
+/** One Claude login's own reading, or why it has none (main/account-usage.mjs). */
+export interface AccountUsageReading {
+  profile: string;
+  limits?: UsageLimit[];
+  at?: number;
+  error?: string | null;
+}
+
 export interface SupervisorStatus {
   paused: boolean;
   running: RunningSession[];
@@ -385,7 +397,7 @@ export interface SupervisorStatus {
   capacity: number;
   // Which Claude accounts are in trouble and what kind. Always current, because
   // the only thing that reads it is a page she chose to open.
-  accountTrouble?: Record<string, { cause: TroubleCause; since: number }>;
+  accountTrouble?: Record<string, { cause: TroubleCause; since: number; at?: number }>;
   // THE ONE LINE ABOVE THE LIST, and null unless it is really true and has been
   // for twenty unbroken minutes. Two facts can fill it: tasks nothing has been
   // able to run on (design option four), or nothing being able to start anywhere at
@@ -1089,6 +1101,7 @@ declare global {
     zero?: {
       snapshot(): Promise<Snapshot>;
       refreshUsage?(): Promise<{ ok: boolean; reading?: Usage; error?: string }>;
+      accountUsage?(p: { refresh?: boolean }): Promise<{ readings: AccountUsageReading[] }>;
       // Whether a screen reader is running, which is what decides xterm's
       // accessibility tree. Optional: a preload from before this channel
       // existed has no such function, and `api.assistiveTech` reads that as no.
@@ -1114,6 +1127,7 @@ declare global {
       setProductOrder(p: { order: string[] }): Promise<unknown>;
       setThreadPlaces(p: { places: Record<string, number | null> }): Promise<unknown>;
       setThreadPins?(p: { pins: Record<string, true | null> }): Promise<unknown>;
+      setThreadOnMac?(p: { onMac: Record<string, true | null> }): Promise<unknown>;
       setProductHidden(p: { product: string; hidden: boolean }): Promise<unknown>;
       compose(p: { product: string; title: string; body?: string; kind?: string; priority?: number; runAt?: number; start?: 'later' | 'now'; labels?: string[]; model?: string; engine?: string; effort?: string; assignee?: string; due?: string; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[] }): Promise<WorkItem>;
       // Feedback to the Agentbox team (main/feedback.mjs). Optional: an older

@@ -1,7 +1,7 @@
 // The app: the agent inbox. Electron shell around a keyboard-first renderer, a
 // file-derived store, and a supervisor of headless sessions.
 
-import { app, BrowserWindow, Menu, Notification, clipboard, crashReporter, dialog, ipcMain, nativeImage, net, powerMonitor, protocol, screen as electronScreen, shell, session, safeStorage } from 'electron';
+import { app, BrowserWindow, Menu, Notification, clipboard, crashReporter, dialog, ipcMain, nativeImage, net, powerMonitor, protocol, screen as electronScreen, shell, session, safeStorage, systemPreferences, globalShortcut } from 'electron';
 import * as workItemsDisk from './store/work-items.mjs';
 import { createTeamService, teamStateFile } from './team/index.mjs';
 import { loadCloudConfig, supabaseSession } from './team/session.mjs';
@@ -43,6 +43,8 @@ import { createSourceUpdater } from './source-updater.mjs';
 import { learnShellDataDirs, recoverShellPath } from './shell-path.mjs';
 import { installNotifier } from './notify.mjs';
 import { createCornerTag } from './corner-tag.mjs';
+import { createNeo } from './neo/index.mjs';
+import { fileReview } from './neo/review.mjs';
 import { DOC_SCHEMES, DocGrants, docPath } from './doc-scheme.mjs';
 import { quietTheFramesScrollbars } from './frame-scrollbars.mjs';
 import { letLocalAppsShowInThePane } from './local-app-frames.mjs';
@@ -986,6 +988,26 @@ async function createWindow() {
       const builtTag = path.join(appDir, 'renderer', 'dist', 'corner-tag.html');
       if (devTag && !fs.existsSync(builtTag)) tagWindow.loadURL(`${devTag.replace(/\/$/, '')}/corner-tag.html?part=${part}`);
       else tagWindow.loadFile(builtTag, { search: `part=${part}` });
+    },
+  });
+  // NEO, the voice alpha (w-e85fd9144f). Nothing at all unless this Mac's
+  // user data folder holds a `neo-alpha` file (main/neo/gate.mjs), so it is
+  // in the code for everyone and on for one person.
+  createNeo({
+    app, BrowserWindow, ipcMain, screen: electronScreen, powerMonitor, systemPreferences, session, globalShortcut, shell,
+    mainWindow: window, userData: app.getPath('userData'),
+    // Every few minutes of talk goes to a review thread in the project this
+    // app is built from, which patches what went wrong (./neo/review.mjs).
+    onReview: ({ files, seconds }) => {
+      const own = store.listProducts().find((p) => p.repoPath && path.resolve(p.repoPath) === path.resolve(appDir));
+      void fileReview({ files, seconds, product: own?.slug ?? null, channels: phoneChannels, stateFile: path.join(app.getPath('userData'), 'neo', 'review.json') }).catch(() => {});
+    },
+    preload: path.join(appDir, 'main', 'neo', 'preload.cjs'),
+    load: (neoWindow) => {
+      const dev = process.env.ZERO_DEV_URL;
+      const built = path.join(appDir, 'renderer', 'dist', 'neo.html');
+      if (dev && !fs.existsSync(built)) neoWindow.loadURL(`${dev.replace(/\/$/, '')}/neo.html`);
+      else neoWindow.loadFile(built);
     },
   });
   // Asked for once by the renderer as it mounts, rather than pushed on

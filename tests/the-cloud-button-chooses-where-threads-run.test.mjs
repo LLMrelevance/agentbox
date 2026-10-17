@@ -53,9 +53,9 @@ describe('the menu\'s words', () => {
     expect(cloudButtonCount(null)).toBe(null);
   });
 
-  it('says this month\'s use in agent-hours, with the cost once runs have measured it', () => {
+  it('says this month\'s use in agent-hours, and never a price', () => {
     expect(cloudMonthLine({ runs: 0, agentHours: 0, estimatedCost: 0, costPerAgentHour: null })).toBe('Nothing in the cloud yet this month');
-    expect(cloudMonthLine({ runs: 4, agentHours: 12.4, estimatedCost: 1.372, costPerAgentHour: 0.11 })).toBe('12.4 agent-hours · about $1.37');
+    expect(cloudMonthLine({ runs: 4, agentHours: 12.4, estimatedCost: 1.372, costPerAgentHour: 0.11 })).toBe('12.4 agent-hours');
     expect(cloudMonthLine({ runs: 1, agentHours: 0.5, estimatedCost: 0, costPerAgentHour: null })).toBe('0.5 agent-hours');
   });
 });
