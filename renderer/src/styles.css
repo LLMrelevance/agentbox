@@ -1992,6 +1992,36 @@ body {
 .inline-image-open:hover .inline-image { border-color: var(--text-faint); }
 .inline-image-open:focus-visible .inline-image { outline: 1px solid var(--text-faint); outline-offset: 2px; }
 
+/* A PICTURE HOLDS ITS PLACE WHILE IT LOADS, as a shimmering box, then fades
+   in, in every window. Without it a picture with no bytes yet is a 2 x 2 dot
+   and the words under it jump when it lands. The state is set by phone-files.ts
+   watchPicture, which main.tsx starts; the names say phone because it was
+   built for the phone first. The half-drawn picture and the broken mark are
+   kept out of sight while the box shows.
+
+   The button around a loading picture is as wide as the column, because a
+   button shrinks to what is in it and the box would be 4:3 of nothing.
+   `auto 4 / 3` takes the picture's own shape the moment its first bytes give
+   it. Four :root outweigh the phone's own picture rules in phone.css. */
+:root:root:root:root .inline-image-open:has(> .inline-image[data-phone-img="loading"]) { width: 100%; }
+:root:root:root:root .inline-image[data-phone-img="loading"],
+:root:root:root:root .doc-picture[data-phone-img="loading"] {
+  display: block; width: 100%; max-width: 100%; height: auto; aspect-ratio: auto 4 / 3;
+  color: transparent; object-position: -99999px 0;
+  background: linear-gradient(100deg, transparent 30%, var(--wash) 50%, transparent 70%) 0 0 / 200% 100%, var(--bg-raised);
+  animation: phone-shimmer 1.3s linear infinite;
+}
+:root:root:root:root .attach-row img[data-phone-img="loading"] {
+  color: transparent; object-position: -99999px 0;
+  background: linear-gradient(100deg, transparent 30%, var(--wash) 50%, transparent 70%) 0 0 / 200% 100%, var(--bg-raised);
+  animation: phone-shimmer 1.3s linear infinite;
+}
+:root:root:root:root .inline-image[data-phone-img="ready"],
+:root:root:root:root .doc-picture[data-phone-img="ready"],
+:root:root:root:root .attach-row img[data-phone-img="ready"] { animation: phone-fade-in .25s ease-out; }
+@keyframes phone-shimmer { from { background-position: 100% 0, 0 0; } to { background-position: -100% 0, 0 0; } }
+@keyframes phone-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
 /* A sound or a film a worker named: its name, then the player, one per line
    even when five were written on one line (ArtifactMedia in Focus.tsx). */
 .inline-media { display: block; margin: 8px 0; }
