@@ -93,14 +93,16 @@ export function cloudLoginFor(engine, dir, { home = os.homedir() } = {}) {
 
 // A new sign-in becomes the account's current one. What it replaced is kept
 // on a list to delete once no run can still be about to fetch it.
-export function recordCloudLogin(engine, dir, { id, savedAt = Date.now(), expiresAt = null, email = null }, { home = os.homedir(), now = Date.now() } = {}) {
+export function recordCloudLogin(engine, dir, { id, savedAt = Date.now(), expiresAt = null, email = null, org = null, limits = null }, { home = os.homedir(), now = Date.now() } = {}) {
   return withLock(home, () => {
   const all = readCloudLogins({ home });
   const key = accountOf(engine, dir);
   const was = all[key];
   const retired = [...(was?.retired || [])];
   if (was?.id && was.id !== id) retired.push({ id: was.id, at: now });
-  all[key] = { engine, key: dir, id, savedAt, expiresAt, email: email ?? was?.email ?? null, broken: null, renewing: null, lastUsedAt: was?.lastUsedAt ?? null, retired };
+  // What the cloud read off a reply at sign-in: whose organization, and the usage.
+  const read = org || limits?.length ? { org: org ?? null, limits: limits ?? [], readAt: now } : {};
+  all[key] = { engine, key: dir, id, savedAt, expiresAt, email: email ?? was?.email ?? null, broken: null, renewing: null, lastUsedAt: was?.lastUsedAt ?? null, retired, ...read };
   writeCloudLogins(all, { home });
   return all[key];
   });
@@ -299,7 +301,7 @@ export function startCloudSignIn({ transport, storage, engine, dir, home = os.ho
       set({ state: 'failed', message: `That signed in as ${end.email}. Sign in with ${expectEmail} instead.` });
       return status;
     }
-    recordCloudLogin(engine, dir, { id, expiresAt: end.expiresAt ?? null, email: end.email ?? null }, { home });
+    recordCloudLogin(engine, dir, { id, expiresAt: end.expiresAt ?? null, email: end.email ?? null, org: end.org ?? null, limits: end.limits ?? null }, { home });
     set({ state: 'saved', url: null, code: null });
     try { onSaved(); } catch { /* the menu redraws anyway */ }
     return status;
@@ -372,6 +374,35 @@ export async function renewCloudCodexLogin({ transport, storage, dir, home = os.
   }
   markCloudLogin('codex', dir, rec.id, { renewing: null }, { home });
   return 'failed';
+}
+
+/* ------------------------------- looking --------------------------------- */
+// A look's session and week, in the shape the usage meters draw. Null with none.
+export function cloudLimits(read) {
+  if (!Array.isArray(read) || !read.length) return null;
+  return read.filter((l) => Number.isFinite(l?.percent)).map((l) => ({
+    span: l.span === 'week' ? 'week' : 'session',
+    qualifier: l.span === 'week' ? 'all models' : null,
+    name: l.span === 'week' ? 'This week' : 'This session',
+    percent: l.percent, resetsText: null, resetsOn: null, resetsAt: l.resetsAt ?? null, zone: null,
+  }));
+}
+
+// WHOSE ONE CLAUDE LOGIN IS, AND HOW MUCH OF IT IS LEFT: a sandbox session
+// that makes one tiny reply on it and reads the reply's headers. Kept on the
+// login's note only while that login is still the current one. Returns
+// 'read' or 'failed'.
+export async function lookAtCloudLogin({ transport, storage, key, home = os.homedir(), now = Date.now(), pollWaitMs }) {
+  const rec = cloudLoginFor('claude', key, { home });
+  if (!rec?.id || rec.broken) return 'failed';
+  const end = await session({
+    transport,
+    pollWaitMs,
+    start: { action: 'look', runId: `look-${crypto.randomUUID()}`, engine: 'claude', loginUrl: await storage.getUrl(loginObjectKey('claude', rec.id), LINK_SECONDS) },
+  });
+  if (end.state !== 'saved') return 'failed';
+  markCloudLogin('claude', key, rec.id, { org: end.org ?? null, limits: end.limits ?? [], readAt: now }, { home });
+  return 'read';
 }
 
 /* ------------------------ the first build's tokens ----------------------- */

@@ -291,6 +291,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   ipcMain.handle('zero:account-usage', async (event, { refresh = false } = {}) => {
     if (event.senderFrame?.parent || (event.sender && event.sender !== window.webContents)) throw Error('Usage is only available in the main app window.');
     const profiles = effectiveProfiles(config.authProfiles, { home: config.home });
+    // The cloud's logins too; a look takes a sandbox session, so the page is
+    // not held for it and redraws off the snapshot when it lands.
+    void supervisor.lookAtCloudLogins({ force: !!refresh });
     return { readings: await accountUsage.readAll(profiles.length ? profiles : ['default'], { refresh: !!refresh }) };
   });
 
