@@ -1,5 +1,5 @@
 import { previewFocus } from './preview-focus';
-import { cloudToggleNote, cloudToggleTarget } from './cloud-menu';
+import { cloudChord, cloudToggleNote, cloudToggleTarget, threadPlace } from './cloud-menu';
 import { usePhoneBack, onCloudPhone, onPhone } from './phone-screen';
 import { holdsReplies, writeHeldWhenHidden } from './phone-holds';
 import { pollEvery } from './phone-polls';
@@ -32,7 +32,8 @@ import type { PendingSaid } from './item-thread';
 import { DocPane, type OpenDoc } from './components/DocPane';
 import { docKind, EVEN_SPLIT, escapeClosesDoc, escapeInTheFileClosesIt, focusIsInTheFile, readSplit, writeSplit } from './doc-pane';
 import { changeOwnsKey } from './code-keys';
-import { askStillStands, bringsBack, closesAgain, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO, UNDID_CLOSING } from './undo-window';
+import { askStillStands, bringsBack, closesAgain, graceUndoneLine, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO, UNDID_CLOSING } from './undo-window';
+import { answeredAlready, TOO_LATE_TO_WITHDRAW } from './withdraw-send';
 import { useNeo } from './neo/useNeo';
 import { addUndoMark, UNDO_MARKS_EVENT, type UndidSpec } from './undo-marks';
 import { whatTheFileSentUp } from '../../shared/artifact-keys.mjs';
@@ -796,7 +797,9 @@ export default function App() {
      * (./undo-window).
      */
     undoes: string;
-    run: () => Promise<void>;
+    // `refused` when it found it could not be undone after all: the sentence
+    // to show, and the row to open. Nothing was changed.
+    run: () => Promise<void | { refused: string; open?: WorkItem }>;
     restore?: () => Restored;
     /** The row this puts back, which a Z opens once it has run (./undo-window, `shownAfterUndo`). */
     brings?: WorkItem;
@@ -1513,6 +1516,8 @@ export default function App() {
     restore?: () => Restored;
     // What the thread says if this one is undone (./undo-marks).
     undid?: UndidSpec[];
+    // The action's own toast, so the undo can say what it left (graceUndoneLine).
+    said?: string;
   } | null>(null);
 
   const flushPending = useCallback(async () => {
@@ -1558,10 +1563,11 @@ export default function App() {
   const justMade = useRef<JustMade[]>([]);
   const refresh = useCallback(async () => {
     const next = await api.snapshot();
-    if (isCarrying()) { setTimeout(() => refreshAgain.current(), 300); return; }
+    if (isCarrying()) { setTimeout(() => refreshAgain.current(), 300); return next; }
     const worn = next ? wearJustMade(next.items, justMade.current, Date.now()) : null;
     if (worn) justMade.current = worn.held;
     setSnap(next && { ...next, items: overlayPins(overlayPlaces(worn!.items, unsavedPlaces.current), unsavedPins.current) });
+    return next;
   }, []);
   // A new thread in the list the moment the computer says it is written, a
   // whole fetch sooner than the snapshot would bring it (w-461fbd8d2d).
@@ -1571,7 +1577,7 @@ export default function App() {
     setSnap((s) => s && { ...s, items: wearJustMade(s.items, justMade.current, Date.now()).items });
   }, []);
   refreshAgain.current = () => { void refresh(); };
-  const refreshRef = useRef<() => Promise<void>>();
+  const refreshRef = useRef<() => Promise<unknown>>();
   refreshRef.current = refresh;
 
   useEffect(() => {
@@ -3530,7 +3536,7 @@ export default function App() {
       await refresh();
       setPendingId((p) => (p === item.id ? null : p));
     }, UNDO_GRACE_MS);
-    pendingRef.current = { item, timer, run, restore, undid };
+    pendingRef.current = { item, timer, run, restore, undid, said: toast };
   }, [flushPending, leaveResolved, refresh, showToast]);
 
   // It closes the ROW and touches nothing else — no message, no signal, and the
@@ -4172,7 +4178,7 @@ export default function App() {
   // is the one question this card must never make her ask. The withdraw stops
   // the worker as well as closing the row: main/ipc.mjs kills the session on any
   // archive, and her archive outranks whatever a straggler writes afterwards.
-  const noteNewTask = useCallback((label: string, undoes: string, sent: ComposeDraft, withdraw: () => Promise<void>, undid?: UndidSpec[]) => {
+  const noteNewTask = useCallback((label: string, undoes: string, sent: ComposeDraft, withdraw: Undoable['run'], undid?: UndidSpec[]) => {
     pushUndo({
       label,
       undoes,
@@ -4533,7 +4539,7 @@ export default function App() {
       const now = Date.now();
       leaveUndoMarks(pending.undid, now, now);
       setFocused(pending.item);
-      showToast(restored ? 'Undone. Your message is back in the reply box.' : 'Undone. Nothing was sent.');
+      showToast(graceUndoneLine({ said: pending.said, restored: !!restored }));
       return;
     }
     // PAST THE GRACE WINDOW, Z REACHES THE LAST THING SHE DID, AND AFTER THIRTY
@@ -4573,11 +4579,18 @@ export default function App() {
     // `from` is taken before the undo writes anything, so the mark it leaves
     // spans exactly its own lines and the thread can fold them under it.
     const from = Date.now();
+    let outcome: Awaited<ReturnType<Undoable['run']>>;
     try {
-      await last.run();
+      outcome = await last.run();
     } catch (err) {
       setUndoStack((u) => [...u, last]);
       showToast(`Could not undo that. ${(err as Error)?.message ?? err}`);
+      return;
+    }
+    if (outcome && 'refused' in outcome) {
+      showToast(outcome.refused);
+      await refresh();
+      if (outcome.open) { setFocused(outcome.open); markSeen(outcome.open); }
       return;
     }
     leaveUndoMarks(last.undid, from, Date.now());
@@ -4640,9 +4653,14 @@ export default function App() {
       if (made?.id) {
         pushUndo({ label: `Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`, undoes: 'take back the task you just made',
           undid: [{ product: made.product, id: made.id, words: 'Undid sending it' }],
-          run: async () => { await api.answer({ product: made.product, id: made.id, status: 'done' }); } });
-        showToast(sentLine({ to: snap?.products.find((p) => p.slug === product)?.name ?? product, when: null, held: false }), { product: made.product, id: made.id });
-        void refresh();
+          run: async () => {
+            const row = (await api.snapshot())?.items.find((i) => i.id === made.id && i.product === made.product);
+            if (answeredAlready(row)) return { refused: TOO_LATE_TO_WITHDRAW, open: row };
+            await api.answer({ product: made.product, id: made.id, status: 'done' });
+          } });
+        const next = await refresh();
+        showToast(sentLine({ to: snap?.products.find((p) => p.slug === product)?.name ?? product, when: null, held: false,
+          limit: next?.supervisor?.atLimit?.[made.id] }), { product: made.product, id: made.id });
       }
       return made;
     },
@@ -4763,6 +4781,11 @@ export default function App() {
         e.preventDefault();
         setFocused(null);
         setMultiSel((m) => m.size >= list.length && list.length > 0 ? new Set() : new Set(list.map((i) => i.id)));
+        return;
+      }
+      if (cloudChord(e, { inInput, selection: String(window.getSelection?.() ?? ''), modal: !!modal })) {
+        e.preventDefault();
+        toggleCloudRef.current?.();
         return;
       }
       // cmd-Y / cmd-N (answer the oldest approval card) live in the MAIN
@@ -4912,9 +4935,8 @@ export default function App() {
         else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setOpenDoc(null); setModal('reply'); }
         // N MEANS THE SAME THING ON BOTH SCREENS. The + in the top bar is on
         // this screen too and its tooltip says "New task (N)", so the key is
-        // already advertised here. C is the cloud's since 2026-10-16.
+        // already advertised here.
         else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
-        else if (e.key === 'c' || e.key === 'C') { e.preventDefault(); toggleCloudRef.current?.(); }
         // L, NOT S, SINCE 2026-10-01. S was the schedule picker here and the
         // summary panel on the same screen (threads/Summary.tsx listens first
         // and eats it), so the two fought over one letter and a persona test
@@ -4937,7 +4959,6 @@ export default function App() {
           if (target) goToStop(target);
         }
         else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
-        else if (e.key === 'c' || e.key === 'C') { e.preventDefault(); toggleCloudRef.current?.(); }
         else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); }
         return;
       }
@@ -5013,10 +5034,8 @@ export default function App() {
           if (multiSel.size) openSnooze(selectable.filter((i) => multiSel.has(i.id)));
           else if (pointed && (view === 'inbox' || view === 'snoozed')) openSnooze(pointed);
           break;
-        // N starts a thread (w-fb9051e597). C was its older twin until
-        // 2026-10-16 and turns the cloud on or off now.
+        // N starts a thread (w-fb9051e597). C does nothing: the cloud is ⌘C.
         case 'n': case 'N': e.preventDefault(); setModal('compose'); break;
-        case 'c': case 'C': e.preventDefault(); toggleCloudRef.current?.(); break;
         case 'z': case 'Z': undo(); break;
         // B FLIPS LIST AND BOARD (w-58c8f466e7): "I quite often switch between
         // board and list view". B for board; it shipped as V first and that
@@ -6122,6 +6141,11 @@ export default function App() {
                   onStop={() => stopAgent(focused)}
                   onRunNow={() => runNow(focused)}
                   onPin={focused.agent ? undefined : (pin) => pinThread(focused.id, pin, true)}
+                  place={focused.agent ? null : threadPlace(focused, snap.supervisor.running.find((r) => r.itemId === focused.id) ?? null, snap.cloud ?? null, snap.products)}
+                  onPlace={(keep) => {
+                    void api.setThreadOnMac({ [focused.id]: keep ? true : null });
+                    showToast(keep ? 'This thread now runs only on this Mac' : 'This thread can run on the cloud again');
+                  }}
                   onReveal={() => revealAgent(focused)}
                   // Remind me later and stop this task are neither of the two
                   // ways a task ends, and the card beside the bar names exactly
@@ -6422,15 +6446,20 @@ export default function App() {
             }
             if (made?.id) {
               noteNewTask(`Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`, 'take back the task you just made', sent, async () => {
+                const row = (await api.snapshot())?.items.find((i) => i.id === made.id && i.product === made.product);
+                if (answeredAlready(row)) return { refused: TOO_LATE_TO_WITHDRAW, open: row };
                 await api.answer({ product: made.product, id: made.id, status: 'done' });
               }, [{ product: made.product, id: made.id, words: 'Undid sending it' }]);
             }
+            // Read before the line is said: a tool with no login left in
+            // usage means nothing started, and the line has to say so.
+            const next = await refresh();
             showToast(sentLine({
               to: to ?? slug,
               when: how?.runAt ? whenLabel({ runAt: how.runAt, repeat: null }) : null,
               held: how?.start === 'later',
+              limit: made?.id ? next?.supervisor?.atLimit?.[made.id] : null,
             }), made?.id ? { product: made.product, id: made.id } : undefined);
-            await refresh();
           }}
         />
       )}

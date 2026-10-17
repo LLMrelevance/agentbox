@@ -42,8 +42,9 @@ export type NeoDeps<R extends NeoRow> = {
   // Moves a thread to Later until ts, the Later picker's own step in App.tsx.
   later?(row: R, ts: number, label: string): Promise<'done' | 'asked' | void>;
   now?(): number;
-  // Films and sounds in the open thread: their names, and playing one.
+  // Films and sounds in the open thread, the latest message's first: their names, and playing one.
   mediaNames?(): string[];
+  latestFilmCount?(): number;
   // Everything ⌘K offers right now (components/Palette.tsx), searched by words.
   commands?(): { id: string; label: string; hint?: string; keywords?: string; run: () => unknown }[];
   // Scroll what she is reading; false when nothing there scrolls.
@@ -159,19 +160,26 @@ export function describeScreen<R extends NeoRow>(deps: NeoDeps<R>): string {
   const waiting = new Set(list.map((r) => r.id));
   const others = (deps.threadsAnywhere?.() ?? []).filter((r) => !waiting.has(r.id) && r.status !== 'done').slice(0, LISTED);
   if (others.length) lines.push('Also open:', ...others.map((r) => `[${r.id}] ${nameOf(r)} (${r.productName ?? r.product})`));
-  if (open) {
-    lines.push('', `Open thread: ${nameOf(open)} [${open.id}] (${open.productName ?? open.product})`);
-    const s = spoken(deps.summary(open));
-    if (s) lines.push(`Latest from the agent: ${clip(s, SUMMARY_CHARS)}`);
-    const opts = deps.options(open);
-    if (opts.length) lines.push('Options:', ...opts.map((o) => `${o.n}. ${o.text}`));
-    const pics = (deps.pictureNames?.() ?? []).slice(0, 9);
-    const latest = Math.min(deps.latestPictureCount?.() ?? pics.length, pics.length);
-    if (latest) lines.push('Pictures in the latest message:', ...pics.slice(0, latest).map((f, i) => `${i + 1}. ${f}`));
-    if (pics.length > latest) lines.push('Earlier in the thread:', ...pics.slice(latest).map((f, i) => `${latest + i + 1}. ${f}`));
-    const films = deps.mediaNames?.() ?? [];
-    if (films.length) lines.push('Films and sounds:', ...films.slice(0, 9).map((f, i) => `${i + 1}. ${f}`));
-  } else lines.push('', 'No thread is open.');
+  lines.push('', open ? describeOpen(deps, open) : 'No thread is open.');
+  return lines.join('\n');
+}
+
+/** The open thread alone: what a question about it is answered from, without the inbox. */
+export function describeOpen<R extends NeoRow>(deps: NeoDeps<R>, open: R): string {
+  const lines: string[] = [];
+  lines.push(`Open thread: ${nameOf(open)} [${open.id}] (${open.productName ?? open.product})`);
+  const s = spoken(deps.summary(open));
+  if (s) lines.push(`Latest from the agent: ${clip(s, SUMMARY_CHARS)}`);
+  const opts = deps.options(open);
+  if (opts.length) lines.push('Options:', ...opts.map((o) => `${o.n}. ${o.text}`));
+  const pics = (deps.pictureNames?.() ?? []).slice(0, 9);
+  const latest = Math.min(deps.latestPictureCount?.() ?? pics.length, pics.length);
+  if (latest) lines.push('Pictures in the latest message:', ...pics.slice(0, latest).map((f, i) => `${i + 1}. ${f}`));
+  if (pics.length > latest) lines.push('Earlier in the thread:', ...pics.slice(latest).map((f, i) => `${latest + i + 1}. ${f}`));
+  const films = (deps.mediaNames?.() ?? []).slice(0, 9);
+  const newFilms = Math.min(deps.latestFilmCount?.() ?? films.length, films.length);
+  if (newFilms) lines.push('Films and sounds in the latest message:', ...films.slice(0, newFilms).map((f, i) => `${i + 1}. ${f}`));
+  if (films.length > newFilms) lines.push('Films and sounds earlier in the thread:', ...films.slice(newFilms).map((f, i) => `${newFilms + i + 1}. ${f}`));
   return lines.join('\n');
 }
 
@@ -183,6 +191,13 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
   // The threads Neo moved her away from, newest last, for "go back".
   const trail: string[] = [];
   const leaving = () => { const at = deps.focused()?.id; if (at && trail.at(-1) !== at) trail.push(at); };
+  // The inbox moves on by itself after a reply, and she clicks: those moves count for "back" too.
+  let seen = deps.focused()?.id;
+  const noteMove = () => {
+    const at = deps.focused()?.id;
+    if (seen && at !== seen && trail.at(-1) !== seen) trail.push(seen);
+    seen = at;
+  };
   // The thread she means: "this one" is the one on screen.
   const meant = (id: unknown, ctx: { heard?: string }) => {
     const open = deps.focused();
@@ -228,6 +243,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
   };
 
   const act = async function act(name: string, args: Record<string, any>, ctx: { heard?: string } = {}): Promise<NeoResult> {
+    noteMove();
     try {
       // A picture Neo put up comes down when the thread changes under it.
       if (CHANGES_THREAD.has(name)) await deps.show?.([], 'close');
@@ -385,6 +401,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
             if (row && row.id !== deps.focused()?.id) {
               await deps.open(row);
               deps.glow(row.id);
+              seen = row.id;
               return done(`Back on ${nameOf(row)}.${brief(row)}`);
             }
           }
@@ -404,10 +421,16 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           return shown ? done(`Showing ${want.map((n) => have[n - 1]).join(' and ')}.`) : refused('Those pictures could not be shown.');
         }
 
+        case 'describe_open': {
+          const open = deps.focused();
+          return open ? done(describeOpen(deps, open)) : refused('No thread is open.');
+        }
+
         case 'brief_open': {
           // The inbox moves to the next thread a render after a close or a put-off.
           let row = deps.focused();
-          for (let waited = 0; waited < 800 && (!row || row.id === args.from); waited += 50) {
+          const most = Number.isFinite(args.wait) ? args.wait : 800;
+          for (let waited = 0; waited < most && (!row || row.id === args.from); waited += 50) {
             await new Promise((r) => setTimeout(r, 50));
             row = deps.focused();
           }
@@ -436,7 +459,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
       return { ok: false, status: 'failed', said: `That did not work: ${String((err as Error)?.message ?? err).slice(0, 120)}` };
     }
   };
-  return Object.assign(act, { canGoBack: () => trail.length > 0 });
+  return Object.assign(act, { canGoBack: () => { noteMove(); return trail.length > 0; } });
 }
 
 /**
@@ -455,7 +478,7 @@ export function screenFor<R extends NeoRow>(deps: NeoDeps<R>, canGoBack: boolean
       title: nameOf(open),
       options: deps.options(open).map(({ n, text }) => ({ n, text })),
       pictures: (deps.pictureNames?.() ?? []).slice(0, 9).map((name, i) => ({ n: i + 1, name })),
-      films: (deps.mediaNames?.() ?? []).slice(0, 9).map((name, i) => ({ n: i + 1, name })),
+      films: (deps.mediaNames?.() ?? []).slice(0, 9).map((name, i) => ({ n: i + 1, name, ...(i >= (deps.latestFilmCount?.() ?? Infinity) ? { earlier: true } : {}) })),
       files: (deps.fileNames?.() ?? []).slice(0, 9).map((name, i) => ({ n: i + 1, name })),
     } : null,
     rows: [...listed, ...rest].slice(0, most).map((r) => ({ id: r.id, title: nameOf(r) })),

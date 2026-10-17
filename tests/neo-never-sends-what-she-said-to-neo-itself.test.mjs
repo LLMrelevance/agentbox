@@ -10,6 +10,12 @@
 //
 // A sentence aimed AT Neo, correcting it or telling it to stop, is never the
 // body of a message to an agent. There is nothing to send, so Neo asks.
+//
+// The Decisions list now has a `talk` option for this, tested in
+// ./neo-sends-what-she-asked-for-not-what-she-said-to-neo.test.mjs. This is
+// the backstop under it: whatever the picker decides, the words still pass
+// through replyFrom on the way to a thread, and that is where they were
+// actually sent from.
 import { describe, expect, it } from 'vitest';
 import { replyFrom } from '../shared/neo-params.mjs';
 

@@ -9,7 +9,7 @@ import { useEffect, useRef } from 'react';
 import { describeScreen, neoBridge, screenFor, type NeoDeps, type NeoRow } from './bridge';
 import { glowOn } from './glow';
 import { orbCovers, type Orb } from './orb-cover';
-import { fileName, latestFiles, pictureName, putAway, show, threadMedia, threadPictures } from './show';
+import { fileName, filmName, latestFiles, pictureName, putAway, show, threadDrawn, threadFilms, threadPictures } from './show';
 
 type Z = {
   neoEnabled?: () => Promise<boolean>;
@@ -42,7 +42,7 @@ function scrollerAt(): HTMLElement | null {
   return page && page.scrollHeight > page.clientHeight + 1 ? page : null;
 }
 
-type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'scroll' | 'pictureNames' | 'show' | 'media' | 'mediaNames' | 'latestPictureCount' | 'waitForPictures' | 'fileNames' | 'openFile'> & {
+type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'scroll' | 'pictureNames' | 'show' | 'media' | 'mediaNames' | 'latestFilmCount' | 'latestPictureCount' | 'waitForPictures' | 'fileNames' | 'openFile'> & {
   pick(row: R, n: number): Promise<unknown>;
   close(row: R): Promise<unknown>;
 };
@@ -93,9 +93,10 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         },
         outside: () => outside,
         // The films and sounds the open thread draws (components/Focus.tsx ArtifactMedia).
-        mediaNames: () => threadMedia().map((el) => el.querySelector('.mention-name')?.textContent?.trim() || 'a film'),
+        mediaNames: () => threadFilms().films.map(filmName),
+        latestFilmCount: () => threadFilms().latest,
         media: async (action, n) => {
-          const spots = threadMedia();
+          const spots = threadFilms().films;
           const spot = spots[n - 1];
           const player = spot?.querySelector<HTMLMediaElement>('video, audio');
           if (!spot || !player) return null;
@@ -117,7 +118,8 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         latestPictureCount: () => threadPictures().latest,
         // A thread draws its messages after its history arrives.
         waitForPictures: async () => {
-          for (let waited = 0; waited < 1500 && !threadPictures().latest && !latestFiles().length; waited += 150) await new Promise((r) => setTimeout(r, 150));
+          // A drawn thread with nothing to show is done after a short grace for file tiles, which load late.
+          for (let waited = 0; waited < 1500 && !threadPictures().latest && !latestFiles().length && !(waited >= 300 && threadDrawn()); waited += 150) await new Promise((r) => setTimeout(r, 150));
         },
         show: (ns, layout) => show(ns, layout),
         fileNames: () => latestFiles().map((t, i) => fileName(t, i + 1)),

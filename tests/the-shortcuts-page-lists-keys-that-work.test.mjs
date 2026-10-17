@@ -148,8 +148,9 @@ const HANDLED = {
   // Control-K is the same chord where there is no Command key. The handler
   // is `(e.metaKey || e.ctrlKey)`, so the excerpt is the ctrl half of it.
   'Ctrl+K': [[chords, 'e.ctrlKey'], [chords, "e.key.toLowerCase() === 'k'"], [chords, "setModal((m) => (m === 'palette' ? null : 'palette'))"]],
-  // The cloud on or off, and a new thread, in both the open task and the list.
-  'C': [[focused, "else if (e.key === 'c' || e.key === 'C') { e.preventDefault(); toggleCloudRef.current?.(); }"], [list, "case 'c': case 'C': e.preventDefault(); toggleCloudRef.current?.(); break;"]],
+  // The cloud on or off, with the other chords, everywhere.
+  '⌘C': [[chords, 'if (cloudChord(e, { inInput'], [chords, 'toggleCloudRef.current?.();']],
+  // And a new thread, in both the open task and the list.
   'N': [[focused, "else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }"], [list, "case 'n': case 'N': e.preventDefault(); setModal('compose'); break;"]],
   '/': [[chords, "if (e.key === '/')"], [chords, 'openSearch();']],
   '\\': [[chords, "if (e.key === '\\\\')"], [chords, 'togglePanel();']],
