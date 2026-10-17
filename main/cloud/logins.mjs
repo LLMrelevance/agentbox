@@ -119,12 +119,30 @@ export function markCloudLogin(engine, dir, id, patch, { home = os.homedir() } =
   });
 }
 
-// 'none' (never signed in), 'broken' (sign in again), 'limited' (at its usage
-// limit until `limitedUntil`), 'renew' (Codex: must be renewed before a run),
-// 'stale' (Codex: may run, renewal due), 'ready'.
+// THE SAME ACCOUNT ADDED TWICE: records of one engine whose organization
+// (`org`, main/cloud/org.mjs) matches an earlier record's, by when they were
+// saved. Key -> the earlier record's key. A record with no org yet is no one's
+// duplicate.
+function duplicatesIn(records) {
+  const first = new Map();
+  const dup = new Map();
+  for (const r of [...records].sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0) || String(a.key).localeCompare(String(b.key)))) {
+    if (!r?.org) continue;
+    const id = `${r.engine}:${r.org}`;
+    if (first.has(id)) dup.set(r.key ?? r.dir, first.get(id));
+    else first.set(id, r.key ?? r.dir);
+  }
+  return dup;
+}
+
+// 'none' (never signed in), 'broken' (sign in again), 'duplicate' (the same
+// account as an earlier one), 'limited' (at its usage limit until
+// `limitedUntil`), 'renew' (Codex: must be renewed before a run), 'stale'
+// (Codex: may run, renewal due), 'ready'.
 export function cloudLoginState(rec, { now = Date.now() } = {}) {
   if (!rec?.id) return 'none';
   if (rec.broken) return 'broken';
+  if (rec.duplicateOf) return 'duplicate';
   if (rec.limitedUntil && now < rec.limitedUntil) return 'limited';
   if (rec.engine !== 'codex' || !rec.expiresAt) return 'ready';
   const left = rec.expiresAt - now;
@@ -137,9 +155,10 @@ export const mayRunOn = (state) => state === 'ready' || state === 'stale';
 
 // Every cloud account of an engine, oldest first.
 export function listCloudLogins(engine, { home = os.homedir() } = {}) {
-  return Object.values(readCloudLogins({ home }))
-    .filter((r) => r && r.engine === engine && r.id)
-    .map((r) => ({ ...r, key: r.key ?? r.dir }))
+  const mine = Object.values(readCloudLogins({ home })).filter((r) => r && r.engine === engine && r.id);
+  const dup = duplicatesIn(mine);
+  return mine
+    .map((r) => ({ ...r, key: r.key ?? r.dir, ...(dup.has(r.key ?? r.dir) ? { duplicateOf: dup.get(r.key ?? r.dir) } : {}) }))
     .sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0));
 }
 
@@ -150,8 +169,9 @@ export function listCloudLogins(engine, { home = os.homedir() } = {}) {
 export function pickCloudLogin(engine, { home = os.homedir(), now = Date.now() } = {}) {
   return withLock(home, () => {
     const all = readCloudLogins({ home });
+    const dup = duplicatesIn(Object.values(all).filter((r) => r?.engine === engine));
     const ready = Object.entries(all)
-      .filter(([, r]) => r?.engine === engine && mayRunOn(cloudLoginState(r, { now })))
+      .filter(([, r]) => r?.engine === engine && !dup.has(r.key ?? r.dir) && mayRunOn(cloudLoginState(r, { now })))
       .sort(([, a], [, b]) => (a.lastUsedAt || 0) - (b.lastUsedAt || 0));
     if (!ready.length) return null;
     const [k, r] = ready[0];

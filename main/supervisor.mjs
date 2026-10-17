@@ -43,7 +43,7 @@ import { cloudWorkPending, readMarker } from './cloud/marker.mjs';
 import { ownDesignsFit } from './cloud/docs.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
 import { readCloudConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
-import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey } from './cloud/logins.mjs';
+import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, markCloudLogin } from './cloud/logins.mjs';
 import { execFileSync } from 'node:child_process';
 import { holdUntilHome } from './cloud/codex-cloud.mjs';
 import { readCloudUsage, summarizeCloudUsage } from './cloud/usage.mjs';
@@ -4183,7 +4183,7 @@ export class Supervisor {
     for (const engine of [DEFAULT_ENGINE, 'codex']) {
       listCloudLogins(engine, { home: this.config.home }).forEach((r) => {
         const state = cloudLoginState(r, { now });
-        out.push({ engine, key: r.key, name: r.email || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null, limitedUntil: r.limitedUntil ?? null });
+        out.push({ engine, key: r.key, name: r.email || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null, limitedUntil: r.limitedUntil ?? null, duplicateOf: r.duplicateOf ?? null });
       });
     }
     return out;
@@ -4273,6 +4273,35 @@ export class Supervisor {
     this._cloudSignIns.set(flowKey, flow);
     this.onChange?.();
     return { key: account };
+  }
+
+  // WHICH CLAUDE ACCOUNT EACH CLOUD SIGN-IN IS (main/cloud/org.mjs), asked
+  // once per account that has no `org` yet, one at a time, so the same
+  // account added twice is known (main/cloud/logins.mjs `duplicatesIn`). An
+  // account the cloud would not say for is asked again after ten minutes.
+  async _noteCloudOrgs(now = Date.now()) {
+    if (!this._cloudConfig || this._cloudOrgBusy) return;
+    this._cloudOrgTried ??= new Map();
+    const rec = listCloudLogins('claude', { home: this.config.home })
+      .find((r) => !r.org && !r.broken && now - (this._cloudOrgTried.get(`${r.key}:${r.id}`) ?? 0) > 10 * 60_000);
+    if (!rec) return;
+    this._cloudOrgBusy = true;
+    this._cloudOrgTried.set(`${rec.key}:${rec.id}`, now);
+    try {
+      const org = await this._readCloudOrg(rec);
+      if (org) markCloudLogin('claude', rec.key, rec.id, { org }, { home: this.config.home });
+    } catch (e) {
+      console.warn('zero: could not read which account a cloud sign-in is:', e.message);
+    } finally {
+      this._cloudOrgBusy = false;
+      this._cloudConfigAt = 0;
+      this.onChange?.();
+    }
+  }
+
+  async _readCloudOrg(rec) {
+    const { readCloudOrg } = await import('./cloud/org.mjs');
+    return readCloudOrg(rec, await this._cloudClients());
   }
 
   // CODEX LOGINS RENEWED BEFORE THEY RUN OUT, on the supervisor's own clock
@@ -5417,7 +5446,7 @@ export class Supervisor {
     try { this._forgetResetLimits(); } catch (e) { console.warn('zero: could not let a reset limit go:', e.message); }
     try { this._forgetRenewedSubscriptions(); } catch (e) { console.warn('zero: could not let a renewed subscription back in:', e.message); }
     // _cloudReady reads the cloud's setup (at most once a minute) first.
-    try { this._cloudReady('codex'); this._renewCloudLogins(); } catch (e) { console.warn('zero: could not check the cloud sign-ins:', e.message); }
+    try { this._cloudReady('codex'); this._renewCloudLogins(); void this._noteCloudOrgs(); } catch (e) { console.warn('zero: could not check the cloud sign-ins:', e.message); }
     try { if (this._cloudConfig) this._forgetOldCloudTokens(); } catch { /* tried */ }
     // A COOLDOWN STOPS THE SPAWNING AND IT MUST NOT STOP THE TELLING. The brake
     // goes on when there is no healthy account left anywhere, for up to half an

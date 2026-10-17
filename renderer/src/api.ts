@@ -398,6 +398,10 @@ export const api = {
           base.cloud.running = 0;
           base.cloud.accounts = base.cloud.accounts.map((a) => ({ ...a, ready: false, state: 'limited' as const, limitedUntil: Date.now() + 2 * 3600_000 }));
         }
+        // &dup draws the second cloud account as the same account as the first.
+        if (params.has('dup') && base.cloud?.accounts[1]) {
+          base.cloud.accounts[1] = { ...base.cloud.accounts[1], ready: false, state: 'duplicate' as const, duplicateOf: base.cloud.accounts[0].key };
+        }
         // &kept draws that thread kept on this Mac instead.
         const first = base.supervisor.running[0];
         if (params.has('kept') && first) {
