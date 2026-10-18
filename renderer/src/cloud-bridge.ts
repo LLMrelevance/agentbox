@@ -21,6 +21,7 @@ import { atMostEvery } from './phone-polls';
 import { madeHere } from '../../shared/phone-snapshot.mjs';
 import { statusForReply } from './list-rules';
 import { setPictureLinks } from './picture';
+import { sendFiles, sentFileName, sentNamesIn } from './phone-sends-files';
 import { BUCKET, cloudPlaces, findFile, homeOf, installCloudFiles, keyAt, pageForPhone, pageStyles, withStyles, type Place } from './cloud-files';
 
 type Push = (payload: unknown) => void;
@@ -221,6 +222,8 @@ function findFolder(place: Place, src: string): { folder: string; keys: string[]
 }
 
 const LINK_LIFE_MS = 12 * 3600_000;
+// The bucket's own bound on a file (20261017000000_phone_files.sql).
+const SEND_MAX_BYTES = 25 * 1024 * 1024;
 const LINK_RENEW_MS = 3600_000;
 
 const SUPERVISOR = { paused: false, pausedProducts: [], running: [], stalled: [], queued: [], scheduled: [], productOrder: [], hiddenProducts: [], personalProducts: [], capacity: 0 };
@@ -254,8 +257,14 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
   const objectOf = (place: Place, name: string) => `${client.session()?.user.id}/${place.device}/${name}`;
   async function signLinks() {
     const want: string[] = [];
+    const stale = (n: string) => !((links.get(n)?.until ?? 0) - Date.now() > LINK_RENEW_MS);
     for (const place of places.values()) for (const e of place.files.values()) {
-      if (e.n && !((links.get(e.n)?.until ?? 0) - Date.now() > LINK_RENEW_MS)) want.push(objectOf(place, e.n));
+      if (e.n && stale(e.n)) want.push(objectOf(place, e.n));
+    }
+    // What she sent that her computer has not taken yet, drawn from where she put it.
+    for (const c of rows.commands) {
+      if (c.taken_at) continue;
+      for (const n of sentNamesIn(String(c.payload?.text ?? c.payload?.body ?? ''))) if (stale(n)) want.push(`${client.session()?.user.id}/${c.device}/${n}`);
     }
     const asked = client.generation();
     for (let i = 0; i < want.length; i += 300) {
@@ -266,6 +275,8 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
   }
   const linkOfEntry = (n?: string) => (n ? links.get(n)?.url ?? null : null);
   const linkFor = (file: string) => {
+    const sent = sentFileName(file);
+    if (sent) return linkOfEntry(sent);
     const at = keyAt(places, file);
     return at ? linkOfEntry(at.place.files.get(at.key)?.n) : null;
   };
@@ -428,6 +439,13 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       for (const key of [...pages.keys()]) dropPage(key);
       changed(null);
       return { ok: true };
+    },
+    // A picture in a reply goes to her storage first (phone-sends-files.ts).
+    saveAttachments: async ({ product, files }: { product: string; files: Array<{ name: string; dataBase64?: string }> }) => {
+      const where = splitSlug(product);
+      const owner = client.session()?.user.id;
+      if (!where || !owner) throw new Error(NOT_HERE);
+      return sendFiles({ put: (object, bytes, type) => client.putFile(BUCKET, object, bytes, type), owner, device: where.device, files, maxBytes: SEND_MAX_BYTES });
     },
     // HER FILES, from the links her Mac's list gives (cloud-files.ts).
     openArtifact: async (p: { product: string; src: string; mode?: string }) => {

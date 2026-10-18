@@ -145,6 +145,15 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
       const out = await call(`/rest/v1/${table}`, { method: 'POST', headers: { prefer: 'return=representation' }, body: JSON.stringify(row) });
       return Array.isArray(out) ? out[0] : out;
     },
+    /** A file into her own folder of a private bucket; one already there by that name is the same file. */
+    async putFile(bucket: string, path: string, bytes: Uint8Array, type: string) {
+      try {
+        await call(`/storage/v1/object/${bucket}/${path.split('/').map(encodeURIComponent).join('/')}`, { method: 'POST', headers: { 'content-type': type, 'x-upsert': 'false' }, body: bytes as BodyInit });
+      } catch (err) {
+        if ((err as { status?: number }).status === 409 || /exists|duplicate/i.test(String((err as Error).message))) return;
+        throw err;
+      }
+    },
     /** Links to her own files in a private bucket, each good for `seconds`: path -> address. */
     async signFiles(bucket: string, paths: string[], seconds = 3600): Promise<Map<string, string>> {
       const out = await call(`/storage/v1/object/sign/${bucket}`, { method: 'POST', body: JSON.stringify({ expiresIn: seconds, paths }) });

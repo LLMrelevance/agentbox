@@ -301,6 +301,11 @@ export function memoryBackend(cloud, personId) {
       const key = `${personId}/${device}/${name}`;
       if (!(cloud.phoneFiles ??= new Map()).has(key)) cloud.phoneFiles.set(key, { data: Buffer.from(data), type });
     },
+    async getPhoneFile({ owner, device, name }) {
+      if (owner && owner !== personId) refuse('read somebody else\'s phone');
+      const f = cloud.phoneFiles?.get(`${personId}/${device}/${name}`);
+      return f ? Buffer.from(f.data) : null;
+    },
     async dropPhoneFiles({ owner, device, names }) {
       if (owner && owner !== personId) return;
       for (const n of names) cloud.phoneFiles?.delete(`${personId}/${device}/${n}`);

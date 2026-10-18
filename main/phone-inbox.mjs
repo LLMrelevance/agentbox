@@ -35,7 +35,17 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, hideSecrets, bytesOf, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
-import { createPhoneUploads } from './phone-uploads.mjs';
+import { createPhoneUploads, UPLOAD_LIMITS } from './phone-uploads.mjs';
+import { saveAttachments } from './save-attachments.mjs';
+
+// A file her phone sent with a reply or a new thread: put in her storage, in
+// this computer's folder, named by what is in it (renderer/src/cloud-bridge.ts).
+const PHONE_FILE = /(!?)\[([^\]\n]*)\]\(phone-files\/([0-9a-f]{64}\.[a-z0-9]{1,8})\)/g;
+const PHONE_FILES_MAX = 10;
+export function phoneFilesIn(text) {
+  return [...String(text ?? '').matchAll(PHONE_FILE)].map((m) => ({ link: m[0], picture: m[1] === '!', label: m[2], name: m[3] }));
+}
+class Refused extends Error {}
 
 // How long a thread started on the phone is remembered as the row it became:
 // long past any reply still waiting for it (second review, finding 8).
@@ -216,6 +226,33 @@ export function createPhoneInbox({
     }
   }
 
+  // The command with each file its phone sent saved in the project's
+  // attachments, and linked there. A file that is missing or is not what its
+  // name says refuses the command; trouble reaching the cloud leaves it for
+  // the next pass.
+  async function withPhoneFiles(cmd) {
+    const field = cmd.kind === 'reply' ? 'text' : cmd.kind === 'new' ? 'body' : null;
+    const words = field && typeof cmd.payload?.[field] === 'string' ? cmd.payload[field] : '';
+    const found = phoneFilesIn(words);
+    if (!found.length) return cmd;
+    if (!backend.getPhoneFile) throw new Refused('this computer cannot take files from your phone');
+    if (found.length > PHONE_FILES_MAX) throw new Refused(`more than ${PHONE_FILES_MAX} files at once`);
+    const dir = projects().find((p) => p.slug === cmd.project)?.dir;
+    if (!dir) throw new Refused('this project has no folder for files');
+    let out = words;
+    for (const f of found) {
+      const data = await backend.getPhoneFile({ owner, device, name: f.name });
+      if (!data) throw new Refused('a picture from your phone did not reach this computer');
+      const hash = crypto.createHash('sha256').update(data).digest('hex');
+      if (data.length > UPLOAD_LIMITS.fileBytes || f.name !== `${hash}${f.name.slice(64)}`) throw new Refused('a file from your phone was not the one it was sent as');
+      const [saved] = saveAttachments(dir, [{ name: f.label.trim() || f.name, dataBase64: data.toString('base64') }]);
+      out = out.replace(f.link, () => `${f.picture ? '!' : ''}[${saved.name}](${saved.rel})`);
+      // The same file the uploader would send for the thread, already there.
+      if (uploads) { state.uploaded[f.name] = { bytes: data.length, named: now() }; save(); }
+    }
+    return { ...cmd, payload: { ...cmd.payload, [field]: out } };
+  }
+
   // What a command already did, if this computer did it before it stopped:
   // the line or the row that carries the command's own id (`fromPhone`,
   // shared/work-items.mjs). Nothing else counts, however alike its words.
@@ -255,12 +292,19 @@ export function createPhoneInbox({
           } else {
             state.doing[cmd.id] = { at: now() };
             save();
-            try {
-              const out = await apply(resolved);
-              if (cmd.kind === 'new' && typeof out?.id === 'string') state.made[madeHere(cmd.id)] = { id: out.id, at: now() };
-              outcome = 'done';
-            } catch (err) {
-              outcome = `refused: ${String(err?.message || err).slice(0, 200)}`;
+            let ready = null;
+            try { ready = await withPhoneFiles(resolved); } catch (err) {
+              if (!(err instanceof Refused)) throw err;
+              outcome = `refused: ${err.message}`;
+            }
+            if (ready) {
+              try {
+                const out = await apply(ready);
+                if (cmd.kind === 'new' && typeof out?.id === 'string') state.made[madeHere(cmd.id)] = { id: out.id, at: now() };
+                outcome = 'done';
+              } catch (err) {
+                outcome = `refused: ${String(err?.message || err).slice(0, 200)}`;
+              }
             }
           }
         }
