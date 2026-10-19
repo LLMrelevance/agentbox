@@ -18,7 +18,7 @@ import { REQUEST_CHANNELS, PUSH_CHANNELS, DESKTOP_ONLY } from '../../shared/brid
 import { cloudClient, type CloudClient, type CloudConfig } from './cloud-rest';
 import { installPhoneScreen } from './phone-screen';
 import { atMostEvery } from './phone-polls';
-import { madeHere } from '../../shared/phone-snapshot.mjs';
+import { madeHere, phoneChoices } from '../../shared/phone-snapshot.mjs';
 import { statusForReply } from './list-rules';
 import { setPictureLinks } from './picture';
 import { sendFiles, sentFileName, sentNamesIn } from './phone-sends-files';
@@ -27,7 +27,7 @@ import { BUCKET, cloudPlaces, findFile, homeOf, installCloudFiles, keyAt, pageFo
 type Push = (payload: unknown) => void;
 
 export interface PhoneRows {
-  projects: { device: string; project: string; name: string }[];
+  projects: { device: string; project: string; name: string; updated_at?: string }[];
   threads: { device: string; project: string; item: string; snapshot: any; updated_at?: string }[];
   commands: { id: string; device: string; project: string; item: string | null; kind: string; payload: any; created_at: string; claimed_at?: string | null; taken_at: string | null; outcome: string | null }[];
 }
@@ -37,6 +37,7 @@ export interface Waiting { product: string; id: string; at: number; text: string
 // How long a refusal stays on her screen: long enough to be read the next time
 // she looks, not forever.
 const REFUSAL_SHOWN_MS = 24 * 3600_000;
+const LANDING_SHOWN_MS = 2 * 3600_000;
 // A run the Mac has not said is still going for this long is not drawn as
 // running: the Mac went to sleep or lost the network mid-run, and its copy
 // online would otherwise say "working" forever (main/phone-inbox.mjs sends it
@@ -119,7 +120,10 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
     const at = Date.parse(c.created_at) || now;
     const refused = c.outcome?.startsWith('refused') ? c.outcome.replace(/^refused:\s*/, '') : null;
     const takenAt = c.taken_at ? Date.parse(c.taken_at) || at : null;
-    if (takenAt !== null && !(refused && now - takenAt < REFUSAL_SHOWN_MS)) continue;
+    // A reply her Mac took shows until a copy of its thread made after that arrives.
+    const copyAt = Date.parse(rows.threads.find((t) => t.device === c.device && t.project === c.project && t.item === c.item)?.updated_at ?? '') || 0;
+    const landing = c.kind === 'reply' && c.outcome === 'done' && takenAt !== null && copyAt < takenAt && now - takenAt < LANDING_SHOWN_MS;
+    if (takenAt !== null && !landing && !(refused && now - takenAt < REFUSAL_SHOWN_MS)) continue;
     // Taken back on the phone: nothing to show.
     if (c.outcome === UNDONE) continue;
     const slug = phoneSlug(c.device, c.project);
@@ -163,11 +167,25 @@ export function phoneHistory(rows: PhoneRows, product: string, id: string, alias
 // computer's. Returns the command to take back, or null.
 export function closeToTakeBack(rows: PhoneRows, channel: string, p: any, aliases: Aliases = {}) {
   if (channel !== REQUEST_CHANNELS.answer || p?.status !== 'open' || (typeof p.answer === 'string' && p.answer.trim())) return null;
-  const where = splitSlug(p.product);
+  return waitingFor(rows, p, aliases, 'close');
+}
+
+// The same for a reply, when the window stops the agent to undo it, and for a
+// new thread, closed by the id the inbox drew it with.
+export function takeBack(rows: PhoneRows, channel: string, p: any, aliases: Aliases = {}) {
+  if (channel === REQUEST_CHANNELS.stopSession) return waitingFor(rows, p, aliases, 'reply');
+  if (channel === REQUEST_CHANNELS.answer && p?.status === 'done' && !(typeof p.answer === 'string' && p.answer.trim())) {
+    const where = splitSlug(p.product);
+    return rows.commands.find((c) => c.kind === 'new' && !c.taken_at && !c.claimed_at && c.device === where?.device && c.project === where?.project && madeHere(c.id) === p.id) ?? null;
+  }
+  return closeToTakeBack(rows, channel, p, aliases);
+}
+
+function waitingFor(rows: PhoneRows, p: any, aliases: Aliases, kind: string) {
+  const where = splitSlug(p?.product);
   if (!where) return null;
   const item = realItem(aliases, p.product, p.id);
-  const waiting = rows.commands.filter((c) => c.kind === 'close' && !c.taken_at && !c.claimed_at && c.device === where.device && c.project === where.project && c.item === item);
-  return waiting.at(-1) ?? null;
+  return rows.commands.filter((c) => c.kind === kind && !c.taken_at && !c.claimed_at && c.device === where.device && c.project === where.project && c.item === item).at(-1) ?? null;
 }
 
 export function commandFor(channel: string, p: any, aliases: Aliases = {}): { device: string; project: string; item: string | null; kind: string; payload: Record<string, unknown> } | null {
@@ -175,13 +193,13 @@ export function commandFor(channel: string, p: any, aliases: Aliases = {}): { de
   if (!where) return null;
   const on = (item: string | null, kind: string, payload: Record<string, unknown>) => ({ ...where, item: item === null ? null : realItem(aliases, p.product, item), kind, payload });
   if (channel === REQUEST_CHANNELS.answer) {
-    if (typeof p.answer === 'string' && p.answer.trim()) return on(p.id, 'reply', { text: p.answer });
+    if (typeof p.answer === 'string' && p.answer.trim()) return on(p.id, 'reply', { text: p.answer, ...phoneChoices('reply', p) });
     if (p.status === 'done') return on(p.id, 'close', {});
     return null;
   }
   if (channel === REQUEST_CHANNELS.snooze && Number.isFinite(p.snoozedUntil) && p.snoozedUntil >= 0) return on(p.id, 'snooze', { until: p.snoozedUntil });
   if (channel === REQUEST_CHANNELS.compose && (String(p.title ?? '').trim() || String(p.body ?? '').trim())) {
-    return on(null, 'new', { title: String(p.title ?? ''), body: String(p.body ?? '') });
+    return on(null, 'new', { title: String(p.title ?? ''), body: String(p.body ?? ''), ...phoneChoices('new', p) });
   }
   return null;
 }
@@ -200,6 +218,26 @@ const READS = new Set([
   // Where she dragged a row or a project to: kept on this page, not sent.
   'setThreadPlaces', 'setThreadPins', 'setProductOrder', 'setProductHidden',
 ]);
+const ago = (ms: number) => {
+  const m = Math.max(1, Math.round(ms / 60_000));
+  if (m < 60) return `${m} minute${m === 1 ? '' : 's'} ago`;
+  const h = Math.round(m / 60);
+  if (h < 36) return `${h} hour${h === 1 ? '' : 's'} ago`;
+  const d = Math.round(h / 24);
+  return `${d} day${d === 1 ? '' : 's'} ago`;
+};
+// Her Mac writes its projects again every five minutes (main/phone-inbox.mjs),
+// so one quiet for longer than this is away.
+const MAC_AWAY_MS = 15 * 60_000;
+/** The line over her inbox when what it shows may be out of date, or null. */
+export function phoneStatusLine({ error, fetchedAt, macSeen }: { error: string | null; fetchedAt: number; macSeen: number }, now = Date.now()): string | null {
+  if (error) return `Can't reach your inbox online.${fetchedAt ? ` This is how it was ${ago(now - fetchedAt)}.` : ''}`;
+  if (macSeen && now - macSeen > MAC_AWAY_MS) return `Your Mac was last online ${ago(now - macSeen)}. What you send waits for it.`;
+  return null;
+}
+/** When the most recently seen of her computers last wrote its projects. */
+export const macSeenOf = (projects: { updated_at?: string }[]) => Math.max(0, ...projects.map((p) => Date.parse(p.updated_at ?? '') || 0));
+
 export const NOT_HERE = 'Your computer does this. Your phone can reply, start a thread, close, and move things to Later.';
 
 export function readCloudConfig(doc: Document = document): CloudConfig | null {
@@ -303,12 +341,20 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     return [...waiting, ...done];
   }
 
-  async function refresh() {
+  // One read at a time: on a slow network a read can outlast the five seconds between them.
+  let reading: Promise<void> | null = null;
+  let fetchedAt = 0;
+  function refresh() {
+    if (reading) return reading;
+    reading = readRows().finally(() => { reading = null; });
+    return reading;
+  }
+  async function readRows() {
     if (!client.signedIn()) { rows = EMPTY_ROWS; return; }
     const asked = client.generation();
     try {
       const [projects, threads, cmds] = await Promise.all([
-        client.select('phone_projects', 'select=device,project,name&order=name'),
+        client.select('phone_projects', 'select=device,project,name,updated_at&order=name'),
         client.select('phone_threads', 'select=device,project,item,snapshot,updated_at&order=updated_at.desc&limit=1000'),
         commands(),
       ]);
@@ -317,6 +363,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       rows = { projects, threads, commands: cmds };
       places = cloudPlaces(threads, phoneSlug);
       error = null;
+      fetchedAt = Date.now();
       // Links before the screens draw, so a picture is pointed at its file the moment it is drawn.
       await signLinks().catch(() => { /* the pictures say missing, the words still read */ });
     } catch (err) {
@@ -326,7 +373,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     }
     // A run going stale changes nothing online, and still has to stop being drawn.
     const fresh = rows.threads.map((t) => !!t.snapshot?.live && Date.now() - Number(t.snapshot.live.at) < LIVE_FOR_MS);
-    const key = JSON.stringify([rows.threads.map((t) => [t.item, t.updated_at]), fresh, links.size, rows.commands.map((c) => [c.id, c.taken_at]), rows.projects, error, client.signedIn()]);
+    const key = JSON.stringify([rows.threads.map((t) => [t.item, t.updated_at]), fresh, links.size, rows.commands.map((c) => [c.id, c.taken_at]), rows.projects, error, client.signedIn(), phoneStatusLine({ error, fetchedAt, macSeen: macSeenOf(rows.projects) })]);
     if (key !== last) { last = key; changed(null); }
   }
 
@@ -356,24 +403,42 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     ? null
     : { configured: true, started, signedIn: false, signingIn: null, me: null, team: null, invites: [], sent: [], people: [], cards: [], lastSyncAt: null, error });
 
-  const leave = async (channel: string, payload: unknown) => {
-    const back = closeToTakeBack(rows, channel, payload, aliases);
+  // Threads whose reply was just taken back: the window's own undo goes on to
+  // put the schedule back and send "(withdrawn)", none of which the Mac saw.
+  const withdrawn = new Map<string, number>();
+  const leave = async (channel: string, payload: any) => {
+    const back = takeBack(rows, channel, payload, aliases);
     if (back) {
       const asked = client.generation();
       // Only while the computer has not claimed it (Codex's third review, finding 3).
       const done = await client.update('phone_commands', `id=eq.${encodeURIComponent(back.id)}&taken_at=is.null&claimed_at=is.null`, { taken_at: new Date().toISOString(), outcome: UNDONE });
       if (!done.length) throw new Error('Your computer already has it. Reopen it there.');
       if (client.generation() === asked) rows = { ...rows, commands: rows.commands.map((c) => (c.id === back.id ? done[0] : c)) };
+      if (back.kind === 'reply') withdrawn.set(`${payload.product}/${payload.id}`, Date.now());
       changed(null);
       return { ok: true };
     }
-    const cmd = commandFor(channel, payload, aliases);
+    if ((withdrawn.get(`${payload?.product}/${payload?.id}`) ?? 0) > Date.now() - 60_000
+      && (channel === REQUEST_CHANNELS.schedule || (channel === REQUEST_CHANNELS.answer && (payload?.answer === '(withdrawn)' || !String(payload?.answer ?? '').trim())))) return { ok: true };
+    if (channel === REQUEST_CHANNELS.stopSession) throw new Error('Stop it on your computer: your phone can only take back a reply it has not taken yet.');
+    const cmd = commandFor(channel, channel === REQUEST_CHANNELS.answer && scheduled(payload) ? { ...payload, unschedule: true } : payload, aliases);
     if (!cmd) throw new Error(NOT_HERE);
     const asked = client.generation();
     const row = await client.insert('phone_commands', cmd);
     if (client.generation() === asked) rows = { ...rows, commands: [...rows.commands, row] };
+    if (cmd.kind === 'reply' && cmd.payload.unschedule) replied.set(`${payload.product}/${payload.id}`, Date.now());
     changed(null);
+    // The row the inbox draws for a new thread until her Mac makes it, so it has Undo and Open.
+    if (cmd.kind === 'new') return { id: madeHere(row.id), product: payload.product, title: String(cmd.payload.title || cmd.payload.body || '').slice(0, 200), body: String(cmd.payload.body ?? ''), status: 'open', kind: 'directive', labels: ['founder'], priority: 0, createdAt: Date.now(), updatedAt: Date.now() };
     return { ok: true };
+  };
+  // A reply to a thread put off clears the schedule on her Mac (phone-inbox.mjs
+  // ROUTES), so the window's clearing call right after it has nothing to do.
+  const replied = new Map<string, number>();
+  const scheduled = (p: any) => {
+    const item = realItem(aliases, p?.product, p?.id);
+    const t = rows.threads.find((r) => phoneSlug(r.device, r.project) === p?.product && r.item === item)?.snapshot?.item;
+    return Math.max(Number(t?.runAt) || 0, Number(t?.snoozedUntil) || 0) > Date.now();
   };
   const signedInThen = async (fn: () => Promise<unknown>) => {
     try { await fn(); error = null; await refresh(); changed(null); return { ok: true }; } catch (err) { return { ok: false, error: String((err as Error)?.message ?? err) }; }
@@ -400,6 +465,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       aliases = view.aliases;
       return {
         products: view.products, items: view.items, phoneWaiting: view.waiting,
+        phoneStatus: client.signedIn() ? phoneStatusLine({ error, fetchedAt, macSeen: macSeenOf(rows.projects) }) : null,
         team: team(), agents: [], approvals: [], supervisor: { ...SUPERVISOR, running: view.running, productOrder: view.products.map((p) => p.slug) },
         engines: null, runsOn: null, restartNeeded: null, cloud: null,
         config: { browserHome: '', browserPins: [], outsideAgents: 'off' },
@@ -419,6 +485,11 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     dashboard: async () => null,
     codeChange: async () => ({ ok: false }),
     answer: (p: unknown) => leave(REQUEST_CHANNELS.answer, p),
+    stopSession: (p: unknown) => leave(REQUEST_CHANNELS.stopSession, p),
+    schedule: async (p: any) => {
+      if (p?.runAt === 0 && (replied.get(`${p.product}/${p.id}`) ?? 0) > Date.now() - 60_000) return { ok: true };
+      return leave(REQUEST_CHANNELS.schedule, p);
+    },
     snooze: (p: unknown) => leave(REQUEST_CHANNELS.snooze, p),
     compose: (p: unknown) => leave(REQUEST_CHANNELS.compose, p),
     badge: async () => null,

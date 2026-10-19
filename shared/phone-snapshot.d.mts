@@ -7,6 +7,7 @@ export function threadSnapshot(item: Record<string, unknown>, history?: unknown[
 export function threadsWorthCarrying<T>(items: T[], opts?: { now?: number }): T[];
 export function snapshotKey(snapshot: unknown): string;
 export function madeHere(commandId: string): string;
+export function phoneChoices(kind: string, p: Record<string, unknown> | null | undefined): Record<string, unknown>;
 export function phoneChoiceOf(saved: unknown, personId: string | null | undefined, every?: string[]): { all: boolean; except: string[] };
 export function phoneProjectsOf(saved: unknown, personId: string | null | undefined, every?: string[]): string[];
 export function withPhoneProject(saved: unknown, personId: string | null | undefined, slug: string, on: boolean, every?: string[]): { owner: string; all: boolean; except: string[] };

@@ -34,7 +34,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
-import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, hideSecrets, bytesOf, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
+import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, hideSecrets, bytesOf, phoneChoices, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
 import { createPhoneUploads, UPLOAD_LIMITS } from './phone-uploads.mjs';
 import { saveAttachments } from './save-attachments.mjs';
 
@@ -42,6 +42,7 @@ import { saveAttachments } from './save-attachments.mjs';
 // this computer's folder, named by what is in it (renderer/src/cloud-bridge.ts).
 const PHONE_FILE = /(!?)\[([^\]\n]*)\]\(phone-files\/([0-9a-f]{64}\.[a-z0-9]{1,8})\)/g;
 const PHONE_FILES_MAX = 10;
+const HEARTBEAT_MS = 5 * 60_000;
 export function phoneFilesIn(text) {
   return [...String(text ?? '').matchAll(PHONE_FILE)].map((m) => ({ link: m[0], picture: m[1] === '!', label: m[2], name: m[3] }));
 }
@@ -136,6 +137,7 @@ export function createPhoneInbox({
   // Each project's pass is one stretch of work; between them the window gets a turn.
   const breathe = () => new Promise((resolve) => setImmediate(resolve));
 
+  const beats = new Map();
   async function publish() {
     let sent = 0;
     const chosen = projects();
@@ -143,7 +145,13 @@ export function createPhoneInbox({
     for (const p of chosen) {
       await breathe();
       const key = `project:${p.slug}`;
-      if (state.sent[key] !== p.name) { still(); await backend.putPhoneProject({ owner, device, project: p.slug, name: p.name }); state.sent[key] = p.name; save(); }
+      // Written again every few minutes unchanged: its moment is how the phone knows this Mac is still here.
+      if (state.sent[key] !== p.name || !(now() - (beats.get(key) ?? -Infinity) < HEARTBEAT_MS)) {
+        still();
+        await backend.putPhoneProject({ owner, device, project: p.slug, name: p.name });
+        beats.set(key, now());
+        if (state.sent[key] !== p.name) { state.sent[key] = p.name; save(); }
+      }
       const rows = threadsWorthCarrying(listItems(p.slug), { now: now() });
       const batch = [];
       const here = new Set();
@@ -294,7 +302,9 @@ export function createPhoneInbox({
             save();
             let ready = null;
             try { ready = await withPhoneFiles(resolved); } catch (err) {
-              if (!(err instanceof Refused)) throw err;
+              if (err instanceof SignedOut) throw err;
+              // The cloud not answering just now: this one waits for the next pass, the rest go on.
+              if (!(err instanceof Refused)) { log(`phone: could not take a file for ${cmd.id} yet: ${err?.message ?? err}`); continue; }
               outcome = `refused: ${err.message}`;
             }
             if (ready) {
@@ -363,18 +373,25 @@ export function phoneDevice(appDataDir, storeRoot) {
 // main/main.mjs files every channel in. A handler that answers `ok: false`
 // turned it down, and that is what the phone is told.
 const ROUTES = {
-  reply: (c) => ['zero:answer', { product: c.project, id: c.item, answer: c.payload.text, fromPhone: c.id }],
+  reply: (c) => {
+    const { unschedule, ...picked } = phoneChoices('reply', c.payload);
+    return ['zero:answer', { product: c.project, id: c.item, answer: c.payload.text, fromPhone: c.id, ...picked },
+      // As the window does: a reply brings a thread put off to a time back now.
+      unschedule ? ['zero:schedule', { product: c.project, id: c.item, runAt: 0 }] : null];
+  },
   close: (c) => ['zero:answer', { product: c.project, id: c.item, status: 'done' }],
   snooze: (c) => ['zero:snooze', { product: c.project, id: c.item, snoozedUntil: c.payload.until }],
-  new: (c) => ['zero:compose', { product: c.project, title: c.payload.title ?? '', body: c.payload.body ?? '', fromPhone: c.id }],
+  new: (c) => ['zero:compose', { product: c.project, title: c.payload.title ?? '', body: c.payload.body ?? '', fromPhone: c.id, ...phoneChoices('new', c.payload) }],
 };
 export function applyThrough(channels) {
   return async (cmd) => {
-    const [channel, args] = ROUTES[cmd.kind]?.({ ...cmd, payload: cmd.payload || {} }) ?? [];
+    const [channel, args, then] = ROUTES[cmd.kind]?.({ ...cmd, payload: cmd.payload || {} }) ?? [];
     const fn = channel && channels.get(channel);
     if (!fn) throw new Error('this computer cannot do that yet');
     const out = await fn({ sender: null }, args);
     if (out && out.ok === false) throw new Error(out.error || 'the app turned it down');
+    // Done already; what follows is tidying, and its trouble is not the command's.
+    if (then && channels.get(then[0])) { try { await channels.get(then[0])({ sender: null }, then[1]); } catch { /* the schedule stays */ } }
     return out;
   };
 }

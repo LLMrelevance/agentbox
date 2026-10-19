@@ -227,6 +227,31 @@ export function snapshotKey(snapshot) {
 // one of these, or names a project she did not put on her phone, or a thread
 // that is not in it, is refused and says why.
 export const PHONE_COMMANDS = ['reply', 'new', 'snooze', 'close'];
+
+// WHAT SHE PICKED WITH A REPLY OR A NEW THREAD, as the window's own handlers
+// take it (main/ipc.mjs zero:answer, zero:compose): only these fields, each
+// only in its right shape. Null on a reply clears a choice, as in the window.
+const WORD = /^[A-Za-z][\w.:-]{0,79}$/;
+const word = (v, n = 80) => typeof v === 'string' && v.length <= n && WORD.test(v);
+const orNull = (ok) => (v) => v === null || ok(v);
+const CHOICES = {
+  reply: {
+    permissionMode: orNull((v) => word(v, 40)), model: orNull(word), effort: orNull((v) => word(v, 20)),
+    priority: (v) => Number.isInteger(v) && v >= 0 && v <= 10, now: (v) => v === true, unschedule: (v) => v === true,
+  },
+  new: {
+    runAt: (v) => Number.isFinite(v) && v > 0, start: (v) => v === 'later' || v === 'now',
+    engine: (v) => word(v, 40), model: word, effort: (v) => word(v, 20), priority: (v) => Number.isInteger(v) && v >= 0 && v <= 10,
+    assignee: (v) => typeof v === 'string' && v.length >= 1 && v.length <= 80, due: (v) => typeof v === 'string' && v.length <= 40,
+    visibility: (v) => ['team', 'people', 'private'].includes(v),
+    visibleTo: (v) => Array.isArray(v) && v.length <= 50 && v.every((x) => typeof x === 'string' && x.length <= 80),
+  },
+};
+export function phoneChoices(kind, p) {
+  const out = {};
+  for (const [k, ok] of Object.entries(CHOICES[kind] ?? {})) if (p && k in p && p[k] !== undefined && ok(p[k])) out[k] = p[k];
+  return out;
+}
 export function checkCommand(cmd, { projects, hasItem }) {
   if (!cmd || !PHONE_COMMANDS.includes(cmd.kind)) return 'not something the phone may do';
   if (!projects.includes(cmd.project)) return 'that project is not on your phone';

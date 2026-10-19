@@ -37,7 +37,7 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
     try { if (s) storage.setItem(SESSION_KEY, JSON.stringify(s)); else storage.removeItem(SESSION_KEY); } catch { /* private mode: this tab only */ }
   };
 
-  async function call(path: string, init: RequestInit & { auth?: boolean } = {}) {
+  async function call(path: string, init: RequestInit & { auth?: boolean } = {}, again = true): Promise<any> {
     const mine = gen;
     const headers: Record<string, string> = { apikey: cfg.anonKey, 'content-type': 'application/json', ...(init.headers as Record<string, string> | undefined) };
     if (init.auth !== false) headers.authorization = `Bearer ${await token()}`;
@@ -45,7 +45,13 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
     const text = await res.text();
     const body = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
     if (!res.ok) {
-      // Her sign-in has lapsed for good: signed out, so the page says so.
+      // A token the database thinks has run out (a clock that disagrees, a
+      // renewal elsewhere): renewed once and asked again. Only a refused
+      // renewal signs her out.
+      if (res.status === 401 && init.auth !== false && gen === mine && again && session) {
+        session = { ...session, expires_at: 0 };
+        return call(path, init, false);
+      }
       if (res.status === 401 && init.auth !== false && gen === mine) { gen += 1; keep(null); }
       const said = (body && typeof body === 'object' && (body.msg || body.message || body.error_description || body.error)) || `the cloud answered ${res.status}`;
       throw Object.assign(new Error(String(said)), { status: res.status });
@@ -72,17 +78,24 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
   // renewal at a time, and one that is refused outright signs her out.
   async function token(): Promise<string> {
     if (!session) throw new Error('not signed in');
-    if (session.expires_at - now() > 60_000) return session.access_token;
+    // Another tab of the site may have renewed it, spending the refresh token this one holds.
+    if (session.expires_at - now() <= 60_000 && !renewing) {
+      try {
+        const kept = JSON.parse(storage.getItem(SESSION_KEY) || 'null');
+        if (kept?.user?.id === session.user.id && kept.access_token !== session.access_token && kept.expires_at > session.expires_at) session = kept;
+      } catch { /* this one's own */ }
+    }
+    if (session!.expires_at - now() > 60_000) return session!.access_token;
     if (!renewing) {
       const mine = gen;
-      const refresh = session.refresh_token;
+      const refresh = session!.refresh_token;
       renewing = (async () => {
         try {
           const res = await fetchImpl(`${base}/auth/v1/token?grant_type=refresh_token`, { method: 'POST', headers: { apikey: cfg.anonKey, 'content-type': 'application/json' }, body: JSON.stringify({ refresh_token: refresh }) });
           const body = await res.json().catch(() => null);
           if (!res.ok) {
             if ((res.status === 400 || res.status === 401) && gen === mine) { gen += 1; keep(null); }
-            throw new Error(body?.error_description || body?.msg || 'Your sign-in ran out. Sign in again.');
+            throw new Error(body?.error_description || body?.msg || body?.message || 'Your sign-in ran out. Sign in again.');
           }
           return took(body, mine).access_token;
         } finally {

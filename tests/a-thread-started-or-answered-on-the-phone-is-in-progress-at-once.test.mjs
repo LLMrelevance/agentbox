@@ -41,8 +41,11 @@ describe('the phone, before her Mac has taken what she did', () => {
     expect(view.items.map((i) => [i.status, where(i)])).toEqual([['blocked', 'inbox']]);
   });
 
-  it('a reply already taken changes nothing: the Mac\'s own copy says what happened', () => {
-    const view = phoneView({ projects: [P], threads: [thread(asked)], commands: [cmd({ item: asked.id, kind: 'reply', payload: { text: 'Yes' }, taken_at: new Date(T).toISOString(), outcome: 'done' })] }, T + 1000);
+  it('a reply already taken changes nothing once the Mac\'s own copy from after it says what happened', () => {
+    const taken = cmd({ item: asked.id, kind: 'reply', payload: { text: 'Yes' }, taken_at: new Date(T).toISOString(), outcome: 'done' });
+    const view = phoneView({ projects: [P], threads: [{ ...thread(asked), updated_at: new Date(T + 500).toISOString() }], commands: [taken] }, T + 1000);
     expect(view.items[0].answer).toBeUndefined();
+    // Until that copy arrives, it is still the reply she sent.
+    expect(phoneView({ projects: [P], threads: [thread(asked)], commands: [taken] }, T + 1000).items[0].answer).toBe('Yes');
   });
 });

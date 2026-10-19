@@ -453,3 +453,6 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 
 /* An account being added: the moving mark on the line, beside its words. */
 .th-cloud-banner-say:has(.cs-busy) { display: flex; align-items: center; gap: 9px; }
+
+/* On the hosted phone, over the list: what it shows may be out of date. */
+.phone-status { margin: 6px 16px 2px; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--text-dim); font-size: 13px; line-height: 1.4; }

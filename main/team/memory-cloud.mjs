@@ -273,7 +273,7 @@ export function memoryBackend(cloud, personId) {
     // `owner = auth.uid()` refuses it.
     async putPhoneProject({ owner, device, project, name }) {
       if (owner && owner !== personId) refuse('write to somebody else\'s phone');
-      (cloud.phoneProjects ??= new Map()).set(`${personId}:${device}:${project}`, { owner: personId, device, project, name });
+      (cloud.phoneProjects ??= new Map()).set(`${personId}:${device}:${project}`, { owner: personId, device, project, name, updatedAt: cloud.now() });
     },
     async dropPhoneProject(device, project, owner) {
       if (owner && owner !== personId) return;

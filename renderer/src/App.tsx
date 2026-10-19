@@ -6220,6 +6220,7 @@ export default function App() {
                     onSearch={openSearch}
                   />
                 )}
+                {snap.phoneStatus && <div className="phone-status" role="status">{snap.phoneStatus}</div>}
                 {workspaceNavigation && emptyView && !theirRows.length ? (
                   // A FILTER IS READ FIRST, so it can never fall through to
                   // "Nothing needs you" (w-5a08121f99). That sentence is a
