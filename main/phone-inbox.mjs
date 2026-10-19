@@ -381,6 +381,11 @@ const ROUTES = {
   },
   close: (c) => ['zero:answer', { product: c.project, id: c.item, status: 'done' }],
   snooze: (c) => ['zero:snooze', { product: c.project, id: c.item, snoozedUntil: c.payload.until }],
+  stop: (c) => ['zero:stop-session', { product: c.project, id: c.item }],
+  'run-now': (c) => ['zero:run-now', { product: c.project, id: c.item }],
+  'send-now': (c) => ['zero:send-now', { product: c.project, id: c.item }],
+  reopen: (c) => ['zero:reopen', { product: c.project, id: c.item }],
+  schedule: (c) => ['zero:schedule', { product: c.project, id: c.item, runAt: c.payload.runAt }],
   new: (c) => ['zero:compose', { product: c.project, title: c.payload.title ?? '', body: c.payload.body ?? '', fromPhone: c.id, ...phoneChoices('new', c.payload) }],
 };
 export function applyThrough(channels) {
@@ -389,7 +394,7 @@ export function applyThrough(channels) {
     const fn = channel && channels.get(channel);
     if (!fn) throw new Error('this computer cannot do that yet');
     const out = await fn({ sender: null }, args);
-    if (out && out.ok === false) throw new Error(out.error || 'the app turned it down');
+    if (out && out.ok === false) throw new Error(out.error || (out.reason ? `the app turned it down (${out.reason})` : 'the app turned it down'));
     // Done already; what follows is tidying, and its trouble is not the command's.
     if (then && channels.get(then[0])) { try { await channels.get(then[0])({ sender: null }, then[1]); } catch { /* the schedule stays */ } }
     return out;

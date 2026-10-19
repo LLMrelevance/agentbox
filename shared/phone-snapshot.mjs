@@ -226,7 +226,7 @@ export function snapshotKey(snapshot) {
 // WHAT HER PHONE MAY ASK HER MAC TO DO, and nothing else. A command that is not
 // one of these, or names a project she did not put on her phone, or a thread
 // that is not in it, is refused and says why.
-export const PHONE_COMMANDS = ['reply', 'new', 'snooze', 'close'];
+export const PHONE_COMMANDS = ['reply', 'new', 'snooze', 'close', 'stop', 'run-now', 'send-now', 'reopen', 'schedule'];
 
 // WHAT SHE PICKED WITH A REPLY OR A NEW THREAD, as the window's own handlers
 // take it (main/ipc.mjs zero:answer, zero:compose): only these fields, each
@@ -265,5 +265,6 @@ export function checkCommand(cmd, { projects, hasItem }) {
   if (!cmd.item || !hasItem(cmd.project, cmd.item)) return 'that thread is not on your phone';
   if (cmd.kind === 'reply' && !(typeof p.text === 'string' && p.text.trim())) return 'an empty reply';
   if (cmd.kind === 'snooze' && !(Number.isFinite(p.until) && p.until >= 0)) return 'a snooze needs a time';
+  if (cmd.kind === 'schedule' && !(Number.isFinite(p.runAt) && p.runAt >= 0)) return 'a schedule needs a time';
   return null;
 }

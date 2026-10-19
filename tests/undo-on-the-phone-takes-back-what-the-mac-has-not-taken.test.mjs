@@ -24,13 +24,17 @@ const rows = (commands) => ({ projects: [{ device: DEV, project: 'alpha', name: 
 describe('what Undo takes back', () => {
   it('a reply still waiting, when the window stops the agent to undo it', () => {
     const r = rows([cmd('c1', 'reply', { payload: { text: 'go' } }), cmd('c2', 'reply', { payload: { text: 'and this' } })]);
-    expect(takeBack(r, 'zero:stop-session', { product: A, id: 'w-1' })?.id).toBe('c2');
+    expect(takeBack(r, 'zero:stop-session', { product: A, id: 'w-1', withdraw: true })?.id).toBe('c2');
+  });
+
+  it('not on a plain Stop, which goes to her Mac as a stop', () => {
+    expect(takeBack(rows([cmd('c1', 'reply')]), 'zero:stop-session', { product: A, id: 'w-1' })).toBeNull();
   });
 
   it('not a reply her Mac has claimed or done, nor another thread\'s', () => {
-    expect(takeBack(rows([cmd('c1', 'reply', { claimed_at: iso(NOW) })]), 'zero:stop-session', { product: A, id: 'w-1' })).toBeNull();
-    expect(takeBack(rows([cmd('c1', 'reply', { taken_at: iso(NOW), outcome: 'done' })]), 'zero:stop-session', { product: A, id: 'w-1' })).toBeNull();
-    expect(takeBack(rows([cmd('c1', 'reply')]), 'zero:stop-session', { product: A, id: 'w-2' })).toBeNull();
+    expect(takeBack(rows([cmd('c1', 'reply', { claimed_at: iso(NOW) })]), 'zero:stop-session', { product: A, id: 'w-1', withdraw: true })).toBeNull();
+    expect(takeBack(rows([cmd('c1', 'reply', { taken_at: iso(NOW), outcome: 'done' })]), 'zero:stop-session', { product: A, id: 'w-1', withdraw: true })).toBeNull();
+    expect(takeBack(rows([cmd('c1', 'reply')]), 'zero:stop-session', { product: A, id: 'w-2', withdraw: true })).toBeNull();
   });
 
   it('a new thread still waiting, closed by its stand-in id', () => {

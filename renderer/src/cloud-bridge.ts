@@ -173,7 +173,7 @@ export function closeToTakeBack(rows: PhoneRows, channel: string, p: any, aliase
 // The same for a reply, when the window stops the agent to undo it, and for a
 // new thread, closed by the id the inbox drew it with.
 export function takeBack(rows: PhoneRows, channel: string, p: any, aliases: Aliases = {}) {
-  if (channel === REQUEST_CHANNELS.stopSession) return waitingFor(rows, p, aliases, 'reply');
+  if (channel === REQUEST_CHANNELS.stopSession) return p?.withdraw ? waitingFor(rows, p, aliases, 'reply') : null;
   if (channel === REQUEST_CHANNELS.answer && p?.status === 'done' && !(typeof p.answer === 'string' && p.answer.trim())) {
     const where = splitSlug(p.product);
     return rows.commands.find((c) => c.kind === 'new' && !c.taken_at && !c.claimed_at && c.device === where?.device && c.project === where?.project && madeHere(c.id) === p.id) ?? null;
@@ -198,6 +198,9 @@ export function commandFor(channel: string, p: any, aliases: Aliases = {}): { de
     return null;
   }
   if (channel === REQUEST_CHANNELS.snooze && Number.isFinite(p.snoozedUntil) && p.snoozedUntil >= 0) return on(p.id, 'snooze', { until: p.snoozedUntil });
+  if (channel === REQUEST_CHANNELS.schedule && Number.isFinite(p.runAt) && p.runAt >= 0) return on(p.id, 'schedule', { runAt: p.runAt });
+  const plain: Record<string, string> = { [REQUEST_CHANNELS.stopSession]: 'stop', [REQUEST_CHANNELS.runNow]: 'run-now', [REQUEST_CHANNELS.sendNow]: 'send-now', [REQUEST_CHANNELS.reopen]: 'reopen' };
+  if (plain[channel] && p.id) return on(p.id, plain[channel], {});
   if (channel === REQUEST_CHANNELS.compose && (String(p.title ?? '').trim() || String(p.body ?? '').trim())) {
     return on(null, 'new', { title: String(p.title ?? ''), body: String(p.body ?? ''), ...phoneChoices('new', p) });
   }
@@ -420,11 +423,11 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     }
     if ((withdrawn.get(`${payload?.product}/${payload?.id}`) ?? 0) > Date.now() - 60_000
       && (channel === REQUEST_CHANNELS.schedule || (channel === REQUEST_CHANNELS.answer && (payload?.answer === '(withdrawn)' || !String(payload?.answer ?? '').trim())))) return { ok: true };
-    if (channel === REQUEST_CHANNELS.stopSession) throw new Error('Stop it on your computer: your phone can only take back a reply it has not taken yet.');
+    if (channel === REQUEST_CHANNELS.stopSession && payload?.withdraw) throw new Error('Your computer already has it. Undo it there.');
     const cmd = commandFor(channel, channel === REQUEST_CHANNELS.answer && scheduled(payload) ? { ...payload, unschedule: true } : payload, aliases);
     if (!cmd) throw new Error(NOT_HERE);
     const asked = client.generation();
-    const row = await client.insert('phone_commands', cmd);
+    const row = await client.insertCommand(cmd);
     if (client.generation() === asked) rows = { ...rows, commands: [...rows.commands, row] };
     if (cmd.kind === 'reply' && cmd.payload.unschedule) replied.set(`${payload.product}/${payload.id}`, Date.now());
     changed(null);
@@ -486,6 +489,9 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     codeChange: async () => ({ ok: false }),
     answer: (p: unknown) => leave(REQUEST_CHANNELS.answer, p),
     stopSession: (p: unknown) => leave(REQUEST_CHANNELS.stopSession, p),
+    runNow: (p: unknown) => leave(REQUEST_CHANNELS.runNow, p),
+    sendNow: (p: unknown) => leave(REQUEST_CHANNELS.sendNow, p),
+    reopen: (p: unknown) => leave(REQUEST_CHANNELS.reopen, p),
     schedule: async (p: any) => {
       if (p?.runAt === 0 && (replied.get(`${p.product}/${p.id}`) ?? 0) > Date.now() - 60_000) return { ok: true };
       return leave(REQUEST_CHANNELS.schedule, p);

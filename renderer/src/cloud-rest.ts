@@ -60,6 +60,10 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
     return body;
   }
 
+  // Whether this database takes a command's own name; learnt from the first refusal.
+  let unnamed = false;
+  const kindNotTaken = (err: unknown) => (/phone_commands_kind_check|violates check constraint/i.test(String((err as Error)?.message)) ? new Error('Your phone cannot do this yet: its online database needs an update.') : err);
+
   // From a token answer to a kept session, if it is still the sign-in asked for.
   const took = (body: any, mine: number): CloudSession => {
     if (gen !== mine) throw new Error('signed out');
@@ -157,6 +161,28 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
     async insert(table: string, row: Record<string, unknown>) {
       const out = await call(`/rest/v1/${table}`, { method: 'POST', headers: { prefer: 'return=representation' }, body: JSON.stringify(row) });
       return Array.isArray(out) ? out[0] : out;
+    },
+    /**
+     * A command for her computer, named here so that the same command sent
+     * again after a lost answer is one. A database not yet updated for names
+     * (20261019000000_phone_commands_do_more.sql) takes it unnamed, as before.
+     */
+    async insertCommand(row: Record<string, unknown>): Promise<any> {
+      const named = { id: (row.id as string) ?? crypto.randomUUID(), ...row };
+      if (!unnamed) {
+        try {
+          const out = await call('/rest/v1/phone_commands?on_conflict=id', { method: 'POST', headers: { prefer: 'return=representation,resolution=ignore-duplicates' }, body: JSON.stringify(named) });
+          return (Array.isArray(out) ? out[0] : out) ?? named;
+        } catch (err) {
+          if (!/permission denied|42501|column "id"/i.test(String((err as Error).message))) throw kindNotTaken(err);
+          unnamed = true;
+        }
+      }
+      const { id: _id, ...plain } = named;
+      try {
+        const out = await call('/rest/v1/phone_commands', { method: 'POST', headers: { prefer: 'return=representation' }, body: JSON.stringify(plain) });
+        return Array.isArray(out) ? out[0] : out;
+      } catch (err) { throw kindNotTaken(err); }
     },
     /** A file into her own folder of a private bucket; one already there by that name is the same file. */
     async putFile(bucket: string, path: string, bytes: Uint8Array, type: string) {
