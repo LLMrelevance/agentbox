@@ -126,6 +126,15 @@ const DOCS_EVERY_MS = 10_000;
 const OFFLINE_AFTER_MS = 90_000;
 export const INPUT_CLOSED_IN_CLOUD = 'agentbox_input_closed_in_cloud';
 // A run the app left going when it quit, and the process bringing it home.
+// The store's writes an agent may make while the Mac is away, kept in the cloud
+// and made when it wakes: what it writes on its thread and its documents.
+// Never a read, which has nothing to answer with, nor a claim, stale by then.
+export const KEPT_WHILE_AWAY = { [nameSlug]: ['update_work_item', 'create_work_item', 'write_document'] };
+// What a server opened afresh to make a kept write is told first.
+const HANDSHAKE_LINES = [
+  JSON.stringify({ jsonrpc: '2.0', id: 'kept-hello', method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: `${nameSlug}-cloud`, version: '1' } } }),
+  JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+];
 const LEFT_RUNNING = new Set(['detached', 'attached']);
 const MAC_GONE = 'The app on the Mac restarted during this call, so its answer was lost. Check whether it took effect, then try again.';
 // How long a run that is being left to carry on waits for its last inputs to
@@ -300,6 +309,7 @@ export async function cloudRun({
   // How long the sandbox waits without word from this Mac before it counts
   // it asleep (cloud/sandbox/server.mjs "WHILE THE MAC IS AWAY").
   offlineAfterMs = OFFLINE_AFTER_MS,
+  keptWhileAway = KEPT_WHILE_AWAY,
   // The process that stands for this run, written in its marker so another
   // can tell whether it is still alive: this one, or, when many runs share a
   // host process, the run's own small stand-in (main/cloud/host.mjs).
@@ -553,7 +563,7 @@ export async function cloudRun({
     // The run carries on while this Mac sleeps: a tool call is told it could
     // not reach the app, and a Claude Code turn that has ended has its input
     // closed there. A Codex turn ends only with the Mac, as before.
-    offline: { afterMs: offlineAfterMs, endTurn: codex ? null : 'claude-stream-json' },
+    offline: { afterMs: offlineAfterMs, endTurn: codex ? null : 'claude-stream-json', kept: keptWhileAway },
   }), { what: 'start the cloud run', forever: false });
   if (!started) {
     signals.off('SIGHUP', early);
@@ -703,7 +713,7 @@ export async function cloudRun({
         // before then answers it rather than forgetting it.
         let onAck;
         if (reply && reply.id !== undefined && !reply.method) {
-          if (s.swallow.delete(reply.id)) continue;
+          if (s.swallow.delete(reply.id)) { keptOut.get(`${conn}\0${reply.id}`)?.(); continue; }
           onAck = () => s.pending.delete(reply.id);
         }
         enqueue({ action: 'mcp', conn, line, onAck });
@@ -715,6 +725,28 @@ export async function cloudRun({
     // queued before the stub is told it has gone.
     proc.on('close', closeOnce);
     proc.on('error', (err) => { say(`the ${name} server could not run here: ${err.message}`); closeOnce(); });
+  }
+
+  // A write the run made while this Mac was away, kept in the cloud: made now
+  // through the same server, its answer dropped (the agent had one).
+  const keptOut = new Map();
+  let keptMade = 0;
+  function makeKept(e) {
+    let msg = null;
+    try { msg = JSON.parse(e.line); } catch { return; }
+    if (!msg || msg.method !== 'tools/call') return;
+    if (!servers.get(e.conn) || servers.get(e.conn).closed) openServer(e.conn, e.server, HANDSHAKE_LINES);
+    const s = servers.get(e.conn);
+    if (!s) return;
+    const id = `kept-${e.seq}`;
+    s.swallow.add(id);
+    keptOut.set(`${e.conn}\0${id}`, () => keptOut.delete(`${e.conn}\0${id}`));
+    s.proc.stdin.write(`${JSON.stringify({ ...msg, id })}\n`);
+    keptMade += 1;
+  }
+  async function keptSettled(ms) {
+    for (const end = Date.now() + ms; keptOut.size && Date.now() < end;) await sleep(50);
+    if (keptMade) say(`${keptMade} ${keptMade === 1 ? 'thing' : 'things'} the run wrote while this Mac was asleep ${keptMade === 1 ? 'was' : 'were'} made now`);
   }
 
   function toServer(conn, line) {
@@ -762,6 +794,7 @@ export async function cloudRun({
     else if (e.kind === 'stderr') { if (!joining) await write(stderr, Buffer.from(e.data, 'base64')); }
     else if (e.kind === 'mcp-open') openServer(e.conn, e.server);
     else if (e.kind === 'mcp') { if (!refused.has(e.seq)) toServer(e.conn, e.line); refused.delete(e.seq); }
+    else if (e.kind === 'mcp-kept') makeKept(e);
     else if (e.kind === 'mcp-offline' || e.kind === 'mcp-abandoned') {
       if (!awayNoted) { awayNoted = true; say('this Mac was asleep; the cloud run carried on, and the tool calls it made meanwhile did not reach the app'); }
     }
@@ -901,6 +934,7 @@ export async function cloudRun({
   wake?.();
   await sender;
   await docsLoop;
+  await keptSettled(10_000);
   for (const s of servers.values()) { s.closed = true; s.proc.stdin.end(); s.proc.kill(); }
 
   const troubleWithLogin = () => {
