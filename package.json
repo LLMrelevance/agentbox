@@ -66,6 +66,8 @@
     "hooks:install": "node scripts/install-hooks.mjs",
     "check:public": "node scripts/check-before-public.mjs --all",
     "ship": "node scripts/ship.mjs",
+    "ship:approved": "node scripts/risk.mjs --approved",
+    "risk": "node scripts/risk.mjs",
     "relay:build": "node relay/build.mjs",
     "relay:dev": "node relay/build.mjs && cd relay && npm ci --no-audit --no-fund && npx wrangler dev --port 8787",
     "relay:deploy": "node relay/deploy.mjs",
