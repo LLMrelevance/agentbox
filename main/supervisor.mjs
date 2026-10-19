@@ -674,7 +674,7 @@ export class Supervisor {
     clearInterval(this._memoryLogTimer);
     this._memoryLog ??= new MemoryLog({
       dir: path.join(this.userDir, 'memory-log'),
-      facts: () => ({ running: this._load(), capacity: this._capacity(), holding: this.startHoldStatus().holding }),
+      facts: () => ({ running: this._load(), capacity: this._capacity(), holding: this.startHoldStatus().holding, ...this.stalls?.take() }),
     });
     this._memoryLogTimer = setInterval(() => this._memoryLog.tick(), 60_000);
     this._memoryLogTimer.unref?.();

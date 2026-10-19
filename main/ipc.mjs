@@ -1867,7 +1867,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     const { shell } = await import('electron');
     if (typeof src !== 'string' || !src) return { ok: false, error: 'no path' };
     if (/^https?:/.test(src)) { if (mode !== 'resolve') shell.openExternal(src); return { ok: true, opened: src } }
-    const found = resolveArtifact({
+    const found = await resolveArtifact({
       src,
       product,
       products: store.listProducts(),
@@ -1913,7 +1913,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // text rather than the path. What may be written is decided in
   // main/doc-file.mjs: markdown only, inside this product's own folders only.
   ipcMain.handle('zero:read-doc', async (_e, { product, src }) => {
-    const found = resolveArtifact({
+    const found = await resolveArtifact({
       src,
       product,
       products: store.listProducts(),
@@ -1927,7 +1927,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // THE CHANGE A RUN MADE. Same finder as every other artifact, so a click on
   // the chip and a click on a path in her message open the same file.
   ipcMain.handle('zero:code-change', async (_e, { product, src }) => {
-    const found = resolveArtifact({
+    const found = await resolveArtifact({
       src,
       product,
       products: store.listProducts(),
@@ -1948,8 +1948,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // same pair the pane already has on screen. The change is re-read here rather
   // than trusted from the renderer, because it is what says which folders a
   // write may land in and that decision may not come from the window.
-  const openChange = (product, src) => {
-    const found = resolveArtifact({
+  const openChange = async (product, src) => {
+    const found = await resolveArtifact({
       src,
       product,
       products: store.listProducts(),
@@ -1965,7 +1965,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   };
 
   ipcMain.handle('zero:code-file', async (_e, { product, src, path: filePath }) => {
-    const opened = openChange(product, src);
+    const opened = await openChange(product, src);
     if (!opened.ok) return opened;
     const found = findFile({ change: opened.change, product: opened.prod, filePath });
     if (!found.ok) return found;
@@ -1973,7 +1973,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   });
 
   ipcMain.handle('zero:save-code-file', async (_e, { product, src, path: filePath, text, mtime }) => {
-    const opened = openChange(product, src);
+    const opened = await openChange(product, src);
     if (!opened.ok) return opened;
     const found = findFile({ change: opened.change, product: opened.prod, filePath });
     if (!found.ok) return found;
@@ -1982,7 +1982,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
 
   ipcMain.handle('zero:write-doc', async (_e, { product, src, text, mtime }) => {
     const prod = store.listProducts().find((p) => p.slug === product) ?? null;
-    const found = resolveArtifact({
+    const found = await resolveArtifact({
       src,
       product,
       products: store.listProducts(),
