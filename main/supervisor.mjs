@@ -39,7 +39,7 @@ import {fillName} from '../shared/product-name.mjs';
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { cloudWorkPending, readMarker } from './cloud/marker.mjs';
+import { cloudWorkPending, takeCloudNews } from './cloud/marker.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
 import { readCloudConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
 import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
@@ -4590,14 +4590,6 @@ export class Supervisor {
     this._homecomings ??= new Map();
     const last = this._homecomings.get(folder);
     if (last && (last.child || Date.now() - last.at < 120_000)) return;
-    // A run that cannot be laid into its folder without undoing work done
-    // here waits for a person; asking again every two minutes changes nothing.
-    const marker = readMarker(folder);
-    if (marker?.state === 'diverged') {
-      if (!last) console.warn(`zero: a cloud run's work in ${folder} needs a person: ${marker.why || 'the folder changed while it was away'}`);
-      this._homecomings.set(folder, { child: null, at: Date.now() });
-      return;
-    }
     // This app's own tool servers as they are now, for a run the last app
     // left going: the approvals key is made fresh at every start, and one from
     // before would refuse every card she answers.
@@ -4620,7 +4612,25 @@ export class Supervisor {
     this._homecomings.set(folder, rec);
     child.stderr?.on('data', (d) => console.warn(String(d).trim()));
     child.on('error', () => { forget(); rec.child = null; rec.at = Date.now(); });
-    child.once('exit', () => { forget(); rec.child = null; rec.at = Date.now(); this.wake?.(); });
+    child.once('exit', () => { forget(); rec.child = null; rec.at = Date.now(); this._sayCloudNews(folder); this.wake?.(); });
+  }
+
+  // A CLOUD RUN'S WORK KEPT ON A BRANCH OF ITS OWN (main/cloud/run.mjs
+  // `park`): said on its row, which then waits for her and does not ship
+  // without that work.
+  _sayCloudNews(folder, item = null) {
+    let news = [];
+    try { news = takeCloudNews(folder); } catch { return; }
+    for (const n of news) {
+      const product = n.product || item?.product;
+      const id = n.item || item?.id;
+      if (!product || !id || !n.note) { console.warn(`zero: ${n.note || 'a cloud run was kept aside'} (${folder})`); continue; }
+      try {
+        if (this.store.cloudWorkKeptAside) this.store.cloudWorkKeptAside(product, id, n.note);
+        else this.store.noteItem?.(product, id, n.note);
+      } catch (e) { console.warn('zero: could not say a cloud run was kept aside:', e.message); }
+    }
+    if (news.length) this.onChange?.();
   }
 
   /**
@@ -8548,6 +8558,7 @@ export class Supervisor {
       // `pruneRowSessions` is what eventually forgets it.
       this.forgetFinishedSession(item, session);
       this.noteExitForBackoff(session, { onLine });
+      if (session.cloud) this._sayCloudNews(cwd, item);
       const carryingAnswer = continuation && answerAtSpawn;
       if (carryingAnswer) this.settleDeliveryAndSay(item, answerAtSpawn, session, signal, { command: !!plan.command });
       // AND THE REPLY THE USER TYPED INTO A RUN THAT WAS NOT CARRYING ONE. Ordinary

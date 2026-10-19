@@ -26,8 +26,10 @@
 //      it would look at this Mac's localhost, not the sandbox's.
 //   5. When the sandbox reports its results uploaded, fetches them from S3 and,
 //      only if the folder is exactly as it was when the run left, lays them in:
-//      commits fast-forwarded, uncommitted work reapplied, transcripts
-//      unpacked. Only then does the marker go.
+//      the branch moved to the cloud's tip, uncommitted work reapplied,
+//      transcripts unpacked. Only then does the marker go. A folder that
+//      changed here meanwhile keeps its own work, and the run's goes on a
+//      branch `cloud/<item>` (`park`).
 //   6. On SIGTERM (Stop, archive, preemption) it cancels the remote command
 //      and still does 5, so the work and the transcript come home and the
 //      app's ordinary resume can take it from there. On SIGHUP (the app
@@ -54,7 +56,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { spawn, execFileSync } from 'node:child_process';
 import { run } from './exec.mjs';
-import { readMarker, writeMarker, clearMarker } from './marker.mjs';
+import { readMarker, writeMarker, clearMarker, addCloudNews } from './marker.mjs';
 import { Name, nameSlug } from '../../shared/product-name.mjs';
 import { codexTranscriptFile } from '../codex-session.mjs';
 import { appendCloudUsage } from './usage.mjs';
@@ -890,7 +892,7 @@ export async function cloudRun({
   const back = await bringHome({ ...marker }, { cursor, replay: (e) => absorb(e) });
   if (!back.ok) {
     say(`the cloud run's work could not be brought back (${back.why}); it is kept in the cloud for 7 days and will be tried again`);
-    writeMarker(cwd, { ...marker, pid: null, state: back.state || 'import-failed' });
+    writeMarker(cwd, { ...marker, pid: null, state: back.state || 'import-failed', ...(back.laying ? { laying: back.laying } : {}) });
     // Its marker stays either way, so nothing ships the folder until its work
     // is home; a login that failed is still said, so no account here is
     // struck for it.
@@ -912,8 +914,11 @@ export async function cloudRun({
 
   async function bringHomeOnce(rec, { recovering, from, replay }) {
     const k = (name) => keyOf(rec.runId, name);
-    if (rec.state === 'diverged') return { ok: false, state: 'diverged', why: rec.why || 'it needs a person to look at it' };
+    if (rec.state === 'importing' && rec.pid && rec.pid !== selfPid && alive(rec.pid)) return { ok: false, why: 'its own process is still bringing it back' };
     let done = await storage.get(k('done.json'));
+    // Marked by an older app, whose results may have gone from the bucket:
+    // what it kept here goes on a branch of its own.
+    if (!done && rec.state === 'diverged') return park(rec, { why: rec.why || 'it could not be laid into this folder' });
     if (!done && recovering) {
       if (rec.pid && rec.pid !== selfPid && alive(rec.pid)) return { ok: false, why: 'its own process is still bringing it back' };
       // Ask the sandbox where the run stands. No answer is not an answer: the
@@ -1027,51 +1032,114 @@ export async function cloudRun({
       if (!(await layArchive(rec.docs, tgz))) return { ok: false, why: 'the documents it wrote could not be laid in' };
     }
 
-    // THE FOLDER MUST BE EXACTLY AS THE RUN LEFT IT: same branch, same commit,
-    // same files, same staged changes. Anything else means something on this
-    // Mac worked in it while the run was away, and laying the run's state over
-    // it would undo that.
-    if (rec.sent) {
-      const now = await folderState(cwd);
-      if (now.branch !== rec.sent.branch || now.head !== rec.sent.head || now.tree !== rec.sent.tree || (rec.sent.index && now.index !== rec.sent.index)) {
-        return { ok: false, state: 'diverged', why: `this folder changed on this Mac while the run was in the cloud; the run's commits are kept on ${keep}` };
-      }
-    }
-    // And the agent must have ended on the branch it was given.
+    // The agent must have ended on the branch it was given.
     if (record.strayHead || (record.headRef && record.headRef !== rec.branch)) {
-      return { ok: false, state: 'diverged', why: `the agent finished on ${record.headRef || 'a detached commit'} instead of ${rec.branch}; its work is kept on ${keep}-head` };
+      return park(rec, { record, conversations, why: `the agent finished on ${record.headRef || 'a detached commit'} instead of ${rec.branch}` });
     }
 
-    // The folder is put back exactly as the run left it. What it held when the
-    // run began went up with it and comes back in the run's own state; a copy
-    // of the files AND of what was staged is set aside first anyway, under
-    // names no later run reuses.
+    // Where the branch ends: the cloud's tip, which an agent that amended or
+    // rebased has taken off the line it started on.
+    const startHead = rec.sent?.head ?? (await git(cwd, ['rev-parse', 'HEAD'])).trim();
+    let target = startHead;
+    if (record.commits > 0) target = (await git(cwd, ['rev-parse', keep])).trim();
+    else if (record.tip && record.tip !== startHead && await gitOk(cwd, ['cat-file', '-e', `${record.tip}^{commit}`])) target = record.tip;
+
+    // THE FOLDER MUST BE AS THE RUN LEFT IT: same branch, commit, files and
+    // staged changes; or as an import cut off part way left it, at one of its
+    // own steps. Anything else is work done here while the run was away.
+    if (rec.sent) {
+      const now = await folderState(cwd);
+      const at = (head, tree, index = tree) => now.branch === rec.sent.branch && now.head === head && now.tree === tree && now.index === index;
+      let fits = now.branch === rec.sent.branch && now.head === rec.sent.head && now.tree === rec.sent.tree && (!rec.sent.index || now.index === rec.sent.index);
+      if (!fits && rec.laying) {
+        const treeOf = async (c) => (await git(cwd, ['rev-parse', `${c}^{tree}`])).trim();
+        const startTree = await treeOf(startHead);
+        const targetTree = await treeOf(target);
+        const endTree = record.uncommitted ? await treeOf(keepChanges) : targetTree;
+        fits = at(startHead, startTree) || at(target, targetTree) || at(target, endTree, targetTree);
+      }
+      if (!fits) return park(rec, { record, conversations, why: 'this folder changed on this Mac while the run was in the cloud' });
+    }
+
+    // Said before the folder is touched, so an import cut off part way is
+    // known for one when it is tried again.
+    const tries = (rec.laying?.tries ?? 0) + 1;
+    rec.laying = { tries };
+    writeMarker(cwd, { ...rec, pid: selfPid, state: 'importing' });
+
+    // What it held when the run began went up with it and comes back in the
+    // run's own state; a copy of the files AND of what was staged is set aside
+    // first anyway, under names no later run reuses, and so is a tip the
+    // cloud's does not descend from.
     const stamp = `${rec.runId}-${Date.now()}`;
-    await snapshotUncommitted(cwd, `refs/agentbox/before-cloud/${stamp}`);
-    const stagedTree = (await git(cwd, ['write-tree'])).trim();
-    const stagedCommit = (await git(cwd, ['-c', `user.name=${Name}`, '-c', `user.email=${nameSlug}@localhost`, 'commit-tree', stagedTree, '-p', 'HEAD', '-m', 'What was staged before a cloud run came home'])).trim();
-    await git(cwd, ['update-ref', `refs/agentbox/before-cloud/${stamp}-staged`, stagedCommit]);
     try {
-      await git(cwd, ['reset', '-q', '--hard', 'HEAD']);
+      await snapshotUncommitted(cwd, `refs/agentbox/before-cloud/${stamp}`);
+      const stagedTree = (await git(cwd, ['write-tree'])).trim();
+      const stagedCommit = (await git(cwd, ['-c', `user.name=${Name}`, '-c', `user.email=${nameSlug}@localhost`, 'commit-tree', stagedTree, '-p', 'HEAD', '-m', 'What was staged before a cloud run came home'])).trim();
+      await git(cwd, ['update-ref', `refs/agentbox/before-cloud/${stamp}-staged`, stagedCommit]);
+      if (!(await gitOk(cwd, ['merge-base', '--is-ancestor', startHead, target]))) await git(cwd, ['update-ref', `refs/agentbox/before-cloud/${rec.runId}`, startHead]);
+      await git(cwd, ['reset', '-q', '--hard', target]);
       await git(cwd, ['clean', '-q', '-fd']);
-      if (record.commits > 0) await git(cwd, ['merge', '-q', '--ff-only', keep]);
       if (record.uncommitted) {
         const patch = await git(cwd, ['diff', '--binary', 'HEAD', keepChanges], { buffer: true });
         if (patch.length) await git(cwd, ['apply', '--whitespace=nowarn'], { input: patch });
       }
-      for (const c of conversations) {
-        fs.mkdirSync(c.dir, { recursive: true });
-        await run('tar', ['-xzf', c.file, '-C', c.dir]);
-      }
+      await layConversations(conversations);
     } catch (err) {
-      // Every download had already landed, so this is git itself refusing;
-      // nothing a retry would change. A person looks, with everything kept.
-      return { ok: false, state: 'diverged', why: `laying the run into the folder failed (${String(err.message).split('\n')[0]}); the earlier state is on refs/agentbox/before-cloud/${stamp} and the run's on ${keep}` };
+      const said = String(err.message).split('\n')[0];
+      if (tries >= 3) return park(rec, { record, conversations, why: `laying it into this folder failed ${tries} times (${said}); what the folder held before is on refs/agentbox/before-cloud/${stamp}` });
+      writeMarker(cwd, { ...rec, pid: null, state: 'import-failed' });
+      return { ok: false, state: 'import-failed', laying: rec.laying, why: `laying the run into the folder failed (${said}); the earlier state is on refs/agentbox/before-cloud/${stamp}` };
     }
     await gitOk(cwd, ['update-ref', '-d', keepChanges]);
     if (record.commits > 0) await gitOk(cwd, ['update-ref', '-d', keep]);
     clearMarker(cwd);
     return { ok: true, exitCode: record.exitCode, record };
+  }
+
+  async function layConversations(conversations) {
+    for (const c of conversations) {
+      fs.mkdirSync(c.dir, { recursive: true });
+      await run('tar', ['-xzf', c.file, '-C', c.dir]);
+    }
+  }
+
+  // A RUN WHOSE WORK CANNOT GO INTO ITS FOLDER WITHOUT UNDOING WORK DONE HERE
+  // goes on a branch of its own, `cloud/<item>`, and the folder is left as it
+  // is. Neither side's work is lost, the marker goes so the thread can run
+  // again, and the row is told (`addCloudNews`). A run that changed nothing
+  // the folder does not already hold needs no branch and no word.
+  async function park(rec, { record = null, conversations = [], why }) {
+    const keep = `refs/agentbox/cloud/${rec.runId}`;
+    const keepChanges = `refs/agentbox/cloud-changes/${rec.runId}`;
+    const has = (ref) => gitOk(cwd, ['rev-parse', '--verify', '-q', ref]);
+    let tip = null;
+    for (const ref of [keepChanges, `${keep}-head`, keep]) if (!tip && await has(ref)) tip = ref;
+    let nothingNew = !tip;
+    if (tip && rec.sent) {
+      const rev = async (spec) => (await git(cwd, ['rev-parse', spec])).trim();
+      nothingNew = (await rev(`${tip}^{tree}`)) === rec.sent.tree && (await rev(tip === keepChanges ? `${tip}^` : tip)) === rec.sent.head;
+    }
+    await layConversations(conversations);
+    const item = rec.toolEnv?.ZERO_ITEM || env.ZERO_ITEM || null;
+    const product = rec.toolEnv?.ZERO_PRODUCT || env.ZERO_PRODUCT || null;
+    let branch = null;
+    if (!nothingNew) {
+      const base = `cloud/${String(item || rec.branch.replace(/^agentbox\//, '') || rec.runId.slice(0, 8)).replace(/[^A-Za-z0-9._-]/g, '-')}`;
+      branch = base;
+      for (let i = 2; await has(`refs/heads/${branch}`); i += 1) branch = `${base}-${i}`;
+      await git(cwd, ['branch', branch, tip]);
+    }
+    for (const ref of [keepChanges, `${keep}-head`, keep]) {
+      if (await has(ref) && (nothingNew || await gitOk(cwd, ['merge-base', '--is-ancestor', ref, branch]))) await gitOk(cwd, ['update-ref', '-d', ref]);
+    }
+    if (branch) {
+      const note = `This thread's cloud run finished, but its work was not laid into the task folder: ${why}. Nothing is lost. The folder is as this Mac left it, and the run's version is on the branch ${branch}. Reply to have the agent bring the two together; it will not ship until then.`;
+      say(note);
+      addCloudNews(cwd, { runId: rec.runId, item, product, branch, note });
+    }
+    clearMarker(cwd);
+    return { ok: true, exitCode: record?.exitCode ?? null, record, parked: branch };
   }
 
   async function layArchive(d, tgz) {
