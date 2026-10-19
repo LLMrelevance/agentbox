@@ -11,6 +11,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { createNeo } from '../main/neo/index.mjs';
 
+// Where the orb sits inside the 600x240 window (renderer/src/neo/neo.css #orb).
+const ORB_TOP = 240 - 24 - 150;
+
 function fakes({ onListen, getMicImpl, mic = { status: 'granted' }, userData: given, startLiveImpl, onReview, clock, decideImpl } = {}) {
   const userData = given ?? fs.mkdtempSync(path.join(os.tmpdir(), 'neo-main-'));
   fs.writeFileSync(path.join(userData, 'neo-alpha'), '');
@@ -255,13 +258,16 @@ describe('dragging the orb', () => {
     expect(f.windows.last.getBounds()).toMatchObject({ x: was.x - 300, y: was.y - 200 });
   });
 
-  it('keeps the whole window on the screen', async () => {
+  // The clamp is on the orb, not the window: the card hangs off the edge with
+  // it, so the orb can reach every edge of the screen
+  // (./neos-orb-drags-to-the-edges-of-the-screen.test.mjs).
+  it('keeps the orb on the screen, with the card hanging off', async () => {
     const f = await awake();
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -5000, dy: 5000 });
     const b = f.windows.last.getBounds();
-    expect(b.x).toBe(0);
-    expect(b.y + b.height).toBe(1080);
+    expect(b.x).toBe(-24);
+    expect(b.y + 66 + 150).toBe(1080);
   });
 
   it('comes back where she left it the next time Neo wakes', async () => {
@@ -345,11 +351,13 @@ describe('the card on the side with room', () => {
     expect(b.y).toBe(start.y - 300);
   });
 
-  it('lets the orb reach the left edge once the card is on its right', async () => {
+  it('lets the orb reach the top left corner once the card is on its right', async () => {
     const f = await awake();
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -5000, dy: -5000 });
-    expect(f.windows.last.getBounds()).toMatchObject({ x: 0, y: 0 });
+    const b = f.windows.last.getBounds();
+    expect(b.x + ORB_LEFT - 75).toBe(0);
+    expect(b.y + 66).toBe(0);
   });
 
   it('keeps the side with the place', async () => {
@@ -488,7 +496,11 @@ describe('dragging the orb up', () => {
     const f = await awake();
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: 0, dy: -5000 });
-    expect(f.windows.last.getBounds().y).toBe(0);
+    // The ORB's top edge, not the window's. Clamping the window left the orb
+    // 66px short of the top, which is the limit she felt: "I feel like I've
+    // hit a limit... the capacity of like where Jarvis can move could be a
+    // little like more extended" (./neos-orb-drags-to-the-edges-of-the-screen.test.mjs).
+    expect(f.windows.last.getBounds().y + ORB_TOP).toBe(0);
     expect(last(f)).toMatchObject({ up: true });
   });
 
