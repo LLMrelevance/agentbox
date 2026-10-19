@@ -30,7 +30,9 @@ process.stdin.on('data', (d) => {
       reply(msg.id, { tools: [{ name: 'note', description: 'Write a note on the Mac.', inputSchema: schema }, { name: 'look_at_page', description: 'Look at a page.', inputSchema: schema }] });
     } else if (msg.method === 'tools/call') {
       fs.appendFileSync(log, JSON.stringify({ name: msg.params.name, args: msg.params.arguments, item: process.env.ZERO_ITEM }) + '\n');
-      reply(msg.id, { content: [{ type: 'text', text: `noted on the Mac for ${process.env.ZERO_ITEM}` }] });
+      // "REFUSE" in the words: turned down, as a row another session holds is.
+      if (String(msg.params.arguments?.text ?? '').includes('REFUSE')) reply(msg.id, { isError: true, content: [{ type: 'text', text: 'another session holds this row' }] });
+      else reply(msg.id, { content: [{ type: 'text', text: `noted on the Mac for ${process.env.ZERO_ITEM}` }] });
     } else if (msg.id !== undefined) {
       // Anything else asked (Codex asks resources/list and templates) gets a
       // proper "not here", as the real store server's library answers; a

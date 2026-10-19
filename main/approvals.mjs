@@ -306,6 +306,11 @@ export function cardShown(storeRoot, id) {
   return seenAt.get(`${spoolDir(storeRoot)}\0${id}`)?.card ?? null;
 }
 
+/** Whether `card` is the card last drawn for this request: a phone answers with the one it drew. */
+export function cardStillShown(storeRoot, id, card) {
+  return typeof card === 'string' && !!card && cardShown(storeRoot, id) === card;
+}
+
 export function answer(storeRoot, id, allow, note) {
   if (!/^[\w-]+$/.test(String(id ?? ''))) return false;
   const dir = spoolDir(storeRoot);

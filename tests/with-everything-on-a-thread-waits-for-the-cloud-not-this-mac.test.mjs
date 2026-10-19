@@ -40,9 +40,10 @@ const item = { id: 'w-next', product: 'p' };
 const cwd = '/r/.claude/worktrees/w-next';
 
 describe('with Everything on', () => {
-  it('the cloud takes twenty at once by default', () => {
-    expect(DEFAULTS.maxCloudSessions).toBe(20);
+  it('the cloud takes twenty at once by default where each run needs a relay of its own', () => {
+    expect(DEFAULTS.maxCloudSessions).toBe(null);
     const { sup, product } = make();
+    expect(sup._maxCloud()).toBe(20);
     live(sup, 19);
     expect(sup._whereToRun({ item, product, cwd, engine: 'claude' })).toBe('cloud');
   });
@@ -119,5 +120,21 @@ describe('signed in to the cloud at all', () => {
     const src = fs.readFileSync(new URL('../main/supervisor.mjs', import.meta.url), 'utf8');
     expect(src).toMatch(/mayRunOn\(state\) \|\| state === 'limited' \|\| state === 'renew'/);
     expect(typeof sup._cloudSignedInAtAll).toBe('function');
+  });
+});
+
+// 2026-10-17, later: with every run's relay in one shared host (main/cloud/host.mjs),
+// a run costs this Mac about 11 MB instead of about 110 (measured, 50 runs).
+describe('the cloud\'s cap', () => {
+  it('is fifty through the shared host, twenty without it, and hers when she sets one', () => {
+    const { sup } = make();
+    sup._cloudHostAvailable = () => true;
+    expect(sup._maxCloud()).toBe(50);
+    sup._cloudHostAvailable = () => false;
+    expect(sup._maxCloud()).toBe(20);
+    sup.config.maxCloudSessions = 80;
+    expect(sup._maxCloud()).toBe(80);
+    sup.config.maxCloudSessions = 0;
+    expect(sup._maxCloud()).toBe(0);
   });
 });

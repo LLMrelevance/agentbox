@@ -32,19 +32,37 @@ const TYPES = {
   '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/mp4', '.webm': 'video/webm',
   '.html': 'text/html', '.htm': 'text/html', '.pdf': 'application/pdf', '.md': 'text/markdown', '.markdown': 'text/markdown',
 };
+// Documents, named anywhere in the words as the kinds above are.
+const OFFICE = 'application/vnd.openxmlformats-officedocument';
+const DOCUMENTS = {
+  '.txt': 'text/plain; charset=utf-8', '.log': 'text/plain; charset=utf-8', '.json': 'application/json', '.csv': 'text/csv; charset=utf-8', '.tsv': 'text/tab-separated-values; charset=utf-8',
+  '.yaml': 'text/yaml; charset=utf-8', '.yml': 'text/yaml; charset=utf-8', '.xml': 'text/xml', '.rtf': 'application/rtf', '.heic': 'image/heic',
+  '.doc': 'application/msword', '.docx': `${OFFICE}.wordprocessingml.document`, '.xls': 'application/vnd.ms-excel', '.xlsx': `${OFFICE}.spreadsheetml.sheet`,
+  '.ppt': 'application/vnd.ms-powerpoint', '.pptx': `${OFFICE}.presentationml.presentation`, '.pages': 'application/vnd.apple.pages', '.numbers': 'application/vnd.apple.numbers', '.zip': 'application/zip',
+};
 // What a page may bring with it, besides the kinds above.
 const PAGE_PARTS = { '.css': 'text/css', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.otf': 'font/otf' };
 const PICTURE = /\.(png|jpe?g|gif|webp|avif)$/i;
-const EXT = Object.keys(TYPES).map((e) => e.slice(1)).join('|');
+// Keys, certificates and databases never go, whatever way they are named.
+const NEVER = /\.(pem|key|p12|pfx|kdbx|keystore|jks|der|crt|cer|asc|gpg|sqlite3?|db)$/i;
+const EXT = [...Object.keys(TYPES), ...Object.keys(DOCUMENTS)].map((e) => e.slice(1)).join('|');
 // A path as a worker writes one: bare, after ~/ or /, or in quotes with spaces.
 const NAMED = new RegExp(String.raw`(?:["“'‘]((?:~\/|\/)?[^"”'’\r\n]+\.(?:${EXT}))["”'’])|((?:~\/|\/)?[\w@%+=,.\/-]*[\w-]\.(?:${EXT}))(?![\w])`, 'gi');
+// Any kind at all where the screens draw it as a file: a markdown link's
+// target (a reply's attachments) or a path in backticks.
+const LINKED = /\]\(<?([^)\s>]+\.[A-Za-z0-9]{1,10})>?\)|`([^`\s]+\.[A-Za-z0-9]{1,10})`/g;
 const FOLDER_LINE = /(?:^|\n)[ \t]*((?:~\/|\/)[\w./-]*[\w-])\/?[ \t]*(?=\n|$)/g;
 const SKIP_SEGMENTS = new Set(['node_modules', '.git']);
 // A file whose name says it holds a secret never goes, whatever its kind.
 const SECRET_NAME = /(secret|credential|passw|token|private[-_.]?key|(^|[/.])env($|[/.]))/i;
-// Words, not pictures: what goes up is the text with its keys hidden, as a thread's words are.
-// Not a spreadsheet: a password in a column has no name beside it to hide it by.
-const TEXT = /\.(html?|md|markdown|css|svg)$/i;
+// Words, not pictures: what goes up is the text with its keys hidden, as a
+// thread's words are. A file of another kind whose bytes are text goes so too.
+const TEXT = /\.(html?|md|markdown|css|svg|txt|log|json|csv|tsv|ya?ml|xml)$/i;
+// Not pictures, films or sounds, which are never read as text.
+const MEDIA = /\.(png|jpe?g|gif|webp|avif|heic|mp3|wav|m4a|aac|ogg|mp4|mov|m4v|webm|pdf|zip|docx?|xlsx?|pptx?|pages|numbers|woff2?|ttf|otf)$/i;
+// A spreadsheet's column whose heading names a secret is emptied: a password
+// in a column has no name beside it for the text rules to hide it by.
+const SECRET_COLUMN = /pass|secret|token|key|credential|auth/i;
 // A page or stylesheet bigger than this is listed but not read for what it draws.
 const PAGE_READ_MAX = 2 * 1024 * 1024;
 // And all the pages one thread names, read for what they draw, at most this much.
@@ -63,7 +81,45 @@ function readAtMost(file, max) {
   }
 }
 
-export const typeOf = (file) => TYPES[path.extname(file).toLowerCase()] ?? PAGE_PARTS[path.extname(file).toLowerCase()] ?? null;
+const knownType = (file) => TYPES[path.extname(file).toLowerCase()] ?? PAGE_PARTS[path.extname(file).toLowerCase()] ?? null;
+/** What a file goes up as, or null for one that never goes. */
+export const typeOf = (file) => {
+  if (NEVER.test(file) || SECRET_NAME.test(path.basename(file))) return null;
+  return knownType(file) ?? DOCUMENTS[path.extname(file).toLowerCase()] ?? 'application/octet-stream';
+};
+
+const cellsOf = (line, sep) => {
+  const out = [];
+  let cell = '';
+  let quoted = false;
+  for (const ch of line) {
+    if (ch === '"') quoted = !quoted;
+    if (ch === sep && !quoted) { out.push(cell); cell = ''; } else cell += ch;
+  }
+  out.push(cell);
+  return out;
+};
+/** A spreadsheet's text with every column whose heading names a secret emptied. */
+export function hideCsvSecrets(text) {
+  const lines = String(text).split('\n');
+  const head = (lines[0] ?? '').replace(/\r$/, '');
+  const sep = head.includes('\t') && !head.includes(',') ? '\t' : ',';
+  const hide = cellsOf(head, sep).map((h, i) => (SECRET_COLUMN.test(h) ? i : -1)).filter((i) => i >= 0);
+  if (!hide.length) return String(text);
+  return [lines[0], ...lines.slice(1).map((line) => {
+    if (!line) return line;
+    const cr = line.endsWith('\r');
+    const cells = cellsOf(cr ? line.slice(0, -1) : line, sep);
+    for (const i of hide) if (i < cells.length) cells[i] = '[hidden]';
+    return cells.join(sep) + (cr ? '\r' : '');
+  })].join('\n');
+}
+
+// Bytes that read as text: no NUL near the start, and whole UTF-8.
+function readsAsText(buf) {
+  if (buf.subarray(0, 8000).includes(0)) return false;
+  try { new TextDecoder('utf-8', { fatal: true }).decode(buf); return true; } catch { return false; }
+}
 
 // Newest first, so a long thread's latest messages are the ones its bound keeps.
 function textsOf(snapshot) {
@@ -112,7 +168,10 @@ export function filesNamed(snapshot, { dir, repoPath = null, home }) {
   const full = (p) => path.resolve(p.startsWith('~/') ? path.join(home, p.slice(2)) : p);
   const texts = textsOf(snapshot);
   const named = [];
-  for (const text of texts) for (const m of text.matchAll(NAMED)) named.push((m[1] ?? m[2]).trim());
+  for (const text of texts) {
+    for (const m of text.matchAll(NAMED)) named.push((m[1] ?? m[2]).trim());
+    for (const m of text.matchAll(LINKED)) { try { named.push(decodeURI(m[1] ?? m[2]).trim()); } catch { named.push((m[1] ?? m[2]).trim()); } }
+  }
   // The folders the words name come first, as they do on the screens.
   const folders = [];
   for (const n of named) if (n.includes('/')) folders.push(path.dirname(n.startsWith('/') || n.startsWith('~/') ? full(n) : path.join(docs, n)));
@@ -186,7 +245,7 @@ export function pageParts(page, { docs, repo, budget = { bytes: PAGES_READ_MAX }
     for (const ref of partsOf(text)) {
       const part = real(path.join(path.dirname(file), ref));
       const key = part && keyOf(part, { docs, repo });
-      if (!key || out.has(key) || !typeOf(part) || SECRET_NAME.test(path.basename(part)) || part.split(path.sep).some((seg) => SKIP_SEGMENTS.has(seg))) continue;
+      if (!key || out.has(key) || !knownType(part) || SECRET_NAME.test(path.basename(part)) || part.split(path.sep).some((seg) => SKIP_SEGMENTS.has(seg))) continue;
       try { if (!fs.statSync(part).isFile()) continue; } catch { continue; }
       out.set(key, part);
       if (depth < 1 && /\.css$/i.test(part)) visit(part, depth + 1);
@@ -293,7 +352,9 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
       // Grew while it was read: the next pass looks at it again.
       if (n !== st.size) return null;
       const raw = buf.subarray(0, n);
-      return { st, data: TEXT.test(file) ? Buffer.from(hideSecrets(raw.toString('utf8'), { home })) : raw };
+      if (!TEXT.test(file) && (MEDIA.test(file) || !readsAsText(raw))) return { st, data: raw };
+      const words = /\.(csv|tsv)$/i.test(file) ? hideCsvSecrets(raw.toString('utf8')) : raw.toString('utf8');
+      return { st, data: Buffer.from(hideSecrets(words, { home })) };
     } finally {
       await fh.close();
     }

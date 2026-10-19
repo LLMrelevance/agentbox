@@ -18,6 +18,8 @@
 // then sit still, so a test can cancel it. "LOOK" makes it call look_at_page.
 // "LATE" makes it wait a moment after its handshake and before its tool call,
 // so a test can quit the app in between.
+// "AMEND" makes it amend the commit the branch started on instead of adding
+// one; "IDLE" makes it change nothing in the folder.
 // "DOCS:<folder>" makes it read and write the project's documents folder:
 // it reports what it found there, draws a picture in its own designs folder
 // and waits a moment, then edits the notes just before its result.
@@ -93,9 +95,11 @@ async function turn(text) {
   const said = reply.result?.content?.[0]?.text ?? JSON.stringify(reply);
   if (text.includes('SLOW')) await new Promise((r) => setTimeout(r, 1500));
   if (text.includes('SWITCH')) execSync('git checkout -q -b somewhere-else');
-  fs.appendFileSync('cloud.txt', 'made in the cloud\n');
-  execSync('git add cloud.txt && git commit -q -m "From the cloud"');
-  fs.writeFileSync('loose.txt', 'not committed\n');
+  if (!text.includes('IDLE')) {
+    fs.appendFileSync('cloud.txt', 'made in the cloud\n');
+    execSync(text.includes('AMEND') ? 'git add cloud.txt && git commit -q --amend -m "Amended in the cloud"' : 'git add cloud.txt && git commit -q -m "From the cloud"');
+    fs.writeFileSync('loose.txt', 'not committed\n');
+  }
   const docs = (text.match(/DOCS:(\S+)/) || [])[1];
   let found = null;
   if (docs) {

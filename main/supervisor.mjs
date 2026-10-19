@@ -39,12 +39,14 @@ import {fillName} from '../shared/product-name.mjs';
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { cloudWorkPending, readMarker } from './cloud/marker.mjs';
+import { cloudWorkPending, takeCloudNews } from './cloud/marker.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
 import { readCloudConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
+import { cloudVersionGaps } from '../shared/cloud-versions.mjs';
 import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
 import { execFileSync } from 'node:child_process';
 import { holdUntilHome } from './cloud/codex-cloud.mjs';
+import { hostSocketPath, perlRunsTheShim, HOST_ALREADY_THERE } from './cloud/host.mjs';
 import { readCloudUsage, summarizeCloudUsage } from './cloud/usage.mjs';
 import { buildSessionArgs, CLAUDE_MODES, permissionMode } from './settings.mjs';
 import fs from 'node:fs';
@@ -220,6 +222,10 @@ const MAX_DELIVERY_ATTEMPTS = 3;
 const CLOUD_STARTING_AT_ONCE = 2;
 // How long a cloud run may take to start before it stops holding others back.
 const CLOUD_START_PATIENCE_MS = 10 * 60_000;
+// Cloud runs failing in a row before the cloud rests, and for how long
+// (`_noteCloudOutcome`).
+const CLOUD_FAULTS_TO_REST = 3;
+const CLOUD_REST_MS = 10 * 60_000;
 
 // How long a row we interrupted for an Urgent one is held out of the queue
 // before we give up waiting for that Urgent row to start. A BACKSTOP, not the
@@ -292,6 +298,8 @@ const FIRST_RUN_HOLD_MS = 20 * 60_000;
 // keeping the old word in the code so as to keep reading the old word in the
 // config would keep alive exactly the reference the rename was meant to remove.
 const STORE_SERVER = nameSlug;
+// Every Mac has it; a Linux machine without it runs each cloud relay on its own.
+const PERL = '/usr/bin/perl';
 
 /**
  * HER `sessionArgs`, WITH A STORE GRANT SPELLED UNDER AN OLDER NAME OF OURS
@@ -4165,6 +4173,8 @@ export class Supervisor {
     }
     return {
       setUp, mode, running: this._cloudLoad(), month: this._cloudMonth.month,
+      ...this._cloudHealthNow(now),
+      versionGap: setUp ? this._cloudVersionGaps(now).sort((a, b) => b.blocks - a.blocks)[0] ?? null : null,
       // What C turns the cloud back on to (main/settings.mjs cloudWhenOn).
       whenOn: this.config.cloudWhenOn === 'all' ? 'all' : 'full',
       accounts: setUp ? this._cloudAccounts() : [],
@@ -4417,7 +4427,7 @@ export class Supervisor {
   // neither the tick nor the sweep that resumes interrupted rows starts it, or
   // takes a slot from another row for it) and by `_whereToRun`.
   _waitsForCloud(item, engine) {
-    return this._cloudFirst() && !!item?.id && this._cloudSignedInAtAll(engine)
+    return this._cloudFirst() && !!item?.id && this._cloudUsable(engine) && this._cloudSignedInAtAll(engine)
       && this._cloudEligible(item) && !this._mustRunHere(item, engine) && !this._cloudSlotFor(engine);
   }
 
@@ -4444,8 +4454,16 @@ export class Supervisor {
   }
 
   _maxCloud() {
-    const n = Number(this.config.maxCloudSessions);
-    return Number.isFinite(n) && n >= 0 ? n : 20;
+    const set = this.config.maxCloudSessions;
+    const n = Number(set);
+    if (set !== null && set !== undefined && set !== '' && Number.isFinite(n) && n >= 0) return n;
+    return this._cloudHostAvailable() ? 50 : 20;
+  }
+
+  _cloudHostAvailable() {
+    if (this.config.cloudHost === false || !fs.existsSync(unpacked(path.join(this.appDir, 'scripts', 'cloud-shim.pl')))) return false;
+    this._perlRunsTheShim ??= perlRunsTheShim(PERL);
+    return this._perlRunsTheShim;
   }
 
   _localSlotFor(engine) {
@@ -4459,7 +4477,87 @@ export class Supervisor {
   // the proxy's command; Codex as its own app-server in the sandbox
   // (main/cloud/codex-cloud.mjs).
   _cloudSlotFor(engine) {
-    return this._cloudRoom(engine) && this._cloudStarting() < CLOUD_STARTING_AT_ONCE;
+    return this._cloudUsable(engine) && this._cloudRoom(engine) && this._cloudStarting() < CLOUD_STARTING_AT_ONCE;
+  }
+
+  // Not resting after failures of its own (`_noteCloudOutcome`), and not a
+  // major version of this engine apart from this Mac (`_cloudVersionGaps`).
+  _cloudUsable(engine) {
+    if (this._cloudResting()) return false;
+    const which = engineOf(engine);
+    return !this._cloudVersionGaps().some((g) => g.engine === which && g.blocks);
+  }
+
+  // THE CLOUD IMAGE'S VERSIONS AGAINST THIS MAC'S (shared/cloud-versions.mjs).
+  // The image's are in cloud.json, read at most every minute; this Mac's are
+  // asked of each CLI off the window's thread, at most every hour.
+  _cloudVersionGaps(now = Date.now()) {
+    if (!this._cloudImageAt || now - this._cloudImageAt > 60_000) {
+      const c = readCloudConfig(process.env, this.config.home);
+      this._cloudImage = c ? { claude: c.claudeCodeVersion, codex: c.codexVersion } : null;
+      this._cloudImageAt = now;
+    }
+    if (!this._cloudImage) return [];
+    if (!this._macVersionsAt || now - this._macVersionsAt > 60 * 60_000) this._refreshMacAgentVersions().catch(() => {});
+    return cloudVersionGaps({ cloud: this._cloudImage, mac: this._macVersions ?? {} });
+  }
+
+  _refreshMacAgentVersions() {
+    if (this._macVersionsReading) return this._macVersionsReading;
+    this._macVersionsAt = Date.now();
+    this._macVersionsReading = (async () => {
+      const found = {};
+      for (const engine of ['claude', 'codex']) {
+        try { found[engine] = await this._readMacAgentVersion(engine); } catch { /* not installed here */ }
+      }
+      this._macVersions = found;
+      this._cloudImageAt = 0;
+      this.onChange?.();
+    })().finally(() => { this._macVersionsReading = null; });
+    return this._macVersionsReading;
+  }
+
+  async _readMacAgentVersion(engine) {
+    const { installedAgent } = await import('./agent-updates.mjs');
+    return (await installedAgent(engine, this.config)).version;
+  }
+
+  _cloudResting(now = Date.now()) {
+    return (this._cloudHealth?.restUntil ?? 0) > now;
+  }
+
+  // A BROKEN CLOUD IS NOTICED. A cloud run that ends before its agent starts
+  // (the start refused, exit 75 with nothing run) is the cloud's fault, and
+  // CLOUD_FAULTS_TO_REST of them in a row rest it for CLOUD_REST_MS: no new row
+  // goes there, so a cloud that cannot run anything stops taking rows and
+  // handing them back. A run whose agent started ends the streak; a Stop, a
+  // sign-in that failed, or a folder still bringing an earlier run home says
+  // nothing about the cloud.
+  _noteCloudOutcome(session, code, signal = null) {
+    if (!session?.cloud || session.stoppedByUs || session.cloudLoginTrouble) return;
+    const h = (this._cloudHealth ??= { faults: 0, lastError: null, restUntil: 0 });
+    if (session.sessionId != null || session.result != null) {
+      Object.assign(h, { faults: 0, lastError: null, restUntil: 0 });
+      return;
+    }
+    if (!signal && code === 0) return;
+    const said = (session.tail ?? [])
+      .filter((l) => typeof l === 'string' && l.startsWith('stderr:'))
+      .flatMap((l) => l.slice('stderr:'.length).split('\n'))
+      .map((l) => l.trim()).filter((l) => l.startsWith('agentbox cloud:'))
+      .map((l) => l.slice('agentbox cloud:'.length).trim()).at(-1) ?? null;
+    if (said && /earlier cloud run in this folder/.test(said)) return;
+    h.faults += 1;
+    h.lastError = said || `a cloud run ended (${signal || code}) before its agent started`;
+    if (h.faults >= CLOUD_FAULTS_TO_REST) h.restUntil = Date.now() + CLOUD_REST_MS;
+    this.onChange?.();
+  }
+
+  _cloudHealthNow(now = Date.now()) {
+    const h = this._cloudHealth;
+    if (!h?.faults) return { health: 'ok', lastError: null, restingUntil: null };
+    const resting = h.restUntil > now;
+    return { health: resting ? 'resting' : 'failing', lastError: h.lastError, restingUntil: resting ? h.restUntil : null };
   }
 
   // Which rows may go to the cloud at all. A row needs its own task folder
@@ -4498,6 +4596,53 @@ export class Supervisor {
     return fileURLToPath(new URL('./cloud/run-cli.mjs', import.meta.url));
   }
 
+  // A cloud run: a stand-in for it on the shared host (main/cloud/host.mjs)
+  // where perl can run one, otherwise a relay process of its own. Either way
+  // one process here, with the run's input, output, signals and exit code.
+  _spawnCloudRelay(args, { cwd, env, stdio = ['pipe', 'pipe', 'pipe'] }) {
+    const shim = unpacked(path.join(this.appDir, 'scripts', 'cloud-shim.pl'));
+    const sock = this._cloudHostAvailable() ? this._cloudHost() : null;
+    if (sock) {
+      const { ELECTRON_RUN_AS_NODE: _node, ...plain } = env;
+      const child = spawn(PERL, [shim, sock, ...args], { cwd, env: plain, stdio });
+      // No host answered: the next run looks for one afresh.
+      child.on('exit', (code) => { if (code === 75 && this._cloudHostProc?.exitCode !== null) this._cloudHostProc = null; });
+      return child;
+    }
+    return spawn(process.execPath, [this._cloudRunPath(), ...args], { cwd, env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, stdio });
+  }
+
+  // The host's socket, starting the host if none of this app's is running. It
+  // outlives the app (detached), so a quit leaves its runs going in the cloud
+  // with their state saved, and it ends itself a minute after its last run.
+  // One that has taken its socket away is ending, and one that found another
+  // host there left it to that one.
+  _cloudHost() {
+    this._cloudHostSock ??= hostSocketPath();
+    const had = this._cloudHostProc;
+    const there = fs.existsSync(this._cloudHostSock);
+    const running = had?.exitCode === null && had.signalCode === null;
+    if (running && (there || Date.now() - this._cloudHostAt < 10_000)) return this._cloudHostSock;
+    if (had?.exitCode === HOST_ALREADY_THERE && there) return this._cloudHostSock;
+    try {
+      const log = fs.openSync(path.join(this.userDir, 'cloud-host.log'), 'a');
+      const proc = spawn(process.execPath, [fileURLToPath(new URL('./cloud/host.mjs', import.meta.url)), this._cloudHostSock], {
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+        detached: true,
+        stdio: ['ignore', log, log],
+      });
+      fs.closeSync(log);
+      proc.on('error', () => {});
+      proc.unref();
+      this._cloudHostProc = proc;
+      this._cloudHostAt = Date.now();
+      return this._cloudHostSock;
+    } catch (error) {
+      console.warn('zero: the cloud host could not start, so cloud runs each run their own relay:', error.message);
+      return null;
+    }
+  }
+
   // The Claude account folder a profile names, spelled out, because the
   // cloud run unpacks transcripts and tooling into exactly that path.
   _claudeConfigDir(profile) {
@@ -4532,14 +4677,6 @@ export class Supervisor {
     this._homecomings ??= new Map();
     const last = this._homecomings.get(folder);
     if (last && (last.child || Date.now() - last.at < 120_000)) return;
-    // A run that cannot be laid into its folder without undoing work done
-    // here waits for a person; asking again every two minutes changes nothing.
-    const marker = readMarker(folder);
-    if (marker?.state === 'diverged') {
-      if (!last) console.warn(`zero: a cloud run's work in ${folder} needs a person: ${marker.why || 'the folder changed while it was away'}`);
-      this._homecomings.set(folder, { child: null, at: Date.now() });
-      return;
-    }
     // This app's own tool servers as they are now, for a run the last app
     // left going: the approvals key is made fresh at every start, and one from
     // before would refuse every card she answers.
@@ -4548,9 +4685,9 @@ export class Supervisor {
     const forget = () => { if (mcp) fs.rmSync(mcp, { force: true }); };
     let child;
     try {
-      child = spawn(process.execPath, [this._cloudRunPath(), '--agentbox-import-only'], {
+      child = this._spawnCloudRelay(['--agentbox-import-only'], {
         cwd: folder,
-        env: { ...this._workerEnv(), ELECTRON_RUN_AS_NODE: '1', ...(mcp ? { AGENTBOX_MCP_CONFIG: mcp } : {}) },
+        env: { ...this._workerEnv(), ...(mcp ? { AGENTBOX_MCP_CONFIG: mcp } : {}) },
         stdio: ['ignore', 'ignore', 'pipe'],
       });
     } catch (error) {
@@ -4562,7 +4699,25 @@ export class Supervisor {
     this._homecomings.set(folder, rec);
     child.stderr?.on('data', (d) => console.warn(String(d).trim()));
     child.on('error', () => { forget(); rec.child = null; rec.at = Date.now(); });
-    child.once('exit', () => { forget(); rec.child = null; rec.at = Date.now(); this.wake?.(); });
+    child.once('exit', () => { forget(); rec.child = null; rec.at = Date.now(); this._sayCloudNews(folder); this.wake?.(); });
+  }
+
+  // A CLOUD RUN'S WORK KEPT ON A BRANCH OF ITS OWN (main/cloud/run.mjs
+  // `park`): said on its row, which then waits for her and does not ship
+  // without that work.
+  _sayCloudNews(folder, item = null) {
+    let news = [];
+    try { news = takeCloudNews(folder); } catch { return; }
+    for (const n of news) {
+      const product = n.product || item?.product;
+      const id = n.item || item?.id;
+      if (!product || !id || !n.note) { console.warn(`zero: ${n.note || 'a cloud run was kept aside'} (${folder})`); continue; }
+      try {
+        if (this.store.cloudWorkKeptAside) this.store.cloudWorkKeptAside(product, id, n.note);
+        else this.store.noteItem?.(product, id, n.note);
+      } catch (e) { console.warn('zero: could not say a cloud run was kept aside:', e.message); }
+    }
+    if (news.length) this.onChange?.();
   }
 
   /**
@@ -7580,11 +7735,10 @@ export class Supervisor {
     const procExit = new Promise((resolve) => { resolveExit = resolve; });
     const client = createCodexAppServer({
       spawn: () => {
-        const proc = spawn(process.execPath, [this._cloudRunPath(), '--agentbox-codex', 'app-server'], {
+        const proc = this._spawnCloudRelay(['--agentbox-codex', 'app-server'], {
           cwd,
           env: {
             ...this._workerEnv('codex'),
-            ELECTRON_RUN_AS_NODE: '1',
             CODEX_HOME: home,
             STORE_ACCOUNT_ID: this.config.accountId,
             ...storeRootEnv(this.config.storeRoot),
@@ -8378,6 +8532,7 @@ export class Supervisor {
       this.memoryGateTurnEnded(session);
       session.exitFailed = !!(signal || code !== 0 || session.transportFault || session.resultIsError || session.result == null);
       this.count?.('run_finished', runEndedProps(session, Date.now()));
+      this._noteCloudOutcome(session, code, signal);
       onLine(`session exited (${code})`);
       if (this._noteCloudHandBack(item, session)) onLine('the cloud handed this thread back to this computer');
       // WHAT THE RUN CHANGED, SAVED WHERE SHE CAN OPEN IT.
@@ -8491,6 +8646,7 @@ export class Supervisor {
       // `pruneRowSessions` is what eventually forgets it.
       this.forgetFinishedSession(item, session);
       this.noteExitForBackoff(session, { onLine });
+      if (session.cloud) this._sayCloudNews(cwd, item);
       const carryingAnswer = continuation && answerAtSpawn;
       if (carryingAnswer) this.settleDeliveryAndSay(item, answerAtSpawn, session, signal, { command: !!plan.command });
       // AND THE REPLY THE USER TYPED INTO A RUN THAT WAS NOT CARRYING ONE. Ordinary

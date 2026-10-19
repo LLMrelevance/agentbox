@@ -423,6 +423,8 @@ async function createWindow() {
       ready: () => !!phoneApply,
       apply: (cmd) => phoneApply(cmd),
       live: (slug, id) => supervisor.liveFor(slug, id),
+      // The cards waiting on her, each with the fingerprint her answer must carry back.
+      approvals: () => approvals.listPending(config.storeRoot).map((r) => ({ ...r, card: approvals.cardShown(config.storeRoot, r.id) })),
       stateFile: path.join(config.storeRoot, '.phone-inbox.json'),
       // This installation and this store together (main/phone-inbox.mjs).
       device: () => phoneDevice(userDir, config.storeRoot),

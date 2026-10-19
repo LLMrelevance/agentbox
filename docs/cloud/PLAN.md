@@ -277,8 +277,8 @@ stdout and stderr come back byte for byte. Its life:
   fault (redeliver, no attempt spent) rather than a finished run.
 - **Slots (R13).** Local capacity counts local sessions only. A Claude thread
   may take a cloud slot when no local slot is free, cloud runs are on, fewer
-  than `maxCloudSessions` (default 20; each run still costs the Mac ~120 MB)
-  cloud runs are live, and an account is healthy. With Everything
+  than `maxCloudSessions` cloud runs are live (default 50 through the shared
+  host, 20 without it), and an account is healthy. With Everything
   (`cloudRuns: 'all'`) a thread that may go to the cloud waits for a cloud slot
   (cap, two starting, accounts at their limit or renewing) and never falls back
   to the Mac (2026-10-17, her Mac overloaded with Everything on). At most two
@@ -435,25 +435,59 @@ input. In order:
    background, has its input closed there; the Mac reads that as the end of
    the run, and a reply that arrived too late is kept for the next one.
    Codex turns still end only with the Mac. Needs the image rebuilt.
-2. **Fewer processes per run.** One tool server per kind shared by all cloud
-   runs, keeping each connection's identity, request ids, claims, approval
-   context and cleanup; then measure. A single relay for all runs only if that
-   misses.
-3. **The store reachable from the cloud, and a scheduler there.** Answering
-   store writes optimistically in the sandbox was rejected (created ids,
-   claims and epochs make a later refusal unrecoverable). Real store access
-   from the cloud needs durable, deduplicated, ownership-checked writes; with a
-   scheduler (AWS rights of its own) it is also what starts new runs and
-   phone replies with the Mac shut.
+2. **Done (2026-10-17): one process for every cloud run.** Every run's relay
+   lives in one host (main/cloud/host.mjs), started detached by the supervisor
+   and ending a minute after its last run; the supervisor holds, per run, a
+   Perl stand-in (scripts/cloud-shim.pl) that carries input, output, signals
+   and the exit code, so a cloud run is still one process to it. The relay
+   serves the approvals and store servers in-process, one channel per
+   connection. Measured on a Linux box with 50 idle runs, each with both
+   servers open: about 11 MB a run (host 99 MB in all, stand-ins 9 MB each),
+   against about 110 MB a run with a relay and servers of their own. A machine
+   without /usr/bin/perl runs each relay on its own, as before. The pack, the
+   import and the documents' tars run as child processes awaited one by one
+   (main/cloud/exec.mjs), so one run's git never holds the others (2026-10-19).
+3. **Done (2026-10-19): what an agent writes on its thread while the Mac
+   sleeps is made when it wakes.** The Mac names at start the store calls safe
+   to make late (`KEPT_WHILE_AWAY`: update_work_item, create_work_item,
+   write_document); while it is away the sandbox answers those "kept, and made
+   when your computer is back" (not "made", and with no id) and records each
+   in the run's events; the relay makes them through its own store server on
+   reading them, before the run comes home, and says when one is turned down.
+   Reads and claims are still "not made". Needs the cloud image rebuilt (the
+   `kept` cap); an older image behaves as before.
+4. **A scheduler in the cloud, so new runs and phone replies start with the
+   Mac shut.** Not built: it needs AWS rights of its own and a deploy from a
+   machine signed in to her account. The shape: a small always-on service
+   (Lambda on a schedule, or a long-poll worker) that reads `phone_commands`
+   for devices whose Mac has not written for 15 minutes (the projects'
+   heartbeat), and for each reply or new thread starts a cloud run itself
+   from the last branch bundle the Mac uploaded for that thread, with the
+   thread's brief and transcript; it marks the command taken with the run id,
+   and the Mac, waking, joins that run as it joins one left going on a quit
+   (main/cloud/run.mjs `joining`). It needs, per thread, a durable checkpoint
+   (bundle, uncommitted work, transcript) kept for the thread's life, which
+   the Mac writes after every turn, and a lease so one executor at a time owns
+   a thread.
 
 ## Known limits
 
-- With the lid shut a cloud run keeps working, but what it asks of the app
-  (a note on its row, an approval) is not made: it is told so and says it in
-  its last message. Starting new runs with the Mac shut is step 3 of "Next" above.
-- A run that ended on another branch, or whose folder changed on this Mac
-  while it was away, is kept on `refs/agentbox/cloud/<run>` and its folder
-  stays marked until a person looks (the app logs which folder).
+- With the lid shut a cloud run keeps working; its writes to its thread are
+  kept and made on wake (step 3), but a read or an approval is not made: it is
+  told so and says it in its last message. A kept write turned down on wake
+  (another session holds the row) is said on the run's log, not retried.
+  Starting new runs with the Mac shut is step 4 of "Next" above.
+- A run whose folder changed on this Mac while it was away, that ended on
+  another branch, or that would not lay in three times, goes on a branch
+  `cloud/<item>`; the row gets a note, moves to Needs you and loses `ship`
+  (2026-10-19). Amending or rebasing a commit that existed at the start comes
+  home as it is, the old tip kept on `refs/agentbox/before-cloud/<run>`.
+- After three cloud runs in a row fail before their agent starts, no new rows
+  go to the cloud for ten minutes and the cloud menu says why; the count is
+  kept in memory, so a restart forgets it.
+- The cloud menu says when the image's Claude Code or Codex is a different
+  minor version from this Mac's; across a major version that engine's threads
+  stay on the Mac until the image is rebuilt.
 - The budget the spike made (`agentcore-sandboxes`) counts all of the
   account's spend, not only cloud runs.
 - The sandbox is Linux: a project that builds with Xcode cannot run there,

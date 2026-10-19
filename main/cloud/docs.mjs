@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { run } from './exec.mjs';
 
 // The folders that hold pictures by the gigabyte. Only this thread's own
 // designs go up from them; the rest of the folder is small.
@@ -89,7 +89,7 @@ export function docsToSend(dir, { item = null, limits = DOCS_LIMITS } = {}) {
 
 /** Those files as one gzipped tar, paths inside `dir`. */
 export function tarDocs(dir, files) {
-  return execFileSync('tar', ['-czf', '-', '-C', dir, '--null', '-T', '-'], { input: files.join('\0') + '\0', maxBuffer: 1024 * 1024 * 1024, env: { ...process.env, COPYFILE_DISABLE: '1' } });
+  return run('tar', ['-czf', '-', '-C', dir, '--null', '-T', '-'], { input: files.join('\0') + '\0', encoding: null, env: { ...process.env, COPYFILE_DISABLE: '1' } });
 }
 
 const stampOf = (st) => `${st.size}:${Math.round(st.mtimeMs)}`;
@@ -120,7 +120,7 @@ function besideName(file) {
  * them was never the run's to change, however old it is, so its copy goes
  * beside it too. A run recorded before the list was kept passes none.
  */
-export function layDocs({ tgz, dir, sentAt = 0, laid = {}, sent = null }) {
+export async function layDocs({ tgz, dir, sentAt = 0, laid = {}, sent = null }) {
   const took = sent ? new Set(sent) : null;
   const out = { written: [], beside: [], moved: [] };
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentbox-docs-'));
@@ -131,7 +131,7 @@ export function layDocs({ tgz, dir, sentAt = 0, laid = {}, sent = null }) {
     fs.writeFileSync(file, tgz);
     const into = path.join(tmp, 'docs');
     fs.mkdirSync(into);
-    execFileSync('tar', ['-xzf', file, '-C', into], { stdio: 'ignore' });
+    await run('tar', ['-xzf', file, '-C', into]);
     fs.mkdirSync(dir, { recursive: true });
     const root = fs.realpathSync(dir);
     const files = [];

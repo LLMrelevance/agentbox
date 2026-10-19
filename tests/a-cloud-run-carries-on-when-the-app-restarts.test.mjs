@@ -95,7 +95,7 @@ const common = () => ({
   homeDir: path.join(tmp, 'home'), leaveFlushMs: 500,
 });
 
-function launch(message) {
+function launch(message, extra = {}) {
   fs.mkdirSync(configDir(), { recursive: true });
   const mcpFile = path.join(tmp, 'mac', 'mcp.json');
   fs.writeFileSync(mcpFile, JSON.stringify({ mcpServers: { agentbox: { command: process.execPath, args: [FAKE_STORE], env: { FAKE_STORE_LOG: storeLog, FAKE_STORE_STRICT: '1' } } } }));
@@ -107,7 +107,7 @@ function launch(message) {
   stdout.on('data', (d) => { out += d; if (out.includes('"type":"result"') && !stdin.writableEnded) stdin.end(); });
   stderr.on('data', (d) => { err += d; });
   const done = cloudRun({
-    ...common(), login: LOGIN, stdin, stdout, stderr, signals,
+    ...common(), login: LOGIN, stdin, stdout, stderr, signals, ...extra,
     argv: [FAKE_CLAUDE, '-p', '--output-format', 'stream-json', '--mcp-config', mcpFile],
     env: { ...process.env, ZERO_ITEM: 'w-1', ZERO_PRODUCT: 'p', CLAUDE_CONFIG_DIR: configDir(), AGENTBOX_HOME: path.join(tmp, 'mac') },
   });
@@ -241,6 +241,28 @@ describe('when the app quits with a run in the cloud', () => {
     expect(again.err()).toMatch(/still going/);
     expect((await transport.invoke('x', { action: 'status' })).state).toBe('running');
     expect(await bringHome().done).toBe(0);
+  });
+
+  // THE SHARED HOST CRASHING (2026-10-17): every cloud run's relay now lives
+  // in one process on the Mac (main/cloud/host.mjs). When it dies without a
+  // word, each run's marker still says running, for a stand-in that is gone,
+  // and bringing the folder home sent the run SIGTERM: one crash would cancel
+  // fifty runs mid-turn. Such a run is now joined, as one the app left going.
+  it('a run whose relay died without a word is joined, not stopped', async () => {
+    const gone = execFileSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
+    let dead = false;
+    const freezes = { ...transport, invoke: (s, p) => (dead ? new Promise(() => {}) : transport.invoke(s, p)) };
+    launch('LATE please', { pid: Number(gone), transport: freezes });
+    await untilRunning();
+    await sleep(400);
+    dead = true;
+    expect(readMarker(mac)).toMatchObject({ state: 'running', pid: Number(gone) });
+    const home = bringHome();
+    expect(await home.done, home.err()).toBe(0);
+    expect(home.err()).toMatch(/joining/);
+    expect(calls()).toEqual([{ name: 'note', args: { text: 'LATE please' }, item: 'w-1' }]);
+    expect(git(mac, 'log', '-1', '--format=%s')).toBe('From the cloud');
+    expect(readMarker(mac)).toBe(null);
   });
 
   it('a Stop still stops it', async () => {
