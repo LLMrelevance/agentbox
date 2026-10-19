@@ -161,6 +161,27 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
   return { products, items: [...items.values()], waiting, aliases, running, places, approvals, cards };
 }
 
+const THREADS_MAX = 3000;
+type ThreadRow = PhoneRows['threads'][number];
+/**
+ * Her threads, fetching only the copies new or changed since `cache` had them:
+ * a light list of when each last changed, then the changed copies at once.
+ * `cache` is kept up to date, and a thread gone from the list leaves it.
+ */
+export async function readThreads(select: (table: string, query: string) => Promise<any[]>, cache: Map<string, ThreadRow>): Promise<ThreadRow[]> {
+  const keyOf = (t: { device: string; project: string; item: string }) => `${t.device}/${t.project}/${t.item}`;
+  const light: ThreadRow[] = await select('phone_threads', `select=device,project,item,updated_at&order=updated_at.desc&limit=${THREADS_MAX}`);
+  const changed = light.filter((t) => cache.get(keyOf(t))?.updated_at !== t.updated_at);
+  if (changed.length) {
+    const since = changed.map((t) => String(t.updated_at ?? '')).sort()[0];
+    const fresh: ThreadRow[] = await select('phone_threads', `select=device,project,item,snapshot,updated_at${since ? `&updated_at=gte.${encodeURIComponent(since)}` : ''}&order=updated_at.desc&limit=${THREADS_MAX}`);
+    for (const t of fresh) cache.set(keyOf(t), t);
+  }
+  const here = new Set(light.map(keyOf));
+  for (const k of [...cache.keys()]) if (!here.has(k)) cache.delete(k);
+  return light.map((t) => cache.get(keyOf(t))).filter((t): t is ThreadRow => !!t);
+}
+
 // Each card drawn on the phone: where it is, and the fingerprint her Mac drew it with.
 export type Cards = Record<string, { device: string; project: string; item: string; card: string }>;
 /** Her answer to a card, for her Mac, carrying the fingerprint it was drawn with; null for a card never drawn. */
@@ -363,6 +384,8 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
 
   // One read at a time: on a slow network a read can outlast the five seconds between them.
   let reading: Promise<void> | null = null;
+  // Her threads' copies as last fetched; a read fetches only what changed since.
+  const threadCache = new Map<string, PhoneRows['threads'][number]>();
   let fetchedAt = 0;
   function refresh() {
     if (reading) return reading;
@@ -375,11 +398,11 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     try {
       const [projects, threads, cmds] = await Promise.all([
         client.select('phone_projects', 'select=device,project,name,updated_at&order=name'),
-        client.select('phone_threads', 'select=device,project,item,snapshot,updated_at&order=updated_at.desc&limit=1000'),
+        readThreads((table, query) => client.select(table, query), threadCache),
         commands(),
       ]);
       // Read for a sign-in that has since ended: not hers to show.
-      if (client.generation() !== asked) return;
+      if (client.generation() !== asked) { threadCache.clear(); return; }
       rows = { projects, threads, commands: cmds };
       places = cloudPlaces(threads, phoneSlug);
       error = null;
@@ -540,7 +563,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       if (out.confirm) throw new Error('Check your email to confirm it, then sign in here.');
     }),
     teamSignOut: async () => {
-      client.signOut(); rows = EMPTY_ROWS; error = null;
+      client.signOut(); rows = EMPTY_ROWS; error = null; threadCache.clear();
       places = new Map(); links.clear();
       for (const key of [...pages.keys()]) dropPage(key);
       changed(null);
