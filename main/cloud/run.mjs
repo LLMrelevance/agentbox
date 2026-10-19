@@ -53,6 +53,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { spawn, execFileSync } from 'node:child_process';
+import { run } from './exec.mjs';
 import { readMarker, writeMarker, clearMarker } from './marker.mjs';
 import { Name, nameSlug } from '../../shared/product-name.mjs';
 import { codexTranscriptFile } from '../codex-session.mjs';
@@ -143,7 +144,7 @@ export function transcriptFolderName(cwd) { return cwd.replace(/[^a-zA-Z0-9]/g, 
 // Null when there are none, or the folder is the main checkout.
 export function memoryFolderFor(cwd, configDir) {
   let common;
-  try { common = git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim(); } catch { return null; }
+  try { common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); } catch { return null; }
   const root = path.dirname(common);
   if (realOrNull(root) === realOrNull(cwd)) return null;
   const dir = path.join(configDir, 'projects', transcriptFolderName(root), 'memory');
@@ -155,20 +156,20 @@ export function argValue(argv, flag) {
   return i >= 0 && i + 1 < argv.length ? argv[i + 1] : null;
 }
 
-function git(cwd, args, opts = {}) {
-  return execFileSync('git', args, { cwd, encoding: opts.buffer ? undefined : 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 512 * 1024 * 1024, ...opts });
+function git(cwd, args, { buffer = false, env, input } = {}) {
+  return run('git', args, { cwd, env, input, encoding: buffer ? null : 'utf8' });
 }
-const gitOk = (cwd, args) => { try { git(cwd, args); return true; } catch { return false; } };
+const gitOk = (cwd, args) => git(cwd, args).then(() => true, () => false);
 
 // The tree the folder's files make right now, committed or not, without
 // touching the branch, the index or the files.
-function treeOfFolder(cwd) {
+async function treeOfFolder(cwd) {
   const index = path.join(os.tmpdir(), `agentbox-cloud-index-${process.pid}-${crypto.randomUUID()}`);
   const env = { ...process.env, GIT_INDEX_FILE: index };
   try {
-    git(cwd, ['read-tree', 'HEAD'], { env });
-    git(cwd, ['add', '-A'], { env });
-    return git(cwd, ['write-tree'], { env }).trim();
+    await git(cwd, ['read-tree', 'HEAD'], { env });
+    await git(cwd, ['add', '-A'], { env });
+    return (await git(cwd, ['write-tree'], { env })).trim();
   } finally {
     fs.rmSync(index, { force: true });
   }
@@ -176,24 +177,24 @@ function treeOfFolder(cwd) {
 
 // What a folder is: its branch, its commit, and its files. A cloud run's work
 // is laid into a folder only if all three are still what the run left with.
-export function folderState(cwd) {
+export async function folderState(cwd) {
   return {
-    branch: git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']).trim(),
-    head: git(cwd, ['rev-parse', 'HEAD']).trim(),
-    tree: treeOfFolder(cwd),
+    branch: (await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim(),
+    head: (await git(cwd, ['rev-parse', 'HEAD'])).trim(),
+    tree: await treeOfFolder(cwd),
     // What is staged, apart from what is on disk: a change staged and then
     // undone on disk would otherwise read as no change at all.
-    index: git(cwd, ['write-tree']).trim(),
+    index: (await git(cwd, ['write-tree'])).trim(),
   };
 }
 
 // Commit what the folder holds that is not committed, onto its own ref,
 // without touching the branch, the index or the files.
-function snapshotUncommitted(cwd, ref) {
-  if (!git(cwd, ['status', '--porcelain', '--untracked-files=all']).trim()) return false;
-  const tree = treeOfFolder(cwd);
-  const commit = git(cwd, ['-c', `user.name=${Name}`, '-c', `user.email=${nameSlug}@localhost`, 'commit-tree', tree, '-p', 'HEAD', '-m', 'Uncommitted work kept by a cloud run']).trim();
-  git(cwd, ['update-ref', ref, commit]);
+async function snapshotUncommitted(cwd, ref) {
+  if (!(await git(cwd, ['status', '--porcelain', '--untracked-files=all'])).trim()) return false;
+  const tree = await treeOfFolder(cwd);
+  const commit = (await git(cwd, ['-c', `user.name=${Name}`, '-c', `user.email=${nameSlug}@localhost`, 'commit-tree', tree, '-p', 'HEAD', '-m', 'Uncommitted work kept by a cloud run'])).trim();
+  await git(cwd, ['update-ref', ref, commit]);
   return true;
 }
 
@@ -256,7 +257,7 @@ export function filesNamedIn(text, { cwd, roots }) {
 // COPYFILE_DISABLE: a Mac's tar can add a `._name` beside a file with
 // extended attributes, which the cloud reads as one more skill or command.
 export function tarOf(dir) {
-  return execFileSync('tar', ['-czf', '-', '-C', dir, '-h', '.'], { maxBuffer: 512 * 1024 * 1024, env: { ...process.env, COPYFILE_DISABLE: '1' } });
+  return run('tar', ['-czf', '-', '-C', dir, '-h', '.'], { encoding: null, env: { ...process.env, COPYFILE_DISABLE: '1' } });
 }
 
 /* -------------------------------- the run -------------------------------- */
@@ -428,21 +429,21 @@ export async function cloudRun({
   // 2. The pack.
   const docsDir = docsFolderFor(env.AGENTBOX_DOCS, cwd);
   const sentAt = Date.now();
-  const sent = folderState(cwd);
+  const sent = await folderState(cwd);
   const { branch, head: startSha } = sent;
   if (!branch || branch === 'HEAD') { say('the task folder is not on a branch'); return 1; }
   const outgoing = `refs/agentbox/outgoing/${runId}`;
-  const hasOutgoing = snapshotUncommitted(cwd, outgoing);
+  const hasOutgoing = await snapshotUncommitted(cwd, outgoing);
   const refs = [`refs/heads/${branch}`];
   if (hasOutgoing) refs.push(outgoing);
-  for (const r of ['refs/heads/main', 'refs/remotes/origin/main']) if (r !== `refs/heads/${branch}` && gitOk(cwd, ['rev-parse', '--verify', '-q', r])) refs.push(r);
+  for (const r of ['refs/heads/main', 'refs/remotes/origin/main']) if (r !== `refs/heads/${branch}` && await gitOk(cwd, ['rev-parse', '--verify', '-q', r])) refs.push(r);
   const bundleFile = path.join(os.tmpdir(), `agentbox-cloud-${runId}.bundle`);
   try {
-    git(cwd, ['bundle', 'create', '-q', bundleFile, ...refs]);
+    await git(cwd, ['bundle', 'create', '-q', bundleFile, ...refs]);
     await sendFromFile(storage, key('in.bundle'), bundleFile);
   } finally {
     fs.rmSync(bundleFile, { force: true });
-    if (hasOutgoing) gitOk(cwd, ['update-ref', '-d', outgoing]);
+    if (hasOutgoing) await gitOk(cwd, ['update-ref', '-d', outgoing]);
   }
 
   const files = [];
@@ -468,13 +469,13 @@ export async function cloudRun({
   }
   // Her saved memories for this project, where Claude Code in the cloud looks.
   const saved = !codex ? memoryFolderFor(cwd, configDir) : null;
-  if (saved) files.push(await sendFile(null, path.join(projectsDir, '.memory.tgz'), tarOf(saved), path.join(projectsDir, 'memory')));
+  if (saved) files.push(await sendFile(null, path.join(projectsDir, '.memory.tgz'), await tarOf(saved), path.join(projectsDir, 'memory')));
   // The account's own skills, commands and agents, as real folders.
   if (!codex) {
     const tooling = path.join(homeDir, '.claude');
     for (const sub of ['skills', 'commands', 'agents']) {
       const dir = fs.existsSync(path.join(configDir, sub)) ? path.join(configDir, sub) : path.join(tooling, sub);
-      if (fs.existsSync(dir)) files.push(await sendFile(null, path.join(configDir, `.${sub}.tgz`), tarOf(dir), path.join(configDir, sub)));
+      if (fs.existsSync(dir)) files.push(await sendFile(null, path.join(configDir, `.${sub}.tgz`), await tarOf(dir), path.join(configDir, sub)));
     }
   }
   // Her own instructions to Claude, which Claude Code reads from the home
@@ -499,7 +500,7 @@ export async function cloudRun({
   let docsSent = [];
   if (docsDir) {
     docsSent = docsToSend(docsDir, { item: env.ZERO_ITEM });
-    if (docsSent.length) files.push(await sendFile(null, path.join(docsDir, '.agentbox-docs.tgz'), tarDocs(docsDir, docsSent), docsDir));
+    if (docsSent.length) files.push(await sendFile(null, path.join(docsDir, '.agentbox-docs.tgz'), await tarDocs(docsDir, docsSent), docsDir));
   }
   const system = argValue(argv, '--append-system-prompt') || '';
   for (const f of filesNamedIn(system, { cwd, roots })) files.push(await sendFile(f));
@@ -507,7 +508,7 @@ export async function cloudRun({
 
   const results = await resultUrls(runId);
   let remote = null;
-  try { remote = remoteForTheCloud(git(cwd, ['remote', 'get-url', 'origin']).trim()); } catch { /* no origin */ }
+  try { remote = remoteForTheCloud((await git(cwd, ['remote', 'get-url', 'origin'])).trim()); } catch { /* no origin */ }
 
   const remoteEnv = {
     ...(codex ? { CODEX_HOME: codexHome } : { CLAUDE_CONFIG_DIR: configDir }),
@@ -515,7 +516,7 @@ export async function cloudRun({
     DISABLE_AUTOUPDATER: '1',
     ...(env.ZERO_PRODUCT ? { ZERO_PRODUCT: env.ZERO_PRODUCT } : {}),
     ...(env.ZERO_ITEM ? { ZERO_ITEM: env.ZERO_ITEM } : {}),
-    ...gitIdentity(cwd),
+    ...(await gitIdentity(cwd)),
   };
 
   // What this run has laid into the documents folder so far, kept with the
@@ -660,7 +661,7 @@ export async function cloudRun({
       const tgz = await storage.get(k).catch(() => null);
       if (!tgz) continue;
       // Confirmed only once laid: a write that failed here goes again.
-      if (!layArchive(docs, tgz)) continue;
+      if (!(await layArchive(docs, tgz))) continue;
       docs.ack = k;
       saveMarker();
     }
@@ -1001,7 +1002,7 @@ export async function cloudRun({
     const fetchBundle = async (name, specs, why) => {
       const f = path.join(spool, name);
       if (!(await fetchToFile(storage, k(name), f))) throw new Error(why);
-      try { git(cwd, ['fetch', '-q', f, ...specs]); } finally { fs.rmSync(f, { force: true }); }
+      try { await git(cwd, ['fetch', '-q', f, ...specs]); } finally { fs.rmSync(f, { force: true }); }
     };
     if (record.commits > 0 || record.strayHead) {
       const specs = [];
@@ -1023,7 +1024,7 @@ export async function cloudRun({
     if (rec.docs?.dir && (record.docs || []).length) {
       const tgz = await storage.get(k('docs.tgz'));
       if (!tgz) return { ok: false, why: 'the documents it wrote are missing' };
-      if (!layArchive(rec.docs, tgz)) return { ok: false, why: 'the documents it wrote could not be laid in' };
+      if (!(await layArchive(rec.docs, tgz))) return { ok: false, why: 'the documents it wrote could not be laid in' };
     }
 
     // THE FOLDER MUST BE EXACTLY AS THE RUN LEFT IT: same branch, same commit,
@@ -1031,7 +1032,7 @@ export async function cloudRun({
     // Mac worked in it while the run was away, and laying the run's state over
     // it would undo that.
     if (rec.sent) {
-      const now = folderState(cwd);
+      const now = await folderState(cwd);
       if (now.branch !== rec.sent.branch || now.head !== rec.sent.head || now.tree !== rec.sent.tree || (rec.sent.index && now.index !== rec.sent.index)) {
         return { ok: false, state: 'diverged', why: `this folder changed on this Mac while the run was in the cloud; the run's commits are kept on ${keep}` };
       }
@@ -1046,36 +1047,36 @@ export async function cloudRun({
     // of the files AND of what was staged is set aside first anyway, under
     // names no later run reuses.
     const stamp = `${rec.runId}-${Date.now()}`;
-    snapshotUncommitted(cwd, `refs/agentbox/before-cloud/${stamp}`);
-    const stagedTree = git(cwd, ['write-tree']).trim();
-    const stagedCommit = git(cwd, ['-c', `user.name=${Name}`, '-c', `user.email=${nameSlug}@localhost`, 'commit-tree', stagedTree, '-p', 'HEAD', '-m', 'What was staged before a cloud run came home']).trim();
-    git(cwd, ['update-ref', `refs/agentbox/before-cloud/${stamp}-staged`, stagedCommit]);
+    await snapshotUncommitted(cwd, `refs/agentbox/before-cloud/${stamp}`);
+    const stagedTree = (await git(cwd, ['write-tree'])).trim();
+    const stagedCommit = (await git(cwd, ['-c', `user.name=${Name}`, '-c', `user.email=${nameSlug}@localhost`, 'commit-tree', stagedTree, '-p', 'HEAD', '-m', 'What was staged before a cloud run came home'])).trim();
+    await git(cwd, ['update-ref', `refs/agentbox/before-cloud/${stamp}-staged`, stagedCommit]);
     try {
-      git(cwd, ['reset', '-q', '--hard', 'HEAD']);
-      git(cwd, ['clean', '-q', '-fd']);
-      if (record.commits > 0) git(cwd, ['merge', '-q', '--ff-only', keep]);
+      await git(cwd, ['reset', '-q', '--hard', 'HEAD']);
+      await git(cwd, ['clean', '-q', '-fd']);
+      if (record.commits > 0) await git(cwd, ['merge', '-q', '--ff-only', keep]);
       if (record.uncommitted) {
-        const patch = git(cwd, ['diff', '--binary', 'HEAD', keepChanges], { buffer: true });
-        if (patch.length) git(cwd, ['apply', '--whitespace=nowarn'], { input: patch });
+        const patch = await git(cwd, ['diff', '--binary', 'HEAD', keepChanges], { buffer: true });
+        if (patch.length) await git(cwd, ['apply', '--whitespace=nowarn'], { input: patch });
       }
       for (const c of conversations) {
         fs.mkdirSync(c.dir, { recursive: true });
-        execFileSync('tar', ['-xzf', c.file, '-C', c.dir], { stdio: 'ignore' });
+        await run('tar', ['-xzf', c.file, '-C', c.dir]);
       }
     } catch (err) {
       // Every download had already landed, so this is git itself refusing;
       // nothing a retry would change. A person looks, with everything kept.
       return { ok: false, state: 'diverged', why: `laying the run into the folder failed (${String(err.message).split('\n')[0]}); the earlier state is on refs/agentbox/before-cloud/${stamp} and the run's on ${keep}` };
     }
-    gitOk(cwd, ['update-ref', '-d', keepChanges]);
-    if (record.commits > 0) gitOk(cwd, ['update-ref', '-d', keep]);
+    await gitOk(cwd, ['update-ref', '-d', keepChanges]);
+    if (record.commits > 0) await gitOk(cwd, ['update-ref', '-d', keep]);
     clearMarker(cwd);
     return { ok: true, exitCode: record.exitCode, record };
   }
 
-  function layArchive(d, tgz) {
+  async function layArchive(d, tgz) {
     try {
-      const out = layDocs({ tgz, dir: d.dir, sentAt: d.sentAt, laid: d.laid, sent: d.sent ?? null });
+      const out = await layDocs({ tgz, dir: d.dir, sentAt: d.sentAt, laid: d.laid, sent: d.sent ?? null });
       for (const b of out.beside) say(`${b} was changed on this Mac while the run had it; the run's copy is beside it`);
       for (const m of out.moved) say(`the run's ${m} could not go where it was written, through a link out of the folder, so it is there instead`);
       return true;
@@ -1203,9 +1204,9 @@ export function toolVariables(env) {
 }
 
 
-function gitIdentity(cwd) {
-  const get = (k) => { try { return execFileSync('git', ['config', k], { cwd, encoding: 'utf8' }).trim(); } catch { return ''; } };
-  const name = get('user.name'); const email = get('user.email');
+async function gitIdentity(cwd) {
+  const get = (k) => git(cwd, ['config', k]).then((v) => v.trim(), () => '');
+  const name = await get('user.name'); const email = await get('user.email');
   return {
     ...(name ? { GIT_AUTHOR_NAME: name, GIT_COMMITTER_NAME: name } : {}),
     ...(email ? { GIT_AUTHOR_EMAIL: email, GIT_COMMITTER_EMAIL: email } : {}),

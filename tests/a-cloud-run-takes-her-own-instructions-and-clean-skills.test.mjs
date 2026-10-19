@@ -131,10 +131,10 @@ describe('an archive made on a Mac', () => {
     return dir;
   };
 
-  it('carries no `._` extras, for skills or documents', () => {
+  it('carries no `._` extras, for skills or documents', async () => {
     const dir = tagged();
-    expect(list(tarOf(dir)).some((n) => path.basename(n).startsWith('._'))).toBe(false);
-    expect(list(tarDocs(dir, ['sketch/SKILL.md'])).some((n) => path.basename(n).startsWith('._'))).toBe(false);
-    expect(list(tarOf(dir)).some((n) => n.endsWith('sketch/SKILL.md'))).toBe(true);
+    expect(list(await tarOf(dir)).some((n) => path.basename(n).startsWith('._'))).toBe(false);
+    expect(list(await tarDocs(dir, ['sketch/SKILL.md'])).some((n) => path.basename(n).startsWith('._'))).toBe(false);
+    expect(list(await tarOf(dir)).some((n) => n.endsWith('sketch/SKILL.md'))).toBe(true);
   });
 });
