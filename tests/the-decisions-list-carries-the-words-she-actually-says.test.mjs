@@ -41,8 +41,11 @@ describe('the options she reaches for carry her own words', () => {
     expect(describedAs('back')).toMatch(/go back|moved us on|back one/i);
   });
 
-  it('"what is this again" belongs to answering about the thread', () => {
-    expect(describedAs('ask')).toMatch(/what is this|what's this|again/i);
+  // "what is this again" lives on `summary` now, and "I don't know what the
+  // task is about" is caught by WONDERING in main/neo/decided.mjs, so `ask`
+  // stays bare rather than carrying the same words twice.
+  it('"what is this again" belongs to saying what the thread is about', () => {
+    expect(describedAs('summary')).toMatch(/what this task is about|remind me|summarize/i);
   });
 
   it('"what needs me" belongs to the inbox', () => {

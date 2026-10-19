@@ -61,21 +61,6 @@ export function picturesFrom(said, count) {
 const LEAD = /^(?:please\s+)?(?:(?:tell|let)\s+(?:the agent|the thread|it|them|him|her)(?:\s+know)?(?:\s+that)?|reply(?:\s+(?:saying|with|that))?|send(?:\s+(?:that|this))?(?:\s+saying)?|put\s+(?:this|that)\s+in\s+(?:the|this)\s+(?:chat|thread)(?:\s+as\s+feedback)?|add\s+(?:this|that)\s+as\s+feedback|feedback|say)\s*[:,-]?\s*/i;
 const NO_PICTURE = /[,;]?\s*(?:but\s+)?(?:without|no|not with|don'?t (?:send|include|attach))\s+(?:the\s+)?(?:screenshot|picture|image|attachment)s?\.?\s*$/i;
 
-// Said TO Neo, about Neo: a correction, a refusal, or a stop. None of it is a
-// message for an agent, and sending it is how "I just told you what it should
-// say" ended up in a thread, twice. Only consulted when she did not open with
-// an instruction to send, so "tell it no, that's too dramatic" still goes.
-const AT_NEO = new RegExp([
-  /\bi (?:just |already )?(?:told|said to|asked) you\b/,
-  /\bthat(?:'?s| is| was)? ?(?:not|n't) what i (?:wanted|asked|meant|said)\b/,
-  /\byou (?:wrote|sent|said|did)n?'?t? ?(?:do|say|send)? ?(?:so|that|it)?\b.*\bnot what\b/,
-  /\byou (?:didn'?t|did not|never) \w+/,
-  /\byou wrote\b/,
-  /\bstop (?:that|it|talking|saying)\b/,
-  /\bnever mind\b/,
-  /^\s*no[,.\s]+no\b/,
-].map((r) => r.source).join('|'), 'i');
-
 /** { text, attach }: the words she wants sent, without the instruction around them. */
 const PICTURE = /\b(?:screenshot|screen shot|picture|image|photo|png)s?\b/i;
 
@@ -92,10 +77,7 @@ export function replyFrom(said) {
   let text = String(said ?? '').trim();
   const attach = !NO_PICTURE.test(text);
   text = text.replace(NO_PICTURE, '').trim();
-  const led = LEAD.test(text);
   text = text.replace(LEAD, '').trim();
-  // No "tell it…" in front, and the words are aimed at Neo: nothing to send.
-  if (!led && AT_NEO.test(text)) return { text: '', attach };
   if (!text) return { text: String(said ?? '').trim(), attach };
   text = text.charAt(0).toUpperCase() + text.slice(1);
   if (!/[.!?]$/.test(text)) text += '.';

@@ -31,8 +31,14 @@ describe('an ask with two halves', () => {
 });
 
 describe('how Neo talks', () => {
-  it('says not to read the options out one by one', () => {
-    expect(voice).toMatch(/never read the options|not read the options|do not read the options|never list the options/i);
+  // Not "never read the options" any more. On 2026-10-17 she asked for the
+  // opposite for artifacts — "can you show me them one by one as you go, as
+  // you explain the options" — so Neo goes through them one at a time and the
+  // app puts each up as it is named. What is still true is that it stops
+  // there rather than reading everything out.
+  it('says to go through pictures one at a time as it names them', () => {
+    expect(voice).toMatch(/one at a time/i);
+    expect(voice).toMatch(/never read long text verbatim/i);
   });
 
   it('still says to tell her what the decision is', () => {
