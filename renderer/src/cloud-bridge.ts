@@ -449,6 +449,13 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     },
     // HER FILES, from the links her Mac's list gives (cloud-files.ts).
     openArtifact: async (p: { product: string; src: string; mode?: string }) => {
+      const sent = sentFileName(p?.src);
+      if (sent) {
+        const link = linkOfEntry(sent);
+        if (!link) return { ok: false, error: 'This file is still on its way.' };
+        if (p.mode !== 'resolve') window.open(link, '_blank', 'noopener');
+        return { ok: true, opened: p.src };
+      }
       const found = findFile(places, p?.product, p?.src);
       if (!found) return { ok: false, error: 'This file is on your computer.' };
       if (found.entry.big) return { ok: false, error: 'This file is too big for your phone. Open it on your computer.' };
@@ -488,8 +495,9 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       return { ok: true, opened: found.file };
     },
     readDoc: async (p: { product: string; src: string }) => {
-      const found = findFile(places, p?.product, p?.src);
-      const link = found && linkOfEntry(found.entry.n);
+      const sent = sentFileName(p?.src);
+      const found = sent ? null : findFile(places, p?.product, p?.src);
+      const link = sent ? linkOfEntry(sent) : found && linkOfEntry(found.entry.n);
       if (!link) return { ok: false, error: found?.entry.big ? 'This file is too big for your phone.' : 'This file is on your computer.' };
       const asked = client.generation();
       const res = await fetch(link);

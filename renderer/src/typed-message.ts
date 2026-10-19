@@ -16,7 +16,7 @@
 export type TypedPart = { text: string } | { embed: string };
 
 const PICTURE = /^!\[[^\]\n]*\]\([^)\s]+\)$/;
-const ATTACHED_FILE = /^\[[^\]\n]*\]\(attachments\/[^)\s]+\)$/;
+const ATTACHED_FILE = /^\[[^\]\n]*\]\((?:attachments\/[^)\s]+|phone-files\/[0-9a-f]{64}\.[a-z0-9]{1,8})\)$/;
 
 const isEmbed = (line: string) => PICTURE.test(line.trim()) || ATTACHED_FILE.test(line.trim());
 

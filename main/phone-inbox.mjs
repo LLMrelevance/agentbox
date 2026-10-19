@@ -242,7 +242,7 @@ export function createPhoneInbox({
     let out = words;
     for (const f of found) {
       const data = await backend.getPhoneFile({ owner, device, name: f.name });
-      if (!data) throw new Refused('a picture from your phone did not reach this computer');
+      if (!data) throw new Refused('a file from your phone did not reach this computer');
       const hash = crypto.createHash('sha256').update(data).digest('hex');
       if (data.length > UPLOAD_LIMITS.fileBytes || f.name !== `${hash}${f.name.slice(64)}`) throw new Refused('a file from your phone was not the one it was sent as');
       const [saved] = saveAttachments(dir, [{ name: f.label.trim() || f.name, dataBase64: data.toString('base64') }]);

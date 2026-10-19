@@ -3,7 +3,7 @@
 // what is in it, and a link to it there in the words. That computer takes it
 // down and links the reply to its own copy (main/phone-inbox.mjs).
 
-const SENT = /\/phone-files\/([0-9a-f]{64}\.[a-z0-9]{1,8})$/;
+const SENT = /(?:^|\/)phone-files\/([0-9a-f]{64}\.[a-z0-9]{1,8})$/;
 const SENT_IN_WORDS = /\]\(phone-files\/([0-9a-f]{64}\.[a-z0-9]{1,8})\)/g;
 const TYPES: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic',
@@ -34,8 +34,8 @@ export async function sendFiles({ put, owner, device, files, maxBytes }: {
       await put(`${owner}/${device}/${name}`, bytes, TYPES[ext] ?? 'application/octet-stream');
     } catch (err) {
       const said = String((err as Error)?.message ?? err);
-      if (/bucket not found/i.test(said)) throw new Error('Pictures cannot go from your phone yet: the storage for them is not set up.');
-      throw new Error(`The picture did not send: ${said}`);
+      if (/bucket not found/i.test(said)) throw new Error('Files cannot go from your phone yet: the storage for them is not set up.');
+      throw new Error(`The file did not send: ${said}`);
     }
     const safe = String(f.name || 'file').replace(/[^\w.-]+/g, '-').slice(0, 80);
     out.push({ rel: `phone-files/${name}`, name: safe, image: /\.(png|jpe?g|gif|webp)$/i.test(safe) });

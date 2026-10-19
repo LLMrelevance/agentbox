@@ -93,7 +93,7 @@ describe('a picture in a reply from the phone', () => {
     await t.send({ item: 'w-1', kind: 'reply', payload: { text: `see ![x.jpg](phone-files/${sha('never sent')}.jpg)` } });
     await t.inbox.syncOnce();
     expect(t.applied).toEqual([]);
-    expect(await t.outcomes()).toEqual(['refused: a picture from your phone did not reach this computer']);
+    expect(await t.outcomes()).toEqual(['refused: a file from your phone did not reach this computer']);
   });
 
   it('is not taken when what is there is not the file its name says', async () => {
@@ -163,6 +163,17 @@ describe('the phone sending it', () => {
     expect(sentFileName(`/home/phone-${D}/Zero/accounts/a/proj/phone-files/${n}`)).toBe(n);
     expect(sentFileName(`/home/phone-${D}/proj/phone-files/${n}/x`)).toBe(null);
     expect(sentFileName(`/home/phone-${D}/proj/my-phone-files/${n}`)).toBe(null);
+    // As a link in the words gives it, before it is put under the project.
+    expect(sentFileName(`phone-files/${n}`)).toBe(n);
     expect(sentNamesIn(`hi ![a](phone-files/${n}) [b](phone-files/${n}) ![c](attachments/${n})`)).toEqual([n, n]);
+  });
+});
+
+describe('a file sent from the phone, in her own message', () => {
+  it('draws as a file while her computer has not taken it, and words that only look like one stay words', async () => {
+    const { typedParts } = await import('../renderer/src/typed-message.ts');
+    const n = `${'c'.repeat(64)}.pdf`;
+    expect(typedParts(`see this\n\n[invoice.pdf](phone-files/${n})`)).toEqual([{ text: 'see this' }, { embed: `[invoice.pdf](phone-files/${n})` }]);
+    expect(typedParts('[a](phone-files/notes.pdf)')).toEqual([{ text: '[a](phone-files/notes.pdf)' }]);
   });
 });
