@@ -106,6 +106,9 @@ export function limitInResultLine(line, now = Date.now()) {
 
 export const IMPORT_FAILED = 75;
 export const LOGIN_TROUBLE = 77;
+// A folder the cloud cannot take: the thread runs on this Mac instead, and is
+// not tried in the cloud again (Supervisor#_cloudKeptOnMac).
+export const KEEP_ON_MAC = 78;
 // A link to a login is good for half an hour: a run fetches it while it is
 // being prepared, never later.
 const LOGIN_LINK_SECONDS = 30 * 60;
@@ -446,7 +449,14 @@ export async function cloudRun({
   // 2. The pack.
   const docsDir = docsFolderFor(env.AGENTBOX_DOCS, cwd);
   const sentAt = Date.now();
-  const sent = await folderState(cwd);
+  let sent;
+  try {
+    if (await gitOk(cwd, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])) throw new Error('a merge in it is not finished');
+    sent = await folderState(cwd);
+  } catch (err) {
+    say(`this folder cannot go to the cloud (${String(err?.message || err).split('\n')[0]}), so the thread runs on this Mac`);
+    return KEEP_ON_MAC;
+  }
   const { branch, head: startSha } = sent;
   if (!branch || branch === 'HEAD') { say('the task folder is not on a branch'); return 1; }
   const outgoing = `refs/agentbox/outgoing/${runId}`;

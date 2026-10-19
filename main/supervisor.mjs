@@ -225,6 +225,11 @@ const CLOUD_START_PATIENCE_MS = 10 * 60_000;
 // Cloud runs failing in a row before the cloud rests, and for how long
 // (`_noteCloudOutcome`).
 const CLOUD_FAULTS_TO_REST = 3;
+// main/cloud/run.mjs KEEP_ON_MAC: the folder cannot go to the cloud.
+const CLOUD_KEEP_ON_MAC = 78;
+// A thread whose cloud start dies this many times in a row before its agent
+// starts runs on this Mac from then on (`_cloudKeptOnMac`).
+const CLOUD_STARTS_TO_GIVE_UP = 3;
 const CLOUD_REST_MS = 10 * 60_000;
 
 // How long a row we interrupted for an Urgent one is held out of the queue
@@ -4534,7 +4539,7 @@ export class Supervisor {
   // sign-in that failed, or a folder still bringing an earlier run home says
   // nothing about the cloud.
   _noteCloudOutcome(session, code, signal = null) {
-    if (!session?.cloud || session.stoppedByUs || session.cloudLoginTrouble) return;
+    if (!session?.cloud || session.stoppedByUs || session.cloudLoginTrouble || code === CLOUD_KEEP_ON_MAC) return;
     const h = (this._cloudHealth ??= { faults: 0, lastError: null, restUntil: 0 });
     if (session.sessionId != null || session.result != null) {
       Object.assign(h, { faults: 0, lastError: null, restUntil: 0 });
@@ -4551,6 +4556,35 @@ export class Supervisor {
     h.lastError = said || `a cloud run ended (${signal || code}) before its agent started`;
     if (h.faults >= CLOUD_FAULTS_TO_REST) h.restUntil = Date.now() + CLOUD_REST_MS;
     this.onChange?.();
+  }
+
+  // A THREAD THE CLOUD CANNOT RUN RUNS HERE, rather than being started there
+  // again at every check: a folder the cloud refused (KEEP_ON_MAC), or a
+  // thread whose cloud starts died CLOUD_STARTS_TO_GIVE_UP times in a row
+  // before its agent started. Kept on this Mac as a hand-back is, so no
+  // attempt is spent and the next delivery runs here. True when it was kept.
+  _cloudKeptOnMac(item, session, code, signal = null) {
+    if (!session?.cloud || !item?.id) return false;
+    this._cloudStartFails ??= new Map();
+    let keep = code === CLOUD_KEEP_ON_MAC;
+    if (!keep) {
+      const said = (session.tail ?? []).some((l) => typeof l === 'string' && /earlier cloud run in this folder/.test(l));
+      if (session.sessionId != null || session.result != null || session.stoppedByUs || session.cloudLoginTrouble || said || (!signal && code === 0)) {
+        if (session.sessionId != null || session.result != null) this._cloudStartFails.delete(item.id);
+        return false;
+      }
+      const n = (this._cloudStartFails.get(item.id) ?? 0) + 1;
+      this._cloudStartFails.set(item.id, n);
+      keep = n >= CLOUD_STARTS_TO_GIVE_UP;
+    }
+    if (!keep) return false;
+    this._cloudStartFails.delete(item.id);
+    session.handedBack = true;
+    this._handedBack ??= new Set();
+    this._handedBack.add(item.id);
+    this.threadOnMac[item.id] = true;
+    this._saveState();
+    return true;
   }
 
   _cloudHealthNow(now = Date.now()) {
@@ -8535,6 +8569,7 @@ export class Supervisor {
       this._noteCloudOutcome(session, code, signal);
       onLine(`session exited (${code})`);
       if (this._noteCloudHandBack(item, session)) onLine('the cloud handed this thread back to this computer');
+      else if (this._cloudKeptOnMac(item, session, code, signal)) onLine('the cloud could not run this thread, so it runs on this computer from now on');
       // WHAT THE RUN CHANGED, SAVED WHERE SHE CAN OPEN IT.
       //
       // A tester could not see code on their onboarding call because there was no
