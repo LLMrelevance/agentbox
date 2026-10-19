@@ -20,7 +20,7 @@ import { Store } from './store.mjs';
 import { storeRootEnv } from './store/home.mjs';
 import { Supervisor } from './supervisor.mjs';
 import { startCodexWatch } from './codex-watch.mjs';
-import { readCodexThreads } from './codex-threads.mjs';
+import { readCodexThreadsOffThread } from './codex-threads.mjs';
 import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
 import { stallWatch } from './stall-watch.mjs';
@@ -447,7 +447,7 @@ async function createWindow() {
   const codexWatch = startCodexWatch({
     store,
     count: (name, props) => analytics.track(name, props),
-    readThreads: (opts) => readCodexThreads({ ...opts, codexDirs: appSessionFolders({ config, supervisor }).codexDirs }),
+    readThreads: (opts) => readCodexThreadsOffThread({ ...opts, codexDirs: appSessionFolders({ config, supervisor }).codexDirs }),
   });
   quitStep(app, 'before-quit', 'codexWatch.stop', () => codexWatch.stop());
   // Whatever is still queued goes with the app rather than dying in memory,
