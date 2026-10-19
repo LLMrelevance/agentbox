@@ -1,5 +1,5 @@
 import { RemoteControl } from './RemoteControl';
-import { onCloudPhone, onPhone } from '../phone-screen';
+import { onPhone } from '../phone-screen';
 import { pollEvery } from '../phone-polls';
 import {DirectReview} from './DirectReview';
 import {MessageFiles} from './MessageFiles';
@@ -278,8 +278,8 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
   if (attempt >= candidates.length) {
     const asked = find ? found : null;
     if (asked) return door(asked, <img src={pictureUrl(asked)} alt={alt ?? ''} className="inline-image" crossOrigin="anonymous" onError={() => setFound(null)} />);
-    // Still asking: nothing yet, rather than a "missing" that turns into a picture.
-    if (asked === undefined) return null;
+    // Still asking: a picture's box, rather than a "missing" that turns into a picture.
+    if (asked === undefined) return <span className="inline-image arriving" aria-hidden="true" />;
     if (find) return <button type="button" className="missing-artifact" title="Look for it again" onClick={lookNow}>missing image: {rel}</button>;
     return <span className="missing-artifact">missing image: {rel}</span>;
   }
@@ -367,6 +367,8 @@ export function ArtifactMedia({ src, label, roots, onOpen }: { src: string; labe
 // it is pointing at, and the folder beside them also holds every older round,
 // so it stays one line rather than drawing the same pictures twice.
 const FOLDER_SHOWS = 6;
+// What each folder showed last, so a thread opened again draws it at once.
+const folderSeen = new Map<string, { pictures: string[]; total: number }>();
 //
 // ITS NAME SAYS IT IS A FOLDER (w-a3a7d1a1ec). It was an orange path,
 // `designs/w-7a670f07bb/`, that said nothing about being a folder until she
@@ -377,16 +379,22 @@ export function FolderPreview({ product, folder, onOpen, quiet, thread }: {
   product: string; folder: string; onOpen: (src: string) => void; quiet?: boolean; thread?: string;
 }) {
   const navigation = useContext(TicketNavigation);
-  const [shown, setShown] = useState<{ pictures: string[]; total: number } | null>(null);
+  const key = `${product}\n${folder}`;
+  const [shown, setShown] = useState<{ pictures: string[]; total: number } | null>(() => folderSeen.get(key) ?? null);
+  const [asking, setAsking] = useState(!quiet && !folderSeen.has(key));
   useEffect(() => {
     const api = (window as any).zero;
-    if (quiet || !api?.folderPictures) return;
+    if (quiet || !api?.folderPictures) { setAsking(false); return; }
     let live = true;
     api.folderPictures({ product, src: folder })
       .then((r: { ok: boolean; pictures?: string[]; total?: number }) => {
-        if (live && r?.ok && r.pictures) setShown({ pictures: r.pictures, total: r.total ?? r.pictures.length });
+        if (!live) return;
+        const got = r?.ok && r.pictures ? { pictures: r.pictures, total: r.total ?? r.pictures.length } : null;
+        if (got) folderSeen.set(key, got);
+        setShown(got);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { if (live) setAsking(false); });
     return () => { live = false; };
   }, [product, folder, quiet]);
   const short = folder.replace(/\/+$/, '');
@@ -398,7 +406,17 @@ export function FolderPreview({ product, folder, onOpen, quiet, thread }: {
       {count && <span className="folder-preview-count">{count}</span>}
     </button>
   );
-  if (!shown?.pictures.length) return name;
+  if (!shown?.pictures.length) {
+    if (!asking) return name;
+    return (
+      <span className="folder-preview">
+        {name}
+        <span className="folder-preview-grid" aria-hidden="true">
+          {[0, 1, 2].map((i) => <span key={i} className="folder-preview-shot arriving" />)}
+        </span>
+      </span>
+    );
+  }
   const pictures = shown.pictures.slice(0, FOLDER_SHOWS);
   const more = shown.total - pictures.length;
   return (
@@ -471,13 +489,14 @@ function linkLabel(href: string, children: ReactNode): ReactNode {
 // when the file is not there. The old frame guessed one root and, when the
 // guess was wrong, printed a white rectangle with the path over it, which reads
 // like a document that has gone blank rather than a path we could not find.
-function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
+export function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
   product: string; path: string; fallback?: string;
   // Is this the document already open in the pane on the right.
   open?: boolean;
   onOpen?: () => void;
 }) {
-  const [src, setSrc] = useState<string | null>(null);
+  // undefined while the first answer is out; null once it said not there.
+  const [src, setSrc] = useState<string | null | undefined>(undefined);
   // A page not there yet is looked for again (../picture-looks-again.ts): a
   // cloud run's page can land after the message that names it.
   const [looks, setLooks] = useState(0);
@@ -498,7 +517,7 @@ function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
       .catch(() => { if (live) setSrc(null); });
     return () => { live = false; if (timer) clearTimeout(timer); };
   }, [product, path, looks]);
-  if (!src) return null;
+  if (src === null) return null;
   // THE SAME DOCUMENT IS NEVER ON THE SCREEN TWICE. With the pane open on the
   // right, the frame under the message is the same page at half the size, so
   // it stands down to one line that says where its document went.
@@ -515,9 +534,11 @@ function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
     <div className="artifact-embed">
       <div className="artifact-embed-bar">
         <button type="button" className="artifact-embed-path" onClick={onOpen}>{path}</button>
-        <a href={src} target="_blank" rel="noreferrer">open ↗</a>
+        {src && <a href={src} target="_blank" rel="noreferrer">open ↗</a>}
       </div>
-      <iframe src={src} tabIndex={-1} sandbox="allow-scripts" title={path} />
+      {src
+        ? <iframe src={src} tabIndex={-1} sandbox="allow-scripts" title={path} />
+        : <span className="artifact-embed-arriving arriving" aria-hidden="true" />}
     </div>
   );
 }
@@ -1906,7 +1927,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             <span className="dim">{' · '}opens the app it is running in</span>
           </button>
         )}
-        {!agent && item.status === 'blocked' && !session && !onCloudPhone() && <button onClick={onReopen}>send back to agent</button>}
+        {!agent && item.status === 'blocked' && !session && <button onClick={onReopen}>send back to agent</button>}
         {/* "esc back" was the third one removed. Escape still closes the pane
             and so does clicking away from it. */}
       </div>
@@ -2419,8 +2440,9 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
      runs, so reading `text` there would send the box as it stood BEFORE the
      pick. Every other caller passes nothing and sends the box, exactly as it
      always did. (w-5d1ad29efa, 2026-08-29.) */
+  const [saving, setSaving] = useState(false);
   const send = async (spoken?: string) => {
-    if (!(spoken ?? text).trim() && !attachments.length) return;
+    if (saving || (!(spoken ?? text).trim() && !attachments.length)) return;
     // AN AGENT WITH NO PROJECT DOES NOT GO OUT. The footer already says why;
     // ⌘↵ says it again rather than doing nothing.
     if (chat.block) { onNotice(chat.block); return; }
@@ -2454,7 +2476,17 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     // typed into it. drafts.ts holds the why.
     const words = (spoken ?? text).trim();
     const sent: SentDraft = { words, attachments };
-    const attachedMd = await persistAttachments(item.product, attachments);
+    // On the phone each file goes up first, which takes a moment on a mobile network.
+    let attachedMd: string;
+    setSaving(attachments.length > 0);
+    try {
+      attachedMd = await persistAttachments(item.product, attachments);
+    } catch (err) {
+      onNotice(`Not sent: ${String((err as Error)?.message ?? err)} Your draft has been kept.`);
+      return;
+    } finally {
+      setSaving(false);
+    }
     clearDraft(item);
     // AND WHAT THIS ONE MESSAGE MAY DO, if she changed it. `null` is not the
     // same as leaving it out: it CLEARS a mode set on an earlier reply and puts
@@ -3031,9 +3063,9 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
         <button
           className="dock-send"
           onClick={() => send()}
-          disabled={!hasDraft || !!chat.block}
+          disabled={!hasDraft || !!chat.block || saving}
           title={chat.block ?? 'Send · ⌘↵'}
-        >Send <kbd>⌘↵</kbd></button>
+        >{saving ? 'Sending…' : <>Send <kbd>⌘↵</kbd></>}</button>
         )}
       </div>
     </>

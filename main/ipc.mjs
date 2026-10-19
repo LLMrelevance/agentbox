@@ -225,7 +225,10 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     try { return store.listProducts().some((p) => p.slug === slug && p.practice === true); } catch { return false; }
   };
 
-  ipcMain.handle('zero:approve', (_e, { id, allow, note }) => {
+  // From her phone the answer names the card it drew (main/phone-inbox.mjs),
+  // and a request rewritten since gets nothing.
+  ipcMain.handle('zero:approve', (_e, { id, allow, note, card }) => {
+    if (card !== undefined && !approvals.cardStillShown(config.storeRoot, id, card)) return { ok: false, error: 'the card changed after your phone showed it, so nothing was allowed' };
     return { ok: answerApproval(id, allow, note) };
   });
 
@@ -291,6 +294,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   ipcMain.handle('zero:account-usage', async (event, { refresh = false } = {}) => {
     if (event.senderFrame?.parent || (event.sender && event.sender !== window.webContents)) throw Error('Usage is only available in the main app window.');
     const profiles = effectiveProfiles(config.authProfiles, { home: config.home });
+    // The cloud's logins too; a look takes a sandbox session, so the page is
+    // not held for it and redraws off the snapshot when it lands.
+    void supervisor.lookAtCloudLogins({ force: !!refresh });
     return { readings: await accountUsage.readAll(profiles.length ? profiles : ['default'], { refresh: !!refresh }) };
   });
 

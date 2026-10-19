@@ -674,6 +674,8 @@ export interface Snapshot {
   // ON THE PHONE WITH THE MAC SHUT ONLY (renderer/src/cloud-bridge.ts): her
   // replies from the phone her Mac has not taken yet, or turned down.
   phoneWaiting?: { product: string; id: string; at: number; text: string; refused?: string }[];
+  // On the hosted phone: a line saying what it shows may be out of date (cloud-bridge.ts phoneStatusLine).
+  phoneStatus?: string | null;
   // The team (main/team/index.mjs). Null or absent on a build with no team
   // cloud, which is the single-person app.
   team?: TeamState | null;
@@ -980,6 +982,8 @@ export interface WorkspaceSettings {
   } | null;
   permission: PermissionMode;
   permissionArgs: string[];
+  /** The mode cloud runs start in, or null for this computer's. */
+  cloudPermission?: PermissionMode | null;
   /** What a Codex worker may do across the workspace. Never 'workspace' here. */
   codexMode: CodexModeId;
   // One switch over everything that leaves the machine, on at install
@@ -1197,6 +1201,12 @@ declare global {
       // finishing* on two channels.
       messageRulesRead?(): Promise<{ text: string; error?: string }>;
       messageRulesWrite?(p: { text: string }): Promise<{ ok: boolean; error?: string }>;
+      // WHAT NEO KEEPS, on the Neo page (renderer/src/neo/NeoSettings.tsx).
+      // Answers null where Neo is off, which is everywhere but the one Mac
+      // that opted in (main/neo/gate.mjs).
+      neoEnabled?(): Promise<boolean>;
+      neoMemory?(change?: { add?: string; forget?: string; instructions?: string; memories?: string }): Promise<NeoMemory | null>;
+      neoVoice?(voice?: string): Promise<string | null>;
       // The settings screen. Every write answers with the whole settings object
       // again, so the screen redraws from what the main process now believes
       // rather than from what the click assumed.
@@ -1263,6 +1273,10 @@ declare global {
   }
 }
 
+
+/** What Neo keeps between conversations (shared/neo-memory.mjs). `document`
+ *  is the memories as the page writes them, one entry a line. */
+export type NeoMemory = { ok?: boolean; error?: string; instructions: string; memories: { id: string; text: string; at: number }[]; document: string };
 
 /**
  * ONE FOLDER'S WORTH OF THE DISK, as the app's own picker reads it.

@@ -47,7 +47,7 @@ describe('the reply footer is the card\'s footer', () => {
   });
 
   it('sends with the app\'s own button, keycap inside it', () => {
-    expect(dock).toMatch(/className="dock-send"[\s\S]{0,160}Send <kbd>⌘↵<\/kbd>/);
+    expect(dock).toMatch(/className="dock-send"[\s\S]{0,240}Send <kbd>⌘↵<\/kbd>/);
   });
 
   it('opens its menus UPWARD, because this footer sits at the bottom', () => {

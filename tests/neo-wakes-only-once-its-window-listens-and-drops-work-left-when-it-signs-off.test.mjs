@@ -638,3 +638,129 @@ describe('deciding live', () => {
     expect(startLiveImpl.mock.calls[0][0].session.delegation).toEqual({ type: 'client' });
   });
 });
+
+// Neo's words reach the main window so it can show the picture Neo names
+// (tests/neo-shows-each-picture-as-it-names-it.test.mjs).
+describe('following what Neo says', () => {
+  it('hands Neo\'s words to the main window while awake, and only then', async () => {
+    const f = fakes({});
+    const follow = f.listeners.get('neo:follow');
+    follow(f.fromNeo, { said: 'Option two is Instrument.' });
+    expect(f.mainSent.some(([ch, p]) => ch === 'neo:act' && p.name === 'follow')).toBe(false);
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    follow(f.fromNeo, { said: 'Option two is Instrument.' });
+    expect(f.mainSent.find(([ch, p]) => ch === 'neo:act' && p.name === 'follow')?.[1].args).toEqual({ said: 'Option two is Instrument.' });
+  });
+
+  it('takes words only from Neo\'s own window', async () => {
+    const f = fakes({});
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    f.listeners.get('neo:follow')(f.fromMainWindow, { said: 'Option two.' });
+    expect(f.mainSent.some(([ch, p]) => ch === 'neo:act' && p.name === 'follow')).toBe(false);
+  });
+});
+
+// The voice made up a task when it was told nothing about the screen
+// (tests/neo-answers-from-what-is-on-screen.test.mjs). Main tells it.
+describe('telling the voice what is on screen', () => {
+  function answerEveryAct(f, results) {
+    let seen = 0;
+    const timer = setInterval(() => {
+      const acts = f.mainSent.filter(([ch]) => ch === 'neo:act');
+      for (; seen < acts.length; seen++) {
+        const { id, name } = acts[seen][1];
+        f.listeners.get('neo:act-result')(f.fromMainWindow, { id, result: results[name] ?? { ok: true, status: 'committed', said: `did ${name}` } });
+      }
+    }, 1);
+    return () => clearInterval(timer);
+  }
+
+  it('the session starts knowing the open thread', async () => {
+    const startLiveImpl = vi.fn(async () => ({ sdp: 'v=0 answer', id: 's' }));
+    const f = fakes({ startLiveImpl });
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    const stop = answerEveryAct(f, { describe_open: { ok: true, said: 'Open thread: Account indicator\nWhat this task is for: show each agent\'s account.' } });
+    await f.handlers.get('neo:start-live')(f.fromNeo, { sdp: 'v=0 offer', outside: false });
+    stop();
+    expect(startLiveImpl.mock.calls[0][0].session.instructions).toMatch(/What is on screen now[\s\S]*show each agent's account/);
+  });
+
+  // tests/neo-speaks-in-the-voice-she-picked.test.mjs
+  it('the session speaks in the voice she picked', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const startLiveImpl = vi.fn(async () => ({ sdp: 'v=0 answer', id: 's' }));
+    const f = fakes({ startLiveImpl });
+    fs.mkdirSync(path.join(f.userData, 'neo'), { recursive: true });
+    fs.writeFileSync(path.join(f.userData, 'neo', 'prefs.json'), JSON.stringify({ voice: 'cedar' }));
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    const stop = answerEveryAct(f, {});
+    await f.handlers.get('neo:start-live')(f.fromNeo, { sdp: 'v=0 offer', outside: false });
+    stop();
+    expect(startLiveImpl.mock.calls[0][0].session.audio).toEqual({ output: { voice: 'cedar' } });
+  });
+
+  it('Settings reads and keeps the voice, marin until one is picked, only one of the ten', async () => {
+    const f = fakes({});
+    const voice = f.handlers.get('neo:voice');
+    expect(await voice(f.fromMainWindow)).toBe('marin');
+    expect(await voice(f.fromMainWindow, 'cedar')).toBe('cedar');
+    expect(await voice(f.fromMainWindow, 'zzz')).toBe('cedar');
+    expect(await fakes({ userData: f.userData }).handlers.get('neo:voice')(f.fromMainWindow)).toBe('cedar');
+  });
+
+  it('every decision comes back with what is on screen after it', async () => {
+    const f = fakes({ decideImpl: async () => ({ choice: 'next', confidence: 0.9, runnersUp: [] }) });
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    const stop = answerEveryAct(f, {
+      neo_screen: { ok: true, screen: { open: null, rows: [], commands: [], canGoBack: false } },
+      describe_open: { ok: true, said: 'Open thread: Pricing page copy' },
+    });
+    const r = await f.handlers.get('neo:decide')(f.fromNeo, { heard: 'next' });
+    stop();
+    expect(r.context).toMatch(/What is on screen now[\s\S]*Pricing page copy/);
+  });
+});
+
+// The main window redrew at every pointer move during a drag, and things lagged
+// (tests/neo-lets-go-of-the-orb-when-the-button-comes-up.test.mjs).
+describe('a drag does not flood the main window', () => {
+  it('tells the main window where the orb is a few times a second and once at the end', async () => {
+    let clock = 0;
+    const f = fakes({ clock: () => clock });
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    const told = () => f.mainSent.filter(([ch]) => ch === 'neo:orb').length;
+    const before = told();
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    for (let i = 1; i <= 60; i++) { clock += 16; f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -i * 3, dy: -i * 2 }); }
+    const during = told() - before;
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'end' });
+    expect(during).toBeLessThanOrEqual(6);
+    expect(told() - before).toBe(during + 1);
+  });
+
+  it('a new press while a drag is open starts from where the window is now', async () => {
+    const f = fakes({});
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -100, dy: 0 });
+    const here = f.windows.last.getBounds();
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -10, dy: 0 });
+    expect(f.windows.last.getBounds().x).toBe(here.x - 10);
+  });
+});

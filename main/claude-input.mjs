@@ -87,6 +87,10 @@ export function attachClaudeInput(child) {
         }
       }
       if (event.type === 'system' && event.subtype === 'bridge_state') child.emit('bridge-state', event);
+      // A cloud run whose input the sandbox closed at the end of its turn
+      // while this Mac slept (main/cloud/run.mjs): the end of the run, as if
+      // closed here. A reply still waiting is kept for the next run.
+      if (event.type === 'system' && event.subtype === 'agentbox_input_closed_in_cloud' && !closed) closeInput();
       if (event.type === 'system' && event.subtype === 'init') {
         inTurn = true;
         for (const request of pending.values()) request.taken = true;

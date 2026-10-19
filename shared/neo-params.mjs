@@ -73,6 +73,20 @@ export function pictureWanted(said) {
   return PICTURE.test(t) ? true : undefined;
 }
 
+// WHAT TO KEEP, WITH THE ASKING TAKEN OFF THE FRONT. "Remember that I like
+// short answers" is kept as "I like short answers." — the writer in
+// main/neo/decide.mjs usually does this better, and this is what is kept when
+// there is no writer or it could not be reached.
+const REMEMBER_LEAD = /^(?:(?:um+|uh+|so|and|ok(?:ay)?|hey|please|just|yeah)[,.]?\s+)*(?:(?:can|could|would|will)\s+you\s+)?(?:(?:i(?:'d| would)?\s+(?:want|like)\s+you\s+to|i\s+want\s+you\s+to|make\s+sure\s+(?:you|to))\s+)?(?:please\s+)?(?:remember|note|keep\s+in\s+mind|don'?t\s+forget)(?:\s+(?:this|that|it))?(?:\s+for\s+(?:me|next\s+time|good|the\s+future|later))?\s*[:,-]?\s*(?:that\s+)?/i;
+
+/** The line to keep, from what the person said. '' when they said nothing but "remember". */
+export function memoryFrom(said) {
+  let text = String(said ?? '').trim().replace(REMEMBER_LEAD, '').trim();
+  if (!text) return '';
+  text = text.charAt(0).toUpperCase() + text.slice(1);
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
 export function replyFrom(said) {
   let text = String(said ?? '').trim();
   const attach = !NO_PICTURE.test(text);

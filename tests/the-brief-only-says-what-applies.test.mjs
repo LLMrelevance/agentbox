@@ -182,7 +182,7 @@ describe('the four she asked about', () => {
     const t = template();
     const bullet = t.slice(t.indexOf('- EVERYTHING YOU FILE IS A PROPOSAL'));
     const text = bullet.slice(0, bullet.indexOf('\n- '));
-    expect(text).toContain('nothing you create runs until');
+    expect(text).toContain('nothing you file runs until');
     expect(text.split('.').filter((x) => x.trim()).length).toBe(1);
   });
 

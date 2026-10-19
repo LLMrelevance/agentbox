@@ -672,6 +672,19 @@ export class Store {
     return workItemsDisk.updateWorkItem(this.productDir(slug), id, { note }, { source: 'system' });
   }
 
+  // A CLOUD RUN'S WORK KEPT ON A BRANCH OF ITS OWN, because laying it into the
+  // task folder would have undone work done there (main/cloud/run.mjs
+  // `park`). Said as a note; the row waits for her, and loses `ship`, so the
+  // folder never ships without the run's work.
+  cloudWorkKeptAside(slug, id, note) {
+    const { workItemsDisk } = this.modules;
+    const dir = this.productDir(slug);
+    const labels = this.readItem(slug, id)?.labels ?? [];
+    const kept = labels.filter((l) => l !== 'ship');
+    workItemsDisk.updateWorkItem(dir, id, { note, ...(kept.length !== labels.length ? { labels: kept } : {}) }, { source: 'system' });
+    return workItemsDisk.updateWorkItem(dir, id, { status: 'blocked' }, { source: 'system' });
+  }
+
   // New product: rare and deliberate. A directory, a project.json, and a first
   // work item that seeds the drive toward launch.
   //

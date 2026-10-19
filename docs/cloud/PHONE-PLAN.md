@@ -2,6 +2,21 @@
 
 Status: step 1 built 2026-10-14 (commits on w-1dc7ee2408), reviewed by Codex twice. Steps 2 and 3 not built.
 
+2026-10-19, step 1 filled out (an audit of the phone against the desktop): every
+file a thread names opens on the phone and any file goes from it; what she
+picks with a reply or a new thread (start later, a time, engine, model, effort,
+priority, mode) reaches the Mac; Undo takes back what the Mac has not claimed;
+Stop, Run now, Send now, Reopen, a schedule and permission cards go to the Mac
+as commands (migration 20261019000000, which also lets the phone name a command
+so a resend is one); the phone says when it cannot reach the cloud and when the
+Mac was last online; it fetches only the threads that changed, 400 lines deep.
+Still not on the phone: repeating tasks, pins and dragging a row to a place,
+team pages and teammates' names on their lines, and anything with the Mac shut
+beyond queueing (step 2, the scheduler in docs/cloud/PLAN.md "Next" step 4).
+2026-10-17: a thread's copy also carries whether an agent is running on it (`live`)
+and the files it names, uploaded to a private bucket (main/phone-uploads.mjs,
+renderer/src/cloud-files.ts, migration 20261017000000_phone_files.sql).
+
 ## What she asked for
 
 "The feature we really, really want is to have your computer closed while you
@@ -97,12 +112,12 @@ that. Maybe we could just have a web application that we host." Settings ›
 Phone shows the site's address as a QR code, which carries no key; she signs
 in there with the same account.
 
-THE RELAY STAYS FOR NOW. It was deployed on 2026-10-12 (shared/relay-address.mjs)
-and every copy of the app offers "Anywhere" through it, including installed
-copies, which have no cloud sign-in at all (`loadCloudConfig` answers null
-when packaged) and so cannot use the hosted site. Taking it out before the
-site is up and every copy can sign in would cut those phones off. It goes once
-both are true. The same-Wi-Fi and Tailscale door also stays.
+THE SITE IS THE ONLY WAY IN (2026-10-16). "Should only ever be one way to
+access mobile: through the Cloud ... the cloudflare relay was temporary to test
+the idea." The app no longer opens its own phone door (same Wi-Fi, Tailscale or
+the relay) and Settings › Phone draws only the site's code. An installed copy,
+which has no cloud sign-in (`loadCloudConfig` answers null when packaged), has
+no phone until it can sign in.
 
 Putting it up: `npm run phone:deploy` (Cloudflare Pages; `npx wrangler login`
 once), then the address goes in `~/.agentbox/team.config.json` as `phoneSite` and in

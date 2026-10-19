@@ -92,7 +92,7 @@ describe('the tarball npm would publish', () => {
     }
   });
 
-  it('carries the two scripts the app runs, and not the harness beside them', () => {
+  it('carries the scripts the app runs, and not the harness beside them', () => {
     // scripts/lib/ is where the screenshot and design harnesses live, nothing
     // at run time imports any of it, and it is where scratch files land.
     expect(fs.existsSync(path.join(repoRoot, 'scripts', 'lib', 'somebody-scratch-file.mjs'))).toBe(true);
@@ -102,6 +102,8 @@ describe('the tarball npm would publish', () => {
       'scripts/after-install.mjs',
       'scripts/approval-server.sh',
       'scripts/before-publish.mjs',
+      // A cloud run's stand-in: perl runs it as a file.
+      'scripts/cloud-shim.pl',
       // The memory check every worker's shell commands ask (w-3958c3753d):
       // Claude Code runs it as a file, so it ships like the approval server.
       'scripts/memory-gate-hook.sh',

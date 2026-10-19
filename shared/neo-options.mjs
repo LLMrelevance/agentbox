@@ -13,13 +13,14 @@ export const MAX_OPTIONS = 250;
 const QUOTE = 70;
 
 const q = (s) => {
-  const t = String(s ?? '').replace(/\s+/g, ' ').replace(/"/g, "'").trim();
+  const t = String(s ?? '').replace(/\b[wr]-[0-9a-f]{6,}(?:-\d+)?\b/gi, 'another thread').replace(/\s+/g, ' ').replace(/"/g, "'").trim();
   return `"${t.length > QUOTE ? `${t.slice(0, QUOTE - 1)}…` : t}"`;
 };
 
 /**
  * `screen`: { open: { id, title, options:[{n,text}], pictures:[{n,name}], films:[{n,name,earlier?}], files:[{n,name}] } | null,
- *             rows: [{ id, title }] (top first), commands: [{ id, label, hint? }], canGoBack }
+ *             rows: [{ id, title }] (top first), commands: [{ id, label, hint? }], canGoBack,
+ *             memories: [{ id, text }] (what Neo already remembers) }
  * Returns { version, list: [{ value, description, act }] }.
  */
 export function buildOptions(screen) {
@@ -29,15 +30,15 @@ export function buildOptions(screen) {
 
   if (open) {
     const t = q(open.title);
-    add('reply', `Send a message the person dictates to the agent on the open thread ${t} ("tell it…", "reply saying…", feedback to post); only words meant for the agent`, { kind: 'reply', id: open.id });
+    add('reply', `Send a message the person dictates to the agent on the open thread ${t} ("tell it…", "reply saying…", feedback to post, feedback about Neo or JARVIS to pass on); only words meant for the agent`, { kind: 'reply', id: open.id });
     for (const o of open.options ?? []) add(`pick:${o.n}`, `Choose option ${o.n} on the open thread: ${q(o.text)} ("option ${o.n}", or saying what it does)`, { kind: 'pick', id: open.id, n: o.n });
     add('later', `Put the open thread ${t} off until later (snooze it for a while)`, { kind: 'later', id: open.id });
     add('close', `Close the open thread ${t}`, { kind: 'close', id: open.id });
-    add('summary', `Say what the agent on the open thread ${t} said and what it needs`, { kind: 'summary', id: open.id });
-    add('ask', `Answer a question about the open thread ${t} (why, what, how; "what is this again", "what's it asking", "remind me", "what do you mean", "I don't know what this is about", "I don't understand"). Saying they do not follow something is asking about it.`, { kind: 'ask', id: open.id });
+    add('summary', `Say what the open thread ${t} is about, what the agent said and what it needs ("what this task is about", "remind me", "summarize it")`, { kind: 'summary', id: open.id });
+    add('ask', `Answer a question about the open thread ${t} (why, what, how)`, { kind: 'ask', id: open.id });
     const pics = open.pictures ?? [];
     for (const p of pics) add(`show:${p.n}`, `Show picture ${p.n} of the open thread (${q(p.name)}) full screen, big${p.n === 1 ? ' ("the picture" means this one)' : ''}`, { kind: 'show', id: open.id, pictures: [p.n] });
-    if (pics.length > 1) add('compare', 'Show several of the open thread\'s pictures at once, side by side ("show me the images", "show them", "show me those", "all of them", "compare 1 and 3") — anything plural means this, not one picture', { kind: 'compare', id: open.id });
+    if (pics.length > 1) add('compare', 'Show several of the open thread\'s pictures at once, side by side ("show me the images", "show them", "show me those", "all of them", "compare 1 and 3"). Anything plural means this, not one picture', { kind: 'compare', id: open.id });
     if (pics.length) add('hide', 'Put away pictures Neo is showing ("close the picture", "hide it")', { kind: 'hide' });
     const films = open.films ?? [];
     for (const f of films) {
@@ -54,15 +55,22 @@ export function buildOptions(screen) {
   // Always offered, even with nowhere to go. Left off the list, her "I asked
   // you to go back to the previous task" matched nothing and came back as
   // do-nothing, so Neo said nothing at all and she asked if it was stuck.
-  add('back', `Go back to the thread the person was on before ("go back", "back one", "you moved us on", "we were on the one before")${screen.canGoBack ? '' : ' — there is nowhere to go back to right now, so this tells them so'}`, { kind: 'back' });
+  add('back', `Go back to the thread the person was on before ("go back", "back one", "you moved us on", "we were on the one before")${screen.canGoBack ? '' : '. There is nowhere to go back to right now, so this tells them so'}`, { kind: 'back' });
   add('inbox', 'Say which threads need the person ("what needs me", "what\'s next", "does anything need me", "start at the top")', { kind: 'inbox' });
   for (const [where, words] of [['up', 'up'], ['down', 'down'], ['top', 'to the top'], ['bottom', 'to the bottom']]) {
     add(`scroll:${where}`, `Scroll ${words} in what the person is reading`, { kind: 'scroll', where });
   }
   add('new', 'Start a new thread with new work the person describes', { kind: 'new' });
+  // WHAT NEO KEEPS AFTER THE CONVERSATION (shared/neo-memory.mjs). One option
+  // for keeping anything, rather than a rule in the code for each kind of
+  // preference somebody might have.
+  add('remember', 'Keep something the person wants Neo to remember for good: how they want Neo to work, something to always or never do, what to call them, a fact about them or their work ("remember that…", "never do X again", "from now on always…")', { kind: 'remember' });
+  const memories = screen.memories ?? [];
+  for (const m of memories) add(`forget:${m.id}`, `Stop remembering: ${q(m.text)}`, { kind: 'forget', id: m.id });
+  if (memories.length) add('remembered', 'Say what Neo remembers about the person and how they want things done ("what do you remember", "what are your instructions")', { kind: 'remembered' });
   add('undo', 'Undo the last thing done', { kind: 'undo' });
   add('signoff', 'End the conversation with Neo', { kind: 'signoff' });
-  add('talk', 'The person is talking to Neo about Neo itself: correcting it, complaining about what it just did, explaining a mistake. This is not words for the agent', { kind: 'talk' });
+  add('talk', 'The person is talking to Neo about Neo itself: correcting it, complaining about what it just did, explaining a mistake. This is not words for the agent. Feedback the person asks Neo to give, send or pass on is a reply, not this', { kind: 'talk' });
   // This one used to end with "or talk not asking for anything", which is a
   // description of almost any sentence. Live on 2026-10-17 it took "full
   // screen Agentbox and start processing my work" (0.12), "go into the task

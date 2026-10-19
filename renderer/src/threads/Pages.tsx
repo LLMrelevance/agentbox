@@ -27,7 +27,7 @@ import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
 import { shownPriority } from '../../../shared/rank.mjs';
 import { api } from '../api';
-import { CLOUD_KEY, CLOUD_WHEN_ON, cloudButtonCount, cloudIsOn, cloudMonthLine, type CloudMode, type CloudStatus } from '../cloud-menu';
+import { CLOUD_KEY, CLOUD_WHEN_ON, cloudButtonCount, cloudFootLine, cloudIsOn, cloudMonthLine, countedAccounts, type CloudMode, type CloudStatus } from '../cloud-menu';
 import { menuSetupLine, SETUP } from '../cloud-setup';
 import './pages.css';
 
@@ -231,12 +231,12 @@ function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus;
       <div className="line th-cloud-note"><span className="lab" /><span>{on ? meaning.note : 'Off: every thread runs on this Mac.'}</span></div>
       <div className="rule" />
       <div className="line th-cloud-setup"><span className="lab">Accounts</span><span className="th-cloud-setup-row">
-        <span className="th-cloud-setup-say">{SETUP.menuAccounts(accounts.length)}</span>
+        <span className="th-cloud-setup-say">{SETUP.menuAccounts(countedAccounts(accounts).length)}</span>
         <button type="button" className="th-cloud-manage" onClick={goSetUp}>{SETUP.menuManage}</button>
       </span></div>
       <div className="line"><span className="lab">This month</span><span className="th-cloud-use">{cloudMonthLine(cloud.month)}</span></div>
       <div className="rule" />
-      <div className="foot"><span>{cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now'}</span></div>
+      <div className="foot"><span>{cloudFootLine(cloud)}</span></div>
     </div>}
   </span>;
 }

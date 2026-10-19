@@ -11,17 +11,19 @@
 // second word narrows rather than widens.
 
 export type SettingsPageId =
-  | 'general' | 'appearance' | 'shortcuts' | 'phone'
+  | 'general' | 'appearance' | 'shortcuts' | 'phone' | 'neo'
   | 'claude' | 'codex' | 'running' | 'instructions'
   | 'projects' | 'team';
 
 /** The menu, in the order it is drawn, under the three headings it is drawn
- *  under. Team is left out by the screen on a build with no team cloud. */
+ *  under. Team is left out by the screen on a build with no team cloud, and
+ *  Neo wherever the voice alpha is off (main/neo/gate.mjs). */
 export const SETTINGS_PAGES: Array<{ id: SettingsPageId; label: string; group: 'Personal' | 'Agents' | 'Workspace' }> = [
   { id: 'general', label: 'General', group: 'Personal' },
   { id: 'appearance', label: 'Appearance', group: 'Personal' },
   { id: 'shortcuts', label: 'Shortcuts', group: 'Personal' },
   { id: 'phone', label: 'Phone', group: 'Personal' },
+  { id: 'neo', label: 'Neo', group: 'Personal' },
   { id: 'claude', label: 'Claude Code', group: 'Agents' },
   { id: 'codex', label: 'Codex', group: 'Agents' },
   { id: 'running', label: 'Running', group: 'Agents' },
@@ -55,6 +57,12 @@ const ENTRIES: Entry[] = [
   { page: 'shortcuts', label: 'Keyboard shortcuts', words: 'keys hotkeys keybindings' },
   { page: 'phone', label: 'Use it on your phone', anchor: 'phone', words: 'phone mobile qr code scan remote tailscale wifi home screen app' },
   { page: 'phone', label: 'Connected devices', anchor: 'phone-devices', words: 'devices phones connected who reset key' },
+  // NEO. "Memory" and "memories" are the words somebody types for the list,
+  // and neither is in its name; "voice" and "jarvis" are what people call Neo
+  // itself before they have learned the name.
+  { page: 'neo', label: 'Instructions for Neo', anchor: 'neo-instructions', words: 'voice jarvis rules prompt assistant preferences never always' },
+  { page: 'neo', label: 'What Neo remembers', anchor: 'neo-memories', words: 'memory memories remember forget voice jarvis assistant' },
+  { page: 'neo', label: "Neo's voice", anchor: 'neo-voice', words: 'voice sound speak marin cedar male female accent jarvis assistant' },
   { page: 'claude', label: 'Usage', anchor: 'usage', words: 'claude code limits plan left remaining quota' },
   { page: 'claude', label: 'Signed in', anchor: 'usage', words: 'claude code account accounts login subscription add email this computer local' },
   { page: 'claude', label: 'Cloud accounts', anchor: 'cloud-accounts', words: 'claude code cloud remote accounts limit' },

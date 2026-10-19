@@ -7,29 +7,43 @@
 // is main/cloud/run.mjs; this only connects it to the real AWS account named
 // in ~/.agentbox/cloud.json and names this account's cloud sign-in, which
 // lives in the cloud and is never read here (main/cloud/logins.mjs).
+// `cloudRunFromArgs` is the same, for one of many runs sharing a process
+// (main/cloud/host.mjs).
+import path from 'node:path';
 import { cloudRun, IMPORT_FAILED, LOGIN_TROUBLE } from './run.mjs';
 import { awsTransport, awsStorage } from './aws.mjs';
 import { readCloudConfig } from './config.mjs';
 import { pickCloudLogin, markCloudLogin, loginObjectKey } from './logins.mjs';
 
-const say = (m) => process.stderr.write(`agentbox cloud: ${m}\n`);
-
-async function main() {
-  // SIGNED AS THE CLOUD RUNS' OWN USER AND NOBODY ELSE. AWS's libraries read
-  // keys from the environment before they read a named profile, so an app
-  // started from a shell signed in as an admin would run every cloud call as
-  // that admin. Those keys go, and the `agentbox-cloud` profile is what signs.
-  for (const k of Object.keys(process.env)) {
-    if (/^AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|SECURITY_TOKEN|PROFILE|DEFAULT_PROFILE|CREDENTIAL_EXPIRATION|WEB_IDENTITY_TOKEN_FILE|ROLE_ARN)$/.test(k)) delete process.env[k];
+// SIGNED AS THE CLOUD RUNS' OWN USER AND NOBODY ELSE. AWS's libraries read
+// keys from the environment before they read a named profile, so an app
+// started from a shell signed in as an admin would run every cloud call as
+// that admin. Those keys go, and the `agentbox-cloud` profile is what signs.
+export function dropAwsSignIns(env = process.env) {
+  for (const k of Object.keys(env)) {
+    if (/^AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|SECURITY_TOKEN|PROFILE|DEFAULT_PROFILE|CREDENTIAL_EXPIRATION|WEB_IDENTITY_TOKEN_FILE|ROLE_ARN)$/.test(k)) delete env[k];
   }
+}
+
+// One AWS client pair per account, shared by every run in a process.
+const clients = new Map();
+function clientsFor(config) {
+  const k = JSON.stringify(config);
+  if (!clients.has(k)) clients.set(k, { transport: awsTransport(config), storage: awsStorage(config) });
+  return clients.get(k);
+}
+
+/** One cloud run from the relay's own arguments; resolves to its exit code. */
+export async function cloudRunFromArgs({ args, env, cwd, stdin, stdout, stderr, signals, pid, watchParent }) {
+  const say = (m) => stderr.write(`agentbox cloud: ${m}\n`);
   const config = readCloudConfig();
   if (!config) { say('cloud runs are not set up on this Mac (run scripts/cloud-setup.mjs)'); return 1; }
   // `--agentbox-import-only`: bring an earlier run in this folder home, and
   // start nothing (Supervisor#_bringCloudHome).
   // `--agentbox-codex app-server ...`: a Codex run, its own `codex app-server`
   // in the sandbox, on the Codex login CODEX_HOME names.
-  const importOnly = process.argv[2] === '--agentbox-import-only';
-  const codex = process.argv[2] === '--agentbox-codex';
+  const importOnly = args[0] === '--agentbox-import-only';
+  const codex = args[0] === '--agentbox-codex';
   const engine = codex ? 'codex' : 'claude';
   // The cloud account it runs on: of the ones she added for this engine, the
   // one used least recently (main/cloud/logins.mjs). Not the Mac's account:
@@ -37,6 +51,7 @@ async function main() {
   const rec = importOnly ? null : pickCloudLogin(engine);
   if (!importOnly && !rec) { say(`no ${codex ? 'Codex' : 'Claude'} account is signed in for the cloud yet (the cloud button)`); return LOGIN_TROUBLE; }
   const dir = rec?.key;
+  const { transport, storage } = clientsFor(config);
   return cloudRun({
     importOnly,
     engine,
@@ -51,15 +66,22 @@ async function main() {
     // takes another cloud account, or this Mac.
     onLimit: ({ until }) => { if (rec) markCloudLogin(engine, dir, rec.id, { limitedUntil: until }); },
     remoteCommand: codex ? 'codex' : 'claude',
-    argv: importOnly ? [] : process.argv.slice(codex ? 3 : 2),
-    env: process.env,
-    cwd: process.cwd(),
-    transport: awsTransport(config),
-    storage: awsStorage(config),
+    argv: importOnly ? [] : args.slice(codex ? 1 : 0),
+    env, cwd, transport, storage,
+    ...(stdin ? { stdin, stdout, stderr } : {}),
+    ...(signals ? { signals } : {}),
+    ...(pid ? { pid } : {}),
+    ...(watchParent !== undefined ? { watchParent } : {}),
   });
 }
 
-main().then(
-  (code) => process.exit(code ?? 1),
-  (err) => { say(`stopped: ${err?.message || err}`); process.exit(IMPORT_FAILED); },
-);
+// Run as a program, not imported by the host: by the file's name, which holds
+// inside the packaged app's archive as well as out of it.
+const startedAsProgram = path.basename(process.argv[1] || '') === 'run-cli.mjs';
+if (startedAsProgram) {
+  dropAwsSignIns();
+  cloudRunFromArgs({ args: process.argv.slice(2), env: process.env, cwd: process.cwd(), stdout: process.stdout, stderr: process.stderr }).then(
+    (code) => process.exit(code ?? 1),
+    (err) => { process.stderr.write(`agentbox cloud: stopped: ${err?.message || err}\n`); process.exit(IMPORT_FAILED); },
+  );
+}

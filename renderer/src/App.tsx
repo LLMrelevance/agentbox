@@ -73,7 +73,7 @@ import { approvalReads } from './approval-card';
 // there is anything to confirm the card has closed.
 import { sentLine, sendingLine } from './compose-says';
 import { wearJustMade, type JustMade } from './just-made';
-import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
+import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
 import { opensATextField } from './keys';
 import { sidebarFits, useRoomyToggle, useWindowWidth } from './room';
@@ -860,6 +860,16 @@ export default function App() {
   // leave. Cmd+Y is caught in the main process, so this is the renderer's only
   // evidence the press landed at all.
   const [answered, setAnswered] = useState<{ id: string; allow: boolean } | null>(null);
+  // An answer that did not go (the phone's database, a card that moved) puts the card back and says why.
+  const answerCard = async (id: string, allow: boolean) => {
+    setAnswered({ id, allow });
+    const r = await window.zero?.approve?.({ id, allow });
+    if (r && (r as { ok?: boolean }).ok === false) {
+      setAnswered(null);
+      showToast(`Not answered: ${(r as { error?: string }).error ?? 'it did not go through'}`);
+    }
+    await refresh();
+  };
   // The card that held the stage when she pressed: the store push usually beats
   // the animation, and a card cannot finish leaving once the snapshot has
   // forgotten it exists.
@@ -1816,10 +1826,15 @@ export default function App() {
     // An agent is working on it right now: In progress, whatever it says
     // (`live` in list-rules, w-bc976fd247). Ahead of every branch here,
     // the team ones included, because none of them can see a session.
-    if (liveIds.has(i.id)) return false;
+    //
+    // Both vetoes carry the one exception the rule carries, and have to: these
+    // two lines answer before `belongsInInbox` is ever called, so without it
+    // the exception would hold in the rule and not in the app (w-fe48447cab).
+    // A row still asking you something is never hidden by either.
+    if (liveIds.has(i.id) && !stillAsksYou(i)) return false;
     // And the app is still to ship it, which is the same: nobody needs to look
     // until it has (`shipping` in list-rules, w-0c1ba766eb).
-    if (shippingIds.has(i.id)) return false;
+    if (shippingIds.has(i.id) && !stillAsksYou(i)) return false;
     if (owedAnAnswer.has(i.id)) return true;
     // The rule itself lives in list-rules.ts, pure and pinned by tests. What
     // is left here is the view's own business: the grace window, the clock,
@@ -4036,7 +4051,8 @@ export default function App() {
       pushUndo({ label: 'Reply withdrawn, back in your inbox', undoes: 'take back that reply and stop the agent', restore, undid, run: async () => {
         if (wasScheduled && priorRunAt) await api.schedule({ product: item.product, id: item.id, runAt: priorRunAt });
         if (wasScheduled && priorSnooze) await api.snooze({ product: item.product, id: item.id, snoozedUntil: priorSnooze });
-        await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id });
+        // `withdraw`: on the phone, take back the reply itself if her Mac has not taken it.
+        await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id, withdraw: true });
         // Put the thread back exactly where the reply found it. The rule and
         // what it cost are in list-rules (`withdrawReply`): restoring the
         // status only when the reply had changed one left an already-open row
@@ -4392,15 +4408,20 @@ export default function App() {
     // these would be a write into nothing. Both behave like a task in every way
     // she can see and in none that she cannot.
     if (item.agent || isTroubleRow(item) || isUpdateRow(item)) return;
-    // NOR FROM THE PHONE WITH THE COMPUTER CLOSED, which cannot reach a run to
-    // stop it, and says so rather than saying it stopped (Codex's review of
-    // step 1, finding 7).
-    if (onCloudPhone()) { showToast('Stop it on your computer. Your phone can reply, close, and move things to Later.'); return; }
     // A MESSAGE STILL IN ITS THREE SECONDS IS WRITTEN BEFORE THE STOP. Held, it
     // landed after the kill, read as a reply sent after stopping, reopened the
     // row and started a fresh run on it two minutes later (2026-10-05).
     // tests/a-message-still-sending-lands-before-the-stop.test.mjs
     await flushPending();
+    // FROM THE PHONE WITH THE COMPUTER CLOSED the stop goes to her Mac, and the
+    // toast says it went rather than that it stopped (Codex's review of step 1,
+    // finding 7).
+    if (onCloudPhone()) {
+      try { await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id }); } catch (err) { showToast(`Not sent: ${String((err as Error)?.message ?? err)}`); return; }
+      showToast('Stop sent. Your Mac stops the agent when it gets it.');
+      await refresh();
+      return;
+    }
     const wasRunning = working(item);
     setFollowing({ product: item.product, id: item.id });
     await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id });
@@ -4622,13 +4643,15 @@ export default function App() {
   // the alpha flag. When it does, Neo's tool calls are carried out here with
   // the same functions the keys use, so a voice can do nothing a hand could
   // not; the rules about which thread and when to ask are in ./neo/bridge.
-  useNeo({
+  const neo = useNeo({
     rows: () => shownInbox,
     commands: () => paletteCommands.current,
     threadsAnywhere: () => [...inbox, ...progress, ...snoozed, ...done],
+    threadById: (id) => items.find((i) => i.id === id) ?? null,
     focused: () => focused,
     options: (row) => (offerIsLive(row) ? itemOptions(row) : []),
     summary: (row) => row.result || row.note || row.body || '',
+    about: (row) => row.problem || '',
     projects: () => (snap?.products ?? []).filter((p) => !directSlugs.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name })),
     open: (row) => { setSearch(null); setFocused(row); markSeen(row); },
     pick: (row, n) => pickOption(row, n),
@@ -6213,6 +6236,7 @@ export default function App() {
                     onSearch={openSearch}
                   />
                 )}
+                {snap.phoneStatus && <div className="phone-status" role="status">{snap.phoneStatus}</div>}
                 {workspaceNavigation && emptyView && !theirRows.length ? (
                   // A FILTER IS READ FIRST, so it can never fall through to
                   // "Nothing needs you" (w-5a08121f99). That sentence is a
@@ -6730,6 +6754,7 @@ export default function App() {
              has no team in it, and this keeps the team's code in the team's
              files. No team cloud, no pane and no Team row. */
           teamPane={snap?.team?.configured ? <TeamPage team={snap?.team} inviteFocus={inviteFocus} /> : undefined}
+          neoOn={neo.on}
           // WHO SEES A PROJECT'S THREADS (w-b989839656): the button beside a
           // project's name and the Projects list's column, only while someone
           // is signed in to a team, handed in for the same reason as the pane.
@@ -7194,8 +7219,8 @@ export default function App() {
                   {/* The acknowledgement starts on the press, not on the round
                       trip: main answers the file and echoes the same verdict
                       back, so the click and the chord land on one behaviour. */}
-                  <button className="approval-allow" onClick={async () => { setAnswered({ id: a.id, allow: true }); await window.zero?.approve?.({ id: a.id, allow: true }); await refresh(); }}>Allow</button>
-                  <button className="approval-deny" onClick={async () => { setAnswered({ id: a.id, allow: false }); await window.zero?.approve?.({ id: a.id, allow: false }); await refresh(); }}>Deny</button>
+                  <button className="approval-allow" onClick={() => void answerCard(a.id, true)}>Allow</button>
+                  <button className="approval-deny" onClick={() => void answerCard(a.id, false)}>Deny</button>
                   <span className="approval-hint">⌘Y / ⌘N · {a.tool}</span>
                 </div>
               </div>

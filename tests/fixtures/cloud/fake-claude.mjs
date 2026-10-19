@@ -11,11 +11,15 @@
 //     the `agentbox` server and puts the reply in its result;
 //   - commits `cloud.txt` and leaves `loose.txt` uncommitted;
 //   - writes its transcript where Claude Code would;
+//   - says back each message it takes up, as Claude Code does with
+//     --replay-user-messages;
 //   - prints the result, then waits for stdin to close, as Claude Code does.
 // A message whose text includes "HANG" makes it ignore SIGTERM for a moment and
 // then sit still, so a test can cancel it. "LOOK" makes it call look_at_page.
 // "LATE" makes it wait a moment after its handshake and before its tool call,
 // so a test can quit the app in between.
+// "AMEND" makes it amend the commit the branch started on instead of adding
+// one; "IDLE" makes it change nothing in the folder.
 // "DOCS:<folder>" makes it read and write the project's documents folder:
 // it reports what it found there, draws a picture in its own designs folder
 // and waits a moment, then edits the notes just before its result.
@@ -63,6 +67,8 @@ process.stdin.on('data', (d) => {
     ibuf = ibuf.slice(i + 1);
     let msg; try { msg = JSON.parse(line); } catch { continue; }
     if (msg.type !== 'user') continue;
+    // Taken up, said back as Claude Code does with --replay-user-messages.
+    out({ type: 'user', ...(msg.uuid ? { uuid: msg.uuid } : {}), message: msg.message, parent_tool_use_id: null });
     const text = typeof msg.message?.content === 'string' ? msg.message.content : JSON.stringify(msg.message?.content);
     busy = busy.then(() => turn(text));
   }
@@ -89,9 +95,11 @@ async function turn(text) {
   const said = reply.result?.content?.[0]?.text ?? JSON.stringify(reply);
   if (text.includes('SLOW')) await new Promise((r) => setTimeout(r, 1500));
   if (text.includes('SWITCH')) execSync('git checkout -q -b somewhere-else');
-  fs.appendFileSync('cloud.txt', 'made in the cloud\n');
-  execSync('git add cloud.txt && git commit -q -m "From the cloud"');
-  fs.writeFileSync('loose.txt', 'not committed\n');
+  if (!text.includes('IDLE')) {
+    fs.appendFileSync('cloud.txt', 'made in the cloud\n');
+    execSync(text.includes('AMEND') ? 'git add cloud.txt && git commit -q --amend -m "Amended in the cloud"' : 'git add cloud.txt && git commit -q -m "From the cloud"');
+    fs.writeFileSync('loose.txt', 'not committed\n');
+  }
   const docs = (text.match(/DOCS:(\S+)/) || [])[1];
   let found = null;
   if (docs) {
@@ -102,7 +110,11 @@ async function turn(text) {
     fs.writeFileSync(path.join(d, 'designs/w-1/round2/b.png'), 'picture from the cloud');
     fs.writeFileSync(path.join(d, 'designs/w-1/round2/env.txt'), `login=${process.env.CLAUDE_CODE_OAUTH_TOKEN}\n`);
     fs.writeFileSync(path.join(d, `designs/w-1/round2/${process.env.CLAUDE_CODE_OAUTH_TOKEN}.txt`), 'named after the login');
-    await new Promise((r) => setTimeout(r, 1500));
+    // Still working until the picture is home on the Mac (`docs` is the Mac's
+    // own path), not for a fixed 1.5 s, which a loaded machine overran inside
+    // the ship's suite (2026-10-16). Twenty seconds at most.
+    const home = path.join(docs, 'designs/w-1/round2/b.png');
+    for (let waited = 0; waited < 20_000 && !fs.existsSync(home); waited += 100) await new Promise((r) => setTimeout(r, 100));
     fs.writeFileSync(path.join(d, 'notes.md'), 'the cloud wrote this\n');
   }
   const attachment = (text.match(/ATTACH:(\S+)/) || [])[1];

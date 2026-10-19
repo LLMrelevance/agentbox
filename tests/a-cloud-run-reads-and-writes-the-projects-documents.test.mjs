@@ -124,6 +124,14 @@ function launch({ onResult = () => {} } = {}) {
 
 const resultOf = (out) => JSON.parse(JSON.parse(out.split('\n').find((l) => l.includes('"type":"result"'))).result);
 const picture = () => path.join(docs, 'designs', 'w-1', 'round2', 'b.png');
+// Waits for a fact rather than a fixed time; throws if it never comes.
+async function until(fact, ms = 30_000) {
+  const end = Date.now() + ms;
+  while (!fact()) {
+    if (Date.now() > end) throw new Error('waited 30 s and it never happened');
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
 
 describe('a cloud run and the project\'s documents', () => {
   it('reads the plan and its own designs there, and never the big files or another thread\'s designs', async () => {
@@ -158,7 +166,9 @@ describe('a cloud run and the project\'s documents', () => {
 
   it('keeps a note changed on the Mac while the run was away, and puts the run\'s copy beside it', async () => {
     const run = launch();
-    await new Promise((r) => setTimeout(r, 300));
+    // After the run has left with the folder, however long that takes on a
+    // busy machine (a fixed 300 ms lost the race inside the ship's suite).
+    await until(() => readMarker(mac)?.state === 'running');
     fs.writeFileSync(path.join(docs, 'notes.md'), 'she edited this here\n');
     expect(await run.done, run.err()).toBe(0);
     expect(fs.readFileSync(path.join(docs, 'notes.md'), 'utf8')).toBe('she edited this here\n');
@@ -167,7 +177,7 @@ describe('a cloud run and the project\'s documents', () => {
 });
 
 describe('what goes up', () => {
-  it('is the small files and this thread\'s designs, inside the limits', () => {
+  it('is the small files and this thread\'s designs, inside the limits', async () => {
     const list = docsToSend(docs, { item: 'w-1' });
     expect(list.sort()).toEqual(['designs/w-1/round1/a.png', 'notes.md', 'plans/plan.md']);
     expect(docsToSend(docs, { item: null }).sort()).toEqual(['notes.md', 'plans/plan.md']);
@@ -177,7 +187,7 @@ describe('what goes up', () => {
     expect(docsToSend(docs, { item: 'w-1' })).not.toContain('.secret');
   });
 
-  it('is nothing when the folder holds the task folder or sits inside it', () => {
+  it('is nothing when the folder holds the task folder or sits inside it', async () => {
     expect(docsFolderFor(docs, mac)).toBe(docs);
     expect(docsFolderFor(path.join(tmp, 'mac'), mac)).toBe(null);
     expect(docsFolderFor(path.join(mac, 'docs'), mac)).toBe(null);
@@ -193,53 +203,53 @@ describe('laying documents in', () => {
     return tarDocs(src, Object.keys(files));
   };
 
-  it('writes over its own earlier copy, but not over a change made here', () => {
+  it('writes over its own earlier copy, but not over a change made here', async () => {
     const laid = {};
     const sentAt = Date.now() - 1000;
-    layDocs({ tgz: archive({ 'designs/w-1/x.md': 'one' }), dir: docs, sentAt, laid });
-    layDocs({ tgz: archive({ 'designs/w-1/x.md': 'two' }), dir: docs, sentAt, laid });
+    await layDocs({ tgz: await archive({ 'designs/w-1/x.md': 'one' }), dir: docs, sentAt, laid });
+    await layDocs({ tgz: await archive({ 'designs/w-1/x.md': 'two' }), dir: docs, sentAt, laid });
     expect(fs.readFileSync(path.join(docs, 'designs/w-1/x.md'), 'utf8')).toBe('two');
     fs.writeFileSync(path.join(docs, 'designs/w-1/x.md'), 'mine');
-    const out = layDocs({ tgz: archive({ 'designs/w-1/x.md': 'three' }), dir: docs, sentAt, laid });
+    const out = await layDocs({ tgz: await archive({ 'designs/w-1/x.md': 'three' }), dir: docs, sentAt, laid });
     expect(fs.readFileSync(path.join(docs, 'designs/w-1/x.md'), 'utf8')).toBe('mine');
     expect(out.beside).toEqual(['designs/w-1/x (cloud).md']);
   });
 
-  it('writes over a file nobody touched since the run left', () => {
-    const out = layDocs({ tgz: archive({ 'plans/plan.md': 'new plan' }), dir: docs, sentAt: Date.now() + 1000, laid: {} });
+  it('writes over a file nobody touched since the run left', async () => {
+    const out = await layDocs({ tgz: await archive({ 'plans/plan.md': 'new plan' }), dir: docs, sentAt: Date.now() + 1000, laid: {} });
     expect(out.written).toEqual(['plans/plan.md']);
     expect(fs.readFileSync(path.join(docs, 'plans/plan.md'), 'utf8')).toBe('new plan');
   });
 
-  it('lays a version it already laid only once, even when it comes again', () => {
+  it('lays a version it already laid only once, even when it comes again', async () => {
     const laid = {};
     const sentAt = Date.now() - 1000;
     const before = new Date(Date.now() - 60_000);
     fs.utimesSync(path.join(docs, 'notes.md'), before, before);
-    layDocs({ tgz: archive({ 'notes.md': 'from the run' }), dir: docs, sentAt, laid });
+    await layDocs({ tgz: await archive({ 'notes.md': 'from the run' }), dir: docs, sentAt, laid });
     expect(fs.readFileSync(path.join(docs, 'notes.md'), 'utf8')).toBe('from the run');
     fs.writeFileSync(path.join(docs, 'notes.md'), 'she changed it after');
-    const out = layDocs({ tgz: archive({ 'notes.md': 'from the run' }), dir: docs, sentAt, laid });
+    const out = await layDocs({ tgz: await archive({ 'notes.md': 'from the run' }), dir: docs, sentAt, laid });
     expect(out.beside).toEqual([]);
     expect(fs.readFileSync(path.join(docs, 'notes.md'), 'utf8')).toBe('she changed it after');
     expect(fs.existsSync(path.join(docs, 'notes (cloud).md'))).toBe(false);
   });
 
-  it('leaves a link in the folder alone rather than writing through it, and keeps the run\'s copy beside it', () => {
+  it('leaves a link in the folder alone rather than writing through it, and keeps the run\'s copy beside it', async () => {
     const outside = path.join(tmp, 'outside.md');
     fs.writeFileSync(outside, 'not hers to change');
     fs.symlinkSync(outside, path.join(docs, 'linked.md'));
-    const out = layDocs({ tgz: archive({ 'linked.md': 'from the run' }), dir: docs, sentAt: Date.now() + 1000, laid: {} });
+    const out = await layDocs({ tgz: await archive({ 'linked.md': 'from the run' }), dir: docs, sentAt: Date.now() + 1000, laid: {} });
     expect(out.beside).toEqual(['linked (cloud).md']);
     expect(fs.readFileSync(outside, 'utf8')).toBe('not hers to change');
     expect(fs.readFileSync(path.join(docs, 'linked (cloud).md'), 'utf8')).toBe('from the run');
   });
 
-  it('never follows a link out of the folder, and puts the file in a folder of its own instead of dropping it', () => {
+  it('never follows a link out of the folder, and puts the file in a folder of its own instead of dropping it', async () => {
     const outside = path.join(tmp, 'outside');
     fs.mkdirSync(outside);
     fs.symlinkSync(outside, path.join(docs, 'escape'));
-    const out = layDocs({ tgz: archive({ 'escape/x.md': 'should not land outside' }), dir: docs, sentAt: 0, laid: {} });
+    const out = await layDocs({ tgz: await archive({ 'escape/x.md': 'should not land outside' }), dir: docs, sentAt: 0, laid: {} });
     expect(out.moved).toEqual(['from-the-cloud/escape/x.md']);
     expect(fs.existsSync(path.join(outside, 'x.md'))).toBe(false);
     expect(fs.readFileSync(path.join(docs, 'from-the-cloud', 'escape', 'x.md'), 'utf8')).toBe('should not land outside');
@@ -253,7 +263,9 @@ describe('a document the Mac could not write', () => {
     const own = path.join(docs, 'designs', 'w-1');
     fs.chmodSync(own, 0o555);
     const run = launch();
-    await new Promise((r) => setTimeout(r, 900));
+    // Writable again once an archive has really failed to land, not after a
+    // fixed 900 ms, which a busy machine can pass before the first one comes.
+    await until(() => /could not be laid in yet/.test(run.err()));
     fs.chmodSync(own, 0o755);
     expect(await run.done, run.err()).toBe(0);
     expect(run.err()).toMatch(/could not be laid in yet/);

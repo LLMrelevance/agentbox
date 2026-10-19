@@ -25,8 +25,12 @@ describe('an ask with two halves', () => {
     expect(backend).toMatch(/open[^.]*then[^.]*repl|carry on|do both|same turn/i);
   });
 
-  it('tells the voice not to say it could not when it only stopped halfway', () => {
-    expect(voice).toMatch(/both|carry on|until it is done/i);
+  // The voice is no longer told this in words: main/neo/decided.mjs splits a
+  // two-part ask and runs both itself, covered by
+  // ./neo-always-answers-and-does-both-halves-of-a-request.test.mjs. What the
+  // voice still owes her is not going quiet in the middle of one.
+  it('tells the voice never to leave her waiting on it', () => {
+    expect(voice).toMatch(/left waiting|hanging/i);
   });
 });
 
@@ -49,7 +53,12 @@ describe('how Neo talks', () => {
     expect(voice).toMatch(/pause/i);
   });
 
-  it('says to pass her words on, not to claim the work as its own', () => {
-    expect(voice).toMatch(/passing it on|pass it on|not yours to do|never say you will/i);
+  // "Okay, I'll add screenshot sharing" when it was only passing feedback on.
+  // The Decisions list draws the line now: `talk` is words about Neo, and
+  // "feedback the person asks Neo to give, send or pass on is a reply, not
+  // this" (shared/neo-options.mjs). The voice keeps the half that is its own:
+  // it says only what the app told it.
+  it('says to say only what the app told it, never what it means to do', () => {
+    expect(voice).toMatch(/nothing it did not tell you|say nothing it did not tell/i);
   });
 });
