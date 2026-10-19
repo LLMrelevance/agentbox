@@ -60,7 +60,12 @@ export interface CloudStatus {
   health?: 'ok' | 'failing' | 'resting';
   lastError?: string | null;
   restingUntil?: number | null;
+  /** The cloud image's Claude Code or Codex, as major.minor, when it is not this Mac's; `blocks` for a different major. */
+  versionGap?: { engine: 'claude' | 'codex'; cloud: string; mac: string; blocks: boolean } | null;
 }
+
+const agentName = (engine: 'claude' | 'codex') => (engine === 'codex' ? 'Codex' : 'Claude Code');
+const rebuildLine = (g: NonNullable<CloudStatus['versionGap']>) => `The cloud's ${agentName(g.engine)} is ${g.cloud}, this Mac's is ${g.mac}: rebuild the cloud image`;
 
 export const engineWord = (a: { engine: 'claude' | 'codex' }) => (a.engine === 'codex' ? 'Codex' : 'Claude');
 
@@ -130,12 +135,15 @@ export function cloudFootLine(cloud: CloudStatus, now = Date.now()): string {
     const why = String(cloud.lastError || 'its runs failed before they started').slice(0, 120);
     return `The cloud is failing (${why}). Threads run on this Mac until ${clock(cloud.restingUntil)}.`;
   }
+  const gap = cloud.versionGap;
+  if (gap?.blocks) return `${rebuildLine(gap)}. ${gap.engine === 'codex' ? 'Codex' : 'Claude'} threads run on this Mac until then.`;
   const claude = countedAccounts(cloud.accounts || []).filter((a) => a.engine === 'claude');
   const back = claude.map((a) => (a.limitedUntil && a.limitedUntil > now ? a.limitedUntil : null));
   if (cloudIsOn(cloud) && claude.length && back.every(Boolean)) {
     const at = clock(Math.min(...(back as number[])));
     return `Your cloud accounts are at their usage limit until ${at}. ${cloud.mode === 'all' ? 'Threads wait for the cloud' : 'Threads run on this Mac'} until then.`;
   }
+  if (gap) return rebuildLine(gap);
   return cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now';
 }
 

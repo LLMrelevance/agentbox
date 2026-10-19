@@ -42,6 +42,7 @@ import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, takeCloudNews } from './cloud/marker.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
 import { readCloudConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
+import { cloudVersionGaps } from '../shared/cloud-versions.mjs';
 import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
 import { execFileSync } from 'node:child_process';
 import { holdUntilHome } from './cloud/codex-cloud.mjs';
@@ -4173,6 +4174,7 @@ export class Supervisor {
     return {
       setUp, mode, running: this._cloudLoad(), month: this._cloudMonth.month,
       ...this._cloudHealthNow(now),
+      versionGap: setUp ? this._cloudVersionGaps(now).sort((a, b) => b.blocks - a.blocks)[0] ?? null : null,
       // What C turns the cloud back on to (main/settings.mjs cloudWhenOn).
       whenOn: this.config.cloudWhenOn === 'all' ? 'all' : 'full',
       accounts: setUp ? this._cloudAccounts() : [],
@@ -4478,9 +4480,46 @@ export class Supervisor {
     return this._cloudUsable(engine) && this._cloudRoom(engine) && this._cloudStarting() < CLOUD_STARTING_AT_ONCE;
   }
 
-  // Not resting after failures of its own (`_noteCloudOutcome`).
-  _cloudUsable(_engine) {
-    return !this._cloudResting();
+  // Not resting after failures of its own (`_noteCloudOutcome`), and not a
+  // major version of this engine apart from this Mac (`_cloudVersionGaps`).
+  _cloudUsable(engine) {
+    if (this._cloudResting()) return false;
+    const which = engineOf(engine);
+    return !this._cloudVersionGaps().some((g) => g.engine === which && g.blocks);
+  }
+
+  // THE CLOUD IMAGE'S VERSIONS AGAINST THIS MAC'S (shared/cloud-versions.mjs).
+  // The image's are in cloud.json, read at most every minute; this Mac's are
+  // asked of each CLI off the window's thread, at most every hour.
+  _cloudVersionGaps(now = Date.now()) {
+    if (!this._cloudImageAt || now - this._cloudImageAt > 60_000) {
+      const c = readCloudConfig(process.env, this.config.home);
+      this._cloudImage = c ? { claude: c.claudeCodeVersion, codex: c.codexVersion } : null;
+      this._cloudImageAt = now;
+    }
+    if (!this._cloudImage) return [];
+    if (!this._macVersionsAt || now - this._macVersionsAt > 60 * 60_000) this._refreshMacAgentVersions().catch(() => {});
+    return cloudVersionGaps({ cloud: this._cloudImage, mac: this._macVersions ?? {} });
+  }
+
+  _refreshMacAgentVersions() {
+    if (this._macVersionsReading) return this._macVersionsReading;
+    this._macVersionsAt = Date.now();
+    this._macVersionsReading = (async () => {
+      const found = {};
+      for (const engine of ['claude', 'codex']) {
+        try { found[engine] = await this._readMacAgentVersion(engine); } catch { /* not installed here */ }
+      }
+      this._macVersions = found;
+      this._cloudImageAt = 0;
+      this.onChange?.();
+    })().finally(() => { this._macVersionsReading = null; });
+    return this._macVersionsReading;
+  }
+
+  async _readMacAgentVersion(engine) {
+    const { installedAgent } = await import('./agent-updates.mjs');
+    return (await installedAgent(engine, this.config)).version;
   }
 
   _cloudResting(now = Date.now()) {
