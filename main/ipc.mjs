@@ -225,7 +225,10 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     try { return store.listProducts().some((p) => p.slug === slug && p.practice === true); } catch { return false; }
   };
 
-  ipcMain.handle('zero:approve', (_e, { id, allow, note }) => {
+  // From her phone the answer names the card it drew (main/phone-inbox.mjs),
+  // and a request rewritten since gets nothing.
+  ipcMain.handle('zero:approve', (_e, { id, allow, note, card }) => {
+    if (card !== undefined && !approvals.cardStillShown(config.storeRoot, id, card)) return { ok: false, error: 'the card changed after your phone showed it, so nothing was allowed' };
     return { ok: answerApproval(id, allow, note) };
   });
 

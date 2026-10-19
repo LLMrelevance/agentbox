@@ -226,7 +226,22 @@ export function snapshotKey(snapshot) {
 // WHAT HER PHONE MAY ASK HER MAC TO DO, and nothing else. A command that is not
 // one of these, or names a project she did not put on her phone, or a thread
 // that is not in it, is refused and says why.
-export const PHONE_COMMANDS = ['reply', 'new', 'snooze', 'close', 'stop', 'run-now', 'send-now', 'reopen', 'schedule'];
+export const PHONE_COMMANDS = ['reply', 'new', 'snooze', 'close', 'stop', 'run-now', 'send-now', 'reopen', 'schedule', 'approve'];
+
+// A PERMISSION CARD AS HER PHONE DRAWS IT: what the agent asks to do, with the
+// secrets in it hidden as a thread's words are, and the fingerprint of the card
+// her Mac drew, which her answer must carry back.
+export function phoneApproval(request, card, ctx = {}) {
+  const clean = (v, depth = 0) => {
+    if (typeof v === 'string') return clip(v, 4000, ctx);
+    if (typeof v === 'number' || typeof v === 'boolean' || v === null) return v;
+    if (depth > 3) return undefined;
+    if (Array.isArray(v)) return v.slice(0, 40).map((x) => clean(x, depth + 1));
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).slice(0, 40).map(([k, x]) => [k, clean(x, depth + 1)]));
+    return undefined;
+  };
+  return { id: String(request.id), at: Number(request.at) || 0, tool: clip(String(request.tool ?? 'unknown'), 200, ctx), input: clean(request.input ?? {}), card };
+}
 
 // WHAT SHE PICKED WITH A REPLY OR A NEW THREAD, as the window's own handlers
 // take it (main/ipc.mjs zero:answer, zero:compose): only these fields, each
@@ -266,5 +281,7 @@ export function checkCommand(cmd, { projects, hasItem }) {
   if (cmd.kind === 'reply' && !(typeof p.text === 'string' && p.text.trim())) return 'an empty reply';
   if (cmd.kind === 'snooze' && !(Number.isFinite(p.until) && p.until >= 0)) return 'a snooze needs a time';
   if (cmd.kind === 'schedule' && !(Number.isFinite(p.runAt) && p.runAt >= 0)) return 'a schedule needs a time';
+  if (cmd.kind === 'approve' && !(typeof p.approval === 'string' && /^[\w-]{1,80}$/.test(p.approval) && typeof p.allow === 'boolean'
+    && typeof p.card === 'string' && /^[\w+/=-]{8,200}$/.test(p.card) && (p.note === undefined || (typeof p.note === 'string' && p.note.length <= 500)))) return 'an answer needs its card';
   return null;
 }

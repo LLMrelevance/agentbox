@@ -860,6 +860,16 @@ export default function App() {
   // leave. Cmd+Y is caught in the main process, so this is the renderer's only
   // evidence the press landed at all.
   const [answered, setAnswered] = useState<{ id: string; allow: boolean } | null>(null);
+  // An answer that did not go (the phone's database, a card that moved) puts the card back and says why.
+  const answerCard = async (id: string, allow: boolean) => {
+    setAnswered({ id, allow });
+    const r = await window.zero?.approve?.({ id, allow });
+    if (r && (r as { ok?: boolean }).ok === false) {
+      setAnswered(null);
+      showToast(`Not answered: ${(r as { error?: string }).error ?? 'it did not go through'}`);
+    }
+    await refresh();
+  };
   // The card that held the stage when she pressed: the store push usually beats
   // the animation, and a card cannot finish leaving once the snapshot has
   // forgotten it exists.
@@ -7209,8 +7219,8 @@ export default function App() {
                   {/* The acknowledgement starts on the press, not on the round
                       trip: main answers the file and echoes the same verdict
                       back, so the click and the chord land on one behaviour. */}
-                  <button className="approval-allow" onClick={async () => { setAnswered({ id: a.id, allow: true }); await window.zero?.approve?.({ id: a.id, allow: true }); await refresh(); }}>Allow</button>
-                  <button className="approval-deny" onClick={async () => { setAnswered({ id: a.id, allow: false }); await window.zero?.approve?.({ id: a.id, allow: false }); await refresh(); }}>Deny</button>
+                  <button className="approval-allow" onClick={() => void answerCard(a.id, true)}>Allow</button>
+                  <button className="approval-deny" onClick={() => void answerCard(a.id, false)}>Deny</button>
                   <span className="approval-hint">⌘Y / ⌘N · {a.tool}</span>
                 </div>
               </div>

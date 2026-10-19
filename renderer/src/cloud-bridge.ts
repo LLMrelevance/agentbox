@@ -85,6 +85,8 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
   const items = new Map<string, any>();
   const screenId = new Map<string, string>();
   const aliases: Aliases = {};
+  const approvals: { id: string; at: number; product: string; item: string; tool: string; input: Record<string, unknown> }[] = [];
+  const cards: Cards = {};
   // Every real id, and every id a new thread waiting on the phone shows under,
   // is spoken for before any stand-in is made, and a stand-in is never one of
   // them (Codex's third review, finding 6).
@@ -104,6 +106,12 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
     used.add(id);
     screenId.set(`${slug}/${t.item}`, id);
     items.set(`${slug}/${t.item}`, { ...t.snapshot.item, id, product: slug, productName: names.get(slug) });
+    // Its permission cards, but not one she has answered here already.
+    for (const a of Array.isArray(t.snapshot.approvals) ? t.snapshot.approvals : []) {
+      if (!a?.id || !a.card || rows.commands.some((c) => c.kind === 'approve' && c.payload?.approval === a.id && !c.taken_at)) continue;
+      approvals.push({ id: String(a.id), at: Number(a.at) || 0, product: slug, item: id, tool: String(a.tool ?? 'unknown'), input: a.input ?? {} });
+      cards[a.id] = { device: t.device, project: t.project, item: t.item, card: String(a.card) };
+    }
     const live = t.snapshot.live;
     if (live && now - Number(live.at) < LIVE_FOR_MS) {
       running.push({
@@ -150,7 +158,16 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
       });
     }
   }
-  return { products, items: [...items.values()], waiting, aliases, running, places };
+  return { products, items: [...items.values()], waiting, aliases, running, places, approvals, cards };
+}
+
+// Each card drawn on the phone: where it is, and the fingerprint her Mac drew it with.
+export type Cards = Record<string, { device: string; project: string; item: string; card: string }>;
+/** Her answer to a card, for her Mac, carrying the fingerprint it was drawn with; null for a card never drawn. */
+export function approvalCommand(cards: Cards, p: { id: string; allow: boolean; note?: string }) {
+  const c = cards[p?.id];
+  if (!c) return null;
+  return { device: c.device, project: c.project, item: c.item, kind: 'approve', payload: { approval: p.id, allow: p.allow === true, ...(typeof p.note === 'string' && p.note ? { note: p.note } : {}), card: c.card } };
 }
 
 /** The thread's lines as her computer sent them, for the thread view. */
@@ -469,7 +486,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       return {
         products: view.products, items: view.items, phoneWaiting: view.waiting,
         phoneStatus: client.signedIn() ? phoneStatusLine({ error, fetchedAt, macSeen: macSeenOf(rows.projects) }) : null,
-        team: team(), agents: [], approvals: [], supervisor: { ...SUPERVISOR, running: view.running, productOrder: view.products.map((p) => p.slug) },
+        team: team(), agents: [], approvals: view.approvals, supervisor: { ...SUPERVISOR, running: view.running, productOrder: view.products.map((p) => p.slug) },
         engines: null, runsOn: null, restartNeeded: null, cloud: null,
         config: { browserHome: '', browserPins: [], outsideAgents: 'off' },
       };
@@ -489,6 +506,18 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     codeChange: async () => ({ ok: false }),
     answer: (p: unknown) => leave(REQUEST_CHANNELS.answer, p),
     stopSession: (p: unknown) => leave(REQUEST_CHANNELS.stopSession, p),
+    // Allow and Deny go to her Mac with the card they answer (phone-inbox.mjs).
+    approve: async (p: { id: string; allow: boolean; note?: string }) => {
+      const cmd = approvalCommand(phoneView(rows).cards, p);
+      if (!cmd) return { ok: false, error: 'This card is no longer waiting.' };
+      try {
+        const asked = client.generation();
+        const row = await client.insertCommand(cmd);
+        if (client.generation() === asked) rows = { ...rows, commands: [...rows.commands, row] };
+        changed(null);
+        return { ok: true };
+      } catch (err) { return { ok: false, error: String((err as Error)?.message ?? err) }; }
+    },
     runNow: (p: unknown) => leave(REQUEST_CHANNELS.runNow, p),
     sendNow: (p: unknown) => leave(REQUEST_CHANNELS.sendNow, p),
     reopen: (p: unknown) => leave(REQUEST_CHANNELS.reopen, p),

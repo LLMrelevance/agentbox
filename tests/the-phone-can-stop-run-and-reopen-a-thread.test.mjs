@@ -96,7 +96,7 @@ grant usage on schema public to anon, authenticated;`);
   }, 60_000);
 
   it('takes the new kinds, and still refuses any other', async () => {
-    for (const kind of ['stop', 'run-now', 'send-now', 'reopen', 'schedule']) {
+    for (const kind of ['stop', 'run-now', 'send-now', 'reopen', 'schedule', 'approve']) {
       expect(await refused(OWNER, `insert into public.phone_commands (device, project, item, kind) values ($1, 'alpha', 'w-1', $2)`, [DEV, kind]), kind).toBe(false);
     }
     expect(await refused(OWNER, `insert into public.phone_commands (device, project, item, kind) values ($1, 'alpha', 'w-1', 'delete')`, [DEV])).toBe(true);

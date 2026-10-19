@@ -1,6 +1,7 @@
 -- WHAT ELSE HER PHONE MAY ASK HER COMPUTER TO DO (main/phone-inbox.mjs ROUTES):
 -- stop an agent, run a thread now, send a waiting message now, reopen a
--- stopped thread, and put a thread off to a moment. Her computer checks each
+-- stopped thread, put a thread off to a moment, and answer a permission card
+-- (with the fingerprint of the card she read, which her computer checks). Her computer checks each
 -- (shared/phone-snapshot.mjs checkCommand) and does it with the window's own
 -- handler.
 --
@@ -18,6 +19,6 @@ begin
   end loop;
 end $$;
 alter table public.phone_commands add constraint phone_commands_kind_check
-  check (kind in ('reply', 'new', 'snooze', 'close', 'stop', 'run-now', 'send-now', 'reopen', 'schedule'));
+  check (kind in ('reply', 'new', 'snooze', 'close', 'stop', 'run-now', 'send-now', 'reopen', 'schedule', 'approve'));
 
 grant insert (id, device, project, item, kind, payload) on public.phone_commands to authenticated;

@@ -195,6 +195,7 @@ export function createTeamService({
       historyOf: (slug, id, { all = false } = {}) => { try { return store.readHistory(slug, id, { max: all ? Number.MAX_SAFE_INTEGER : SNAPSHOT_LIMITS.lines }); } catch { return []; } },
       apply: phone.apply,
       liveOf: (slug, id) => phone.live?.(slug, id) ?? null,
+      approvalsOf: () => phone.approvals?.() ?? [],
       // One file per person: what this Mac sent up for one account is not
       // what the next one to sign in here has.
       stateFile: phone.stateFile.replace(/(\.json)?$/, `.${owner}.json`),
