@@ -156,7 +156,7 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
       return (await call(`/rest/v1/${table}?${query}`, { method: 'GET' })) ?? [];
     },
     async update(table: string, query: string, patch: Record<string, unknown>) {
-      return (await call(`/rest/v1/${table}?${query}`, { method: 'PATCH', headers: { prefer: 'return=representation' }, body: JSON.stringify(patch) })) ?? [];
+      return (await call(`/rest/v1/${table}?${query}`, { method: 'PATCH', keepalive: true, headers: { prefer: 'return=representation' }, body: JSON.stringify(patch) })) ?? [];
     },
     async insert(table: string, row: Record<string, unknown>) {
       const out = await call(`/rest/v1/${table}`, { method: 'POST', headers: { prefer: 'return=representation' }, body: JSON.stringify(row) });
@@ -171,7 +171,7 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
       const named = { id: (row.id as string) ?? crypto.randomUUID(), ...row };
       if (!unnamed) {
         try {
-          const out = await call('/rest/v1/phone_commands?on_conflict=id', { method: 'POST', headers: { prefer: 'return=representation,resolution=ignore-duplicates' }, body: JSON.stringify(named) });
+          const out = await call('/rest/v1/phone_commands?on_conflict=id', { method: 'POST', keepalive: true, headers: { prefer: 'return=representation,resolution=ignore-duplicates' }, body: JSON.stringify(named) });
           return (Array.isArray(out) ? out[0] : out) ?? named;
         } catch (err) {
           if (!/permission denied|42501|column "id"/i.test(String((err as Error).message))) throw kindNotTaken(err);
@@ -180,7 +180,7 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
       }
       const { id: _id, ...plain } = named;
       try {
-        const out = await call('/rest/v1/phone_commands', { method: 'POST', headers: { prefer: 'return=representation' }, body: JSON.stringify(plain) });
+        const out = await call('/rest/v1/phone_commands', { method: 'POST', keepalive: true, headers: { prefer: 'return=representation' }, body: JSON.stringify(plain) });
         return Array.isArray(out) ? out[0] : out;
       } catch (err) { throw kindNotTaken(err); }
     },

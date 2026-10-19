@@ -11,7 +11,7 @@
 // How much of one thread goes up. The latest of a thread is what she reads on
 // a phone; the whole of it stays on the Mac. `bytes` is measured in UTF-8, as
 // the database measures it (Codex's review of step 1, finding 9).
-export const SNAPSHOT_LIMITS = { lines: 120, textChars: 12_000, items: 300, bytes: 900_000 };
+export const SNAPSHOT_LIMITS = { lines: 400, textChars: 12_000, items: 300, bytes: 900_000 };
 
 // WHAT A COPY MAY CARRY, BY NAME (Codex's review of step 1, finding 2). A copy
 // is built out of these and nothing else, never by copying a row and deleting
