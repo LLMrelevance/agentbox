@@ -125,6 +125,59 @@ describe('a cloud run while this Mac sleeps', () => {
     expect(err).toMatch(/1 thing the run wrote while this Mac was asleep was made now/);
   }, 60_000);
 
+  it('says so when a kept write is turned down on waking', async () => {
+    // The Mac: awake until the run has started, then asleep until told.
+    let asleep = false; let wake; const woken = new Promise((r) => { wake = r; });
+    const transport = {
+      async invoke(_s, payload) {
+        if (asleep && payload.action !== 'start') await woken;
+        const res = await fetch(`${sandboxUrl}/invocations`, { method: 'POST', body: JSON.stringify(payload), headers: { 'content-type': 'application/json' } });
+        return res.json();
+      },
+      async stop() {},
+    };
+    const storage = {
+      async put(k, body) { objects.set(k, Buffer.from(body)); },
+      async get(k) { return objects.get(k) ?? null; },
+      async getUrl(k) { return `${s3Url}/${encodeURIComponent(k)}`; },
+      async putUrl(k) { return `${s3Url}/${encodeURIComponent(k)}`; },
+    };
+    const configDir = path.join(tmp, 'mac', 'claude-home');
+    fs.mkdirSync(configDir, { recursive: true });
+    const storeLog = path.join(tmp, 'store.log');
+    const mcpFile = path.join(tmp, 'mac', 'mcp.json');
+    fs.writeFileSync(mcpFile, JSON.stringify({ mcpServers: { agentbox: { command: process.execPath, args: [FAKE_STORE], env: { FAKE_STORE_LOG: storeLog } } } }));
+
+    // The relay's ends, as the supervisor holds them, with its input reader on them.
+    const child = new EventEmitter();
+    child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    attachClaudeInput(child);
+    let out = ''; let err = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { err += d; });
+    const done = cloudRun({
+      argv: [FAKE_CLAUDE, '-p', '--output-format', 'stream-json', '--mcp-config', mcpFile],
+      env: { ...process.env, ZERO_ITEM: 'w-1', ZERO_PRODUCT: 'p', CLAUDE_CONFIG_DIR: configDir, AGENTBOX_HOME: path.join(tmp, 'mac', 'store') },
+      cwd: mac, transport, storage, login: LOGIN,
+      stdin: child.stdin, stdout: child.stdout, stderr: child.stderr, remoteCommand: process.execPath, stubPath: STUB,
+      pollWaitMs: 100, resultsWaitMs: 8000, watchParent: false, signals: new EventEmitter(),
+      homeDir: path.join(tmp, 'home'), offlineAfterMs: 500, keptWhileAway: { agentbox: ['note'] },
+    }).then((code) => { child.emit('exit', code); return code; });
+    // The brief, then the lid closes, before the agent has made its first call ("LATE").
+    child.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: 'LATE REFUSE please note this' } }) + '\n');
+    for (let i = 0; i < 200 && readMarker(mac)?.state !== 'running'; i += 1) await new Promise((r) => setTimeout(r, 25));
+    asleep = true;
+
+    for (let i = 0; i < 400 && !objects.has([...objects.keys()].find((k) => k.endsWith('/done.json'))); i += 1) await new Promise((r) => setTimeout(r, 50));
+    expect([...objects.keys()].some((k) => k.endsWith('/done.json'))).toBe(true);
+    // Kept in the cloud, not made: nothing has reached the store yet.
+    expect(fs.existsSync(storeLog) ? fs.readFileSync(storeLog, 'utf8') : '').not.toMatch(/"note"/);
+
+    asleep = false; wake();
+    expect(await done, err).toBe(0);
+    expect(err).toMatch(/a write the run made while this Mac was asleep was turned down: another session holds this row/);
+  }, 60_000);
+
   it('still answers "not made" for a call the Mac did not name', async () => {
     const src = fs.readFileSync(new URL('../cloud/sandbox/server.mjs', import.meta.url), 'utf8');
     expect(src).toMatch(/kept\?\.\[server\]\?\.includes\(tool\)/);

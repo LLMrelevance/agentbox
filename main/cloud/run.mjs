@@ -713,7 +713,11 @@ export async function cloudRun({
         // before then answers it rather than forgetting it.
         let onAck;
         if (reply && reply.id !== undefined && !reply.method) {
-          if (s.swallow.delete(reply.id)) { keptOut.get(`${conn}\0${reply.id}`)?.(); continue; }
+          if (s.swallow.delete(reply.id)) {
+            const kept = keptOut.get(`${conn}\0${reply.id}`);
+            if (kept) { kept(); if (reply.error || reply.result?.isError) say(`a write the run made while this Mac was asleep was turned down: ${reply.error?.message ?? reply.result?.content?.map((c) => c.text).join(' ') ?? 'no reason given'}`); }
+            continue;
+          }
           onAck = () => s.pending.delete(reply.id);
         }
         enqueue({ action: 'mcp', conn, line, onAck });

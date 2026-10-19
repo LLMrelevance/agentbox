@@ -1,6 +1,18 @@
 # The phone with the Mac closed: the plan
 
 Status: step 1 built 2026-10-14 (commits on w-1dc7ee2408), reviewed by Codex twice. Steps 2 and 3 not built.
+
+2026-10-19, step 1 filled out (an audit of the phone against the desktop): every
+file a thread names opens on the phone and any file goes from it; what she
+picks with a reply or a new thread (start later, a time, engine, model, effort,
+priority, mode) reaches the Mac; Undo takes back what the Mac has not claimed;
+Stop, Run now, Send now, Reopen, a schedule and permission cards go to the Mac
+as commands (migration 20261019000000, which also lets the phone name a command
+so a resend is one); the phone says when it cannot reach the cloud and when the
+Mac was last online; it fetches only the threads that changed, 400 lines deep.
+Still not on the phone: repeating tasks, pins and dragging a row to a place,
+team pages and teammates' names on their lines, and anything with the Mac shut
+beyond queueing (step 2, the scheduler in docs/cloud/PLAN.md "Next" step 4).
 2026-10-17: a thread's copy also carries whether an agent is running on it (`live`)
 and the files it names, uploaded to a private bucket (main/phone-uploads.mjs,
 renderer/src/cloud-files.ts, migration 20261017000000_phone_files.sql).
