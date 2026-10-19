@@ -221,6 +221,10 @@ const MAX_DELIVERY_ATTEMPTS = 3;
 const CLOUD_STARTING_AT_ONCE = 2;
 // How long a cloud run may take to start before it stops holding others back.
 const CLOUD_START_PATIENCE_MS = 10 * 60_000;
+// Cloud runs failing in a row before the cloud rests, and for how long
+// (`_noteCloudOutcome`).
+const CLOUD_FAULTS_TO_REST = 3;
+const CLOUD_REST_MS = 10 * 60_000;
 
 // How long a row we interrupted for an Urgent one is held out of the queue
 // before we give up waiting for that Urgent row to start. A BACKSTOP, not the
@@ -4168,6 +4172,7 @@ export class Supervisor {
     }
     return {
       setUp, mode, running: this._cloudLoad(), month: this._cloudMonth.month,
+      ...this._cloudHealthNow(now),
       // What C turns the cloud back on to (main/settings.mjs cloudWhenOn).
       whenOn: this.config.cloudWhenOn === 'all' ? 'all' : 'full',
       accounts: setUp ? this._cloudAccounts() : [],
@@ -4420,7 +4425,7 @@ export class Supervisor {
   // neither the tick nor the sweep that resumes interrupted rows starts it, or
   // takes a slot from another row for it) and by `_whereToRun`.
   _waitsForCloud(item, engine) {
-    return this._cloudFirst() && !!item?.id && this._cloudSignedInAtAll(engine)
+    return this._cloudFirst() && !!item?.id && this._cloudUsable(engine) && this._cloudSignedInAtAll(engine)
       && this._cloudEligible(item) && !this._mustRunHere(item, engine) && !this._cloudSlotFor(engine);
   }
 
@@ -4470,7 +4475,50 @@ export class Supervisor {
   // the proxy's command; Codex as its own app-server in the sandbox
   // (main/cloud/codex-cloud.mjs).
   _cloudSlotFor(engine) {
-    return this._cloudRoom(engine) && this._cloudStarting() < CLOUD_STARTING_AT_ONCE;
+    return this._cloudUsable(engine) && this._cloudRoom(engine) && this._cloudStarting() < CLOUD_STARTING_AT_ONCE;
+  }
+
+  // Not resting after failures of its own (`_noteCloudOutcome`).
+  _cloudUsable(_engine) {
+    return !this._cloudResting();
+  }
+
+  _cloudResting(now = Date.now()) {
+    return (this._cloudHealth?.restUntil ?? 0) > now;
+  }
+
+  // A BROKEN CLOUD IS NOTICED. A cloud run that ends before its agent starts
+  // (the start refused, exit 75 with nothing run) is the cloud's fault, and
+  // CLOUD_FAULTS_TO_REST of them in a row rest it for CLOUD_REST_MS: no new row
+  // goes there, so a cloud that cannot run anything stops taking rows and
+  // handing them back. A run whose agent started ends the streak; a Stop, a
+  // sign-in that failed, or a folder still bringing an earlier run home says
+  // nothing about the cloud.
+  _noteCloudOutcome(session, code, signal = null) {
+    if (!session?.cloud || session.stoppedByUs || session.cloudLoginTrouble) return;
+    const h = (this._cloudHealth ??= { faults: 0, lastError: null, restUntil: 0 });
+    if (session.sessionId != null || session.result != null) {
+      Object.assign(h, { faults: 0, lastError: null, restUntil: 0 });
+      return;
+    }
+    if (!signal && code === 0) return;
+    const said = (session.tail ?? [])
+      .filter((l) => typeof l === 'string' && l.startsWith('stderr:'))
+      .flatMap((l) => l.slice('stderr:'.length).split('\n'))
+      .map((l) => l.trim()).filter((l) => l.startsWith('agentbox cloud:'))
+      .map((l) => l.slice('agentbox cloud:'.length).trim()).at(-1) ?? null;
+    if (said && /earlier cloud run in this folder/.test(said)) return;
+    h.faults += 1;
+    h.lastError = said || `a cloud run ended (${signal || code}) before its agent started`;
+    if (h.faults >= CLOUD_FAULTS_TO_REST) h.restUntil = Date.now() + CLOUD_REST_MS;
+    this.onChange?.();
+  }
+
+  _cloudHealthNow(now = Date.now()) {
+    const h = this._cloudHealth;
+    if (!h?.faults) return { health: 'ok', lastError: null, restingUntil: null };
+    const resting = h.restUntil > now;
+    return { health: resting ? 'resting' : 'failing', lastError: h.lastError, restingUntil: resting ? h.restUntil : null };
   }
 
   // Which rows may go to the cloud at all. A row needs its own task folder
@@ -8445,6 +8493,7 @@ export class Supervisor {
       this.memoryGateTurnEnded(session);
       session.exitFailed = !!(signal || code !== 0 || session.transportFault || session.resultIsError || session.result == null);
       this.count?.('run_finished', runEndedProps(session, Date.now()));
+      this._noteCloudOutcome(session, code, signal);
       onLine(`session exited (${code})`);
       if (this._noteCloudHandBack(item, session)) onLine('the cloud handed this thread back to this computer');
       // WHAT THE RUN CHANGED, SAVED WHERE SHE CAN OPEN IT.

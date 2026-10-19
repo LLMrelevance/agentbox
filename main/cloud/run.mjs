@@ -131,6 +131,11 @@ const MAC_GONE = 'The app on the Mac restarted during this call, so its answer w
 // How long a run that is being left to carry on waits for its last inputs to
 // reach the sandbox.
 const LEAVE_FLUSH_MS = 10_000;
+// The project's setup in the sandbox (cloud/sandbox/server.mjs), and how long
+// it may take before it is worth saying.
+const SETUP_FILE = '.agentbox/cloud-setup.sh';
+const SETUP_LOG = '/tmp/agentbox-cloud-setup.log';
+const SLOW_SETUP_MS = 3 * 60_000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -766,8 +771,24 @@ export async function cloudRun({
     else if (e.kind === 'input-closed') { if (!joining) await write(stdout, Buffer.from(`${JSON.stringify({ type: 'system', subtype: INPUT_CLOSED_IN_CLOUD })}\n`)); }
     else if (e.kind === 'mcp-close') { const s = servers.get(e.conn); servers.delete(e.conn); if (s) { s.closed = true; s.proc.stdin.end(); setTimeout(() => s.proc.kill(), 2000); } }
     else if (e.kind === 'error') say(e.message);
+    else if (e.kind === 'setup') noteSetup(e);
     else if (e.kind === 'login') loginTrouble = { state: e.state, id: e.id ?? login?.id ?? null };
     else if (e.kind === 'state' && ['collected', 'collect-failed', 'failed'].includes(e.state)) finished = e.state;
+  }
+
+  // THE PROJECT'S OWN SETUP (.agentbox/cloud-setup.sh), which the sandbox
+  // runs before the agent and goes on past when it fails or overruns. Said
+  // here, or a broken or slow setup is invisible from the thread.
+  let setupAt = null;
+  function noteSetup(e) {
+    if (e.state === 'running') { setupAt = e.at ?? Date.now(); return; }
+    const where = `its output is in ${SETUP_LOG} on the cloud machine`;
+    if (e.state === 'failed') {
+      const how = e.message || (e.signal === 'SIGKILL' ? `${SETUP_FILE} ran past its time limit and was stopped` : e.signal ? `${SETUP_FILE} was stopped by ${e.signal}` : `${SETUP_FILE} exited with ${e.code}`);
+      say(`the project's cloud setup failed: ${how}; the agent went on without it, and ${where}`);
+    } else if (setupAt && (e.at ?? Date.now()) - setupAt > SLOW_SETUP_MS) {
+      say(`the project's cloud setup took ${Math.round(((e.at ?? Date.now()) - setupAt) / 60_000)} minutes before the agent could start; ${where}`);
+    }
   }
 
   function cancel(why) {

@@ -56,6 +56,10 @@ export interface CloudStatus {
   month: CloudMonth;
   accounts?: CloudAccount[];
   signIns?: CloudSignIn[];
+  /** 'resting' after runs failed in a row before their agent started, until `restingUntil`. */
+  health?: 'ok' | 'failing' | 'resting';
+  lastError?: string | null;
+  restingUntil?: number | null;
 }
 
 export const engineWord = (a: { engine: 'claude' | 'codex' }) => (a.engine === 'codex' ? 'Codex' : 'Claude');
@@ -119,11 +123,17 @@ export const countedAccounts = (accounts: CloudAccount[]) => accounts.filter((a)
  * every Claude account there is at its usage limit, that and when the first
  * comes back (2026-10-16: "our cloud must be broken", when it was out of usage).
  */
+const clock = (t: number) => new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(' ', '').toLowerCase();
+
 export function cloudFootLine(cloud: CloudStatus, now = Date.now()): string {
+  if (cloud.health === 'resting' && cloud.restingUntil && cloud.restingUntil > now) {
+    const why = String(cloud.lastError || 'its runs failed before they started').slice(0, 120);
+    return `The cloud is failing (${why}). Threads run on this Mac until ${clock(cloud.restingUntil)}.`;
+  }
   const claude = countedAccounts(cloud.accounts || []).filter((a) => a.engine === 'claude');
   const back = claude.map((a) => (a.limitedUntil && a.limitedUntil > now ? a.limitedUntil : null));
   if (cloudIsOn(cloud) && claude.length && back.every(Boolean)) {
-    const at = new Date(Math.min(...(back as number[]))).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(' ', '').toLowerCase();
+    const at = clock(Math.min(...(back as number[])));
     return `Your cloud accounts are at their usage limit until ${at}. ${cloud.mode === 'all' ? 'Threads wait for the cloud' : 'Threads run on this Mac'} until then.`;
   }
   return cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now';
