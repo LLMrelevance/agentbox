@@ -32,6 +32,7 @@ import { onPhone } from '../phone-screen';
 import { api, RESTART_NOTE } from '../api';
 import { updateLook } from '../update-row';
 import { InstructionSettings, sizeLabel } from './InstructionSettings';
+import { NeoSettings } from '../neo/NeoSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
 import { accountLabel, type CloudStatus } from '../cloud-menu';
@@ -1360,6 +1361,8 @@ function NavIcon({ id }: { id: SettingsPageId }) {
     instructions: <path d="M6.5 3.5h7.5l4 4V20.5h-11.5zM14 3.5V8h4M9.5 12h5M9.5 16h5" />,
     projects: <path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />,
     team: <><circle cx="9" cy="9" r="3" /><path d="M3.5 19c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5" /><circle cx="16.5" cy="9.5" r="2.5" /><path d="M16 14.6c2.3-.2 4 1.2 4.5 4" /></>,
+    // The orb, the one thing of Neo's that is already on screen.
+    neo: <><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="8.5" opacity="0.45" /></>,
   };
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1370,7 +1373,7 @@ function NavIcon({ id }: { id: SettingsPageId }) {
 
 /** The page an old link or a ⌘K row names, read the way it always was: every
  *  name the screen has ever used still opens the page its content went to. */
-function paneFrom(want: string, has: { team: boolean }): Pane {
+function paneFrom(want: string, has: { team: boolean; neo?: boolean }): Pane {
   if (want.startsWith('project:')) return { project: want.slice('project:'.length) };
   if (want === 'themes') return 'appearance';
   if (want === 'priority') return 'projects';
@@ -1379,13 +1382,14 @@ function paneFrom(want: string, has: { team: boolean }): Pane {
   if (want === 'accounts') return 'claude';
   if (want === 'agents') return 'running';
   if (want === 'team') return has.team ? 'team' : 'general';
+  if (want === 'neo') return has.neo ? 'neo' : 'general';
   if (SETTINGS_PAGES.some((p) => p.id === want)) return want as SettingsPageId;
   return 'general';
 }
 
 /* --------------------------------- screen --------------------------------- */
 
-export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null }: {
+export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, neoOn = false, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null }: {
   /** Opens the feedback card. A phone has no Feedback button in its corner,
    *  so its own Settings page offers it (2026-10-12). */
   onFeedback?: () => void;
@@ -1422,6 +1426,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   /** Team management, handed in by whoever has the team's state. Absent on a
    *  build with no team cloud, and then there is no Team row either. */
   teamPane?: ReactNode;
+  /** Whether this Mac has Neo, the voice alpha (main/neo/gate.mjs). No Neo,
+   *  no Neo page and nothing in the search that points at one. */
+  neoOn?: boolean;
   /** WHO SEES A PROJECT'S THREADS (w-b989839656), handed in the same way:
    *  the button beside a project's name, and the Projects list's column.
    *  Absent with nobody signed in, and then neither is drawn. */
@@ -1449,10 +1456,12 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   // ON A PHONE IT OPENS ON THE PHONE'S OWN PAGE, its alerts: "we probably need
   // a way in Settings for me to configure [notifications]" (2026-10-12). The
   // page was there, a tab along a strip that opened on General.
-  const [pane, setPane] = useState<Pane>(() => paneFrom(
-    startPane || new URLSearchParams(location.search).get('settings') || (onPhone() ? 'phone' : ''),
-    { team: !!teamPane },
-  ));
+  const asked = startPane || new URLSearchParams(location.search).get('settings') || (onPhone() ? 'phone' : '');
+  const [pane, setPane] = useState<Pane>(() => paneFrom(asked, { team: !!teamPane, neo: neoOn }));
+  // The Neo gate is a question for the main process, so it answers after this
+  // screen is already up and ?settings=neo would land on General and stay
+  // there. Asked for and now available means go.
+  useEffect(() => { if (neoOn && asked === 'neo' && pane === 'general') setPane('neo'); }, [neoOn]);
   // WHICH PAGE IS UP, for the window around this screen.
   useEffect(() => {
     onSectionChange?.(typeof pane === 'object' ? 'projects' : pane === 'general' ? null : pane);
@@ -1558,8 +1567,8 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   const twoEngines = engineRows.length > 1;
 
   /** The pages this Mac has. Codex on every Mac (w-d5d632e503); Team only on
-   *  a build with a team cloud. */
-  const pages = SETTINGS_PAGES.filter((p) => p.id !== 'team' || !!teamPane);
+   *  a build with a team cloud; Neo only where the voice alpha is on. */
+  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'neo' || neoOn));
   const hits = useMemo(
     () => searchSettings(query, { pages: pages.map((p) => p.id), projects }),
     [query, pages.length, projects],
@@ -1843,6 +1852,11 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
 
         {/* TEAM MANAGEMENT (w-8415594d19). It does not wait on `model`, because
             nothing on it comes from the settings file. */}
+        {/* NEO (w-6a1c405642). Its own file under renderer/src/neo, and it
+            asks main for everything on it, so nothing here comes from the
+            settings file either. */}
+        {pane === 'neo' && neoOn && <NeoSettings />}
+
         {pane === 'team' && teamPane && (
           <Page title="Team" lede="Who is on your team, who has been invited, and the team's name. Everyone sees a short summary of your threads unless you mark one private.">
             {teamPane}

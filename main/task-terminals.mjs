@@ -87,6 +87,15 @@ export function disposeTerminalProcess(pty){
  * that fails leaves an idle shell with the error on it, and ten minutes away
  * from the task took the error with the shell. So the wait is an hour, and when
  * a shell does go, the end of what it showed comes back with the next one.
+ *
+ * AND A SHELL THAT PRINTED SOMETHING SHE HAS NOT SEEN IS NOT WORTH NOTHING
+ * (w-f147e487a1). She started the AWS tools install, left the thread while it
+ * ran, and came back to a new shell: the install finished while she was away,
+ * and since the idle clock ran from her last look, the shell went on the next
+ * sweep with its output unread. "I was running it." So the hour starts only
+ * once she has read everything it printed, and at the cap a shell she has read
+ * goes before one she has not; when all twenty hold unread output, the least
+ * recently watched still makes room.
  */
 const IDLE_MS=3600000;
 // How much of a closed shell's screen comes back. The end is where the error
@@ -136,16 +145,19 @@ export class TaskTerminals {
     if(session.exited)return false;
     try{return commandRunning(session.pty.process||'Shell',false);}catch{return false;}
   }
+  // Output past the last byte a read handed to the panel.
+  unread(session){return session.offset+session.buffer.length>(session.seenTo??0);}
   /*
-   * THE ONE THE CAP TAKES: least recently watched first, and never a busy one.
-     Null means every slot is genuinely working, which is the only case left
-     where she is told no. */
+   * THE ONE THE CAP TAKES: one she has read everything in before one she has
+     not, then least recently watched, and never a busy one. Null means every
+     slot is genuinely working, which is the only case left where she is told
+     no. */
   oldestIdle(){
-    let pick=null,at=Infinity;
+    let pick=null,pickUnread=true,at=Infinity;
     for(const [key,s] of this.sessions){
       if(this.busy(s))continue;
-      const seen=s.lastReadAt??0;
-      if(seen<at){at=seen;pick=key;}
+      const unread=this.unread(s),seen=s.lastReadAt??0;
+      if(pick===null||(pickUnread&&!unread)||(unread===pickUnread&&seen<at)){pick=key;pickUnread=unread;at=seen;}
     }
     return pick;
   }
@@ -164,7 +176,7 @@ export class TaskTerminals {
   sweepIdle(){
     const cutoff=this.now()-this.idleMs;
     for(const [key,s] of [...this.sessions]){
-      if(this.busy(s))continue;
+      if(this.busy(s)||this.unread(s))continue;
       if((s.lastReadAt??0)>cutoff)continue;
       this.retire(key,'The previous shell here was closed after an hour idle.');
     }
@@ -223,6 +235,7 @@ export class TaskTerminals {
       const timer=setTimeout(done,Math.min(wait,READ_WAIT_MS));
       s.waiters.add(done);
     });
+    s.seenTo=end;
     const state={token:s.token,cwd:s.cwd,data:s.buffer.slice(Math.max(0,offset-s.offset)),offset:end,truncated:offset<s.offset,exited:s.exited,exitCode:s.exitCode,process:s.exited?'Exited':s.pty.process||'Shell'};
     return wait>0?{...state,live:true}:state;
   }

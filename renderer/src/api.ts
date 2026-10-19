@@ -396,6 +396,16 @@ export const api = {
         } as typeof base.cloud;
         // And the first running thread is one of the three in the cloud.
         if (base.supervisor.running[0]) (base.supervisor.running[0] as { where?: string }).where = 'cloud';
+        // &cloudlimit draws both cloud accounts at their usage limit for two hours.
+        if (params.has('cloudlimit') && base.cloud) {
+          base.cloud.running = 0;
+          base.cloud.accounts = (base.cloud.accounts ?? []).map((a) => ({ ...a, ready: false, state: 'limited' as const, limitedUntil: Date.now() + 2 * 3600_000 }));
+        }
+        // &dup draws the second cloud account as the same account as the first.
+        const accounts = base.cloud?.accounts;
+        if (params.has('dup') && accounts?.[1]) {
+          accounts[1] = { ...accounts[1], ready: false, state: 'duplicate' as const, duplicateOf: accounts[0].key };
+        }
         // &kept draws that thread kept on this Mac instead.
         const first = base.supervisor.running[0];
         if (params.has('kept') && first) {

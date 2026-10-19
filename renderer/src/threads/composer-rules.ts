@@ -354,3 +354,74 @@ export function readVisibility(store?: KeyStore, project?: string | null): Visib
 export function writeVisibility(v: Visibility, store?: KeyStore, project?: string | null): void {
   try { storeOf(store)?.setItem?.(visibilityKey(project), v); } catch { /* the card still sends */ }
 }
+
+/* ---------------------- send as a task, or as a message ------------------- */
+// A TO-DO IS A TASK YOU GIVE YOURSELF (w-c34591721f, approved 2026-10-17), and
+// the same gesture gives one to a teammate. The store already knew how to hold
+// that — `assignee` means the person who has to act next, a row held by a
+// person never starts an agent, and it sits in that one person's inbox until
+// it is done (shared/team-rules.mjs). The card simply had no way to say it.
+//
+// So a card addressed to a person asks one more question, SEND AS, and a task
+// gets one more row, DUE ON. Everything general stays on the bar: the project,
+// the urgency and who can see it are the same whatever this is.
+
+export type SendAs = 'message' | 'task';
+
+/** What DUE ON reads when nobody has set a day. Her words, her capitals. */
+export const NO_DEADLINE = 'No Deadline';
+
+const dayKey = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/**
+ * The days the picker offers: today, tomorrow, and the rest of the week by
+ * name. A calendar day, never a time — a task is due ON a day, and an hour is
+ * a promise neither Mac can keep across two time zones.
+ */
+export function dueChoices(now = new Date()): { key: string | null; label: string }[] {
+  const out: { key: string | null; label: string }[] = [{ key: null, label: NO_DEADLINE }];
+  for (let i = 0; i < 7; i += 1) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+    out.push({
+      key: dayKey(d),
+      label: i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString(undefined, { weekday: 'long' }),
+    });
+  }
+  return out;
+}
+
+/**
+ * THE RESTING WORD IS AN ANSWER, NOT A BLANK. Most tasks will never carry a
+ * day, so "No Deadline" is what the row says at rest: it completes the card
+ * instead of asking for something. "Not set" and "None" were drawn too and
+ * both read as a field somebody failed to fill in.
+ *
+ * A day the picker never offered still reads as a day rather than as nothing,
+ * because the card can be reopened on a thread dated from somewhere else.
+ */
+export function dueWords(due: string | null, now = new Date()): string {
+  if (!due) return NO_DEADLINE;
+  return dueChoices(now).find((c) => c.key === due)?.label ?? due;
+}
+
+/**
+ * What a task given to a person is composed with. A day nobody set is not sent
+ * at all: a field set to nothing and a field nobody touched are different
+ * things on disk, and the store keeps what it is given.
+ */
+export function taskFields({ personId, due }: { personId: string; due: string | null }):
+  { assignee: string; due?: string } {
+  return { assignee: personId, ...(due ? { due } : {}) };
+}
+
+/**
+ * Which rows the head draws. To an agent it is still To and Model, untouched.
+ * To a person it is To and Send As, and the day appears only once it is a
+ * task, because a message has nothing to be due.
+ */
+export function headRows({ person, kind }: { person: boolean; kind: SendAs }):
+  ('to' | 'model' | 'sendAs' | 'dueOn')[] {
+  if (!person) return ['to', 'model'];
+  return kind === 'task' ? ['to', 'sendAs', 'dueOn'] : ['to', 'sendAs'];
+}

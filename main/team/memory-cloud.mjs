@@ -292,6 +292,24 @@ export function memoryBackend(cloud, personId) {
       }
       cloud.events.emit('phone', 1);
     },
+    // Her files for the phone (20261017000000_phone_files.sql): kept under her
+    // own id, never replaced, at most the bucket's size.
+    async putPhoneFile({ owner, device, name, data, type }) {
+      if (owner && owner !== personId) refuse('write to somebody else\'s phone');
+      if (!/^[0-9a-f]{64}\.[a-z0-9]{1,8}$/.test(name)) refuse('a file named that');
+      if (data.length > 26_214_400) refuse('a file that big');
+      const key = `${personId}/${device}/${name}`;
+      if (!(cloud.phoneFiles ??= new Map()).has(key)) cloud.phoneFiles.set(key, { data: Buffer.from(data), type });
+    },
+    async getPhoneFile({ owner, device, name }) {
+      if (owner && owner !== personId) refuse('read somebody else\'s phone');
+      const f = cloud.phoneFiles?.get(`${personId}/${device}/${name}`);
+      return f ? Buffer.from(f.data) : null;
+    },
+    async dropPhoneFiles({ owner, device, names }) {
+      if (owner && owner !== personId) return;
+      for (const n of names) cloud.phoneFiles?.delete(`${personId}/${device}/${n}`);
+    },
     async dropPhoneThreads(device, project, items, owner) {
       if (owner && owner !== personId) return;
       for (const item of items) cloud.phoneThreads?.delete(`${personId}:${device}:${project}:${item}`);

@@ -2440,8 +2440,9 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
      runs, so reading `text` there would send the box as it stood BEFORE the
      pick. Every other caller passes nothing and sends the box, exactly as it
      always did. (w-5d1ad29efa, 2026-08-29.) */
+  const [saving, setSaving] = useState(false);
   const send = async (spoken?: string) => {
-    if (!(spoken ?? text).trim() && !attachments.length) return;
+    if (saving || (!(spoken ?? text).trim() && !attachments.length)) return;
     // AN AGENT WITH NO PROJECT DOES NOT GO OUT. The footer already says why;
     // ⌘↵ says it again rather than doing nothing.
     if (chat.block) { onNotice(chat.block); return; }
@@ -2475,7 +2476,17 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     // typed into it. drafts.ts holds the why.
     const words = (spoken ?? text).trim();
     const sent: SentDraft = { words, attachments };
-    const attachedMd = await persistAttachments(item.product, attachments);
+    // On the phone each file goes up first, which takes a moment on a mobile network.
+    let attachedMd: string;
+    setSaving(attachments.length > 0);
+    try {
+      attachedMd = await persistAttachments(item.product, attachments);
+    } catch (err) {
+      onNotice(`Not sent: ${String((err as Error)?.message ?? err)} Your draft has been kept.`);
+      return;
+    } finally {
+      setSaving(false);
+    }
     clearDraft(item);
     // AND WHAT THIS ONE MESSAGE MAY DO, if she changed it. `null` is not the
     // same as leaving it out: it CLEARS a mode set on an earlier reply and puts
@@ -3052,9 +3063,9 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
         <button
           className="dock-send"
           onClick={() => send()}
-          disabled={!hasDraft || !!chat.block}
+          disabled={!hasDraft || !!chat.block || saving}
           title={chat.block ?? 'Send · ⌘↵'}
-        >Send <kbd>⌘↵</kbd></button>
+        >{saving ? 'Sending…' : <>Send <kbd>⌘↵</kbd></>}</button>
         )}
       </div>
     </>

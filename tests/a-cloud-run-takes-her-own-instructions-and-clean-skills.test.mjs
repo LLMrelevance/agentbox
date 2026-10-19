@@ -117,7 +117,12 @@ describe('her own instructions to Claude', () => {
 });
 
 describe('an archive made on a Mac', () => {
-  const list = (tgz) => execFileSync('tar', ['-tzf', '-'], { input: tgz, encoding: 'utf8' }).split('\n').filter(Boolean);
+  // From a file: tar may stop reading a pipe at the archive's end, which fails with EPIPE on a busy machine.
+  const list = (tgz) => {
+    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tgz-')), 'a.tgz');
+    fs.writeFileSync(f, tgz);
+    return execFileSync('tar', ['-tzf', f], { encoding: 'utf8' }).split('\n').filter(Boolean);
+  };
   const tagged = () => {
     const dir = path.join(tmp, 'skills');
     fs.mkdirSync(path.join(dir, 'sketch'), { recursive: true });

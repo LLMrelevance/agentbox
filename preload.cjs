@@ -296,6 +296,10 @@ contextBridge.exposeInMainWorld('zero', {
   // when on, Neo's tool calls arrive here and the app carries them out with
   // its own functions (renderer/src/neo/bridge.ts).
   neoEnabled: () => ipcRenderer.invoke('neo:enabled').catch(() => false),
+  // What Neo remembers, for its page in Settings. Answers null where Neo is
+  // off, so the page can say so rather than throw.
+  neoMemory: (change) => ipcRenderer.invoke('neo:memory', change).catch(() => null),
+  neoVoice: (voice) => ipcRenderer.invoke('neo:voice', voice).catch(() => null),
   onNeoAct: (fn) => {
     const handler = (_e, payload) => fn(payload);
     ipcRenderer.on('neo:act', handler);

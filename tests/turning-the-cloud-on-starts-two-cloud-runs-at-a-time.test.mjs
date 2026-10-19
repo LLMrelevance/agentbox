@@ -28,6 +28,8 @@ const make = () => {
     root,
   );
   sup._cloudReady = () => true;
+  // Signed in in the cloud for every engine this Mac offers.
+  sup._cloudSignedInAtAll = (engine = 'claude') => sup.engineChoices().some((e) => e.id === engine);
   return sup;
 };
 const add = (sup, id, extra) => sup.sessions.set(id, { itemId: id, engine: 'claude', cloud: true, child: { kill() {} }, tail: [], ...extra });

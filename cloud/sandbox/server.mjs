@@ -45,6 +45,31 @@ const CHUNK = 48 * 1024;
 const PAGE_BYTES = 8 * 1024 * 1024;
 // A single MCP line from the harness larger than this is refused.
 const MAX_MCP_LINE = 32 * 1024 * 1024;
+// What this server can do beyond the first version, said in a start's answer,
+// so a Mac knows rather than guesses whether its asks are honoured.
+const CAPS = ['offline', 'setup'];
+// A PROJECT'S OWN SETUP: `.agentbox/cloud-setup.sh` in its task folder, run as
+// the agent before the agent, on every cloud run, so a project needing a
+// program the image lacks says so in its own repository rather than in a new
+// image. Its output is kept where the agent can read it.
+export const SETUP_LOG = '/tmp/agentbox-cloud-setup.log';
+const SETUP_FILE = '.agentbox/cloud-setup.sh';
+const SETUP_TIMEOUT_MS = 15 * 60 * 1000;
+// The command and its setup start with as many open files as the machine
+// allows: test runners watch thousands, and the default is 1024.
+const RAISE_OPEN_FILES = 'ulimit -n 65536 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null; exec "$0" "$@"';
+// As root the ceiling itself can be raised, and only then is the command
+// handed to the agent's user (measured 2026-10-17: the agent alone stayed at
+// 1024, its hard limit).
+const RAISE_THEN_DROP = (uid, gid) => `ulimit -Hn 65536 2>/dev/null; ulimit -n 65536 2>/dev/null || ulimit -n "$(ulimit -Hn)" 2>/dev/null; exec setpriv --reuid=${uid} --regid=${gid} --init-groups -- "$0" "$@"`;
+const SETPRIV = '/usr/bin/setpriv';
+// WHILE THE MAC IS AWAY (a start's `offline`). Never a made-up success: the
+// agent is told the call did not reach the app, and carries on.
+const NOT_MADE = 'The computer this run reports to is asleep, so this call could not reach the app and was not made. Carry on without it, and say in your last message what you could not record.';
+const MAYBE_MADE = 'The computer this run reports to went to sleep during this call, so its answer did not arrive: it may or may not have happened. Carry on without it, and say in your last message what you could not check.';
+// A finished background job wakes the agent within seconds; a turn whose last
+// job ended is left this long for that wake before its input is closed.
+const WAKE_GRACE_MS = 2 * 60 * 1000;
 // How long a cancelled command gets before its group is killed outright.
 const KILL_GRACE_MS = 15_000;
 // AgentCore ends a session at 8 hours; stop the command a quarter hour before.
@@ -113,6 +138,11 @@ export function createSandbox({
   // unprivileged `agent` user, owning only its folder and its account folder.
   // { uid, gid, home, user }, or null to run as whoever the server is.
   runAs = null,
+  // Where a project's setup output is kept (SETUP_LOG); a test points it elsewhere.
+  setupLog = SETUP_LOG,
+  // Where `sudo` (cloud/sandbox/sudo.mjs) hands its commands to this server,
+  // which runs them as itself (root, in the image). Null: no helper.
+  rootSocket = null,
   // Where the usage meter reads the machine (cloud/sandbox/usage.mjs); a
   // test points it at a fake /sys/fs/cgroup and /proc.
   usage = {},
@@ -132,6 +162,7 @@ export function createSandbox({
   const at = (p) => (pathRoot ? path.join(pathRoot, p) : p);
   let run = null;
   let bridge = null;
+  const rootHelper = rootSocket ? openRootHelper(rootSocket) : null;
   let statusChangedAt = Math.floor(Date.now() / 1000);
   let lastPing = null;
 
@@ -208,6 +239,204 @@ export function createSandbox({
     return text;
   };
 
+  /* ------------------------------ SUDO ----------------------------------- */
+  // AgentCore's containers carry no_new_privs, so the real sudo cannot raise
+  // anything; `sudo` in the image hands its command here instead, and this
+  // runs it as itself. The machine is the agent's for one run, and holds
+  // nothing it does not already have. Lines: in `i <b64>` input, `I` end of
+  // input, `k <signal>`; out `o <b64>`, `e <b64>`, then `x <code>`.
+  function openRootHelper(sockPath) {
+    try { fs.unlinkSync(sockPath); } catch { /* not there */ }
+    const server = net.createServer((sock) => {
+      let buf = '';
+      let child = null;
+      sock.setEncoding('utf8');
+      const send = (line) => { try { sock.write(line + '\n'); } catch { /* gone */ } };
+      sock.on('data', (d) => {
+        buf += d;
+        let n;
+        while ((n = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, n);
+          buf = buf.slice(n + 1);
+          if (!child) {
+            let req = null;
+            try { req = JSON.parse(line); } catch { /* not a request */ }
+            if (!Array.isArray(req?.argv) || !req.argv.length || !req.argv.every((a) => typeof a === 'string')) { send('e ' + Buffer.from('sudo: a command is needed\n').toString('base64')); send('x 1'); sock.end(); return; }
+            const asked = req.env && typeof req.env === 'object' ? Object.fromEntries(Object.entries(req.env).filter(([k, v]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k) && typeof v === 'string')) : {};
+            const cwd = typeof req.cwd === 'string' && fs.existsSync(req.cwd) ? req.cwd : '/';
+            try {
+              child = spawn(req.argv[0], req.argv.slice(1), {
+                cwd,
+                env: { PATH: baseEnv.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', HOME: process.env.HOME || '/root', DEBIAN_FRONTEND: 'noninteractive', LANG: 'C.UTF-8', ...asked },
+                stdio: ['pipe', 'pipe', 'pipe'],
+                detached: true,
+              });
+            } catch (err) {
+              send('e ' + Buffer.from(`sudo: ${err.message}\n`).toString('base64'));
+              send('x 1');
+              sock.end();
+              return;
+            }
+            child.stdin.on('error', () => {});
+            child.stdout.on('data', (b) => send('o ' + b.toString('base64')));
+            child.stderr.on('data', (b) => send('e ' + b.toString('base64')));
+            child.on('error', (err) => { send('e ' + Buffer.from(`sudo: ${req.argv[0]}: ${err.code === 'ENOENT' ? 'command not found' : err.message}\n`).toString('base64')); });
+            child.on('close', (code, signal) => { send(`x ${code ?? 128 + 15}`); sock.end(); void signal; });
+            continue;
+          }
+          if (line.startsWith('i ')) child.stdin.write(Buffer.from(line.slice(2), 'base64'));
+          else if (line === 'I') child.stdin.end();
+          else if (line.startsWith('k ')) { try { process.kill(-child.pid, /^SIG[A-Z]+$/.test(line.slice(2)) ? line.slice(2) : 'SIGTERM'); } catch { /* gone */ } }
+        }
+      });
+      sock.on('close', () => { if (child && child.exitCode === null) { try { process.kill(-child.pid, 'SIGTERM'); } catch { /* gone */ } } });
+      sock.on('error', () => {});
+    });
+    server.listen(sockPath, () => { try { fs.chmodSync(sockPath, 0o666); } catch { /* gone */ } });
+    return server;
+  }
+
+  /* --------------------------- WHILE THE MAC IS AWAY ---------------------- */
+  // The Mac reads a run's events every 20 seconds or so; one it has not heard
+  // from for `afterMs` is asleep or gone. Then a tool call is answered here,
+  // with why; a call it was sent and has not taken up is answered "maybe" and
+  // can no longer be taken up (`mcp-claim`); and a finished turn has its input
+  // closed so the run ends and its results go up. While the Mac is there it
+  // does all of this itself.
+  const macAway = (r) => !!r.offline && Date.now() - r.macSeenAt > r.offline.afterMs;
+  const callKey = (conn, id) => `${conn}\u0000${JSON.stringify(id)}`;
+  // The handshake and the tool list are the app's own answers, kept from when
+  // the Mac was there, so a server opened while it is away still opens.
+  const HANDSHAKE = new Set(['initialize', 'tools/list']);
+  function answerHere(sock, msg, text) {
+    const reply = msg.method === 'tools/call'
+      ? { jsonrpc: '2.0', id: msg.id, result: { isError: true, content: [{ type: 'text', text }] } }
+      : { jsonrpc: '2.0', id: msg.id, error: { code: -32001, message: text } };
+    try { sock.write(JSON.stringify(reply) + '\n'); } catch { /* the agent went */ }
+  }
+  // True when the call was answered here and must not go to the Mac.
+  function offlineCall(r, conn, sock, line) {
+    let msg = null;
+    try { msg = JSON.parse(line); } catch { return false; }
+    if (msg?.id === undefined || typeof msg.method !== 'string') return false;
+    const k = callKey(conn, msg.id);
+    if (macAway(r)) {
+      const kept = r.handshakes.get(`${r.connServer.get(conn)}\u0000${msg.method}`);
+      if (HANDSHAKE.has(msg.method) && kept) {
+        // Answered with what the app said before, and still sent on, so the
+        // Mac's own server is opened too; its answer is dropped.
+        try { sock.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: kept }) + '\n'); } catch { /* gone */ }
+        r.calls.set(k, { conn, msg, sock, state: 'answered-here', handshake: true });
+        return false;
+      }
+      answerHere(sock, msg, NOT_MADE);
+      emit({ kind: 'mcp-offline', conn, id: msg.id }, r);
+      return true;
+    }
+    r.calls.set(k, { conn, msg, sock, state: 'sent' });
+    return false;
+  }
+  // The Mac asks before it makes a call: one given up on here is not made.
+  function claimCalls(r, calls) {
+    return (Array.isArray(calls) ? calls : []).map(({ conn, id }) => {
+      const k = callKey(conn, id);
+      const c = r.calls.get(k);
+      if (!c) return { conn, id, go: false };
+      if (c.state === 'abandoned') { r.calls.delete(k); return { conn, id, go: false }; }
+      if (c.state === 'sent') c.state = 'claimed';
+      return { conn, id, go: true };
+    });
+  }
+  // The Mac's answer to a call: true when this side already answered it.
+  function fromMac(r, conn, line) {
+    if (!r.offline) return false;
+    let msg = null;
+    try { msg = JSON.parse(line); } catch { return false; }
+    if (msg?.id === undefined || msg.method !== undefined) return false;
+    const k = callKey(conn, msg.id);
+    const c = r.calls.get(k);
+    r.calls.delete(k);
+    if (!c) return false;
+    if (HANDSHAKE.has(c.msg.method) && msg.result !== undefined) r.handshakes.set(`${r.connServer.get(conn)}\u0000${c.msg.method}`, msg.result);
+    return c.state === 'abandoned' || c.state === 'answered-here';
+  }
+  function forgetConn(r, conn) {
+    for (const [k, c] of r.calls) if (c.conn === conn) r.calls.delete(k);
+    r.connServer.delete(conn);
+  }
+  // The agent's own lines, read for where its turn is (Claude Code's
+  // stream-json). A result ends a turn; the agent speaking, a tool, a new
+  // session or its own stream starts one; control answers and other notes do
+  // neither. A message the Mac wrote that the agent has not said back yet
+  // (it says back each one it takes, --replay-user-messages) is a turn still
+  // to come, unless two turns have ended since without it: then it was
+  // dropped (an interrupted or internal message), and waiting for it would
+  // keep the run open for good.
+  const TURN_GOING = (e) => e?.type === 'assistant' || e?.type === 'stream_event'
+    || (e?.type === 'user') || (e?.type === 'system' && e.subtype === 'init');
+  function readTurn(r, buf) {
+    if (r.offline?.endTurn !== 'claude-stream-json') return;
+    const t = r.turn;
+    t.line += buf.toString('utf8');
+    if (t.line.length > MAX_MCP_LINE) t.line = t.line.slice(-MAX_MCP_LINE);
+    let i;
+    while ((i = t.line.indexOf('\n')) >= 0) {
+      const line = t.line.slice(0, i);
+      t.line = t.line.slice(i + 1);
+      let e = null;
+      try { e = JSON.parse(line); } catch { continue; }
+      if (e?.type === 'result') {
+        t.atResult = true;
+        for (const [id, m] of t.unread) { m.results += 1; if (m.results >= 2) t.unread.delete(id); }
+        continue;
+      }
+      if (e?.type === 'system' && e.subtype === 'background_tasks_changed' && Array.isArray(e.tasks)) {
+        const before = t.waiting;
+        t.waiting = e.tasks.length;
+        if (before && !t.waiting) t.lastJobEndedAt = Date.now();
+        continue;
+      }
+      if (e?.type === 'user' && !e.parent_tool_use_id) {
+        if (typeof e.uuid === 'string' && t.unread.has(e.uuid)) t.unread.delete(e.uuid);
+        else for (const [id, m] of t.unread) if (m.anonymous) { t.unread.delete(id); break; }
+      }
+      if (TURN_GOING(e)) t.atResult = false;
+    }
+  }
+  // Messages the Mac writes to the agent, by their own id where they carry one.
+  function noteInput(r, data) {
+    if (r.offline?.endTurn !== 'claude-stream-json' || !data) return;
+    for (const line of Buffer.from(data, 'base64').toString('utf8').split('\n')) {
+      let m = null;
+      try { m = JSON.parse(line); } catch { continue; }
+      if (m?.type !== 'user') continue;
+      const id = typeof m.uuid === 'string' ? m.uuid : `anon-${r.turn.anonymous += 1}`;
+      r.turn.unread.set(id, { results: 0, anonymous: typeof m.uuid !== 'string' });
+    }
+  }
+  function watchWhileAway(r) {
+    if (r.awayTimer) return;
+    r.awayTimer = setInterval(() => {
+      if (!macAway(r) || DONE_STATES.has(r.state)) return;
+      for (const [k, c] of r.calls) {
+        if (c.state !== 'sent' && c.state !== 'claimed') continue;
+        // Kept until the Mac's late answer arrives (dropped) or the connection
+        // closes: answered once is answered.
+        c.state = c.state === 'claimed' ? 'answered-here' : 'abandoned';
+        answerHere(c.sock, c.msg, MAYBE_MADE);
+        emit({ kind: 'mcp-abandoned', conn: c.conn, id: c.msg.id }, r);
+      }
+      const t = r.turn;
+      const woken = !t.lastJobEndedAt || Date.now() - t.lastJobEndedAt > WAKE_GRACE_MS;
+      if (r.child && !r.inputClosed && t.atResult && !t.waiting && !t.unread.size && woken) {
+        r.inputClosed = 'cloud';
+        try { r.child.stdin.end(); } catch { /* gone */ }
+        emit({ kind: 'input-closed', by: 'cloud' }, r);
+      }
+    }, Math.min(1000, Math.max(50, Math.floor(r.offline.afterMs / 4))));
+    r.awayTimer.unref?.();
+  }
+
   /* ------------------------------ THE BRIDGE ------------------------------ */
   // Each MCP server the harness is configured with is replaced, in here, by
   // cloud/sandbox/mcp-stub.mjs. A stub connects to this socket and names its
@@ -242,15 +471,18 @@ export function createSandbox({
             next += 1;
             conn = `c${next}`;
             bridge.conns.set(conn, { sock, run: r });
+            r.connServer?.set(conn, String(hello.server));
             emit({ kind: 'mcp-open', conn, server: String(hello.server) }, r);
             continue;
           }
+          if (r.offline && offlineCall(r, conn, sock, line)) continue;
           emit({ kind: 'mcp', conn, line: redactLine(r, line) }, r);
         }
       });
       sock.on('close', () => {
         if (conn && bridge?.conns.get(conn)?.sock === sock) {
           bridge.conns.delete(conn);
+          if (r?.offline) forgetConn(r, conn);
           emit({ kind: 'mcp-close', conn }, r);
         }
       });
@@ -261,6 +493,46 @@ export function createSandbox({
   }
 
   /* ------------------------------- THE RUN -------------------------------- */
+  // The project's setup, as the agent (who may sudo), never with the run's
+  // sign-in. A setup that fails or overruns is said, and the agent starts all
+  // the same: it can read why in the log and do the rest itself.
+  // A command as the agent, with as many open files as the machine allows.
+  function spawnAsAgent(argv, opts) {
+    const asRoot = runAs && process.getuid?.() === 0 && fs.existsSync(SETPRIV);
+    if (asRoot) return spawn('/bin/sh', ['-c', RAISE_THEN_DROP(runAs.uid, runAs.gid), ...argv], opts);
+    return spawn('/bin/sh', ['-c', RAISE_OPEN_FILES, ...argv], { ...opts, ...(runAs ? { uid: runAs.uid, gid: runAs.gid } : {}) });
+  }
+
+  function runSetup(r, cwd, env) {
+    emit({ kind: 'setup', state: 'running' }, r);
+    return new Promise((resolve) => {
+      let log;
+      try { log = fs.openSync(setupLog, 'w', 0o644); } catch { log = 'ignore'; }
+      let child;
+      try {
+        child = spawnAsAgent(['bash', SETUP_FILE], {
+          cwd,
+          env: { ...baseEnv, ...(runAs ? { HOME: runAs.home, USER: runAs.user, LOGNAME: runAs.user, TMPDIR: '/tmp' } : {}), ...env },
+          stdio: ['ignore', log, log],
+          detached: true,
+        });
+      } catch (err) {
+        emit({ kind: 'setup', state: 'failed', code: null, message: err.message }, r);
+        if (typeof log === 'number') fs.closeSync(log);
+        resolve();
+        return;
+      }
+      const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } }, SETUP_TIMEOUT_MS);
+      child.on('exit', (code, signal) => {
+        clearTimeout(timer);
+        if (typeof log === 'number') { try { fs.closeSync(log); fs.chmodSync(setupLog, 0o644); } catch { /* gone */ } }
+        emit({ kind: 'setup', state: code === 0 ? 'done' : 'failed', code, ...(signal ? { signal } : {}) }, r);
+        resolve();
+      });
+      child.on('error', () => {});
+    });
+  }
+
   async function prepareAndSpawn(r) {
     const { cwd, branch, bundleUrl, argv, env = {}, files = [], remote, changesRef } = r.spec;
     try {
@@ -315,6 +587,7 @@ export function createSandbox({
       setState('failed', {}, r);
       return;
     }
+    if (!r.cancelled && !r.spec.kind && fs.existsSync(path.join(cwd, SETUP_FILE))) await runSetup(r, cwd, env);
     if (r.cancelled) {
       // Cancelled before it ever started: nothing ran, so the results are the
       // folder exactly as it was packed, uploaded so the Mac's import is the
@@ -328,7 +601,7 @@ export function createSandbox({
     openBridge();
     let child;
     try {
-      child = spawn(argv[0], argv.slice(1), {
+      child = spawnAsAgent(argv, {
         cwd,
         env: {
           ...baseEnv,
@@ -340,7 +613,6 @@ export function createSandbox({
         stdio: ['pipe', 'pipe', 'pipe'],
         // Its own process group, so a cancel reaches everything it started.
         detached: true,
-        ...(runAs ? { uid: runAs.uid, gid: runAs.gid } : {}),
       });
     } catch (err) {
       emit({ kind: 'error', message: `could not start the command: ${err.message}` }, r);
@@ -349,7 +621,7 @@ export function createSandbox({
     }
     r.child = child;
     r.meter = usageMeter(usage);
-    child.stdout.on('data', (d) => emitChunks('stdout', d, r));
+    child.stdout.on('data', (d) => { emitChunks('stdout', d, r); readTurn(r, d); });
     child.stderr.on('data', (d) => emitChunks('stderr', d, r));
     child.stdin.on('error', () => {});
     for (const p of r.pendingStdin.splice(0)) writeStdin(r, p);
@@ -381,6 +653,7 @@ export function createSandbox({
         }
       }
       emit({ kind: 'exit', code, signal, ...(r.cancelled ? { cancelled: true } : {}) }, r);
+      if (r.awayTimer) { clearInterval(r.awayTimer); r.awayTimer = null; }
       r.state = 'exited';
       statusChangedAt = Math.floor(Date.now() / 1000);
       // Whether the login is why: asked of the login itself, never read from
@@ -942,7 +1215,7 @@ export function createSandbox({
       return { ok: true, runId: run.id, state: run.state, seq: run.log.index.length, inSeq: run.inSeq, exitCode: run.exitCode ?? null, manifest: run.manifest || null };
     }
     if (action === 'signin' || action === 'renew' || action === 'look') {
-      if (run && run.id === req.runId) return { ok: true, already: true, state: run.state, seq: run.log.index.length };
+      if (run && run.id === req.runId) return { ok: true, already: true, state: run.state, seq: run.log.index.length, caps: CAPS };
       if (run && !DONE_STATES.has(run.state)) return { ok: false, error: 'busy', runId: run.id };
       const problem = invalidSignin(action, req);
       if (problem) return { ok: false, error: 'bad-start', message: problem };
@@ -960,7 +1233,7 @@ export function createSandbox({
       return { ok: true, seq: r.log.index.length };
     }
     if (action === 'start') {
-      if (run && run.id === req.runId) return { ok: true, already: true, state: run.state, seq: run.log.index.length };
+      if (run && run.id === req.runId) return { ok: true, already: true, state: run.state, seq: run.log.index.length, caps: CAPS };
       if (run && !DONE_STATES.has(run.state)) return { ok: false, error: 'busy', runId: run.id };
       const problem = invalidStart(req);
       if (problem) return { ok: false, error: 'bad-start', message: problem };
@@ -978,16 +1251,23 @@ export function createSandbox({
         id: req.runId, spec, state: 'preparing', waiters: new Set(), pendingStdin: [], child: null,
         exitCode: null, startSha: null, inSeq: 0, cancelled: null, manifest: null,
         dir: path.join(workRoot, '.agentbox', safe(req.runId)),
+        macSeenAt: Date.now(),
+        offline: req.offline ? { afterMs: Math.max(50, Number(req.offline.afterMs) || 90_000), endTurn: req.offline.endTurn ?? null } : null,
+        calls: new Map(), handshakes: new Map(), connServer: new Map(), inputClosed: null,
+        turn: { line: '', atResult: false, waiting: 0, lastJobEndedAt: 0, unread: new Map(), anonymous: 0 },
       };
       openLog(r);
       run = r;
+      if (r.offline) watchWhileAway(r);
       setState('preparing', {}, r);
       prepareAndSpawn(r);
-      return { ok: true, seq: r.log.index.length };
+      return { ok: true, seq: r.log.index.length, caps: CAPS };
     }
     if (!run) return { ok: false, error: 'no-run' };
     if (req.runId && req.runId !== run.id) return { ok: false, error: 'no-run', runId: run.id };
     const r = run;
+    // Every ask is the Mac, there; a `peek` is something else reading.
+    if (!(action === 'events' && req.peek)) r.macSeenAt = Date.now();
     // A sign-in session takes its code and a cancel, and nothing a run takes:
     // input to it would be typed into the vendor's own sign-in.
     if (r.spec.kind && !['events', 'signal', 'signin-code'].includes(action)) return { ok: false, error: 'not-a-run' };
@@ -1035,6 +1315,11 @@ export function createSandbox({
       case 'stdin':
         return sequenced(r, req, () => {
           if (['exited', 'collected', 'collect-failed', 'failed'].includes(r.state)) return { ok: false, error: 'exited', consumed: true };
+          // Closed here while the Mac was away: a reply written now is the
+          // app's to keep for the next run, and it learns that from this.
+          if (r.inputClosed === 'cloud') return { ok: false, error: 'turn-closed', consumed: true };
+          if (req.end) r.inputClosed = 'mac';
+          noteInput(r, req.data);
           writeStdin(r, req);
           return { ok: true };
         });
@@ -1053,8 +1338,11 @@ export function createSandbox({
           }
           return { ok: true };
         });
+      case 'mcp-claim':
+        return { ok: true, calls: r.offline ? claimCalls(r, req.calls) : (req.calls || []).map((c) => ({ ...c, go: true })) };
       case 'mcp':
         return sequenced(r, req, () => {
+          if (fromMac(r, req.conn, String(req.line))) return { ok: true, dropped: true };
           const c = bridge?.conns.get(req.conn);
           if (!c || c.run !== r) return { ok: false, error: 'no-conn', consumed: true };
           c.sock.write(String(req.line) + '\n');
@@ -1122,6 +1410,7 @@ export function createSandbox({
     if (run) { clearTimeout(run.deadlineTimer); clearTimeout(run.killTimer); for (const w of [...run.waiters]) w(); }
     if (bridge) { for (const c of bridge.conns.values()) c.sock.destroy(); bridge.server.close(); bridge = null; }
     try { fs.unlinkSync(bridgeSocket); } catch { /* gone */ }
+    if (rootHelper) { rootHelper.close(); try { fs.unlinkSync(rootSocket); } catch { /* gone */ } }
     if (httpServer) { httpServer.closeAllConnections?.(); await new Promise((r) => httpServer.close(r)); }
     closeLog(run);
   }
@@ -1171,6 +1460,7 @@ function invalidStart(req) {
   if (!req.branch) return 'branch is required';
   if (!req.bundleUrl) return 'bundleUrl is required';
   if (!Array.isArray(req.argv) || !req.argv.length) return 'argv is required';
+  if (req.offline != null && (typeof req.offline !== 'object' || (req.offline.endTurn != null && req.offline.endTurn !== 'claude-stream-json'))) return 'offline must be { afterMs, endTurn: "claude-stream-json" or null }';
   for (const f of req.files || []) if (!f?.url || !path.isAbsolute(f?.path || '')) return 'every file needs an absolute path and a url';
   if (req.docs !== undefined && (typeof req.docs !== 'string' || !path.isAbsolute(req.docs))) return 'docs must be an absolute path';
   for (const h of req.homeFiles || []) {
@@ -1371,6 +1661,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const home = execFileSync('getent', ['passwd', user], { encoding: 'utf8' }).split(':')[5];
     runAs = { uid: id('-u'), gid: id('-g'), home, user };
   }
-  const sandbox = createSandbox({ workRoot: '/var/lib/agentbox', bridgeSocket: '/tmp/agentbox-bridge.sock', runAs, log: (line) => console.error(line) });
+  const sandbox = createSandbox({ workRoot: '/var/lib/agentbox', bridgeSocket: '/tmp/agentbox-bridge.sock', rootSocket: '/run/agentbox-root.sock', runAs, log: (line) => console.error(line) });
   sandbox.listen(Number(process.env.PORT) || 8080).then((a) => console.error(`agentbox sandbox listening on ${a.port}`));
 }
