@@ -392,8 +392,10 @@ function PeopleLine({ everyone, picked, me, onPick }: PeoplePick) {
  *  first row would, under the tabs, left aligned with the titles, so the page
  *  does not jump when a thread lands. The tabs stay: an empty Needs you is
  *  still the Inbox, and Running is one click away. */
-export function InboxClear({ running, scheduled, onView, onCompose, team = false }: {
+export function InboxClear({ running, queued = 0, scheduled, onView, onCompose, team = false }: {
   running: number; scheduled: number; onView: (v: TabView) => void; onCompose: () => void;
+  /** Waiting its turn: in the tab, and no agent on it yet (`workMoving`, w-712fc99e8d). */
+  queued?: number;
   /** Signed into a team: only then does the quiet line offer a teammate (w-db6f5e331e). */
   team?: boolean;
 }) {
@@ -403,9 +405,11 @@ export function InboxClear({ running, scheduled, onView, onCompose, team = false
     <p>
       {running > 0
         ? <><button type="button" className="th-clear-link" onClick={() => onView('progress')}>{plural(running, 'thread is running', 'threads are running')}</button>. Each one lands here when it needs you.</>
-        : scheduled > 0
-          ? <><button type="button" className="th-clear-link" onClick={() => onView('snoozed')}>{plural(scheduled, 'thread is scheduled', 'threads are scheduled')}</button>. Nothing else is open.</>
-          : team ? 'Start a thread and an agent picks it up, or message a teammate.' : 'Start a thread and an agent picks it up.'}
+        : queued > 0
+          ? <><button type="button" className="th-clear-link" onClick={() => onView('progress')}>{plural(queued, 'thread is queued', 'threads are queued')}</button>. An agent starts on {queued === 1 ? 'it' : 'each'} as soon as one is free.</>
+          : scheduled > 0
+            ? <><button type="button" className="th-clear-link" onClick={() => onView('snoozed')}>{plural(scheduled, 'thread is scheduled', 'threads are scheduled')}</button>. Nothing else is open.</>
+            : team ? 'Start a thread and an agent picks it up, or message a teammate.' : 'Start a thread and an agent picks it up.'}
     </p>
     <div className="th-clear-acts">
       <button type="button" className="th-new" onClick={onCompose}><PenIcon />New thread</button>

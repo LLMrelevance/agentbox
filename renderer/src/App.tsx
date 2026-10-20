@@ -73,7 +73,7 @@ import { approvalReads } from './approval-card';
 // there is anything to confirm the card has closed.
 import { sentLine, sendingLine } from './compose-says';
 import { wearJustMade, type JustMade } from './just-made';
-import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
+import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply, workMoving } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
 import { opensATextField } from './keys';
 import { sidebarFits, useRoomyToggle, useWindowWidth } from './room';
@@ -2060,6 +2060,15 @@ export default function App() {
     // what the fleet takes next. Recency only breaks a tie now.
   ].sort(byRunningOrder(score)),
   [items, agentList, agentMode, scope, pendingId, dueAt, hiddenAt, score, now, team, teamProgress, liveIds, shippingIds]);
+
+  // WHAT OF IN PROGRESS IS ACTUALLY MOVING, for the empty inbox to say. The
+  // tab holds a thread waiting its turn beside one being worked on, and the
+  // line said the whole tab was running (`workMoving`, w-712fc99e8d).
+  const queuedIds = useMemo(() => new Set(snap?.supervisor.queued ?? []), [snap?.supervisor.queued]);
+  const moving = useMemo(
+    () => workMoving(progress, { live: liveIds, shipping: shippingIds, queued: queuedIds }),
+    [progress, liveIds, shippingIds, queuedIds],
+  );
 
   // NOT A ROW THAT STILL NEEDS HER (2026-10-01): an agent's done on her own
   // thread waits in Needs you until she closes it, and Done counted it too,
@@ -6279,7 +6288,7 @@ export default function App() {
                       // AND NOT UNDER THE LANDING (2026-10-06), which says the
                       // same thing louder: "Nothing needs you" and "You finished
                       // the tutorial" were drawn one on top of the other.
-                      ? run === null && !landing && <InboxClear running={progress.length} scheduled={snoozed.length} team={!!team}
+                      ? run === null && !landing && <InboxClear running={moving.running} queued={moving.queued} scheduled={snoozed.length} team={!!team}
                           onView={(next) => { setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                           onCompose={() => setModal('compose')} />
                       : <EmptyTab view={view} />

@@ -317,6 +317,35 @@ export function belongsInProgress(
   return i.status === 'open' && i.kind !== 'question' && i.kind !== 'review' && hers(i);
 }
 
+/**
+ * OF THE IN PROGRESS TAB, WHAT IS ACTUALLY MOVING (w-712fc99e8d).
+ *
+ * The empty inbox says whether work is moving without you, and it was handed
+ * the length of the tab. The tab holds a thread waiting its turn as well as
+ * one being worked on, so with the fleet set to two agents a tester read "8
+ * threads are running" over four that had not started.
+ *
+ * Running is a session on the thread, a ship the app still owes it, or one of
+ * your own terminal sessions that took your reply. Queued is the supervisor's
+ * own list of what the next tick will start, so a thread stuck at a sign-in
+ * or a usage limit is counted as neither: it is in the tab, and nothing is
+ * happening to it.
+ */
+export function workMoving(
+  rows: readonly { id: string; agent?: unknown }[],
+  { live, shipping, queued }: {
+    live: ReadonlySet<string>; shipping: ReadonlySet<string>; queued: ReadonlySet<string>;
+  },
+): { running: number; queued: number } {
+  let running = 0;
+  let waiting = 0;
+  for (const row of rows) {
+    if (row.agent || live.has(row.id) || shipping.has(row.id)) running += 1;
+    else if (queued.has(row.id)) waiting += 1;
+  }
+  return { running, queued: waiting };
+}
+
 // Everything In progress can be stopped, so this is the list's own rule rather
 // than a check for a live session. Most tasks wait minutes in the queue before
 // a worker claims them, and those must be stoppable too.
