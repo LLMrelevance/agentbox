@@ -148,7 +148,7 @@ export function deviceName(ua = '') {
  *           dist?: string, port?: number, onChange?: () => void,
  *           interfaces?: () => object, log?: { warn?: Function } }} options
  */
-export function createPhoneLink({ file, channels, listeners, dist, files = null, port = PHONE_PORT, onChange = () => {}, interfaces = () => os.networkInterfaces(), log = console, tailscale = tailscaleCli(), warm = (url) => fetch(url).catch(() => {}), send = (sub, body, opts) => webpush.sendNotification(sub, body, opts), atDesk = () => false, coalesceMs = COALESCE_MS, relayUrl = '', createRelay = (opts) => createRelayClient(opts) }) {
+export function createPhoneLink({ file, channels, listeners, dist, files = null, port = PHONE_PORT, onChange = () => {}, interfaces = () => os.networkInterfaces(), log = console, tailscale = tailscaleCli(), warm = (url) => fetch(url, { signal: AbortSignal.timeout(10_000) }).catch(() => {}), send = (sub, body, opts) => webpush.sendNotification(sub, body, opts), atDesk = () => false, coalesceMs = COALESCE_MS, relayUrl = '', createRelay = (opts) => createRelayClient(opts) }) {
   let saved = read(file);
   // ANYWHERE, THROUGH THE RELAY (main/relay-client.mjs). With a relay to use it
   // is where a person starts, because it needs nothing on the phone; a route

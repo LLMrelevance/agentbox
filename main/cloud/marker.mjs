@@ -54,3 +54,28 @@ export function cloudWorkPending(folder) {
   if (!folder || !fs.existsSync(folder)) return false;
   return !!readMarker(folder);
 }
+
+// WHAT A RUN BROUGHT HOME THAT ITS ROW MUST SAY (main/cloud/run.mjs `park`):
+// written by the relay, which cannot reach the store, and said by the
+// supervisor (`_sayCloudNews`). Beside the marker, and outliving it.
+const NEWS = 'agentbox-cloud-news.json';
+const newsPath = (folder) => { const dir = gitDirOf(folder); return dir ? path.join(dir, NEWS) : null; };
+
+export function addCloudNews(folder, news) {
+  const file = newsPath(folder);
+  if (!file) return;
+  let all = [];
+  try { all = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* none yet */ }
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify([...(Array.isArray(all) ? all : []), { ...news, at: Date.now() }], null, 2));
+  fs.renameSync(tmp, file);
+}
+
+export function takeCloudNews(folder) {
+  const file = folder && fs.existsSync(folder) ? newsPath(folder) : null;
+  if (!file || !fs.existsSync(file)) return [];
+  let all = [];
+  try { all = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* unreadable: dropped */ }
+  fs.rmSync(file, { force: true });
+  return Array.isArray(all) ? all : [];
+}

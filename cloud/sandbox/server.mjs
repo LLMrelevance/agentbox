@@ -47,7 +47,7 @@ const PAGE_BYTES = 8 * 1024 * 1024;
 const MAX_MCP_LINE = 32 * 1024 * 1024;
 // What this server can do beyond the first version, said in a start's answer,
 // so a Mac knows rather than guesses whether its asks are honoured.
-const CAPS = ['offline', 'setup'];
+const CAPS = ['offline', 'setup', 'kept'];
 // A PROJECT'S OWN SETUP: `.agentbox/cloud-setup.sh` in its task folder, run as
 // the agent before the agent, on every cloud run, so a project needing a
 // program the image lacks says so in its own repository rather than in a new
@@ -65,6 +65,7 @@ const RAISE_THEN_DROP = (uid, gid) => `ulimit -Hn 65536 2>/dev/null; ulimit -n 6
 const SETPRIV = '/usr/bin/setpriv';
 // WHILE THE MAC IS AWAY (a start's `offline`). Never a made-up success: the
 // agent is told the call did not reach the app, and carries on.
+const KEPT = 'The computer this run reports to is asleep, so this was kept and is made when your computer is back. Carry on.';
 const NOT_MADE = 'The computer this run reports to is asleep, so this call could not reach the app and was not made. Carry on without it, and say in your last message what you could not record.';
 const MAYBE_MADE = 'The computer this run reports to went to sleep during this call, so its answer did not arrive: it may or may not have happened. Carry on without it, and say in your last message what you could not check.';
 // A finished background job wakes the agent within seconds; a turn whose last
@@ -328,6 +329,15 @@ export function createSandbox({
         try { sock.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: kept }) + '\n'); } catch { /* gone */ }
         r.calls.set(k, { conn, msg, sock, state: 'answered-here', handshake: true });
         return false;
+      }
+      // A write the Mac named as safe to make late is kept for it, in the
+      // run's own events, and made when it next reads them.
+      const server = r.connServer.get(conn);
+      const tool = msg.method === 'tools/call' ? msg.params?.name : null;
+      if (tool && r.offline.kept?.[server]?.includes(tool)) {
+        try { sock.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: KEPT }] } }) + '\n'); } catch { /* the agent went */ }
+        emit({ kind: 'mcp-kept', conn, server, line }, r);
+        return true;
       }
       answerHere(sock, msg, NOT_MADE);
       emit({ kind: 'mcp-offline', conn, id: msg.id }, r);
@@ -1252,7 +1262,7 @@ export function createSandbox({
         exitCode: null, startSha: null, inSeq: 0, cancelled: null, manifest: null,
         dir: path.join(workRoot, '.agentbox', safe(req.runId)),
         macSeenAt: Date.now(),
-        offline: req.offline ? { afterMs: Math.max(50, Number(req.offline.afterMs) || 90_000), endTurn: req.offline.endTurn ?? null } : null,
+        offline: req.offline ? { afterMs: Math.max(50, Number(req.offline.afterMs) || 90_000), endTurn: req.offline.endTurn ?? null, kept: req.offline.kept ?? null } : null,
         calls: new Map(), handshakes: new Map(), connServer: new Map(), inputClosed: null,
         turn: { line: '', atResult: false, waiting: 0, lastJobEndedAt: 0, unread: new Map(), anonymous: 0 },
       };
@@ -1461,6 +1471,8 @@ function invalidStart(req) {
   if (!req.bundleUrl) return 'bundleUrl is required';
   if (!Array.isArray(req.argv) || !req.argv.length) return 'argv is required';
   if (req.offline != null && (typeof req.offline !== 'object' || (req.offline.endTurn != null && req.offline.endTurn !== 'claude-stream-json'))) return 'offline must be { afterMs, endTurn: "claude-stream-json" or null }';
+  if (req.offline?.kept != null && (typeof req.offline.kept !== 'object' || Array.isArray(req.offline.kept)
+    || !Object.values(req.offline.kept).every((tools) => Array.isArray(tools) && tools.every((t) => typeof t === 'string')))) return 'offline.kept must be { server: [tool, ...] }';
   for (const f of req.files || []) if (!f?.url || !path.isAbsolute(f?.path || '')) return 'every file needs an absolute path and a url';
   if (req.docs !== undefined && (typeof req.docs !== 'string' || !path.isAbsolute(req.docs))) return 'docs must be an absolute path';
   for (const h of req.homeFiles || []) {

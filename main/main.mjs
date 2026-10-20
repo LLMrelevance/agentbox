@@ -20,9 +20,10 @@ import { Store } from './store.mjs';
 import { storeRootEnv } from './store/home.mjs';
 import { Supervisor } from './supervisor.mjs';
 import { startCodexWatch } from './codex-watch.mjs';
-import { readCodexThreads } from './codex-threads.mjs';
+import { readCodexThreadsOffThread } from './codex-threads.mjs';
 import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
+import { stallWatch } from './stall-watch.mjs';
 import { applyThrough, phoneDevice } from './phone-inbox.mjs';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
@@ -382,6 +383,8 @@ async function createWindow() {
   const supervisor = new Supervisor(config, store, appDir, dataDir, userDir);
   // THAT agents start and stop work (main/analytics.mjs checks the switch).
   supervisor.count = (name, props) => analytics.track(name, props);
+  const stalls = stallWatch();
+  supervisor.stalls = stalls;
   quitStep(app, 'before-quit', 'supervisor.killAll', () => supervisor.killAll());
   // THE TEAM. Off entirely on a build with no team cloud (the single-person
   // app). Otherwise it restores whoever was signed in, and from then on every
@@ -420,6 +423,8 @@ async function createWindow() {
       ready: () => !!phoneApply,
       apply: (cmd) => phoneApply(cmd),
       live: (slug, id) => supervisor.liveFor(slug, id),
+      // The cards waiting on her, each with the fingerprint her answer must carry back.
+      approvals: () => approvals.listPending(config.storeRoot).map((r) => ({ ...r, card: approvals.cardShown(config.storeRoot, r.id) })),
       stateFile: path.join(config.storeRoot, '.phone-inbox.json'),
       // This installation and this store together (main/phone-inbox.mjs).
       device: () => phoneDevice(userDir, config.storeRoot),
@@ -442,7 +447,7 @@ async function createWindow() {
   const codexWatch = startCodexWatch({
     store,
     count: (name, props) => analytics.track(name, props),
-    readThreads: (opts) => readCodexThreads({ ...opts, codexDirs: appSessionFolders({ config, supervisor }).codexDirs }),
+    readThreads: (opts) => readCodexThreadsOffThread({ ...opts, codexDirs: appSessionFolders({ config, supervisor }).codexDirs }),
   });
   quitStep(app, 'before-quit', 'codexWatch.stop', () => codexWatch.stop());
   // Whatever is still queued goes with the app rather than dying in memory,
@@ -733,7 +738,7 @@ async function createWindow() {
   // (main/phone-inbox.mjs), so each one is filed in a Map as Electron gets it.
   const phoneChannels = new Map();
   const filingIpcMain = {
-    handle(channel, fn) { ipcMain.handle(channel, fn); phoneChannels.set(channel, fn); },
+    handle(channel, fn) { ipcMain.handle(channel, stalls.time(channel, fn)); phoneChannels.set(channel, fn); },
   };
   // `readClipboardText` is read only by the cloud setup, and only for a
   // Claude sign-in code (main/ipc.mjs `zero:cloud-clipboard-code`).

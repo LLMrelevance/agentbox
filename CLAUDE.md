@@ -45,6 +45,22 @@ it. Three are habits on every change:
 `correct` (turn a repeated mistake into a check that fails) and `interrogate`
 (Claude and Codex both review a diff) run when someone asks.
 
+## NOTHING RETRIES FOR EVER, NOTHING WAITS FOR EVER, NOTHING FAILS IN SILENCE (2026-10-19)
+
+One cloud thread's start died in under a second, every 15 seconds, 16,135
+times over 30 hours, because its exit meant "try again, no attempt spent";
+another run hung for good on an AWS call whose timeout only warned. Neither
+said a word, and with the cloud on nothing else ran. Two tests now hold the
+line, so build with them, not around them:
+
+- Every run starts through `spawnWorker`, which asks `_heldFromStarting`, and
+  every run's end is counted by `_noteHowTheRunStarted`: six starts in ten
+  minutes that each ended before the agent began hold the thread and say so on
+  its row (`tests/no-thread-is-started-over-and-over-without-a-word`). A new
+  way to start or end a run goes through both.
+- Every network call has a deadline that ends it
+  (`tests/no-network-call-in-the-app-can-wait-forever`).
+
 ## SHIPPING IS ONE COMMAND: `npm run ship`
 
 Several agents work this repository at once, so the order of operations is not
@@ -60,6 +76,34 @@ fast-forward writes no commit and so walked straight past the commit guards: on
 2026-10-01 that left a commit living in the folder the app runs from and
 nowhere else. That folder follows the public main on its own:
 `git fetch origin && git merge --ff-only refs/remotes/origin/main`.
+
+## WHO HAS TO LOOK BEFORE A CHANGE SHIPS (2026-10-17)
+
+The person's time is the bottleneck, so `npm run ship` sets a risk tier from
+the diff (`scripts/lib/risk-tier.mjs`): rules first, then the Decisions API for
+what the rules leave open. The tier comes from the change, never from you.
+
+- **low** ships on green tests alone: docs, tests, scripts, internal logic, a
+  bug fix its test proves, a few words of copy that move nothing.
+- **look** waits for the person to see it: anything on screen a designer could
+  judge, including copy that wraps or changes a layout. Apply the
+  `design-taste` skill before you show them, so their answer can be "looks
+  good".
+- **risky** waits for the person: the paths and lines listed in
+  `risk-tier.mjs`, over 600 changed lines, or a classifier that was not sure.
+
+While `scripts/risk-gate.json` says `shadow`, ask before shipping as you always
+have; the gate only logs what it would have done (`npm run risk -- --log`).
+Once it says `live`:
+
+1. Run `npm run risk`. If it says look or risky, show the person and ask.
+2. Otherwise add the label `ship` without asking, and end saying it is shipping
+   on its own and why, offering "Undo it". If the gate holds it back, you are
+   woken with its reasons: then show and ask.
+3. When the person says ship it, run `npm run ship:approved`, then add the
+   label. The approval covers that commit; a new commit needs a new approval.
+4. "Undo it" is: revert your commits on your branch, merge origin/main, add
+   `ship`.
 
 ## MAIN WAS REWRITTEN ON 2026-10-06
 

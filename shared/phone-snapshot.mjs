@@ -11,7 +11,7 @@
 // How much of one thread goes up. The latest of a thread is what she reads on
 // a phone; the whole of it stays on the Mac. `bytes` is measured in UTF-8, as
 // the database measures it (Codex's review of step 1, finding 9).
-export const SNAPSHOT_LIMITS = { lines: 120, textChars: 12_000, items: 300, bytes: 900_000 };
+export const SNAPSHOT_LIMITS = { lines: 400, textChars: 12_000, items: 300, bytes: 900_000 };
 
 // WHAT A COPY MAY CARRY, BY NAME (Codex's review of step 1, finding 2). A copy
 // is built out of these and nothing else, never by copying a row and deleting
@@ -226,7 +226,47 @@ export function snapshotKey(snapshot) {
 // WHAT HER PHONE MAY ASK HER MAC TO DO, and nothing else. A command that is not
 // one of these, or names a project she did not put on her phone, or a thread
 // that is not in it, is refused and says why.
-export const PHONE_COMMANDS = ['reply', 'new', 'snooze', 'close'];
+export const PHONE_COMMANDS = ['reply', 'new', 'snooze', 'close', 'stop', 'run-now', 'send-now', 'reopen', 'schedule', 'approve'];
+
+// A PERMISSION CARD AS HER PHONE DRAWS IT: what the agent asks to do, with the
+// secrets in it hidden as a thread's words are, and the fingerprint of the card
+// her Mac drew, which her answer must carry back.
+export function phoneApproval(request, card, ctx = {}) {
+  const clean = (v, depth = 0) => {
+    if (typeof v === 'string') return clip(v, 4000, ctx);
+    if (typeof v === 'number' || typeof v === 'boolean' || v === null) return v;
+    if (depth > 3) return undefined;
+    if (Array.isArray(v)) return v.slice(0, 40).map((x) => clean(x, depth + 1));
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).slice(0, 40).map(([k, x]) => [k, clean(x, depth + 1)]));
+    return undefined;
+  };
+  return { id: String(request.id), at: Number(request.at) || 0, tool: clip(String(request.tool ?? 'unknown'), 200, ctx), input: clean(request.input ?? {}), card };
+}
+
+// WHAT SHE PICKED WITH A REPLY OR A NEW THREAD, as the window's own handlers
+// take it (main/ipc.mjs zero:answer, zero:compose): only these fields, each
+// only in its right shape. Null on a reply clears a choice, as in the window.
+const WORD = /^[A-Za-z][\w.:-]{0,79}$/;
+const word = (v, n = 80) => typeof v === 'string' && v.length <= n && WORD.test(v);
+const orNull = (ok) => (v) => v === null || ok(v);
+const CHOICES = {
+  reply: {
+    permissionMode: orNull((v) => word(v, 40)), model: orNull(word), effort: orNull((v) => word(v, 20)),
+    priority: (v) => Number.isInteger(v) && v >= 0 && v <= 10, now: (v) => v === true, unschedule: (v) => v === true,
+  },
+  new: {
+    runAt: (v) => Number.isFinite(v) && v > 0, start: (v) => v === 'later' || v === 'now',
+    engine: (v) => word(v, 40), model: word, effort: (v) => word(v, 20), priority: (v) => Number.isInteger(v) && v >= 0 && v <= 10,
+    assignee: (v) => typeof v === 'string' && v.length >= 1 && v.length <= 80, due: (v) => typeof v === 'string' && v.length <= 40,
+    visibility: (v) => ['team', 'people', 'private'].includes(v),
+    visibleTo: (v) => Array.isArray(v) && v.length <= 50 && v.every((x) => typeof x === 'string' && x.length <= 80),
+  },
+};
+export function phoneChoices(kind, p) {
+  const out = {};
+  for (const [k, ok] of Object.entries(CHOICES[kind] ?? {})) if (p && k in p && p[k] !== undefined && ok(p[k])) out[k] = p[k];
+  return out;
+}
 export function checkCommand(cmd, { projects, hasItem }) {
   if (!cmd || !PHONE_COMMANDS.includes(cmd.kind)) return 'not something the phone may do';
   if (!projects.includes(cmd.project)) return 'that project is not on your phone';
@@ -240,5 +280,8 @@ export function checkCommand(cmd, { projects, hasItem }) {
   if (!cmd.item || !hasItem(cmd.project, cmd.item)) return 'that thread is not on your phone';
   if (cmd.kind === 'reply' && !(typeof p.text === 'string' && p.text.trim())) return 'an empty reply';
   if (cmd.kind === 'snooze' && !(Number.isFinite(p.until) && p.until >= 0)) return 'a snooze needs a time';
+  if (cmd.kind === 'schedule' && !(Number.isFinite(p.runAt) && p.runAt >= 0)) return 'a schedule needs a time';
+  if (cmd.kind === 'approve' && !(typeof p.approval === 'string' && /^[\w-]{1,80}$/.test(p.approval) && typeof p.allow === 'boolean'
+    && typeof p.card === 'string' && /^[\w+/=-]{8,200}$/.test(p.card) && (p.note === undefined || (typeof p.note === 'string' && p.note.length <= 500)))) return 'an answer needs its card';
   return null;
 }
