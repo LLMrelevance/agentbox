@@ -9052,6 +9052,9 @@ body.neo-on.neo-orb-away .ts-panel .ts-foot { opacity: 1; }
 @keyframes pv-pic-in { from { opacity: 0; scale: .97; } }
 .pv-img.pv-zoomed { cursor: grab; transition: none; }
 .pv-img.pv-zoomed:active { cursor: grabbing; }
+/* The last picture held while the next one is read; dimmed only if that takes a moment. */
+.pv-img.pv-waiting { opacity: .45; transition: transform .2s cubic-bezier(.2, .8, .2, 1), opacity .2s ease .25s; }
+.pv-missing { margin: 0; font-size: 13px; color: color-mix(in srgb, var(--read-paper) 62%, transparent); }
 
 /* The controls fade once the pointer rests, leaving only the picture. */
 .pv-chrome { z-index: 2; transition: opacity .35s ease, background .15s, color .15s; }
@@ -9081,7 +9084,7 @@ body.neo-on.neo-orb-away .ts-panel .ts-foot { opacity: 1; }
 .pv-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* The picture's own colours, blurred, light the room; the controls are frosted glass over it. */
-.pv-glow { position: absolute; inset: -12%; background-size: cover; background-position: center;
+.pv-glow { position: absolute; left: -12%; top: -12%; width: 124%; height: 124%; object-fit: cover; pointer-events: none;
   filter: blur(80px) saturate(1.8) brightness(.95); opacity: .7; animation: pv-in .6s ease-out; }
 .picture-view::after { content: ''; position: absolute; inset: 0; pointer-events: none;
   background: radial-gradient(closest-side, transparent 55%, color-mix(in srgb, var(--read-ground) 70%, transparent)); }

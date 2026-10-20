@@ -1,6 +1,6 @@
 ---
 name: power-test
-description: Power test Agentbox the way its customers use it, for hours. Testers drawn from a pool of people Agentbox is for (startup engineer, big-company engineer, founder, CTO, AI-lab engineer, ops teammate, first-day user) each drive their own copy of the app with many threads at once, Claude Code and Codex, several logins, replies and long threads, while logins run out, agents hang or die, and the app restarts or freezes. A watcher reads what the screen cannot show and a ranked report comes out. Use when asked for a power tester, power-user testing, testing a feature thoroughly or "to the ends of the earth", a long or multi-hour test, many threads at once, or spending leftover subscription usage on testing.
+description: Power test Agentbox the way the people it is built for use it, for hours. Testers drawn from a pool of people Agentbox is for (startup engineer, big-company engineer, founder, CTO, AI-lab engineer, ops teammate, first-day user) each drive their own copy of the app with many threads at once, Claude Code and Codex, several logins, replies and long threads, while logins run out, agents hang or die, and the app restarts or freezes. A watcher reads what the screen cannot show and a ranked report comes out. Use when asked for a power tester, power-user testing, testing a feature thoroughly or "to the ends of the earth", a long or multi-hour test, many threads at once, or spending leftover subscription usage on testing.
 ---
 
 # Power test

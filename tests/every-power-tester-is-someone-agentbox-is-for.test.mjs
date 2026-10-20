@@ -1,8 +1,8 @@
 // EVERY POWER TESTER IS SOMEONE AGENTBOX IS FOR.
 //
 // What was asked (w-811757c0b5, 2026-10-20): testers that "behave in a way
-// that is actually natural", picked "from a pool of people" who match the
-// customer profile: an engineer at a startup, one at a bigger company, a
+// that is actually natural", picked "from a pool of people" like the ones
+// Agentbox is built for: an engineer at a startup, one at a bigger company, a
 // founder, each with different constraints. The pool is a folder of files in
 // .claude/skills/power-test/people/, and a file the reader cannot parse would
 // quietly give a tester no setup, no day and no work.
