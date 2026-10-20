@@ -97,7 +97,7 @@ describe('where the question is wired', () => {
   });
 
   it('gives the number keys, the arrows, Enter and esc to the question while it is up', () => {
-    expect(app).toMatch(/if \(asking\) \{/);
+    expect(app).toMatch(/if \(asking && closeAskOwnsKey\(e\.key\)\) \{/);
     expect(app).toMatch(/answerCloseAsk\(focused, /);
   });
 

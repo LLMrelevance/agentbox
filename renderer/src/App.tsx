@@ -133,7 +133,7 @@ import { BoxFilter } from './components/BoxFilter';
 import { itemPriority, moveProduct, placeScore, placedScore } from '../../shared/rank.mjs';
 import { threadsMade, approvableFiled, doItHereWrites } from './threads-made';
 import { waitingCounts } from './threads-made';
-import { closeAsk, KEEP_OPEN } from './close-asks-first';
+import { closeAsk, closeAskOwnsKey, KEEP_OPEN } from './close-asks-first';
 import { ChatAgentsContext, type ChatAgentsValue } from './team/ChatAgents';
 import { agentLinks, chatProjects, chatTaskSharing, chatTranscript, taskBrief, taskTitle, withTask } from './team/agent-mentions';
 import { isCleanRun, ruleIdOf, ruleLabel, runToOpen } from '../../shared/repeats.mjs';
@@ -2445,6 +2445,8 @@ export default function App() {
   const waitingByThread = useMemo(() => waitingCounts(items, stateOfMine), [items, stateOfMine]);
   // Which thread's close is asking, by `product/id`; null while none is.
   const [closeAskOn, setCloseAskOn] = useState<string | null>(null);
+  // Bumped on every raise, so a second E on the same thread scrolls to it again.
+  const [closeAskRaised, setCloseAskRaised] = useState(0);
   const keyOf = (item: WorkItem) => `${item.product}/${item.id}`;
   // Leaving the thread drops its question; a close asked from the list opens
   // the thread and asks in the same press, so the thread it opens keeps it.
@@ -3627,6 +3629,7 @@ export default function App() {
       if (focused?.id !== item.id || focused?.product !== item.product) { setFocused(item); markSeen(item); }
       setOptionSel(null);
       setCloseAskOn(keyOf(item));
+      setCloseAskRaised((n) => n + 1);
       return;
     }
     if (closesAgain(pendingRef.current, item)) return;
@@ -4903,16 +4906,16 @@ export default function App() {
         // its question owns the keys the options would: the numbers and Enter
         // answer it, the arrows walk it, and esc keeps the thread open rather
         // than leaving it. Nothing is selected when it comes up, so Enter on
-        // arrival does nothing, the same promise the options make.
+        // arrival does nothing, the same promise the options make. Every other
+        // key falls through (w-23de8a26c0): E raises it again and scrolls to it.
         const asking = closeAskOn === keyOf(focused) ? closeAsk(waitingFiled(focused).length) : null;
-        if (asking) {
+        if (asking && closeAskOwnsKey(e.key)) {
           const ns = asking.options.map((o) => o.n);
           if (e.key === 'Escape') { e.preventDefault(); keepThreadOpen(); }
           else if (e.key === 'ArrowDown') { e.preventDefault(); setOptionSel((s) => ns[Math.min(ns.indexOf(s ?? -1) + 1, ns.length - 1)]); }
           else if (e.key === 'ArrowUp') { e.preventDefault(); setOptionSel((s) => { const i = ns.indexOf(s ?? -1); return i <= 0 ? null : ns[i - 1]; }); }
           else if (e.key === 'Enter') { e.preventDefault(); if (optionSel !== null) answerCloseAsk(focused, optionSel); }
-          else if (/^[1-9]$/.test(e.key)) answerCloseAsk(focused, Number(e.key));
-          else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); }
+          else answerCloseAsk(focused, Number(e.key));
           return;
         }
         // Arrows walk the options; Enter sends ONLY a visible selection.
@@ -4955,7 +4958,8 @@ export default function App() {
         }
         // E archives, unconditionally. It must never approve on her behalf.
         else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); markDone(focused); }
-        else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setOpenDoc(null); setModal('reply'); }
+        // The page stays open: full screen draws the box under it.
+        else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setModal('reply'); }
         // N MEANS THE SAME THING ON BOTH SCREENS. The + in the top bar is on
         // this screen too and its tooltip says "New task (N)", so the key is
         // already advertised here.
@@ -6101,7 +6105,7 @@ export default function App() {
                   // The question a close asks while tasks still wait (w-d2744c6daa).
                   closeAsk={(() => {
                     const asked = closeAskOn === keyOf(focused) ? closeAsk(waitingFiled(focused).length) : null;
-                    return asked && { ...asked, onPick: (n: number) => answerCloseAsk(focused, n), keep: { label: KEEP_OPEN, onKeep: keepThreadOpen } };
+                    return asked && { ...asked, raised: closeAskRaised, onPick: (n: number) => answerCloseAsk(focused, n), keep: { label: KEEP_OPEN, onKeep: keepThreadOpen } };
                   })()}
                   onNotice={showToast}
                   /*
