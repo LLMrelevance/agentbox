@@ -46,29 +46,3 @@ describe('the Codex usage the corner draws, when nothing has pushed one', () => 
     expect(reads).toBe(2);
   });
 });
-
-// The same profile: the outside agents' check looked for each live session's
-// transcript, and a session whose transcript is not under ~/.claude (hers live
-// under another profile's folder) sent it through every one of the 10,429
-// folders there, for every session, every time it measured.
-describe('an outside agent\'s transcript that is not there', () => {
-  it('is looked for through every folder once a minute, not on every measure', async () => {
-    const { vi } = await import('vitest');
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agents-home-'));
-    for (let i = 0; i < 50; i += 1) fs.mkdirSync(path.join(home, '.claude', 'projects', `-p${i}`), { recursive: true });
-    const was = process.env.HOME;
-    process.env.HOME = home;
-    try {
-      const agents = await import('../main/agents.mjs');
-      const listed = vi.spyOn(fs, 'readdirSync');
-      agents.__readHistory('no-such-session', '/somewhere/else');
-      agents.__readHistory('no-such-session', '/somewhere/else');
-      agents.__readHistory('no-such-session', '/somewhere/else');
-      const looks = listed.mock.calls.filter(([d]) => String(d).endsWith(path.join('.claude', 'projects'))).length;
-      listed.mockRestore();
-      expect(looks).toBe(1);
-    } finally {
-      process.env.HOME = was;
-    }
-  });
-});

@@ -103,7 +103,7 @@ const CHUNK_BYTES = 4 << 20;
 const historyCache = new Map(); // sessionId -> { file, size, mtimeMs, offset, ...facts }
 const dirCache = new Map();    // sessionId -> transcript path
 const missed = new Map();      // sessionId -> when it was last looked for and not found
-const MISS_KEPT_MS = 60_000;
+const MISS_KEPT_MS = 10 * 60_000;
 
 // Tools whose file paths count as touched. The card prints at most six, and
 // that cap is applied where they are shown, not here.
@@ -118,19 +118,36 @@ function transcriptPath(sessionId, cwd) {
   if (cached && fs.existsSync(cached)) return cached;
   const direct = path.join(PROJECTS_DIR(), slugFor(cwd), `${sessionId}.jsonl`);
   if (fs.existsSync(direct)) { dirCache.set(sessionId, direct); return direct; }
-  // The slug rule is Claude Code's, not ours, so a miss falls back to looking,
-  // through every folder there (ten thousand on a busy Mac), so a miss is
-  // remembered for a minute rather than looked for again at every measure.
+  // The slug rule is Claude Code's, not ours, so a miss falls back to looking
+  // through every folder there: ten thousand on a busy Mac, 1.4 s when done
+  // here. So it is done in the background, and a later call finds it.
   if (Date.now() - (missed.get(sessionId) ?? -Infinity) < MISS_KEPT_MS) return null;
-  let dirs = [];
-  try { dirs = fs.readdirSync(PROJECTS_DIR()); } catch { return null; }
-  for (const dir of dirs) {
-    const p = path.join(PROJECTS_DIR(), dir, `${sessionId}.jsonl`);
-    if (fs.existsSync(p)) { dirCache.set(sessionId, p); missed.delete(sessionId); return p; }
-  }
-  missed.set(sessionId, Date.now());
-  if (missed.size > 1000) missed.delete(missed.keys().next().value);
+  searchInBackground(sessionId);
   return null;
+}
+
+const wanted = new Set();
+let search = null;
+function searchInBackground(sessionId) {
+  wanted.add(sessionId);
+  search ??= (async () => {
+    while (wanted.size) {
+      const left = new Set(wanted);
+      wanted.clear();
+      const root = PROJECTS_DIR();
+      let dirs = [];
+      try { dirs = await fs.promises.readdir(root); } catch { /* no projects folder */ }
+      for (const dir of dirs) {
+        if (!left.size) break;
+        for (const id of [...left]) {
+          const p = path.join(root, dir, `${id}.jsonl`);
+          try { await fs.promises.access(p); dirCache.set(id, p); missed.delete(id); left.delete(id); } catch { /* not here */ }
+        }
+      }
+      for (const id of left) missed.set(id, Date.now());
+      while (missed.size > 1000) missed.delete(missed.keys().next().value);
+    }
+  })().finally(() => { search = null; });
 }
 
 const NOTHING = { lastActiveAt: 0, lastSaid: '', saidAt: 0, saidOpen: false, about: '', lastAsked: '', touched: [], asked: [] };
@@ -298,6 +315,7 @@ function readHistory(sessionId, cwd) {
 // Exported for tests/one-inbox-no-agents-tab.test.mjs. The fields it reads are
 // Claude Code's, so an upstream rename would blank the card without an error.
 export { readHistory as __readTail, readHistory as __readHistory };
+export const __transcriptSearch = () => search ?? Promise.resolve();
 
 // The list rides the snapshot, which the main process answers, and a `ps` plus
 // `claude agents --json` take a quarter of a second. So `listAgents` returns the

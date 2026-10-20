@@ -11,7 +11,7 @@
 // (main/cloud/host.mjs).
 import path from 'node:path';
 import { cloudRun, IMPORT_FAILED, LOGIN_TROUBLE } from './run.mjs';
-import { awsTransport, awsStorage } from './aws.mjs';
+import { cloudClients } from './clients.mjs';
 import { readCloudConfig } from './config.mjs';
 import { pickCloudLogin, markCloudLogin, loginObjectKey } from './logins.mjs';
 
@@ -25,11 +25,11 @@ export function dropAwsSignIns(env = process.env) {
   }
 }
 
-// One AWS client pair per account, shared by every run in a process.
+// One client pair per account, shared by every run in a process.
 const clients = new Map();
 function clientsFor(config) {
   const k = JSON.stringify(config);
-  if (!clients.has(k)) clients.set(k, { transport: awsTransport(config), storage: awsStorage(config) });
+  if (!clients.has(k)) clients.set(k, cloudClients(config).catch((err) => { clients.delete(k); throw err; }));
   return clients.get(k);
 }
 
@@ -51,7 +51,9 @@ export async function cloudRunFromArgs({ args, env, cwd, stdin, stdout, stderr, 
   const rec = importOnly ? null : pickCloudLogin(engine);
   if (!importOnly && !rec) { say(`no ${codex ? 'Codex' : 'Claude'} account is signed in for the cloud yet (the cloud button)`); return LOGIN_TROUBLE; }
   const dir = rec?.key;
-  const { transport, storage } = clientsFor(config);
+  let made;
+  try { made = await clientsFor(config); } catch (err) { say(err.message); return LOGIN_TROUBLE; }
+  const { transport, storage } = made;
   return cloudRun({
     importOnly,
     engine,
