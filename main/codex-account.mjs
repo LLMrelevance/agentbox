@@ -114,6 +114,23 @@ export function codexAccount(home = null, { file = null } = {}) {
 }
 
 /**
+ * WHEN THIS LOGIN'S PAID CHATGPT PLAN ENDED, in ms, or null.
+ *
+ * A lapsed plan reads `chatgpt_plan_type: "free"` and keeps the old
+ * subscription's `chatgpt_subscription_active_until`. Only that pair is read as
+ * an ending: a paid type with a past date is a token minted before a renewal,
+ * and a free login that never paid has no date.
+ */
+export function codexPlanEnded(home = null, { file = null, now = Date.now() } = {}) {
+  let auth = null;
+  try { auth = JSON.parse(fs.readFileSync(file ?? codexAuthFile(home), 'utf8')); } catch { return null; }
+  const chatgpt = claims(auth?.tokens?.id_token)?.[AUTH_CLAIM];
+  if (String(chatgpt?.chatgpt_plan_type ?? '').trim().toLowerCase() !== 'free') return null;
+  const until = Date.parse(chatgpt?.chatgpt_subscription_active_until ?? '');
+  return Number.isFinite(until) && until <= now ? until : null;
+}
+
+/**
  * WHAT KIND OF LOGIN A CODEX HOME HOLDS: 'chatgpt' (a plan), 'apikey' (a key,
  * metered per call), or null when it cannot say.
  *

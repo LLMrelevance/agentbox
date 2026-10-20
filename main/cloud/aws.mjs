@@ -91,5 +91,6 @@ export function awsStorage({ region, bucket, profile, endpoint, credentials, tim
     },
     getUrl: (key, seconds = LINK_SECONDS) => getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: seconds }),
     putUrl: (key, seconds = LINK_SECONDS) => getSignedUrl(s3, new PutObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: seconds }),
+    headUrl: (key, seconds = LINK_SECONDS) => getSignedUrl(s3, new HeadObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: seconds }),
   };
 }

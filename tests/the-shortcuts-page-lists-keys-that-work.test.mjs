@@ -89,7 +89,7 @@ const HANDLED = {
   ],
 
   // --- answering an agent ---
-  'R': [[focused, "e.key === 'r' || e.key === 'R') { e.preventDefault(); setOpenDoc(null); setModal('reply'); }"], [list, "case 'r': case 'R':"]],
+  'R': [[focused, "e.key === 'r' || e.key === 'R') { e.preventDefault(); setModal('reply'); }"], [list, "case 'r': case 'R':"]],
   // The send chord lives in the two boxes she types in, not on the window.
   '⌘↵': [
     [compose, "if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') send();"],
