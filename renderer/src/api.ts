@@ -389,9 +389,9 @@ export const api = {
           signIns: [],
         } as typeof base.cloud;
       } else if (cloud === 'new') {
-        // &cloud=new draws the cloud offered but nobody signed in: the
-        // button's dot, its invitation, and the setup screen's first view.
-        base.cloud = { setUp: true, mode: 'full', whenOn: 'full', running: 0, accounts: [], signIns: [] } as typeof base.cloud;
+        // &cloud=new draws Agentbox Cloud offered with nobody signed in: the
+        // button's dot, its invitation, and the sign-in page it opens.
+        base.cloud = { setUp: false, offered: true, mode: 'full', whenOn: 'full', running: 0, month: { runs: 0, agentHours: 0, estimatedCost: 0, costPerAgentHour: 0 }, accounts: [], signIns: [] } as typeof base.cloud;
       } else if (cloud === 'mac' || cloud === 'full' || cloud === 'all') {
         base.cloud = {
           setUp: true, mode: cloud, whenOn: cloud === 'all' ? 'all' : 'full', running: 3,
@@ -1244,6 +1244,16 @@ export const api = {
     if (!zero?.cloudSignIn) return { ok: false, error: RESTART_NOTE };
     return zero.cloudSignIn(p);
   },
+
+  /** Signing in to Agentbox Cloud itself, on the app's sign-in page: Google, email, or a new account. */
+  async cloudAccountSignIn(p: { method: 'google' | 'email' | 'sign-up'; email?: string; password?: string; name?: string }): Promise<{ ok: boolean; confirm?: boolean; error?: string; cancelled?: boolean }> {
+    const zero = window.zero as any;
+    if (!zero?.cloudAccountSignIn) return { ok: false, error: RESTART_NOTE };
+    return zero.cloudAccountSignIn(p);
+  },
+  async cloudAccountCancel(): Promise<void> { await (window.zero as any)?.cloudAccountCancel?.(); },
+  async cloudAccountReopen(): Promise<void> { await (window.zero as any)?.cloudAccountReopen?.(); },
+  async cloudAccountSignOut(): Promise<void> { await (window.zero as any)?.cloudAccountSignOut?.(); },
 
   /** Claude's sign-in code from the clipboard, while a sign-in waits for one; else null. */
   async cloudClipboardCode(): Promise<string | null> {

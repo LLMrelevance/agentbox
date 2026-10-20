@@ -41,7 +41,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, takeCloudNews } from './cloud/marker.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
-import { readCloudConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
+import { readCloudConfig, cloudAccountConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
 import { cloudVersionGaps } from '../shared/cloud-versions.mjs';
 import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
 import { execFileSync } from 'node:child_process';
@@ -4200,7 +4200,11 @@ export class Supervisor {
   // added for the cloud, and any sign-in going on. The usage file is read at
   // most every 30 seconds; the snapshot asks on every change.
   cloudStatus() {
-    const setUp = !!readCloudConfig(process.env, this.config.home);
+    const config = readCloudConfig(process.env, this.config.home);
+    const setUp = !!config;
+    // Offered to a Mac whose app carries Agentbox Cloud's settings, until
+    // someone signs in on it (main/cloud/account.mjs).
+    const offered = !setUp && !!cloudAccountConfig(this.appDir, { home: this.config.home || os.homedir() });
     const mode = this.config.cloudRuns === false ? 'mac' : this.config.cloudRuns === 'all' ? 'all' : 'full';
     const now = Date.now();
     if (!this._cloudMonth || now - this._cloudMonth.at > 30_000) {
@@ -4209,7 +4213,7 @@ export class Supervisor {
       this._cloudMonth = { at: now, month: summarizeCloudUsage(readCloudUsage({ home: this.config.home }), { since }) };
     }
     return {
-      setUp, mode, running: this._cloudLoad(), month: this._cloudMonth.month,
+      setUp, offered, managed: typeof config?.gateway === 'string', mode, running: this._cloudLoad(), month: this._cloudMonth.month,
       ...this._cloudHealthNow(now),
       versionGap: setUp ? this._cloudVersionGaps(now).sort((a, b) => b.blocks - a.blocks)[0] ?? null : null,
       // What C turns the cloud back on to (main/settings.mjs cloudWhenOn).
