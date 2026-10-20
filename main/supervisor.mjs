@@ -5368,6 +5368,8 @@ export class Supervisor {
     }
     // A level the model does not offer is the task's setting, on every login.
     if (refusedBy === 'level-not-offered' || troubleCause(lastFailure) === 'level-not-offered') return;
+    // Another Codex window holds this conversation; the login is fine.
+    if (troubleCause(lastFailure) === 'open-elsewhere') return;
     const limitHit = refusedBy === 'at-limit' || needsHerHands(refusedBy);
     // A dropped provider connection is a transport failure too, even when
     // the local process and its pipe stayed up. It must not spend a reply's
