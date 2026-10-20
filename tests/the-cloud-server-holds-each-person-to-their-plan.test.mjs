@@ -405,6 +405,19 @@ describe('the sweep, when things go wrong', () => {
     expect(JSON.parse(objects.dump().get('ledger/fleet.json')).freeRunning).toBe(1);
   });
 
+  // Codex's review: a person the sweep could not finish counted nothing, so
+  // the free fleet looked emptier than it was.
+  it('a person it could not finish still counts their free runs in the fleet', async () => {
+    const { gw, objects, tick } = setup();
+    const other = '99999999-9999-4999-8999-999999999999';
+    tick(60_000);
+    await objects.put(`ledger/people/${other}.json`, JSON.stringify({ plan: 'free', live: { 'run-x': { kind: 'run', runId: 'rx', at: Date.UTC(2026, 9, 19, 12, 0, 0), nonce: 'n' } }, used: {}, stopping: [] }));
+    const put = objects.put;
+    objects.put = async (k, body, o) => { if (k === `ledger/people/${other}.json`) throw new Error('S3 is down'); return put(k, body, o); };
+    await gw.sweep();
+    expect(JSON.parse(objects.dump().get('ledger/fleet.json')).freeRunning).toBe(1);
+  });
+
   it('a person with nothing going is read, not written', async () => {
     const { gw, objects, start, finish } = setup();
     await start(1);
@@ -433,6 +446,82 @@ describe('the sweep, when things go wrong', () => {
     expect(stopping()).toHaveLength(1);
     await gw.sweep();
     expect(stopping()).toEqual([]);
+  });
+});
+
+// Codex's review, 2026-10-20: a run left the ledger before its stop was
+// written anywhere, so a function that died in between left a machine
+// nothing would ever stop; the late stop after a start race was not kept
+// either; and a run across a month's end was charged to one month.
+describe('a stop that has not happened yet', () => {
+  it('is written in the same write that ends the run, so a server that dies next still has it', async () => {
+    const { objects, start, finish } = setup();
+    await start(1);
+    const writes = [];
+    const put = objects.put;
+    objects.put = async (k, body, o) => { if (k === `ledger/people/${A}.json`) writes.push(JSON.parse(body)); return put(k, body, o); };
+    await finish(1);
+    const ending = writes.find((r) => !r.live['run-1']);
+    expect(ending.stopping.map((e) => e.sid)).toEqual(['run-1']);
+    expect(ending.unrecorded.map((e) => e.sessionId)).toEqual(['run-1']);
+    // Once the stop and the record are made, both are let go.
+    const last = writes.at(-1);
+    expect(last.stopping).toEqual([]);
+    expect(last.unrecorded).toEqual([]);
+  });
+
+  it('the stop after a start race, if AWS does not take it, is kept for the sweep', async () => {
+    const { gw, start, call, ctl, stopped, objects } = setup();
+    let open;
+    ctl.gate = new Promise((r) => { open = r; });
+    const starting = start(1);
+    await new Promise((r) => setTimeout(r, 5));
+    await call('POST', '/v1/stop', { sessionId: 'run-1' });
+    ctl.stopFails = 1;
+    open();
+    await starting;
+    expect(JSON.parse(objects.dump().get(`ledger/people/${A}.json`)).stopping.map((e) => e.sid)).toEqual(['run-1']);
+    await gw.sweep();
+    expect(stopped().at(-1)).toBe(`u-${A}-run-1`);
+    expect(JSON.parse(objects.dump().get(`ledger/people/${A}.json`)).stopping).toEqual([]);
+  });
+
+  it('a run record that could not be written is written by the sweep', async () => {
+    const { gw, objects, start, finish, runs } = setup();
+    await start(1);
+    const put = objects.put;
+    let refuse = true;
+    objects.put = async (k, body, o) => { if (refuse && k.startsWith('ledger/runs/')) throw new Error('S3 is down'); return put(k, body, o); };
+    await finish(1);
+    expect(runs()).toEqual([]);
+    refuse = false;
+    await gw.sweep();
+    expect(runs().map((r) => r.sessionId)).toEqual(['run-1']);
+    expect(JSON.parse(objects.dump().get(`ledger/people/${A}.json`)).unrecorded).toEqual([]);
+  });
+});
+
+describe('a run across the end of a month', () => {
+  it('is charged to each month for the time it ran in it', async () => {
+    const { gw, start, finish, me, tick } = setup();
+    await gw.admin({ do: 'plan', person: A, plan: 'pro' });
+    // From 12:00 on 19 October to 23:00 on 31 October is 12 days 11 hours.
+    tick((12 * 24 + 11) * HOUR);
+    await start(1);
+    tick(2 * HOUR);
+    await finish(1);
+    expect((await me()).usedSeconds).toBe(3600);
+    tick(-2 * HOUR + 30 * 60_000);
+    expect(await me()).toMatchObject({ month: '2026-10', usedSeconds: 3600 });
+  });
+
+  it('a run still going counts only its time in this month against this month', async () => {
+    const { start, tick, poll, stopped } = setup({ plans: { ...SET, free: { agents: 2, hoursPerMonth: 1 } } });
+    tick((12 * 24 + 11) * HOUR + 30 * 60_000);
+    await start(1);
+    tick(60 * 60_000);
+    await poll(1);
+    expect(stopped()).toEqual([]);
   });
 });
 

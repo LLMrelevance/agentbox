@@ -34,6 +34,14 @@ const STOP_TRIES = 12;
 const SWEEP_AT_ONCE = 8;
 
 const month = (t) => new Date(t).toISOString().slice(0, 7);
+const monthStart = (t) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); };
+const nextMonth = (t) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1); };
+/** [[month, seconds]] for the time from `from` to `to`, split at UTC month ends. */
+function secondsByMonth(from, to) {
+  const out = [];
+  for (let a = from; a < to; a = nextMonth(a)) out.push([month(a), Math.round((Math.min(to, nextMonth(a)) - a) / 1000)]);
+  return out;
+}
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const bearer = (headers = {}) => /^Bearer (\S+)$/.exec(headers.authorization || headers.Authorization || '')?.[1] ?? null;
 const ceilingOf = (s) => (s.kind === 'run' ? RUN_CEILING_MS : SIGNIN_CEILING_MS);
@@ -82,23 +90,32 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
   const deviceKey = (key) => `ledger/devices/${sha256(key)}.json`;
   const SWITCH = 'ledger/switch.json';
   const FLEET = 'ledger/fleet.json';
-  const fresh = () => ({ plan: 'free', live: {}, used: {}, stopping: [] });
+  const fresh = () => ({ plan: 'free', live: {}, used: {}, stopping: [], unrecorded: [] });
   const planOf = (rec) => plans[rec.plan] || plans.free;
   const readJson = async (key) => { const o = await objects.get(key); return o ? JSON.parse(o.body) : null; };
   const recOf = async (person) => ({ ...fresh(), ...(await readJson(personKey(person))) });
 
   const live = (rec, kind) => Object.values(rec.live).filter((s) => s.kind === kind);
-  const usedNow = (rec, t) => (rec.used[month(t)] || 0) + live(rec, 'run').reduce((sum, s) => sum + (t - s.at) / 1000, 0);
+  // A run going counts against this month only for its time in this month.
+  const usedNow = (rec, t) => (rec.used[month(t)] || 0) + live(rec, 'run').reduce((sum, s) => sum + (t - Math.max(s.at, monthStart(t))) / 1000, 0);
   const overHours = (rec, t) => planOf(rec).hoursPerMonth != null && usedNow(rec, t) >= planOf(rec).hoursPerMonth * 3600;
 
-  // Ending a session in the ledger: charged (a run that started), recorded,
-  // and stopped once the write has landed (`update` does that).
+  // Ending a session in the ledger: its time charged to each month it ran
+  // in, and, in the same write, its stop and its record owed. `update` makes
+  // both once the write has landed; the sweep makes whatever it could not.
   function end(rec, ctx, sid, at, why) {
     const s = rec.live[sid];
     delete rec.live[sid];
-    const seconds = s.kind === 'run' && why !== 'not-started' ? Math.max(0, Math.round((at - s.at) / 1000)) : 0;
-    if (seconds) rec.used[month(at)] = (rec.used[month(at)] || 0) + seconds;
-    ctx.ended.push({ sid, s, at, seconds, why });
+    const charged = s.kind === 'run' && why !== 'not-started';
+    if (charged) for (const [m, secs] of secondsByMonth(s.at, at)) rec.used[m] = (rec.used[m] || 0) + secs;
+    if (!stoppingOf(rec).some((e) => e.sid === sid)) rec.stopping = [...stoppingOf(rec), { sid, tries: 0 }];
+    if (charged) {
+      rec.unrecorded = [...(rec.unrecorded || []), {
+        key: `ledger/runs/${ctx.person}/${month(at)}/${sid}-${s.at}.json`,
+        sessionId: sid, runId: s.runId, startedAt: s.at, endedAt: at, seconds: Math.max(0, Math.round((at - s.at) / 1000)), why,
+      }];
+    }
+    ctx.ended.push(sid);
   }
   // Whatever has outlived its ceiling ends at that ceiling; once the month's
   // hours are spent, every run ends.
@@ -109,14 +126,12 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
   const needsSettling = (rec, t) => Object.values(rec.live).some((s) => t - s.at >= ceilingOf(s)) || (live(rec, 'run').length > 0 && overHours(rec, t));
 
   // Read, change and write one person's record; a write that lost a race
-  // reads again, so two starts can never both take the last agent. Whatever
-  // the write stopped counting is then stopped, and a stop AWS did not take
-  // is kept in `stopping` for the sweep to try again.
+  // reads again, so two starts can never both take the last agent.
   async function update(person, change) {
     for (let i = 0; i < 8; i += 1) {
       const cur = await objects.get(personKey(person));
       const rec = { ...fresh(), ...(cur ? JSON.parse(cur.body) : {}) };
-      const ctx = { ended: [] };
+      const ctx = { ended: [], person };
       const out = change(rec, ctx);
       try {
         await objects.put(personKey(person), JSON.stringify(rec), cur ? { ifMatch: cur.etag } : { ifNoneMatch: '*' });
@@ -124,30 +139,37 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
         if (err?.conflict) continue;
         throw err;
       }
-      await afterEnding(person, ctx.ended);
+      if (ctx.ended.length) await settleOwed(person, rec, ctx.ended);
       return out;
     }
     throw new Error('the ledger kept changing under this write');
   }
 
-  async function afterEnding(person, ended) {
-    const failed = [];
-    for (const e of ended) {
-      if (e.s.kind === 'run' && e.why !== 'not-started') {
-        const record = { sessionId: e.sid, runId: e.s.runId, startedAt: e.s.at, endedAt: e.at, seconds: e.seconds, why: e.why };
-        await objects.put(`ledger/runs/${person}/${month(e.at)}/${e.sid}-${e.s.at}.json`, JSON.stringify(record)).catch((err) => log(`no record of ${e.sid}: ${err?.message || err}`));
-      }
-      if (!(await stopSession(person, e.sid))) failed.push(e.sid);
+  // Make the stops and write the records a write owed, then let go of the
+  // ones made. `only` limits it to the sessions one write ended.
+  async function settleOwed(person, rec, only = null) {
+    const stops = stoppingOf(rec).filter((e) => !only || only.includes(e.sid));
+    const records = (rec.unrecorded || []).filter((r) => !only || only.includes(r.sessionId));
+    const written = new Set();
+    for (const r of records) {
+      const { key, ...record } = r;
+      try { await objects.put(key, JSON.stringify(record)); written.add(key); } catch (err) { log(`no record of ${r.sessionId} yet: ${err?.message || err}`); }
     }
-    if (failed.length) {
-      await update(person, (rec) => {
-        const have = new Set(stoppingOf(rec).map((e) => e.sid));
-        rec.stopping = [...stoppingOf(rec), ...failed.filter((sid) => !have.has(sid)).map((sid) => ({ sid, tries: 0 }))];
-      });
-    }
+    const stopped = new Set();
+    for (const e of stops) if (await stopSession(person, e.sid)) stopped.add(e.sid);
+    if (!written.size && !stopped.size) return { stops, stopped };
+    await update(person, (r) => {
+      r.stopping = stoppingOf(r).filter((e) => !stopped.has(e.sid));
+      r.unrecorded = (r.unrecorded || []).filter((x) => !written.has(x.key));
+    });
+    return { stops, stopped };
   }
   // Older records kept bare session names.
   const stoppingOf = (rec) => (rec.stopping || []).map((e) => (typeof e === 'string' ? { sid: e, tries: 0 } : e));
+  async function owedStop(person, sid) {
+    if (await stopSession(person, sid)) return;
+    await update(person, (rec) => { if (!stoppingOf(rec).some((e) => e.sid === sid)) rec.stopping = [...stoppingOf(rec), { sid, tries: 0 }]; });
+  }
 
   // A session AWS says is not there is as stopped as it gets.
   async function stopSession(person, sid) {
@@ -261,7 +283,7 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     else if (saysFailed(answer)) await endIf('failed');
     // Asking a session makes it exist. One that a stop or a finish ended
     // while this call was on its way is stopped again, now that it is there.
-    if (!endedHere && (await recOf(person)).live[sessionId]?.nonce !== nonce) await stopSession(person, sessionId);
+    if (!endedHere && (await recOf(person)).live[sessionId]?.nonce !== nonce) await owedStop(person, sessionId);
     return relayAnswer(person, answer);
   }
 
@@ -355,11 +377,10 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
 
   // On a clock, whoever is calling or not: ceilings, spent hours, a done.json
   // whose notice was missed, stops AWS did not take, and the free fleet's size.
-  async function sweepOne(person, t) {
-    const before = await recOf(person);
-    const retry = stoppingOf(before);
-    // Nothing going and nothing to stop: read, not written.
-    if (!Object.keys(before.live).length && !retry.length) return before;
+  async function sweepOne(person, t, before) {
+    const owedBefore = stoppingOf(before);
+    // Nothing going and nothing owed: read, not written.
+    if (!Object.keys(before.live).length && !owedBefore.length && !(before.unrecorded || []).length) return before;
     const finished = new Set();
     for (const s of live(before, 'run')) {
       if (!s.runId || !RUN_ID.test(s.runId) || t - s.at < DONE_LOOK_AFTER_MS) continue;
@@ -371,13 +392,13 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
       for (const [sid, s] of Object.entries(r.live)) if (s.kind === 'run' && finished.has(s.runId)) end(r, ctx, sid, t, 'done');
       return r;
     });
-    if (retry.length) {
-      const stopped = new Set();
-      for (const e of retry) if (await stopSession(person, e.sid)) stopped.add(e.sid);
+    // Everything still owed, from this sweep or before it, is tried again; a
+    // stop owed since an earlier sweep that fails again counts a try.
+    await settleOwed(person, await recOf(person));
+    if (owedBefore.length) {
       await update(person, (r) => {
         r.stopping = stoppingOf(r).flatMap((e) => {
-          if (!retry.some((x) => x.sid === e.sid)) return [e];
-          if (stopped.has(e.sid)) return [];
+          if (!owedBefore.some((x) => x.sid === e.sid)) return [e];
           if (e.tries + 1 >= STOP_TRIES) { log(`gave up stopping ${person} ${e.sid} after ${STOP_TRIES} sweeps`); return []; }
           return [{ sid: e.sid, tries: e.tries + 1 }];
         });
@@ -387,18 +408,21 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
   }
 
   // One person who cannot be swept is said and passed; the rest still are,
-  // and the free fleet is still counted.
+  // and the free fleet still counts the runs last seen on them.
   async function sweep() {
     const t = now();
     let freeRunning = 0;
+    const count = (rec) => { if ((rec.plan || 'free') === 'free') freeRunning += live(rec, 'run').length; };
     const people = (await objects.list('ledger/people/')).map((k) => k.slice('ledger/people/'.length, -'.json'.length)).filter((p) => PERSON.test(p));
     for (let i = 0; i < people.length; i += SWEEP_AT_ONCE) {
       await Promise.all(people.slice(i, i + SWEEP_AT_ONCE).map(async (person) => {
+        let before = null;
         try {
-          const rec = await sweepOne(person, t);
-          if ((rec.plan || 'free') === 'free') freeRunning += live(rec, 'run').length;
+          before = await recOf(person);
+          count(await sweepOne(person, t, before));
         } catch (err) {
           log(`could not sweep ${person}: ${err?.message || err}`);
+          if (before) count(before);
         }
       }));
     }

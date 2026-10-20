@@ -476,23 +476,26 @@ Everything above runs in the owner's own AWS account, set up by a script with
 an admin sign-in. Nobody else has that. What a release needs, in the order
 approved:
 
-1. **The cloud server** (below). Built first.
-2. **Accounts.** Google sign-in for anyone: the consent screen published
+1. **The cloud server** (below). Built first; deployed with no way in for
+   strangers until step 3 is done.
+2. **Terms, before anyone can sign up** (Codex's review, 2026-10-20). The
+   privacy and terms pages rewritten (they say nothing is hosted), with
+   refunds and acceptable use, and an accept step a person passes before
+   their first cloud key. Anthropic's Commercial Terms accepted, and their
+   sales asked about keeping each person's `setup-token` between runs.
+   Codex stays the owner's own until OpenAI approves Sign in with ChatGPT.
+3. **Accounts.** Google sign-in for anyone: the consent screen published
    (name and email only, so no Google review), brand verification on our
    domain, the database's public address and key carried by public builds,
    signing in for the cloud kept apart from the team version, and the
    database's access rules reviewed before strangers can sign up to it.
-3. **Plans** enforced by the server (below), with the hour limits set from
+4. **Plans** enforced by the server (below), with the hour limits set from
    `node scripts/cloud-usage.mjs`.
-4. **Stripe**: checkout, the page where people manage their plan, and its
+5. **Stripe**: checkout, the page where people manage their plan, and its
    notices writing the plan into the server's ledger.
-5. **Upgrade prompts in the app.** Before drawing any, tell the person: they
+6. **Upgrade prompts in the app.** Before drawing any, tell the person: they
    will ask the cloud buildout thread (w-1dc7ee2408) for the "you could run
    more agents" designs it made.
-6. **Terms.** Anthropic's Commercial Terms accepted, and their sales asked
-   about keeping each person's `setup-token` between runs. Codex stays the
-   owner's own until OpenAI approves Sign in with ChatGPT. The privacy and
-   terms pages rewritten (they say nothing is hosted).
 
 ### The cloud server
 
@@ -540,9 +543,11 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
   or at AgentCore's 8-hour ceiling, and its session is stopped then. The
   Mac holds the link that writes its own `done.json`, so a run cannot end its
   counting and keep its machine. A stop that lands while a start is on its
-  way is stopped again once the start returns. A stop AWS did not take is
-  kept and retried by the sweep for an hour, then given up in the log; a
-  session AWS says is not there counts as stopped. A call to a session that is not live is answered
+  way is stopped again once the start returns. A run's stop and its record
+  are written as owed in the same write that ends it, so a function that
+  dies next leaves them for the sweep; a stop AWS did not take is retried
+  for an hour, then given up in the log; a session AWS says is not there
+  counts as stopped. A run's time is charged to each month it ran in. A call to a session that is not live is answered
   `no-run` without asking AgentCore, which would make a machine for it. The
   Mac stops its session when a run fails or its work is home.
 - **The sweep**, every 5 minutes: ceilings, spent hours, a `done.json` whose
@@ -561,7 +566,8 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
 - **Still open before strangers.** The paid plans' hours (a plan without
   them cannot be given), a free plan per Google account (cheap to make),
   presigned writes with no size cap (bounded by the 7-day expiry of
-  `runs/`), and no alarm yet on the signer key's use.
+  `runs/`), an alarm on unexpected use of the signer's key, and cloud keys
+  that never expire (turning a person off covers abuse, not a lost Mac).
 
 ## Known limits
 
