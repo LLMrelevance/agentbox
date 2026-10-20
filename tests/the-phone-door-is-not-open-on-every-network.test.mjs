@@ -94,7 +94,7 @@ describe('with Tailscale picked', () => {
     await link.act({ action: 'via', via: 'tailscale' });
     const s = await listening(link, '127.0.0.1');
     expect(s.host).toBe('127.0.0.1');
-    expect(await ask('127.0.0.1', 41951, link)).toBe(200);
+    expect(await ask('127.0.0.1', 41951, link, 15_000)).toBe(200);
   });
 
   it.skipIf(!lan)('does not answer on this computer\'s network address', async () => {

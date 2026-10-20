@@ -389,10 +389,15 @@ describe('a spawn that needs a new folder', () => {
     expect(spawns.length).toBe(0);
   });
 
-  it('leaves a row that already has its folder to the ordinary spawn', () => {
-    const { sup, product } = watched();
-    ensureTaskFolder(dir, 'w-has-one');
-    expect(sup._folderFirst({ id: 'w-has-one', product: 'agentbox' }, product, 'claude', {})).toBe(false);
+  // A row that already has its folder still runs `git` over it before each
+  // run (restoreTaskFolder): measured on her Mac, 2026-10-19, 1.4 s of the
+  // main process per start, and with the cloud on every reply is a start.
+  it('makes a folder that is already there ready off this thread too, and spawns in it', async () => {
+    const { sup, product, spawns } = watched();
+    const there = ensureTaskFolder(dir, 'w-has-one').path;
+    expect(sup._folderFirst({ id: 'w-has-one', product: 'agentbox' }, product, 'claude', {})).toBe(true);
+    await until('the spawn in the folder it already had', () => spawns.length === 1);
+    expect(spawns[0].cwd).toBe(there);
   });
 });
 

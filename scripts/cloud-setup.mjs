@@ -82,6 +82,24 @@ function versions() {
   return { claude, codex };
 }
 
+/**
+ * The sandbox's own role: pull its image and write its own logs. Customer
+ * code runs as root beside it, so nothing wider (a runtime's log groups are
+ * named after it: `<runtime name>-<id>`).
+ */
+export function runtimeRolePolicy({ region, account, repo, runtime }) {
+  return {
+    Version: '2012-10-17',
+    Statement: [
+      { Effect: 'Allow', Action: ['ecr:GetAuthorizationToken'], Resource: '*' },
+      { Effect: 'Allow', Action: ['ecr:BatchGetImage', 'ecr:GetDownloadUrlForLayer'], Resource: `arn:aws:ecr:${region}:${account}:repository/${repo}` },
+      { Effect: 'Allow', Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents', 'logs:DescribeLogStreams'], Resource: `arn:aws:logs:${region}:${account}:log-group:/aws/bedrock-agentcore/runtimes/${runtime}-*` },
+      // Discovery is asked of every group, as AWS's own runtime role does.
+      { Effect: 'Allow', Action: ['logs:DescribeLogGroups'], Resource: `arn:aws:logs:${region}:${account}:log-group:*` },
+    ],
+  };
+}
+
 function ensureRole(name, trustService, policy) {
   const trust = JSON.stringify({ Version: '2012-10-17', Statement: [{ Effect: 'Allow', Principal: { Service: trustService }, Action: 'sts:AssumeRole' }] });
   let role = aws(['iam', 'get-role', '--role-name', name], { allowFail: true })?.Role;
@@ -263,16 +281,7 @@ async function main() {
       { Effect: 'Allow', Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'], Resource: `arn:aws:logs:${REGION}:${account}:log-group:/aws/codebuild/${NAMES.build}*` },
     ],
   });
-  const runtimeRoleArn = ensureRole(NAMES.runtimeRole, 'bedrock-agentcore.amazonaws.com', {
-    Version: '2012-10-17',
-    Statement: [
-      { Effect: 'Allow', Action: ['ecr:GetAuthorizationToken'], Resource: '*' },
-      { Effect: 'Allow', Action: ['ecr:BatchGetImage', 'ecr:GetDownloadUrlForLayer'], Resource: `arn:aws:ecr:${REGION}:${account}:repository/${NAMES.repo}` },
-      { Effect: 'Allow', Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents', 'logs:DescribeLogStreams'], Resource: `arn:aws:logs:${REGION}:${account}:log-group:/aws/bedrock-agentcore/runtimes/*` },
-      // Discovery is asked of every group, as AWS's own runtime role does.
-      { Effect: 'Allow', Action: ['logs:DescribeLogGroups'], Resource: `arn:aws:logs:${REGION}:${account}:log-group:*` },
-    ],
-  });
+  const runtimeRoleArn = ensureRole(NAMES.runtimeRole, 'bedrock-agentcore.amazonaws.com', runtimeRolePolicy({ region: REGION, account, repo: NAMES.repo, runtime: NAMES.runtime }));
   await retrying('build project', () => ensureBuildProject(bucket, buildRoleArn));
   const tag = imageTag(version);
   const containerUri = await buildImage(bucket, repoUri, version, tag);

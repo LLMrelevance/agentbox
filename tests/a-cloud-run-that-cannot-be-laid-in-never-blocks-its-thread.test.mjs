@@ -115,6 +115,9 @@ function launch(message) {
 const importOnly = () => cloudRun({ importOnly: true, argv: [], env: { ...process.env, CLAUDE_CONFIG_DIR: configDir() }, cwd: mac, transport, storage, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), watchParent: false, homeDir: path.join(tmp, 'home') });
 const refsUnder = (prefix) => git(mac, 'for-each-ref', '--format=%(refname)', prefix).split('\n').filter(Boolean);
 
+// The run has left with the folder as it was: only a change after this is one made while it was away.
+const untilAway = async () => { for (let i = 0; i < 600 && readMarker(mac)?.state !== 'running'; i += 1) await new Promise((r) => setTimeout(r, 25)); };
+
 describe('a cloud run whose agent rewrote the commit it started on', () => {
   it('comes home onto the cloud\'s tip, and the tip it replaced is kept', async () => {
     const before = git(mac, 'rev-parse', 'HEAD');
@@ -163,7 +166,7 @@ describe('an import cut off part way', () => {
 describe('a folder that changed on this Mac while the run was away', () => {
   it('keeps its own work, puts the run\'s on a branch of its own, frees the thread and says what to do', async () => {
     const run = launch('SLOW please');
-    await new Promise((r) => setTimeout(r, 600));
+    await untilAway();
     fs.writeFileSync(path.join(mac, 'local-edit.txt'), 'made here meanwhile\n');
     expect(await run.done, run.err()).toBe(0);
     // This Mac's work, untouched.
@@ -185,7 +188,7 @@ describe('a folder that changed on this Mac while the run was away', () => {
 
   it('notices a change staged meanwhile, even one whose file was put back, and leaves it staged', async () => {
     const run = launch('SLOW please');
-    await new Promise((r) => setTimeout(r, 600));
+    await untilAway();
     fs.writeFileSync(path.join(mac, 'a.txt'), 'staged meanwhile\n');
     git(mac, 'add', 'a.txt');
     fs.writeFileSync(path.join(mac, 'a.txt'), 'one\n');
@@ -198,7 +201,7 @@ describe('a folder that changed on this Mac while the run was away', () => {
   it('gives a second such run a branch of its own rather than writing over the first', async () => {
     git(mac, 'branch', 'cloud/w-1', 'HEAD~1');
     const run = launch('SLOW please');
-    await new Promise((r) => setTimeout(r, 600));
+    await untilAway();
     fs.writeFileSync(path.join(mac, 'local-edit.txt'), 'made here meanwhile\n');
     expect(await run.done, run.err()).toBe(0);
     expect(git(mac, 'log', '-1', '--format=%s', 'cloud/w-1')).toBe('first');
@@ -208,7 +211,7 @@ describe('a folder that changed on this Mac while the run was away', () => {
 
   it('when the run changed nothing, keeps no branch and says nothing', async () => {
     const run = launch('SLOW IDLE please');
-    await new Promise((r) => setTimeout(r, 600));
+    await untilAway();
     fs.writeFileSync(path.join(mac, 'local-edit.txt'), 'made here meanwhile\n');
     expect(await run.done, run.err()).toBe(0);
     expect(refsUnder('refs/heads/cloud/')).toEqual([]);
