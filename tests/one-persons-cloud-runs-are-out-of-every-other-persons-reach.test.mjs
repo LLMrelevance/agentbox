@@ -75,10 +75,50 @@ describe('sessions', () => {
     const { call, sent, keyFor } = setup();
     const a = await keyFor('session-of-a');
     const b = await keyFor('session-of-b');
-    await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'agentbox-w-1-run1', payload: { action: 'status', runId: 'run1' } } });
-    await call('POST', '/v1/invoke', { key: b, body: { sessionId: 'agentbox-w-1-run1', payload: { action: 'status', runId: 'run1' } } });
+    await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'agentbox-w-1-run1', payload: { action: 'start', runId: 'run1' } } });
+    await call('POST', '/v1/invoke', { key: b, body: { sessionId: 'agentbox-w-1-run1', payload: { action: 'start', runId: 'run1' } } });
     await call('POST', '/v1/stop', { key: b, body: { sessionId: 'agentbox-w-1-run1' } });
     expect(sent.map((s) => s.sessionId)).toEqual([`u-${A}-agentbox-w-1-run1`, `u-${B}-agentbox-w-1-run1`, `u-${B}-agentbox-w-1-run1`]);
+  });
+
+  // Review, 2026-10-20: AgentCore makes a machine for any session id it is
+  // asked about, so a call to a session nobody started was a free machine.
+  it('a call to a session that was never started, or has ended, starts no machine', async () => {
+    const { call, sent, keyFor } = setup();
+    const a = await keyFor('session-of-a');
+    for (const action of ['events', 'stdin', 'status', 'collect', 'mcp']) {
+      const r = await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'never-started', payload: { action, runId: 'r1' } } });
+      expect(r.body, action).toMatchObject({ ok: false, error: 'no-run' });
+    }
+    await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'run-1', payload: { action: 'start', runId: 'r1' } } });
+    await call('POST', '/v1/stop', { key: a, body: { sessionId: 'run-1' } });
+    const after = await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'run-1', payload: { action: 'events', runId: 'r1' } } });
+    expect(after.body).toMatchObject({ ok: false, error: 'no-run' });
+    expect(sent.filter((s) => !s.stop).map((s) => s.payload.action)).toEqual(['start']);
+  });
+
+  it('a live session takes its own calls', async () => {
+    const { call, sent, keyFor } = setup();
+    const a = await keyFor('session-of-a');
+    await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'run-1', payload: { action: 'start', runId: 'r1' } } });
+    await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'run-1', payload: { action: 'events', runId: 'r1' } } });
+    expect(sent.map((s) => s.payload.action)).toEqual(['start', 'events']);
+  });
+
+  // Review, 2026-10-20: a sign-in counts against nothing, so a run started
+  // on a sign-in's session used to be counted against nothing too.
+  it('a sign-in\'s session cannot be turned into a run, and a live run cannot start another', async () => {
+    const { call, sent, keyFor } = setup();
+    const a = await keyFor('session-of-a');
+    await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'agentbox-signin-claude-s1', payload: { action: 'signin', runId: 's1', engine: 'claude', saveUrl: 'x' } } });
+    const turned = await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'agentbox-signin-claude-s1', payload: { action: 'start', runId: 's1' } } });
+    expect(turned.body).toMatchObject({ ok: false, error: 'busy' });
+    await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'run-1', payload: { action: 'start', runId: 'r1' } } });
+    const second = await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'run-1', payload: { action: 'start', runId: 'r2' } } });
+    expect(second.body).toMatchObject({ ok: false, error: 'busy' });
+    // The same start asked again still goes through: its first answer may have been lost.
+    expect((await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'run-1', payload: { action: 'start', runId: 'r1' } } })).body.ok).toBe(true);
+    expect(sent.map((s) => s.payload.action)).toEqual(['signin', 'start', 'start']);
   });
 
   it('a session name that is not plain letters, digits and dashes is refused', async () => {
@@ -90,7 +130,7 @@ describe('sessions', () => {
     }
     expect(sent).toEqual([]);
     // The longest allowed name still goes through.
-    expect((await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'x'.repeat(180), payload: { action: 'status' } } })).status).toBe(200);
+    expect((await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'x'.repeat(180), payload: { action: 'start', runId: 'r1' } } })).body.ok).toBe(true);
   });
 });
 

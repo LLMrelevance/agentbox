@@ -29,25 +29,46 @@ const NAMES = { fn: 'agentbox-gateway', role: 'agentbox-gateway-role', signer: '
 // The most functions running at once: the ceiling on what the server can
 // spend in a burst, and its off switch (set it to 0).
 const CONCURRENCY = 200;
+// Longer than its own 60 s wait on AgentCore (main/cloud/aws.mjs), shorter
+// than the Mac's wait on it (main/cloud/managed.mjs).
+export const FUNCTION_SECONDS = 90;
 
-/** What the function's own role may do. */
+/**
+ * What the function's own role may do. Links are signed by the signer, so
+ * the role reads and writes only its ledger and the calls it relays, and
+ * deletes what a Mac asks it to.
+ */
 export function rolePolicy({ bucket, runtimeArn, region, account }) {
+  const at = (p) => `arn:aws:s3:::${bucket}/${p}`;
   return {
     Version: '2012-10-17',
     Statement: [
       { Effect: 'Allow', Action: ['bedrock-agentcore:InvokeAgentRuntime', 'bedrock-agentcore:StopRuntimeSession'], Resource: [runtimeArn, `${runtimeArn}/runtime-endpoint/*`] },
-      { Effect: 'Allow', Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'], Resource: ['runs/*', 'logins/*', 'ledger/*'].map((p) => `arn:aws:s3:::${bucket}/${p}`) },
+      { Effect: 'Allow', Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'], Resource: [at('ledger/*'), at('runs/*/calls/*')] },
+      { Effect: 'Allow', Action: ['s3:DeleteObject'], Resource: [at('runs/*'), at('logins/*')] },
       { Effect: 'Allow', Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'], Resource: `arn:aws:logs:${region}:${account}:log-group:/aws/lambda/${NAMES.fn}*` },
     ],
   };
 }
 
-/** What the signer's links may do: runs and sign-ins, never the ledger. */
+/**
+ * What the signer's links may do: runs and sign-ins, never the ledger. It
+ * may list them too, so a link to a missing object answers 404, not 403.
+ */
 export function signerPolicy({ bucket }) {
   return {
     Version: '2012-10-17',
-    Statement: [{ Effect: 'Allow', Action: ['s3:GetObject', 's3:PutObject'], Resource: ['runs/*', 'logins/*'].map((p) => `arn:aws:s3:::${bucket}/${p}`) }],
+    Statement: [
+      { Effect: 'Allow', Action: ['s3:GetObject', 's3:PutObject'], Resource: ['runs/*', 'logins/*'].map((p) => `arn:aws:s3:::${bucket}/${p}`) },
+      { Effect: 'Allow', Action: ['s3:ListBucket'], Resource: `arn:aws:s3:::${bucket}`, Condition: { StringLike: { 's3:prefix': ['runs/*', 'logins/*'] } } },
+    ],
   };
+}
+
+/** Which of the signer's keys to keep: the one in use, if IAM still has it. */
+export function signerKeyPlan({ inUse, keys }) {
+  const keep = keys.some((k) => k.id === inUse) ? inUse : null;
+  return { keep, remove: keys.filter((k) => k.id !== keep).map((k) => k.id), make: !keep };
 }
 
 /** The bucket's notices with ours added, every other one kept. */
@@ -118,8 +139,12 @@ async function main() {
   if (!aws(['iam', 'get-user', '--user-name', NAMES.signer], { allowFail: true })) { say(`making user ${NAMES.signer}`); aws(['iam', 'create-user', '--user-name', NAMES.signer]); }
   aws(['iam', 'put-user-policy', '--user-name', NAMES.signer, '--policy-name', `${NAMES.signer}-policy`, '--policy-document', JSON.stringify(signerPolicy({ bucket }))], { json: false });
   const existing = aws(['lambda', 'get-function-configuration', '--function-name', NAMES.fn], { allowFail: true });
-  let signer = existing?.Environment?.Variables?.SIGNER_KEY_ID ? { id: existing.Environment.Variables.SIGNER_KEY_ID, secret: existing.Environment.Variables.SIGNER_SECRET } : null;
-  if (!signer) {
+  const vars = existing?.Environment?.Variables || {};
+  const keys = aws(['iam', 'list-access-keys', '--user-name', NAMES.signer]).AccessKeyMetadata.map((k) => ({ id: k.AccessKeyId, made: Date.parse(k.CreateDate) }));
+  const plan = signerKeyPlan({ inUse: vars.SIGNER_KEY_ID || null, keys });
+  for (const id of plan.remove) aws(['iam', 'delete-access-key', '--user-name', NAMES.signer, '--access-key-id', id], { json: false });
+  let signer = plan.keep ? { id: plan.keep, secret: vars.SIGNER_SECRET } : null;
+  if (plan.make) {
     const k = aws(['iam', 'create-access-key', '--user-name', NAMES.signer]).AccessKey;
     signer = { id: k.AccessKeyId, secret: k.SecretAccessKey };
   }
@@ -127,7 +152,7 @@ async function main() {
   const envArg = JSON.stringify({ Variables: env });
 
   // The function. A role made a moment ago is not assumable yet: retry.
-  const settings = ['--runtime', 'nodejs22.x', '--architectures', 'arm64', '--handler', 'index.handler', '--timeout', '90', '--memory-size', '256', '--environment', envArg];
+  const settings = ['--runtime', 'nodejs22.x', '--architectures', 'arm64', '--handler', 'index.handler', '--timeout', String(FUNCTION_SECONDS), '--memory-size', '1024', '--environment', envArg];
   const waitUpdated = () => aws(['lambda', 'wait', 'function-updated-v2', '--function-name', NAMES.fn], { json: false });
   if (!existing) {
     for (let i = 1; ; i += 1) {

@@ -93,7 +93,7 @@ describe('who a database session belongs to', () => {
     const fetchImpl = async (url, init) => {
       asked.push({ url, init });
       return init.headers.authorization === 'Bearer good'
-        ? { ok: true, json: async () => ({ id: '11111111-1111-4111-8111-111111111111', email: 'a@example.com' }) }
+        ? { ok: true, json: async () => ({ id: '11111111-1111-4111-8111-111111111111', email: 'a@example.com', app_metadata: { providers: ['google'] } }) }
         : { ok: false, json: async () => ({}) };
     };
     const whoIs = supabaseWhoIs({ url: 'https://db.example/', anonKey: 'pub', fetchImpl });
@@ -102,6 +102,19 @@ describe('who a database session belongs to', () => {
     expect(asked[0].url).toBe('https://db.example/auth/v1/user');
     expect(asked[0].init.headers.apikey).toBe('pub');
     expect(asked[0].init.signal).toBeDefined();
+  });
+
+  // Review, 2026-10-20: the database also lets anyone sign up with an email
+  // and a password, which is a free 5 hours per made-up address. The cloud
+  // takes Google sign-ins only.
+  it('only a Google sign-in gets the cloud; an email-and-password one does not', async () => {
+    const user = (app_metadata) => ({ ok: true, json: async () => ({ id: '11111111-1111-4111-8111-111111111111', app_metadata }) });
+    const answers = { google: user({ provider: 'google', providers: ['google'] }), both: user({ provider: 'email', providers: ['email', 'google'] }), email: user({ provider: 'email', providers: ['email'] }), none: user({}) };
+    const whoIs = supabaseWhoIs({ url: 'https://db.example', anonKey: 'pub', fetchImpl: async (u, init) => answers[init.headers.authorization.slice(7)] });
+    expect(await whoIs('google')).not.toBe(null);
+    expect(await whoIs('both')).not.toBe(null);
+    expect(await whoIs('email')).toBe(null);
+    expect(await whoIs('none')).toBe(null);
   });
 });
 

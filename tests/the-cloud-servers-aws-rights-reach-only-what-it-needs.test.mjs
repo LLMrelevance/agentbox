@@ -13,7 +13,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { rolePolicy, signerPolicy, withDoneNotice, bundle } from '../scripts/cloud-gateway-setup.mjs';
+import { rolePolicy, signerPolicy, signerKeyPlan, withDoneNotice, bundle, FUNCTION_SECONDS } from '../scripts/cloud-gateway-setup.mjs';
+import { CALL_MS } from '../main/cloud/managed.mjs';
 
 const where = { bucket: 'agentbox-cloud-x', runtimeArn: 'arn:aws:bedrock-agentcore:us-east-1:000000000000:runtime/agentbox_sandbox-x', region: 'us-east-1', account: '000000000000' };
 const resources = (p) => p.Statement.flatMap((s) => [].concat(s.Resource));
@@ -22,13 +23,45 @@ const actions = (p) => p.Statement.flatMap((s) => [].concat(s.Action));
 describe('the links\' signer', () => {
   it('reads and writes runs and sign-ins, and nothing else', () => {
     const p = signerPolicy(where);
-    expect(resources(p).sort()).toEqual(['arn:aws:s3:::agentbox-cloud-x/logins/*', 'arn:aws:s3:::agentbox-cloud-x/runs/*']);
-    expect(actions(p).sort()).toEqual(['s3:GetObject', 's3:PutObject']);
+    const objects = p.Statement.find((s) => [].concat(s.Action).includes('s3:GetObject'));
+    expect([].concat(objects.Resource).sort()).toEqual(['arn:aws:s3:::agentbox-cloud-x/logins/*', 'arn:aws:s3:::agentbox-cloud-x/runs/*']);
+    expect([].concat(objects.Action).sort()).toEqual(['s3:GetObject', 's3:PutObject']);
     expect(JSON.stringify(p)).not.toContain('ledger');
+  });
+
+  // So a link to a missing object answers 404, not 403, and the Mac can tell
+  // "not there" from "refused".
+  it('may list only runs and sign-ins', () => {
+    const list = signerPolicy(where).Statement.find((s) => [].concat(s.Action).includes('s3:ListBucket'));
+    expect(list.Resource).toBe('arn:aws:s3:::agentbox-cloud-x');
+    expect(list.Condition.StringLike['s3:prefix'].sort()).toEqual(['logins/*', 'runs/*']);
+  });
+});
+
+describe('the signer\'s key', () => {
+  it('the one in use is kept and any other is deleted', () => {
+    expect(signerKeyPlan({ inUse: 'K2', keys: [{ id: 'K1', made: 1 }, { id: 'K2', made: 2 }] })).toEqual({ keep: 'K2', remove: ['K1'], make: false });
+  });
+
+  it('with none in use, the extras go and a new one is made, so a third run never asks for a third key', () => {
+    expect(signerKeyPlan({ inUse: null, keys: [{ id: 'K1', made: 1 }, { id: 'K2', made: 2 }] })).toEqual({ keep: null, remove: ['K1', 'K2'], make: true });
+    expect(signerKeyPlan({ inUse: null, keys: [] })).toEqual({ keep: null, remove: [], make: true });
+  });
+
+  it('a key named in use that IAM no longer has is replaced', () => {
+    expect(signerKeyPlan({ inUse: 'K9', keys: [{ id: 'K1', made: 1 }] })).toEqual({ keep: null, remove: ['K1'], make: true });
   });
 });
 
 describe('the function\'s role', () => {
+  // Review, 2026-10-20: links are signed by the signer, so the role never
+  // needs to read a sign-in or a run's files.
+  it('cannot read a sign-in or a run\'s files, only its ledger and the calls it relays', () => {
+    const p = rolePolicy(where);
+    const reads = p.Statement.filter((s) => [].concat(s.Action).includes('s3:GetObject')).flatMap((s) => [].concat(s.Resource));
+    expect(reads.sort()).toEqual(['arn:aws:s3:::agentbox-cloud-x/ledger/*', 'arn:aws:s3:::agentbox-cloud-x/runs/*/calls/*']);
+  });
+
   it('starts and stops only our runtime', () => {
     const p = rolePolicy(where);
     const agentcore = p.Statement.find((s) => [].concat(s.Action).some((a) => a.startsWith('bedrock-agentcore:')));
@@ -38,9 +71,19 @@ describe('the function\'s role', () => {
 
   it('touches only runs, sign-ins and its ledger in our bucket, and no action or resource is a bare wildcard', () => {
     const p = rolePolicy(where);
-    expect(resources(p).filter((r) => r.startsWith('arn:aws:s3')).sort()).toEqual(['ledger/*', 'logins/*', 'runs/*'].map((x) => `arn:aws:s3:::agentbox-cloud-x/${x}`));
+    expect([...new Set(resources(p).filter((r) => r.startsWith('arn:aws:s3')))].sort()).toEqual(['ledger/*', 'logins/*', 'runs/*', 'runs/*/calls/*'].map((x) => `arn:aws:s3:::agentbox-cloud-x/${x}`));
     expect(resources(p)).not.toContain('*');
     expect(actions(p).some((a) => a === '*' || a.endsWith(':*'))).toBe(false);
+  });
+});
+
+// Review, 2026-10-20: the Mac gave up at 60 s while the function was still
+// within its own 60 s wait on AgentCore, so a slow start or collect failed on
+// the Mac and succeeded in the cloud.
+describe('deadlines', () => {
+  it('the Mac waits longer than the function, which waits longer than its call to AgentCore', () => {
+    expect(CALL_MS).toBeGreaterThan(FUNCTION_SECONDS * 1000);
+    expect(FUNCTION_SECONDS * 1000).toBeGreaterThan(60_000);
   });
 });
 

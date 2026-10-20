@@ -7,17 +7,21 @@
 // answered with its name, which the server turns into a link only inside a
 // call to the sandbox.
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { LOGIN_NAME } from '../../shared/cloud-login-name.mjs';
 
 export { LOGIN_NAME };
 
-// A poll is held by the sandbox for up to 25 s; a file of a few hundred MB on
-// a slow network takes minutes.
-const CALL_MS = 60_000;
+// Longer than the server's own deadline (scripts/cloud-gateway-setup.mjs),
+// so a slow start or collect is not given up here while it succeeds there. A
+// file of a few hundred MB on a slow network takes minutes.
+export const CALL_MS = 100_000;
 const FILE_MS = 15 * 60_000;
 const LINK_SECONDS = 12 * 60 * 60;
+// Lambda takes at most 6 MB; a call past this goes through the bucket.
+const RELAY_BYTES = 4 * 1024 * 1024;
 
 const isLogin = (key) => String(key).startsWith('logins/');
 
@@ -43,8 +47,32 @@ export function managedClients({ url, key, timeoutMs = CALL_MS, fileTimeoutMs = 
   const object = (link, init = {}) => fetch(link, { ...init, signal: AbortSignal.timeout(fileTimeoutMs) });
   const refuseLogin = (k) => { if (isLogin(k)) throw new Error('a cloud sign-in is never read on this Mac'); };
 
+  async function invoke(sessionId, payload) {
+    let out;
+    try {
+      const text = JSON.stringify({ sessionId, payload });
+      if (Buffer.byteLength(text) <= RELAY_BYTES) out = await call('POST', '/v1/invoke', { sessionId, payload });
+      else {
+        const payloadKey = `runs/calls/${crypto.randomUUID()}.json`;
+        await storage.put(payloadKey, JSON.stringify(payload));
+        out = await call('POST', '/v1/invoke', { sessionId, payloadKey });
+      }
+    } catch (err) {
+      // A refusal is an answer: run.mjs retries what throws, some calls for
+      // ever. A poll refused ends as a session that is gone does.
+      if (!err.status || err.signedOut || err.status >= 500) throw err;
+      return { ok: false, error: payload?.action === 'events' ? 'no-run' : err.error || 'refused', message: err.message };
+    }
+    if (!out?.relayed) return out;
+    const res = await object(out.relayed.url);
+    if (!res.ok) throw new Error(`the bucket refused the cloud's answer: ${res.status}`);
+    const answer = await res.json();
+    await call('POST', '/v1/delete', { key: out.relayed.key }).catch(() => {});
+    return answer;
+  }
+
   const transport = {
-    invoke: (sessionId, payload) => call('POST', '/v1/invoke', { sessionId, payload }),
+    invoke,
     stop: (sessionId) => call('POST', '/v1/stop', { sessionId }),
   };
 
@@ -57,21 +85,23 @@ export function managedClients({ url, key, timeoutMs = CALL_MS, fileTimeoutMs = 
     async get(k) {
       refuseLogin(k);
       const res = await object(await linkFor('get', k));
-      if (res.status === 404 || res.status === 403) return null;
+      if (res.status === 404) return null;
       if (!res.ok) throw new Error(`the bucket refused ${k}: ${res.status}`);
       return Buffer.from(await res.arrayBuffer());
     },
     async getToFile(k, file) {
       refuseLogin(k);
       const res = await object(await linkFor('get', k));
-      if (res.status === 404 || res.status === 403) return false;
+      if (res.status === 404) return false;
       if (!res.ok) throw new Error(`the bucket refused ${k}: ${res.status}`);
       await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(file));
       return true;
     },
     async exists(k) {
       const res = await object(await linkFor('head', k), { method: 'HEAD' });
-      return res.ok;
+      if (res.status === 404) return false;
+      if (!res.ok) throw new Error(`the bucket refused ${k}: ${res.status}`);
+      return true;
     },
     async del(k) { await call('POST', '/v1/delete', { key: k }); },
     getUrl: async (k, seconds) => (isLogin(k) ? `${LOGIN_NAME}${k}` : linkFor('get', k, seconds)),

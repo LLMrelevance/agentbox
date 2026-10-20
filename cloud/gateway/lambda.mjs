@@ -38,13 +38,18 @@ export function bucketObjects({ region, bucket, client = new S3Client({ region, 
   };
 }
 
-/** Who a database session belongs to, asked of the database itself. */
+/**
+ * Who a database session belongs to, asked of the database itself. Only a
+ * Google sign-in counts: the database also takes made-up email addresses,
+ * and each one would be another free plan.
+ */
 export function supabaseWhoIs({ url, anonKey, fetchImpl = fetch }) {
   return async (token) => {
     const res = await fetchImpl(`${url.replace(/\/+$/, '')}/auth/v1/user`, { headers: { apikey: anonKey, authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) });
     if (!res.ok) return null;
     const u = await res.json();
-    return u?.id ? { id: u.id, email: u.email ?? null } : null;
+    const providers = [].concat(u?.app_metadata?.providers ?? [], u?.app_metadata?.provider ?? []);
+    return u?.id && providers.includes('google') ? { id: u.id, email: u.email ?? null } : null;
   };
 }
 

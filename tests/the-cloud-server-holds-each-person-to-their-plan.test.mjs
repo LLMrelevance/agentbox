@@ -103,6 +103,25 @@ describe('agents running at once', () => {
     expect(await me()).toMatchObject({ running: 0, usedSeconds: 8 * 3600 });
   });
 
+  // Review, 2026-10-20: the Mac holds a link that writes its run's done.json,
+  // so a run could be marked ended while its machine kept going, unmetered.
+  // Whatever ends a run's metering now ends its machine too.
+  it('every way a run ends also stops its machine', async () => {
+    const { start, finish, signin, tick, me, sent } = setup();
+    const stopped = () => sent.filter((s) => s.stop).map((s) => s.sessionId);
+    await start(1);
+    await finish(1);
+    expect(stopped()).toEqual([`u-${A}-run-1`]);
+    await start(2);
+    await signin(1);
+    tick(21 * 60_000);
+    await me();
+    expect(stopped()).toContain(`u-${A}-agentbox-signin-claude-s1`);
+    tick(8 * HOUR);
+    await me();
+    expect(stopped()).toContain(`u-${A}-run-2`);
+  });
+
   it('a start the sandbox refused, or that failed, takes no place and costs nothing', async () => {
     for (const answer of [{ ok: false, error: 'busy' }, new Error('network')]) {
       const { start, me } = setup({ startAnswer: answer });
