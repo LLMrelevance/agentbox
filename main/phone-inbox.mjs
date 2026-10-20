@@ -136,8 +136,10 @@ export function createPhoneInbox({
     lives.set(sk, live);
     return live;
   };
-  // Each project's pass is one stretch of work; between them the window gets a turn.
+  // The window gets a turn between projects and every few threads: 300 threads
+  // of one project in one go held it for up to half a second.
   const breathe = () => new Promise((resolve) => setImmediate(resolve));
+  const THREADS_PER_TURN = 20;
 
   const beats = new Map();
   async function publish() {
@@ -160,6 +162,7 @@ export function createPhoneInbox({
       const batch = [];
       const here = new Set();
       for (const item of rows) {
+        if (here.size && here.size % THREADS_PER_TURN === 0) await breathe();
         here.add(item.id);
         const sk = `${p.slug}:${item.id}`;
         const history = historyOf(p.slug, item.id);

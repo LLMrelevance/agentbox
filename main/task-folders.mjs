@@ -90,6 +90,12 @@ function tryRead(dir) {
   try { return fs.readdirSync(dir); } catch { return ['we could not look']; }
 }
 
+// Files that say nothing of anyone's work: Finder's, and the one an agent
+// writes when it recreates its deleted folder to keep its shell alive. A
+// folder holding only these is as good as empty.
+const LEFTOVER_MARKERS = new Set(['.DS_Store', '.keep-session']);
+const isPlainFile = (file) => { try { return fs.lstatSync(file).isFile(); } catch { return false; } };
+
 /** Git that answers rather than throws, for the questions where "no" is fine. */
 function tryGit(cwd, args) {
   try { return { ok: true, out: git(cwd, args) }; }
@@ -529,12 +535,15 @@ export function ensureTaskFolder(dir, id, { pid = process.pid, dependencies = tr
   // moves INTO it, so the finished copy landed at `<folder>/.building-<id>` and
   // the session would have started in a directory holding almost none of the
   // code. Whatever it is, it is not ours to delete and not ours to fill — an
-  // EMPTY one excepted, since there is nothing there to lose and a stray empty
-  // directory would otherwise wedge the row for good.
+  // EMPTY one excepted, or one holding only LEFTOVER_MARKERS, since there is
+  // nothing there to lose and a stray one would otherwise wedge the row for good.
   if (fs.existsSync(folder)) {
-    const empty = tryRead(folder).length === 0;
-    if (!empty) return refused({ reason: 'in-the-way', heldBy: null });
-    try { fs.rmdirSync(folder); } catch { return refused({ reason: 'in-the-way', heldBy: null }); }
+    const left = tryRead(folder);
+    if (!left.every((name) => LEFTOVER_MARKERS.has(name) && isPlainFile(path.join(folder, name)))) return refused({ reason: 'in-the-way', heldBy: null });
+    try {
+      for (const name of left) fs.rmSync(path.join(folder, name));
+      fs.rmdirSync(folder);
+    } catch { return refused({ reason: 'in-the-way', heldBy: null }); }
   }
 
   // A registration whose directory somebody deleted by hand would refuse the
