@@ -25,17 +25,23 @@ export const RELAY_BYTES = 4 * 1024 * 1024;
 const RELAYED_CALL_LIMIT = 32 * 1024 * 1024;
 const CALL_KEY = /^runs\/calls\/[A-Za-z0-9_-]{1,80}\.json$/;
 const STARTS = { start: 'run', signin: 'signin', renew: 'signin', look: 'signin' };
+// A run's id becomes a key segment (its done.json), so it is one.
+const RUN_ID = /^[A-Za-z0-9._-]{1,120}$/;
 // A done.json the S3 notice missed is looked for by the sweep, not sooner.
 const DONE_LOOK_AFTER_MS = 2 * 60_000;
+// A stop that fails this many sweeps running (an hour) is given up, and said.
+const STOP_TRIES = 12;
+const SWEEP_AT_ONCE = 8;
 
 const month = (t) => new Date(t).toISOString().slice(0, 7);
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const bearer = (headers = {}) => /^Bearer (\S+)$/.exec(headers.authorization || headers.Authorization || '')?.[1] ?? null;
 const ceilingOf = (s) => (s.kind === 'run' ? RUN_CEILING_MS : SIGNIN_CEILING_MS);
-// The sandbox says a run failed in a `status` answer or a `state` event.
-// "exited" is not the end: it is still saving the results, and done.json
-// ends the run once it has.
-const saysFailed = (answer) => answer?.state === 'failed' || (Array.isArray(answer?.events) && answer.events.some((e) => e?.kind === 'state' && e.state === 'failed'));
+// The sandbox says a run failed in a `status` answer or a `state` event, and
+// it is ended once the Mac has read its last page. "exited" is not the end:
+// it is still saving the results, and done.json ends the run once it has.
+const saysFailed = (answer) => !answer?.more && (answer?.state === 'failed' || (Array.isArray(answer?.events) && answer.events.some((e) => e?.kind === 'state' && e.state === 'failed')));
+const notThere = (err) => err?.name === 'ResourceNotFoundException' || err?.$metadata?.httpStatusCode === 404;
 
 class Refusal extends Error {
   constructor(status, error, message) { super(message); this.status = status; this.error = error; }
@@ -133,11 +139,20 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
       }
       if (!(await stopSession(person, e.sid))) failed.push(e.sid);
     }
-    if (failed.length) await update(person, (rec) => { rec.stopping = [...new Set([...rec.stopping, ...failed])]; });
+    if (failed.length) {
+      await update(person, (rec) => {
+        const have = new Set(stoppingOf(rec).map((e) => e.sid));
+        rec.stopping = [...stoppingOf(rec), ...failed.filter((sid) => !have.has(sid)).map((sid) => ({ sid, tries: 0 }))];
+      });
+    }
   }
+  // Older records kept bare session names.
+  const stoppingOf = (rec) => (rec.stopping || []).map((e) => (typeof e === 'string' ? { sid: e, tries: 0 } : e));
 
+  // A session AWS says is not there is as stopped as it gets.
   async function stopSession(person, sid) {
     try { await agentcore.stop(`u-${person}-${sid}`); return true; } catch (err) {
+      if (notThere(err)) return true;
       log(`could not stop ${sid}: ${err?.message || err}`);
       return false;
     }
@@ -208,6 +223,7 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     if ('loginUrl' in sent) sent.loginUrl = await loginLink(person, sent.loginUrl, 'get');
     if ('saveUrl' in sent) sent.saveUrl = await loginLink(person, sent.saveUrl, 'put');
     const kind = Object.hasOwn(STARTS, sent.action) ? STARTS[sent.action] : null;
+    if (kind && (typeof sent.runId !== 'string' || !RUN_ID.test(sent.runId))) throw bad('a run\'s id is plain letters, digits, dots and dashes');
     let nonce;
     let freshPlace = false;
     if (kind) {
@@ -339,27 +355,52 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
 
   // On a clock, whoever is calling or not: ceilings, spent hours, a done.json
   // whose notice was missed, stops AWS did not take, and the free fleet's size.
+  async function sweepOne(person, t) {
+    const before = await recOf(person);
+    const retry = stoppingOf(before);
+    // Nothing going and nothing to stop: read, not written.
+    if (!Object.keys(before.live).length && !retry.length) return before;
+    const finished = new Set();
+    for (const s of live(before, 'run')) {
+      if (!s.runId || !RUN_ID.test(s.runId) || t - s.at < DONE_LOOK_AFTER_MS) continue;
+      const there = await objects.head(`runs/u-${person}/${s.runId}/done.json`).catch(() => null);
+      if (there) finished.add(s.runId);
+    }
+    const rec = await update(person, (r, ctx) => {
+      settle(r, ctx, t);
+      for (const [sid, s] of Object.entries(r.live)) if (s.kind === 'run' && finished.has(s.runId)) end(r, ctx, sid, t, 'done');
+      return r;
+    });
+    if (retry.length) {
+      const stopped = new Set();
+      for (const e of retry) if (await stopSession(person, e.sid)) stopped.add(e.sid);
+      await update(person, (r) => {
+        r.stopping = stoppingOf(r).flatMap((e) => {
+          if (!retry.some((x) => x.sid === e.sid)) return [e];
+          if (stopped.has(e.sid)) return [];
+          if (e.tries + 1 >= STOP_TRIES) { log(`gave up stopping ${person} ${e.sid} after ${STOP_TRIES} sweeps`); return []; }
+          return [{ sid: e.sid, tries: e.tries + 1 }];
+        });
+      });
+    }
+    return rec;
+  }
+
+  // One person who cannot be swept is said and passed; the rest still are,
+  // and the free fleet is still counted.
   async function sweep() {
     const t = now();
     let freeRunning = 0;
-    for (const key of await objects.list('ledger/people/')) {
-      const person = key.slice('ledger/people/'.length, -'.json'.length);
-      if (!PERSON.test(person)) continue;
-      const before = await recOf(person);
-      const finished = new Set();
-      for (const s of live(before, 'run')) {
-        if (s.runId && t - s.at >= DONE_LOOK_AFTER_MS && await objects.head(`runs/u-${person}/${s.runId}/done.json`)) finished.add(s.runId);
-      }
-      const retry = before.stopping;
-      const rec = await update(person, (r, ctx) => {
-        settle(r, ctx, t);
-        for (const [sid, s] of Object.entries(r.live)) if (s.kind === 'run' && finished.has(s.runId)) end(r, ctx, sid, t, 'done');
-        return r;
-      });
-      const stillFailing = [];
-      for (const sid of retry) if (!(await stopSession(person, sid))) stillFailing.push(sid);
-      if (retry.length) await update(person, (r) => { r.stopping = r.stopping.filter((sid) => !retry.includes(sid) || stillFailing.includes(sid)); });
-      if ((rec.plan || 'free') === 'free') freeRunning += live(rec, 'run').length;
+    const people = (await objects.list('ledger/people/')).map((k) => k.slice('ledger/people/'.length, -'.json'.length)).filter((p) => PERSON.test(p));
+    for (let i = 0; i < people.length; i += SWEEP_AT_ONCE) {
+      await Promise.all(people.slice(i, i + SWEEP_AT_ONCE).map(async (person) => {
+        try {
+          const rec = await sweepOne(person, t);
+          if ((rec.plan || 'free') === 'free') freeRunning += live(rec, 'run').length;
+        } catch (err) {
+          log(`could not sweep ${person}: ${err?.message || err}`);
+        }
+      }));
     }
     await objects.put(FLEET, JSON.stringify({ freeRunning, at: t }));
     return { freeRunning };

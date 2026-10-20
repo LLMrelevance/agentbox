@@ -531,7 +531,8 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
   sessions, the seconds used per month, and one record per run (`ledger/runs/`,
   how long and how it ended). A start is refused when the plan's agents are
   all running, its hours are spent, the free fleet is full (50 free runs at
-  once, as the sweep last counted), or the cloud is paused. A live session
+  once, as the sweep last counted: a soft cap, which starts inside one
+  5-minute window can pass), or the cloud is paused. A live session
   takes only the same start again, never a run on a sign-in's session.
 - **Whatever stops being counted is stopped.** A run ends when its
   `done.json` lands, when the Mac stops it, when the sandbox says it failed,
@@ -540,7 +541,8 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
   Mac holds the link that writes its own `done.json`, so a run cannot end its
   counting and keep its machine. A stop that lands while a start is on its
   way is stopped again once the start returns. A stop AWS did not take is
-  kept and retried. A call to a session that is not live is answered
+  kept and retried by the sweep for an hour, then given up in the log; a
+  session AWS says is not there counts as stopped. A call to a session that is not live is answered
   `no-run` without asking AgentCore, which would make a machine for it. The
   Mac stops its session when a run fails or its work is home.
 - **The sweep**, every 5 minutes: ceilings, spent hours, a `done.json` whose

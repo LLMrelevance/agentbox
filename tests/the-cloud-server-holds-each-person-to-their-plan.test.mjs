@@ -23,7 +23,7 @@ function setup({ startAnswer = { ok: true }, answer = () => ({ ok: true }), plan
   let clock = Date.UTC(2026, 9, 19, 12, 0, 0);
   const sent = [];
   const objects = memoryObjects();
-  const ctl = { gate: null, stopFails: 0 };
+  const ctl = { gate: null, stopFails: 0, stopGone: 0 };
   const gw = createGateway({
     agentcore: {
       async invoke(sessionId, payload) {
@@ -34,6 +34,7 @@ function setup({ startAnswer = { ok: true }, answer = () => ({ ok: true }), plan
       },
       async stop(sessionId) {
         if (ctl.stopFails > 0) { ctl.stopFails -= 1; throw new Error('AgentCore is not answering'); }
+        if (ctl.stopGone > 0) { ctl.stopGone -= 1; throw Object.assign(new Error('no such session'), { name: 'ResourceNotFoundException', $metadata: { httpStatusCode: 404 } }); }
         sent.push({ sessionId, stop: true });
       },
     },
@@ -383,5 +384,79 @@ describe('what each run cost', () => {
     tick(30_000);
     await call('POST', '/v1/stop', { sessionId: 'run-2' });
     expect(runs().map((r) => [r.sessionId, r.runId, r.seconds, r.why]).sort()).toEqual([['run-1', 'r1', 90, 'done'], ['run-2', 'r2', 30, 'stopped']]);
+  });
+});
+
+// Re-review, 2026-10-20: the sweep stopped at the first person whose run had
+// no done.json yet (S3 answers 403 there, not 404), a stop of a session that
+// no longer existed was retried for ever, and a failed run's last page of
+// output could be cut off.
+describe('the sweep, when things go wrong', () => {
+  it('one person it cannot read does not stop it reaching the rest, and the fleet is still counted', async () => {
+    const { gw, objects, start, tick, stopped } = setup({ plans: { ...SET, free: { agents: 3, hoursPerMonth: 5 } } });
+    await start(1);
+    const head = objects.head;
+    objects.head = async (k) => { if (k.includes('/r1/')) throw Object.assign(new Error('Forbidden'), { $metadata: { httpStatusCode: 403 } }); return head(k); };
+    const other = '99999999-9999-4999-8999-999999999999';
+    await objects.put(`ledger/people/${other}.json`, JSON.stringify({ plan: 'free', live: { 'run-x': { kind: 'run', runId: 'rx', at: 0, nonce: 'n' } }, used: {}, stopping: [] }));
+    tick(3 * 60_000);
+    await gw.sweep();
+    expect(stopped()).toContain(`u-${other}-run-x`);
+    expect(JSON.parse(objects.dump().get('ledger/fleet.json')).freeRunning).toBe(1);
+  });
+
+  it('a person with nothing going is read, not written', async () => {
+    const { gw, objects, start, finish } = setup();
+    await start(1);
+    await finish(1);
+    const before = await objects.get(`ledger/people/${A}.json`);
+    await gw.sweep();
+    expect((await objects.get(`ledger/people/${A}.json`)).etag).toBe(before.etag);
+  });
+
+  it('a session AWS says is not there counts as stopped', async () => {
+    const { gw, start, finish, ctl, objects } = setup();
+    await start(1);
+    ctl.stopGone = 1;
+    await finish(1);
+    expect(JSON.parse(objects.dump().get(`ledger/people/${A}.json`)).stopping).toEqual([]);
+    await gw.sweep();
+  });
+
+  it('a stop that keeps failing is given up after 12 sweeps, not tried for ever', async () => {
+    const { gw, start, finish, ctl, objects } = setup();
+    await start(1);
+    ctl.stopFails = 100;
+    await finish(1);
+    const stopping = () => JSON.parse(objects.dump().get(`ledger/people/${A}.json`)).stopping;
+    for (let i = 0; i < 11; i += 1) await gw.sweep();
+    expect(stopping()).toHaveLength(1);
+    await gw.sweep();
+    expect(stopping()).toEqual([]);
+  });
+});
+
+describe('a failed run\'s output', () => {
+  it('is read to its end before its machine is stopped', async () => {
+    let more = true;
+    const { start, poll, stopped } = setup({ answer: () => ({ ok: true, state: 'failed', more, events: [{ seq: 2, kind: 'stdout', data: 'x' }] }) });
+    await start(1);
+    await poll(1);
+    expect(stopped()).toEqual([]);
+    more = false;
+    await poll(1);
+    expect(stopped()).toEqual([`u-${A}-run-1`]);
+  });
+});
+
+describe('a run\'s name', () => {
+  it('is plain letters, digits, dots and dashes, or the start is refused', async () => {
+    const { call, sent } = setup();
+    for (const runId of ['../x', 'a/b', 'x'.repeat(121), '']) {
+      const r = await call('POST', '/v1/invoke', { sessionId: 'run-1', payload: { action: 'start', runId } });
+      expect(r.status, runId).toBe(400);
+    }
+    expect(sent).toEqual([]);
+    expect((await call('POST', '/v1/invoke', { sessionId: 'run-1', payload: { action: 'start', runId: 'run.1_a-B' } })).body.ok).toBe(true);
   });
 });

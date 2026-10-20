@@ -54,7 +54,8 @@ export function rolePolicy({ bucket, runtimeArn, region, account, signerSecretAr
       { Effect: 'Allow', Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'], Resource: [at('ledger/*'), at('runs/*/calls/*')] },
       { Effect: 'Allow', Action: ['s3:GetObject'], Resource: [at('runs/*/done.json')] },
       { Effect: 'Allow', Action: ['s3:DeleteObject'], Resource: [at('runs/*'), at('logins/*')] },
-      { Effect: 'Allow', Action: ['s3:ListBucket'], Resource: `arn:aws:s3:::${bucket}`, Condition: { StringLike: { 's3:prefix': ['ledger/*'] } } },
+      // runs/ too, so a done.json not there yet answers 404, not 403.
+      { Effect: 'Allow', Action: ['s3:ListBucket'], Resource: `arn:aws:s3:::${bucket}`, Condition: { StringLike: { 's3:prefix': ['ledger/*', 'runs/*'] } } },
       { Effect: 'Allow', Action: ['secretsmanager:GetSecretValue'], Resource: signerSecretArn },
       { Effect: 'Allow', Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'], Resource: `arn:aws:logs:${region}:${account}:log-group:/aws/lambda/${NAMES.fn}*` },
     ],

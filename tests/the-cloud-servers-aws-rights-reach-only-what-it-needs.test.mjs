@@ -66,7 +66,8 @@ describe('the function\'s role', () => {
   it('lists only its ledger, and reads only the signer\'s secret', () => {
     const p = rolePolicy({ ...where, signerSecretArn: 'arn:aws:secretsmanager:us-east-1:000000000000:secret:agentbox-gateway-signer-AbCd' });
     const list = p.Statement.find((s) => [].concat(s.Action).includes('s3:ListBucket'));
-    expect(list.Condition.StringLike['s3:prefix']).toEqual(['ledger/*']);
+    // And runs, so a done.json not there yet answers 404, not 403.
+    expect(list.Condition.StringLike['s3:prefix']).toEqual(['ledger/*', 'runs/*']);
     const secret = p.Statement.find((s) => [].concat(s.Action).includes('secretsmanager:GetSecretValue'));
     expect(secret.Resource).toBe('arn:aws:secretsmanager:us-east-1:000000000000:secret:agentbox-gateway-signer-AbCd');
   });
