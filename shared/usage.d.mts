@@ -42,6 +42,7 @@ export declare function sessionLimit(limits: UsageLimit[] | null | undefined): U
 export declare function headlineLimit(limits: UsageLimit[] | null | undefined): UsageLimit | null;
 export declare const ANY_MOMENT: string;
 export declare function spanLeft(ms: number): string;
+export declare function resetDay(at: number, now?: number): string | null;
 export declare function untilReset(ms: number): string;
 
 export declare function limitRows(

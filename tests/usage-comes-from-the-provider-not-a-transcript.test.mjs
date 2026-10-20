@@ -40,7 +40,8 @@ it('never substitutes token totals, local behavior estimates, or plausible prose
 });
 
 it('refuses missing, nonnumeric, and out-of-range percentages without turning them into zero', () => {
-  for (const bad of [null, undefined, '8', NaN, Infinity, -1, 101]) {
+  // Over 100 is full, not unreadable (tests/a-limit-past-its-allowance-reads-100-percent).
+  for (const bad of [null, undefined, '8', NaN, Infinity, -1]) {
     const data = report();
     data.rate_limits.five_hour.utilization = bad;
     expect(format.readUsageReport(data).map(r => r.percent)).toEqual([39]);

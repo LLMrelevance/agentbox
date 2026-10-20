@@ -58,7 +58,7 @@ export const LIVE_FILES = [
   /^(main|shared|bin|renderer|mcp)\//,
   /^preload\.cjs$/,
   /^package(-lock)?\.json$/,
-  /^scripts\/lib\/(stub-claude-worker|claude-stub-model)\.mjs$/,
+  /^scripts\/lib\/(stub-claude-worker|claude-stub-model|stand-in-world)\.mjs$/,
   /^\.claude\/skills\/verify-agentbox\/scripts\//,
 ];
 export function layersFor(files, { all = false, quick = false, real = true, installed = true, breaker = true, setups = true } = {}) {

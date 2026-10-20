@@ -87,6 +87,11 @@ const HER_WORDS = ['title', 'body', 'answer'];
 function herLastWord(i: InboxItem): number {
   let last = 0;
   for (const field of HER_WORDS) {
+    // Taking a word back is not saying one. A withdrawal is written to
+    // `answer` in her own hand, so counted here it outranked the very result
+    // it was undoing and the thread stopped being news.
+    // tests/undoing-a-pick-that-went-out-puts-the-thread-back-in-needs-you
+    if (field === 'answer' && i.answer === '(withdrawn)') continue;
     const w = i.wrote?.[field];
     if (w?.source === 'founder') last = Math.max(last, w.ts ?? 0);
   }

@@ -6,12 +6,12 @@
 // measured $0.07 an agent-hour (scripts/cloud-usage.mjs).
 export const PLANS = Object.freeze({
   none: Object.freeze({ agents: 0, hoursPerMonth: 0 }),
-  pro: Object.freeze({ agents: 10, hoursPerMonth: 400 }),
-  plus: Object.freeze({ agents: 25, hoursPerMonth: 1200 }),
+  pro: Object.freeze({ agents: 10, hoursPerMonth: 400, dollarsPerMonth: 40 }),
+  plus: Object.freeze({ agents: 25, hoursPerMonth: 1200, dollarsPerMonth: 100 }),
   // Sold as unlimited at once: the hours bound the cost. `agents` is a ceiling
   // never shown, so one runaway loop cannot take the AWS session limit that
   // every customer shares.
-  max: Object.freeze({ agents: 200, unlimited: true, hoursPerMonth: 3000 }),
+  max: Object.freeze({ agents: 200, unlimited: true, hoursPerMonth: 3000, dollarsPerMonth: 200 }),
 });
 
 export const RUN_CEILING_MS = 8 * 60 * 60_000;

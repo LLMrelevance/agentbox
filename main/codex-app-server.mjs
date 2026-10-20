@@ -227,6 +227,7 @@ export function createCodexAppServer({
   let gone = null;              // null while live; the closing reason once not
   let drained = false;          // stdout has ended, so the diagnostics are complete
   let finished = false;
+  let resumeLeavesTurns = true; // false once this Codex refuses `excludeTurns`
 
   /**
    * Put one message on the wire, or take the connection down. A pipe can fail
@@ -524,8 +525,8 @@ export function createCodexAppServer({
   }
 
   /** Why this connection ended, in a sentence that names something actionable. */
-  function cause() {
-    const tail = stderrText.trim().split('\n').slice(-3).join(' ').trim();
+  function cause({ withTail = true } = {}) {
+    const tail = withTail ? stderrText.trim().split('\n').slice(-3).join(' ').trim() : '';
     const said = tail ? `: ${tail}` : '';
     if (!gone) return `the connection to codex app-server failed on write${said}`;
     switch (gone.reason) {
@@ -565,6 +566,7 @@ export function createCodexAppServer({
     if (finished) return;
     finished = true;
     gone.stderr = stderrText;
+    gone.why = cause({ withTail: false });
     const why = cause();
 
     for (const timer of openCards.values()) clearTimeout(timer);
@@ -611,14 +613,26 @@ export function createCodexAppServer({
      * Continue a known thread. The watch goes on before the request, so no
      * event of the resumed thread arrives unowned, and comes off if the server
      * refuses the resume.
+     *
+     * Without `excludeTurns` the answer carries every turn in one frame, and a
+     * long thread passes `maxFrameLength`, which ends this connection for every
+     * thread on it. Codex before 0.155 refuses the field without the
+     * experimental API, so that Codex is asked again in full.
      */
     resumeThread: (params = {}, handlers = {}) => {
       const id = typeof params.threadId === 'string' ? params.threadId : null;
       if (id) watch(id, handlers);
-      return send('thread/resume', params).catch((err) => {
-        if (id && threads.get(id) === handlers) threads.delete(id);
-        throw err;
-      });
+      const lean = resumeLeavesTurns;
+      return send('thread/resume', lean ? { ...params, excludeTurns: true } : params)
+        .catch((err) => {
+          if (!lean || !/excludeTurns/.test(err?.message ?? '')) throw err;
+          resumeLeavesTurns = false;
+          return send('thread/resume', params);
+        })
+        .catch((err) => {
+          if (id && threads.get(id) === handlers) threads.delete(id);
+          throw err;
+        });
     },
 
     startTurn: (threadId, params = {}) => send('turn/start', { threadId, ...params }),
