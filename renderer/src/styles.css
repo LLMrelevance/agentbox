@@ -813,10 +813,26 @@ body {
   height: 100%;
   display: grid;
   place-items: center;
+  align-content: center;
+  gap: 18px;
   font-size: 28px;
   font-weight: 200;
   letter-spacing: 0.3em;
   color: var(--text-faint);
+}
+
+/* The one sentence the boot screen says when nothing comes back. It stands
+   where the wordmark stood, in reading type rather than in the wordmark's
+   tracking. */
+.boot-stuck p {
+  margin: 0;
+  max-width: 560px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 1.6;
+  color: var(--text-dim);
 }
 
 /* --read-w is the width of the sheet an opened task is set on: the reading

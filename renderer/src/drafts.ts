@@ -364,15 +364,23 @@ export function clearComposeDraft(store?: DraftStore): void {
 }
 
 /**
- * The card's words, taken off it as Send is pressed (w-461fbd8d2d). The card
- * closes before the computer answers now, so clearing the draft when the
- * answer came would empty whatever card was opened in between. The send
- * carries what it took, for Z, and puts it back if it does not stand.
+ * The card's words go when the send LANDS, not when Send is pressed.
+ *
+ * They used to be taken at the press (w-461fbd8d2d), because the card closes
+ * before the computer answers. That leaves the only copy inside a call that
+ * has not returned, which is nowhere at all for as long as the app takes to
+ * answer, and the app can stop answering.
+ *
+ * So the copy outlives the press, and this drops it once something has come
+ * back, unless the box holds something else by then. Same rule as
+ * `restoreComposeDraft` below: a card opened and typed into in the meantime is
+ * never emptied by an older send landing.
  */
-export function takeComposeDraft(store?: DraftStore): ComposeDraft {
-  const taken = readComposeDraft(store);
+export function dropComposeDraft(sent: ComposeDraft, store?: DraftStore): void {
+  const now = readComposeDraft(store);
+  if (now.text !== sent.text) return;
+  if (now.attachments.length !== sent.attachments.length) return;
   clearComposeDraft(store);
-  return taken;
 }
 
 /**
