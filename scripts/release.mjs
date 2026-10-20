@@ -64,6 +64,7 @@ import { fileURLToPath } from 'node:url';
 import { envName, readEnv } from '../shared/product-name.mjs';
 import { liveDownload, RELEASE_REPO, DOWNLOAD_ASSET } from './lib/live-download.mjs';
 import { whyNotToRelease } from './lib/ship-rules.mjs';
+import { cloudAccountConfig } from '../main/cloud/config.mjs';
 
 const repo = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const noSign = process.argv.includes('--no-sign');
@@ -159,6 +160,13 @@ function feedbackAddress() {
 }
 
 const feedbackUrl = feedbackAddress();
+
+// WHERE AGENTBOX CLOUD IS (main/cloud/config.mjs): the server's address and
+// the database's public address and key, all public. Read from cloud/ or
+// ~/.agentbox/cloud.public.json. Putting that file there is the act that
+// opens the cloud to everyone who downloads this build, so do it only once
+// the server takes real money (scripts/stripe-setup.mjs --live).
+const cloud = cloudAccountConfig(repo);
 
 
 if (!noSign) {
@@ -263,6 +271,12 @@ if (feedbackUrl) {
   console.log('→ baking the feedback address into the build');
 } else {
   console.log(`→ no feedback address (${envName('FEEDBACK_URL')} or "feedbackUrl" in zero.config.json), so the Feedback card sends to the one in main/feedback.mjs`);
+}
+if (cloud) {
+  for (const k of ['gateway', 'supabaseUrl', 'anonKey']) args.push(`-c.extraMetadata.bakedCloud.${k}=${cloud[k]}`);
+  console.log(`→ baking Agentbox Cloud into the build (${cloud.gateway}): everyone who downloads it can sign up and pay`);
+} else {
+  console.log('→ no cloud.public.json, so this build does not offer Agentbox Cloud');
 }
 if (noSign) {
   console.log('→ packaging, unsigned');

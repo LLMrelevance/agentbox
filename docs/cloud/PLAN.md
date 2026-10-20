@@ -301,7 +301,10 @@ stdout and stderr come back byte for byte. Its life:
   host, 20 without it), and an account is healthy. With Everything
   (`cloudRuns: 'all'`) a thread that may go to the cloud waits for a cloud slot
   (cap, two starting, accounts at their limit or renewing) and never falls back
-  to the Mac (2026-10-17, her Mac overloaded with Everything on). At most two
+  to the Mac (2026-10-17, her Mac overloaded with Everything on). "Starting"
+  is this Mac packing and sending a run; once the cloud takes its start, the
+  next one begins (2026-10-20), and the run's log says how long each part of
+  its start took. At most two
   runs bring their work home at once, through files, across every process. Account cooldowns and the fleet brake apply to cloud runs exactly as
   to local ones.
 - **Hangs.** The reaper is unchanged: silence plus an expired claim. The store
@@ -522,7 +525,13 @@ approved:
 4. **Plans** enforced by the server (below), with the hour limits set from
    `node scripts/cloud-usage.mjs`.
 5. **Stripe**: checkout, the page where people manage their plan, and its
-   notices writing the plan into the server's ledger.
+   notices writing the plan into the server's ledger. A Stripe account of
+   its own (Agentbox) in the company's organization. `scripts/stripe-setup.mjs`
+   makes the products, prices, billing page and webhook from `plans.mjs`
+   and stores the key and webhook secret in Secrets Manager; the server's
+   `/v1/checkout`, `/v1/billing` and `/v1/stripe` do the rest. A webhook is
+   read against Stripe, never believed. Before real money: activate the
+   account, choose Managed Payments or Stripe Tax, run it with `--live`.
 6. **Upgrade prompts in the app.** Before drawing any, tell the person: they
    will ask the cloud buildout thread (w-1dc7ee2408) for the "you could run
    more agents" designs it made.
@@ -609,6 +618,11 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
 - After three cloud runs in a row fail before their agent starts, no new rows
   go to the cloud for ten minutes and the cloud menu says why; the count is
   kept in memory, so a restart forgets it.
+- A thread the cloud hands back (its request needs something only the Mac
+  has), or whose cloud starts die three times running, runs that one request
+  on the Mac. Once a run there answers it, the next reply goes to the cloud
+  first again. Only "Keep on this Mac" in the thread's menu keeps a thread on
+  the Mac for good (2026-10-20).
 - The cloud menu says when the image's Claude Code or Codex is a different
   minor version from this Mac's; across a major version that engine's threads
   stay on the Mac until the image is rebuilt.
