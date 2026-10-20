@@ -3009,6 +3009,8 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
               {' Mode. '}
             </>
           )}
+          {/* One span, so the cloud hides "On" and the stop with the model. */}
+          <span className="dock-model">
           {'On '}
           <ModelPicker
             value={model}
@@ -3028,6 +3030,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
             openAtStart={openModel}
           />
           {'.'}
+          </span>
           </>}
         </span>
         {/* WHAT WAS PHOTOGRAPHED WAS A REAL COLLISION, NOT A PREFERENCE. The
