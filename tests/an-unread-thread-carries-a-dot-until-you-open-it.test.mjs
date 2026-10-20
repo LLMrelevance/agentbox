@@ -74,7 +74,8 @@ describe('the list draws it', () => {
     expect(css).toMatch(/\.th-table \.row\.unread::before \{[^}]*background: var\(--accent\)/);
     // Measured in the built app: without `:root` the shared 400 rule, loaded
     // later, won and unread titles drew at 400.
-    expect(css).toMatch(/:root \.th-table \.row\.unread \.subject \{ font-weight: 560; \}/);
+    // 530: 560 read one step too heavy in the built app (2026-10-20).
+    expect(css).toMatch(/:root \.th-table \.row\.unread \.subject \{ font-weight: 530; \}/);
   });
   it('and opening a thread marks it read at that moment', () => {
     const app = read('App.tsx');
