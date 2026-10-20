@@ -1,0 +1,267 @@
+// Daily-work replay, 2026-10-17: exercise the real decision runner and bridge
+// together. Snooze follow-ups, opening then picking, stale targets and going
+// back exposed gaps that isolated picker tests never exercised.
+import { describe, expect, it, vi } from 'vitest';
+import { runDecision } from '../main/neo/decided.mjs';
+import { neoBridge, screenFor } from '../renderer/src/neo/bridge.ts';
+import { laterFrom } from '../shared/neo-params.mjs';
+import { buildOptions } from '../shared/neo-options.mjs';
+
+function inbox() {
+  const rows = [
+    { id: 'w-a', product: 'alpha', title: 'Landing page', options: [{ n: 1, text: 'Ship it' }, { n: 2, text: 'Revise the headline' }] },
+    { id: 'w-b', product: 'beta', title: 'Billing export', options: [{ n: 1, text: 'Keep the CSV' }] },
+    { id: 'w-c', product: 'alpha', title: 'Daily report', options: [] },
+  ];
+  let focused = rows[0];
+  const effects = [];
+  const deps = {
+    rows: () => rows.filter((r) => !r.done), threadsAnywhere: () => rows,
+    focused: () => focused, outside: () => false, options: (r) => r.options,
+    summary: () => 'Ready to review.', projects: () => [{ slug: 'alpha', name: 'Alpha' }, { slug: 'beta', name: 'Beta' }],
+    open: async (r) => { focused = r; effects.push(['open', r.id]); },
+    pick: async (r, n) => { effects.push(['pick', r.id, n]); r.done = true; focused = deps.rows()[0] ?? null; },
+    reply: async (r, text) => { effects.push(['reply', r.id, text]); },
+    close: async (r) => { effects.push(['close', r.id]); r.done = true; focused = deps.rows()[0] ?? null; },
+    later: async (r, ts) => { effects.push(['later', r.id, ts]); r.done = true; focused = deps.rows()[0] ?? null; },
+    compose: async (text, product) => { effects.push(['new', product, text]); return { id: 'w-new' }; },
+    undo: async () => 'none', glow: () => {}, show: async (ns, layout) => { effects.push(['show', layout]); return true; },
+    now: () => new Date('2026-10-17T09:00:00').getTime(),
+  };
+  const act = neoBridge(deps);
+  const state = {};
+  const askMain = async (name, args = {}, heard = '') => name === 'neo_screen'
+    ? { ok: true, screen: screenFor(deps, act.canGoBack()) }
+    : act(name, args, { heard });
+  const run = (heard, picks, extra = {}) => {
+    const queue = [...picks];
+    return runDecision({ heard, askMain, state, now: deps.now, decideImpl: async () => ({ choice: queue.shift() ?? 'none', confidence: 0.95, runnersUp: [] }), ...extra });
+  };
+  return { deps, effects, run, state, focus: (r) => { focused = r; }, rows };
+}
+
+describe('a day of work through the decision runner and real bridge', () => {
+  it.each(['Play the second sound.', 'Play sound number two.'])('does not substitute the first sound for a missing second one: %s',async(heard)=>{
+    const t=inbox();t.deps.mediaNames=()=>['first.wav'];t.deps.media=vi.fn();
+    const result=await t.run(heard,['play:1']);
+    expect(t.deps.media).not.toHaveBeenCalled();
+    expect(result.say).toMatch(/no film or sound number 2/i);
+  });
+
+  it('uses an explicitly requested sound number even if the picker chose the first',async()=>{
+    const t=inbox();t.deps.mediaNames=()=>['first.wav','second.wav'];
+    t.deps.media=vi.fn(async()=>({name:'second.wav'}));
+    await t.run('Play the second sound.',['play:1']);
+    expect(t.deps.media).toHaveBeenCalledWith('play',2);
+  });
+
+  it.each(['Play sound number 0.','Play sound number zero.','Play the tenth sound.','Play the first sound, not the second one.'])('does not play a default sound for an invalid or ambiguous number: %s',async(heard)=>{
+    const t=inbox();t.deps.mediaNames=()=>['first.wav','second.wav'];t.deps.media=vi.fn();
+    const result=await t.run(heard,['play:1']);
+    expect(t.deps.media).not.toHaveBeenCalled();
+    expect(result.say).toMatch(/nothing was played/i);
+  });
+
+  it('never applies a second option to the next thread after a reply advanced the inbox',async()=>{
+    const t=inbox();
+    t.deps.reply=async(row,text)=>{t.effects.push(['reply',row.id,text]);row.done=true;t.focus(t.rows[1]);};
+    const result=await t.run('Tell the agent to keep testing before shipping.', ['reply','pick:1']);
+    expect(t.effects.filter(([kind])=>kind==='pick')).toEqual([]);
+    expect(result.say).toMatch(/second part.*(?:changed|original thread|not done)/i);
+    expect(t.deps.focused().id).toBe('w-b');
+  });
+
+  it('does not reinterpret an option number when its wording changes during the first action',async()=>{
+    const t=inbox();t.rows[0].options[0].text='Keep the layout';
+    t.deps.reply=async()=>{t.rows[0].options[0].text='Completely different choice';};
+    await t.run('Tell the agent this is ready and choose the layout.', ['reply','pick:1']);
+    expect(t.effects.filter(([kind])=>kind==='pick')).toEqual([]);
+  });
+
+  it('compares full option wording when its unchanged prefix is longer than the spoken label',async()=>{
+    const t=inbox(),prefix='A long shared description about how this layout will behave. '.repeat(3);
+    t.rows[0].options[0].text=prefix+'Keep locally';
+    t.deps.reply=async()=>{t.rows[0].options[0].text=prefix+'Send elsewhere';};
+    await t.run('Send this feedback and choose the first option.', ['reply','pick:1']);
+    expect(t.effects.filter(([kind])=>kind==='pick')).toEqual([]);
+  });
+
+  it.each(['done','approve'])('does not retarget the %s command after a reply advances the inbox',async(id)=>{
+    const t=inbox();
+    t.deps.commands=()=>[{id,label:id==='done'?'Close Task':'Approve this task',run:()=>t.effects.push(['command',id,t.deps.focused().id])}];
+    t.deps.reply=async(row)=>{row.done=true;t.focus(t.rows[1]);};
+    await t.run('Tell the agent this is ready and approve it.', ['reply',`cmd:${id}`]);
+    expect(t.effects.filter(([kind])=>kind==='command'||kind==='close')).toEqual([]);
+  });
+
+  it('can choose the current thread when asked to open it again', async () => {
+    const t = inbox();
+    const options = buildOptions(screenFor(t.deps, false)).list;
+    expect(options.find((o) => o.value === 'open:w-a')).toMatchObject({act:{kind:'open',id:'w-a'}});
+    await t.run('Open landing page again.', ['open:w-a']);
+    expect(t.deps.focused().id).toBe('w-a');
+  });
+  it('remembers which thread a snooze duration answers', async () => {
+    const t = inbox();
+    expect((await t.run('Snooze this.', ['later'])).say).toMatch(/how long/i);
+    await t.run('Ten minutes.', ['later']);
+    expect(t.effects).toContainEqual(['later', 'w-a', t.deps.now() + 600_000]);
+  });
+
+  it('offers the waiting snooze request to the picker on the next turn', async () => {
+    const t = inbox();
+    await t.run('Put it off.', ['later']);
+    const decideImpl = vi.fn(async () => ({ choice: 'none', confidence: 0.95 }));
+    await t.run('Ten minutes.', [], { decideImpl });
+    expect(decideImpl.mock.calls[0][0].input).toMatch(/waiting.*(?:time|duration)|(?:time|duration).*waiting/i);
+  });
+
+  it('opens a thread from the inbox and then offers its options', async () => {
+    const t = inbox();
+    t.focus(null);
+    const decideImpl = vi.fn(async ({ instructions, options }) => {
+      if (/first of them/.test(instructions)) return { choice: 'open:w-a', confidence: 0.95 };
+      return { choice: options.some((o) => o.value === 'pick:2') ? 'pick:2' : 'none', confidence: 0.95 };
+    });
+    await t.run('Open the landing page task and go with option two.', [], { decideImpl });
+    expect(t.effects).toContainEqual(['pick', 'w-a', 2]);
+  });
+
+  it('does not close a different thread when the screen changes during a decision', async () => {
+    const t = inbox();
+    const decideImpl = vi.fn(async () => { t.focus(t.rows[1]); return { choice: 'close', confidence: 0.95 }; });
+    await t.run('Close this.', [], { decideImpl });
+    expect(t.effects.filter(([kind]) => kind === 'close')).toEqual([]);
+  });
+
+  it('puts away the previous thread pictures when going back', async () => {
+    const t = inbox();
+    await t.run('Open billing export.', ['open:w-b']);
+    t.effects.length = 0;
+    await t.run('Go back.', ['back']);
+    expect(t.effects).toContainEqual(['show', 'close']);
+    expect(t.deps.focused().id).toBe('w-a');
+  });
+
+  it('goes back two visited threads in one request', async () => {
+    const t = inbox();
+    await t.run('Open billing export.', ['open:w-b']);
+    await t.run('Open daily report.', ['open:w-c']);
+    await t.run('Actually go back two threads.', ['back']);
+    expect(t.deps.focused().id).toBe('w-a');
+  });
+
+  it('leaves the screen and history intact when there are not enough previous threads', async () => {
+    const t = inbox();
+    await t.run('Open billing export.', ['open:w-b']);
+    expect((await t.run('Go back two threads.', ['back'])).say).toMatch(/not 2 previous/);
+    expect(t.deps.focused().id).toBe('w-b');
+    await t.run('Go back.', ['back']);
+    expect(t.deps.focused().id).toBe('w-a');
+  });
+
+  it('does not treat a confirmation as approval for an unrelated newer undo', async () => {
+    const t = inbox();
+    t.deps.undo = vi.fn().mockResolvedValueOnce({ asked: 'Withdraw this reply?', confirmation: 'old' }).mockResolvedValueOnce('changed');
+    await t.run('Undo that.', ['undo']);
+    expect((await t.run('Yes.', ['yes'])).say).toMatch(/changed.*nothing was undone/);
+    expect(t.deps.undo).toHaveBeenLastCalledWith('old');
+  });
+
+  it('reports an undo refusal instead of announcing success', async () => {
+    const t = inbox();
+    t.deps.undo = async () => ({ failed: 'The agent already acted on that reply, so it could not be withdrawn.' });
+    const result = await t.run('Undo that.', ['undo']);
+    expect(result.say).toMatch(/could not be withdrawn/);
+    expect(result.say).not.toMatch(/^Undone/);
+  });
+
+  it('keeps a low-confidence spoken clarification ready for a plain yes', async () => {
+    const t = inbox();
+    const result = await t.run('Actually can we undo that?', [], {
+      decideImpl: async () => ({ choice: 'talk', confidence: 0.25, runnersUp: [{ value: 'undo', probability: 0.24 }] }),
+    });
+    expect(result.say).toMatch(/Undo/i);
+    expect(t.state.pending?.option?.value).toBe('undo');
+    const undo = vi.spyOn(t.deps, 'undo');
+    await t.run('Yes.', ['yes']);
+    expect(undo).toHaveBeenCalledOnce();
+  });
+
+  it('confirms an older undo by voice and passes the exact confirmation back', async () => {
+    const t = inbox();
+    t.deps.undo = vi.fn(async (confirmation) => confirmation === 'undo-receipt-2'
+      ? 'done' : { asked: 'Withdraw the reply about receipt exports?', confirmation: 'undo-receipt-2' });
+    const result = await t.run('Undo that.', ['undo']);
+    expect(result.say).toMatch(/Withdraw the reply/);
+    await t.run('Yes.', ['yes']);
+    expect(t.deps.undo).toHaveBeenLastCalledWith('undo-receipt-2');
+  });
+
+  it.each(['yes', 'talk'])('keeps the original confirmation after an uncertain %s', async (choice) => {
+    const t = inbox();
+    t.deps.undo = vi.fn(async (token) => token === 'original' ? 'done' : { asked: 'Withdraw this reply?', confirmation: 'original' });
+    await t.run('Undo that.', ['undo']);
+    await t.run('Yes.', [], { decideImpl: async () => ({ choice, confidence: 0.2, runnersUp: [{value:'yes',probability:0.25}] }) });
+    expect(t.state.pending?.name).toBe('undo');
+    await t.run('Yes, withdraw it.', ['yes']);
+    expect(t.deps.undo).toHaveBeenLastCalledWith('original');
+  });
+
+  it('cancels the waiting snooze if the person moves to another thread', async () => {
+    const t = inbox();
+    await t.run('Snooze this.', ['later']);
+    t.focus(t.rows[1]);
+    await t.run('Ten minutes.', ['none']);
+    expect(t.effects.filter(([kind]) => kind === 'later')).toEqual([]);
+    expect(t.state.pending).toBeFalsy();
+  });
+
+  it('can add new work to a named project', async () => {
+    const t = inbox();
+    await t.run('Add a new task: check the receipts.', ['new:beta']);
+    expect(t.effects).toContainEqual(['new', 'beta', 'check the receipts.']);
+  });
+
+  it.each([
+    ['Start a new task in Beta: check receipts.', 'check receipts.'],
+    ['Start a new task: Beta release notes need work.', 'Beta release notes need work.'],
+  ])('keeps the new message separate from its project: %s', async (heard, text) => {
+    const t = inbox();
+    await t.run(heard, ['new:beta']);
+    expect(t.effects).toContainEqual(['new', 'beta', text]);
+  });
+
+  it('completes close-and-next without skipping the newly opened thread', async () => {
+    const t = inbox();
+    await t.run('Close this and go next.', ['close', 'next', 'a']);
+    expect(t.deps.focused().id).toBe('w-b');
+    expect(t.effects.filter(([kind]) => kind === 'close')).toEqual([['close', 'w-a']]);
+  });
+
+  it('answers an app close confirmation by voice, on that same thread only', async () => {
+    const t = inbox();
+    t.deps.close = vi.fn(async (r, confirmed) => {
+      if (!confirmed) return { asked: 'The agent is waiting for your answer. Close anyway?' };
+      t.effects.push(['close', r.id]);
+      r.done = true;
+      t.focus(t.rows[1]);
+      return 'done';
+    });
+    expect((await t.run('Close this.', ['close'])).say).toMatch(/Close anyway/);
+    expect(t.effects.filter(([kind]) => kind === 'close')).toEqual([]);
+    await t.run('Yes.', ['yes']);
+    expect(t.effects).toContainEqual(['close', 'w-a']);
+    expect(t.deps.close).toHaveBeenLastCalledWith(t.rows[0], true);
+  });
+});
+
+describe('times people say during their day', () => {
+  const now = new Date('2026-10-17T09:00:00').getTime();
+  it.each(['until 99pm', 'until 4:99pm', 'for zero minutes', 'for 0 hours'])('refuses an invalid time: %s', (said) => {
+    expect(laterFrom(said, now)).toBeNull();
+  });
+  it.each(['tomorrow at 9', 'in ten minutes', 'until 4pm'])('accepts a real time: %s', (said) => {
+    expect(laterFrom(said, now)?.ts).toBeGreaterThan(now);
+  });
+});

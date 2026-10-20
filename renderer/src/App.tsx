@@ -837,6 +837,7 @@ export default function App() {
    * the screen reads it except the toast it already raised.
    */
   const undoAskRef = useRef<{ entry: Undoable & { at: number }; at: number } | null>(null);
+  const neoUndoAskRef = useRef<{ entry: Undoable & { at: number }; at: number; confirmation: string } | null>(null);
   /* * A TOAST CAN CARRY A WAY IN NOW, and on the one that says a task was made it does.
 
      `goes` is the row it was about, by id, NOT a closure that opens it. A
@@ -4565,7 +4566,7 @@ export default function App() {
       leaveUndoMarks(pending.undid, now, now);
       setFocused(pending.item);
       showToast(graceUndoneLine({ said: pending.said, restored: !!restored }));
-      return;
+      return 'done' as const;
     }
     // PAST THE GRACE WINDOW, Z REACHES THE LAST THING SHE DID, AND AFTER THIRTY
     // SECONDS IT ASKS BEFORE IT DOES IT. It used to act silently for the rest of
@@ -4581,14 +4582,14 @@ export default function App() {
     if (!last) {
       undoAskRef.current = null;
       showToast(NOTHING_TO_UNDO);
-      return;
+      return 'none' as const;
     }
     const asked = undoAskRef.current;
     const answeringIt = asked?.entry === last && askStillStands(asked.at, now);
     if (!instant && !answeringIt) {
       undoAskRef.current = { entry: last, at: now };
       showToast(undoAsk(last.undoes));
-      return;
+      return 'old' as const;
     }
     undoAskRef.current = null;
     // The close that put this row away also queued the step onto the next task.
@@ -4610,13 +4611,13 @@ export default function App() {
     } catch (err) {
       setUndoStack((u) => [...u, last]);
       showToast(`Could not undo that. ${(err as Error)?.message ?? err}`);
-      return;
+      return { failed: `Could not undo that. ${(err as Error)?.message ?? err}` };
     }
     if (outcome && 'refused' in outcome) {
       showToast(outcome.refused);
       await refresh();
       if (outcome.open) { setFocused(outcome.open); markSeen(outcome.open); }
-      return;
+      return { failed: outcome.refused };
     }
     leaveUndoMarks(last.undid, from, Date.now());
     const restored = last.restore?.();
@@ -4640,6 +4641,7 @@ export default function App() {
     // on whatever the close had moved her to (w-7eb39d3c97).
     if (shown.open) { setFocused(shown.open); markSeen(shown.open); }
     else if (shown.compose) { setFocused(null); setModal('compose'); }
+    return 'done' as const;
   }, [undoStack, refresh, showToast, markSeen, leaveUndoMarks]);
 
   const paletteCommands = useRef<CommandRow[]>([]);
@@ -4655,9 +4657,14 @@ export default function App() {
     focused: () => focused,
     options: (row) => (offerIsLive(row) ? itemOptions(row) : []),
     summary: (row) => row.result || row.note || row.body || '',
+    answer: (row) => (row.wrote?.answer?.ts ?? 0) > (row.wrote?.result?.ts ?? 0) ? row.answer || '' : '',
     about: (row) => row.problem || '',
     projects: () => (snap?.products ?? []).filter((p) => !directSlugs.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name })),
-    open: (row) => { setSearch(null); setFocused(row); markSeen(row); },
+    open: (row) => {
+      setSettingsOpen(false); setSettingsPane(null); setTeamOpen(false); setOpenCard(null); setModal(null);
+      setFocusedRepeat(null); setEditingRule(false);
+      setSearch(null); setFocused(row); markSeen(row);
+    },
     pick: (row, n) => pickOption(row, n),
     reply: async (row, text, { attach } = {}) => {
       // The pictures in her reply box go out with the words, through the box's own send.
@@ -4670,7 +4677,12 @@ export default function App() {
       try { await answerWith(row, text); } finally { neoSending.current = false; }
       return attach ? 'no-pictures' : undefined;
     },
-    close: (row) => markDone(row),
+    close: (row, confirmed) => markDone(row, { force: confirmed }),
+    closePrompt: (row) => {
+      const waiting = waitingFiled(row).length;
+      if (waiting) return `This thread has ${waiting} task${waiting === 1 ? '' : 's'} waiting for approval. Ask whether to close it anyway.`;
+      return offerIsLive(row) ? 'The agent is waiting on your answer. Closing leaves it waiting. Ask whether to close it anyway.' : null;
+    },
     later: (row, ts, label) => snoozeUntil(row, ts, label),
     compose: async (text, product) => {
       const message = threadMessage(text, []);
@@ -4691,13 +4703,23 @@ export default function App() {
       }
       return made;
     },
-    undo: async () => {
-      if (pendingRef.current) { await undo(); return 'done'; }
-      const { take, instant } = nextUndo(undoStack, Date.now());
+    undo: async (confirmation) => {
+      if (pendingRef.current && !confirmation) return undo();
+      const now = Date.now();
+      const { take, instant } = nextUndo(undoStack, now);
+      if (confirmation) {
+        const asked = neoUndoAskRef.current;
+        neoUndoAskRef.current = null;
+        if (!asked || asked.confirmation !== confirmation || asked.entry !== take || pendingRef.current || now - asked.at > 60_000) return 'changed';
+        undoAskRef.current = { entry: take!, at: now };
+      }
       if (!take) return 'none';
-      if (!instant) return 'old';
-      await undo();
-      return 'done';
+      if (!instant && !confirmation) {
+        const token = crypto.randomUUID();
+        neoUndoAskRef.current = { entry: take, at: now, confirmation: token };
+        return { asked: `Do you want to ${take.undoes}?`, confirmation: token };
+      }
+      return undo();
     },
   });
 

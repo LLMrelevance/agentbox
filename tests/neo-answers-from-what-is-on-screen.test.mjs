@@ -63,9 +63,9 @@ describe('the voice is told what is on screen', () => {
     context = contextNote('Open thread: B');
     await d.handle({ type: 'session.delegation.created', delegation: { id: 'i3', target: 'client' } });
     expect(sent.map((e) => [e.type, e.delegation_id])).toEqual([
-      ['session.instructions.append', 'i1'], ['session.commentary.append', 'i1'],
+      ['session.thinking.append', 'i1'], ['session.commentary.append', 'i1'],
       ['session.commentary.append', 'i2'],
-      ['session.instructions.append', 'i3'], ['session.commentary.append', 'i3'],
+      ['session.thinking.append', 'i3'], ['session.commentary.append', 'i3'],
     ]);
   });
 
