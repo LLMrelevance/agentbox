@@ -28,10 +28,9 @@ export function bucketObjects({ region, bucket, client = new S3Client({ region, 
         throw err;
       }
     },
-    // S3 answers a missing object 403 where the role may not list its prefix.
     async head(key) {
       try { return { size: (await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }))).ContentLength }; } catch (err) {
-        if (missing(err) || err?.$metadata?.httpStatusCode === 403) return null;
+        if (missing(err)) return null;
         throw err;
       }
     },

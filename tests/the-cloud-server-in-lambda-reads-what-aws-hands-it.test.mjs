@@ -124,9 +124,10 @@ describe('the ledger\'s objects in the bucket', () => {
     expect(await objects.get('k')).toBe(null);
     const missing = bucketObjects({ bucket: 'b', client: client(Object.assign(new Error('x'), { name: 'NotFound', $metadata: { httpStatusCode: 404 } })) });
     expect(await missing.head('k')).toBe(null);
-    // Without list rights on a prefix, S3 answers a missing object 403.
-    const unlisted = bucketObjects({ bucket: 'b', client: client(Object.assign(new Error('x'), { name: 'Forbidden', $metadata: { httpStatusCode: 403 } })) });
-    expect(await unlisted.head('k')).toBe(null);
+    // A refusal is not "missing": a wrong policy shows as an error. The
+    // sweep, which may not stop for one, passes it by itself.
+    const refused = bucketObjects({ bucket: 'b', client: client(Object.assign(new Error('x'), { name: 'Forbidden', $metadata: { httpStatusCode: 403 } })) });
+    await expect(refused.head('k')).rejects.toThrow();
   });
 
   it('a look gives the size, and a list follows every page', async () => {
