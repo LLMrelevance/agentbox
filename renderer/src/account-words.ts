@@ -10,17 +10,32 @@ export function hourWords(ts: number): string {
   return `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''}${h < 12 ? 'am' : 'pm'}`;
 }
 
-export interface Meter { key: 'session' | 'week'; word: string; percent: number; back: string | null }
+export interface Meter { key: 'session' | 'week'; word: string; percent: number; resets: string | null }
 
-/** The two numbers every account shows: this session and this week (all models). A full one says when it is back. */
-export function meterPair(limits: UsageLimit[] | undefined | null): Meter[] {
+/**
+ * "6:19pm" today, "Oct 22, 4pm" on any other day. A cloud reading carries only
+ *  the instant, so it is said in this computer's clock. A weekday would be
+ *  shorter, but "Tue 4pm" read on a Tuesday morning means today.
+ */
+export function resetWords(l: UsageLimit, now = Date.now()): string | null {
+  if (l.resetsAt) {
+    if (l.resetsAt <= now) return null;
+    const at = new Date(l.resetsAt);
+    if (at.toDateString() === new Date(now).toDateString()) return hourWords(l.resetsAt);
+    return `${at.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${hourWords(l.resetsAt)}`;
+  }
+  if (!l.resetsText) return null;
+  return l.resetsOn ? `${l.resetsOn}, ${l.resetsText}` : l.resetsText;
+}
+
+/** The two numbers every account shows: this session and this week (all models), each with when it starts over. */
+export function meterPair(limits: UsageLimit[] | undefined | null, now = Date.now()): Meter[] {
   const all = limits ?? [];
   const session = all.find((l) => l.span === 'session');
   const week = all.find((l) => l.span === 'week' && (!l.qualifier || /all/i.test(l.qualifier))) ?? all.find((l) => l.span === 'week');
-  const back = (l: UsageLimit) => (l.percent >= 100 ? l.resetsText ?? (l.resetsAt ? hourWords(l.resetsAt) : null) : null);
   return [
-    ...(session && Number.isFinite(session.percent) ? [{ key: 'session' as const, word: 'Session', percent: Math.round(session.percent), back: back(session) }] : []),
-    ...(week && Number.isFinite(week.percent) ? [{ key: 'week' as const, word: 'Week', percent: Math.round(week.percent), back: back(week) }] : []),
+    ...(session && Number.isFinite(session.percent) ? [{ key: 'session' as const, word: 'Session', percent: Math.round(session.percent), resets: resetWords(session, now) }] : []),
+    ...(week && Number.isFinite(week.percent) ? [{ key: 'week' as const, word: 'Week', percent: Math.round(week.percent), resets: resetWords(week, now) }] : []),
   ];
 }
 

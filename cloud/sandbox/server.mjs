@@ -47,7 +47,7 @@ const PAGE_BYTES = 8 * 1024 * 1024;
 const MAX_MCP_LINE = 32 * 1024 * 1024;
 // What this server can do beyond the first version, said in a start's answer,
 // so a Mac knows rather than guesses whether its asks are honoured.
-const CAPS = ['offline', 'setup', 'kept'];
+const CAPS = ['offline', 'setup', 'kept', 'base'];
 // A PROJECT'S OWN SETUP: `.agentbox/cloud-setup.sh` in its task folder, run as
 // the agent before the agent, on every cloud run, so a project needing a
 // program the image lacks says so in its own repository rather than in a new
@@ -544,16 +544,31 @@ export function createSandbox({
   }
 
   async function prepareAndSpawn(r) {
-    const { cwd, branch, bundleUrl, argv, env = {}, files = [], remote, changesRef } = r.spec;
+    const { cwd, branch, bundleUrl, argv, env = {}, files = [], remote, changesRef, base, refs } = r.spec;
     try {
       const bundle = path.join(r.dir, 'in.bundle');
-      await download(fetchImpl, bundleUrl, bundle);
       fs.mkdirSync(cwd, { recursive: true });
       await sh('git', ['init', '-q'], cwd);
+      // The history the bucket already had, then only the commits past it.
+      if (base) {
+        const file = path.join(r.dir, 'base.bundle');
+        await download(fetchImpl, base.url, file);
+        await sh('git', ['fetch', '-q', file, '+refs/*:refs/agentbox/base/*'], cwd);
+        fs.rmSync(file, { force: true });
+      }
       // Every ref the Mac packed lands where it was. `--update-head-ok`: a
       // fresh repository's HEAD already names a branch, and git otherwise
       // refuses to fetch into the checked-out one.
-      await sh('git', ['fetch', '-q', '--update-head-ok', bundle, '+refs/*:refs/*'], cwd);
+      if (bundleUrl) {
+        await download(fetchImpl, bundleUrl, bundle);
+        await sh('git', ['fetch', '-q', '--update-head-ok', bundle, '+refs/*:refs/*'], cwd);
+      }
+      // A thin bundle leaves out each ref whose commit the base holds.
+      for (const [ref, sha] of Object.entries(refs || {})) await sh('git', ['update-ref', ref, sha], cwd);
+      if (base) {
+        const left = (await sh('git', ['for-each-ref', '--format=%(refname)', 'refs/agentbox/base/'], cwd)).split('\n').filter(Boolean);
+        for (const ref of left) await sh('git', ['update-ref', '-d', ref], cwd);
+      }
       await sh('git', ['checkout', '-q', branch], cwd);
       if (remote) await sh('git', ['remote', 'add', 'origin', remote], cwd).catch(() => {});
       r.startSha = (await sh('git', ['rev-parse', 'HEAD'], cwd)).trim();
@@ -1468,7 +1483,10 @@ function invalidStart(req) {
   if (!req.runId || typeof req.runId !== 'string') return 'runId is required';
   if (!req.cwd || !path.isAbsolute(req.cwd)) return 'cwd must be an absolute path';
   if (!req.branch) return 'branch is required';
-  if (!req.bundleUrl) return 'bundleUrl is required';
+  if (req.base != null && (typeof req.base !== 'object' || !req.base.url || !/^[0-9a-f]{40,64}$/.test(req.base.sha || ''))) return 'base must be { url, sha }';
+  if (req.refs != null && (typeof req.refs !== 'object' || Array.isArray(req.refs)
+    || !Object.entries(req.refs).every(([ref, sha]) => /^refs\/[A-Za-z0-9._/-]+$/.test(ref) && !ref.includes('..') && /^[0-9a-f]{40,64}$/.test(sha)))) return 'refs must be { ref: sha }';
+  if (!req.bundleUrl && !req.base) return 'bundleUrl is required';
   if (!Array.isArray(req.argv) || !req.argv.length) return 'argv is required';
   if (req.offline != null && (typeof req.offline !== 'object' || (req.offline.endTurn != null && req.offline.endTurn !== 'claude-stream-json'))) return 'offline must be { afterMs, endTurn: "claude-stream-json" or null }';
   if (req.offline?.kept != null && (typeof req.offline.kept !== 'object' || Array.isArray(req.offline.kept)

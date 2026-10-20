@@ -17,10 +17,12 @@ import { TERMS_VERSION } from '../cloud/gateway/terms.mjs';
 const A = '11111111-1111-4111-8111-111111111111';
 const HOUR = 60 * 60_000;
 
-// Paid plans' hours are not set yet (plans.mjs); these stand in for them.
-const SET = { ...PLANS, pro: { agents: 10, hoursPerMonth: 100 } };
+// Nothing runs without a plan, and the paid plans' hours are not set yet
+// (plans.mjs): a small test plan, which each person here is put on, and a
+// pro plan with hours stand in for them.
+const SET = { ...PLANS, test: { agents: 2, hoursPerMonth: 5 }, pro: { agents: 10, hoursPerMonth: 100 } };
 
-function setup({ startAnswer = { ok: true }, answer = () => ({ ok: true }), plans = SET, freeFleetCap } = {}) {
+function setup({ startAnswer = { ok: true }, answer = () => ({ ok: true }), plans = SET } = {}) {
   let clock = Date.UTC(2026, 9, 19, 12, 0, 0);
   const sent = [];
   const objects = memoryObjects();
@@ -45,11 +47,13 @@ function setup({ startAnswer = { ok: true }, answer = () => ({ ok: true }), plan
     whoIs: async (t) => (t === 'session-of-a' ? { id: A } : null),
     now: () => clock,
     plans,
-    ...(freeFleetCap !== undefined ? { freeFleetCap } : {}),
   });
   let key;
   const call = async (method, path, body) => {
-    key ??= (await gw.handle({ method: 'POST', path: '/v1/devices', headers: { authorization: 'Bearer session-of-a' }, body: JSON.stringify({ acceptedTerms: TERMS_VERSION }) })).body.key;
+    if (!key) {
+      key = (await gw.handle({ method: 'POST', path: '/v1/devices', headers: { authorization: 'Bearer session-of-a' }, body: JSON.stringify({ acceptedTerms: TERMS_VERSION }) })).body.key;
+      if (plans.test) await gw.admin({ do: 'plan', person: A, plan: 'test' });
+    }
     return gw.handle({ method, path, headers: { authorization: `Bearer ${key}` }, body: body ? JSON.stringify(body) : '' });
   };
   const start = (n, extra = {}) => call('POST', '/v1/invoke', { sessionId: `run-${n}`, payload: { action: 'start', runId: `r${n}`, ...extra } });
@@ -65,7 +69,7 @@ function setup({ startAnswer = { ok: true }, answer = () => ({ ok: true }), plan
 describe('agents running at once', () => {
   it('free runs its agents up to its number and refuses the next, saying why', async () => {
     const { start, sent } = setup();
-    const n = PLANS.free.agents;
+    const n = SET.test.agents;
     for (let i = 1; i <= n; i += 1) expect((await start(i)).body.ok).toBe(true);
     const over = await start(n + 1);
     expect(over.status).toBe(200);
@@ -82,11 +86,11 @@ describe('agents running at once', () => {
 
   it('a run whose done.json lands frees its place and is charged the time it ran', async () => {
     const { start, finish, me, tick } = setup();
-    for (let i = 1; i <= PLANS.free.agents; i += 1) await start(i);
+    for (let i = 1; i <= SET.test.agents; i += 1) await start(i);
     tick(30 * 60_000);
     await finish(1);
     const now = await me();
-    expect(now.running).toBe(PLANS.free.agents - 1);
+    expect(now.running).toBe(SET.test.agents - 1);
     expect(now.usedSeconds).toBe(30 * 60);
     expect((await start(9)).body.ok).toBe(true);
   });
@@ -112,6 +116,7 @@ describe('agents running at once', () => {
   it('a run nothing ended is ended at 8 hours and charged all 8', async () => {
     const { gw, start, me, tick } = setup();
     // On a plan with more than 8 hours, so the ceiling ends it, not the hours.
+    await me();
     await gw.admin({ do: 'plan', person: A, plan: 'pro' });
     await start(1);
     tick(8 * HOUR - 1000);
@@ -147,7 +152,8 @@ describe('agents running at once', () => {
   });
 
   it('a paid plan runs its own number', async () => {
-    const { gw, start } = setup();
+    const { gw, start, me } = setup();
+    await me();
     await gw.admin({ do: 'plan', person: A, plan: 'pro' });
     for (let i = 1; i <= SET.pro.agents; i += 1) expect((await start(i)).body.ok, `run ${i}`).toBe(true);
     expect((await start(SET.pro.agents + 1)).body.error).toBe('agents');
@@ -160,17 +166,17 @@ describe('agents running at once', () => {
 
   it('two starts racing for the last place: one wins, the other is refused', async () => {
     const { start, me } = setup();
-    for (let i = 1; i < PLANS.free.agents; i += 1) await start(i);
+    for (let i = 1; i < SET.test.agents; i += 1) await start(i);
     const [x, y] = await Promise.all([start(50), start(51)]);
     expect([x.body.ok, y.body.ok].sort()).toEqual([false, true]);
-    expect((await me()).running).toBe(PLANS.free.agents);
+    expect((await me()).running).toBe(SET.test.agents);
   });
 });
 
 describe('hours in a month', () => {
   it('free stops at its hours: just under, a run starts; at the limit, it is refused', async () => {
     const { start, finish, tick } = setup();
-    const limit = PLANS.free.hoursPerMonth * 3600;
+    const limit = SET.test.hoursPerMonth * 3600;
     await start(1);
     tick((limit - 60) * 1000);
     await finish(1);
@@ -184,14 +190,14 @@ describe('hours in a month', () => {
   it('time a run is still running counts against the hours', async () => {
     const { start, tick } = setup();
     await start(1);
-    tick(PLANS.free.hoursPerMonth * HOUR);
+    tick(SET.test.hoursPerMonth * HOUR);
     expect((await start(2)).body.error).toBe('hours');
   });
 
   it('a new month starts again from nothing', async () => {
     const { start, finish, tick, me } = setup();
     await start(1);
-    tick(PLANS.free.hoursPerMonth * HOUR);
+    tick(SET.test.hoursPerMonth * HOUR);
     await finish(1);
     tick(14 * 24 * HOUR);
     expect((await me()).usedSeconds).toBe(0);
@@ -204,7 +210,7 @@ describe('signing in', () => {
   // 4 more, and a code pasted late must not find its session gone.
   it('takes no agent and no hours, three at once at most, each ended after 30 minutes', async () => {
     const { start, signin, tick, me, stopped } = setup();
-    for (let i = 1; i <= PLANS.free.agents; i += 1) await start(i);
+    for (let i = 1; i <= SET.test.agents; i += 1) await start(i);
     for (let i = 1; i <= 3; i += 1) expect((await signin(i)).body.ok).toBe(true);
     expect((await signin(4)).body.error).toBe('signins');
     tick(29 * 60_000);
@@ -216,11 +222,40 @@ describe('signing in', () => {
   });
 });
 
+// The owner's call, 2026-10-20 (w-6633e825a7): no free cloud hours. Five
+// hours go in half an hour with ten agents, which sells the cloud short, and
+// the moment someone reaches for the cloud is the moment they will pay. The
+// app itself is the free part.
+describe('someone with no plan', () => {
+  it('is asked to choose a plan before any run starts, and nothing is started', async () => {
+    const { gw, sent } = setup();
+    const key = (await gw.handle({ method: 'POST', path: '/v1/devices', headers: { authorization: 'Bearer session-of-a' }, body: JSON.stringify({ acceptedTerms: TERMS_VERSION }) })).body.key;
+    const r = await gw.handle({ method: 'POST', path: '/v1/invoke', headers: { authorization: `Bearer ${key}` }, body: JSON.stringify({ sessionId: 'run-1', payload: { action: 'start', runId: 'r1' } }) });
+    expect(r.body).toMatchObject({ ok: false, error: 'plan' });
+    expect(sent).toEqual([]);
+    const me = await gw.handle({ method: 'GET', path: '/v1/me', headers: { authorization: `Bearer ${key}` } });
+    expect(me.body).toMatchObject({ plan: 'none', agents: 0, hoursPerMonth: 0 });
+  });
+
+  it('can still sign in Claude or Codex, so the cloud is ready the moment they pay', async () => {
+    const { gw, sent } = setup();
+    const key = (await gw.handle({ method: 'POST', path: '/v1/devices', headers: { authorization: 'Bearer session-of-a' }, body: JSON.stringify({ acceptedTerms: TERMS_VERSION }) })).body.key;
+    const r = await gw.handle({ method: 'POST', path: '/v1/invoke', headers: { authorization: `Bearer ${key}` }, body: JSON.stringify({ sessionId: 'agentbox-signin-claude-s1', payload: { action: 'signin', runId: 's1', engine: 'claude', saveUrl: 'agentbox-login:logins/claude/s1.json' } }) });
+    expect(r.body.ok).toBe(true);
+    expect(sent.map((s) => s.payload?.action)).toEqual(['signin']);
+  });
+
+  it('the real plans have no free cloud', () => {
+    expect(Object.keys(PLANS).sort()).toEqual(['max', 'none', 'plus', 'pro']);
+    expect(PLANS.none).toEqual({ agents: 0, hoursPerMonth: 0 });
+  });
+});
+
 describe('what the person is told', () => {
   it('names the plan, its agents and hours, and what is used', async () => {
     const { start, me } = setup();
     await start(1);
-    expect(await me()).toEqual({ plan: 'free', agents: PLANS.free.agents, hoursPerMonth: PLANS.free.hoursPerMonth, running: 1, usedSeconds: 0, month: '2026-10', terms: { accepted: TERMS_VERSION, current: TERMS_VERSION } });
+    expect(await me()).toEqual({ plan: 'test', agents: SET.test.agents, hoursPerMonth: SET.test.hoursPerMonth, running: 1, usedSeconds: 0, month: '2026-10', terms: { accepted: TERMS_VERSION, current: TERMS_VERSION } });
   });
 });
 
@@ -286,7 +321,7 @@ describe('a run that fails', () => {
 describe('hours that run out while runs are going', () => {
   it('end every run at the next call, not only at the next start', async () => {
     const { start, finish, poll, tick, stopped, me } = setup();
-    const limit = PLANS.free.hoursPerMonth * HOUR;
+    const limit = SET.test.hoursPerMonth * HOUR;
     await start(1);
     tick(limit - 60_000);
     await finish(1);
@@ -304,7 +339,7 @@ describe('hours that run out while runs are going', () => {
 
 describe('the sweep, which runs on a clock whether anyone calls or not', () => {
   it('ends runs past their ceiling or past the hours, and runs whose done.json landed unnoticed', async () => {
-    const { gw, objects, start, tick, stopped, me } = setup({ plans: { ...SET, free: { agents: 3, hoursPerMonth: 5 } } });
+    const { gw, objects, start, tick, stopped, me } = setup({ plans: { ...SET, test: { agents: 3, hoursPerMonth: 5 } } });
     await start(1); await start(2);
     await objects.put(`runs/u-${A}/r1/done.json`, '{}');
     tick(3 * 60_000);
@@ -333,7 +368,7 @@ describe('plans that are not ready', () => {
   it('a plan whose hours are not set cannot be given to anyone', async () => {
     const { gw } = setup({ plans: PLANS });
     if (PLANS.pro.hoursPerMonth == null) await expect(gw.admin({ do: 'plan', person: A, plan: 'pro' })).rejects.toThrow(/hours/);
-    await gw.admin({ do: 'plan', person: A, plan: 'free' });
+    await gw.admin({ do: 'plan', person: A, plan: 'none' });
   });
 });
 
@@ -364,15 +399,6 @@ describe('the whole cloud', () => {
     await gw.admin({ do: 'resume' });
     expect((await start(2)).body.ok).toBe(true);
   });
-
-  it('free runs stop starting once the free fleet is full, as the sweep last counted it; paid ones do not', async () => {
-    const { gw, start } = setup({ freeFleetCap: 1 });
-    await start(1);
-    await gw.sweep();
-    expect((await start(2)).body).toMatchObject({ ok: false, error: 'full' });
-    await gw.admin({ do: 'plan', person: A, plan: 'pro' });
-    expect((await start(2)).body.ok).toBe(true);
-  });
 });
 
 describe('what each run cost', () => {
@@ -393,30 +419,28 @@ describe('what each run cost', () => {
 // no longer existed was retried for ever, and a failed run's last page of
 // output could be cut off.
 describe('the sweep, when things go wrong', () => {
-  it('one person it cannot read does not stop it reaching the rest, and the fleet is still counted', async () => {
-    const { gw, objects, start, tick, stopped } = setup({ plans: { ...SET, free: { agents: 3, hoursPerMonth: 5 } } });
+  it('one person it cannot read does not stop it reaching the rest', async () => {
+    const { gw, objects, start, tick, stopped } = setup({ plans: { ...SET, test: { agents: 3, hoursPerMonth: 5 } } });
     await start(1);
     const head = objects.head;
     objects.head = async (k) => { if (k.includes('/r1/')) throw Object.assign(new Error('Forbidden'), { $metadata: { httpStatusCode: 403 } }); return head(k); };
     const other = '99999999-9999-4999-8999-999999999999';
-    await objects.put(`ledger/people/${other}.json`, JSON.stringify({ plan: 'free', live: { 'run-x': { kind: 'run', runId: 'rx', at: 0, nonce: 'n' } }, used: {}, stopping: [] }));
+    await objects.put(`ledger/people/${other}.json`, JSON.stringify({ plan: 'test', live: { 'run-x': { kind: 'run', runId: 'rx', at: 0, nonce: 'n' } }, used: {}, stopping: [] }));
     tick(3 * 60_000);
     await gw.sweep();
     expect(stopped()).toContain(`u-${other}-run-x`);
-    expect(JSON.parse(objects.dump().get('ledger/fleet.json')).freeRunning).toBe(1);
   });
 
-  // Codex's review: a person the sweep could not finish counted nothing, so
-  // the free fleet looked emptier than it was.
-  it('a person it could not finish still counts their free runs in the fleet', async () => {
-    const { gw, objects, tick } = setup();
+  it('a person whose record it cannot write is passed, and the sweep finishes', async () => {
+    const { gw, objects, start, tick, stopped } = setup();
+    await start(1);
     const other = '99999999-9999-4999-8999-999999999999';
-    tick(60_000);
-    await objects.put(`ledger/people/${other}.json`, JSON.stringify({ plan: 'free', live: { 'run-x': { kind: 'run', runId: 'rx', at: Date.UTC(2026, 9, 19, 12, 0, 0), nonce: 'n' } }, used: {}, stopping: [] }));
+    await objects.put(`ledger/people/${other}.json`, JSON.stringify({ plan: 'test', live: { 'run-x': { kind: 'run', runId: 'rx', at: 0, nonce: 'n' } }, used: {}, stopping: [] }));
     const put = objects.put;
     objects.put = async (k, body, o) => { if (k === `ledger/people/${other}.json`) throw new Error('S3 is down'); return put(k, body, o); };
+    tick(9 * HOUR);
     await gw.sweep();
-    expect(JSON.parse(objects.dump().get('ledger/fleet.json')).freeRunning).toBe(1);
+    expect(stopped()).toContain(`u-${A}-run-1`);
   });
 
   it('a person with nothing going is read, not written', async () => {
@@ -543,6 +567,7 @@ describe('a stop that has not happened yet', () => {
 describe('a run across the end of a month', () => {
   it('is charged to each month for the time it ran in it', async () => {
     const { gw, start, finish, me, tick } = setup();
+    await me();
     await gw.admin({ do: 'plan', person: A, plan: 'pro' });
     // From 12:00 on 19 October to 23:00 on 31 October is 12 days 11 hours.
     tick((12 * 24 + 11) * HOUR);
@@ -555,7 +580,7 @@ describe('a run across the end of a month', () => {
   });
 
   it('a run still going counts only its time in this month against this month', async () => {
-    const { start, tick, poll, stopped } = setup({ plans: { ...SET, free: { agents: 2, hoursPerMonth: 1 } } });
+    const { start, tick, poll, stopped } = setup({ plans: { ...SET, test: { agents: 2, hoursPerMonth: 1 } } });
     tick((12 * 24 + 11) * HOUR + 30 * 60_000);
     await start(1);
     tick(60 * 60_000);

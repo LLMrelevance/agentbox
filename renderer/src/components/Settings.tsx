@@ -446,9 +446,9 @@ export type PlaceAccount = {
   meters?: boolean;
 };
 
-/** SESSION AND WEEK, the same two meters for every account. A full one says when it is back. */
-export function MiniMeters({ limits }: { limits?: UsageLimit[] | null }) {
-  const meters = meterPair(limits);
+/** SESSION AND WEEK, the same two meters for every account, each ending with when it resets. */
+export function MiniMeters({ limits, now = Date.now() }: { limits?: UsageLimit[] | null; now?: number }) {
+  const meters = meterPair(limits, now);
   if (!meters.length) return <div className="acct-meters-none">No usage reading yet</div>;
   return (
     <span className="acct-meters">
@@ -456,7 +456,8 @@ export function MiniMeters({ limits }: { limits?: UsageLimit[] | null }) {
         <span className={`acct-meter${m.percent >= 100 ? ' full' : ''}`} key={m.key}>
           <span className="acct-meter-word">{m.word}</span>
           <span className="usage-meter" aria-hidden="true"><i style={{ width: `${Math.min(100, m.percent)}%` }} /></span>
-          <span className="acct-meter-pct">{m.back ? `back ${m.back}` : `${m.percent}%`}</span>
+          <span className="acct-meter-pct">{m.percent}%</span>
+          <span className="acct-meter-when" title={m.resets ? `Resets ${m.resets}` : undefined}>{m.resets ?? ''}</span>
         </span>
       ))}
     </span>

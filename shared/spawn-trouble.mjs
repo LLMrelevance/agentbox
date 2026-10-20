@@ -681,6 +681,28 @@ function dayWords(ms) {
   return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+// What to do before replying to a thread the app has stopped trying on, in the
+// same words `deadRunSentence` uses for each cause. Null when the reply is all.
+function fixBeforeReplying({ cause, engineWord, resetsAt, model, planEnded }) {
+  if (cause === 'signed-out') return 'Sign that account back in.';
+  if (cause === 'org-blocked') return 'Only an admin of that Claude workspace can turn it back on.';
+  if (cause === 'subscription-ended') return 'Renew it at claude.ai, or pick another account in Settings.';
+  if (cause === 'at-limit') return resetsAt ? `The limit resets at ${resetsAt}.` : 'Wait for the limit to reset.';
+  if (cause === 'too-old') return `To update it, ${UPDATE}.`;
+  if (cause === 'api-key') return 'Run codex login in a terminal to sign in with your ChatGPT plan.';
+  if (cause === 'codex-config') return 'Run codex in a terminal to see the line it points at and fix it.';
+  if (cause === 'model-not-on-plan') {
+    return planEnded
+      ? `That account's ChatGPT subscription ended on ${dayWords(planEnded)}, and the free plan does not include ${model || 'this model'}. Renew it at chatgpt.com, or pick another model for this task.`
+      : 'Pick another model for this task, or sign in a Codex account whose plan has it.';
+  }
+  if (cause === 'level-not-offered') return 'Pick another thinking level for this task.';
+  if (cause === 'network') return `If your company uses a proxy or its own certificate, ${NETWORK_FIX} and reopen ${Name}.`;
+  if (cause === 'workspace') return `Open this project's folder in ${engineWord} once and say yes to trusting it.`;
+  if (cause === 'unknown') return UNNAMED_CHECK[engineWord]?.trim() || null;
+  return null;
+}
+
 // `elsewhere` says another signed-in login can take this task now, so the
 // sentence promises the move instead of a wait. Read for 'model-not-on-plan'
 // (another login's plan has the model) and for 'at-limit' (another login has
@@ -689,11 +711,20 @@ function dayWords(ms) {
 //
 // `planEnded` is when that login's paid ChatGPT plan ended (main/codex-account.mjs
 // `codexPlanEnded`), which is why its list lacks `model`.
-export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, elsewhere = false, worked = false, model = null, planEnded = null } = {}) {
+//
+// `gaveUp` is the app having stopped carrying a reply (`settleDeliveryAndSay`).
+// Nothing restarts the thread until somebody replies or resumes it, so the
+// sentence asks for that and promises nothing of its own.
+export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, elsewhere = false, worked = false, model = null, planEnded = null, gaveUp = false } = {}) {
   if (worked && !WORKED_OPENERS[cause]) cause = 'unknown';
   const opener = `${engineWord} ${(worked ? WORKED_OPENERS : DEAD_RUN_OPENERS)[cause] ?? DEAD_RUN_OPENERS.unknown}`;
 
   const again = runs > 1 ? ` This has happened ${runs} times on this task.` : '';
+
+  if (gaveUp) {
+    const fix = fixBeforeReplying({ cause, engineWord, resetsAt, model, planEnded });
+    return `${opener}${again} ${fix ? `${fix} Then reply` : 'Reply'} here to start it again.`;
+  }
 
   // THE TIME THE LIMIT PRINTED, when there is one. "when the limit resets"
   // leaves her with a question; "at 6pm" is an answer, and it is the CLI's own
@@ -763,7 +794,22 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
 export function undeliveredAnswerSentence({ engineWord = 'The agent', attempts = 1 } = {}) {
   const n = Math.max(1, Math.trunc(attempts ?? 1));
   const runs = n === 1 ? 'once and finished' : `${n} times and each run finished`;
-  return `Your reply did not reach this task. ${engineWord} ran ${runs} without writing anything back on the row, so ${NAME} has stopped carrying it. Reply again and it goes to a fresh session.`;
+  return `${UNDELIVERED} ${engineWord} ran ${runs} without writing anything back on the row, so ${NAME} has stopped carrying it. Reply again and it goes to a fresh session.`;
+}
+
+const UNDELIVERED = 'Your reply did not reach this task.';
+
+// THE APP'S OWN WORD THAT A RUN GOT NOWHERE: a dead-run sentence, from a run
+// that used a tool or one that did not, or the reply that never landed. On a
+// thread carrying a reply, `settleDeliveryAndSay` writes one only once it has
+// stopped carrying the reply, so that thread waits on a person
+// (`gaveUpOnTheAnswer`, renderer/src/list-rules.ts).
+export function saysARunGotNowhere(text) {
+  const s = String(text ?? '');
+  if (!s.trim()) return false;
+  if (deadRunCause(s)) return true;
+  if (Object.values(WORKED_OPENERS).some((opener) => s.includes(opener))) return true;
+  return s.startsWith(UNDELIVERED);
 }
 
 // WHOSE SENTENCE IS ON THIS ROW, AND WHAT IT SAYS HAPPENED.

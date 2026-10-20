@@ -7043,6 +7043,12 @@ export default function App() {
           />
         </div>
       )}
+      {/* Offered and nobody signed in yet: the app's own sign-in page first.
+          Signing in sets the cloud up, and the same open state then shows
+          the setup's accounts. */}
+      {cloudSetupOpen && !snap.cloud?.setUp && snap.cloud?.offered && (
+        <SignInPage purpose="cloud" onClose={() => setCloudSetupOpen(false)} onSignedIn={() => setCloudSetupOpen(true)} />
+      )}
       {cloudSetupOpen && snap.cloud?.setUp && (
         <CloudSetup
           cloud={snap.cloud}
