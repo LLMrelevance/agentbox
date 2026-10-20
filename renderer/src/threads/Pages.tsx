@@ -135,7 +135,9 @@ export function SearchButton({ onSearch }: { onSearch: () => void }) {
 }
 
 /** New thread, the cloud and the Display icon (and Search on the board), at the right of the Inbox header. */
-export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode, onCloudWhenOn, onCloudSetUp }: {
+export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode, onCloudWhenOn, onCloudSetUp, filters = true }: {
+  /** False over a room, where there is no list to view or filter. */
+  filters?: boolean;
   page: PageId; display: Display; onDisplay: (d: Display) => void; products: Product[]; items?: WorkItem[];
   /** Only where no tabs row draws it (the board). */
   onSearch?: () => void; onCompose: () => void; shown?: number; total?: number; tab?: string;
@@ -158,7 +160,7 @@ export function HeaderActions({ page, display, onDisplay, products, items, onSea
     {onSearch && <SearchButton onSearch={onSearch} />}
     <button type="button" className="th-new" data-hint="new-task" onClick={onCompose} title="New thread (N)"><PenIcon />New thread</button>
     {(cloud?.setUp || cloud?.offered) && <CloudButton cloud={cloud} onMode={onCloudMode} onWhenOn={onCloudWhenOn} onSetUp={onCloudSetUp} />}
-    <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
+    {filters && <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
       <button type="button" className={`th-disp${worn ? ' faces' : ''}${open ? ' open' : ''}`}
         aria-label={whose ? `View and filters, showing ${whose}` : 'View and filters'} title={whose ? `${whose} · View and filters` : 'View and filters'}
         onClick={() => setOpen((o) => !o)}>
@@ -169,7 +171,7 @@ export function HeaderActions({ page, display, onDisplay, products, items, onSea
         <SlidersIcon />{dot && <i />}
       </button>
       {open && <DisplayMenu page={page} display={display} onDisplay={onDisplay} products={products} items={items} shown={shown} total={total} tab={tab} people={people} />}
-    </span>
+    </span>}
   </div>;
 }
 
@@ -346,14 +348,17 @@ export const INBOX_TABS: { view: TabView; label: string }[] = [
 const COUNTED: TabView[] = ['inbox', 'progress', 'snoozed'];
 
 /** `needs` renames the first tab (Waiting, once a teammate is on the page). */
-export function StateTabs({ view, counts, onView, needs, onSearch }: {
+export function StateTabs({ view, counts, onView, needs, onSearch, after, dim = false }: {
   view: TabView; counts: Partial<Record<TabView, number>>; onView: (v: TabView) => void; needs?: string;
+  /** Room tabs after Done (team/rooms/RoomTabs.tsx); `dim` while one of them is open. */
+  after?: ReactNode; dim?: boolean;
   /** Draws Search at the row's right end (w-3c51d02de5). */
   onSearch?: () => void;
 }) {
   return <div className="th-bar"><div className="tm-tabs">
     {/* Every tab wears the Tab plate (hint-plate.ts, 'state-tab'). */}
-    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view ? ' on' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
+    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view && !dim ? ' on' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
+    {after}
   </div>{onSearch && <SearchButton onSearch={onSearch} />}</div>;
 }
 

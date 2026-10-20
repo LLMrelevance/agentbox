@@ -29,7 +29,7 @@ function prefsStore(file) {
   };
 }
 
-const EMPTY = { on: false, ready: false, rooms: [], messages: {}, me: null, rank: null, invites: [], mentions: [], error: null };
+const EMPTY = { on: false, ready: false, rooms: [], messages: {}, me: null, ranks: {}, invites: [], mentions: [], error: null };
 
 export function createRooms({
   backend, // () => the signed-in backend, or null
@@ -123,9 +123,9 @@ export function createRooms({
       const ids = new Map();
       await Promise.all(rooms.map(async (r) => ids.set(r.id, await b.roomPeople(r.id))));
       const everyone = [...new Set([meId(), ...[...ids.values()].flat()])].filter(Boolean);
-      const [profileRows, presenceRows, readRows, mine, invites, rank] = await Promise.all([
+      const [profileRows, presenceRows, readRows, mine, invites, ranks] = await Promise.all([
         b.roomProfiles(everyone), b.roomPresence(everyone), b.roomReads(), b.myRoomProfile(),
-        b.pendingRoomInvites().catch(() => []), b.agentboxRank().catch(() => null),
+        b.pendingRoomInvites().catch(() => []), b.agentboxRanks(everyone).catch(() => ({})),
       ]);
       const held = new Map();
       await Promise.all(rooms.map(async (r) => held.set(r.id, merge(messages.get(r.id), await b.roomMessages(r.id, { limit: MESSAGES_HELD })))));
@@ -137,7 +137,7 @@ export function createRooms({
       messages = held;
       reads = new Map(readRows.map((r) => [r.roomId, r.readAt]));
       autoPin(rooms);
-      state = { ...state, ready: true, rawRooms: rooms, me: mine, invites, rank, error: null };
+      state = { ...state, ready: true, rawRooms: rooms, me: mine, invites, ranks, error: null };
     } catch (err) {
       state = { ...state, error: String(err?.message ?? err) };
       log(`rooms: ${state.error}`);
@@ -197,7 +197,7 @@ export function createRooms({
   async function ensureProfile(b) {
     const mine = await b.myRoomProfile();
     if (mine) return mine;
-    return b.saveRoomProfile({ display_name: displayNameOf(me()?.name ?? '') || 'Someone' });
+    return b.saveRoomProfile({ display_name: displayNameOf(me()?.name ?? '') || 'Someone', avatar_url: me()?.avatarUrl ?? null });
   }
 
   async function start() {
@@ -243,7 +243,22 @@ export function createRooms({
     if (want && started !== backend()) return start();
     if (!want && started) return stop();
     if (!want) return;
+    await syncStatus().catch((err) => log(`rooms: status: ${err.message}`));
     await publish().catch((err) => log(`rooms: presence: ${err.message}`));
+  }
+
+  // The line I wrote for my team (the account menu) is my room card's status.
+  async function syncStatus() {
+    const mine = state.me;
+    if (!mine) return;
+    const s = me()?.status ?? null;
+    const text = s?.text ?? null;
+    const until = text && s?.until ? new Date(s.until).toISOString() : null;
+    if ((mine.status_text ?? null) === text && (mine.status_until ? new Date(mine.status_until).toISOString() : null) === until) return;
+    const saved = await backend().saveRoomProfile({ status_text: text, status_until: until });
+    local();
+    state = { ...state, me: saved };
+    changed();
   }
 
   const need = () => { const b = backend(); if (!b || !started) throw new Error('turn on Rooms and sign in first'); return b; };
@@ -300,8 +315,9 @@ export function createRooms({
       return saved;
     },
 
-    goInvisible(minutes) {
-      const m = Math.max(1, Math.min(24 * 60, Number(minutes) || 60));
+    // No minutes is until I turn it off, held as a date ten years ahead.
+    goInvisible(minutes = null) {
+      const m = minutes == null ? 3650 * 24 * 60 : Math.max(1, Math.min(48 * 60, Number(minutes) || 60));
       return this.saveProfile({ invisible_until: new Date(now() + m * 60_000).toISOString() });
     },
     comeBack() { return this.saveProfile({ invisible_until: null }); },
@@ -318,8 +334,8 @@ export function createRooms({
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) throw new Error(`${clean || 'that'} is not an email address`);
       await need().inviteToRoom(roomId, clean);
     },
-    async create({ name, kind = 'room', listed = false, people: who = [] }) {
-      const id = await need().createRoom({ name: String(name ?? '').trim(), kind, listed, people: who });
+    async create({ name, kind = 'room', listed = false, inviteOnly = false, people: who = [] }) {
+      const id = await need().createRoom({ name: String(name ?? '').trim(), kind, listed, inviteOnly, people: who });
       prefs.set(meId(), { pinned: [...new Set([...prefs.get(meId()).pinned, id])] });
       await refresh();
       return id;

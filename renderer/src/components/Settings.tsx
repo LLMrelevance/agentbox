@@ -1390,6 +1390,7 @@ function NavIcon({ id }: { id: SettingsPageId }) {
     // The orb, the one thing of Neo's that is already on screen.
     neo: <><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="8.5" opacity="0.45" /></>,
     alpha: <><path d="M9.5 3.5h5M10.5 3.5v5.2L5.6 17.6a2 2 0 0 0 1.8 2.9h9.2a2 2 0 0 0 1.8-2.9l-4.9-8.9V3.5" /><path d="M7.6 14.5h8.8" /></>,
+    rooms: <path d="M9.5 4.5 7.5 19.5M16.5 4.5l-2 15M5 9.5h14.5M4.5 14.5H19" />,
   };
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1416,7 +1417,7 @@ function paneFrom(want: string, has: { team: boolean; neo?: boolean }): Pane {
 
 /* --------------------------------- screen --------------------------------- */
 
-export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, neoOn = false, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null }: {
+export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, neoOn = false, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null, roomsPane }: {
   /** Opens the feedback card. A phone has no Feedback button in its corner,
    *  so its own Settings page offers it (2026-10-12). */
   onFeedback?: () => void;
@@ -1474,6 +1475,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
    *  on this screen; the button's own answer is only ever held until the next
    *  snapshot arrives. Null on a build with no updater behind it. */
   update?: UpdateState | null;
+  /** Rooms (alpha): what people in your rooms see of you, handed in like the
+   *  team's pane. Absent while Rooms is off, and then there is no Rooms row. */
+  roomsPane?: ReactNode;
   onClose: () => void;
 }) {
   const [model, setModel] = useState<SettingsModel | null>(null);
@@ -1595,7 +1599,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
 
   /** The pages this Mac has. Codex on every Mac (w-d5d632e503); Team only on
    *  a build with a team cloud; Neo only where the voice alpha is on. */
-  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'neo' || neoOn));
+  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'neo' || neoOn) && (p.id !== 'rooms' || !!roomsPane));
   const hits = useMemo(
     () => searchSettings(query, { pages: pages.map((p) => p.id), projects }),
     [query, pages.length, projects],
@@ -1895,6 +1899,12 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             asks main for everything on it, so nothing here comes from the
             settings file either. */}
         {pane === 'neo' && neoOn && <NeoSettings />}
+
+        {pane === 'rooms' && roomsPane && (
+          <Page title="Rooms" lede="What people in your rooms see of you. Private threads never show.">
+            {roomsPane}
+          </Page>
+        )}
 
         {pane === 'team' && teamPane && (
           <Page title="Team" lede="Who is on your team, who has been invited, and the team's name. Everyone sees a short summary of your threads unless you mark one private.">

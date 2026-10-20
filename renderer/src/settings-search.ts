@@ -11,7 +11,7 @@
 // second word narrows rather than widens.
 
 export type SettingsPageId =
-  | 'general' | 'appearance' | 'shortcuts' | 'phone' | 'neo' | 'alpha'
+  | 'general' | 'appearance' | 'shortcuts' | 'phone' | 'neo' | 'alpha' | 'rooms'
   | 'claude' | 'codex' | 'running' | 'instructions'
   | 'projects' | 'team';
 
@@ -31,6 +31,7 @@ export const SETTINGS_PAGES: Array<{ id: SettingsPageId; label: string; group: '
   { id: 'instructions', label: 'Instructions', group: 'Agents' },
   { id: 'projects', label: 'Projects', group: 'Workspace' },
   { id: 'team', label: 'Team', group: 'Workspace' },
+  { id: 'rooms', label: 'Rooms', group: 'Workspace' },
 ];
 
 const pageLabel = (id: SettingsPageId) => SETTINGS_PAGES.find((p) => p.id === id)?.label ?? id;
@@ -66,6 +67,9 @@ const ENTRIES: Entry[] = [
   { page: 'neo', label: "Neo's voice", anchor: 'neo-voice', words: 'voice sound speak marin cedar male female accent jarvis assistant' },
   { page: 'alpha', label: 'Neo', anchor: 'alpha', words: 'alpha beta early try voice jarvis assistant' },
   { page: 'alpha', label: 'Rooms', anchor: 'alpha', words: 'alpha beta early try team teammates friends multiplayer people chat' },
+  { page: 'rooms', label: 'Show my full name', anchor: 'rooms-name', words: 'name last surname initial' },
+  { page: 'rooms', label: 'What you are working on', anchor: 'rooms-card', words: 'card thread private wall' },
+  { page: 'rooms', label: 'Go invisible', anchor: 'rooms-invisible', words: 'hide hidden away offline ghost' },
   { page: 'claude', label: 'Usage', anchor: 'usage', words: 'claude code limits plan left remaining quota' },
   { page: 'claude', label: 'Signed in', anchor: 'usage', words: 'claude code account accounts login subscription add email this computer local' },
   { page: 'claude', label: 'Cloud accounts', anchor: 'cloud-accounts', words: 'claude code cloud remote accounts limit' },

@@ -27,6 +27,7 @@ const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 function sumPresence(rows, now) {
   let agents = 0, total = 0, week = 0, today = 0;
   const days = new Set();
+  const months = new Map();
   let lead = null;
   for (const r of rows) {
     if (r.gone) continue;
@@ -34,18 +35,22 @@ function sumPresence(rows, now) {
     if (now < dayMs(r.week_start) + 7 * DAY_MS) week += num(r.hours_week);
     if (now < dayMs(r.day) + DAY_MS) today += num(r.hours_today);
     for (const d of r.active_days ?? []) days.add(String(d).slice(0, 10));
+    for (const m of Array.isArray(r.hours_by_month) ? r.hours_by_month : []) {
+      if (typeof m?.month === 'string') months.set(m.month, (months.get(m.month) ?? 0) + num(m.hours));
+    }
     const fresh = now - ms(r.updated_at) < PRESENCE_STALE_MS;
     if (!fresh || !(num(r.agents_running) > 0)) continue;
     agents += num(r.agents_running);
     if (!lead || (ms(r.working_at) || 0) > (ms(lead.working_at) || 0)) lead = r;
   }
-  return { agents, total, week, today, streak: streakOf([...days], now), lead };
+  const byMonth = [...months].sort(([a], [b]) => a.localeCompare(b)).map(([month, hours]) => ({ month, hours }));
+  return { agents, total, week, today, streak: streakOf([...days], now), byMonth, lead };
 }
 
 function workingOf({ profile, lead, teammate, cards }) {
   const none = { workingOn: null, workingPrivate: false };
-  if (profile.show_working === 'none' || !lead) return none;
-  if (lead.working_private) return { workingOn: null, workingPrivate: true };
+  if (!lead) return none;
+  if (profile.show_working === 'none' || lead.working_private) return { workingOn: null, workingPrivate: true };
   if (profile.show_working === 'everyone' && lead.working_on) return { workingOn: lead.working_on, workingPrivate: false };
   if (!teammate) return none;
   const card = cards
@@ -80,6 +85,8 @@ export function wallCards({ members = [], profiles = [], presence = [], teammate
       hoursWeek: s.week,
       hoursToday: s.today,
       streak: s.streak,
+      byMonth: s.byMonth,
+      teammate: mates.has(id) && id !== meId,
       status: p.show_status !== false && p.status_text && !(ms(p.status_until) <= now) ? p.status_text : null,
       ...workingOf({ profile: p, lead: s.lead, teammate: mates.has(id) && id !== meId, cards }),
     });

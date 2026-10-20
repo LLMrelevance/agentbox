@@ -139,7 +139,9 @@ export function dayGroups(
   return groups;
 }
 
-export function List({ items, view, keyView, hoveredId, selected, seen, running, engineChoice, engines, stalled, queued, signInNeeded, atLimit, shipping, silent, paused, multiSel, snoozes, repeats, allItems, terms, phrase, summaries, searchDetails, ranked, emptyText, walk, onSelect, onOpen, onOpenRepeat, onToggle, onRange, onHover: hoverTo, onAnswerImport, team = null, table = false, products = [], mixed = null, personCell, onOpenCard, selectedCard = null, onEnd, onReorder }: {
+export function List({ items, view, keyView, hoveredId, selected, seen, running, engineChoice, engines, stalled, queued, signInNeeded, atLimit, shipping, silent, paused, multiSel, snoozes, repeats, allItems, terms, phrase, summaries, searchDetails, ranked, emptyText, walk, onSelect, onOpen, onOpenRepeat, onToggle, onRange, onHover: hoverTo, onAnswerImport, team = null, table = false, products = [], mixed = null, personCell, onOpenCard, selectedCard = null, onEnd, onReorder, lead = null }: {
+  /** Rows drawn above the list's own, under its head: a mention in a room (team/rooms/MentionRows.tsx). */
+  lead?: ReactNode;
   items: WorkItem[];
   view: View;
   // WHICH VIEW'S KEYS THE ROW HINT PRINTS, which is not always the view this
@@ -287,7 +289,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, running,
   //
   // `emptyText` survives because search is the one case that is NOT an empty
   // page: something was typed and the app has to say what it matched.
-  if (items.length === 0 && rules.length === 0 && !mixed?.length) {
+  if (items.length === 0 && rules.length === 0 && !mixed?.length && !lead) {
     return emptyText ? <div className="empty">{emptyText}</div> : null;
   }
 
@@ -371,6 +373,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, running,
   return (
     <div className={`list${table ? ' th-table' : ''}`} ref={drag.listRef}>
       {table && <TableHead person={withPerson} tab={view} />}
+      {lead}
       {/* Repeating tasks sit above the deferred rows, in the tab that already
           holds work with a moment attached. They are RULES, not items, so they
           arrive on their own list and no inbox rule has an opinion about them. */}

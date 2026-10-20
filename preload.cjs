@@ -289,6 +289,12 @@ contextBridge.exposeInMainWorld('zero', {
     ipcRenderer.on('zero:recovered', handler);
     return () => ipcRenderer.removeListener('zero:recovered', handler);
   },
+  // A room invite link opened the app (Rooms, alpha).
+  onJoinRoom: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('zero:join-room', handler);
+    return () => ipcRenderer.removeListener('zero:join-room', handler);
+  },
   // She clicked the banner. The window is already coming forward; this says
   // which row it was about, so she lands on it rather than on wherever she
   // left the cursor.

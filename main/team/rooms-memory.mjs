@@ -112,7 +112,7 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
       const s = state(cloud);
       return [...roomsOf(personId)].map((id) => s.rooms.get(id)).filter(Boolean)
         .sort((a, b) => (a.teamId ? 0 : 1) - (b.teamId ? 0 : 1) || a.createdAt - b.createdAt)
-        .map((r) => roomOut({ id: r.id, name: r.name, kind: r.kind, team_id: r.teamId, listed: r.listed, role: ownsRoom(r.id) ? 'owner' : 'member', members: peopleOf(r.id).size, created_at: iso(r.createdAt) }));
+        .map((r) => roomOut({ id: r.id, name: r.name, kind: r.kind, team_id: r.teamId, listed: r.listed, invite_only: !!r.inviteOnly, role: ownsRoom(r.id) ? 'owner' : 'member', members: peopleOf(r.id).size, created_at: iso(r.createdAt) }));
     },
 
     async roomPeople(r) {
@@ -195,6 +195,7 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
     async roomLink(r) {
       if (!inRoom(r)) refuse('make a link to a room you are not in');
       if (room(r)?.kind === 'group') refuse('a link to a group');
+      if (room(r)?.inviteOnly) refuse('a link to a room that takes only people its members invite');
       return liveLink(r)?.token ?? newLink(r);
     },
 
@@ -209,6 +210,7 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
       const l = state(cloud).roomLinks.find((x) => x.token === token && !x.revokedAt);
       if (!l) refuse('an invite link that does not work any more');
       if (room(l.roomId)?.kind === 'group') refuse('join a group by link');
+      if (room(l.roomId)?.inviteOnly) refuse('join by link a room that takes only people its members invite');
       return join(l.roomId);
     },
 
@@ -232,24 +234,25 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
     async roomPreview(token) {
       const l = state(cloud).roomLinks.find((x) => x.token === token && !x.revokedAt);
       const r = l && room(l.roomId);
-      if (!r) return null;
+      if (!r || r.inviteOnly) return null;
       const ids = [...peopleOf(r.id)];
       const shown = ids.filter(visible);
       return { name: r.name, members: ids.length, agentsRunning: freshAgents(shown).reduce((n, p) => n + p.agents_running, 0), faces: faces(shown, 8) };
     },
 
-    async createRoom({ name, kind = 'room', listed = false, people = [] }) {
+    async createRoom({ name, kind = 'room', listed = false, people = [], inviteOnly = false }) {
       const s = state(cloud);
       const clean = String(name ?? '').trim();
       if (clean.length < 1 || clean.length > 40) refuse('a room name that empty or that long');
       if (!['room', 'group'].includes(kind)) refuse(`a ${kind}`);
       if (listed && kind !== 'room') refuse('list a group');
+      if (listed && inviteOnly) refuse('list a room that takes only people its members invite');
       if (listed && !s.members.some((m) => m.personId === personId)) refuse('list a room without a team');
       if ((people ?? []).length > 11) refuse('a group of more than twelve');
       limit('rooms', [...s.rooms.values()].filter((r) => r.createdBy === personId && r.createdAt > now() - DAY).length, 10);
       for (const p of people ?? []) if (p !== personId && !sharesRoom(p)) refuse('add somebody you share no room with');
       const id = crypto.randomUUID();
-      s.rooms.set(id, { id, name: clean, kind, teamId: null, listed: !!listed, createdBy: personId, createdAt: now() });
+      s.rooms.set(id, { id, name: clean, kind, teamId: null, listed: !!listed, inviteOnly: !!inviteOnly, createdBy: personId, createdAt: now() });
       s.roomMembers.push({ roomId: id, personId, role: 'owner', joinedAt: now() });
       for (const p of new Set(people ?? [])) if (p !== personId) s.roomMembers.push({ roomId: id, personId: p, role: 'member', joinedAt: now() });
       emit({ kind: 'membership', roomId: id });
@@ -301,14 +304,19 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
       return join(r);
     },
 
-    async agentboxRank() {
+    async agentboxRanks(ids) {
       const totals = new Map();
       for (const p of state(cloud).roomPresence.values()) {
         if (p.gone || !visible(p.person_id)) continue;
         totals.set(p.person_id, (totals.get(p.person_id) ?? 0) + Number(p.hours_total));
       }
-      const mine = totals.get(personId) ?? 0;
-      return 1 + [...totals.values()].filter((h) => h > mine).length;
+      const out = {};
+      for (const p of ids ?? []) {
+        if (p !== personId && !(sharesRoom(p) && visible(p))) continue;
+        const h = totals.get(p) ?? 0;
+        out[p] = 1 + [...totals.values()].filter((x) => x > h).length;
+      }
+      return out;
     },
 
     subscribeRooms(onEvent) {

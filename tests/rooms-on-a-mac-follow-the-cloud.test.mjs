@@ -33,7 +33,7 @@ function world() {
     };
     p.rooms = createRooms({
       backend: () => (p.signedIn ? backend : null),
-      me: () => (p.signedIn ? { id, name } : null),
+      me: () => (p.signedIn ? { id, name, status: p.status ?? null } : null),
       team: () => p.teamState,
       enabled: () => p.on,
       device: () => id.replace(/-/g, '').slice(0, 12).replace(/[^0-9a-f]/g, 'a'),
@@ -166,6 +166,15 @@ describe('switched on', () => {
     expect(row.working_on).toBe('Cloud launch video');
     await w.maya.rooms.saveProfile({ show_working: 'team' });
     expect([...w.cloud.roomPresence.values()].find((r) => r.person_id === w.maya.id).working_on).toBeNull();
+  });
+
+  it('the status I set for my team shows on my room card, and clears with it', async () => {
+    w.maya.status = { text: 'Heads down today', until: T0 + 3_600_000 };
+    await w.maya.rooms.tick();
+    expect(w.cloud.roomProfiles.get(w.maya.id)).toMatchObject({ status_text: 'Heads down today', status_until: new Date(T0 + 3_600_000).toISOString() });
+    w.maya.status = null;
+    await w.maya.rooms.tick();
+    expect(w.cloud.roomProfiles.get(w.maya.id)).toMatchObject({ status_text: null, status_until: null });
   });
 
   it('pins and mutes are mine, kept, and leaving a room drops them', async () => {

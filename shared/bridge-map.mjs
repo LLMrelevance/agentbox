@@ -173,6 +173,7 @@ export const PUSH_CHANNELS = {
   onFind: 'zero:find',
   onZoomPercent: 'zero:zoom-percent',
   onRecovered: 'zero:recovered',
+  onJoinRoom: 'zero:join-room',
   onOpenItem: 'zero:open-item',
   onOpenSettings: 'zero:open-settings',
   onScreenDetail: 'zero:screen-detail',

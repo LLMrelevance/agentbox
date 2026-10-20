@@ -55,6 +55,7 @@ import { hotWindowVerdict, storeHasWork } from './dev-window.mjs';
 import { writeHeldThenReload } from './write-before-reload.mjs';
 import { IS_SHE_TYPING_IN_THE_PAGE, theAppKeepsThisInput, theAppKeepsThisLetterInAPage } from '../shared/artifact-keys.mjs';
 import { NAME, Name, WAS } from '../shared/product-name.mjs';
+import { JOIN_SCHEME, tokenFromLink } from '../shared/room-links.mjs';
 
 // HOW LONG TO WAIT AFTER THE LID OPENS, and the wait is for the network rather
 // than for the wake. `powerMonitor`'s resume event fires while wifi is still
@@ -244,6 +245,18 @@ installCrashReports({
 });
 
 let window = null;
+// A ROOM INVITE LINK THAT OPENED THE APP (Rooms, alpha): agentbox://join/<token>.
+// Held until the window asks for it, or handed straight to a window that is up.
+let pendingJoin = tokenFromLink(process.argv.find((a) => a.startsWith(`${JOIN_SCHEME}://`)) ?? '');
+function openJoinLink(url) {
+  const token = tokenFromLink(url);
+  if (!token) return;
+  if (window && !window.isDestroyed()) {
+    window.webContents.send('zero:join-room', { token });
+    if (window.isMinimized()) window.restore();
+    window.focus();
+  } else pendingJoin = token;
+}
 // Set by ⌘R and read once by the renderer as it comes back up, so a reload can
 // say so. A reload that lands on an identical screen and a chord that did
 // nothing at all look exactly alike, and telling them apart is the whole
@@ -1000,10 +1013,11 @@ async function createWindow() {
   ipcMain.handle('zero:boot-info', () => {
     const info = {
       reloaded: reloadRequested, builtAt: builtAt(), recovered: pendingRecovery,
-      screenDetail: currentScreenDetail(),
+      screenDetail: currentScreenDetail(), joinRoom: pendingJoin,
     };
     reloadRequested = false;
     pendingRecovery = null;
+    pendingJoin = null;
     return info;
   });
   // The window's own uncaught errors. The renderer cannot write a report
@@ -1170,12 +1184,15 @@ async function createWindow() {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_e, argv = []) => {
     if (window) {
       if (window.isMinimized()) window.restore();
       window.focus();
     }
+    const link = argv.find((a) => String(a).startsWith(`${JOIN_SCHEME}://`));
+    if (link) openJoinLink(link);
   });
+  app.on('open-url', (e, url) => { e.preventDefault(); openJoinLink(url); });
   app.whenReady().then(() => {
     // A from-source Linux launch keeps the launcher command installed. The
     // entry runs that command; this only refreshes where it points. A packaged
@@ -1191,6 +1208,9 @@ if (!app.requestSingleInstanceLock()) {
     // THE ABOUT BOX SAYS AGENTBOX AND ITS OWN VERSION (w-db6f5e331e). Run from
     // source it read the bundle's, which is Electron's: "Electron 43.0.0".
     app.setAboutPanelOptions({ applicationName: NAME, applicationVersion: app.getVersion(), version: '' });
+    // Only the installed app takes the invite scheme: run from source it would
+    // point every link on the Mac at this checkout's Electron.
+    if (app.isPackaged) app.setAsDefaultProtocolClient(JOIN_SCHEME);
     // Serve a granted file, and nothing else. A page under this scheme is one
     // of ours, but it is written by an agent and read by her, so the check is
     // on every request rather than only on the one the pane asked for.

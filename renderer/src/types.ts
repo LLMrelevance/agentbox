@@ -252,6 +252,10 @@ export interface RoomCard {
   hoursWeek: number;
   hoursToday: number;
   streak: number;
+  /** Agent hours per month, oldest first, for their chart. */
+  byMonth: { month: string; hours: number }[];
+  /** On my team, so their shared threads reach me. */
+  teammate: boolean;
   status: string | null;
   workingOn: string | null;
   workingPrivate: boolean;
@@ -273,6 +277,8 @@ export interface Room {
   kind: 'room' | 'group';
   teamId: string | null;
   listed: boolean;
+  /** Joined only by an email invite: no link works for it. */
+  inviteOnly: boolean;
   role: 'owner' | 'member';
   members: number;
   createdAt: number;
@@ -316,7 +322,8 @@ export interface RoomsState {
   rooms: Room[];
   messages: Record<string, RoomMessage[]>;
   me: RoomProfile | null;
-  rank: number | null;
+  /** Each person's place on the whole app by agent hours, for me and people I share a room with. */
+  ranks: Record<string, number>;
   invites: { roomId: string; roomName: string; invitedBy: string | null; invitedByName: string | null }[];
   mentions: RoomMention[];
   error: string | null;
@@ -769,6 +776,8 @@ export interface Snapshot {
   // The team (main/team/index.mjs). Null or absent on a build with no team
   // cloud, which is the single-person app.
   team?: TeamState | null;
+  /** Which alpha features are switched on (Settings, Alpha features). */
+  alpha?: { neo: boolean; rooms: boolean };
   agents?: AgentSession[];
   approvals?: Approval[];
   supervisor: SupervisorStatus;
@@ -1335,7 +1344,8 @@ declare global {
       // screenDetail is which set of theme pictures this screen wants, 'soft' or
       // 'sharp' (main/screen-detail.mjs). It rides here rather than being
       // pushed because the answer is needed on the first paint.
-      bootInfo?(): Promise<{ reloaded: boolean; builtAt: number; recovered?: string | null; screenDetail?: string }>;
+      bootInfo?(): Promise<{ reloaded: boolean; builtAt: number; recovered?: string | null; screenDetail?: string; joinRoom?: string | null }>;
+      onJoinRoom?(fn: (r: { token: string }) => void): () => void;
       // Keeping Agentbox current (main/updater.mjs). Look again now, and restart
       // onto the version that already downloaded itself.
       updateCheck(): Promise<UpdateState>;

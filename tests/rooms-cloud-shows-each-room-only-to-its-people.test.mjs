@@ -114,7 +114,7 @@ describe('signed out', () => {
     }
     expect(await refused(null, `select * from public.my_rooms()`, [], 'anon')).toBe(true);
     expect(await refused(null, `select * from public.listed_rooms()`, [], 'anon')).toBe(true);
-    expect(await refused(null, `select public.agentbox_rank()`, [], 'anon')).toBe(true);
+    expect(await refused(null, `select * from public.agentbox_ranks($1)`, [[MAYA]], 'anon')).toBe(true);
     expect(await refused(null, `select * from public.room_preview('nothing')`, [], 'anon')).toBe(false);
   });
 });
@@ -159,8 +159,14 @@ describe('strangers in General', () => {
   });
 
   it('rank on Agentbox is a number, worked out without reading anyone else', async () => {
-    expect((await one(JUN, `select public.agentbox_rank() as r`)).r).toBe(2);
-    expect((await one(MAYA, `select public.agentbox_rank() as r`)).r).toBe(1);
+    const ranks = async (who, ids) => Object.fromEntries((await rows(who, `select person_id, rank from public.agentbox_ranks($1)`, [ids])).map((r) => [r.person_id, r.rank]));
+    expect(await ranks(JUN, [JUN, MAYA])).toEqual({ [JUN]: 2, [MAYA]: 1 });
+    expect(await ranks(MAYA, [MAYA])).toEqual({ [MAYA]: 1 });
+  });
+
+  it('only for me and the people I share a room with', async () => {
+    const ids = async (who, list) => (await rows(who, `select person_id from public.agentbox_ranks($1)`, [list])).map((r) => r.person_id).sort();
+    expect(await ids(ANA, [ANA, MAYA, JUN])).toEqual([ANA]);
   });
 });
 
@@ -272,6 +278,17 @@ describe('leaving and being removed', () => {
   it('only someone on a team lists a room for everyone, in the alpha', async () => {
     expect(await refused(JUN, `select public.create_room('Night owls', 'room', true, '{}')`)).toBe(true);
     expect(await refused(MAYA, `select public.create_room('Night owls', 'room', true, '{}')`)).toBe(false);
+  });
+
+  it('a room for only the people you invite has no link, and an old link stops working', async () => {
+    const { r } = await one(MAYA, `select public.create_room('Board', 'room', false, '{}', true) as r`);
+    expect((await one(MAYA, `select invite_only from public.my_rooms() where id = $1`, [r])).invite_only).toBe(true);
+    expect(await refused(MAYA, `select public.room_link($1)`, [r])).toBe(true);
+    await db.query(`insert into public.room_links (room_id, created_by) values ($1, $2)`, [r, MAYA]);
+    const { token } = (await db.query(`select token from public.room_links where room_id = $1`, [r])).rows[0];
+    expect(await refused(JUN, `select public.join_room_by_link($1)`, [token])).toBe(true);
+    expect(await rows(JUN, `select name from public.room_preview($1)`, [token])).toEqual([]);
+    expect(await refused(MAYA, `select public.create_room('Both', 'room', true, '{}', true)`)).toBe(true);
   });
 
   it('an owner leaving hands the room on; the last one out deletes it', async () => {

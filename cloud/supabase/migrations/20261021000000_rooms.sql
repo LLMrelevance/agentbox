@@ -19,9 +19,12 @@ create table if not exists public.rooms (
   kind text not null default 'room' check (kind in ('room', 'group')),
   team_id uuid unique references public.teams(id) on delete cascade,
   listed boolean not null default false,
+  -- Joined only by an email invite or being added: no link works for it.
+  invite_only boolean not null default false,
   created_by uuid references public.people(id) on delete set null,
   created_at timestamptz not null default now(),
   check (not listed or kind = 'room'),
+  check (not (listed and invite_only)),
   check (team_id is null or (kind = 'room' and not listed))
 );
 
@@ -227,6 +230,7 @@ begin
   new.created_at := case when tg_op = 'INSERT' then now() else old.created_at end;
   if tg_op = 'UPDATE' then
     new.kind := old.kind; new.team_id := old.team_id; new.listed := old.listed; new.created_by := old.created_by;
+    new.invite_only := old.invite_only;
   end if;
   return new;
 end $$;
@@ -305,9 +309,9 @@ create trigger team_room_kept after insert or update on public.teams
 -- ---------------------------------------------------------------- what the app calls
 
 create or replace function public.my_rooms()
-returns table (id uuid, name text, kind text, team_id uuid, listed boolean, role text, members int, created_at timestamptz)
+returns table (id uuid, name text, kind text, team_id uuid, listed boolean, invite_only boolean, role text, members int, created_at timestamptz)
 language sql stable security definer set search_path = public as $$
-  select r.id, r.name, r.kind, r.team_id, r.listed,
+  select r.id, r.name, r.kind, r.team_id, r.listed, r.invite_only,
          case when public.owns_room(r.id) then 'owner' else 'member' end,
          public.room_member_count(r.id), r.created_at
   from public.rooms r
@@ -323,7 +327,7 @@ language sql stable security definer set search_path = public as $$
   select tm.person_id from public.rooms ro join public.team_members tm on tm.team_id = ro.team_id where ro.id = r and public.in_room(r)
 $$;
 
-create or replace function public.create_room(p_name text, p_kind text default 'room', p_listed boolean default false, p_people uuid[] default '{}')
+create or replace function public.create_room(p_name text, p_kind text default 'room', p_listed boolean default false, p_people uuid[] default '{}', p_invite_only boolean default false)
 returns uuid language plpgsql security definer set search_path = public as $$
 declare r uuid; p uuid;
 begin
@@ -339,7 +343,7 @@ begin
   foreach p in array coalesce(p_people, '{}') loop
     if p <> auth.uid() and not public.shares_room(p) then raise exception 'you can only add people you share a room with'; end if;
   end loop;
-  insert into public.rooms (name, kind, listed, created_by) values (btrim(p_name), p_kind, p_listed, auth.uid()) returning id into r;
+  insert into public.rooms (name, kind, listed, invite_only, created_by) values (btrim(p_name), p_kind, p_listed, coalesce(p_invite_only, false), auth.uid()) returning id into r;
   insert into public.room_members (room_id, person_id, role) values (r, auth.uid(), 'owner');
   insert into public.room_members (room_id, person_id)
     select r, x from unnest(coalesce(p_people, '{}')) x where x <> auth.uid() on conflict do nothing;
@@ -372,6 +376,7 @@ begin
   select room_id into r from public.room_links where token = tok and revoked_at is null;
   if r is null then raise exception 'that invite link does not work any more'; end if;
   if exists (select 1 from public.rooms where id = r and kind = 'group') then raise exception 'a group is joined by being added'; end if;
+  if exists (select 1 from public.rooms where id = r and invite_only) then raise exception 'that room takes only people its members invite'; end if;
   return public.join_into(r);
 end $$;
 
@@ -381,6 +386,7 @@ declare tok text;
 begin
   if not public.in_room(r) then raise exception 'you are not in that room'; end if;
   if exists (select 1 from public.rooms where id = r and kind = 'group') then raise exception 'a group has no invite link'; end if;
+  if exists (select 1 from public.rooms where id = r and invite_only) then raise exception 'that room takes only people its members invite'; end if;
   select token into tok from public.room_links where room_id = r and revoked_at is null;
   if tok is null then
     insert into public.room_links (room_id, created_by) values (r, auth.uid()) returning token into tok;
@@ -445,7 +451,8 @@ end $$;
 create or replace function public.room_preview(tok text)
 returns table (name text, members int, agents_running int, faces jsonb)
 language sql stable security definer set search_path = public as $$
-  with r as (select l.room_id from public.room_links l where l.token = tok and l.revoked_at is null),
+  with r as (select l.room_id from public.room_links l join public.rooms ro on ro.id = l.room_id
+             where l.token = tok and l.revoked_at is null and not ro.invite_only),
   everyone as (
     select m.person_id from public.room_members m where m.room_id = (select room_id from r)
     union
@@ -478,15 +485,18 @@ language sql stable security definer set search_path = public as $$
   limit 100
 $$;
 
--- My place among everyone visible, by all-time agent hours: the number only.
-create or replace function public.agentbox_rank() returns int
+-- Each one's place among everyone visible, by all-time agent hours: the number
+-- only, and only for me and the people I share a room with.
+create or replace function public.agentbox_ranks(ps uuid[])
+returns table (person_id uuid, rank int)
 language sql stable security definer set search_path = public as $$
   with totals as (
     select p.person_id, sum(p.hours_total) as h from public.room_presence p
     where not p.gone and public.person_visible(p.person_id) group by p.person_id
   )
-  select case when auth.uid() is null then null
-              else 1 + (select count(*)::int from totals where h > coalesce((select h from totals where person_id = auth.uid()), 0)) end
+  select x, 1 + (select count(*)::int from totals where h > coalesce((select h from totals t where t.person_id = x), 0))
+  from unnest(coalesce(ps, '{}')) x
+  where auth.uid() is not null and (x = auth.uid() or (public.shares_room(x) and public.person_visible(x)))
 $$;
 
 -- ---------------------------------------------------------------- row policies
@@ -583,21 +593,21 @@ begin
     'public.room_member_count(uuid)', 'public.person_visible(uuid)', 'public.room_limit(text, int, interval)',
     'public.room_message_made()', 'public.room_row_stamped()', 'public.room_made_now()', 'public.room_membership_moved()',
     'public.team_membership_moved()', 'public.room_renamed()', 'public.team_room_kept()', 'public.my_rooms()',
-    'public.room_people(uuid)', 'public.create_room(text, text, boolean, uuid[])', 'public.join_into(uuid)',
+    'public.room_people(uuid)', 'public.create_room(text, text, boolean, uuid[], boolean)', 'public.join_into(uuid)',
     'public.join_listed_room(uuid)', 'public.join_room_by_link(text)', 'public.room_link(uuid)', 'public.revoke_room_link(uuid)',
     'public.my_email()', 'public.pending_room_invites()', 'public.accept_room_invite(uuid)',
     'public.remove_room_member(uuid, uuid)', 'public.mark_room_read(uuid, timestamptz)', 'public.room_preview(text)',
-    'public.listed_rooms()', 'public.agentbox_rank()'
+    'public.listed_rooms()', 'public.agentbox_ranks(uuid[])'
   ] loop
     execute format('revoke all on function %s from public, anon', f);
   end loop;
 end $$;
 
 grant execute on function public.in_room(uuid), public.shares_room(uuid), public.owns_room(uuid), public.person_visible(uuid),
-  public.my_rooms(), public.room_people(uuid), public.create_room(text, text, boolean, uuid[]), public.join_listed_room(uuid),
+  public.my_rooms(), public.room_people(uuid), public.create_room(text, text, boolean, uuid[], boolean), public.join_listed_room(uuid),
   public.join_room_by_link(text), public.room_link(uuid), public.revoke_room_link(uuid), public.pending_room_invites(),
   public.accept_room_invite(uuid), public.remove_room_member(uuid, uuid), public.mark_room_read(uuid, timestamptz),
-  public.room_preview(text), public.listed_rooms(), public.agentbox_rank()
+  public.room_preview(text), public.listed_rooms(), public.agentbox_ranks(uuid[])
 to authenticated;
 -- The one door open without a sign-in: the invite link's preview.
 grant execute on function public.room_preview(text) to anon;

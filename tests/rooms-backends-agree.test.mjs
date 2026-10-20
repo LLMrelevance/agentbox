@@ -159,6 +159,14 @@ describe.each(worlds)('rooms on %s', (_kind, make) => {
     await refused(w.ana.markRoomRead(teamRoom.id, t));
   });
 
+  it('a room for only the people you invite has no link, and says so', async () => {
+    const r = await w.maya.createRoom({ name: 'Board', inviteOnly: true });
+    expect((await w.maya.myRooms()).find((x) => x.id === r)).toMatchObject({ inviteOnly: true, listed: false });
+    await refused(w.maya.roomLink(r));
+    await refused(w.maya.createRoom({ name: 'Both', listed: true, inviteOnly: true }));
+    expect((await w.maya.myRooms()).find((x) => x.id === teamRoom.id).inviteOnly).toBe(false);
+  });
+
   it('a group has no link, and is made only with people I share a room with', async () => {
     const group = (await w.maya.myRooms()).find((r) => r.kind === 'group');
     await refused(w.maya.roomLink(group.id));
@@ -208,9 +216,10 @@ describe.each(worlds)('rooms on %s', (_kind, make) => {
   it('my place on Agentbox counts everyone visible with more hours', async () => {
     await w.theo.putPresence('cccccccccccc', { hours_total: 500 });
     await w.jun.putPresence('dddddddddddd', { hours_total: 10 });
-    const theo = await w.theo.agentboxRank();
-    const jun = await w.jun.agentboxRank();
-    expect(jun).toBeGreaterThan(theo);
+    const theo = (await w.theo.agentboxRanks([w.theo.personId]))[w.theo.personId];
+    const jun = (await w.jun.agentboxRanks([w.jun.personId, w.theo.personId]));
+    expect(jun[w.jun.personId]).toBeGreaterThan(theo);
+    expect(Object.keys(jun)).toEqual([w.jun.personId]);
   });
 
   it('realtime: I hear messages in my rooms and not in others', async () => {

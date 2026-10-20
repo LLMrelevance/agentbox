@@ -8,7 +8,7 @@ export const PRESENCE_COLS = ['person_id', 'device', ...PRESENCE_FIELDS, 'update
 export const pick = (o, keys) => Object.fromEntries(keys.filter((k) => o && k in o).map((k) => [k, o[k]]));
 
 export const roomOut = (r) => ({
-  id: r.id, name: r.name, kind: r.kind, teamId: r.team_id ?? null, listed: !!r.listed,
+  id: r.id, name: r.name, kind: r.kind, teamId: r.team_id ?? null, listed: !!r.listed, inviteOnly: !!r.invite_only,
   role: r.role, members: Number(r.members) || 0, createdAt: Date.parse(r.created_at) || 0,
 });
 

@@ -94,6 +94,9 @@ import { applySkin, applySkinDetail, applyTune, DEFAULT_SKIN, idleSkin, lookMean
 import { resolveTaskShape, TASK_SHAPE_KEY, type TaskShape } from './task-shape';
 import { ComposeIcon } from './components/ComposeIcon';
 import { WorkspaceNavigation } from './components/WorkspaceNavigation';
+import { useRooms } from './team/rooms/useRooms';
+import { directConversations } from './team/rooms/conversations';
+import { MentionRows } from './team/rooms/MentionRows';
 import { FeedbackCard } from './components/FeedbackCard';
 import { searchFieldInStrip, workspaceDestinations, workspaceNavigationShown, workspacePageTitle } from './workspace-navigation.mjs';
 import { SettingsIcon } from './components/SettingsIcon';
@@ -3312,6 +3315,30 @@ export default function App() {
   }, []);
   showToastRef.current = showToast;
 
+  // ROOMS (alpha, team/rooms/useRooms.tsx). A room open is drawn in place of
+  // the list, so it shows only where the list would.
+  const roomsOn = !!snap?.alpha?.rooms && !!snap?.team?.rooms?.on;
+  const directs = useMemo(() => (roomsOn ? directConversations({
+    items, products: snap?.products ?? [], me: snap?.team?.me?.id ?? null,
+    people: new Map((snap?.team?.people ?? []).map((p) => [p.id, p])), waiting: new Set(inbox.map((i) => i.id)),
+  }) : []), [roomsOn, items, snap?.products, snap?.team?.me?.id, snap?.team?.people, inbox]);
+  const roomsUi = useRooms({
+    rooms: snap?.team?.rooms, on: !!snap?.alpha?.rooms, meId: snap?.team?.me?.id ?? null,
+    myName: snap?.team?.rooms?.me?.display_name ?? '', fullName: snap?.team?.me?.name ?? '', hasTeam: !!snap?.team?.team, teamCards: snap?.team?.cards ?? [], now: Date.now(), toast: showToast,
+    directs,
+    onOpenDirect: (id) => { const item = items.find((i) => i.id === id); if (item) { setTeamOpen(false); setSettingsOpen(false); setFocused(item); markSeen(item); } },
+    onLeaveDirect: () => setFocused(null),
+    // Teammates: the conversation you already have, or the new thread card addressed to them.
+    onTeamMessage: (ids) => {
+      const want = [...ids].sort().join(',');
+      const had = directs.find((d) => [...d.people].sort().join(',') === want);
+      if (had) { setFocused(had.item); markSeen(had.item); return; }
+      setComposeInitial({ to: ids[0], also: ids.slice(1) });
+      setModal('compose');
+    },
+  });
+  const roomShown = !!roomsUi.openId && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
+
   // C TURNS THE CLOUD ON OR OFF, from anywhere a key reaches (2026-10-16), and
   // a note says which. Through a ref so the key handlers read the cloud as it
   // is now. Nothing without a cloud set up.
@@ -3383,6 +3410,7 @@ export default function App() {
       // Which set of theme pictures this screen wants, before anything else in
       // here: a toast that returns early must not take the wallpaper with it.
       applySkinDetail(resolveSkinDetail(info?.screenDetail));
+      if (info?.joinRoom) joinWaiting.current = info.joinRoom;
       // BEFORE ANY RETURN, because this is what puts her back where she was and
       // the two early exits below are about what to SAY. Read once here rather
       // than asked for again: the main process clears the flag as it hands it
@@ -3401,6 +3429,17 @@ export default function App() {
   // She opened the lid. The app put the agents back on their work while she was
   // away from the screen, and this is the whole of what it says about it.
   useEffect(() => window.zero?.onRecovered?.((r) => { if (r?.text) showToast(r.text); }), [showToast]);
+  // A ROOM INVITE LINK (Rooms, alpha): the room is shown first, and joined on a yes.
+  const joinWaiting = useRef<string | null>(null);
+  const [joinTick, setJoinTick] = useState(0);
+  useEffect(() => window.zero?.onJoinRoom?.((r) => { if (r?.token) { joinWaiting.current = r.token; setJoinTick((n) => n + 1); } }), []);
+  useEffect(() => {
+    const token = joinWaiting.current;
+    if (!token || !snap) return;
+    if (!roomsUi.live) { if (snap.alpha?.rooms === false || !snap.team?.signedIn) { joinWaiting.current = null; showToast('Turn on Rooms in Settings, Alpha features, to join a room'); } return; }
+    joinWaiting.current = null;
+    void roomsUi.join(token);
+  }, [joinTick, roomsUi.live, snap, showToast]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // BEING A BRAND NEW USER, ON THE APP SHE DOWNLOADED.`walkAgain` above is the
   // "at LEAST" half. This is the first half, and the difference between them
@@ -4778,6 +4817,14 @@ export default function App() {
         setModal((m) => (m === 'palette' ? null : 'palette'));
         return;
       }
+      // A ROOM OWNS THE KEYBOARD WHILE IT IS OPEN, as Settings does: the list
+      // behind it is not on the screen. Escape goes back to the threads and
+      // Tab walks on along the tabs.
+      if (roomShown && e.key !== 'Tab') {
+        if (roomsUi.dialogOpen || modal || inInput || e.metaKey || e.ctrlKey || e.altKey) return;
+        if (e.key === 'Escape') { e.preventDefault(); roomsUi.close(); }
+        return;
+      }
       // ⌘J SHOWS AND HIDES THIS TASK'S TERMINAL.It is the chord VS Code,
       // Cursor and Zed all use for the same panel, so there is nothing new to
       // learn.
@@ -4807,8 +4854,8 @@ export default function App() {
       // 2026-09-14, and a field-level editor still eats its own first.
       if (e.key === 'Tab') {
         const onTheTabs = !inInput && !modal && !focused && !focusedRepeat && !inFullScreen
-          && !settingsOpen && !teamShown && !openCard
-          && search === null && inboxDisplay.view === 'list';
+          && !settingsOpen && !teamShown && !openCard && !roomsUi.dialogOpen
+          && search === null && (inboxDisplay.view === 'list' || roomShown);
         if (!onTheTabs) return;
         // Built, not left alone: the browser's own focus walk would otherwise
         // paint a ring on whatever it landed on behind the rotation.
@@ -4816,7 +4863,13 @@ export default function App() {
         setHoveredId(null);
         (document.activeElement as HTMLElement | null)?.blur?.();
         setMultiSel(new Set());
-        setView(nextTab(stateTabOrder, view, e.shiftKey) as View);
+        // With Rooms on, the pinned rooms are tabs too, after Done.
+        if (roomsUi.live) {
+          const next = roomsUi.walk(stateTabOrder, roomShown ? `room:${roomsUi.openId}` : view, e.shiftKey);
+          if (next.startsWith('room:')) { roomsUi.open(next.slice(5)); return; }
+          roomsUi.close();
+          setView(next as View);
+        } else setView(nextTab(stateTabOrder, view, e.shiftKey) as View);
         setSelected(0);
         return;
       }
@@ -5106,7 +5159,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [modal, newProject, focused, focusedRepeat, inFullScreen, togglePanel, current, pointed, list, view, markDone, openSnooze, pickOption, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow]);
+  }, [modal, newProject, focused, focusedRepeat, inFullScreen, togglePanel, current, pointed, list, view, markDone, openSnooze, pickOption, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, roomShown, roomsUi, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow]);
 
   // WHO HOLDS THE KEYBOARD WHILE SEARCHING. The field is in the top bar and
   // stays mounted while a result is open, so without this the J and K that walk
@@ -5574,11 +5627,11 @@ export default function App() {
            offering the move. Null on every copy that can. */
         move={announcesMove(snap?.update, { walking, closed: '' }) ? { place: snap?.update?.place ?? null, error: snap?.update?.moveError ?? null } : null}
         onMove={() => { void api.updateMove(); }}
-        page={settingsOpen ? 'settings' : null} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
+        page={settingsOpen ? 'settings' : null} roomOpen={roomShown} rooms={roomsUi.nav(workspaceCollapsed)} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onSignOut={() => { void api.teamSignOut().then(() => refresh()); }}
-        onTeam={() => { setSettingsOpen(false); setSettingsPane(null); closeSearch(); setFocused(null); setOpenCard(null); setTeamOpen(true); }} onSettings={() => { setTeamOpen(false); setSettingsPane(null); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }} inboxCount={inbox.length} scheduledCount={scheduledCount} view={view} collapsed={workspaceCollapsed} onToggle={toggleWorkspace} onSearch={openSearch} onCompose={() => setModal('compose')} onView={next => { setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); }} />}
+        onTeam={() => { setSettingsOpen(false); setSettingsPane(null); closeSearch(); setFocused(null); setOpenCard(null); setTeamOpen(true); }} onSettings={() => { setTeamOpen(false); setSettingsPane(null); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }} inboxCount={inbox.length + roomsUi.mentions.length} scheduledCount={scheduledCount} view={view} collapsed={workspaceCollapsed} onToggle={toggleWorkspace} onSearch={openSearch} onCompose={() => setModal('compose')} onView={next => { roomsUi.close(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); }} />}
       {/* THE REACH (w-5dcff78971). The corner is transparent and it is the
           only part of our own document lying over the file, so a pointer
           brought up there wakes the marks that a pointer moving across the
@@ -5840,6 +5893,7 @@ export default function App() {
               onCloudMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
               onCloudWhenOn={(mode) => { void api.setWorkspaceSetting({ key: 'cloudWhenOn', value: mode }); }}
               onCloudSetUp={() => setCloudSetupOpen(true)}
+              filters={!roomShown}
             />
           )}
           {!workspaceNavigation && !focused && !settingsOpen && !inPractice && (
@@ -6032,7 +6086,7 @@ export default function App() {
           )
         ) : (
           <>
-            <main className={`list-pane${focused || focusedRepeat ? ' pinned' : ''}${bareView ? ' bare' : ''}`}>
+            <main className={`list-pane${focused || focusedRepeat ? ' pinned' : ''}${bareView ? ' bare' : ''}${roomShown ? ' rm-open' : ''}`}>
               {noPlan && !run && !focused && !focusedRepeat && <PlanBar onSetup={setSetupPlan} />}
               {focusedRepeat ? (
                 <RepeatFocus
@@ -6062,7 +6116,7 @@ export default function App() {
                 />
               ) : focused ? (
                 <TicketItems.Provider value={items}>
-                <Focus
+                {roomsUi.messagesShell(isDirect(snap.products.find((p) => p.slug === focused.product)) ? focused.id : null, <Focus
                   // A run of a repeating task carries its rule into the
                   // summary: what every run is told, and Stop repeating.
                   repeat={focusedRule ? {
@@ -6227,14 +6281,14 @@ export default function App() {
                     silent: snap.supervisor.silent?.[focused.id] ?? null,
                   }}
                   stoppable={!walking && stoppableNow(focused)}
-                />
+                />)}
                 </TicketItems.Provider>
               ) : (
                 <>
                 {/* THE STATE TABS (approved 2026-10-01): Needs you, Running,
                     Scheduled, Done and All, on the Inbox itself. They replace
                     the sidebar places they used to be. */}
-                {workspaceNavigation && search === null && inboxDisplay.view === 'board' ? (
+                {workspaceNavigation && search === null && inboxDisplay.view === 'board' && !roomShown ? (
                   <InboxBoard items={items} products={snap.products} display={inboxDisplay} now={now} stateOf={stateOfMine} projectOrder={projectOrder}
                     cards={cards} picked={team ? picked : undefined}
                     onOpenCard={openTeammateCard}
@@ -6254,18 +6308,20 @@ export default function App() {
                     view={view}
                     // Yours while you are on the page, and the picked teammates' added in.
                     counts={{
-                      inbox: (mineShown ? shownCount(inbox) : 0) + theirCount('inbox'),
+                      inbox: (mineShown ? shownCount(inbox) : 0) + theirCount('inbox') + roomsUi.mentions.length,
                       progress: (mineShown ? shownCount(progress) : 0) + theirCount('progress'),
                       snoozed: (mineShown ? shownCount(snoozed) : 0) + theirCount('snoozed'),
                       done: (mineShown ? shownCount(done) : 0) + theirCount('done'),
                     }}
                     needs={team ? needsWord(picked, team.me) : undefined}
-                    onView={(next) => { setView(next as View); setSelected(0); setMultiSel(new Set()); }}
+                    onView={(next) => { roomsUi.close(); setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                     onSearch={openSearch}
+                    after={roomsUi.tabs} dim={roomShown}
                   />
                 )}
+                {roomShown ? roomsUi.page : <>
                 {snap.phoneStatus && <div className="phone-status" role="status">{snap.phoneStatus}</div>}
-                {workspaceNavigation && emptyView && !theirRows.length ? (
+                {workspaceNavigation && emptyView && !theirRows.length && !(view === 'inbox' && search === null && roomsUi.mentions.length) ? (
                   // A FILTER IS READ FIRST, so it can never fall through to
                   // "Nothing needs you" (w-5a08121f99). That sentence is a
                   // statement about her inbox and the page was saying it about
@@ -6284,6 +6340,8 @@ export default function App() {
                           onCompose={() => setModal('compose')} />
                       : <EmptyTab view={view} />
                 ) : <List
+                  lead={view === 'inbox' && search === null && roomsUi.mentions.length
+                    ? <MentionRows mentions={roomsUi.mentions} faces={roomsUi.faces} now={now} onOpen={roomsUi.openMention} /> : null}
                   table={workspaceNavigation && search === null}
                   products={snap.products}
                   team={team}
@@ -6355,6 +6413,7 @@ export default function App() {
                   }}
                 />}
                 </>}
+                </>}
                 </>
               )}
             </main>
@@ -6392,6 +6451,8 @@ export default function App() {
           on the undo pile exactly as the old card's send did below. The draft
           is read FIRST, before the card clears it, because it is the only copy
           an undo can hand back. */}
+      {/* Rooms' dialogs: invite, start a room, join from a link. */}
+      {roomsUi.dialogs}
       {modal === 'compose' && (
         <ThreadComposer
           products={rankedProducts}
@@ -6782,6 +6843,7 @@ export default function App() {
              has no team in it, and this keeps the team's code in the team's
              files. No team cloud, no pane and no Team row. */
           teamPane={snap?.team?.configured ? <TeamPage team={snap?.team} inviteFocus={inviteFocus} /> : undefined}
+          roomsPane={roomsUi.settingsPane}
           neoOn={neo.on}
           // WHO SEES A PROJECT'S THREADS (w-b989839656): the button beside a
           // project's name and the Projects list's column, only while someone

@@ -107,9 +107,9 @@ export function roomsSupabase(client, myId, must) {
       return r ? { name: r.name, members: r.members, agentsRunning: r.agents_running, faces: r.faces ?? [] } : null;
     },
 
-    async createRoom({ name, kind = 'room', listed = false, people = [] }) {
+    async createRoom({ name, kind = 'room', listed = false, people = [], inviteOnly = false }) {
       await myId();
-      return rpc('create_room', { p_name: name, p_kind: kind, p_listed: listed, p_people: people }, 'starting the room');
+      return rpc('create_room', { p_name: name, p_kind: kind, p_listed: listed, p_people: people, p_invite_only: inviteOnly }, 'starting the room');
     },
 
     async renameRoom(roomId, name) {
@@ -146,9 +146,10 @@ export function roomsSupabase(client, myId, must) {
       return rpc('accept_room_invite', { r: roomId }, 'joining the room');
     },
 
-    async agentboxRank() {
+    async agentboxRanks(ids) {
       await myId();
-      return rpc('agentbox_rank', {}, `reading your place on ${Name}`);
+      const rows = (await rpc('agentbox_ranks', { ps: ids ?? [] }, `reading places on ${Name}`)) ?? [];
+      return Object.fromEntries(rows.map((r) => [r.person_id, r.rank]));
     },
 
     // Realtime sends inserts and updates through row level security, never a

@@ -54,10 +54,14 @@ describe('what I am working on', () => {
     expect(w.find((c) => c.id === MAYA).workingOn).toBe('Cloud launch video');
   });
 
-  it('none: nobody sees a name, teammates included, even with a running card', () => {
+  it('none: nobody sees a name, teammates included, even with a running card; it reads Private thread', () => {
     const w = wallCards({ ...base, teammates: [MAYA], profiles: [prof(MAYA, 'Maya C.', { show_working: 'none' })], presence: [pres(MAYA, { working_on: 'should not show' })], teamCards: [card(MAYA, 'Cloud launch video')] });
-    expect(w.find((c) => c.id === MAYA).workingOn).toBeNull();
-    expect(w.find((c) => c.id === MAYA).workingPrivate).toBe(false);
+    expect(w.find((c) => c.id === MAYA)).toMatchObject({ workingOn: null, workingPrivate: true });
+  });
+
+  it('nothing running is no line at all, whatever the setting', () => {
+    const w = wallCards({ ...base, teammates: [MAYA], profiles: [prof(MAYA, 'Maya C.', { show_working: 'none' })], presence: [pres(MAYA, { agents_running: 0 })], teamCards: [] });
+    expect(w.find((c) => c.id === MAYA)).toMatchObject({ workingOn: null, workingPrivate: false });
   });
 
   it('a private thread says so and is never named', () => {
@@ -88,6 +92,18 @@ describe('two Macs, and a Mac gone quiet', () => {
     const w = wallCards({ members: [MAYA], meId: ME, now: NOW, teammates: [], teamCards: [], profiles: [prof(MAYA, 'Maya C.')],
       presence: [pres(MAYA, { hours_week: 30, week_start: '2026-10-12', hours_today: 4, day: '2026-10-16' })] });
     expect(w[0]).toMatchObject({ hoursWeek: 0, hoursToday: 0 });
+  });
+
+  it('the months for their chart add up across Macs, oldest first', () => {
+    const w = wallCards({ members: [MAYA], meId: ME, now: NOW, teammates: [], teamCards: [], profiles: [prof(MAYA, 'Maya C.')],
+      presence: [pres(MAYA, { device: 'aaaaaaaaaaaa', hours_by_month: [{ month: '2026-09', hours: 10 }, { month: '2026-10', hours: 5 }] }),
+        pres(MAYA, { device: 'bbbbbbbbbbbb', hours_by_month: [{ month: '2026-10', hours: 2 }, { month: '2026-08', hours: 1 }] })] });
+    expect(w[0].byMonth).toEqual([{ month: '2026-08', hours: 1 }, { month: '2026-09', hours: 10 }, { month: '2026-10', hours: 7 }]);
+  });
+
+  it('a card says whether they are on my team', () => {
+    const w = wallCards({ members: [MAYA, JUN], meId: ME, now: NOW, teammates: [MAYA], teamCards: [], profiles: [prof(MAYA, 'Maya C.'), prof(JUN, 'Jun O.')], presence: [] });
+    expect(w.map((c) => [c.name, c.teammate])).toEqual([['Jun O.', false], ['Maya C.', true]]);
   });
 
   it('days in a row join up across Macs', () => {
