@@ -41,6 +41,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, takeCloudNews } from './cloud/marker.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
+import { CLOUD_SENT, readSent } from '../shared/cloud-start.mjs';
 import { readCloudConfig, cloudAccountConfig, OLD_TOKEN_SERVICE, imageCaps } from './cloud/config.mjs';
 import { cloudVersionGaps } from '../shared/cloud-versions.mjs';
 import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
@@ -3539,7 +3540,7 @@ export class Supervisor {
       else if (keep === null || keep === false) delete this.threadOnMac[id];
       changed ||= was !== (this.threadOnMac[id] === true);
       // The person's choice either way replaces a move the app made.
-      if (keep !== undefined && id in this.movedToMac) { delete this.movedToMac[id]; changed = true; }
+      if (keep !== undefined && id in (this.movedToMac ?? {})) { delete this.movedToMac[id]; changed = true; }
       const session = this.sessions.get(id);
       if (keep === true && session?.cloud) {
         this._kill(session);
@@ -3568,12 +3569,12 @@ export class Supervisor {
   // has carried the request to an answer, and the next reply goes to the cloud
   // first again.
   _moveToMac(id) {
-    this.movedToMac[id] = Date.now();
+    (this.movedToMac ??= {})[id] = Date.now();
     this._saveState();
   }
 
   _spendMoveToMac(item, session) {
-    if (!item?.id || !(item.id in this.movedToMac) || session?.cloud || session?.exitFailed !== false) return;
+    if (!item?.id || !(item.id in (this.movedToMac ?? {})) || session?.cloud || session?.exitFailed !== false) return;
     delete this.movedToMac[item.id];
     this._saveState();
   }
@@ -4472,15 +4473,40 @@ export class Supervisor {
   }
 
   // Cloud runs still being packed and sent: a run's proxy holds its folder,
-  // documents and transcript in memory until its agent has started.
-  // A start older than CLOUD_START_PATIENCE_MS is stuck, not starting, and
-  // holds nothing back.
+  // documents and transcript in memory until the cloud has taken its start
+  // (`_noteCloudSent`). The wait for the cloud machine and its agent holds
+  // nothing here, so it does not count. A start older than
+  // CLOUD_START_PATIENCE_MS is stuck, not starting, and holds nothing back.
   _cloudStarting(now = Date.now()) {
     let n = 0;
     for (const s of this.sessions.values()) {
-      if (s.cloud && s.sessionId == null && s.result == null && now - (s.startedAt ?? now) < CLOUD_START_PATIENCE_MS) n += 1;
+      if (s.cloud && !s.cloudSentAt && s.sessionId == null && s.result == null && now - (s.startedAt ?? now) < CLOUD_START_PATIENCE_MS) n += 1;
     }
     return n;
+  }
+
+  // The relay's line saying the cloud took its start (shared/cloud-start.mjs).
+  // The next run waiting for a slot starts packing now, not at the next tick.
+  _noteCloudSent(session, text) {
+    if (!session?.cloud || session.cloudSentAt) return;
+    const times = readSent(text);
+    if (!times) return;
+    session.cloudSentAt = Date.now();
+    session.cloudTimes = times;
+    this.wake?.();
+  }
+
+  // HOW LONG EACH PART OF A CLOUD START TOOK, for the run's log once its agent
+  // begins: the wait before packing (from the newest message, when there is
+  // one), packing and sending here, the cloud taking it, and the agent starting.
+  _cloudStartLine(session, item, now = Date.now()) {
+    const s = (ms) => `${Math.round(ms / 1000)} s`;
+    const begun = session.startedAt ?? now;
+    if (!session.cloudSentAt || !session.cloudTimes) return `cloud start: ${s(now - begun)} from starting the relay to the agent beginning`;
+    const asked = lastFounderWrite(item);
+    const since = asked > 0 && asked <= begun ? `began ${s(now - asked)} after the newest message; ${s(begun - asked)} before packing, ` : '';
+    const { packMs, startMs } = session.cloudTimes;
+    return `cloud start: ${since}${s(packMs)} packing and sending here, ${s(startMs)} for the cloud to take it, ${s(now - session.cloudSentAt)} for the agent to begin`;
   }
 
   // Room in the cloud apart from the runs still starting.
@@ -4672,7 +4698,7 @@ export class Supervisor {
     this._heldStarts ??= {};
     if (starts.length < STORM_STARTS || this._heldStarts[key]) return;
     const said = (session.tail ?? []).filter((l) => typeof l === 'string' && l.startsWith('stderr:'))
-      .flatMap((l) => l.slice('stderr:'.length).split('\n')).map((l) => l.trim()).filter(Boolean).at(-1) ?? null;
+      .flatMap((l) => l.slice('stderr:'.length).split('\n')).map((l) => l.trim()).filter((l) => l && !l.startsWith(CLOUD_SENT)).at(-1) ?? null;
     this._heldStarts[key] = { since: now, said };
     this._saveState();
     try {
@@ -8670,6 +8696,11 @@ export class Supervisor {
       // handler ever runs. It costs one small write per session.
       if (session.sessionId && !session.idRemembered) {
         session.idRemembered = true;
+        if (session.cloud) {
+          const started = this._cloudStartLine(session, item);
+          console.log(`${nameSlug}: ${item.id} ${started}`);
+          try { trace?.write(`${started}\n`); } catch {}
+        }
         this._liveSessions[item.id] = {
           sessionId: session.sessionId,
           product: item.product,
@@ -8712,6 +8743,7 @@ export class Supervisor {
     // note at the top of that file for why.
     harness.subscribe(child, session, absorb);
     child.stderr.on('data', (d) => {
+      if (session.cloud) this._noteCloudSent(session, d);
       onLine(`stderr: ${String(d).slice(0, 500)}`);
       try { trace?.write(`stderr: ${String(d).slice(0, 1000)}\n`); } catch {}
     });

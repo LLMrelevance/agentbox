@@ -63,6 +63,7 @@ import { appendCloudUsage } from './usage.mjs';
 import { docsFolderFor, docsToSend, tarDocs, layDocs } from './docs.mjs';
 import { troubleCause, limitResetMoment } from '../../shared/spawn-trouble.mjs';
 import { HAND_BACK } from '../../shared/cloud-hand-back.mjs';
+import { sentLine } from '../../shared/cloud-start.mjs';
 import { serveApprovals } from '../approval-prompt-core.mjs';
 import { cacheKey, folderKey, sendOnce, pickBase, bundlePast, refsAt } from './reuse.mjs';
 
@@ -344,6 +345,7 @@ export async function cloudRun({
   onCaps = () => {},
 }) {
   const say = (msg) => stderr.write(`agentbox cloud: ${msg}\n`);
+  const begunAt = Date.now();
   // Whether the sandbox keeps this run going while the Mac sleeps, so its
   // tool calls are asked about before they are made (`claimCalls`).
   let offlineOn = false;
@@ -592,6 +594,7 @@ export async function cloudRun({
   const system = argValue(argv, '--append-system-prompt') || '';
   for (const f of filesNamedIn(system, { cwd: plain ? null : cwd, roots })) sending.push(sendFile(f));
   const [pack, files, home] = await Promise.all([packed, Promise.all(sending), Promise.all(homeFiles)]);
+  const packedAt = Date.now();
   sentFiles = new Set(files.map((f) => f.path));
 
   const results = await resultUrls(runId);
@@ -662,6 +665,7 @@ export async function cloudRun({
     clearMarker(here);
     return outgrown ? IMPORT_FAILED : 1;
   }
+  stderr.write(sentLine({ packMs: packedAt - begunAt, startMs: Date.now() - packedAt }));
   try { onCaps(started.caps || []); } catch { /* only a hint for the next run */ }
   offlineOn = (started.caps || []).includes('offline');
   if (!offlineOn) say('this cloud image stops at its next tool call while this Mac sleeps; rebuild it (node scripts/cloud-setup.mjs) to keep runs going');

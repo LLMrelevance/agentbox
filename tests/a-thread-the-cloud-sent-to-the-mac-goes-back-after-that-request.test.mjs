@@ -141,6 +141,20 @@ describe('a Mac whose kept threads were saved before this change', () => {
   });
 });
 
+describe('a supervisor built without its saved state', () => {
+  // tests/what-one-reply-may-do builds one bare, and its runs' ends threw here.
+  it('ends a run, moves a thread and takes the menu\'s choice without throwing', () => {
+    const bare = Object.create(Supervisor.prototype);
+    bare._saveState = () => {};
+    bare.threadOnMac = {};
+    bare.sessions = new Map();
+    expect(() => bare._spendMoveToMac(item, answeredHere())).not.toThrow();
+    expect(() => bare.setThreadOnMac({ 'w-a': null })).not.toThrow();
+    bare._moveToMac('w-a');
+    expect('w-a' in bare.movedToMac).toBe(true);
+  });
+});
+
 describe('the plumbing', () => {
   it('spends the move where every run ends, after the run is judged', () => {
     const src = fs.readFileSync(new URL('../main/supervisor.mjs', import.meta.url), 'utf8');

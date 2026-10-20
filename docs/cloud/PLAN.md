@@ -301,7 +301,10 @@ stdout and stderr come back byte for byte. Its life:
   host, 20 without it), and an account is healthy. With Everything
   (`cloudRuns: 'all'`) a thread that may go to the cloud waits for a cloud slot
   (cap, two starting, accounts at their limit or renewing) and never falls back
-  to the Mac (2026-10-17, her Mac overloaded with Everything on). At most two
+  to the Mac (2026-10-17, her Mac overloaded with Everything on). "Starting"
+  is this Mac packing and sending a run; once the cloud takes its start, the
+  next one begins (2026-10-20), and the run's log says how long each part of
+  its start took. At most two
   runs bring their work home at once, through files, across every process. Account cooldowns and the fleet brake apply to cloud runs exactly as
   to local ones.
 - **Hangs.** The reaper is unchanged: silence plus an expired claim. The store
