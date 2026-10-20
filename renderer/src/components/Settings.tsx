@@ -473,10 +473,15 @@ export function MiniMeters({ limits, now = Date.now() }: { limits?: UsageLimit[]
   );
 }
 
-// IN USE is a mark; switching is a link in sentence case, so the two cannot be read as the same kind of thing.
-function UseMark({ a }: { a: PlaceAccount }) {
-  if (a.inUse) return <span className="set-badge">In use</span>;
-  return a.use ? <button type="button" className="acct-use" onClick={a.use.onUse}>{a.use.word}</button> : null;
+/** A tile here's second line, in the words the cloud's tiles use. Trouble is said below it instead. */
+export function hereState({ signedIn, trouble, limits, now = Date.now() }: {
+  signedIn: boolean; trouble: string | null; limits?: UsageLimit[] | null; now?: number;
+}): string[] {
+  if (!signedIn) return ['Finish signing in to use it'];
+  if (trouble) return [];
+  const full = (limits ?? []).some((l) => l.percent >= 100 && !(l.resetsAt && l.resetsAt <= now)
+    && (l.span === 'session' || !l.qualifier || /all/i.test(l.qualifier)));
+  return [full ? 'At its limit' : 'Ready'];
 }
 
 // The header says the newest reading's time; a tile older than this says its own.
@@ -490,9 +495,10 @@ export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: Pl
         <div className={`acct-tile${a.inUse ? ' on' : ''}${a.trouble ? ' trouble' : ''}`} key={a.key}>
           <div className="acct-tile-head">
             <span className="acct-tile-name">{a.name}</span>
+            {a.inUse && <span className="set-badge">In use</span>}
             {a.plan && <span className="acct-tile-plan">{a.plan}</span>}
           </div>
-          <div className="acct-tile-about">{a.inUse || a.use ? <UseMark a={a} /> : a.about.join(' · ')}</div>
+          <div className="acct-tile-about">{a.about.join(' · ')}</div>
           {a.trouble ? (
             <>
               <div className="acct-tile-trouble">{a.trouble}</div>
@@ -503,6 +509,7 @@ export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: Pl
             {a.usageError && <div className="acct-tile-trouble" role="status">{a.usageError}</div>}
           </>}
           {!!a.checkedAt && (a.usageError || now - a.checkedAt >= OWN_TIME_AFTER_MS) && <div className="acct-reading-time">{usageCheckedAt(a.checkedAt, now)}</div>}
+          {a.use && <button type="button" className="set-ghost acct-switch" onClick={a.use.onUse}>{a.use.word}</button>}
         </div>
       ))}
       {onAdd && <button type="button" className="acct-tile acct-tile-add" onClick={onAdd}>Add account</button>}
@@ -1651,7 +1658,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
         key: a.profile,
         name: a.email ?? 'Not signed in',
         plan: a.signedIn ? a.plan : null,
-        about: a.signedIn ? [] : ['Finish signing in to use it'],
+        about: hereState({ signedIn: a.signedIn, trouble: a.trouble, limits: readingOf(a.profile)?.limits, now }),
         inUse: picked && a.chosen,
         limits: readingOf(a.profile)?.limits ?? null,
         checkedAt: readingOf(a.profile)?.at ?? null,
