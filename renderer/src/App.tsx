@@ -61,9 +61,9 @@ import { LATER_KEYWORDS } from './palette-rows';
 import { announcesMove, announcesUpdate, isUpdateRow, CHECK_SAY, updateLook } from './update-row';
 // Inbox zero is `IdlePage`.
 import { IdlePage } from './components/IdlePage';
-import { ago, closesTheTask, itemOptions, offerIsLive, parseRepeat } from './format';
+import { ago, closesTheTask, itemOptions, needsYourWords, offerIsLive, parseRepeat } from './format';
 import {
-  draftKey, hasDraft, restoreDraft, restoreFailedDraft, readComposeDraft, restoreComposeDraft, saveDraft, clearComposeDraft,
+  draftKey, hasDraft, readDraft, restoreDraft, restoreFailedDraft, readComposeDraft, restoreComposeDraft, saveDraft, clearComposeDraft,
   type SentDraft, type ComposeDraft,
 } from './drafts';
 import { approvalStage } from './approval-stage';
@@ -75,7 +75,8 @@ import { sentLine, sendingLine } from './compose-says';
 import { wearJustMade, type JustMade } from './just-made';
 import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
-import { opensATextField } from './keys';
+import { opensATextField, takesTheListBack } from './keys';
+import { modelCommands } from './thread-model-commands';
 import { sidebarFits, useRoomyToggle, useWindowWidth } from './room';
 import { isUrgentRow, taskToReturnTo, urgentInterruption } from './interrupt';
 import { DONE } from './done-word';
@@ -4156,6 +4157,20 @@ export default function App() {
     // "Close this task" is done here, the way E does it, and never sent: as a
     // reply it would reopen the row and start a run to close it (format.ts).
     if (closesTheTask(option.text)) { await markDone(item); return; }
+    // "Change something first" ASKS A QUESTION, so it opens the box instead of
+    // sending (format.ts, needsYourWords). Its own words go in as the first
+    // line, so a send with nothing added does exactly what pressing 2 did
+    // before.
+    if (needsYourWords(option.text)) {
+      const words = option.text.replace(/\s*\(recommended\)\s*$/i, '').trim();
+      const kept = readDraft(item);
+      saveDraft(item, kept.trim() ? kept : `${words}\n\n`);
+      window.dispatchEvent(new CustomEvent('zero:reply-restored', { detail: draftKey(item) }));
+      setFocused(item);
+      markSeen(item);
+      setModal('reply');
+      return;
+    }
     // A PICK IS A REPLY, so it reopens a finished thread exactly as typing one
     // does (statusForReply). It did not, and nothing showed that: the answer
     // was written to the ledger, the toast said it had been sent, and the
@@ -4178,7 +4193,7 @@ export default function App() {
         await api.answer({ product: item.product, id: item.id, ...withdrawReply(item.status) });
       } });
     }, `Option ${option.n} → ${item.productName}`, undefined, !movesOn(item), { product: item.product, id: item.id }, undid);
-  }, [deferCommit, pushUndo, markDone, movesOn]);
+  }, [deferCommit, pushUndo, markDone, markSeen, movesOn]);
 
   /* ------------------------ the task she just wrote ------------------------ */
   // THE TASK SHE JUST MADE IS WHAT Z TAKES BACK.
@@ -4223,7 +4238,17 @@ export default function App() {
     await refresh();
   }, [refresh, showToast]);
 
+  // WHICH MODEL, AND SO WHICH ENGINE, PICKS A THREAD UP NEXT (⌘K, by name
+  // only: thread-model-commands.ts). A field with no words, the way a level
+  // picked from ⌘K is, so it starts nothing and ends nothing.
+  const handToModel = useCallback(async (item: WorkItem, pick: { engine: string; model: string }, label: string) => {
+    await api.answer({ product: item.product, id: item.id, engine: pick.engine, model: pick.model });
+    showToast(`${label.replace(/^Model: /, '')} picks this up next`);
+    await refresh();
+  }, [refresh, showToast]);
+
   const [snoozeItem, setSnoozeItem] = useState<WorkItem | WorkItem[] | null>(null);
+  const [snoozeNote, setSnoozeNote] = useState<string | null>(null);
 
   const openSnooze = useCallback((item: WorkItem | WorkItem[]) => {
     // AN AGENT ROW TAKES THIS ONE. Closing, restarting and stopping still mean
@@ -4249,10 +4274,18 @@ export default function App() {
     // AND L EMPTIES THE ROW EXACTLY AS E DOES, so the real app's one nudge is
     // on this route too, in the same words with the verb changed. Putting a
     // stopped agent off until Friday leaves it as stuck as closing it does.
-    if (nudgeOnStopped(rows, 'L')) return;
+    //
+    // BUT IT IS CARRIED INTO THE BOX RATHER THAN SWALLOWING THE KEY. E opens
+    // nothing, so "press again" costs it one keystroke. L OPENS A TEXT FIELD,
+    // and a swallowed L leaves the next word running as shortcuts: in the
+    // built app, typing "every monday 9am" after it archived the thread on the
+    // "e" (renderer/src/keys.ts).
+    const lesson = holdForStoppedAgent({ rows, key: 'L', warned: stoppedWarned, walking: !!run });
+    if (lesson) { setStoppedWarned(true); rememberWarned(localStorage); }
+    setSnoozeNote(lesson?.say ?? null);
     setSnoozeItem(item);
     setModal('snooze');
-  }, [run, showToast, nudgeOnStopped]);
+  }, [run, showToast, stoppedWarned]);
 
   // Both kinds of snooze defer the interruption, leaving the work alone.
   // Threads keep their reminder in the ledger; outside agents have no ledger.
@@ -4860,6 +4893,10 @@ export default function App() {
       // every branch that could open one. Doing it per branch is what let S
       // through in two places at once (renderer/src/keys.ts carries the story).
       if (opensATextField(e.key)) e.preventDefault();
+      // And the hand is back on the keys, so the pointer stops owning a row
+      // (keys.ts). Here, above the split, because Escape leaves a thread in
+      // one branch and the list in another and both hand the list back.
+      if (takesTheListBack(e.key)) setHoveredId(null);
       // THE PANEL KEY, above the branch that splits list from full screen,
       // because it means the same thing in both and a shortcut written once
       // cannot drift between them. \ is next to Return on the key she is
@@ -4994,7 +5031,10 @@ export default function App() {
         // schedules anywhere in the app.
         else if (e.key === 'l' || e.key === 'L') openSnooze(focused);
         else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); }
-        else if (/^[1-9]$/.test(e.key)) pickOption(focused, Number(e.key));
+        // THE NUMBER IS SWALLOWED, because a pick can now open a text field
+        // and the key that opens one types itself into it otherwise: the box
+        // read "2Change something first" (renderer/src/keys.ts).
+        else if (/^[1-9]$/.test(e.key)) { e.preventDefault(); pickOption(focused, Number(e.key)); }
         return;
       }
       // A TEAMMATE'S CARD IS A SCREEN, LIKE AN OPEN THREAD (w-fb16bcaeba). It
@@ -5082,7 +5122,12 @@ export default function App() {
         // It was S until 2026-10-01; see the focus-mode branch above.
         case 'l': case 'L':
           if (multiSel.size) openSnooze(selectable.filter((i) => multiSel.has(i.id)));
-          else if (pointed && (view === 'inbox' || view === 'snoozed')) openSnooze(pointed);
+          // IN PROGRESS TAKES IT TOO, AND EVERY OTHER TAB SAYS SO. A running
+          // thread can be put off, because the schedule is about your inbox
+          // and not about the session (`openSnooze`); a closed one cannot, and
+          // the key used to answer that by going quiet.
+          else if (pointed && (view === 'inbox' || view === 'snoozed' || view === 'progress')) openSnooze(pointed);
+          else if (pointed) showToast('Later is for a thread that is still open.');
           break;
         // N starts a thread (w-fb9051e597). C does nothing: the cloud is ⌘C.
         case 'n': case 'N': e.preventDefault(); setModal('compose'); break;
@@ -6679,6 +6724,13 @@ export default function App() {
                 }]
               : []),
             { id: 'snooze', label: 'Later', keywords: LATER_KEYWORDS, keyHint: 'L', run: () => openSnooze(target) },
+            // WHICH MODEL, AND SO WHICH ENGINE, PICKS THIS THREAD UP NEXT
+            // (thread-model-commands.ts). Not on an agent row, which stands
+            // for a session running outside Agentbox and takes only words.
+            ...(target.agent ? [] : modelCommands(target, { items, codexModels, codexDefault: codexModelDefault, engines: snap.engines?.choices ?? [] }).map((c) => ({
+              id: c.id, label: c.label, hint: c.hint, keywords: c.keywords,
+              run: () => { setModal(null); void handToModel(target, c.pick, c.label); },
+            }))),
             // THE FIRST PLACE SHE LOOKED. It asked `supervisor.running`, so on
             // a task she had just composed there was no Stop in ⌘K at all —
             // and, because nothing was running, the one agent command that DID
@@ -6742,6 +6794,7 @@ export default function App() {
         }}
         onResume={() => { setModal(null); resumeAgents(null); }}
         onNewProject={() => { setModal(null); setNewProject(true); }}
+        onNewThread={() => setModal('compose')}
         onStanding={() => setModal('standing')}
         onSettings={() => { setModal(null); setSettingsPane(null); setSettingsOpen(true); }}
         onShortcuts={() => { setModal(null); setSettingsPane('shortcuts'); setSettingsOpen(true); }}
@@ -7267,7 +7320,16 @@ export default function App() {
         <Snooze
           item={Array.isArray(snoozeItem) ? snoozeItem[0] : snoozeItem}
           count={Array.isArray(snoozeItem) ? snoozeItem.length : 1}
+          note={snoozeNote ?? undefined}
           onPick={(ts, label) => snoozeUntil(snoozeItem, ts, label)}
+          /* A RHYTHM TYPED HERE MAKES THE THREAD REPEAT (w-c9da359466), down
+             the one road every repeat goes down, so the Later box and the
+             reply box cannot disagree about what "every monday 9am" does. One
+             thread only: one rhythm over a dozen ticked rows would be a dozen
+             repeating tasks nobody asked for. */
+          onRepeat={!Array.isArray(snoozeItem) && !snoozeItem.agent
+            ? (rule) => { setModal(null); setSnoozeItem(null); void applyRepeat(snoozeItem, rule); }
+            : undefined}
           onNow={(Array.isArray(snoozeItem) ? snoozeItem : [snoozeItem]).some((i) => returnAt(i) > Date.now())
             ? () => unsnooze(snoozeItem)
             : undefined}

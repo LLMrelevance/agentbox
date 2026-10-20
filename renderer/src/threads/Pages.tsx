@@ -16,7 +16,7 @@ import { toApproveWords } from '../threads-made';
 import { DONE } from '../done-word';
 import {
   boardColumns, columnTo, conversationSlugs, DEFAULT_COLUMN_ORDER, entryScore, filteredEmptyWords, finishedAt, isDirect, isFiltered, nextPrivacy, dropWithPins, projectChoices, slotUnder,
-  timeHeading, updatedWords,
+  backWords, timeHeading, updatedWords,
   type BoardEntry, type Display, type PageId, type Privacy, type UpdatedWindow,
 } from './page-rules';
 import { messageLine, messagePriority, rowSharing, sharePatch } from './page-rules';
@@ -537,6 +537,13 @@ export function ThreadCells({ item, product, now, person, tab }: {
   tab?: string;
 }) {
   const when = tab === 'done' ? finishedAt(item) : item.updatedAt;
+  // ON LATER THE TIME COLUMN IS WHEN IT COMES BACK (power-test-1, issue 18),
+  // not how long ago it was touched, which is what a page of things coming
+  // back has no use for. A thread added to Later and never started comes back
+  // when you say so and not on a clock, and its cell is EMPTY rather than
+  // falling through to Updated, which under a heading saying Back would be a
+  // return time that is not one. The row says "not started" beside its name.
+  const back = tab === 'snoozed' ? backWords(item, now) : undefined;
   const liveIds = useContext(LiveContext);
   const cloudIds = useContext(CloudContext);
   const waiting = useContext(WaitingContext);
@@ -574,7 +581,7 @@ export function ThreadCells({ item, product, now, person, tab }: {
   const said = messageLine(item, product, team?.me ?? null, (id) => firstName(team?.byId.get(id) ?? null));
   if (said) {
     return <RowCells live={liveIds.has(item.id)} cloud={cloudIds.has(item.id)} title={<MessageTitle people={said.people} fromMe={said.fromMe} text={said.text} />} pinned={!!item.pinned && item.status !== 'done'} where="Message" person={person}
-      priority={messagePriority(item)} updatedAt={when} now={now} action={action} />;
+      priority={messagePriority(item)} updatedAt={when} when={back} now={now} action={action} />;
   }
   // ONLY THE UNUSUAL CASE WEARS A MARK (2026-10-02). Shared with the team is
   // the default, so it carries nothing; the lock is on a thread only you can
@@ -587,7 +594,7 @@ export function ThreadCells({ item, product, now, person, tab }: {
   // faint words a repeating task uses for its schedule: "a little bit of text
   // that gives you extra information if you need to know."
   return <RowCells live={liveIds.has(item.id)} cloud={cloudIds.has(item.id)} title={rowTitle(item)} aside={toApproveWords(waiting.get(`${item.product}/${item.id}`))} shared={seen === 'people'} chosen={chosen} lock={lock} held={notStarted(item)} pinned={!!item.pinned && item.status !== 'done'} where={product?.name ?? ''} person={person}
-    priority={shownPriority(item)} updatedAt={when} now={now} action={action} />;
+    priority={shownPriority(item)} updatedAt={when} when={back} now={now} action={action} />;
 }
 
 /* ------------------------------------------------------------ the board */

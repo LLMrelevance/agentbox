@@ -330,7 +330,7 @@ export class Store {
   // `inReplyTo` makes the answer a reply in a thread (w-920461cbe6): the uid
   // of the message it answers, on THE SAME LINE as the words, so the reply's
   // own uid (what its reactions hang off) is the line that says where it goes.
-  answerItem(slug, id, { answer, status, priority, permissionMode, model, effort, inReplyTo, fromPhone }) {
+  answerItem(slug, id, { answer, status, priority, permissionMode, engine, model, effort, inReplyTo, fromPhone }) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
     let item = null;
@@ -343,6 +343,14 @@ export class Store {
     // is said everywhere else here: `modelForEngine` (shared/engines.mjs) reads
     // the empty string as nothing chosen, where a JSON null would have to be
     // special-cased in both engines' argument builders.
+    // AND WHICH ENGINE, BESIDE IT AND FOR THE SAME REASON (w-c9da359466). The
+    // reply box's drawer only ever offered the models of the engine the row
+    // was already on, so a thread begun on Claude Code could not be carried on
+    // in Codex by any path in the app: "that is what I'd reach for when Claude
+    // runs out" (power-test-2, issues 39 and 40). It is the field `composeItem`
+    // already writes and `Supervisor#_engineFor` already reads per run, so the
+    // next turn picks it up and nothing else has to know.
+    if (engine !== undefined) item = workItemsDisk.updateWorkItem(dir, id, { engine: engine ?? '' }, { source: 'founder' });
     if (model !== undefined) item = workItemsDisk.updateWorkItem(dir, id, { model: model ?? '' }, { source: 'founder' });
     if (effort !== undefined) item = workItemsDisk.updateWorkItem(dir, id, { effort: effort ?? '' }, { source: 'founder' });
     if (answer) item = workItemsDisk.updateWorkItem(dir, id, { answer, ...(inReplyTo ? { inReplyTo } : {}), ...(fromPhone ? { fromPhone } : {}) }, { source: 'founder' });

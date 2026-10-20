@@ -567,7 +567,14 @@ export function ThreadComposer({
     </div>
   );
 
-  const modelRow = (p: ModelPick) => (
+  // WHICH ENGINE A RECENT ROW RUNS IN, said on the row (w-c9da359466). The
+  // columns behind All models are headed by their engine, so a model picked
+  // there says where it runs; Recent mixes both lists under one heading and
+  // said nothing, and a tester reading it could not tell "GPT-6.1-Sol,
+  // Sonnet 5.5, GPT-5.6-Terra" apart as two engines (power-test-2, issue 42).
+  // Only with both engines on this Mac: with one, the word is on every row and
+  // tells nobody anything.
+  const modelRow = (p: ModelPick, saysEngine = false) => (
     <button
       key={`${p.engine}:${p.model}`}
       type="button"
@@ -575,7 +582,7 @@ export function ThreadComposer({
       className={`tc-row ${sameModel(p, pick) ? 'on' : ''}`}
       onPointerEnter={hover}
       onClick={() => { pickModel(p); close('text'); }}
-    ><span className="tc-row-label">{labelOf(p)}</span></button>
+    ><span className="tc-row-label">{labelOf(p)}</span>{saysEngine && <small>{engineLabel(p.engine)}</small>}</button>
   );
   const engineLabel = (id: string) => engineRows.find((e) => e.id === id)?.label ?? ENGINES.find((e) => e.id === id)?.label ?? id;
 
@@ -583,7 +590,7 @@ export function ThreadComposer({
     <div className="tc-menu tc-drop tc-model-menu" role="listbox" aria-label="Model" onKeyDown={menuKeys}>
       {modelPage === 'recent' ? (<>
         <span className="tc-menu-head">Recent</span>
-        {recent.map(modelRow)}
+        {recent.map((p) => modelRow(p, engineRows.length > 1))}
         <span className="tc-sep" />
         <button type="button" data-item className="tc-row" onPointerEnter={hover} onClick={() => setModelPage('all')}>
           <span className="tc-row-label">All models</span>
@@ -600,13 +607,13 @@ export function ThreadComposer({
           {every.claude.length > 0 && (
             <div className="tc-col">
               <span className="tc-menu-head">{engineLabel('claude')}</span>
-              {every.claude.map(modelRow)}
+              {every.claude.map((p) => modelRow(p))}
             </div>
           )}
           {every.codex.length > 0 && (
             <div className="tc-col">
               <span className="tc-menu-head">{engineLabel('codex')}</span>
-              {every.codex.map(modelRow)}
+              {every.codex.map((p) => modelRow(p))}
             </div>
           )}
         </div>

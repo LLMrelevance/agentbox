@@ -3541,6 +3541,10 @@ img.app-mark { opacity: 1; border-radius: 0; }
 
 .modal-title { padding: 14px 18px 2px; font-weight: 600; }
 .modal-subtitle { padding: 0 18px 10px; color: var(--text-dim); font-size: 13px; }
+/* A sentence the box has to carry (SchedulePicker's `note`). Quieter than the
+   title and louder than the subtitle, because it is the one thing in the box
+   that was not asked for. */
+.modal-note { padding: 0 18px 12px; color: var(--text-faint); font-size: 13px; line-height: 1.45; }
 .modal-hint { padding: 10px 18px 12px; color: var(--text-faint); font-size: 12px; display: flex; align-items: center; gap: 10px; }
 
 /* The user's rules and the writing rules, in the NEW-TASK CARD. NOTHING HERE
