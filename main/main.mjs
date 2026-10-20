@@ -958,7 +958,7 @@ async function createWindow() {
   // in the code for everyone and on for one person.
   createNeo({
     app, BrowserWindow, ipcMain, screen: electronScreen, powerMonitor, systemPreferences, session, globalShortcut, shell,
-    mainWindow: window, userData: app.getPath('userData'),
+    mainWindow: window, userData: app.getPath('userData'), config,
     // Every few minutes of talk goes to a review thread in the project this
     // app is built from, which patches what went wrong (./neo/review.mjs).
     onReview: ({ files, seconds }) => {

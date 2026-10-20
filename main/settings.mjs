@@ -442,6 +442,12 @@ export function searchForEngineBin(config, engine) {
   return { ok: true, state };
 }
 
+// THE ALPHA FEATURES SWITCHES (w-3d0fa23ffb). Off unless someone turned them
+// on in Settings; only a real `true` counts.
+export function alphaFeatures(config) {
+  return { neo: config?.alphaNeo === true, rooms: config?.alphaRooms === true };
+}
+
 export function readSettings({ config, supervisor, store }) {
   const products = store.listProducts();
   const status = supervisor.status();
@@ -643,6 +649,7 @@ export function readSettings({ config, supervisor, store }) {
       // ADHD mode: whether the ADHD rules ride under hers (w-5737fe67cf). Off
       // unless she turned it on, so only `true` means on.
       adhdMode: config.adhdMode === true,
+      alpha: alphaFeatures(config),
       // The corner tag over other apps (w-dafae58a23). On unless she turned it
       // off here, which is the only place it turns off for good.
       cornerTag: config.cornerTag !== false,
@@ -1244,6 +1251,14 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
     // spawn, so it applies from the next task on.
     case 'adhdMode':
       saveConfig(config, { adhdMode: !!value });
+      break;
+    // Neo reads its switch once, at start; Rooms is read on every snapshot.
+    case 'alphaNeo':
+      saveConfig(config, { alphaNeo: !!value });
+      break;
+    case 'alphaRooms':
+      saveConfig(config, { alphaRooms: !!value });
+      supervisor.onChange?.();
       break;
     // THE CORNER TAG (w-dafae58a23). Turning it back on also ends any hide, so
     // the switch does what it says the moment she flips it.

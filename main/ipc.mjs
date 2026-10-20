@@ -41,7 +41,7 @@ import { readDoc, writeDoc } from './doc-file.mjs';
 import { readChange } from './code-change.mjs';
 import { findFile, readCodeFile, writeCodeFile } from './code-file.mjs';
 import { readNote, writeNote } from './rail-note.mjs';
-import { addClaudeAccount, addCodexAccount, cornerTagTurnedOff, countsTurnedOff, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, recheckClaude, recheckCodex, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
+import { addClaudeAccount, addCodexAccount, alphaFeatures, cornerTagTurnedOff, countsTurnedOff, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, recheckClaude, recheckCodex, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
 import { ICON_KINDS, clearProjectIcon, setProjectIcon, setProjectName } from './project-identity.mjs';
 import { ClaudeUsage } from './claude-usage.mjs';
 import { AccountUsage } from './account-usage.mjs';
@@ -444,6 +444,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       // title-free activity of their private work. Null on a build with no
       // team cloud, which is the single-person app.
       team: team ? team.state() : null,
+      // Which alpha features are on (Settings, Alpha features).
+      alpha: alphaFeatures(config),
       agents: liveAgents(),
       approvals: approvals.listPending(config.storeRoot),
       supervisor: running,

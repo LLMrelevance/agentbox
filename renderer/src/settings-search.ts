@@ -11,7 +11,7 @@
 // second word narrows rather than widens.
 
 export type SettingsPageId =
-  | 'general' | 'appearance' | 'shortcuts' | 'phone' | 'neo'
+  | 'general' | 'appearance' | 'shortcuts' | 'phone' | 'neo' | 'alpha'
   | 'claude' | 'codex' | 'running' | 'instructions'
   | 'projects' | 'team';
 
@@ -24,6 +24,7 @@ export const SETTINGS_PAGES: Array<{ id: SettingsPageId; label: string; group: '
   { id: 'shortcuts', label: 'Shortcuts', group: 'Personal' },
   { id: 'phone', label: 'Phone', group: 'Personal' },
   { id: 'neo', label: 'Neo', group: 'Personal' },
+  { id: 'alpha', label: 'Alpha features', group: 'Personal' },
   { id: 'claude', label: 'Claude Code', group: 'Agents' },
   { id: 'codex', label: 'Codex', group: 'Agents' },
   { id: 'running', label: 'Running', group: 'Agents' },
@@ -63,6 +64,8 @@ const ENTRIES: Entry[] = [
   { page: 'neo', label: 'Instructions for Neo', anchor: 'neo-instructions', words: 'voice jarvis rules prompt assistant preferences never always' },
   { page: 'neo', label: 'What Neo remembers', anchor: 'neo-memories', words: 'memory memories remember forget voice jarvis assistant' },
   { page: 'neo', label: "Neo's voice", anchor: 'neo-voice', words: 'voice sound speak marin cedar male female accent jarvis assistant' },
+  { page: 'alpha', label: 'Neo', anchor: 'alpha', words: 'alpha beta early try voice jarvis assistant' },
+  { page: 'alpha', label: 'Rooms', anchor: 'alpha', words: 'alpha beta early try team teammates friends multiplayer people chat' },
   { page: 'claude', label: 'Usage', anchor: 'usage', words: 'claude code limits plan left remaining quota' },
   { page: 'claude', label: 'Signed in', anchor: 'usage', words: 'claude code account accounts login subscription add email this computer local' },
   { page: 'claude', label: 'Cloud accounts', anchor: 'cloud-accounts', words: 'claude code cloud remote accounts limit' },

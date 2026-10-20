@@ -1389,6 +1389,7 @@ function NavIcon({ id }: { id: SettingsPageId }) {
     team: <><circle cx="9" cy="9" r="3" /><path d="M3.5 19c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5" /><circle cx="16.5" cy="9.5" r="2.5" /><path d="M16 14.6c2.3-.2 4 1.2 4.5 4" /></>,
     // The orb, the one thing of Neo's that is already on screen.
     neo: <><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="8.5" opacity="0.45" /></>,
+    alpha: <><path d="M9.5 3.5h5M10.5 3.5v5.2L5.6 17.6a2 2 0 0 0 1.8 2.9h9.2a2 2 0 0 0 1.8-2.9l-4.9-8.9V3.5" /><path d="M7.6 14.5h8.8" /></>,
   };
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1921,6 +1922,19 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
 
         {/* GENERAL: you, your keys, what leaves this Mac and where your work is
             kept. Four small things set once. */}
+        {model && w && pane === 'alpha' && (
+          <Page title="Alpha features" lede="Early features you can try before they are finished. They may change or go away.">
+            <Group id="alpha">
+              <Row label="Neo" desc="A voice you wake by tapping ⌘ twice. Takes effect after a restart.">
+                <Switch label="Neo" on={!!w.alpha?.neo} onChange={(v) => setWorkspace('alphaNeo', v)} />
+              </Row>
+              <Row label="Rooms" desc="See the people you work with and their agents, with a chat beside them. Needs a team sign-in.">
+                <Switch label="Rooms" on={!!w.alpha?.rooms} onChange={(v) => setWorkspace('alphaRooms', v)} />
+              </Row>
+            </Group>
+          </Page>
+        )}
+
         {model && w && pane === 'general' && (
           <Page title="General">
             <Group id="keys" label="Keyboard">

@@ -144,6 +144,7 @@ import { LeftoverCleaner } from './leftovers.mjs';
 import { syncCodexMemoryGate } from './codex-memory-gate.mjs';
 import { autoAgents } from './machine.mjs';
 import { runEndedProps } from './analytics.mjs';
+import { appendRun, runLedgerPath } from './run-ledger.mjs';
 
 const POLL_MS = 15_000;
 // HOW LONG SHE WAITS AFTER PRESSING THE BUTTON, and until now it was the line
@@ -4641,6 +4642,24 @@ export class Supervisor {
   // agent get going? A run that ended at once without, STORM_STARTS times in
   // STORM_WINDOW_MS, holds the thread and says so on its row, once. A run we
   // stopped says nothing about the thread.
+  // A finished run in the run ledger, for agent hours (main/run-ledger.mjs).
+  // Only a run whose agent began; a cloud run is in the cloud's own ledger.
+  _recordRun(item, session) {
+    if (!item?.id || !session?.startedAt || session.cloud) return;
+    if (session.sessionId == null && session.result == null) return;
+    const at = Date.now();
+    appendRun({
+      key: `${item.id}:${session.startedAt}`,
+      at,
+      start: session.startedAt,
+      item: item.id,
+      product: item.product ?? null,
+      engine: session.engine ?? null,
+      seconds: Math.max(0, Math.round((at - session.startedAt) / 1000)),
+      failed: !!session.exitFailed,
+    }, { file: this.runLedger ?? runLedgerPath() });
+  }
+
   _noteHowTheRunStarted(item, session) {
     if (!item?.id || !session) return;
     const key = `${item.product}:${item.id}`;
@@ -8817,6 +8836,7 @@ export class Supervisor {
       this.memoryGateTurnEnded(session);
       session.exitFailed = !!(signal || code !== 0 || session.transportFault || session.resultIsError || session.result == null);
       this.count?.('run_finished', runEndedProps(session, Date.now()));
+      this._recordRun(item, session);
       this._noteCloudOutcome(session, code, signal);
       this._noteHowTheRunStarted(item, session);
       onLine(`session exited (${code})`);
