@@ -872,12 +872,13 @@ export async function cloudRun({
     cursor = e.seq;
     // AGENTBOX_CLOUD_DEBUG=1 traces the tool traffic, names and sizes only.
     if (env.AGENTBOX_CLOUD_DEBUG && e.kind.startsWith('mcp')) say(`${e.kind} ${e.conn}${e.server ? ` ${e.server}` : ''}${e.line ? ` ${String(e.line).slice(0, 80)}` : ''}`);
-    // A joined run has nobody reading its stream: the app reads its
-    // transcript once it is home.
+    // A joined run's stream goes to the app too: it is how its thread hears
+    // the steps and the answer made while the app was away
+    // (main/supervisor.mjs `_followComingHome`).
     if (e.kind === 'stdout') {
       const buf = Buffer.from(e.data, 'base64');
       if (!codex) noteLimit(buf);
-      if (!joining) await write(stdout, buf);
+      await write(stdout, buf);
     }
     else if (e.kind === 'stderr') { if (!joining) await write(stderr, Buffer.from(e.data, 'base64')); }
     else if (e.kind === 'mcp-open') openServer(e.conn, e.server);
@@ -960,12 +961,13 @@ export async function cloudRun({
       writeMarker(here,{ ...marker, pid: selfPid, state, cursor, conns: connsNow(), unsent, ...extra });
     } catch (err) { say(`could not note where the cloud run got to: ${err.message}`); }
   }
-  // A joined run is never stopped by this process: Stop belongs to a thread
-  // the app is running, and this one is only being brought home.
+  // A joined run is left going by a SIGTERM, which is the Mac or the app
+  // going. Its thread shows it running, so its Stop arrives as SIGINT.
   const onTerm = () => (joining ? leave('the app is going') : cancel('asked to stop'));
+  const onInt = () => cancel('asked to stop');
   const onHup = () => leave('the app is quitting');
   signals.on('SIGTERM', onTerm);
-  signals.on('SIGINT', onTerm);
+  signals.on('SIGINT', onInt);
   signals.on('SIGHUP', onHup);
   signals.off('SIGHUP', early);
   const parentWatch = watchParent ? setInterval(() => { if (process.ppid === 1) leave('the app is gone'); }, 5000) : null;
@@ -996,7 +998,7 @@ export async function cloudRun({
     }
   } finally {
     signals.off('SIGTERM', onTerm);
-    signals.off('SIGINT', onTerm);
+    signals.off('SIGINT', onInt);
     signals.off('SIGHUP', onHup);
     if (parentWatch) clearInterval(parentWatch);
   }

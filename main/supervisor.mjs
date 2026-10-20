@@ -879,7 +879,12 @@ export class Supervisor {
   stopSession(itemId) {
     if (this._preparing?.delete(itemId)) return true;
     const session = this.sessions.get(itemId);
-    if (!session) return false;
+    if (!session) {
+      const joined = this._comingHome?.get(itemId);
+      if (!joined) return false;
+      joined.stop();
+      return true;
+    }
     return this._kill(session);
   }
 
@@ -4896,7 +4901,7 @@ export class Supervisor {
       child = this._spawnCloudRelay(['--agentbox-import-only'], {
         cwd: folder,
         env: { ...this._workerEnv(), ...(mcp ? { AGENTBOX_MCP_CONFIG: mcp } : {}), ...(file ? { AGENTBOX_CLOUD_MARKER: file } : {}) },
-        stdio: ['ignore', 'ignore', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (error) {
       forget();
@@ -4905,9 +4910,109 @@ export class Supervisor {
     }
     const rec = { child, at: Date.now() };
     this._homecomings.set(file || folder, rec);
+    const thread = this._threadComingHome(place);
+    const follow = thread ? this._followComingHome(thread, child) : null;
+    if (!follow) child.stdout?.resume();
     child.stderr?.on('data', (d) => console.warn(String(d).trim()));
-    child.on('error', () => { forget(); rec.child = null; rec.at = Date.now(); });
-    child.once('exit', () => { forget(); rec.child = null; rec.at = Date.now(); this._sayCloudNews(folder); this.wake?.(); });
+    child.on('error', () => { forget(); rec.child = null; rec.at = Date.now(); follow?.end(null); });
+    child.once('exit', (code) => { forget(); rec.child = null; rec.at = Date.now(); follow?.end(code); this._sayCloudNews(folder); this.wake?.(); });
+  }
+
+  // The thread whose cloud run lives in this folder, off the record its
+  // session left for a restart (`_liveSessions`).
+  _threadComingHome(place) {
+    const key = (p) => (p && typeof p === 'object' ? p.file : p ? path.resolve(p) : null);
+    const want = key(place);
+    for (const [itemId, rec] of Object.entries(this._liveSessions ?? {})) {
+      if (rec?.cloud && rec.cwd && key(this._cloudPlace(rec.cwd, rec.product, itemId)) === want) return { itemId, rec };
+    }
+    return null;
+  }
+
+  // A CLOUD RUN THE APP LEFT GOING IS STILL ITS THREAD'S RUN. Its stream is
+  // read here as a session's is, so the thread shows it running, its steps go
+  // into the thread's record, and its last message reaches the row
+  // (tests/a-cloud-run-the-app-restarted-under-still-reaches-its-thread). It
+  // shows once it speaks: a run that had already ended only comes home.
+  _followComingHome({ itemId, rec }, child) {
+    const { capture, stream, summarize, trace: traceOne, activity } = harnessFor('claude').readers();
+    const joinedAt = Date.now();
+    const view = {
+      itemId, product: rec.product, startedAt: rec.startedAt ?? joinedAt, engine: 'claude', cloud: true,
+      tail: [], saying: '', sayingAt: 0, stop: () => child.kill('SIGINT'),
+    };
+    const item = { id: itemId, product: rec.product };
+    // Made at its first line, so a run that only comes home leaves no record.
+    let trace = null;
+    const write = (text) => {
+      try {
+        if (trace === null) {
+          const product = this.store.listProducts().find((p) => p.slug === rec.product);
+          const dir = machineryPath(product.dir, path.join('sessions', itemId));
+          fs.mkdirSync(dir, { recursive: true });
+          trace = path.join(dir, `${joinedAt}.log`);
+          const title = this.store.readItem?.(rec.product, itemId)?.title ?? itemId;
+          fs.appendFileSync(trace, `# ${title}\n# ${itemId} · joined ${new Date(joinedAt).toISOString()} · the cloud run that carried on while ${Name} restarted\n\n`);
+        }
+        if (trace) fs.appendFileSync(trace, text);
+      } catch { trace = false; }
+    };
+    this._comingHome ??= new Map();
+    let buffered = '';
+    child.stdout?.on('data', (d) => {
+      buffered += d;
+      let i;
+      while ((i = buffered.indexOf('\n')) >= 0) {
+        const line = buffered.slice(0, i);
+        buffered = buffered.slice(i + 1);
+        if (!line.trim()) continue;
+        const first = this._comingHome.get(itemId) !== view;
+        this._comingHome.set(itemId, view);
+        capture(view, line);
+        const typed = stream(view, line);
+        const doing = activity(view, line);
+        let moved = typed || doing;
+        const said = summarize(line);
+        if (said) {
+          moved = true;
+          view.tail.push(said.slice(0, 2000));
+          if (view.tail.length > 200) view.tail.splice(0, view.tail.length - 200);
+        }
+        const detail = traceOne(line);
+        if (detail) write(`${detail}\n`);
+        if (first || moved) this.onChange?.();
+      }
+    });
+    let over = false;
+    return {
+      end: (code) => {
+        if (over) return;
+        over = true;
+        if (this._comingHome.get(itemId) === view) this._comingHome.delete(itemId);
+        if (trace) write(`\n# exited (${code}) ${new Date().toISOString()}\n`);
+        // Finished only when its work is home: 75 is the app going again, or
+        // results that did not come back, and a later homecoming tries again.
+        const session = { ...view, startedAt: rec.startedAt, child: { ranToTheEnd: () => code === 0 } };
+        if (this.speaksForTheSession(session)) {
+          try { this.store.recordSessionResult(rec.product, itemId, { result: session.result || '(the session ended with an empty reply)' }); } catch (e) { console.warn('zero: writing a joined run\'s answer failed:', e.message); }
+        } else if (this.closingMessageIsTheAnswer(session)) {
+          try { this.store.recordSessionResult(rec.product, itemId, { result: session.result, status: null }); } catch (e) { console.warn('zero: writing a joined run\'s answer failed:', e.message); }
+        }
+        // The reply this conversation heard is answered; one typed while it
+        // was away is left for the next run.
+        if (this.runFinished(session)) {
+          try {
+            const fresh = this.store.readItem?.(rec.product, itemId);
+            if (fresh?.answer && this._heardIn(fresh, rec.sessionId)) {
+              this._handledAnswers.add(this._answerKey(fresh));
+              this.store.settleAnswer?.(rec.product, itemId, answerTs(fresh));
+            }
+          } catch (e) { console.warn('zero: could not settle a joined run\'s reply:', e.message); }
+        }
+        this.forgetFinishedSession(item, session);
+        this.onChange?.();
+      },
+    };
   }
 
   // A CLOUD RUN'S WORK KEPT ON A BRANCH OF ITS OWN (main/cloud/run.mjs
@@ -5574,7 +5679,11 @@ export class Supervisor {
       // above, for the same reason: "Queued" over a Codex task while Codex
       // had no slot until the reset (found by the pre-deploy breaker).
       atLimit,
-      running: [...this.sessions.values()].filter(s => !s.remoteIdle).map((s) => ({
+      running: [
+        ...this.sessions.values(),
+        // A cloud run the app left going, followed home (`_followComingHome`).
+        ...[...(this._comingHome?.values() ?? [])].filter((v) => !this.sessions.has(v.itemId)),
+      ].filter(s => !s.remoteIdle).map((s) => ({
         itemId: s.itemId,
         product: s.product,
         startedAt: s.startedAt,
