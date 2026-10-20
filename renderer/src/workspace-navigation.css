@@ -990,15 +990,29 @@ body {
 /* ═══ EMBER GRID, the launch film's look (w-b3e123a0af) ═══. The colours are in
    the theme's token block in styles.css; these are the film's shapes, each
    scoped to the theme so nothing already approved moves. The card is
-   edged with one hairline instead of the white top light the glass themes
-   wear; its marks and grid are in THE QUIET INSTRUMENT below. The chrome
-   (search, section label, times) is Geist Mono in capitals, the count is the
-   one orange, titles are the film's 400 weight rather than the app's 500, and
-   page headings drop from 600 to the film's 400. */
-:root[data-skin="ember-grid"] .workspace-layout::before {
-  box-shadow: inset 0 0 0 1px var(--skin-pane-line), 0 30px 90px rgba(0, 0, 0, .5);
-  background: var(--skin-pane);
+   edged with one hairline and the film's four corner marks instead of the
+   white top light the glass themes wear. The chrome (search, section label,
+   times) is Geist Mono in capitals, the count is the one orange, and titles are
+   the film's 400 weight rather than the app's 500. The floating cards (new
+   task, ⌘K and every other modal) wear the same marks over their own fill and
+   a firmer edge, and page headings drop from 600 to the film's 400. */
+:root[data-skin="ember-grid"] .workspace-layout::before,
+:root[data-skin="ember-grid"] .modal {
+  --grid-ticks:
+    linear-gradient(var(--skin-tick), var(--skin-tick)) left 8px top 8px / 12px 1px no-repeat,
+    linear-gradient(var(--skin-tick), var(--skin-tick)) left 8px top 8px / 1px 12px no-repeat,
+    linear-gradient(var(--skin-tick), var(--skin-tick)) right 8px top 8px / 12px 1px no-repeat,
+    linear-gradient(var(--skin-tick), var(--skin-tick)) right 8px top 8px / 1px 12px no-repeat,
+    linear-gradient(var(--skin-tick), var(--skin-tick)) left 8px bottom 8px / 12px 1px no-repeat,
+    linear-gradient(var(--skin-tick), var(--skin-tick)) left 8px bottom 8px / 1px 12px no-repeat,
+    linear-gradient(var(--skin-tick), var(--skin-tick)) right 8px bottom 8px / 12px 1px no-repeat,
+    linear-gradient(var(--skin-tick), var(--skin-tick)) right 8px bottom 8px / 1px 12px no-repeat;
 }
+:root[data-skin="ember-grid"] .workspace-layout::before {
+  box-shadow: inset 0 0 0 1px var(--skin-pane-line), var(--shadow-card);
+  background: var(--grid-ticks), var(--skin-pane);
+}
+:root[data-skin="ember-grid"] .modal { background: var(--grid-ticks), var(--bg-raised); border-color: var(--line-strong); }
 :root[data-skin="ember-grid"] .set-title { font-weight: 400; letter-spacing: -0.035em; }
 
 /* INBOX ZERO, the film's "0 terminals opened" card, made more visually
@@ -1025,7 +1039,7 @@ body {
 :root[data-skin="ember-grid"] .idle-zero-col .idle-field { margin-top: 36px; }
 :root[data-skin="ember-grid"] .workspace-navigation .workspace-search { background: transparent; }
 :root[data-skin="ember-grid"] .workspace-navigation .workspace-tab.active {
-  background: rgba(46, 34, 27, .7); box-shadow: inset 0 0 0 1px var(--line); font-weight: 400;
+  background: var(--bg-selected); box-shadow: inset 0 0 0 1px var(--line); font-weight: 400;
 }
 :root[data-skin="ember-grid"] .workspace-running { color: var(--accent); }
 
@@ -1061,68 +1075,6 @@ body {
 :root:root .workspace-navigation .workspace-tab.active { font-weight: 400; }
 :root:root .workspace-title { font-weight: 400; letter-spacing: -.03em; }
 :root:root .row .subject { font-weight: 400; letter-spacing: -.01em; }
-
-/* ═══ THE QUIET INSTRUMENT (w-22da913d00) ═══. Dark after ten rounds of
-   pictures, designs/w-22da913d00. Placed after the Light block above because
-   both reach .workspace-title at the same weight. */
-.panel-marks { display: none; }
-:root[data-skin="ember-grid"] .panel-marks {
-  display: block; position: absolute; top: 40px; bottom: 22px; left: var(--workspace-left); right: 22px; pointer-events: none;
-}
-:root[data-window="flat"][data-skin="ember-grid"] .panel-marks { top: 22px; }
-/* A faint grid, fading in from the left. */
-:root[data-skin="ember-grid"] .panel-marks::before {
-  content: ''; position: absolute; inset: 0; opacity: .22;
-  background:
-    linear-gradient(rgba(255, 214, 170, .05) 1px, transparent 1px) 0 0 / 16px 16px,
-    linear-gradient(90deg, rgba(255, 214, 170, .05) 1px, transparent 1px) 0 0 / 16px 16px;
-  -webkit-mask: linear-gradient(100deg, transparent 20%, #000 95%);
-}
-/* Corner marks standing 7px outside the card, and a ruler along its foot. */
-:root[data-skin="ember-grid"] .panel-marks::after {
-  --m: rgba(255, 220, 190, .22);
-  content: ''; position: absolute; inset: -7px;
-  background:
-    linear-gradient(var(--m), var(--m)) left top / 10px 1px no-repeat,
-    linear-gradient(var(--m), var(--m)) left top / 1px 10px no-repeat,
-    linear-gradient(var(--m), var(--m)) right top / 10px 1px no-repeat,
-    linear-gradient(var(--m), var(--m)) right top / 1px 10px no-repeat,
-    linear-gradient(var(--m), var(--m)) left bottom / 10px 1px no-repeat,
-    linear-gradient(var(--m), var(--m)) left bottom / 1px 10px no-repeat,
-    linear-gradient(var(--m), var(--m)) right bottom / 10px 1px no-repeat,
-    linear-gradient(var(--m), var(--m)) right bottom / 1px 10px no-repeat,
-    repeating-linear-gradient(90deg, rgba(110, 105, 102, .14) 0 1px, transparent 1px 8px) left 7px bottom 7px / calc(100% - 14px) 4px no-repeat,
-    repeating-linear-gradient(90deg, rgba(130, 124, 120, .15) 0 1px, transparent 1px 40px) left 7px bottom 7px / calc(100% - 14px) 7px no-repeat;
-}
-/* The page name in spaced capitals, after a small orange square. */
-:root[data-skin="ember-grid"] .workspace-title {
-  display: flex; align-items: center; gap: 10px;
-  font: 500 11px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: #b3a89f;
-}
-:root[data-skin="ember-grid"] .workspace-title::before { content: ''; width: 6px; height: 6px; background: var(--accent); box-shadow: 0 0 10px rgba(240, 122, 58, .7); }
-:root[data-skin="ember-grid"] .th-table .row.th-head { color: #7d736b; }
-:root[data-skin="ember-grid"] .tm-tab.on { color: #ece7e1; }
-:root[data-skin="ember-grid"] .tm-tab.fresh b { color: #ffc49c; }
-:root[data-skin="ember-grid"] .th-disp,
-:root[data-skin="ember-grid"] .ts-more { border-color: rgba(255, 214, 170, .14); }
-/* The cards that sit on the brown card are neutral grey: brown on brown read red. */
-:root[data-skin="ember-grid"] .opt-strip { position: relative; background: rgba(44, 42, 40, .9); border: 1px solid rgba(255, 240, 225, .11); box-shadow: 0 20px 60px rgba(0, 0, 0, .35); }
-:root[data-skin="ember-grid"] .opt-strip::after {
-  content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .22;
-  background:
-    linear-gradient(rgba(255, 214, 170, .05) 1px, transparent 1px) 0 0 / 16px 16px,
-    linear-gradient(90deg, rgba(255, 214, 170, .05) 1px, transparent 1px) 0 0 / 16px 16px;
-  -webkit-mask: linear-gradient(100deg, transparent 5%, #000 75%);
-}
-:root[data-skin="ember-grid"] .opt-key { border-color: rgba(255, 214, 170, .22); font-family: var(--mono); }
-:root[data-skin="ember-grid"] .appendix-label,
-:root[data-skin="ember-grid"] .ts-h { color: #8a837c; letter-spacing: .16em; }
-:root[data-skin="ember-grid"] .ts-panel { border-color: rgba(255, 214, 170, .10); background: linear-gradient(180deg, rgba(46, 34, 27, .25), transparent 40%); }
-:root[data-skin="ember-grid"] .dock-card { background: rgba(42, 40, 38, .92); border-color: rgba(255, 240, 225, .12); }
-:root[data-skin="ember-grid"] .modal { background: rgba(38, 36, 34, .97); border-color: rgba(255, 240, 225, .13); box-shadow: 0 30px 100px rgba(0, 0, 0, .6), 0 0 0 1px rgba(255, 214, 170, .04); }
-:root[data-skin="ember-grid"] .palette-input { font-size: 16px; border-bottom-color: rgba(255, 240, 225, .11); }
-:root[data-skin="ember-grid"] .palette-item.selected { background: rgba(255, 240, 225, .06); box-shadow: inset 2px 0 0 var(--accent); }
-:root[data-skin="ember-grid"] .palette-key { font-family: var(--mono); border-color: rgba(255, 214, 170, .2); }
 
 /* Settings › Neo: the voice row's play buttons, beside the dropdown and in it
    (renderer/src/neo/NeoSettings.tsx). */

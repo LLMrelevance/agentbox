@@ -690,18 +690,22 @@
 @font-face { font-family: 'Geist'; src: url('./assets/fonts/Geist-Variable.woff2') format('woff2'); font-weight: 100 900; font-display: block; }
 @font-face { font-family: 'Geist Mono'; src: url('./assets/fonts/GeistMono-Variable.woff2') format('woff2'); font-weight: 100 900; font-display: block; }
 :root[data-skin="ember-grid"] {
-  --skin-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='100%'><defs><pattern id='d' width='32' height='32' patternUnits='userSpaceOnUse'><circle cx='16' cy='16' r='1.15' fill='white' fill-opacity='0.055'/></pattern><radialGradient id='g' cx='0.72' cy='0.28' r='0.7'><stop offset='0' stop-color='%23EE6018' stop-opacity='0.075'/><stop offset='1' stop-color='%23EE6018' stop-opacity='0'/></radialGradient><radialGradient id='h' cx='0.88' cy='0.92' r='0.6'><stop offset='0' stop-color='%23E8743A' stop-opacity='0.075'/><stop offset='0.7' stop-color='%23E8743A' stop-opacity='0'/></radialGradient></defs><rect width='100%' height='100%' fill='%231A1817'/><rect width='100%' height='100%' fill='url(%23g)'/><rect width='100%' height='100%' fill='url(%23h)'/><rect width='100%' height='100%' fill='url(%23d)'/></svg>");
+  --skin-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='100%'><defs><pattern id='d' width='32' height='32' patternUnits='userSpaceOnUse'><circle cx='16' cy='16' r='1.15' fill='white' fill-opacity='0.055'/></pattern><radialGradient id='g' cx='0.72' cy='0.28' r='0.7'><stop offset='0' stop-color='%23EE6018' stop-opacity='0.075'/><stop offset='1' stop-color='%23EE6018' stop-opacity='0'/></radialGradient></defs><rect width='100%' height='100%' fill='%231A1817'/><rect width='100%' height='100%' fill='url(%23g)'/><rect width='100%' height='100%' fill='url(%23d)'/></svg>");
   --skin-veil: var(--veil-lake);
   --skin-tint: none;
-  /* STILL SEE-THROUGH, BUT A LITTLE BROWN (w-22da913d00). A neutral card read
-     as standard; round one's brown read as burgundy. This is three quarters of
-     the way to it, the step picked after the colour was measured off the
-     pictures, and anything warmer was too much. */
-  --skin-pane: rgba(44, 34, 29, 0.62);
-  --skin-pane-line: rgba(255, 219, 181, 0.115);
+  /* MOSTLY SEE-THROUGH, option 4, like the sidebar (2026-09-26). The film's
+     panel was #101010 at 0.96, and the window read wrong, like a contrast
+     problem, where the sidebar did not. The sidebar has no panel at all, so the
+     card now lets the dotted ground through at 0.55 and its text sits on the
+     same ground the sidebar's does. The other four versions shown are in
+     decisions.md, 2026-09-26; do not re-offer them. */
+  --skin-pane: rgba(36, 34, 33, 0.55);
+  --skin-pane-line: #464443;
   --skin-blur: 0px;
   --skin-solid: #282625;
   --skin-dim: 0;
+  /* The film's L-shaped corner marks, 12px long, 8px in from each corner. */
+  --skin-tick: #5c5855;
   /* Inbox zero's backdrop, from the film's "0 terminals opened" card: the
      brand's 24 rays in the one orange, fading in past the figure and out
      toward the edge, over a faint orange glow. */
@@ -709,33 +713,32 @@
   --bg: #1a1817;
   --surface: #282625;
   --bg-raised: #2f2d2c;
-  --bg-selected: rgba(255, 214, 170, 0.07);
+  --bg-selected: #373534;
   /* WHAT A DROPDOWN FLOATS ON, AND IT IS NEVER THE BLACK GROUND (2026-10-01).
      The rule: in this theme every dropdown sits on the same grey, and none is
      drawn in the window's black. The new thread card's menus were already this
      grey; every older menu read as a hole cut in the window. Only this theme
      sets it, so each menu keeps its own fallback everywhere else. */
   --pop: #363431;
-  --bg-hover: rgba(255, 214, 170, 0.04);
+  --bg-hover: #2e2c2b;
   --film-strong: rgba(255, 255, 255, 0.07);
   /* A warm off white, brighter than the 09-26 ink now the ground is Ash, so
      the words keep their contrast; the greys stay one ladder step apart. */
   --text: #efebe7;
   --text-dim: #c4bdb8;
-  --text-faint: #9a8f86;
+  --text-faint: #a09994;
   --agent-ink: #7f7975;
-  /* Warm hairlines, so they belong to the brown card rather than cutting it. */
-  --line: rgba(255, 214, 170, 0.10);
-  --line-strong: rgba(255, 214, 170, 0.16);
+  --line: #464443;
+  --line-strong: #52504f;
   --wash: rgba(255, 255, 255, 0.04);
   --wash-strong: rgba(255, 255, 255, 0.08);
   --doc-page: #282625;
   --doc-page-held: #282625;
   --code-ground: #22201f;
   --work-fill: rgba(40, 38, 37, 0.9);
-  --accent: #e8743a;
+  --accent: #ee6018;
   --select-bar: #ee6018;
-  --underline: rgba(232, 116, 58, 0.6);
+  --underline: rgba(238, 96, 24, 0.6);
   --chip-ask: #ee6018;
   --on-solid: #1a1817;
   --shadow-card: 0 40px 120px rgba(0, 0, 0, 0.7);
