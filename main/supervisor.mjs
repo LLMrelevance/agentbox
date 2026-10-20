@@ -408,6 +408,10 @@ export class Supervisor {
       // when the run's work is brought back; shipping before then would push
       // the stale branch and call it shipped (docs/cloud/PLAN.md, R3).
       isLive: (item) => this.sessions.has(item.id) || this._cloudWorkOutstanding(item),
+      // WHEN THE LIVE WORK STARTED, so that a reply to a thread already waiting
+      // does not hold its ship for as long as the new session runs. A cloud run
+      // that has not come home answers null: nobody can say, and that waits.
+      liveSince: (item) => (this._cloudWorkOutstanding(item) ? null : this.sessions.get(item.id)?.startedAt ?? null),
       handBack: (item, reply) => {
         const fresh = this.store.readItem?.(item.product, item.id) ?? item;
         this.spawnWorker(fresh, { continuation: true, shipFailure: reply });
