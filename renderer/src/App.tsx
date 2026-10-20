@@ -26,6 +26,7 @@ import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from
 import { List } from './components/List';
 import { isTroubleRow, troubleRow } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
+import { needsYouLit } from './needs-you';
 import { Focus } from './components/Focus';
 import { TicketItems } from './components/TicketReference';
 import type { PendingSaid } from './item-thread';
@@ -775,6 +776,8 @@ export default function App() {
     if (sk !== 'none') setTune(TUNE_DEFAULT[sk as SkinId]);
   }, [setTune]);
   const [seen, setSeen] = useState<Set<string>>(() => new Set(JSON.parse(localStorage.getItem(SEEN_KEY) ?? '[]')));
+  // When Needs You was last on screen; something arriving after it lights the tab.
+  const [needsLookedAt, setNeedsLookedAt] = useState(() => Date.now());
   // Batch selection (Superhuman: cmd-A, shift-select, then act on all).
   const [multiSel, setMultiSel] = useState<Set<string>>(new Set());
   const [snoozes, setSnoozes] = useState<Snooze>(() => JSON.parse(localStorage.getItem(SNOOZE_KEY) ?? '{}'));
@@ -3002,6 +3005,7 @@ export default function App() {
   }, [modal]);
 
   useEffect(() => { localStorage.setItem(SEEN_KEY, JSON.stringify([...seen].slice(-2000))); }, [seen]);
+  useEffect(() => { if (view === 'inbox') setNeedsLookedAt(Date.now()); }, [view, inbox]);
   useEffect(() => { localStorage.setItem(SNOOZE_KEY, JSON.stringify(snoozes)); }, [snoozes]);
 
   /* -------------------------------- actions ------------------------------- */
@@ -5524,6 +5528,9 @@ export default function App() {
     <WaitingContext.Provider value={waitingByThread}>
     <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${workspaceCollapsed ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}`}>
       {signInGate && <SignInPage signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
+      {/* Dark's corner marks, outside the card. Their own element, because
+          `.workspace-layout::after` is the window's drag strip. */}
+      {workspaceNavigation && <div className="panel-marks" aria-hidden="true" />}
       {/* THE TOP BAR IS NOT DRAWN ON AN OPENED TASK.
 
           WHAT REPLACES IT IS NOT NOTHING, and the reason is three buttons this
@@ -6238,6 +6245,7 @@ export default function App() {
                       done: (mineShown ? shownCount(done) : 0) + theirCount('done'),
                     }}
                     needs={team ? needsWord(picked, team.me) : undefined}
+                    lit={needsYouLit(inbox, needsLookedAt)}
                     onView={(next) => { setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                     onSearch={openSearch}
                   />
