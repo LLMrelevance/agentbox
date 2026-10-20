@@ -66,7 +66,7 @@ describe('signing in', () => {
 
   it('trades the Google sign-in for a cloud key, kept for this user only, and points this Mac at the server', async () => {
     const out = await signInToCloud({ config: config(), acceptedTerms: TERMS_VERSION, name: 'A Mac', googleSignIn, env, home });
-    expect(out).toMatchObject({ ok: true, plan: 'free' });
+    expect(out).toMatchObject({ ok: true, plan: 'none' });
     expect(readCloudKey(env, home)).toMatch(/^abk_/);
     expect(fs.statSync(cloudKeyPath(env, home)).mode & 0o777).toBe(0o600);
     expect(readCloudConfig(env, home)).toEqual({ gateway });

@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import http from 'node:http';
 import { createGateway, gatewayServer, memoryObjects } from '../cloud/gateway/gateway.mjs';
+import { ROOMY_PLANS } from './fixtures/cloud-plans.mjs';
 import { managedClients } from '../main/cloud/managed.mjs';
 import { TERMS_VERSION } from '../cloud/gateway/terms.mjs';
 
@@ -56,6 +57,7 @@ beforeEach(async () => {
     removeObject: async (k) => { store.delete(k); },
     objects,
     whoIs: async (t) => (t === 'their-session' ? { id: P } : null),
+    plans: ROOMY_PLANS,
   });
   const handle = gw.handle;
   gw.handle = async (req) => {
