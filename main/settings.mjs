@@ -34,6 +34,7 @@ import { isEngine } from '../shared/engines.mjs';
 import { codexAccount, codexLoginCommand, makeCodexHome } from './codex-account.mjs';
 import { codexDefaultModel, codexModels } from './codex-models.mjs';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
+import { CLOUD_SAME, CLOUD_CLAUDE_DEFAULT, CLOUD_CODEX_DEFAULT } from './cloud-permission.mjs';
 import { claudeModels } from './claude-models.mjs';
 import { forgetCodexBin, INSTALL_URL as CODEX_INSTALL_URL } from './codex-bin.mjs';
 
@@ -628,8 +629,8 @@ export function readSettings({ config, supervisor, store }) {
       ...engineSettings(supervisor, config),
       permission: permissionMode(workspaceArgs),
       permissionArgs: workspaceArgs,
-      // The cloud's own mode, or null for this computer's.
-      cloudPermission: config.cloudPermission ?? null,
+      cloudPermission: config.cloudPermission ?? CLOUD_CLAUDE_DEFAULT,
+      cloudCodexMode: config.cloudCodexMode ?? CLOUD_CODEX_DEFAULT,
       // ONE SWITCH FOR EVERYTHING THAT LEAVES THE MACHINE, and it is on when
       // Agentbox is installed (legal/privacy.html, section 10). Off stops the
       // counts AND the crash reports; there is deliberately no partial mode and
@@ -1209,11 +1210,13 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
       supervisor.onChange?.();
       break;
     }
-    // THE CLOUD'S OWN PERMISSION MODE, or null for this computer's. Read at
-    // each cloud run's spawn (main/harnesses/claude.mjs).
-    case 'cloudPermission': {
-      if (value != null && !CLAUDE_MODES.includes(value)) throw new Error(`unknown permission mode: ${value}`);
-      const patch = { cloudPermission: value ?? null };
+    // THE CLOUD'S OWN MODE PER ENGINE, CLOUD_SAME for this computer's, or null
+    // for the cloud's default (main/cloud-permission.mjs).
+    case 'cloudPermission':
+    case 'cloudCodexMode': {
+      const known = key === 'cloudPermission' ? CLAUDE_MODES.includes(value) : isCodexMode(value);
+      if (value != null && value !== CLOUD_SAME && !known) throw new Error(`unknown permission mode: ${value}`);
+      const patch = { [key]: value ?? null };
       saveConfig(config, patch);
       Object.assign(config, patch);
       supervisor.onChange?.();
