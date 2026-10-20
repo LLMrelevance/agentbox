@@ -11,6 +11,7 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
 import { PLANS, RUN_CEILING_MS, SIGNIN_CEILING_MS, SIGNINS_AT_ONCE, FREE_FLEET_CAP } from './plans.mjs';
+import { TERMS_VERSION } from './terms.mjs';
 import { LOGIN_NAME } from '../../shared/cloud-login-name.mjs';
 
 const PERSON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -55,7 +56,7 @@ const saysFailed = (answer) => !answer?.more && (answer?.state === 'failed' || (
 const notThere = (err) => err?.name === 'ResourceNotFoundException' || err?.$metadata?.httpStatusCode === 404;
 
 class Refusal extends Error {
-  constructor(status, error, message) { super(message); this.status = status; this.error = error; }
+  constructor(status, error, message, extra = {}) { super(message); this.status = status; this.error = error; this.extra = extra; }
 }
 const bad = (message) => new Refusal(400, 'bad-request', message);
 
@@ -88,7 +89,8 @@ export function memoryObjects() {
   };
 }
 
-export function createGateway({ agentcore, links, removeObject, objects, whoIs, now = Date.now, plans = PLANS, freeFleetCap = FREE_FLEET_CAP, log = () => {} }) {
+export function createGateway({ agentcore, links, removeObject, objects, whoIs, now = Date.now, plans = PLANS, freeFleetCap = FREE_FLEET_CAP, termsVersion = TERMS_VERSION, log = () => {} }) {
+  const termsRefusal = () => new Refusal(403, 'terms', `accept the terms of ${termsVersion} first`, { terms: termsVersion });
   const personKey = (person) => `ledger/people/${person}.json`;
   const deviceKey = (key) => `ledger/devices/${sha256(key)}.json`;
   const SWITCH = 'ledger/switch.json';
@@ -187,7 +189,10 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
 
   function summary(rec, t) {
     const plan = planOf(rec);
-    return { plan: plans[rec.plan] ? rec.plan : 'free', agents: plan.agents, hoursPerMonth: plan.hoursPerMonth, running: live(rec, 'run').length, usedSeconds: rec.used[month(t)] || 0, month: month(t) };
+    return {
+      plan: plans[rec.plan] ? rec.plan : 'free', agents: plan.agents, hoursPerMonth: plan.hoursPerMonth, running: live(rec, 'run').length, usedSeconds: rec.used[month(t)] || 0, month: month(t),
+      terms: { accepted: rec.terms?.version ?? null, current: termsVersion },
+    };
   }
 
   // Take a place for a session that is starting, or say why there is none.
@@ -201,6 +206,8 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     // A stop owed to this session, or a late one, would land on whatever
     // started here next.
     if (stoppingOf(rec).some((e) => e.sid === sid) || rec.retired?.[sid] !== undefined) return { ok: false, error: 'busy', message: 'this session has ended; a new run takes a new one' };
+    // Changed terms hold back what begins something new; a run going finishes.
+    if (rec.terms?.version !== termsVersion) return { ok: false, error: 'terms', terms: termsVersion, message: `accept the terms of ${termsVersion} first` };
     if (kind === 'run') {
       const plan = planOf(rec);
       if (paused) return { ok: false, error: 'paused', message: 'The cloud is not starting new runs right now.' };
@@ -332,11 +339,15 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     if (!who || !PERSON.test(who.id || '')) throw new Refusal(401, 'signed-out', 'sign in again');
     const person = who.id.toLowerCase();
     if ((await recOf(person)).disabled) throw new Refusal(403, 'disabled', 'this account cannot use the cloud');
+    if (body.acceptedTerms !== termsVersion) throw termsRefusal();
+    await accept(person);
     const key = `abk_${crypto.randomBytes(32).toString('base64url')}`;
     await objects.put(deviceKey(key), JSON.stringify({ person, name: String(body.name || '').slice(0, 80), at: now() }), { ifNoneMatch: '*' });
     log(`a cloud key for ${person}`);
     return { key };
   }
+
+  const accept = (person) => update(person, (rec) => { rec.terms = { version: termsVersion, at: now() }; });
 
   async function personOf(headers) {
     const key = bearer(headers);
@@ -359,6 +370,11 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
       const { person, key } = await personOf(headers);
       const route = `${method} ${path}`;
       if (route === 'DELETE /v1/devices') { await objects.del(deviceKey(key)); return { status: 200, body: { ok: true } }; }
+      if (route === 'POST /v1/terms') {
+        if (data.acceptedTerms !== termsVersion) throw termsRefusal();
+        await accept(person);
+        return { status: 200, body: { ok: true, terms: termsVersion } };
+      }
       if (route === 'GET /v1/me') return { status: 200, body: await update(person, (rec, ctx) => { settle(rec, ctx, now()); return summary(rec, now()); }) };
       if (route === 'POST /v1/invoke') return { status: 200, body: await invoke(person, data) };
       if (route === 'POST /v1/stop') return { status: 200, body: await stop(person, data) };
@@ -366,7 +382,7 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
       if (route === 'POST /v1/delete') return { status: 200, body: await remove(person, data) };
       return { status: 404, body: { error: 'not-found' } };
     } catch (err) {
-      if (err instanceof Refusal) return { status: err.status, body: { error: err.error, message: err.message } };
+      if (err instanceof Refusal) return { status: err.status, body: { error: err.error, message: err.message, ...err.extra } };
       log(`cloud server: ${err?.stack || err}`);
       return { status: 500, body: { error: 'server', message: 'the cloud server failed; try again' } };
     }

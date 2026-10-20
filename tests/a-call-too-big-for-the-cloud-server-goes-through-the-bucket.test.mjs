@@ -12,6 +12,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import http from 'node:http';
 import { createGateway, gatewayServer, memoryObjects } from '../cloud/gateway/gateway.mjs';
 import { managedClients } from '../main/cloud/managed.mjs';
+import { TERMS_VERSION } from '../cloud/gateway/terms.mjs';
+
+const ACCEPTED = JSON.stringify({ acceptedTerms: TERMS_VERSION });
 
 const P = '44444444-4444-4444-8444-444444444444';
 const MB = 1024 * 1024;
@@ -71,7 +74,7 @@ afterEach(async () => {
 });
 
 async function client() {
-  const res = await fetch(`${url}/v1/devices`, { method: 'POST', headers: { authorization: 'Bearer their-session' }, body: '{}', signal: AbortSignal.timeout(5000) });
+  const res = await fetch(`${url}/v1/devices`, { method: 'POST', headers: { authorization: 'Bearer their-session' }, body: ACCEPTED, signal: AbortSignal.timeout(5000) });
   const c = managedClients({ url, key: (await res.json()).key });
   await c.transport.invoke('run-1', { action: 'start', runId: 'r1' });
   reached.length = 0;
@@ -115,7 +118,7 @@ describe('what the server will not take', () => {
     await client();
     store.set(`runs/u-${P}/r1/in.bundle`, Buffer.from('{"action":"stdin"}'));
     store.set('runs/u-55555555-5555-4555-8555-555555555555/calls/x.json', Buffer.from('{"action":"stdin"}'));
-    const key = (await (await fetch(`${url}/v1/devices`, { method: 'POST', headers: { authorization: 'Bearer their-session' }, body: '{}', signal: AbortSignal.timeout(5000) })).json()).key;
+    const key = (await (await fetch(`${url}/v1/devices`, { method: 'POST', headers: { authorization: 'Bearer their-session' }, body: ACCEPTED, signal: AbortSignal.timeout(5000) })).json()).key;
     for (const payloadKey of ['runs/r1/in.bundle', 'runs/u-55555555-5555-4555-8555-555555555555/calls/x.json', 'logins/claude/L1.json', 'runs/calls/../r1/in.bundle']) {
       const r = await gw.handle({ method: 'POST', path: '/v1/invoke', headers: { authorization: `Bearer ${key}` }, body: JSON.stringify({ sessionId: 'run-1', payloadKey }) });
       expect(r.status, payloadKey).toBe(400);

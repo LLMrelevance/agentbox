@@ -12,6 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import { createGateway, memoryObjects } from '../cloud/gateway/gateway.mjs';
 import { PLANS } from '../cloud/gateway/plans.mjs';
+import { TERMS_VERSION } from '../cloud/gateway/terms.mjs';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const HOUR = 60 * 60_000;
@@ -48,7 +49,7 @@ function setup({ startAnswer = { ok: true }, answer = () => ({ ok: true }), plan
   });
   let key;
   const call = async (method, path, body) => {
-    key ??= (await gw.handle({ method: 'POST', path: '/v1/devices', headers: { authorization: 'Bearer session-of-a' }, body: '{}' })).body.key;
+    key ??= (await gw.handle({ method: 'POST', path: '/v1/devices', headers: { authorization: 'Bearer session-of-a' }, body: JSON.stringify({ acceptedTerms: TERMS_VERSION }) })).body.key;
     return gw.handle({ method, path, headers: { authorization: `Bearer ${key}` }, body: body ? JSON.stringify(body) : '' });
   };
   const start = (n, extra = {}) => call('POST', '/v1/invoke', { sessionId: `run-${n}`, payload: { action: 'start', runId: `r${n}`, ...extra } });
@@ -219,7 +220,7 @@ describe('what the person is told', () => {
   it('names the plan, its agents and hours, and what is used', async () => {
     const { start, me } = setup();
     await start(1);
-    expect(await me()).toEqual({ plan: 'free', agents: PLANS.free.agents, hoursPerMonth: PLANS.free.hoursPerMonth, running: 1, usedSeconds: 0, month: '2026-10' });
+    expect(await me()).toEqual({ plan: 'free', agents: PLANS.free.agents, hoursPerMonth: PLANS.free.hoursPerMonth, running: 1, usedSeconds: 0, month: '2026-10', terms: { accepted: TERMS_VERSION, current: TERMS_VERSION } });
   });
 });
 
@@ -346,7 +347,7 @@ describe('stopping one person', () => {
       expect((await call(m, p, b)).status, p).toBe(403);
     }
     // Signing in again gets no new key either.
-    expect((await gw.handle({ method: 'POST', path: '/v1/devices', headers: { authorization: 'Bearer session-of-a' }, body: '{}' })).status).toBe(403);
+    expect((await gw.handle({ method: 'POST', path: '/v1/devices', headers: { authorization: 'Bearer session-of-a' }, body: JSON.stringify({ acceptedTerms: TERMS_VERSION }) })).status).toBe(403);
     await gw.admin({ do: 'enable', person: A });
     expect((await call('GET', '/v1/me')).status).toBe(200);
   });
