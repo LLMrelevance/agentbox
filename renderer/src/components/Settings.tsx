@@ -35,7 +35,7 @@ import { InstructionSettings, sizeLabel } from './InstructionSettings';
 import { NeoSettings } from '../neo/NeoSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
-import { accountLabel, type CloudStatus } from '../cloud-menu';
+import { accountLabel, countedAccounts, type CloudStatus } from '../cloud-menu';
 import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
 import { limitRows } from '../../../shared/usage.mjs';
 import { LOOKS, lookMeans, SKINS, TUNE_DEFAULT, TUNE_LIMITS, type Look, type SkinId, type SkinTune } from '../skins';
@@ -479,6 +479,9 @@ function UseMark({ a }: { a: PlaceAccount }) {
   return a.use ? <button type="button" className="acct-use" onClick={a.use.onUse}>{a.use.word}</button> : null;
 }
 
+// The header says the newest reading's time; a tile older than this says its own.
+const OWN_TIME_AFTER_MS = 15 * 60_000;
+
 /** One tile per account, two to a line, its meters stacked inside. */
 export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: PlaceAccount[]; onAdd?: () => void; now?: number }) {
   return (
@@ -499,7 +502,7 @@ export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: Pl
             {(!a.usageError || a.limits?.length) && <MiniMeters limits={a.limits} />}
             {a.usageError && <div className="acct-tile-trouble" role="status">{a.usageError}</div>}
           </>}
-          {!!a.checkedAt && <div className="acct-reading-time">{a.usageError ? 'Last reading · ' : ''}{usageCheckedAt(a.checkedAt, now)}</div>}
+          {!!a.checkedAt && (a.usageError || now - a.checkedAt >= OWN_TIME_AFTER_MS) && <div className="acct-reading-time">{usageCheckedAt(a.checkedAt, now)}</div>}
         </div>
       ))}
       {onAdd && <button type="button" className="acct-tile acct-tile-add" onClick={onAdd}>Add account</button>}
@@ -526,7 +529,8 @@ export function Place({ id, name, state = null, line = null, action, warn, accou
 /** The cloud's own logins, as a place card reads them. */
 export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex', now: number): PlaceAccount[] {
   const all = cloud.accounts ?? [];
-  return all.filter((a) => a.engine === engine).map((a) => {
+  // A login of an account already added is the same account, and the cloud never runs on it.
+  return countedAccounts(all).filter((a) => a.engine === engine).map((a) => {
     const state = cloudAccountState(a, now);
     const read = !!a.limits?.length;
     // A full meter already says when it is back, so beside one the state is said short.
@@ -1658,6 +1662,8 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
         trouble: a.trouble,
         cmd: a.trouble && a.dir ? `CLAUDE_CONFIG_DIR=${a.dir} claude` : null,
       }));
+    const lastRead = Math.max(0, ...hereAccounts.map((a) => a.checkedAt ?? 0));
+    const checked = lastRead ? usageCheckedAt(lastRead, now) : '';
     const cloudHere = cloud?.setUp && (cloud.accounts ?? []).some((a) => a.engine === engine) ? cloud : null;
     // WHERE AGENTS GO FIRST IS DRAWN FIRST: the cloud while it is on, this computer while it is off.
     const cloudFirst = !!cloudHere && cloudHere.mode !== 'mac';
@@ -1696,6 +1702,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                 name={cloudHere ? 'This computer' : 'Signed in'}
                 action={(
                   <span className="acct-place-act">
+                    {!refreshing && checked && <span className="acct-checked">{checked}</span>}
                     <button type="button" className="set-ghost" disabled={refreshing} onClick={() => void readAccounts(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
                   </span>
                 )}

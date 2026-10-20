@@ -24,7 +24,12 @@ it('reads provider percentages and exact reset instants from the structured repo
 
 it('keeps zero, fractional utilization, and a full allowance distinct', () => {
   expect(format.readUsageReport(report(0, 100)).map(r => r.percent)).toEqual([0, 100]);
-  expect(format.readUsageReport(report(0.5, 39.25)).map(r => r.percent)).toEqual([0.5, 39.25]);
+  expect(format.readUsageReport(report(0.5, 39.25)).map(r => r.percent)).toEqual([1, 39]);
+});
+
+it('says whole percents, and never rounds a limit into full or into unused', () => {
+  expect(format.readUsageReport(report(0.2, 99.6)).map(r => r.percent)).toEqual([1, 99]);
+  expect(format.readUsageReport(report(12.5, 44.49)).map(r => r.percent)).toEqual([13, 44]);
 });
 
 it('never substitutes token totals, local behavior estimates, or plausible prose for provider usage', () => {

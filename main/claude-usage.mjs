@@ -149,7 +149,7 @@ export class ClaudeUsage {
       this._syncProfile();
       if (generation !== this._generation) { resolve(failure()); this._onChange(); return; }
       // Failed or unreadable output cannot acquire a fresh checked time.
-      const limits = err ? [] : readUsageReport(stdout);
+      const limits = err ? [] : readUsageReport(stdout, this._now());
       if (!limits.length) {
         this._missed();
         const unsupported = /get_usage.*(?:not supported|unknown)|unknown.*get_usage/i.test(err?.message ?? '');

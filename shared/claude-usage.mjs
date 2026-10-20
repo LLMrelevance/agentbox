@@ -154,7 +154,7 @@ export function readUsage(text, now = Date.now(), zoneNow = localZone()) {
 }
 
 /** Provider limits from Claude Code's get_usage response, without local activity estimates. */
-export function readUsageReport(value) {
+export function readUsageReport(value, now = Date.now()) {
   let report = value;
   if (typeof report === 'string') {
     try { report = JSON.parse(report); } catch { return []; }
@@ -175,9 +175,23 @@ export function readUsageReport(value) {
     const percent = row?.utilization;
     if (typeof percent !== 'number' || !Number.isFinite(percent) || percent < 0 || percent > 100) return [];
     const at = typeof row.resets_at === 'string' ? Date.parse(row.resets_at) : NaN;
-    return [{ span, qualifier, name: limitName(span, qualifier), percent,
-      resetsAt: Number.isFinite(at) ? at : null, resetsText: null, resetsOn: null, zone: null }];
+    // Whole percents, as the text report printed them; only a full limit reads 100, only an unused one 0.
+    const whole = percent === 0 || percent === 100 ? percent : Math.min(99, Math.max(1, Math.round(percent)));
+    const known = Number.isFinite(at);
+    return [{ span, qualifier, name: limitName(span, qualifier), percent: whole, resetsAt: known ? at : null,
+      ...(known ? clockWords(at, now) : { resetsText: null, resetsOn: null }), zone: known ? localZone() : null }];
   });
+}
+
+// The words the text report used to carry, in this machine's zone, so the
+// panel keeps saying "Resets 6:19pm" and not a countdown (limitRows, shared/usage.mjs).
+function clockWords(at, now) {
+  const d = new Date(at);
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const resetsText = `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''}${h < 12 ? 'am' : 'pm'}`;
+  const today = d.toDateString() === new Date(now).toDateString();
+  return { resetsText, resetsOn: today ? null : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) };
 }
 
 /**
