@@ -147,7 +147,7 @@ describe('who a database session belongs to', () => {
     const fetchImpl = async (url, init) => {
       asked.push({ url, init });
       return init.headers.authorization === 'Bearer good'
-        ? { ok: true, json: async () => ({ id: '11111111-1111-4111-8111-111111111111', email: 'a@example.com', app_metadata: { providers: ['google'] } }) }
+        ? { ok: true, json: async () => ({ id: '11111111-1111-4111-8111-111111111111', email: 'a@example.com', email_confirmed_at: '2026-10-20T10:00:00Z' }) }
         : { ok: false, json: async () => ({}) };
     };
     const whoIs = supabaseWhoIs({ url: 'https://db.example/', anonKey: 'pub', fetchImpl });
@@ -158,17 +158,21 @@ describe('who a database session belongs to', () => {
     expect(asked[0].init.signal).toBeDefined();
   });
 
-  // Review, 2026-10-20: the database also lets anyone sign up with an email
-  // and a password, which is a free 5 hours per made-up address. The cloud
-  // takes Google sign-ins only.
-  it('only a Google sign-in gets the cloud; an email-and-password one does not', async () => {
-    const user = (app_metadata) => ({ ok: true, json: async () => ({ id: '11111111-1111-4111-8111-111111111111', app_metadata }) });
-    const answers = { google: user({ provider: 'google', providers: ['google'] }), both: user({ provider: 'email', providers: ['email', 'google'] }), email: user({ provider: 'email', providers: ['email'] }), none: user({}) };
+  // The owner's call, 2026-10-20: the cloud signs in through the app's own
+  // sign-in page, Google or an email and a password. Google-only guarded a
+  // free allowance per made-up address, and there is no free allowance now.
+  // An address nobody has confirmed still gets nothing.
+  it('a Google sign-in or a confirmed email counts; an email nobody confirmed does not', async () => {
+    const user = (extra) => ({ ok: true, json: async () => ({ id: '11111111-1111-4111-8111-111111111111', ...extra }) });
+    const answers = {
+      google: user({ app_metadata: { provider: 'google', providers: ['google'] }, email_confirmed_at: '2026-10-20T10:00:00Z' }),
+      email: user({ app_metadata: { provider: 'email', providers: ['email'] }, email_confirmed_at: '2026-10-20T10:00:00Z' }),
+      unconfirmed: user({ app_metadata: { provider: 'email', providers: ['email'] }, email_confirmed_at: null }),
+    };
     const whoIs = supabaseWhoIs({ url: 'https://db.example', anonKey: 'pub', fetchImpl: async (u, init) => answers[init.headers.authorization.slice(7)] });
     expect(await whoIs('google')).not.toBe(null);
-    expect(await whoIs('both')).not.toBe(null);
-    expect(await whoIs('email')).toBe(null);
-    expect(await whoIs('none')).toBe(null);
+    expect(await whoIs('email')).not.toBe(null);
+    expect(await whoIs('unconfirmed')).toBe(null);
   });
 });
 

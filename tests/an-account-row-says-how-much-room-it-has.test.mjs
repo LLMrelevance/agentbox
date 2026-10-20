@@ -12,21 +12,21 @@ const at = (h, m = 0) => new Date(2026, 9, 16, h, m).getTime();
 const session = (percent, extra = {}) => ({ span: 'session', qualifier: null, name: 'This session', percent, resetsText: null, resetsOn: null, resetsAt: null, zone: null, ...extra });
 
 describe('the two meters every account shows', () => {
-  it('one with room shows its number, one at 99% is not yet full', () => {
-    expect(meterPair([session(5, { resetsText: '8pm' })])[0]).toEqual({ key: 'session', word: 'Session', percent: 5, back: null });
-    expect(meterPair([session(99, { resetsText: '8pm' })])[0].back).toBeNull();
+  it('one with room shows its number and when it resets, one at 99% is not yet full', () => {
+    expect(meterPair([session(5, { resetsText: '8pm' })])[0]).toEqual({ key: 'session', word: 'Session', percent: 5, resets: '8pm' });
+    expect(meterPair([session(99, { resetsText: '8pm' })])[0].percent).toBe(99);
   });
 
   it('a reset known only as a moment is printed as a clock', () => {
-    expect(meterPair([session(100, { resetsAt: at(17, 10) })])[0].back).toBe('5:10pm');
+    expect(meterPair([session(100, { resetsAt: at(17, 10) })], at(15, 30))[0].resets).toBe('5:10pm');
   });
 
   const week = (percent, extra = {}) => ({ ...session(percent), span: 'week', name: 'This week', qualifier: 'all models', ...extra });
 
   it('her case: session full and back at 5:09pm, week at 15%', () => {
     expect(meterPair([session(100, { resetsText: '5:09pm' }), week(15)])).toEqual([
-      { key: 'session', word: 'Session', percent: 100, back: '5:09pm' },
-      { key: 'week', word: 'Week', percent: 15, back: null },
+      { key: 'session', word: 'Session', percent: 100, resets: '5:09pm' },
+      { key: 'week', word: 'Week', percent: 15, resets: null },
     ]);
   });
 

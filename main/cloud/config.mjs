@@ -27,7 +27,22 @@ export function readCloudConfig(env = process.env, home = os.homedir()) {
   }
 }
 
-export const cloudKeyPath = (env = process.env, home = os.homedir()) => path.join(path.dirname(cloudConfigPath(env, home)), 'cloud-key');
+/**
+ * Where Agentbox Cloud is: the server's address and the database's public
+ * address and key. A release build carries it in the app's own folder; a
+ * Mac may keep its own copy. Both files are out of git.
+ */
+export function cloudAccountConfig(appDir, { home = os.homedir() } = {}) {
+  for (const file of [path.join(appDir, 'cloud', 'cloud.public.json'), path.join(home, '.agentbox', 'cloud.public.json')]) {
+    try {
+      const c = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (typeof c.gateway === 'string' && typeof c.supabaseUrl === 'string' && typeof c.anonKey === 'string') return c;
+    } catch { /* try the next */ }
+  }
+  return null;
+}
+
+export const cloudKeyPath =(env = process.env, home = os.homedir()) => path.join(path.dirname(cloudConfigPath(env, home)), 'cloud-key');
 
 export function readCloudKey(env = process.env, home = os.homedir()) {
   try { return fs.readFileSync(cloudKeyPath(env, home), 'utf8').trim() || null; } catch { return null; }
