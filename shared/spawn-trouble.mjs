@@ -246,6 +246,9 @@ const WORKSPACE = [
 const MODEL_NOT_ON_PLAN = [
   /model is not supported when using codex with a chatgpt account/i,
   /not a model the plan of the codex account/i,
+  // Ours too, when no login here has the model: a free plan that lacks it
+  // reads exactly like this, and the fix is the same.
+  /not a model the codex on this computer knows/i,
 ];
 
 // WHICH OF THE THREE THINGS WENT WRONG, from whatever the tool printed.
