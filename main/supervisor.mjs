@@ -129,6 +129,7 @@ import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
 import { createCodexApprovals } from './codex-approvals.mjs';
 import { approvalPublicKey } from './approvals.mjs';
 import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexModels } from './codex-models.mjs';
+import { codexPlanEnded } from './codex-account.mjs';
 import { nameRow, wantsName } from './row-label.mjs';
 import { LEVELS, latestMessage, sortMessage, wantsPriority } from './message-priority.mjs';
 import { NAME, Name, envName, nameSlug, isOurSlug } from '../shared/product-name.mjs';
@@ -3010,6 +3011,13 @@ export class Supervisor {
       // both halves in the same order the cause was, so it is always the text
       // that actually named the limit that names the hour too.
       const resetsAt = cause === 'at-limit' ? (limitResetsAt(raw) ?? limitResetsAt(errorResult)) : null;
+      const elsewhere = session.accountFault?.cause === 'model-not-on-plan'
+        || (cause === 'at-limit' && !!session.accountFault?.account
+          && this._anotherLoginIsFree(item, session.accountFault.account));
+      // NO LOGIN HERE HAS THE MODEL: say whether a paid plan ending is why.
+      const planEnded = cause === 'model-not-on-plan' && !elsewhere && engineOf(session?.engine) === 'codex'
+        ? codexPlanEnded(this._codexProfileHome(session.profile))
+        : null;
       const result = deadRunSentence({
         // THE ENGINE THAT ACTUALLY DIED, not the one that usually does. This was
         // the literal 'Claude Code' from the day there was only one, and
@@ -3025,9 +3033,9 @@ export class Supervisor {
         // was promising a reset hours away while `restingUntil` was already
         // waking it for the free login, so the sentence and the fleet said
         // different things about the same task (w-4338a63da6).
-        elsewhere: session.accountFault?.cause === 'model-not-on-plan'
-          || (cause === 'at-limit' && !!session.accountFault?.account
-            && this._anotherLoginIsFree(item, session.accountFault.account)),
+        elsewhere,
+        model: session.model || item.model || null,
+        planEnded,
       });
       const written = this.store.recordSessionResult(item.product, item.id, { result, status: 'open' });
       // REMEMBER THAT WE SAID IT, keyed on the run we said it about. The pass
@@ -5137,6 +5145,8 @@ export class Supervisor {
       this._saveState();
       return;
     }
+    // A level the model does not offer is the task's setting, on every login.
+    if (refusedBy === 'level-not-offered' || troubleCause(lastFailure) === 'level-not-offered') return;
     const limitHit = refusedBy === 'at-limit' || needsHerHands(refusedBy);
     // A dropped provider connection is a transport failure too, even when
     // the local process and its pipe stayed up. It must not spend a reply's
