@@ -21,12 +21,13 @@ function files(dir) {
   return fs.readdirSync(path.join(root, dir), { withFileTypes: true }).flatMap((e) => {
     const rel = path.join(dir, e.name);
     if (e.isDirectory()) return e.name === 'node_modules' ? [] : files(rel);
-    return /\.(mjs|cjs|js)$/.test(e.name) ? [rel] : [];
+    return /\.(mjs|cjs|js|ts|tsx)$/.test(e.name) ? [rel] : [];
   });
 }
 const code = (rel) => fs.readFileSync(path.join(root, rel), 'utf8').split('\n')
   .map((line, i) => ({ rel, n: i + 1, line })).filter((l) => !/^\s*(\/\/|\*)/.test(l.line));
-const lines = ['main', 'shared', 'mcp'].flatMap(files).flatMap(code);
+// The phone app (mobile/src) as well, which is TypeScript.
+const lines = ['main', 'shared', 'mcp', 'mobile/src'].flatMap(files).flatMap(code);
 // Code that only builds text to be run elsewhere (the cloud's probe script is a string).
 const inAString = (l) => /^\s*const \w+ = `/.test(l.line) || /`[^`]*fetch\(/.test(l.line);
 

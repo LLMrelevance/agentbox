@@ -85,12 +85,14 @@ describe('the app', () => {
     return new Supervisor({ storeRoot: root, home: root, authProfiles: ['default'] }, { listItems: () => [], listProducts: () => [], isDue: () => true }, root, root, root);
   }
   const cloudSession = (extra = {}) => ({ cloud: true, itemId: 'w-1', tail: [], sessionId: null, result: null, ...extra });
+  // For the request that failed there; tests/a-thread-the-cloud-sent-to-the-mac-goes-back-after-that-request.
+  const onMac = (s, id) => !s._mayRunInCloud({ id }, { slug: 'p', repoPath: '/r' }, `/r/.claude/worktrees/${id}`);
 
   it('keeps a thread the cloud refused on this Mac, without counting it against the cloud or the thread', () => {
     const s = supervisor();
     const session = cloudSession();
     expect(s._cloudKeptOnMac({ id: 'w-1' }, session, KEEP_ON_MAC)).toBe(true);
-    expect(s.threadOnMac['w-1']).toBe(true);
+    expect(onMac(s, 'w-1')).toBe(true);
     expect(session.handedBack).toBe(true);
     s._noteCloudOutcome(session, KEEP_ON_MAC);
     expect(s._cloudHealthNow().health).toBe('ok');
@@ -100,9 +102,9 @@ describe('the app', () => {
     const s = supervisor();
     expect(s._cloudKeptOnMac({ id: 'w-2' }, cloudSession({ itemId: 'w-2' }), IMPORT_FAILED)).toBe(false);
     expect(s._cloudKeptOnMac({ id: 'w-2' }, cloudSession({ itemId: 'w-2' }), IMPORT_FAILED)).toBe(false);
-    expect(s.threadOnMac['w-2']).toBeUndefined();
+    expect(onMac(s, 'w-2')).toBe(false);
     expect(s._cloudKeptOnMac({ id: 'w-2' }, cloudSession({ itemId: 'w-2' }), IMPORT_FAILED)).toBe(true);
-    expect(s.threadOnMac['w-2']).toBe(true);
+    expect(onMac(s, 'w-2')).toBe(true);
   });
 
   it('starts the count again when the agent did start, and never counts a Stop or a folder still bringing a run home', () => {
@@ -113,7 +115,7 @@ describe('the app', () => {
     s._cloudKeptOnMac({ id: 'w-3' }, cloudSession({ itemId: 'w-3', stoppedByUs: true }), IMPORT_FAILED);
     s._cloudKeptOnMac({ id: 'w-3' }, cloudSession({ itemId: 'w-3', tail: ['stderr: agentbox cloud: an earlier cloud run in this folder is still going'] }), IMPORT_FAILED);
     expect(s._cloudKeptOnMac({ id: 'w-3' }, cloudSession({ itemId: 'w-3' }), IMPORT_FAILED)).toBe(false);
-    expect(s.threadOnMac['w-3']).toBeUndefined();
+    expect(onMac(s, 'w-3')).toBe(false);
     // Not a cloud run at all: nothing to do with the cloud.
     expect(s._cloudKeptOnMac({ id: 'w-4' }, { cloud: false, tail: [] }, 1)).toBe(false);
   });

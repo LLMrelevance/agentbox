@@ -51,7 +51,7 @@ import { commandDraft } from '../../../shared/claude-commands.mjs';
 import { CompactionResult, runCompaction, runCommand } from './CompactionResult';
 import { codexCommand, COMPACTION_COPY } from '../../../shared/codex-commands.mjs';
 import { DEFAULT_ENGINE } from '../../../shared/engines.mjs';
-import { ago, dayLabel, itemOptions, offerIsLive, optionsFrom, parseOptions, parseRepeat, type ParsedOption } from '../format';
+import { ago, dayLabel, itemOptions, offerIsLive, optionsFrom, parseOptions, parseRepeat, stripOptionsSection, type ParsedOption } from '../format';
 import { ruleIdOf } from '../../../shared/repeats.mjs';
 import { shownPriority } from '../../../shared/rank.mjs';
 import { WhenPicker } from './When';
@@ -73,7 +73,7 @@ import { opensInPane } from '../doc-pane';
 import { opensAsPicture } from '../picture-view';
 import { PictureView, picturesOnScreen, type Picture } from './PictureView';
 import { watchScrollGutter } from '../scroll-gutter';
-import { artifactUrlTransform, isMediaPath, productPath, remarkArtifactPaths } from '../remark-artifact-paths';
+import { CODE_PATH, artifactUrlTransform, isMediaPath, productPath, remarkArtifactPaths } from '../remark-artifact-paths';
 import { api } from '../api';
 import { draftKey, readDraft, saveDraft, clearDraft, readDraftAttachments, saveDraftAttachments, type SentDraft } from '../drafts';
 import { withQuote } from '../team/chat-quote';
@@ -116,27 +116,10 @@ import { AGENT_SCHEME } from '../team/agent-mentions';
 import { engineModelLabel } from '../models';
 import { lookAgainAfter } from '../picture-looks-again';
 
-// With the options strip riding on the composer, the field's own "## Options"
-// section would say everything twice; drop the heading and its numbered items
-// (prose after the list stays). Only called while the strip is visible, and
-// only on the field the offer actually came from: an answered item keeps the
-// list where it was written, as the record of what was offered.
-function stripOptionsSection(body: string): string {
-  const lines = body.split('\n');
-  const out: string[] = [];
-  let inOptions = false;
-  for (const line of lines) {
-    if (/^#{1,4}\s/.test(line)) inOptions = /option/i.test(line);
-    else if (inOptions && line.trim() && !/^\s*\d+[.)]\s/.test(line)) inOptions = false;
-    if (!inOptions) out.push(line);
-  }
-  return out.join('\n');
-}
-
 // A relative product path is an artifact, however the worker wrote it:
 // images render inline, other files become links, and .html demos embed
 // below as live frames. Mechanism, not prompt hope.
-const PATH_RE = /^[\w-][\w./-]*\.(png|jpe?g|gif|webp|html?|pdf|md|csv|txt|json|mp3|wav|m4a|aac|ogg|mp4|mov|m4v|webm)$/i;
+const PATH_RE = CODE_PATH;
 
 // remarkArtifactPaths is what makes a path a worker typed into a sentence a
 // link like any other. Three ways to name a file were already in use and only

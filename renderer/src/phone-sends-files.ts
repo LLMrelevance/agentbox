@@ -18,6 +18,9 @@ export const sentNamesIn = (words: string) => [...String(words ?? '').matchAll(S
 
 type Put = (object: string, bytes: Uint8Array, type: string) => Promise<void>;
 
+// The bucket's own bound on a file (20261017000000_phone_files.sql).
+export const SEND_MAX_BYTES = 25 * 1024 * 1024;
+
 /** Sends `files` and answers each as the reply box links a saved one: `{ rel, name, image }`. */
 export async function sendFiles({ put, owner, device, files, maxBytes }: {
   put: Put; owner: string; device: string; files: Array<{ name: string; dataBase64?: string }>; maxBytes: number;

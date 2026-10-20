@@ -460,8 +460,9 @@ export interface SupervisorStatus {
 // 'network' a proxy or company certificate the workers never had; both wait on
 // her, and neither is fixed by trying again. 'api-key' is a Codex signed in
 // with an API key, which is refused rather than billed; 'codex-config' is a
-// config.toml Codex cannot read.
-export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'level-not-offered' | 'too-old' | 'network' | 'api-key' | 'codex-config' | 'unknown';
+// config.toml Codex cannot read. 'open-elsewhere' is a Codex conversation
+// another Codex window is writing to.
+export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'level-not-offered' | 'too-old' | 'network' | 'api-key' | 'codex-config' | 'open-elsewhere' | 'unknown';
 
 // A worker frozen mid-action, waiting on the user's allow/deny.
 export interface Approval {
