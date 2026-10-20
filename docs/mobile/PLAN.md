@@ -335,8 +335,8 @@ pages was checked before it went in.
    needs your attention"). This plan shows the title and first line, filled in
    on the phone, because the alert is the reason for the app; iOS's own
    "Show Previews" setting and the app's hide setting cover a phone others
-   can see. That is the one place the plan goes against Codex, and it is the
-   owner's call.
+   can see. That is the one place the plan goes against Codex, and the owner
+   chose it on 2026-10-20: "this is much better."
 
 Smaller corrections: the TestFlight profile is `distribution: "store"`;
 external TestFlight testers invited by email are reviewed as well; the app's
