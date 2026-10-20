@@ -361,6 +361,8 @@ export const api = {
       const cloud = params.get('cloud');
       if (params.get('accounts') === 'two') {
         const until = new Date(); until.setHours(17, 10, 0, 0);
+        // A cloud reading carries the instant of each reset and no text (readReplyHeaders).
+        const on = (days: number, h: number, m = 0) => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(h, m, 0, 0); return d.getTime(); };
         // &cloudread draws the cloud logins as they will read once the cloud
         // reports each one's email and usage; without it, as they read today.
         const read = params.has('cloudread');
@@ -372,15 +374,15 @@ export const api = {
             {
               engine: 'claude', key: 'a1', name: read ? 'you@example.com' : null, ready: false, state: 'limited' as any, limitedUntil: until.getTime(),
               limits: read ? [
-                { span: 'session', qualifier: null, name: 'This session', percent: 100, resetsText: '5:10pm', resetsOn: null, resetsAt: until.getTime(), zone: null },
-                { span: 'week', qualifier: 'all models', name: 'This week', percent: 31, resetsText: '11:59am', resetsOn: 'Oct 22', resetsAt: null, zone: null },
+                { span: 'session', qualifier: null, name: 'This session', percent: 100, resetsText: null, resetsOn: null, resetsAt: until.getTime(), zone: null },
+                { span: 'week', qualifier: 'all models', name: 'This week', percent: 31, resetsText: null, resetsOn: null, resetsAt: on(2, 11, 59), zone: null },
               ] : null,
             },
             {
               engine: 'claude', key: 'a2', name: read ? 'work@example.com' : null, ready: true, state: 'ready',
               limits: read ? [
-                { span: 'session', qualifier: null, name: 'This session', percent: 12, resetsText: '8pm', resetsOn: null, resetsAt: null, zone: null },
-                { span: 'week', qualifier: 'all models', name: 'This week', percent: 9, resetsText: '4pm', resetsOn: 'Oct 22', resetsAt: null, zone: null },
+                { span: 'session', qualifier: null, name: 'This session', percent: 12, resetsText: null, resetsOn: null, resetsAt: on(0, 20), zone: null },
+                { span: 'week', qualifier: 'all models', name: 'This week', percent: 9, resetsText: null, resetsOn: null, resetsAt: on(2, 16), zone: null },
               ] : null,
             },
             // &cloudcodex adds a Codex login in the cloud, so the Codex page draws its cloud rows.

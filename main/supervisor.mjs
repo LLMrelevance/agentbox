@@ -2524,6 +2524,13 @@ export class Supervisor {
     return `${item.product}:${item.id}:${String(answer ?? '').slice(0, 80)}`;
   }
 
+  /** A run starts: it is live, and when it carries her reply that is saved at once (see `preparingAnswers`). */
+  _noteRunCarrying(item, session, { continuation = false } = {}) {
+    if (continuation && item.answer) session.carrying = this._answerKey(item);
+    this.sessions.set(item.id, session);
+    if (session.carrying) this._saveState();
+  }
+
   _answerDelivered(item, answer = item.answer) {
     return this._handledAnswers.has(this._answerKey(item, answer))
       || this._handledAnswers.has(this._legacyAnswerKey(item, answer));
@@ -5276,9 +5283,15 @@ export class Supervisor {
         waitsSince: this._waitsSince,
         // The mark was made before setup, not before an agent actually ran.
         // Persist the distinction for a quit that never reaches stop().
-        preparingAnswers: [...(this._preparing?.values() ?? [])]
-          .filter(({ item, opts }) => opts?.continuation && item?.answer)
-          .map(({ item }) => this._answerKey(item)),
+        preparingAnswers: [
+          ...[...(this._preparing?.values() ?? [])]
+            .filter(({ item, opts }) => opts?.continuation && item?.answer)
+            .map(({ item }) => this._answerKey(item)),
+          // And a run on this Mac that has not said its id yet: nothing can
+          // resume it (`_liveSessions` waits for the id), and a quit does not
+          // wait for the exit that would hand its reply back.
+          ...[...this.sessions.values()].filter((s) => s.carrying && !s.idRemembered && !s.cloud).map((s) => s.carrying),
+        ],
         heardAnswers: Object.fromEntries(Object.entries(this._heardAnswers ?? {}).slice(-500)),
         productOrder: this.productOrder,
         hiddenProducts: [...this.hiddenProducts],
@@ -8390,7 +8403,7 @@ export class Supervisor {
       // restart (`_liveSessions`).
       cloud: where === 'cloud',
     };
-    this.sessions.set(item.id, session);
+    this._noteRunCarrying(item, session, { continuation });
     // The memory gate's clock counts starts on this Mac only: a cloud start
     // uses none of its memory (Codex's review, 2026-10-13).
     if (this._startsOnThisMac(session)) this._lastStartAt = session.startedAt;
