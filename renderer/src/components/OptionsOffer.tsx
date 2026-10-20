@@ -38,8 +38,9 @@ import type { ParsedOption } from '../format';
 
 export function OptionsOffer({
   ask, askAll, options, peekOption, askPeek,
-  selectedOption, selRef, onPick, onOptionEnter, onAskEnter, setPeek, setAskPeek, keep,
+  selectedOption, selRef, onPick, onOptionEnter, onAskEnter, setPeek, setAskPeek, keep, stripRef,
 }: {
+  stripRef?: React.RefObject<HTMLDivElement>;
   /** A last row keyed esc that answers by doing nothing: the question a close
    *  asks when tasks are still waiting (../close-asks-first.ts). */
   keep?: { label: string; onKeep: () => void };
@@ -58,7 +59,7 @@ export function OptionsOffer({
   setAskPeek: (open: boolean) => void;
 }) {
   return (
-    <div className="opt-strip">
+    <div className="opt-strip" ref={stripRef}>
       {/* THE HEADING IS THE QUESTION, NOT THE NAME OF THE CONTROL. It comes off
           the same field the options came off, so the two can never be from
           different rounds (ask-line.ts).
