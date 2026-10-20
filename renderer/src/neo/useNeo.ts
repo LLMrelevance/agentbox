@@ -8,8 +8,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { describeScreen, neoBridge, screenFor, type NeoDeps, type NeoRow } from './bridge';
 import { glowOn } from './glow';
+import { controlMedia } from './media';
 import { orbCovers, type Orb } from './orb-cover';
-import { fileName, filmName, latestFiles, pictureName, putAway, show, threadDrawn, threadFilms, threadPictures } from './show';
+import { fileName, filmName, latestFiles, pictureName, putAway, show, threadDrawn, threadFilms, threadPictures, waitForThread } from './show';
 
 type Z = {
   neoEnabled?: () => Promise<boolean>;
@@ -44,7 +45,8 @@ function scrollerAt(): HTMLElement | null {
 
 type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'scroll' | 'pictureNames' | 'show' | 'media' | 'mediaNames' | 'latestFilmCount' | 'latestPictureCount' | 'waitForPictures' | 'fileNames' | 'openFile'> & {
   pick(row: R, n: number): Promise<unknown>;
-  close(row: R): Promise<unknown>;
+  close(row: R, confirmed?: boolean): Promise<unknown>;
+  closePrompt?(row: R): string | null;
 };
 
 /** Answers whether this Mac has Neo, for the one other thing that asks: the
@@ -71,9 +73,13 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>): { on: boolean } {
         focused: () => latest.current.focused(),
         options: (r) => latest.current.options(r),
         summary: (r) => latest.current.summary(r),
+        answer: (r) => latest.current.answer?.(r) ?? '',
         about: (r) => latest.current.about?.(r) ?? '',
         projects: () => latest.current.projects(),
-        open: (r) => latest.current.open(r),
+        open: async (r) => {
+          await latest.current.open(r);
+          if (!(await waitForThread(r.id))) throw new Error('The requested thread did not finish opening.');
+        },
         // The app can stop to ask its own question (a filed task, the close
         // nudge), and returns as if it had acted. So look, once React has
         // drawn: an act that landed moves the row or spends its offer.
@@ -85,13 +91,15 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>): { on: boolean } {
           return now && latest.current.options(now).map((o) => o.text).join('\n') === before ? 'asked' : 'done';
         },
         reply: (r, t, o) => latest.current.reply(r, t, o),
-        close: async (r) => {
-          await latest.current.close(r);
+        close: async (r, confirmed) => {
+          await latest.current.close(r, confirmed);
           await settle();
-          return latest.current.rows().some((x) => x.id === r.id) ? 'asked' : 'done';
+          if (!latest.current.rows().some((x) => x.id === r.id)) return 'done';
+          const prompt = latest.current.closePrompt?.(r);
+          return prompt ? { asked: prompt } : 'asked';
         },
         compose: (t, p) => latest.current.compose(t, p),
-        undo: () => latest.current.undo(),
+        undo: (confirmation) => latest.current.undo(confirmation),
         // Said done only once the thread has actually left the inbox.
         later: async (r, ts, label) => {
           await latest.current.later?.(r, ts, label);
@@ -108,7 +116,7 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>): { on: boolean } {
           const player = spot?.querySelector<HTMLMediaElement>('video, audio');
           if (!spot || !player) return null;
           spot.scrollIntoView({ block: 'center', behavior: 'smooth' });
-          if (action === 'pause') player.pause(); else await player.play().catch(() => {});
+          await controlMedia(player, action);
           setTimeout(() => glowOn(spot), 300);
           return { name: spot.querySelector('.mention-name')?.textContent?.trim() || 'the film', count: spots.length };
         },

@@ -10,6 +10,7 @@
 // step, because the server is what refuses.
 import { describe, it, expect } from 'vitest';
 import { createGateway, memoryObjects } from '../cloud/gateway/gateway.mjs';
+import { ROOMY_PLANS } from './fixtures/cloud-plans.mjs';
 
 const A = '11111111-1111-4111-8111-111111111111';
 
@@ -22,6 +23,7 @@ function setup(termsVersion = '2026-10-20') {
     removeObject: async () => {},
     objects,
     whoIs: async (t) => (t === 'session-of-a' ? { id: A } : null),
+    plans: ROOMY_PLANS,
     now: () => Date.UTC(2026, 9, 20, 12),
     termsVersion: version,
   });
