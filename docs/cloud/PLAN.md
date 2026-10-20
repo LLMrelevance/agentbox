@@ -470,6 +470,105 @@ input. In order:
    the Mac writes after every turn, and a lease so one executor at a time owns
    a thread.
 
+## Releasing the cloud to everyone (w-6633e825a7, 2026-10-19)
+
+Everything above runs in the owner's own AWS account, set up by a script with
+an admin sign-in. Nobody else has that. What a release needs, in the order
+approved:
+
+1. **The cloud server** (below). Built first; deployed with no way in for
+   strangers until step 3 is done.
+2. **Terms, before anyone can sign up** (Codex's review, 2026-10-20). The
+   privacy and terms pages rewritten (they say nothing is hosted), with
+   refunds and acceptable use, and an accept step a person passes before
+   their first cloud key. Anthropic's Commercial Terms accepted, and their
+   sales asked about keeping each person's `setup-token` between runs.
+   Codex stays the owner's own until OpenAI approves Sign in with ChatGPT.
+3. **Accounts.** Google sign-in for anyone: the consent screen published
+   (name and email only, so no Google review), brand verification on our
+   domain, the database's public address and key carried by public builds,
+   signing in for the cloud kept apart from the team version, and the
+   database's access rules reviewed before strangers can sign up to it.
+4. **Plans** enforced by the server (below), with the hour limits set from
+   `node scripts/cloud-usage.mjs`.
+5. **Stripe**: checkout, the page where people manage their plan, and its
+   notices writing the plan into the server's ledger.
+6. **Upgrade prompts in the app.** Before drawing any, tell the person: they
+   will ask the cloud buildout thread (w-1dc7ee2408) for the "you could run
+   more agents" designs it made.
+
+### The cloud server
+
+A Lambda behind a function URL, in the same account and region as the
+runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
+`main/cloud/aws.mjs`) get a second implementation that talks to it
+(`main/cloud/managed.mjs`); `run.mjs` and `logins.mjs` do not change.
+
+- **Who is asking.** A Mac trades the person's signed-in session for a cloud
+  key once (`POST /v1/devices`, checked against the database's own
+  `/auth/v1/user`). The key is random, kept on the Mac at
+  `~/.agentbox/cloud-key` (0600), stored by the server only as a hash, and
+  revocable. Every other call carries it. A key, not the session, because the
+  relay runs for hours, through sleep, in a process that cannot read the
+  app's encrypted session.
+- **Each person's things are theirs.** The Mac names keys and sessions as it
+  does today; the server puts the person in them: `runs/<x>` is stored at
+  `runs/u-<person>/<x>`, `logins/<x>` at `logins/u-<person>/<x>`, a session
+  `<s>` is `u-<person>-<s>` in AgentCore. Nobody can name another person's.
+  The lifecycle rules on `runs/` still apply.
+- **A sign-in is never handed to a Mac.** The managed storage names a
+  sign-in, `agentbox-login:<key>`, for reading and for saving alike, and the
+  server swaps the name for a real link only inside a call to the sandbox.
+  A real link in a sign-in field is refused, and so is a Mac's own link to
+  read or write one. An agent running with a sign-in can still read it
+  from its own environment: a stolen cloud key is a stolen sign-in.
+- **Only Google sign-ins.** The database also takes email-and-password
+  sign-ups; each made-up address would be another free plan.
+- **Links outlive the run.** A link signed with the Lambda's own role ends
+  when that role's session does, so the server signs with a separate user's
+  key (`agentbox-gateway-signer`, S3 rights on `runs/` and `logins/` only),
+  kept in Secrets Manager. The role itself cannot read a sign-in or a run's
+  files.
+- **Plans.** The ledger (`ledger/` in the same bucket, written with S3's
+  conditional writes, no database) holds each person's plan, their live
+  sessions, the seconds used per month, and one record per run (`ledger/runs/`,
+  how long and how it ended). A start is refused when the plan's agents are
+  all running, its hours are spent, the free fleet is full (50 free runs at
+  once, as the sweep last counted: a soft cap, which starts inside one
+  5-minute window can pass), or the cloud is paused. A live session
+  takes only the same start again, never a run on a sign-in's session.
+- **Whatever stops being counted is stopped.** A run ends when its
+  `done.json` lands, when the Mac stops it, when the sandbox says it failed,
+  when the month's hours run out (checked on every call and by the sweep),
+  or at AgentCore's 8-hour ceiling, and its session is stopped then. The
+  Mac holds the link that writes its own `done.json`, so a run cannot end its
+  counting and keep its machine. A stop that lands while a start is on its
+  way is stopped again once the start returns. A run's stop and its record
+  are written as owed in the same write that ends it, so a function that
+  dies next leaves them for the sweep; a stop AWS did not take is retried
+  for an hour, then given up in the log; a session AWS says is not there
+  counts as stopped. A run's time is charged to each month it ran in. A call to a session that is not live is answered
+  `no-run` without asking AgentCore, which would make a machine for it. The
+  Mac stops its session when a run fails or its work is home.
+- **The sweep**, every 5 minutes: ceilings, spent hours, a `done.json` whose
+  notice was missed, stops to retry, and the free fleet's count.
+- **The owner's hand** (`scripts/cloud-gateway-admin.mjs`, a direct call,
+  never the public address): set a plan, turn a person off (their runs stop,
+  every key of theirs is refused), pause or resume new runs. The budget the
+  spike made pauses new runs when the month's spend passes it.
+- **Big calls.** Lambda takes and gives at most 6 MB; a call or an answer
+  over 4 MB goes through the person's own `runs/calls/`. A refusal reaches
+  the Mac as an answer, never a throw, so nothing retries it for ever; a
+  throttle (429) is retried.
+- **The Mac.** `cloud.json` holding `gateway` (an address) instead of a
+  bucket and runtime makes this Mac a managed one. Her own setup is
+  unchanged.
+- **Still open before strangers.** The paid plans' hours (a plan without
+  them cannot be given), a free plan per Google account (cheap to make),
+  presigned writes with no size cap (bounded by the 7-day expiry of
+  `runs/`), an alarm on unexpected use of the signer's key, and cloud keys
+  that never expire (turning a person off covers abuse, not a lost Mac).
+
 ## Known limits
 
 - With the lid shut a cloud run keeps working; its writes to its thread are
