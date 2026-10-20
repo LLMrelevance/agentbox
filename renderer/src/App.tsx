@@ -4955,7 +4955,8 @@ export default function App() {
         }
         // E archives, unconditionally. It must never approve on her behalf.
         else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); markDone(focused); }
-        else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setOpenDoc(null); setModal('reply'); }
+        // The page stays open: full screen draws the box under it.
+        else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setModal('reply'); }
         // N MEANS THE SAME THING ON BOTH SCREENS. The + in the top bar is on
         // this screen too and its tooltip says "New task (N)", so the key is
         // already advertised here.

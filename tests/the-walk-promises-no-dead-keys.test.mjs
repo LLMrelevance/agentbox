@@ -262,7 +262,7 @@ describe('the coaching card promises no dead key either', () => {
     // (hers: "it's actually R to reply"). The app answers R in an open thread.
     const said = [...new Set([...keys, ...tourKeys])];
     expect(said.sort()).toEqual(['1', 'N', 'E', 'L', 'B', 'R', '↵', '⌘K', '⌘↵', '⇥'].sort());
-    expect(app).toContain("else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setOpenDoc(null); setModal('reply'); }");
+    expect(app).toContain("else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setModal('reply'); }");
   });
 
   it('B flips the inbox to the board, which is what the board beat says', () => {
