@@ -2774,7 +2774,7 @@ export class Supervisor {
     // exit -- so the answered open row was neither settled nor returned to her
     // with a word on it, and it read like a row nobody had got to yet, forever,
     // after she did something. That is the failure this whole file is named for.
-    if (saidNothingSheCanUse(session)) this.sayTheRunDied(item, session);
+    if (saidNothingSheCanUse(session)) this.sayTheRunDied(item, session, { gaveUp: true });
     else this.sayHerAnswerNeverLanded(item, session, answerAtSpawn);
     return settled;
   }
@@ -2992,7 +2992,7 @@ export class Supervisor {
     return reaped;
   }
 
-  sayTheRunDied(item, session) {
+  sayTheRunDied(item, session, { gaveUp = false } = {}) {
     try {
       // THE STDERR LINES, not simply the last thing in the tail. By the time
       // this runs the exit handler has already appended its own lines, so
@@ -3050,6 +3050,7 @@ export class Supervisor {
         elsewhere,
         model: session.model || item.model || null,
         planEnded,
+        gaveUp,
       });
       const written = this.store.recordSessionResult(item.product, item.id, { result, status: 'open' });
       // REMEMBER THAT WE SAID IT, keyed on the run we said it about. The pass
