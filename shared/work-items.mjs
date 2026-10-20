@@ -528,12 +528,52 @@ function rollUpReactions(presses) {
   return out;
 }
 
-export function foldWorkItems(lines, now = Date.now()) {
-  const items = new Map();
+// Lease expiry is computed at READ time, never written. A held claim whose
+// lease has lapsed reads as open again, which is what makes an abandoned item
+// recoverable without anyone having to notice it was abandoned.
+//
+// The same derivation covers a released claim, and that is the point: only an
+// item still sitting at `claimed` with nobody holding it goes back to open.
+// Any status a worker or the founder actually chose (done, blocked, or one we
+// have not invented yet) is theirs, and nothing about giving a claim back
+// overwrites it.
+export function finishItem(raw, now = Date.now()) {
+  // A copy, one level deep, so the raw item can be folded on and a finished
+  // one handed out is never changed under its holder.
+  const item = {};
+  for (const [k, v] of Object.entries(raw)) {
+    item[k] = Array.isArray(v) ? [...v]
+      : v instanceof Map ? new Map(v)
+        : v instanceof Set ? new Set(v)
+          : v && Object.getPrototypeOf(v) === Object.prototype ? { ...v } : v;
+  }
+  item.claimExpired = !!(item.claim && item.claim.leaseUntil < now);
+  if (item.status === 'claimed' && (!item.claim || item.claimExpired)) item.status = 'open';
+  if (item.reacts) {
+    const chips = rollUpReactions(item.reacts);
+    delete item.reacts;
+    if (chips) item.reactions = chips;
+  }
+  const closes = item.closes;
+  delete item.closes;
+  if (item.said) {
+    const said = item.said;
+    delete item.said;
+    if (Array.isArray(item.people) && item.people.length) {
+      item.talk = talkOf(said);
+      const settled = settledBy(closes ?? []);
+      if (settled) item.talk.settled = settled;
+    }
+  }
+  return item;
+}
 
+/** Lines folded onto `items` in place, unfinished: `finishItem` makes each one readable. */
+export function foldRawInto(items, lines, touched = null) {
   for (const raw of Array.isArray(lines) ? lines : []) {
     const line = normalizeLine(raw);
     if (!line) continue;
+    touched?.add(line.id);
 
     let item = items.get(line.id);
     if (!item) {
@@ -633,36 +673,13 @@ export function foldWorkItems(lines, now = Date.now()) {
     if (line.ts < item.createdAt) item.createdAt = line.ts;
   }
 
-  // Lease expiry is computed at READ time, never written. A held claim whose
-  // lease has lapsed reads as open again, which is what makes an abandoned item
-  // recoverable without anyone having to notice it was abandoned.
-  //
-  // The same derivation covers a released claim, and that is the point: only an
-  // item still sitting at `claimed` with nobody holding it goes back to open.
-  // Any status a worker or the founder actually chose (done, blocked, or one we
-  // have not invented yet) is theirs, and nothing about giving a claim back
-  // overwrites it.
-  for (const item of items.values()) {
-    item.claimExpired = !!(item.claim && item.claim.leaseUntil < now);
-    if (item.status === 'claimed' && (!item.claim || item.claimExpired)) item.status = 'open';
-    if (item.reacts) {
-      const chips = rollUpReactions(item.reacts);
-      delete item.reacts;
-      if (chips) item.reactions = chips;
-    }
-    const closes = item.closes;
-    delete item.closes;
-    if (item.said) {
-      const said = item.said;
-      delete item.said;
-      if (Array.isArray(item.people) && item.people.length) {
-        item.talk = talkOf(said);
-        const settled = settledBy(closes ?? []);
-        if (settled) item.talk.settled = settled;
-      }
-    }
-  }
+}
 
+export function foldWorkItems(lines, now = Date.now()) {
+  const raw = new Map();
+  foldRawInto(raw, lines);
+  const items = new Map();
+  for (const [id, item] of raw) items.set(id, finishItem(item, now));
   return items;
 }
 

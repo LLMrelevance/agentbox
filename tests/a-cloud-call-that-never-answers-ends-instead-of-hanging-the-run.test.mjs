@@ -49,3 +49,19 @@ describe('a call to the cloud', () => {
     expect(src).toMatch(/throwOnRequestTimeout: true/);
   });
 });
+
+// THE DEADLINE IS FOR A CALL THAT NEVER ANSWERS, NOT FOR ONE THAT IS WORKING
+// (2026-10-19, the same day). At 60 seconds it ended real work: sending a
+// run's 55 MB of code up from her Mac, and a cold start, both take longer,
+// and every cloud run in her inbox died a minute in ("a request has exceeded
+// the configured 60000 ms requestTimeout") and was started again, so only a
+// few ever got going.
+describe('the deadline itself', () => {
+  it('is minutes, enough for a large upload and a cold start, and still a deadline', async () => {
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new URL('../main/cloud/aws.mjs', import.meta.url), 'utf8');
+    const ms = Number(eval(src.match(/const TIMEOUT_MS = ([^;]+);/)[1]));
+    expect(ms).toBeGreaterThanOrEqual(5 * 60_000);
+    expect(ms).toBeLessThanOrEqual(15 * 60_000);
+  });
+});

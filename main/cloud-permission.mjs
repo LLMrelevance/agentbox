@@ -2,8 +2,32 @@
 // because the Claude harness and the settings both need it, and the settings
 // already import the harnesses.
 import { CLAUDE_PERMISSION_MODES } from '../shared/work-items.mjs';
+import { isCodexMode } from '../shared/codex-modes.mjs';
 
 const SKIP_FLAGS = ['--dangerously-skip-permissions'];
+
+// Unset, a cloud run does not ask: the sandbox is thrown away after the run,
+// holds no key that can push, and nobody is there to answer a card.
+export const CLOUD_SAME = 'same';
+export const CLOUD_CLAUDE_DEFAULT = 'bypassPermissions';
+export const CLOUD_CODEX_DEFAULT = 'full-access';
+
+/**
+ * The Claude Code mode a cloud run starts in, or null to keep the flag the run
+ * already has: this computer's, or the mode set on the thread itself, which
+ * the cloud must not loosen.
+ */
+export function cloudClaudeMode(setting, threadMode = null) {
+  if (CLAUDE_PERMISSION_MODES.includes(threadMode) || setting === CLOUD_SAME) return null;
+  return CLAUDE_PERMISSION_MODES.includes(setting) ? setting : CLOUD_CLAUDE_DEFAULT;
+}
+
+/** The Codex mode a cloud run starts in, by the same rule. */
+export function cloudCodexMode(setting, threadMode, here) {
+  if (isCodexMode(threadMode)) return threadMode;
+  if (setting === CLOUD_SAME) return here;
+  return isCodexMode(setting) ? setting : CLOUD_CODEX_DEFAULT;
+}
 
 /**
  * Only the permission flag changes, in place, so nothing else moves. Null

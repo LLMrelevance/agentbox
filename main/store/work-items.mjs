@@ -18,7 +18,7 @@ import crypto from 'node:crypto';
 import { machineryPath } from './home.mjs';
 import { withProjectLock } from './project-lock.mjs';
 import {
-  foldWorkItems, normalizeLine, buildLine, buildClaimLine, buildHeartbeatLine, buildReleaseLine,
+  foldWorkItems, foldRawInto, finishItem, normalizeLine, buildLine, buildClaimLine, buildHeartbeatLine, buildReleaseLine,
   isClaimable, sortForPull, matchesFilter, isWorkItemId, MAX_LINE_BYTES, LEASE_MS,
 } from '../../shared/work-items.mjs';
 
@@ -140,6 +140,7 @@ function readLines(file) {
 // themselves would let one caller's edit become every later caller's truth.
 const folded = new Map();
 const MAX_FOLDS_HELD = 64;
+const REWINDOW_BYTES = 2 * 1024 * 1024;
 
 function ledgerStamp(file) {
   try {
@@ -151,19 +152,79 @@ function ledgerStamp(file) {
   }
 }
 
+const usable = (l) => l && Buffer.byteLength(l, 'utf8') <= MAX_LINE_BYTES;
+
+// A ledger that has only grown is folded on from where it was: every running
+// agent's heartbeat changes the file, and folding all 8 MB again each time
+// held up every request the window made. A file that shrank or was replaced
+// is read from the start.
 function foldedLedger(file) {
-  const stamp = ledgerStamp(file);
+  let st = null;
+  try { st = fs.statSync(file); } catch (err) { if (err.code !== 'ENOENT') throw err; }
+  const stamp = st ? `${st.ino}:${st.size}:${st.mtimeMs}` : 'absent';
   const held = folded.get(file);
   if (held && held.stamp === stamp) return held.items;
+  // While it still holds no more than the 8 MB a fresh read would, give or
+  // take REWINDOW_BYTES added since: a fold kept much longer would show
+  // threads a fresh read cuts off.
+  const inWindow = held && st && (held.from === 0 ? st.size <= MAX_LEDGER_BYTES : st.size - held.from <= MAX_LEDGER_BYTES + REWINDOW_BYTES);
+  if (held && st && held.ino === st.ino && st.size >= held.offset && held.raw && inWindow) {
+    const fd = fs.openSync(file, 'r');
+    let chunk = '';
+    try {
+      const buf = Buffer.allocUnsafe(st.size - held.offset);
+      const n = fs.readSync(fd, buf, 0, buf.length, held.offset);
+      // Whole lines only, by the byte: a line still being written waits for
+      // the next read rather than being cut through a character.
+      const end = n ? buf.lastIndexOf(0x0a, n - 1) + 1 : 0;
+      chunk = buf.toString('utf8', 0, end);
+      held.offset += end;
+    } finally {
+      fs.closeSync(fd);
+    }
+    const touched = new Set();
+    foldRawInto(held.raw, chunk.split('\n').filter(usable), touched);
+    for (const id of touched) held.items.set(id, finishItem(held.raw.get(id), 0));
+    held.stamp = stamp;
+    return held.items;
+  }
   // Time zero, so the lease pass inside the fold expires nothing: a lease is
   // only ever lapsed against the clock of the call asking, and that is `aged`.
-  const items = stamp === 'absent' ? new Map() : foldWorkItems(readLines(file), 0);
+  const raw = new Map();
+  let offset = 0;
+  let from = 0;
+  if (st) {
+    const read = readWindow(file, st.size);
+    foldRawInto(raw, read.text.split('\n').filter(usable));
+    offset = read.end;
+    from = read.from;
+  }
+  const items = new Map();
+  for (const [id, item] of raw) items.set(id, finishItem(item, 0));
   // One entry per ledger, so a real store has a few dozen. The cap is for the
   // long-lived MCP server, which walks temporary project dirs that never come
   // back; a Map iterates in insertion order, so the oldest key goes first.
   if (folded.size >= MAX_FOLDS_HELD) folded.delete(folded.keys().next().value);
-  folded.set(file, { stamp, items });
+  folded.set(file, { stamp, items, raw, ino: st?.ino ?? null, offset, from });
   return items;
+}
+
+// The ledger's trailing window, as text, to its last whole line, and the byte that ends at.
+function readWindow(file, size) {
+  if (size > MAX_LEDGER_BYTES && !warnedOversize.has(file)) {
+    warnedOversize.add(file);
+    console.warn(`work-items: ${file} is ${size} bytes; reading only the last ${MAX_LEDGER_BYTES}`);
+  }
+  const from = Math.max(0, size - MAX_LEDGER_BYTES);
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.allocUnsafe(size - from);
+    const n = fs.readSync(fd, buf, 0, buf.length, from);
+    const end = n ? buf.lastIndexOf(0x0a, n - 1) + 1 : 0;
+    return { text: buf.toString('utf8', 0, end), end: from + end, from };
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 // One item as of `now`: a copy, with the lease rule that `foldWorkItems` applies

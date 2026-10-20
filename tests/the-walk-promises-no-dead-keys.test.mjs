@@ -333,10 +333,13 @@ describe('the coaching card promises no dead key either', () => {
 
   it('still handles plain Enter on the welcome, which draws it', () => {
     expect(walk).toContain("if (run.step !== 'welcome') return;");
-    // Enter goes through `begin`, which asks the plan on a Mac with nothing set
-    // up (w-9f6975906c) and otherwise starts the walk, so it always moves.
+    // Enter goes through `begin`, which always moves. It used to branch here,
+    // to the plan question on a computer with nothing set up (w-9f6975906c)
+    // and past it on every other one; since w-e217e577e5 both go to the same
+    // step, which asks the question or says what it found. The claim this
+    // makes is the one that matters either way: the press leads somewhere.
     expect(walk).toMatch(/e\.key === 'Enter'[\s\S]{0,60}begin\(\)/);
-    expect(walk).toMatch(/const begin = async \(\) => \{[\s\S]{0,120}onStep\('plan'\)[\s\S]{0,40}else onEvent\(\{ t: 'start' \}\)/);
+    expect(walk).toMatch(/const begin = async \(\) => \{[\s\S]{0,200}onStep\('plan'\)/);
   });
 });
 

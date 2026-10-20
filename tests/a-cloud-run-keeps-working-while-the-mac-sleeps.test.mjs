@@ -146,9 +146,10 @@ describe('while the Mac is away', () => {
 describe('while the Mac is there', () => {
   it('nothing is answered or closed for it', async () => {
     await startWith(agent({ delay: 0 }));
-    const end = Date.now() + AWAY * 4;
+    // At least AWAY * 4, and on until the agent's call has reached the Mac, however slow this machine is.
+    const end = Date.now() + AWAY * 4; const cap = Date.now() + 30_000;
     let seen = [];
-    while (Date.now() < end) { seen = (await sandbox.handle({ action: 'events', since: 0 })).events; await new Promise((r) => setTimeout(r, 50)); }
+    while (Date.now() < cap && (Date.now() < end || !seen.some((e) => e.kind === 'mcp'))) { seen = (await sandbox.handle({ action: 'events', since: 0 })).events; await new Promise((r) => setTimeout(r, 50)); }
     expect(seen.find((e) => ['mcp-offline', 'mcp-abandoned', 'input-closed'].includes(e.kind))).toBeUndefined();
     expect(seen.find((e) => e.kind === 'mcp')).toBeTruthy();
   });
@@ -158,7 +159,11 @@ describe('a start that does not ask for it', () => {
   it('waits for the Mac as before', async () => {
     const started = await startWith(agent({ delay: AWAY * 2 }), { offline: null });
     await new Promise((r) => setTimeout(r, AWAY * 4));
-    const { events } = await sandbox.handle({ action: 'events', since: 0, peek: true });
+    let events = [];
+    for (const cap = Date.now() + 30_000; Date.now() < cap; await new Promise((r) => setTimeout(r, 50))) {
+      ({ events } = await sandbox.handle({ action: 'events', since: 0, peek: true }));
+      if (events.some((e) => e.kind === 'mcp')) break;
+    }
     expect(events.find((e) => ['mcp-offline', 'mcp-abandoned', 'input-closed'].includes(e.kind))).toBeUndefined();
     expect(events.find((e) => e.kind === 'mcp')).toBeTruthy();
     expect(started.ok).toBe(true);
@@ -196,7 +201,11 @@ describe('after Codex\'s review', () => {
     `);
     await sandbox.handle({ action: 'stdin', runId: 'r', n: 1, data: Buffer.from(JSON.stringify({ type: 'user', uuid: 'u1', message: { role: 'user', content: 'and also' } }) + '\n').toString('base64') });
     await new Promise((r) => setTimeout(r, AWAY * 4));
-    const { events } = await sandbox.handle({ action: 'events', since: 0, peek: true });
+    let events = [];
+    for (const cap = Date.now() + 30_000; Date.now() < cap; await new Promise((r) => setTimeout(r, 50))) {
+      ({ events } = await sandbox.handle({ action: 'events', since: 0, peek: true }));
+      if (events.some((e) => e.kind === 'mcp')) break;
+    }
     expect(events.find((e) => e.kind === 'input-closed')).toBeUndefined();
   });
 

@@ -12,16 +12,33 @@
 // run, so a later run in the same folder can bring that run's work home first.
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 
 const NAME = 'agentbox-cloud.json';
 
+// Read off the folder's `.git` rather than asked of `git rev-parse`: this runs
+// for every task folder on the app's main process and at every marker read in
+// the relay all cloud runs share, and a busy Mac takes half a second to start git.
 export function gitDirOf(folder) {
-  try {
-    return execFileSync('git', ['rev-parse', '--absolute-git-dir'], { cwd: folder, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
-  } catch {
-    return null;
+  if (!folder) return null;
+  for (let dir = path.resolve(folder); ; dir = path.dirname(dir)) {
+    const dotGit = path.join(dir, '.git');
+    let st = null;
+    try { st = fs.statSync(dotGit); } catch { /* not here */ }
+    if (st?.isDirectory() && fs.existsSync(path.join(dotGit, 'HEAD'))) return dotGit;
+    if (st?.isFile()) {
+      const m = /^gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(dotGit, 'utf8'));
+      const linked = m && path.resolve(dir, m[1]);
+      return linked && fs.existsSync(linked) ? linked : null;
+    }
+    if (path.dirname(dir) === dir) return null;
   }
+}
+
+// The main repository's git directory, which a linked worktree's names in `commondir`.
+export function commonGitDirOf(folder) {
+  const dir = gitDirOf(folder);
+  if (!dir) return null;
+  try { return path.resolve(dir, fs.readFileSync(path.join(dir, 'commondir'), 'utf8').trim()); } catch { return dir; }
 }
 
 export function markerPath(folder) {
