@@ -1,6 +1,6 @@
 ---
 name: power-test
-description: Power test Agentbox the way its customers use it, for hours. Testers drawn from a pool of people Agentbox is for (startup engineer, big-company engineer, founder, CTO, AI-lab engineer, ops teammate, first-day user) each drive their own copy of the app with many threads at once, Claude Code and Codex, several logins, replies and long threads, while logins run out, agents hang or die, the app restarts and the computer sleeps. A watcher reads what the screen cannot show and a ranked report comes out. Use when asked for a power tester, power-user testing, testing a feature thoroughly or "to the ends of the earth", a long or multi-hour test, many threads at once, or spending leftover subscription usage on testing.
+description: Power test Agentbox the way its customers use it, for hours. Testers drawn from a pool of people Agentbox is for (startup engineer, big-company engineer, founder, CTO, AI-lab engineer, ops teammate, first-day user) each drive their own copy of the app with many threads at once, Claude Code and Codex, several logins, replies and long threads, while logins run out, agents hang or die, and the app restarts or freezes. A watcher reads what the screen cannot show and a ranked report comes out. Use when asked for a power tester, power-user testing, testing a feature thoroughly or "to the ends of the earth", a long or multi-hour test, many threads at once, or spending leftover subscription usage on testing.
 ---
 
 # Power test
@@ -25,7 +25,8 @@ Each person in `people/` gets:
 - **Things going wrong on a clock** (`plan.mjs`, `chaosPlan`), never told to
   the tester, because a person learns of them from the app: a second login
   runs out, Codex runs out, every login runs out, the app restarts, the
-  computer sleeps; 2% of agents hang and 2% die. Stand-ins take 5 to 90
+  app's processes freeze for a while (its window does not); 2% of agents
+  hang and 2% die. Stand-ins take 5 to 90
   seconds and offer options 30% of the time.
 - **A watcher** (`watch.mjs`) every minute: threads with no answer and no
   word for 10 minutes (30 on real tools), a thread started six times in ten
@@ -59,7 +60,10 @@ node $P --who startup-engineer,founder --hours 2 --focus "replies after switchin
 Evidence goes to `/tmp/agentbox-verify/runs/<time>-power/`, one folder per
 person: `diary.jsonl`, `actions.jsonl` (every press, with how long the app
 took), pictures, `watch.jsonl`, `machine.json`, `timeline.jsonl`, each
-stretch's transcript or prompt, and `report.md` at the top.
+stretch's transcript or prompt, `copy/` (the copy's ledgers, session logs,
+log and receipts, kept when it is taken down), and `report.md` at the top.
+On the cloud `/tmp` goes with the machine: copy the report and the pictures
+you cite into the product's docs before you finish.
 
 ## Choosing
 
@@ -78,7 +82,7 @@ stretch's transcript or prompt, and `report.md` at the top.
   this is the run for usage that would otherwise expire before a reset, and
   the only way to meet a real login running out. Logins running out, hangs
   and deaths on a clock are stand-ins only; on real tools the clock only
-  restarts and sleeps the app.
+  restarts and freezes the app.
 - **Chaos.** `normal` unless asked. `none` to test a feature in calm,
   `heavy` before a launch (adds a Control-C crash and an hour of slow agents).
 
@@ -124,6 +128,14 @@ coach it: the point is what a person in their shoes notices.
 2. Reproduce the broken and wrong ones yourself before calling them bugs
    (`live.mjs up`, the steps, `browse.mjs`). A tester can be wrong; the
    watcher's findings are facts but may have a dull cause.
+   Testers do not know these stand-in quirks and will log them; they are not
+   the app's:
+   - answers are canned, named after the task and numbered by start, so the
+     number skips after a start that failed;
+   - a Claude login out says "resets 11:59pm" whatever its window, and comes
+     back when the window ends;
+   - Codex out is a 429 with no reset time;
+   - seeded old threads have no session record of their own.
 3. Answer with the ranked list in plain words, what you reproduced, and the
    report's path. If they want them fixed, that is one thread for the lot,
    not one per issue. Copy any picture you show into the product's docs

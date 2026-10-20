@@ -95,7 +95,7 @@ describe('memory over a session', () => {
 describe('the evidence kept when a copy is taken down', () => {
   // The first power test's copies were taken down with their ledgers, so two
   // "picked an option and got no answer" issues could not be checked after.
-  it('keeps every project\'s ledger, the app\'s log and the stand-in\'s receipts, and nothing else', () => {
+  it('keeps every project\'s ledger, each run\'s session log, the app\'s log and the stand-in\'s receipts', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'evidence-'));
     const state = { instance: root, storeRoot: path.join(root, 'store'), accountRoot: path.join(root, 'store', 'accounts', 'a'), log: path.join(root, 'app.log'), receipts: path.join(root, 'receipts') };
     const machinery = path.join(state.storeRoot, 'projects', `${state.accountRoot}/api`.replace(/[^A-Za-z0-9]/g, '-'));
@@ -110,6 +110,8 @@ describe('the evidence kept when a copy is taken down', () => {
     expect(fs.readFileSync(path.join(out, 'copy', 'ledger', 'api.jsonl'), 'utf8')).toBe('{"id":"w-1"}\n');
     expect(fs.readFileSync(path.join(out, 'copy', 'app.log'), 'utf8')).toContain('running');
     expect(fs.existsSync(path.join(out, 'copy', 'receipts', 'w-1.spawns.jsonl'))).toBe(true);
+    // The second run's start loop could not be explained without them.
+    expect(fs.readFileSync(path.join(out, 'copy', 'sessions', 'api', 'w-1', '1.log'), 'utf8')).toBe('transcript');
     expect(fs.existsSync(path.join(out, 'copy', 'ledger', 'sessions'))).toBe(false);
   });
 

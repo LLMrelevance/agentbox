@@ -83,7 +83,7 @@ export const LOGIN_NAMES = ['default', '.claude-second', '.claude-third', '.clau
  * length so a 30-minute test and an 8-hour one see the same day. Logins
  * running out, slow or dying agents are the stand-ins' world (world.json), so
  * a test on real tools gets only what happens to the app itself: a restart, a
- * sleep, a Control-C. The tester is never told; a person learns of these from
+ * freeze, a Control-C. The tester is never told; a person learns of these from
  * the app, and whether the app says so is the test.
  */
 export function chaosPlan(level, totalMs, { real = false, logins = 2, codex = true } = {}) {
@@ -104,7 +104,8 @@ export function chaosPlan(level, totalMs, { real = false, logins = 2, codex = tr
   if (level !== 'light') {
     events.push({ kind: 'restart', at: at(0.5), says: 'The app quit and opened again, as an update or a restart does.' });
     const ms = Math.min(180_000, Math.max(30_000, Math.round(totalMs * 0.05)));
-    events.push({ kind: 'sleep', at: at(0.75), ms, says: `The computer slept for ${Math.round(ms / 1000)} seconds.` });
+    // Only the app's processes stop; the window keeps going, as when the app hangs or wakes slower than the screen.
+    events.push({ kind: 'sleep', at: at(0.75), ms, says: `The app froze for ${Math.round(ms / 1000)} seconds and then carried on.` });
   }
   if (level === 'heavy') events.push({ kind: 'crash', at: at(0.85), says: 'The app was stopped with Control-C mid-run, its agents with it, and opened again.' });
   return events.sort((a, b) => a.at - b.at);

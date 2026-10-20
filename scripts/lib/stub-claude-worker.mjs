@@ -221,7 +221,7 @@ if (directive('stub:limit') || (directive('stub:limit-first') && attempt === 1) 
   process.exit(1);
 }
 if (directive('stub:work-then-die') || turn.die) {
-  say({ type: 'assistant', session_id: sessionId, message: { content: [{ type: 'text', text: 'Now looking at how the open thread handles keys.' }] } });
+  say({ type: 'assistant', session_id: sessionId, message: { content: [{ type: 'text', text: 'Starting on this now.' }] } });
   say({ type: 'assistant', session_id: sessionId, message: { content: [{ type: 'tool_use', id: 'toolu_stub', name: 'Bash', input: { command: 'ls' } }] } });
   await wait(200);
   process.exit(1);

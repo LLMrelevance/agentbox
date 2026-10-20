@@ -132,14 +132,18 @@ export function readAllLines(state) {
   });
 }
 
-/** What to keep of a copy before it is taken down, so an issue can be checked after: ledgers, the app's log, receipts. */
+/** What to keep of a copy before it is taken down, so an issue can be checked after: ledgers, each run's session log, the app's log, receipts. */
 export function keepEvidence(state, out) {
   const dest = path.join(out, 'copy');
   const prefix = `${state.accountRoot}/`.replace(/[^A-Za-z0-9]/g, '-');
   const copy = (from, to) => { try { fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(from, to); } catch { /* not there */ } };
   let dirs = [];
   try { dirs = fs.readdirSync(path.join(state.storeRoot, 'projects')).filter((d) => d.startsWith(prefix)); } catch { /* no store */ }
-  for (const d of dirs) copy(path.join(state.storeRoot, 'projects', d, 'work-items.jsonl'), path.join(dest, 'ledger', `${d.slice(prefix.length)}.jsonl`));
+  for (const d of dirs) {
+    const slug = d.slice(prefix.length);
+    copy(path.join(state.storeRoot, 'projects', d, 'work-items.jsonl'), path.join(dest, 'ledger', `${slug}.jsonl`));
+    try { fs.cpSync(path.join(state.storeRoot, 'projects', d, 'sessions'), path.join(dest, 'sessions', slug), { recursive: true }); } catch { /* none */ }
+  }
   copy(state.log, path.join(dest, 'app.log'));
   try { fs.cpSync(state.receipts, path.join(dest, 'receipts'), { recursive: true }); } catch { /* none */ }
 }

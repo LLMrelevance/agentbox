@@ -23,7 +23,7 @@ describe('the day a power test lays out', () => {
     expect(() => chaosPlan('extreme', HOUR)).toThrow(/none, light, normal, heavy/);
   });
 
-  it('runs a second login out, then Codex, then every login, then restarts and sleeps, in that order, inside the test', () => {
+  it('runs a second login out, then Codex, then every login, then restarts and freezes the app, in that order, inside the test', () => {
     const plan = chaosPlan('normal', HOUR, { logins: 2, codex: true });
     expect(plan.map((e) => e.kind)).toEqual(['agents', 'login-out', 'codex-out', 'restart', 'all-out', 'sleep']);
     for (const e of plan) {
@@ -45,7 +45,7 @@ describe('the day a power test lays out', () => {
     expect(kinds).toEqual(['restart', 'sleep', 'crash']);
   });
 
-  it('sleeps for at least 30 seconds and at most 3 minutes', () => {
+  it('freezes the app for at least 30 seconds and at most 3 minutes', () => {
     expect(chaosPlan('normal', 10 * 60_000).find((e) => e.kind === 'sleep').ms).toBe(30_000);
     expect(chaosPlan('normal', 8 * HOUR).find((e) => e.kind === 'sleep').ms).toBe(180_000);
   });
