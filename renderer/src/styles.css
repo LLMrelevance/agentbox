@@ -1970,7 +1970,7 @@ body {
 .diagram svg { max-width: 100%; height: auto; }
 /* The library's drop shadow reads as a glow on a dark surface. */
 .diagram svg * { filter: none !important; }
-.diagram-pending { min-height: 120px; }
+.diagram-pending { min-height: 240px; }
 .markdown blockquote { border-left: 3px solid var(--line); padding-left: 12px; color: var(--text-dim); margin: 8px 0; }
 .markdown strong { font-weight: 650; }
 /* A TABLE IS A GRID. With no rule here an agent's table came out in the
@@ -1992,6 +1992,45 @@ body {
 .inline-image-open:hover .inline-image { border-color: var(--text-faint); }
 .inline-image-open:focus-visible .inline-image { outline: 1px solid var(--text-faint); outline-offset: 2px; }
 
+/* A PICTURE HOLDS ITS PLACE WHILE IT LOADS, as a shimmering box, then fades
+   in, in every window. Without it a picture with no bytes yet is a 2 x 2 dot
+   and the words under it jump when it lands. The state is set by phone-files.ts
+   watchPicture, which main.tsx starts; the names say phone because it was
+   built for the phone first. The half-drawn picture and the broken mark are
+   kept out of sight while the box shows.
+
+   The button around a loading picture is as wide as the column, because a
+   button shrinks to what is in it and the box would be 4:3 of nothing.
+   `auto 4 / 3` takes the picture's own shape the moment its first bytes give
+   it. Four :root outweigh the phone's own picture rules in phone.css. */
+:root:root:root:root .inline-image-open:has(> .inline-image[data-phone-img="loading"]) { width: 100%; }
+:root:root:root:root .inline-image[data-phone-img="loading"],
+:root:root:root:root .doc-picture[data-phone-img="loading"] {
+  display: block; width: 100%; max-width: 100%; height: auto; aspect-ratio: auto 4 / 3;
+  color: transparent; object-position: -99999px 0;
+  background: linear-gradient(100deg, transparent 30%, var(--wash) 50%, transparent 70%) 0 0 / 200% 100%, var(--bg-raised);
+  animation: phone-shimmer 1.3s linear infinite;
+}
+:root:root:root:root .attach-row img[data-phone-img="loading"] {
+  color: transparent; object-position: -99999px 0;
+  background: linear-gradient(100deg, transparent 30%, var(--wash) 50%, transparent 70%) 0 0 / 200% 100%, var(--bg-raised);
+  animation: phone-shimmer 1.3s linear infinite;
+}
+:root:root:root:root .inline-image[data-phone-img="ready"],
+:root:root:root:root .doc-picture[data-phone-img="ready"],
+:root:root:root:root .attach-row img[data-phone-img="ready"] { animation: phone-fade-in .25s ease-out; }
+@keyframes phone-shimmer { from { background-position: 100% 0, 0 0; } to { background-position: -100% 0, 0 0; } }
+@keyframes phone-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ANYTHING ELSE A MESSAGE DRAWS LATE wears the same shimmer at the size it
+   will have, so the words under it hold still
+   (tests/whatever-a-message-draws-late-holds-its-place). */
+.arriving, .message-file-face.arriving, .folder-preview-shot.arriving {
+  background: linear-gradient(100deg, transparent 30%, var(--wash) 50%, transparent 70%) 0 0 / 200% 100%, var(--bg-raised);
+  animation: phone-shimmer 1.3s linear infinite;
+}
+.inline-image.arriving { display: block; width: 100%; aspect-ratio: 4 / 3; }
+
 /* A sound or a film a worker named: its name, then the player, one per line
    even when five were written on one line (ArtifactMedia in Focus.tsx). */
 .inline-media { display: block; margin: 8px 0; }
@@ -2004,7 +2043,9 @@ body {
 .inline-media-player { display: block; }
 .inline-media audio { display: block; width: min(420px, 100%); height: 36px; }
 .inline-media-missing .inline-media-name.mention { display: inline; margin: 0 -3px; }
-.inline-media video { display: block; max-width: 100%; max-height: 360px; border: 1px solid var(--line); }
+/* The column's width at a fixed height from the first frame: before its size is
+   known a film is the browser's 300 x 150, and it resized once it was. */
+.inline-media video { display: block; width: 100%; height: 360px; object-fit: contain; background: var(--bg-raised); border: 1px solid var(--line); }
 
 /* A folder a worker named on its own line: its name, then its newest pictures,
    three across (FolderPreview in Focus.tsx). Spans, because it sits in a <p>. */
@@ -2035,6 +2076,7 @@ body {
   display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top;
   border: 1px solid var(--line); background: var(--bg-raised);
 }
+.folder-preview-shot.arriving { aspect-ratio: 16 / 10; border: 1px solid var(--line); cursor: default; }
 .folder-preview-shot:hover img { border-color: var(--text-faint); }
 .folder-preview-shot:focus-visible img { outline: 1px solid var(--text-faint); outline-offset: 2px; }
 .folder-preview-label {
@@ -3829,7 +3871,7 @@ img.app-mark { opacity: 1; border-radius: 0; }
   border-bottom: 1px solid var(--line);
   color: var(--text);
   font-family: inherit;
-  font-size: 15px;
+  font-size: 16px;
   padding: 14px 18px;
 }
 .hidden-input { opacity: 0; height: 0; padding: 0; border: none; position: absolute; }
@@ -3862,7 +3904,7 @@ img.app-mark { opacity: 1; border-radius: 0; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.palette-item.selected { background: var(--bg-selected); }
+.palette-item.selected { background: var(--wash); box-shadow: inset 2px 0 0 var(--accent); }
 /* Nothing matched. It sits on the first row's own line — same padding, same
    size — so the eye does not move to read it, and it is faint because it is a
    statement, not something to press..
@@ -3931,6 +3973,7 @@ img.app-mark { opacity: 1; border-radius: 0; }
   border-bottom: 1px solid var(--line);
 }
 .artifact-embed-bar a { color: var(--accent); text-decoration: none; }
+.artifact-embed-arriving { display: block; height: 480px; }
 .artifact-embed iframe {
   display: block;
   width: 100%;
@@ -6441,7 +6484,14 @@ a.set-ghost { text-decoration: none; display: inline-block; }
   font-size: 13px; color: var(--text-faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.fr-folder-via { font-size: 12px; color: var(--text-faint); white-space: nowrap; }
+/* The folder screen leaves this column empty and the found screen says what is
+   true of the row in it, so it is a row of its own: the tick sits on the
+   word's middle rather than on its baseline. An empty one is still empty. */
+.fr-folder-via {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--text-faint); white-space: nowrap;
+}
+.fr-folder.lit .fr-folder-via { color: var(--text-dim); }
 .fr-folder-key { display: flex; justify-content: flex-end; }
 .fr-folder-other { margin-top: 4px; }
 .fr-folder-other .fr-folder-name { grid-column: 2 / 5; color: var(--text-dim); }
@@ -8948,11 +8998,6 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 /* Her Mac turned a reply from the phone down (renderer/src/cloud-bridge.ts). */
 .msg-sending.msg-refused { color: var(--code-minus); }
 
-/* THE PHONE WITH THE MAC SHUT (renderer/src/cloud-bridge.ts) leaves a reply
-   for her Mac, which runs it on the model the thread already has: there is no
-   model to pick here, and no sending back that her Mac does not do. */
-:root[data-via="cloud"] .model-pick, :root[data-via="cloud"] .dock-pill .ts-model { display: none; }
-
 /* NEO, the voice alpha (w-e85fd9144f). The glow on what Neo just did:
    bloom plus lit from within, at the softer strength approved on 2026-10-15,
    with a quiet dust halo drawn by renderer/src/neo/glow.ts. A layer of its
@@ -8988,10 +9033,72 @@ body.neo-on.neo-orb-away .ts-panel .ts-foot { opacity: 1; }
 .neo-show-lifted .neo-show-cell img { max-height: 80vh; max-width: 80vw; }
 .neo-show-full-screen .neo-show-cell img { max-height: 88vh; box-shadow: none; }
 .neo-show-cell figcaption { font: 500 10px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; color: var(--text-faint); }
-
 /* Neo's own pick: beside the thread, never over it. No backdrop, and only the
    panel takes the pointer, so the app under it stays usable. */
 .neo-show.neo-show-peek { inset: auto; top: 72px; right: 24px; width: min(520px, 34vw); max-height: calc(100vh - 260px); background: none; pointer-events: none; display: block; }
 .neo-show-peek .neo-show-row { flex-direction: column; gap: 12px; max-width: none; max-height: none; pointer-events: auto; padding: 12px; overflow-y: auto; max-height: calc(100vh - 260px);
   background: var(--surface); border: 1px solid rgba(255, 214, 170, .12); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
 .neo-show-peek .neo-show-cell img { max-height: 32vh; box-shadow: 0 0 0 1px rgba(255, 214, 170, .1); }
+
+/* A picture opened from a thread (components/PictureView.tsx), full screen over the app.
+   It is a dark room in every theme, like the reader: the picture is what is lit, so the
+   ink is --read-paper rather than --text, which turns nearly black on the light theme. */
+.picture-view { position: fixed; inset: 0; z-index: 9400; outline: none; overflow: hidden;
+  background: var(--read-ground); color: var(--read-paper); animation: pv-in .22s ease-out; }
+@keyframes pv-in { from { opacity: 0; } }
+.pv-stage { position: absolute; inset: 86px 104px 116px; z-index: 1; display: flex; align-items: center; justify-content: center; }
+.pv-img { display: block; flex: none; cursor: zoom-in; user-select: none; border-radius: var(--radius); will-change: transform;
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1); animation: pv-pic-in .32s cubic-bezier(.2, .8, .2, 1); }
+@keyframes pv-pic-in { from { opacity: 0; scale: .97; } }
+.pv-img.pv-zoomed { cursor: grab; transition: none; }
+.pv-img.pv-zoomed:active { cursor: grabbing; }
+
+/* The controls fade once the pointer rests, leaving only the picture. */
+.pv-chrome { z-index: 2; transition: opacity .35s ease, background .15s, color .15s; }
+.pv-idle { cursor: none; }
+.pv-idle .pv-chrome { opacity: 0; pointer-events: none; }
+
+.pv-top { position: absolute; top: 16px; left: 16px; right: 16px; height: 46px; display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; }
+.pv-title { display: flex; align-items: center; gap: 12px; min-width: 0; height: 46px; padding: 0 18px; }
+.pv-name { font-size: 13px; letter-spacing: .01em; color: color-mix(in srgb, var(--read-paper) 86%, transparent);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.pv-count { font: 500 11px/1 var(--mono); letter-spacing: .12em; white-space: nowrap; color: color-mix(in srgb, var(--read-paper) 42%, transparent); }
+.pv-tools { display: flex; align-items: center; gap: 2px; flex: none; }
+.pv-icon { width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; background: none; cursor: pointer;
+  border-radius: var(--radius); color: color-mix(in srgb, var(--read-paper) 62%, transparent); transition: color .15s, background .15s; }
+.pv-icon svg { width: 20px; height: 20px; }
+.pv-icon:hover { color: var(--read-paper); background: color-mix(in srgb, var(--read-paper) 9%, transparent); }
+.pv-rule { width: 1px; height: 18px; margin: 0 6px; background: color-mix(in srgb, var(--read-paper) 14%, transparent); }
+
+.pv-strip { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 8px;
+  max-width: calc(100% - 64px); overflow-x: auto; }
+.pv-thumb { flex: none; width: 72px; height: 45px; padding: 0; border: 0; border-radius: var(--radius); overflow: hidden; cursor: pointer;
+  background: color-mix(in srgb, var(--read-paper) 6%, transparent); opacity: .38;
+  outline: 1px solid transparent; outline-offset: 3px; transition: opacity .2s, outline-color .2s; }
+.pv-thumb:hover { opacity: .75; }
+.pv-thumb.is-on { opacity: 1; outline-color: color-mix(in srgb, var(--read-paper) 85%, transparent); }
+.pv-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* The picture's own colours, blurred, light the room; the controls are frosted glass over it. */
+.pv-glow { position: absolute; inset: -12%; background-size: cover; background-position: center;
+  filter: blur(80px) saturate(1.8) brightness(.95); opacity: .7; animation: pv-in .6s ease-out; }
+.picture-view::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(closest-side, transparent 55%, color-mix(in srgb, var(--read-ground) 70%, transparent)); }
+.pv-title, .pv-tools, .pv-strip {
+  background: color-mix(in srgb, var(--read-ground) 34%, transparent); backdrop-filter: blur(28px) saturate(1.6);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--read-paper) 8%, transparent); border-radius: var(--radius); }
+.pv-tools { padding: 4px; }
+.pv-img { box-shadow: 0 0 0 1px color-mix(in srgb, var(--read-paper) 8%, transparent), var(--shadow-lg); }
+
+/* The step arrows: a thin chevron, and the edge of the window is the button. It stops short of
+   the bar above and the strip below, or it lies over the close button and the thumbnails. */
+.pv-step { position: absolute; top: 78px; bottom: 96px; width: 104px; display: grid; place-items: center; padding: 0; border: 0; cursor: pointer;
+  background: none; color: color-mix(in srgb, var(--read-paper) 40%, transparent); }
+.pv-step svg { width: 30px; height: 30px; }
+.pv-step:hover:not(:disabled) { color: var(--read-paper); }
+.pv-step:disabled { color: color-mix(in srgb, var(--read-paper) 14%, transparent); cursor: default; }
+.pv-prev { left: 0; }
+.pv-next { right: 0; }
+.pv-prev:hover:not(:disabled) { background: linear-gradient(to right, color-mix(in srgb, var(--read-ground) 45%, transparent), transparent); }
+.pv-next:hover:not(:disabled) { background: linear-gradient(to left, color-mix(in srgb, var(--read-ground) 45%, transparent), transparent); }

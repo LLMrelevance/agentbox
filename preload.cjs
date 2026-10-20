@@ -177,6 +177,13 @@ contextBridge.exposeInMainWorld('zero', {
   setProjectSetting: (payload) => ipcRenderer.invoke('zero:settings-set-project', payload),
   setWorkspaceSetting: (payload) => ipcRenderer.invoke('zero:settings-set-workspace', payload),
   cloudSignIn: (payload) => ipcRenderer.invoke('zero:cloud-signin', payload),
+  cloudAccountSignIn: (payload) => ipcRenderer.invoke('zero:cloud-account-sign-in', payload),
+  cloudAccountCancel: () => ipcRenderer.invoke('zero:cloud-account-cancel'),
+  cloudAccountReopen: () => ipcRenderer.invoke('zero:cloud-account-reopen'),
+  cloudAccountSignOut: () => ipcRenderer.invoke('zero:cloud-account-sign-out'),
+  cloudAccountPlan: () => ipcRenderer.invoke('zero:cloud-account-plan'),
+  cloudAccountPay: (payload) => ipcRenderer.invoke('zero:cloud-account-pay', payload),
+  cloudAccountBilling: () => ipcRenderer.invoke('zero:cloud-account-billing'),
   cloudClipboardCode: () => ipcRenderer.invoke('zero:cloud-clipboard-code'),
   // What a project is CALLED, and the mark beside the name. Not settings: both
   // are written into the project's own project.json and travel with the folder.
@@ -238,6 +245,7 @@ contextBridge.exposeInMainWorld('zero', {
   setProductOrder: (payload) => ipcRenderer.invoke('zero:set-product-order', payload),
   setThreadPlaces: (payload) => ipcRenderer.invoke('zero:set-thread-places', payload),
   setThreadPins: (payload) => ipcRenderer.invoke('zero:set-thread-pins', payload),
+  setThreadOnMac: (payload) => ipcRenderer.invoke('zero:set-thread-on-mac', payload),
   setProductHidden: (payload) => ipcRenderer.invoke('zero:set-product-hidden', payload),
   approve: (payload) => ipcRenderer.invoke('zero:approve', payload),
   // The phone door (main/phone-link.mjs): { action: 'status' | 'on' | 'off' | 'reset' | 'via', via }.
@@ -295,6 +303,10 @@ contextBridge.exposeInMainWorld('zero', {
   // when on, Neo's tool calls arrive here and the app carries them out with
   // its own functions (renderer/src/neo/bridge.ts).
   neoEnabled: () => ipcRenderer.invoke('neo:enabled').catch(() => false),
+  // What Neo remembers, for its page in Settings. Answers null where Neo is
+  // off, so the page can say so rather than throw.
+  neoMemory: (change) => ipcRenderer.invoke('neo:memory', change).catch(() => null),
+  neoVoice: (voice) => ipcRenderer.invoke('neo:voice', voice).catch(() => null),
   onNeoAct: (fn) => {
     const handler = (_e, payload) => fn(payload);
     ipcRenderer.on('neo:act', handler);

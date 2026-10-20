@@ -5,11 +5,12 @@
 //
 // Mounted always and does nothing unless this Mac has the alpha flag
 // (main/neo/gate.mjs), so the app is the same app for everyone else.
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { describeScreen, neoBridge, screenFor, type NeoDeps, type NeoRow } from './bridge';
 import { glowOn } from './glow';
+import { controlMedia } from './media';
 import { orbCovers, type Orb } from './orb-cover';
-import { pictureName, putAway, show, threadPictures } from './show';
+import { fileName, filmName, latestFiles, pictureName, putAway, show, threadDrawn, threadFilms, threadPictures, waitForThread } from './show';
 
 type Z = {
   neoEnabled?: () => Promise<boolean>;
@@ -42,14 +43,18 @@ function scrollerAt(): HTMLElement | null {
   return page && page.scrollHeight > page.clientHeight + 1 ? page : null;
 }
 
-type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'scroll' | 'pictureNames' | 'show' | 'media' | 'mediaNames' | 'latestPictureCount' | 'waitForPictures'> & {
+type AppDeps<R extends NeoRow> = Omit<NeoDeps<R>, 'glow' | 'outside' | 'pick' | 'close' | 'scroll' | 'pictureNames' | 'show' | 'media' | 'mediaNames' | 'latestFilmCount' | 'latestPictureCount' | 'waitForPictures' | 'fileNames' | 'openFile'> & {
   pick(row: R, n: number): Promise<unknown>;
-  close(row: R): Promise<unknown>;
+  close(row: R, confirmed?: boolean): Promise<unknown>;
+  closePrompt?(row: R): string | null;
 };
 
-export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
+/** Answers whether this Mac has Neo, for the one other thing that asks: the
+ *  Neo page in Settings, which is not drawn anywhere else (./NeoSettings). */
+export function useNeo<R extends NeoRow>(deps: AppDeps<R>): { on: boolean } {
   const latest = useRef(deps);
   latest.current = deps;
+  const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
     const z = (window as unknown as { zero?: Z }).zero;
@@ -60,13 +65,21 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
     let lastName = '';
     void z.neoEnabled().catch(() => false).then((on) => {
       if (!on || cancelled) return;
+      setEnabled(true);
       const live: NeoDeps<R> = {
         rows: () => latest.current.rows(),
+        threadsAnywhere: () => latest.current.threadsAnywhere?.() ?? [],
+        threadById: (id) => latest.current.threadById?.(id) ?? null,
         focused: () => latest.current.focused(),
         options: (r) => latest.current.options(r),
         summary: (r) => latest.current.summary(r),
+        answer: (r) => latest.current.answer?.(r) ?? '',
+        about: (r) => latest.current.about?.(r) ?? '',
         projects: () => latest.current.projects(),
-        open: (r) => latest.current.open(r),
+        open: async (r) => {
+          await latest.current.open(r);
+          if (!(await waitForThread(r.id))) throw new Error('The requested thread did not finish opening.');
+        },
         // The app can stop to ask its own question (a filed task, the close
         // nudge), and returns as if it had acted. So look, once React has
         // drawn: an act that landed moves the row or spends its offer.
@@ -78,13 +91,15 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
           return now && latest.current.options(now).map((o) => o.text).join('\n') === before ? 'asked' : 'done';
         },
         reply: (r, t, o) => latest.current.reply(r, t, o),
-        close: async (r) => {
-          await latest.current.close(r);
+        close: async (r, confirmed) => {
+          await latest.current.close(r, confirmed);
           await settle();
-          return latest.current.rows().some((x) => x.id === r.id) ? 'asked' : 'done';
+          if (!latest.current.rows().some((x) => x.id === r.id)) return 'done';
+          const prompt = latest.current.closePrompt?.(r);
+          return prompt ? { asked: prompt } : 'asked';
         },
         compose: (t, p) => latest.current.compose(t, p),
-        undo: () => latest.current.undo(),
+        undo: (confirmation) => latest.current.undo(confirmation),
         // Said done only once the thread has actually left the inbox.
         later: async (r, ts, label) => {
           await latest.current.later?.(r, ts, label);
@@ -93,14 +108,15 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         },
         outside: () => outside,
         // The films and sounds the open thread draws (components/Focus.tsx ArtifactMedia).
-        mediaNames: () => [...document.querySelectorAll('.inline-media')].map((el) => el.querySelector('.mention-name')?.textContent?.trim() || 'a film'),
+        mediaNames: () => threadFilms().films.map(filmName),
+        latestFilmCount: () => threadFilms().latest,
         media: async (action, n) => {
-          const spots = [...document.querySelectorAll<HTMLElement>('.inline-media')];
+          const spots = threadFilms().films;
           const spot = spots[n - 1];
           const player = spot?.querySelector<HTMLMediaElement>('video, audio');
           if (!spot || !player) return null;
           spot.scrollIntoView({ block: 'center', behavior: 'smooth' });
-          if (action === 'pause') player.pause(); else await player.play().catch(() => {});
+          await controlMedia(player, action);
           setTimeout(() => glowOn(spot), 300);
           return { name: spot.querySelector('.mention-name')?.textContent?.trim() || 'the film', count: spots.length };
         },
@@ -117,9 +133,18 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
         latestPictureCount: () => threadPictures().latest,
         // A thread draws its messages after its history arrives.
         waitForPictures: async () => {
-          for (let waited = 0; waited < 1500 && !threadPictures().latest; waited += 150) await new Promise((r) => setTimeout(r, 150));
+          // A drawn thread with nothing to show is done after a short grace for file tiles, which load late.
+          for (let waited = 0; waited < 1500 && !threadPictures().latest && !latestFiles().length && !(waited >= 300 && threadDrawn()); waited += 150) await new Promise((r) => setTimeout(r, 150));
         },
         show: (ns, layout) => show(ns, layout),
+        fileNames: () => latestFiles().map((t, i) => fileName(t, i + 1)),
+        openFile: async (n) => {
+          const tile = latestFiles()[n - 1];
+          if (!tile) return false;
+          if (tile.getAttribute('aria-pressed') !== 'true') tile.click();
+          setTimeout(() => glowOn(tile), 300);
+          return true;
+        },
         // After React has drawn what the act changed, so the glow lands on
         // the section as it now is.
         glow: (id) => { const name = lastName; setTimeout(() => glowOn(sectionFor(name, id)), 180); },
@@ -154,4 +179,6 @@ export function useNeo<R extends NeoRow>(deps: AppDeps<R>) {
     });
     return () => { cancelled = true; offs.forEach((f) => f()); offs = []; document.body.classList.remove('neo-on', 'neo-orb-away'); };
   }, []);
+
+  return { on: enabled };
 }

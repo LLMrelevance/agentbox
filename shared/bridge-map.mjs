@@ -112,6 +112,14 @@ export const REQUEST_CHANNELS = {
   cloudSignIn: 'zero:cloud-signin',
   // Claude's sign-in code, read from the clipboard while one is waiting for it.
   cloudClipboardCode: 'zero:cloud-clipboard-code',
+  // Signing in to Agentbox Cloud itself, on the app's sign-in page (main/cloud/account.mjs).
+  cloudAccountSignIn: 'zero:cloud-account-sign-in',
+  cloudAccountCancel: 'zero:cloud-account-cancel',
+  cloudAccountReopen: 'zero:cloud-account-reopen',
+  cloudAccountSignOut: 'zero:cloud-account-sign-out',
+  cloudAccountPlan: 'zero:cloud-account-plan',
+  cloudAccountPay: 'zero:cloud-account-pay',
+  cloudAccountBilling: 'zero:cloud-account-billing',
   projectRename: 'zero:project-rename',
   projectArchive: 'zero:project-archive',
   projectSeenBy: 'zero:project-seen-by',
@@ -146,6 +154,7 @@ export const REQUEST_CHANNELS = {
   setProductOrder: 'zero:set-product-order',
   setThreadPlaces: 'zero:set-thread-places',
   setThreadPins: 'zero:set-thread-pins',
+  setThreadOnMac: 'zero:set-thread-on-mac',
   setProductHidden: 'zero:set-product-hidden',
   approve: 'zero:approve',
   // The phone door's Settings page (main/phone-link.mjs): its state, on, off,
@@ -154,6 +163,9 @@ export const REQUEST_CHANNELS = {
   // Whether Neo, the voice alpha, is on for this Mac (main/neo/gate.mjs).
   // Answered only by the desktop app; anywhere else the screen reads no.
   neoEnabled: 'neo:enabled',
+  // What Neo remembers, for its page in Settings (main/neo/index.mjs).
+  neoMemory: 'neo:memory',
+  neoVoice: 'neo:voice',
 };
 
 /** Told rather than asked: the app talks and the screen listens. */

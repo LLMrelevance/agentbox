@@ -23,18 +23,20 @@ import { readCodexThreads } from './codex-threads.mjs';
 export const OLDER_DAYS = 90;
 export const OLDER_MOST = 20;
 
-export function readImportableThreads({ config = null, supervisor = null, env = process.env, shellEnv, home = os.homedir(), now = Date.now() } = {}) {
+// `readCodex` is the app's own reader off the main process (codex-threads.mjs
+// readCodexThreadsOffThread): a large Codex folder takes seconds to read.
+export async function readImportableThreads({ config = null, supervisor = null, env = process.env, shellEnv, home = os.homedir(), now = Date.now(), readCodex = readCodexThreads } = {}) {
   const { dirs, codexDirs } = appSessionFolders({ config, supervisor, env, home, ...(shellEnv ? { shellEnv } : {}) });
-  const read = (days, max) => {
+  const read = async (days, max) => {
     let claude = [];
     let codex = [];
     try { ({ threads: claude } = readSessionThreads({ home, dirs, now, days, ...(max ? { max } : {}) })); } catch { claude = []; }
-    try { ({ threads: codex } = readCodexThreads({ home, codexDirs, now, days })); } catch { codex = []; }
+    try { ({ threads: codex } = await readCodex({ home, codexDirs, now, days })); } catch { codex = []; }
     return [...claude, ...codex].sort((a, b) => (b.when ?? 0) - (a.when ?? 0));
   };
-  const recent = read(RECENT_DAYS);
+  const recent = await read(RECENT_DAYS);
   if (recent.length) return recent;
-  return read(OLDER_DAYS, OLDER_MOST).slice(0, OLDER_MOST);
+  return (await read(OLDER_DAYS, OLDER_MOST)).slice(0, OLDER_MOST);
 }
 
 /* ------------------------ AND THE ONE THE SEARCH USES ---------------------- */
@@ -59,9 +61,9 @@ export const SEARCH_DAYS = 365;
 const SEARCH_MOST = 6000;
 const SEARCH_BUDGET_MS = 8000;
 
-export function readSearchableThreads({
+export async function readSearchableThreads({
   config = null, supervisor = null, env = process.env, shellEnv, home = os.homedir(), now = Date.now(),
-  days = SEARCH_DAYS, max = SEARCH_MOST, budgetMs = SEARCH_BUDGET_MS,
+  days = SEARCH_DAYS, max = SEARCH_MOST, budgetMs = SEARCH_BUDGET_MS, readCodex = readCodexThreads,
 } = {}) {
   const { dirs, codexDirs } = appSessionFolders({ config, supervisor, env, home, ...(shellEnv ? { shellEnv } : {}) });
   let claude = [];
@@ -73,7 +75,7 @@ export function readSearchableThreads({
   // Codex keeps its names in an index of its own (main/codex-threads.mjs), so
   // its side costs no transcript reads and never gives up early. Only the
   // Claude side can run out of budget, which is why `reached` comes off it.
-  try { ({ threads: codex } = readCodexThreads({ home, codexDirs, now, days })); } catch { codex = []; }
+  try { ({ threads: codex } = await readCodex({ home, codexDirs, now, days })); } catch { codex = []; }
   const threads = [...claude, ...codex].sort((a, b) => (b.when ?? 0) - (a.when ?? 0));
   return { threads, reached };
 }

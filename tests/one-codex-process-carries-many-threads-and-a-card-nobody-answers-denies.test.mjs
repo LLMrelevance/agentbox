@@ -468,7 +468,16 @@ describe('every way of not getting an answer is a refusal, never an accept and n
     // vocabulary now, and the measurement that changed it is in
     // tests/the-store-tools-a-codex-worker-lives-on-are-not-rejected.test.mjs.
     ['item/tool/call', { threadId: 'T-A' }],
-    ['execCommandApproval', { threadId: 'T-A' }],
+    // `execCommandApproval` AND `applyPatchApproval` HAVE LEFT THIS LIST TOO,
+    // for the same reason the elicitation did and found the same way round
+    // (w-36c51443df). They are the v1 spellings of the command and patch
+    // approvals this app already draws cards for, so an error frame here would
+    // refuse every command of a Codex that happened to speak v1 on some path.
+    // They are answered in their own vocabulary now -- `{decision:
+    // ReviewDecision}`, which is approved / approved_for_session /
+    // {denied:{rejection}} / abort and NOT our four words -- and the mapping is
+    // `LEGACY_DECISIONS` in main/codex-app-server.mjs. Pinned in
+    // tests/every-request-codex-can-send-has-an-answer-or-a-refusal.test.mjs.
     ['some/method/from/a/newer/codex', { threadId: 'T-A' }],
   ])('answers %s with a refusal rather than leaving it open', async (method, params) => {
     const { codex } = await withThread({ onApproval: () => 'accept' });

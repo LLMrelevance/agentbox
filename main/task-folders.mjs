@@ -90,10 +90,64 @@ function tryRead(dir) {
   try { return fs.readdirSync(dir); } catch { return ['we could not look']; }
 }
 
+// Files that say nothing of anyone's work: Finder's, and the one an agent
+// writes when it recreates its deleted folder to keep its shell alive. A
+// folder holding only these is as good as empty.
+const LEFTOVER_MARKERS = new Set(['.DS_Store', '.keep-session']);
+const isPlainFile = (file) => { try { return fs.lstatSync(file).isFile(); } catch { return false; } };
+
 /** Git that answers rather than throws, for the questions where "no" is fine. */
 function tryGit(cwd, args) {
   try { return { ok: true, out: git(cwd, args) }; }
   catch (error) { return { ok: false, out: String(error?.stderr ?? error?.message ?? '').trim() }; }
+}
+
+/**
+ * DOES THIS FAILED `worktree add` MEAN SOMEBODY ELSE IS MAKING THE FOLDER?
+ *
+ * Git's wordings for "something is already at that path", measured on git
+ * 2.39.5 across six processes racing for one id:
+ *
+ *   fatal: '<staging>' already exists                   (2026-10-09)
+ *   fatal: '<staging>' is already registered            (2026-10-09)
+ *   fatal: '<branch>' is already checked out at '<staging>'
+ *   fatal: '<branch>' is already used by worktree at '<staging>'
+ *   fatal: '<staging>' is not a working tree            (2026-10-17)
+ *
+ * THE NARROWNESS IS THE POINT, AND IT TOOK TWO GOES. Everything else `worktree
+ * add` can fail with -- a full disk, an invalid ref, a branch collision -- is a
+ * real failure with a different answer, and reporting one of those as "another
+ * session has this" would send whoever reads the row hunting for a session that
+ * does not exist. So a wording is not enough on its own: the path git names has
+ * to be a STAGING folder. Named anywhere else, the two branch wordings mean the
+ * branch is checked out in somebody's finished work, which is a failure a
+ * person must act on -- `a-task-folder-is-made-when-the-repository-has-a-
+ * failing-post-checkout-hook` is main's test for exactly that, and the first
+ * draft of this guard swallowed it.
+ *
+ * A branch collision is deliberately not matched either: `a branch named ...
+ * already exists` has its own road a few lines above (ask again, then attach),
+ * and that road is the 2026-10-07 fix which must not be routed around.
+ */
+export function somebodyIsBuilding(out) {
+  const said = String(out ?? '');
+  if (!said) return false;
+  // A BRANCH THAT ALREADY EXISTS IS NOT A FOLDER THAT ALREADY EXISTS, and it
+  // shares the words. It has its own road a few lines above `addOwned`'s caller
+  // -- ask again, then attach -- and that road is the 2026-10-07 fix, so routing
+  // around it would hand a session the shared checkout. Checked first, because
+  // the phrase it carries would otherwise match the clause below it.
+  if (/a branch named/i.test(said)) return false;
+  // The marker rather than the path itself, because git prints the path it
+  // resolved: on a Mac a staging folder under /tmp comes back under /private.
+  if (!said.includes(BUILDING)) return false;
+  return /already exists/i.test(said)
+    || /already registered/i.test(said)
+    || /already used by worktree/i.test(said)
+    || /already checked out/i.test(said)
+    // Git's bookkeeping for staging caught mid-flight: registered by the winner
+    // and already gone from the disk, so the loser's second add finds neither.
+    || /is not a working tree/i.test(said);
 }
 
 /** `safeTaskName`'s question, asked of a folder already on the disk without throwing. */
@@ -346,6 +400,48 @@ function holder(root, folder, pid) {
 }
 
 /**
+ * WHO ENDED UP IN THE LOCK, read off our own `worktree lock` and the lock as it
+ * stands a moment later. Four answers and one non-answer:
+ *
+ *   our pid in it            ours
+ *   another pid in it        theirs, and the row can name it
+ *   a lock with no pid       a person locked it by hand
+ *   our lock would not write this machine failing, in git's own words
+ *   nothing in it at all     NOT AN ANSWER YET: ask again
+ *
+ * THE NON-ANSWER IS THE WHOLE POINT. `unlock` and `lock` are two commands, so
+ * while another session takes the same dead owner's folder over, there is a
+ * moment when the folder carries no lock at all: ours is gone and theirs is not
+ * written yet. A read landing in that moment has nobody to name, and it used to
+ * answer `refused`, which reached the row as "its folder is refused" -- not
+ * something anybody can act on, and not true either, since that session is
+ * about to own it. Asked again, the lock has landed and the answer is real.
+ *
+ * GIT'S OWN REFUSAL IS READ RATHER THAN COUNTED AS A FAILURE. `is already
+ * locked` is a session that got in a moment before us and usually carries its
+ * pid, so it asks again too and names them when the asking runs out. Only a
+ * lock git would not write for some other reason -- a permission, a full disk,
+ * a path it does not know -- is this machine failing, and that one carries
+ * git's words out rather than naming a session that does not exist.
+ */
+const alreadyLocked = (out) => /is already locked/i.test(String(out ?? ''));
+
+export function whoEndedUpInTheLock({ pid, locked, after, triesLeft }) {
+  const now = pidInReason(after);
+  if (now === pid) return { taken: true, heldBy: pid };
+  if (after !== undefined) return { taken: false, reason: now ? 'held' : 'locked', heldBy: now ?? null };
+  if (!locked.ok && !alreadyLocked(locked.out)) {
+    return { taken: false, reason: 'unlockable', heldBy: null, detail: locked.out };
+  }
+  if (triesLeft > 0) return { again: true };
+  const them = pidInReason(locked.out);
+  if (them) return { taken: false, reason: 'held', heldBy: them };
+  // Git saw a lock we cannot read a pid out of, which is a person's own.
+  if (!locked.ok) return { taken: false, reason: 'locked', heldBy: null };
+  return { taken: false, reason: 'held', heldBy: null };
+}
+
+/**
  * TAKE THE FOLDER, OR SAY WHO HAS IT. Never a side effect: the caller gets
  * `taken` either way, and a refusal names the process in the way.
  *
@@ -355,20 +451,24 @@ function holder(root, folder, pid) {
  * commands, so two processes taking over the same dead owner's folder at the
  * same moment is possible, and the one that did not end up in the lock has to
  * hear that it did not get the folder.
+ *
+ * Asked up to `tries` times, because the read-back can land between another
+ * taker's unlock and its lock and see nobody at all. Each try is a fresh
+ * `worktree list`, which is the only pause the gap needs: the gap is one git
+ * command wide.
  */
-export function acquireTaskFolder(root, folder, { pid = process.pid } = {}) {
-  const held = holder(root, folder, pid);
-  if (!held.ok) return { taken: false, reason: held.reason, heldBy: held.heldBy };
-  if (!held.free && !held.stale) return { taken: true, heldBy: pid };
+export function acquireTaskFolder(root, folder, { pid = process.pid, tries = 5 } = {}) {
+  for (let triesLeft = tries - 1; ; triesLeft -= 1) {
+    const held = holder(root, folder, pid);
+    if (!held.ok) return { taken: false, reason: held.reason, heldBy: held.heldBy };
+    if (!held.free && !held.stale) return { taken: true, heldBy: pid };
 
-  if (held.stale) tryGit(root, ['worktree', 'unlock', folder]);
-  tryGit(root, ['worktree', 'lock', '--reason', lockReason(pid), folder]);
+    if (held.stale) tryGit(root, ['worktree', 'unlock', folder]);
+    const locked = tryGit(root, ['worktree', 'lock', '--reason', lockReason(pid), folder]);
 
-  const after = record(root, folder)?.lock;
-  const now = pidInReason(after);
-  if (now === pid) return { taken: true, heldBy: pid };
-  if (after === undefined) return { taken: false, reason: 'refused', heldBy: null };
-  return { taken: false, reason: now ? 'held' : 'locked', heldBy: now ?? null };
+    const said = whoEndedUpInTheLock({ pid, locked, after: record(root, folder)?.lock, triesLeft });
+    if (!said.again) return said;
+  }
 }
 
 /**
@@ -392,14 +492,33 @@ export function acquireTaskFolder(root, folder, { pid = process.pid } = {}) {
  * every assertion about the folder's contents would still pass. Codex made that
  * point reviewing this file on 2026-10-07 and it was right.
  */
-export function ensureTaskFolder(dir, id, { pid = process.pid, dependencies = true } = {}) {
+export function ensureTaskFolder(dir, id, { pid = process.pid, dependencies = true, again = false } = {}) {
   const name = safeTaskName(id);
   const root = repoRoot(dir) ?? startRepository(dir);
   if (!root) return null;
   firstCommitIfNone(root);
   const folder = taskFolderPath(root, name);
   const branch = taskBranch(name);
-  const refused = (held) => ({ taken: false, reason: held.reason, heldBy: held.heldBy ?? null, path: null });
+  // A LOCK GIT WOULD NOT WRITE IS NOT A REFUSAL. Nobody else has the folder,
+  // and every reason above names somebody or something; this one names this
+  // machine, so it leaves by the road failures leave by, which puts git's words
+  // on the row (`_couldNotGetAFolder` in main/supervisor.mjs).
+  const refused = (held) => {
+    if (held.reason === 'unlockable') throw Error(`Could not take the folder for ${name}: ${held.detail}`);
+    return { taken: false, reason: held.reason, heldBy: held.heldBy ?? null, path: null };
+  };
+
+  // SOMEBODY ELSE FINISHED THE FOLDER WHILE WE WERE MAKING IT, which is not the
+  // same thing as somebody still making it (w-36c51443df). Measured 2026-10-17,
+  // six processes on one id on a busy machine: a loser can get all the way to
+  // its `worktree move` and find the winner has already moved its own copy into
+  // place, so git refuses with a fatal about staging and nobody is building
+  // anything any more. The answer is the road at the top of this function --
+  // the folder is there, ask to hold it -- so the three exits below take it
+  // rather than inventing a word for a race that is already over. Asked once:
+  // a second failure is not a race.
+  const somebodyFinishedIt = () => !again && fs.existsSync(folder) && !!record(root, folder);
+  const askAgain = () => ensureTaskFolder(dir, id, { pid, dependencies, again: true });
 
   if (fs.existsSync(folder) && record(root, folder)) {
     const held = acquireTaskFolder(root, folder, { pid });
@@ -416,12 +535,15 @@ export function ensureTaskFolder(dir, id, { pid = process.pid, dependencies = tr
   // moves INTO it, so the finished copy landed at `<folder>/.building-<id>` and
   // the session would have started in a directory holding almost none of the
   // code. Whatever it is, it is not ours to delete and not ours to fill — an
-  // EMPTY one excepted, since there is nothing there to lose and a stray empty
-  // directory would otherwise wedge the row for good.
+  // EMPTY one excepted, or one holding only LEFTOVER_MARKERS, since there is
+  // nothing there to lose and a stray one would otherwise wedge the row for good.
   if (fs.existsSync(folder)) {
-    const empty = tryRead(folder).length === 0;
-    if (!empty) return refused({ reason: 'in-the-way', heldBy: null });
-    try { fs.rmdirSync(folder); } catch { return refused({ reason: 'in-the-way', heldBy: null }); }
+    const left = tryRead(folder);
+    if (!left.every((name) => LEFTOVER_MARKERS.has(name) && isPlainFile(path.join(folder, name)))) return refused({ reason: 'in-the-way', heldBy: null });
+    try {
+      for (const name of left) fs.rmSync(path.join(folder, name));
+      fs.rmdirSync(folder);
+    } catch { return refused({ reason: 'in-the-way', heldBy: null }); }
   }
 
   // A registration whose directory somebody deleted by hand would refuse the
@@ -471,7 +593,28 @@ export function ensureTaskFolder(dir, id, { pid = process.pid, dependencies = tr
     const add = hasBranch()
       ? addOwned(root, staging, [staging, branch], pid)
       : addOwned(root, staging, ['-b', branch, staging, baseRef(root)], pid);
-    if (!add.ok) throw Error(`Could not make a folder for ${name}: ${add.out}`);
+    if (!add.ok) {
+      // SOMEBODY GOT HERE FIRST, AND THAT IS A REFUSAL RATHER THAN A FAILURE
+      // (w-36c51443df). `clearUnfinished` above answers `building` only when
+      // staging is already REGISTERED AND LOCKED, and the window this lands in
+      // is narrower than that: between its "nothing there" and this add, another
+      // process created the directory. Measured 2026-10-09, six processes on one
+      // id: one won and five threw `fatal: '<staging>' already exists`, so the
+      // documented `building` reason could not fire in the one case it was
+      // written for.
+      //
+      // The row waited either way -- `_couldNotGetAFolder` sees the throw and
+      // says so in plain words -- so this is about what she reads, not about
+      // safety. "Another session is building this folder" is both true and
+      // something to act on; a git fatal about a dot-prefixed path is neither.
+      //
+      // AND SOMETIMES THE WINNER HAS ALREADY FINISHED, which `somebodyFinishedIt`
+      // above explains: the add was refused because the branch is checked out in
+      // the folder the winner has just made.
+      if (somebodyFinishedIt()) return askAgain();
+      if (somebodyIsBuilding(add.out)) return refused({ reason: 'building', heldBy: null });
+      throw Error(`Could not make a folder for ${name}: ${add.out}`);
+    }
   }
 
   // AND THE LOCAL FILES THE REPOSITORY ASKS FOR, THE SAME WAY WHICHEVER PATH RAN.
@@ -507,12 +650,22 @@ export function ensureTaskFolder(dir, id, { pid = process.pid, dependencies = tr
   // handed over. The destination was checked above and is checked again here,
   // since the whole build has run since.
   if (fs.existsSync(folder)) {
+    const finished = somebodyFinishedIt();
     clearUnfinished(root, staging, pid);
+    // A registered worktree at that path is another session's finished work, not
+    // a stray directory in the way, and it has a better answer than `in-the-way`.
+    if (finished) return askAgain();
     return refused({ reason: 'in-the-way', heldBy: null });
   }
   const moved = tryGit(root, ['worktree', 'move', '--force', '--force', staging, folder]);
   if (!moved.ok) {
     clearUnfinished(root, staging, pid);
+    // THE EXIT THE RACE ACTUALLY TAKES, found 2026-10-17 and missed on 2026-10-09
+    // because one run of a race is not a measurement of it: two sessions can both
+    // build the same staging copy, and the one that moves second finds the path
+    // gone -- `fatal: '<staging>' is not a working tree`.
+    if (somebodyFinishedIt()) return askAgain();
+    if (somebodyIsBuilding(moved.out)) return refused({ reason: 'building', heldBy: null });
     throw Error(`Could not make a folder for ${name}: ${moved.out}`);
   }
 

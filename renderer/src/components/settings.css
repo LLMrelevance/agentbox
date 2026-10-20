@@ -120,28 +120,35 @@
 /* An inset row carries its own edges, so the hairlines either side of it go. */
 .settings-screen[data-pane] .set-plate > .set-acct-row.on + .set-row,
 .settings-screen[data-pane] .set-plate > .set-row + .set-acct-row.on { border-top-color: transparent; }
-/* SESSION AND WEEK, the same pair on every account. A full one turns to the
-   accent and says when it is back instead of a number. */
-.acct-meters { display: flex; flex-direction: column; align-items: stretch; gap: 10px; margin-top: 16px; }
-.acct-meter { display: grid; grid-template-columns: 56px 1fr auto; align-items: center; gap: 10px; font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+/* SESSION AND WEEK, the same pair on every account, each ending with when it
+   resets. One grid for both rows, so the bars and the times line up. A full
+   one turns its time to the accent. */
+.acct-meters { display: grid; grid-template-columns: 56px 1fr auto auto; align-items: center; gap: 10px; margin-top: 16px; font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.acct-meter { display: contents; }
 .acct-meter-word { color: var(--text-faint); }
 .acct-meter .usage-meter { width: auto; }
-.acct-meter.full .acct-meter-pct { color: var(--accent); }
+.acct-meter-pct { text-align: right; }
+.acct-meter-when { padding-left: 4px; color: var(--text-faint); text-align: right; white-space: nowrap; }
+.acct-meter.full .acct-meter-when { color: var(--accent); }
 .acct-tile-cmd { margin-top: 10px; }
 .acct-meters-none { margin-top: 16px; font-size: 12px; color: var(--text-faint); }
 .acct-place-act { display: inline-flex; align-items: center; gap: 12px; }
 .acct-checked { font-size: 12px; font-weight: 400; color: var(--text-faint); }
-/* "Use this one" is said in the same voice as IN USE, quieter until pointed at. */
-button.set-badge.set-badge-use { padding: 0; border: 0; background: none; cursor: pointer; color: var(--text-faint); }
-button.set-badge.set-badge-use:hover { color: var(--accent); }
-/* TILES: an account each, two to a line, square like anything highlighted. */
+.acct-reading-time { margin-top: 12px; font-size: 12px; color: var(--text-faint); }
+/* Switching is a button the width of the tile: as grey text on the state line it read as a status. */
+.settings-screen[data-pane] .set-ghost.acct-switch { display: flex; justify-content: center; width: 100%; margin-top: 16px; }
+/* TILES: an account each, two to a line, every one the same shape here and in
+   the cloud. The one in use is lifted by its fill and its IN USE, not by a
+   different edge, so the tiles line up. */
 .acct-place-line { margin: -4px 0 12px; font-size: 12.5px; line-height: 1.5; color: var(--text-dim); }
 .acct-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .acct-tile { padding: 16px 16px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--wash); text-align: left; }
-.acct-tile.on { border-radius: 0; background: var(--film-strong); border-left: 2px solid var(--select-bar); }
-.acct-tile-name { font-size: 13.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acct-tile-about { margin-top: 4px; font-size: 12px; color: var(--text-faint); }
-.acct-tile-about .set-badge { margin: 0 8px 0 0; }
+.acct-tile.on { background: var(--film-strong); border-color: var(--line-strong); }
+.acct-tile-head { display: flex; align-items: baseline; gap: 12px; }
+.acct-tile-name { min-width: 0; font-size: 13.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-tile-head .set-badge { flex: none; margin-left: -2px; }
+.acct-tile-plan { flex: none; margin-left: auto; font-size: 12px; color: var(--text-faint); }
+.acct-tile-about { display: flex; align-items: center; min-height: 22px; margin-top: 6px; font-size: 12px; color: var(--text-faint); }
 .acct-tile-trouble { margin-top: 16px; font-size: 12px; line-height: 1.5; color: var(--text-dim); }
 .acct-tile-add { min-height: 112px; border-style: dashed; background: none; color: var(--text-faint); font: inherit; font-size: 13px; text-align: center; cursor: pointer; }
 .acct-tile-add:hover { color: var(--text); }

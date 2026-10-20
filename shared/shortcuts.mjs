@@ -202,8 +202,8 @@ export const SHORTCUTS = [
       // 'n' in both branches → setModal('compose').
       // "Threads", not tasks, since w-ec62ab6b38.
       { keys: ['N'], what: 'Start a new thread.' },
-      // 'c' in all three branches → toggleCloudRef: the cloud on or off.
-      { keys: ['C'], what: 'Turn the cloud on or off.' },
+      // cloudChord in the chords → toggleCloudRef: the cloud on or off.
+      { keys: ['⌘C'], what: 'Turn the cloud on or off, when no text is selected.' },
       // '/' above the focused branch → openSearch
       { keys: ['/'], what: 'Search your threads.' },
       // '\\' above the focused branch → togglePanel

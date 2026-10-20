@@ -14,6 +14,8 @@ export interface WorkItem {
   // PINNED TO THE TOP OF THE LIST (w-20323283e6). Kept by the supervisor, on
   // this Mac, like the place; absent on every row nobody has pinned.
   pinned?: boolean;
+  /** Kept on this Mac whatever the cloud is set to (Supervisor#setThreadOnMac). */
+  onMac?: boolean;
   // WHAT PEOPLE PUT ON EACH MESSAGE IN A CONVERSATION (w-560647d4db): by the
   // message's line uid, then by emoji, then the people on it. Folded out of the
   // presses the ledger holds (shared/work-items.mjs); absent on every row
@@ -332,6 +334,20 @@ export interface UsageLimit {
   zone: string | null;
 }
 
+/** The Agentbox Cloud plan this Mac is signed in to, as the cloud server counts it. */
+export interface CloudPlan {
+  signedIn: boolean;
+  plan?: 'none' | 'pro' | 'plus' | 'max';
+  unlimited?: boolean;
+  /** Agents at once; null when unlimited. */
+  agents?: number | null;
+  hoursPerMonth?: number;
+  running?: number;
+  usedSeconds?: number;
+  error?: string;
+  message?: string;
+}
+
 /**
  * What was left of ONE coding agent's limit at `at`. Null on the snapshot until
  *  the first reading lands -- which for Claude Code costs twenty-five seconds,
@@ -439,12 +455,14 @@ export interface SupervisorStatus {
 // shared/spawn-trouble.mjs): its owner renews it, no admin is involved.
 // 'model-not-on-plan' is a Codex login whose plan lacks the model the task asks
 // for; the fix is another model or another login, not this login.
+// 'level-not-offered' is a thinking level the task's model does not offer.
 // 'too-old' is a Claude Code older than the worker's command line (2.1.71), and
 // 'network' a proxy or company certificate the workers never had; both wait on
 // her, and neither is fixed by trying again. 'api-key' is a Codex signed in
 // with an API key, which is refused rather than billed; 'codex-config' is a
-// config.toml Codex cannot read.
-export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'too-old' | 'network' | 'api-key' | 'codex-config' | 'unknown';
+// config.toml Codex cannot read. 'open-elsewhere' is a Codex conversation
+// another Codex window is writing to.
+export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'level-not-offered' | 'too-old' | 'network' | 'api-key' | 'codex-config' | 'open-elsewhere' | 'unknown';
 
 // A worker frozen mid-action, waiting on the user's allow/deny.
 export interface Approval {
@@ -672,6 +690,8 @@ export interface Snapshot {
   // ON THE PHONE WITH THE MAC SHUT ONLY (renderer/src/cloud-bridge.ts): her
   // replies from the phone her Mac has not taken yet, or turned down.
   phoneWaiting?: { product: string; id: string; at: number; text: string; refused?: string }[];
+  // On the hosted phone: a line saying what it shows may be out of date (cloud-bridge.ts phoneStatusLine).
+  phoneStatus?: string | null;
   // The team (main/team/index.mjs). Null or absent on a build with no team
   // cloud, which is the single-person app.
   team?: TeamState | null;
@@ -978,6 +998,9 @@ export interface WorkspaceSettings {
   } | null;
   permission: PermissionMode;
   permissionArgs: string[];
+  /** The mode cloud runs start in, or 'same' for this computer's. */
+  cloudPermission?: PermissionMode | 'same' | null;
+  cloudCodexMode?: CodexModeId | 'same';
   /** What a Codex worker may do across the workspace. Never 'workspace' here. */
   codexMode: CodexModeId;
   // One switch over everything that leaves the machine, on at install
@@ -1125,6 +1148,7 @@ declare global {
       setProductOrder(p: { order: string[] }): Promise<unknown>;
       setThreadPlaces(p: { places: Record<string, number | null> }): Promise<unknown>;
       setThreadPins?(p: { pins: Record<string, true | null> }): Promise<unknown>;
+      setThreadOnMac?(p: { onMac: Record<string, true | null> }): Promise<unknown>;
       setProductHidden(p: { product: string; hidden: boolean }): Promise<unknown>;
       compose(p: { product: string; title: string; body?: string; kind?: string; priority?: number; runAt?: number; start?: 'later' | 'now'; labels?: string[]; model?: string; engine?: string; effort?: string; assignee?: string; due?: string; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[] }): Promise<WorkItem>;
       // Feedback to the Agentbox team (main/feedback.mjs). Optional: an older
@@ -1194,6 +1218,12 @@ declare global {
       // finishing* on two channels.
       messageRulesRead?(): Promise<{ text: string; error?: string }>;
       messageRulesWrite?(p: { text: string }): Promise<{ ok: boolean; error?: string }>;
+      // WHAT NEO KEEPS, on the Neo page (renderer/src/neo/NeoSettings.tsx).
+      // Answers null where Neo is off, which is everywhere but the one Mac
+      // that opted in (main/neo/gate.mjs).
+      neoEnabled?(): Promise<boolean>;
+      neoMemory?(change?: { add?: string; forget?: string; instructions?: string; memories?: string }): Promise<NeoMemory | null>;
+      neoVoice?(voice?: string): Promise<string | null>;
       // The settings screen. Every write answers with the whole settings object
       // again, so the screen redraws from what the main process now believes
       // rather than from what the click assumed.
@@ -1260,6 +1290,10 @@ declare global {
   }
 }
 
+
+/** What Neo keeps between conversations (shared/neo-memory.mjs). `document`
+ *  is the memories as the page writes them, one entry a line. */
+export type NeoMemory = { ok?: boolean; error?: string; instructions: string; memories: { id: string; text: string; at: number }[]; document: string };
 
 /**
  * ONE FOLDER'S WORTH OF THE DISK, as the app's own picker reads it.

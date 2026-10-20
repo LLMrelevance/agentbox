@@ -492,6 +492,10 @@ export function messageLine(item: WorkItem, product: Product | undefined | null,
   const everyone = [...(team?.people ?? []), ...(team?.sharedBy ? [team.sharedBy] : []), ...(item.people ?? [])];
   let people = [...new Set(everyone)].filter((p) => p && p !== me);
   if (!people.length && item.createdBy && item.createdBy !== me) people = [item.createdBy];
+  // The row's face is the first name's, so whoever wrote the words it shows
+  // goes first. The record's order puts a group's starter last.
+  const from = (by: string | null | undefined) =>
+    by && by !== me && people.includes(by) ? [by, ...people.filter((p) => p !== by)] : people;
   // A CHAT WITH THREADS SAYS WHAT IS WAITING ON YOU (w-920461cbe6), and so
   // changes as the chat does. One clause, picked 2026-10-05 in her words: "I
   // prefer Maya in your thread, Sam, your call." So a thread with replies to
@@ -506,10 +510,10 @@ export function messageLine(item: WorkItem, product: Product | undefined | null,
     const newest = waits.threads[0];
     if (newest) {
       const where = newest.mine ? 'your thread' : 'a thread';
-      return { people, fromMe: false, text: `${nameOf(newest.lastBy)} in ${where}: ${line(newest.last)}` };
+      return { people: from(newest.lastBy), fromMe: false, text: `${nameOf(newest.lastBy)} in ${where}: ${line(newest.last)}` };
     }
     const said = item.talk.chat[item.talk.chat.length - 1];
-    if (said) return { people, fromMe: !!me && said.by === me, text: line(said.text) };
+    if (said) return { people: from(said.by), fromMe: !!me && said.by === me, text: line(said.text) };
   }
   const answered = !!item.answer && item.answer !== '(withdrawn)';
   // An agent mentioned in the message reads as its words, not its link (w-7b9cb8636a).
@@ -523,7 +527,7 @@ export function messageLine(item: WorkItem, product: Product | undefined | null,
   // mention is judged on the words somebody actually reads.
   const text = firstRealLine(plainWords(String((answered ? item.answer : item.body) || item.title || '')));
   const by = (answered ? item.wrote?.answer?.by : item.wrote?.body?.by) ?? item.createdBy ?? null;
-  return { people, fromMe: !!me && by === me, text };
+  return { people: from(by), fromMe: !!me && by === me, text };
 }
 
 /**

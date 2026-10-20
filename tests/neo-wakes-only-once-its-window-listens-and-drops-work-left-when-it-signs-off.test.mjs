@@ -11,6 +11,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { createNeo } from '../main/neo/index.mjs';
 
+// Where the orb sits inside the 600x240 window (renderer/src/neo/neo.css #orb).
+const ORB_TOP = 240 - 24 - 150;
+
 function fakes({ onListen, getMicImpl, mic = { status: 'granted' }, userData: given, startLiveImpl, onReview, clock, decideImpl } = {}) {
   const userData = given ?? fs.mkdtempSync(path.join(os.tmpdir(), 'neo-main-'));
   fs.writeFileSync(path.join(userData, 'neo-alpha'), '');
@@ -51,6 +54,74 @@ function fakes({ onListen, getMicImpl, mic = { status: 'granted' }, userData: gi
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
+
+async function renewingNeo({decideImpl=async()=>({choice:'none',confidence:1}),act=()=>({ok:true,said:'Current thread'})}={}) {
+  const startLiveImpl=vi.fn(async()=>({sdp:'v=0 answer'}));
+  const f=fakes({decideImpl,startLiveImpl});
+  const push=f.mainSent.push.bind(f.mainSent);
+  f.mainSent.push=(...messages)=>{
+    for(const [channel,request] of messages)if(channel==='neo:act')queueMicrotask(()=>{
+      const result=request.name==='neo_screen'?{ok:true,screen:{open:{id:'w-a',title:'A',options:[],pictures:[],films:[],files:[]},rows:[],commands:[]}}:act(request);
+      f.listeners.get('neo:act-result')(f.fromMainWindow,{id:request.id,result});
+    });
+    return push(...messages);
+  };
+  const waking=f.neo.wake('test');f.finishLoad();await waking;
+  const prepare=async(transportId)=>f.handlers.get('neo:start-live')(f.fromNeo,{sdp:'v=0 offer',transportId});
+  const activate=async(transportId)=>f.handlers.get('neo:activate-live')(f.fromNeo,{transportId});
+  await prepare('first');await activate('first');
+  return {...f,prepare,activate,startLiveImpl};
+}
+
+describe('one conversation across renewed voice connections',()=>{
+  it('keeps confirmation state while rejecting calls from a retired connection',async()=>{
+    const actions=[];
+    const f=await renewingNeo({decideImpl:async({input,instructions})=>({choice:/Yes/.test(input)?'yes':/first of them/.test(instructions)?'close':'none',confidence:1}),act:(r)=>{
+      if(r.name==='close_thread'){actions.push(r.args);return r.args.confirmed?{ok:true,said:'Closed.'}:{ok:false,status:'needs_yes',said:'Close it anyway?'}}
+      return {ok:true,said:'Thread A'};
+    }});
+    await f.handlers.get('neo:decide')(f.fromNeo,{heard:'Close this.',transportId:'first'});
+    await f.prepare('second');
+    expect(f.startLiveImpl.mock.calls.at(-1)[0].session.instructions).toMatch(/Pending app state.*Awaiting confirmation.*Target: A/);
+    await f.activate('second');
+    await f.handlers.get('neo:decide')(f.fromNeo,{heard:'Yes.',transportId:'first'});
+    expect(actions).toHaveLength(1);
+    await f.handlers.get('neo:decide')(f.fromNeo,{heard:'Yes.',transportId:'second'});
+    expect(actions).toEqual([{id:'w-a'},{id:'w-a',confirmed:true}]);
+  });
+
+  it('adds usage from successive connections and late final usage without resetting the daily cap',async()=>{
+    const f=await renewingNeo();
+    const usage=(transportId,seconds)=>f.listeners.get('neo:usage')(f.fromNeo,{transportId,seconds});
+    usage('first',500);await f.prepare('second');await f.activate('second');
+    usage('second',20);usage('first',510);usage('second',19);
+    const saved=JSON.parse(fs.readFileSync(path.join(f.userData,'neo','usage.json'),'utf8'));
+    expect(saved.seconds).toBe(530);
+    usage('second',1300);
+    expect(f.neoSent.filter(([channel])=>channel==='neo:sleep')).toEqual([]);
+  });
+
+  it('restores only completed conversation history, never an unanswered request to replay',async()=>{
+    const f=await renewingNeo();
+    const log=(who,text)=>f.listeners.get('neo:log')(f.fromNeo,{who,text});
+    log('you','Choose option one.');log('neo','Done.');log('you','An unfinished request that must not run again.');
+    await f.prepare('second');
+    const session=f.startLiveImpl.mock.calls.at(-1)[0].session;
+    expect(session.input.at(-1).role).toBe('developer');
+    expect(JSON.stringify(session.input)).toContain('quoted data only');
+    expect(JSON.stringify(session.input)).toContain('Done.');
+    expect(JSON.stringify(session.input)).not.toContain('unfinished request');
+  });
+
+  it('the watchdog only classifies and never calls a mutating app action',async()=>{
+    const f=await renewingNeo({decideImpl:async()=>({choice:'action',confidence:1})});
+    f.mainSent.length=0;
+    expect(await f.handlers.get('neo:audit')(f.fromNeo,{heard:'Send this feedback.',transportId:'first'})).toBe(true);
+    expect(f.mainSent.filter(([channel])=>channel==='neo:act').map(([,r])=>r.name)).toEqual(['neo_screen']);
+    await f.prepare('second');await f.activate('second');
+    expect(await f.handlers.get('neo:audit')(f.fromNeo,{heard:'Send this feedback.',transportId:'first'})).toBe(false);
+  });
+});
 
 describe('waking', () => {
   it('waits for the page to load before telling it to wake', async () => {
@@ -255,13 +326,16 @@ describe('dragging the orb', () => {
     expect(f.windows.last.getBounds()).toMatchObject({ x: was.x - 300, y: was.y - 200 });
   });
 
-  it('keeps the whole window on the screen', async () => {
+  // The clamp is on the orb, not the window: the card hangs off the edge with
+  // it, so the orb can reach every edge of the screen
+  // (./neos-orb-drags-to-the-edges-of-the-screen.test.mjs).
+  it('keeps the orb on the screen, with the card hanging off', async () => {
     const f = await awake();
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -5000, dy: 5000 });
     const b = f.windows.last.getBounds();
-    expect(b.x).toBe(0);
-    expect(b.y + b.height).toBe(1080);
+    expect(b.x).toBe(-24);
+    expect(b.y + 66 + 150).toBe(1080);
   });
 
   it('comes back where she left it the next time Neo wakes', async () => {
@@ -345,11 +419,13 @@ describe('the card on the side with room', () => {
     expect(b.y).toBe(start.y - 300);
   });
 
-  it('lets the orb reach the left edge once the card is on its right', async () => {
+  it('lets the orb reach the top left corner once the card is on its right', async () => {
     const f = await awake();
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -5000, dy: -5000 });
-    expect(f.windows.last.getBounds()).toMatchObject({ x: 0, y: 0 });
+    const b = f.windows.last.getBounds();
+    expect(b.x + ORB_LEFT - 75).toBe(0);
+    expect(b.y + 66).toBe(0);
   });
 
   it('keeps the side with the place', async () => {
@@ -488,7 +564,11 @@ describe('dragging the orb up', () => {
     const f = await awake();
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
     f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: 0, dy: -5000 });
-    expect(f.windows.last.getBounds().y).toBe(0);
+    // The ORB's top edge, not the window's. Clamping the window left the orb
+    // 66px short of the top, which is the limit she felt: "I feel like I've
+    // hit a limit... the capacity of like where Jarvis can move could be a
+    // little like more extended" (./neos-orb-drags-to-the-edges-of-the-screen.test.mjs).
+    expect(f.windows.last.getBounds().y + ORB_TOP).toBe(0);
     expect(last(f)).toMatchObject({ up: true });
   });
 
@@ -591,10 +671,10 @@ describe('deciding live', () => {
   it('decides, acts through the app, and answers what to say', async () => {
     const decideImpl = vi.fn(async () => ({ choice: 'close', confidence: 0.96, runnersUp: [], ms: 120 }));
     const f = await awake(decideImpl);
-    const stop = playWindow(f, { close_thread: { ok: true, status: 'committed', said: 'Closed JARVIS for Agentbox.' } });
+    const stop = playWindow(f, { close_thread: { ok: true, status: 'committed', said: 'Closed JARVIS for Agentbox.' }, brief_open: { ok: true, status: 'committed', said: 'Now open: Pricing page copy.' } });
     const r = await f.handlers.get('neo:decide')(f.fromNeo, { heard: 'close it' });
     stop();
-    expect(r.say).toMatch(/Closed JARVIS/);
+    expect(r.say).toBe('Done. Now open: Pricing page copy.');
     expect(f.mainSent.some(([ch, p]) => ch === 'neo:act' && p.name === 'close_thread' && p.args.id === 'w-j')).toBe(true);
   });
 
@@ -624,5 +704,245 @@ describe('deciding live', () => {
     await f.handlers.get('neo:start-live')(f.fromNeo, { sdp: 'v=0 offer', outside: false });
     stop();
     expect(startLiveImpl.mock.calls[0][0].session.delegation).toEqual({ type: 'client' });
+  });
+});
+
+// Neo's words reach the main window so it can show the picture Neo names
+// (tests/neo-shows-each-picture-as-it-names-it.test.mjs).
+describe('following what Neo says', () => {
+  it('hands Neo\'s words to the main window while awake, and only then', async () => {
+    const f = fakes({});
+    const follow = f.listeners.get('neo:follow');
+    follow(f.fromNeo, { said: 'Option two is Instrument.' });
+    expect(f.mainSent.some(([ch, p]) => ch === 'neo:act' && p.name === 'follow')).toBe(false);
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    follow(f.fromNeo, { said: 'Option two is Instrument.' });
+    expect(f.mainSent.find(([ch, p]) => ch === 'neo:act' && p.name === 'follow')?.[1].args).toEqual({ said: 'Option two is Instrument.' });
+  });
+
+  it('takes words only from Neo\'s own window', async () => {
+    const f = fakes({});
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    f.listeners.get('neo:follow')(f.fromMainWindow, { said: 'Option two.' });
+    expect(f.mainSent.some(([ch, p]) => ch === 'neo:act' && p.name === 'follow')).toBe(false);
+  });
+});
+
+// The voice made up a task when it was told nothing about the screen
+// (tests/neo-answers-from-what-is-on-screen.test.mjs). Main tells it.
+describe('telling the voice what is on screen', () => {
+  function answerEveryAct(f, results) {
+    let seen = 0;
+    const timer = setInterval(() => {
+      const acts = f.mainSent.filter(([ch]) => ch === 'neo:act');
+      for (; seen < acts.length; seen++) {
+        const { id, name } = acts[seen][1];
+        f.listeners.get('neo:act-result')(f.fromMainWindow, { id, result: results[name] ?? { ok: true, status: 'committed', said: `did ${name}` } });
+      }
+    }, 1);
+    return () => clearInterval(timer);
+  }
+
+  it('the session starts knowing the open thread', async () => {
+    const startLiveImpl = vi.fn(async () => ({ sdp: 'v=0 answer', id: 's' }));
+    const f = fakes({ startLiveImpl });
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    const stop = answerEveryAct(f, { describe_open: { ok: true, said: 'Open thread: Account indicator\nWhat this task is for: show each agent\'s account.' } });
+    await f.handlers.get('neo:start-live')(f.fromNeo, { sdp: 'v=0 offer', outside: false });
+    stop();
+    expect(startLiveImpl.mock.calls[0][0].session.instructions).toMatch(/What is on screen now[\s\S]*show each agent's account/);
+  });
+
+  // tests/neo-speaks-in-the-voice-she-picked.test.mjs
+  it('the session speaks in the voice she picked', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const startLiveImpl = vi.fn(async () => ({ sdp: 'v=0 answer', id: 's' }));
+    const f = fakes({ startLiveImpl });
+    fs.mkdirSync(path.join(f.userData, 'neo'), { recursive: true });
+    fs.writeFileSync(path.join(f.userData, 'neo', 'prefs.json'), JSON.stringify({ voice: 'cedar' }));
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    const stop = answerEveryAct(f, {});
+    await f.handlers.get('neo:start-live')(f.fromNeo, { sdp: 'v=0 offer', outside: false });
+    stop();
+    expect(startLiveImpl.mock.calls[0][0].session.audio).toEqual({ output: { voice: 'cedar' } });
+  });
+
+  it('Settings reads and keeps the voice, marin until one is picked, only one of the ten', async () => {
+    const f = fakes({});
+    const voice = f.handlers.get('neo:voice');
+    expect(await voice(f.fromMainWindow)).toBe('marin');
+    expect(await voice(f.fromMainWindow, 'cedar')).toBe('cedar');
+    expect(await voice(f.fromMainWindow, 'zzz')).toBe('cedar');
+    expect(await fakes({ userData: f.userData }).handlers.get('neo:voice')(f.fromMainWindow)).toBe('cedar');
+  });
+
+  it('every decision comes back with what is on screen after it', async () => {
+    const f = fakes({ decideImpl: async () => ({ choice: 'next', confidence: 0.9, runnersUp: [] }) });
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    const stop = answerEveryAct(f, {
+      neo_screen: { ok: true, screen: { open: null, rows: [], commands: [], canGoBack: false } },
+      describe_open: { ok: true, said: 'Open thread: Pricing page copy' },
+    });
+    const r = await f.handlers.get('neo:decide')(f.fromNeo, { heard: 'next' });
+    stop();
+    expect(r.context).toMatch(/What is on screen now[\s\S]*Pricing page copy/);
+  });
+});
+
+// The main window redrew at every pointer move during a drag, and things lagged
+// (tests/neo-lets-go-of-the-orb-when-the-button-comes-up.test.mjs).
+describe('a drag does not flood the main window', () => {
+  it('tells the main window where the orb is a few times a second and once at the end', async () => {
+    let clock = 0;
+    const f = fakes({ clock: () => clock });
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    const told = () => f.mainSent.filter(([ch]) => ch === 'neo:orb').length;
+    const before = told();
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    for (let i = 1; i <= 60; i++) { clock += 16; f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -i * 3, dy: -i * 2 }); }
+    const during = told() - before;
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'end' });
+    expect(during).toBeLessThanOrEqual(6);
+    expect(told() - before).toBe(during + 1);
+  });
+
+  it('a new press while a drag is open starts from where the window is now', async () => {
+    const f = fakes({});
+    const w = f.neo.wake('test');
+    f.finishLoad();
+    await w;
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -100, dy: 0 });
+    const here = f.windows.last.getBounds();
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'start' });
+    f.listeners.get('neo:drag')(f.fromNeo, { phase: 'move', dx: -10, dy: 0 });
+    expect(f.windows.last.getBounds().x).toBe(here.x - 10);
+  });
+});
+
+// Sustained-session audit, 2026-10-17: Decisions requests bypassed the tool
+// queue, and a delayed goodbye could put the next conversation to sleep.
+describe('requests during a long conversation', () => {
+  const SCREEN = { open: null, rows: [], commands: [], canGoBack: false };
+  async function awake(decideImpl, { getScreen = () => SCREEN, onAct = () => null } = {}) {
+    const f = fakes({ decideImpl });
+    const woke = f.neo.wake('test');
+    f.finishLoad();
+    await woke;
+    let seen = 0;
+    const timer = setInterval(() => {
+      const acts = f.mainSent.filter(([ch]) => ch === 'neo:act');
+      for (; seen < acts.length; seen++) {
+        const { id, name, args } = acts[seen][1];
+        f.listeners.get('neo:act-result')(f.fromMainWindow, { id, result: name === 'neo_screen' ? { ok: true, screen: getScreen() } : onAct(name, args) ?? { ok: true, said: 'Nothing open.' } });
+      }
+    }, 1);
+    return { ...f, stop: () => clearInterval(timer) };
+  }
+
+  it('finishes one request before starting the next decision', async () => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const decideImpl = vi.fn(async () => { await held; return { choice: 'none', confidence: 0.99 }; });
+    const f = await awake(decideImpl);
+    let first, second;
+    try {
+      first = f.handlers.get('neo:decide')(f.fromNeo, { heard: 'What needs me?' });
+      second = f.handlers.get('neo:decide')(f.fromNeo, { heard: 'And what is next?' });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(decideImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      release();
+      await Promise.all([first, second]);
+      f.stop();
+    }
+  });
+
+  it('drops a queued decision when the conversation ends', async () => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const decideImpl = vi.fn(async () => { await held; return { choice: 'none', confidence: 0.99 }; });
+    const f = await awake(decideImpl);
+    try {
+      const first = f.handlers.get('neo:decide')(f.fromNeo, { heard: 'What needs me?' });
+      const second = f.handlers.get('neo:decide')(f.fromNeo, { heard: 'Close it.' });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      f.listeners.get('neo:ending')(f.fromNeo);
+      release();
+      await Promise.all([first, second]);
+      expect(decideImpl).toHaveBeenCalledTimes(1);
+    } finally { release(); f.stop(); }
+  });
+
+  it('a Decisions goodbye cannot end the next conversation', async () => {
+    const f = await awake(async () => ({ choice: 'signoff', confidence: 0.99 }));
+    try {
+      await f.handlers.get('neo:decide')(f.fromNeo, { heard: 'Goodbye.' });
+      f.listeners.get('neo:closed')(f.fromNeo);
+      await f.neo.wake('test');
+      const sleeps = f.neoSent.filter(([ch]) => ch === 'neo:sleep').length;
+      await new Promise((resolve) => setTimeout(resolve, 1600));
+      expect(f.neoSent.filter(([ch]) => ch === 'neo:sleep')).toHaveLength(sleeps);
+    } finally { f.stop(); }
+  });
+
+  it('a queued request keeps the thread that was visible when it arrived', async () => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const a = { ...SCREEN, open: { id: 'w-a', title: 'A', options: [] } };
+    const b = { ...SCREEN, open: { id: 'w-b', title: 'B', options: [] } };
+    let visible = a;
+    const f = await awake(async ({ instructions }) => {
+      if (/not done yet/.test(instructions)) return { choice: 'none', confidence: 0.99 };
+      await held;
+      return { choice: 'close', confidence: 0.99 };
+    }, { getScreen: () => visible, onAct: (name) => {
+      if (name === 'close_thread') visible = b;
+      return { ok: true, said: 'Done.' };
+    } });
+    let first, second;
+    try {
+      first = f.handlers.get('neo:decide')(f.fromNeo, { heard: 'Close this.' });
+      second = f.handlers.get('neo:decide')(f.fromNeo, { heard: 'Close this.' });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      release();
+      await Promise.all([first, second]);
+      expect(f.mainSent.filter(([ch, p]) => ch === 'neo:act' && p.name === 'close_thread').map(([, p]) => p.args.id)).toEqual(['w-a']);
+    } finally { release(); await Promise.all([first, second]); f.stop(); }
+  });
+
+  it('a late goodbye result cannot end the next conversation', async () => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const decideImpl = vi.fn(async ({ instructions }) => {
+      if (/not done yet/.test(instructions)) return { choice: 'none', confidence: 0.99 };
+      await held;
+      return { choice: 'signoff', confidence: 0.99 };
+    });
+    const f = await awake(decideImpl);
+    try {
+      const old = f.handlers.get('neo:decide')(f.fromNeo, { heard: 'Goodbye.' });
+      await vi.waitFor(() => expect(decideImpl).toHaveBeenCalled());
+      f.listeners.get('neo:closed')(f.fromNeo);
+      await f.neo.wake('test');
+      const sleeps = f.neoSent.filter(([ch]) => ch === 'neo:sleep').length;
+      release();
+      await old;
+      await new Promise((resolve) => setTimeout(resolve, 1600));
+      expect(f.neoSent.filter(([ch]) => ch === 'neo:sleep')).toHaveLength(sleeps);
+    } finally { release(); f.stop(); }
   });
 });

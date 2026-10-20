@@ -248,13 +248,13 @@ const Chevron = () => <svg className="car" viewBox="0 0 10 10" width="10" height
  * where it works and on what, what it said (or where it is if it has not said
  * anything yet), and the threads it filed in the list a task draws them in.
  */
-export function AgentAnswers({ text, md }: { text: string; md: (t: string) => ReactNode }) {
+export function AgentAnswers({ text, md, newest = false }: { text: string; md: (t: string) => ReactNode; newest?: boolean }) {
   const links = agentLinks(text).filter((l) => l.task && l.project);
   if (!links.length) return null;
-  return <>{links.map((l) => <AgentAnswer key={l.task!} link={l} md={md} />)}</>;
+  return <>{links.map((l) => <AgentAnswer key={l.task!} link={l} md={md} newest={newest} />)}</>;
 }
 
-function AgentAnswer({ link, md }: { link: AgentLink; md: (t: string) => ReactNode }) {
+function AgentAnswer({ link, md, newest }: { link: AgentLink; md: (t: string) => ReactNode; newest: boolean }) {
   const ctx = useContext(ChatAgentsContext);
   const team = useContext(TeamContext);
   const task = ctx?.find(link.project!, link.task!);
@@ -267,7 +267,7 @@ function AgentAnswer({ link, md }: { link: AgentLink; md: (t: string) => ReactNo
   const filed = task ? ctx!.filed(task) : [];
   const rows = (filed.length ? filed : task ? [task] : []).map((i) => ({ id: i.id, title: i.label || i.title, state: ctx!.stateOf(i) }));
   const said = task?.result
-    ? <ChatFold>{md(task.result)}</ChatFold>
+    ? <ChatFold newest={newest}>{md(task.result)}</ChatFold>
     : <div className="msg-body chat-agent-state">{
       !task && !card ? `Asked to work in ${where}. Only people in that project can open it.`
         : state === 'running' ? `Working on it in ${where}.`

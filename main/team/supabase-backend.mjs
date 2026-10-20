@@ -264,6 +264,31 @@ export function supabaseBackend(client) {
         must(await client.from('phone_threads').upsert(batch, { onConflict: 'owner,device,project,item' }), 'sending threads to your phone');
       }
     },
+    // Her files for the phone, in her own folder of a private bucket
+    // (20261017000000_phone_files.sql). Named by what is in them, so one
+    // already there is the same file and is left as it is.
+    async putPhoneFile({ owner, device, name, data, type }) {
+      const me = await myId();
+      const { error } = await client.storage.from('phone-files').upload(`${owner ?? me}/${device}/${name}`, data, { contentType: type ?? 'application/octet-stream', upsert: false });
+      if (error && !/exists|duplicate/i.test(`${error.message} ${error.statusCode ?? ''}`) && String(error.statusCode) !== '409') throw new Error(`sending a file to your phone: ${error.message}`);
+    },
+    // A picture her phone put in this computer's folder for a reply; null when it is not there.
+    async getPhoneFile({ owner, device, name }) {
+      const me = await myId();
+      const { data, error } = await client.storage.from('phone-files').download(`${owner ?? me}/${device}/${name}`);
+      if (error) {
+        if (/not.?found/i.test(`${error.message} ${error.error ?? ''}`) || [400, 404].includes(Number(error.statusCode ?? error.status))) return null;
+        throw new Error(`taking a picture from your phone: ${error.message}`);
+      }
+      return Buffer.from(await data.arrayBuffer());
+    },
+    async dropPhoneFiles({ owner, device, names }) {
+      const me = await myId();
+      for (let i = 0; i < names.length; i += 100) {
+        const { error } = await client.storage.from('phone-files').remove(names.slice(i, i + 100).map((n) => `${owner ?? me}/${device}/${n}`));
+        if (error) throw new Error(`clearing old files from your phone: ${error.message}`);
+      }
+    },
     async dropPhoneThreads(device, project, items, owner) {
       const me = await myId();
       for (let i = 0; i < items.length; i += 100) {

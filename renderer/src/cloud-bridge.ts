@@ -18,144 +18,22 @@ import { REQUEST_CHANNELS, PUSH_CHANNELS, DESKTOP_ONLY } from '../../shared/brid
 import { cloudClient, type CloudClient, type CloudConfig } from './cloud-rest';
 import { installPhoneScreen } from './phone-screen';
 import { atMostEvery } from './phone-polls';
-import { madeHere } from '../../shared/phone-snapshot.mjs';
+import { setPictureLinks } from './picture';
+import { SEND_MAX_BYTES, sendFiles, sentFileName } from './phone-sends-files';
+import { LINK_RENEW_MS, fileOnPhone, linkForFile, linkOfEntry as linkOfName, objectsToSign, phonePage, renewLinks, type Links } from './phone-links';
+import { BUCKET, cloudPlaces, findFile, findFolder, installCloudFiles, type Place } from './cloud-files';
+import {
+  LIVE_FOR_MS, NOT_HERE, macSeenOf, phoneHistory, phoneSlug, phoneStatusLine,
+  phoneView, readCommands, readThreads, splitSlug, type Aliases, type PhoneRows,
+} from './phone-rows';
+import { phoneSender } from './phone-send';
+
+export {
+  NOT_HERE, UNDONE, approvalCommand, closeToTakeBack, commandFor, macSeenOf, phoneHistory, phoneSlug, phoneStatusLine,
+  phoneView, readCommands, readThreads, realItem, splitSlug, takeBack, type Aliases, type Cards, type PhoneRows, type Waiting,
+} from './phone-rows';
 
 type Push = (payload: unknown) => void;
-
-export interface PhoneRows {
-  projects: { device: string; project: string; name: string }[];
-  threads: { device: string; project: string; item: string; snapshot: any; updated_at?: string }[];
-  commands: { id: string; device: string; project: string; item: string | null; kind: string; payload: any; created_at: string; claimed_at?: string | null; taken_at: string | null; outcome: string | null }[];
-}
-
-export interface Waiting { product: string; id: string; at: number; text: string; refused?: string }
-
-// How long a refusal stays on her screen: long enough to be read the next time
-// she looks, not forever.
-const REFUSAL_SHOWN_MS = 24 * 3600_000;
-export const UNDONE = 'refused: taken back on the phone';
-// A PROJECT ON THE PHONE IS A PROJECT ON ONE COMPUTER (Codex's review of
-// step 1, finding 4): the screens know it by its name there and that
-// computer's id together, so two computers' projects of the same name stay two.
-export const phoneSlug = (device: string, project: string) => `${project}@${device}`;
-export function splitSlug(slug: string): { device: string; project: string } | null {
-  const m = /^(.+)@([0-9a-f]{12})$/.exec(String(slug));
-  return m ? { project: m[1], device: m[2] } : null;
-}
-
-// THE SAME THREAD ID ON TWO COMPUTERS (a store copied from one to the other)
-// would be one row to the screens, which pick, pin and close by id (Codex's
-// second review, finding 6). The first keeps its id; every other gets one of
-// its own, made from where it lives, and is turned back at the boundary.
-const fnv = (text: string) => {
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i += 1) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return (h >>> 0).toString(16).padStart(8, '0');
-};
-const aliasFor = (slug: string, item: string, n: number) => `w-${(fnv(`${slug}/${item}/${n}`) + fnv(`${n}/${item}/${slug}`)).slice(0, 10)}`;
-export type Aliases = Record<string, { product: string; item: string }>;
-/** The thread a screen's id stands for, in its project. */
-export const realItem = (aliases: Aliases, product: string, id: string) => (aliases[id]?.product === product ? aliases[id].item : id);
-
-/**
- * Her rows, as the inbox draws them: each thread as her computer last saw it,
- * with what she did on the phone since laid over it. A close or a snooze moves
- * the row at once; a new thread is a row of its own; a reply is a message of
- * hers in the thread, marked as waiting. What her computer turned down says
- * why, for a day after it did (second review, finding 9).
- */
-export function phoneView(rows: PhoneRows, now = Date.now()) {
-  const names = new Map(rows.projects.map((p) => [phoneSlug(p.device, p.project), p.name]));
-  const products = rows.projects.map((p) => ({ slug: phoneSlug(p.device, p.project), name: p.name, dir: '', oneLiner: '', repoPath: '' }));
-  const items = new Map<string, any>();
-  const screenId = new Map<string, string>();
-  const aliases: Aliases = {};
-  // Every real id, and every id a new thread waiting on the phone shows under,
-  // is spoken for before any stand-in is made, and a stand-in is never one of
-  // them (Codex's third review, finding 6).
-  const taken = new Set<string>([...rows.threads.map((t) => t.item), ...rows.commands.filter((c) => c.kind === 'new').map((c) => madeHere(c.id))]);
-  const used = new Set<string>();
-  const threads = [...rows.threads].sort((a, b) => `${a.device}/${a.project}`.localeCompare(`${b.device}/${b.project}`));
-  for (const t of threads) {
-    const slug = phoneSlug(t.device, t.project);
-    if (!names.has(slug) || !t.snapshot?.item) continue;
-    let id = t.item;
-    if (used.has(id)) {
-      let n = 0;
-      do { id = aliasFor(slug, t.item, n); n += 1; } while (taken.has(id) || used.has(id));
-      aliases[id] = { product: slug, item: t.item };
-    }
-    used.add(id);
-    screenId.set(`${slug}/${t.item}`, id);
-    items.set(`${slug}/${t.item}`, { ...t.snapshot.item, id, product: slug, productName: names.get(slug) });
-  }
-  const waiting: Waiting[] = [];
-  const ordered = [...rows.commands].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-  for (const c of ordered) {
-    const at = Date.parse(c.created_at) || now;
-    const refused = c.outcome?.startsWith('refused') ? c.outcome.replace(/^refused:\s*/, '') : null;
-    const takenAt = c.taken_at ? Date.parse(c.taken_at) || at : null;
-    if (takenAt !== null && !(refused && now - takenAt < REFUSAL_SHOWN_MS)) continue;
-    // Taken back on the phone: nothing to show.
-    if (c.outcome === UNDONE) continue;
-    const slug = phoneSlug(c.device, c.project);
-    const key = `${slug}/${c.item}`;
-    const row = items.get(key);
-    const id = screenId.get(key) ?? c.item;
-    const said = (text: string) => waiting.push({ product: slug, id: id as string, at, text, ...(refused ? { refused } : {}) });
-    if (c.kind === 'reply' && c.item) said(String(c.payload?.text ?? ''));
-    else if (refused && c.item && (c.kind === 'close' || c.kind === 'snooze')) {
-      said(c.kind === 'close' ? 'Close this thread' : Number(c.payload?.until) > 0 ? 'Move to Later' : 'Bring back from Later');
-    } else if (c.kind === 'close' && row) items.set(key, { ...row, status: 'done', updatedAt: at });
-    else if (c.kind === 'snooze' && row) items.set(key, { ...row, snoozedUntil: Number(c.payload?.until) || null, updatedAt: at });
-    else if (c.kind === 'new' && names.has(slug)) {
-      const made = madeHere(c.id);
-      items.set(`${slug}/${made}`, {
-        id: made, product: slug, productName: names.get(slug), title: String(c.payload?.title || c.payload?.body || '').slice(0, 200),
-        body: String(c.payload?.body ?? ''), kind: 'directive', labels: [], priority: 0, createdAt: at, updatedAt: at,
-        ...(refused ? { status: 'blocked', result: `Your computer could not start this: ${refused}` } : { status: 'open', waitsForMac: true }),
-      });
-    }
-  }
-  return { products, items: [...items.values()], waiting, aliases };
-}
-
-/** The thread's lines as her computer sent them, for the thread view. */
-export function phoneHistory(rows: PhoneRows, product: string, id: string, aliases: Aliases = {}) {
-  const item = realItem(aliases, product, id);
-  const t = rows.threads.find((r) => phoneSlug(r.device, r.project) === product && r.item === item);
-  return { ok: true, lines: Array.isArray(t?.snapshot?.history) ? t.snapshot.history.map((l: any) => ({ ...l, id })) : [] };
-}
-
-/** What one press on the phone leaves for her Mac, or null for a press that is not one of the four. */
-// UNDO OF A CLOSE MADE ON THE PHONE takes the close back while it is still
-// waiting: the phone marks its own command taken, as undone, and the computer
-// never sees it. Once the computer has closed the thread, undoing is the
-// computer's. Returns the command to take back, or null.
-export function closeToTakeBack(rows: PhoneRows, channel: string, p: any, aliases: Aliases = {}) {
-  if (channel !== REQUEST_CHANNELS.answer || p?.status !== 'open' || (typeof p.answer === 'string' && p.answer.trim())) return null;
-  const where = splitSlug(p.product);
-  if (!where) return null;
-  const item = realItem(aliases, p.product, p.id);
-  const waiting = rows.commands.filter((c) => c.kind === 'close' && !c.taken_at && !c.claimed_at && c.device === where.device && c.project === where.project && c.item === item);
-  return waiting.at(-1) ?? null;
-}
-
-export function commandFor(channel: string, p: any, aliases: Aliases = {}): { device: string; project: string; item: string | null; kind: string; payload: Record<string, unknown> } | null {
-  const where = splitSlug(p?.product);
-  if (!where) return null;
-  const on = (item: string | null, kind: string, payload: Record<string, unknown>) => ({ ...where, item: item === null ? null : realItem(aliases, p.product, item), kind, payload });
-  if (channel === REQUEST_CHANNELS.answer) {
-    if (typeof p.answer === 'string' && p.answer.trim()) return on(p.id, 'reply', { text: p.answer });
-    if (p.status === 'done') return on(p.id, 'close', {});
-    return null;
-  }
-  if (channel === REQUEST_CHANNELS.snooze && Number.isFinite(p.snoozedUntil) && p.snoozedUntil >= 0) return on(p.id, 'snooze', { until: p.snoozedUntil });
-  if (channel === REQUEST_CHANNELS.compose && (String(p.title ?? '').trim() || String(p.body ?? '').trim())) {
-    return on(null, 'new', { title: String(p.title ?? ''), body: String(p.body ?? '') });
-  }
-  return null;
-}
 
 // THE DOORS THAT ONLY READ, answered here as a door with nothing behind it.
 // Every other door changes something on her computer that the phone cannot
@@ -166,13 +44,11 @@ const READS = new Set([
   'firstRunExamples', 'firstRunWalking', 'listFolders', 'folderExists', 'agentFiles', 'agentFolders',
   'agentThreads', 'cornerTag', 'bootInfo', 'updateCheck', 'instructionRead', 'instructionHistory',
   'instructionVersion', 'standingRead', 'messageRulesRead', 'settingsRead', 'engineBin',
-  'cloudClipboardCode', 'projectInstructionsRead', 'folderPictures', 'readDoc', 'codeFile', 'railNote',
+  'cloudClipboardCode', 'projectInstructionsRead', 'codeFile', 'railNote',
   'agentConversation', 'phoneLink', 'teamStatus',
   // Where she dragged a row or a project to: kept on this page, not sent.
   'setThreadPlaces', 'setThreadPins', 'setProductOrder', 'setProductHidden',
 ]);
-export const NOT_HERE = 'Your computer does this. Your phone can reply, start a thread, close, and move things to Later.';
-
 export function readCloudConfig(doc: Document = document): CloudConfig | null {
   const raw = doc.querySelector('meta[name="agentbox-cloud"]')?.getAttribute('content');
   if (!raw) return null;
@@ -181,6 +57,8 @@ export function readCloudConfig(doc: Document = document): CloudConfig | null {
     return typeof c?.url === 'string' && typeof c?.anonKey === 'string' ? { url: c.url, anonKey: c.anonKey } : null;
   } catch { return null; }
 }
+
+
 
 const SUPERVISOR = { paused: false, pausedProducts: [], running: [], stalled: [], queued: [], scheduled: [], productOrder: [], hiddenProducts: [], personalProducts: [], capacity: 0 };
 const EMPTY_ROWS: PhoneRows = { projects: [], threads: [], commands: [] };
@@ -201,46 +79,66 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
   let aliases: Aliases = {};
   let error: string | null = null;
   let last = '';
+  // Her files' links (phone-links.ts), and each page made ready.
+  let places = new Map<string, Place>();
+  const links: Links = new Map();
+  // A page made ready is good while every file it points at keeps its name
+  // and its link; at most a few are kept.
+  const pages = new Map<string, { url: string; keys: string[]; names: string; until: number }>();
+  const dropPage = (key: string) => { const p = pages.get(key); if (p) URL.revokeObjectURL(p.url); pages.delete(key); };
+  async function signLinks() {
+    const owner = client.session()?.user.id;
+    if (!owner) return;
+    const asked = client.generation();
+    await renewLinks((paths, seconds) => client.signFiles(BUCKET, paths, seconds), objectsToSign(places, rows.commands, links, owner), links, () => client.generation() === asked);
+  }
+  const linkOfEntry = (n?: string) => linkOfName(links, n);
+  const linkFor = (file: string) => linkForFile(places, links, file);
+  setPictureLinks(linkFor);
+  installCloudFiles(linkFor);
   const listeners = new Map<string, Set<Push>>();
   const deliver = (channel: string, payload?: unknown) => {
     for (const fn of listeners.get(channel) ?? []) { try { fn(payload); } catch { /* its own fault */ } }
   };
   const changed = atMostEvery(1000, (payload?: unknown) => deliver(PUSH_CHANNELS.onChanged, payload));
 
-  const COMMANDS = 'select=id,device,project,item,kind,payload,created_at,claimed_at,taken_at,outcome&order=created_at';
-  // Every command still waiting, however old (Codex's review of step 1,
-  // finding 10), and those taken in the last two days, for what they say.
-  async function commands() {
-    const waiting: PhoneRows['commands'] = [];
-    for (let from = 0; ; from += 500) {
-      const page = await client.select('phone_commands', `${COMMANDS}&taken_at=is.null&offset=${from}&limit=500`);
-      waiting.push(...page);
-      if (page.length < 500) break;
-    }
-    const since = new Date(Date.now() - 2 * 24 * 3600_000).toISOString();
-    const done = await client.select('phone_commands', `${COMMANDS}&taken_at=gte.${since}&limit=500`);
-    return [...waiting, ...done];
-  }
+  const commands = () => readCommands((table, query) => client.select(table, query));
 
-  async function refresh() {
+  // One read at a time: on a slow network a read can outlast the five seconds between them.
+  let reading: Promise<void> | null = null;
+  // Her threads' copies as last fetched; a read fetches only what changed since.
+  const threadCache = new Map<string, PhoneRows['threads'][number]>();
+  let fetchedAt = 0;
+  function refresh() {
+    if (reading) return reading;
+    reading = readRows().finally(() => { reading = null; });
+    return reading;
+  }
+  async function readRows() {
     if (!client.signedIn()) { rows = EMPTY_ROWS; return; }
     const asked = client.generation();
     try {
       const [projects, threads, cmds] = await Promise.all([
-        client.select('phone_projects', 'select=device,project,name&order=name'),
-        client.select('phone_threads', 'select=device,project,item,snapshot,updated_at&order=updated_at.desc&limit=1000'),
+        client.select('phone_projects', 'select=device,project,name,updated_at&order=name'),
+        readThreads((table, query) => client.select(table, query), threadCache),
         commands(),
       ]);
       // Read for a sign-in that has since ended: not hers to show.
-      if (client.generation() !== asked) return;
+      if (client.generation() !== asked) { threadCache.clear(); return; }
       rows = { projects, threads, commands: cmds };
+      places = cloudPlaces(threads, phoneSlug);
       error = null;
+      fetchedAt = Date.now();
+      // Links before the screens draw, so a picture is pointed at its file the moment it is drawn.
+      await signLinks().catch(() => { /* the pictures say missing, the words still read */ });
     } catch (err) {
       if (client.generation() !== asked) return;
       if (!client.signedIn()) rows = EMPTY_ROWS;
       error = String((err as Error)?.message ?? err);
     }
-    const key = JSON.stringify([rows.threads.map((t) => [t.item, t.updated_at]), rows.commands.map((c) => [c.id, c.taken_at]), rows.projects, error, client.signedIn()]);
+    // A run going stale changes nothing online, and still has to stop being drawn.
+    const fresh = rows.threads.map((t) => !!t.snapshot?.live && Date.now() - Number(t.snapshot.live.at) < LIVE_FOR_MS);
+    const key = JSON.stringify([rows.threads.map((t) => [t.item, t.updated_at]), fresh, links.size, rows.commands.map((c) => [c.id, c.taken_at]), rows.projects, error, client.signedIn(), phoneStatusLine({ error, fetchedAt, macSeen: macSeenOf(rows.projects) })]);
     if (key !== last) { last = key; changed(null); }
   }
 
@@ -270,25 +168,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     ? null
     : { configured: true, started, signedIn: false, signingIn: null, me: null, team: null, invites: [], sent: [], people: [], cards: [], lastSyncAt: null, error });
 
-  const leave = async (channel: string, payload: unknown) => {
-    const back = closeToTakeBack(rows, channel, payload, aliases);
-    if (back) {
-      const asked = client.generation();
-      // Only while the computer has not claimed it (Codex's third review, finding 3).
-      const done = await client.update('phone_commands', `id=eq.${encodeURIComponent(back.id)}&taken_at=is.null&claimed_at=is.null`, { taken_at: new Date().toISOString(), outcome: UNDONE });
-      if (!done.length) throw new Error('Your computer already has it. Reopen it there.');
-      if (client.generation() === asked) rows = { ...rows, commands: rows.commands.map((c) => (c.id === back.id ? done[0] : c)) };
-      changed(null);
-      return { ok: true };
-    }
-    const cmd = commandFor(channel, payload, aliases);
-    if (!cmd) throw new Error(NOT_HERE);
-    const asked = client.generation();
-    const row = await client.insert('phone_commands', cmd);
-    if (client.generation() === asked) rows = { ...rows, commands: [...rows.commands, row] };
-    changed(null);
-    return { ok: true };
-  };
+  const sender = phoneSender({ client, rows: () => rows, setRows: (next) => { rows = next; }, aliases: () => aliases, changed: () => changed(null) });
   const signedInThen = async (fn: () => Promise<unknown>) => {
     try { await fn(); error = null; await refresh(); changed(null); return { ok: true }; } catch (err) { return { ok: false, error: String((err as Error)?.message ?? err) }; }
   };
@@ -314,7 +194,8 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       aliases = view.aliases;
       return {
         products: view.products, items: view.items, phoneWaiting: view.waiting,
-        team: team(), agents: [], approvals: [], supervisor: { ...SUPERVISOR, productOrder: view.products.map((p) => p.slug) },
+        phoneStatus: client.signedIn() ? phoneStatusLine({ error, fetchedAt, macSeen: macSeenOf(rows.projects) }) : null,
+        team: team(), agents: [], approvals: view.approvals, supervisor: { ...SUPERVISOR, running: view.running, productOrder: view.products.map((p) => p.slug) },
         engines: null, runsOn: null, restartNeeded: null, cloud: null,
         config: { browserHome: '', browserPins: [], outsideAgents: 'off' },
       };
@@ -332,9 +213,8 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     engineSetup: async () => ({ ok: true, phase: 'ready', found: true, signedIn: true }),
     dashboard: async () => null,
     codeChange: async () => ({ ok: false }),
-    answer: (p: unknown) => leave(REQUEST_CHANNELS.answer, p),
-    snooze: (p: unknown) => leave(REQUEST_CHANNELS.snooze, p),
-    compose: (p: unknown) => leave(REQUEST_CHANNELS.compose, p),
+    // What a press leaves for her Mac, the same doors the phone app sends through (phone-send.ts).
+    ...sender,
     badge: async () => null,
     notify: async () => null,
     track: async () => null,
@@ -347,7 +227,70 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       const out = await client.signUp(name, email, password);
       if (out.confirm) throw new Error('Check your email to confirm it, then sign in here.');
     }),
-    teamSignOut: async () => { client.signOut(); rows = EMPTY_ROWS; error = null; changed(null); return { ok: true }; },
+    teamSignOut: async () => {
+      client.signOut(); rows = EMPTY_ROWS; error = null; threadCache.clear();
+      places = new Map(); links.clear();
+      for (const key of [...pages.keys()]) dropPage(key);
+      changed(null);
+      return { ok: true };
+    },
+    // A picture in a reply goes to her storage first (phone-sends-files.ts).
+    saveAttachments: async ({ product, files }: { product: string; files: Array<{ name: string; dataBase64?: string }> }) => {
+      const where = splitSlug(product);
+      const owner = client.session()?.user.id;
+      if (!where || !owner) throw new Error(NOT_HERE);
+      return sendFiles({ put: (object, bytes, type) => client.putFile(BUCKET, object, bytes, type), owner, device: where.device, files, maxBytes: SEND_MAX_BYTES });
+    },
+    // HER FILES, from the links her Mac's list gives (cloud-files.ts).
+    openArtifact: async (p: { product: string; src: string; mode?: string }) => {
+      const at = fileOnPhone(places, links, p?.product, p?.src);
+      if (!at.ok) return at;
+      if (at.sent) {
+        if (p.mode !== 'resolve') window.open(at.link, '_blank', 'noopener');
+        return { ok: true, opened: p.src };
+      }
+      const { found, link } = at;
+      if (p.mode === 'resolve') {
+        if (!/\.html?$/i.test(found.key)) return { ok: true, opened: found.file };
+        const cacheKey = `${client.session()?.user.id}|${p.product}|${found.key}`;
+        const namesOf = (keys: string[]) => keys.map((k) => found.place.files.get(k)?.n ?? '').join('|');
+        const kept = pages.get(cacheKey);
+        if (kept && kept.until > Date.now() && kept.names === namesOf(kept.keys)) return { ok: true, opened: found.file, url: kept.url };
+        dropPage(cacheKey);
+        const asked = client.generation();
+        const read = async (url: string) => { const res = await fetch(url); if (!res.ok) throw new Error('This page could not be read.'); return res.text(); };
+        try {
+          const { html, used } = await phonePage(found, link, links, read);
+          if (client.generation() !== asked) return { ok: false, error: 'You signed out.' };
+          const until = Math.min(Infinity, ...used.map((k) => links.get(found.place.files.get(k)?.n ?? '')?.until).filter((u): u is number => !!u)) - LINK_RENEW_MS;
+          const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+          pages.set(cacheKey, { url, keys: used, names: namesOf(used), until });
+          while (pages.size > 12) dropPage(pages.keys().next().value!);
+          return { ok: true, opened: found.file, url };
+        } catch (err) {
+          return { ok: false, error: String((err as Error)?.message ?? err) };
+        }
+      }
+      window.open(link, '_blank', 'noopener');
+      return { ok: true, opened: found.file };
+    },
+    readDoc: async (p: { product: string; src: string }) => {
+      const sent = sentFileName(p?.src);
+      const found = sent ? null : findFile(places, p?.product, p?.src);
+      const link = sent ? linkOfEntry(sent) : found && linkOfEntry(found.entry.n);
+      if (!link) return { ok: false, error: found?.entry.big ? 'This file is too big for your phone.' : 'This file is on your computer.' };
+      const asked = client.generation();
+      const res = await fetch(link);
+      const text = res.ok ? await res.text() : null;
+      if (client.generation() !== asked) return { ok: false, error: 'You signed out.' };
+      return text !== null ? { ok: true, text, mtime: 0 } : { ok: false, error: 'This file could not be read.' };
+    },
+    folderPictures: async (p: { product: string; src: string }) => {
+      const place = places.get(p?.product);
+      const found = place && findFolder(place, p.src);
+      if (!place || !found) return { ok: false, error: 'This folder is on your computer.' };
+      return { ok: true, folder: found.folder, pictures: found.keys.map((k) => (k.startsWith('@repo/') ? `${place.repo}/${k.slice(6)}` : `${place.dir}/${k}`)), total: found.keys.length };
+    },
   });
 
   (window as any).zero = bridge;

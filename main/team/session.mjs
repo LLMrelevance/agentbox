@@ -69,14 +69,19 @@ export function loadCloudConfig(appDir, { packaged = isPackagedElectron(), home 
     path.join(appDir, 'cloud', 'team.config.json'),
     teamConfigOnThisMac(home),
   ];
+  let found = null;
   for (const file of tries) {
     if (!file) continue;
     try {
       const c = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (typeof c.url === 'string' && typeof c.anonKey === 'string') return c;
+      if (typeof c.url !== 'string' || typeof c.anonKey !== 'string') continue;
+      // A field the winning file lacks (phoneSite, added later) comes from a
+      // file further down for the same cloud, never from another cloud's.
+      if (!found) found = c;
+      else if (c.url === found.url) found = { ...c, ...found };
     } catch { /* try the next place; none of them is the single-person app */ }
   }
-  return null;
+  return found;
 }
 
 function fileStorage(file, { encrypt, decrypt }) {
@@ -101,6 +106,13 @@ function fileStorage(file, { encrypt, decrypt }) {
   };
 }
 
+// A request to the account database that never answers is ended: its
+// library waits for ever, and the phone's and the team's sync wait on it.
+// Long enough for a file going up on a slow network.
+const DATABASE_DEADLINE_MS = 5 * 60_000;
+export const withDeadline = (ms = DATABASE_DEADLINE_MS) => (url, init = {}) =>
+  fetch(url, { ...init, signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms) });
+
 export function supabaseSession({ cloudConfig, sessionFile, encrypt = null, decrypt = null, openExternal, packaged = isPackagedElectron(), testLogin = process.env.AGENTBOX_TEAM_TEST_LOGIN }) {
   const configured = !!cloudConfig;
   if (packaged) testLogin = null;
@@ -110,6 +122,7 @@ export function supabaseSession({ cloudConfig, sessionFile, encrypt = null, decr
     if (client) return client;
     const { createClient } = await import('@supabase/supabase-js');
     client = createClient(cloudConfig.url, cloudConfig.anonKey, {
+      global: { fetch: withDeadline() },
       auth: {
         flowType: 'pkce',
         storage: fileStorage(sessionFile, { encrypt, decrypt }),

@@ -165,10 +165,10 @@ describe('a request handed to the app', () => {
     expect(typeof sent[0].event_id).toBe('string');
   });
 
-  it('says nothing aloud when there was nothing to do', async () => {
+  it('with nothing to do it still answers, or Live goes silent after "one sec"', async () => {
     const { d, sent } = delegating({ say: '' });
     await d.handle(delegated());
-    expect(sent).toEqual([expect.objectContaining({ type: 'session.thinking.append', delegation_id: 'item_1' })]);
+    expect(sent).toEqual([expect.objectContaining({ type: 'session.commentary.append', delegation_id: 'item_1', content: 'Say just "Okay."' })]);
   });
 
   it('answers each delegation once', async () => {

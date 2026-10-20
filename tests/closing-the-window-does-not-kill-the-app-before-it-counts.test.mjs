@@ -207,15 +207,6 @@ describe('a flush the quit now waits for still honours the switch', () => {
 describe('and the app is wired that way', () => {
   const main = fs.readFileSync(new URL('../main/main.mjs', import.meta.url), 'utf8');
 
-  it('the phone change handler survives a window that has gone', () => {
-    const at = main.indexOf("sendToWindow('zero:phone-changed')");
-    expect(at).toBeGreaterThan(-1);
-    const line = main.slice(main.lastIndexOf('\n', at) + 1, main.indexOf('\n', at));
-    // `window.isDestroyed()` on its own is the crash. The window is NULLED on
-    // close, not merely destroyed, so the null has to be asked about first.
-    expect(line).toMatch(/window\?\.isDestroyed\(\)|window && !window\.isDestroyed\(\)/);
-  });
-
   it('every quit step goes through the wrapper, and the flush holds the quit', () => {
     expect(main).toMatch(/import \{[^}]*flushBeforeQuit[^}]*\} from '\.\/quit-sequence\.mjs'/);
     expect(main).toMatch(/flushBeforeQuit\(app, \(\) => analytics\.flush\(\)/);

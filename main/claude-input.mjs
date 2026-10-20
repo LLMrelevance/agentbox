@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Name } from '../shared/product-name.mjs';
 
 // THE SESSION STOPPED LISTENING BEFORE IT TOOK THIS MESSAGE. Not a refusal:
 // the turn closed, or the process went, in the seconds between her pressing
@@ -15,6 +16,17 @@ function turnClosed(message) {
 // How long a finished background job may go without the agent waking for it
 // before the session is closed anyway. Measured wakes arrive in about a second.
 const WAKE_GRACE_MS = 2 * 60 * 1000;
+
+// Said to the agent, never shown to the person: the trace keeps no user turns.
+// Paths are cut to their last part: a cloud run's relay uploads any file its
+// input names outside the task folder (main/cloud/run.mjs `filesNamedIn`).
+export function stillRunningNote(tasks) {
+  const plain = (text) => String(text).replace(/(^|[\s"'`(=:])\/(?:[^\s"'`<>()[\]{},;\\]*\/)+/g, '$1');
+  const names = tasks.map((t) => `"${plain(t.description || t.task_id).slice(0, 120)}"`).join(', ');
+  return `This is ${Name}, not the person. Your turn ended with ${tasks.length === 1 ? 'this' : 'these'} still running in the background: ${names}. `
+    + 'Your run stays open, and your answer is not delivered, until nothing you started is still running. '
+    + 'Stop any you no longer need. If you are waiting on one, say what for in one line and end your turn.';
+}
 
 // THE PROMPT LEAVES THE LINE WHEN REPLIES ARRIVE ON STDIN. Both the print flag
 // and the input-format flags are read off the engine's `run` definition, so an
@@ -45,6 +57,11 @@ export function attachClaudeInput(child) {
   // end of the run, and closing there killed the suite it was waiting on
   // (tests/an-agent-waiting-on-its-own-tests-does-not-come-back-to-you).
   let waiting = [], wakeTimer = null;
+  // Jobs the agent has been told are still out, and the messages that told it.
+  // A forgotten job holds a finished answer until Claude Code's own limit
+  // stops it, thirty minutes and more
+  // (tests/a-command-an-agent-left-running-does-not-hold-its-answer-back).
+  const named = new Set(), ours = new Set();
   // Input only ever closes at a result with nothing out, so a closed input is
   // the one proof the run reached its end. A session that exits with input
   // still open was stopped part-way, whatever its last turn said
@@ -58,6 +75,17 @@ export function attachClaudeInput(child) {
   let inTurn = false;
   const closeInput = () => { closed = true; ended = true; clearTimeout(wakeTimer); child.stdin.end(); };
   const mayClose = () => !held && atResult && !pending.size && !waiting.length;
+  // Not into a session she is driving, and not when her own message is about
+  // to start the next turn. Kept out of `pending`, so it never holds input open.
+  const nameWhatIsStillOut = () => {
+    if (closed || held || pending.size || !waiting.some((t) => t?.task_id && !named.has(t.task_id))) return;
+    for (const t of waiting) if (t?.task_id) named.add(t.task_id);
+    const uuid = randomUUID();
+    ours.add(uuid);
+    try {
+      child.stdin.write(JSON.stringify({ type: 'user', uuid, message: { role: 'user', content: stillRunningNote(waiting) }, parent_tool_use_id: null, session_id: '' }) + '\n');
+    } catch { /* the input is gone; `fail` hears it */ }
+  };
   const fail = reason => {
     closed = true;
     for (const request of pending.values()) {
@@ -87,6 +115,10 @@ export function attachClaudeInput(child) {
         }
       }
       if (event.type === 'system' && event.subtype === 'bridge_state') child.emit('bridge-state', event);
+      // A cloud run whose input the sandbox closed at the end of its turn
+      // while this Mac slept (main/cloud/run.mjs): the end of the run, as if
+      // closed here. A reply still waiting is kept for the next run.
+      if (event.type === 'system' && event.subtype === 'agentbox_input_closed_in_cloud' && !closed) closeInput();
       if (event.type === 'system' && event.subtype === 'init') {
         inTurn = true;
         for (const request of pending.values()) request.taken = true;
@@ -96,7 +128,7 @@ export function attachClaudeInput(child) {
         seenUsers.add(event.uuid);
         const content = event.message?.content;
         const text = typeof content === 'string' ? content : Array.isArray(content) ? content.filter(b => b.type === 'text').map(b => b.text).join('\n') : '';
-        if (held && !pending.has(event.uuid) && text && !event.isMeta) child.emit('remote-user', event);
+        if (held && !pending.has(event.uuid) && !ours.has(event.uuid) && text && !event.isMeta) child.emit('remote-user', event);
         if (text) { atResult = false; child.emit('input-turn', event); }
       }
       if (event.type === 'user' && pending.has(event.uuid)) {
@@ -121,6 +153,7 @@ export function attachClaudeInput(child) {
         atResult = true;
         inTurn = false;
         if (mayClose()) closeInput();
+        else if (waiting.length) nameWhatIsStillOut();
       }
     }
   });

@@ -117,7 +117,12 @@ describe('her own instructions to Claude', () => {
 });
 
 describe('an archive made on a Mac', () => {
-  const list = (tgz) => execFileSync('tar', ['-tzf', '-'], { input: tgz, encoding: 'utf8' }).split('\n').filter(Boolean);
+  // From a file: tar may stop reading a pipe at the archive's end, which fails with EPIPE on a busy machine.
+  const list = (tgz) => {
+    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tgz-')), 'a.tgz');
+    fs.writeFileSync(f, tgz);
+    return execFileSync('tar', ['-tzf', f], { encoding: 'utf8' }).split('\n').filter(Boolean);
+  };
   const tagged = () => {
     const dir = path.join(tmp, 'skills');
     fs.mkdirSync(path.join(dir, 'sketch'), { recursive: true });
@@ -126,10 +131,10 @@ describe('an archive made on a Mac', () => {
     return dir;
   };
 
-  it('carries no `._` extras, for skills or documents', () => {
+  it('carries no `._` extras, for skills or documents', async () => {
     const dir = tagged();
-    expect(list(tarOf(dir)).some((n) => path.basename(n).startsWith('._'))).toBe(false);
-    expect(list(tarDocs(dir, ['sketch/SKILL.md'])).some((n) => path.basename(n).startsWith('._'))).toBe(false);
-    expect(list(tarOf(dir)).some((n) => n.endsWith('sketch/SKILL.md'))).toBe(true);
+    expect(list(await tarOf(dir)).some((n) => path.basename(n).startsWith('._'))).toBe(false);
+    expect(list(await tarDocs(dir, ['sketch/SKILL.md'])).some((n) => path.basename(n).startsWith('._'))).toBe(false);
+    expect(list(await tarOf(dir)).some((n) => n.endsWith('sketch/SKILL.md'))).toBe(true);
   });
 });

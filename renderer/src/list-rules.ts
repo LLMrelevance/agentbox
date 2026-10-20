@@ -2,6 +2,7 @@
 // box means.
 import { isCleanRun } from '../../shared/repeats.mjs';
 import { answerSettled } from '../../shared/answers.mjs';
+import { saysARunGotNowhere } from '../../shared/spawn-trouble.mjs';
 import { firstRealLine, previewText } from './format';
 import { TROUBLE_ID } from './trouble-row';
 import { DONE } from './done-word';
@@ -35,6 +36,44 @@ export interface InboxItem {
 const hers = (i: InboxItem) => (i.labels ?? []).includes('founder');
 const liveAnswer = (i: InboxItem) => (i.answer && i.answer !== '(withdrawn)' ? i.answer : undefined);
 
+/* ------------------- the one thing nothing may take away ------------------ */
+/**
+ * A ROW THAT IS STILL ASKING YOU SOMETHING (w-fe48447cab).
+ *
+ * `live` and `shipping` take a row out of Needs you because something is
+ * happening to it. Both were written as unconditional early returns, for rows
+ * where nothing was being asked of anybody. The cost was that an agent asking
+ * you a question and then carrying on working removed its own question from
+ * the person it was asking: the row read "working" in In progress and the
+ * options card addressed to you was in no list you read.
+ *
+ * That is a decision this codebase has already made once, about a different
+ * field. `parkedByAgent` gates WORKERS and never the inbox for exactly this
+ * reason, and `isProposal` refuses to hide a question or a review for it too.
+ * This is the same rule reaching the last two places that did not have it.
+ *
+ * Their ranking for this part of the app, 2026-10-09: "If we have false
+ * negatives, we lose tasks, which is a really big problem... false negatives
+ * are worse than false positives." A question shown next to a working agent
+ * costs a glance; a question hidden behind one costs the task.
+ *
+ * It is deliberately NARROW. Only the two kinds an agent addresses TO you, only
+ * while they are unanswered, and never once finished — those go to the archive
+ * rule, which is its own question. A withdrawn approval is not an answer
+ * (`liveAnswer`), and everything else on a row with a session on it is
+ * unchanged: both incidents above keep their exact behaviour.
+ *
+ * The row stays in In progress as well, because a session really is on it. That
+ * is not the "one row, two tabs" fault this file warns about: a claimed
+ * question is in both lists today, and these two vetoes were the only case
+ * where attaching a session to one changed that.
+ */
+export function stillAsksYou(i: InboxItem): boolean {
+  if (i.kind !== 'question' && i.kind !== 'review') return false;
+  if (i.status === 'done') return false;
+  return !liveAnswer(i);
+}
+
 // The user's own open row, carrying a result a worker wrote after her last
 // word, with no reply from her yet. It goes to the inbox and leaves In
 // progress, but stays open so her reply still lands on the thread. A claimed
@@ -59,6 +98,17 @@ export function answeredHerAsk(i: InboxItem): boolean {
   if (!i.result) return false;
   const r = i.wrote?.result;
   return !!r && r.source === 'agent' && (r.ts ?? 0) > herLastWord(i);
+}
+
+// The app has stopped carrying this row's reply. Its own word that a run got
+// nowhere, written after a reply, is written only once it gives up, and nothing
+// starts the row again until somebody writes, so it is in Needs you and not In
+// progress, whoever filed it.
+export function gaveUpOnTheAnswer(i: InboxItem): boolean {
+  if (i.status !== 'open' || !liveAnswer(i) || answerSettled(i)) return false;
+  const r = i.wrote?.result;
+  if (!r || r.source !== 'agent' || (r.ts ?? 0) <= (i.wrote?.answer?.ts ?? 0)) return false;
+  return saysARunGotNowhere(i.result);
 }
 
 // Who deferred a row decides what the deferral means. A future runAt an agent
@@ -102,11 +152,14 @@ export function belongsInInbox(
   // In Later and not begun: it waits for a person, not a clock, so it is in
   // Later and nowhere else.
   if (notStarted(i)) return false;
-  // A session is still on it, so it is In progress until it exits.
-  if (live) return false;
+  // A session is still on it, so it is In progress until it exits. Unless it is
+  // still asking you something (w-fe48447cab): the one thing a session may not
+  // do is take away the question it is asking (`stillAsksYou`).
+  if (live && !stillAsksYou(i)) return false;
   // The ship queue owes it a ship. It comes back once the queue ships it or
-  // hands it back to its agent.
-  if (shipping) return false;
+  // hands it back to its agent. Same exception: a ship in flight is not an
+  // answer to a question either.
+  if (shipping && !stillAsksYou(i)) return false;
   if (hiddenUntil > now) return false;    // she put it away herself
   // A repeating-task run hides only when a worker explicitly marked it clean.
   // The marker is required to hide and never to show, because a run that died
@@ -124,6 +177,7 @@ export function belongsInInbox(
   if (i.status !== 'done' && i.status !== 'claimed' && answerSettled(i)) return true;
   // The worker answered her ask and left the thread open (`answeredHerAsk`).
   if (answeredHerAsk(i)) return true;
+  if (gaveUpOnTheAnswer(i)) return true;
   if (i.status === 'done') {
     // An agent's `done` on a thread the user wrote or spoke on is news; her own
     // `done` is the archive. A thread she spoke on is hers whoever filed it.
@@ -209,6 +263,10 @@ export const PROPOSAL_PATIENCE = 24 * 3_600_000;
  * A proposal whose parent is not in `items` is skipped. A thread the user
  * closed stays closed, without answering its proposals; reopening it turns
  * the reminder back on.
+ *
+ * While a reply is on its way to an agent, or an agent is on the thread, the
+ * reminder waits: Needs you wins over In progress, so it made the reply look
+ * swallowed. Once the agent has answered, the thread comes back.
  */
 export function threadsOwedAnAnswer<T extends InboxItem & { id: string; parent?: string }>(
   items: readonly T[],
@@ -222,6 +280,7 @@ export function threadsOwedAnAnswer<T extends InboxItem & { id: string; parent?:
     const parent = i.parent ? byId.get(i.parent) : undefined;
     if (!parent) continue;
     if (parent.status === 'done' && parent.wrote?.status?.source === 'founder') continue;
+    if (parent.status === 'claimed' || (liveAnswer(parent) && !answerSettled(parent))) continue;
     owed.add(parent.id);
   }
   return owed;
@@ -251,6 +310,7 @@ export function belongsInProgress(
   // Her ask is answered and she has not replied, so the next move is hers and
   // the inbox shows it.
   if (answeredHerAsk(i)) return false;
+  if (gaveUpOnTheAnswer(i)) return false;
   if (i.status === 'open' && liveAnswer(i)) return true; // answered/approved, spawn pending
   // Her own work, waiting its turn. Agent-filed work is a proposal and stays in
   // the inbox until she answers it, which is the branch above.

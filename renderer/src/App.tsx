@@ -1,5 +1,5 @@
 import { previewFocus } from './preview-focus';
-import { cloudToggleNote, cloudToggleTarget } from './cloud-menu';
+import { cloudChord, cloudToggleNote, cloudToggleTarget, threadPlace } from './cloud-menu';
 import { usePhoneBack, onCloudPhone, onPhone } from './phone-screen';
 import { holdsReplies, writeHeldWhenHidden } from './phone-holds';
 import { pollEvery } from './phone-polls';
@@ -26,13 +26,16 @@ import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from
 import { List } from './components/List';
 import { isTroubleRow, troubleRow } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
+import { needsYouLit } from './needs-you';
+import { arrivedAt, isUnread } from './unread';
 import { Focus } from './components/Focus';
 import { TicketItems } from './components/TicketReference';
 import type { PendingSaid } from './item-thread';
 import { DocPane, type OpenDoc } from './components/DocPane';
 import { docKind, EVEN_SPLIT, escapeClosesDoc, escapeInTheFileClosesIt, focusIsInTheFile, readSplit, writeSplit } from './doc-pane';
 import { changeOwnsKey } from './code-keys';
-import { askStillStands, bringsBack, closesAgain, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO, UNDID_CLOSING } from './undo-window';
+import { askStillStands, bringsBack, closesAgain, graceUndoneLine, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO, UNDID_CLOSING } from './undo-window';
+import { answeredAlready, TOO_LATE_TO_WITHDRAW } from './withdraw-send';
 import { useNeo } from './neo/useNeo';
 import { addUndoMark, UNDO_MARKS_EVENT, type UndidSpec } from './undo-marks';
 import { whatTheFileSentUp } from '../../shared/artifact-keys.mjs';
@@ -72,7 +75,7 @@ import { approvalReads } from './approval-card';
 // there is anything to confirm the card has closed.
 import { sentLine, sendingLine } from './compose-says';
 import { wearJustMade, type JustMade } from './just-made';
-import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
+import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
 import { opensATextField } from './keys';
 import { sidebarFits, useRoomyToggle, useWindowWidth } from './room';
@@ -132,7 +135,7 @@ import { BoxFilter } from './components/BoxFilter';
 import { itemPriority, moveProduct, placeScore, placedScore } from '../../shared/rank.mjs';
 import { threadsMade, approvableFiled, doItHereWrites } from './threads-made';
 import { waitingCounts } from './threads-made';
-import { closeAsk, KEEP_OPEN } from './close-asks-first';
+import { closeAsk, closeAskOwnsKey, KEEP_OPEN } from './close-asks-first';
 import { ChatAgentsContext, type ChatAgentsValue } from './team/ChatAgents';
 import { agentLinks, chatProjects, chatTaskSharing, chatTranscript, taskBrief, taskTitle, withTask } from './team/agent-mentions';
 import { isCleanRun, ruleIdOf, ruleLabel, runToOpen } from '../../shared/repeats.mjs';
@@ -143,7 +146,7 @@ import { Face, TeamContext, firstName, teamView } from './team/people';
 import { FaceHover } from './team/status';
 import { TeamPage } from './team/TeamPage';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
-import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, StateTabs, WaitingContext } from './threads/Pages';
+import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, StateTabs, WaitingContext } from './threads/Pages';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
@@ -191,6 +194,17 @@ const WAITING_AT = waitingIndex(PRACTICE_ROWS);
 const LATER_AT = laterIndex(PRACTICE_ROWS);
 
 const SEEN_KEY = 'zero.seen';
+// When each thread was last opened, and when that started being kept: threads
+// older than it count as read, so the first launch does not dot everything.
+const SEEN_AT_KEY = 'zero.seenAt';
+const UNREAD_SINCE_KEY = 'zero.unreadSince';
+const unreadSince = (() => {
+  const kept = Number(localStorage.getItem(UNREAD_SINCE_KEY));
+  if (kept > 0) return kept;
+  const now = Date.now();
+  localStorage.setItem(UNREAD_SINCE_KEY, String(now));
+  return now;
+})();
 // WHAT COUNTS AS CLICKING SOMETHING RATHER THAN CLICKING NOTHING.
 //
 // This is the test for "has a function": a control, a link, a field, a row she
@@ -774,6 +788,9 @@ export default function App() {
     if (sk !== 'none') setTune(TUNE_DEFAULT[sk as SkinId]);
   }, [setTune]);
   const [seen, setSeen] = useState<Set<string>>(() => new Set(JSON.parse(localStorage.getItem(SEEN_KEY) ?? '[]')));
+  // When Needs You was last on screen; something arriving after it lights the tab.
+  const [needsLookedAt, setNeedsLookedAt] = useState(() => Date.now());
+  const [seenAt, setSeenAt] = useState<Record<string, number>>(() => JSON.parse(localStorage.getItem(SEEN_AT_KEY) ?? '{}'));
   // Batch selection (Superhuman: cmd-A, shift-select, then act on all).
   const [multiSel, setMultiSel] = useState<Set<string>>(new Set());
   const [snoozes, setSnoozes] = useState<Snooze>(() => JSON.parse(localStorage.getItem(SNOOZE_KEY) ?? '{}'));
@@ -796,7 +813,9 @@ export default function App() {
      * (./undo-window).
      */
     undoes: string;
-    run: () => Promise<void>;
+    // `refused` when it found it could not be undone after all: the sentence
+    // to show, and the row to open. Nothing was changed.
+    run: () => Promise<void | { refused: string; open?: WorkItem }>;
     restore?: () => Restored;
     /** The row this puts back, which a Z opens once it has run (./undo-window, `shownAfterUndo`). */
     brings?: WorkItem;
@@ -834,6 +853,7 @@ export default function App() {
    * the screen reads it except the toast it already raised.
    */
   const undoAskRef = useRef<{ entry: Undoable & { at: number }; at: number } | null>(null);
+  const neoUndoAskRef = useRef<{ entry: Undoable & { at: number }; at: number; confirmation: string } | null>(null);
   /* * A TOAST CAN CARRY A WAY IN NOW, and on the one that says a task was made it does.
 
      `goes` is the row it was about, by id, NOT a closure that opens it. A
@@ -857,6 +877,16 @@ export default function App() {
   // leave. Cmd+Y is caught in the main process, so this is the renderer's only
   // evidence the press landed at all.
   const [answered, setAnswered] = useState<{ id: string; allow: boolean } | null>(null);
+  // An answer that did not go (the phone's database, a card that moved) puts the card back and says why.
+  const answerCard = async (id: string, allow: boolean) => {
+    setAnswered({ id, allow });
+    const r = await window.zero?.approve?.({ id, allow });
+    if (r && (r as { ok?: boolean }).ok === false) {
+      setAnswered(null);
+      showToast(`Not answered: ${(r as { error?: string }).error ?? 'it did not go through'}`);
+    }
+    await refresh();
+  };
   // The card that held the stage when she pressed: the store push usually beats
   // the animation, and a card cannot finish leaving once the snapshot has
   // forgotten it exists.
@@ -1513,6 +1543,8 @@ export default function App() {
     restore?: () => Restored;
     // What the thread says if this one is undone (./undo-marks).
     undid?: UndidSpec[];
+    // The action's own toast, so the undo can say what it left (graceUndoneLine).
+    said?: string;
   } | null>(null);
 
   const flushPending = useCallback(async () => {
@@ -1558,10 +1590,11 @@ export default function App() {
   const justMade = useRef<JustMade[]>([]);
   const refresh = useCallback(async () => {
     const next = await api.snapshot();
-    if (isCarrying()) { setTimeout(() => refreshAgain.current(), 300); return; }
+    if (isCarrying()) { setTimeout(() => refreshAgain.current(), 300); return next; }
     const worn = next ? wearJustMade(next.items, justMade.current, Date.now()) : null;
     if (worn) justMade.current = worn.held;
     setSnap(next && { ...next, items: overlayPins(overlayPlaces(worn!.items, unsavedPlaces.current), unsavedPins.current) });
+    return next;
   }, []);
   // A new thread in the list the moment the computer says it is written, a
   // whole fetch sooner than the snapshot would bring it (w-461fbd8d2d).
@@ -1571,7 +1604,7 @@ export default function App() {
     setSnap((s) => s && { ...s, items: wearJustMade(s.items, justMade.current, Date.now()).items });
   }, []);
   refreshAgain.current = () => { void refresh(); };
-  const refreshRef = useRef<() => Promise<void>>();
+  const refreshRef = useRef<() => Promise<unknown>>();
   refreshRef.current = refresh;
 
   useEffect(() => {
@@ -1794,6 +1827,7 @@ export default function App() {
   // status says, until its session exits (w-bc976fd247). Up here because every
   // list below reads it.
   const liveIds = useMemo(() => new Set(runningRows.map((r) => r.itemId)), [runningRows]);
+  const cloudIds = useMemo(() => new Set(runningRows.filter((r) => r.where === 'cloud').map((r) => r.itemId)), [runningRows]);
   // THE THREADS THE APP STILL HAS TO SHIP (w-0c1ba766eb). Waiting on the app,
   // not on her, so In progress reading "Shipping" and out of Needs you until
   // they have shipped or gone back to their agent.
@@ -1810,10 +1844,15 @@ export default function App() {
     // An agent is working on it right now: In progress, whatever it says
     // (`live` in list-rules, w-bc976fd247). Ahead of every branch here,
     // the team ones included, because none of them can see a session.
-    if (liveIds.has(i.id)) return false;
+    //
+    // Both vetoes carry the one exception the rule carries, and have to: these
+    // two lines answer before `belongsInInbox` is ever called, so without it
+    // the exception would hold in the rule and not in the app (w-fe48447cab).
+    // A row still asking you something is never hidden by either.
+    if (liveIds.has(i.id) && !stillAsksYou(i)) return false;
     // And the app is still to ship it, which is the same: nobody needs to look
     // until it has (`shipping` in list-rules, w-0c1ba766eb).
-    if (shippingIds.has(i.id)) return false;
+    if (shippingIds.has(i.id) && !stillAsksYou(i)) return false;
     if (owedAnAnswer.has(i.id)) return true;
     // The rule itself lives in list-rules.ts, pure and pinned by tests. What
     // is left here is the view's own business: the grace window, the clock,
@@ -2424,6 +2463,8 @@ export default function App() {
   const waitingByThread = useMemo(() => waitingCounts(items, stateOfMine), [items, stateOfMine]);
   // Which thread's close is asking, by `product/id`; null while none is.
   const [closeAskOn, setCloseAskOn] = useState<string | null>(null);
+  // Bumped on every raise, so a second E on the same thread scrolls to it again.
+  const [closeAskRaised, setCloseAskRaised] = useState(0);
   const keyOf = (item: WorkItem) => `${item.product}/${item.id}`;
   // Leaving the thread drops its question; a close asked from the list opens
   // the thread and asks in the same press, so the thread it opens keeps it.
@@ -2978,12 +3019,25 @@ export default function App() {
   }, [modal]);
 
   useEffect(() => { localStorage.setItem(SEEN_KEY, JSON.stringify([...seen].slice(-2000))); }, [seen]);
+  useEffect(() => { if (view === 'inbox') setNeedsLookedAt(Date.now()); }, [view, inbox]);
+  useEffect(() => {
+    const newest = Object.entries(seenAt).sort((a, b) => b[1] - a[1]).slice(0, 2000);
+    localStorage.setItem(SEEN_AT_KEY, JSON.stringify(Object.fromEntries(newest)));
+  }, [seenAt]);
   useEffect(() => { localStorage.setItem(SNOOZE_KEY, JSON.stringify(snoozes)); }, [snoozes]);
 
   /* -------------------------------- actions ------------------------------- */
   const markSeen = useCallback((item: WorkItem) => {
     setSeen((s) => new Set(s).add(item.id));
+    setSeenAt((m) => ({ ...m, [item.id]: Date.now() }));
   }, []);
+  // An answer that lands on the thread you are reading is read already. Keyed
+  // on the answer's time, so Mark Unread on the open thread is not undone.
+  const focusedArrival = useMemo(() => {
+    if (!focused) return 0;
+    return arrivedAt(items.find((i) => i.id === focused.id && i.product === focused.product) ?? focused);
+  }, [focused, items]);
+  useEffect(() => { if (focused) markSeen(focused); }, [focusedArrival]); // eslint-disable-line react-hooks/exhaustive-deps
   // J AND K FROM AN OPEN THREAD OR AN OPEN TEAMMATE CARD (w-fb16bcaeba): open
   // the next stop, whoever's it is. Yours opens as your thread, theirs as
   // their card, exactly as a click on its row would.
@@ -3530,7 +3584,7 @@ export default function App() {
       await refresh();
       setPendingId((p) => (p === item.id ? null : p));
     }, UNDO_GRACE_MS);
-    pendingRef.current = { item, timer, run, restore, undid };
+    pendingRef.current = { item, timer, run, restore, undid, said: toast };
   }, [flushPending, leaveResolved, refresh, showToast]);
 
   // It closes the ROW and touches nothing else — no message, no signal, and the
@@ -3606,6 +3660,7 @@ export default function App() {
       if (focused?.id !== item.id || focused?.product !== item.product) { setFocused(item); markSeen(item); }
       setOptionSel(null);
       setCloseAskOn(keyOf(item));
+      setCloseAskRaised((n) => n + 1);
       return;
     }
     if (closesAgain(pendingRef.current, item)) return;
@@ -4030,7 +4085,8 @@ export default function App() {
       pushUndo({ label: 'Reply withdrawn, back in your inbox', undoes: 'take back that reply and stop the agent', restore, undid, run: async () => {
         if (wasScheduled && priorRunAt) await api.schedule({ product: item.product, id: item.id, runAt: priorRunAt });
         if (wasScheduled && priorSnooze) await api.snooze({ product: item.product, id: item.id, snoozedUntil: priorSnooze });
-        await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id });
+        // `withdraw`: on the phone, take back the reply itself if her Mac has not taken it.
+        await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id, withdraw: true });
         // Put the thread back exactly where the reply found it. The rule and
         // what it cost are in list-rules (`withdrawReply`): restoring the
         // status only when the reply had changed one left an already-open row
@@ -4172,7 +4228,7 @@ export default function App() {
   // is the one question this card must never make her ask. The withdraw stops
   // the worker as well as closing the row: main/ipc.mjs kills the session on any
   // archive, and her archive outranks whatever a straggler writes afterwards.
-  const noteNewTask = useCallback((label: string, undoes: string, sent: ComposeDraft, withdraw: () => Promise<void>, undid?: UndidSpec[]) => {
+  const noteNewTask = useCallback((label: string, undoes: string, sent: ComposeDraft, withdraw: Undoable['run'], undid?: UndidSpec[]) => {
     pushUndo({
       label,
       undoes,
@@ -4386,15 +4442,20 @@ export default function App() {
     // these would be a write into nothing. Both behave like a task in every way
     // she can see and in none that she cannot.
     if (item.agent || isTroubleRow(item) || isUpdateRow(item)) return;
-    // NOR FROM THE PHONE WITH THE COMPUTER CLOSED, which cannot reach a run to
-    // stop it, and says so rather than saying it stopped (Codex's review of
-    // step 1, finding 7).
-    if (onCloudPhone()) { showToast('Stop it on your computer. Your phone can reply, close, and move things to Later.'); return; }
     // A MESSAGE STILL IN ITS THREE SECONDS IS WRITTEN BEFORE THE STOP. Held, it
     // landed after the kill, read as a reply sent after stopping, reopened the
     // row and started a fresh run on it two minutes later (2026-10-05).
     // tests/a-message-still-sending-lands-before-the-stop.test.mjs
     await flushPending();
+    // FROM THE PHONE WITH THE COMPUTER CLOSED the stop goes to her Mac, and the
+    // toast says it went rather than that it stopped (Codex's review of step 1,
+    // finding 7).
+    if (onCloudPhone()) {
+      try { await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id }); } catch (err) { showToast(`Not sent: ${String((err as Error)?.message ?? err)}`); return; }
+      showToast('Stop sent. Your Mac stops the agent when it gets it.');
+      await refresh();
+      return;
+    }
     const wasRunning = working(item);
     setFollowing({ product: item.product, id: item.id });
     await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id });
@@ -4533,8 +4594,8 @@ export default function App() {
       const now = Date.now();
       leaveUndoMarks(pending.undid, now, now);
       setFocused(pending.item);
-      showToast(restored ? 'Undone. Your message is back in the reply box.' : 'Undone. Nothing was sent.');
-      return;
+      showToast(graceUndoneLine({ said: pending.said, restored: !!restored }));
+      return 'done' as const;
     }
     // PAST THE GRACE WINDOW, Z REACHES THE LAST THING SHE DID, AND AFTER THIRTY
     // SECONDS IT ASKS BEFORE IT DOES IT. It used to act silently for the rest of
@@ -4550,14 +4611,14 @@ export default function App() {
     if (!last) {
       undoAskRef.current = null;
       showToast(NOTHING_TO_UNDO);
-      return;
+      return 'none' as const;
     }
     const asked = undoAskRef.current;
     const answeringIt = asked?.entry === last && askStillStands(asked.at, now);
     if (!instant && !answeringIt) {
       undoAskRef.current = { entry: last, at: now };
       showToast(undoAsk(last.undoes));
-      return;
+      return 'old' as const;
     }
     undoAskRef.current = null;
     // The close that put this row away also queued the step onto the next task.
@@ -4573,12 +4634,19 @@ export default function App() {
     // `from` is taken before the undo writes anything, so the mark it leaves
     // spans exactly its own lines and the thread can fold them under it.
     const from = Date.now();
+    let outcome: Awaited<ReturnType<Undoable['run']>>;
     try {
-      await last.run();
+      outcome = await last.run();
     } catch (err) {
       setUndoStack((u) => [...u, last]);
       showToast(`Could not undo that. ${(err as Error)?.message ?? err}`);
-      return;
+      return { failed: `Could not undo that. ${(err as Error)?.message ?? err}` };
+    }
+    if (outcome && 'refused' in outcome) {
+      showToast(outcome.refused);
+      await refresh();
+      if (outcome.open) { setFocused(outcome.open); markSeen(outcome.open); }
+      return { failed: outcome.refused };
     }
     leaveUndoMarks(last.undid, from, Date.now());
     const restored = last.restore?.();
@@ -4602,6 +4670,7 @@ export default function App() {
     // on whatever the close had moved her to (w-7eb39d3c97).
     if (shown.open) { setFocused(shown.open); markSeen(shown.open); }
     else if (shown.compose) { setFocused(null); setModal('compose'); }
+    return 'done' as const;
   }, [undoStack, refresh, showToast, markSeen, leaveUndoMarks]);
 
   const paletteCommands = useRef<CommandRow[]>([]);
@@ -4609,15 +4678,22 @@ export default function App() {
   // the alpha flag. When it does, Neo's tool calls are carried out here with
   // the same functions the keys use, so a voice can do nothing a hand could
   // not; the rules about which thread and when to ask are in ./neo/bridge.
-  useNeo({
+  const neo = useNeo({
     rows: () => shownInbox,
     commands: () => paletteCommands.current,
     threadsAnywhere: () => [...inbox, ...progress, ...snoozed, ...done],
+    threadById: (id) => items.find((i) => i.id === id) ?? null,
     focused: () => focused,
     options: (row) => (offerIsLive(row) ? itemOptions(row) : []),
     summary: (row) => row.result || row.note || row.body || '',
+    answer: (row) => (row.wrote?.answer?.ts ?? 0) > (row.wrote?.result?.ts ?? 0) ? row.answer || '' : '',
+    about: (row) => row.problem || '',
     projects: () => (snap?.products ?? []).filter((p) => !directSlugs.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name })),
-    open: (row) => { setSearch(null); setFocused(row); markSeen(row); },
+    open: (row) => {
+      setSettingsOpen(false); setSettingsPane(null); setTeamOpen(false); setOpenCard(null); setModal(null);
+      setFocusedRepeat(null); setEditingRule(false);
+      setSearch(null); setFocused(row); markSeen(row);
+    },
     pick: (row, n) => pickOption(row, n),
     reply: async (row, text, { attach } = {}) => {
       // The pictures in her reply box go out with the words, through the box's own send.
@@ -4630,7 +4706,12 @@ export default function App() {
       try { await answerWith(row, text); } finally { neoSending.current = false; }
       return attach ? 'no-pictures' : undefined;
     },
-    close: (row) => markDone(row),
+    close: (row, confirmed) => markDone(row, { force: confirmed }),
+    closePrompt: (row) => {
+      const waiting = waitingFiled(row).length;
+      if (waiting) return `This thread has ${waiting} task${waiting === 1 ? '' : 's'} waiting for approval. Ask whether to close it anyway.`;
+      return offerIsLive(row) ? 'The agent is waiting on your answer. Closing leaves it waiting. Ask whether to close it anyway.' : null;
+    },
     later: (row, ts, label) => snoozeUntil(row, ts, label),
     compose: async (text, product) => {
       const message = threadMessage(text, []);
@@ -4640,19 +4721,34 @@ export default function App() {
       if (made?.id) {
         pushUndo({ label: `Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`, undoes: 'take back the task you just made',
           undid: [{ product: made.product, id: made.id, words: 'Undid sending it' }],
-          run: async () => { await api.answer({ product: made.product, id: made.id, status: 'done' }); } });
-        showToast(sentLine({ to: snap?.products.find((p) => p.slug === product)?.name ?? product, when: null, held: false }), { product: made.product, id: made.id });
-        void refresh();
+          run: async () => {
+            const row = (await api.snapshot())?.items.find((i) => i.id === made.id && i.product === made.product);
+            if (answeredAlready(row)) return { refused: TOO_LATE_TO_WITHDRAW, open: row };
+            await api.answer({ product: made.product, id: made.id, status: 'done' });
+          } });
+        const next = await refresh();
+        showToast(sentLine({ to: snap?.products.find((p) => p.slug === product)?.name ?? product, when: null, held: false,
+          limit: next?.supervisor?.atLimit?.[made.id] }), { product: made.product, id: made.id });
       }
       return made;
     },
-    undo: async () => {
-      if (pendingRef.current) { await undo(); return 'done'; }
-      const { take, instant } = nextUndo(undoStack, Date.now());
+    undo: async (confirmation) => {
+      if (pendingRef.current && !confirmation) return undo();
+      const now = Date.now();
+      const { take, instant } = nextUndo(undoStack, now);
+      if (confirmation) {
+        const asked = neoUndoAskRef.current;
+        neoUndoAskRef.current = null;
+        if (!asked || asked.confirmation !== confirmation || asked.entry !== take || pendingRef.current || now - asked.at > 60_000) return 'changed';
+        undoAskRef.current = { entry: take!, at: now };
+      }
       if (!take) return 'none';
-      if (!instant) return 'old';
-      await undo();
-      return 'done';
+      if (!instant && !confirmation) {
+        const token = crypto.randomUUID();
+        neoUndoAskRef.current = { entry: take, at: now, confirmation: token };
+        return { asked: `Do you want to ${take.undoes}?`, confirmation: token };
+      }
+      return undo();
     },
   });
 
@@ -4765,6 +4861,11 @@ export default function App() {
         setMultiSel((m) => m.size >= list.length && list.length > 0 ? new Set() : new Set(list.map((i) => i.id)));
         return;
       }
+      if (cloudChord(e, { inInput, selection: String(window.getSelection?.() ?? ''), modal: !!modal })) {
+        e.preventDefault();
+        toggleCloudRef.current?.();
+        return;
+      }
       // cmd-Y / cmd-N (answer the oldest approval card) live in the MAIN
       // process (before-input-event in main.mjs): menu accelerators and
       // renderer handlers both go quiet while an iframe holds focus, and these
@@ -4857,16 +4958,16 @@ export default function App() {
         // its question owns the keys the options would: the numbers and Enter
         // answer it, the arrows walk it, and esc keeps the thread open rather
         // than leaving it. Nothing is selected when it comes up, so Enter on
-        // arrival does nothing, the same promise the options make.
+        // arrival does nothing, the same promise the options make. Every other
+        // key falls through (w-23de8a26c0): E raises it again and scrolls to it.
         const asking = closeAskOn === keyOf(focused) ? closeAsk(waitingFiled(focused).length) : null;
-        if (asking) {
+        if (asking && closeAskOwnsKey(e.key)) {
           const ns = asking.options.map((o) => o.n);
           if (e.key === 'Escape') { e.preventDefault(); keepThreadOpen(); }
           else if (e.key === 'ArrowDown') { e.preventDefault(); setOptionSel((s) => ns[Math.min(ns.indexOf(s ?? -1) + 1, ns.length - 1)]); }
           else if (e.key === 'ArrowUp') { e.preventDefault(); setOptionSel((s) => { const i = ns.indexOf(s ?? -1); return i <= 0 ? null : ns[i - 1]; }); }
           else if (e.key === 'Enter') { e.preventDefault(); if (optionSel !== null) answerCloseAsk(focused, optionSel); }
-          else if (/^[1-9]$/.test(e.key)) answerCloseAsk(focused, Number(e.key));
-          else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); }
+          else answerCloseAsk(focused, Number(e.key));
           return;
         }
         // Arrows walk the options; Enter sends ONLY a visible selection.
@@ -4909,12 +5010,12 @@ export default function App() {
         }
         // E archives, unconditionally. It must never approve on her behalf.
         else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); markDone(focused); }
-        else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setOpenDoc(null); setModal('reply'); }
+        // The page stays open: full screen draws the box under it.
+        else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setModal('reply'); }
         // N MEANS THE SAME THING ON BOTH SCREENS. The + in the top bar is on
         // this screen too and its tooltip says "New task (N)", so the key is
-        // already advertised here. C is the cloud's since 2026-10-16.
+        // already advertised here.
         else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
-        else if (e.key === 'c' || e.key === 'C') { e.preventDefault(); toggleCloudRef.current?.(); }
         // L, NOT S, SINCE 2026-10-01. S was the schedule picker here and the
         // summary panel on the same screen (threads/Summary.tsx listens first
         // and eats it), so the two fought over one letter and a persona test
@@ -4937,7 +5038,6 @@ export default function App() {
           if (target) goToStop(target);
         }
         else if (e.key === 'n' || e.key === 'N') { e.preventDefault(); setModal('compose'); }
-        else if (e.key === 'c' || e.key === 'C') { e.preventDefault(); toggleCloudRef.current?.(); }
         else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); }
         return;
       }
@@ -5013,10 +5113,8 @@ export default function App() {
           if (multiSel.size) openSnooze(selectable.filter((i) => multiSel.has(i.id)));
           else if (pointed && (view === 'inbox' || view === 'snoozed')) openSnooze(pointed);
           break;
-        // N starts a thread (w-fb9051e597). C was its older twin until
-        // 2026-10-16 and turns the cloud on or off now.
+        // N starts a thread (w-fb9051e597). C does nothing: the cloud is ⌘C.
         case 'n': case 'N': e.preventDefault(); setModal('compose'); break;
-        case 'c': case 'C': e.preventDefault(); toggleCloudRef.current?.(); break;
         case 'z': case 'Z': undo(); break;
         // B FLIPS LIST AND BOARD (w-58c8f466e7): "I quite often switch between
         // board and list view". B for board; it shipped as V first and that
@@ -5473,9 +5571,13 @@ export default function App() {
     <TeamContext.Provider value={team}>
     <ChatAgentsContext.Provider value={chatAgents}>
     <LiveContext.Provider value={liveIds}>
+    <CloudContext.Provider value={cloudIds}>
     <WaitingContext.Provider value={waitingByThread}>
     <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${workspaceCollapsed ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}`}>
       {signInGate && <SignInPage signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
+      {/* Dark's corner marks, outside the card. Their own element, because
+          `.workspace-layout::after` is the window's drag strip. */}
+      {workspaceNavigation && <div className="panel-marks" aria-hidden="true" />}
       {/* THE TOP BAR IS NOT DRAWN ON AN OPENED TASK.
 
           WHAT REPLACES IT IS NOT NOTHING, and the reason is three buttons this
@@ -6059,7 +6161,7 @@ export default function App() {
                   // The question a close asks while tasks still wait (w-d2744c6daa).
                   closeAsk={(() => {
                     const asked = closeAskOn === keyOf(focused) ? closeAsk(waitingFiled(focused).length) : null;
-                    return asked && { ...asked, onPick: (n: number) => answerCloseAsk(focused, n), keep: { label: KEEP_OPEN, onKeep: keepThreadOpen } };
+                    return asked && { ...asked, raised: closeAskRaised, onPick: (n: number) => answerCloseAsk(focused, n), keep: { label: KEEP_OPEN, onKeep: keepThreadOpen } };
                   })()}
                   onNotice={showToast}
                   /*
@@ -6122,6 +6224,11 @@ export default function App() {
                   onStop={() => stopAgent(focused)}
                   onRunNow={() => runNow(focused)}
                   onPin={focused.agent ? undefined : (pin) => pinThread(focused.id, pin, true)}
+                  place={focused.agent ? null : threadPlace(focused, snap.supervisor.running.find((r) => r.itemId === focused.id) ?? null, snap.cloud ?? null, snap.products)}
+                  onPlace={(keep) => {
+                    void api.setThreadOnMac({ [focused.id]: keep ? true : null });
+                    showToast(keep ? 'This thread now runs only on this Mac' : 'This thread can run on the cloud again');
+                  }}
                   onReveal={() => revealAgent(focused)}
                   // Remind me later and stop this task are neither of the two
                   // ways a task ends, and the card beside the bar names exactly
@@ -6185,10 +6292,12 @@ export default function App() {
                       done: (mineShown ? shownCount(done) : 0) + theirCount('done'),
                     }}
                     needs={team ? needsWord(picked, team.me) : undefined}
+                    lit={needsYouLit(inbox, needsLookedAt)}
                     onView={(next) => { setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                     onSearch={openSearch}
                   />
                 )}
+                {snap.phoneStatus && <div className="phone-status" role="status">{snap.phoneStatus}</div>}
                 {workspaceNavigation && emptyView && !theirRows.length ? (
                   // A FILTER IS READ FIRST, so it can never fall through to
                   // "Nothing needs you" (w-5a08121f99). That sentence is a
@@ -6209,6 +6318,7 @@ export default function App() {
                       : <EmptyTab view={view} />
                 ) : <List
                   table={workspaceNavigation && search === null}
+                  unread={(item) => isUnread(item, seenAt, unreadSince)}
                   products={snap.products}
                   team={team}
                   mixed={search === null ? mixedRows : null}
@@ -6422,15 +6532,20 @@ export default function App() {
             }
             if (made?.id) {
               noteNewTask(`Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`, 'take back the task you just made', sent, async () => {
+                const row = (await api.snapshot())?.items.find((i) => i.id === made.id && i.product === made.product);
+                if (answeredAlready(row)) return { refused: TOO_LATE_TO_WITHDRAW, open: row };
                 await api.answer({ product: made.product, id: made.id, status: 'done' });
               }, [{ product: made.product, id: made.id, words: 'Undid sending it' }]);
             }
+            // Read before the line is said: a tool with no login left in
+            // usage means nothing started, and the line has to say so.
+            const next = await refresh();
             showToast(sentLine({
               to: to ?? slug,
               when: how?.runAt ? whenLabel({ runAt: how.runAt, repeat: null }) : null,
               held: how?.start === 'later',
+              limit: made?.id ? next?.supervisor?.atLimit?.[made.id] : null,
             }), made?.id ? { product: made.product, id: made.id } : undefined);
-            await refresh();
           }}
         />
       )}
@@ -6587,7 +6702,7 @@ export default function App() {
             // No Decline here, by design. Close This Task above
             // is the one way to say no.
             seen.has(target.id)
-              ? { id: 'unread', label: 'Mark Unread', run: () => { setSeen((s) => { const c = new Set(s); c.delete(target.id); return c; }); setModal(null); } }
+              ? { id: 'unread', label: 'Mark Unread', run: () => { setSeen((s) => { const c = new Set(s); c.delete(target.id); return c; }); setSeenAt((m) => ({ ...m, [target.id]: 0 })); setModal(null); } }
               : { id: 'read', label: 'Mark Read', run: () => { markSeen(target); setModal(null); } },
             ...(returnAt(target) > Date.now()
               ? [{
@@ -6701,6 +6816,7 @@ export default function App() {
              has no team in it, and this keeps the team's code in the team's
              files. No team cloud, no pane and no Team row. */
           teamPane={snap?.team?.configured ? <TeamPage team={snap?.team} inviteFocus={inviteFocus} /> : undefined}
+          neoOn={neo.on}
           // WHO SEES A PROJECT'S THREADS (w-b989839656): the button beside a
           // project's name and the Projects list's column, only while someone
           // is signed in to a team, handed in for the same reason as the pane.
@@ -6983,6 +7099,12 @@ export default function App() {
           />
         </div>
       )}
+      {/* Offered and nobody signed in yet: the app's own sign-in page first.
+          Signing in sets the cloud up, and the same open state then shows
+          the setup's accounts. */}
+      {cloudSetupOpen && !snap.cloud?.setUp && snap.cloud?.offered && (
+        <SignInPage purpose="cloud" onClose={() => setCloudSetupOpen(false)} onSignedIn={() => setCloudSetupOpen(true)} />
+      )}
       {cloudSetupOpen && snap.cloud?.setUp && (
         <CloudSetup
           cloud={snap.cloud}
@@ -7165,8 +7287,8 @@ export default function App() {
                   {/* The acknowledgement starts on the press, not on the round
                       trip: main answers the file and echoes the same verdict
                       back, so the click and the chord land on one behaviour. */}
-                  <button className="approval-allow" onClick={async () => { setAnswered({ id: a.id, allow: true }); await window.zero?.approve?.({ id: a.id, allow: true }); await refresh(); }}>Allow</button>
-                  <button className="approval-deny" onClick={async () => { setAnswered({ id: a.id, allow: false }); await window.zero?.approve?.({ id: a.id, allow: false }); await refresh(); }}>Deny</button>
+                  <button className="approval-allow" onClick={() => void answerCard(a.id, true)}>Allow</button>
+                  <button className="approval-deny" onClick={() => void answerCard(a.id, false)}>Deny</button>
                   <span className="approval-hint">⌘Y / ⌘N · {a.tool}</span>
                 </div>
               </div>
@@ -7269,6 +7391,7 @@ export default function App() {
       <FindBar />
     </div>
     </WaitingContext.Provider>
+    </CloudContext.Provider>
     </LiveContext.Provider>
     </ChatAgentsContext.Provider>
     </TeamContext.Provider>

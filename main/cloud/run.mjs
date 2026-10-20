@@ -26,8 +26,10 @@
 //      it would look at this Mac's localhost, not the sandbox's.
 //   5. When the sandbox reports its results uploaded, fetches them from S3 and,
 //      only if the folder is exactly as it was when the run left, lays them in:
-//      commits fast-forwarded, uncommitted work reapplied, transcripts
-//      unpacked. Only then does the marker go.
+//      the branch moved to the cloud's tip, uncommitted work reapplied,
+//      transcripts unpacked. Only then does the marker go. A folder that
+//      changed here meanwhile keeps its own work, and the run's goes on a
+//      branch `cloud/<item>` (`park`).
 //   6. On SIGTERM (Stop, archive, preemption) it cancels the remote command
 //      and still does 5, so the work and the transcript come home and the
 //      app's ordinary resume can take it from there. On SIGHUP (the app
@@ -50,13 +52,56 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
-import { spawn, execFileSync } from 'node:child_process';
-import { readMarker, writeMarker, clearMarker } from './marker.mjs';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { spawn } from 'node:child_process';
+import { run } from './exec.mjs';
+import { readMarker, writeMarker, clearMarker, addCloudNews, commonGitDirOf } from './marker.mjs';
 import { Name, nameSlug } from '../../shared/product-name.mjs';
 import { codexTranscriptFile } from '../codex-session.mjs';
 import { appendCloudUsage } from './usage.mjs';
 import { docsFolderFor, docsToSend, tarDocs, layDocs } from './docs.mjs';
 import { troubleCause, limitResetMoment } from '../../shared/spawn-trouble.mjs';
+import { HAND_BACK } from '../../shared/cloud-hand-back.mjs';
+import { sentLine } from '../../shared/cloud-start.mjs';
+import { serveApprovals } from '../approval-prompt-core.mjs';
+import { cacheKey, folderKey, sendOnce, pickBase, bundlePast, refsAt } from './reuse.mjs';
+
+// WHAT A CLOUD RUN IS TOLD ABOUT WHERE IT IS. Without it an agent there found
+// its film's files, ffmpeg and a key missing, and asked the person to move the
+// thread (2026-10-16). Kept true to cloud/sandbox/Dockerfile and ./docs.mjs.
+export const CLOUD_NOTE = [
+  '# You are running on a cloud machine, not on the person\'s own computer',
+  '',
+  'This turn runs in a Linux cloud sandbox (Debian, 2 cores, 8 GB) that is yours for this run and thrown away after it. It has: this task folder (its git branch and main, at the same path as on their computer); the project\'s documents folder at its usual path, but only its small files (up to 256 KB each), plus this thread\'s own designs folder (its newest files, up to 50 MB) and any attachment the request names; the store tools (look_at_page excepted); git, node, npm, python3 and pip, make, g++, curl, wget, unzip; and Playwright with Chromium already installed (`require(\'playwright\')` works from any folder).',
+  '',
+  'Install whatever else the work needs: you have sudo (`sudo apt-get update && sudo apt-get install -y <package>`, `pip install --user`, `npm install`). When you install a program the project will need again, add the same lines to `.agentbox/cloud-setup.sh` in the task folder and commit it: that script runs before every cloud run of this project, and its output from this run is in /tmp/agentbox-cloud-setup.log.',
+  '',
+  'It does not have: any other file from their computer (other threads\' design folders, large media, files under the home folder); files an earlier turn left outside git (node_modules, gitignored folders such as scripts/scratch, /tmp); API keys, key files or tokens kept on their computer; their computer\'s apps (Xcode, a simulator, their browser and its sign-ins). Run `npm ci --ignore-scripts` before anything that needs node_modules. Open files are capped at 1024 here (the cloud fixes that ceiling), so a test runner that watches the whole project (`vitest related`, `npm run test:changed`) fails with EMFILE: run the test files you changed and the ones that import them by name with `npx vitest run <files>`.',
+  '',
+  `If this request needs something only their computer has (one of those files, a key, one of their apps, a private repository this machine cannot reach), stop at once. Do not work around it, do not write to the work item, do not give the person commands to run, and do not offer to move the thread: the app moves it. End your turn with one line and nothing else: ${HAND_BACK} followed by what was missing. That line replaces your usual final answer and its options. The app then runs the same request again on their computer, where all of it is. A program you can install is not a reason to stop. Otherwise work as usual, and never write that line.`,
+].join('\n');
+
+// The same, for a project with no repository, whose agent works in the
+// documents folder itself.
+const notes = CLOUD_NOTE.split('\n\n');
+export const PLAIN_CLOUD_NOTE = [
+  notes[0],
+  'This turn runs in a Linux cloud sandbox (Debian, 2 cores, 8 GB) that is yours for this run and thrown away after it. It has: the project\'s documents folder, which is the folder you work in, at the same path as on their computer, but only its small files (up to 256 KB each), plus this thread\'s own designs folder (its newest files, up to 50 MB) and any attachment the request names; what you write there goes back to their computer as you work. There is no git repository here. It also has the store tools (look_at_page excepted); git, node, npm, python3 and pip, make, g++, curl, wget, unzip; and Playwright with Chromium already installed (`require(\'playwright\')` works from any folder).',
+  'Install whatever else the work needs: you have sudo (`sudo apt-get update && sudo apt-get install -y <package>`, `pip install --user`, `npm install`).',
+  'It does not have: any other file from their computer (documents over 256 KB, other threads\' design folders, large media, files under the home folder, /tmp from an earlier turn); API keys, key files or tokens kept on their computer; their computer\'s apps (Xcode, a simulator, their browser and its sign-ins).',
+  notes[notes.length - 1],
+].join('\n\n');
+
+// The app's own instructions with the cloud note after them.
+export function argvForTheCloud(argv, { plain = false } = {}) {
+  const note = plain ? PLAIN_CLOUD_NOTE : CLOUD_NOTE;
+  const i = argv.indexOf('--append-system-prompt');
+  if (i < 0 || i + 1 >= argv.length) return [...argv, '--append-system-prompt', note];
+  const out = [...argv];
+  out[i + 1] = `${argv[i + 1]}\n\n${note}`;
+  return out;
+}
 
 // How long a cloud account whose limit named no hour sits out.
 const LIMIT_REST_MS = 30 * 60_000;
@@ -75,6 +120,19 @@ export function limitInResultLine(line, now = Date.now()) {
 
 export const IMPORT_FAILED = 75;
 export const LOGIN_TROUBLE = 77;
+// A folder the cloud cannot take: the thread runs on this Mac instead, and is
+// not tried in the cloud again (Supervisor#_cloudKeptOnMac).
+export const KEEP_ON_MAC = 78;
+// The cloud server had no room for this person (no plan, hours spent, every
+// agent running, paused, terms not accepted): not a failure of the thread or
+// the cloud, so the thread runs on this Mac meanwhile (Supervisor#_noteCloudNoRoom).
+export const CLOUD_NO_ROOM = 79;
+const NO_ROOM = new Set(['plan', 'hours', 'agents', 'paused', 'terms']);
+/** A refused start that is about room, as its exit and what it says; else null. */
+export function refusedForRoom(answer) {
+  if (!answer || answer.ok !== false || !NO_ROOM.has(answer.error)) return null;
+  return { code: CLOUD_NO_ROOM, line: `no room in the cloud (${answer.error}): ${answer.message || ''}`.trim() };
+}
 // A link to a login is good for half an hour: a run fetches it while it is
 // being prepared, never later.
 const LOGIN_LINK_SECONDS = 30 * 60;
@@ -91,12 +149,29 @@ const MAX_ATTACHMENT = 25 * 1024 * 1024;
 const RESULTS_WAIT_MS = 3 * 60_000;
 // How often a run's new documents are fetched while it works.
 const DOCS_EVERY_MS = 10_000;
+// Four missed reads of the run's events: asleep, or off the network for good.
+const OFFLINE_AFTER_MS = 90_000;
+export const INPUT_CLOSED_IN_CLOUD = 'agentbox_input_closed_in_cloud';
 // A run the app left going when it quit, and the process bringing it home.
+// The store's writes an agent may make while the Mac is away, kept in the cloud
+// and made when it wakes: what it writes on its thread and its documents.
+// Never a read, which has nothing to answer with, nor a claim, stale by then.
+export const KEPT_WHILE_AWAY = { [nameSlug]: ['update_work_item', 'create_work_item', 'write_document'] };
+// What a server opened afresh to make a kept write is told first.
+const HANDSHAKE_LINES = [
+  JSON.stringify({ jsonrpc: '2.0', id: 'kept-hello', method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: `${nameSlug}-cloud`, version: '1' } } }),
+  JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+];
 const LEFT_RUNNING = new Set(['detached', 'attached']);
 const MAC_GONE = 'The app on the Mac restarted during this call, so its answer was lost. Check whether it took effect, then try again.';
 // How long a run that is being left to carry on waits for its last inputs to
 // reach the sandbox.
 const LEAVE_FLUSH_MS = 10_000;
+// The project's setup in the sandbox (cloud/sandbox/server.mjs), and how long
+// it may take before it is worth saying.
+const SETUP_FILE = '.agentbox/cloud-setup.sh';
+const SETUP_LOG = '/tmp/agentbox-cloud-setup.log';
+const SLOW_SETUP_MS = 3 * 60_000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -105,25 +180,43 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // same rule.
 export function transcriptFolderName(cwd) { return cwd.replace(/[^a-zA-Z0-9]/g, '-'); }
 
+// THE PROJECT'S SAVED MEMORIES on this Mac, for a task folder that is a
+// linked worktree: Claude Code keeps them under the main checkout's folder
+// name. In the cloud the task folder is a repository of its own, so Claude
+// Code looks under the task folder's name instead (its transcripts' folder).
+// Null when there are none, or the folder is the main checkout.
+export function memoryFolderFor(cwd, configDir) {
+  const common = commonGitDirOf(cwd);
+  if (!common) return null;
+  const root = path.dirname(common);
+  if (realOrNull(root) === realOrNull(cwd)) return null;
+  const dir = path.join(configDir, 'projects', transcriptFolderName(root), 'memory');
+  try { return fs.readdirSync(dir).length ? dir : null; } catch { return null; }
+}
+
+function folderWithFiles(dir) {
+  try { return fs.readdirSync(dir).length ? dir : null; } catch { return null; }
+}
+
 export function argValue(argv, flag) {
   const i = argv.indexOf(flag);
   return i >= 0 && i + 1 < argv.length ? argv[i + 1] : null;
 }
 
-function git(cwd, args, opts = {}) {
-  return execFileSync('git', args, { cwd, encoding: opts.buffer ? undefined : 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 512 * 1024 * 1024, ...opts });
+function git(cwd, args, { buffer = false, env, input } = {}) {
+  return run('git', args, { cwd, env, input, encoding: buffer ? null : 'utf8' });
 }
-const gitOk = (cwd, args) => { try { git(cwd, args); return true; } catch { return false; } };
+const gitOk = (cwd, args) => git(cwd, args).then(() => true, () => false);
 
 // The tree the folder's files make right now, committed or not, without
 // touching the branch, the index or the files.
-function treeOfFolder(cwd) {
+async function treeOfFolder(cwd) {
   const index = path.join(os.tmpdir(), `agentbox-cloud-index-${process.pid}-${crypto.randomUUID()}`);
   const env = { ...process.env, GIT_INDEX_FILE: index };
   try {
-    git(cwd, ['read-tree', 'HEAD'], { env });
-    git(cwd, ['add', '-A'], { env });
-    return git(cwd, ['write-tree'], { env }).trim();
+    await git(cwd, ['read-tree', 'HEAD'], { env });
+    await git(cwd, ['add', '-A'], { env });
+    return (await git(cwd, ['write-tree'], { env })).trim();
   } finally {
     fs.rmSync(index, { force: true });
   }
@@ -131,24 +224,24 @@ function treeOfFolder(cwd) {
 
 // What a folder is: its branch, its commit, and its files. A cloud run's work
 // is laid into a folder only if all three are still what the run left with.
-export function folderState(cwd) {
+export async function folderState(cwd) {
   return {
-    branch: git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']).trim(),
-    head: git(cwd, ['rev-parse', 'HEAD']).trim(),
-    tree: treeOfFolder(cwd),
+    branch: (await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim(),
+    head: (await git(cwd, ['rev-parse', 'HEAD'])).trim(),
+    tree: await treeOfFolder(cwd),
     // What is staged, apart from what is on disk: a change staged and then
     // undone on disk would otherwise read as no change at all.
-    index: git(cwd, ['write-tree']).trim(),
+    index: (await git(cwd, ['write-tree'])).trim(),
   };
 }
 
 // Commit what the folder holds that is not committed, onto its own ref,
 // without touching the branch, the index or the files.
-function snapshotUncommitted(cwd, ref) {
-  if (!git(cwd, ['status', '--porcelain', '--untracked-files=all']).trim()) return false;
-  const tree = treeOfFolder(cwd);
-  const commit = git(cwd, ['-c', `user.name=${Name}`, '-c', `user.email=${nameSlug}@localhost`, 'commit-tree', tree, '-p', 'HEAD', '-m', 'Uncommitted work kept by a cloud run']).trim();
-  git(cwd, ['update-ref', ref, commit]);
+async function snapshotUncommitted(cwd, ref) {
+  if (!(await git(cwd, ['status', '--porcelain', '--untracked-files=all'])).trim()) return false;
+  const tree = await treeOfFolder(cwd);
+  const commit = (await git(cwd, ['-c', `user.name=${Name}`, '-c', `user.email=${nameSlug}@localhost`, 'commit-tree', tree, '-p', 'HEAD', '-m', 'Uncommitted work kept by a cloud run'])).trim();
+  await git(cwd, ['update-ref', ref, commit]);
   return true;
 }
 
@@ -183,6 +276,7 @@ export function mcpConfigForTheCloud(config, stubPath = STUB) {
 }
 
 function realOrNull(p) { try { return fs.realpathSync(p); } catch { return null; } }
+const sameFolder = (a, b) => !!a && !!b && realOrNull(a) !== null && realOrNull(a) === realOrNull(b);
 const inside = (p, root) => p === root || p.startsWith(root + path.sep);
 
 // Absolute paths a prompt names that are real files the sandbox cannot have:
@@ -190,15 +284,17 @@ const inside = (p, root) => p === root || p.startsWith(root + path.sep);
 // roots the agent is allowed to read, and not too big to send. Containment is
 // decided on the RESOLVED path, after `..` and symlinks, so `<root>/../secret`
 // and a link inside the root pointing out of it are both refused.
+// With no `cwd` (a run whose folder is the documents folder, which travels only
+// in part), a file inside it is sent like any other.
 export function filesNamedIn(text, { cwd, roots }) {
   const realRoots = roots.map(realOrNull).filter(Boolean);
-  const realCwd = realOrNull(cwd) || cwd;
+  const realCwd = cwd ? realOrNull(cwd) || cwd : null;
   const found = new Set();
   for (const m of String(text || '').matchAll(/(\/(?:[^\s"'`<>()\[\]{},;\\]|\\ )+)/g)) {
     const named = m[1].replace(/[.:]+$/, '');
     const real = realOrNull(named);
     if (!real) continue;
-    if (inside(real, realCwd)) continue;
+    if (realCwd && inside(real, realCwd)) continue;
     if (!realRoots.some((r) => inside(real, r))) continue;
     try {
       const st = fs.statSync(real);
@@ -211,7 +307,7 @@ export function filesNamedIn(text, { cwd, roots }) {
 // COPYFILE_DISABLE: a Mac's tar can add a `._name` beside a file with
 // extended attributes, which the cloud reads as one more skill or command.
 export function tarOf(dir) {
-  return execFileSync('tar', ['-czf', '-', '-C', dir, '-h', '.'], { maxBuffer: 512 * 1024 * 1024, env: { ...process.env, COPYFILE_DISABLE: '1' } });
+  return run('tar', ['-czf', '-', '-C', dir, '-h', '.'], { encoding: null, env: { ...process.env, COPYFILE_DISABLE: '1' } });
 }
 
 /* -------------------------------- the run -------------------------------- */
@@ -244,9 +340,30 @@ export async function cloudRun({
   engine = 'claude',
   docsEveryMs = DOCS_EVERY_MS,
   leaveFlushMs = LEAVE_FLUSH_MS,
+  // How long the sandbox waits without word from this Mac before it counts
+  // it asleep (cloud/sandbox/server.mjs "WHILE THE MAC IS AWAY").
+  offlineAfterMs = OFFLINE_AFTER_MS,
+  keptWhileAway = KEPT_WHILE_AWAY,
+  // The process that stands for this run, written in its marker so another
+  // can tell whether it is still alive: this one, or, when many runs share a
+  // host process, the run's own small stand-in (main/cloud/host.mjs).
+  pid: selfPid = process.pid,
+  // What the cloud image said it can do at its last start (its `caps`), and
+  // who to tell what this one says. 'base' lets a run send only the commits
+  // past a base the bucket already has (./reuse.mjs).
+  imageCaps = [],
+  onCaps = () => {},
 }) {
   const say = (msg) => stderr.write(`agentbox cloud: ${msg}\n`);
+  const begunAt = Date.now();
+  // Whether the sandbox keeps this run going while the Mac sleeps, so its
+  // tool calls are asked about before they are made (`claimCalls`).
+  let offlineOn = false;
   const codex = engine === 'codex';
+  // A project with no repository: the agent works in the documents folder,
+  // and the thread's marker is the file the supervisor named (./marker.mjs).
+  const plain = !!env.AGENTBOX_CLOUD_MARKER;
+  const here = plain ? { folder: cwd, file: env.AGENTBOX_CLOUD_MARKER } : cwd;
   const configDir = env.CLAUDE_CONFIG_DIR || path.join(homeDir, '.claude');
   const codexHome = env.CODEX_HOME || path.join(homeDir, '.codex');
   const projectsFor = (dir) => path.join(dir || configDir, 'projects', transcriptFolderName(cwd));
@@ -277,15 +394,18 @@ export async function cloudRun({
   // left going when it quit is JOINED instead, by the process the supervisor
   // starts to bring it home: it serves the run's tools again and waits for it
   // to finish, rather than stopping it.
-  const earlier = readMarker(cwd);
+  const earlier = readMarker(here);
   let joining = null;
   let joinedAt = null;
-  if (earlier && LEFT_RUNNING.has(earlier.state)) {
+  // A run whose relay died without a word (the shared host crashed) is left
+  // going too, not stopped.
+  const orphaned = earlier?.state === 'running' && earlier.pid && earlier.pid !== selfPid && !alive(earlier.pid);
+  if (earlier && (LEFT_RUNNING.has(earlier.state) || orphaned)) {
     if (!importOnly) { say('an earlier cloud run in this folder is still going; it comes home before another starts'); return IMPORT_FAILED; }
-    if (earlier.pid && earlier.pid !== process.pid && alive(earlier.pid)) { say('an earlier cloud run in this folder is already being brought home'); return IMPORT_FAILED; }
+    if (earlier.pid && earlier.pid !== selfPid && alive(earlier.pid)) { say('an earlier cloud run in this folder is already being brought home'); return IMPORT_FAILED; }
     const st = await retry(() => transport.invoke(earlier.sessionId, { action: 'status', runId: earlier.runId }), { what: 'reach the run the app left going', forever: false });
     if (!st) { say('the cloud could not be reached; the run the app left going is tried again later'); return IMPORT_FAILED; }
-    if (st.runId === earlier.runId && (st.state === 'preparing' || st.state === 'running')) { joining = earlier; joinedAt = st; }
+    if (st.runId === earlier.runId && (st.state === 'preparing' || st.state === 'running')) { joining = earlier; joinedAt = st; offlineOn = !!earlier.offline; }
   }
   if (earlier && !joining) {
     const back = await bringHome(earlier, { recovering: true });
@@ -322,7 +442,7 @@ export async function cloudRun({
     while ((i = stdinBuf.indexOf('\n')) >= 0) {
       let line = stdinBuf.slice(0, i + 1);
       stdinBuf = stdinBuf.slice(i + 1);
-      const named = filesNamedIn(line, { cwd, roots });
+      const named = filesNamedIn(line, { cwd: plain ? null : cwd, roots });
       if (codex) {
         const c = codexLineForTheCloud(line, { stubPath, codexHome, keep: mcpConfig.mcpServers });
         line = c.line;
@@ -361,33 +481,64 @@ export async function cloudRun({
     stdinClosed = true;
     sentFiles = new Set();
     sendFile = async () => { throw new Error('a joined run sends no files'); };
-    writeMarker(cwd, { ...marker, pid: process.pid, state: 'attached', cursor: startCursor, n: startN, conns: startConns });
+    writeMarker(here,{ ...marker, pid: selfPid, state: 'attached', cursor: startCursor, n: startN, conns: startConns });
     say('joining the cloud run the app left going, to bring it home when it finishes');
   } else {
   runId = crypto.randomUUID();
   sessionId = `agentbox-${(env.ZERO_ITEM || 'run').replace(/[^a-zA-Z0-9-]/g, '')}-${runId}`;
 
   // 2. The pack.
-  const docsDir = docsFolderFor(env.AGENTBOX_DOCS, cwd);
-  const sentAt = Date.now();
-  const sent = folderState(cwd);
-  const { branch, head: startSha } = sent;
-  if (!branch || branch === 'HEAD') { say('the task folder is not on a branch'); return 1; }
-  const outgoing = `refs/agentbox/outgoing/${runId}`;
-  const hasOutgoing = snapshotUncommitted(cwd, outgoing);
-  const refs = [`refs/heads/${branch}`];
-  if (hasOutgoing) refs.push(outgoing);
-  for (const r of ['refs/heads/main', 'refs/remotes/origin/main']) if (r !== `refs/heads/${branch}` && gitOk(cwd, ['rev-parse', '--verify', '-q', r])) refs.push(r);
-  const bundleFile = path.join(os.tmpdir(), `agentbox-cloud-${runId}.bundle`);
-  try {
-    git(cwd, ['bundle', 'create', '-q', bundleFile, ...refs]);
-    await storage.put(key('in.bundle'), fs.readFileSync(bundleFile));
-  } finally {
-    fs.rmSync(bundleFile, { force: true });
-    if (hasOutgoing) gitOk(cwd, ['update-ref', '-d', outgoing]);
+  const docsDir = plain ? (sameFolder(env.AGENTBOX_DOCS, cwd) ? cwd : null) : docsFolderFor(env.AGENTBOX_DOCS, cwd);
+  // The supervisor checks the image first (`_cloudTakesPlain`), so this is an
+  // image that changed in between.
+  if (plain && (!docsDir || !imageCaps.includes('plain'))) {
+    say(docsDir ? 'this cloud image cannot take a project with no repository yet; rebuild it (node scripts/cloud-setup.mjs)' : 'a project with no repository runs in its documents folder, and this is not it');
+    return IMPORT_FAILED;
   }
+  const sentAt = Date.now();
+  let sent = null; let branch = null; let startSha = null;
+  const outgoing = `refs/agentbox/outgoing/${runId}`;
+  let hasOutgoing = false;
+  const refs = [];
+  if (!plain) {
+    try {
+      if (await gitOk(cwd, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])) throw new Error('a merge in it is not finished');
+      sent = await folderState(cwd);
+    } catch (err) {
+      say(`this folder cannot go to the cloud (${String(err?.message || err).split('\n')[0]}), so the thread runs on this Mac`);
+      return KEEP_ON_MAC;
+    }
+    ({ branch, head: startSha } = sent);
+    if (!branch || branch === 'HEAD') { say('the task folder is not on a branch'); return 1; }
+    hasOutgoing = await snapshotUncommitted(cwd, outgoing);
+    refs.push(`refs/heads/${branch}`);
+    if (hasOutgoing) refs.push(outgoing);
+    for (const r of ['refs/heads/main', 'refs/remotes/origin/main']) if (r !== `refs/heads/${branch}` && await gitOk(cwd, ['rev-parse', '--verify', '-q', r])) refs.push(r);
+  }
+  const bundleFile = path.join(os.tmpdir(), `agentbox-cloud-${runId}.bundle`);
+  // Against a base the bucket already has, when the image can take one:
+  // a reply then sends the commits past it, not the project's whole history.
+  const thin = imageCaps.includes('base') && !!storage.exists;
+  const packed = (async () => {
+    if (plain) return { bundle: false, base: null, refs: null };
+    try {
+      if (!thin) {
+        await git(cwd, ['bundle', 'create', '-q', bundleFile, ...refs]);
+        await sendFromFile(storage, key('in.bundle'), bundleFile);
+        return { bundle: true, base: null, refs: null };
+      }
+      const base = await pickBase(cwd, storage, { runId });
+      const at = await refsAt(cwd, refs);
+      const bundle = !!(await bundlePast(cwd, refs, base.sha, bundleFile));
+      if (bundle) await sendFromFile(storage, key('in.bundle'), bundleFile);
+      return { bundle, base, refs: at };
+    } finally {
+      fs.rmSync(bundleFile, { force: true });
+      if (hasOutgoing) await gitOk(cwd, ['update-ref', '-d', outgoing]);
+    }
+  })();
 
-  const files = [];
+  const sending = [];
   let fileCount = 0;
   sendFile = async (localPath, remotePath = localPath, body = null, untar = null) => {
     fileCount += 1;
@@ -395,36 +546,46 @@ export async function cloudRun({
     await storage.put(k, body ?? fs.readFileSync(localPath));
     return { path: remotePath, url: await storage.getUrl(k), ...(untar ? { untar } : {}) };
   };
+  // A folder unchanged since an earlier run is not sent again (./reuse.mjs).
+  const sendFolder = async (dir, remotePath, untar) => {
+    if (!storage.exists) return sendFile(null, remotePath, await tarOf(dir), untar);
+    const { key: k } = await sendOnce(storage, cacheKey(`folder-${await folderKey(dir)}.tgz`), () => tarOf(dir));
+    return { path: remotePath, url: await storage.getUrl(k), untar };
+  };
   const settingsPath = argValue(argv, '--settings');
-  if (settingsPath && fs.existsSync(settingsPath)) files.push(await sendFile(settingsPath, settingsPath, Buffer.from(settingsForTheCloud(fs.readFileSync(settingsPath, 'utf8')))));
+  if (settingsPath && fs.existsSync(settingsPath)) sending.push(sendFile(settingsPath, settingsPath, Buffer.from(settingsForTheCloud(fs.readFileSync(settingsPath, 'utf8')))));
   const mcpPath = argValue(argv, '--mcp-config');
   if (mcpPath && fs.existsSync(mcpPath)) {
     mcpConfig = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
-    files.push(await sendFile(mcpPath, mcpPath, Buffer.from(JSON.stringify(mcpConfigForTheCloud(mcpConfig, stubPath)))));
+    sending.push(sendFile(mcpPath, mcpPath, Buffer.from(JSON.stringify(mcpConfigForTheCloud(mcpConfig, stubPath)))));
   }
   const resumeId = argValue(argv, '--resume');
   if (resumeId) {
     const t = path.join(projectsDir, `${resumeId}.jsonl`);
-    if (fs.existsSync(t)) files.push(await sendFile(t));
+    if (fs.existsSync(t)) sending.push(sendFile(t));
     else say(`no transcript for ${resumeId} on this Mac; the cloud run starts without it`);
   }
+  // Her saved memories for this project, where Claude Code in the cloud looks.
+  const saved = codex ? null : plain ? folderWithFiles(path.join(projectsDir, 'memory')) : memoryFolderFor(cwd, configDir);
+  if (saved) sending.push(sendFolder(saved, path.join(projectsDir, '.memory.tgz'), path.join(projectsDir, 'memory')));
   // The account's own skills, commands and agents, as real folders.
   if (!codex) {
     const tooling = path.join(homeDir, '.claude');
     for (const sub of ['skills', 'commands', 'agents']) {
       const dir = fs.existsSync(path.join(configDir, sub)) ? path.join(configDir, sub) : path.join(tooling, sub);
-      if (fs.existsSync(dir)) files.push(await sendFile(null, path.join(configDir, `.${sub}.tgz`), tarOf(dir), path.join(configDir, sub)));
+      if (fs.existsSync(dir)) sending.push(sendFolder(dir, path.join(configDir, `.${sub}.tgz`), path.join(configDir, sub)));
     }
   }
   // Her own instructions to Claude, which Claude Code reads from the home
   // folder whichever account it runs on.
-  const homeFiles = [];
   const memory = path.join(homeDir, '.claude', 'CLAUDE.md');
-  if (!codex && fs.existsSync(memory) && fs.statSync(memory).size <= MAX_ATTACHMENT) {
-    const k = key('home/CLAUDE.md');
-    await storage.put(k, fs.readFileSync(memory));
-    homeFiles.push({ rel: '.claude/CLAUDE.md', url: await storage.getUrl(k) });
-  }
+  const homeFiles = !codex && fs.existsSync(memory) && fs.statSync(memory).size <= MAX_ATTACHMENT
+    ? [(async () => {
+      const k = key('home/CLAUDE.md');
+      await storage.put(k, fs.readFileSync(memory));
+      return { rel: '.claude/CLAUDE.md', url: await storage.getUrl(k) };
+    })()]
+    : [];
   // The few Codex settings that change how it runs a turn (model, effort,
   // tier), so a run in the cloud behaves as one here would. Nothing else of
   // her config goes: no MCP servers, hooks, providers or sockets, and never
@@ -432,20 +593,23 @@ export async function cloudRun({
   if (codex) {
     let toml = '';
     try { toml = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8'); } catch { /* none */ }
-    files.push(await sendFile(null, path.join(codexHome, 'config.toml'), Buffer.from(codexConfigForTheCloud(toml))));
+    sending.push(sendFile(null, path.join(codexHome, 'config.toml'), Buffer.from(codexConfigForTheCloud(toml))));
   }
   // The project's documents folder (main/cloud/docs.mjs), at its own path.
+  let docsSent = [];
   if (docsDir) {
-    const list = docsToSend(docsDir, { item: env.ZERO_ITEM });
-    if (list.length) files.push(await sendFile(null, path.join(docsDir, '.agentbox-docs.tgz'), tarDocs(docsDir, list), docsDir));
+    docsSent = docsToSend(docsDir, { item: env.ZERO_ITEM });
+    if (docsSent.length) sending.push(tarDocs(docsDir, docsSent).then((tgz) => sendFile(null, path.join(docsDir, '.agentbox-docs.tgz'), tgz, docsDir)));
   }
   const system = argValue(argv, '--append-system-prompt') || '';
-  for (const f of filesNamedIn(system, { cwd, roots })) files.push(await sendFile(f));
+  for (const f of filesNamedIn(system, { cwd: plain ? null : cwd, roots })) sending.push(sendFile(f));
+  const [pack, files, home] = await Promise.all([packed, Promise.all(sending), Promise.all(homeFiles)]);
+  const packedAt = Date.now();
   sentFiles = new Set(files.map((f) => f.path));
 
   const results = await resultUrls(runId);
   let remote = null;
-  try { remote = remoteForTheCloud(git(cwd, ['remote', 'get-url', 'origin']).trim()); } catch { /* no origin */ }
+  if (!plain) try { remote = remoteForTheCloud((await git(cwd, ['remote', 'get-url', 'origin'])).trim()); } catch { /* no origin */ }
 
   const remoteEnv = {
     ...(codex ? { CODEX_HOME: codexHome } : { CLAUDE_CONFIG_DIR: configDir }),
@@ -453,52 +617,72 @@ export async function cloudRun({
     DISABLE_AUTOUPDATER: '1',
     ...(env.ZERO_PRODUCT ? { ZERO_PRODUCT: env.ZERO_PRODUCT } : {}),
     ...(env.ZERO_ITEM ? { ZERO_ITEM: env.ZERO_ITEM } : {}),
-    ...gitIdentity(cwd),
+    ...(await gitIdentity(cwd)),
   };
 
   // What this run has laid into the documents folder so far, kept with the
   // marker so a run brought home after a restart knows its own files.
-  docs = docsDir ? { dir: docsDir, sentAt, laid: {}, ack: null } : null;
+  // `sent` is what it took, so a file it did not take is never written over.
+  docs = docsDir ? { dir: docsDir, sentAt, sent: docsSent, laid: {}, ack: null } : null;
   // And what a process joining it after a restart needs to serve its tools:
   // the servers, and the worker's own variables they ran with.
-  marker = { runId, sessionId, branch, startSha, sent, configDir, engine, bringDirs, docs, mcp: mcpConfig.mcpServers, toolEnv: toolVariables(env) };
-  writeMarker(cwd, { ...marker, pid: process.pid, state: 'starting' });
+  marker = { runId, sessionId, branch, startSha, sent, configDir, engine, bringDirs, docs, mcp: mcpConfig.mcpServers, toolEnv: toolVariables(env), ...(plain ? { plain: true } : {}) };
+  writeMarker(here,{ ...marker, pid: selfPid, state: 'starting' });
 
   // 3. Start. Starting the same run twice is answered "already", so a start
   // whose reply was lost is simply asked again. A start that was REFUSED
   // started nothing; one whose answer never came may have, so its marker
   // stays and the next run in this folder finds out which.
-  const bundleUrl = await storage.getUrl(key('in.bundle'));
+  const bundleUrl = pack.bundle ? await storage.getUrl(key('in.bundle')) : undefined;
+  const base = pack.base ? { url: await storage.getUrl(pack.base.key), sha: pack.base.sha } : null;
   const loginUrl = await storage.getUrl(login.key, LOGIN_LINK_SECONDS);
   const started = await retry(() => transport.invoke(sessionId, {
     action: 'start', runId, cwd, branch, bundleUrl,
-    argv: [remoteCommand, ...argv], env: remoteEnv, files,
+    ...(plain ? { plain: true } : {}),
+    ...(base ? { base, refs: pack.refs } : {}),
+    argv: [remoteCommand, ...(remoteCommand === 'claude' ? argvForTheCloud(argv, { plain }) : argv)], env: remoteEnv, files,
     changesRef: hasOutgoing ? outgoing : undefined,
     ...(remote ? { remote } : {}),
     ...(docsDir ? { docs: docsDir } : {}),
-    ...(homeFiles.length ? { homeFiles } : {}),
+    ...(home.length ? { homeFiles: home } : {}),
     login: { engine: login.engine, id: login.id, url: loginUrl },
     results,
+    // The run carries on while this Mac sleeps: a tool call is told it could
+    // not reach the app, and a Claude Code turn that has ended has its input
+    // closed there. A Codex turn ends only with the Mac, as before.
+    offline: { afterMs: offlineAfterMs, endTurn: codex ? null : 'claude-stream-json', kept: keptWhileAway },
   }), { what: 'start the cloud run', forever: false });
   if (!started) {
     signals.off('SIGHUP', early);
     if (quitEarly) {
       const unsent = outbox.filter((m) => m.action === 'stdin');
-      writeMarker(cwd, { ...marker, pid: null, state: 'detached', cursor: 0, conns: {}, unsent: stdinClosed ? unsent : [...unsent, { action: 'stdin', end: true }] });
+      writeMarker(here,{ ...marker, pid: null, state: 'detached', cursor: 0, conns: {}, unsent: stdinClosed ? unsent : [...unsent, { action: 'stdin', end: true }] });
       say('the app quit while the cloud run was starting; it is joined when the app next opens');
       return IMPORT_FAILED;
     }
-    writeMarker(cwd, { ...marker, pid: null, state: 'start-unknown' });
+    writeMarker(here,{ ...marker, pid: null, state: 'start-unknown' });
     say('the cloud did not answer the start; whether it began will be checked before the next run here');
     return IMPORT_FAILED;
   }
   if (!started.ok) {
     signals.off('SIGHUP', early);
-    say(`the cloud run could not start: ${started.error || 'no answer'} ${started.message || ''}`.trim());
-    clearMarker(cwd);
-    return 1;
+    // An image that refused a start sent against a base, or with no
+    // repository, may not take one.
+    // Such a start is tried again without them, so the reply is not spent.
+    const outgrown = (base || plain) && started.error === 'bad-start';
+    if (outgrown) { try { onCaps(started.caps || []); } catch { /* a hint */ } }
+    const noRoom = refusedForRoom(started);
+    say(noRoom ? noRoom.line : `the cloud run could not start: ${started.error || 'no answer'} ${started.message || ''}`.trim());
+    clearMarker(here);
+    if (noRoom) return noRoom.code;
+    return outgrown ? IMPORT_FAILED : 1;
   }
-  writeMarker(cwd, { ...marker, pid: process.pid, state: 'running' });
+  stderr.write(sentLine({ packMs: packedAt - begunAt, startMs: Date.now() - packedAt }));
+  try { onCaps(started.caps || []); } catch { /* only a hint for the next run */ }
+  offlineOn = (started.caps || []).includes('offline');
+  if (!offlineOn) say('this cloud image stops at its next tool call while this Mac sleeps; rebuild it (node scripts/cloud-setup.mjs) to keep runs going');
+  marker.offline = offlineOn;
+  writeMarker(here,{ ...marker, pid: selfPid, state: 'running' });
   }
 
   // 4. The pump.
@@ -510,6 +694,20 @@ export async function cloudRun({
   let finished = null; // 'collected' | 'collect-failed' | 'failed' | 'lost'
   let loginTrouble = null; // { state: 'missing'|'refused'|'expired', id }
   const servers = new Map(); // conn -> { proc, name, init, pending, swallow }
+  let awayNoted = false;
+  // Calls in this page the sandbox said not to make, by event number.
+  const refused = new Set();
+  async function claimCalls(events) {
+    const asks = [];
+    for (const e of events) {
+      if (e.kind !== 'mcp' || e.seq <= cursor) continue;
+      try { const msg = JSON.parse(e.line); if (msg?.method !== undefined && msg.id !== undefined) asks.push({ seq: e.seq, conn: e.conn, id: msg.id }); } catch { /* not a call */ }
+    }
+    if (!asks.length) return;
+    const res = await retry(() => transport.invoke(sessionId, { action: 'mcp-claim', runId, calls: asks.map(({ conn, id }) => ({ conn, id })) }), { what: 'ask about its tool calls', forever: true, stop: () => overdue() || leaving });
+    const said = new Map((res?.calls || []).map((c) => [`${c.conn}\u0000${JSON.stringify(c.id)}`, c.go]));
+    for (const a of asks) if (said.get(`${a.conn}\u0000${JSON.stringify(a.id)}`) === false) refused.add(a.seq);
+  }
   const outDecoder = new StringDecoder('utf8');
   let outLine = '';
   const overdue = () => cancelled && Date.now() - cancelledAt > resultsWaitMs;
@@ -576,7 +774,7 @@ export async function cloudRun({
       const tgz = await storage.get(k).catch(() => null);
       if (!tgz) continue;
       // Confirmed only once laid: a write that failed here goes again.
-      if (!layArchive(docs, tgz)) continue;
+      if (!(await layArchive(docs, tgz))) continue;
       docs.ack = k;
       saveMarker();
     }
@@ -589,7 +787,8 @@ export async function cloudRun({
   function openServer(conn, name, init = []) {
     const cfg = mcpConfig.mcpServers?.[name];
     if (!cfg) { enqueue({ action: 'mcp-close', conn }); return; }
-    const proc = spawn(cfg.command, cfg.args || [], { cwd, env: toolEnv({ ...serverEnv, ...(cfg.env || {}) }), stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = servedHere(cfg, toolEnv({ ...serverEnv, ...(cfg.env || {}) }), `${runId}-${conn}`)
+      ?? spawn(cfg.command, cfg.args || [], { cwd, env: toolEnv({ ...serverEnv, ...(cfg.env || {}) }), stdio: ['pipe', 'pipe', 'pipe'] });
     const s = { proc, name, buf: '', closed: false, init: [...init], pending: new Set(), swallow: new Set() };
     servers.set(conn, s);
     for (const line of init) {
@@ -610,7 +809,11 @@ export async function cloudRun({
         // before then answers it rather than forgetting it.
         let onAck;
         if (reply && reply.id !== undefined && !reply.method) {
-          if (s.swallow.delete(reply.id)) continue;
+          if (s.swallow.delete(reply.id)) {
+            const kept = keptOut.get(`${conn}\0${reply.id}`);
+            if (kept) { kept(); if (reply.error || reply.result?.isError) say(`a write the run made while this Mac was asleep was turned down: ${reply.error?.message ?? reply.result?.content?.map((c) => c.text).join(' ') ?? 'no reason given'}`); }
+            continue;
+          }
           onAck = () => s.pending.delete(reply.id);
         }
         enqueue({ action: 'mcp', conn, line, onAck });
@@ -622,6 +825,28 @@ export async function cloudRun({
     // queued before the stub is told it has gone.
     proc.on('close', closeOnce);
     proc.on('error', (err) => { say(`the ${name} server could not run here: ${err.message}`); closeOnce(); });
+  }
+
+  // A write the run made while this Mac was away, kept in the cloud: made now
+  // through the same server, its answer dropped (the agent had one).
+  const keptOut = new Map();
+  let keptMade = 0;
+  function makeKept(e) {
+    let msg = null;
+    try { msg = JSON.parse(e.line); } catch { return; }
+    if (!msg || msg.method !== 'tools/call') return;
+    if (!servers.get(e.conn) || servers.get(e.conn).closed) openServer(e.conn, e.server, HANDSHAKE_LINES);
+    const s = servers.get(e.conn);
+    if (!s) return;
+    const id = `kept-${e.seq}`;
+    s.swallow.add(id);
+    keptOut.set(`${e.conn}\0${id}`, () => keptOut.delete(`${e.conn}\0${id}`));
+    s.proc.stdin.write(`${JSON.stringify({ ...msg, id })}\n`);
+    keptMade += 1;
+  }
+  async function keptSettled(ms) {
+    for (const end = Date.now() + ms; keptOut.size && Date.now() < end;) await sleep(50);
+    if (keptMade) say(`${keptMade} ${keptMade === 1 ? 'thing' : 'things'} the run wrote while this Mac was asleep ${keptMade === 1 ? 'was' : 'were'} made now`);
   }
 
   function toServer(conn, line) {
@@ -659,20 +884,45 @@ export async function cloudRun({
     cursor = e.seq;
     // AGENTBOX_CLOUD_DEBUG=1 traces the tool traffic, names and sizes only.
     if (env.AGENTBOX_CLOUD_DEBUG && e.kind.startsWith('mcp')) say(`${e.kind} ${e.conn}${e.server ? ` ${e.server}` : ''}${e.line ? ` ${String(e.line).slice(0, 80)}` : ''}`);
-    // A joined run has nobody reading its stream: the app reads its
-    // transcript once it is home.
+    // A joined run's stream goes to the app too: it is how its thread hears
+    // the steps and the answer made while the app was away
+    // (main/supervisor.mjs `_followComingHome`).
     if (e.kind === 'stdout') {
       const buf = Buffer.from(e.data, 'base64');
       if (!codex) noteLimit(buf);
-      if (!joining) await write(stdout, buf);
+      await write(stdout, buf);
     }
     else if (e.kind === 'stderr') { if (!joining) await write(stderr, Buffer.from(e.data, 'base64')); }
     else if (e.kind === 'mcp-open') openServer(e.conn, e.server);
-    else if (e.kind === 'mcp') toServer(e.conn, e.line);
+    else if (e.kind === 'mcp') { if (!refused.has(e.seq)) toServer(e.conn, e.line); refused.delete(e.seq); }
+    else if (e.kind === 'mcp-kept') makeKept(e);
+    else if (e.kind === 'mcp-offline' || e.kind === 'mcp-abandoned') {
+      if (!awayNoted) { awayNoted = true; say('this Mac was asleep; the cloud run carried on, and the tool calls it made meanwhile did not reach the app'); }
+    }
+    // Its input closed in the cloud at the end of a turn while this Mac was
+    // away: said to the app's own reader (main/claude-input.mjs) as the end
+    // of the run it is.
+    else if (e.kind === 'input-closed') { if (!joining) await write(stdout, Buffer.from(`${JSON.stringify({ type: 'system', subtype: INPUT_CLOSED_IN_CLOUD })}\n`)); }
     else if (e.kind === 'mcp-close') { const s = servers.get(e.conn); servers.delete(e.conn); if (s) { s.closed = true; s.proc.stdin.end(); setTimeout(() => s.proc.kill(), 2000); } }
     else if (e.kind === 'error') say(e.message);
+    else if (e.kind === 'setup') noteSetup(e);
     else if (e.kind === 'login') loginTrouble = { state: e.state, id: e.id ?? login?.id ?? null };
     else if (e.kind === 'state' && ['collected', 'collect-failed', 'failed'].includes(e.state)) finished = e.state;
+  }
+
+  // THE PROJECT'S OWN SETUP (.agentbox/cloud-setup.sh), which the sandbox
+  // runs before the agent and goes on past when it fails or overruns. Said
+  // here, or a broken or slow setup is invisible from the thread.
+  let setupAt = null;
+  function noteSetup(e) {
+    if (e.state === 'running') { setupAt = e.at ?? Date.now(); return; }
+    const where = `its output is in ${SETUP_LOG} on the cloud machine`;
+    if (e.state === 'failed') {
+      const how = e.message || (e.signal === 'SIGKILL' ? `${SETUP_FILE} ran past its time limit and was stopped` : e.signal ? `${SETUP_FILE} was stopped by ${e.signal}` : `${SETUP_FILE} exited with ${e.code}`);
+      say(`the project's cloud setup failed: ${how}; the agent went on without it, and ${where}`);
+    } else if (setupAt && (e.at ?? Date.now()) - setupAt > SLOW_SETUP_MS) {
+      say(`the project's cloud setup took ${Math.round(((e.at ?? Date.now()) - setupAt) / 60_000)} minutes before the agent could start; ${where}`);
+    }
   }
 
   function cancel(why) {
@@ -720,15 +970,16 @@ export async function cloudRun({
     const unsent = outbox.filter((m) => m.action === 'stdin').map(({ n: num, ...m }) => ({ ...m, ...(num ? { n: num } : {}) }));
     const state = leaving ? 'detached' : joining ? 'attached' : 'running';
     try {
-      writeMarker(cwd, { ...marker, pid: process.pid, state, ...(leaving || joining ? { cursor, conns: connsNow(), unsent } : {}), ...extra });
+      writeMarker(here,{ ...marker, pid: selfPid, state, cursor, conns: connsNow(), unsent, ...extra });
     } catch (err) { say(`could not note where the cloud run got to: ${err.message}`); }
   }
-  // A joined run is never stopped by this process: Stop belongs to a thread
-  // the app is running, and this one is only being brought home.
+  // A joined run is left going by a SIGTERM, which is the Mac or the app
+  // going. Its thread shows it running, so its Stop arrives as SIGINT.
   const onTerm = () => (joining ? leave('the app is going') : cancel('asked to stop'));
+  const onInt = () => cancel('asked to stop');
   const onHup = () => leave('the app is quitting');
   signals.on('SIGTERM', onTerm);
-  signals.on('SIGINT', onTerm);
+  signals.on('SIGINT', onInt);
   signals.on('SIGHUP', onHup);
   signals.off('SIGHUP', early);
   const parentWatch = watchParent ? setInterval(() => { if (process.ppid === 1) leave('the app is gone'); }, 5000) : null;
@@ -736,6 +987,7 @@ export async function cloudRun({
   // answered with why, and the agent's input the last process never sent goes.
   for (const [conn, c] of Object.entries(startConns)) { openServer(conn, c.name, c.init || []); answerUnanswered(conn, c.pending || []); }
   for (const m of joining?.unsent || []) { const { n: num, ...rest } = m; if (!(num && num <= startN)) enqueue(rest); }
+  if (joining?.state === 'running') enqueue({ action: 'stdin', end: true });
   if (quitEarly) leave('the app quit while the run was starting');
 
   try {
@@ -747,14 +999,18 @@ export async function cloudRun({
       const page = await retry(() => transport.invoke(sessionId, { action: 'events', runId, since: cursor, waitMs: pollWaitMs }), { what: 'read the cloud run', forever: true, stop: () => overdue() || leaving });
       if (!page) continue;
       if (!page.ok && page.error === 'no-run') { finished = 'lost'; break; }
+      // A call the sandbox may have given up on while this Mac was away is
+      // made only once the sandbox says it has not: the agent was told it
+      // did not reach the app (cloud/sandbox/server.mjs `mcp-claim`).
+      if (offlineOn) await claimCalls(page.events || []);
       for (const e of page.events || []) { if (leaving) break; await absorb(e); }
-      // A joined run keeps its place as it goes: a process that died without
+      // Every run keeps its place as it goes: a process that died without
       // saying must not hand its tools the same calls twice.
-      if (joining && !leaving && page.events?.some((e) => e.kind.startsWith('mcp'))) saveMarker();
+      if (!leaving && page.events?.some((e) => e.kind.startsWith('mcp'))) saveMarker();
     }
   } finally {
     signals.off('SIGTERM', onTerm);
-    signals.off('SIGINT', onTerm);
+    signals.off('SIGINT', onInt);
     signals.off('SIGHUP', onHup);
     if (parentWatch) clearInterval(parentWatch);
   }
@@ -780,6 +1036,7 @@ export async function cloudRun({
   wake?.();
   await sender;
   await docsLoop;
+  await keptSettled(10_000);
   for (const s of servers.values()) { s.closed = true; s.proc.stdin.end(); s.proc.kill(); }
 
   const troubleWithLogin = () => {
@@ -788,11 +1045,15 @@ export async function cloudRun({
     try { onLoginTrouble(loginTrouble); } catch { /* noted elsewhere */ }
     return true;
   };
-  if (finished === 'failed') { clearMarker(cwd); return troubleWithLogin() ? LOGIN_TROUBLE : 1; }
+  // A run that failed or came home needs its machine no more; the cloud
+  // server counts a run until it is stopped (cloud/gateway/).
+  const letGo = () => Promise.race([Promise.resolve(transport.stop?.(sessionId)).catch(() => {}), sleep(15_000)]);
+  if (finished === 'failed') { clearMarker(here); await letGo(); return troubleWithLogin() ? LOGIN_TROUBLE : 1; }
   const back = await bringHome({ ...marker }, { cursor, replay: (e) => absorb(e) });
+  if (back.ok) await letGo();
   if (!back.ok) {
     say(`the cloud run's work could not be brought back (${back.why}); it is kept in the cloud for 7 days and will be tried again`);
-    writeMarker(cwd, { ...marker, pid: null, state: back.state || 'import-failed' });
+    writeMarker(here,{ ...marker, pid: null, state: back.state || 'import-failed', ...(back.laying ? { laying: back.laying } : {}) });
     // Its marker stays either way, so nothing ships the folder until its work
     // is home; a login that failed is still said, so no account here is
     // struck for it.
@@ -814,10 +1075,13 @@ export async function cloudRun({
 
   async function bringHomeOnce(rec, { recovering, from, replay }) {
     const k = (name) => keyOf(rec.runId, name);
-    if (rec.state === 'diverged') return { ok: false, state: 'diverged', why: rec.why || 'it needs a person to look at it' };
+    if (rec.state === 'importing' && rec.pid && rec.pid !== selfPid && alive(rec.pid)) return { ok: false, why: 'its own process is still bringing it back' };
     let done = await storage.get(k('done.json'));
+    // Marked by an older app, whose results may have gone from the bucket:
+    // what it kept here goes on a branch of its own.
+    if (!done && rec.state === 'diverged') return park(rec, { why: rec.why || 'it could not be laid into this folder' });
     if (!done && recovering) {
-      if (rec.pid && rec.pid !== process.pid && alive(rec.pid)) return { ok: false, why: 'its own process is still bringing it back' };
+      if (rec.pid && rec.pid !== selfPid && alive(rec.pid)) return { ok: false, why: 'its own process is still bringing it back' };
       // Ask the sandbox where the run stands. No answer is not an answer: the
       // run may be alive, so nothing is given up.
       const st = await retry(() => transport.invoke(rec.sessionId, { action: 'status', runId: rec.runId }), { what: 'reach the earlier run', forever: false });
@@ -829,7 +1093,7 @@ export async function cloudRun({
         await transport.stop?.(rec.sessionId).catch(() => {});
         done = await storage.get(k('done.json'));
         if (!done) {
-          clearMarker(cwd);
+          clearMarker(here);
           say('an earlier cloud run in this folder ended without its results; its work is lost');
           return { ok: true, exitCode: null, lost: true };
         }
@@ -854,6 +1118,24 @@ export async function cloudRun({
     }
     if (!done) return { ok: false, why: 'its results never arrived' };
     const record = JSON.parse(done.toString('utf8'));
+    // The heavy half, two runs at a time across every cloud run on this Mac,
+    // and through files rather than memory: twenty runs finishing together
+    // must not unpack twenty sets of bundles and transcripts at once.
+    const release = await takeImportSlot();
+    try {
+      const spool = fs.mkdtempSync(path.join(os.tmpdir(), `${nameSlug}-cloud-home-`));
+      try {
+        return await layHome(rec, record, { recovering, replay, from, spool });
+      } finally {
+        try { fs.rmSync(spool, { recursive: true, force: true }); } catch { /* the tmp folder's own cleaning */ }
+      }
+    } finally {
+      release();
+    }
+  }
+
+  async function layHome(rec, record, { recovering, replay, from, spool }) {
+    const k = (name) => keyOf(rec.runId, name);
     // WHAT THE RUN USED, for setting the plan limits from real work
     // (main/cloud/usage.mjs). Recorded as soon as its results are here,
     // whatever laying them into the folder does next: the machine ran either
@@ -865,11 +1147,12 @@ export async function cloudRun({
     // sandbox said about the login, even for an earlier run brought home now
     // (Codex's review, finding 4).
     if (replay || recovering) {
-      const log = await storage.get(k('events.jsonl'));
-      for (const l of (log ? log.toString('utf8').split('\n') : [])) {
+      const logFile = path.join(spool, 'events.jsonl');
+      const lines = (await fetchToFile(storage, k('events.jsonl'), logFile)) ? linesOf(logFile) : [];
+      for await (const l of lines) {
         if (!l) continue;
         const e = JSON.parse(l);
-        if (replay && e.seq > from && (e.kind === 'stdout' || e.kind === 'stderr' || e.kind === 'login')) await replay(e);
+        if (replay && e.seq > from && (e.kind === 'stdout' || e.kind === 'stderr' || e.kind === 'login' || e.kind === 'input-closed')) await replay(e);
         else if (recovering && e.kind === 'login') { try { onLoginTrouble({ state: e.state, id: e.id ?? null }); } catch { /* noted elsewhere */ } }
       }
     }
@@ -883,11 +1166,9 @@ export async function cloudRun({
     const keep = `refs/agentbox/cloud/${rec.runId}`;
     const keepChanges = `refs/agentbox/cloud-changes/${rec.runId}`;
     const fetchBundle = async (name, specs, why) => {
-      const b = await storage.get(k(name));
-      if (!b) throw new Error(why);
-      const f = path.join(os.tmpdir(), `agentbox-cloud-${name}-${rec.runId}`);
-      fs.writeFileSync(f, b);
-      try { git(cwd, ['fetch', '-q', f, ...specs]); } finally { fs.rmSync(f, { force: true }); }
+      const f = path.join(spool, name);
+      if (!(await fetchToFile(storage, k(name), f))) throw new Error(why);
+      try { await git(cwd, ['fetch', '-q', f, ...specs]); } finally { fs.rmSync(f, { force: true }); }
     };
     if (record.commits > 0 || record.strayHead) {
       const specs = [];
@@ -898,9 +1179,9 @@ export async function cloudRun({
     if (record.uncommitted) await fetchBundle('changes.bundle', [`refs/agentbox/changes:${keepChanges}`], 'the uncommitted work is missing');
     // The conversation's folders, each one the run said it uploaded.
     const conversations = [];
-    for (const b of dirsOf(rec)) {
-      const tgz = await storage.get(k(b.name));
-      if (tgz) conversations.push({ dir: b.dir, tgz });
+    for (const [i, b] of dirsOf(rec).entries()) {
+      const file = path.join(spool, `conversation-${i}.tgz`);
+      if (await fetchToFile(storage, k(b.name), file)) conversations.push({ dir: b.dir, file });
       else if ((record.brought || []).includes(b.dir)) return { ok: false, why: 'the transcript is missing' };
     }
 
@@ -909,59 +1190,128 @@ export async function cloudRun({
     if (rec.docs?.dir && (record.docs || []).length) {
       const tgz = await storage.get(k('docs.tgz'));
       if (!tgz) return { ok: false, why: 'the documents it wrote are missing' };
-      if (!layArchive(rec.docs, tgz)) return { ok: false, why: 'the documents it wrote could not be laid in' };
+      if (!(await layArchive(rec.docs, tgz))) return { ok: false, why: 'the documents it wrote could not be laid in' };
+    }
+    // With no repository, the documents and the conversation are all of it.
+    if (rec.plain) {
+      await layConversations(conversations);
+      clearMarker(here);
+      return { ok: true, exitCode: record.exitCode, record };
     }
 
-    // THE FOLDER MUST BE EXACTLY AS THE RUN LEFT IT: same branch, same commit,
-    // same files, same staged changes. Anything else means something on this
-    // Mac worked in it while the run was away, and laying the run's state over
-    // it would undo that.
-    if (rec.sent) {
-      const now = folderState(cwd);
-      if (now.branch !== rec.sent.branch || now.head !== rec.sent.head || now.tree !== rec.sent.tree || (rec.sent.index && now.index !== rec.sent.index)) {
-        return { ok: false, state: 'diverged', why: `this folder changed on this Mac while the run was in the cloud; the run's commits are kept on ${keep}` };
-      }
-    }
-    // And the agent must have ended on the branch it was given.
+    // The agent must have ended on the branch it was given.
     if (record.strayHead || (record.headRef && record.headRef !== rec.branch)) {
-      return { ok: false, state: 'diverged', why: `the agent finished on ${record.headRef || 'a detached commit'} instead of ${rec.branch}; its work is kept on ${keep}-head` };
+      return park(rec, { record, conversations, why: `the agent finished on ${record.headRef || 'a detached commit'} instead of ${rec.branch}` });
     }
 
-    // The folder is put back exactly as the run left it. What it held when the
-    // run began went up with it and comes back in the run's own state; a copy
-    // of the files AND of what was staged is set aside first anyway, under
-    // names no later run reuses.
-    const stamp = `${rec.runId}-${Date.now()}`;
-    snapshotUncommitted(cwd, `refs/agentbox/before-cloud/${stamp}`);
-    const stagedTree = git(cwd, ['write-tree']).trim();
-    const stagedCommit = git(cwd, ['-c', `user.name=${Name}`, '-c', `user.email=${nameSlug}@localhost`, 'commit-tree', stagedTree, '-p', 'HEAD', '-m', 'What was staged before a cloud run came home']).trim();
-    git(cwd, ['update-ref', `refs/agentbox/before-cloud/${stamp}-staged`, stagedCommit]);
-    try {
-      git(cwd, ['reset', '-q', '--hard', 'HEAD']);
-      git(cwd, ['clean', '-q', '-fd']);
-      if (record.commits > 0) git(cwd, ['merge', '-q', '--ff-only', keep]);
-      if (record.uncommitted) {
-        const patch = git(cwd, ['diff', '--binary', 'HEAD', keepChanges], { buffer: true });
-        if (patch.length) git(cwd, ['apply', '--whitespace=nowarn'], { input: patch });
+    // Where the branch ends: the cloud's tip, which an agent that amended or
+    // rebased has taken off the line it started on.
+    const startHead = rec.sent?.head ?? (await git(cwd, ['rev-parse', 'HEAD'])).trim();
+    let target = startHead;
+    if (record.commits > 0) target = (await git(cwd, ['rev-parse', keep])).trim();
+    else if (record.tip && record.tip !== startHead && await gitOk(cwd, ['cat-file', '-e', `${record.tip}^{commit}`])) target = record.tip;
+
+    // THE FOLDER MUST BE AS THE RUN LEFT IT: same branch, commit, files and
+    // staged changes; or as an import cut off part way left it, at one of its
+    // own steps. Anything else is work done here while the run was away.
+    if (rec.sent) {
+      const now = await folderState(cwd);
+      const at = (head, tree, index = tree) => now.branch === rec.sent.branch && now.head === head && now.tree === tree && now.index === index;
+      let fits = now.branch === rec.sent.branch && now.head === rec.sent.head && now.tree === rec.sent.tree && (!rec.sent.index || now.index === rec.sent.index);
+      if (!fits && rec.laying) {
+        const treeOf = async (c) => (await git(cwd, ['rev-parse', `${c}^{tree}`])).trim();
+        const startTree = await treeOf(startHead);
+        const targetTree = await treeOf(target);
+        const endTree = record.uncommitted ? await treeOf(keepChanges) : targetTree;
+        fits = at(startHead, startTree) || at(target, targetTree) || at(target, endTree, targetTree);
       }
-      for (const c of conversations) {
-        fs.mkdirSync(c.dir, { recursive: true });
-        execFileSync('tar', ['-xzf', '-', '-C', c.dir], { input: c.tgz });
-      }
-    } catch (err) {
-      // Every download had already landed, so this is git itself refusing;
-      // nothing a retry would change. A person looks, with everything kept.
-      return { ok: false, state: 'diverged', why: `laying the run into the folder failed (${String(err.message).split('\n')[0]}); the earlier state is on refs/agentbox/before-cloud/${stamp} and the run's on ${keep}` };
+      if (!fits) return park(rec, { record, conversations, why: 'this folder changed on this Mac while the run was in the cloud' });
     }
-    gitOk(cwd, ['update-ref', '-d', keepChanges]);
-    if (record.commits > 0) gitOk(cwd, ['update-ref', '-d', keep]);
-    clearMarker(cwd);
+
+    // Said before the folder is touched, so an import cut off part way is
+    // known for one when it is tried again.
+    const tries = (rec.laying?.tries ?? 0) + 1;
+    rec.laying = { tries };
+    writeMarker(here,{ ...rec, pid: selfPid, state: 'importing' });
+
+    // What it held when the run began went up with it and comes back in the
+    // run's own state; a copy of the files AND of what was staged is set aside
+    // first anyway, under names no later run reuses, and so is a tip the
+    // cloud's does not descend from.
+    const stamp = `${rec.runId}-${Date.now()}`;
+    try {
+      await snapshotUncommitted(cwd, `refs/agentbox/before-cloud/${stamp}`);
+      const stagedTree = (await git(cwd, ['write-tree'])).trim();
+      const stagedCommit = (await git(cwd, ['-c', `user.name=${Name}`, '-c', `user.email=${nameSlug}@localhost`, 'commit-tree', stagedTree, '-p', 'HEAD', '-m', 'What was staged before a cloud run came home'])).trim();
+      await git(cwd, ['update-ref', `refs/agentbox/before-cloud/${stamp}-staged`, stagedCommit]);
+      if (!(await gitOk(cwd, ['merge-base', '--is-ancestor', startHead, target]))) await git(cwd, ['update-ref', `refs/agentbox/before-cloud/${rec.runId}`, startHead]);
+      await git(cwd, ['reset', '-q', '--hard', target]);
+      await git(cwd, ['clean', '-q', '-fd']);
+      if (record.uncommitted) {
+        const patch = await git(cwd, ['diff', '--binary', 'HEAD', keepChanges], { buffer: true });
+        if (patch.length) await git(cwd, ['apply', '--whitespace=nowarn'], { input: patch });
+      }
+      await layConversations(conversations);
+    } catch (err) {
+      const said = String(err.message).split('\n')[0];
+      if (tries >= 3) return park(rec, { record, conversations, why: `laying it into this folder failed ${tries} times (${said}); what the folder held before is on refs/agentbox/before-cloud/${stamp}` });
+      writeMarker(here,{ ...rec, pid: null, state: 'import-failed' });
+      return { ok: false, state: 'import-failed', laying: rec.laying, why: `laying the run into the folder failed (${said}); the earlier state is on refs/agentbox/before-cloud/${stamp}` };
+    }
+    await gitOk(cwd, ['update-ref', '-d', keepChanges]);
+    if (record.commits > 0) await gitOk(cwd, ['update-ref', '-d', keep]);
+    clearMarker(here);
     return { ok: true, exitCode: record.exitCode, record };
   }
 
-  function layArchive(d, tgz) {
+  async function layConversations(conversations) {
+    for (const c of conversations) {
+      fs.mkdirSync(c.dir, { recursive: true });
+      await run('tar', ['-xzf', c.file, '-C', c.dir]);
+    }
+  }
+
+  // A RUN WHOSE WORK CANNOT GO INTO ITS FOLDER WITHOUT UNDOING WORK DONE HERE
+  // goes on a branch of its own, `cloud/<item>`, and the folder is left as it
+  // is. Neither side's work is lost, the marker goes so the thread can run
+  // again, and the row is told (`addCloudNews`). A run that changed nothing
+  // the folder does not already hold needs no branch and no word.
+  async function park(rec, { record = null, conversations = [], why }) {
+    const keep = `refs/agentbox/cloud/${rec.runId}`;
+    const keepChanges = `refs/agentbox/cloud-changes/${rec.runId}`;
+    const has = (ref) => gitOk(cwd, ['rev-parse', '--verify', '-q', ref]);
+    let tip = null;
+    for (const ref of [keepChanges, `${keep}-head`, keep]) if (!tip && await has(ref)) tip = ref;
+    let nothingNew = !tip;
+    if (tip && rec.sent) {
+      const rev = async (spec) => (await git(cwd, ['rev-parse', spec])).trim();
+      nothingNew = (await rev(`${tip}^{tree}`)) === rec.sent.tree && (await rev(tip === keepChanges ? `${tip}^` : tip)) === rec.sent.head;
+    }
+    await layConversations(conversations);
+    const item = rec.toolEnv?.ZERO_ITEM || env.ZERO_ITEM || null;
+    const product = rec.toolEnv?.ZERO_PRODUCT || env.ZERO_PRODUCT || null;
+    let branch = null;
+    if (!nothingNew) {
+      const base = `cloud/${String(item || rec.branch.replace(/^agentbox\//, '') || rec.runId.slice(0, 8)).replace(/[^A-Za-z0-9._-]/g, '-')}`;
+      branch = base;
+      for (let i = 2; await has(`refs/heads/${branch}`); i += 1) branch = `${base}-${i}`;
+      await git(cwd, ['branch', branch, tip]);
+    }
+    for (const ref of [keepChanges, `${keep}-head`, keep]) {
+      if (await has(ref) && (nothingNew || await gitOk(cwd, ['merge-base', '--is-ancestor', ref, branch]))) await gitOk(cwd, ['update-ref', '-d', ref]);
+    }
+    if (branch) {
+      const note = `This thread's cloud run finished, but its work was not laid into the task folder: ${why}. Nothing is lost. The folder is as this Mac left it, and the run's version is on the branch ${branch}. Reply to have the agent bring the two together; it will not ship until then.`;
+      say(note);
+      addCloudNews(cwd, { runId: rec.runId, item, product, branch, note });
+    }
+    clearMarker(here);
+    return { ok: true, exitCode: record?.exitCode ?? null, record, parked: branch };
+  }
+
+  async function layArchive(d, tgz) {
     try {
-      const out = layDocs({ tgz, dir: d.dir, sentAt: d.sentAt, laid: d.laid });
+      const out = await layDocs({ tgz, dir: d.dir, sentAt: d.sentAt, laid: d.laid, sent: d.sent ?? null });
       for (const b of out.beside) say(`${b} was changed on this Mac while the run had it; the run's copy is beside it`);
       for (const m of out.moved) say(`the run's ${m} could not go where it was written, through a link out of the folder, so it is there instead`);
       return true;
@@ -1089,9 +1439,9 @@ export function toolVariables(env) {
 }
 
 
-function gitIdentity(cwd) {
-  const get = (k) => { try { return execFileSync('git', ['config', k], { cwd, encoding: 'utf8' }).trim(); } catch { return ''; } };
-  const name = get('user.name'); const email = get('user.email');
+async function gitIdentity(cwd) {
+  const get = (k) => git(cwd, ['config', k]).then((v) => v.trim(), () => '');
+  const name = await get('user.name'); const email = await get('user.email');
   return {
     ...(name ? { GIT_AUTHOR_NAME: name, GIT_COMMITTER_NAME: name } : {}),
     ...(email ? { GIT_AUTHOR_EMAIL: email, GIT_COMMITTER_EMAIL: email } : {}),
@@ -1099,3 +1449,122 @@ function gitIdentity(cwd) {
 }
 
 function alive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }
+
+// A stored object straight to a file, and a file straight to storage, when the
+// storage can (main/cloud/aws.mjs); a stand-in that cannot goes through memory.
+async function fetchToFile(storage, k, file) {
+  if (storage.getToFile) return storage.getToFile(k, file);
+  const body = await storage.get(k);
+  if (!body) return false;
+  fs.writeFileSync(file, body);
+  return true;
+}
+async function sendFromFile(storage, k, file) {
+  if (storage.putFile) return storage.putFile(k, file);
+  return storage.put(k, fs.readFileSync(file));
+}
+async function* linesOf(file) {
+  const { createInterface } = await import('node:readline');
+  yield* createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
+}
+
+// AT MOST TWO CLOUD RUNS BRING THEIR WORK HOME AT ONCE on this Mac, whichever
+// process each runs in. The slots are files in one folder, looked at and
+// changed only while holding that folder's guard (a directory made only if
+// absent, held for milliseconds), so two processes never both reclaim one.
+// A slot names its holder's process and a token of its own, and its holder
+// touches it while it works: one whose process is gone, or that nobody has
+// touched for ten minutes (a process id reused by something else), is free.
+// If the folder cannot be used at all, the import goes ahead unlimited rather
+// than never.
+export const IMPORT_SLOTS = 2;
+const SLOT_STALE_MS = 10 * 60_000;
+const GUARD_STALE_MS = 30_000;
+export async function takeImportSlot({ dir = path.join(os.tmpdir(), `${nameSlug}-cloud-imports`), slots = IMPORT_SLOTS, everyMs = 500, staleMs = SLOT_STALE_MS } = {}) {
+  const token = `${process.pid}:${crypto.randomUUID()}`;
+  const guard = path.join(dir, 'guard');
+  const unlimited = () => () => {};
+  try { fs.mkdirSync(dir, { recursive: true }); } catch { return unlimited(); }
+  const tryOnce = () => {
+    try { fs.mkdirSync(guard); } catch (err) {
+      if (err?.code !== 'EEXIST') throw err;
+      try { if (Date.now() - fs.statSync(guard).mtimeMs > GUARD_STALE_MS) fs.rmSync(guard, { recursive: true, force: true }); } catch { /* freed meanwhile */ }
+      return null;
+    }
+    try {
+      for (let i = 0; i < slots; i += 1) {
+        const file = path.join(dir, `slot-${i}`);
+        let held = null;
+        try { held = { text: fs.readFileSync(file, 'utf8'), at: fs.statSync(file).mtimeMs }; } catch { /* free */ }
+        const pid = held ? Number(held.text.split(':')[0]) : 0;
+        if (held && pid && alive(pid) && Date.now() - held.at < staleMs) continue;
+        fs.writeFileSync(file, token);
+        return file;
+      }
+      return null;
+    } finally {
+      fs.rmSync(guard, { recursive: true, force: true });
+    }
+  };
+  for (let failures = 0; ;) {
+    let file = null;
+    try { file = tryOnce(); } catch {
+      failures += 1;
+      if (failures >= 20) return unlimited();
+    }
+    if (file) {
+      const touch = setInterval(() => { try { const t = new Date(); fs.utimesSync(file, t, t); } catch { /* gone */ } }, 30_000);
+      touch.unref?.();
+      return () => {
+        clearInterval(touch);
+        try { if (fs.readFileSync(file, 'utf8') === token) fs.rmSync(file, { force: true }); } catch { /* gone */ }
+      };
+    }
+    await sleep(everyMs);
+  }
+}
+
+// THE APP'S OWN TWO TOOL SERVERS, SERVED IN THIS PROCESS. Each was a process of
+// its own per cloud run (the approvals server about 46 MB, measured on her Mac
+// 2026-10-17), most of it the runtime starting up, not work. In here each
+// connection gets its own channel: the approvals for its own row, the store
+// with its own claims. Any other server is still started as configured.
+export function servedHere(cfg, env, holder) {
+  const cmd = String(cfg?.command || '');
+  if (cmd.endsWith('/approval-server.sh')) return channel((io) => serveApprovals({ env, ...io, warn: (m) => io.output.emit('warn', m) }));
+  if (cmd.endsWith(`/${nameSlug}-mcp.sh`)) {
+    // One store, one account, for every run on this Mac: the store reads where
+    // it is and whose lines it writes from the environment, so this run's are
+    // set on it, the server's own winning as they would for a server of its
+    // own, and a person id this run has none of is taken away.
+    const want = { AGENTBOX_PERSON_ID: env.AGENTBOX_PERSON_ID, ...cfg.env };
+    for (const [k, v] of Object.entries(want)) { if (v == null) delete process.env[k]; else process.env[k] = v; }
+    return channel(async (io) => (await import('../../mcp/stdio.mjs')).serveStore({ ...io, holder: `mcp-cloud-${holder}` }));
+  }
+  return null;
+}
+
+// A server in this process, shaped like the child process the relay would
+// otherwise have started: lines in on `stdin`, lines out on `stdout`, `close`
+// once it has said its last.
+function channel(serve) {
+  const proc = new EventEmitter();
+  proc.stdin = new PassThrough();
+  proc.stdout = new PassThrough();
+  proc.stderr = new PassThrough();
+  proc.stdout.on('warn', (m) => proc.stderr.write(`${m}\n`));
+  let handle = null;
+  let ended = false;
+  const end = () => {
+    if (ended) return;
+    ended = true;
+    Promise.resolve(handle?.close?.()).catch(() => {}).finally(() => proc.stdout.end());
+  };
+  proc.stdout.on('end', () => proc.emit('close', 0, null));
+  proc.stdin.on('finish', end);
+  proc.kill = () => { end(); return true; };
+  Promise.resolve().then(() => serve({ input: proc.stdin, output: proc.stdout }))
+    .then((h) => { handle = h; if (ended) Promise.resolve(h?.close?.()).catch(() => {}); })
+    .catch((err) => { proc.stderr.write(`${err?.message ?? err}\n`); if (proc.listenerCount('error')) proc.emit('error', err); end(); });
+  return proc;
+}

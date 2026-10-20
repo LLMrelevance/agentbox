@@ -34,6 +34,7 @@ import { isEngine } from '../shared/engines.mjs';
 import { codexAccount, codexLoginCommand, makeCodexHome } from './codex-account.mjs';
 import { codexDefaultModel, codexModels } from './codex-models.mjs';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
+import { CLOUD_SAME, CLOUD_CLAUDE_DEFAULT, CLOUD_CODEX_DEFAULT } from './cloud-permission.mjs';
 import { claudeModels } from './claude-models.mjs';
 import { forgetCodexBin, INSTALL_URL as CODEX_INSTALL_URL } from './codex-bin.mjs';
 
@@ -215,6 +216,8 @@ export function buildSessionArgs(base, mode) {
   const grant = ['--permission-mode', mode];
   return [...model, ...(tools.length ? ['--allowedTools', ...tools] : []), ...grant, ...parsed.other];
 }
+
+export { cloudPermissionArgs } from './cloud-permission.mjs';
 
 // THE MODEL, WRITTEN BACK INTO THE SAME LIST buildSessionArgs READS FROM.The
 // screen had no control over this at all; the flag was already there and only
@@ -626,6 +629,8 @@ export function readSettings({ config, supervisor, store }) {
       ...engineSettings(supervisor, config),
       permission: permissionMode(workspaceArgs),
       permissionArgs: workspaceArgs,
+      cloudPermission: config.cloudPermission ?? CLOUD_CLAUDE_DEFAULT,
+      cloudCodexMode: config.cloudCodexMode ?? CLOUD_CODEX_DEFAULT,
       // ONE SWITCH FOR EVERYTHING THAT LEAVES THE MACHINE, and it is on when
       // Agentbox is installed (legal/privacy.html, section 10). Off stops the
       // counts AND the crash reports; there is deliberately no partial mode and
@@ -1202,6 +1207,18 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
       saveConfig(config, patch);
       Object.assign(config, patch);
       supervisor.wake?.();
+      supervisor.onChange?.();
+      break;
+    }
+    // THE CLOUD'S OWN MODE PER ENGINE, CLOUD_SAME for this computer's, or null
+    // for the cloud's default (main/cloud-permission.mjs).
+    case 'cloudPermission':
+    case 'cloudCodexMode': {
+      const known = key === 'cloudPermission' ? CLAUDE_MODES.includes(value) : isCodexMode(value);
+      if (value != null && value !== CLOUD_SAME && !known) throw new Error(`unknown permission mode: ${value}`);
+      const patch = { [key]: value ?? null };
+      saveConfig(config, patch);
+      Object.assign(config, patch);
       supervisor.onChange?.();
       break;
     }

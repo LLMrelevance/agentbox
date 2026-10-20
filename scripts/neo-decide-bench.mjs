@@ -7,11 +7,11 @@
 // screens, so nothing of anyone's inbox leaves the machine. Codex's review
 // asked for: answers spread through the list, look-alike titles, negation,
 // corrections, two requests at once, noise, and a changed screen.
-import { execFileSync } from 'node:child_process';
 import { buildOptions } from '../shared/neo-options.mjs';
 import { decide } from '../main/neo/decide.mjs';
+import { readKey } from '../main/neo/live.mjs';
 
-const key = execFileSync('security', ['find-generic-password', '-s', 'OPENAI_API_KEY', '-w'], { encoding: 'utf8' }).trim();
+const key = await readKey();
 const getKey = async () => key;
 
 const COMMANDS = [
@@ -49,7 +49,7 @@ const CASES = [
   [jarvis, 'Wait, not option one.', ['none']],
   [jarvis, 'Close it.', ['close']],
   [jarvis, 'Why did it pick design two?', ['ask']],
-  [jarvis, "What's it saying?", ['summary']],
+  [jarvis, "What's it saying?", ['summary', 'ask']],
   [jarvis, 'Play the video.', ['play:1']],
   [jarvis, 'Open the annual toggle one.', ['open:w-1']],
   [jarvis, 'Open the pricing copy thread.', ['open:w-0']],
@@ -84,3 +84,4 @@ for (const [screen, said, want] of CASES) {
 times.sort((a, b) => a - b);
 console.log(`${right}/${CASES.length} right; median ${times[times.length >> 1]} ms, slowest ${times.at(-1)} ms; ${buildOptions(jarvis).list.length} options with a thread open`);
 for (const m of misses) console.log('  miss:', m);
+process.exitCode = misses.length ? 1 : 0;

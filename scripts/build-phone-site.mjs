@@ -54,20 +54,25 @@ export function buildPhoneSite({ dist = path.join(root, 'renderer', 'dist'), out
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
-    "font-src 'self' data:",
+    // Her films and sounds, and a page's own fonts, come from her own bucket
+    // by signed link; a page is drawn from a copy made here (cloud-files.ts).
+    `media-src 'self' blob: ${origin.origin}`,
+    `font-src 'self' data: ${origin.origin}`,
     `connect-src 'self' ${origin.origin}`,
-    "frame-src 'none'",
+    "frame-src blob:",
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
-    "frame-ancestors 'none'",
+    // Its own pages only: a page drawn on the phone is a copy made by the site
+    // itself, and Safari holds that copy to this rule too.
+    "frame-ancestors 'self'",
   ].join('; ');
   fs.writeFileSync(path.join(out, '_headers'), [
     '/*',
     `  Content-Security-Policy: ${csp}`,
     '  Referrer-Policy: no-referrer',
     '  X-Content-Type-Options: nosniff',
-    '  X-Frame-Options: DENY',
+    '  X-Frame-Options: SAMEORIGIN',
     '  Permissions-Policy: camera=(), microphone=(), geolocation=()',
     '',
   ].join('\n'));

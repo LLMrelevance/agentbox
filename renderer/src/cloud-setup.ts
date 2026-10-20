@@ -28,6 +28,7 @@ export const SETUP = {
   planClaude: 'Pro or Max plan',
   planCodex: 'ChatGPT plan',
   remove: 'Remove',
+  sameAccount: 'The same Claude account as one above, so it adds nothing. Remove it and add a different one.',
   again: 'Sign in again',
   done: 'Done',
   signInHead: (engine: CloudSignIn['engine']) => (engine === 'codex' ? 'Sign in to Codex' : 'Sign in to Claude'),
@@ -110,6 +111,9 @@ export function signInView(s: CloudSignIn): { lead: string; busy: boolean; paste
 
 // Whether Done may be pressed: at least one account can run.
 export const anyReady = (accounts: CloudAccount[]) => accounts.some((a) => a.ready);
+
+/** Whether Done asks where threads start: only on the first setup, when no account had a working sign-in yet. */
+export const doneAsksWhere = (accounts: CloudAccount[]) => !accounts.some((a) => a.ready || a.state === 'limited');
 
 // The last screen's question: where new threads start, now that they can.
 export const WHERE_ROWS = [

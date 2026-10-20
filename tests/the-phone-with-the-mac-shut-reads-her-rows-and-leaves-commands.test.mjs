@@ -60,10 +60,11 @@ describe('what the inbox draws', () => {
     expect(made.id).toMatch(/^w-[0-9a-f]{10}$/);
   });
 
-  it('a reply waits, then goes once her Mac has taken it', () => {
+  it('a reply waits, then goes once her Mac has taken it and sent the thread again', () => {
     expect(phoneView(rows([cmd('c1', 'reply', { payload: { text: 'Yes, ship it.' } })]), NOW).waiting)
       .toEqual([{ product: A, id: 'w-1', at: NOW - 1000, text: 'Yes, ship it.' }]);
-    expect(phoneView(rows([cmd('c1', 'reply', { payload: { text: 'x' }, taken_at: iso(NOW), outcome: 'done' })]), NOW).waiting).toEqual([]);
+    const taken = rows([cmd('c1', 'reply', { payload: { text: 'x' }, taken_at: iso(NOW), outcome: 'done' })]);
+    expect(phoneView({ ...taken, threads: taken.threads.map((t) => ({ ...t, updated_at: iso(NOW + 1) })) }, NOW).waiting).toEqual([]);
   });
 
   it('a reply still waiting is shown however old it is', () => {
@@ -149,13 +150,13 @@ describe('the third review', () => {
   // Finding 3: Undo only before the computer claims it.
   it('Undo takes back nothing the computer has claimed', () => {
     expect(closeToTakeBack(rows([cmd('c1', 'close', { claimed_at: iso(NOW) })]), 'zero:answer', { product: A, id: 'w-1', status: 'open' })).toBeNull();
-    const src = fs.readFileSync(new URL('../renderer/src/cloud-bridge.ts', import.meta.url), 'utf8');
+    const src = fs.readFileSync(new URL('../renderer/src/phone-send.ts', import.meta.url), 'utf8');
     expect(src).toMatch(/taken_at=is\.null&claimed_at=is\.null/);
   });
 });
 
 describe('what a press leaves for her Mac', () => {
-  it('the four things, and nothing else', () => {
+  it('the things it may ask, and nothing else', () => {
     expect(commandFor('zero:answer', { product: A, id: 'w-1', answer: 'Yes' })).toEqual({ device: DEV, project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'Yes' } });
     expect(commandFor('zero:answer', { product: A, id: 'w-1', status: 'done' })).toEqual({ device: DEV, project: 'alpha', item: 'w-1', kind: 'close', payload: {} });
     expect(commandFor('zero:snooze', { product: A, id: 'w-1', snoozedUntil: 5 })).toEqual({ device: DEV, project: 'alpha', item: 'w-1', kind: 'snooze', payload: { until: 5 } });
@@ -167,7 +168,7 @@ describe('what a press leaves for her Mac', () => {
     // A project not known as one computer's is no command at all.
     expect(commandFor('zero:answer', { product: 'alpha', id: 'w-1', answer: 'hi' })).toBeNull();
     expect(commandFor('zero:compose', { product: A, title: ' ', body: '' })).toBeNull();
-    expect(commandFor('zero:stop-session', { product: A, id: 'w-1' })).toBeNull();
+    expect(commandFor('zero:command', { product: A, id: 'w-1', text: '/usage' })).toBeNull();
   });
 });
 
@@ -263,7 +264,7 @@ describe('signing in and asking, as her', () => {
 
 // Codex's review of step 1, finding 7: Stop answered as if it had stopped.
 describe('the doors the phone does not have', () => {
-  it('every door is either one of the four, a read, sign-in, or says it is not here', () => {
+  it('every door is either one it may ask, a read, sign-in, or says it is not here', () => {
     const src = fs.readFileSync(new URL('../renderer/src/cloud-bridge.ts', import.meta.url), 'utf8');
     const reads = [...src.slice(src.indexOf('const READS = new Set(['), src.indexOf(']);', src.indexOf('const READS'))).matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1]);
     for (const door of ['stopSession', 'runNow', 'reopen', 'schedule', 'sendNow', 'command', 'approve', 'agentReply', 'saveAttachments', 'setProjectSetting', 'threadEdit', 'createProduct', 'resumeAgents', 'resumeItems', 'agentUpdate']) {
@@ -274,7 +275,8 @@ describe('the doors the phone does not have', () => {
     // Asking whether an agent has an update is a read; starting one is not.
     expect(src).toMatch(/agentUpdate: async \(p: any\) => \{ if \(p\?\.action === 'start'\) throw new Error\(NOT_HERE\); return null; \}/);
     const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
-    expect(app).toMatch(/if \(onCloudPhone\(\)\) \{ showToast\('Stop it on your computer\./);
+    // A stop from the phone says it was sent, not that it stopped.
+    expect(app).toMatch(/showToast\('Stop sent\. Your Mac stops the agent when it gets it\.'\)/);
   });
 });
 

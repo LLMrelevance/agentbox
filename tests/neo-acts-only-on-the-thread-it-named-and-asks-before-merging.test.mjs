@@ -24,7 +24,7 @@ function setup({ focused = null, list = rows } = {}) {
     options: (r) => (r.id === 'w-a' ? [{ n: 1, text: 'Ship draft A (recommended)' }, { n: 2, text: 'Rewrite' }] : []),
     summary: (r) => (r.result ?? '').split('\n')[0],
     projects: () => [{ slug: 'p1', name: 'Agentbox' }, { slug: 'p2', name: 'Site' }],
-    open: rec('open'), pick: rec('pick'), reply: rec('reply'), close: rec('close'),
+    open: vi.fn(async (row) => { calls.push(['open', row]); focused = row; }), pick: rec('pick'), reply: rec('reply'), close: rec('close'),
     compose: vi.fn(async (text, product) => { calls.push(['compose', text, product]); return { id: 'w-new' }; }),
     undo: vi.fn(async () => { calls.push(['undo']); return 'done'; }),
     glow: rec('glow'),
@@ -482,16 +482,13 @@ describe('opening a thread shows what she needs to decide', () => {
     expect(r.said).toMatch(/beside the thread now/i);
   });
 
-  it('and two to four the same way', async () => {
+  // Not all at once any more: picture 1, then each as Neo names it
+  // (tests/neo-shows-each-picture-as-it-names-it.test.mjs).
+  it('of several, puts up the first and lists the rest for Neo to name', async () => {
     const t = withPictures(3, ['a.png', 'b.png', 'c.png', 'old.png']);
-    await t.act('next_thread', {});
-    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3], 'peek');
-  });
-
-  it('shows the first four of more', async () => {
-    const t = withPictures(6, ['1', '2', '3', '4', '5', '6']);
-    await t.act('open_thread', { id: 'w-a' });
-    expect(t.deps.show).toHaveBeenCalledWith([1, 2, 3, 4], 'peek');
+    const r = await t.act('next_thread', {});
+    expect(t.deps.show.mock.calls.filter(([, l]) => l !== 'close')).toEqual([[[1], 'peek']]);
+    expect(r.said).toMatch(/1\. a\.png 2\. b\.png 3\. c\.png\./);
   });
 
   it('shows nothing when the latest message has no pictures, even if older ones do', async () => {
@@ -687,5 +684,38 @@ describe('the screen for the trial run', () => {
     expect(act.canGoBack()).toBe(false);
     await act('next_thread', {});
     expect(act.canGoBack()).toBe(true);
+  });
+});
+
+// Same report: with no picture in the latest message, its design page is what
+// she needs to decide, so opening the thread opens that beside it.
+describe('opening a thread shows the latest message\'s design page when it has no picture', () => {
+  it('opens the first file of the latest message', async () => {
+    const t = setup();
+    t.deps.pictureNames = () => ['old.jpg'];
+    t.deps.latestPictureCount = () => 0;
+    t.deps.waitForPictures = async () => {};
+    t.deps.show = vi.fn(async () => true);
+    t.deps.fileNames = () => ['section3-into-2m04-r3.html'];
+    t.deps.openFile = vi.fn(async () => true);
+    const r = await t.act('open_thread', { id: 'w-a' });
+    expect(t.deps.openFile).toHaveBeenCalledWith(1);
+    expect(t.deps.show.mock.calls.filter(([, l]) => l !== 'close')).toEqual([]);
+    expect(r.said).toMatch(/section3-into-2m04-r3\.html/);
+  });
+
+  it('a file can be opened by its number', async () => {
+    const t = setup({ focused: rows[0] });
+    t.deps.fileNames = () => ['a.html', 'b.html'];
+    t.deps.openFile = vi.fn(async () => true);
+    expect(await t.act('open_file', { n: 2 })).toMatchObject({ ok: true, said: expect.stringMatching(/b\.html/) });
+    expect(t.deps.openFile).toHaveBeenCalledWith(2);
+    expect(await t.act('open_file', { n: 3 })).toMatchObject({ ok: false });
+  });
+
+  it('the screen for the Decisions API lists the files', () => {
+    const t = setup({ focused: rows[0] });
+    t.deps.fileNames = () => ['a.html'];
+    expect(screenFor(t.deps, false).open.files).toEqual([{ n: 1, name: 'a.html' }]);
   });
 });

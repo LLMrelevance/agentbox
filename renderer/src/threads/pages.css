@@ -113,8 +113,14 @@
    (2026-10-02): on the baseline it read too low, at 1.5px too high, so it
    sits halfway between. */
 /* PINNED (w-20323283e6): the same faint ink and the same plain inline box, so
-   the row's underline runs through it like the others. */
-.th-pin { display: inline; margin-left: 9px; color: var(--text-faint); vertical-align: -2px; }
+   the row's underline runs through it like the others. Its weight is in its
+   head, so with its tip level with the lock's foot it still read as high; it
+   hangs about two thirds of a pixel past it. */
+.th-pin { display: inline; margin-left: 9px; color: var(--text-faint); vertical-align: -3px; }
+/* A run in the cloud: the running mark is a cloud, pulsing with the dot.
+   14px wide with 6px after it, so its title starts where a dot's does. */
+.th-st-cloud { display: inline; flex: none; margin-right: 6px; color: var(--accent); vertical-align: -1px; animation: th-breathe 1.6s ease-in-out infinite; }
+@keyframes th-breathe { 50% { opacity: .45; } }
 .th-shared-n { display: inline; margin-left: 3px; font: 10.5px var(--mono); color: var(--text-faint); vertical-align: 0.75px; }
 
 /* NOT STARTED, ON THE ROW (w-afb66e6661) was a boxed capital tag here. It is
@@ -139,6 +145,11 @@
 .th-grid > .num { text-align: right; }
 .th-cell-title { font-size: 14px; line-height: 20px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .th-cell-title.hidden { color: var(--text-dim); }
+/* UNREAD (w-22da913d00): a dot in the gutter and a heavier title. The dot sits
+   1px under the row's middle, which centres it on the title's lowercase. */
+.th-table .row.unread::before { content: ''; position: absolute; left: 13px; top: 50%; width: 6px; height: 6px; background: var(--accent); }
+/* `:root` outweighs `:root:root .row .subject`, which sets every title to 400. */
+:root .th-table .row.unread .subject { font-weight: 530; }
 .th-cell-proj { font: 11.5px/20px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; min-width: 0; }
 .th-cell-proj .tm-av { width: 16px; height: 16px; line-height: 14px; font-size: 8px; margin-right: 8px; flex: none; }
 .th-cell-prio { font: 11.5px/20px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--text-faint); display: flex; align-items: center; }
@@ -396,9 +407,8 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 
 /* IN PROGRESS, AND AN AGENT ON IT NOW (2026-10-01). Queued and running share
    the word; only the ones an agent is on turn. */
-.th-st.live { animation: th-turn 1.6s linear infinite; }
-@keyframes th-turn { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .th-st.live { animation: none; } }
+.th-st.live { animation: th-breathe 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .th-st.live, .th-st-cloud { animation: none; } }
 .th-cell-title .th-st.live { margin-right: 8px; top: 1px; }
 .th-card .m .th-st.live { margin-right: 8px; top: 0; }
 
@@ -453,3 +463,6 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 
 /* An account being added: the moving mark on the line, beside its words. */
 .th-cloud-banner-say:has(.cs-busy) { display: flex; align-items: center; gap: 9px; }
+
+/* On the hosted phone, over the list: what it shows may be out of date. */
+.phone-status { margin: 6px 16px 2px; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--text-dim); font-size: 13px; line-height: 1.4; }

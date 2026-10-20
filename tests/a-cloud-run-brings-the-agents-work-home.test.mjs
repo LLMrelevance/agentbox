@@ -121,6 +121,9 @@ function launch({ message = 'please do it', extraArgs = [], signals = new EventE
 
 const resultOf = (out) => JSON.parse(JSON.parse(out.split('\n').find((l) => l.includes('"type":"result"'))).result);
 
+// The run has left with the folder as it was: only a change after this is one made while it was away.
+const untilAway = async () => { for (let i = 0; i < 600 && readMarker(mac)?.state !== 'running'; i += 1) await new Promise((r) => setTimeout(r, 25)); };
+
 describe('a cloud run', () => {
   it('streams the agent, runs its store call on the Mac, and lays its commit, its loose file and its transcript into the task folder', async () => {
     const run = launch();
@@ -237,30 +240,28 @@ describe('a cloud run', () => {
     expect(readMarker(mac)).toBe(null);
   });
 
+  // What happens to the run's work then: tests/a-cloud-run-that-cannot-be-laid-in-never-blocks-its-thread.
   it('will not lay the run over a folder that changed on this Mac while it was away, and keeps the run\'s commits', async () => {
     const run = launch({ message: 'SLOW please' });
     // Something on the Mac writes into the folder while the agent works.
-    await new Promise((r) => setTimeout(r, 600));
+    await untilAway();
     fs.writeFileSync(path.join(mac, 'local-edit.txt'), 'made here meanwhile\n');
-    expect(await run.done).toBe(IMPORT_FAILED);
-    expect(readMarker(mac)).toMatchObject({ state: 'diverged' });
+    expect(await run.done).toBe(0);
     expect(run.err()).toMatch(/changed on this Mac/);
-    // The local edit is untouched, and the run's commit is kept on its ref.
+    // The local edit is untouched, and the run's commit is kept on its branch.
     expect(fs.readFileSync(path.join(mac, 'local-edit.txt'), 'utf8')).toBe('made here meanwhile\n');
-    const kept = git(mac, 'for-each-ref', '--format=%(refname)', 'refs/agentbox/cloud/');
-    expect(kept).toMatch(/refs\/agentbox\/cloud\//);
-    expect(git(mac, 'log', '-1', '--format=%s', kept.split('\n')[0])).toBe('From the cloud');
+    expect(git(mac, 'log', '--format=%s', 'cloud/w-1')).toMatch(/From the cloud/);
     expect(git(mac, 'log', '-1', '--format=%s')).toBe('first');
   });
 
   it('notices a change staged on this Mac meanwhile, even one whose file was put back', async () => {
     const run = launch({ message: 'SLOW please' });
-    await new Promise((r) => setTimeout(r, 600));
+    await untilAway();
     fs.writeFileSync(path.join(mac, 'a.txt'), 'staged meanwhile\n');
     git(mac, 'add', 'a.txt');
     fs.writeFileSync(path.join(mac, 'a.txt'), 'one\n');
-    expect(await run.done).toBe(IMPORT_FAILED);
-    expect(readMarker(mac)).toMatchObject({ state: 'diverged' });
+    expect(await run.done).toBe(0);
+    expect(run.err()).toMatch(/changed on this Mac/);
     expect(git(mac, 'diff', '--cached', '--name-only')).toBe('a.txt');
   });
 
@@ -284,10 +285,10 @@ describe('a cloud run', () => {
 
   it('will not bring home an agent that finished on another branch as if it were the task\'s', async () => {
     const run = launch({ message: 'SWITCH branches' });
-    expect(await run.done).toBe(IMPORT_FAILED);
+    expect(await run.done).toBe(0);
     expect(run.err()).toMatch(/finished on somewhere-else/);
     expect(git(mac, 'log', '-1', '--format=%s')).toBe('first');
-    expect(git(mac, 'for-each-ref', '--format=%(refname)', 'refs/agentbox/cloud/')).toMatch(/-head$/m);
+    expect(git(mac, 'log', '--format=%s', 'cloud/w-1')).toMatch(/From the cloud/);
   });
 
   it('keeps its record when the start went unanswered, because the run may have begun', async () => {

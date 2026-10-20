@@ -35,6 +35,10 @@
 .si-switch { margin: 20px 0 0; font-size: 13px; color: var(--text-faint); }
 .si-switch button { background: none; border: 0; padding: 0; font: inherit; color: var(--text); cursor: pointer; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
 .si-switch button:hover { text-decoration-color: var(--text-dim); }
+/* The cloud's sign-in only: the terms it accepts, and a way back out. */
+.si-terms { margin: 12px 0 0; font-size: 12px; line-height: 18px; color: var(--text-faint); }
+.si-terms a { color: var(--text-dim); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+.si-back { -webkit-app-region: no-drag; }
 /* On a phone the card is the screen's width, padding included, and never
    wider (the phone with the Mac shut signs in here, renderer/src/cloud-bridge.ts). */
 :root[data-door="phone"] .si-page { grid-template-columns: minmax(0, 1fr); }

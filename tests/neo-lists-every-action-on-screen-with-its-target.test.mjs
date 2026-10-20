@@ -52,7 +52,7 @@ describe('the actions on the open thread name the thread', () => {
 describe('the rest of the screen', () => {
   it('every other thread can be opened by name, and the open one is not offered twice', () => {
     expect(find(screen(), 'open:w-pricing').description).toMatch(/"Pricing page copy"/);
-    expect(values(screen())).not.toContain('open:w-jarvis');
+    expect(values(screen()).filter((v) => v === 'open:w-jarvis')).toHaveLength(1);
   });
 
   it('every ⌘K command is a choice', () => {
@@ -64,9 +64,17 @@ describe('the rest of the screen', () => {
     expect(values(screen())).toEqual(expect.arrayContaining(['none', 'ask', 'new']));
   });
 
-  it('offers going back only when there is somewhere to go', () => {
+  // Offered either way since 2026-10-17. Left off the list, "I asked you to
+  // go back to the previous task" matched no option, came back as do-nothing,
+  // and Neo said nothing at all — she asked "You stuck". With nowhere to go
+  // the option says so, so she is told rather than left in silence
+  // (./neo-stays-quiet-on-a-guess-and-can-always-be-sent-back.test.mjs).
+  it('offers going back either way, and says when there is nowhere to go', () => {
     expect(values(screen())).toContain('back');
-    expect(values(screen({ canGoBack: false }))).not.toContain('back');
+    expect(values(screen({ canGoBack: false }))).toContain('back');
+    const d = (s) => buildOptions(s).list.find((o) => o.value === 'back').description;
+    expect(d(screen())).not.toMatch(/nowhere to go back/i);
+    expect(d(screen({ canGoBack: false }))).toMatch(/nowhere to go back/i);
   });
 });
 
@@ -94,5 +102,14 @@ describe('what the picker can be fooled by', () => {
   it('the same screen gives the same version, a changed one a new version', () => {
     expect(buildOptions(screen()).version).toBe(buildOptions(screen()).version);
     expect(buildOptions(screen({ canGoBack: false })).version).not.toBe(buildOptions(screen()).version);
+  });
+});
+
+describe('files in the latest message', () => {
+  it('each can be opened by name', () => {
+    const s = screen({ open: { ...screen().open, files: [{ n: 1, name: 'section3-into-2m04-r3.html' }] } });
+    const o = buildOptions(s).list.find((x) => x.value === 'file:1');
+    expect(o.description).toMatch(/section3-into-2m04-r3\.html/);
+    expect(o.act).toEqual({ kind: 'file', id: 'w-jarvis', n: 1 });
   });
 });

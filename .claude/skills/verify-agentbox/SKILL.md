@@ -77,7 +77,14 @@ What makes it safe to run beside a real Agentbox, and why each is there:
   `STORE_`, `AGENTBOX_`, `ASTRAL_`, `ANTHROPIC_`, `CLAUDE_CODE_`, `OPENAI_` and
   `CODEX_` variable.
 - **One instance per checkout**, so two agents verifying two branches on one
-  Mac never drive each other's copy.
+  Mac never drive each other's copy. `VERIFY_INSTANCE=<name>` before any verb
+  makes another copy from the same checkout (the power test runs one per
+  tester), and stand-in copies take `--logins 1-4`, `--no-codex` and
+  `--projects "A,B"`.
+
+For hours of use by testers who play the people Agentbox is for, with
+logins running out and restarts on a clock, use `../power-test/` instead of
+the breaker.
 
 The default worker is `scripts/lib/stub-claude-worker.mjs`: everything on
 Agentbox's side of the spawn is real (argv, environment, worktree, store
@@ -276,6 +283,8 @@ Listed so nobody reads a green run as proof of these:
   when it is.
 - Shipping (`ship` label to `npm run ship`), approvals cards, scheduling.
 - Linux machines (`check-machines` is Mac shapes only; the app supports Linux).
+  The live copy and its drives do run on Linux, on Playwright's Chromium or
+  the one `VERIFY_CHROME` names.
 - Other Claude Code and Codex versions and install methods. Setups link the
   one Claude Code this Mac has into the installer's layout, and run the one
   codex on its PATH.

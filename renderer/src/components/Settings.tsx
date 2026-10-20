@@ -27,17 +27,15 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { AgentMode, CodexModeId, PermissionMode, PhoneLink, PhoneRoute, ProjectSettings, Settings as SettingsModel, UpdateState } from '../types';
-import { ago } from '../format';
-import { ALERTS_SAY, alertsState, testAlert, turnOffAlerts, turnOnAlerts, type AlertsState } from '../phone-alerts';
+import type { AgentMode, CodexModeId, PermissionMode, ProjectSettings, Settings as SettingsModel, UpdateState } from '../types';
 import { onPhone } from '../phone-screen';
-import { pollEvery } from '../phone-polls';
 import { api, RESTART_NOTE } from '../api';
 import { updateLook } from '../update-row';
 import { InstructionSettings, sizeLabel } from './InstructionSettings';
+import { NeoSettings } from '../neo/NeoSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
-import { accountLabel, type CloudStatus } from '../cloud-menu';
+import { accountLabel, countedAccounts, type CloudStatus } from '../cloud-menu';
 import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
 import { limitRows } from '../../../shared/usage.mjs';
 import { LOOKS, lookMeans, SKINS, TUNE_DEFAULT, TUNE_LIMITS, type Look, type SkinId, type SkinTune } from '../skins';
@@ -429,14 +427,25 @@ export function AccountRows({ agent, onChoose, onAdd }: {
   }
 }
 
+export function accountReadingFor(profile: string, readings: AccountUsageReading[], current: Usage | null): Usage | null {
+  const own = readings.find(r => r.profile === profile && r.limits?.length && r.at);
+  const candidates = [own ? { engine: 'claude' as const, profile, at: own.at!, limits: own.limits! } : null,
+    current && (current.profile ?? 'default') === profile ? current : null];
+  return candidates.filter((r): r is Usage => !!r).sort((a, b) => b.at - a.at)[0] ?? null;
+}
+
 /** One account as a place card draws it, whether it lives here or in the cloud. */
 export type PlaceAccount = {
   key: string;
   name: string;
-  /** Plan, check time or state, joined with a dot. */
+  /** The plan, set against the name. */
+  plan?: string | null;
+  /** A state to say where nothing is in use or offered, joined with a dot. */
   about: string[];
   inUse?: boolean;
   limits?: UsageLimit[] | null;
+  checkedAt?: number | null;
+  usageError?: string | null;
   /** Offered when picking it would change something, with the words for it. */
   use?: { word: string; onUse: () => void } | null;
   /** Why it cannot run, in main's words; replaces the meters. */
@@ -446,9 +455,9 @@ export type PlaceAccount = {
   meters?: boolean;
 };
 
-/** SESSION AND WEEK, the same two meters for every account. A full one says when it is back. */
-export function MiniMeters({ limits }: { limits?: UsageLimit[] | null }) {
-  const meters = meterPair(limits);
+/** SESSION AND WEEK, the same two meters for every account, each ending with when it resets. */
+export function MiniMeters({ limits, now = Date.now() }: { limits?: UsageLimit[] | null; now?: number }) {
+  const meters = meterPair(limits, now);
   if (!meters.length) return <div className="acct-meters-none">No usage reading yet</div>;
   return (
     <span className="acct-meters">
@@ -456,32 +465,51 @@ export function MiniMeters({ limits }: { limits?: UsageLimit[] | null }) {
         <span className={`acct-meter${m.percent >= 100 ? ' full' : ''}`} key={m.key}>
           <span className="acct-meter-word">{m.word}</span>
           <span className="usage-meter" aria-hidden="true"><i style={{ width: `${Math.min(100, m.percent)}%` }} /></span>
-          <span className="acct-meter-pct">{m.back ? `back ${m.back}` : `${m.percent}%`}</span>
+          <span className="acct-meter-pct">{m.percent}%</span>
+          <span className="acct-meter-when" title={m.resets ? `Resets ${m.resets}` : undefined}>{m.resets ?? ''}</span>
         </span>
       ))}
     </span>
   );
 }
 
-function UseMark({ a }: { a: PlaceAccount }) {
-  if (a.inUse) return <span className="set-badge">In use</span>;
-  return a.use ? <button type="button" className="set-badge set-badge-use" onClick={a.use.onUse}>{a.use.word}</button> : null;
+/** A tile here's second line, in the words the cloud's tiles use. Trouble is said below it instead. */
+export function hereState({ signedIn, trouble, limits, now = Date.now() }: {
+  signedIn: boolean; trouble: string | null; limits?: UsageLimit[] | null; now?: number;
+}): string[] {
+  if (!signedIn) return ['Finish signing in to use it'];
+  if (trouble) return [];
+  const full = (limits ?? []).some((l) => l.percent >= 100 && !(l.resetsAt && l.resetsAt <= now)
+    && (l.span === 'session' || !l.qualifier || /all/i.test(l.qualifier)));
+  return [full ? 'At its limit' : 'Ready'];
 }
 
+// The header says the newest reading's time; a tile older than this says its own.
+const OWN_TIME_AFTER_MS = 15 * 60_000;
+
 /** One tile per account, two to a line, its meters stacked inside. */
-export function PlaceTiles({ accounts, onAdd }: { accounts: PlaceAccount[]; onAdd?: () => void }) {
+export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: PlaceAccount[]; onAdd?: () => void; now?: number }) {
   return (
     <div className="acct-tiles">
       {accounts.map((a) => (
         <div className={`acct-tile${a.inUse ? ' on' : ''}${a.trouble ? ' trouble' : ''}`} key={a.key}>
-          <div className="acct-tile-name">{a.name}</div>
-          <div className="acct-tile-about"><UseMark a={a} />{a.about.join(' · ')}</div>
+          <div className="acct-tile-head">
+            <span className="acct-tile-name">{a.name}</span>
+            {a.inUse && <span className="set-badge">In use</span>}
+            {a.plan && <span className="acct-tile-plan">{a.plan}</span>}
+          </div>
+          <div className="acct-tile-about">{a.about.join(' · ')}</div>
           {a.trouble ? (
             <>
               <div className="acct-tile-trouble">{a.trouble}</div>
               {a.cmd && <div className="acct-tile-cmd"><CopyCmd cmd={a.cmd} /></div>}
             </>
-          ) : a.meters !== false && <MiniMeters limits={a.limits} />}
+          ) : a.meters !== false && <>
+            {(!a.usageError || a.limits?.length) && <MiniMeters limits={a.limits} />}
+            {a.usageError && <div className="acct-tile-trouble" role="status">{a.usageError}</div>}
+          </>}
+          {!!a.checkedAt && (a.usageError || now - a.checkedAt >= OWN_TIME_AFTER_MS) && <div className="acct-reading-time">{usageCheckedAt(a.checkedAt, now)}</div>}
+          {a.use && <button type="button" className="set-ghost acct-switch" onClick={a.use.onUse}>{a.use.word}</button>}
         </div>
       ))}
       {onAdd && <button type="button" className="acct-tile acct-tile-add" onClick={onAdd}>Add account</button>}
@@ -492,15 +520,15 @@ export function PlaceTiles({ accounts, onAdd }: { accounts: PlaceAccount[]; onAd
 /**
  * ONE PLACE AGENTS RUN: its name, whether it is on, one line on when threads
  *  go there, and a tile per account. */
-export function Place({ id, name, state = null, line = null, action, warn, accounts, onAdd }: {
+export function Place({ id, name, state = null, line = null, action, warn, accounts, onAdd, now }: {
   id: string; name: string; state?: 'On' | 'Off' | null; line?: string | null; action?: ReactNode; warn?: string | null;
-  accounts: PlaceAccount[]; onAdd?: () => void;
+  accounts: PlaceAccount[]; onAdd?: () => void; now?: number;
 }) {
   const label = <>{name}{state && <span className={`set-badge${state === 'On' ? '' : ' set-badge-off'}`}>{state}</span>}</>;
   return (
     <Group id={id} label={label} action={action} bare>
       {(warn || line) && <div className="acct-place-line" role="status">{warn ?? line}</div>}
-      <PlaceTiles accounts={accounts} onAdd={onAdd} />
+      <PlaceTiles accounts={accounts} onAdd={onAdd} now={now} />
     </Group>
   );
 }
@@ -508,12 +536,13 @@ export function Place({ id, name, state = null, line = null, action, warn, accou
 /** The cloud's own logins, as a place card reads them. */
 export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex', now: number): PlaceAccount[] {
   const all = cloud.accounts ?? [];
-  return all.filter((a) => a.engine === engine).map((a) => {
+  // A login of an account already added is the same account, and the cloud never runs on it.
+  return countedAccounts(all).filter((a) => a.engine === engine).map((a) => {
     const state = cloudAccountState(a, now);
     const read = !!a.limits?.length;
-    // A full meter already says when it is back. Without a reading the state is all there is.
-    const said = read && (state === 'Ready' || state.startsWith('At its limit'));
-    return { key: a.key, name: accountLabel(a, all), about: said ? [] : [state], limits: a.limits ?? null, meters: read };
+    // A full meter already says when it is back, so beside one the state is said short.
+    const about = read && state.startsWith('At its limit') ? 'At its limit' : state;
+    return { key: a.key, name: accountLabel(a, all), plan: a.plan ?? null, about: [about], limits: a.limits ?? null, meters: read, checkedAt: read ? a.readAt : null };
   });
 }
 
@@ -659,58 +688,26 @@ function Reading({ running, capacity, gate }: {
 /** A page: its title, the sentence under it when there is one worth saying,
  *  and its groups. */
 /* --------------------------------- phone --------------------------------- */
-// THE PHONE DOOR (main/phone-link.mjs). Off until turned on. The QR code is the
-// key, so it is drawn only on this page and only while the door is open.
-const PHONE_ROUTE_OPTIONS: Array<{ value: PhoneRoute; label: string }> = [
-  // Shown only once there is a relay to use (main/relay-address.mjs).
-  { value: 'anywhere', label: 'Anywhere' },
-  { value: 'tailscale', label: 'Tailscale, secure' },
-  { value: 'wifi', label: 'Same Wi-Fi, not secure' },
-];
-
-/** The Phone page as the phone itself draws it: this phone's alerts. */
-function PhoneAlertsPage({ onFeedback }: { onFeedback?: () => void }) {
-  const [state, setState] = useState<AlertsState | null>(null);
-  const [said, setSaid] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { void alertsState().then(setState); }, []);
-  const run = async (fn: () => Promise<AlertsState>) => {
-    setBusy(true); setSaid(null);
-    try { setState(await fn()); } catch (e) { setSaid(String((e as Error).message ?? e)); } finally { setBusy(false); }
-  };
+// FEEDBACK FROM A PHONE. Its corner has no Feedback button, by choice ("not
+// important to be big for mobile"), which left no way to send any ("not sure
+// how to give feedback on mobile", 2026-10-12).
+function PhoneFeedbackGroup({ onFeedback }: { onFeedback: () => void }) {
   return (
-    <Page title="Phone">
-      <Group id="phone-alerts" label="Alerts on this phone">
-        <Row label={state === 'on' ? 'Alerts are on' : 'Alerts'} desc={said ?? (state ? ALERTS_SAY[state] : 'Checking…')}>
-          {(state === 'on' || state === 'off') && (
-            <Switch on={state === 'on'} busy={busy} label="Alerts" onChange={(v) => void run(v ? turnOnAlerts : turnOffAlerts)} />
-          )}
-        </Row>
-        {state === 'on' && (
-          <Row label="Send a test alert" desc="Lock the phone after tapping, and it should arrive within a few seconds.">
-            <button type="button" className="set-ghost" disabled={busy} onClick={() => { setBusy(true); void testAlert().then((ok) => setSaid(ok ? 'Sent.' : 'The computer could not send it.')).catch((e) => setSaid(String(e.message ?? e))).finally(() => setBusy(false)); }}>Send test</button>
-          </Row>
-        )}
-      </Group>
-      {/* FEEDBACK FROM A PHONE. Its corner has no Feedback button, by choice
-          ("not important to be big for mobile"), which left no way to send any
-          ("not sure how to give feedback on mobile", 2026-10-12). */}
-      {onFeedback && (
-        <Group id="phone-feedback" label="Feedback">
-          <Row label="Send feedback" desc={`Tell us what works and what does not. It goes straight to the people who make ${Name}.`}>
-            <button type="button" className="set-ghost" onClick={onFeedback}>Send feedback</button>
-          </Row>
-        </Group>
-      )}
-    </Page>
+    <Group id="phone-feedback" label="Feedback">
+      <Row label="Send feedback" desc={`Tell us what works and what does not. It goes straight to the people who make ${Name}.`}>
+        <button type="button" className="set-ghost" onClick={onFeedback}>Send feedback</button>
+      </Row>
+    </Group>
   );
 }
 
 // WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md, step 1). The projects she
 // puts on her phone go to her account online on every sync; the phone site
 // reads them and leaves what she sends for this Mac to do when it wakes.
-// THE WAY IN IS A WEBSITE WE HOST (2026-10-14), not a relay to this computer:
-// the code is only its address, so it carries no key and needs no resetting.
+// THE ONLY WAY IN IS A WEBSITE WE HOST (2026-10-14), not a link to this
+// computer: the code is only its address, so it carries no key. The relay and
+// the same-Wi-Fi door are gone (2026-10-16: "Should only ever be one way to
+// access mobile: through the Cloud").
 // ALL OF HER PROJECTS, BY DEFAULT (2026-10-15: "95% of people just want all
 // of their projects connected"). One row and one dropdown, the way every
 // other choice on this page is made ("it's more of a dropdown kind of
@@ -798,103 +795,21 @@ function MacShutGroup({ macShut }: { macShut: MacShut }) {
 }
 
 function PhonePage({ onFeedback, macShut }: { onFeedback?: () => void; macShut?: MacShut }) {
-  const [link, setLink] = useState<PhoneLink | null | undefined>(undefined);
-  const [busy, setBusy] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
-  const run = useCallback(async (action: 'status' | 'on' | 'off' | 'reset' | 'via', via?: PhoneRoute) => {
-    setBusy(true);
-    try { setLink(await api.phoneLink({ action, via })); } finally { setBusy(false); }
-  }, []);
-  useEffect(() => {
-    void run('status');
-    const off = api.onPhoneChanged(() => { void api.phoneLink({ action: 'status' }).then(setLink); });
-    // "Last seen" moves without a push.
-    const tick = window.setInterval(() => { setNow(Date.now()); void api.phoneLink({ action: 'status' }).then(setLink); }, pollEvery(15_000, onPhone()));
-    return () => { off(); window.clearInterval(tick); };
-  }, [run]);
-
-  if (link === undefined) return <Page title="Phone">{null}</Page>;
-  if (link === null) {
-    // On the phone itself: its own alerts. Anywhere else (a browser tab on
-    // the computer) there is nothing to set here.
-    if (document.documentElement.dataset.door === 'phone') return <PhoneAlertsPage onFeedback={onFeedback} />;
+  const feedback = onFeedback && onPhone() ? <PhoneFeedbackGroup onFeedback={onFeedback} /> : null;
+  if (!macShut) {
     return (
       <Page title="Phone">
-        {macShut && <MacShutGroup macShut={macShut} />}
         <Group>
-          <Row label="Set up from the desktop app" desc={`A phone is connected from the ${Name} app's own window, not from a browser tab.`} />
+          <Row label="Sign in to use your phone" desc={`Your phone reads and replies through your ${Name} account, so it works with this computer closed. Sign in on the Team page, then come back here for the code.`} />
         </Group>
+        {feedback}
       </Page>
     );
   }
-  const hasTailscale = link.routes.some((r) => r.via === 'tailscale');
-  const reset = () => {
-    if (window.confirm('Make a new key? Every connected phone is disconnected and has to scan the new code.')) void run('reset');
-  };
   return (
-    <Page title="Phone" lede={macShut
-      ? 'Read and reply from your phone, even with this computer closed.'
-      : `Use this inbox on your phone. Scan the code with the phone's camera, then add the page to the home screen and it opens like an app.`}>
-      {macShut && <MacShutGroup macShut={macShut} />}
-      <Group id="phone" label={macShut ? 'Straight to this computer, without signing in' : 'Phone access'}>
-        <Row label="Let phones connect" desc={link.on ? (link.error ?? (link.listening ? `Open on port ${link.port}.` : 'Starting…')) : 'Off. Nothing outside this computer can reach the inbox.'}>
-          <Switch on={link.on} busy={busy} label="Let phones connect" onChange={(v) => void run(v ? 'on' : 'off')} />
-        </Row>
-        {link.on && (
-          <Row
-            label="Reach it over"
-            desc={link.via === 'anywhere'
-              ? link.relay?.connected
-                ? 'Works on any Wi-Fi or mobile data, with nothing to install. Everything is locked on this computer and unlocked only on your phone, so the relay in between cannot read it.'
-                : link.error ?? 'Connecting to the relay…'
-              : link.via === 'tailscale'
-              ? link.settingUp
-                ? 'Setting up a secure address with Tailscale…'
-                : link.secure
-                  ? 'A secure address only your own devices on Tailscale can reach. Works anywhere your phone has Tailscale on.'
-                  : 'Works anywhere your phone has Tailscale on, but without a secure address, so the phone shows Not Secure.'
-              : hasTailscale
-                ? 'Works only on the same Wi-Fi, and the phone shows Not Secure because nothing is encrypted. Pick Tailscale for a secure address that also works away from home.'
-                : 'Works only on the same Wi-Fi, and the phone shows Not Secure because nothing is encrypted. Install Tailscale on both for a secure address.'}
-          >
-            <Picker bare label="Reach it over" value={link.via ?? 'wifi'} options={PHONE_ROUTE_OPTIONS.filter((o) => link.routes.some((r) => r.via === o.value))} onChange={(v) => void run('via', v)} />
-          </Row>
-        )}
-      </Group>
-      {link.on && (
-        <Group id="phone-code" label="Scan with your phone">
-          {link.qr && link.url ? (
-            <div className="set-row set-phone-qr">
-              <img alt="QR code that opens this inbox on a phone" src={`data:image/svg+xml;utf8,${encodeURIComponent(link.qr)}`} />
-              <div className="set-row-desc">
-                Anyone who scans this code can run agents on this computer, so treat it like a password. If it was seen by someone else, reset the key.
-                <br />
-                <code>{link.url.replace(/(token=|#k=).*/, '$1…')}</code>
-              </div>
-            </div>
-          ) : (
-            <Row label="No network" desc="This computer is not on Wi-Fi or Tailscale right now, so a phone has no way to reach it." />
-          )}
-          <Row label="Reset key" desc="Makes a new code. Every phone is disconnected until it scans again.">
-            <button type="button" className="set-ghost" disabled={busy} onClick={reset}>Reset key</button>
-          </Row>
-        </Group>
-      )}
-      {link.on && (
-        <Group id="phone-devices" label="Connected devices">
-          {link.devices.length === 0 ? (
-            <Row label="None yet" desc="A phone shows here as soon as it opens the inbox." />
-          ) : link.devices.map((d) => (
-            <Row
-              key={d.id}
-              label={d.name}
-              desc={`${d.live ? 'Connected now' : `Last seen ${ago(d.lastSeen, now)} ago`}${d.ip ? ` · ${d.ip}` : ''} · first seen ${ago(d.firstSeen, now)} ago${d.alerts ? ' · alerts on' : ''}${d.alertError ? ` · last alert failed: ${d.alertError}` : ''}`}
-            >
-              {d.alerts && <button type="button" className="set-ghost" disabled={busy} onClick={() => void api.phoneLink({ action: 'stop-alerts', device: d.id }).then(setLink)}>Stop alerts</button>}
-            </Row>
-          ))}
-        </Group>
-      )}
+    <Page title="Phone" lede="Read and reply from your phone, even with this computer closed.">
+      <MacShutGroup macShut={macShut} />
+      {feedback}
     </Page>
   );
 }
@@ -947,6 +862,14 @@ const PERMISSION_OPTIONS: Array<{ value: PermissionMode; label: string }> = MODE
 const CODEX_MODE_OPTIONS: Array<{ value: CodexModeId; label: string }> = CODEX_MODE_ORDER.map(
   (value) => ({ value, label: CODEX_MODES[value].label }),
 );
+
+const SAME_AS_HERE = 'The same as on this computer.';
+
+// Full access's own sentence says "on this computer", which a cloud run is not.
+const CODEX_CLOUD_WHAT: Record<CodexModeId, string> = {
+  ...Object.fromEntries(CODEX_MODE_ORDER.map((id) => [id, CODEX_MODES[id].what])) as Record<CodexModeId, string>,
+  'full-access': 'Anything on its own throwaway cloud machine, without asking.',
+};
 
 /* -------------------- the model is not asked here ------------------------- */
 // The new task card asks which model a run goes out on, keeps the answer
@@ -1471,6 +1394,8 @@ function NavIcon({ id }: { id: SettingsPageId }) {
     instructions: <path d="M6.5 3.5h7.5l4 4V20.5h-11.5zM14 3.5V8h4M9.5 12h5M9.5 16h5" />,
     projects: <path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />,
     team: <><circle cx="9" cy="9" r="3" /><path d="M3.5 19c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5" /><circle cx="16.5" cy="9.5" r="2.5" /><path d="M16 14.6c2.3-.2 4 1.2 4.5 4" /></>,
+    // The orb, the one thing of Neo's that is already on screen.
+    neo: <><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="8.5" opacity="0.45" /></>,
   };
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1481,7 +1406,7 @@ function NavIcon({ id }: { id: SettingsPageId }) {
 
 /** The page an old link or a ⌘K row names, read the way it always was: every
  *  name the screen has ever used still opens the page its content went to. */
-function paneFrom(want: string, has: { team: boolean }): Pane {
+function paneFrom(want: string, has: { team: boolean; neo?: boolean }): Pane {
   if (want.startsWith('project:')) return { project: want.slice('project:'.length) };
   if (want === 'themes') return 'appearance';
   if (want === 'priority') return 'projects';
@@ -1490,13 +1415,14 @@ function paneFrom(want: string, has: { team: boolean }): Pane {
   if (want === 'accounts') return 'claude';
   if (want === 'agents') return 'running';
   if (want === 'team') return has.team ? 'team' : 'general';
+  if (want === 'neo') return has.neo ? 'neo' : 'general';
   if (SETTINGS_PAGES.some((p) => p.id === want)) return want as SettingsPageId;
   return 'general';
 }
 
 /* --------------------------------- screen --------------------------------- */
 
-export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null }: {
+export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, neoOn = false, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null }: {
   /** Opens the feedback card. A phone has no Feedback button in its corner,
    *  so its own Settings page offers it (2026-10-12). */
   onFeedback?: () => void;
@@ -1533,6 +1459,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   /** Team management, handed in by whoever has the team's state. Absent on a
    *  build with no team cloud, and then there is no Team row either. */
   teamPane?: ReactNode;
+  /** Whether this Mac has Neo, the voice alpha (main/neo/gate.mjs). No Neo,
+   *  no Neo page and nothing in the search that points at one. */
+  neoOn?: boolean;
   /** WHO SEES A PROJECT'S THREADS (w-b989839656), handed in the same way:
    *  the button beside a project's name, and the Projects list's column.
    *  Absent with nobody signed in, and then neither is drawn. */
@@ -1560,10 +1489,12 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   // ON A PHONE IT OPENS ON THE PHONE'S OWN PAGE, its alerts: "we probably need
   // a way in Settings for me to configure [notifications]" (2026-10-12). The
   // page was there, a tab along a strip that opened on General.
-  const [pane, setPane] = useState<Pane>(() => paneFrom(
-    startPane || new URLSearchParams(location.search).get('settings') || (onPhone() ? 'phone' : ''),
-    { team: !!teamPane },
-  ));
+  const asked = startPane || new URLSearchParams(location.search).get('settings') || (onPhone() ? 'phone' : '');
+  const [pane, setPane] = useState<Pane>(() => paneFrom(asked, { team: !!teamPane, neo: neoOn }));
+  // The Neo gate is a question for the main process, so it answers after this
+  // screen is already up and ?settings=neo would land on General and stay
+  // there. Asked for and now available means go.
+  useEffect(() => { if (neoOn && asked === 'neo' && pane === 'general') setPane('neo'); }, [neoOn]);
   // WHICH PAGE IS UP, for the window around this screen.
   useEffect(() => {
     onSectionChange?.(typeof pane === 'object' ? 'projects' : pane === 'general' ? null : pane);
@@ -1669,8 +1600,8 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   const twoEngines = engineRows.length > 1;
 
   /** The pages this Mac has. Codex on every Mac (w-d5d632e503); Team only on
-   *  a build with a team cloud. */
-  const pages = SETTINGS_PAGES.filter((p) => p.id !== 'team' || !!teamPane);
+   *  a build with a team cloud; Neo only where the voice alpha is on. */
+  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'neo' || neoOn));
   const hits = useMemo(
     () => searchSettings(query, { pages: pages.map((p) => p.id), projects }),
     [query, pages.length, projects],
@@ -1718,10 +1649,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     const agent = agentStory(w, usageReadings, engine);
     // Each login's own reading, never another's: by its folder, or the corner's if it is the same login.
     const readingOf = (profile: string): Usage | null => {
-      const own = accountReadings.find((r) => r.profile === profile && r.limits?.length && r.at);
-      if (own) return { engine: 'claude', limits: own.limits!, at: own.at!, profile };
-      const r = agent.reading;
-      return r && (r.profile ?? 'default') === profile ? r : null;
+      return accountReadingFor(profile, accountReadings, agent.reading);
     };
     const picked = agent.accounts.some((a) => a.chosen);
     const hereAccounts: PlaceAccount[] = [...agent.accounts]
@@ -1729,16 +1657,19 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
       .map((a) => ({
         key: a.profile,
         name: a.email ?? 'Not signed in',
-        about: [a.signedIn ? (a.plan ?? 'Signed in') : 'Finish signing in to use it'],
+        plan: a.signedIn ? a.plan : null,
+        about: hereState({ signedIn: a.signedIn, trouble: a.trouble, limits: readingOf(a.profile)?.limits, now }),
         inUse: picked && a.chosen,
         limits: readingOf(a.profile)?.limits ?? null,
-        use: !(picked && a.chosen) && agent.accounts.length > 1
-          ? { word: picked ? 'Use this one' : 'Use only this one', onUse: () => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile: a.profile } })) }
+        checkedAt: readingOf(a.profile)?.at ?? null,
+        usageError: accountReadings.find((r) => r.profile === a.profile)?.error ?? null,
+        use: a.signedIn && !(picked && a.chosen) && agent.accounts.length > 1
+          ? { word: picked ? 'Switch to this account' : 'Use only this account', onUse: () => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile: a.profile } })) }
           : null,
         trouble: a.trouble,
         cmd: a.trouble && a.dir ? `CLAUDE_CONFIG_DIR=${a.dir} claude` : null,
       }));
-    const lastRead = Math.max(0, ...agent.accounts.map((a) => readingOf(a.profile)?.at ?? 0));
+    const lastRead = Math.max(0, ...hereAccounts.map((a) => a.checkedAt ?? 0));
     const checked = lastRead ? usageCheckedAt(lastRead, now) : '';
     const cloudHere = cloud?.setUp && (cloud.accounts ?? []).some((a) => a.engine === engine) ? cloud : null;
     // WHERE AGENTS GO FIRST IS DRAWN FIRST: the cloud while it is on, this computer while it is off.
@@ -1746,7 +1677,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     const cloudAccounts = cloudHere ? cloudPlaceAccounts(cloudHere, engine, now) : [];
     const cloudCard = cloudHere && (
       <Place id="cloud-accounts" name="Cloud" state={cloudHere.mode === 'mac' ? 'Off' : 'On'}
-        line={cloudPlaceLine(cloudHere, cloudAccounts.length)} accounts={cloudAccounts} />
+        line={cloudPlaceLine(cloudHere, cloudAccounts.length)} accounts={cloudAccounts} now={now} />
     );
     const addAccount = async (a: Agent) => {
       const r = a.engine === 'codex' ? await api.addCodexAccount() : await api.addClaudeAccount();
@@ -1786,6 +1717,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                    (w-f2a5c9894e). Main's sentence, about the pair. */
                 warn={w.accountsNote}
                 accounts={hereAccounts}
+                now={now}
                 onAdd={() => void addAccount(agent)}
               />
             ) : (
@@ -1819,7 +1751,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                 {/* AND NOT `RULES_ALWAYS_APPLY` UNDER THIS ONE. That caveat is
                     about Claude Code's allow and deny rules sitting on top of a
                     mode. Codex has no such list. */}
-                <Row label="Permission mode" desc={CODEX_MODES[w.codexMode]?.what}>
+                <Row label={cloudHere ? 'On this computer' : 'Permission mode'} desc={CODEX_MODES[w.codexMode]?.what}>
                   <Picker
                     bare
                     label="Permission mode"
@@ -1829,13 +1761,25 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                     onChange={(v) => setWorkspace('codexMode', v)}
                   />
                 </Row>
+                {cloudHere && (
+                  <Row label="In the cloud" desc={w.cloudCodexMode && w.cloudCodexMode !== 'same' ? CODEX_CLOUD_WHAT[w.cloudCodexMode] : SAME_AS_HERE}>
+                    <Picker
+                      bare
+                      label="Permission mode in the cloud"
+                      title="The mode every cloud run starts in."
+                      value={w.cloudCodexMode ?? 'same'}
+                      options={[{ value: 'same', label: 'Same as this computer' }, ...CODEX_MODE_OPTIONS]}
+                      onChange={(v) => write(api.setWorkspaceSetting({ key: 'cloudCodexMode', value: v }))}
+                    />
+                  </Row>
+                )}
               </Group>
             ) : (
               <Group id="permissions" label="Permissions">
                 {w.permission === 'custom' ? (
                   <Row label="Permission mode" desc={PERMISSION_SENTENCE.custom} />
                 ) : (
-                  <Row label="Permission mode" desc={PERMISSION_SENTENCE[w.permission]}>
+                  <Row label={cloudHere ? 'On this computer' : 'Permission mode'} desc={PERMISSION_SENTENCE[w.permission]}>
                     {/* The caveat that your own allow and deny rules sit on top
                         of the mode rides on the picker rather than as a
                         paragraph under the card. */}
@@ -1846,6 +1790,21 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                       value={w.permission}
                       options={PERMISSION_OPTIONS}
                       onChange={(v) => setWorkspace('permission', v)}
+                    />
+                  </Row>
+                )}
+                {/* THE CLOUD'S OWN MODE: a cloud run works on a throwaway copy
+                    with nobody there to approve anything, so by default it
+                    does not ask (main/cloud-permission.mjs). */}
+                {cloudHere && (
+                  <Row label="In the cloud" desc={w.cloudPermission && w.cloudPermission !== 'same' ? PERMISSION_SENTENCE[w.cloudPermission] : SAME_AS_HERE}>
+                    <Picker
+                      bare
+                      label="Permission mode in the cloud"
+                      title={`The mode every cloud run starts in. ${RULES_ALWAYS_APPLY}`}
+                      value={w.cloudPermission ?? 'same'}
+                      options={[{ value: 'same', label: 'Same as this computer' }, ...PERMISSION_OPTIONS]}
+                      onChange={(v) => write(api.setWorkspaceSetting({ key: 'cloudPermission', value: v }))}
                     />
                   </Row>
                 )}
@@ -1938,6 +1897,11 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
 
         {/* TEAM MANAGEMENT (w-8415594d19). It does not wait on `model`, because
             nothing on it comes from the settings file. */}
+        {/* NEO (w-6a1c405642). Its own file under renderer/src/neo, and it
+            asks main for everything on it, so nothing here comes from the
+            settings file either. */}
+        {pane === 'neo' && neoOn && <NeoSettings />}
+
         {pane === 'team' && teamPane && (
           <Page title="Team" lede="Who is on your team, who has been invited, and the team's name. Everyone sees a short summary of your threads unless you mark one private.">
             {teamPane}

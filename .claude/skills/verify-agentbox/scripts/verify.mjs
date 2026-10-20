@@ -58,7 +58,7 @@ export const LIVE_FILES = [
   /^(main|shared|bin|renderer|mcp)\//,
   /^preload\.cjs$/,
   /^package(-lock)?\.json$/,
-  /^scripts\/lib\/(stub-claude-worker|claude-stub-model)\.mjs$/,
+  /^scripts\/lib\/(stub-claude-worker|claude-stub-model|stand-in-world)\.mjs$/,
   /^\.claude\/skills\/verify-agentbox\/scripts\//,
 ];
 export function layersFor(files, { all = false, quick = false, real = true, installed = true, breaker = true, setups = true } = {}) {
@@ -91,7 +91,7 @@ export function layersFor(files, { all = false, quick = false, real = true, inst
 // the reset it was told, so nothing can run after it on the same copy.
 export const DRIVE_ORDER = [
   'inbox-opens', 'new-thread', 'reply', 'codex-thread', 'many-at-once', 'reply-lands-where-shown',
-  'one-login-runs-out', 'restart-mid-run', 'ctrl-c-mid-run', 'every-login-runs-out',
+  'one-login-runs-out', 'restart-mid-run', 'ctrl-c-mid-run', 'undo-says-what-happened', 'every-login-runs-out',
 ];
 // On real Claude Code and Codex: the agent drives, with one-word tasks.
 export const REAL_ORDER = ['new-thread', 'reply', 'codex-thread', 'many-at-once'];
