@@ -12,3 +12,9 @@ export const arrivedAt = (i: Dated): number => i.wrote?.result?.ts ?? i.createdA
  */
 export const isUnread = (i: Dated, seenAt: Readonly<Record<string, number>>, since: number): boolean =>
   arrivedAt(i) > (seenAt[i.id] ?? since);
+
+/** Which of Mark Read and Mark Unread would change one of these threads, judged by the same rule as the dot. */
+export const readMoves = (items: readonly Dated[], seenAt: Readonly<Record<string, number>>, since: number) => ({
+  read: items.some((i) => isUnread(i, seenAt, since)),
+  unread: items.some((i) => !isUnread(i, seenAt, since)),
+});
