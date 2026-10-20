@@ -525,7 +525,13 @@ approved:
 4. **Plans** enforced by the server (below), with the hour limits set from
    `node scripts/cloud-usage.mjs`.
 5. **Stripe**: checkout, the page where people manage their plan, and its
-   notices writing the plan into the server's ledger.
+   notices writing the plan into the server's ledger. A Stripe account of
+   its own (Agentbox) in the company's organization. `scripts/stripe-setup.mjs`
+   makes the products, prices, billing page and webhook from `plans.mjs`
+   and stores the key and webhook secret in Secrets Manager; the server's
+   `/v1/checkout`, `/v1/billing` and `/v1/stripe` do the rest. A webhook is
+   read against Stripe, never believed. Before real money: activate the
+   account, choose Managed Payments or Stripe Tax, run it with `--live`.
 6. **Upgrade prompts in the app.** Before drawing any, tell the person: they
    will ask the cloud buildout thread (w-1dc7ee2408) for the "you could run
    more agents" designs it made.
