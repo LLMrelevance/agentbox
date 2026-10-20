@@ -596,6 +596,11 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
 - After three cloud runs in a row fail before their agent starts, no new rows
   go to the cloud for ten minutes and the cloud menu says why; the count is
   kept in memory, so a restart forgets it.
+- A thread the cloud hands back (its request needs something only the Mac
+  has), or whose cloud starts die three times running, runs that one request
+  on the Mac. Once a run there answers it, the next reply goes to the cloud
+  first again. Only "Keep on this Mac" in the thread's menu keeps a thread on
+  the Mac for good (2026-10-20).
 - The cloud menu says when the image's Claude Code or Codex is a different
   minor version from this Mac's; across a major version that engine's threads
   stay on the Mac until the image is rebuilt.

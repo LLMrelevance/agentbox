@@ -3,12 +3,11 @@
 // What broke (2026-10-20): with the cloud set to Everything, three of the six
 // threads in progress were running on the Mac. Each had once needed the Mac (a
 // deploy with the Mac's AWS keys, a review by the Mac's Codex, a test of the
-// desktop app), or could have had three cloud starts fail, and either one kept
-// the thread on the Mac for good, for every later reply, whatever that reply
-// asked. Read off the code: `_noteCloudHandBack` and `_cloudKeptOnMac` wrote
-// the same permanent flag as the thread menu's "Keep on this Mac", so the app's
-// own move and the person's choice could not be told apart, even after a
-// restart.
+// desktop app). That hand-back, like three failed cloud starts, kept the thread
+// on the Mac for good, for every later reply, whatever that reply asked. Read
+// off the code: `_noteCloudHandBack` and `_cloudKeptOnMac` wrote the same
+// permanent flag as the thread menu's "Keep on this Mac", so the app's own move
+// and the person's choice could not be told apart, even after a restart.
 //
 // Now the app's move lasts for the request that needed the Mac. Once a run
 // here has carried it to an answer, the next reply goes to the cloud first
