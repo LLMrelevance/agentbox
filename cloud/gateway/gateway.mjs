@@ -193,6 +193,8 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     // place. Anything else on a live session would run on that place: a run
     // on a sign-in's, which counts nothing, or a second run on a first's.
     if (was) return was.kind === kind && was.runId === (runId ?? null) ? { ok: true, nonce: was.nonce } : { ok: false, error: 'busy', message: 'this session is running something else' };
+    // A stop still owed to this session would land on whatever started here next.
+    if (stoppingOf(rec).some((e) => e.sid === sid)) return { ok: false, error: 'busy', message: 'this session is still being stopped' };
     if (kind === 'run') {
       const plan = planOf(rec);
       if (paused) return { ok: false, error: 'paused', message: 'The cloud is not starting new runs right now.' };

@@ -486,6 +486,21 @@ describe('a stop that has not happened yet', () => {
     expect(JSON.parse(objects.dump().get(`ledger/people/${A}.json`)).stopping).toEqual([]);
   });
 
+  // Codex's second look: the sweep's late stop would kill a new run started
+  // on the same session meanwhile.
+  it('a session still owed a stop takes no new start until the stop is made', async () => {
+    const { gw, start, finish, ctl, stopped } = setup();
+    await start(1);
+    ctl.stopFails = 1;
+    await finish(1);
+    expect((await start(1)).body).toMatchObject({ ok: false, error: 'busy' });
+    await gw.sweep();
+    expect(stopped()).toEqual([`u-${A}-run-1`]);
+    expect((await start(1)).body.ok).toBe(true);
+    await gw.sweep();
+    expect(stopped()).toEqual([`u-${A}-run-1`]);
+  });
+
   it('a run record that could not be written is written by the sweep', async () => {
     const { gw, objects, start, finish, runs } = setup();
     await start(1);
