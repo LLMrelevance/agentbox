@@ -10,17 +10,55 @@
 // question asked of the account database: who is this?
 import { describe, it, expect } from 'vitest';
 import { lambdaHandler, bucketObjects, supabaseWhoIs, gatewayFromEnv } from '../cloud/gateway/lambda.mjs';
+import { adminEvent } from '../scripts/cloud-gateway-admin.mjs';
 
 function recorder() {
-  const seen = { handled: [], created: [] };
+  const seen = { handled: [], created: [], swept: 0, admin: [] };
   return {
     seen,
     gw: {
       async handle(req) { seen.handled.push(req); return { status: 201, body: { fine: true } }; },
       async objectCreated(key) { seen.created.push(key); },
+      async sweep() { seen.swept += 1; return { freeRunning: 0 }; },
+      async admin(a) { seen.admin.push(a); return { ok: true }; },
     },
   };
 }
+
+// Second review, 2026-10-20: ceilings, spent hours and missed done.json
+// notices were only seen when that person next called; one person could not
+// be cut off; and nothing stopped the whole cloud when spend ran away.
+describe('the events that are not a Mac', () => {
+  it('the clock\'s event sweeps', async () => {
+    const { gw, seen } = recorder();
+    await lambdaHandler(gw)({ sweep: true });
+    expect(seen.swept).toBe(1);
+    expect(seen.handled).toEqual([]);
+  });
+
+  it('a direct call from the owner is an admin step, and the same shape through the public URL is not', async () => {
+    const { gw, seen } = recorder();
+    await lambdaHandler(gw)({ admin: { do: 'disable', person: 'p' } });
+    expect(seen.admin).toEqual([{ do: 'disable', person: 'p' }]);
+    await lambdaHandler(gw)({ admin: { do: 'enable', person: 'p' }, rawPath: '/v1/me', headers: {}, requestContext: { http: { method: 'GET' } } });
+    expect(seen.admin).toHaveLength(1);
+    expect(seen.handled).toHaveLength(1);
+  });
+
+  it('the owner\'s command line becomes the event the function takes, and nothing half-said does', () => {
+    expect(adminEvent(['plan', 'p', 'pro'])).toEqual({ admin: { do: 'plan', person: 'p', plan: 'pro' } });
+    expect(adminEvent(['disable', 'p'])).toEqual({ admin: { do: 'disable', person: 'p' } });
+    expect(adminEvent(['pause'])).toEqual({ admin: { do: 'pause' } });
+    expect(adminEvent(['sweep'])).toEqual({ sweep: true });
+    for (const bad of [[], ['plan', 'p'], ['disable'], ['delete', 'p']]) expect(() => adminEvent(bad), bad.join(' ')).toThrow(/usage/);
+  });
+
+  it('the budget alarm pauses new runs', async () => {
+    const { gw, seen } = recorder();
+    await lambdaHandler(gw)({ Records: [{ EventSource: 'aws:sns', Sns: { Message: 'AWS Budget Notification: actual spend over threshold' } }] });
+    expect(seen.admin).toEqual([{ do: 'pause' }]);
+  });
+});
 
 describe('a function URL request', () => {
   it('reaches the server as method, path, headers and body, and its answer goes back as JSON', async () => {
@@ -84,6 +122,18 @@ describe('the ledger\'s objects in the bucket', () => {
   it('a missing object reads as nothing', async () => {
     const objects = bucketObjects({ bucket: 'b', client: client(Object.assign(new Error('x'), { name: 'NoSuchKey' })) });
     expect(await objects.get('k')).toBe(null);
+    const missing = bucketObjects({ bucket: 'b', client: client(Object.assign(new Error('x'), { name: 'NotFound', $metadata: { httpStatusCode: 404 } })) });
+    expect(await missing.head('k')).toBe(null);
+  });
+
+  it('a look gives the size, and a list follows every page', async () => {
+    const pages = [{ Contents: [{ Key: 'ledger/people/a.json' }], IsTruncated: true, NextContinuationToken: 't' }, { Contents: [{ Key: 'ledger/people/b.json' }], IsTruncated: false }];
+    const sent = [];
+    const c = { async send(cmd) { sent.push(cmd.input); return cmd.input.Prefix ? pages.shift() : { ContentLength: 42 }; } };
+    const objects = bucketObjects({ bucket: 'b', client: c });
+    expect(await objects.head('k')).toEqual({ size: 42 });
+    expect(await objects.list('ledger/people/')).toEqual(['ledger/people/a.json', 'ledger/people/b.json']);
+    expect(sent[2]).toMatchObject({ Prefix: 'ledger/people/', ContinuationToken: 't' });
   });
 });
 
@@ -119,7 +169,17 @@ describe('who a database session belongs to', () => {
 });
 
 describe('starting the server', () => {
-  it('names every setting it is missing', () => {
-    expect(() => gatewayFromEnv({ REGION: 'us-east-1' })).toThrow(/BUCKET, RUNTIME_ARN, SUPABASE_URL, SUPABASE_ANON_KEY, SIGNER_KEY_ID, SIGNER_SECRET/);
+  it('names every setting it is missing', async () => {
+    await expect(gatewayFromEnv({ REGION: 'us-east-1' })).rejects.toThrow(/BUCKET, RUNTIME_ARN, SUPABASE_URL, SUPABASE_ANON_KEY, SIGNER_SECRET_ARN/);
+  });
+
+  // Second review: the signer's key can link every customer's sign-in, so it
+  // is read from the secret store, never kept in the function's settings.
+  it('reads the signer\'s key from the secret store', async () => {
+    const asked = [];
+    const readSecret = async (arn) => { asked.push(arn); return JSON.stringify({ id: 'AKIA-signer', secret: 's3cr3t' }); };
+    const gw = await gatewayFromEnv({ REGION: 'us-east-1', BUCKET: 'b', RUNTIME_ARN: 'arn:r', SUPABASE_URL: 'https://db', SUPABASE_ANON_KEY: 'pub', SIGNER_SECRET_ARN: 'arn:secret' }, { readSecret });
+    expect(asked).toEqual(['arn:secret']);
+    expect(typeof gw.handle).toBe('function');
   });
 });

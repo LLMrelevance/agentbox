@@ -957,8 +957,12 @@ export async function cloudRun({
     try { onLoginTrouble(loginTrouble); } catch { /* noted elsewhere */ }
     return true;
   };
-  if (finished === 'failed') { clearMarker(cwd); return troubleWithLogin() ? LOGIN_TROUBLE : 1; }
+  // A run that failed or came home needs its machine no more; the cloud
+  // server counts a run until it is stopped (cloud/gateway/).
+  const letGo = () => Promise.race([Promise.resolve(transport.stop?.(sessionId)).catch(() => {}), sleep(15_000)]);
+  if (finished === 'failed') { clearMarker(cwd); await letGo(); return troubleWithLogin() ? LOGIN_TROUBLE : 1; }
   const back = await bringHome({ ...marker }, { cursor, replay: (e) => absorb(e) });
+  if (back.ok) await letGo();
   if (!back.ok) {
     say(`the cloud run's work could not be brought back (${back.why}); it is kept in the cloud for 7 days and will be tried again`);
     writeMarker(cwd, { ...marker, pid: null, state: back.state || 'import-failed', ...(back.laying ? { laying: back.laying } : {}) });

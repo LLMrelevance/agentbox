@@ -39,6 +39,8 @@ beforeEach(async () => {
   // The relay's objects are the bucket's own; the ledger keeps its own.
   const objects = {
     get: async (k) => (k.startsWith('ledger/') ? ledger.get(k) : store.has(k) ? { body: store.get(k).toString('utf8'), etag: 'x' } : null),
+    head: async (k) => (k.startsWith('ledger/') ? ledger.head(k) : store.has(k) ? { size: store.get(k).length } : null),
+    list: async (p) => ledger.list(p),
     put: async (k, b, o) => (k.startsWith('ledger/') ? ledger.put(k, b, o) : store.set(k, Buffer.from(b))),
     del: async (k) => (k.startsWith('ledger/') ? ledger.del(k) : store.delete(k)),
   };
@@ -142,11 +144,26 @@ describe('a refusal the Mac gets back', () => {
     } finally { s.closeAllConnections(); await new Promise((r) => s.close(r)); }
   });
 
-  it('a key the server no longer knows still throws, so the run can say it is signed out', async () => {
-    const { s, c } = await refusing(401, 'signed-out');
-    try {
-      await expect(c.transport.invoke('s', { action: 'events' })).rejects.toMatchObject({ signedOut: true });
-    } finally { s.closeAllConnections(); await new Promise((r) => s.close(r)); }
+  // Second review, 2026-10-20: a 401 was thrown, and run.mjs polls for ever
+  // on a throw, so a revoked key asked every 30 s for good.
+  it('a key the server no longer knows, or a person turned off, is an answer too', async () => {
+    for (const [status, error] of [[401, 'signed-out'], [403, 'disabled']]) {
+      const { s, c } = await refusing(status, error);
+      try {
+        expect(await c.transport.invoke('s', { action: 'events' })).toMatchObject({ ok: false, error: 'no-run' });
+        expect(await c.transport.invoke('s', { action: 'start' })).toMatchObject({ ok: false, error });
+      } finally { s.closeAllConnections(); await new Promise((r) => s.close(r)); }
+    }
+  });
+
+  // Lambda answers 429 when every function is busy: that passes.
+  it('a throttle or a server failure is thrown, so it is tried again', async () => {
+    for (const status of [429, 500, 502]) {
+      const { s, c } = await refusing(status, 'busy');
+      try {
+        await expect(c.transport.invoke('s', { action: 'events' })).rejects.toMatchObject({ status });
+      } finally { s.closeAllConnections(); await new Promise((r) => s.close(r)); }
+    }
   });
 });
 

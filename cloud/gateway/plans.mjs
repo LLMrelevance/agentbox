@@ -10,5 +10,8 @@ export const PLANS = Object.freeze({
 });
 
 export const RUN_CEILING_MS = 8 * 60 * 60_000;
-export const SIGNIN_CEILING_MS = 20 * 60_000;
+// The sandbox gives a sign-in 20 minutes, and checking it takes up to 4 more.
+export const SIGNIN_CEILING_MS = 30 * 60_000;
 export const SIGNINS_AT_ONCE = 3;
+// Free runs going at once across everyone, as the sweep last counted them.
+export const FREE_FLEET_CAP = 50;

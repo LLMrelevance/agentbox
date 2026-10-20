@@ -9,11 +9,15 @@
 // ~/.agentbox/cloud.json) and the team database's address and public key
 // (cloud/team.config.json or ~/.agentbox/team.config.json). It makes, all
 // named agentbox-gateway*:
-//   - the function's role: start and stop sessions on that one runtime, and
-//     read and write `runs/`, `logins/` and `ledger/` in that one bucket
-//   - the signer, an IAM user whose key signs the links (`runs/`, `logins/`)
+//   - the signer, an IAM user whose key signs the links (`runs/`, `logins/`),
+//     its key kept in Secrets Manager
+//   - the function's role: start and stop sessions on that one runtime, its
+//     ledger and relayed calls in that one bucket, and that one secret
 //   - the function, bundled into one file, with a public function URL
 //   - S3's notice to the function when a run's done.json lands
+//   - a sweep every 5 minutes
+//   - a notice from the budget the spike made (`agentcore-sandboxes`) that
+//     pauses new runs when the month's spend passes it
 // and prints the function URL.
 
 import fs from 'node:fs';
@@ -25,9 +29,12 @@ import { readCloudConfig } from '../main/cloud/config.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
-const NAMES = { fn: 'agentbox-gateway', role: 'agentbox-gateway-role', signer: 'agentbox-gateway-signer', notice: 'agentbox-gateway-done' };
-// The most functions running at once: the ceiling on what the server can
-// spend in a burst, and its off switch (set it to 0).
+const NAMES = {
+  fn: 'agentbox-gateway', role: 'agentbox-gateway-role', signer: 'agentbox-gateway-signer', notice: 'agentbox-gateway-done',
+  sweep: 'agentbox-gateway-sweep', topic: 'agentbox-gateway-budget', budget: 'agentcore-sandboxes',
+};
+// The most functions running at once: the ceiling on a burst of calls. It
+// does not stop machines already going; `admin pause` and the sweep do.
 const CONCURRENCY = 200;
 // Longer than its own 60 s wait on AgentCore (main/cloud/aws.mjs), shorter
 // than the Mac's wait on it (main/cloud/managed.mjs).
@@ -35,17 +42,20 @@ export const FUNCTION_SECONDS = 90;
 
 /**
  * What the function's own role may do. Links are signed by the signer, so
- * the role reads and writes only its ledger and the calls it relays, and
- * deletes what a Mac asks it to.
+ * the role reads and writes only its ledger and the calls it relays, looks
+ * for a run's done.json, and deletes what a Mac asks it to.
  */
-export function rolePolicy({ bucket, runtimeArn, region, account }) {
+export function rolePolicy({ bucket, runtimeArn, region, account, signerSecretArn = `arn:aws:secretsmanager:${region}:${account}:secret:${NAMES.signer}-*` }) {
   const at = (p) => `arn:aws:s3:::${bucket}/${p}`;
   return {
     Version: '2012-10-17',
     Statement: [
       { Effect: 'Allow', Action: ['bedrock-agentcore:InvokeAgentRuntime', 'bedrock-agentcore:StopRuntimeSession'], Resource: [runtimeArn, `${runtimeArn}/runtime-endpoint/*`] },
       { Effect: 'Allow', Action: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'], Resource: [at('ledger/*'), at('runs/*/calls/*')] },
+      { Effect: 'Allow', Action: ['s3:GetObject'], Resource: [at('runs/*/done.json')] },
       { Effect: 'Allow', Action: ['s3:DeleteObject'], Resource: [at('runs/*'), at('logins/*')] },
+      { Effect: 'Allow', Action: ['s3:ListBucket'], Resource: `arn:aws:s3:::${bucket}`, Condition: { StringLike: { 's3:prefix': ['ledger/*'] } } },
+      { Effect: 'Allow', Action: ['secretsmanager:GetSecretValue'], Resource: signerSecretArn },
       { Effect: 'Allow', Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'], Resource: `arn:aws:logs:${region}:${account}:log-group:/aws/lambda/${NAMES.fn}*` },
     ],
   };
@@ -93,6 +103,8 @@ export async function bundle(outDir) {
     entryPoints: [path.join(ROOT, 'cloud', 'gateway', 'lambda.mjs')],
     outfile: path.join(outDir, 'index.mjs'),
     bundle: true, platform: 'node', format: 'esm', target: 'node22', logLevel: 'warning',
+    // Lambda's own copy of the AWS libraries has it; this repository does not.
+    external: ['@aws-sdk/client-secrets-manager'],
     // The AWS libraries still require() node's own modules.
     banner: { js: "import { createRequire as __agentboxRequire } from 'node:module'; const require = __agentboxRequire(import.meta.url);" },
   });
@@ -129,30 +141,32 @@ async function main() {
   };
   const account = aws(['sts', 'get-caller-identity']).Account;
 
+  // The signer, and its key, kept in Secrets Manager only.
+  if (!aws(['iam', 'get-user', '--user-name', NAMES.signer], { allowFail: true })) { say(`making user ${NAMES.signer}`); aws(['iam', 'create-user', '--user-name', NAMES.signer]); }
+  aws(['iam', 'put-user-policy', '--user-name', NAMES.signer, '--policy-name', `${NAMES.signer}-policy`, '--policy-document', JSON.stringify(signerPolicy({ bucket }))], { json: false });
+  const stored = aws(['secretsmanager', 'get-secret-value', '--secret-id', NAMES.signer], { allowFail: true });
+  const inUse = stored ? JSON.parse(stored.SecretString) : null;
+  const keys = aws(['iam', 'list-access-keys', '--user-name', NAMES.signer]).AccessKeyMetadata.map((k) => ({ id: k.AccessKeyId, made: Date.parse(k.CreateDate) }));
+  const plan = signerKeyPlan({ inUse: inUse?.id || null, keys });
+  for (const id of plan.remove) aws(['iam', 'delete-access-key', '--user-name', NAMES.signer, '--access-key-id', id], { json: false });
+  if (plan.make) {
+    const k = aws(['iam', 'create-access-key', '--user-name', NAMES.signer]).AccessKey;
+    const value = JSON.stringify({ id: k.AccessKeyId, secret: k.SecretAccessKey });
+    if (stored) aws(['secretsmanager', 'put-secret-value', '--secret-id', NAMES.signer, '--secret-string', value]);
+    else aws(['secretsmanager', 'create-secret', '--name', NAMES.signer, '--secret-string', value]);
+  }
+  const signerSecretArn = aws(['secretsmanager', 'describe-secret', '--secret-id', NAMES.signer]).ARN;
+
   // The role.
   const trust = JSON.stringify({ Version: '2012-10-17', Statement: [{ Effect: 'Allow', Principal: { Service: 'lambda.amazonaws.com' }, Action: 'sts:AssumeRole' }] });
   let role = aws(['iam', 'get-role', '--role-name', NAMES.role], { allowFail: true })?.Role;
   if (!role) { say(`making role ${NAMES.role}`); role = aws(['iam', 'create-role', '--role-name', NAMES.role, '--assume-role-policy-document', trust]).Role; }
-  aws(['iam', 'put-role-policy', '--role-name', NAMES.role, '--policy-name', `${NAMES.role}-policy`, '--policy-document', JSON.stringify(rolePolicy({ bucket, runtimeArn, region, account }))], { json: false });
-
-  // The signer, and its key: kept in the function's settings only, made once.
-  if (!aws(['iam', 'get-user', '--user-name', NAMES.signer], { allowFail: true })) { say(`making user ${NAMES.signer}`); aws(['iam', 'create-user', '--user-name', NAMES.signer]); }
-  aws(['iam', 'put-user-policy', '--user-name', NAMES.signer, '--policy-name', `${NAMES.signer}-policy`, '--policy-document', JSON.stringify(signerPolicy({ bucket }))], { json: false });
-  const existing = aws(['lambda', 'get-function-configuration', '--function-name', NAMES.fn], { allowFail: true });
-  const vars = existing?.Environment?.Variables || {};
-  const keys = aws(['iam', 'list-access-keys', '--user-name', NAMES.signer]).AccessKeyMetadata.map((k) => ({ id: k.AccessKeyId, made: Date.parse(k.CreateDate) }));
-  const plan = signerKeyPlan({ inUse: vars.SIGNER_KEY_ID || null, keys });
-  for (const id of plan.remove) aws(['iam', 'delete-access-key', '--user-name', NAMES.signer, '--access-key-id', id], { json: false });
-  let signer = plan.keep ? { id: plan.keep, secret: vars.SIGNER_SECRET } : null;
-  if (plan.make) {
-    const k = aws(['iam', 'create-access-key', '--user-name', NAMES.signer]).AccessKey;
-    signer = { id: k.AccessKeyId, secret: k.SecretAccessKey };
-  }
-  const env = { REGION: region, BUCKET: bucket, RUNTIME_ARN: runtimeArn, SUPABASE_URL: db.url, SUPABASE_ANON_KEY: db.anonKey, SIGNER_KEY_ID: signer.id, SIGNER_SECRET: signer.secret };
-  const envArg = JSON.stringify({ Variables: env });
+  aws(['iam', 'put-role-policy', '--role-name', NAMES.role, '--policy-name', `${NAMES.role}-policy`, '--policy-document', JSON.stringify(rolePolicy({ bucket, runtimeArn, region, account, signerSecretArn }))], { json: false });
 
   // The function. A role made a moment ago is not assumable yet: retry.
-  const settings = ['--runtime', 'nodejs22.x', '--architectures', 'arm64', '--handler', 'index.handler', '--timeout', String(FUNCTION_SECONDS), '--memory-size', '1024', '--environment', envArg];
+  const env = { REGION: region, BUCKET: bucket, RUNTIME_ARN: runtimeArn, SUPABASE_URL: db.url, SUPABASE_ANON_KEY: db.anonKey, SIGNER_SECRET_ARN: signerSecretArn };
+  const settings = ['--runtime', 'nodejs22.x', '--architectures', 'arm64', '--handler', 'index.handler', '--timeout', String(FUNCTION_SECONDS), '--memory-size', '512', '--environment', JSON.stringify({ Variables: env })];
+  const existing = aws(['lambda', 'get-function-configuration', '--function-name', NAMES.fn], { allowFail: true });
   const waitUpdated = () => aws(['lambda', 'wait', 'function-updated-v2', '--function-name', NAMES.fn], { json: false });
   if (!existing) {
     for (let i = 1; ; i += 1) {
@@ -170,17 +184,36 @@ async function main() {
   }
   aws(['lambda', 'put-function-concurrency', '--function-name', NAMES.fn, '--reserved-concurrent-executions', String(CONCURRENCY)], { allowFail: true });
   const fnArn = aws(['lambda', 'get-function-configuration', '--function-name', NAMES.fn]).FunctionArn;
+  const allow = (id, principal, extra = []) => aws(['lambda', 'add-permission', '--function-name', NAMES.fn, '--statement-id', id, '--action', 'lambda:InvokeFunction', '--principal', principal, ...extra], { allowFail: true });
 
   // Its public address. The server checks every caller itself.
   let urlConfig = aws(['lambda', 'get-function-url-config', '--function-name', NAMES.fn], { allowFail: true });
   if (!urlConfig) urlConfig = aws(['lambda', 'create-function-url-config', '--function-name', NAMES.fn, '--auth-type', 'NONE']);
   aws(['lambda', 'add-permission', '--function-name', NAMES.fn, '--statement-id', 'public-url', '--action', 'lambda:InvokeFunctionUrl', '--principal', '*', '--function-url-auth-type', 'NONE'], { allowFail: true });
-  aws(['lambda', 'add-permission', '--function-name', NAMES.fn, '--statement-id', 'public-url-invoke', '--action', 'lambda:InvokeFunction', '--principal', '*', '--invoked-via-function-url'], { allowFail: true });
+  allow('public-url-invoke', '*', ['--invoked-via-function-url']);
 
   // S3's notice when a run ends.
-  aws(['lambda', 'add-permission', '--function-name', NAMES.fn, '--statement-id', 's3-done', '--action', 'lambda:InvokeFunction', '--principal', 's3.amazonaws.com', '--source-arn', `arn:aws:s3:::${bucket}`, '--source-account', account], { allowFail: true });
+  allow('s3-done', 's3.amazonaws.com', ['--source-arn', `arn:aws:s3:::${bucket}`, '--source-account', account]);
   const current = aws(['s3api', 'get-bucket-notification-configuration', '--bucket', bucket], { allowFail: true }) || {};
   aws(['s3api', 'put-bucket-notification-configuration', '--bucket', bucket, '--notification-configuration', JSON.stringify(withDoneNotice(current, fnArn))], { json: false });
+
+  // The sweep, every 5 minutes.
+  const rule = aws(['events', 'put-rule', '--name', NAMES.sweep, '--schedule-expression', 'rate(5 minutes)']).RuleArn;
+  aws(['events', 'put-targets', '--rule', NAMES.sweep, '--targets', JSON.stringify([{ Id: 'gateway', Arn: fnArn, Input: '{"sweep":true}' }])]);
+  allow('sweep', 'events.amazonaws.com', ['--source-arn', rule]);
+
+  // The budget's alarm pauses new runs.
+  const topic = aws(['sns', 'create-topic', '--name', NAMES.topic]).TopicArn;
+  aws(['sns', 'set-topic-attributes', '--topic-arn', topic, '--attribute-name', 'Policy', '--attribute-value', JSON.stringify({
+    Version: '2012-10-17',
+    Statement: [{ Effect: 'Allow', Principal: { Service: 'budgets.amazonaws.com' }, Action: 'SNS:Publish', Resource: topic, Condition: { StringEquals: { 'aws:SourceAccount': account } } }],
+  })], { json: false });
+  allow('budget', 'sns.amazonaws.com', ['--source-arn', topic]);
+  aws(['sns', 'subscribe', '--topic-arn', topic, '--protocol', 'lambda', '--notification-endpoint', fnArn]);
+  const notice = aws(['budgets', 'create-notification', '--account-id', account, '--budget-name', NAMES.budget,
+    '--notification', 'NotificationType=ACTUAL,ComparisonOperator=GREATER_THAN,Threshold=100,ThresholdType=PERCENTAGE',
+    '--subscribers', `SubscriptionType=SNS,Address=${topic}`], { allowFail: true, json: false });
+  if (notice === null) say(`the budget ${NAMES.budget} already has that notice, or is not there: check it sends to ${topic}`);
 
   say('ready');
   console.log(urlConfig.FunctionUrl);

@@ -513,25 +513,53 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
   `runs/u-<person>/<x>`, `logins/<x>` at `logins/u-<person>/<x>`, a session
   `<s>` is `u-<person>-<s>` in AgentCore. Nobody can name another person's.
   The lifecycle rules on `runs/` still apply.
-- **A login is never readable from a Mac.** The managed storage answers a
-  link to a login with a name, `agentbox-login:<key>`, and the server swaps
-  that for a real link only inside a call to the sandbox. A real link in a
-  login field is refused.
+- **A sign-in is never handed to a Mac.** The managed storage names a
+  sign-in, `agentbox-login:<key>`, for reading and for saving alike, and the
+  server swaps the name for a real link only inside a call to the sandbox.
+  A real link in a sign-in field is refused, and so is a Mac's own link to
+  read or write one. An agent running with a sign-in can still read it
+  from its own environment: a stolen cloud key is a stolen sign-in.
+- **Only Google sign-ins.** The database also takes email-and-password
+  sign-ups; each made-up address would be another free plan.
 - **Links outlive the run.** A link signed with the Lambda's own role ends
   when that role's session does, so the server signs with a separate user's
-  key (`agentbox-gateway-signer`, S3 rights on `runs/` and `logins/` only).
+  key (`agentbox-gateway-signer`, S3 rights on `runs/` and `logins/` only),
+  kept in Secrets Manager. The role itself cannot read a sign-in or a run's
+  files.
 - **Plans.** The ledger (`ledger/` in the same bucket, written with S3's
   conditional writes, no database) holds each person's plan, their live
-  sessions and the seconds used per month. A `start` is refused when the
-  plan's agents are all running or its month's hours are spent. A run ends
-  when its `done.json` lands (an S3 notice to the same Lambda), when the Mac
-  stops it, or at AgentCore's 8-hour ceiling, and its seconds are counted
-  then. A Mac that never lets a run end is charged the full 8 hours.
-  Sign-in sessions count against nothing, three at once at most, 20 minutes
-  each.
+  sessions, the seconds used per month, and one record per run (`ledger/runs/`,
+  how long and how it ended). A start is refused when the plan's agents are
+  all running, its hours are spent, the free fleet is full (50 free runs at
+  once, as the sweep last counted), or the cloud is paused. A live session
+  takes only the same start again, never a run on a sign-in's session.
+- **Whatever stops being counted is stopped.** A run ends when its
+  `done.json` lands, when the Mac stops it, when the sandbox says it failed,
+  when the month's hours run out (checked on every call and by the sweep),
+  or at AgentCore's 8-hour ceiling, and its session is stopped then. The
+  Mac holds the link that writes its own `done.json`, so a run cannot end its
+  counting and keep its machine. A stop that lands while a start is on its
+  way is stopped again once the start returns. A stop AWS did not take is
+  kept and retried. A call to a session that is not live is answered
+  `no-run` without asking AgentCore, which would make a machine for it. The
+  Mac stops its session when a run fails or its work is home.
+- **The sweep**, every 5 minutes: ceilings, spent hours, a `done.json` whose
+  notice was missed, stops to retry, and the free fleet's count.
+- **The owner's hand** (`scripts/cloud-gateway-admin.mjs`, a direct call,
+  never the public address): set a plan, turn a person off (their runs stop,
+  every key of theirs is refused), pause or resume new runs. The budget the
+  spike made pauses new runs when the month's spend passes it.
+- **Big calls.** Lambda takes and gives at most 6 MB; a call or an answer
+  over 4 MB goes through the person's own `runs/calls/`. A refusal reaches
+  the Mac as an answer, never a throw, so nothing retries it for ever; a
+  throttle (429) is retried.
 - **The Mac.** `cloud.json` holding `gateway` (an address) instead of a
   bucket and runtime makes this Mac a managed one. Her own setup is
   unchanged.
+- **Still open before strangers.** The paid plans' hours (a plan without
+  them cannot be given), a free plan per Google account (cheap to make),
+  presigned writes with no size cap (bounded by the 7-day expiry of
+  `runs/`), and no alarm yet on the signer key's use.
 
 ## Known limits
 

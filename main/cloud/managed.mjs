@@ -59,8 +59,9 @@ export function managedClients({ url, key, timeoutMs = CALL_MS, fileTimeoutMs = 
       }
     } catch (err) {
       // A refusal is an answer: run.mjs retries what throws, some calls for
-      // ever. A poll refused ends as a session that is gone does.
-      if (!err.status || err.signedOut || err.status >= 500) throw err;
+      // ever. A poll refused ends as a session that is gone does. A throttle
+      // (429) or a server failure passes, so those are thrown and retried.
+      if (!err.status || err.status === 429 || err.status >= 500) throw err;
       return { ok: false, error: payload?.action === 'events' ? 'no-run' : err.error || 'refused', message: err.message };
     }
     if (!out?.relayed) return out;
@@ -105,7 +106,8 @@ export function managedClients({ url, key, timeoutMs = CALL_MS, fileTimeoutMs = 
     },
     async del(k) { await call('POST', '/v1/delete', { key: k }); },
     getUrl: async (k, seconds) => (isLogin(k) ? `${LOGIN_NAME}${k}` : linkFor('get', k, seconds)),
-    putUrl: (k, seconds) => linkFor('put', k, seconds),
+    // A sign-in is saved by the sandbox on a link the server makes from its name.
+    putUrl: async (k, seconds) => (isLogin(k) ? `${LOGIN_NAME}${k}` : linkFor('put', k, seconds)),
   };
 
   return { transport, storage, me: () => call('GET', '/v1/me') };

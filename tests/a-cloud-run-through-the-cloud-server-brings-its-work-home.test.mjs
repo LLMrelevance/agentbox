@@ -145,6 +145,7 @@ describe('a cloud run through the cloud server', () => {
   it('the Mac\'s client never asks the server for a sign-in, and names one instead of linking it', async () => {
     const { storage } = managedClients({ url: gatewayUrl, key: await cloudKey() });
     expect(await storage.getUrl(LOGIN.key)).toBe(`${LOGIN_NAME}${LOGIN.key}`);
+    expect(await storage.putUrl(LOGIN.key)).toBe(`${LOGIN_NAME}${LOGIN.key}`);
     await expect(storage.get(LOGIN.key)).rejects.toThrow(/sign-in/);
     // It may look for one, and write and delete its own.
     expect(await storage.exists(LOGIN.key)).toBe(true);
@@ -158,7 +159,7 @@ describe('a cloud run through the cloud server', () => {
 
   it('a key the server does not know is told it is signed out', async () => {
     const { transport } = managedClients({ url: gatewayUrl, key: 'abk_notakeynotakeynotakeynotakeynotakeynotakey' });
-    await expect(transport.invoke('s1', { action: 'status' })).rejects.toMatchObject({ signedOut: true });
+    expect(await transport.invoke('s1', { action: 'status' })).toMatchObject({ ok: false, error: 'signed-out' });
   });
 
   it('a server that never answers ends the call instead of holding the run', async () => {

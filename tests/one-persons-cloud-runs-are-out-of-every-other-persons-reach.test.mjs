@@ -110,7 +110,7 @@ describe('sessions', () => {
   it('a sign-in\'s session cannot be turned into a run, and a live run cannot start another', async () => {
     const { call, sent, keyFor } = setup();
     const a = await keyFor('session-of-a');
-    await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'agentbox-signin-claude-s1', payload: { action: 'signin', runId: 's1', engine: 'claude', saveUrl: 'x' } } });
+    await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'agentbox-signin-claude-s1', payload: { action: 'signin', runId: 's1', engine: 'claude', saveUrl: 'agentbox-login:logins/claude/s1.json' } } });
     const turned = await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'agentbox-signin-claude-s1', payload: { action: 'start', runId: 's1' } } });
     expect(turned.body).toMatchObject({ ok: false, error: 'busy' });
     await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'run-1', payload: { action: 'start', runId: 'r1' } } });
@@ -170,14 +170,30 @@ describe('objects', () => {
 });
 
 describe('a Claude or Codex sign-in kept in the cloud', () => {
-  it('can be written and looked for from a Mac, but never read', async () => {
+  // Second review, 2026-10-20: a put link to a sign-in, or a sign-in's save
+  // link pointed at runs/, let a Mac have a sign-in written where it could
+  // read it. Only the sandbox writes one, on a link the server makes.
+  it('can be looked for from a Mac, but never read or written there', async () => {
     const { call, keyFor } = setup();
     const a = await keyFor('session-of-a');
-    expect((await call('POST', '/v1/link', { key: a, body: { op: 'put', key: 'logins/claude/L1.json' } })).body.url).toBe(`https://bucket.test/logins/u-${A}/claude/L1.json?write`);
     expect((await call('POST', '/v1/link', { key: a, body: { op: 'head', key: 'logins/claude/L1.json' } })).body.url).toBe(`https://bucket.test/logins/u-${A}/claude/L1.json?look`);
-    const read = await call('POST', '/v1/link', { key: a, body: { op: 'get', key: 'logins/claude/L1.json' } });
-    expect(read.status).toBe(403);
-    expect(JSON.stringify(read.body)).not.toContain('bucket.test');
+    for (const op of ['get', 'put']) {
+      const r = await call('POST', '/v1/link', { key: a, body: { op, key: 'logins/claude/L1.json' } });
+      expect(r.status, op).toBe(403);
+      expect(JSON.stringify(r.body)).not.toContain('bucket.test');
+    }
+  });
+
+  it('a sign-in is saved on a writing link the server makes from its name, and only there', async () => {
+    const { call, sent, keyFor } = setup();
+    const a = await keyFor('session-of-a');
+    await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'agentbox-signin-claude-s1', payload: { action: 'signin', runId: 's1', engine: 'claude', saveUrl: 'agentbox-login:logins/claude/s1.json' } } });
+    expect(sent[0].payload.saveUrl).toBe(`https://bucket.test/logins/u-${A}/claude/s1.json?write`);
+    for (const saveUrl of ['https://elsewhere.test/x', 'agentbox-login:runs/r1/readable.json']) {
+      const r = await call('POST', '/v1/invoke', { key: a, body: { sessionId: 'agentbox-signin-claude-s2', payload: { action: 'signin', runId: 's2', engine: 'claude', saveUrl } } });
+      expect(r.status, saveUrl).toBe(400);
+    }
+    expect(sent).toHaveLength(1);
   });
 
   it('reaches the sandbox as a reading link, swapped in by the server, for its owner\'s copy only', async () => {

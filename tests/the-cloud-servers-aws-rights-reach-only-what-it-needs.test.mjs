@@ -15,6 +15,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { rolePolicy, signerPolicy, signerKeyPlan, withDoneNotice, bundle, FUNCTION_SECONDS } from '../scripts/cloud-gateway-setup.mjs';
 import { CALL_MS } from '../main/cloud/managed.mjs';
+import { runtimeRolePolicy } from '../scripts/cloud-setup.mjs';
 
 const where = { bucket: 'agentbox-cloud-x', runtimeArn: 'arn:aws:bedrock-agentcore:us-east-1:000000000000:runtime/agentbox_sandbox-x', region: 'us-east-1', account: '000000000000' };
 const resources = (p) => p.Statement.flatMap((s) => [].concat(s.Resource));
@@ -56,10 +57,18 @@ describe('the signer\'s key', () => {
 describe('the function\'s role', () => {
   // Review, 2026-10-20: links are signed by the signer, so the role never
   // needs to read a sign-in or a run's files.
-  it('cannot read a sign-in or a run\'s files, only its ledger and the calls it relays', () => {
+  it('cannot read a sign-in or a run\'s files, only its ledger, the calls it relays and whether a run is done', () => {
     const p = rolePolicy(where);
     const reads = p.Statement.filter((s) => [].concat(s.Action).includes('s3:GetObject')).flatMap((s) => [].concat(s.Resource));
-    expect(reads.sort()).toEqual(['arn:aws:s3:::agentbox-cloud-x/ledger/*', 'arn:aws:s3:::agentbox-cloud-x/runs/*/calls/*']);
+    expect(reads.sort()).toEqual(['arn:aws:s3:::agentbox-cloud-x/ledger/*', 'arn:aws:s3:::agentbox-cloud-x/runs/*/calls/*', 'arn:aws:s3:::agentbox-cloud-x/runs/*/done.json']);
+  });
+
+  it('lists only its ledger, and reads only the signer\'s secret', () => {
+    const p = rolePolicy({ ...where, signerSecretArn: 'arn:aws:secretsmanager:us-east-1:000000000000:secret:agentbox-gateway-signer-AbCd' });
+    const list = p.Statement.find((s) => [].concat(s.Action).includes('s3:ListBucket'));
+    expect(list.Condition.StringLike['s3:prefix']).toEqual(['ledger/*']);
+    const secret = p.Statement.find((s) => [].concat(s.Action).includes('secretsmanager:GetSecretValue'));
+    expect(secret.Resource).toBe('arn:aws:secretsmanager:us-east-1:000000000000:secret:agentbox-gateway-signer-AbCd');
   });
 
   it('starts and stops only our runtime', () => {
@@ -71,7 +80,7 @@ describe('the function\'s role', () => {
 
   it('touches only runs, sign-ins and its ledger in our bucket, and no action or resource is a bare wildcard', () => {
     const p = rolePolicy(where);
-    expect([...new Set(resources(p).filter((r) => r.startsWith('arn:aws:s3')))].sort()).toEqual(['ledger/*', 'logins/*', 'runs/*', 'runs/*/calls/*'].map((x) => `arn:aws:s3:::agentbox-cloud-x/${x}`));
+    expect([...new Set(resources(p).filter((r) => r.startsWith('arn:aws:s3')))].sort()).toEqual(['', '/ledger/*', '/logins/*', '/runs/*', '/runs/*/calls/*', '/runs/*/done.json'].map((x) => `arn:aws:s3:::agentbox-cloud-x${x}`));
     expect(resources(p)).not.toContain('*');
     expect(actions(p).some((a) => a === '*' || a.endsWith(':*'))).toBe(false);
   });
@@ -84,6 +93,16 @@ describe('deadlines', () => {
   it('the Mac waits longer than the function, which waits longer than its call to AgentCore', () => {
     expect(CALL_MS).toBeGreaterThan(FUNCTION_SECONDS * 1000);
     expect(FUNCTION_SECONDS * 1000).toBeGreaterThan(60_000);
+  });
+});
+
+// Second review: the sandbox's runtime role could write to every AgentCore
+// runtime's logs in the account, and customer code runs as root beside it.
+describe('the sandbox\'s own role', () => {
+  it('writes logs only to our runtime\'s own groups', () => {
+    const p = runtimeRolePolicy({ region: 'us-east-1', account: '000000000000', repo: 'agentbox-sandbox', runtime: 'agentbox_sandbox' });
+    const writes = p.Statement.find((s) => [].concat(s.Action).includes('logs:PutLogEvents'));
+    expect(writes.Resource).toBe('arn:aws:logs:us-east-1:000000000000:log-group:/aws/bedrock-agentcore/runtimes/agentbox_sandbox-*');
   });
 });
 

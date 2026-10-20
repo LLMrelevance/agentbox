@@ -3,14 +3,14 @@
 // It stands between a Mac and our AWS account (docs/cloud/PLAN.md, "The
 // cloud server"). The Mac's run code is unchanged: it still names its own
 // sessions and objects, and this puts the person into every name before AWS
-// sees it, counts each person's agents and hours against their plan, and
-// never hands a Mac a link that reads a sign-in.
+// sees it, counts each person's agents and hours against their plan, stops
+// every machine it stops counting, and never hands a Mac a link to a sign-in.
 //
 // Everything AWS is passed in, so the same code runs in Lambda (lambda.mjs),
 // in tests, and behind a plain HTTP server (gatewayServer).
 import crypto from 'node:crypto';
 import http from 'node:http';
-import { PLANS, RUN_CEILING_MS, SIGNIN_CEILING_MS, SIGNINS_AT_ONCE } from './plans.mjs';
+import { PLANS, RUN_CEILING_MS, SIGNIN_CEILING_MS, SIGNINS_AT_ONCE, FREE_FLEET_CAP } from './plans.mjs';
 import { LOGIN_NAME } from '../../shared/cloud-login-name.mjs';
 
 const PERSON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -22,12 +22,20 @@ const LOGIN_LINK_SECONDS = 30 * 60;
 // goes through the person's own `runs/calls/` in the bucket instead.
 const BODY_LIMIT = 6 * 1024 * 1024;
 export const RELAY_BYTES = 4 * 1024 * 1024;
+const RELAYED_CALL_LIMIT = 32 * 1024 * 1024;
 const CALL_KEY = /^runs\/calls\/[A-Za-z0-9_-]{1,80}\.json$/;
 const STARTS = { start: 'run', signin: 'signin', renew: 'signin', look: 'signin' };
+// A done.json the S3 notice missed is looked for by the sweep, not sooner.
+const DONE_LOOK_AFTER_MS = 2 * 60_000;
 
 const month = (t) => new Date(t).toISOString().slice(0, 7);
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const bearer = (headers = {}) => /^Bearer (\S+)$/.exec(headers.authorization || headers.Authorization || '')?.[1] ?? null;
+const ceilingOf = (s) => (s.kind === 'run' ? RUN_CEILING_MS : SIGNIN_CEILING_MS);
+// The sandbox says a run failed in a `status` answer or a `state` event.
+// "exited" is not the end: it is still saving the results, and done.json
+// ends the run once it has.
+const saysFailed = (answer) => answer?.state === 'failed' || (Array.isArray(answer?.events) && answer.events.some((e) => e?.kind === 'state' && e.state === 'failed'));
 
 class Refusal extends Error {
   constructor(status, error, message) { super(message); this.status = status; this.error = error; }
@@ -48,6 +56,7 @@ export function memoryObjects() {
   const conflict = () => Object.assign(new Error('changed meanwhile'), { conflict: true });
   return {
     async get(k) { await null; const v = store.get(k); return v ? { body: v.body, etag: v.etag } : null; },
+    async head(k) { await null; const v = store.get(k); return v ? { size: Buffer.byteLength(v.body) } : null; },
     async put(k, body, { ifMatch, ifNoneMatch } = {}) {
       await null;
       const cur = store.get(k);
@@ -57,52 +66,81 @@ export function memoryObjects() {
       store.set(k, { body: String(body), etag: `e${n}` });
     },
     async del(k) { store.delete(k); },
+    async list(prefix) { await null; return [...store.keys()].filter((k) => k.startsWith(prefix)); },
     dump: () => new Map([...store].map(([k, v]) => [k, v.body])),
   };
 }
 
-export function createGateway({ agentcore, links, removeObject, objects, whoIs, now = Date.now, plans = PLANS, log = () => {} }) {
+export function createGateway({ agentcore, links, removeObject, objects, whoIs, now = Date.now, plans = PLANS, freeFleetCap = FREE_FLEET_CAP, log = () => {} }) {
   const personKey = (person) => `ledger/people/${person}.json`;
   const deviceKey = (key) => `ledger/devices/${sha256(key)}.json`;
-  const fresh = () => ({ plan: 'free', live: {}, used: {} });
+  const SWITCH = 'ledger/switch.json';
+  const FLEET = 'ledger/fleet.json';
+  const fresh = () => ({ plan: 'free', live: {}, used: {}, stopping: [] });
   const planOf = (rec) => plans[rec.plan] || plans.free;
+  const readJson = async (key) => { const o = await objects.get(key); return o ? JSON.parse(o.body) : null; };
+  const recOf = async (person) => ({ ...fresh(), ...(await readJson(personKey(person))) });
 
-  const end = (rec, sid, at) => {
-    const s = rec.live[sid];
-    delete rec.live[sid];
-    if (s.kind === 'run') rec.used[month(at)] = (rec.used[month(at)] || 0) + Math.max(0, Math.round((at - s.at) / 1000));
-  };
-  // Whatever outlived its ceiling has ended, at that ceiling.
-  const settle = (rec, t) => {
-    for (const [sid, s] of Object.entries(rec.live)) {
-      const ceiling = s.kind === 'run' ? RUN_CEILING_MS : SIGNIN_CEILING_MS;
-      if (t - s.at >= ceiling) end(rec, sid, s.at + ceiling);
-    }
-  };
-  const stopSession = (person, sid) => Promise.resolve(agentcore.stop(`u-${person}-${sid}`)).catch((err) => log(`could not stop ${sid}: ${err?.message || err}`));
   const live = (rec, kind) => Object.values(rec.live).filter((s) => s.kind === kind);
   const usedNow = (rec, t) => (rec.used[month(t)] || 0) + live(rec, 'run').reduce((sum, s) => sum + (t - s.at) / 1000, 0);
+  const overHours = (rec, t) => planOf(rec).hoursPerMonth != null && usedNow(rec, t) >= planOf(rec).hoursPerMonth * 3600;
+
+  // Ending a session in the ledger: charged (a run that started), recorded,
+  // and stopped once the write has landed (`update` does that).
+  function end(rec, ctx, sid, at, why) {
+    const s = rec.live[sid];
+    delete rec.live[sid];
+    const seconds = s.kind === 'run' && why !== 'not-started' ? Math.max(0, Math.round((at - s.at) / 1000)) : 0;
+    if (seconds) rec.used[month(at)] = (rec.used[month(at)] || 0) + seconds;
+    ctx.ended.push({ sid, s, at, seconds, why });
+  }
+  // Whatever has outlived its ceiling ends at that ceiling; once the month's
+  // hours are spent, every run ends.
+  function settle(rec, ctx, t) {
+    for (const [sid, s] of Object.entries(rec.live)) if (t - s.at >= ceilingOf(s)) end(rec, ctx, sid, s.at + ceilingOf(s), 'ceiling');
+    if (overHours(rec, t)) for (const [sid, s] of Object.entries(rec.live)) if (s.kind === 'run') end(rec, ctx, sid, t, 'hours');
+  }
+  const needsSettling = (rec, t) => Object.values(rec.live).some((s) => t - s.at >= ceilingOf(s)) || (live(rec, 'run').length > 0 && overHours(rec, t));
 
   // Read, change and write one person's record; a write that lost a race
-  // reads again, so two starts can never both take the last agent. A session
-  // the write stopped counting is stopped too, so nothing runs uncounted: the
-  // Mac holds the link that writes its own run's done.json.
+  // reads again, so two starts can never both take the last agent. Whatever
+  // the write stopped counting is then stopped, and a stop AWS did not take
+  // is kept in `stopping` for the sweep to try again.
   async function update(person, change) {
     for (let i = 0; i < 8; i += 1) {
       const cur = await objects.get(personKey(person));
-      const rec = cur ? JSON.parse(cur.body) : fresh();
-      const before = Object.keys(rec.live);
-      const out = change(rec);
+      const rec = { ...fresh(), ...(cur ? JSON.parse(cur.body) : {}) };
+      const ctx = { ended: [] };
+      const out = change(rec, ctx);
       try {
         await objects.put(personKey(person), JSON.stringify(rec), cur ? { ifMatch: cur.etag } : { ifNoneMatch: '*' });
       } catch (err) {
         if (err?.conflict) continue;
         throw err;
       }
-      for (const sid of before) if (!rec.live[sid]) await stopSession(person, sid);
+      await afterEnding(person, ctx.ended);
       return out;
     }
     throw new Error('the ledger kept changing under this write');
+  }
+
+  async function afterEnding(person, ended) {
+    const failed = [];
+    for (const e of ended) {
+      if (e.s.kind === 'run' && e.why !== 'not-started') {
+        const record = { sessionId: e.sid, runId: e.s.runId, startedAt: e.s.at, endedAt: e.at, seconds: e.seconds, why: e.why };
+        await objects.put(`ledger/runs/${person}/${month(e.at)}/${e.sid}-${e.s.at}.json`, JSON.stringify(record)).catch((err) => log(`no record of ${e.sid}: ${err?.message || err}`));
+      }
+      if (!(await stopSession(person, e.sid))) failed.push(e.sid);
+    }
+    if (failed.length) await update(person, (rec) => { rec.stopping = [...new Set([...rec.stopping, ...failed])]; });
+  }
+
+  async function stopSession(person, sid) {
+    try { await agentcore.stop(`u-${person}-${sid}`); return true; } catch (err) {
+      log(`could not stop ${sid}: ${err?.message || err}`);
+      return false;
+    }
   }
 
   function summary(rec, t) {
@@ -111,40 +149,41 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
   }
 
   // Take a place for a session that is starting, or say why there is none.
-  function reserve(rec, sid, kind, runId, t) {
-    settle(rec, t);
+  function reserve(rec, ctx, sid, kind, runId, t, { paused, freeRunning }) {
+    settle(rec, ctx, t);
     const was = rec.live[sid];
     // The same start asked again, because its answer was lost, is the same
     // place. Anything else on a live session would run on that place: a run
     // on a sign-in's, which counts nothing, or a second run on a first's.
-    if (was) return was.kind === kind && was.runId === (runId ?? null) ? { ok: true, again: true } : { ok: false, error: 'busy', message: 'this session is running something else' };
+    if (was) return was.kind === kind && was.runId === (runId ?? null) ? { ok: true, nonce: was.nonce } : { ok: false, error: 'busy', message: 'this session is running something else' };
     if (kind === 'run') {
       const plan = planOf(rec);
-      if (plan.hoursPerMonth != null && usedNow(rec, t) >= plan.hoursPerMonth * 3600) {
-        return { ok: false, error: 'hours', message: `This month's ${plan.hoursPerMonth} cloud hours are used.` };
-      }
-      if (live(rec, 'run').length >= plan.agents) {
-        return { ok: false, error: 'agents', message: `All ${plan.agents} of your cloud agents are running.` };
-      }
+      if (paused) return { ok: false, error: 'paused', message: 'The cloud is not starting new runs right now.' };
+      if (overHours(rec, t)) return { ok: false, error: 'hours', message: `This month's ${plan.hoursPerMonth} cloud hours are used.` };
+      if (live(rec, 'run').length >= plan.agents) return { ok: false, error: 'agents', message: `All ${plan.agents} of your cloud agents are running.` };
+      if ((rec.plan || 'free') === 'free' && freeRunning >= freeFleetCap) return { ok: false, error: 'full', message: 'The free cloud is full right now.' };
     } else if (live(rec, 'signin').length >= SIGNINS_AT_ONCE) {
       return { ok: false, error: 'signins', message: `${SIGNINS_AT_ONCE} sign-ins are already waiting.` };
     }
-    rec.live[sid] = { kind, runId: typeof runId === 'string' ? runId : null, at: t };
-    return { ok: true };
+    const nonce = crypto.randomUUID();
+    rec.live[sid] = { kind, runId: typeof runId === 'string' ? runId : null, at: t, nonce };
+    return { ok: true, nonce, fresh: true };
   }
 
-  async function loginLink(person, value) {
+  async function loginLink(person, value, op) {
     const key = typeof value === 'string' && value.startsWith(LOGIN_NAME) ? value.slice(LOGIN_NAME.length) : null;
     const scoped = key?.startsWith('logins/') ? scopedKey(person, key) : null;
     if (!scoped) throw bad('a sign-in is named, never linked');
-    return links.get(scoped, LOGIN_LINK_SECONDS);
+    return links[op](scoped, LOGIN_LINK_SECONDS);
   }
 
   // A call bigger than Lambda takes was put in the person's own calls; read it once.
   async function relayedCall(person, payloadKey) {
     const scoped = typeof payloadKey === 'string' && CALL_KEY.test(payloadKey) ? scopedKey(person, payloadKey) : null;
-    const found = scoped ? await objects.get(scoped) : null;
-    if (!found) throw bad('no such call');
+    const size = scoped ? await objects.head(scoped) : null;
+    if (!size) throw bad('no such call');
+    if (size.size > RELAYED_CALL_LIMIT) { await objects.del(scoped).catch(() => {}); throw new Refusal(413, 'too-large', 'that call is too large'); }
+    const found = await objects.get(scoped);
     await objects.del(scoped).catch(() => {});
     try { return JSON.parse(found.body); } catch { throw bad('the call is not JSON'); }
   }
@@ -165,41 +204,58 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     const payload = data.payloadKey !== undefined ? await relayedCall(person, data.payloadKey) : data.payload;
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw bad('no payload');
     const sent = { ...payload };
-    if (sent.login && typeof sent.login === 'object') sent.login = { ...sent.login, url: await loginLink(person, sent.login.url) };
-    if ('loginUrl' in sent) sent.loginUrl = await loginLink(person, sent.loginUrl);
+    if (sent.login && typeof sent.login === 'object') sent.login = { ...sent.login, url: await loginLink(person, sent.login.url, 'get') };
+    if ('loginUrl' in sent) sent.loginUrl = await loginLink(person, sent.loginUrl, 'get');
+    if ('saveUrl' in sent) sent.saveUrl = await loginLink(person, sent.saveUrl, 'put');
     const kind = Object.hasOwn(STARTS, sent.action) ? STARTS[sent.action] : null;
-    let verdict = null;
+    let nonce;
+    let freshPlace = false;
     if (kind) {
-      verdict = await update(person, (rec) => reserve(rec, sessionId, kind, sent.runId, now()));
+      const [sw, fleet] = kind === 'run' ? await Promise.all([readJson(SWITCH), readJson(FLEET)]) : [null, null];
+      const verdict = await update(person, (rec, ctx) => reserve(rec, ctx, sessionId, kind, sent.runId, now(), { paused: !!sw?.paused, freeRunning: fleet?.freeRunning || 0 }));
       if (!verdict.ok) return verdict;
+      ({ nonce } = verdict);
+      freshPlace = !!verdict.fresh;
     } else {
       // AgentCore makes a machine for any session it is asked about, so only
       // a session this person started, and has not ended, is asked.
-      const rec = await objects.get(personKey(person));
-      const s = rec && JSON.parse(rec.body).live?.[sessionId];
+      const rec = await recOf(person);
       const t = now();
-      if (!s || t - s.at >= (s.kind === 'run' ? RUN_CEILING_MS : SIGNIN_CEILING_MS)) return { ok: false, error: 'no-run' };
+      if (needsSettling(rec, t)) await update(person, (r, ctx) => settle(r, ctx, t));
+      const s = (needsSettling(rec, t) ? await recOf(person) : rec).live[sessionId];
+      if (!s) return { ok: false, error: 'no-run' };
+      ({ nonce } = s);
     }
-    // A start that did not start gives its place back, uncharged.
-    const release = () => (kind && !verdict.again ? update(person, (rec) => { delete rec.live[sessionId]; }) : null);
+    let endedHere = false;
+    const endIf = async (why) => {
+      endedHere = await update(person, (rec, ctx) => {
+        if (rec.live[sessionId]?.nonce !== nonce) return false;
+        end(rec, ctx, sessionId, now(), why);
+        return true;
+      });
+    };
     let answer;
     try {
       answer = await agentcore.invoke(`u-${person}-${sessionId}`, sent);
     } catch (err) {
-      await release();
+      if (freshPlace) await endIf('not-started');
       throw new Refusal(502, 'cloud', `the cloud did not answer: ${err?.message || err}`);
     }
-    if (answer?.ok === false) await release();
+    if (freshPlace && answer?.ok === false) await endIf('not-started');
+    else if (saysFailed(answer)) await endIf('failed');
+    // Asking a session makes it exist. One that a stop or a finish ended
+    // while this call was on its way is stopped again, now that it is there.
+    if (!endedHere && (await recOf(person)).live[sessionId]?.nonce !== nonce) await stopSession(person, sessionId);
     return relayAnswer(person, answer);
   }
 
   async function stop(person, { sessionId }) {
     if (typeof sessionId !== 'string' || !SESSION.test(sessionId)) throw bad('the session name is not plain letters, digits and dashes');
-    const was = await update(person, (rec) => {
+    const was = await update(person, (rec, ctx) => {
       const t = now();
-      settle(rec, t);
+      settle(rec, ctx, t);
       if (!rec.live[sessionId]) return false;
-      end(rec, sessionId, t);
+      end(rec, ctx, sessionId, t, 'stopped');
       return true;
     });
     // Ending it in the ledger stopped it; one the ledger had already let go is stopped all the same.
@@ -211,7 +267,8 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     if (!['get', 'put', 'head'].includes(op)) throw bad('op is get, put or head');
     const scoped = scopedKey(person, key);
     if (!scoped) throw bad('a key is a run\'s or a sign-in\'s, inside your own space');
-    if (op === 'get' && key.startsWith('logins/')) throw new Refusal(403, 'not-readable', 'a sign-in is never read from a Mac');
+    // A sign-in is written only by the sandbox, on a link the server makes.
+    if (op !== 'head' && key.startsWith('logins/')) throw new Refusal(403, 'not-yours-to-touch', 'a sign-in is never read or written from a Mac');
     const s = Math.min(LINK_MAX_SECONDS, Math.max(60, Number(seconds) || LINK_MAX_SECONDS));
     return { url: await links[op](scoped, s) };
   }
@@ -227,9 +284,11 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     const token = bearer(headers);
     const who = token ? await Promise.resolve(whoIs(token)).catch(() => null) : null;
     if (!who || !PERSON.test(who.id || '')) throw new Refusal(401, 'signed-out', 'sign in again');
+    const person = who.id.toLowerCase();
+    if ((await recOf(person)).disabled) throw new Refusal(403, 'disabled', 'this account cannot use the cloud');
     const key = `abk_${crypto.randomBytes(32).toString('base64url')}`;
-    await objects.put(deviceKey(key), JSON.stringify({ person: who.id.toLowerCase(), name: String(body.name || '').slice(0, 80), at: now() }), { ifNoneMatch: '*' });
-    log(`a cloud key for ${who.id}`);
+    await objects.put(deviceKey(key), JSON.stringify({ person, name: String(body.name || '').slice(0, 80), at: now() }), { ifNoneMatch: '*' });
+    log(`a cloud key for ${person}`);
     return { key };
   }
 
@@ -237,7 +296,9 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     const key = bearer(headers);
     const found = key?.startsWith('abk_') ? await objects.get(deviceKey(key)) : null;
     if (!found) throw new Refusal(401, 'signed-out', 'this cloud key is not known; sign in again');
-    return { person: JSON.parse(found.body).person, key };
+    const { person } = JSON.parse(found.body);
+    if ((await recOf(person)).disabled) throw new Refusal(403, 'disabled', 'this account cannot use the cloud');
+    return { person, key };
   }
 
   async function handle({ method, path, headers = {}, body = '' }) {
@@ -252,7 +313,7 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
       const { person, key } = await personOf(headers);
       const route = `${method} ${path}`;
       if (route === 'DELETE /v1/devices') { await objects.del(deviceKey(key)); return { status: 200, body: { ok: true } }; }
-      if (route === 'GET /v1/me') return { status: 200, body: await update(person, (rec) => { settle(rec, now()); return summary(rec, now()); }) };
+      if (route === 'GET /v1/me') return { status: 200, body: await update(person, (rec, ctx) => { settle(rec, ctx, now()); return summary(rec, now()); }) };
       if (route === 'POST /v1/invoke') return { status: 200, body: await invoke(person, data) };
       if (route === 'POST /v1/stop') return { status: 200, body: await stop(person, data) };
       if (route === 'POST /v1/link') return { status: 200, body: await link(person, data) };
@@ -269,20 +330,63 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
   async function objectCreated(key) {
     const m = /^runs\/u-([0-9a-f-]{36})\/([^/]+)\/done\.json$/.exec(key);
     if (!m || !PERSON.test(m[1]) || !(await objects.get(personKey(m[1])))) return;
-    await update(m[1], (rec) => {
+    await update(m[1], (rec, ctx) => {
       const t = now();
-      settle(rec, t);
-      for (const [sid, s] of Object.entries(rec.live)) if (s.kind === 'run' && s.runId === m[2]) end(rec, sid, t);
+      settle(rec, ctx, t);
+      for (const [sid, s] of Object.entries(rec.live)) if (s.kind === 'run' && s.runId === m[2]) end(rec, ctx, sid, t, 'done');
     });
   }
 
-  async function setPlan(person, plan) {
-    if (!PERSON.test(person || '')) throw new Error(`no such person: ${person}`);
-    if (!Object.hasOwn(plans, plan)) throw new Error(`no such plan: ${plan}`);
-    await update(person, (rec) => { rec.plan = plan; });
+  // On a clock, whoever is calling or not: ceilings, spent hours, a done.json
+  // whose notice was missed, stops AWS did not take, and the free fleet's size.
+  async function sweep() {
+    const t = now();
+    let freeRunning = 0;
+    for (const key of await objects.list('ledger/people/')) {
+      const person = key.slice('ledger/people/'.length, -'.json'.length);
+      if (!PERSON.test(person)) continue;
+      const before = await recOf(person);
+      const finished = new Set();
+      for (const s of live(before, 'run')) {
+        if (s.runId && t - s.at >= DONE_LOOK_AFTER_MS && await objects.head(`runs/u-${person}/${s.runId}/done.json`)) finished.add(s.runId);
+      }
+      const retry = before.stopping;
+      const rec = await update(person, (r, ctx) => {
+        settle(r, ctx, t);
+        for (const [sid, s] of Object.entries(r.live)) if (s.kind === 'run' && finished.has(s.runId)) end(r, ctx, sid, t, 'done');
+        return r;
+      });
+      const stillFailing = [];
+      for (const sid of retry) if (!(await stopSession(person, sid))) stillFailing.push(sid);
+      if (retry.length) await update(person, (r) => { r.stopping = r.stopping.filter((sid) => !retry.includes(sid) || stillFailing.includes(sid)); });
+      if ((rec.plan || 'free') === 'free') freeRunning += live(rec, 'run').length;
+    }
+    await objects.put(FLEET, JSON.stringify({ freeRunning, at: t }));
+    return { freeRunning };
   }
 
-  return { handle, objectCreated, setPlan };
+  // What the owner does by hand (scripts/cloud-gateway-admin.mjs), and Stripe later.
+  async function admin({ do: what, person, plan }) {
+    if (what === 'pause' || what === 'resume') { await objects.put(SWITCH, JSON.stringify({ paused: what === 'pause', at: now() })); return { ok: true }; }
+    if (!PERSON.test(person || '')) throw new Error(`no such person: ${person}`);
+    if (what === 'plan') {
+      if (!Object.hasOwn(plans, plan)) throw new Error(`no such plan: ${plan}`);
+      if (plans[plan].hoursPerMonth == null) throw new Error(`the ${plan} plan has no hours set yet (cloud/gateway/plans.mjs)`);
+      await update(person, (rec) => { rec.plan = plan; });
+    } else if (what === 'disable') {
+      await update(person, (rec, ctx) => {
+        rec.disabled = true;
+        for (const sid of Object.keys(rec.live)) end(rec, ctx, sid, now(), 'disabled');
+      });
+    } else if (what === 'enable') {
+      await update(person, (rec) => { delete rec.disabled; });
+    } else {
+      throw new Error(`no such thing to do: ${what}`);
+    }
+    return { ok: true };
+  }
+
+  return { handle, objectCreated, sweep, admin };
 }
 
 /** The server over plain HTTP, for tests and for running it on one machine. */
