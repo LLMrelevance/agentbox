@@ -10,7 +10,8 @@
 // in tests, and behind a plain HTTP server (gatewayServer).
 import crypto from 'node:crypto';
 import http from 'node:http';
-import { PLANS, RUN_CEILING_MS, SIGNIN_CEILING_MS, SIGNINS_AT_ONCE, FREE_FLEET_CAP } from './plans.mjs';
+import { PLANS, RUN_CEILING_MS, SIGNIN_CEILING_MS, SIGNINS_AT_ONCE } from './plans.mjs';
+import { TERMS_VERSION } from './terms.mjs';
 import { LOGIN_NAME } from '../../shared/cloud-login-name.mjs';
 
 const PERSON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -55,7 +56,7 @@ const saysFailed = (answer) => !answer?.more && (answer?.state === 'failed' || (
 const notThere = (err) => err?.name === 'ResourceNotFoundException' || err?.$metadata?.httpStatusCode === 404;
 
 class Refusal extends Error {
-  constructor(status, error, message) { super(message); this.status = status; this.error = error; }
+  constructor(status, error, message, extra = {}) { super(message); this.status = status; this.error = error; this.extra = extra; }
 }
 const bad = (message) => new Refusal(400, 'bad-request', message);
 
@@ -88,13 +89,13 @@ export function memoryObjects() {
   };
 }
 
-export function createGateway({ agentcore, links, removeObject, objects, whoIs, now = Date.now, plans = PLANS, freeFleetCap = FREE_FLEET_CAP, log = () => {} }) {
+export function createGateway({ agentcore, links, removeObject, objects, whoIs, now = Date.now, plans = PLANS, termsVersion = TERMS_VERSION, log = () => {} }) {
+  const termsRefusal = () => new Refusal(403, 'terms', `accept the terms of ${termsVersion} first`, { terms: termsVersion });
   const personKey = (person) => `ledger/people/${person}.json`;
   const deviceKey = (key) => `ledger/devices/${sha256(key)}.json`;
   const SWITCH = 'ledger/switch.json';
-  const FLEET = 'ledger/fleet.json';
-  const fresh = () => ({ plan: 'free', live: {}, used: {}, stopping: [], unrecorded: [] });
-  const planOf = (rec) => plans[rec.plan] || plans.free;
+  const fresh = () => ({ plan: 'none', live: {}, used: {}, stopping: [], unrecorded: [] });
+  const planOf = (rec) => plans[rec.plan] || plans.none;
   const readJson = async (key) => { const o = await objects.get(key); return o ? JSON.parse(o.body) : null; };
   const recOf = async (person) => ({ ...fresh(), ...(await readJson(personKey(person))) });
 
@@ -187,11 +188,14 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
 
   function summary(rec, t) {
     const plan = planOf(rec);
-    return { plan: plans[rec.plan] ? rec.plan : 'free', agents: plan.agents, hoursPerMonth: plan.hoursPerMonth, running: live(rec, 'run').length, usedSeconds: rec.used[month(t)] || 0, month: month(t) };
+    return {
+      plan: plans[rec.plan] ? rec.plan : 'none', agents: plan.agents, hoursPerMonth: plan.hoursPerMonth, running: live(rec, 'run').length, usedSeconds: rec.used[month(t)] || 0, month: month(t),
+      terms: { accepted: rec.terms?.version ?? null, current: termsVersion },
+    };
   }
 
   // Take a place for a session that is starting, or say why there is none.
-  function reserve(rec, ctx, sid, kind, runId, t, { paused, freeRunning }) {
+  function reserve(rec, ctx, sid, kind, runId, t, { paused }) {
     settle(rec, ctx, t);
     const was = rec.live[sid];
     // The same start asked again, because its answer was lost, is the same
@@ -201,12 +205,14 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     // A stop owed to this session, or a late one, would land on whatever
     // started here next.
     if (stoppingOf(rec).some((e) => e.sid === sid) || rec.retired?.[sid] !== undefined) return { ok: false, error: 'busy', message: 'this session has ended; a new run takes a new one' };
+    // Changed terms hold back what begins something new; a run going finishes.
+    if (rec.terms?.version !== termsVersion) return { ok: false, error: 'terms', terms: termsVersion, message: `accept the terms of ${termsVersion} first` };
     if (kind === 'run') {
       const plan = planOf(rec);
       if (paused) return { ok: false, error: 'paused', message: 'The cloud is not starting new runs right now.' };
+      if (!plan.agents) return { ok: false, error: 'plan', message: 'Choose a cloud plan to run agents there.' };
       if (overHours(rec, t)) return { ok: false, error: 'hours', message: `This month's ${plan.hoursPerMonth} cloud hours are used.` };
       if (live(rec, 'run').length >= plan.agents) return { ok: false, error: 'agents', message: `All ${plan.agents} of your cloud agents are running.` };
-      if ((rec.plan || 'free') === 'free' && freeRunning >= freeFleetCap) return { ok: false, error: 'full', message: 'The free cloud is full right now.' };
     } else if (live(rec, 'signin').length >= SIGNINS_AT_ONCE) {
       return { ok: false, error: 'signins', message: `${SIGNINS_AT_ONCE} sign-ins are already waiting.` };
     }
@@ -257,8 +263,8 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     let nonce;
     let freshPlace = false;
     if (kind) {
-      const [sw, fleet] = kind === 'run' ? await Promise.all([readJson(SWITCH), readJson(FLEET)]) : [null, null];
-      const verdict = await update(person, (rec, ctx) => reserve(rec, ctx, sessionId, kind, sent.runId, now(), { paused: !!sw?.paused, freeRunning: fleet?.freeRunning || 0 }));
+      const sw = kind === 'run' ? await readJson(SWITCH) : null;
+      const verdict = await update(person, (rec, ctx) => reserve(rec, ctx, sessionId, kind, sent.runId, now(), { paused: !!sw?.paused }));
       if (!verdict.ok) return verdict;
       ({ nonce } = verdict);
       freshPlace = !!verdict.fresh;
@@ -332,11 +338,15 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     if (!who || !PERSON.test(who.id || '')) throw new Refusal(401, 'signed-out', 'sign in again');
     const person = who.id.toLowerCase();
     if ((await recOf(person)).disabled) throw new Refusal(403, 'disabled', 'this account cannot use the cloud');
+    if (body.acceptedTerms !== termsVersion) throw termsRefusal();
+    await accept(person);
     const key = `abk_${crypto.randomBytes(32).toString('base64url')}`;
     await objects.put(deviceKey(key), JSON.stringify({ person, name: String(body.name || '').slice(0, 80), at: now() }), { ifNoneMatch: '*' });
     log(`a cloud key for ${person}`);
     return { key };
   }
+
+  const accept = (person) => update(person, (rec) => { rec.terms = { version: termsVersion, at: now() }; });
 
   async function personOf(headers) {
     const key = bearer(headers);
@@ -356,9 +366,16 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
         if (!data || typeof data !== 'object') throw bad('the body is not an object');
       }
       if (method === 'POST' && path === '/v1/devices') return { status: 200, body: await newDevice(headers, data) };
+      // Asked before anyone has signed in, so the app shows what they accept.
+      if (method === 'GET' && path === '/v1/terms') return { status: 200, body: { terms: termsVersion } };
       const { person, key } = await personOf(headers);
       const route = `${method} ${path}`;
       if (route === 'DELETE /v1/devices') { await objects.del(deviceKey(key)); return { status: 200, body: { ok: true } }; }
+      if (route === 'POST /v1/terms') {
+        if (data.acceptedTerms !== termsVersion) throw termsRefusal();
+        await accept(person);
+        return { status: 200, body: { ok: true, terms: termsVersion } };
+      }
       if (route === 'GET /v1/me') return { status: 200, body: await update(person, (rec, ctx) => { settle(rec, ctx, now()); return summary(rec, now()); }) };
       if (route === 'POST /v1/invoke') return { status: 200, body: await invoke(person, data) };
       if (route === 'POST /v1/stop') return { status: 200, body: await stop(person, data) };
@@ -366,7 +383,7 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
       if (route === 'POST /v1/delete') return { status: 200, body: await remove(person, data) };
       return { status: 404, body: { error: 'not-found' } };
     } catch (err) {
-      if (err instanceof Refusal) return { status: err.status, body: { error: err.error, message: err.message } };
+      if (err instanceof Refusal) return { status: err.status, body: { error: err.error, message: err.message, ...err.extra } };
       log(`cloud server: ${err?.stack || err}`);
       return { status: 500, body: { error: 'server', message: 'the cloud server failed; try again' } };
     }
@@ -384,7 +401,7 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
   }
 
   // On a clock, whoever is calling or not: ceilings, spent hours, a done.json
-  // whose notice was missed, stops AWS did not take, and the free fleet's size.
+  // whose notice was missed, and stops AWS did not take.
   async function sweepOne(person, t, before) {
     const owedBefore = stoppingOf(before);
     // Nothing going and nothing owed: read, not written.
@@ -415,27 +432,22 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     return rec;
   }
 
-  // One person who cannot be swept is said and passed; the rest still are,
-  // and the free fleet still counts the runs last seen on them.
+  // One person who cannot be swept is said and passed; the rest still are.
   async function sweep() {
     const t = now();
-    let freeRunning = 0;
-    const count = (rec) => { if ((rec.plan || 'free') === 'free') freeRunning += live(rec, 'run').length; };
+    let swept = 0;
     const people = (await objects.list('ledger/people/')).map((k) => k.slice('ledger/people/'.length, -'.json'.length)).filter((p) => PERSON.test(p));
     for (let i = 0; i < people.length; i += SWEEP_AT_ONCE) {
       await Promise.all(people.slice(i, i + SWEEP_AT_ONCE).map(async (person) => {
-        let before = null;
         try {
-          before = await recOf(person);
-          count(await sweepOne(person, t, before));
+          await sweepOne(person, t, await recOf(person));
+          swept += 1;
         } catch (err) {
           log(`could not sweep ${person}: ${err?.message || err}`);
-          if (before) count(before);
         }
       }));
     }
-    await objects.put(FLEET, JSON.stringify({ freeRunning, at: t }));
-    return { freeRunning };
+    return { people: people.length, swept };
   }
 
   // What the owner does by hand (scripts/cloud-gateway-admin.mjs), and Stripe later.

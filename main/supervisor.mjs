@@ -41,7 +41,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, takeCloudNews } from './cloud/marker.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
-import { readCloudConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
+import { readCloudConfig, cloudAccountConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
 import { cloudVersionGaps } from '../shared/cloud-versions.mjs';
 import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
 import { execFileSync } from 'node:child_process';
@@ -2524,6 +2524,13 @@ export class Supervisor {
     return `${item.product}:${item.id}:${String(answer ?? '').slice(0, 80)}`;
   }
 
+  /** A run starts: it is live, and when it carries her reply that is saved at once (see `preparingAnswers`). */
+  _noteRunCarrying(item, session, { continuation = false } = {}) {
+    if (continuation && item.answer) session.carrying = this._answerKey(item);
+    this.sessions.set(item.id, session);
+    if (session.carrying) this._saveState();
+  }
+
   _answerDelivered(item, answer = item.answer) {
     return this._handledAnswers.has(this._answerKey(item, answer))
       || this._handledAnswers.has(this._legacyAnswerKey(item, answer));
@@ -4200,7 +4207,11 @@ export class Supervisor {
   // added for the cloud, and any sign-in going on. The usage file is read at
   // most every 30 seconds; the snapshot asks on every change.
   cloudStatus() {
-    const setUp = !!readCloudConfig(process.env, this.config.home);
+    const config = readCloudConfig(process.env, this.config.home);
+    const setUp = !!config;
+    // Offered to a Mac whose app carries Agentbox Cloud's settings, until
+    // someone signs in on it (main/cloud/account.mjs).
+    const offered = !setUp && !!cloudAccountConfig(this.appDir, { home: this.config.home || os.homedir() });
     const mode = this.config.cloudRuns === false ? 'mac' : this.config.cloudRuns === 'all' ? 'all' : 'full';
     const now = Date.now();
     if (!this._cloudMonth || now - this._cloudMonth.at > 30_000) {
@@ -4209,7 +4220,7 @@ export class Supervisor {
       this._cloudMonth = { at: now, month: summarizeCloudUsage(readCloudUsage({ home: this.config.home }), { since }) };
     }
     return {
-      setUp, mode, running: this._cloudLoad(), month: this._cloudMonth.month,
+      setUp, offered, managed: typeof config?.gateway === 'string', mode, running: this._cloudLoad(), month: this._cloudMonth.month,
       ...this._cloudHealthNow(now),
       versionGap: setUp ? this._cloudVersionGaps(now).sort((a, b) => b.blocks - a.blocks)[0] ?? null : null,
       // What C turns the cloud back on to (main/settings.mjs cloudWhenOn).
@@ -5272,9 +5283,15 @@ export class Supervisor {
         waitsSince: this._waitsSince,
         // The mark was made before setup, not before an agent actually ran.
         // Persist the distinction for a quit that never reaches stop().
-        preparingAnswers: [...(this._preparing?.values() ?? [])]
-          .filter(({ item, opts }) => opts?.continuation && item?.answer)
-          .map(({ item }) => this._answerKey(item)),
+        preparingAnswers: [
+          ...[...(this._preparing?.values() ?? [])]
+            .filter(({ item, opts }) => opts?.continuation && item?.answer)
+            .map(({ item }) => this._answerKey(item)),
+          // And a run on this Mac that has not said its id yet: nothing can
+          // resume it (`_liveSessions` waits for the id), and a quit does not
+          // wait for the exit that would hand its reply back.
+          ...[...this.sessions.values()].filter((s) => s.carrying && !s.idRemembered && !s.cloud).map((s) => s.carrying),
+        ],
         heardAnswers: Object.fromEntries(Object.entries(this._heardAnswers ?? {}).slice(-500)),
         productOrder: this.productOrder,
         hiddenProducts: [...this.hiddenProducts],
@@ -8386,7 +8403,7 @@ export class Supervisor {
       // restart (`_liveSessions`).
       cloud: where === 'cloud',
     };
-    this.sessions.set(item.id, session);
+    this._noteRunCarrying(item, session, { continuation });
     // The memory gate's clock counts starts on this Mac only: a cloud start
     // uses none of its memory (Codex's review, 2026-10-13).
     if (this._startsOnThisMac(session)) this._lastStartAt = session.startedAt;

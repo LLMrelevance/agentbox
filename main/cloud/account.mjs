@@ -1,0 +1,120 @@
+// SIGNING IN TO AGENTBOX CLOUD FROM THIS MAC.
+//
+// A Google sign-in, through the database's own page, is traded once with the
+// cloud server (cloud/gateway/) for a cloud key, kept beside cloud.json; the
+// Mac's cloud.json then names the server, so its runs go there
+// (main/cloud/clients.mjs). The database session itself is not kept. A Mac
+// set up on its owner's own AWS account is never moved onto the server.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { cloudConfigPath, readCloudConfig, readCloudKey, writeCloudKey, cloudKeyPath, cloudAccountConfig } from './config.mjs';
+import { withDeadline, plainAuthError } from '../team/session.mjs';
+import { signInWithGoogle, cancelGoogleSignIn } from '../team/sign-in.mjs';
+
+const CALL_MS = 30_000;
+const RETURN_URL = 'http://127.0.0.1:54783/auth/callback';
+
+export { cloudAccountConfig };
+
+async function ask(gateway, route, { method = 'GET', key, body } = {}) {
+  const init = { method, headers: { ...(key ? { authorization: `Bearer ${key}` } : {}), ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined };
+  const res = await fetch(`${gateway.replace(/\/+$/, '')}${route}`, { ...init, signal: AbortSignal.timeout(CALL_MS) });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
+
+/** The version of the terms a person accepts now. */
+export async function currentCloudTerms(config) {
+  return (await ask(config.gateway, '/v1/terms')).body.terms ?? null;
+}
+
+/**
+ * The ways in that the app's sign-in page offers (team/SignInPage.tsx):
+ * Google, an email and a password, or a new account. Each gives the access
+ * token of a fresh sign-in, held in memory only: the cloud key is what this
+ * Mac keeps, so nothing asks the keychain.
+ */
+export function cloudAccountSession({ config, openExternal, log = () => {}, createClient = null }) {
+  let lastUrl = null;
+  const client = async () => {
+    const make = createClient || (await import('@supabase/supabase-js')).createClient;
+    const mem = new Map();
+    return make(config.supabaseUrl, config.anonKey, {
+      auth: { flowType: 'pkce', persistSession: true, autoRefreshToken: false, storage: { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v), removeItem: (k) => mem.delete(k) } },
+      global: { fetch: withDeadline() },
+    });
+  };
+  const tokenOf = (data) => {
+    if (!data?.session?.access_token) throw new Error('Signing in came back without a session. Try again.');
+    return data.session.access_token;
+  };
+  return {
+    async google() {
+      const c = await client();
+      await signInWithGoogle({ client: c, openExternal, returnUrl: config.signInReturn || RETURN_URL, log, onUrl: (u) => { lastUrl = u; } });
+      return tokenOf((await c.auth.getSession()).data);
+    },
+    async email(email, password) {
+      const { data, error } = await (await client()).auth.signInWithPassword({ email: String(email ?? '').trim(), password: String(password ?? '') });
+      if (error) throw new Error(plainAuthError(error.message));
+      return tokenOf(data);
+    },
+    // With confirmation on, a new account has no session until its email's
+    // link is followed: null, and the page says to check the inbox.
+    async signUp({ name, email, password }) {
+      const { data, error } = await (await client()).auth.signUp({
+        email: String(email ?? '').trim(), password: String(password ?? ''),
+        options: { data: { full_name: String(name ?? '').trim() || undefined } },
+      });
+      if (error) throw new Error(plainAuthError(error.message));
+      return data?.session?.access_token ?? null;
+    },
+    cancel: () => cancelGoogleSignIn(),
+    reopen: () => (lastUrl ? openExternal(lastUrl) : null),
+  };
+}
+
+/** One press on the sign-in page, to a cloud key on the current terms. */
+export async function cloudSignIn({ config, session, method, email, password, name, env = process.env, home = os.homedir() }) {
+  let token;
+  try {
+    if (method === 'google') token = await session.google();
+    else if (method === 'email') token = await session.email(email, password);
+    else if (method === 'sign-up') {
+      token = await session.signUp({ name, email, password });
+      if (!token) return { ok: true, confirm: true };
+    } else return { ok: false, error: 'No such way to sign in.' };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err), ...(err?.cancelled ? { cancelled: true } : {}) };
+  }
+  const acceptedTerms = await currentCloudTerms(config);
+  const out = await signInToCloud({ config, acceptedTerms, googleSignIn: async () => token, env, home });
+  return out.ok ? out : { ok: false, error: out.message || out.error };
+}
+
+// `googleSignIn` gives the access token of whichever sign-in the page made.
+export async function signInToCloud({ config, acceptedTerms, name = os.hostname(), env = process.env, home = os.homedir(), googleSignIn }) {
+  const now = readCloudConfig(env, home);
+  if (now?.bucket) return { ok: false, error: 'own-aws', message: 'This Mac runs the cloud in its own AWS account.' };
+  let token;
+  try { token = await googleSignIn(); } catch (err) { return { ok: false, error: 'google', message: err?.message || String(err) }; }
+  const made = await ask(config.gateway, '/v1/devices', { method: 'POST', key: token, body: { acceptedTerms, name: String(name).slice(0, 80) } });
+  if (made.status !== 200 || !made.body.key) return { ok: false, error: made.body.error || 'refused', message: made.body.message || `the cloud said ${made.status}`, ...(made.body.terms ? { terms: made.body.terms } : {}) };
+  writeCloudKey(made.body.key, env, home);
+  const file = cloudConfigPath(env, home);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ gateway: config.gateway }, null, 2) + '\n', { mode: 0o600 });
+  const me = await ask(config.gateway, '/v1/me', { key: made.body.key });
+  return { ok: true, ...(me.status === 200 ? me.body : {}) };
+}
+
+/** Let this Mac's cloud key go, there and here. An own-AWS setup is left alone. */
+export async function signOutOfCloud({ env = process.env, home = os.homedir() } = {}) {
+  const now = readCloudConfig(env, home);
+  if (!now?.gateway) return { ok: true };
+  const key = readCloudKey(env, home);
+  if (key) await ask(now.gateway, '/v1/devices', { method: 'DELETE', key }).catch(() => {});
+  fs.rmSync(cloudKeyPath(env, home), { force: true });
+  fs.rmSync(cloudConfigPath(env, home), { force: true });
+  return { ok: true };
+}

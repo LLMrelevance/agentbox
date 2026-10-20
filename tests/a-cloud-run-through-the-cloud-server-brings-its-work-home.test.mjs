@@ -21,7 +21,9 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createSandbox } from '../cloud/sandbox/server.mjs';
 import { createGateway, gatewayServer, memoryObjects } from '../cloud/gateway/gateway.mjs';
+import { ROOMY_PLANS } from './fixtures/cloud-plans.mjs';
 import { managedClients, LOGIN_NAME } from '../main/cloud/managed.mjs';
+import { TERMS_VERSION } from '../cloud/gateway/terms.mjs';
 import { cloudRun } from '../main/cloud/run.mjs';
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
@@ -69,6 +71,7 @@ beforeEach(async () => {
     removeObject: async (k) => { objects.delete(k); },
     objects: memoryObjects(),
     whoIs: async (t) => (t === 'their-session' ? { id: PERSON } : null),
+    plans: ROOMY_PLANS,
   });
   server = gatewayServer(gw);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -92,7 +95,7 @@ afterEach(async () => {
 });
 
 async function cloudKey() {
-  const res = await fetch(`${gatewayUrl}/v1/devices`, { method: 'POST', headers: { authorization: 'Bearer their-session', 'content-type': 'application/json' }, body: '{"name":"Mac"}', signal: AbortSignal.timeout(5000) });
+  const res = await fetch(`${gatewayUrl}/v1/devices`, { method: 'POST', headers: { authorization: 'Bearer their-session', 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Mac', acceptedTerms: TERMS_VERSION }),signal: AbortSignal.timeout(5000) });
   return (await res.json()).key;
 }
 

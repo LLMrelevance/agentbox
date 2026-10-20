@@ -18,7 +18,7 @@ it('each account shows its own two numbers, the one in use first', () => {
   ] }));
   expect(html.indexOf('one@example.test')).toBeLessThan(html.indexOf('5%'));
   expect(html.indexOf('5%')).toBeLessThan(html.indexOf('two@example.test'));
-  expect(html).toContain('back 5:09pm');
+  expect(html).toContain('<span class="acct-meter-when" title="Resets 5:09pm">5:09pm</span>');
   expect(html).toContain('In use');
 });
 

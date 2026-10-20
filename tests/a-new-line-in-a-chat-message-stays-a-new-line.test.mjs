@@ -34,7 +34,7 @@ describe('a message a person wrote in a chat', () => {
   });
 
   it('is asked for by the chat and by the thread panel, for people only', () => {
-    expect(src('renderer/src/components/Thread.tsx')).toMatch(/<ChatFold lines=\{e\.who === 'you'\}>/);
-    expect(src('renderer/src/team/ThreadPanel.tsx')).toMatch(/<ChatFold lines>/);
+    expect(src('renderer/src/components/Thread.tsx')).toMatch(/<ChatFold lines=\{e\.who === 'you'\}[\s>]/);
+    expect(src('renderer/src/team/ThreadPanel.tsx')).toMatch(/<ChatFold lines[\s>]/);
   });
 });

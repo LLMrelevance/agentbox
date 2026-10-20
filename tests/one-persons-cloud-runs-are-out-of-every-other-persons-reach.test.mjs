@@ -13,6 +13,8 @@
 // link that reads a sign-in, and answers nobody who has not signed in.
 import { describe, it, expect } from 'vitest';
 import { createGateway, memoryObjects } from '../cloud/gateway/gateway.mjs';
+import { ROOMY_PLANS } from './fixtures/cloud-plans.mjs';
+import { TERMS_VERSION } from '../cloud/gateway/terms.mjs';
 
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
@@ -34,9 +36,10 @@ function setup() {
     removeObject: async (k) => { removed.push(k); },
     objects,
     whoIs: async (token) => ({ 'session-of-a': { id: A, email: 'a@example.com' }, 'session-of-b': { id: B, email: 'b@example.com' } })[token] ?? null,
+    plans: ROOMY_PLANS,
   });
   const call = async (method, path, { key, body } = {}) => gw.handle({ method, path, headers: key ? { authorization: `Bearer ${key}` } : {}, body: body ? JSON.stringify(body) : '' });
-  const keyFor = async (session) => (await gw.handle({ method: 'POST', path: '/v1/devices', headers: { authorization: `Bearer ${session}` }, body: JSON.stringify({ name: 'Mac' }) })).body.key;
+  const keyFor = async (session) => (await gw.handle({ method: 'POST', path: '/v1/devices', headers: { authorization: `Bearer ${session}` }, body: JSON.stringify({ name: 'Mac', acceptedTerms: TERMS_VERSION }) })).body.key;
   return { gw, objects, sent, removed, call, keyFor };
 }
 
