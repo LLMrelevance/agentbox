@@ -143,7 +143,7 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
     if (e.key === 'ArrowRight') { e.preventDefault(); onResize(width - NUDGE); }
   };
 
-  const said = (e: AgentTurn, pending = false) => {
+  const said = (e: AgentTurn, pending = false, newest = false) => {
     const by = e.by ?? me;
     const mine = !!me && by === me;
     const person = by ? team?.byId.get(by) ?? null : null;
@@ -155,7 +155,7 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
             <span className="msg-who">{mine ? 'You' : person?.name ?? 'A teammate'}</span>
             <span className="msg-when">{clock(e.at)}</span>
           </div>
-          <ChatFold lines>{md(e.text ?? '')}</ChatFold>
+          <ChatFold lines newest={newest}>{md(e.text ?? '')}</ChatFold>
           {e.uid && (
             <Reactions on={reactions?.[e.uid]} me={me} onReact={(emoji, off) => onReact?.(e.uid!, emoji, off)} />
           )}
@@ -192,12 +192,12 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
         </button>
       </div>
       <div className="chat-thread-body" ref={body}>
-        {said(parent)}
+        {said(parent, false, shown === 0)}
         {(replies.length > 0 || sending.length > 0) && (
           <div className="chat-day chat-thread-count">{threadLine([...replies, ...sending.map((s) => ({ at: s.at, who: 'you' as const, text: s.text }))]).count}</div>
         )}
-        {replies.map((r) => said(r))}
-        {sending.map((s) => said({ at: s.at, who: 'you', text: s.text }, true))}
+        {replies.map((r, k) => said(r, false, k === shown - 1))}
+        {sending.map((s, k) => said({ at: s.at, who: 'you', text: s.text }, true, replies.length + k === shown - 1))}
       </div>
       <div className="chat-thread-foot">
         <div
