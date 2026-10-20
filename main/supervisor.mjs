@@ -235,6 +235,11 @@ const CLOUD_START_PATIENCE_MS = 10 * 60_000;
 const CLOUD_FAULTS_TO_REST = 3;
 // main/cloud/run.mjs KEEP_ON_MAC: the folder cannot go to the cloud.
 const CLOUD_KEEP_ON_MAC = 78;
+// main/cloud/run.mjs CLOUD_NO_ROOM: the cloud server had no room for this
+// person, and how long no new thread goes there after (`_noteCloudNoRoom`).
+const CLOUD_NO_ROOM = 79;
+const CLOUD_FULL_WAIT_MS = 30_000;
+const CLOUD_NO_ROOM_WAIT_MS = 5 * 60_000;
 // A thread whose cloud start dies this many times in a row before its agent
 // starts runs on this Mac from then on (`_cloudKeptOnMac`).
 const CLOUD_STARTS_TO_GIVE_UP = 3;
@@ -4229,6 +4234,7 @@ export class Supervisor {
     return {
       setUp, offered, managed: typeof config?.gateway === 'string', mode, running: this._cloudLoad(), month: this._cloudMonth.month,
       ...this._cloudHealthNow(now),
+      noRoom: (({ error, message } = {}) => (error ? { error, message } : null))(this._cloudNoRoomNow(now) ?? {}),
       versionGap: setUp ? this._cloudVersionGaps(now).sort((a, b) => b.blocks - a.blocks)[0] ?? null : null,
       // What C turns the cloud back on to (main/settings.mjs cloudWhenOn).
       whenOn: this.config.cloudWhenOn === 'all' ? 'all' : 'full',
@@ -4538,7 +4544,7 @@ export class Supervisor {
   // Not resting after failures of its own (`_noteCloudOutcome`), and not a
   // major version of this engine apart from this Mac (`_cloudVersionGaps`).
   _cloudUsable(engine) {
-    if (this._cloudResting()) return false;
+    if (this._cloudResting() || this._cloudNoRoomNow()) return false;
     const which = engineOf(engine);
     return !this._cloudVersionGaps().some((g) => g.engine === which && g.blocks);
   }
@@ -4589,7 +4595,7 @@ export class Supervisor {
   // sign-in that failed, or a folder still bringing an earlier run home says
   // nothing about the cloud.
   _noteCloudOutcome(session, code, signal = null) {
-    if (!session?.cloud || session.stoppedByUs || session.cloudLoginTrouble || code === CLOUD_KEEP_ON_MAC) return;
+    if (!session?.cloud || session.stoppedByUs || session.cloudLoginTrouble || code === CLOUD_KEEP_ON_MAC || code === CLOUD_NO_ROOM) return;
     const h = (this._cloudHealth ??= { faults: 0, lastError: null, restUntil: 0 });
     if (session.sessionId != null || session.result != null) {
       Object.assign(h, { faults: 0, lastError: null, restUntil: 0 });
@@ -4614,7 +4620,7 @@ export class Supervisor {
   // before its agent started. Kept on this Mac as a hand-back is, so no
   // attempt is spent and the next delivery runs here. True when it was kept.
   _cloudKeptOnMac(item, session, code, signal = null) {
-    if (!session?.cloud || !item?.id) return false;
+    if (!session?.cloud || !item?.id || code === CLOUD_NO_ROOM) return false;
     this._cloudStartFails ??= new Map();
     let keep = code === CLOUD_KEEP_ON_MAC;
     if (!keep) {
@@ -4678,6 +4684,33 @@ export class Supervisor {
       return false;
     }
     return true;
+  }
+
+  // NO ROOM IN THE CLOUD for this person (main/cloud/run.mjs CLOUD_NO_ROOM):
+  // the thread waits for this Mac with no attempt spent, as a hand-back does
+  // but not kept here, and no new thread goes to the cloud for a while. The
+  // cloud button says why, which is where the upgrade is offered.
+  _noteCloudNoRoom(session, code) {
+    if (!session?.cloud || code !== CLOUD_NO_ROOM) return;
+    session.handedBack = true;
+    const said = (session.tail ?? []).filter((l) => typeof l === 'string')
+      .flatMap((l) => l.split('\n')).map((l) => /no room in the cloud \((\w+)\):\s*(.*)$/.exec(l)).filter(Boolean).at(-1);
+    const error = said?.[1] ?? 'plan';
+    this._cloudNoRoom = { error, message: said?.[2]?.trim() || null, until: Date.now() + (error === 'agents' ? CLOUD_FULL_WAIT_MS : CLOUD_NO_ROOM_WAIT_MS) };
+    this.onChange?.();
+  }
+
+  _cloudNoRoomNow(now = Date.now()) {
+    const r = this._cloudNoRoom;
+    return r && r.until > now ? r : null;
+  }
+
+  /** The plan the cloud server says this Mac is on; a paid one ends a wait for a plan. */
+  cloudPlanSeen(plan) {
+    if (this._cloudNoRoom?.error === 'plan' && plan?.plan && plan.plan !== 'none') {
+      this._cloudNoRoom = null;
+      this.onChange?.();
+    }
   }
 
   _cloudHealthNow(now = Date.now()) {
@@ -8817,6 +8850,7 @@ export class Supervisor {
       this.memoryGateTurnEnded(session);
       session.exitFailed = !!(signal || code !== 0 || session.transportFault || session.resultIsError || session.result == null);
       this.count?.('run_finished', runEndedProps(session, Date.now()));
+      this._noteCloudNoRoom(session, code);
       this._noteCloudOutcome(session, code, signal);
       this._noteHowTheRunStarted(item, session);
       onLine(`session exited (${code})`);

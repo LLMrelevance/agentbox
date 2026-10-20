@@ -122,6 +122,16 @@ export const LOGIN_TROUBLE = 77;
 // A folder the cloud cannot take: the thread runs on this Mac instead, and is
 // not tried in the cloud again (Supervisor#_cloudKeptOnMac).
 export const KEEP_ON_MAC = 78;
+// The cloud server had no room for this person (no plan, hours spent, every
+// agent running, paused, terms not accepted): not a failure of the thread or
+// the cloud, so the thread runs on this Mac meanwhile (Supervisor#_noteCloudNoRoom).
+export const CLOUD_NO_ROOM = 79;
+const NO_ROOM = new Set(['plan', 'hours', 'agents', 'paused', 'terms']);
+/** A refused start that is about room, as its exit and what it says; else null. */
+export function refusedForRoom(answer) {
+  if (!answer || answer.ok !== false || !NO_ROOM.has(answer.error)) return null;
+  return { code: CLOUD_NO_ROOM, line: `no room in the cloud (${answer.error}): ${answer.message || ''}`.trim() };
+}
 // A link to a login is good for half an hour: a run fetches it while it is
 // being prepared, never later.
 const LOGIN_LINK_SECONDS = 30 * 60;
@@ -658,8 +668,10 @@ export async function cloudRun({
     // Such a start is tried again without them, so the reply is not spent.
     const outgrown = (base || plain) && started.error === 'bad-start';
     if (outgrown) { try { onCaps(started.caps || []); } catch { /* a hint */ } }
-    say(`the cloud run could not start: ${started.error || 'no answer'} ${started.message || ''}`.trim());
+    const noRoom = refusedForRoom(started);
+    say(noRoom ? noRoom.line : `the cloud run could not start: ${started.error || 'no answer'} ${started.message || ''}`.trim());
     clearMarker(here);
+    if (noRoom) return noRoom.code;
     return outgrown ? IMPORT_FAILED : 1;
   }
   try { onCaps(started.caps || []); } catch { /* only a hint for the next run */ }

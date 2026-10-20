@@ -1639,7 +1639,11 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       return { ok: false, error: 'unreachable', message: `The cloud did not answer: ${err?.message || err}` };
     }
   };
-  ipcMain.handle('zero:cloud-account-plan', () => cloudCall('cloudPlan'));
+  ipcMain.handle('zero:cloud-account-plan', async () => {
+    const plan = await cloudCall('cloudPlan');
+    supervisor.cloudPlanSeen?.(plan);
+    return plan;
+  });
   ipcMain.handle('zero:cloud-account-pay', (_e, { plan } = {}) => cloudCall('payForCloud', { plan }));
   ipcMain.handle('zero:cloud-account-billing', () => cloudCall('openCloudBilling'));
 
