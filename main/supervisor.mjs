@@ -41,7 +41,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, takeCloudNews } from './cloud/marker.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
-import { readCloudConfig, cloudAccountConfig, OLD_TOKEN_SERVICE } from './cloud/config.mjs';
+import { readCloudConfig, cloudAccountConfig, OLD_TOKEN_SERVICE, imageCaps } from './cloud/config.mjs';
 import { cloudVersionGaps } from '../shared/cloud-versions.mjs';
 import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
 import { execFileSync } from 'node:child_process';
@@ -1144,8 +1144,9 @@ export class Supervisor {
       // that marked its row done, or a row she archived, still left commits
       // in S3, and they are kept there only seven days. So the record stays
       // until the folder holds them (Codex, 2026-10-13).
-      if (rec.cloud && rec.cwd && cloudWorkPending(rec.cwd) && (!item || (item.status !== 'open' && item.status !== 'claimed'))) {
-        this._bringCloudHome(rec.cwd);
+      const place = rec.cloud ? this._cloudPlace(rec.cwd, rec.product, itemId) : null;
+      if (rec.cloud && rec.cwd && cloudWorkPending(place) && (!item || (item.status !== 'open' && item.status !== 'claimed'))) {
+        this._bringCloudHome(place);
         this._recoverPending = true;
         continue;
       }
@@ -1171,8 +1172,8 @@ export class Supervisor {
       // A CLOUD RUN THE QUIT CUT OFF: its transcript arrives with its work.
       // Bring that home and come back to this row on a later pass, rather
       // than reading the missing transcript as a session that is gone.
-      if (rec.cloud && !this.transcriptFile(rec) && rec.cwd && cloudWorkPending(rec.cwd)) {
-        this._bringCloudHome(rec.cwd);
+      if (rec.cloud && !this.transcriptFile(rec) && rec.cwd && cloudWorkPending(place)) {
+        this._bringCloudHome(place);
         out.queued += 1;
         this._recoverPending = true;
         continue;
@@ -4682,12 +4683,15 @@ export class Supervisor {
   }
 
   // Which rows may go to the cloud at all. A row needs its own task folder
-  // (the cloud run is that folder's branch, packed); a personal project, a
-  // command she typed, or a Remote Control session stays on this Mac.
+  // (the cloud run is that folder's branch, packed), or a project with no
+  // repository, which runs in its documents folder once the cloud image takes
+  // one; a personal project, a command she typed, or a Remote Control session
+  // stays on this Mac.
   _mayRunInCloud(item, product, cwd, { remoteOnly = false } = {}) {
     if (remoteOnly) return false;
     if (item?.id && this.threadOnMac?.[item.id] === true) return false;
-    if (!product?.repoPath || !cwd || cwd === product.repoPath) return false;
+    if (!product || !cwd || cwd === product.repoPath) return false;
+    if (cwd === product.dir ? !item?.id || !this._cloudTakesPlain() : !product.repoPath) return false;
     if ((this.config.personalProducts || []).includes(product.slug)) return false;
     return !item?.id?.startsWith?.('digest-');
   }
@@ -4698,8 +4702,9 @@ export class Supervisor {
   // the Mac first, the cloud when the Mac is full. `localFull` is a pinned
   // account with no room of its own on this Mac.
   _whereToRun({ item, product, cwd, engine, continuation = false, remoteOnly = false, localFull = false }) {
-    if (cwd && cloudWorkPending(cwd)) {
-      this._bringCloudHome(cwd);
+    const place = this._cloudPlace(cwd, item?.product, item?.id);
+    if (cwd && cloudWorkPending(place)) {
+      this._bringCloudHome(place);
       return null;
     }
     // "EVERYTHING" (`cloudRuns: 'all'`): the cloud first, this Mac only for
@@ -4785,18 +4790,51 @@ export class Supervisor {
 
   // The project's documents folder, which a cloud run takes a copy of and
   // writes back into (main/cloud/docs.mjs).
+  // A project with no repository works in this folder, so its marker env goes too.
   _cloudDocsEnv(item) {
-    let dir = null;
-    try { dir = this.store.listProducts().find((p) => p.slug === item.product)?.dir ?? null; } catch { /* none */ }
-    return dir ? { AGENTBOX_DOCS: dir } : {};
+    let product = null;
+    try { product = this.store.listProducts().find((p) => p.slug === item.product) ?? null; } catch { /* none */ }
+    if (!product?.dir) return {};
+    const plain = this.productFolder(product) === product.dir;
+    return { AGENTBOX_DOCS: product.dir, ...(plain ? { AGENTBOX_CLOUD_MARKER: this._plainMarker(product.slug, item.id) } : {}) };
+  }
+
+  // A PROJECT WITH NO REPOSITORY runs in its documents folder, which all its
+  // threads share, so each thread's cloud marker is a file of its own here
+  // rather than one in the folder (main/cloud/marker.mjs).
+  _plainMarker(slug, id) {
+    const safe = (s) => String(s).replace(/[^A-Za-z0-9_-]/g, '_');
+    return path.join(this.userDir, 'cloud-runs', `${safe(slug)}--${safe(id)}.json`);
+  }
+
+  // Where a run in `cwd` keeps its marker: the folder, or the thread's own file.
+  _cloudPlace(cwd, slug, id) {
+    if (!cwd || !slug || !id) return cwd;
+    let product = null;
+    try { product = this.store.listProducts?.().find((p) => p.slug === slug) ?? null; } catch { /* none */ }
+    return product?.dir && cwd === product.dir ? { folder: cwd, file: this._plainMarker(slug, id) } : cwd;
+  }
+
+  // Whether the cloud image takes a run with no repository, as its last start
+  // said (main/cloud/config.mjs `imageCaps`), read at most every minute.
+  _cloudTakesPlain(now = Date.now()) {
+    if (!this._plainCapsAt || now - this._plainCapsAt > 60_000) {
+      const config = readCloudConfig(process.env, this.config.home);
+      this._plainCaps = !!config && imageCaps(config, process.env, this.config.home).includes('plain');
+      this._plainCapsAt = now;
+    }
+    return this._plainCaps;
   }
 
   // Brings home a cloud run that ended while nothing was there to receive it
   // (an app that quit, an import that failed). One at a time per folder, and
   // not more than every two minutes; a tick picks the folder up once it lands.
-  _bringCloudHome(folder) {
+  // `place` is a folder, or `_cloudPlace`'s { folder, file }.
+  _bringCloudHome(place) {
+    const folder = typeof place === 'object' && place ? place.folder : place;
+    const file = typeof place === 'object' && place ? place.file : null;
     this._homecomings ??= new Map();
-    const last = this._homecomings.get(folder);
+    const last = this._homecomings.get(file || folder);
     if (last && (last.child || Date.now() - last.at < 120_000)) return;
     // This app's own tool servers as they are now, for a run the last app
     // left going: the approvals key is made fresh at every start, and one from
@@ -4808,7 +4846,7 @@ export class Supervisor {
     try {
       child = this._spawnCloudRelay(['--agentbox-import-only'], {
         cwd: folder,
-        env: { ...this._workerEnv(), ...(mcp ? { AGENTBOX_MCP_CONFIG: mcp } : {}) },
+        env: { ...this._workerEnv(), ...(mcp ? { AGENTBOX_MCP_CONFIG: mcp } : {}), ...(file ? { AGENTBOX_CLOUD_MARKER: file } : {}) },
         stdio: ['ignore', 'ignore', 'pipe'],
       });
     } catch (error) {
@@ -4817,7 +4855,7 @@ export class Supervisor {
       return;
     }
     const rec = { child, at: Date.now() };
-    this._homecomings.set(folder, rec);
+    this._homecomings.set(file || folder, rec);
     child.stderr?.on('data', (d) => console.warn(String(d).trim()));
     child.on('error', () => { forget(); rec.child = null; rec.at = Date.now(); });
     child.once('exit', () => { forget(); rec.child = null; rec.at = Date.now(); this._sayCloudNews(folder); this.wake?.(); });
@@ -4961,7 +4999,7 @@ export class Supervisor {
     if (!item || String(item.id || '').startsWith('digest-')) return false;
     if (this.threadOnMac?.[item.id] === true) return false;
     const product = this.store.listProducts?.().find((p) => p.slug === item.product);
-    if (!product?.repoPath) return false;
+    if (!product?.repoPath && !(product?.dir && this._cloudTakesPlain())) return false;
     return !(this.config.personalProducts || []).includes(product.slug);
   }
 

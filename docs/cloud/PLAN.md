@@ -200,6 +200,16 @@ cloud Codex thread gets an app-server of its OWN, in its sandbox:
   writes there comes back every 10 s and at the end, never over a file changed
   on the Mac meanwhile, and never over one the run did not take (`docs.sent` in
   the marker): those keep their place and the run's copy goes beside them.
+- **A project with no repository runs in the cloud too (2026-10-20).** Its
+  agent works in the documents folder, so the run sends no bundle (`plain` in
+  the start) and its documents are its folder; what comes home is the
+  documents and the conversation. Every thread of such a project shares that
+  folder, so each keeps its marker in the app's own data
+  (`cloud-runs/<project>--<thread>.json`, Supervisor#_plainMarker), not in a
+  git directory. Only once the image says `plain` in its caps; until then those
+  threads run on the Mac as before. Before this, Personal, My Workspace and
+  Direct were 17 of the founder's 31 open threads, all on the Mac with
+  Everything on.
 - **The Mac sleeping is not a restart.** The app, the proxy, the store server
   and the approvals server all freeze together and thaw together; their memory
   is intact. The sandbox keeps going. A store call it makes while the Mac
