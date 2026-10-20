@@ -640,8 +640,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
    * THE QUESTION A CLOSE ASKS when tasks this thread filed are still waiting
    * (w-d2744c6daa, ../close-asks-first.ts). While it is up it stands where the
    * thread's own options stand, and the number keys answer it (App.tsx).
+   * `raised` counts each close that raised it, so each one scrolls to it.
    */
-  closeAsk?: { ask: string; options: ParsedOption[]; onPick: (n: number) => void; keep: { label: string; onKeep: () => void } } | null;
+  closeAsk?: { ask: string; options: ParsedOption[]; raised: number; onPick: (n: number) => void; keep: { label: string; onKeep: () => void } } | null;
   // Said out loud when a file a worker named is not in this product. Nothing
   // else on the card can tell her a chip failed.
   onNotice: (text: string) => void;
@@ -988,6 +989,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   useEffect(() => {
     if (selectedOption !== null) selRef.current?.scrollIntoView({ block: 'nearest' });
   }, [selectedOption]);
+
+  // A close raises its question at the foot of the thread, which is off
+  // screen whenever the reader has scrolled up (w-23de8a26c0).
+  const closeAskRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (closeAsk) closeAskRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [closeAsk?.raised]);
 
   // THE OPTION UNDER THE POINTER, IN FULL, IN A CARD OVER THE MESSAGE. The
   // rules live in ../option-peek: hover only, and only on an option the strip
@@ -1758,6 +1766,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             selectedOption={selectedOption} selRef={selRef}
             onPick={closeAsk.onPick} onOptionEnter={() => {}} onAskEnter={() => {}}
             setPeek={() => {}} setAskPeek={() => {}} keep={closeAsk.keep}
+            stripRef={closeAskRef}
           />
         )}
         {offerInPane && (closeAsk ? null : (
@@ -1968,6 +1977,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               selectedOption={selectedOption} selRef={selRef}
               onPick={closeAsk.onPick} onOptionEnter={() => {}} onAskEnter={() => {}}
               setPeek={() => {}} setAskPeek={() => {}} keep={closeAsk.keep}
+              stripRef={closeAskRef}
             />
           )}
           {offerInDock && (closeAsk ? null : (

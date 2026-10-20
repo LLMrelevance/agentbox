@@ -625,6 +625,21 @@ const DEAD_RUN_OPENERS = {
   unknown: 'stopped before it did anything, so this task has not been started.',
 };
 
+// The same, for a run that used a tool before it died, so "nothing has been
+// done" would be false. Kept out of DEAD_RUN_OPENERS so `deadRunCause` does
+// not count the row among those nothing has started on. A cause missing here
+// can only stop a run before its first tool, so on a run that worked it is a
+// misreading and gets the plain line.
+const WORKED_OPENERS = {
+  'signed-out': 'was signed out partway through, so this task is not finished.',
+  'org-blocked': 'was switched off for that account partway through, so this task is not finished.',
+  'subscription-ended': "stopped partway through because that account's subscription ended.",
+  'at-limit': 'hit its usage limit partway through, so this task is not finished.',
+  interrupted: 'was cut off partway through, so this task is not finished.',
+  network: 'lost its secure connection partway through, so this task is not finished.',
+  unknown: 'stopped partway through and did not finish this task.',
+};
+
 /**
  * THE LINE IN A THREAD WHERE A RUN STOPPED, in our words.
  *
@@ -674,8 +689,9 @@ function dayWords(ms) {
 //
 // `planEnded` is when that login's paid ChatGPT plan ended (main/codex-account.mjs
 // `codexPlanEnded`), which is why its list lacks `model`.
-export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, elsewhere = false, model = null, planEnded = null } = {}) {
-  const opener = `${engineWord} ${DEAD_RUN_OPENERS[cause] ?? DEAD_RUN_OPENERS.unknown}`;
+export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, elsewhere = false, worked = false, model = null, planEnded = null } = {}) {
+  if (worked && !WORKED_OPENERS[cause]) cause = 'unknown';
+  const opener = `${engineWord} ${(worked ? WORKED_OPENERS : DEAD_RUN_OPENERS)[cause] ?? DEAD_RUN_OPENERS.unknown}`;
 
   const again = runs > 1 ? ` This has happened ${runs} times on this task.` : '';
 
@@ -710,6 +726,8 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
           ? ' Pick another thinking level for this task and it will run.'
         : cause === 'network'
           ? ` It will keep failing until this is fixed: if your company uses a proxy or its own certificate, ${NETWORK_FIX} and reopen ${Name}.`
+        : worked
+          ? ` ${Name} tries it again on its own.`
         : cause === 'workspace'
           ? ` ${Name} keeps trying, and it will keep failing the same way until this is fixed.`
         : ` ${UNNAMED_CHECK[engineWord] ?? ''}${Name} tries again on its own.`;

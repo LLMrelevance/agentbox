@@ -4,7 +4,7 @@ import {updateFixture} from './agent-update-fixture';
 // bridge; fixtures mode (?fixtures=1) serves canned data so the UI can be
 // developed, reviewed, and screenshotted without a live store or any agents.
 
-import type { AccountUsageReading, AgentConversation, AnswerMode, DemoOpened, FolderListing, FreshUser, PermissionMode, PhoneLink, PhoneRoute, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, TeamMessageFile, ThreadEditPatch, UpdateState, Usage, WorkItem } from './types';
+import type { AccountUsageReading, AgentConversation, AnswerMode, CodexModeId, DemoOpened, FolderListing, FreshUser, PermissionMode, PhoneLink, PhoneRoute, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, TeamMessageFile, ThreadEditPatch, UpdateState, Usage, WorkItem } from './types';
 import type { LedgerLine } from './thread-history';
 import type { AgentFile as AgentFileRow } from './onboarding';
 import type { AgentFolder, SessionThread } from './agent-import-card';
@@ -163,9 +163,11 @@ if (twoLogins) {
   const [first, second] = fixtureSettingsState.workspace.accounts;
   if (first) first.chosen = false;
   if (second) second.chosen = true;
-  // &cloudperm=<mode> draws the cloud on its own permission mode.
+  // &cloudperm=<mode> and &cloudcodexmode=<mode> draw the cloud on its own
+  // permission modes; unset, on the cloud's defaults.
   fixtureSettingsState.workspace.permission = 'auto';
-  fixtureSettingsState.workspace.cloudPermission = params.get('cloudperm') || null;
+  fixtureSettingsState.workspace.cloudPermission = (params.get('cloudperm') as PermissionMode | 'same' | null) || 'bypassPermissions';
+  fixtureSettingsState.workspace.cloudCodexMode = (params.get('cloudcodexmode') as CodexModeId | 'same' | null) || 'full-access';
 }
 
 function fixtureAccountUsage(): AccountUsageReading[] {
@@ -381,6 +383,8 @@ export const api = {
                 { span: 'week', qualifier: 'all models', name: 'This week', percent: 9, resetsText: '4pm', resetsOn: 'Oct 22', resetsAt: null, zone: null },
               ] : null,
             },
+            // &cloudcodex adds a Codex login in the cloud, so the Codex page draws its cloud rows.
+            ...(params.has('cloudcodex') ? [{ engine: 'codex' as const, key: 'c1', name: null, ready: true, state: 'ready' as const }] : []),
           ],
           signIns: [],
         } as typeof base.cloud;
@@ -1094,6 +1098,16 @@ export const api = {
      */
     if (useFixtures && engineFixtures === 'nowhere') {
       return { engine, phase: 'idle', error: null, log: '', found: false, signedIn: false };
+    }
+    /*
+     * AND THE MACHINE MOST PEOPLE ARRIVE ON (w-e217e577e5): Claude signed in
+     * already, nothing else here. Every fixture copy answers `assumeReady` for
+     * BOTH agents, which is a machine almost nobody has, so the screen that
+     * says what was found could only ever be photographed saying it found two.
+     */
+    if (useFixtures && engineFixtures === 'ready') {
+      const mine = engine === 'claude';
+      return { engine, phase: mine ? 'ready' : 'idle', error: null, log: '', found: mine, signedIn: mine };
     }
     // AND THE MACHINE THE QUESTION MUST NOT ASK: Codex on the disk, signed out.
     // `afterCheck` reads this as "we already know which plan they have".

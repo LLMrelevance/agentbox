@@ -983,8 +983,9 @@ export interface WorkspaceSettings {
   } | null;
   permission: PermissionMode;
   permissionArgs: string[];
-  /** The mode cloud runs start in, or null for this computer's. */
-  cloudPermission?: PermissionMode | null;
+  /** The mode cloud runs start in, or 'same' for this computer's. */
+  cloudPermission?: PermissionMode | 'same' | null;
+  cloudCodexMode?: CodexModeId | 'same';
   /** What a Codex worker may do across the workspace. Never 'workspace' here. */
   codexMode: CodexModeId;
   // One switch over everything that leaves the machine, on at install

@@ -96,7 +96,7 @@ import { importedAgentBrief, importedAgentName, THREAD_LABEL } from '../shared/a
 import { readTranscriptHead } from './agent-sessions.mjs';
 import { readPlan } from './claude-plan.mjs';
 import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
-import { readDeadRunTrace, traceShowsASilentDeath } from '../shared/dead-run-trace.mjs';
+import { readDeadRunTrace, traceShowsASilentDeath, tracesAToolCall } from '../shared/dead-run-trace.mjs';
 import { commandPrompt } from '../shared/claude-commands.mjs';
 import { machineryPath, storeRootEnv } from './store/home.mjs';
 import { setModelArg } from './settings.mjs';
@@ -126,6 +126,7 @@ import { codexLaunchEnv } from './codex-launch-env.mjs';
 import { CodexUsage } from './codex-usage.mjs';
 import { createCodexWorker, mcpServerNames, workerThreadParams } from './codex-session.mjs';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
+import { cloudCodexMode } from './cloud-permission.mjs';
 import { createCodexApprovals } from './codex-approvals.mjs';
 import { approvalPublicKey } from './approvals.mjs';
 import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexModels } from './codex-models.mjs';
@@ -1996,7 +1997,7 @@ export class Supervisor {
     // because a row somebody is already preparing is never a row to spawn on.
     const held = this._preparing.get(item.id);
     if (held) { held.item = item; held.opts = opts; this._saveState(); return true; }
-    if (fs.existsSync(folder)) return false;
+    // A folder already there is made ready here too: `restoreTaskFolder` runs git over it.
     const entry = { item, opts, engine };
     this._preparing.set(item.id, entry);
     this._saveState();
@@ -3018,6 +3019,7 @@ export class Supervisor {
       const planEnded = cause === 'model-not-on-plan' && !elsewhere && engineOf(session?.engine) === 'codex'
         ? codexPlanEnded(this._codexProfileHome(session.profile))
         : null;
+      const worked = !!session.usedATool;
       const result = deadRunSentence({
         // THE ENGINE THAT ACTUALLY DIED, not the one that usually does. This was
         // the literal 'Claude Code' from the day there was only one, and
@@ -3029,6 +3031,7 @@ export class Supervisor {
         cause,
         runs,
         resetsAt,
+        worked,
         // A LIMIT ON ONE LOGIN IS NOT A WAIT WHEN ANOTHER HAS ROOM. The row
         // was promising a reset hours away while `restingUntil` was already
         // waking it for the free login, so the sentence and the fleet said
@@ -3055,13 +3058,15 @@ export class Supervisor {
         // diagnosis is already worked out a few lines up, this is the only
         // place that has the dying session's own words to work it out from, and
         // keeping it costs nothing.
-        seen.saidWhy = cause;
+        // A run that used a tool did start, so it is not counted there.
+        if (worked) delete seen.saidWhy; else seen.saidWhy = cause;
         if (resetsAt) seen.resetsAt = resetsAt; else delete seen.resetsAt;
         // WHEN THIS ROW GOT STUCK, which is the first of these failures and not
         // the newest. `sayItOnEveryStrandedRow` gives the reason at length: a
         // row retried every fifteen minutes would otherwise read as fifteen
         // minutes old forever and never reach the twenty minutes the line waits.
-        seen.strandedSince = seen.strandedSince ?? seen.saidAt;
+        if (worked) delete seen.strandedSince;
+        else seen.strandedSince = seen.strandedSince ?? seen.saidAt;
         this._saveState();
       }
     } catch (e) {
@@ -3311,11 +3316,19 @@ export class Supervisor {
             cause,
             runs: seen.runs,
             resetsAt,
+            worked: trace.worked,
           }),
           status: 'open',
         });
         seen.saidAt = seen.endedAt ?? now;
         seen.saidTs = written?.wrote?.result?.ts ?? now;
+        if (trace.worked) {
+          delete seen.saidWhy;
+          delete seen.resetsAt;
+          delete seen.strandedSince;
+          dirty = true;
+          continue;
+        }
         seen.saidWhy = cause;
         // KEPT, because the line above the list wants the same hour and the
         // trace it came off is not read again after this pass.
@@ -4265,8 +4278,8 @@ export class Supervisor {
   async _cloudClients() {
     const config = readCloudConfig(process.env, this.config.home);
     if (!config) throw new Error('the cloud is not set up here');
-    const { awsTransport, awsStorage } = await import('./cloud/aws.mjs');
-    return { transport: awsTransport(config), storage: awsStorage(config) };
+    const { cloudClients } = await import('./cloud/clients.mjs');
+    return cloudClients(config, { home: this.config.home });
   }
 
   // THE CLOUD SETUP'S SIGN-IN. `start` adds a new account of an engine (or,
@@ -5335,6 +5348,11 @@ export class Supervisor {
   }
 
   status() {
+    // One read of the threads for the whole answer: this runs for every
+    // request the window makes.
+    const readAt = Date.now();
+    let threads = null;
+    const allThreads = () => (threads ??= this.store.listItems(readAt));
     // Stalled: the founder's answer is marked delivered, but nobody is on the
     // item and it never moved. A worker ran and exited without finishing (a
     // refused tool, a crash after the mark, a session that wrote to nowhere).
@@ -5349,7 +5367,7 @@ export class Supervisor {
     // something went wrong or it means nothing at all.
     let stalled = [];
     try {
-      stalled = this.store.listItems(Date.now())
+      stalled = allThreads()
         .filter((i) => i.status === 'open' && i.answer && i.answer !== '(withdrawn)'
           && !this.sessions.has(i.id)
           && !answerSettled(i)
@@ -5366,7 +5384,7 @@ export class Supervisor {
     let scheduled = [];
     try {
       const nowTs = Date.now();
-      scheduled = this.store.listItems(nowTs)
+      scheduled = allThreads()
         .filter((i) => i.status === 'open' && !this.store.isDue(i, nowTs))
         .map((i) => i.id);
     } catch {}
@@ -5385,7 +5403,7 @@ export class Supervisor {
       // a row a person holds on nobody's, by the same rule the tick obeys.
       const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
       const me = process.env.AGENTBOX_PERSON_ID;
-      queued = this.store.listItems(nowTs)
+      queued = allThreads()
         .filter((i) => mayRunHere(i, productBySlug.get(i.product), me))
         // NOTHING RUNS IN THE PRACTICE PROJECT, so nothing there is waiting
         // its turn. The tick skips these (`noWorkHere`) and `spawnWorker`
@@ -5419,21 +5437,21 @@ export class Supervisor {
     try {
       const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
       const me = process.env.AGENTBOX_PERSON_ID;
-      signInNeeded = this._waitingOnSignIn(this.store.listItems(Date.now())
+      signInNeeded = this._waitingOnSignIn(allThreads()
         .filter((i) => mayRunHere(i, productBySlug.get(i.product), me)));
     } catch {}
     let atLimit = {};
     try {
       const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
       const me = process.env.AGENTBOX_PERSON_ID;
-      atLimit = this._waitingOnLimit(this.store.listItems(Date.now())
+      atLimit = this._waitingOnLimit(allThreads()
         .filter((i) => mayRunHere(i, productBySlug.get(i.product), me)));
     } catch {}
     // ROWS THE SHIP QUEUE STILL OWES A SHIP (w-0c1ba766eb). Waiting on the
     // app and not on a person, so the window keeps them in In progress until
     // they have shipped or gone back to their agent.
     let shipping = [];
-    try { shipping = this.shipQueue.waitingIds(this.store.listItems(Date.now()), this.store.listProducts?.() ?? []); } catch {}
+    try { shipping = this.shipQueue.waitingIds(allThreads(), this.store.listProducts?.() ?? []); } catch {}
     return {
       paused: this.paused,
       shipping,
@@ -5481,7 +5499,7 @@ export class Supervisor {
       scheduled,
       // ROWS WHOSE LAST RUN ENDED WITHOUT SAYING ANYTHING. The row says so.
       // See `_silentRows`.
-      silent: this._silentRows(),
+      silent: this._silentRows(allThreads),
       productOrder: this.productOrder,
       hiddenProducts: [...this.hiddenProducts],
       capacity: this._capacity(),
@@ -5533,10 +5551,10 @@ export class Supervisor {
    * conversation and a sentence about the last run stops being the news. A row
    * with a live session, or one she has answered, is not here either.
    */
-  _silentRows() {
+  _silentRows(allThreads = () => this.store.listItems(Date.now())) {
     const out = {};
     let items;
-    try { items = this.store.listItems(Date.now()); } catch { return out; }
+    try { items = allThreads(); } catch { return out; }
     for (const item of items) {
       if (item.status !== 'open') continue;
       // Her answer is a different story with its own telling: a run that died
@@ -7424,7 +7442,7 @@ export class Supervisor {
       // thread already running cannot un-launch them. Read fresh for THIS start
       // rather than once per app-server, and never caught: see `_codexIsolation`.
       ready: this._codexIsolation(client, handshake),
-      threadParams: (mcpServers) => this.codexThreadParamsFor(plan, cwd, mcpServers, storeServer, home),
+      threadParams: (mcpServers) => this.codexThreadParamsFor(plan, cwd, mcpServers, storeServer, home, { cloud }),
       turnParams: this.codexTurnParamsFor(plan),
       resumeThreadId: plan.resumeId,
       // The card, which is the other half of what a worker needs to be able to
@@ -7572,7 +7590,7 @@ export class Supervisor {
    */
   // `home` is the login this thread runs on. Its own list is the one checked:
   // reading the main login's let a free-plan login be handed gpt-6.1-sol.
-  codexThreadParamsFor(plan, cwd, mcpServers, storeServer, home = this._codexHome()) {
+  codexThreadParamsFor(plan, cwd, mcpServers, storeServer, home = this._codexHome(), { cloud = false } = {}) {
     // ASKED HERE RATHER THAN CARRIED ON THE PLAN. A precomputed field would be
     // a second copy of this decision that a caller can forget to set, and the
     // way it fails is a word Codex cannot read reaching `thread/start` -- which
@@ -7607,8 +7625,9 @@ export class Supervisor {
       // engine's word, so this keeps only a Codex one and lets a Claude mode
       // fall through as though nothing were set (main/answer-modes.mjs says
       // why one field serves both).
-      mode: (isCodexMode(plan?.answerMode) ? plan.answerMode : null)
-        || this.effectiveCodexMode(plan?.product ?? ''),
+      mode: cloud
+        ? cloudCodexMode(this.config.cloudCodexMode, plan?.answerMode, this.effectiveCodexMode(plan?.product ?? ''))
+        : (isCodexMode(plan?.answerMode) ? plan.answerMode : null) || this.effectiveCodexMode(plan?.product ?? ''),
     });
   }
 
@@ -8601,6 +8620,7 @@ export class Supervisor {
       if (stream(session, ...frame)) this.onChange?.();
       onLine(summarize(...frame));
       const detail = traceOne(...frame);
+      if (detail && !session.usedATool && tracesAToolCall(detail)) session.usedATool = true;
       if (detail) try { trace?.write(detail + '\n'); } catch {}
     };
     // A Codex worker has no stdout of ours to read: main/codex-session.mjs
