@@ -13,10 +13,11 @@
 // Measured on the shipped list (2ed0cce): three filed threads, three separate
 // trips out of the pane and back. The two decisions this pins:
 //
-//   ONE ROW AT A TIME, never all of them. Approval is consequential and the
-//   app has already been burned by a key that approved in bulk on her behalf
-//   (the E-key comment in App.tsx's resolve). Three proposals are three
-//   decisions; one button cannot stand for all three.
+//   ONE PRESS PER ROW. Approval is consequential and the app has already been
+//   burned by a key that approved on someone's behalf (the E-key comment in
+//   App.tsx's resolve). Asked for later, the count line gained a Start all
+//   for the lot (w-fe64f35bdd, tests/one-press-starts-every-proposal-in-the-list);
+//   each row's own press is unchanged.
 //
 //   AND THE WORD BECOMES "In progress", which is the word the tab already
 //   uses. Nothing new is invented: the approve puts the row in the pending
