@@ -217,6 +217,12 @@ const HUNG_REPEAT_WINDOW_MS = 2 * 3_600_000;
 // with it. Past this the item stops respawning and reads as stopped, which is
 // then a report of three real failures rather than of one unnoticed death.
 const MAX_DELIVERY_ATTEMPTS = 3;
+// NO THREAD IS STARTED OVER AND OVER WITHOUT A WORD (`_heldFromStarting`).
+// This many starts inside the window, each ending before its agent began,
+// and the thread is not started again until she writes on it. Every other
+// limit here is keyed to one way of failing; this one is not.
+const STORM_STARTS = 6;
+const STORM_WINDOW_MS = 10 * 60_000;
 // How many cloud runs may be packing and sending at once (`_cloudStarting`).
 // Turning the cloud on with Everything once started up to ten together.
 const CLOUD_STARTING_AT_ONCE = 2;
@@ -494,6 +500,7 @@ export class Supervisor {
       // every app restart resumed the every-tick loop from zero, and restarts
       // are frequent. It is keyed and cleared exactly like _deliveryAttempts.
       this._fruitless = state.fruitless ?? {};
+      this._heldStarts = state.heldStarts ?? {};
       // WHAT IS WRONG WITH EACH ACCOUNT, KEPT ACROSS A RESTART (w-cf0e8821b3).
       //
       // The app came back up knowing that nothing was running and no longer
@@ -4587,6 +4594,49 @@ export class Supervisor {
     return true;
   }
 
+  // EVERY RUN THAT ENDS, before anything else is decided about it: did its
+  // agent get going? A run that ended at once without, STORM_STARTS times in
+  // STORM_WINDOW_MS, holds the thread and says so on its row, once. A run we
+  // stopped says nothing about the thread.
+  _noteHowTheRunStarted(item, session) {
+    if (!item?.id || !session) return;
+    const key = `${item.product}:${item.id}`;
+    this._deadStarts ??= {};
+    if (session.sessionId != null || session.result != null) { delete this._deadStarts[key]; return; }
+    const now = Date.now();
+    if (session.stoppedByUs || now - (session.startedAt ?? now) >= FAST_EXIT_MS) return;
+    const starts = (this._deadStarts[key] ?? []).filter((t) => now - t < STORM_WINDOW_MS);
+    starts.push(now);
+    this._deadStarts[key] = starts;
+    this._heldStarts ??= {};
+    if (starts.length < STORM_STARTS || this._heldStarts[key]) return;
+    const said = (session.tail ?? []).filter((l) => typeof l === 'string' && l.startsWith('stderr:'))
+      .flatMap((l) => l.slice('stderr:'.length).split('\n')).map((l) => l.trim()).filter(Boolean).at(-1) ?? null;
+    this._heldStarts[key] = { since: now, said };
+    this._saveState();
+    try {
+      this.store.recordSessionResult(item.product, item.id, {
+        result: `${Name} stopped starting this thread: it was started ${starts.length} times in ${Math.round(STORM_WINDOW_MS / 60_000)} minutes, and every run ended before its agent began.${said ? ` The last one said: "${said.slice(0, 300)}".` : ''} Reply here to try again.`,
+        status: 'blocked',
+      });
+    } catch (e) { console.warn(`${nameSlug}: could not say that a thread stopped starting:`, e.message); }
+    this.onChange?.();
+  }
+
+  // Held until she writes on the row.
+  _heldFromStarting(item) {
+    const key = `${item?.product}:${item?.id}`;
+    const held = this._heldStarts?.[key];
+    if (!held) return false;
+    if (lastFounderWrite(item) > held.since) {
+      delete this._heldStarts[key];
+      delete this._deadStarts?.[key];
+      this._saveState();
+      return false;
+    }
+    return true;
+  }
+
   _cloudHealthNow(now = Date.now()) {
     const h = this._cloudHealth;
     if (!h?.faults) return { health: 'ok', lastError: null, restingUntil: null };
@@ -5211,6 +5261,7 @@ export class Supervisor {
         lastDigestTry: this.lastDigestTry,
         deliveryAttempts: this._deliveryAttempts,
         fruitless: this._fruitless,
+        heldStarts: this._heldStarts,
         // Why each account cannot be used, so a restart does not go back to
         // knowing that nothing runs without knowing why.
         profileTrouble: this._profileTrouble,
@@ -8024,6 +8075,7 @@ export class Supervisor {
   }
 
   spawnWorker(item, { continuation = false, resumeSessionId = null, profile: forcedProfile = null, engine: forcedEngine = null, remoteOnly = false, shipFailure = null } = {}) {
+    if (this._heldFromStarting(item)) return;
     if (this._compactionJobs?.has(JSON.stringify([item.product, item.id]))) return;
     // ASKED ONCE, HERE, AND ANSWERED CLAUDE CODE ON EVERY MACHINE TODAY. See
     // `_engineFor` for the two independent reasons why. It is asked ahead of
@@ -8567,6 +8619,7 @@ export class Supervisor {
       session.exitFailed = !!(signal || code !== 0 || session.transportFault || session.resultIsError || session.result == null);
       this.count?.('run_finished', runEndedProps(session, Date.now()));
       this._noteCloudOutcome(session, code, signal);
+      this._noteHowTheRunStarted(item, session);
       onLine(`session exited (${code})`);
       if (this._noteCloudHandBack(item, session)) onLine('the cloud handed this thread back to this computer');
       else if (this._cloudKeptOnMac(item, session, code, signal)) onLine('the cloud could not run this thread, so it runs on this computer from now on');

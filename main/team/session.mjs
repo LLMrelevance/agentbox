@@ -106,6 +106,13 @@ function fileStorage(file, { encrypt, decrypt }) {
   };
 }
 
+// A request to the account database that never answers is ended: its
+// library waits for ever, and the phone's and the team's sync wait on it.
+// Long enough for a file going up on a slow network.
+const DATABASE_DEADLINE_MS = 5 * 60_000;
+export const withDeadline = (ms = DATABASE_DEADLINE_MS) => (url, init = {}) =>
+  fetch(url, { ...init, signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms) });
+
 export function supabaseSession({ cloudConfig, sessionFile, encrypt = null, decrypt = null, openExternal, packaged = isPackagedElectron(), testLogin = process.env.AGENTBOX_TEAM_TEST_LOGIN }) {
   const configured = !!cloudConfig;
   if (packaged) testLogin = null;
@@ -115,6 +122,7 @@ export function supabaseSession({ cloudConfig, sessionFile, encrypt = null, decr
     if (client) return client;
     const { createClient } = await import('@supabase/supabase-js');
     client = createClient(cloudConfig.url, cloudConfig.anonKey, {
+      global: { fetch: withDeadline() },
       auth: {
         flowType: 'pkce',
         storage: fileStorage(sessionFile, { encrypt, decrypt }),

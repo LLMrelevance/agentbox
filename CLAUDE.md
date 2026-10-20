@@ -45,6 +45,22 @@ it. Three are habits on every change:
 `correct` (turn a repeated mistake into a check that fails) and `interrogate`
 (Claude and Codex both review a diff) run when someone asks.
 
+## NOTHING RETRIES FOR EVER, NOTHING WAITS FOR EVER, NOTHING FAILS IN SILENCE (2026-10-19)
+
+One cloud thread's start died in under a second, every 15 seconds, 16,135
+times over 30 hours, because its exit meant "try again, no attempt spent";
+another run hung for good on an AWS call whose timeout only warned. Neither
+said a word, and with the cloud on nothing else ran. Two tests now hold the
+line, so build with them, not around them:
+
+- Every run starts through `spawnWorker`, which asks `_heldFromStarting`, and
+  every run's end is counted by `_noteHowTheRunStarted`: six starts in ten
+  minutes that each ended before the agent began hold the thread and say so on
+  its row (`tests/no-thread-is-started-over-and-over-without-a-word`). A new
+  way to start or end a run goes through both.
+- Every network call has a deadline that ends it
+  (`tests/no-network-call-in-the-app-can-wait-forever`).
+
 ## SHIPPING IS ONE COMMAND: `npm run ship`
 
 Several agents work this repository at once, so the order of operations is not

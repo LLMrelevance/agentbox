@@ -43,34 +43,34 @@ describe('how far back it reaches', () => {
     claudeSession({ id: 'summer', when: NOW - 100 * DAY, said: 'Reopen the Powerup application' });
   });
 
-  it('finds a chat from a hundred days ago that the ten-day list does not offer', () => {
-    expect(shallow().map((t) => t.id)).toEqual(['today']);
-    expect(deep().threads.map((t) => t.id).sort()).toEqual(['summer', 'today']);
+  it('finds a chat from a hundred days ago that the ten-day list does not offer', async () => {
+    expect((await shallow()).map((t) => t.id)).toEqual(['today']);
+    expect((await deep()).threads.map((t) => t.id).sort()).toEqual(['summer', 'today']);
   });
 
-  it('keeps the newest first, so the list reads the same way the card does', () => {
-    expect(deep().threads.map((t) => t.id)).toEqual(['today', 'summer']);
+  it('keeps the newest first, so the list reads the same way the card does', async () => {
+    expect((await deep()).threads.map((t) => t.id)).toEqual(['today', 'summer']);
   });
 
-  it('leaves out what is older than its window', () => {
+  it('leaves out what is older than its window', async () => {
     claudeSession({ id: 'ancient', when: NOW - (SEARCH_DAYS + 30) * DAY, said: 'The very first thing' });
-    expect(deep().threads.map((t) => t.id)).not.toContain('ancient');
+    expect((await deep()).threads.map((t) => t.id)).not.toContain('ancient');
   });
 
-  it('reaches a year back, because "older" means months and not a fortnight', () => {
+  it('reaches a year back, because "older" means months and not a fortnight', async () => {
     expect(SEARCH_DAYS).toBeGreaterThanOrEqual(365);
   });
 });
 
 describe('what it says when there were too many to open', () => {
-  it('reports nothing when it read the whole window', () => {
+  it('reports nothing when it read the whole window', async () => {
     claudeSession({ id: 'one', when: NOW - 5 * DAY });
-    expect(deep().reached).toBe(0);
+    expect((await deep()).reached).toBe(0);
   });
 
-  it('stops at the cap and hands back the moment it stopped at', () => {
+  it('stops at the cap and hands back the moment it stopped at', async () => {
     for (let i = 0; i < 6; i += 1) claudeSession({ id: `s${i}`, when: NOW - (i + 1) * DAY });
-    const got = deep({ max: 3 });
+    const got = await deep({ max: 3 });
     expect(got.threads).toHaveLength(3);
     // Newest first, so the three it kept are the three newest and the moment
     // it stopped at is the oldest of those.
@@ -78,10 +78,10 @@ describe('what it says when there were too many to open', () => {
     expect(got.reached).toBe(NOW - 3 * DAY);
   });
 
-  it('a search of the cut-short read can still find what it did open', () => {
+  it('a search of the cut-short read can still find what it did open', async () => {
     claudeSession({ id: 'near', when: NOW - 1 * DAY, said: 'Reopen the Powerup application' });
     for (let i = 0; i < 5; i += 1) claudeSession({ id: `pad${i}`, when: NOW - (i + 2) * DAY });
-    const got = deep({ max: 2 });
+    const got = await deep({ max: 2 });
     expect(got.threads.map((t) => t.id)).toContain('near');
     expect(got.reached).toBeGreaterThan(0);
   });
