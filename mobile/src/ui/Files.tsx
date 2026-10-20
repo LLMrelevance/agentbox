@@ -9,6 +9,7 @@ import { docKind } from '../../../renderer/src/doc-pane';
 import { fileGlance, type Glance } from '../../../renderer/src/file-glance';
 import { folderTitle } from '../../../renderer/src/mentions';
 import { docOnPhone, folderPictures, openingOf, pageOnPhone, pictureLink, sentEmbeds, threadFilePaths, typedWords } from '../lib/files';
+import { withDeadline } from '../lib/deadline';
 import { useCloud } from '../state/cloud';
 import { Markdown, type MessageFiles } from './Markdown';
 import { PageFrame } from './PageFrame';
@@ -16,7 +17,7 @@ import { T } from './parts';
 import { color, font } from './theme';
 
 export const readLink = async (url: string) => {
-  const res = await fetch(url);
+  const res = await withDeadline(fetch)(url);
   if (!res.ok) throw new Error('This page could not be read.');
   return res.text();
 };
