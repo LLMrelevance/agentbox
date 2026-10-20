@@ -179,8 +179,10 @@ function fixtureAccountUsage(): AccountUsageReading[] {
   });
   const [first, second] = fixtureSettingsState.workspace.accounts;
   const week = now + 6 * 86_400_000;
+  // &usagefail: the first login's last refresh failed, so it keeps a reading two hours old.
+  const failed = params.has('usagefail') ? { at: now - 2 * 3_600_000, error: USAGE_UNREADABLE } : { at: now - 60_000 };
   return [
-    { profile: first.profile, at: now - 60_000, limits: [limit('session', twoLogins ? 100 : 42, '5:09pm', at(17, 9)), limit('week', 15, '11:59am', week, 'all models')] },
+    { profile: first.profile, ...failed, limits: [limit('session', twoLogins ? 100 : 42, '5:09pm', at(17, 9)), limit('week', 15, '11:59am', week, 'all models')] },
     { profile: second.profile, at: now - 60_000, limits: [limit('session', 5, '8pm', at(20)), limit('week', 9, '4pm', week, 'all models')] },
   ];
 }
