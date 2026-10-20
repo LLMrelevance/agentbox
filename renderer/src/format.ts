@@ -123,6 +123,23 @@ export function itemOptions(item: HasFields): ParsedOption[] {
   return parseOptions(item[optionsFrom(item)]);
 }
 
+// With the options strip riding on the composer, the field's own "## Options"
+// section would say everything twice; drop the heading and its numbered items
+// (prose after the list stays). Only called while the strip is visible, and
+// only on the field the offer actually came from: an answered item keeps the
+// list where it was written, as the record of what was offered.
+export function stripOptionsSection(body: string): string {
+  const lines = body.split('\n');
+  const out: string[] = [];
+  let inOptions = false;
+  for (const line of lines) {
+    if (/^#{1,4}\s/.test(line)) inOptions = /option/i.test(line);
+    else if (inOptions && line.trim() && !/^\s*\d+[.)]\s/.test(line)) inOptions = false;
+    if (!inOptions) out.push(line);
+  }
+  return out.join('\n');
+}
+
 // AND WHETHER THE OFFER IS STILL LIVE, which is not the same as whether she has
 // ever replied on this row.
 //

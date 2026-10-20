@@ -346,14 +346,16 @@ export const INBOX_TABS: { view: TabView; label: string }[] = [
 const COUNTED: TabView[] = ['inbox', 'progress', 'snoozed'];
 
 /** `needs` renames the first tab (Waiting, once a teammate is on the page). */
-export function StateTabs({ view, counts, onView, needs, onSearch }: {
+export function StateTabs({ view, counts, onView, needs, onSearch, lit = false }: {
   view: TabView; counts: Partial<Record<TabView, number>>; onView: (v: TabView) => void; needs?: string;
   /** Draws Search at the row's right end (w-3c51d02de5). */
   onSearch?: () => void;
+  /** Something landed in Needs You since it was last open (w-22da913d00). */
+  lit?: boolean;
 }) {
   return <div className="th-bar"><div className="tm-tabs">
     {/* Every tab wears the Tab plate (hint-plate.ts, 'state-tab'). */}
-    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view ? ' on' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
+    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view ? ' on' : ''}${t.view === 'inbox' && lit && view !== 'inbox' ? ' fresh' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
   </div>{onSearch && <SearchButton onSearch={onSearch} />}</div>;
 }
 
@@ -519,14 +521,15 @@ export function RowCells({ live = false, cloud = false, lead, title, hidden = fa
 }
 
 /** A message's line: the other person's face and name, then what was said,
- *  "You: " first when you spoke last. A group names everyone else. */
-export function MessageTitle({ people, fromMe, text }: { people: string[]; fromMe: boolean; text: string }) {
+ *  "You: " first when you spoke last. A group names everyone else. `mark`
+ *  follows the name, because on a card the words are cut to one line. */
+export function MessageTitle({ people, fromMe, text, mark }: { people: string[]; fromMe: boolean; text: string; mark?: ReactNode }) {
   const team = useContext(TeamContext);
   const first = people.length ? team?.byId.get(people[0]) ?? null : null;
   const names = people.map((id) => (people.length > 1 ? firstName(team?.byId.get(id) ?? null) : team?.byId.get(id)?.name || firstName(team?.byId.get(id) ?? null))).join(', ');
   return <span className="th-msg">
     <Face person={first} />
-    <b className="th-msg-who">{names}</b>
+    <b className="th-msg-who">{names}{mark}</b>
     <span className="th-msg-text">{fromMe ? `You: ${text}` : text}</span>
   </span>;
 }
@@ -872,6 +875,10 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
           const pick = !!e.item && !!onMark;
           const on = pick && !!marked?.has(e.item!.id);
           const edge = isSelected(e) && !marked?.size;
+          const seen = e.item ? sharing(e.item) : null;
+          const who = seen === 'people' ? <SharedMark label="Visible to the people on it" /> : seen === 'private' ? <LockMark /> : null;
+          const pin = e.item?.pinned && e.item.status !== 'done' ? <PinMark size={13} className="th-pin" /> : null;
+          const marks = who || pin ? <>{who}{pin}</> : null;
           return <button type="button" key={e.key} className={`th-card${edge ? ' selected' : ''}${on ? ' picked' : ''}`}
           {...(pick ? { 'data-board-id': e.item!.id, 'aria-pressed': on } : {})}
           // A plain press and a pull up or down carries the card to a new
@@ -886,10 +893,8 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
             if (e.item) onOpenItem(e.item); else if (e.card) onOpenCard?.(e.card);
           }}>
           <div className="t">{e.message
-            ? <MessageTitle people={e.message.people} fromMe={e.message.fromMe} text={e.title ?? ''} />
-            : <TitleThenMark title={e.title ?? ''} mark={
-              e.item && sharing(e.item) === 'people' ? <SharedMark label="Visible to the people on it" />
-                : e.item && sharing(e.item) === 'private' ? <LockMark /> : null} />}
+            ? <MessageTitle people={e.message.people} fromMe={e.message.fromMe} text={e.title ?? ''} mark={pin} />
+            : <TitleThenMark title={e.title ?? ''} mark={marks} />}
           </div>
           <div className="m">{e.live && <RunningMark cloud={!!e.item && cloudIds.has(e.item.id)} />}{e.priority !== null && <PriorityMark id={priorityIdOf(e.priority)} />}<span className="p">{e.project}</span>
             {withOthers && <Face person={e.ownerId ? team?.byId.get(e.ownerId) ?? null : null} me={e.ownerId === me} />}</div>

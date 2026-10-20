@@ -10,23 +10,9 @@ import type { WorkItem } from '../types';
 import { dayAndTime, parseWhen } from '../format';
 import { scheduleSubtitle } from '../list-rules';
 import { SchedulePicker } from './SchedulePicker';
+import { laterPresets, type LaterPreset } from '../later-times';
 
-interface Preset { label: string; ts: number }
-
-function presets(now = Date.now()): Preset[] {
-  const list: Preset[] = [];
-  list.push({ label: 'In 30 minutes', ts: now + 30 * 60_000 });
-  list.push({ label: 'In 4 hours', ts: now + 4 * 3_600_000 });
-  const evening = new Date(now); evening.setHours(18, 0, 0, 0);
-  if (evening.getTime() > now) list.push({ label: 'This evening', ts: evening.getTime() });
-  const tomorrow = new Date(now + 86_400_000); tomorrow.setHours(8, 0, 0, 0);
-  list.push({ label: 'Tomorrow', ts: tomorrow.getTime() });
-  const monday = new Date(now);
-  monday.setDate(monday.getDate() + ((( 1 - monday.getDay()) + 7) % 7 || 7));
-  monday.setHours(8, 0, 0, 0);
-  list.push({ label: 'Next week', ts: monday.getTime() });
-  return list;
-}
+const presets = laterPresets;
 
 const fmt = (ts: number) => dayAndTime(ts).toUpperCase();
 
@@ -40,7 +26,7 @@ export function Snooze({ item, count = 1, onPick, onNow, onClose }: {
   onClose: () => void;
 }) {
   const options = useMemo(() => {
-    const base: Array<Preset & { now?: boolean }> = presets();
+    const base: Array<LaterPreset & { now?: boolean }> = presets();
     // "Now" only exists when the target is already scheduled: waking it is not
     // re-timing it, and it sits first so S then Enter is the way back.
     return onNow ? [{ label: 'Now (back to inbox)', ts: 0, now: true }, ...base] : base;

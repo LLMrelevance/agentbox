@@ -48,8 +48,9 @@ describe('what Undo takes back', () => {
   });
 });
 
+// The sending path the site and the phone app share (phone-send.ts).
 describe('the bridge', () => {
-  const src = () => import('node:fs').then((fs) => fs.readFileSync(new URL('../renderer/src/cloud-bridge.ts', import.meta.url), 'utf8'));
+  const src = () => import('node:fs').then((fs) => fs.readFileSync(new URL('../renderer/src/phone-send.ts', import.meta.url), 'utf8'));
   it('answers a new thread with the row it draws for it, so it has Undo and Open', async () => {
     expect(await src()).toMatch(/kind === 'new'[\s\S]{0,200}id: madeHere\(row\.id\)/);
   });
