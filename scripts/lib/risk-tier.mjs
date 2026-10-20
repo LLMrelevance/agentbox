@@ -18,7 +18,7 @@ const RANK = { low: 0, look: 1, risky: 2 };
 
 const ALWAYS_A_PERSON = [
   // shipping, the gates, and this gate
-  /^scripts\/ship\.mjs$/, /^scripts\/lib\/(ship-rules|tests-that-read|risk-tier)\.mjs$/, /^scripts\/risk(\.mjs|-gate\.json)$/,
+  /^scripts\/ship\.mjs$/, /^scripts\/lib\/(ship-rules|tests-that-read|tests-the-push-runs|risk-tier)\.mjs$/, /^scripts\/risk(\.mjs|-gate\.json)$/,
   /^scripts\/hooks\//, /^scripts\/(install-hooks|check-before-public|push-destination|test-what-changed|red-test-files)\.mjs$/,
   /^\.github\//, /^main\/ship-queue\.mjs$/, /^vitest\.config\.mjs$/,
   // how workers start, what they may do, and whose account pays

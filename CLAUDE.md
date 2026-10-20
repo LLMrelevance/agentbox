@@ -65,10 +65,18 @@ line, so build with them, not around them:
 
 Several agents work this repository at once, so the order of operations is not
 a matter of taste. Work on a branch `agentbox/<item id>` in a worktree, commit
-there, and ship with `npm run ship`: it fetches, merges main if it moved, runs
-the tests for what changed, and pushes, doing the whole lot again if somebody
-pushed first. The pre-push hook still runs the suite and the public check; the
-command is the order, not a way around the gates.
+there, and ship with `npm run ship`: it fetches, merges main if it moved, and
+pushes, doing the whole lot again if somebody pushed first. The command is the
+order, not a way around the gates.
+
+THE TESTS RUN ONCE PER SHIP, IN THE HOOK (2026-10-19). `npm run ship` used to
+run them and then push, and the push runs the pre-push hook, which ran the same
+set again; every ship paid for its gate twice, and a core change cost 12
+minutes. The hook is the one that was kept, and it stops at a cap: over 60 test
+files naming the change, it runs the ones most about it and GitHub runs the
+whole suite after the push (`scripts/lib/tests-the-push-runs.mjs`). So run
+`npm run test:changed` yourself before you say a branch is ready; the ship is
+not where you find out.
 
 Local `main` only ever points at something that is on the public `main`. Moving
 it onto a branch is refused (`scripts/hooks/reference-transaction`), because a
