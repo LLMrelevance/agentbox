@@ -54,9 +54,9 @@ import crypto from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { run } from './exec.mjs';
-import { readMarker, writeMarker, clearMarker, addCloudNews } from './marker.mjs';
+import { readMarker, writeMarker, clearMarker, addCloudNews, commonGitDirOf } from './marker.mjs';
 import { Name, nameSlug } from '../../shared/product-name.mjs';
 import { codexTranscriptFile } from '../codex-session.mjs';
 import { appendCloudUsage } from './usage.mjs';
@@ -162,8 +162,8 @@ export function transcriptFolderName(cwd) { return cwd.replace(/[^a-zA-Z0-9]/g, 
 // Code looks under the task folder's name instead (its transcripts' folder).
 // Null when there are none, or the folder is the main checkout.
 export function memoryFolderFor(cwd, configDir) {
-  let common;
-  try { common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); } catch { return null; }
+  const common = commonGitDirOf(cwd);
+  if (!common) return null;
   const root = path.dirname(common);
   if (realOrNull(root) === realOrNull(cwd)) return null;
   const dir = path.join(configDir, 'projects', transcriptFolderName(root), 'memory');

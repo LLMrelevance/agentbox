@@ -10,6 +10,11 @@
 // at every one of those calls, where it should never stop for more than a few
 // milliseconds.
 //
+// The stand-ins now take a second and the bar is 700 ms: a Mac at load 160
+// stands this process still for up to 400 ms with nothing wrong (measured
+// 2026-10-19, all of it ordinary work run slow), and that failed a 300 ms bar
+// on code that was fine. A synchronous call into a stand-in still fails it.
+//
 // Driven for real, as tests/a-cloud-run-brings-the-agents-work-home is: the
 // real sandbox server, a stand-in S3, the stand-in Claude Code, and the
 // project's documents, with a timer ticking every 10 ms beside the run.
@@ -32,7 +37,7 @@ const FAKE_CLAUDE = here('./fixtures/cloud/fake-claude.mjs');
 const FAKE_STORE = here('./fixtures/cloud/fake-store-server.mjs');
 const STUB = here('../cloud/sandbox/mcp-stub.mjs');
 const LOGIN = { engine: 'claude', id: 'L1', key: 'logins/claude/L1.json' };
-const SLOW_S = '0.6';
+const SLOW_S = '1';
 
 let tmp; let sandbox; let sandboxUrl; let s3; let s3Url; let objects; let mac; let docs; let calls; let oldPath;
 const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8' }).trim();
@@ -144,6 +149,6 @@ describe('a cloud run whose git and tar are slow', () => {
     expect(tars.some((c) => c.startsWith('-xzf') && c.includes('.agentbox-docs.tgz'))).toBe(true);
 
     // And through all of it the process never stood still for a slow call.
-    expect(worst).toBeLessThan(300);
+    expect(worst).toBeLessThan(700);
   }, 120_000);
 });
