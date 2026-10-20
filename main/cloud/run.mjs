@@ -64,6 +64,7 @@ import { docsFolderFor, docsToSend, tarDocs, layDocs } from './docs.mjs';
 import { troubleCause, limitResetMoment } from '../../shared/spawn-trouble.mjs';
 import { HAND_BACK } from '../../shared/cloud-hand-back.mjs';
 import { serveApprovals } from '../approval-prompt-core.mjs';
+import { cacheKey, folderKey, sendOnce, pickBase, bundlePast, refsAt } from './reuse.mjs';
 
 // WHAT A CLOUD RUN IS TOLD ABOUT WHERE IT IS. Without it an agent there found
 // its film's files, ffmpeg and a key missing, and asked the person to move the
@@ -317,6 +318,11 @@ export async function cloudRun({
   // can tell whether it is still alive: this one, or, when many runs share a
   // host process, the run's own small stand-in (main/cloud/host.mjs).
   pid: selfPid = process.pid,
+  // What the cloud image said it can do at its last start (its `caps`), and
+  // who to tell what this one says. 'base' lets a run send only the commits
+  // past a base the bucket already has (./reuse.mjs).
+  imageCaps = [],
+  onCaps = () => {},
 }) {
   const say = (msg) => stderr.write(`agentbox cloud: ${msg}\n`);
   // Whether the sandbox keeps this run going while the Mac sleeps, so its
@@ -465,15 +471,28 @@ export async function cloudRun({
   if (hasOutgoing) refs.push(outgoing);
   for (const r of ['refs/heads/main', 'refs/remotes/origin/main']) if (r !== `refs/heads/${branch}` && await gitOk(cwd, ['rev-parse', '--verify', '-q', r])) refs.push(r);
   const bundleFile = path.join(os.tmpdir(), `agentbox-cloud-${runId}.bundle`);
-  try {
-    await git(cwd, ['bundle', 'create', '-q', bundleFile, ...refs]);
-    await sendFromFile(storage, key('in.bundle'), bundleFile);
-  } finally {
-    fs.rmSync(bundleFile, { force: true });
-    if (hasOutgoing) await gitOk(cwd, ['update-ref', '-d', outgoing]);
-  }
+  // Against a base the bucket already has, when the image can take one:
+  // a reply then sends the commits past it, not the project's whole history.
+  const thin = imageCaps.includes('base') && !!storage.exists;
+  const packed = (async () => {
+    try {
+      if (!thin) {
+        await git(cwd, ['bundle', 'create', '-q', bundleFile, ...refs]);
+        await sendFromFile(storage, key('in.bundle'), bundleFile);
+        return { bundle: true, base: null, refs: null };
+      }
+      const base = await pickBase(cwd, storage, { runId });
+      const at = await refsAt(cwd, refs);
+      const bundle = !!(await bundlePast(cwd, refs, base.sha, bundleFile));
+      if (bundle) await sendFromFile(storage, key('in.bundle'), bundleFile);
+      return { bundle, base, refs: at };
+    } finally {
+      fs.rmSync(bundleFile, { force: true });
+      if (hasOutgoing) await gitOk(cwd, ['update-ref', '-d', outgoing]);
+    }
+  })();
 
-  const files = [];
+  const sending = [];
   let fileCount = 0;
   sendFile = async (localPath, remotePath = localPath, body = null, untar = null) => {
     fileCount += 1;
@@ -481,39 +500,46 @@ export async function cloudRun({
     await storage.put(k, body ?? fs.readFileSync(localPath));
     return { path: remotePath, url: await storage.getUrl(k), ...(untar ? { untar } : {}) };
   };
+  // A folder unchanged since an earlier run is not sent again (./reuse.mjs).
+  const sendFolder = async (dir, remotePath, untar) => {
+    if (!storage.exists) return sendFile(null, remotePath, await tarOf(dir), untar);
+    const { key: k } = await sendOnce(storage, cacheKey(`folder-${await folderKey(dir)}.tgz`), () => tarOf(dir));
+    return { path: remotePath, url: await storage.getUrl(k), untar };
+  };
   const settingsPath = argValue(argv, '--settings');
-  if (settingsPath && fs.existsSync(settingsPath)) files.push(await sendFile(settingsPath, settingsPath, Buffer.from(settingsForTheCloud(fs.readFileSync(settingsPath, 'utf8')))));
+  if (settingsPath && fs.existsSync(settingsPath)) sending.push(sendFile(settingsPath, settingsPath, Buffer.from(settingsForTheCloud(fs.readFileSync(settingsPath, 'utf8')))));
   const mcpPath = argValue(argv, '--mcp-config');
   if (mcpPath && fs.existsSync(mcpPath)) {
     mcpConfig = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
-    files.push(await sendFile(mcpPath, mcpPath, Buffer.from(JSON.stringify(mcpConfigForTheCloud(mcpConfig, stubPath)))));
+    sending.push(sendFile(mcpPath, mcpPath, Buffer.from(JSON.stringify(mcpConfigForTheCloud(mcpConfig, stubPath)))));
   }
   const resumeId = argValue(argv, '--resume');
   if (resumeId) {
     const t = path.join(projectsDir, `${resumeId}.jsonl`);
-    if (fs.existsSync(t)) files.push(await sendFile(t));
+    if (fs.existsSync(t)) sending.push(sendFile(t));
     else say(`no transcript for ${resumeId} on this Mac; the cloud run starts without it`);
   }
   // Her saved memories for this project, where Claude Code in the cloud looks.
   const saved = !codex ? memoryFolderFor(cwd, configDir) : null;
-  if (saved) files.push(await sendFile(null, path.join(projectsDir, '.memory.tgz'), await tarOf(saved), path.join(projectsDir, 'memory')));
+  if (saved) sending.push(sendFolder(saved, path.join(projectsDir, '.memory.tgz'), path.join(projectsDir, 'memory')));
   // The account's own skills, commands and agents, as real folders.
   if (!codex) {
     const tooling = path.join(homeDir, '.claude');
     for (const sub of ['skills', 'commands', 'agents']) {
       const dir = fs.existsSync(path.join(configDir, sub)) ? path.join(configDir, sub) : path.join(tooling, sub);
-      if (fs.existsSync(dir)) files.push(await sendFile(null, path.join(configDir, `.${sub}.tgz`), await tarOf(dir), path.join(configDir, sub)));
+      if (fs.existsSync(dir)) sending.push(sendFolder(dir, path.join(configDir, `.${sub}.tgz`), path.join(configDir, sub)));
     }
   }
   // Her own instructions to Claude, which Claude Code reads from the home
   // folder whichever account it runs on.
-  const homeFiles = [];
   const memory = path.join(homeDir, '.claude', 'CLAUDE.md');
-  if (!codex && fs.existsSync(memory) && fs.statSync(memory).size <= MAX_ATTACHMENT) {
-    const k = key('home/CLAUDE.md');
-    await storage.put(k, fs.readFileSync(memory));
-    homeFiles.push({ rel: '.claude/CLAUDE.md', url: await storage.getUrl(k) });
-  }
+  const homeFiles = !codex && fs.existsSync(memory) && fs.statSync(memory).size <= MAX_ATTACHMENT
+    ? [(async () => {
+      const k = key('home/CLAUDE.md');
+      await storage.put(k, fs.readFileSync(memory));
+      return { rel: '.claude/CLAUDE.md', url: await storage.getUrl(k) };
+    })()]
+    : [];
   // The few Codex settings that change how it runs a turn (model, effort,
   // tier), so a run in the cloud behaves as one here would. Nothing else of
   // her config goes: no MCP servers, hooks, providers or sockets, and never
@@ -521,16 +547,17 @@ export async function cloudRun({
   if (codex) {
     let toml = '';
     try { toml = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8'); } catch { /* none */ }
-    files.push(await sendFile(null, path.join(codexHome, 'config.toml'), Buffer.from(codexConfigForTheCloud(toml))));
+    sending.push(sendFile(null, path.join(codexHome, 'config.toml'), Buffer.from(codexConfigForTheCloud(toml))));
   }
   // The project's documents folder (main/cloud/docs.mjs), at its own path.
   let docsSent = [];
   if (docsDir) {
     docsSent = docsToSend(docsDir, { item: env.ZERO_ITEM });
-    if (docsSent.length) files.push(await sendFile(null, path.join(docsDir, '.agentbox-docs.tgz'), await tarDocs(docsDir, docsSent), docsDir));
+    if (docsSent.length) sending.push(tarDocs(docsDir, docsSent).then((tgz) => sendFile(null, path.join(docsDir, '.agentbox-docs.tgz'), tgz, docsDir)));
   }
   const system = argValue(argv, '--append-system-prompt') || '';
-  for (const f of filesNamedIn(system, { cwd, roots })) files.push(await sendFile(f));
+  for (const f of filesNamedIn(system, { cwd, roots })) sending.push(sendFile(f));
+  const [pack, files, home] = await Promise.all([packed, Promise.all(sending), Promise.all(homeFiles)]);
   sentFiles = new Set(files.map((f) => f.path));
 
   const results = await resultUrls(runId);
@@ -559,15 +586,17 @@ export async function cloudRun({
   // whose reply was lost is simply asked again. A start that was REFUSED
   // started nothing; one whose answer never came may have, so its marker
   // stays and the next run in this folder finds out which.
-  const bundleUrl = await storage.getUrl(key('in.bundle'));
+  const bundleUrl = pack.bundle ? await storage.getUrl(key('in.bundle')) : undefined;
+  const base = pack.base ? { url: await storage.getUrl(pack.base.key), sha: pack.base.sha } : null;
   const loginUrl = await storage.getUrl(login.key, LOGIN_LINK_SECONDS);
   const started = await retry(() => transport.invoke(sessionId, {
     action: 'start', runId, cwd, branch, bundleUrl,
+    ...(base ? { base, refs: pack.refs } : {}),
     argv: [remoteCommand, ...(remoteCommand === 'claude' ? argvForTheCloud(argv) : argv)], env: remoteEnv, files,
     changesRef: hasOutgoing ? outgoing : undefined,
     ...(remote ? { remote } : {}),
     ...(docsDir ? { docs: docsDir } : {}),
-    ...(homeFiles.length ? { homeFiles } : {}),
+    ...(home.length ? { homeFiles: home } : {}),
     login: { engine: login.engine, id: login.id, url: loginUrl },
     results,
     // The run carries on while this Mac sleeps: a tool call is told it could
@@ -589,10 +618,13 @@ export async function cloudRun({
   }
   if (!started.ok) {
     signals.off('SIGHUP', early);
+    // An image that refused a start sent against a base may not take one.
+    if (base && started.error === 'bad-start') { try { onCaps(started.caps || []); } catch { /* a hint */ } }
     say(`the cloud run could not start: ${started.error || 'no answer'} ${started.message || ''}`.trim());
     clearMarker(cwd);
     return 1;
   }
+  try { onCaps(started.caps || []); } catch { /* only a hint for the next run */ }
   offlineOn = (started.caps || []).includes('offline');
   if (!offlineOn) say('this cloud image stops at its next tool call while this Mac sleeps; rebuild it (node scripts/cloud-setup.mjs) to keep runs going');
   marker.offline = offlineOn;

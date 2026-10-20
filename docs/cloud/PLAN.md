@@ -237,8 +237,18 @@ stdout and stderr come back byte for byte. Its life:
    - env: `ZERO_PRODUCT`, `ZERO_ITEM`, `CLAUDE_CONFIG_DIR` (always set, to the
      account folder's Mac path), git's author name and email, `MCP_TOOL_TIMEOUT`,
      `CLAUDE_CODE_OAUTH_TOKEN` for that account. Nothing from `memoryGateEnv`.
-2. **Pack.** `git bundle` of the task branch, `main` and `origin/main` (55 MB,
-   1 s for this repo) to S3. A pending-import marker goes into the task
+2. **Pack.** `git bundle` of the task branch, `main` and `origin/main` to S3.
+   Sent whole, that was 61.9 MB for this repo on every reply (2026-10-20). An
+   image that says `base` in its caps takes a base instead: where the branch
+   meets main, bundled once and shared by every thread of the repo for six
+   days (`runs/cache/<period>/`, inside the bucket's seven-day expiry), plus
+   a bundle of only the commits past it (0.4 MB a day after the base, 3.3 MB
+   six days after) and each ref's commit, since a thin bundle leaves out the
+   refs the base already holds. The Mac remembers the caps from the last start
+   (`~/.agentbox/cloud-image.json`). Skills, commands, agents and saved
+   memories go to the same cache, named by what they hold, and go up again
+   only when that changes. Everything is sent side by side, not in turn
+   (main/cloud/reuse.mjs). A pending-import marker goes into the task
    folder's git dir (`<git dir>/agentbox-cloud.json`), naming the run id and the
    start commit.
 3. **Start.** `InvokeAgentRuntime {action:"start"}` with presigned URLs: a GET
