@@ -49,10 +49,10 @@
 // (main/supervisor.mjs) and everything it starts inherits it; all 40 leftovers
 // that morning carried it, Docker's backend included. The id is read only from
 // the ENVIRONMENT, which is the part of `ps -E` after the arguments `ps` prints
-// without it, and only when both looks agree it is the same process; a tag in a
-// command's own words counts for nothing. A program that renames itself
-// (next-server) hides its environment, so a process under a tagged one belongs
-// to the same task. Codex threads share one app-server and their commands carry
+// without it, and only when both looks agree it is the same process;
+// /proc/<pid>/environ on Linux. A tag in a command's own words counts for
+// nothing. A program that renames itself (next-server) hides its environment
+// from `ps`, so a process under a tagged one belongs to the same task. Codex threads share one app-server and their commands carry
 // no task id yet, so a Codex task's leftovers are not found: coverage is
 // incomplete and the switch says so.
 
@@ -151,8 +151,69 @@ export function applyExecutables(procs, lsofText) {
   return procs;
 }
 
-/** Every process on the Mac, tagged with its task where it can be. About 100 ms. */
-export async function listProcesses() {
+/** /proc counts in USER_HZ, which the kernel fixes at 100 whatever its own tick is. */
+const USER_HZ = 100;
+
+/** When this computer booted, which /proc/<pid>/stat counts a start time from. */
+function bootSeconds(root) {
+  const stat = fs.readFileSync(path.join(root, 'stat'), 'utf8').match(/^btime (\d+)$/m);
+  if (stat) return +stat[1];
+  const up = Number(String(fs.readFileSync(path.join(root, 'uptime'), 'utf8')).split(/\s+/)[0]);
+  return Math.floor(Date.now() / 1000 - up);
+}
+
+/**
+ * The same record the Mac's three `ps` listings give, read from /proc, because
+ * `-E` is BSD's and Linux's procps refuses it (w-bd1806285e).
+ *
+ * `exe` is the real executable even for a program that renamed itself, so
+ * nothing here needs lsof. A process that ends mid-read is left out; one
+ * belonging to somebody else keeps an empty executable and no environment,
+ * which is what leaves it protected.
+ */
+export function readLinuxProcesses({ root = '/proc', hz = USER_HZ, btime = null } = {}) {
+  const boot = btime ?? bootSeconds(root);
+  const out = [];
+  for (const name of fs.readdirSync(root)) {
+    if (!/^\d+$/.test(name)) continue;
+    const dir = path.join(root, name);
+    let stat;
+    try { stat = fs.readFileSync(path.join(dir, 'stat'), 'utf8'); } catch { continue; }
+    const close = stat.lastIndexOf(')');
+    if (close < 0) continue;
+    const comm = stat.slice(stat.indexOf('(') + 1, close);
+    // The fields after the command, which is the only one that can hold spaces
+    // and brackets: state, the parent, and on to the start time.
+    const rest = stat.slice(close + 2).split(' ');
+    const read = (f) => { try { return fs.readFileSync(path.join(dir, f), 'utf8'); } catch { return null; } };
+    const words = (text) => String(text ?? '').split('\0').filter(Boolean);
+    const env = new Map(words(read('environ')).map((s) => {
+      const eq = s.indexOf('=');
+      return eq < 0 ? [s, ''] : [s.slice(0, eq), s.slice(eq + 1)];
+    }));
+    const argv = words(read('cmdline')).join(' ');
+    const rss = (read('status') ?? '').match(/^VmRSS:\s+(\d+) kB$/m);
+    let exe = '';
+    try { exe = fs.readlinkSync(path.join(dir, 'exe')).replace(/ \(deleted\)$/, ''); } catch {}
+    const item = env.get('ZERO_ITEM');
+    out.push({
+      pid: +name,
+      ppid: +rest[1],
+      mb: rss ? +rss[1] / 1024 : 0,
+      start: boot + Math.floor(+rest[19] / hz),
+      exe,
+      cmd: (argv || `[${comm}]`).slice(0, 300),
+      item: /^w-[0-9a-f]+$/.test(item ?? '') ? item : null,
+      product: env.get('ZERO_PRODUCT')?.split(/\s/)[0] || null,
+      keep: env.get('AGENTBOX_KEEP') === '1',
+    });
+  }
+  return out;
+}
+
+/** Every process, tagged with its task where it can be: `ps` on a Mac (about 100 ms), /proc on Linux. */
+export async function listProcesses(platform = process.platform) {
+  if (platform !== 'darwin') return readLinuxProcesses();
   const [base, argv, full] = await Promise.all([
     ps(['-axo', 'pid=,ppid=,rss=,lstart=,comm=']),
     ps(['-ww', '-axo', 'pid=,lstart=,command=']),
