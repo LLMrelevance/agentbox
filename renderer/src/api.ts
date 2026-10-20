@@ -4,7 +4,7 @@ import {updateFixture} from './agent-update-fixture';
 // bridge; fixtures mode (?fixtures=1) serves canned data so the UI can be
 // developed, reviewed, and screenshotted without a live store or any agents.
 
-import type { AccountUsageReading, AgentConversation, AnswerMode, CodexModeId, DemoOpened, FolderListing, FreshUser, PermissionMode, PhoneLink, PhoneRoute, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, TeamMessageFile, ThreadEditPatch, UpdateState, Usage, WorkItem } from './types';
+import type { AccountUsageReading, AgentConversation, CloudPlan, AnswerMode, CodexModeId, DemoOpened, FolderListing, FreshUser, PermissionMode, PhoneLink, PhoneRoute, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, TeamMessageFile, ThreadEditPatch, UpdateState, Usage, WorkItem } from './types';
 import type { LedgerLine } from './thread-history';
 import type { AgentFile as AgentFileRow } from './onboarding';
 import type { AgentFolder, SessionThread } from './agent-import-card';
@@ -1258,6 +1258,20 @@ export const api = {
   async cloudAccountCancel(): Promise<void> { await (window.zero as any)?.cloudAccountCancel?.(); },
   async cloudAccountReopen(): Promise<void> { await (window.zero as any)?.cloudAccountReopen?.(); },
   async cloudAccountSignOut(): Promise<void> { await (window.zero as any)?.cloudAccountSignOut?.(); },
+  async cloudAccountPlan(): Promise<CloudPlan> {
+    if (useFixtures) return { signedIn: true, plan: 'none', unlimited: false, agents: 0, hoursPerMonth: 0, running: 0, usedSeconds: 0 };
+    return (await (window.zero as any)?.cloudAccountPlan?.()) ?? { signedIn: false };
+  },
+  async cloudAccountPay(plan: 'pro' | 'plus' | 'max'): Promise<{ ok: boolean; where?: 'checkout' | 'billing'; error?: string; message?: string }> {
+    const zero = window.zero as any;
+    if (!zero?.cloudAccountPay) return { ok: false, message: RESTART_NOTE };
+    return zero.cloudAccountPay({ plan });
+  },
+  async cloudAccountBilling(): Promise<{ ok: boolean; error?: string; message?: string }> {
+    const zero = window.zero as any;
+    if (!zero?.cloudAccountBilling) return { ok: false, message: RESTART_NOTE };
+    return zero.cloudAccountBilling();
+  },
 
   /** Claude's sign-in code from the clipboard, while a sign-in waits for one; else null. */
   async cloudClipboardCode(): Promise<string | null> {

@@ -334,6 +334,20 @@ export interface UsageLimit {
   zone: string | null;
 }
 
+/** The Agentbox Cloud plan this Mac is signed in to, as the cloud server counts it. */
+export interface CloudPlan {
+  signedIn: boolean;
+  plan?: 'none' | 'pro' | 'plus' | 'max';
+  unlimited?: boolean;
+  /** Agents at once; null when unlimited. */
+  agents?: number | null;
+  hoursPerMonth?: number;
+  running?: number;
+  usedSeconds?: number;
+  error?: string;
+  message?: string;
+}
+
 /**
  * What was left of ONE coding agent's limit at `at`. Null on the snapshot until
  *  the first reading lands -- which for Claude Code costs twenty-five seconds,
