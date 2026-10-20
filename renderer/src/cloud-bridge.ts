@@ -18,14 +18,15 @@ import { REQUEST_CHANNELS, PUSH_CHANNELS, DESKTOP_ONLY } from '../../shared/brid
 import { cloudClient, type CloudClient, type CloudConfig } from './cloud-rest';
 import { installPhoneScreen } from './phone-screen';
 import { atMostEvery } from './phone-polls';
-import { madeHere } from '../../shared/phone-snapshot.mjs';
 import { setPictureLinks } from './picture';
-import { SEND_MAX_BYTES, sendFiles, sentFileName, sentNamesIn } from './phone-sends-files';
-import { BUCKET, cloudPlaces, findFile, homeOf, installCloudFiles, keyAt, pageForPhone, pageStyles, withStyles, type Place } from './cloud-files';
+import { SEND_MAX_BYTES, sendFiles, sentFileName } from './phone-sends-files';
+import { LINK_RENEW_MS, fileOnPhone, linkForFile, linkOfEntry as linkOfName, objectsToSign, phonePage, renewLinks, type Links } from './phone-links';
+import { BUCKET, cloudPlaces, findFile, findFolder, installCloudFiles, type Place } from './cloud-files';
 import {
-  LIVE_FOR_MS, NOT_HERE, UNDONE, approvalCommand, commandFor, macSeenOf, phoneHistory, phoneSlug, phoneStatusLine,
-  phoneView, readCommands, readThreads, realItem, splitSlug, takeBack, type Aliases, type PhoneRows,
+  LIVE_FOR_MS, NOT_HERE, macSeenOf, phoneHistory, phoneSlug, phoneStatusLine,
+  phoneView, readCommands, readThreads, splitSlug, type Aliases, type PhoneRows,
 } from './phone-rows';
+import { phoneSender } from './phone-send';
 
 export {
   NOT_HERE, UNDONE, approvalCommand, closeToTakeBack, commandFor, macSeenOf, phoneHistory, phoneSlug, phoneStatusLine,
@@ -57,18 +58,7 @@ export function readCloudConfig(doc: Document = document): CloudConfig | null {
   } catch { return null; }
 }
 
-/** A folder a message names, among those her Mac listed: its full path here and its pictures' keys. */
-function findFolder(place: Place, src: string): { folder: string; keys: string[] } | null {
-  let raw = String(src ?? '').replace(/^file:\/\//, '').replace(/\/+$/, '');
-  try { raw = decodeURIComponent(raw); } catch { /* as written */ }
-  const full = raw.startsWith('~/') ? `${homeOf(place.device)}${raw.slice(1)}` : raw;
-  const key = full.startsWith(`${place.dir}/`) ? full.slice(place.dir.length + 1) : full.startsWith(`${place.repo}/`) && place.repo ? `@repo/${full.slice(place.repo.length + 1)}` : full.replace(/^\.\//, '');
-  const keys = place.folders.get(`${key}/`);
-  return keys ? { folder: key.startsWith('@repo/') ? `${place.repo}/${key.slice(6)}` : `${place.dir}/${key}`, keys } : null;
-}
 
-const LINK_LIFE_MS = 12 * 3600_000;
-const LINK_RENEW_MS = 3600_000;
 
 const SUPERVISOR = { paused: false, pausedProducts: [], running: [], stalled: [], queued: [], scheduled: [], productOrder: [], hiddenProducts: [], personalProducts: [], capacity: 0 };
 const EMPTY_ROWS: PhoneRows = { projects: [], threads: [], commands: [] };
@@ -89,41 +79,21 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
   let aliases: Aliases = {};
   let error: string | null = null;
   let last = '';
-  // Her files' links, by name in the bucket, each signed for twelve hours and
-  // asked for again an hour before it runs out, so a film is not pulled from
-  // under her mid-play by a new link; and each page made ready.
+  // Her files' links (phone-links.ts), and each page made ready.
   let places = new Map<string, Place>();
-  const links = new Map<string, { url: string; until: number }>();
+  const links: Links = new Map();
   // A page made ready is good while every file it points at keeps its name
   // and its link; at most a few are kept.
   const pages = new Map<string, { url: string; keys: string[]; names: string; until: number }>();
   const dropPage = (key: string) => { const p = pages.get(key); if (p) URL.revokeObjectURL(p.url); pages.delete(key); };
-  const objectOf = (place: Place, name: string) => `${client.session()?.user.id}/${place.device}/${name}`;
   async function signLinks() {
-    const want: string[] = [];
-    const stale = (n: string) => !((links.get(n)?.until ?? 0) - Date.now() > LINK_RENEW_MS);
-    for (const place of places.values()) for (const e of place.files.values()) {
-      if (e.n && stale(e.n)) want.push(objectOf(place, e.n));
-    }
-    // What she sent that her computer has not taken yet, drawn from where she put it.
-    for (const c of rows.commands) {
-      if (c.taken_at) continue;
-      for (const n of sentNamesIn(String(c.payload?.text ?? c.payload?.body ?? ''))) if (stale(n)) want.push(`${client.session()?.user.id}/${c.device}/${n}`);
-    }
+    const owner = client.session()?.user.id;
+    if (!owner) return;
     const asked = client.generation();
-    for (let i = 0; i < want.length; i += 300) {
-      const got = await client.signFiles(BUCKET, [...new Set(want.slice(i, i + 300))], LINK_LIFE_MS / 1000);
-      if (client.generation() !== asked) return;
-      for (const [object, url] of got) links.set(object.slice(object.lastIndexOf('/') + 1), { url, until: Date.now() + LINK_LIFE_MS });
-    }
+    await renewLinks((paths, seconds) => client.signFiles(BUCKET, paths, seconds), objectsToSign(places, rows.commands, links, owner), links, () => client.generation() === asked);
   }
-  const linkOfEntry = (n?: string) => (n ? links.get(n)?.url ?? null : null);
-  const linkFor = (file: string) => {
-    const sent = sentFileName(file);
-    if (sent) return linkOfEntry(sent);
-    const at = keyAt(places, file);
-    return at ? linkOfEntry(at.place.files.get(at.key)?.n) : null;
-  };
+  const linkOfEntry = (n?: string) => linkOfName(links, n);
+  const linkFor = (file: string) => linkForFile(places, links, file);
   setPictureLinks(linkFor);
   installCloudFiles(linkFor);
   const listeners = new Map<string, Set<Push>>();
@@ -198,43 +168,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     ? null
     : { configured: true, started, signedIn: false, signingIn: null, me: null, team: null, invites: [], sent: [], people: [], cards: [], lastSyncAt: null, error });
 
-  // Threads whose reply was just taken back: the window's own undo goes on to
-  // put the schedule back and send "(withdrawn)", none of which the Mac saw.
-  const withdrawn = new Map<string, number>();
-  const leave = async (channel: string, payload: any) => {
-    const back = takeBack(rows, channel, payload, aliases);
-    if (back) {
-      const asked = client.generation();
-      // Only while the computer has not claimed it (Codex's third review, finding 3).
-      const done = await client.update('phone_commands', `id=eq.${encodeURIComponent(back.id)}&taken_at=is.null&claimed_at=is.null`, { taken_at: new Date().toISOString(), outcome: UNDONE });
-      if (!done.length) throw new Error('Your computer already has it. Reopen it there.');
-      if (client.generation() === asked) rows = { ...rows, commands: rows.commands.map((c) => (c.id === back.id ? done[0] : c)) };
-      if (back.kind === 'reply') withdrawn.set(`${payload.product}/${payload.id}`, Date.now());
-      changed(null);
-      return { ok: true };
-    }
-    if ((withdrawn.get(`${payload?.product}/${payload?.id}`) ?? 0) > Date.now() - 60_000
-      && (channel === REQUEST_CHANNELS.schedule || (channel === REQUEST_CHANNELS.answer && (payload?.answer === '(withdrawn)' || !String(payload?.answer ?? '').trim())))) return { ok: true };
-    if (channel === REQUEST_CHANNELS.stopSession && payload?.withdraw) throw new Error('Your computer already has it. Undo it there.');
-    const cmd = commandFor(channel, channel === REQUEST_CHANNELS.answer && scheduled(payload) ? { ...payload, unschedule: true } : payload, aliases);
-    if (!cmd) throw new Error(NOT_HERE);
-    const asked = client.generation();
-    const row = await client.insertCommand(cmd);
-    if (client.generation() === asked) rows = { ...rows, commands: [...rows.commands, row] };
-    if (cmd.kind === 'reply' && cmd.payload.unschedule) replied.set(`${payload.product}/${payload.id}`, Date.now());
-    changed(null);
-    // The row the inbox draws for a new thread until her Mac makes it, so it has Undo and Open.
-    if (cmd.kind === 'new') return { id: madeHere(row.id), product: payload.product, title: String(cmd.payload.title || cmd.payload.body || '').slice(0, 200), body: String(cmd.payload.body ?? ''), status: 'open', kind: 'directive', labels: ['founder'], priority: 0, createdAt: Date.now(), updatedAt: Date.now() };
-    return { ok: true };
-  };
-  // A reply to a thread put off clears the schedule on her Mac (phone-inbox.mjs
-  // ROUTES), so the window's clearing call right after it has nothing to do.
-  const replied = new Map<string, number>();
-  const scheduled = (p: any) => {
-    const item = realItem(aliases, p?.product, p?.id);
-    const t = rows.threads.find((r) => phoneSlug(r.device, r.project) === p?.product && r.item === item)?.snapshot?.item;
-    return Math.max(Number(t?.runAt) || 0, Number(t?.snoozedUntil) || 0) > Date.now();
-  };
+  const sender = phoneSender({ client, rows: () => rows, setRows: (next) => { rows = next; }, aliases: () => aliases, changed: () => changed(null) });
   const signedInThen = async (fn: () => Promise<unknown>) => {
     try { await fn(); error = null; await refresh(); changed(null); return { ok: true }; } catch (err) { return { ok: false, error: String((err as Error)?.message ?? err) }; }
   };
@@ -279,29 +213,8 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     engineSetup: async () => ({ ok: true, phase: 'ready', found: true, signedIn: true }),
     dashboard: async () => null,
     codeChange: async () => ({ ok: false }),
-    answer: (p: unknown) => leave(REQUEST_CHANNELS.answer, p),
-    stopSession: (p: unknown) => leave(REQUEST_CHANNELS.stopSession, p),
-    // Allow and Deny go to her Mac with the card they answer (phone-inbox.mjs).
-    approve: async (p: { id: string; allow: boolean; note?: string }) => {
-      const cmd = approvalCommand(phoneView(rows).cards, p);
-      if (!cmd) return { ok: false, error: 'This card is no longer waiting.' };
-      try {
-        const asked = client.generation();
-        const row = await client.insertCommand(cmd);
-        if (client.generation() === asked) rows = { ...rows, commands: [...rows.commands, row] };
-        changed(null);
-        return { ok: true };
-      } catch (err) { return { ok: false, error: String((err as Error)?.message ?? err) }; }
-    },
-    runNow: (p: unknown) => leave(REQUEST_CHANNELS.runNow, p),
-    sendNow: (p: unknown) => leave(REQUEST_CHANNELS.sendNow, p),
-    reopen: (p: unknown) => leave(REQUEST_CHANNELS.reopen, p),
-    schedule: async (p: any) => {
-      if (p?.runAt === 0 && (replied.get(`${p.product}/${p.id}`) ?? 0) > Date.now() - 60_000) return { ok: true };
-      return leave(REQUEST_CHANNELS.schedule, p);
-    },
-    snooze: (p: unknown) => leave(REQUEST_CHANNELS.snooze, p),
-    compose: (p: unknown) => leave(REQUEST_CHANNELS.compose, p),
+    // What a press leaves for her Mac, the same doors the phone app sends through (phone-send.ts).
+    ...sender,
     badge: async () => null,
     notify: async () => null,
     track: async () => null,
@@ -330,18 +243,13 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     },
     // HER FILES, from the links her Mac's list gives (cloud-files.ts).
     openArtifact: async (p: { product: string; src: string; mode?: string }) => {
-      const sent = sentFileName(p?.src);
-      if (sent) {
-        const link = linkOfEntry(sent);
-        if (!link) return { ok: false, error: 'This file is still on its way.' };
-        if (p.mode !== 'resolve') window.open(link, '_blank', 'noopener');
+      const at = fileOnPhone(places, links, p?.product, p?.src);
+      if (!at.ok) return at;
+      if (at.sent) {
+        if (p.mode !== 'resolve') window.open(at.link, '_blank', 'noopener');
         return { ok: true, opened: p.src };
       }
-      const found = findFile(places, p?.product, p?.src);
-      if (!found) return { ok: false, error: 'This file is on your computer.' };
-      if (found.entry.big) return { ok: false, error: 'This file is too big for your phone. Open it on your computer.' };
-      const link = linkOfEntry(found.entry.n);
-      if (!link) return { ok: false, error: 'This file is on its way from your computer.' };
+      const { found, link } = at;
       if (p.mode === 'resolve') {
         if (!/\.html?$/i.test(found.key)) return { ok: true, opened: found.file };
         const cacheKey = `${client.session()?.user.id}|${p.product}|${found.key}`;
@@ -350,22 +258,13 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
         if (kept && kept.until > Date.now() && kept.names === namesOf(kept.keys)) return { ok: true, opened: found.file, url: kept.url };
         dropPage(cacheKey);
         const asked = client.generation();
-        const used = new Set<string>([found.key]);
-        // Every file it names counts, here or not yet, so one that arrives later makes the page again.
-        const linkOf = (key: string) => { used.add(key); return linkOfEntry(found.place.files.get(key)?.n); };
         const read = async (url: string) => { const res = await fetch(url); if (!res.ok) throw new Error('This page could not be read.'); return res.text(); };
         try {
-          let html = await read(link);
-          const styles = new Map<string, string>();
-          for (const key of pageStyles(html, found.key)) {
-            const l = linkOf(key);
-            if (l) styles.set(key, await read(l).catch(() => ''));
-          }
+          const { html, used } = await phonePage(found, link, links, read);
           if (client.generation() !== asked) return { ok: false, error: 'You signed out.' };
-          html = pageForPhone(withStyles(html, found.key, styles, linkOf), found.key, linkOf);
-          const until = Math.min(Infinity, ...[...used].map((k) => links.get(found.place.files.get(k)?.n ?? '')?.until).filter((u): u is number => !!u)) - LINK_RENEW_MS;
+          const until = Math.min(Infinity, ...used.map((k) => links.get(found.place.files.get(k)?.n ?? '')?.until).filter((u): u is number => !!u)) - LINK_RENEW_MS;
           const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
-          pages.set(cacheKey, { url, keys: [...used], names: namesOf([...used]), until });
+          pages.set(cacheKey, { url, keys: used, names: namesOf(used), until });
           while (pages.size > 12) dropPage(pages.keys().next().value!);
           return { ok: true, opened: found.file, url };
         } catch (err) {

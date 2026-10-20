@@ -8,7 +8,9 @@ import { useEffect } from 'react';
 import { Platform, View } from 'react-native';
 import { SafeAreaInsetsContext, SafeAreaProvider } from 'react-native-safe-area-context';
 import { CloudProvider } from '../state/cloud';
+import { Approvals } from '../ui/Approvals';
 import { color } from '../ui/theme';
+import { Toast } from '../ui/Toast';
 
 const PREVIEW_PHONE = process.env.EXPO_PUBLIC_PREVIEW === '1' && Platform.OS === 'web' ? { top: 62, bottom: 34, left: 0, right: 0 } : null;
 
@@ -31,6 +33,8 @@ export default function Root() {
     <CloudProvider>
       <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: color.bg }, animation: 'slide_from_right' }} />
+      <Approvals />
+      <Toast />
     </CloudProvider>
   );
   return (

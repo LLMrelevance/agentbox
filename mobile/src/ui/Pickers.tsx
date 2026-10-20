@@ -3,8 +3,9 @@
 import { Pressable, View } from 'react-native';
 import { EFFORTS } from '../../../renderer/src/effort';
 import { MENU_TITLE, MODE_ORDER, MODE_WORDS } from '../../../renderer/src/modes';
-import { modelChoices } from '../../../renderer/src/models';
+import { DEFAULT_MODEL, modelChoices } from '../../../renderer/src/models';
 import { PRIORITIES, priorityIdOf, type PriorityId } from '../../../renderer/src/priority';
+import { litEffort } from '../lib/compose';
 import { PriorityBars, Sheet, SheetHead, SheetRow, SheetSep, T } from './parts';
 import { color, font } from './theme';
 
@@ -30,11 +31,14 @@ export function ModeSheet({ open, close, value, pick }: { open: boolean; close: 
   );
 }
 
-export function ModelSheet({ open, close, model, effort, pickModel, pickEffort }: {
-  open: boolean; close: () => void; model: string | null; effort: string | null; pickModel: (id: string) => void; pickEffort: (id: string) => void;
+// `effort` is her own pick. The strip lights it, or the level the model thinks
+// at on its own (components/Model.tsx); pressing her pick again clears it.
+export function ModelSheet({ open, close, model, effort, pickModel, pickEffort, clearEffort }: {
+  open: boolean; close: () => void; model: string | null; effort: string | null; pickModel: (id: string) => void; pickEffort: (id: string) => void; clearEffort?: () => void;
 }) {
   const rows = modelChoices(model);
   const current = model ?? rows[0]?.id;
+  const lit = litEffort(effort, current ?? DEFAULT_MODEL);
   return (
     <Sheet open={open} close={close}>
       <SheetHead>Model</SheetHead>
@@ -43,9 +47,9 @@ export function ModelSheet({ open, close, model, effort, pickModel, pickEffort }
       <T style={{ fontSize: 11, lineHeight: 20, letterSpacing: 0.22, color: color.faint, paddingTop: 6, paddingHorizontal: 10, paddingBottom: 2 }}>Effort</T>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 2 }}>
         {EFFORTS.map((e) => (
-          <Pressable key={e.id} onPress={() => pickEffort(e.id)} accessibilityRole="radio" accessibilityState={{ checked: e.id === effort }}
-            style={({ pressed }) => ({ minHeight: 40, paddingHorizontal: 8, justifyContent: 'center', backgroundColor: e.id === effort || pressed ? color.picked : 'transparent' })}>
-            <T style={{ fontSize: 15, color: e.id === effort ? color.text : color.dim, fontFamily: e.id === effort ? font.semibold : font.regular }}>{e.label}</T>
+          <Pressable key={e.id} onPress={() => (e.id === effort && clearEffort ? clearEffort() : pickEffort(e.id))} accessibilityRole="radio" accessibilityState={{ checked: e.id === lit }}
+            style={({ pressed }) => ({ minHeight: 40, paddingHorizontal: 8, justifyContent: 'center', backgroundColor: e.id === lit || pressed ? color.picked : 'transparent' })}>
+            <T style={{ fontSize: 15, color: e.id === lit ? color.text : color.dim, fontFamily: e.id === lit ? font.semibold : font.regular }}>{e.label}</T>
           </Pressable>
         ))}
       </View>

@@ -150,7 +150,7 @@ describe('the third review', () => {
   // Finding 3: Undo only before the computer claims it.
   it('Undo takes back nothing the computer has claimed', () => {
     expect(closeToTakeBack(rows([cmd('c1', 'close', { claimed_at: iso(NOW) })]), 'zero:answer', { product: A, id: 'w-1', status: 'open' })).toBeNull();
-    const src = fs.readFileSync(new URL('../renderer/src/cloud-bridge.ts', import.meta.url), 'utf8');
+    const src = fs.readFileSync(new URL('../renderer/src/phone-send.ts', import.meta.url), 'utf8');
     expect(src).toMatch(/taken_at=is\.null&claimed_at=is\.null/);
   });
 });

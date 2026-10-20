@@ -73,7 +73,7 @@ import { opensInPane } from '../doc-pane';
 import { opensAsPicture } from '../picture-view';
 import { PictureView, picturesOnScreen, type Picture } from './PictureView';
 import { watchScrollGutter } from '../scroll-gutter';
-import { artifactUrlTransform, isMediaPath, productPath, remarkArtifactPaths } from '../remark-artifact-paths';
+import { CODE_PATH, artifactUrlTransform, isMediaPath, productPath, remarkArtifactPaths } from '../remark-artifact-paths';
 import { api } from '../api';
 import { draftKey, readDraft, saveDraft, clearDraft, readDraftAttachments, saveDraftAttachments, type SentDraft } from '../drafts';
 import { withQuote } from '../team/chat-quote';
@@ -119,7 +119,7 @@ import { lookAgainAfter } from '../picture-looks-again';
 // A relative product path is an artifact, however the worker wrote it:
 // images render inline, other files become links, and .html demos embed
 // below as live frames. Mechanism, not prompt hope.
-const PATH_RE = /^[\w-][\w./-]*\.(png|jpe?g|gif|webp|html?|pdf|md|csv|txt|json|mp3|wav|m4a|aac|ogg|mp4|mov|m4v|webm)$/i;
+const PATH_RE = CODE_PATH;
 
 // remarkArtifactPaths is what makes a path a worker typed into a sentence a
 // link like any other. Three ways to name a file were already in use and only

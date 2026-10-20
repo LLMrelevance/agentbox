@@ -10,7 +10,7 @@ export interface PendingAttachment {
   image: boolean;
 }
 
-const isImageName = (name: string) => /\.(png|jpe?g|gif|webp)$/i.test(name);
+export const isImageName = (name: string) => /\.(png|jpe?g|gif|webp)$/i.test(name);
 
 function blobToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {

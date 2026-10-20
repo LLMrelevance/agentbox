@@ -1,7 +1,11 @@
-// Where the sign-in is kept: the keychain on a phone, the page's own storage
-// in the browser preview. Only the two keys the sign-in client writes.
+// Where things are kept. The sign-in: the keychain on a phone, the page's own
+// storage in the browser preview, only the two keys the sign-in client writes.
+// Everything else (drafts, the last project, model and level): one file in the
+// app's documents folder, or the page's storage.
+import { File, Paths } from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
+import { syncStore } from '../lib/drafts';
 import type { Persist } from '../lib/kept';
 
 const KEYS = ['agentbox-cloud-session', 'agentbox-cloud-verifier'];
@@ -22,3 +26,19 @@ export const persist: Persist = Platform.OS === 'web'
       else await SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK });
     },
   };
+
+function fileStore() {
+  const file = new File(Paths.document, 'kept.json');
+  const store = syncStore({
+    read: () => (file.exists ? file.textSync() : null),
+    write: async (text) => { if (!file.exists) file.create(); await file.write(text); },
+  });
+  // A phone may end the app any time after it leaves the screen.
+  AppState.addEventListener('change', (state) => { if (state !== 'active') void store.flush(); });
+  return store;
+}
+
+// Unwrapped on the web: the draft rules catch a full store themselves, and drop pictures to fit.
+export const appStore: { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void } = Platform.OS === 'web'
+  ? globalThis.localStorage
+  : fileStore();

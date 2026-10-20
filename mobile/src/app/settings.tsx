@@ -3,11 +3,12 @@
 // small button. Deleting the account, the AI notice and the privacy policy
 // join it before the App Store (docs/mobile/PLAN.md).
 import Constants from 'expo-constants';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { withDeadline } from '../lib/deadline';
+import { screenGate } from '../lib/thread-gate';
 import { alertsHere, alertToken, sendTestAlert } from '../platform/alerts';
 import { useCloud } from '../state/cloud';
 import { Back } from '../ui/icons';
@@ -46,6 +47,9 @@ export default function Settings() {
     setBusy(true); setSaid(null);
     try { await fn(); } catch (err) { setSaid(String((err as Error)?.message ?? err)); } finally { setBusy(false); }
   };
+  const gate = screenGate(c);
+  if (gate === 'wait') return <Wall><View /></Wall>;
+  if (gate === 'sign-in') return <Redirect href="/sign-in" />;
 
   return (
     <Wall>

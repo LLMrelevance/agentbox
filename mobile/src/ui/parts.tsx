@@ -1,7 +1,7 @@
 // The pieces every screen is made of, sized from the phone site as it draws
 // (renderer/src/phone.css and the styles under it).
 import { useEffect, useRef, type ReactNode } from 'react';
-import { Animated, Modal, Pressable, StyleSheet, Text, View, type TextProps, type ViewStyle } from 'react-native';
+import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View, type TextProps, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, Path, Pattern, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { color, font, size } from './theme';
@@ -27,12 +27,13 @@ export function T({ style, ...rest }: TextProps) {
   return <Text {...rest} style={[{ fontFamily: font.regular, color: color.text, fontSize: 15.5 }, style]} />;
 }
 
-/** The top bar: 56px over the wall, its line under it, the title on the left. */
+/** The top bar: 56px over the wall with its line, the title on the left. */
 export function TopBar({ left, title, right }: { left?: ReactNode; title?: ReactNode; right?: ReactNode }) {
   const inset = useSafeAreaInsets();
   return (
     <View style={{ paddingTop: inset.top, borderBottomWidth: 1, borderBottomColor: color.line }}>
-      <View style={{ height: size.topBar, flexDirection: 'row', alignItems: 'center', paddingLeft: left ? 8 : size.inset, paddingRight: 4 }}>
+      {/* The line is inside the 56px, as the website's border-box bar has it. */}
+      <View style={{ height: size.topBar - 1, flexDirection: 'row', alignItems: 'center', paddingLeft: left ? 8 : size.inset, paddingRight: 4 }}>
         {left}
         <View style={{ flex: 1, minWidth: 0 }}>
           {typeof title === 'string' ? <T numberOfLines={1} style={{ fontFamily: font.medium, fontSize: 19, lineHeight: 23, letterSpacing: -0.19 }}>{title}</T> : title}
@@ -65,11 +66,14 @@ export function Ghost({ title, onPress, disabled }: { title: string; onPress: ()
 /** Every picker is a sheet from the bottom, a row per choice in words (phone.css `.tc-menu`). */
 export function Sheet({ open, close, children }: { open: boolean; close: () => void; children: ReactNode }) {
   const inset = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
       <Pressable style={{ flex: 1, backgroundColor: color.scrim }} onPress={close} accessibilityLabel="Close" />
-      <View style={{ backgroundColor: color.pop, borderTopWidth: 1, borderTopColor: color.lineStrong, paddingTop: 10, paddingHorizontal: 8, paddingBottom: 16 + inset.bottom, gap: 1 }}>
-        {children}
+      <View style={{ maxHeight: height * 0.72, backgroundColor: color.pop, borderTopWidth: 1, borderTopColor: color.lineStrong }}>
+        <ScrollView style={{ flexGrow: 0 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingTop: 10, paddingHorizontal: 8, paddingBottom: 16 + inset.bottom, gap: 1 }}>
+          {children}
+        </ScrollView>
       </View>
     </Modal>
   );

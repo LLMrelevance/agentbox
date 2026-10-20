@@ -42,6 +42,7 @@ export default function SignIn() {
   const inset = useSafeAreaInsets();
   const [apple, setApple] = useState(false);
   const [mode, setMode] = useState<Mode>('sign-in');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -57,14 +58,15 @@ export default function SignIn() {
     } finally { setBusy(null); }
   };
   const signUp = async () => {
-    const out = await c.cloud!.signUp('', email.trim(), password);
+    const out = await c.cloud!.signUp(name.trim(), email.trim(), password);
     if (out.confirm) { setMode('check-email'); return null; }
     return out;
   };
   const heading = mode === 'sign-up' ? 'Create your account' : mode === 'check-email' ? 'Check your email' : `Sign in to ${Name}`;
   const lede = mode === 'check-email' ? `We sent a link to ${email}. Follow it to confirm your address, then sign in here.`
-    : 'Use the account your computer is signed in with. Your threads are here even when it is closed.';
-  const canSubmit = !!email.trim() && !!password && !busy && !!c.cloud;
+    : mode === 'sign-up' ? 'Your teammates will see this name beside your threads and messages.'
+      : 'Use the account your computer is signed in with. Your threads are here even when it is closed.';
+  const canSubmit = !!email.trim() && !!password && (mode !== 'sign-up' || !!name.trim()) && !busy && !!c.cloud;
 
   return (
     <Wall>
@@ -91,6 +93,7 @@ export default function SignIn() {
                   <View style={{ flex: 1, height: 1, backgroundColor: color.line }} />
                 </View>
                 <View style={{ gap: 14 }}>
+                  {mode === 'sign-up' && <Field label="Name" value={name} onChangeText={setName} autoCapitalize="words" textContentType="name" autoComplete="name" />}
                   <Field label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" textContentType="emailAddress" autoComplete="email" />
                   <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry textContentType={mode === 'sign-up' ? 'newPassword' : 'password'} autoComplete={mode === 'sign-up' ? 'new-password' : 'password'} />
                 </View>

@@ -11,7 +11,8 @@
 import { describe, it, expect } from 'vitest';
 import { phoneView, phoneSlug } from '../renderer/src/phone-rows';
 import { threadOf } from '../mobile/src/lib/thread';
-import { commandForPress } from '../mobile/src/lib/actions';
+import { planFor, runSteps } from '../mobile/src/lib/actions';
+import { phoneSender } from '../renderer/src/phone-send';
 import { withAttachments } from '../mobile/src/lib/attach';
 
 const NOW = Date.UTC(2026, 9, 20, 12);
@@ -73,39 +74,55 @@ describe('a thread', () => {
 });
 
 describe('what a press leaves for your Mac', () => {
-  const item = { product: A, id: 'w-1', status: 'done' };
-  it('a pick is the reply the desktop sends, and reopens a finished thread', () => {
-    expect(commandForPress({ kind: 'pick', option: { n: 2, text: 'Wait for Codex', recommended: false } }, item)).toEqual(
-      { device: DEV, project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'Option 2: Wait for Codex' } },
+  // Through the site's own sending path (phone-send.ts), as the site leaves it.
+  const item = { product: A, id: 'w-1', status: 'done', title: 'Plan the phone app', productName: 'Alpha' };
+  async function leaves(press, it = item) {
+    const r = rows();
+    let n = 0;
+    const client = { generation: () => 0, update: async () => [], insertCommand: async (row) => ({ id: `c-${++n}`, created_at: iso(NOW), taken_at: null, outcome: null, ...row }) };
+    const sender = phoneSender({ client, rows: () => r, setRows: (next) => Object.assign(r, next), aliases: () => ({}), changed: () => {} });
+    const plan = planFor(press, it, NOW);
+    if (!plan) return null;
+    await runSteps(sender, plan.steps);
+    return r.commands.map(({ device, project, item: on, kind, payload }) => ({ device, project, item: on, kind, payload }));
+  }
+  it('a pick is the reply the desktop sends, and reopens a finished thread', async () => {
+    expect(await leaves({ kind: 'pick', option: { n: 2, text: 'Wait for Codex', recommended: false } })).toEqual(
+      [{ device: DEV, project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'Option 2: Wait for Codex' } }],
     );
   });
-  it('picking "Close this task" closes it rather than starting a run', () => {
-    expect(commandForPress({ kind: 'pick', option: { n: 3, text: 'Close this task', recommended: false } }, item)).toMatchObject({ kind: 'close', payload: {} });
+  it('picking "Close this task" closes it rather than starting a run', async () => {
+    expect(await leaves({ kind: 'pick', option: { n: 3, text: 'Close this task', recommended: false } })).toMatchObject([{ kind: 'close', payload: {} }]);
   });
-  it('a typed reply goes as typed', () => {
-    expect(commandForPress({ kind: 'reply', text: 'Ship it, then tell me' }, item)).toMatchObject({ kind: 'reply', payload: { text: 'Ship it, then tell me' } });
+  it('a typed reply goes as typed', async () => {
+    expect(await leaves({ kind: 'reply', text: 'Ship it, then tell me' })).toMatchObject([{ kind: 'reply', payload: { text: 'Ship it, then tell me' } }]);
   });
   it('an empty reply sends nothing', () => {
-    expect(commandForPress({ kind: 'reply', text: '   ' }, item)).toBeNull();
+    expect(planFor({ kind: 'reply', text: '   ' }, item)).toBeNull();
   });
-  it('a reply carries the priority, mode and model picked in its sentence, and only those', () => {
-    expect(commandForPress({ kind: 'reply', text: 'Go', choices: { priority: 9, permissionMode: 'plan', model: 'sonnet', effort: 'high', engine: 'codex' } }, item)).toEqual(
-      { device: DEV, project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'Go', priority: 9, permissionMode: 'plan', model: 'sonnet', effort: 'high' } },
+  it('a reply carries the priority, mode and model picked in its sentence, and only those', async () => {
+    expect(await leaves({ kind: 'reply', text: 'Go', choices: { priority: 9, permissionMode: 'plan', model: 'sonnet', effort: 'high', engine: 'codex' } })).toEqual(
+      [{ device: DEV, project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'Go', priority: 9, permissionMode: 'plan', model: 'sonnet', effort: 'high' } }],
     );
   });
-  it('a new thread goes to its project with what was picked for it', () => {
-    expect(commandForPress({ kind: 'new', product: A, body: 'Draw the board', choices: { model: 'opus', priority: 5 } }, null)).toEqual(
-      { device: DEV, project: 'alpha', item: null, kind: 'new', payload: { title: '', body: 'Draw the board', model: 'opus', priority: 5 } },
+  it('a new thread goes to its project with what was picked for it', async () => {
+    expect(await leaves({ kind: 'new', product: A, text: 'Draw the board', choices: { model: 'opus', priority: 5 } }, null)).toEqual(
+      [{ device: DEV, project: 'alpha', item: null, kind: 'new', payload: { title: 'Draw the board', body: '', model: 'opus', priority: 5 } }],
     );
-    expect(commandForPress({ kind: 'new', product: A, body: '  ', choices: {} }, null)).toBeNull();
+    expect(planFor({ kind: 'new', product: A, text: '  ', choices: {} }, null)).toBeNull();
   });
-  it('Send later sends a new thread to Later, or for a moment, as the desktop\'s Send later does', () => {
-    expect(commandForPress({ kind: 'new', product: A, body: 'Draw it', choices: { start: 'later' } }, null)).toMatchObject({ kind: 'new', payload: { body: 'Draw it', start: 'later' } });
-    expect(commandForPress({ kind: 'new', product: A, body: 'Draw it', choices: { runAt: NOW + 86_400_000 } }, null)).toMatchObject({ kind: 'new', payload: { body: 'Draw it', runAt: NOW + 86_400_000 } });
+  it('Send later sends a new thread to Later, or for a moment, as the desktop\'s Send later does', async () => {
+    expect(await leaves({ kind: 'new', product: A, text: 'Draw it', choices: { start: 'later' } }, null)).toMatchObject([{ kind: 'new', payload: { title: 'Draw it', start: 'later' } }]);
+    expect(await leaves({ kind: 'new', product: A, text: 'Draw it', choices: { runAt: NOW + 86_400_000 } }, null)).toMatchObject([{ kind: 'new', payload: { title: 'Draw it', runAt: NOW + 86_400_000 } }]);
   });
-  it('Later and Close are the site\'s snooze and close', () => {
-    expect(commandForPress({ kind: 'later', until: NOW + 3_600_000 }, item)).toMatchObject({ kind: 'snooze', payload: { until: NOW + 3_600_000 } });
-    expect(commandForPress({ kind: 'close' }, item)).toMatchObject({ kind: 'close' });
+  it('Later and Close are the site\'s snooze and close', async () => {
+    expect(await leaves({ kind: 'later', until: NOW + 3_600_000 })).toMatchObject([{ kind: 'snooze', payload: { until: NOW + 3_600_000 } }]);
+    expect(await leaves({ kind: 'close' })).toMatchObject([{ kind: 'close' }]);
+  });
+  it('each raises the toast the site raises, with Undo where the site has one', () => {
+    expect(planFor({ kind: 'reply', text: 'Go' }, item).toast).toBe('Sent → Alpha · press Z to undo');
+    expect(planFor({ kind: 'close' }, item).toast).toBe('Closed: Plan the phone app · press Z to undo');
+    expect(planFor({ kind: 'stop' }, item).toast).toBe('Stop sent. Your Mac stops the agent when it gets it.');
   });
 });
 
