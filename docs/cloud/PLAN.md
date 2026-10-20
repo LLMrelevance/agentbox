@@ -376,7 +376,9 @@ at AgentCore's published rates. The plan limits are set from these.
 - Sold as "+N agent slots": agents running in the cloud at once, on top of
   this Mac's. A monthly agent-hour limit sits behind each plan, high enough
   that most people never reach it; past it, threads wait for the Mac.
-- Pro $40 +10 slots, Plus $100 +25, Max $200 +60. No top-ups for now.
+- Pro $40 +10 slots and 400 hours a month, Plus $100 +25 and 1,000 hours,
+  Max $200 +60 and 3,000 hours (the owner's hours, 2026-10-20, against a
+  measured $0.07 an agent-hour). No top-ups for now.
 - A cloud hour is one agent working for one hour; waiting for a reply is
   free (a run ends with its turn). Each agent is its own machine, billed on
   what it uses, so packing agents onto one machine would not save money.
@@ -576,8 +578,7 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
 - **The Mac.** `cloud.json` holding `gateway` (an address) instead of a
   bucket and runtime makes this Mac a managed one. Her own setup is
   unchanged.
-- **Still open before strangers.** The paid plans' hours (a plan without
-  them cannot be given), presigned writes with no size cap (bounded by the 7-day expiry of
+- **Still open before strangers.** Presigned writes with no size cap (bounded by the 7-day expiry of
   `runs/`), an alarm on unexpected use of the signer's key, and cloud keys
   that never expire (turning a person off covers abuse, not a lost Mac).
 
