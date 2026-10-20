@@ -257,7 +257,9 @@ public App Store and to TestFlight's public links.
 
 ## The owner's steps outside the code
 
-1. ChatGPT Plus, then `codex login` on the Mac, so Codex can review this plan.
+1. ChatGPT Plus, signed in on the Mac (Settings › Codex › Add account, if it
+   is a new ChatGPT account), so Codex can review this plan. The review runs
+   on the Mac: a cloud run of Claude is handed only a Claude sign-in.
 2. Check the Apple Developer membership: active, and individual or company.
 3. Pick the app's name and bundle id, both permanent once used.
 4. Decide on the EU: trader status with a business address now, or the EU
