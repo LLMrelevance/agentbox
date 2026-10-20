@@ -27,6 +27,7 @@ import { List } from './components/List';
 import { isTroubleRow, troubleRow } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
 import { needsYouLit } from './needs-you';
+import { arrivedAt, isUnread } from './unread';
 import { Focus } from './components/Focus';
 import { TicketItems } from './components/TicketReference';
 import type { PendingSaid } from './item-thread';
@@ -193,6 +194,17 @@ const WAITING_AT = waitingIndex(PRACTICE_ROWS);
 const LATER_AT = laterIndex(PRACTICE_ROWS);
 
 const SEEN_KEY = 'zero.seen';
+// When each thread was last opened, and when that started being kept: threads
+// older than it count as read, so the first launch does not dot everything.
+const SEEN_AT_KEY = 'zero.seenAt';
+const UNREAD_SINCE_KEY = 'zero.unreadSince';
+const unreadSince = (() => {
+  const kept = Number(localStorage.getItem(UNREAD_SINCE_KEY));
+  if (kept > 0) return kept;
+  const now = Date.now();
+  localStorage.setItem(UNREAD_SINCE_KEY, String(now));
+  return now;
+})();
 // WHAT COUNTS AS CLICKING SOMETHING RATHER THAN CLICKING NOTHING.
 //
 // This is the test for "has a function": a control, a link, a field, a row she
@@ -778,6 +790,7 @@ export default function App() {
   const [seen, setSeen] = useState<Set<string>>(() => new Set(JSON.parse(localStorage.getItem(SEEN_KEY) ?? '[]')));
   // When Needs You was last on screen; something arriving after it lights the tab.
   const [needsLookedAt, setNeedsLookedAt] = useState(() => Date.now());
+  const [seenAt, setSeenAt] = useState<Record<string, number>>(() => JSON.parse(localStorage.getItem(SEEN_AT_KEY) ?? '{}'));
   // Batch selection (Superhuman: cmd-A, shift-select, then act on all).
   const [multiSel, setMultiSel] = useState<Set<string>>(new Set());
   const [snoozes, setSnoozes] = useState<Snooze>(() => JSON.parse(localStorage.getItem(SNOOZE_KEY) ?? '{}'));
@@ -3006,12 +3019,24 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem(SEEN_KEY, JSON.stringify([...seen].slice(-2000))); }, [seen]);
   useEffect(() => { if (view === 'inbox') setNeedsLookedAt(Date.now()); }, [view, inbox]);
+  useEffect(() => {
+    const newest = Object.entries(seenAt).sort((a, b) => b[1] - a[1]).slice(0, 2000);
+    localStorage.setItem(SEEN_AT_KEY, JSON.stringify(Object.fromEntries(newest)));
+  }, [seenAt]);
   useEffect(() => { localStorage.setItem(SNOOZE_KEY, JSON.stringify(snoozes)); }, [snoozes]);
 
   /* -------------------------------- actions ------------------------------- */
   const markSeen = useCallback((item: WorkItem) => {
     setSeen((s) => new Set(s).add(item.id));
+    setSeenAt((m) => ({ ...m, [item.id]: Date.now() }));
   }, []);
+  // An answer that lands on the thread you are reading is read already. Keyed
+  // on the answer's time, so Mark Unread on the open thread is not undone.
+  const focusedArrival = useMemo(() => {
+    if (!focused) return 0;
+    return arrivedAt(items.find((i) => i.id === focused.id && i.product === focused.product) ?? focused);
+  }, [focused, items]);
+  useEffect(() => { if (focused) markSeen(focused); }, [focusedArrival]); // eslint-disable-line react-hooks/exhaustive-deps
   // J AND K FROM AN OPEN THREAD OR AN OPEN TEAMMATE CARD (w-fb16bcaeba): open
   // the next stop, whoever's it is. Yours opens as your thread, theirs as
   // their card, exactly as a click on its row would.
@@ -6271,6 +6296,7 @@ export default function App() {
                       : <EmptyTab view={view} />
                 ) : <List
                   table={workspaceNavigation && search === null}
+                  unread={(item) => isUnread(item, seenAt, unreadSince)}
                   products={snap.products}
                   team={team}
                   mixed={search === null ? mixedRows : null}
@@ -6654,7 +6680,7 @@ export default function App() {
             // No Decline here, by design. Close This Task above
             // is the one way to say no.
             seen.has(target.id)
-              ? { id: 'unread', label: 'Mark Unread', run: () => { setSeen((s) => { const c = new Set(s); c.delete(target.id); return c; }); setModal(null); } }
+              ? { id: 'unread', label: 'Mark Unread', run: () => { setSeen((s) => { const c = new Set(s); c.delete(target.id); return c; }); setSeenAt((m) => ({ ...m, [target.id]: 0 })); setModal(null); } }
               : { id: 'read', label: 'Mark Read', run: () => { markSeen(target); setModal(null); } },
             ...(returnAt(target) > Date.now()
               ? [{
