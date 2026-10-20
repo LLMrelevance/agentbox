@@ -23,9 +23,12 @@ import { PRACTICE_NAME, PRACTICE_ROWS, PRACTICE_TASK } from '../../../shared/fir
 import { AppMark } from './AppMark';
 import { SidebarIcon } from './SidebarIcon';
 import { AskList, PlanQuestion, PlanSetupCard } from './PlanSetup';
-import { needsPlan, type Plan } from '../plan-setup';
+import { needsPlan, type EngineSetupState, type Plan } from '../plan-setup';
 import { NAME, Name } from '../../../shared/product-name.mjs';
 import { foundOnThisMac, type RunsOn } from '../../../shared/runs-on.mjs';
+
+/** What the walk knows about each coding agent on this computer. */
+type Readings = Array<Pick<EngineSetupState, 'engine' | 'found' | 'signedIn'>>;
 
 /**
  * The one project the last card may file into: the one the walk made. The
@@ -1204,7 +1207,7 @@ export function Onboarding({
   // full readings are cached, not just `needsPlan`, because the plan question
   // needs them as `look`. `fresh` drops the cache, for after pointing at a file
   // on the plan question.
-  const asked = useRef<Promise<Array<{ engine: 'claude' | 'codex'; found: boolean; signedIn: boolean }>> | null>(null);
+  const asked = useRef<Promise<Readings> | null>(null);
   const askMac = (fresh = false) => {
     if (fresh || !asked.current) {
       asked.current = import('../api').then(({ api }) => Promise.all([
@@ -1218,9 +1221,19 @@ export function Onboarding({
   };
   useEffect(() => { if (run.step === 'welcome') void askMac(); }, [run.step]);
   const [plan, setPlan] = useState<Plan | null>(null);
+  /*
+   * WHAT WAS FOUND, when something was (w-e217e577e5). A computer with a plan
+   * already signed in used to walk straight past the plan step and be told
+   * nothing at all, so the first anybody knew of it was an agent spending
+   * their tokens. Everybody meets the step now: it asks the question or it
+   * gives the answer, and this is which.
+   */
+  const [alreadyHere, setAlreadyHere] = useState<Readings | null>(null);
   const begin = async () => {
-    if (needsPlan(await askMac())) { setPlan(null); onStep('plan'); }
-    else onEvent({ t: 'start' });
+    const readings = await askMac();
+    setAlreadyHere(needsPlan(readings) ? null : readings);
+    setPlan(null);
+    onStep('plan');
   };
   const [now, setNow] = useState(() => Date.now());
   // Whether focus is in the reply box. The app's `replying` can move on while
@@ -1528,10 +1541,11 @@ export function Onboarding({
         </div>
       )}
 
-      {/* Only on a Mac that cannot run an agent yet (see `begin`). Every way
-          out, Skip included, goes on to the folder screen. */}
+      {/* The question on a computer that cannot run an agent yet, and what was
+          found on one that can (see `begin`). Every way out, Skip included,
+          goes on to the folder screen. */}
       {run.step === 'plan' && !plan && (
-        <PlanQuestion onPick={setPlan} onReady={() => onStep('folder')} look={askMac} />
+        <PlanQuestion onPick={setPlan} onReady={() => onStep('folder')} look={askMac} found={alreadyHere} />
       )}
       {run.step === 'plan' && plan && (
         <PlanSetupCard plan={plan} onDone={() => onStep('folder')} onSkip={() => onStep('folder')} />
