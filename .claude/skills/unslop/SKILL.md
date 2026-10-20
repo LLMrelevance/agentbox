@@ -60,6 +60,29 @@ the facts. Plain and specific beats polished.
 - **Mannered lines.** Aphorisms, punchy fragments for effect, code that
   "holds" or "rides along". Say what it does.
 
+## Sentences that only point at other sentences
+
+The hardest kind to see, because each one reads fine alone. Caught on the
+guide pages in October 2026, where three sentences in a row said one thing:
+"Give every task its own git worktree. That is the whole technical answer, and
+it is one command. The rest of this page is about the part that costs you
+time." The first carries information. The second labels the first. The third
+describes the page.
+
+- **Pointer sentences.** They open with "That is", "This is", "It is", and the
+  pointing is the whole sentence. "That is the point." "It is neither." "That
+  is the entire design question." Cut them, or fold the fact into the sentence
+  before.
+- **Page talk.** Sentences about the document rather than its subject. "The
+  rest of this page is for...", "more on that below", "this section covers".
+  A link already does this.
+- **Announcing a list before giving it.** "Three honest limits on that figure."
+  Then the three limits. Give the three.
+
+Read each sentence alone and ask what a reader loses if it goes. If the answer
+is nothing, it goes. Replacing it with a fact beats deleting when you need the
+length.
+
 ## Punctuation and formatting
 
 - **No em dashes.** Use a full stop or a comma.

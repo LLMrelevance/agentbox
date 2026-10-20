@@ -35,7 +35,7 @@ import { InstructionSettings, sizeLabel } from './InstructionSettings';
 import { NeoSettings } from '../neo/NeoSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
-import { accountLabel, type CloudStatus } from '../cloud-menu';
+import { accountLabel, countedAccounts, type CloudStatus } from '../cloud-menu';
 import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
 import { limitRows } from '../../../shared/usage.mjs';
 import { LOOKS, lookMeans, SKINS, TUNE_DEFAULT, TUNE_LIMITS, type Look, type SkinId, type SkinTune } from '../skins';
@@ -427,6 +427,13 @@ export function AccountRows({ agent, onChoose, onAdd }: {
   }
 }
 
+export function accountReadingFor(profile: string, readings: AccountUsageReading[], current: Usage | null): Usage | null {
+  const own = readings.find(r => r.profile === profile && r.limits?.length && r.at);
+  const candidates = [own ? { engine: 'claude' as const, profile, at: own.at!, limits: own.limits! } : null,
+    current && (current.profile ?? 'default') === profile ? current : null];
+  return candidates.filter((r): r is Usage => !!r).sort((a, b) => b.at - a.at)[0] ?? null;
+}
+
 /** One account as a place card draws it, whether it lives here or in the cloud. */
 export type PlaceAccount = {
   key: string;
@@ -437,6 +444,8 @@ export type PlaceAccount = {
   about: string[];
   inUse?: boolean;
   limits?: UsageLimit[] | null;
+  checkedAt?: number | null;
+  usageError?: string | null;
   /** Offered when picking it would change something, with the words for it. */
   use?: { word: string; onUse: () => void } | null;
   /** Why it cannot run, in main's words; replaces the meters. */
@@ -446,9 +455,9 @@ export type PlaceAccount = {
   meters?: boolean;
 };
 
-/** SESSION AND WEEK, the same two meters for every account. A full one says when it is back. */
-export function MiniMeters({ limits }: { limits?: UsageLimit[] | null }) {
-  const meters = meterPair(limits);
+/** SESSION AND WEEK, the same two meters for every account, each ending with when it resets. */
+export function MiniMeters({ limits, now = Date.now() }: { limits?: UsageLimit[] | null; now?: number }) {
+  const meters = meterPair(limits, now);
   if (!meters.length) return <div className="acct-meters-none">No usage reading yet</div>;
   return (
     <span className="acct-meters">
@@ -456,36 +465,51 @@ export function MiniMeters({ limits }: { limits?: UsageLimit[] | null }) {
         <span className={`acct-meter${m.percent >= 100 ? ' full' : ''}`} key={m.key}>
           <span className="acct-meter-word">{m.word}</span>
           <span className="usage-meter" aria-hidden="true"><i style={{ width: `${Math.min(100, m.percent)}%` }} /></span>
-          <span className="acct-meter-pct">{m.back ? `back ${m.back}` : `${m.percent}%`}</span>
+          <span className="acct-meter-pct">{m.percent}%</span>
+          <span className="acct-meter-when" title={m.resets ? `Resets ${m.resets}` : undefined}>{m.resets ?? ''}</span>
         </span>
       ))}
     </span>
   );
 }
 
-// IN USE is a mark; switching is a link in sentence case, so the two cannot be read as the same kind of thing.
-function UseMark({ a }: { a: PlaceAccount }) {
-  if (a.inUse) return <span className="set-badge">In use</span>;
-  return a.use ? <button type="button" className="acct-use" onClick={a.use.onUse}>{a.use.word}</button> : null;
+/** A tile here's second line, in the words the cloud's tiles use. Trouble is said below it instead. */
+export function hereState({ signedIn, trouble, limits, now = Date.now() }: {
+  signedIn: boolean; trouble: string | null; limits?: UsageLimit[] | null; now?: number;
+}): string[] {
+  if (!signedIn) return ['Finish signing in to use it'];
+  if (trouble) return [];
+  const full = (limits ?? []).some((l) => l.percent >= 100 && !(l.resetsAt && l.resetsAt <= now)
+    && (l.span === 'session' || !l.qualifier || /all/i.test(l.qualifier)));
+  return [full ? 'At its limit' : 'Ready'];
 }
 
+// The header says the newest reading's time; a tile older than this says its own.
+const OWN_TIME_AFTER_MS = 15 * 60_000;
+
 /** One tile per account, two to a line, its meters stacked inside. */
-export function PlaceTiles({ accounts, onAdd }: { accounts: PlaceAccount[]; onAdd?: () => void }) {
+export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: PlaceAccount[]; onAdd?: () => void; now?: number }) {
   return (
     <div className="acct-tiles">
       {accounts.map((a) => (
         <div className={`acct-tile${a.inUse ? ' on' : ''}${a.trouble ? ' trouble' : ''}`} key={a.key}>
           <div className="acct-tile-head">
             <span className="acct-tile-name">{a.name}</span>
+            {a.inUse && <span className="set-badge">In use</span>}
             {a.plan && <span className="acct-tile-plan">{a.plan}</span>}
           </div>
-          <div className="acct-tile-about">{a.inUse || a.use ? <UseMark a={a} /> : a.about.join(' · ')}</div>
+          <div className="acct-tile-about">{a.about.join(' · ')}</div>
           {a.trouble ? (
             <>
               <div className="acct-tile-trouble">{a.trouble}</div>
               {a.cmd && <div className="acct-tile-cmd"><CopyCmd cmd={a.cmd} /></div>}
             </>
-          ) : a.meters !== false && <MiniMeters limits={a.limits} />}
+          ) : a.meters !== false && <>
+            {(!a.usageError || a.limits?.length) && <MiniMeters limits={a.limits} />}
+            {a.usageError && <div className="acct-tile-trouble" role="status">{a.usageError}</div>}
+          </>}
+          {!!a.checkedAt && (a.usageError || now - a.checkedAt >= OWN_TIME_AFTER_MS) && <div className="acct-reading-time">{usageCheckedAt(a.checkedAt, now)}</div>}
+          {a.use && <button type="button" className="set-ghost acct-switch" onClick={a.use.onUse}>{a.use.word}</button>}
         </div>
       ))}
       {onAdd && <button type="button" className="acct-tile acct-tile-add" onClick={onAdd}>Add account</button>}
@@ -496,15 +520,15 @@ export function PlaceTiles({ accounts, onAdd }: { accounts: PlaceAccount[]; onAd
 /**
  * ONE PLACE AGENTS RUN: its name, whether it is on, one line on when threads
  *  go there, and a tile per account. */
-export function Place({ id, name, state = null, line = null, action, warn, accounts, onAdd }: {
+export function Place({ id, name, state = null, line = null, action, warn, accounts, onAdd, now }: {
   id: string; name: string; state?: 'On' | 'Off' | null; line?: string | null; action?: ReactNode; warn?: string | null;
-  accounts: PlaceAccount[]; onAdd?: () => void;
+  accounts: PlaceAccount[]; onAdd?: () => void; now?: number;
 }) {
   const label = <>{name}{state && <span className={`set-badge${state === 'On' ? '' : ' set-badge-off'}`}>{state}</span>}</>;
   return (
     <Group id={id} label={label} action={action} bare>
       {(warn || line) && <div className="acct-place-line" role="status">{warn ?? line}</div>}
-      <PlaceTiles accounts={accounts} onAdd={onAdd} />
+      <PlaceTiles accounts={accounts} onAdd={onAdd} now={now} />
     </Group>
   );
 }
@@ -512,12 +536,13 @@ export function Place({ id, name, state = null, line = null, action, warn, accou
 /** The cloud's own logins, as a place card reads them. */
 export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex', now: number): PlaceAccount[] {
   const all = cloud.accounts ?? [];
-  return all.filter((a) => a.engine === engine).map((a) => {
+  // A login of an account already added is the same account, and the cloud never runs on it.
+  return countedAccounts(all).filter((a) => a.engine === engine).map((a) => {
     const state = cloudAccountState(a, now);
     const read = !!a.limits?.length;
     // A full meter already says when it is back, so beside one the state is said short.
     const about = read && state.startsWith('At its limit') ? 'At its limit' : state;
-    return { key: a.key, name: accountLabel(a, all), about: [about], limits: a.limits ?? null, meters: read };
+    return { key: a.key, name: accountLabel(a, all), plan: a.plan ?? null, about: [about], limits: a.limits ?? null, meters: read, checkedAt: read ? a.readAt : null };
   });
 }
 
@@ -1624,10 +1649,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     const agent = agentStory(w, usageReadings, engine);
     // Each login's own reading, never another's: by its folder, or the corner's if it is the same login.
     const readingOf = (profile: string): Usage | null => {
-      const own = accountReadings.find((r) => r.profile === profile && r.limits?.length && r.at);
-      if (own) return { engine: 'claude', limits: own.limits!, at: own.at!, profile };
-      const r = agent.reading;
-      return r && (r.profile ?? 'default') === profile ? r : null;
+      return accountReadingFor(profile, accountReadings, agent.reading);
     };
     const picked = agent.accounts.some((a) => a.chosen);
     const hereAccounts: PlaceAccount[] = [...agent.accounts]
@@ -1636,16 +1658,18 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
         key: a.profile,
         name: a.email ?? 'Not signed in',
         plan: a.signedIn ? a.plan : null,
-        about: a.signedIn ? [] : ['Finish signing in to use it'],
+        about: hereState({ signedIn: a.signedIn, trouble: a.trouble, limits: readingOf(a.profile)?.limits, now }),
         inUse: picked && a.chosen,
         limits: readingOf(a.profile)?.limits ?? null,
+        checkedAt: readingOf(a.profile)?.at ?? null,
+        usageError: accountReadings.find((r) => r.profile === a.profile)?.error ?? null,
         use: a.signedIn && !(picked && a.chosen) && agent.accounts.length > 1
           ? { word: picked ? 'Switch to this account' : 'Use only this account', onUse: () => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile: a.profile } })) }
           : null,
         trouble: a.trouble,
         cmd: a.trouble && a.dir ? `CLAUDE_CONFIG_DIR=${a.dir} claude` : null,
       }));
-    const lastRead = Math.max(0, ...agent.accounts.map((a) => readingOf(a.profile)?.at ?? 0));
+    const lastRead = Math.max(0, ...hereAccounts.map((a) => a.checkedAt ?? 0));
     const checked = lastRead ? usageCheckedAt(lastRead, now) : '';
     const cloudHere = cloud?.setUp && (cloud.accounts ?? []).some((a) => a.engine === engine) ? cloud : null;
     // WHERE AGENTS GO FIRST IS DRAWN FIRST: the cloud while it is on, this computer while it is off.
@@ -1653,7 +1677,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     const cloudAccounts = cloudHere ? cloudPlaceAccounts(cloudHere, engine, now) : [];
     const cloudCard = cloudHere && (
       <Place id="cloud-accounts" name="Cloud" state={cloudHere.mode === 'mac' ? 'Off' : 'On'}
-        line={cloudPlaceLine(cloudHere, cloudAccounts.length)} accounts={cloudAccounts} />
+        line={cloudPlaceLine(cloudHere, cloudAccounts.length)} accounts={cloudAccounts} now={now} />
     );
     const addAccount = async (a: Agent) => {
       const r = a.engine === 'codex' ? await api.addCodexAccount() : await api.addClaudeAccount();
@@ -1693,6 +1717,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                    (w-f2a5c9894e). Main's sentence, about the pair. */
                 warn={w.accountsNote}
                 accounts={hereAccounts}
+                now={now}
                 onAdd={() => void addAccount(agent)}
               />
             ) : (

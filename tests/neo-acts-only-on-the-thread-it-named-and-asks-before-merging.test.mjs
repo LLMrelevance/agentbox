@@ -24,7 +24,7 @@ function setup({ focused = null, list = rows } = {}) {
     options: (r) => (r.id === 'w-a' ? [{ n: 1, text: 'Ship draft A (recommended)' }, { n: 2, text: 'Rewrite' }] : []),
     summary: (r) => (r.result ?? '').split('\n')[0],
     projects: () => [{ slug: 'p1', name: 'Agentbox' }, { slug: 'p2', name: 'Site' }],
-    open: rec('open'), pick: rec('pick'), reply: rec('reply'), close: rec('close'),
+    open: vi.fn(async (row) => { calls.push(['open', row]); focused = row; }), pick: rec('pick'), reply: rec('reply'), close: rec('close'),
     compose: vi.fn(async (text, product) => { calls.push(['compose', text, product]); return { id: 'w-new' }; }),
     undo: vi.fn(async () => { calls.push(['undo']); return 'done'; }),
     glow: rec('glow'),

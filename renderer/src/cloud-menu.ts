@@ -45,10 +45,17 @@ export interface CloudAccount {
   duplicateOf?: string | null;
   /** Its session and week, read off a reply's own headers in the cloud. */
   limits?: UsageLimit[] | null;
+  readAt?: number | null;
+  /** The plan of the folder here in the same organization ("Max 20x"). */
+  plan?: string | null;
 }
 
 export interface CloudStatus {
   setUp: boolean;
+  /** Agentbox Cloud can be signed in to here, and nobody has yet. */
+  offered?: boolean;
+  /** Set up through Agentbox Cloud's server, not the owner's own AWS. */
+  managed?: boolean;
   mode: CloudMode;
   /** What "on" means, kept while the cloud is off. */
   whenOn?: Exclude<CloudMode, 'mac'>;
@@ -60,6 +67,8 @@ export interface CloudStatus {
   health?: 'ok' | 'failing' | 'resting';
   lastError?: string | null;
   restingUntil?: number | null;
+  /** Agentbox Cloud had no room for this person a moment ago: no plan, hours spent, every agent running, paused, or terms not accepted. */
+  noRoom?: { error: 'plan' | 'hours' | 'agents' | 'paused' | 'terms'; message: string | null } | null;
   /** The cloud image's Claude Code or Codex, as major.minor, when it is not this Mac's; `blocks` for a different major. */
   versionGap?: { engine: 'claude' | 'codex'; cloud: string; mac: string; blocks: boolean } | null;
 }

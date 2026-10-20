@@ -30,6 +30,7 @@ export type NeoDeps<R extends NeoRow> = {
   outside(): boolean;
   options(row: R): { n: number; text: string }[];
   summary(row: R): string;
+  answer?(row: R): string;
   // What the task is for (the summary's context), so Neo can say it before the latest news.
   about?(row: R): string;
   projects(): { slug: string; name: string }[];
@@ -38,11 +39,10 @@ export type NeoDeps<R extends NeoRow> = {
   pick(row: R, n: number): Promise<'done' | 'asked' | void> | 'done' | 'asked' | void;
   // `attach`: send the pictures in her reply box with it. 'no-pictures' when there were none to send.
   reply(row: R, text: string, o?: { attach?: boolean }): Promise<unknown> | unknown;
-  close(row: R): Promise<'done' | 'asked' | void> | 'done' | 'asked' | void;
+  close(row: R, confirmed?: boolean): Promise<'done' | 'asked' | { asked: string } | void> | 'done' | 'asked' | { asked: string } | void;
   compose(text: string, product: string): Promise<{ id?: string } | null | undefined>;
-  // 'old' is the app's own rule: past thirty seconds Z asks before it undoes
-  // (renderer/src/undo-window.ts), and a voice should not answer that for her.
-  undo(): Promise<'done' | 'none' | 'old'>;
+  // Older undos ask before acting, with a token bound to the exact undo entry.
+  undo(confirmation?: string): Promise<'done' | 'none' | 'old' | 'changed' | { asked: string; confirmation: string } | { failed: string }>;
   glow(id: string): void;
   // Moves a thread to Later until ts, the Later picker's own step in App.tsx.
   later?(row: R, ts: number, label: string): Promise<'done' | 'asked' | void>;
@@ -104,10 +104,10 @@ export function findCommands<C extends { label: string; hint?: string; keywords?
 // "This one", "the current one": the thread on screen, whatever id came with the call.
 const THIS = /\b(this|current|here)\b/;
 // New work, asked for in words; otherwise what she says goes to a thread that exists.
-const NEW_WORK = /\b(new (task|thread|work)|start (a|an|new)|create (a|an)|kick off|spin up|make (a|an) (task|thread))\b/;
+const NEW_WORK = /\b(new (task|thread|work)|(?:add|open|start|create|make) (?:a |an )?(?:new )?(?:task|thread)|start (a|an|new)|create (a|an)|kick off|spin up)\b/;
 
 const FOLLOW_HOLD_MS = 800;
-const CHANGES_THREAD = new Set(['open_thread', 'next_thread', 'close_thread', 'later', 'run_command', 'pick_option']);
+const CHANGES_THREAD = new Set(['open_thread', 'next_thread', 'go_back', 'close_thread', 'later', 'run_command', 'pick_option']);
 
 const RISKY_COMMAND = /^(pause|done|approve|update|first-run|fresh-user|demo|tutorial|stop|resume|cloud|run-now|unsnooze|send-back|redeliver)/;
 
@@ -152,6 +152,15 @@ export const spoken = (s: string) => s
   .trim();
 const nameOf = (r: NeoRow) => (r.label?.trim() || r.title || '').replace(/\s+/g, ' ').replace(/[.!]+$/, '');
 
+function news<R extends NeoRow>(deps: NeoDeps<R>, row: R): string[] {
+  const answer = spoken(deps.answer?.(row) ?? '');
+  const summary = spoken(deps.summary(row).replace(/^##\s+Options\s*$[\s\S]*/im, ''));
+  return [
+    ...(summary ? [`${answer ? 'Previous agent message' : 'Latest from the agent'}: ${clip(summary, SUMMARY_CHARS)}`] : []),
+    ...(answer ? [`The person already replied: ${clip(answer, SUMMARY_CHARS)}`] : []),
+  ];
+}
+
 export function describeScreen<R extends NeoRow>(deps: NeoDeps<R>): string {
   const list = deps.rows();
   const open = deps.focused();
@@ -179,10 +188,10 @@ export function describeOpen<R extends NeoRow>(deps: NeoDeps<R>, open: R): strin
   lines.push(`Open thread: ${nameOf(open)} (${open.productName ?? open.product})`);
   const about = spoken(deps.about?.(open) ?? '');
   if (about) lines.push(`What this task is for: ${clip(about, SUMMARY_CHARS)}`);
-  const s = spoken(deps.summary(open));
-  if (s) lines.push(`Latest from the agent: ${clip(s, SUMMARY_CHARS)}`);
+  lines.push(...news(deps, open));
   const opts = deps.options(open);
   if (opts.length) lines.push('Options:', ...opts.map((o) => `${o.n}. ${spoken(o.text)}`));
+  else lines.push('No options are currently waiting for the person.');
   const pics = (deps.pictureNames?.() ?? []).slice(0, 9);
   const latest = Math.min(deps.latestPictureCount?.() ?? pics.length, pics.length);
   if (latest) lines.push('Pictures in the latest message:', ...pics.slice(0, latest).map((f, i) => `${i + 1}. ${f}`));
@@ -224,6 +233,8 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
   // counts for that and nothing else.
   let asked: { id: string; n: number; words: string } | null = null;
   let askedCommand: string | null = null;
+  let askedClose: string | null = null;
+  let askedUndo: string | null = null;
   // What Neo's words last put up, so each is shown once as it talks, and
   // held a moment so a quick list of names does not flicker.
   let followed = '';
@@ -237,9 +248,10 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
   };
   // The latest message's pictures go up by themselves as Neo briefs her: one
   // lifted, two to four side by side.
-  const showLatest = async () => {
+  const showLatest = async (expectedId = deps.focused()?.id) => {
     if (!deps.show || !deps.latestPictureCount) return '';
     await deps.waitForPictures?.();
+    if (deps.focused()?.id !== expectedId) return '';
     const n = Math.min(deps.latestPictureCount(), 9);
     if (!n) return openLatestFile();
     if (!(await deps.show([1], 'peek'))) return '';
@@ -258,10 +270,9 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
   };
   // What Neo needs to brief her on a thread it just opened.
   const brief = (row: R) => {
-    const s = spoken(deps.summary(row));
     const about = spoken(deps.about?.(row) ?? '');
     const opts = deps.options(row);
-    return `${about ? ` What this task is for: ${clip(about, SUMMARY_CHARS)}` : ''}${s ? ` Latest from the agent: ${clip(s, SUMMARY_CHARS)}` : ''}${opts.length ? ` Options: ${opts.map((o) => `${o.n}. ${spoken(o.text)}`).join(' ')}` : ' No options to pick.'}`;
+    return `${about ? ` What this task is for: ${clip(about, SUMMARY_CHARS)}` : ''} ${news(deps, row).join(' ')}${opts.length ? ` Options: ${opts.map((o) => `${o.n}. ${spoken(o.text)}`).join(' ')}` : ' No options are currently waiting for the person.'}`;
   };
 
   const act = async function act(name: string, args: Record<string, any>, ctx: { heard?: string } = {}): Promise<NeoResult> {
@@ -285,7 +296,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           leaving();
           await deps.open(row);
           deps.glow(row.id);
-          return done(`Opened ${nameOf(row)}.${brief(row)}${await showLatest()}`);
+          return done(`Opened ${nameOf(row)}.${brief(row)}${await showLatest(row.id)}`);
         }
 
         case 'next_thread': {
@@ -297,7 +308,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           leaving();
           await deps.open(next);
           deps.glow(next.id);
-          return done(`Opened ${nameOf(next)}.${brief(next)}${await showLatest()}`);
+          return done(`Opened ${nameOf(next)}.${brief(next)}${await showLatest(next.id)}`);
         }
 
         case 'pick_option': {
@@ -337,8 +348,15 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
         case 'close_thread': {
           const row = meant(args.id, ctx);
           if (!row) return gone();
+          if (args.confirmed && askedClose !== row.id) return refused('That close was not the one waiting for confirmation.');
           deps.glow(row.id);
-          if ((await deps.close(row)) === 'asked') return refused(ASKED);
+          const closed = args.confirmed ? await deps.close(row, true) : await deps.close(row);
+          askedClose = null;
+          if (closed === 'asked') return refused(ASKED);
+          if (closed && typeof closed === 'object' && closed.asked) {
+            askedClose = row.id;
+            return { ok: false, status: 'needs_yes', said: closed.asked };
+          }
           return done(`Closed ${nameOf(row)}.`);
         }
 
@@ -383,6 +401,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           if (!cmd) return refused('That command is not on offer right now. Search again with find_commands.');
           // ⌘K's Later row only opens the time picker; later does it with her time.
           if (cmd.label === 'Later') return refused('Use later with the minutes or time the person said.');
+          if (cmd.id === 'done' && deps.focused()) return act('close_thread', { id: deps.focused()!.id, confirmed: args.confirmed }, ctx);
           // A yes counts for this command, with these words, on this thread:
           // "approve" means the open thread's approve, and that can change.
           const what = `${cmd.id}|${cmd.label}|${deps.focused()?.id ?? ''}`;
@@ -400,10 +419,6 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
               return { ok: false, status: 'needs_yes', said: `That would "${cmd.label}". Ask the person to say yes first.` };
             }
           }
-          // Closing goes the way close_thread does, which notices the app
-          // stopping to ask its own question first.
-          const open = deps.focused();
-          if (cmd.id === 'done' && open) return (await deps.close(open)) === 'asked' ? refused(ASKED) : done(`Closed ${nameOf(open)}.`);
           await cmd.run();
           return done(`Done: ${cmd.label}.`);
         }
@@ -423,16 +438,19 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
         }
 
         case 'go_back': {
-          while (trail.length) {
-            const row = find(trail.pop());
-            if (row && row.id !== deps.focused()?.id) {
-              await deps.open(row);
-              deps.glow(row.id);
-              seen = row.id;
-              return done(`Back on ${nameOf(row)}.${brief(row)}`);
-            }
+          const steps = args.steps ?? 1;
+          if (!Number.isInteger(steps) || steps < 1 || steps > 9) return refused('Go back between one and nine threads at a time.');
+          let remaining = steps, cut = trail.length, row: R | null = null;
+          while (cut > 0 && remaining > 0) {
+            const previous = find(trail[--cut]);
+            if (previous && previous.id !== (row?.id ?? deps.focused()?.id)) { row = previous; remaining--; }
           }
-          return refused('There is no thread to go back to.');
+          if (!row || remaining) return refused(steps === 1 ? 'There is no thread to go back to.' : `There are not ${steps} previous threads to go back to.`);
+          trail.length = cut;
+          await deps.open(row);
+          deps.glow(row.id);
+          seen = row.id;
+          return done(`Back on ${nameOf(row)}.${brief(row)}${await showLatest(row.id)}`);
         }
 
         case 'scroll':
@@ -480,7 +498,7 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
             row = deps.focused();
           }
           if (!row || row.id === args.from) return refused('Nothing new is open.');
-          return done(`Now open: ${nameOf(row)}.${brief(row)}${await showLatest()}`);
+          return done(`Now open: ${nameOf(row)}.${brief(row)}${await showLatest(row.id)}`);
         }
 
         case 'open_file': {
@@ -492,8 +510,17 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
         }
 
         case 'undo': {
-          const r = await deps.undo();
+          if (args.confirmed && !askedUndo) return refused('There is no undo waiting for confirmation.');
+          const confirmation = args.confirmed ? askedUndo! : undefined;
+          askedUndo = null;
+          const r = await deps.undo(confirmation);
+          if (r && typeof r === 'object') {
+            if ('failed' in r) return refused(r.failed);
+            askedUndo = r.confirmation;
+            return { ok: false, status: 'needs_yes', said: r.asked };
+          }
           if (r === 'done') return done('Undone.');
+          if (r === 'changed') return refused('The last action changed since I asked, so nothing was undone.');
           return refused(r === 'old' ? 'That was a while ago, so the person has to press Z to take it back.' : 'There is nothing to undo.');
         }
 
@@ -528,6 +555,7 @@ export function screenFor<R extends NeoRow>(deps: NeoDeps<R>, canGoBack: boolean
     } : null,
     rows: [...listed, ...rest].slice(0, most).map((r) => ({ id: r.id, title: nameOf(r) })),
     commands: (deps.commands?.() ?? []).map((c) => ({ id: c.id, label: c.label, ...(c.hint ? { hint: c.hint } : {}) })),
+    projects: deps.projects().map(({ slug, name }) => ({ slug, name })),
     canGoBack,
   };
 }

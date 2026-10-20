@@ -177,6 +177,13 @@ contextBridge.exposeInMainWorld('zero', {
   setProjectSetting: (payload) => ipcRenderer.invoke('zero:settings-set-project', payload),
   setWorkspaceSetting: (payload) => ipcRenderer.invoke('zero:settings-set-workspace', payload),
   cloudSignIn: (payload) => ipcRenderer.invoke('zero:cloud-signin', payload),
+  cloudAccountSignIn: (payload) => ipcRenderer.invoke('zero:cloud-account-sign-in', payload),
+  cloudAccountCancel: () => ipcRenderer.invoke('zero:cloud-account-cancel'),
+  cloudAccountReopen: () => ipcRenderer.invoke('zero:cloud-account-reopen'),
+  cloudAccountSignOut: () => ipcRenderer.invoke('zero:cloud-account-sign-out'),
+  cloudAccountPlan: () => ipcRenderer.invoke('zero:cloud-account-plan'),
+  cloudAccountPay: (payload) => ipcRenderer.invoke('zero:cloud-account-pay', payload),
+  cloudAccountBilling: () => ipcRenderer.invoke('zero:cloud-account-billing'),
   cloudClipboardCode: () => ipcRenderer.invoke('zero:cloud-clipboard-code'),
   // What a project is CALLED, and the mark beside the name. Not settings: both
   // are written into the project's own project.json and travel with the folder.

@@ -2,6 +2,7 @@
 // box means.
 import { isCleanRun } from '../../shared/repeats.mjs';
 import { answerSettled } from '../../shared/answers.mjs';
+import { saysARunGotNowhere } from '../../shared/spawn-trouble.mjs';
 import { firstRealLine, previewText } from './format';
 import { TROUBLE_ID } from './trouble-row';
 import { DONE } from './done-word';
@@ -86,6 +87,11 @@ const HER_WORDS = ['title', 'body', 'answer'];
 function herLastWord(i: InboxItem): number {
   let last = 0;
   for (const field of HER_WORDS) {
+    // Taking a word back is not saying one. A withdrawal is written to
+    // `answer` in her own hand, so counted here it outranked the very result
+    // it was undoing and the thread stopped being news.
+    // tests/undoing-a-pick-that-went-out-puts-the-thread-back-in-needs-you
+    if (field === 'answer' && i.answer === '(withdrawn)') continue;
     const w = i.wrote?.[field];
     if (w?.source === 'founder') last = Math.max(last, w.ts ?? 0);
   }
@@ -97,6 +103,17 @@ export function answeredHerAsk(i: InboxItem): boolean {
   if (!i.result) return false;
   const r = i.wrote?.result;
   return !!r && r.source === 'agent' && (r.ts ?? 0) > herLastWord(i);
+}
+
+// The app has stopped carrying this row's reply. Its own word that a run got
+// nowhere, written after a reply, is written only once it gives up, and nothing
+// starts the row again until somebody writes, so it is in Needs you and not In
+// progress, whoever filed it.
+export function gaveUpOnTheAnswer(i: InboxItem): boolean {
+  if (i.status !== 'open' || !liveAnswer(i) || answerSettled(i)) return false;
+  const r = i.wrote?.result;
+  if (!r || r.source !== 'agent' || (r.ts ?? 0) <= (i.wrote?.answer?.ts ?? 0)) return false;
+  return saysARunGotNowhere(i.result);
 }
 
 // Who deferred a row decides what the deferral means. A future runAt an agent
@@ -165,6 +182,7 @@ export function belongsInInbox(
   if (i.status !== 'done' && i.status !== 'claimed' && answerSettled(i)) return true;
   // The worker answered her ask and left the thread open (`answeredHerAsk`).
   if (answeredHerAsk(i)) return true;
+  if (gaveUpOnTheAnswer(i)) return true;
   if (i.status === 'done') {
     // An agent's `done` on a thread the user wrote or spoke on is news; her own
     // `done` is the archive. A thread she spoke on is hers whoever filed it.
@@ -297,6 +315,7 @@ export function belongsInProgress(
   // Her ask is answered and she has not replied, so the next move is hers and
   // the inbox shows it.
   if (answeredHerAsk(i)) return false;
+  if (gaveUpOnTheAnswer(i)) return false;
   if (i.status === 'open' && liveAnswer(i)) return true; // answered/approved, spawn pending
   // Her own work, waiting its turn. Agent-filed work is a proposal and stays in
   // the inbox until she answers it, which is the branch above.

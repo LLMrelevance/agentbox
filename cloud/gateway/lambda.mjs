@@ -10,6 +10,7 @@
 import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { awsTransport, awsStorage } from '../../main/cloud/aws.mjs';
 import { createGateway } from './gateway.mjs';
+import { stripeClient } from './stripe.mjs';
 
 const TIMEOUT_MS = 20_000;
 const http = { requestTimeout: TIMEOUT_MS, connectionTimeout: 5_000, throwOnRequestTimeout: true };
@@ -57,17 +58,15 @@ export function bucketObjects({ region, bucket, client = new S3Client({ region, 
 }
 
 /**
- * Who a database session belongs to, asked of the database itself. Only a
- * Google sign-in counts: the database also takes made-up email addresses,
- * and each one would be another free plan.
+ * Who a database session belongs to, asked of the database itself: a Google
+ * sign-in, or an email address its owner has confirmed.
  */
 export function supabaseWhoIs({ url, anonKey, fetchImpl = fetch }) {
   return async (token) => {
     const res = await fetchImpl(`${url.replace(/\/+$/, '')}/auth/v1/user`, { headers: { apikey: anonKey, authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) });
     if (!res.ok) return null;
     const u = await res.json();
-    const providers = [].concat(u?.app_metadata?.providers ?? [], u?.app_metadata?.provider ?? []);
-    return u?.id && providers.includes('google') ? { id: u.id, email: u.email ?? null } : null;
+    return u?.id && u.email_confirmed_at ? { id: u.id, email: u.email ?? null } : null;
   };
 }
 
@@ -88,7 +87,10 @@ export async function gatewayFromEnv(env = process.env, { readSecret = (arn) => 
   const transport = awsTransport({ region, runtimeArn: env.RUNTIME_ARN });
   const signer = awsStorage({ region, bucket, credentials: { accessKeyId: key.id, secretAccessKey: key.secret } });
   const objects = bucketObjects({ region, bucket });
+  // Without it the server runs and says paying is not set up.
+  const billing = env.STRIPE_SECRET_ARN ? JSON.parse(await readSecret(env.STRIPE_SECRET_ARN)) : null;
   return createGateway({
+    ...(billing ? { stripe: stripeClient({ key: billing.key, webhookSecret: billing.webhookSecret }) } : {}),
     agentcore: transport,
     links: { get: signer.getUrl, put: signer.putUrl, head: signer.headUrl },
     removeObject: (k) => objects.del(k),
@@ -105,7 +107,9 @@ export function lambdaHandler(gw) {
     // ever read as one of the events below.
     if (event?.requestContext?.http) {
       const body = event.body ? (event.isBase64Encoded ? Buffer.from(event.body, 'base64').toString('utf8') : event.body) : '';
-      const out = await gw.handle({ method: event.requestContext.http.method, path: event.rawPath, headers: event.headers || {}, body });
+      const path = event.rawQueryString ? `${event.rawPath}?${event.rawQueryString}` : event.rawPath;
+      const out = await gw.handle({ method: event.requestContext.http.method, path, headers: event.headers || {}, body });
+      if (out.type === 'html') return { statusCode: out.status, headers: { 'content-type': 'text/html; charset=utf-8' }, body: out.body };
       return { statusCode: out.status, headers: { 'content-type': 'application/json' }, body: JSON.stringify(out.body) };
     }
     if (Array.isArray(event?.Records)) {

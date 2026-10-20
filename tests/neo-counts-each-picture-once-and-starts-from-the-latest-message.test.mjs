@@ -5,12 +5,34 @@
 // Now each file counts once, the latest message's pictures are 1, 2, 3, and
 // older ones are listed after them as earlier.
 import { describe, expect, it } from 'vitest';
-import { orderPictures } from '../renderer/src/neo/show.ts';
+import { orderPictures, threadPictures, waitForThread } from '../renderer/src/neo/show.ts';
 import { describeScreen } from '../renderer/src/neo/bridge.ts';
 
 const pic = (src, block) => ({ src, block });
 
 describe('which pictures Neo counts, and in what order', () => {
+  it('keeps a legacy result’s images in visible order as one latest message', () => {
+    const outcome = {};
+    const images = [1, 2, 3].map((n) => ({
+      isConnected: true, complete: true, naturalWidth: 640, parentElement: {},
+      getAttribute: () => `design-${n}.png`,
+      closest: (selector) => selector.includes('.outcome') ? outcome : null,
+    }));
+    const root = { querySelector: () => outcome, querySelectorAll: (selector) => selector.includes('img.inline-image') ? images : [] };
+    const result = threadPictures(root);
+    expect(result.pictures).toEqual(images);
+    expect(result.latest).toBe(3);
+  });
+  it('waits for the requested thread instead of accepting the previous rendered thread', async () => {
+    let id = 'previous';
+    let waits = 0;
+    expect(await waitForThread('destination', () => id, async () => { if (++waits === 3) id = 'destination'; })).toBe(true);
+    expect(waits).toBe(3);
+  });
+
+  it('refuses to use a different thread when opening never finishes', async () => {
+    expect(await waitForThread('destination', () => 'previous', async () => {})).toBe(false);
+  });
   it('counts a file once however many times the thread draws it', () => {
     const got = orderPictures([pic('a.png', 1), pic('b.png', 1), pic('c.png', 1), pic('a.png', 2), pic('b.png', 2), pic('c.png', 2), pic('a.png', 3), pic('b.png', 3), pic('c.png', 3)]);
     expect(got.order.length).toBe(3);

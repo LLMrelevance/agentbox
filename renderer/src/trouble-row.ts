@@ -61,6 +61,7 @@ export function shortNext(c: Cause): string {
   if (c.cause === 'network') return 'need the network set up';
   if (c.cause === 'api-key') return 'need a ChatGPT login';
   if (c.cause === 'codex-config') return 'need config.toml fixed';
+  if (c.cause === 'open-elsewhere') return 'need the other Codex window closed';
   return 'stopped, still trying';
 }
 

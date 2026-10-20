@@ -1597,6 +1597,56 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     }
   });
 
+  // SIGNING IN TO AGENTBOX CLOUD ITSELF, on the app's own sign-in page
+  // (main/cloud/account.mjs): Google, or an email and a password, traded for
+  // this Mac's cloud key. One session per page, made when the page first asks.
+  let cloudAccount = null;
+  const cloudAccountSessionNow = async () => {
+    const home = supervisor.config.home || os.homedir();
+    const { cloudAccountConfig, cloudAccountSession } = await import('./cloud/account.mjs');
+    const config = cloudAccountConfig(supervisor.appDir, { home });
+    if (!config) return null;
+    if (!cloudAccount || cloudAccount.config !== JSON.stringify(config)) {
+      const { shell } = await import('electron');
+      cloudAccount = { config: JSON.stringify(config), value: config, session: cloudAccountSession({ config, openExternal: (u) => shell.openExternal(u), log: (l) => console.log(`cloud account: ${l}`) }) };
+    }
+    return cloudAccount;
+  };
+  ipcMain.handle('zero:cloud-account-sign-in', async (_e, { method, email, password, name } = {}) => {
+    const acct = await cloudAccountSessionNow();
+    if (!acct) return { ok: false, error: 'This copy of the app has no cloud to sign in to.' };
+    const { cloudSignIn } = await import('./cloud/account.mjs');
+    const out = await cloudSignIn({ config: acct.value, session: acct.session, method, email, password, name, home: supervisor.config.home || os.homedir() });
+    if (method === 'google') { try { if (window?.isMinimized?.()) window.restore(); window?.show?.(); } catch { /* no window to raise */ } }
+    push();
+    return out;
+  });
+  ipcMain.handle('zero:cloud-account-cancel', async () => { (await cloudAccountSessionNow())?.session.cancel(); return { ok: true }; });
+  ipcMain.handle('zero:cloud-account-reopen', async () => { await (await cloudAccountSessionNow())?.session.reopen(); return { ok: true }; });
+  ipcMain.handle('zero:cloud-account-sign-out', async () => {
+    const { signOutOfCloud } = await import('./cloud/account.mjs');
+    const out = await signOutOfCloud({ home: supervisor.config.home || os.homedir() });
+    push();
+    return out;
+  });
+  // PAYING FOR A CLOUD PLAN: Stripe's own pages, in the browser.
+  const cloudCall = async (name, args = {}) => {
+    try {
+      const account = await import('./cloud/account.mjs');
+      const { shell } = await import('electron');
+      return await account[name]({ ...args, openExternal: (u) => shell.openExternal(u), home: supervisor.config.home || os.homedir() });
+    } catch (err) {
+      return { ok: false, error: 'unreachable', message: `The cloud did not answer: ${err?.message || err}` };
+    }
+  };
+  ipcMain.handle('zero:cloud-account-plan', async () => {
+    const plan = await cloudCall('cloudPlan');
+    supervisor.cloudPlanSeen?.(plan);
+    return plan;
+  });
+  ipcMain.handle('zero:cloud-account-pay', (_e, { plan } = {}) => cloudCall('payForCloud', { plan }));
+  ipcMain.handle('zero:cloud-account-billing', () => cloudCall('openCloudBilling'));
+
   // THE CLOUD SETUP'S SIGN-IN for one account, made in the cloud
   // (main/cloud/logins.mjs). The Mac relays the link and the code only.
   ipcMain.handle('zero:cloud-signin', async (_e, { action, engine, key, code } = {}) => {

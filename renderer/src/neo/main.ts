@@ -6,6 +6,7 @@ import { orbDrag } from './orb-drag';
 import { dustOrb } from './dust';
 import { chime } from './chime';
 import { liveDriver } from './live-driver';
+import { canRenew, voiceConnection } from './connection';
 
 type NeoBridge = {
   onWake(fn: (p: { outside: boolean }) => void): () => void;
@@ -15,14 +16,16 @@ type NeoBridge = {
   allowMic(): Promise<'granted' | 'settings' | 'refused'>;
   onNotice(fn: (p: { text: string }) => void): () => void;
   onSide(fn: (p: { side: 'left' | 'right'; up?: boolean }) => void): () => void;
-  startLive(sdp: string, outside: boolean): Promise<{ ok: boolean; sdp?: string; error?: string }>;
-  tool(callId: string, name: string, args: string, heard: string): Promise<unknown>;
-  decide(heard: string): Promise<{ say: string; context?: string }>;
+  startLive(sdp: string, outside: boolean, transportId: string): Promise<{ ok: boolean; sdp?: string; error?: string }>;
+  activateLive(transportId: string): Promise<{ok:boolean}>;
+  tool(callId: string, name: string, args: string, heard: string, transportId: string): Promise<unknown>;
+  decide(heard: string, transportId: string): Promise<{ say: string; context?: string }>;
+  audit(heard: string, transportId: string): Promise<boolean>;
   follow(said: string): void;
   drag(phase: 'start' | 'move' | 'end', dx?: number, dy?: number): void;
   pace(value?: string): Promise<string>;
   captions(on?: boolean): Promise<boolean>;
-  usage(seconds: number): void;
+  usage(seconds: number, transportId: string): void;
   ending(): void;
   log(line: { who: string; text: string }): void;
   closed(): void;
@@ -53,6 +56,12 @@ let closeTimer: number | null = null;
 // it after every wait, so a sleep or lock in the meantime cannot leave the
 // mic open behind it.
 let gen = 0;
+type Connection = ReturnType<typeof voiceConnection>;
+let connection: Connection | null = null;
+const connections = new Set<Connection>();
+let lastActivity = 0, busy = 0, rotating = false, forceRenew = false, repeatAfterRenew = false, retryAt = 0;
+let outsideAtWake = false;
+let renewTimer: ReturnType<typeof setInterval> | null = null;
 
 function say(text: string) {
   words.textContent = text;
@@ -65,17 +74,27 @@ function poke() {
 
 // The orb breathes with Neo's voice.
 function listenTo(stream: MediaStream) {
+  if (meter) cancelAnimationFrame(meter);
   void meterCtx?.close();
   const ctx = meterCtx = new AudioContext();
   const analyser = ctx.createAnalyser();
   analyser.fftSize = 512;
   ctx.createMediaStreamSource(stream).connect(analyser);
   const data = new Uint8Array(analyser.fftSize);
-  const tick = () => {
-    analyser.getByteTimeDomainData(data);
+  const input = mic ? ctx.createAnalyser() : null;
+  if (input && mic) ctx.createMediaStreamSource(mic).connect(input);
+  const inputData = input ? new Uint8Array(input.fftSize) : null;
+  const energy = (samples: Uint8Array) => {
     let sum = 0;
-    for (const v of data) sum += ((v - 128) / 128) ** 2;
-    const level = Math.min(1, Math.sqrt(sum / data.length) * 6);
+    for (const v of samples) sum += ((v - 128) / 128) ** 2;
+    return Math.sqrt(sum / samples.length);
+  };
+  const tick = () => {
+    if (ctx !== meterCtx) return;
+    analyser.getByteTimeDomainData(data);
+    const level = Math.min(1, energy(data) * 6);
+    if (input && inputData) input.getByteTimeDomainData(inputData);
+    if (level > 0.05 || (inputData && energy(inputData) > 0.01)) lastActivity = Date.now();
     orb.setLevel(level);
     if (level > 0.05) label.textContent = 'Neo · speaking';
     meter = requestAnimationFrame(tick);
@@ -95,17 +114,77 @@ function follow(text: string) {
 
 // One driver per session, bound to that session's channel, so neither its
 // words nor a slow tool's answer can reach the next one.
-function driverFor(ch: RTCDataChannel) {
+function driverFor(ch: RTCDataChannel, transportId: string) {
   return liveDriver({
     send: (event) => { if (channel === ch && ch.readyState === 'open') ch.send(JSON.stringify(event)); },
-    tool: (callId, name, args, heard) => { poke(); return neo.tool(callId, name, args, heard); },
+    tool: async (callId, name, args, heard) => {
+      if (channel !== ch) return {ok:false,said:'The voice connection changed.'};
+      busy++; poke();
+      try { return await neo.tool(callId, name, args, heard, transportId); } finally { busy--; }
+    },
     onWords: (text) => { if (channel === ch) { poke(); say(text); follow(text); } },
-    onUsage: (seconds) => { if (channel === ch) neo.usage(seconds); },
+    onUsage: (seconds) => neo.usage(seconds, transportId),
     onClosed: () => { if (channel === ch) finish(); },
-    onLine: (line) => neo.log(line),
+    onLine: (line) => { if (channel === ch) neo.log(line); },
+    onActivity: () => { if (channel === ch) { lastActivity = Date.now(); poke(); } },
+    onUndelegated: (heard) => channel === ch ? neo.audit(heard, transportId) : Promise.resolve(false),
+    onRecovery: (repeat) => {
+      if (channel !== ch) return;
+      forceRenew = true; repeatAfterRenew ||= repeat;
+      say(repeat ? 'That request was not completed. Refreshing the voice connection.' : 'The voice reply could not be confirmed. Refreshing the connection.');
+    },
     // The app decides what she asked for (main/neo/decided.mjs).
-    onDelegate: (_id, heard) => { poke(); return neo.decide(heard); },
+    onDelegate: async (_id, heard) => {
+      if (channel !== ch) return {say:''};
+      busy++; poke();
+      try { return await neo.decide(heard, transportId); } finally { busy--; }
+    },
   });
+}
+
+function prepareConnection(stream: MediaStream, outside: boolean) {
+  const c = voiceConnection({stream,outside,start:(sdp,wasOutside,id)=>neo.startLive(sdp,wasOutside,id),driverFor,
+    onTrack:(ch,remote)=>{if(channel===ch)listenTo(remote);},onClosed:(ch)=>{if(channel===ch)finish();}});
+  connections.add(c);
+  return c;
+}
+
+function useConnection(c: Connection) {
+  const previous = connection;
+  connection = c; pc = c.peer; channel = c.channel; player = c.player;
+  c.activate();
+  lastActivity = Date.now();
+  if (previous) void previous.retire().finally(() => connections.delete(previous));
+}
+
+async function renew() {
+  const previous = connection;
+  if (!previous || !mic || closing || rotating || Date.now() < retryAt || !canRenew({born:previous.born,activity:lastActivity,busy,forced:forceRenew})) return;
+  rotating = true;
+  const my = gen, activity = lastActivity;
+  previous.driver.checkpoint?.();
+  let candidate: Connection | null = null;
+  try {
+    candidate = prepareConnection(mic, outsideAtWake);
+    await candidate.ready;
+    if (my !== gen || closing || connection !== previous || lastActivity !== activity || busy) return;
+    const activated = await neo.activateLive(candidate.id);
+    if (!activated.ok || my !== gen || closing) return;
+    const interrupted = lastActivity !== activity;
+    useConnection(candidate);
+    if (repeatAfterRenew || interrupted) candidate.channel.send(JSON.stringify({type:'session.commentary.append',delegation_id:null,content:interrupted ? 'The voice connection refreshed while you spoke. Check the current screen and repeat anything still needed.' : 'The voice connection refreshed. That last request was not completed; please repeat it.'}));
+    forceRenew = false; repeatAfterRenew = false;
+  } catch (error) {
+    retryAt = Date.now() + 60_000;
+    neo.log({who:'tool',text:`Voice renewal failed: ${String((error as Error).message)}`});
+  } finally {
+    if (candidate && candidate !== connection) {
+      const unused = candidate;
+      if (unused.channel.readyState === 'open') void unused.retire().finally(() => connections.delete(unused));
+      else { unused.close(); connections.delete(unused); }
+    }
+    rotating = false;
+  }
 }
 
 async function wake({ outside }: { outside: boolean }) {
@@ -123,32 +202,20 @@ async function wake({ outside }: { outside: boolean }) {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     if (stale()) { stream.getTracks().forEach((t) => t.stop()); return; }
     mic = stream;
-    pc = new RTCPeerConnection();
-    player = new Audio();
-    player.autoplay = true;
-    pc.ontrack = (e) => { if (!player || stale()) return; player.srcObject = e.streams[0]; void player.play(); listenTo(e.streams[0]); };
-    for (const track of mic.getAudioTracks()) pc.addTrack(track, mic);
-    channel = pc.createDataChannel('oai-events');
-    const driver = driverFor(channel);
-    channel.onmessage = (m) => { void driver.handle(JSON.parse(String(m.data))); };
-    const ch = channel;
-    channel.onclose = () => { if (channel === ch) finish(); };
-    await pc.setLocalDescription(await pc.createOffer());
-    await new Promise<void>((resolve) => {
-      if (pc!.iceGatheringState === 'complete') return resolve();
-      const timer = setTimeout(resolve, 3000);
-      pc!.addEventListener('icegatheringstatechange', () => { if (pc?.iceGatheringState === 'complete') { clearTimeout(timer); resolve(); } });
-    });
-    if (stale() || !pc) return;
-    const got = await neo.startLive(pc.localDescription!.sdp, outside);
-    if (stale() || !pc) return;
-    if (!got.ok || !got.sdp) throw new Error(got.error ?? 'Neo could not start.');
-    await pc.setRemoteDescription({ type: 'answer', sdp: got.sdp });
+    outsideAtWake = outside; lastActivity = Date.now();
+    forceRenew = false; repeatAfterRenew = false; retryAt = 0;
+    const c = prepareConnection(stream, outside);
+    await c.ready;
+    if (stale()) { c.close(); connections.delete(c); return; }
+    if (!(await neo.activateLive(c.id)).ok) throw new Error('The voice connection could not be activated.');
+    if (stale()) { c.close(); connections.delete(c); return; }
+    useConnection(c);
+    renewTimer = setInterval(() => { void renew(); }, 1000);
   } catch (err) {
     if (stale()) return;
     say(String((err as Error).message || err));
     closing = true;
-    closeTimer = window.setTimeout(() => finish(), 4000);
+    closeTimer = window.setTimeout(() => finish(), 15_000);
   }
 }
 
@@ -158,6 +225,7 @@ function sleep(reason: string) {
   neo.ending();
   // The mic goes off now, not when the service gets round to closing.
   mic?.getTracks().forEach((t) => t.stop());
+  connections.forEach((c) => c.stopInput());
   if (channel?.readyState === 'open') {
     channel.send(JSON.stringify({ type: 'session.close' }));
     closeTimer = window.setTimeout(() => finish(), 4000);
@@ -167,6 +235,8 @@ function sleep(reason: string) {
 
 function finish() {
   gen++;
+  if (renewTimer) clearInterval(renewTimer);
+  renewTimer = null;
   if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
   // Main still hears that Neo is off even when there was nothing to tear
   // down, or it would stay marked live with nothing listening.
@@ -176,10 +246,9 @@ function finish() {
   void meterCtx?.close();
   meterCtx = null;
   mic?.getTracks().forEach((t) => t.stop());
-  try { channel?.close(); } catch {}
-  try { pc?.close(); } catch {}
-  if (player) { player.srcObject = null; player = null; }
-  mic = null; pc = null; channel = null;
+  channel = null; pc = null; player = null; connection = null;
+  connections.forEach((c) => c.close()); connections.clear();
+  mic = null;
   orb.setLevel(0);
   chime('sleep');
   root.classList.remove('awake');

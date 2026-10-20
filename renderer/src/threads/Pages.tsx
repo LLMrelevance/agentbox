@@ -71,10 +71,15 @@ export function SharedMark({ className = 'th-shared', label }: { className?: str
 }
 
 /* ------------------------------------------------------------ marks */
-/** A thread's state mark. `live` turns it: an agent is on the thread now,
+/** A thread's state mark. `live` pulses it: an agent is on the thread now,
  *  rather than the thread waiting its turn. */
 export function StateGlyph({ state, live = false }: { state: ThreadStateWord; live?: boolean }) {
-  return <span className={`th-st s-${state}${live ? ' live' : ''}`} aria-hidden="true" title={live ? 'An agent is on it now' : undefined} />;
+  return <span className={`th-st s-${state}${live ? ' live' : ''}`} aria-hidden="true" title={live ? 'An agent is on it now' : undefined} ref={live ? inStep : undefined} />;
+}
+
+/** Every running mark pulses on one beat: each starts on the page's clock, not when its row appeared. */
+export function inStep(el: Element | null) {
+  for (const a of el?.getAnimations?.() ?? []) a.startTime = 0;
 }
 
 /** The threads an agent is on right now, by id (App.tsx provides it). */
@@ -82,10 +87,10 @@ export const LiveContext = createContext<Set<string>>(new Set());
 /** The ones of those running in the cloud rather than on this Mac. */
 export const CloudContext = createContext<Set<string>>(new Set());
 
-/** An agent is on the thread now: the turning dot on this Mac, a pulsing cloud in the cloud. */
+/** An agent is on the thread now: the half-dot on this Mac, a cloud in the cloud, both pulsing. */
 export function RunningMark({ cloud = false }: { cloud?: boolean }) {
   if (!cloud) return <StateGlyph state="running" live />;
-  return <svg className="th-st-cloud" width="14" height="11" viewBox="2 5 21 15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" role="img" aria-label="An agent is on it now, in the cloud">
+  return <svg className="th-st-cloud" ref={inStep} width="14" height="11" viewBox="2 5 21 15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" role="img" aria-label="An agent is on it now, in the cloud">
     <title>An agent is on it now, in the cloud</title><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
   </svg>;
 }
@@ -152,7 +157,7 @@ export function HeaderActions({ page, display, onDisplay, products, items, onSea
   return <div className="th-right">
     {onSearch && <SearchButton onSearch={onSearch} />}
     <button type="button" className="th-new" data-hint="new-task" onClick={onCompose} title="New thread (N)"><PenIcon />New thread</button>
-    {cloud?.setUp && <CloudButton cloud={cloud} onMode={onCloudMode} onWhenOn={onCloudWhenOn} onSetUp={onCloudSetUp} />}
+    {(cloud?.setUp || cloud?.offered) && <CloudButton cloud={cloud} onMode={onCloudMode} onWhenOn={onCloudWhenOn} onSetUp={onCloudSetUp} />}
     <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
       <button type="button" className={`th-disp${worn ? ' faces' : ''}${open ? ' open' : ''}`}
         aria-label={whose ? `View and filters, showing ${whose}` : 'View and filters'} title={whose ? `${whose} · View and filters` : 'View and filters'}
@@ -341,14 +346,16 @@ export const INBOX_TABS: { view: TabView; label: string }[] = [
 const COUNTED: TabView[] = ['inbox', 'progress', 'snoozed'];
 
 /** `needs` renames the first tab (Waiting, once a teammate is on the page). */
-export function StateTabs({ view, counts, onView, needs, onSearch }: {
+export function StateTabs({ view, counts, onView, needs, onSearch, lit = false }: {
   view: TabView; counts: Partial<Record<TabView, number>>; onView: (v: TabView) => void; needs?: string;
   /** Draws Search at the row's right end (w-3c51d02de5). */
   onSearch?: () => void;
+  /** Something landed in Needs You since it was last open (w-22da913d00). */
+  lit?: boolean;
 }) {
   return <div className="th-bar"><div className="tm-tabs">
     {/* Every tab wears the Tab plate (hint-plate.ts, 'state-tab'). */}
-    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view ? ' on' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
+    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view ? ' on' : ''}${t.view === 'inbox' && lit && view !== 'inbox' ? ' fresh' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
   </div>{onSearch && <SearchButton onSearch={onSearch} />}</div>;
 }
 
@@ -477,7 +484,7 @@ export const RepeatMark = () => <svg className="th-repeat" width="13" height="13
 export function RowCells({ live = false, cloud = false, lead, title, hidden = false, lock = false, shared = false, chosen = 0, held = false, pinned = false, aside, where, person, priority, updatedAt, when, now, action }: {
   /** Pinned to the top of the list (w-20323283e6): a faint pin after the title. */
   pinned?: boolean;
-  /** An agent is on this thread right now: a turning mark before its name. */
+  /** An agent is on this thread right now: a pulsing mark before its name. */
   live?: boolean;
   /** And it is running in the cloud. */
   cloud?: boolean;
@@ -510,14 +517,15 @@ export function RowCells({ live = false, cloud = false, lead, title, hidden = fa
 }
 
 /** A message's line: the other person's face and name, then what was said,
- *  "You: " first when you spoke last. A group names everyone else. */
-export function MessageTitle({ people, fromMe, text }: { people: string[]; fromMe: boolean; text: string }) {
+ *  "You: " first when you spoke last. A group names everyone else. `mark`
+ *  follows the name, because on a card the words are cut to one line. */
+export function MessageTitle({ people, fromMe, text, mark }: { people: string[]; fromMe: boolean; text: string; mark?: ReactNode }) {
   const team = useContext(TeamContext);
   const first = people.length ? team?.byId.get(people[0]) ?? null : null;
   const names = people.map((id) => (people.length > 1 ? firstName(team?.byId.get(id) ?? null) : team?.byId.get(id)?.name || firstName(team?.byId.get(id) ?? null))).join(', ');
   return <span className="th-msg">
     <Face person={first} />
-    <b className="th-msg-who">{names}</b>
+    <b className="th-msg-who">{names}{mark}</b>
     <span className="th-msg-text">{fromMe ? `You: ${text}` : text}</span>
   </span>;
 }
@@ -863,6 +871,10 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
           const pick = !!e.item && !!onMark;
           const on = pick && !!marked?.has(e.item!.id);
           const edge = isSelected(e) && !marked?.size;
+          const seen = e.item ? sharing(e.item) : null;
+          const who = seen === 'people' ? <SharedMark label="Visible to the people on it" /> : seen === 'private' ? <LockMark /> : null;
+          const pin = e.item?.pinned && e.item.status !== 'done' ? <PinMark size={13} className="th-pin" /> : null;
+          const marks = who || pin ? <>{who}{pin}</> : null;
           return <button type="button" key={e.key} className={`th-card${edge ? ' selected' : ''}${on ? ' picked' : ''}`}
           {...(pick ? { 'data-board-id': e.item!.id, 'aria-pressed': on } : {})}
           // A plain press and a pull up or down carries the card to a new
@@ -877,10 +889,8 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
             if (e.item) onOpenItem(e.item); else if (e.card) onOpenCard?.(e.card);
           }}>
           <div className="t">{e.message
-            ? <MessageTitle people={e.message.people} fromMe={e.message.fromMe} text={e.title ?? ''} />
-            : <TitleThenMark title={e.title ?? ''} mark={
-              e.item && sharing(e.item) === 'people' ? <SharedMark label="Visible to the people on it" />
-                : e.item && sharing(e.item) === 'private' ? <LockMark /> : null} />}
+            ? <MessageTitle people={e.message.people} fromMe={e.message.fromMe} text={e.title ?? ''} mark={pin} />
+            : <TitleThenMark title={e.title ?? ''} mark={marks} />}
           </div>
           <div className="m">{e.live && <RunningMark cloud={!!e.item && cloudIds.has(e.item.id)} />}{e.priority !== null && <PriorityMark id={priorityIdOf(e.priority)} />}<span className="p">{e.project}</span>
             {withOthers && <Face person={e.ownerId ? team?.byId.get(e.ownerId) ?? null : null} me={e.ownerId === me} />}</div>

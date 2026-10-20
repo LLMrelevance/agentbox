@@ -207,7 +207,7 @@ describe('which way the session decides', () => {
   it('by default the app decides: the voice delegates to it', () => {
     const s = neoSession({});
     expect(s.delegation).toEqual({ type: 'client' });
-    expect(s.instructions).toMatch(/The app does things on screen/);
+    expect(s.instructions).toMatch(/Backend tools: The app reads current threads/);
   });
 
   it('the earlier way is one setting away', () => {
