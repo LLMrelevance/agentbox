@@ -515,14 +515,15 @@ export function RowCells({ live = false, cloud = false, lead, title, hidden = fa
 }
 
 /** A message's line: the other person's face and name, then what was said,
- *  "You: " first when you spoke last. A group names everyone else. */
-export function MessageTitle({ people, fromMe, text }: { people: string[]; fromMe: boolean; text: string }) {
+ *  "You: " first when you spoke last. A group names everyone else. `mark`
+ *  follows the name, because on a card the words are cut to one line. */
+export function MessageTitle({ people, fromMe, text, mark }: { people: string[]; fromMe: boolean; text: string; mark?: ReactNode }) {
   const team = useContext(TeamContext);
   const first = people.length ? team?.byId.get(people[0]) ?? null : null;
   const names = people.map((id) => (people.length > 1 ? firstName(team?.byId.get(id) ?? null) : team?.byId.get(id)?.name || firstName(team?.byId.get(id) ?? null))).join(', ');
   return <span className="th-msg">
     <Face person={first} />
-    <b className="th-msg-who">{names}</b>
+    <b className="th-msg-who">{names}{mark}</b>
     <span className="th-msg-text">{fromMe ? `You: ${text}` : text}</span>
   </span>;
 }
@@ -868,6 +869,10 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
           const pick = !!e.item && !!onMark;
           const on = pick && !!marked?.has(e.item!.id);
           const edge = isSelected(e) && !marked?.size;
+          const seen = e.item ? sharing(e.item) : null;
+          const who = seen === 'people' ? <SharedMark label="Visible to the people on it" /> : seen === 'private' ? <LockMark /> : null;
+          const pin = e.item?.pinned && e.item.status !== 'done' ? <PinMark size={13} className="th-pin" /> : null;
+          const marks = who || pin ? <>{who}{pin}</> : null;
           return <button type="button" key={e.key} className={`th-card${edge ? ' selected' : ''}${on ? ' picked' : ''}`}
           {...(pick ? { 'data-board-id': e.item!.id, 'aria-pressed': on } : {})}
           // A plain press and a pull up or down carries the card to a new
@@ -882,10 +887,8 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
             if (e.item) onOpenItem(e.item); else if (e.card) onOpenCard?.(e.card);
           }}>
           <div className="t">{e.message
-            ? <MessageTitle people={e.message.people} fromMe={e.message.fromMe} text={e.title ?? ''} />
-            : <TitleThenMark title={e.title ?? ''} mark={
-              e.item && sharing(e.item) === 'people' ? <SharedMark label="Visible to the people on it" />
-                : e.item && sharing(e.item) === 'private' ? <LockMark /> : null} />}
+            ? <MessageTitle people={e.message.people} fromMe={e.message.fromMe} text={e.title ?? ''} mark={pin} />
+            : <TitleThenMark title={e.title ?? ''} mark={marks} />}
           </div>
           <div className="m">{e.live && <RunningMark cloud={!!e.item && cloudIds.has(e.item.id)} />}{e.priority !== null && <PriorityMark id={priorityIdOf(e.priority)} />}<span className="p">{e.project}</span>
             {withOthers && <Face person={e.ownerId ? team?.byId.get(e.ownerId) ?? null : null} me={e.ownerId === me} />}</div>
