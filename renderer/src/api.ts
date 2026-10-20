@@ -1095,6 +1095,16 @@ export const api = {
     if (useFixtures && engineFixtures === 'nowhere') {
       return { engine, phase: 'idle', error: null, log: '', found: false, signedIn: false };
     }
+    /*
+     * AND THE MACHINE MOST PEOPLE ARRIVE ON (w-e217e577e5): Claude signed in
+     * already, nothing else here. Every fixture copy answers `assumeReady` for
+     * BOTH agents, which is a machine almost nobody has, so the screen that
+     * says what was found could only ever be photographed saying it found two.
+     */
+    if (useFixtures && engineFixtures === 'ready') {
+      const mine = engine === 'claude';
+      return { engine, phase: mine ? 'ready' : 'idle', error: null, log: '', found: mine, signedIn: mine };
+    }
     // AND THE MACHINE THE QUESTION MUST NOT ASK: Codex on the disk, signed out.
     // `afterCheck` reads this as "we already know which plan they have".
     if (useFixtures && engineFixtures === 'signedout') {

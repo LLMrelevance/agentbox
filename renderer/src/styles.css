@@ -6484,7 +6484,14 @@ a.set-ghost { text-decoration: none; display: inline-block; }
   font-size: 13px; color: var(--text-faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.fr-folder-via { font-size: 12px; color: var(--text-faint); white-space: nowrap; }
+/* The folder screen leaves this column empty and the found screen says what is
+   true of the row in it, so it is a row of its own: the tick sits on the
+   word's middle rather than on its baseline. An empty one is still empty. */
+.fr-folder-via {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--text-faint); white-space: nowrap;
+}
+.fr-folder.lit .fr-folder-via { color: var(--text-dim); }
 .fr-folder-key { display: flex; justify-content: flex-end; }
 .fr-folder-other { margin-top: 4px; }
 .fr-folder-other .fr-folder-name { grid-column: 2 / 5; color: var(--text-dim); }
