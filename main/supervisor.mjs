@@ -96,7 +96,7 @@ import { importedAgentBrief, importedAgentName, THREAD_LABEL } from '../shared/a
 import { readTranscriptHead } from './agent-sessions.mjs';
 import { readPlan } from './claude-plan.mjs';
 import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
-import { readDeadRunTrace, traceShowsASilentDeath } from '../shared/dead-run-trace.mjs';
+import { readDeadRunTrace, traceShowsASilentDeath, tracesAToolCall } from '../shared/dead-run-trace.mjs';
 import { commandPrompt } from '../shared/claude-commands.mjs';
 import { machineryPath, storeRootEnv } from './store/home.mjs';
 import { setModelArg } from './settings.mjs';
@@ -3011,6 +3011,7 @@ export class Supervisor {
       // both halves in the same order the cause was, so it is always the text
       // that actually named the limit that names the hour too.
       const resetsAt = cause === 'at-limit' ? (limitResetsAt(raw) ?? limitResetsAt(errorResult)) : null;
+      const worked = !!session.usedATool;
       const result = deadRunSentence({
         // THE ENGINE THAT ACTUALLY DIED, not the one that usually does. This was
         // the literal 'Claude Code' from the day there was only one, and
@@ -3022,6 +3023,7 @@ export class Supervisor {
         cause,
         runs,
         resetsAt,
+        worked,
         // A LIMIT ON ONE LOGIN IS NOT A WAIT WHEN ANOTHER HAS ROOM. The row
         // was promising a reset hours away while `restingUntil` was already
         // waking it for the free login, so the sentence and the fleet said
@@ -3048,13 +3050,15 @@ export class Supervisor {
         // diagnosis is already worked out a few lines up, this is the only
         // place that has the dying session's own words to work it out from, and
         // keeping it costs nothing.
-        seen.saidWhy = cause;
+        // A run that used a tool did start, so it is not counted there.
+        if (worked) delete seen.saidWhy; else seen.saidWhy = cause;
         if (resetsAt) seen.resetsAt = resetsAt; else delete seen.resetsAt;
         // WHEN THIS ROW GOT STUCK, which is the first of these failures and not
         // the newest. `sayItOnEveryStrandedRow` gives the reason at length: a
         // row retried every fifteen minutes would otherwise read as fifteen
         // minutes old forever and never reach the twenty minutes the line waits.
-        seen.strandedSince = seen.strandedSince ?? seen.saidAt;
+        if (worked) delete seen.strandedSince;
+        else seen.strandedSince = seen.strandedSince ?? seen.saidAt;
         this._saveState();
       }
     } catch (e) {
@@ -3304,11 +3308,19 @@ export class Supervisor {
             cause,
             runs: seen.runs,
             resetsAt,
+            worked: trace.worked,
           }),
           status: 'open',
         });
         seen.saidAt = seen.endedAt ?? now;
         seen.saidTs = written?.wrote?.result?.ts ?? now;
+        if (trace.worked) {
+          delete seen.saidWhy;
+          delete seen.resetsAt;
+          delete seen.strandedSince;
+          dirty = true;
+          continue;
+        }
         seen.saidWhy = cause;
         // KEPT, because the line above the list wants the same hour and the
         // trace it came off is not read again after this pass.
@@ -8598,6 +8610,7 @@ export class Supervisor {
       if (stream(session, ...frame)) this.onChange?.();
       onLine(summarize(...frame));
       const detail = traceOne(...frame);
+      if (detail && !session.usedATool && tracesAToolCall(detail)) session.usedATool = true;
       if (detail) try { trace?.write(detail + '\n'); } catch {}
     };
     // A Codex worker has no stdout of ours to read: main/codex-session.mjs
