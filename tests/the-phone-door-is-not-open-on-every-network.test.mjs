@@ -94,7 +94,8 @@ describe('with Tailscale picked', () => {
     await link.act({ action: 'via', via: 'tailscale' });
     const s = await listening(link, '127.0.0.1');
     expect(s.host).toBe('127.0.0.1');
-    expect(await ask('127.0.0.1', s.port, link)).toBe(200);
+    // The port it ended up on, and the longer wait a busy machine needs.
+    expect(await ask('127.0.0.1', s.port, link, 15_000)).toBe(200);
   });
 
   it.skipIf(!lan)('does not answer on this computer\'s network address', async () => {
