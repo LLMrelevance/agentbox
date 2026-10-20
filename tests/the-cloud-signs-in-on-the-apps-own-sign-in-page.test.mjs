@@ -148,6 +148,14 @@ describe('the page and the wiring', () => {
     expect(app).toContain('<SignInPage purpose="cloud"');
   });
 
+  // The owner, on the drawn page: "don't need name". The team's sign-up keeps
+  // it, because teammates see it beside your threads.
+  it('creating an account for the cloud asks no name, and the team\'s still does', () => {
+    const page = read('renderer/src/team/SignInPage.tsx');
+    expect(page).toContain("{mode === 'sign-up' && !cloud && (");
+    expect(page).toContain("(mode !== 'sign-up' || cloud || !!name.trim())");
+  });
+
   it('the cloud button is drawn on any Mac the cloud is offered to', () => {
     expect(read('renderer/src/threads/Pages.tsx')).toMatch(/\(cloud\?\.setUp \|\| cloud\?\.offered\) && <CloudButton/);
   });

@@ -121,7 +121,8 @@ export function SignInPage({ signedOut = false, error: startError = null, waitin
         // On the phone with the Mac shut: what signing in here gets her.
         : onCloudPhone() ? 'Use the account your computer is signed in with. Your threads are here even when it is closed.'
         : 'Your threads, your agents and your team, in one inbox.';
-  const canSubmit = !!email.trim() && !!password && (mode !== 'sign-up' || !!name.trim());
+  // The cloud asks no name: only teammates ever see one.
+  const canSubmit = !!email.trim() && !!password && (mode !== 'sign-up' || cloud || !!name.trim());
 
   return (
     <div className="si-page" role="dialog" aria-modal="true" aria-label={heading}>
@@ -139,13 +140,13 @@ export function SignInPage({ signedOut = false, error: startError = null, waitin
             </button>
             <div className="si-or"><span>or</span></div>
             <form className="si-form" onSubmit={submit}>
-              {mode === 'sign-up' && (
+              {mode === 'sign-up' && !cloud && (
                 <label><span>Name</span>
                   <input ref={first} value={name} autoComplete="name" onChange={(e) => setName(e.target.value)} />
                 </label>
               )}
               <label><span>Email</span>
-                <input ref={mode === 'sign-in' ? first : undefined} type="email" value={email} autoComplete="email" onChange={(e) => setEmail(e.target.value)} />
+                <input ref={mode === 'sign-in' || cloud ? first : undefined} type="email" value={email} autoComplete="email" onChange={(e) => setEmail(e.target.value)} />
               </label>
               <label><span>Password</span>
                 <input type="password" value={password} autoComplete={mode === 'sign-up' ? 'new-password' : 'current-password'} onChange={(e) => setPassword(e.target.value)} />
