@@ -200,6 +200,16 @@ cloud Codex thread gets an app-server of its OWN, in its sandbox:
   writes there comes back every 10 s and at the end, never over a file changed
   on the Mac meanwhile, and never over one the run did not take (`docs.sent` in
   the marker): those keep their place and the run's copy goes beside them.
+- **A project with no repository runs in the cloud too (2026-10-20).** Its
+  agent works in the documents folder, so the run sends no bundle (`plain` in
+  the start) and its documents are its folder; what comes home is the
+  documents and the conversation. Every thread of such a project shares that
+  folder, so each keeps its marker in the app's own data
+  (`cloud-runs/<project>--<thread>.json`, Supervisor#_plainMarker), not in a
+  git directory. Only once the image says `plain` in its caps; until then those
+  threads run on the Mac as before. Before this, Personal, My Workspace and
+  Direct were 17 of the founder's 31 open threads, all on the Mac with
+  Everything on.
 - **The Mac sleeping is not a restart.** The app, the proxy, the store server
   and the approvals server all freeze together and thaw together; their memory
   is intact. The sandbox keeps going. A store call it makes while the Mac
@@ -237,8 +247,18 @@ stdout and stderr come back byte for byte. Its life:
    - env: `ZERO_PRODUCT`, `ZERO_ITEM`, `CLAUDE_CONFIG_DIR` (always set, to the
      account folder's Mac path), git's author name and email, `MCP_TOOL_TIMEOUT`,
      `CLAUDE_CODE_OAUTH_TOKEN` for that account. Nothing from `memoryGateEnv`.
-2. **Pack.** `git bundle` of the task branch, `main` and `origin/main` (55 MB,
-   1 s for this repo) to S3. A pending-import marker goes into the task
+2. **Pack.** `git bundle` of the task branch, `main` and `origin/main` to S3.
+   Sent whole, that was 61.9 MB for this repo on every reply (2026-10-20). An
+   image that says `base` in its caps takes a base instead: where the branch
+   meets main, bundled once and shared by every thread of the repo for six
+   days (`runs/cache/<period>/`, inside the bucket's seven-day expiry), plus
+   a bundle of only the commits past it (0.4 MB a day after the base, 3.3 MB
+   six days after) and each ref's commit, since a thin bundle leaves out the
+   refs the base already holds. The Mac remembers the caps from the last start
+   (`~/.agentbox/cloud-image.json`). Skills, commands, agents and saved
+   memories go to the same cache, named by what they hold, and go up again
+   only when that changes. Everything is sent side by side, not in turn
+   (main/cloud/reuse.mjs). A pending-import marker goes into the task
    folder's git dir (`<git dir>/agentbox-cloud.json`), naming the run id and the
    start commit.
 3. **Start.** `InvokeAgentRuntime {action:"start"}` with presigned URLs: a GET
@@ -366,13 +386,21 @@ at AgentCore's published rates. The plan limits are set from these.
 - Sold as "+N agent slots": agents running in the cloud at once, on top of
   this Mac's. A monthly agent-hour limit sits behind each plan, high enough
   that most people never reach it; past it, threads wait for the Mac.
-- Pro $40 +10 slots, Plus $100 +25, Max $200 +60. No top-ups for now.
+- Pro $40 +10 slots and 400 hours a month, Plus $100 +25 and 1,200 hours,
+  Max $200, unlimited at once, and 3,000 hours (the owner's hours,
+  2026-10-20, against a measured $0.07 an agent-hour). Max's unlimited has
+  a ceiling of 200 at once that is never shown, so one runaway loop cannot
+  take the AWS session limit every customer shares. No top-ups for now.
 - A cloud hour is one agent working for one hour; waiting for a reply is
   free (a run ends with its turn). Each agent is its own machine, billed on
   what it uses, so packing agents onto one machine would not save money.
 - AWS lets this account run 5,000 sessions at once and start 25 a second
   (checked 2026-10-13; both can be raised).
-- Free: 5 hours, no card. Sign-in is the app's own sign-in page.
+- No free cloud (the owner's call, 2026-10-20, replacing "Free: 5 hours,
+  no card"): five hours go in half an hour with ten agents, which sells the
+  cloud short, and the moment someone reaches for it is the moment they will
+  pay. The app itself is the free part. Sign-in is the app's own sign-in
+  page.
 
 ## Phases
 
@@ -484,11 +512,13 @@ approved:
    their first cloud key. Anthropic's Commercial Terms accepted, and their
    sales asked about keeping each person's `setup-token` between runs.
    Codex stays the owner's own until OpenAI approves Sign in with ChatGPT.
-3. **Accounts.** Google sign-in for anyone: the consent screen published
-   (name and email only, so no Google review), brand verification on our
-   domain, the database's public address and key carried by public builds,
-   signing in for the cloud kept apart from the team version, and the
-   database's access rules reviewed before strangers can sign up to it.
+3. **Accounts.** The app's own sign-in page (Google, or an email and a
+   password), not new screens (the owner's call, 2026-10-20). The Google
+   consent screen published (name and email only, so no Google review),
+   brand verification on our domain, the database's public address and key
+   carried by public builds, signing in for the cloud kept apart from the
+   team version, and the database's access rules reviewed before strangers
+   can sign up to it.
 4. **Plans** enforced by the server (below), with the hour limits set from
    `node scripts/cloud-usage.mjs`.
 5. **Stripe**: checkout, the page where people manage their plan, and its
@@ -522,8 +552,7 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
   A real link in a sign-in field is refused, and so is a Mac's own link to
   read or write one. An agent running with a sign-in can still read it
   from its own environment: a stolen cloud key is a stolen sign-in.
-- **Only Google sign-ins.** The database also takes email-and-password
-  sign-ups; each made-up address would be another free plan.
+- **A confirmed sign-in.** Google, or an email address its owner confirmed.
 - **Links outlive the run.** A link signed with the Lambda's own role ends
   when that role's session does, so the server signs with a separate user's
   key (`agentbox-gateway-signer`, S3 rights on `runs/` and `logins/` only),
@@ -532,10 +561,8 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
 - **Plans.** The ledger (`ledger/` in the same bucket, written with S3's
   conditional writes, no database) holds each person's plan, their live
   sessions, the seconds used per month, and one record per run (`ledger/runs/`,
-  how long and how it ended). A start is refused when the plan's agents are
-  all running, its hours are spent, the free fleet is full (50 free runs at
-  once, as the sweep last counted: a soft cap, which starts inside one
-  5-minute window can pass), or the cloud is paused. A live session
+  how long and how it ended). A start is refused when there is no plan, the
+  plan's agents are all running, its hours are spent, or the cloud is paused. A live session
   takes only the same start again, never a run on a sign-in's session.
 - **Whatever stops being counted is stopped.** A run ends when its
   `done.json` lands, when the Mac stops it, when the sandbox says it failed,
@@ -551,7 +578,7 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
   `no-run` without asking AgentCore, which would make a machine for it. The
   Mac stops its session when a run fails or its work is home.
 - **The sweep**, every 5 minutes: ceilings, spent hours, a `done.json` whose
-  notice was missed, stops to retry, and the free fleet's count.
+  notice was missed, and stops to retry.
 - **The owner's hand** (`scripts/cloud-gateway-admin.mjs`, a direct call,
   never the public address): set a plan, turn a person off (their runs stop,
   every key of theirs is refused), pause or resume new runs. The budget the
@@ -563,9 +590,7 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
 - **The Mac.** `cloud.json` holding `gateway` (an address) instead of a
   bucket and runtime makes this Mac a managed one. Her own setup is
   unchanged.
-- **Still open before strangers.** The paid plans' hours (a plan without
-  them cannot be given), a free plan per Google account (cheap to make),
-  presigned writes with no size cap (bounded by the 7-day expiry of
+- **Still open before strangers.** Presigned writes with no size cap (bounded by the 7-day expiry of
   `runs/`), an alarm on unexpected use of the signer's key, and cloud keys
   that never expire (turning a person off covers abuse, not a lost Mac).
 
