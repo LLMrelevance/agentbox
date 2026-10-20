@@ -34,6 +34,8 @@ const ALWAYS_A_PERSON = [
   // what every agent reads, and what every install pulls in
   /^CLAUDE\.md$/, /^AGENTS\.md$/, /^\.claude\//, /^package-lock\.json$/,
   /^tests\/(no-worker-drives-her-own-browser|the-team-cloud-key-stays-out-of-the-repository)/,
+  // The phone app's sign-in, keychain, alerts, build and dependencies.
+  /^mobile\/src\/platform\/(sign-in|persist|alerts)\.ts$/, /^mobile\/(eas\.json|app\.config\.ts|package(-lock)?\.json)$/,
 ];
 
 // Lines that are risky wherever they sit, outside tests and docs.
@@ -46,7 +48,7 @@ const RISKY_LINES = [
 ];
 
 const IS_COMMENT = /^\s*(\/\/|\/\*|\*|#)/;
-const VISUAL = [/^renderer\/.*\.(css|html|svg|png|webp|jpe?g|gif|ico)$/, /^renderer\/public\//];
+const VISUAL = [/^renderer\/.*\.(css|html|svg|png|webp|jpe?g|gif|ico)$/, /^renderer\/public\//, /^mobile\/src\/(app|ui)\//, /^mobile\/assets\//];
 const IS_DOC = /^docs\//;
 const IS_TEST = /^tests\//;
 const ONE_OFF_SCRIPT = /^scripts\/(shot|probe|draw|measure|proof|prove)-[^/]+\.[cm]?js$/;
