@@ -98,6 +98,23 @@ describe('folding on from where it was', () => {
     expect(wi.readWorkItems(dir, NOW)).toEqual([]);
   });
 
+  // How the fold went stale on GitHub's Linux runner and not on a Mac: the
+  // replacement took the deleted file's inode number, and both writes got one
+  // mtime off a coarse clock, so stat said nothing had changed. Setting the
+  // mtime back makes that happen on any filesystem.
+  it('a ledger replaced with one the same length and the same mtime is read again', () => {
+    wi.createWorkItem(dir, { title: 'One' }, { source: 'founder', now: NOW - 9000 });
+    wi.readWorkItems(dir, NOW);
+    const was = fs.statSync(file());
+    const text = fs.readFileSync(file(), 'utf8');
+    fs.rmSync(file());
+    fs.writeFileSync(file(), text.replace('One', 'Uno'));
+    fs.utimesSync(file(), was.atimeMs / 1000, was.mtimeMs / 1000);
+    const now = fs.statSync(file());
+    expect([now.size, Math.floor(now.mtimeMs)]).toEqual([was.size, Math.floor(was.mtimeMs)]);
+    expect(wi.readWorkItems(dir, NOW)[0].title).toBe('Uno');
+  });
+
   it('a copy handed out is not changed by what is folded on after it', () => {
     const a = wi.createWorkItem(dir, { title: 'One' }, { source: 'founder', now: NOW - 9000 });
     const before = wi.readWorkItem(dir, a.id, NOW);
