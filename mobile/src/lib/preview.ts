@@ -82,6 +82,7 @@ export function previewCloud(now = () => Date.now()) {
     },
     async signInWithPassword() { signedIn = true; return session()!; },
     async signInWithIdToken() { signedIn = true; return session()!; },
+    async signUp() { signedIn = true; return { confirm: false }; },
     async googleUrl() { return ''; },
     async finishGoogle() { signedIn = true; return session()!; },
     signOut() { signedIn = false; },

@@ -14,7 +14,7 @@ import { previewCloud } from '../lib/preview';
 import { phoneTabs } from '../lib/tabs';
 import { persist } from '../platform/persist';
 
-export type Cloud = Pick<CloudClient, 'session' | 'signedIn' | 'generation' | 'select' | 'insertCommand' | 'signInWithPassword' | 'signInWithIdToken' | 'googleUrl' | 'finishGoogle' | 'signOut'>;
+export type Cloud = Pick<CloudClient, 'session' | 'signedIn' | 'generation' | 'select' | 'insertCommand' | 'signInWithPassword' | 'signInWithIdToken' | 'signUp' | 'googleUrl' | 'finishGoogle' | 'signOut'>;
 
 const EMPTY: PhoneRows = { projects: [], threads: [], commands: [] };
 const EVERY_MS = 5000;
@@ -79,7 +79,7 @@ function useCloudState() {
   const tabs = useMemo(() => phoneTabs(view, now), [view, now]);
   const status = signedIn ? phoneStatusLine({ error: read.error, fetchedAt: read.fetchedAt, macSeen: macSeenOf(rows.projects) }, now) : null;
 
-  const send = useCallback(async (press: Press, item: { product: string; id: string; status: string }) => {
+  const send = useCallback(async (press: Press, item: { product: string; id: string; status: string } | null) => {
     if (!cloud) return;
     const cmd = commandForPress(press, item, view.aliases);
     if (!cmd) return;

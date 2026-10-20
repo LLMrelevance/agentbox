@@ -1,27 +1,43 @@
-// Settings: who is signed in, alerts, and signing out. Deleting the account,
-// the AI notice and the privacy policy join it before the App Store (PLAN.md).
+// Settings, as the phone layout draws the desktop's (`.set-*`): a way back,
+// the page's title, and plates of rows, each a label, a line under it and a
+// small button. Deleting the account, the AI notice and the privacy policy
+// join it before the App Store (docs/mobile/PLAN.md).
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { ScrollView, View } from 'react-native';
+import { useState, type ReactNode } from 'react';
+import { Pressable, ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { withDeadline } from '../lib/deadline';
 import { alertsHere, alertToken, sendTestAlert } from '../platform/alerts';
 import { useCloud } from '../state/cloud';
 import { Back } from '../ui/icons';
-import { Button, IconButton, T, TopBar, Wall } from '../ui/parts';
-import { color, size } from '../ui/theme';
+import { Ghost, T, Wall } from '../ui/parts';
+import { color, font, size } from '../ui/theme';
 
-function Section({ title, children, last }: { title: string; children: React.ReactNode; last?: boolean }) {
+function Group({ label, children }: { label?: string; children: ReactNode }) {
   return (
-    <View style={{ gap: 12, paddingVertical: 20, borderBottomWidth: last ? 0 : 1, borderBottomColor: color.line }}>
-      <T style={{ fontSize: 13, color: color.dim }}>{title}</T>
-      {children}
+    <View style={{ marginTop: 40 }}>
+      {label && <T style={{ fontSize: 14, fontFamily: font.medium, letterSpacing: -0.07, paddingBottom: 12 }}>{label}</T>}
+      <View style={{ backgroundColor: color.fill, borderWidth: 1, borderColor: color.line, borderRadius: 10, paddingHorizontal: 18 }}>{children}</View>
+    </View>
+  );
+}
+
+function Row({ label, desc, control, first = true }: { label: string; desc?: string; control?: ReactNode; first?: boolean }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 24, paddingVertical: 14, borderTopWidth: first ? 0 : 1, borderTopColor: color.line }}>
+      <View style={{ flex: 1 }}>
+        <T style={{ fontSize: 13.5, fontFamily: font.medium, letterSpacing: -0.04 }}>{label}</T>
+        {desc && <T style={{ fontSize: 12.5, lineHeight: 18.75, color: color.faint, marginTop: 3 }}>{desc}</T>}
+      </View>
+      {control}
     </View>
   );
 }
 
 export default function Settings() {
   const c = useCloud();
+  const inset = useSafeAreaInsets();
   const [token, setToken] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -33,25 +49,30 @@ export default function Settings() {
 
   return (
     <Wall>
-      <TopBar left={<IconButton label="Back" onPress={back}><Back /></IconButton>} title="Settings" />
-      <ScrollView contentContainerStyle={{ paddingHorizontal: size.inset, paddingBottom: 40 }}>
-        <Section title="Signed in as">
-          <T style={{ fontSize: 16 }}>{c.cloud?.session()?.user.email ?? ''}</T>
-        </Section>
-        <Section title="Alerts">
-          {!alertsHere ? <T style={{ fontSize: 15, color: color.dim }}>Alerts need the app on your phone.</T>
-            : token ? (
-              <>
-                <T style={{ fontSize: 15, color: color.dim }}>Alerts are on for this phone.</T>
-                <Button title="Send a test alert" disabled={busy} onPress={attempt(async () => { await sendTestAlert(token, withDeadline(fetch)); setSaid('Sent. Lock your phone to see it arrive.'); })} />
+      <View style={{ paddingTop: inset.top }}>
+        <View style={{ height: size.topBar, flexDirection: 'row', alignItems: 'center', paddingLeft: size.inset, paddingRight: 8 }}>
+          <Pressable onPress={back} accessibilityRole="button" style={{ height: 40, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 10 }}>
+            <Back size={14} />
+            <T style={{ fontSize: 13, letterSpacing: 0.52, color: color.dim }}>Back to app</T>
+          </Pressable>
+        </View>
+      </View>
+      <ScrollView contentContainerStyle={{ paddingTop: 20, paddingHorizontal: size.inset, paddingBottom: 120 }}>
+        <T style={{ fontSize: 24, lineHeight: 31, letterSpacing: -0.84 }}>Settings</T>
+        <Group>
+          <Row label="Signed in" desc={c.cloud?.session()?.user.email ?? ''} control={<Ghost title="Sign out" onPress={() => { c.signOut(); router.replace('/sign-in'); }} />} />
+        </Group>
+        <Group label="Alerts">
+          {!alertsHere
+            ? <Row label="Alerts on this phone" desc="Alerts need the app on your phone." />
+            : token
+              ? <>
+                <Row label="Alerts on this phone" desc="On. A thread that needs you arrives on the lock screen." />
+                <Row first={false} label="Send a test alert" desc={said ?? 'Lock your phone after sending to see it arrive.'} control={<Ghost title="Send" disabled={busy} onPress={attempt(async () => { await sendTestAlert(token, withDeadline(fetch)); setSaid('Sent. Lock your phone to see it arrive.'); })} />} />
               </>
-            ) : <Button title="Turn on alerts" disabled={busy} onPress={attempt(async () => setToken(await alertToken()))} />}
-          {said && <T style={{ fontSize: 14, color: color.dim }}>{said}</T>}
-        </Section>
-        <Section title="This phone" last>
-          <Button title="Sign out" onPress={() => { c.signOut(); router.replace('/sign-in'); }} />
-        </Section>
-        <T style={{ fontSize: 12, color: color.faint, paddingTop: 16 }}>Version {Constants.expoConfig?.version}</T>
+              : <Row label="Alerts on this phone" desc={said ?? 'A thread that needs you arrives on the lock screen.'} control={<Ghost title="Turn on" disabled={busy} onPress={attempt(async () => setToken(await alertToken()))} />} />}
+        </Group>
+        <T style={{ fontSize: 12.5, color: color.faint, marginTop: 40 }}>Version {Constants.expoConfig?.version}</T>
       </ScrollView>
     </Wall>
   );

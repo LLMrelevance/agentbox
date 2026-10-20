@@ -330,7 +330,16 @@ made-up threads), not yet on a phone:
 - Alerts: the app asks for permission, gets its Expo push token and can send
   itself a test alert through Expo's push service. Nothing in the cloud sends
   alerts yet (phase 3).
+- A new thread, as the phone site's page: model, project, priority.
 - The app's icon is the phone site's icon at 1024px.
+- Every screen is drawn to the phone site's own measurements, read off the
+  site as it renders: the top bar and its line, rows and their hairlines, the
+  tabs' counts, the options card, the reply box and its sentence (priority,
+  mode, model), the sheets, Settings' plates and the sign-in card. The wall
+  runs under the status bar. The desktop's Later times moved out of
+  Snooze.tsx into renderer/src/later-times.ts so both read them.
+- Not yet on the phone: search and View and filters (the site's search draws
+  nothing without a Mac), attaching files, and messages between people.
 
 Tests: tests/the-phone-app-*.test.mjs pin the tabs, the thread and its
 commands, sign-in and the kept session, the request deadline and the

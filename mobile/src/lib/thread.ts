@@ -4,6 +4,7 @@
 import { itemThread } from '../../../renderer/src/item-thread';
 import { itemOptions, offerIsLive, optionsFrom, stripOptionsSection, type ParsedOption } from '../../../renderer/src/format';
 import { rowTitle } from '../../../renderer/src/list-rules';
+import { askLine } from '../../../renderer/src/ask-line';
 import { phoneHistory, type PhoneRows, type phoneView } from '../../../renderer/src/phone-rows';
 
 type View = ReturnType<typeof phoneView>;
@@ -29,6 +30,8 @@ export function threadOf(rows: PhoneRows, view: View, product: string, id: strin
     events: built.events.map((e) => (e.kind === 'work' ? e : { ...e, text: clean(e.text ?? '') })),
     outcome: built.outcome ? { ...built.outcome, text: clean(built.outcome.text) } : null,
     options: (live ? itemOptions(item) : []) as ParsedOption[],
+    // The question the options answer, the options card's heading (OptionsOffer.tsx).
+    ask: live ? askLine(item) : '',
   };
 }
 

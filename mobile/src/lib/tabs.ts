@@ -29,6 +29,8 @@ export interface Row {
   projectName: string;
   when: string;
   running: boolean;
+  /** Running in the cloud rather than on a Mac, which the row marks differently. */
+  cloud: boolean;
   item: any;
 }
 
@@ -40,6 +42,7 @@ const DELIVERED_THROUGH = 0;
 export function phoneTabs(view: View, now = Date.now()): Record<TabId, Row[]> {
   const items: any[] = view.items;
   const live = new Set(view.running.map((r: { itemId: string }) => r.itemId));
+  const inCloud = new Set(view.running.filter((r: { where?: string }) => r.where === 'cloud').map((r: { itemId: string }) => r.itemId));
   const byId = new Map(items.map((i) => [i.id, i]));
   const waitingOn = (i: any) => waitsThatCanEnd(i, byId);
   const hiddenAt = (i: any) => hiddenUntil(i);
@@ -61,7 +64,7 @@ export function phoneTabs(view: View, now = Date.now()): Record<TabId, Row[]> {
   const order = view.products.map((p: { slug: string }) => p.slug);
   const row = (i: any): Row => ({
     key: `${i.product}/${i.id}`, id: i.id, product: i.product, title: rowTitle(i), projectName: names.get(i.product) ?? '',
-    when: updatedWords(i.status === 'done' ? i.wrote?.status?.ts ?? i.updatedAt : i.updatedAt, now), running: live.has(i.id), item: i,
+    when: updatedWords(i.status === 'done' ? i.wrote?.status?.ts ?? i.updatedAt : i.updatedAt, now), running: live.has(i.id), cloud: inCloud.has(i.id), item: i,
   });
   const drawn = (list: any[], tab: TabId) => sorted(list, DEFAULT_DISPLAY.inbox, tab, order).map(row);
   return { inbox: drawn(inbox, 'inbox'), progress: drawn(progress, 'progress'), snoozed: drawn(snoozed, 'snoozed'), done: drawn(done, 'done') };

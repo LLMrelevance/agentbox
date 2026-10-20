@@ -49,6 +49,8 @@ describe('a thread', () => {
     const t = open(rows());
     expect(t.options.map((o) => [o.n, o.text, o.recommended])).toEqual([[1, 'Ship it (recommended)', true], [2, 'Wait for Codex', false]]);
     expect(t.outcome?.text).not.toMatch(/Options|Wait for Codex/);
+    // Headed by the question it answers, as the desktop's options card is.
+    expect(t.ask).toBe('The plan is ready.');
   });
 
   it('offers nothing once you have answered it, and keeps the list in the text as the record', () => {
@@ -84,6 +86,17 @@ describe('what a press leaves for your Mac', () => {
   });
   it('an empty reply sends nothing', () => {
     expect(commandForPress({ kind: 'reply', text: '   ' }, item)).toBeNull();
+  });
+  it('a reply carries the priority, mode and model picked in its sentence, and only those', () => {
+    expect(commandForPress({ kind: 'reply', text: 'Go', choices: { priority: 9, permissionMode: 'plan', model: 'sonnet', effort: 'high', engine: 'codex' } }, item)).toEqual(
+      { device: DEV, project: 'alpha', item: 'w-1', kind: 'reply', payload: { text: 'Go', priority: 9, permissionMode: 'plan', model: 'sonnet', effort: 'high' } },
+    );
+  });
+  it('a new thread goes to its project with what was picked for it', () => {
+    expect(commandForPress({ kind: 'new', product: A, body: 'Draw the board', choices: { model: 'opus', priority: 5 } }, null)).toEqual(
+      { device: DEV, project: 'alpha', item: null, kind: 'new', payload: { title: '', body: 'Draw the board', model: 'opus', priority: 5 } },
+    );
+    expect(commandForPress({ kind: 'new', product: A, body: '  ', choices: {} }, null)).toBeNull();
   });
   it('Later and Close are the site\'s snooze and close', () => {
     expect(commandForPress({ kind: 'later', until: NOW + 3_600_000 }, item)).toMatchObject({ kind: 'snooze', payload: { until: NOW + 3_600_000 } });

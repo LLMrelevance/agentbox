@@ -1,11 +1,12 @@
-// The pieces every screen is made of, in the desktop's look.
-import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View, type TextProps, type ViewStyle } from 'react-native';
+// The pieces every screen is made of, sized from the phone site as it draws
+// (renderer/src/phone.css and the styles under it).
+import { useEffect, useRef, type ReactNode } from 'react';
+import { Animated, Modal, Pressable, StyleSheet, Text, View, type TextProps, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Circle, Defs, Pattern, RadialGradient, Rect, Stop } from 'react-native-svg';
+import Svg, { Circle, Defs, Path, Pattern, RadialGradient, Rect, Stop } from 'react-native-svg';
 import { color, font, size } from './theme';
 
-/** Ember Grid's wall: the dot grid and the orange glow (renderer/src/styles.css). */
+/** Ember Grid's wall, the dot grid and the orange glow, under everything, the status bar included. */
 export function Wall({ children, style }: { children: ReactNode; style?: ViewStyle }) {
   return (
     <View style={[{ flex: 1, backgroundColor: color.bg }, style]}>
@@ -26,15 +27,15 @@ export function T({ style, ...rest }: TextProps) {
   return <Text {...rest} style={[{ fontFamily: font.regular, color: color.text, fontSize: 15.5 }, style]} />;
 }
 
-/** The phone layout's top bar: 56px, the wall's own colour, the title on the left. */
+/** The top bar: 56px over the wall, its line under it, the title on the left. */
 export function TopBar({ left, title, right }: { left?: ReactNode; title?: ReactNode; right?: ReactNode }) {
   const inset = useSafeAreaInsets();
   return (
-    <View style={{ paddingTop: inset.top, backgroundColor: color.bg }}>
-      <View style={{ height: size.topBar, flexDirection: 'row', alignItems: 'center', paddingLeft: left ? 4 : size.inset, paddingRight: 4 }}>
+    <View style={{ paddingTop: inset.top, borderBottomWidth: 1, borderBottomColor: color.line }}>
+      <View style={{ height: size.topBar, flexDirection: 'row', alignItems: 'center', paddingLeft: left ? 8 : size.inset, paddingRight: 4 }}>
         {left}
         <View style={{ flex: 1, minWidth: 0 }}>
-          {typeof title === 'string' ? <T numberOfLines={1} style={{ fontFamily: font.medium, fontSize: 19, letterSpacing: -0.19 }}>{title}</T> : title}
+          {typeof title === 'string' ? <T numberOfLines={1} style={{ fontFamily: font.medium, fontSize: 19, lineHeight: 23, letterSpacing: -0.19 }}>{title}</T> : title}
         </View>
         {right}
       </View>
@@ -42,25 +43,95 @@ export function TopBar({ left, title, right }: { left?: ReactNode; title?: React
   );
 }
 
-export function IconButton({ onPress, label, children }: { onPress: () => void; label: string; children: ReactNode }) {
+export function IconButton({ onPress, label, children, width = 40 }: { onPress: () => void; label: string; children: ReactNode; width?: number }) {
   return (
-    <Pressable onPress={onPress} accessibilityLabel={label} hitSlop={4} style={({ pressed }) => ({ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+    <Pressable onPress={onPress} accessibilityLabel={label} accessibilityRole="button" hitSlop={4}
+      style={({ pressed }) => ({ width, height: 40, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
       {children}
     </Pressable>
   );
 }
 
-/** A plain button in the look: square, a line round it, the accent only where it was approved. */
-export function Button({ title, onPress, kind = 'plain', disabled, style }: { title: string; onPress: () => void; kind?: 'plain' | 'send'; disabled?: boolean; style?: ViewStyle }) {
-  const send = kind === 'send';
+/** The desktop's small outlined button (`.set-ghost`). */
+export function Ghost({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
   return (
     <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button"
-      style={({ pressed }) => [{
-        height: send ? 32 : 48, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center',
-        backgroundColor: send ? color.accent : pressed ? color.raised : 'transparent',
-        borderWidth: send ? 0 : 1, borderColor: color.lineStrong, opacity: disabled ? 0.4 : pressed && send ? 0.8 : 1,
-      }, style]}>
-      <T style={{ fontFamily: font.medium, fontSize: 15, color: send ? '#fff' : color.text }}>{title}</T>
+      style={({ pressed }) => ({ height: 28, paddingHorizontal: 11, justifyContent: 'center', borderWidth: 1, borderColor: color.line, backgroundColor: pressed ? color.picked : color.fill, opacity: disabled ? 0.5 : 1 })}>
+      <T style={{ fontSize: 13, color: color.dim }}>{title}</T>
     </Pressable>
+  );
+}
+
+/** Every picker is a sheet from the bottom, a row per choice in words (phone.css `.tc-menu`). */
+export function Sheet({ open, close, children }: { open: boolean; close: () => void; children: ReactNode }) {
+  const inset = useSafeAreaInsets();
+  return (
+    <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
+      <Pressable style={{ flex: 1, backgroundColor: color.scrim }} onPress={close} accessibilityLabel="Close" />
+      <View style={{ backgroundColor: color.pop, borderTopWidth: 1, borderTopColor: color.lineStrong, paddingTop: 10, paddingHorizontal: 8, paddingBottom: 16 + inset.bottom, gap: 1 }}>
+        {children}
+      </View>
+    </Modal>
+  );
+}
+export const SheetHead = ({ children }: { children: string }) => (
+  <T style={{ fontFamily: font.mono, fontSize: 12, letterSpacing: 0.96, textTransform: 'uppercase', color: color.faint, paddingTop: 6, paddingHorizontal: 14, paddingBottom: 8 }}>{children}</T>
+);
+export const SheetSep = () => <View style={{ height: 1, backgroundColor: color.line, marginVertical: 4, marginHorizontal: 6 }} />;
+export function SheetRow({ label, on, aside, lead, onPress }: { label: string; on?: boolean; aside?: string; lead?: ReactNode; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: !!on }}
+      style={({ pressed }) => ({ minHeight: 48, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: on || pressed ? color.picked : 'transparent' })}>
+      {lead}
+      <T style={{ flex: 1, fontSize: 16, color: on ? color.text : color.dim, fontFamily: on ? font.semibold : font.regular }}>{label}</T>
+      {aside ? <T style={{ fontSize: 12, color: color.faint, paddingLeft: 18 }}>{aside}</T> : null}
+    </Pressable>
+  );
+}
+
+/** A priority as the desktop draws it (`.prio-bars`): three bars, four for Urgent. */
+export function PriorityBars({ level }: { level: 1 | 2 | 3 | 4 }) {
+  const heights = level === 4 ? [4, 7, 10, 13] : [4, 7.5, 11];
+  const inked = (i: number) => (level >= 3 ? color.text : i < level ? color.dim : color.lineStrong);
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 1.5, height: level === 4 ? 13 : 11 }}>
+      {heights.map((h, i) => <View key={i} style={{ width: 3, height: h, borderRadius: 1, backgroundColor: inked(i) }} />)}
+    </View>
+  );
+}
+
+function useBreath() {
+  const v = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(v, { toValue: 0.45, duration: 800, useNativeDriver: true }),
+      Animated.timing(v, { toValue: 1, duration: 800, useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [v]);
+  return v;
+}
+
+/** An agent on it now: the half-filled ring on a Mac, the cloud in the cloud (threads/Pages.tsx `RunningMark`). */
+export function RunningMark({ cloud, children }: { cloud?: boolean; children?: ReactNode }) {
+  const breath = useBreath();
+  return (
+    <Animated.View style={{ opacity: breath }}>
+      {cloud ? children : (
+        <Svg width={12} height={12} viewBox="0 0 12 12">
+          <Circle cx={6} cy={6} r={5.25} stroke={color.accent} strokeWidth={1.5} fill="none" />
+          <Path d="M6 0.75 A5.25 5.25 0 0 1 6 11.25 Z" fill={color.accent} />
+        </Svg>
+      )}
+    </Animated.View>
+  );
+}
+
+/** A word that opens a picker, dotted under, as the desktop's sentence words are. */
+export function Pickable({ children, onPress, style }: { children: ReactNode; onPress: () => void; style?: object }) {
+  return (
+    <T onPress={onPress} suppressHighlighting
+      style={[{ textDecorationLine: 'underline', textDecorationStyle: 'dotted', textDecorationColor: color.faint }, style]}>{children}</T>
   );
 }

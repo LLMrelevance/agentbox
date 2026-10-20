@@ -6,9 +6,11 @@ import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { Platform, View } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaInsetsContext, SafeAreaProvider } from 'react-native-safe-area-context';
 import { CloudProvider } from '../state/cloud';
 import { color } from '../ui/theme';
+
+const PREVIEW_PHONE = process.env.EXPO_PUBLIC_PREVIEW === '1' && Platform.OS === 'web' ? { top: 62, bottom: 34, left: 0, right: 0 } : null;
 
 // An alert that names a thread opens it.
 function useAlertsOpenThreads() {
@@ -25,12 +27,16 @@ export default function Root() {
   useAlertsOpenThreads();
   // A browser swaps the fonts in when they arrive, and WebKit's never reports back.
   if (!loaded && !failed && Platform.OS !== 'web') return <View style={{ flex: 1, backgroundColor: color.bg }} />;
+  const app = (
+    <CloudProvider>
+      <StatusBar style="light" />
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: color.bg }, animation: 'slide_from_right' }} />
+    </CloudProvider>
+  );
   return (
     <SafeAreaProvider>
-      <CloudProvider>
-        <StatusBar style="light" />
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: color.bg }, animation: 'slide_from_right' }} />
-      </CloudProvider>
+      {/* A browser has no status bar or home bar; the preview is drawn with an iPhone's. */}
+      {PREVIEW_PHONE ? <SafeAreaInsetsContext.Provider value={PREVIEW_PHONE}>{app}</SafeAreaInsetsContext.Provider> : app}
     </SafeAreaProvider>
   );
 }
