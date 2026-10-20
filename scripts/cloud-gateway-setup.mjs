@@ -166,19 +166,21 @@ async function main() {
 
   // The function. A role made a moment ago is not assumable yet: retry.
   const env = { REGION: region, BUCKET: bucket, RUNTIME_ARN: runtimeArn, SUPABASE_URL: db.url, SUPABASE_ANON_KEY: db.anonKey, SIGNER_SECRET_ARN: signerSecretArn };
-  const settings = ['--runtime', 'nodejs22.x', '--architectures', 'arm64', '--handler', 'index.handler', '--timeout', String(FUNCTION_SECONDS), '--memory-size', '512', '--environment', JSON.stringify({ Variables: env })];
+  // The chip goes with the code (create, or a code update), never with a settings update.
+  const settings = ['--runtime', 'nodejs22.x', '--handler', 'index.handler', '--timeout', String(FUNCTION_SECONDS), '--memory-size', '512', '--environment', JSON.stringify({ Variables: env })];
+  const arm = ['--architectures', 'arm64'];
   const existing = aws(['lambda', 'get-function-configuration', '--function-name', NAMES.fn], { allowFail: true });
   const waitUpdated = () => aws(['lambda', 'wait', 'function-updated-v2', '--function-name', NAMES.fn], { json: false });
   if (!existing) {
     for (let i = 1; ; i += 1) {
-      try { aws(['lambda', 'create-function', '--function-name', NAMES.fn, '--role', role.Arn, '--zip-file', `fileb://${zip}`, ...settings]); break; } catch (err) {
+      try { aws(['lambda', 'create-function', '--function-name', NAMES.fn, '--role', role.Arn, '--zip-file', `fileb://${zip}`, ...arm, ...settings]); break; } catch (err) {
         if (i >= 12 || !/assume|role/i.test(err.message)) throw err;
         say(`waiting for the role (${i}/12)`); await sleep(5000);
       }
     }
     aws(['lambda', 'wait', 'function-active-v2', '--function-name', NAMES.fn], { json: false });
   } else {
-    aws(['lambda', 'update-function-code', '--function-name', NAMES.fn, '--zip-file', `fileb://${zip}`]);
+    aws(['lambda', 'update-function-code', '--function-name', NAMES.fn, '--zip-file', `fileb://${zip}`, ...arm]);
     waitUpdated();
     aws(['lambda', 'update-function-configuration', '--function-name', NAMES.fn, '--role', role.Arn, ...settings]);
     waitUpdated();
@@ -211,10 +213,12 @@ async function main() {
   })], { json: false });
   allow('budget', 'sns.amazonaws.com', ['--source-arn', topic]);
   aws(['sns', 'subscribe', '--topic-arn', topic, '--protocol', 'lambda', '--notification-endpoint', fnArn]);
-  const notice = aws(['budgets', 'create-notification', '--account-id', account, '--budget-name', NAMES.budget,
-    '--notification', 'NotificationType=ACTUAL,ComparisonOperator=GREATER_THAN,Threshold=100,ThresholdType=PERCENTAGE',
-    '--subscribers', `SubscriptionType=SNS,Address=${topic}`], { allowFail: true, json: false });
-  if (notice === null) say(`the budget ${NAMES.budget} already has that notice, or is not there: check it sends to ${topic}`);
+  // The budget may already alert at 100% (by email): the topic joins that alert.
+  const at100 = 'NotificationType=ACTUAL,ComparisonOperator=GREATER_THAN,Threshold=100,ThresholdType=PERCENTAGE';
+  const budget = ['--account-id', account, '--budget-name', NAMES.budget];
+  const subscribers = aws(['budgets', 'describe-subscribers-for-notification', ...budget, '--notification', at100], { allowFail: true })?.Subscribers;
+  if (!subscribers) aws(['budgets', 'create-notification', ...budget, '--notification', at100, '--subscribers', `SubscriptionType=SNS,Address=${topic}`], { json: false });
+  else if (!subscribers.some((s) => s.Address === topic)) aws(['budgets', 'create-subscriber', ...budget, '--notification', at100, '--subscriber', `SubscriptionType=SNS,Address=${topic}`], { json: false });
 
   say('ready');
   console.log(urlConfig.FunctionUrl);
