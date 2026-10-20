@@ -96,7 +96,7 @@ import { importedAgentBrief, importedAgentName, THREAD_LABEL } from '../shared/a
 import { readTranscriptHead } from './agent-sessions.mjs';
 import { readPlan } from './claude-plan.mjs';
 import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
-import { readDeadRunTrace, traceShowsASilentDeath } from '../shared/dead-run-trace.mjs';
+import { readDeadRunTrace, traceShowsASilentDeath, tracesAToolCall } from '../shared/dead-run-trace.mjs';
 import { commandPrompt } from '../shared/claude-commands.mjs';
 import { machineryPath, storeRootEnv } from './store/home.mjs';
 import { setModelArg } from './settings.mjs';
@@ -130,6 +130,7 @@ import { cloudCodexMode } from './cloud-permission.mjs';
 import { createCodexApprovals } from './codex-approvals.mjs';
 import { approvalPublicKey } from './approvals.mjs';
 import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexModels } from './codex-models.mjs';
+import { codexPlanEnded } from './codex-account.mjs';
 import { nameRow, wantsName } from './row-label.mjs';
 import { LEVELS, latestMessage, sortMessage, wantsPriority } from './message-priority.mjs';
 import { NAME, Name, envName, nameSlug, isOurSlug } from '../shared/product-name.mjs';
@@ -409,6 +410,10 @@ export class Supervisor {
       // when the run's work is brought back; shipping before then would push
       // the stale branch and call it shipped (docs/cloud/PLAN.md, R3).
       isLive: (item) => this.sessions.has(item.id) || this._cloudWorkOutstanding(item),
+      // WHEN THE LIVE WORK STARTED, so that a reply to a thread already waiting
+      // does not hold its ship for as long as the new session runs. A cloud run
+      // that has not come home answers null: nobody can say, and that waits.
+      liveSince: (item) => (this._cloudWorkOutstanding(item) ? null : this.sessions.get(item.id)?.startedAt ?? null),
       handBack: (item, reply) => {
         const fresh = this.store.readItem?.(item.product, item.id) ?? item;
         this.spawnWorker(fresh, { continuation: true, shipFailure: reply });
@@ -3011,6 +3016,14 @@ export class Supervisor {
       // both halves in the same order the cause was, so it is always the text
       // that actually named the limit that names the hour too.
       const resetsAt = cause === 'at-limit' ? (limitResetsAt(raw) ?? limitResetsAt(errorResult)) : null;
+      const elsewhere = session.accountFault?.cause === 'model-not-on-plan'
+        || (cause === 'at-limit' && !!session.accountFault?.account
+          && this._anotherLoginIsFree(item, session.accountFault.account));
+      // NO LOGIN HERE HAS THE MODEL: say whether a paid plan ending is why.
+      const planEnded = cause === 'model-not-on-plan' && !elsewhere && engineOf(session?.engine) === 'codex'
+        ? codexPlanEnded(this._codexProfileHome(session.profile))
+        : null;
+      const worked = !!session.usedATool;
       const result = deadRunSentence({
         // THE ENGINE THAT ACTUALLY DIED, not the one that usually does. This was
         // the literal 'Claude Code' from the day there was only one, and
@@ -3022,13 +3035,14 @@ export class Supervisor {
         cause,
         runs,
         resetsAt,
+        worked,
         // A LIMIT ON ONE LOGIN IS NOT A WAIT WHEN ANOTHER HAS ROOM. The row
         // was promising a reset hours away while `restingUntil` was already
         // waking it for the free login, so the sentence and the fleet said
         // different things about the same task (w-4338a63da6).
-        elsewhere: session.accountFault?.cause === 'model-not-on-plan'
-          || (cause === 'at-limit' && !!session.accountFault?.account
-            && this._anotherLoginIsFree(item, session.accountFault.account)),
+        elsewhere,
+        model: session.model || item.model || null,
+        planEnded,
       });
       const written = this.store.recordSessionResult(item.product, item.id, { result, status: 'open' });
       // REMEMBER THAT WE SAID IT, keyed on the run we said it about. The pass
@@ -3048,13 +3062,15 @@ export class Supervisor {
         // diagnosis is already worked out a few lines up, this is the only
         // place that has the dying session's own words to work it out from, and
         // keeping it costs nothing.
-        seen.saidWhy = cause;
+        // A run that used a tool did start, so it is not counted there.
+        if (worked) delete seen.saidWhy; else seen.saidWhy = cause;
         if (resetsAt) seen.resetsAt = resetsAt; else delete seen.resetsAt;
         // WHEN THIS ROW GOT STUCK, which is the first of these failures and not
         // the newest. `sayItOnEveryStrandedRow` gives the reason at length: a
         // row retried every fifteen minutes would otherwise read as fifteen
         // minutes old forever and never reach the twenty minutes the line waits.
-        seen.strandedSince = seen.strandedSince ?? seen.saidAt;
+        if (worked) delete seen.strandedSince;
+        else seen.strandedSince = seen.strandedSince ?? seen.saidAt;
         this._saveState();
       }
     } catch (e) {
@@ -3304,11 +3320,19 @@ export class Supervisor {
             cause,
             runs: seen.runs,
             resetsAt,
+            worked: trace.worked,
           }),
           status: 'open',
         });
         seen.saidAt = seen.endedAt ?? now;
         seen.saidTs = written?.wrote?.result?.ts ?? now;
+        if (trace.worked) {
+          delete seen.saidWhy;
+          delete seen.resetsAt;
+          delete seen.strandedSince;
+          dirty = true;
+          continue;
+        }
         seen.saidWhy = cause;
         // KEPT, because the line above the list wants the same hour and the
         // trace it came off is not read again after this pass.
@@ -4258,8 +4282,8 @@ export class Supervisor {
   async _cloudClients() {
     const config = readCloudConfig(process.env, this.config.home);
     if (!config) throw new Error('the cloud is not set up here');
-    const { awsTransport, awsStorage } = await import('./cloud/aws.mjs');
-    return { transport: awsTransport(config), storage: awsStorage(config) };
+    const { cloudClients } = await import('./cloud/clients.mjs');
+    return cloudClients(config, { home: this.config.home });
   }
 
   // THE CLOUD SETUP'S SIGN-IN. `start` adds a new account of an engine (or,
@@ -5138,6 +5162,8 @@ export class Supervisor {
       this._saveState();
       return;
     }
+    // A level the model does not offer is the task's setting, on every login.
+    if (refusedBy === 'level-not-offered' || troubleCause(lastFailure) === 'level-not-offered') return;
     const limitHit = refusedBy === 'at-limit' || needsHerHands(refusedBy);
     // A dropped provider connection is a transport failure too, even when
     // the local process and its pipe stayed up. It must not spend a reply's
@@ -8598,6 +8624,7 @@ export class Supervisor {
       if (stream(session, ...frame)) this.onChange?.();
       onLine(summarize(...frame));
       const detail = traceOne(...frame);
+      if (detail && !session.usedATool && tracesAToolCall(detail)) session.usedATool = true;
       if (detail) try { trace?.write(detail + '\n'); } catch {}
     };
     // A Codex worker has no stdout of ours to read: main/codex-session.mjs

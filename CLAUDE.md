@@ -65,10 +65,18 @@ line, so build with them, not around them:
 
 Several agents work this repository at once, so the order of operations is not
 a matter of taste. Work on a branch `agentbox/<item id>` in a worktree, commit
-there, and ship with `npm run ship`: it fetches, merges main if it moved, runs
-the tests for what changed, and pushes, doing the whole lot again if somebody
-pushed first. The pre-push hook still runs the suite and the public check; the
-command is the order, not a way around the gates.
+there, and ship with `npm run ship`: it fetches, merges main if it moved, and
+pushes, doing the whole lot again if somebody pushed first. The command is the
+order, not a way around the gates.
+
+THE TESTS RUN ONCE PER SHIP, IN THE HOOK (2026-10-19). `npm run ship` used to
+run them and then push, and the push runs the pre-push hook, which ran the same
+set again; every ship paid for its gate twice, and a core change cost 12
+minutes. The hook is the one that was kept, and it stops at a cap: over 60 test
+files naming the change, it runs the ones most about it and GitHub runs the
+whole suite after the push (`scripts/lib/tests-the-push-runs.mjs`). So run
+`npm run test:changed` yourself before you say a branch is ready; the ship is
+not where you find out.
 
 Local `main` only ever points at something that is on the public `main`. Moving
 it onto a branch is refused (`scripts/hooks/reference-transaction`), because a
@@ -86,24 +94,22 @@ what the rules leave open. The tier comes from the change, never from you.
 - **low** ships on green tests alone: docs, tests, scripts, internal logic, a
   bug fix its test proves, a few words of copy that move nothing.
 - **look** waits for the person to see it: anything on screen a designer could
-  judge, including copy that wraps or changes a layout. Apply the
-  `design-taste` skill before you show them, so their answer can be "looks
-  good".
+  judge, including copy that wraps or changes a layout.
 - **risky** waits for the person: the paths and lines listed in
   `risk-tier.mjs`, over 600 changed lines, or a classifier that was not sure.
 
-While `scripts/risk-gate.json` says `shadow`, ask before shipping as you always
-have; the gate only logs what it would have done (`npm run risk -- --log`).
-Once it says `live`:
+Whether you ask before shipping is set by the person's own instructions, not
+by this file. `scripts/risk-gate.json` says whether the gate holds anything
+back: in `shadow` it only logs what it would have done (`npm run risk -- --log`);
+in `live` it refuses look and risky without an approval.
 
-1. Run `npm run risk`. If it says look or risky, show the person and ask.
-2. Otherwise add the label `ship` without asking, and end saying it is shipping
-   on its own and why, offering "Undo it". If the gate holds it back, you are
-   woken with its reasons: then show and ask.
-3. When the person says ship it, run `npm run ship:approved`, then add the
-   label. The approval covers that commit; a new commit needs a new approval.
-4. "Undo it" is: revert your commits on your branch, merge origin/main, add
-   `ship`.
+- `npm run risk` previews the tier the rules give your branch.
+- When the person says ship it, run `npm run ship:approved`, then add the
+  label. The approval covers that commit; a new commit needs a new approval.
+- If the gate holds a ship back, you are woken with its reasons: show the
+  person and ask.
+- "Undo it" is: revert your commits on your branch, merge origin/main, add
+  `ship`.
 
 ## MAIN WAS REWRITTEN ON 2026-10-06
 

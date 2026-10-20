@@ -150,11 +150,15 @@ export function deviceName(ua = '') {
  */
 export function createPhoneLink({ file, channels, listeners, dist, files = null, port = PHONE_PORT, onChange = () => {}, interfaces = () => os.networkInterfaces(), log = console, tailscale = tailscaleCli(), warm = (url) => fetch(url, { signal: AbortSignal.timeout(10_000) }).catch(() => {}), send = (sub, body, opts) => webpush.sendNotification(sub, body, opts), atDesk = () => false, coalesceMs = COALESCE_MS, relayUrl = '', createRelay = (opts) => createRelayClient(opts) }) {
   let saved = read(file);
+  // THE PORT IT IS ON, WHICH IS NOT ALWAYS THE PORT IT WAS ASKED FOR. `port` is
+  // `PHONE_PORT` in the app, so a phone paired once comes back to the same
+  // address; 0 asks for whatever is free, and then only the socket knows.
+  const livePort = () => server?.address()?.port ?? port;
   // ANYWHERE, THROUGH THE RELAY (main/relay-client.mjs). With a relay to use it
   // is where a person starts, because it needs nothing on the phone; a route
   // someone picked stays picked. Before the relay every file said "wifi"
   // whether or not anybody picked it, so only a pick marked as one counts.
-  const relay = relayUrl ? createRelay({ relayUrl, key: () => saved.key, port: () => port, log, onChange: () => onChange() }) : null;
+  const relay = relayUrl ? createRelay({ relayUrl, key: () => saved.key, port: () => livePort(), log, onChange: () => onChange() }) : null;
   const via = () => {
     const picked = saved.viaChosen || saved.via === 'tailscale' ? saved.via : null;
     if (picked === 'anywhere' && !relay) return 'wifi';
@@ -331,7 +335,7 @@ export function createPhoneLink({ file, channels, listeners, dist, files = null,
         try {
           const host = await tailscale.name();
           if (!host) throw new Error('This tailnet has HTTPS certificates turned off. Turn them on in the Tailscale admin console, under DNS.');
-          await tailscale.serve(port);
+          await tailscale.serve(livePort());
           secure = { ...secure, host, error: null };
           // The first request makes Tailscale fetch the certificate, which took
           // 40 seconds when measured. Make it now, not on the phone.
@@ -472,7 +476,7 @@ export function createPhoneLink({ file, channels, listeners, dist, files = null,
     const url = !pick ? null
       : anywhere ? `${relayUrl.replace(/\/+$/, '')}/#k=${encodeURIComponent(saved.key)}`
       : safe ? `https://${secure.host}:${SECURE_PORT}/?token=${encodeURIComponent(saved.key)}`
-      : `http://${pick.host}:${port}/?token=${encodeURIComponent(saved.key)}`;
+      : `http://${pick.host}:${livePort()}/?token=${encodeURIComponent(saved.key)}`;
     const relayState = anywhere ? relay.state() : null;
     const now = Date.now();
     return {
@@ -481,7 +485,7 @@ export function createPhoneLink({ file, channels, listeners, dist, files = null,
       /** 127.0.0.1 over Tailscale and the relay, 0.0.0.0 over Wi-Fi. */
       host: server?.listening ? host : null,
       error: error ?? (pick?.via === 'tailscale' ? secure.error : null) ?? relayState?.error ?? null,
-      port,
+      port: livePort(),
       secure: !!safe,
       settingUp: !!secure.busy,
       /** Through the relay: whether this Mac is connected to it now. */

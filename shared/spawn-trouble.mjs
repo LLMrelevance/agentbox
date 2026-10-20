@@ -241,15 +241,17 @@ const WORKSPACE = [
 // login on a bigger plan runs this one. Codex's own words, off two dead runs on
 // 2026-10-09 and 2026-10-11 (codex-cli 0.160.0, a free-plan login handed
 // gpt-6.1-sol): "The 'gpt-6.1-sol' model is not supported when using Codex with
-// a ChatGPT account." The second line is ours, thrown before the thread starts
-// by `codexModelRefusal` when the login's own list already says so.
+// a ChatGPT account." The other two are ours, thrown before the thread starts
+// by `codexModelRefusal`: this login's list lacks it, or no login's list here
+// has it, which is what a paid plan that has ended looks like.
 const MODEL_NOT_ON_PLAN = [
   /model is not supported when using codex with a chatgpt account/i,
   /not a model the plan of the codex account/i,
-  // Ours too, when no login here has the model: a free plan that lacks it
-  // reads exactly like this, and the fix is the same.
   /not a model the codex on this computer knows/i,
 ];
+
+// Ours too, from `codexEffortRefusal`.
+const LEVEL_NOT_OFFERED = [/not a level that model offers/i];
 
 // WHICH OF THE THREE THINGS WENT WRONG, from whatever the tool printed.
 // 'unknown' is a first-class answer, not a failure: an honest generic sentence
@@ -266,6 +268,7 @@ export function troubleCause(raw) {
   if (ORG_BLOCKED.some((re) => re.test(text))) return 'org-blocked';
   // BEFORE SIGNED-OUT, because Codex's sentence says "ChatGPT account".
   if (MODEL_NOT_ON_PLAN.some((re) => re.test(text))) return 'model-not-on-plan';
+  if (LEVEL_NOT_OFFERED.some((re) => re.test(text))) return 'level-not-offered';
   if (SIGNED_OUT.some((re) => re.test(text))) return 'signed-out';
   if (AT_LIMIT.some((re) => re.test(text))) return 'at-limit';
   // BEFORE WORKSPACE, whose /untrusted/ would read a certificate as a folder,
@@ -614,11 +617,27 @@ const DEAD_RUN_OPENERS = {
   'at-limit': 'is at its usage limit, so nothing has been done on this task.',
   interrupted: 'was cut off in the middle, so nothing has been done on this task.',
   'model-not-on-plan': "could not use this task's model on that account's plan, so nothing has been done.",
+  'level-not-offered': "could not run this task's model at the thinking level it asks for, so nothing has been done.",
   network: 'could not connect securely through this network, so nothing has been done on this task.',
   'too-old': `on this computer is older than ${Name} needs, so nothing has been done on this task.`,
   'api-key': `is signed in with an API key, which ${Name} never bills, so nothing has been done.`,
   'codex-config': 'could not read its config.toml, so nothing has been done on this task.',
   unknown: 'stopped before it did anything, so this task has not been started.',
+};
+
+// The same, for a run that used a tool before it died, so "nothing has been
+// done" would be false. Kept out of DEAD_RUN_OPENERS so `deadRunCause` does
+// not count the row among those nothing has started on. A cause missing here
+// can only stop a run before its first tool, so on a run that worked it is a
+// misreading and gets the plain line.
+const WORKED_OPENERS = {
+  'signed-out': 'was signed out partway through, so this task is not finished.',
+  'org-blocked': 'was switched off for that account partway through, so this task is not finished.',
+  'subscription-ended': "stopped partway through because that account's subscription ended.",
+  'at-limit': 'hit its usage limit partway through, so this task is not finished.',
+  interrupted: 'was cut off partway through, so this task is not finished.',
+  network: 'lost its secure connection partway through, so this task is not finished.',
+  unknown: 'stopped partway through and did not finish this task.',
 };
 
 /**
@@ -639,6 +658,7 @@ const RUN_STOPPED = {
   workspace: "This run stopped because it would not start in this project's folder.",
   interrupted: 'This run was cut off in the middle.',
   'model-not-on-plan': "This run stopped because that account's plan does not include the model.",
+  'level-not-offered': 'This run stopped because the model does not offer that thinking level.',
   network: 'This run stopped because this network would not let it connect securely.',
   'too-old': `This run stopped because Claude Code on this computer is older than ${Name} needs.`,
   'api-key': 'This run stopped because Codex is signed in with an API key.',
@@ -650,13 +670,28 @@ export function runStoppedLine(raw) {
   return RUN_STOPPED[troubleCause(raw)] ?? RUN_STOPPED.unknown;
 }
 
+// A cause we cannot name still has a likeliest culprit, and it is the agent's
+// plan, not the app (2026-10-19). Engines with no plan to point at get none.
+const UNNAMED_CHECK = {
+  Codex: 'Check that your ChatGPT plan is active at chatgpt.com, or run codex in a terminal to see what it says. ',
+  'Claude Code': 'Check that your Claude plan is active at claude.ai, or run claude in a terminal to see what it says. ',
+};
+
+function dayWords(ms) {
+  return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 // `elsewhere` says another signed-in login can take this task now, so the
 // sentence promises the move instead of a wait. Read for 'model-not-on-plan'
 // (another login's plan has the model) and for 'at-limit' (another login has
 // room). An hour away is the wrong thing to say about a task that is about to
 // run somewhere else.
-export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, elsewhere = false } = {}) {
-  const opener = `${engineWord} ${DEAD_RUN_OPENERS[cause] ?? DEAD_RUN_OPENERS.unknown}`;
+//
+// `planEnded` is when that login's paid ChatGPT plan ended (main/codex-account.mjs
+// `codexPlanEnded`), which is why its list lacks `model`.
+export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, elsewhere = false, worked = false, model = null, planEnded = null } = {}) {
+  if (worked && !WORKED_OPENERS[cause]) cause = 'unknown';
+  const opener = `${engineWord} ${(worked ? WORKED_OPENERS : DEAD_RUN_OPENERS)[cause] ?? DEAD_RUN_OPENERS.unknown}`;
 
   const again = runs > 1 ? ` This has happened ${runs} times on this task.` : '';
 
@@ -684,10 +719,18 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
         : cause === 'model-not-on-plan'
           ? (elsewhere
             ? ` ${Name} runs it again on a Codex account whose plan has it.`
-            : ' Pick another model for this task, or sign in a Codex account whose plan has it.')
+            : planEnded
+              ? ` That account's ChatGPT subscription ended on ${dayWords(planEnded)}, and the free plan does not include ${model || 'this model'}. Renew it at chatgpt.com, or pick another model for this task.`
+              : ' Pick another model for this task, or sign in a Codex account whose plan has it.')
+        : cause === 'level-not-offered'
+          ? ' Pick another thinking level for this task and it will run.'
         : cause === 'network'
           ? ` It will keep failing until this is fixed: if your company uses a proxy or its own certificate, ${NETWORK_FIX} and reopen ${Name}.`
-        : ` ${Name} keeps trying, and it will keep failing the same way until this is fixed.`;
+        : worked
+          ? ` ${Name} tries it again on its own.`
+        : cause === 'workspace'
+          ? ` ${Name} keeps trying, and it will keep failing the same way until this is fixed.`
+        : ` ${UNNAMED_CHECK[engineWord] ?? ''}${Name} tries again on its own.`;
 
   return `${opener}${again}${next}`;
 }
@@ -771,6 +814,7 @@ export function causeWord(cause) {
   if (cause === 'workspace') return 'a folder Claude will not run in';
   if (cause === 'interrupted') return 'runs getting cut off';
   if (cause === 'model-not-on-plan') return "a model the account's plan does not include";
+  if (cause === 'level-not-offered') return 'a thinking level its model does not offer';
   if (cause === 'network') return 'a network that blocks secure connections';
   if (cause === 'too-old') return 'an out-of-date Claude Code';
   return 'something we cannot name';
@@ -788,6 +832,7 @@ export function causeWhat(cause, count) {
   if (cause === 'workspace') return `${n} in a folder Claude will not run in`;
   if (cause === 'interrupted') return `${n} cut off mid-run`;
   if (cause === 'model-not-on-plan') return `${n} asking for a model no signed-in Codex plan includes`;
+  if (cause === 'level-not-offered') return `${n} asking for a thinking level its model does not offer`;
   if (cause === 'network') return `${n} stopped by a network that blocks secure connections`;
   if (cause === 'too-old') return `${n} stopped by an out-of-date Claude Code`;
   return `${n} stopped for a reason we cannot name`;
@@ -803,6 +848,7 @@ export function causeNext(cause, resetsAt = null) {
   if (cause === 'workspace') return 'Open the folder in Claude once and say yes to trusting it.';
   if (cause === 'interrupted') return `Nothing to do. ${Name} is trying them again.`;
   if (cause === 'model-not-on-plan') return 'Pick another model on each, or sign in a Codex account whose plan has it.';
+  if (cause === 'level-not-offered') return 'Pick another thinking level on each.';
   if (cause === 'network') return troubleRemedy('network');
   if (cause === 'too-old') return troubleRemedy('too-old');
   return `${Name} keeps trying on its own.`;
@@ -833,7 +879,7 @@ export function causeBreakdown(rows = [], resetsAt = null) {
       what: causeWhat(cause, count),
       next: causeNext(cause, cause === 'at-limit' ? resetsAt : null),
       act: causeAct(cause),
-      hers: needsHerHands(cause) || cause === 'workspace' || cause === 'model-not-on-plan' || cause === 'network',
+      hers: needsHerHands(cause) || cause === 'workspace' || cause === 'model-not-on-plan' || cause === 'level-not-offered' || cause === 'network',
     }))
     .sort((a, b) => (b.hers - a.hers) || (b.count - a.count) || a.cause.localeCompare(b.cause));
 }
