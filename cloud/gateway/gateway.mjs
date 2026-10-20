@@ -367,6 +367,8 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
         if (!data || typeof data !== 'object') throw bad('the body is not an object');
       }
       if (method === 'POST' && path === '/v1/devices') return { status: 200, body: await newDevice(headers, data) };
+      // Asked before anyone has signed in, so the app shows what they accept.
+      if (method === 'GET' && path === '/v1/terms') return { status: 200, body: { terms: termsVersion } };
       const { person, key } = await personOf(headers);
       const route = `${method} ${path}`;
       if (route === 'DELETE /v1/devices') { await objects.del(deviceKey(key)); return { status: 200, body: { ok: true } }; }

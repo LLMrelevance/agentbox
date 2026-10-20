@@ -388,6 +388,10 @@ export const api = {
           ],
           signIns: [],
         } as typeof base.cloud;
+      } else if (cloud === 'new') {
+        // &cloud=new draws the cloud offered but nobody signed in: the
+        // button's dot, its invitation, and the setup screen's first view.
+        base.cloud = { setUp: true, mode: 'full', whenOn: 'full', running: 0, accounts: [], signIns: [] } as typeof base.cloud;
       } else if (cloud === 'mac' || cloud === 'full' || cloud === 'all') {
         base.cloud = {
           setUp: true, mode: cloud, whenOn: cloud === 'all' ? 'all' : 'full', running: 3,
