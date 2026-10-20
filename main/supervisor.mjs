@@ -4257,8 +4257,8 @@ export class Supervisor {
   async _cloudClients() {
     const config = readCloudConfig(process.env, this.config.home);
     if (!config) throw new Error('the cloud is not set up here');
-    const { awsTransport, awsStorage } = await import('./cloud/aws.mjs');
-    return { transport: awsTransport(config), storage: awsStorage(config) };
+    const { cloudClients } = await import('./cloud/clients.mjs');
+    return cloudClients(config, { home: this.config.home });
   }
 
   // THE CLOUD SETUP'S SIGN-IN. `start` adds a new account of an engine (or,

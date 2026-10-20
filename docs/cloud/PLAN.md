@@ -470,6 +470,69 @@ input. In order:
    the Mac writes after every turn, and a lease so one executor at a time owns
    a thread.
 
+## Releasing the cloud to everyone (w-6633e825a7, 2026-10-19)
+
+Everything above runs in the owner's own AWS account, set up by a script with
+an admin sign-in. Nobody else has that. What a release needs, in the order
+approved:
+
+1. **The cloud server** (below). Built first.
+2. **Accounts.** Google sign-in for anyone: the consent screen published
+   (name and email only, so no Google review), brand verification on our
+   domain, the database's public address and key carried by public builds,
+   signing in for the cloud kept apart from the team version, and the
+   database's access rules reviewed before strangers can sign up to it.
+3. **Plans** enforced by the server (below), with the hour limits set from
+   `node scripts/cloud-usage.mjs`.
+4. **Stripe**: checkout, the page where people manage their plan, and its
+   notices writing the plan into the server's ledger.
+5. **Upgrade prompts in the app.** Before drawing any, tell the person: they
+   will ask the cloud buildout thread (w-1dc7ee2408) for the "you could run
+   more agents" designs it made.
+6. **Terms.** Anthropic's Commercial Terms accepted, and their sales asked
+   about keeping each person's `setup-token` between runs. Codex stays the
+   owner's own until OpenAI approves Sign in with ChatGPT. The privacy and
+   terms pages rewritten (they say nothing is hosted).
+
+### The cloud server
+
+A Lambda behind a function URL, in the same account and region as the
+runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
+`main/cloud/aws.mjs`) get a second implementation that talks to it
+(`main/cloud/managed.mjs`); `run.mjs` and `logins.mjs` do not change.
+
+- **Who is asking.** A Mac trades the person's signed-in session for a cloud
+  key once (`POST /v1/devices`, checked against the database's own
+  `/auth/v1/user`). The key is random, kept on the Mac at
+  `~/.agentbox/cloud-key` (0600), stored by the server only as a hash, and
+  revocable. Every other call carries it. A key, not the session, because the
+  relay runs for hours, through sleep, in a process that cannot read the
+  app's encrypted session.
+- **Each person's things are theirs.** The Mac names keys and sessions as it
+  does today; the server puts the person in them: `runs/<x>` is stored at
+  `runs/u-<person>/<x>`, `logins/<x>` at `logins/u-<person>/<x>`, a session
+  `<s>` is `u-<person>-<s>` in AgentCore. Nobody can name another person's.
+  The lifecycle rules on `runs/` still apply.
+- **A login is never readable from a Mac.** The managed storage answers a
+  link to a login with a name, `agentbox-login:<key>`, and the server swaps
+  that for a real link only inside a call to the sandbox. A real link in a
+  login field is refused.
+- **Links outlive the run.** A link signed with the Lambda's own role ends
+  when that role's session does, so the server signs with a separate user's
+  key (`agentbox-gateway-signer`, S3 rights on `runs/` and `logins/` only).
+- **Plans.** The ledger (`ledger/` in the same bucket, written with S3's
+  conditional writes, no database) holds each person's plan, their live
+  sessions and the seconds used per month. A `start` is refused when the
+  plan's agents are all running or its month's hours are spent. A run ends
+  when its `done.json` lands (an S3 notice to the same Lambda), when the Mac
+  stops it, or at AgentCore's 8-hour ceiling, and its seconds are counted
+  then. A Mac that never lets a run end is charged the full 8 hours.
+  Sign-in sessions count against nothing, three at once at most, 20 minutes
+  each.
+- **The Mac.** `cloud.json` holding `gateway` (an address) instead of a
+  bucket and runtime makes this Mac a managed one. Her own setup is
+  unchanged.
+
 ## Known limits
 
 - With the lid shut a cloud run keeps working; its writes to its thread are
