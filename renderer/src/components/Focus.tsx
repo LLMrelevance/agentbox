@@ -1515,7 +1515,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         onPreview={(src) => { api.openArtifactExternally({ product, src }).then((r) => { if (!r.ok) onNotice(r.error || `${src} could not be opened.`); }); }}
       />
     )}
-    <div className="focus-scroll" ref={scrollRef}>
+    <div className="focus-scroll" data-thread-id={item.id} ref={scrollRef}>
     <div className="focus">
       {/* ONE LEFT EDGE FOR EVERY WORD, the list's rule applied here: the title, the meta
          line and the notes start exactly where the message below them starts, and nothing

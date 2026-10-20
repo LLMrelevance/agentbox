@@ -40,13 +40,21 @@ export function orderPictures(found: { src: string; block: unknown; mine?: boole
 
 export const drew = (img: { complete: boolean; naturalWidth: number }) => img.complete && img.naturalWidth > 0;
 
+export async function waitForThread(id: string, drawnId = () => document.querySelector<HTMLElement>('.focus-scroll')?.dataset.threadId, wait = (ms: number) => new Promise((r) => setTimeout(r, ms))): Promise<boolean> {
+  for (let waited = 0; waited < 1500; waited += 50) {
+    if (drawnId() === id) return true;
+    await wait(50);
+  }
+  return drawnId() === id;
+}
+
 /** The pictures the open thread draws (components/Focus.tsx ArtifactImg), as Neo numbers them. */
 export function threadPictures(root: ParentNode = document): { pictures: HTMLImageElement[]; latest: number } {
   // Only pictures that drew: a file that is missing shows as its path, and once
   // went up beside the thread as "the picture".
   const all = [...root.querySelectorAll<HTMLImageElement>('.focus-scroll img.inline-image, .thread-block img.inline-image')]
     .filter((img, i, list) => img.isConnected && !img.closest('.neo-show') && list.indexOf(img) === i && drew(img));
-  const got = orderPictures(all.map((img) => ({ src: img.getAttribute('src') ?? '', block: img.closest('.thread-block') ?? img.parentElement, mine: !!img.closest('.msg.yours') })), latestAgentBlock(root));
+  const got = orderPictures(all.map((img) => ({ src: img.getAttribute('src') ?? '', block: img.closest('.thread-block, .outcome') ?? img.parentElement, mine: !!img.closest('.msg.yours') })), latestAgentBlock(root));
   return { pictures: got.order.map((i) => all[i]), latest: got.latest };
 }
 
@@ -54,7 +62,7 @@ export function threadPictures(root: ParentNode = document): { pictures: HTMLIma
 export function threadFilms(root: ParentNode = document): { films: HTMLElement[]; latest: number } {
   const all = [...root.querySelectorAll<HTMLElement>('.inline-media')].filter((el) => el.isConnected && !el.closest('.neo-show'));
   const key = (el: HTMLElement) => el.querySelector('video, audio')?.getAttribute('src') || el.querySelector('.mention-name')?.textContent?.trim() || '';
-  const got = orderPictures(all.map((el) => ({ src: key(el), block: el.closest('.thread-block') ?? el.parentElement, mine: !!el.closest('.msg.yours') })), latestAgentBlock(root));
+  const got = orderPictures(all.map((el) => ({ src: key(el), block: el.closest('.thread-block, .outcome') ?? el.parentElement, mine: !!el.closest('.msg.yours') })), latestAgentBlock(root));
   return { films: got.order.map((i) => all[i]), latest: got.latest };
 }
 
@@ -68,6 +76,8 @@ export function threadDrawn(root: ParentNode = document): boolean {
 }
 
 function latestAgentBlock(root: ParentNode): Element | undefined {
+  const outcome = root.querySelector('.focus-scroll .outcome');
+  if (outcome) return outcome;
   const blocks = [...root.querySelectorAll('.focus-scroll .thread-block')].filter((b) => b.querySelector('.msg:not(.yours)'));
   return blocks.at(-1);
 }

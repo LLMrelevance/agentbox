@@ -210,8 +210,8 @@ describe('Neo talks things through itself', () => {
   it('the voice answers follow-ups itself and hands over only what needs the app', async () => {
     const { neoSession } = await import('../shared/neo-tools.mjs');
     const said = neoSession({}).instructions;
-    expect(said).toMatch(/Do not delegate a question the conversation already answers/);
-    expect(said).toMatch(/I don't understand that part/);
+    expect(said).toMatch(/Do not delegate to the backend when:[\s\S]*follow-up question the conversation already answers/);
+    expect(said).toMatch(/what something means/);
     expect(said).not.toMatch(/you hand every request to it/);
   });
 

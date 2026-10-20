@@ -45,6 +45,7 @@ export interface CloudAccount {
   duplicateOf?: string | null;
   /** Its session and week, read off a reply's own headers in the cloud. */
   limits?: UsageLimit[] | null;
+  readAt?: number | null;
 }
 
 export interface CloudStatus {

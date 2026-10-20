@@ -249,13 +249,58 @@ describe('someone with no plan', () => {
     expect(Object.keys(PLANS).sort()).toEqual(['max', 'none', 'plus', 'pro']);
     expect(PLANS.none).toEqual({ agents: 0, hoursPerMonth: 0 });
   });
+
+  // The owner's numbers, 2026-10-20: Pro 400, Plus 1,200, Max 3,000, so each
+  // step up gives more hours a dollar (10, 12, 15), against a measured $0.07
+  // an agent-hour.
+  it('the paid plans carry the owner\'s hours, so each one can be given', async () => {
+    expect([PLANS.pro.hoursPerMonth, PLANS.plus.hoursPerMonth, PLANS.max.hoursPerMonth]).toEqual([400, 1200, 3000]);
+    const { gw } = setup({ plans: PLANS });
+    for (const plan of ['pro', 'plus', 'max']) await gw.admin({ do: 'plan', person: A, plan });
+  });
+});
+
+// The owner, 2026-10-20: Max runs unlimited agents at once. The hours already
+// bound what it costs; a ceiling of 200, never shown, keeps one runaway loop
+// from taking the AWS session limit every customer shares.
+describe('Max runs unlimited agents at once', () => {
+  async function onMax() {
+    const s = setup({ plans: PLANS });
+    await s.me();
+    await s.gw.admin({ do: 'plan', person: A, plan: 'max' });
+    return s;
+  }
+
+  it('says unlimited, and never shows the ceiling', async () => {
+    const { me } = await onMax();
+    const said = await me();
+    expect(said).toMatchObject({ plan: 'max', unlimited: true, agents: null, hoursPerMonth: 3000 });
+    expect(JSON.stringify(said)).not.toMatch(/200/);
+  });
+
+  it('starts the 200th agent and refuses the 201st, saying why', async () => {
+    const { start, sent } = await onMax();
+    for (let i = 1; i <= 200; i += 1) expect((await start(i)).body.ok).toBe(true);
+    const over = await start(201);
+    expect(over.body).toMatchObject({ ok: false, error: 'agents' });
+    expect(over.body.message).not.toMatch(/of your/);
+    expect(over.body.message).toMatch(/200/);
+    expect(sent.filter((s) => s.payload?.action === 'start')).toHaveLength(200);
+  });
+
+  it('a counted plan still says its number and is not unlimited', async () => {
+    const s = setup({ plans: PLANS });
+    await s.me();
+    await s.gw.admin({ do: 'plan', person: A, plan: 'pro' });
+    expect(await s.me()).toMatchObject({ plan: 'pro', unlimited: false, agents: 10 });
+  });
 });
 
 describe('what the person is told', () => {
   it('names the plan, its agents and hours, and what is used', async () => {
     const { start, me } = setup();
     await start(1);
-    expect(await me()).toEqual({ plan: 'test', agents: SET.test.agents, hoursPerMonth: SET.test.hoursPerMonth, running: 1, usedSeconds: 0, month: '2026-10', terms: { accepted: TERMS_VERSION, current: TERMS_VERSION } });
+    expect(await me()).toEqual({ plan: 'test', unlimited: false, agents: SET.test.agents, hoursPerMonth: SET.test.hoursPerMonth, running: 1, usedSeconds: 0, month: '2026-10', terms: { accepted: TERMS_VERSION, current: TERMS_VERSION } });
   });
 });
 
