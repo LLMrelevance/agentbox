@@ -8991,11 +8991,6 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 /* Her Mac turned a reply from the phone down (renderer/src/cloud-bridge.ts). */
 .msg-sending.msg-refused { color: var(--code-minus); }
 
-/* THE PHONE WITH THE MAC SHUT (renderer/src/cloud-bridge.ts) leaves a reply
-   for her Mac, which runs it on the model the thread already has: there is no
-   model to pick here, and no sending back that her Mac does not do. */
-:root[data-via="cloud"] .clause-model, :root[data-via="cloud"] .dock-model, :root[data-via="cloud"] .dock-pill .ts-model { display: none; }
-
 /* NEO, the voice alpha (w-e85fd9144f). The glow on what Neo just did:
    bloom plus lit from within, at the softer strength approved on 2026-10-15,
    with a quiet dust halo drawn by renderer/src/neo/glow.ts. A layer of its
