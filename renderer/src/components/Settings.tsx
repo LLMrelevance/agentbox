@@ -535,7 +535,7 @@ export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex
     const read = !!a.limits?.length;
     // A full meter already says when it is back, so beside one the state is said short.
     const about = read && state.startsWith('At its limit') ? 'At its limit' : state;
-    return { key: a.key, name: accountLabel(a, all), about: [about], limits: a.limits ?? null, meters: read, checkedAt: read ? a.readAt : null };
+    return { key: a.key, name: accountLabel(a, all), plan: a.plan ?? null, about: [about], limits: a.limits ?? null, meters: read, checkedAt: read ? a.readAt : null };
   });
 }
 

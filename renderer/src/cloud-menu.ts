@@ -46,6 +46,8 @@ export interface CloudAccount {
   /** Its session and week, read off a reply's own headers in the cloud. */
   limits?: UsageLimit[] | null;
   readAt?: number | null;
+  /** The plan of the folder here in the same organization ("Max 20x"). */
+  plan?: string | null;
 }
 
 export interface CloudStatus {

@@ -96,8 +96,21 @@ export function isMaxTier(raw) {
  *  Claude Code has not fetched a profile for yet: all of them come back
  *  `known: false`, which every caller here treats as "leave everything exactly
  *  as it was". */
+const planCache = new Map();
+
 export function readPlan(profile, { home = os.homedir(), file = null } = {}) {
   const at = file ?? planFile(profile, home);
+  // Keyed on the file's mtime, as accountIdentity is: the cloud tiles ask on every snapshot.
+  let mtime = null;
+  try { mtime = fs.statSync(at).mtimeMs; } catch { /* read below says none */ }
+  const hit = planCache.get(at);
+  if (mtime != null && hit?.mtime === mtime) return hit.plan;
+  const plan = readPlanNow(at);
+  if (mtime != null) planCache.set(at, { mtime, plan });
+  return plan;
+}
+
+function readPlanNow(at) {
   const none = { known: false, max: false, label: null, tier: null, from: null, file: at };
   let account = null;
   try {
