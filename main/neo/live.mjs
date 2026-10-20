@@ -18,13 +18,14 @@ export function readKey({ run = execFile } = {}) {
 
 // Trades the page's WebRTC offer for OpenAI's answer. The page can only hand
 // over an offer; the endpoint, the model and the whole session are fixed here.
-export async function startLive({ sdp, session, getKey = readKey, fetchImpl = fetch }) {
+export async function startLive({ sdp, session, getKey = readKey, fetchImpl = fetch, timeoutMs = 30_000 }) {
   if (typeof sdp !== 'string' || !sdp.startsWith('v=') || sdp.length > MAX_SDP) throw new Error('Not a WebRTC offer.');
   const key = await getKey();
   let res;
   try {
     res = await fetchImpl(LIVE_URL, {
       method: 'POST',
+      signal: AbortSignal.timeout(timeoutMs),
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ session, transport: { type: 'webrtc', sdp } }),
     });

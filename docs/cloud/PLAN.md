@@ -200,6 +200,16 @@ cloud Codex thread gets an app-server of its OWN, in its sandbox:
   writes there comes back every 10 s and at the end, never over a file changed
   on the Mac meanwhile, and never over one the run did not take (`docs.sent` in
   the marker): those keep their place and the run's copy goes beside them.
+- **A project with no repository runs in the cloud too (2026-10-20).** Its
+  agent works in the documents folder, so the run sends no bundle (`plain` in
+  the start) and its documents are its folder; what comes home is the
+  documents and the conversation. Every thread of such a project shares that
+  folder, so each keeps its marker in the app's own data
+  (`cloud-runs/<project>--<thread>.json`, Supervisor#_plainMarker), not in a
+  git directory. Only once the image says `plain` in its caps; until then those
+  threads run on the Mac as before. Before this, Personal, My Workspace and
+  Direct were 17 of the founder's 31 open threads, all on the Mac with
+  Everything on.
 - **The Mac sleeping is not a restart.** The app, the proxy, the store server
   and the approvals server all freeze together and thaw together; their memory
   is intact. The sandbox keeps going. A store call it makes while the Mac
@@ -376,7 +386,11 @@ at AgentCore's published rates. The plan limits are set from these.
 - Sold as "+N agent slots": agents running in the cloud at once, on top of
   this Mac's. A monthly agent-hour limit sits behind each plan, high enough
   that most people never reach it; past it, threads wait for the Mac.
-- Pro $40 +10 slots, Plus $100 +25, Max $200 +60. No top-ups for now.
+- Pro $40 +10 slots and 400 hours a month, Plus $100 +25 and 1,200 hours,
+  Max $200, unlimited at once, and 3,000 hours (the owner's hours,
+  2026-10-20, against a measured $0.07 an agent-hour). Max's unlimited has
+  a ceiling of 200 at once that is never shown, so one runaway loop cannot
+  take the AWS session limit every customer shares. No top-ups for now.
 - A cloud hour is one agent working for one hour; waiting for a reply is
   free (a run ends with its turn). Each agent is its own machine, billed on
   what it uses, so packing agents onto one machine would not save money.
@@ -576,8 +590,7 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
 - **The Mac.** `cloud.json` holding `gateway` (an address) instead of a
   bucket and runtime makes this Mac a managed one. Her own setup is
   unchanged.
-- **Still open before strangers.** The paid plans' hours (a plan without
-  them cannot be given), presigned writes with no size cap (bounded by the 7-day expiry of
+- **Still open before strangers.** Presigned writes with no size cap (bounded by the 7-day expiry of
   `runs/`), an alarm on unexpected use of the signer's key, and cloud keys
   that never expire (turning a person off covers abuse, not a lost Mac).
 

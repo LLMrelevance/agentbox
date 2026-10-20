@@ -63,9 +63,9 @@ describe('the wiring in App.tsx', () => {
   it('a refused undo leaves no "Undid sending it" mark and gives no words back', () => {
     const at = app.indexOf("'refused' in outcome");
     expect(at).toBeGreaterThan(-1);
-    const branch = app.slice(at, app.indexOf('return;', at) + 'return;'.length);
+    const branch = app.slice(at, app.indexOf('return { failed: outcome.refused };', at) + 'return { failed: outcome.refused };'.length);
     expect(branch).not.toMatch(/leaveUndoMarks/);
     expect(branch).not.toMatch(/restore/);
-    expect(branch).toMatch(/return;/);
+    expect(branch).toContain('return { failed: outcome.refused };');
   });
 });

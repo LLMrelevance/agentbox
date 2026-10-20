@@ -189,7 +189,7 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
   function summary(rec, t) {
     const plan = planOf(rec);
     return {
-      plan: plans[rec.plan] ? rec.plan : 'none', agents: plan.agents, hoursPerMonth: plan.hoursPerMonth, running: live(rec, 'run').length, usedSeconds: rec.used[month(t)] || 0, month: month(t),
+      plan: plans[rec.plan] ? rec.plan : 'none', unlimited: !!plan.unlimited, agents: plan.unlimited ? null : plan.agents, hoursPerMonth: plan.hoursPerMonth, running: live(rec, 'run').length, usedSeconds: rec.used[month(t)] || 0, month: month(t),
       terms: { accepted: rec.terms?.version ?? null, current: termsVersion },
     };
   }
@@ -212,7 +212,9 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
       if (paused) return { ok: false, error: 'paused', message: 'The cloud is not starting new runs right now.' };
       if (!plan.agents) return { ok: false, error: 'plan', message: 'Choose a cloud plan to run agents there.' };
       if (overHours(rec, t)) return { ok: false, error: 'hours', message: `This month's ${plan.hoursPerMonth} cloud hours are used.` };
-      if (live(rec, 'run').length >= plan.agents) return { ok: false, error: 'agents', message: `All ${plan.agents} of your cloud agents are running.` };
+      if (live(rec, 'run').length >= plan.agents) {
+        return { ok: false, error: 'agents', message: plan.unlimited ? `${plan.agents} cloud agents are running, the most one account can run at once.` : `All ${plan.agents} of your cloud agents are running.` };
+      }
     } else if (live(rec, 'signin').length >= SIGNINS_AT_ONCE) {
       return { ok: false, error: 'signins', message: `${SIGNINS_AT_ONCE} sign-ins are already waiting.` };
     }

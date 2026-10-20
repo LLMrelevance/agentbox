@@ -2,9 +2,24 @@
 // checked: how long to put a thread off, which pictures, what to send.
 // The picker only ever chooses the action and its target (./neo-options.mjs).
 
-const NUM = { one: 1, a: 1, an: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, fifteen: 15, twenty: 20, thirty: 30, forty: 40, 'forty-five': 45, sixty: 60, first: 1, second: 2, third: 3, fourth: 4, fifth: 5 };
+const NUM = { zero: 0, one: 1, a: 1, an: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, fifteen: 15, twenty: 20, thirty: 30, forty: 40, 'forty-five': 45, sixty: 60, first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10 };
 const num = (w) => (/^\d+$/.test(w) ? Number(w) : NUM[w]);
 const clean = (s) => String(s ?? '').toLowerCase().replace(/[‘’]/g, "'").replace(/[^a-z0-9': -]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+export function backSteps(said) {
+  const s = clean(said);
+  const m = /\bback (?:by )?(\d+|one|two|three|four|five|six|seven|eight|nine)\b|\b(\d+|one|two|three|four|five|six|seven|eight|nine) (?:threads? |tasks? |steps? )?(?:back|earlier)\b/.exec(s);
+  return m ? num(m[1] ?? m[2]) : 1;
+}
+
+export function mediaNumberFrom(said) {
+  const s = clean(said);
+  const number = '(\\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)';
+  const media = '(?:sound|audio|video|film|clip|recording|one)';
+  const matches = [...s.matchAll(new RegExp(`\\b${number} ${media}\\b|\\b${media} (?:number )?${number}\\b`, 'g'))];
+  const numbers = [...new Set(matches.map((m) => num(m[1] ?? m[2])))];
+  return numbers.length > 1 ? 'ambiguous' : numbers[0] ?? null;
+}
 
 const atHour = (base, h, m = 0) => { const d = new Date(base); d.setHours(h, m, 0, 0); return d.getTime(); };
 const plusDays = (ts, n) => { const d = new Date(ts); d.setDate(d.getDate() + n); return d.getTime(); };
@@ -17,11 +32,13 @@ export function laterFrom(said, now = Date.now()) {
   const span = /\b(\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty|forty-five|sixty) (minute|min|hour|hr|day)s?\b/.exec(s);
   if (span) {
     const n = num(span[1]);
+    if (!(n > 0)) return null;
     const unit = span[2].startsWith('m') ? 60_000 : span[2].startsWith('h') ? 3600_000 : 86400_000;
     const word = span[2].startsWith('m') ? 'minute' : span[2].startsWith('h') ? 'hour' : 'day';
     return { ts: now + n * unit, label: `in ${n} ${word}${n === 1 ? '' : 's'}` };
   }
   const time = /\b(?:at|until|till|by)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/.exec(s.replace(/\b(\d+) (minute|min|hour|hr|day)s?\b/g, ''));
+  if (time && (Number(time[1]) > (time[3] ? 12 : 23) || Number(time[2] ?? 0) > 59 || (time[3] && Number(time[1]) < 1))) return null;
   const hourOf = (h, ampm) => (ampm === 'pm' && h < 12 ? h + 12 : ampm === 'am' && h === 12 ? 0 : !ampm && h < 7 ? h + 12 : h);
   if (/\btomorrow\b/.test(s)) {
     const t = time && /\b(at|until|till|by)\b|am|pm/.test(time[0]) ? atHour(plusDays(now, 1), hourOf(Number(time[1]), time[3]), Number(time[2] ?? 0)) : atHour(plusDays(now, 1), 8);

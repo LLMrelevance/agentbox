@@ -59,6 +59,6 @@ describe('how Neo talks', () => {
   // this" (shared/neo-options.mjs). The voice keeps the half that is its own:
   // it says only what the app told it.
   it('says to say only what the app told it, never what it means to do', () => {
-    expect(voice).toMatch(/nothing it did not tell you|say nothing it did not tell/i);
+    expect(voice).toMatch(/nothing it did not tell you|say nothing it did not tell|say only what the app tells you/i);
   });
 });

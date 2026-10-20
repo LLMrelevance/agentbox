@@ -32,7 +32,7 @@ describe('what a pick does', () => {
     ['close', 'close it', ['close_thread', { id: 'w-j' }]],
     ['pick:2', 'go with the second', ['pick_option', { id: 'w-j', n: 2 }]],
     ['next', 'next', ['next_thread', {}]],
-    ['back', 'go back', ['go_back', {}]],
+    ['back', 'go back', ['go_back', { steps: 1 }]],
     ['scroll:up', 'scroll up', ['scroll', { where: 'up' }]],
     ['show:1', 'full screen the picture', ['show', { pictures: [1], layout: 'full_screen' }]],
     ['compare', 'compare one and three', ['show', { pictures: [1, 3], layout: 'side_by_side' }]],
@@ -99,7 +99,7 @@ describe('a yes is asked for, then given', () => {
 
   it('her no drops it', async () => {
     const t = setup((options) => (options.some((o) => o.value === 'no') ? 'no' : 'none'));
-    t.state.pending = { name: 'pick_option', args: { id: 'w-j', n: 1 }, about: 'Ship it all' };
+    t.state.pending = { name: 'pick_option', args: { id: 'w-j', n: 1 }, about: 'Ship it all', openId: 'w-j' };
     const r = await t.run('no, leave it');
     expect(t.calls).toEqual([]);
     expect(t.state.pending).toBeFalsy();
