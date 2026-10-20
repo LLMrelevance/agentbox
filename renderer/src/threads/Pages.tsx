@@ -22,7 +22,6 @@ import {
 import { messageLine, messagePriority, rowSharing, sharePatch } from './page-rules';
 import { facesOnButton, peopleWorthADot, togglePicked, whoseWord } from './people-rules';
 import { stopKey } from './walk-rules';
-import { PinMark } from './ThreadMenu';
 import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type Box } from './board-select';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
 import { shownPriority } from '../../../shared/rank.mjs';
@@ -45,6 +44,9 @@ const ListIcon = () => <svg viewBox="0 0 24 24" width="13" height="13" fill="non
 const BoardIcon = () => <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="3.5" y="4" width="5" height="16" rx="1" /><rect x="10.5" y="4" width="5" height="11" rx="1" /><rect x="17.5" y="4" width="3" height="7" rx="1" /></svg>;
 export const PeopleIcon = () => <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><circle cx="9" cy="9" r="3.2" /><path d="M3 19.5c.6-3.2 3-5 6-5s5.4 1.8 6 5" /><path d="M15.5 6.2a3 3 0 0 1 0 5.6M17.5 14.8c1.8.6 3 2.1 3.4 4.7" /></svg>;
 export const LockMark = () => <svg className="th-lock" width="11" height="12" viewBox="0 0 11 12" fill="none" stroke="currentColor" strokeWidth="1.2" aria-label="Private"><rect x="1.5" y="5.5" width="8" height="6" rx="1" /><path d="M3.5 5.5V3.8a2 2 0 0 1 4 0v1.7" /></svg>;
+/** Drawn on the lock's grid so the two line up when both follow a title: the
+ *  collar on the top of the lock's body, the top bar on its shackle's crown. */
+const PinnedMark = () => <svg className="th-pin" width="11" height="12" viewBox="0 0 11 12" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-label="Pinned"><path d="M3.2 1.8H7.8L7.1 3.9L9.5 5.5H1.5L3.9 3.9Z" /><path d="M5.5 5.5V11.5" /></svg>;
 /** A title with a mark after it, where the mark never wraps onto a line by
  *  itself: "the icon flows over but the text doesn't" (w-49cace6736). A line
  *  may break right before an inline picture, so the last word and the mark sit
@@ -499,7 +501,7 @@ export function RowCells({ live = false, cloud = false, lead, title, hidden = fa
     {/* THE MARK SAYS WHICH KIND OF SHARED, QUIETLY (w-41ff964775): the two
         people with a small count beside them for a thread only a few people
         see. The whole team, the default, carries nothing (2026-10-02). */}
-    <div className={`th-cell-title subject${hidden ? ' hidden' : ''}`}>{live ? <RunningMark cloud={cloud} /> : lead}{title}{aside && <span className="th-aside">{aside}</span>}{held && <span className="th-aside">not started</span>}{shared && <SharedMark label={chosen ? `Visible to ${chosen} ${chosen === 1 ? 'person' : 'people'}` : 'Visible to the team'} />}{chosen > 0 && <span className="th-shared-n" aria-hidden="true">{chosen}</span>}{lock && <LockMark />}{pinned && <PinMark size={13} className="th-pin" />}</div>
+    <div className={`th-cell-title subject${hidden ? ' hidden' : ''}`}>{live ? <RunningMark cloud={cloud} /> : lead}{title}{aside && <span className="th-aside">{aside}</span>}{held && <span className="th-aside">not started</span>}{shared && <SharedMark label={chosen ? `Visible to ${chosen} ${chosen === 1 ? 'person' : 'people'}` : 'Visible to the team'} />}{chosen > 0 && <span className="th-shared-n" aria-hidden="true">{chosen}</span>}{lock && <LockMark />}{pinned && <PinnedMark />}</div>
     <div className="th-cell-proj">{where}</div>
     {person !== undefined && <div className="th-cell-person">{person}</div>}
     <div className={`th-cell-prio${id === 'urgent' ? ' urgent' : ''}`}>{id && <><PriorityMark id={id} />{priorityLabelOf(id)}</>}</div>
@@ -866,7 +868,7 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
           const edge = isSelected(e) && !marked?.size;
           const seen = e.item ? sharing(e.item) : null;
           const who = seen === 'people' ? <SharedMark label="Visible to the people on it" /> : seen === 'private' ? <LockMark /> : null;
-          const pin = e.item?.pinned && e.item.status !== 'done' ? <PinMark size={13} className="th-pin" /> : null;
+          const pin = e.item?.pinned && e.item.status !== 'done' ? <PinnedMark /> : null;
           const marks = who || pin ? <>{who}{pin}</> : null;
           return <button type="button" key={e.key} className={`th-card${edge ? ' selected' : ''}${on ? ' picked' : ''}`}
           {...(pick ? { 'data-board-id': e.item!.id, 'aria-pressed': on } : {})}

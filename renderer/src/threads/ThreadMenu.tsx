@@ -98,10 +98,10 @@ function CloudMark() {
   return <svg {...mark}><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" /></svg>;
 }
 /** A square-headed pin, because every shape in this skin is square. */
-export function PinMark({ size = 16, className }: { size?: number; className?: string }) {
-  return <svg {...mark} width={size} height={size} className={className}><path d="M8 3h8l-1.5 6 3.5 3.5H6L9.5 9z" /><path d="M12 12.5V21" /></svg>;
+export function PinMark() {
+  return <svg {...mark}><path d="M8 3h8l-1.5 6 3.5 3.5H6L9.5 9z" /><path d="M12 12.5V21" /></svg>;
 }
-const MARKS: Record<ThreadMenuRowId, typeof CodeMark> = { place: MacMark, run: RunMark, code: CodeMark, terminal: TerminalMark, pin: () => <PinMark />, done: DoneMark };
+const MARKS: Record<ThreadMenuRowId, typeof CodeMark> = { place: MacMark, run: RunMark, code: CodeMark, terminal: TerminalMark, pin: PinMark, done: DoneMark };
 
 /** Three square dots, because every shape in this skin is square. */
 function Dots() {
