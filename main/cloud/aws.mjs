@@ -20,9 +20,10 @@ import { pipeline } from 'node:stream/promises';
 const LINK_SECONDS = 12 * 60 * 60;
 
 // A request that hangs is retried by the caller; one that never returns would
-// freeze the run. AgentCore holds a poll for at most 25 seconds. The SDK only
-// warns at its request timeout unless told to throw.
-const TIMEOUT_MS = 60_000;
+// freeze the run. The SDK only warns at its request timeout unless told to
+// throw. Minutes, not seconds: sending a run's code up and a cold start both
+// take longer than a minute, and a minute's limit killed every such run.
+const TIMEOUT_MS = 5 * 60_000;
 const http = (timeoutMs = TIMEOUT_MS) => ({ requestTimeout: timeoutMs, connectionTimeout: Math.min(10_000, timeoutMs), throwOnRequestTimeout: true });
 // `endpoint` and `credentials` are for tests, which stand in for AWS.
 const where = ({ endpoint, credentials }) => ({ ...(endpoint ? { endpoint } : {}), ...(credentials ? { credentials } : {}) });

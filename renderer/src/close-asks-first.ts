@@ -48,3 +48,10 @@ export function closeAsk(waiting: number): CloseAsk | null {
 
 /** The row under the options that keeps the thread open, keyed esc. */
 export const KEEP_OPEN = 'Keep this thread open';
+
+/** The keys the question answers with while it is up. Every other key keeps
+ *  its usual meaning: the question can be off screen, and a key that silently
+ *  does nothing gives no hint that it is there. */
+export function closeAskOwnsKey(key: string): boolean {
+  return key === 'Escape' || key === 'Enter' || key === 'ArrowUp' || key === 'ArrowDown' || /^[1-9]$/.test(key);
+}
