@@ -159,3 +159,27 @@ describe('the supervisor writes a run when it ends', () => {
     expect(settle).toMatch(/this\._recordRun\(item, session\)/);
   });
 });
+
+describe('my hours, as my presence row reads them', () => {
+  it('the old logs are read once, and the summary follows the ledger as it grows', async () => {
+    const { createRoomHours } = await import('../main/team/room-hours.mjs');
+    const home = tmp('runs-hours-home-');
+    const storeRoot = tmp('runs-hours-store-');
+    const productDir = path.join(storeRoot, 'acct', 'northwind');
+    fs.mkdirSync(productDir, { recursive: true });
+    const sessions = path.join(machineryDir(productDir, home), 'sessions', 'w-old');
+    fs.mkdirSync(sessions, { recursive: true });
+    const now = Date.parse('2026-10-20T20:00:00.000Z');
+    const start = now - 3 * 3600_000;
+    fs.writeFileSync(path.join(sessions, `${start}.log`), `# x\n\n# exited (0) ${new Date(start + 3600_000).toISOString()}\n`);
+    const hours = createRoomHours({ home, products: () => [{ slug: 'northwind', dir: productDir }], now: () => now });
+    await hours.backfillOnce();
+    expect(hours.summary().total).toBeCloseTo(1);
+    expect(await hours.backfillOnce()).toBeUndefined();
+    appendRun({ key: 'w-new:1', at: now - 60_000, start: now - 1800_000 - 60_000, item: 'w-new', product: 'northwind', engine: 'claude', seconds: 1800, failed: false }, { file: runLedgerPath(home) });
+    expect(hours.summary().total).toBeCloseTo(1.5);
+    const again = createRoomHours({ home, products: () => [{ slug: 'northwind', dir: productDir }], now: () => now });
+    await again.backfillOnce();
+    expect(readRuns({ file: runLedgerPath(home) })).toHaveLength(2);
+  });
+});

@@ -4,6 +4,9 @@
 import { app, BrowserWindow, Menu, Notification, clipboard, crashReporter, dialog, ipcMain, nativeImage, net, powerMonitor, protocol, screen as electronScreen, shell, session, safeStorage, systemPreferences, globalShortcut } from 'electron';
 import * as workItemsDisk from './store/work-items.mjs';
 import { createTeamService, teamStateFile } from './team/index.mjs';
+import { roomPrefsFile } from './team/rooms.mjs';
+import { createRoomHours } from './team/room-hours.mjs';
+import { readCloudUsage } from './cloud/usage.mjs';
 import { loadCloudConfig, supabaseSession } from './team/session.mjs';
 // MY WORKSPACE IS NOT A TEAM FEATURE ANY MORE (w-f8d123be62), even though it
 // still lives in the team folder next to the sharing rules it has to obey.
@@ -17,7 +20,7 @@ import { zoomDeltaFor } from './zoom-keys.mjs';
 import { copySelection } from './copy-selection.mjs';
 import { screenDetailFor } from './screen-detail.mjs';
 import { Store } from './store.mjs';
-import { storeRootEnv } from './store/home.mjs';
+import { appHome, storeRootEnv } from './store/home.mjs';
 import { Supervisor } from './supervisor.mjs';
 import { startCodexWatch } from './codex-watch.mjs';
 import { readCodexThreadsOffThread } from './codex-threads.mjs';
@@ -397,6 +400,12 @@ async function createWindow() {
   // (tests/the-installed-app-is-the-single-person-app.test.mjs).
   const cloudConfig = loadCloudConfig(appDir, { packaged: app.isPackaged });
   let phoneApply = null;
+  const roomHours = createRoomHours({
+    home: appHome(),
+    products: () => { try { return store.listProducts({ includeArchived: true }); } catch { return []; } },
+    cloudLines: () => readCloudUsage(),
+    log: (line) => console.log(line),
+  });
   const team = cloudConfig ? createTeamService({
     session: supabaseSession({
       cloudConfig,
@@ -430,6 +439,18 @@ async function createWindow() {
       device: () => phoneDevice(userDir, config.storeRoot),
       // Where her phone reads it, once the site is up (cloud/team.config.json).
       site: typeof cloudConfig.phoneSite === 'string' ? cloudConfig.phoneSite : null,
+    },
+    // ROOMS, while switched on in Alpha features (docs/team/ROOMS-PLAN.md).
+    rooms: {
+      enabled: () => config.alphaRooms === true,
+      device: () => phoneDevice(userDir, config.storeRoot),
+      prefsFile: roomPrefsFile(config.storeRoot),
+      presenceFacts: () => {
+        const running = [...supervisor.sessions.values()].filter((s) => !s.remoteIdle)
+          .map((s) => ({ itemId: s.itemId, product: s.product, startedAt: s.startedAt }));
+        const items = running.map((r) => { try { return store.readItem(r.product, r.itemId); } catch { return null; } }).filter(Boolean);
+        return { running, items, products: store.listProducts(), summary: roomHours.summary() };
+      },
     },
   }) : null;
   if (team) {

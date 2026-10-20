@@ -233,7 +233,96 @@ export interface TeamState {
   cards: ThreadCard[];
   lastSyncAt: number | null;
   error: string | null;
+  /** Rooms (alpha), while switched on in Alpha features (main/team/rooms.mjs). */
+  rooms?: RoomsState | null;
 }
+
+/** One person's card on a room's wall (shared/room-cards.mjs wallCards). */
+export interface RoomCard {
+  id: string;
+  me: boolean;
+  name: string;
+  avatarUrl: string | null;
+  headline: string | null;
+  bio: string | null;
+  /** Null when they hid it. */
+  agents: number | null;
+  level: number | null;
+  hoursTotal: number;
+  hoursWeek: number;
+  hoursToday: number;
+  streak: number;
+  status: string | null;
+  workingOn: string | null;
+  workingPrivate: boolean;
+}
+
+export interface RoomMessage {
+  id: string;
+  roomId: string;
+  by: string | null;
+  body: string;
+  inReplyTo: string | null;
+  mentions: string[];
+  at: number;
+}
+
+export interface Room {
+  id: string;
+  name: string;
+  kind: 'room' | 'group';
+  teamId: string | null;
+  listed: boolean;
+  role: 'owner' | 'member';
+  members: number;
+  createdAt: number;
+  pinned: boolean;
+  muted: boolean;
+  unread: number;
+  lastAt: number;
+  agents: number;
+  wall: RoomCard[];
+}
+
+export interface RoomProfile {
+  person_id: string;
+  display_name: string;
+  avatar_url: string | null;
+  headline: string | null;
+  bio: string | null;
+  show_working: 'none' | 'team' | 'everyone';
+  show_agents: boolean;
+  show_level: boolean;
+  show_status: boolean;
+  invisible_until: string | null;
+  status_text: string | null;
+  status_until: string | null;
+}
+
+export interface RoomMention {
+  id: string;
+  messageId: string;
+  roomId: string;
+  roomName: string;
+  by: string | null;
+  byName: string;
+  body: string;
+  at: number;
+}
+
+export interface RoomsState {
+  on: boolean;
+  ready: boolean;
+  rooms: Room[];
+  messages: Record<string, RoomMessage[]>;
+  me: RoomProfile | null;
+  rank: number | null;
+  invites: { roomId: string; roomName: string; invitedBy: string | null; invitedByName: string | null }[];
+  mentions: RoomMention[];
+  error: string | null;
+}
+
+export type RoomsResult<T = unknown> = { ok: true; value: T; rooms: RoomsState } | { ok: false; error: string; rooms?: RoomsState };
 
 export interface RunningSession {
   itemId: string;
@@ -1161,6 +1250,7 @@ declare global {
       teamRoute(p: { product: string; id: string; route: 'agent' | 'me' | 'back' }): Promise<TeamCallResult>;
       teamReact(p: { product: string; id: string; on: string; emoji: string; off?: boolean }): Promise<TeamCallResult>;
       teamMessage(p: { to: string | string[]; body: string; priority?: number; files?: TeamMessageFile[] }): Promise<TeamCallResult>;
+      rooms?(p: { op: string; args?: unknown[] }): Promise<RoomsResult>;
       threadEdit(p: { product: string; id: string; patch: ThreadEditPatch }): Promise<{ ok: boolean; error?: string }>;
       schedule(p: { product: string; id: string; runAt: number }): Promise<WorkItem>;
       snooze(p: { product: string; id: string; snoozedUntil: number }): Promise<WorkItem>;

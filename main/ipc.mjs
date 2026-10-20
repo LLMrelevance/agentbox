@@ -101,6 +101,8 @@ const NO_UPDATER = {
   move: () => ({ moved: false, error: null }),
 };
 
+const ROOM_OPS = new Set(['refresh', 'send', 'markRead', 'older', 'saveProfile', 'goInvisible', 'comeBack', 'link', 'revokeLink', 'preview', 'listed', 'joinByLink', 'joinListed', 'acceptInvite', 'invite', 'create', 'rename', 'leave', 'remove', 'pin', 'mute']);
+
 export function registerIpc({ store, supervisor, config, window, analytics = NO_ANALYTICS, docGrants = null, updater = NO_UPDATER, host, team = null }) {
   // The three Electron things, or a plain Node stand-in for them. There is no
   // default: a caller that forgets says so here rather than throwing eighty
@@ -801,6 +803,19 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // A MESSAGE TO A PERSON (approved 2026-10-01: people get messages, never
   // tasks). main/team/index.mjs keeps it between the two of them.
   ipcMain.handle('zero:team-message', teamCall(({ to, body, priority, files }) => team.message(to, body, priority, files)));
+  // ROOMS (alpha): one door, and only these calls through it (main/team/rooms.mjs).
+  ipcMain.handle('zero:rooms', async (_e, { op, args = [] } = {}) => {
+    const rooms = team?.rooms;
+    if (!rooms) return { ok: false, error: 'This build has no team cloud set up.' };
+    if (!ROOM_OPS.has(op)) return { ok: false, error: `no room call named ${op}` };
+    try {
+      const value = await rooms[op](...(Array.isArray(args) ? args : [args]));
+      push();
+      return { ok: true, value: value ?? null, rooms: rooms.state() };
+    } catch (err) {
+      return { ok: false, error: String(err?.message ?? err), rooms: rooms.state() };
+    }
+  });
   // AN EDIT TO A THREAD, MADE IN PLACE from its summary: the summary's lines,
   // who sees it, its priority and what it is linked to. Works with or without a
   // team, since every thread has a summary.
@@ -1663,6 +1678,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       // Before the save: once the switch is off, nothing leaves, not even this.
       if (countsTurnedOff(payload)) { analytics.track('counts_turned_off'); analytics.flush(); }
       setWorkspaceSetting({ config, supervisor, store }, payload ?? {});
+      if (payload?.key === 'alphaRooms') team?.rooms?.tick().catch(() => {});
       if (cornerTagTurnedOff(payload)) analytics.track('tag_turned_off');
       push();
       return { ok: true, ...readSettings({ config, supervisor, store }) };

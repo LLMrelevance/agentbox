@@ -55,6 +55,7 @@ export const REQUEST_CHANNELS = {
   teamRoute: 'zero:team-route',
   teamReact: 'zero:team-react',
   teamMessage: 'zero:team-message',
+  rooms: 'zero:rooms',
   threadEdit: 'zero:thread-edit',
   repeats: 'zero:repeats',
   composeRepeat: 'zero:compose-repeat',
