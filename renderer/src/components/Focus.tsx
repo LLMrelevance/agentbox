@@ -1,5 +1,5 @@
 import { RemoteControl } from './RemoteControl';
-import { onCloudPhone, onPhone } from '../phone-screen';
+import { onPhone } from '../phone-screen';
 import { pollEvery } from '../phone-polls';
 import {DirectReview} from './DirectReview';
 import {MessageFiles} from './MessageFiles';
@@ -640,8 +640,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
    * THE QUESTION A CLOSE ASKS when tasks this thread filed are still waiting
    * (w-d2744c6daa, ../close-asks-first.ts). While it is up it stands where the
    * thread's own options stand, and the number keys answer it (App.tsx).
+   * `raised` counts each close that raised it, so each one scrolls to it.
    */
-  closeAsk?: { ask: string; options: ParsedOption[]; onPick: (n: number) => void; keep: { label: string; onKeep: () => void } } | null;
+  closeAsk?: { ask: string; options: ParsedOption[]; raised: number; onPick: (n: number) => void; keep: { label: string; onKeep: () => void } } | null;
   // Said out loud when a file a worker named is not in this product. Nothing
   // else on the card can tell her a chip failed.
   onNotice: (text: string) => void;
@@ -988,6 +989,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   useEffect(() => {
     if (selectedOption !== null) selRef.current?.scrollIntoView({ block: 'nearest' });
   }, [selectedOption]);
+
+  // A close raises its question at the foot of the thread, which is off
+  // screen whenever the reader has scrolled up (w-23de8a26c0).
+  const closeAskRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (closeAsk) closeAskRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [closeAsk?.raised]);
 
   // THE OPTION UNDER THE POINTER, IN FULL, IN A CARD OVER THE MESSAGE. The
   // rules live in ../option-peek: hover only, and only on an option the strip
@@ -1758,6 +1766,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             selectedOption={selectedOption} selRef={selRef}
             onPick={closeAsk.onPick} onOptionEnter={() => {}} onAskEnter={() => {}}
             setPeek={() => {}} setAskPeek={() => {}} keep={closeAsk.keep}
+            stripRef={closeAskRef}
           />
         )}
         {offerInPane && (closeAsk ? null : (
@@ -1927,7 +1936,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             <span className="dim">{' · '}opens the app it is running in</span>
           </button>
         )}
-        {!agent && item.status === 'blocked' && !session && !onCloudPhone() && <button onClick={onReopen}>send back to agent</button>}
+        {!agent && item.status === 'blocked' && !session && <button onClick={onReopen}>send back to agent</button>}
         {/* "esc back" was the third one removed. Escape still closes the pane
             and so does clicking away from it. */}
       </div>
@@ -1968,6 +1977,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               selectedOption={selectedOption} selRef={selRef}
               onPick={closeAsk.onPick} onOptionEnter={() => {}} onAskEnter={() => {}}
               setPeek={() => {}} setAskPeek={() => {}} keep={closeAsk.keep}
+              stripRef={closeAskRef}
             />
           )}
           {offerInDock && (closeAsk ? null : (
@@ -2440,8 +2450,9 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
      runs, so reading `text` there would send the box as it stood BEFORE the
      pick. Every other caller passes nothing and sends the box, exactly as it
      always did. (w-5d1ad29efa, 2026-08-29.) */
+  const [saving, setSaving] = useState(false);
   const send = async (spoken?: string) => {
-    if (!(spoken ?? text).trim() && !attachments.length) return;
+    if (saving || (!(spoken ?? text).trim() && !attachments.length)) return;
     // AN AGENT WITH NO PROJECT DOES NOT GO OUT. The footer already says why;
     // ⌘↵ says it again rather than doing nothing.
     if (chat.block) { onNotice(chat.block); return; }
@@ -2475,7 +2486,17 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     // typed into it. drafts.ts holds the why.
     const words = (spoken ?? text).trim();
     const sent: SentDraft = { words, attachments };
-    const attachedMd = await persistAttachments(item.product, attachments);
+    // On the phone each file goes up first, which takes a moment on a mobile network.
+    let attachedMd: string;
+    setSaving(attachments.length > 0);
+    try {
+      attachedMd = await persistAttachments(item.product, attachments);
+    } catch (err) {
+      onNotice(`Not sent: ${String((err as Error)?.message ?? err)} Your draft has been kept.`);
+      return;
+    } finally {
+      setSaving(false);
+    }
     clearDraft(item);
     // AND WHAT THIS ONE MESSAGE MAY DO, if she changed it. `null` is not the
     // same as leaving it out: it CLEARS a mode set on an earlier reply and puts
@@ -2988,6 +3009,8 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
               {' Mode. '}
             </>
           )}
+          {/* One span, so the cloud hides "On" and the stop with the model. */}
+          <span className="dock-model">
           {'On '}
           <ModelPicker
             value={model}
@@ -3007,6 +3030,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
             openAtStart={openModel}
           />
           {'.'}
+          </span>
           </>}
         </span>
         {/* WHAT WAS PHOTOGRAPHED WAS A REAL COLLISION, NOT A PREFERENCE. The
@@ -3052,9 +3076,9 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
         <button
           className="dock-send"
           onClick={() => send()}
-          disabled={!hasDraft || !!chat.block}
+          disabled={!hasDraft || !!chat.block || saving}
           title={chat.block ?? 'Send · ⌘↵'}
-        >Send <kbd>⌘↵</kbd></button>
+        >{saving ? 'Sending…' : <>Send <kbd>⌘↵</kbd></>}</button>
         )}
       </div>
     </>

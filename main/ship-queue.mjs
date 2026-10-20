@@ -98,12 +98,24 @@ export function waitingToShip(items, products, settings, { folderFor, handled = 
 }
 
 /**
- * The next task to ship, oldest ask first, or null: one the queue owes, with
- * no session on it (an agent still working may yet commit).
+ * The next task to ship, the most important first, or null.
+ *
+ * A session the row's own agent is still finishing holds its ship: its commits
+ * may not all be in. A session that started AFTER the label does not, because
+ * that is a reply, and a reply to a thread already waiting used to hold it for
+ * as long as the new session ran (2026-10-19). `liveSince` answering null
+ * means nobody can say when the live work started — a cloud run whose folder
+ * has not come home — and that waits, as it always did.
+ *
+ * Priority before age, the way `shared/work-items.mjs` orders the queue a
+ * puller sees: a thread the person is waiting on queued behind every older one.
  */
-export function nextToShip(items, products, settings, { isLive = () => false, folderFor, handled = {} }) {
-  const ready = waitingToShip(items, products, settings, { folderFor, handled }).filter(({ item }) => !isLive(item));
-  ready.sort((a, b) => markedAt(a.item) - markedAt(b.item));
+export function nextToShip(items, products, settings, {
+  isLive = () => false, liveSince = () => null, folderFor, handled = {},
+}) {
+  const ready = waitingToShip(items, products, settings, { folderFor, handled })
+    .filter(({ item }) => !isLive(item) || liveSince(item) > markedAt(item));
+  ready.sort((a, b) => (b.item.priority ?? 0) - (a.item.priority ?? 0) || markedAt(a.item) - markedAt(b.item));
   return ready[0] ?? null;
 }
 
@@ -245,8 +257,8 @@ export function runScript(script, cwd, { timeout = SHIP_MS, env = process.env } 
  * supervisor's own tick and returns at once; the run happens beside it.
  */
 export class ShipQueue {
-  constructor({ store, userDir, folderFor, isLive, handBack = () => {}, run = runScript, afterShip = () => {}, log = console }) {
-    Object.assign(this, { store, userDir, folderFor, isLive, handBack, run, afterShip, log });
+  constructor({ store, userDir, folderFor, isLive, liveSince = () => null, handBack = () => {}, run = runScript, afterShip = () => {}, log = console }) {
+    Object.assign(this, { store, userDir, folderFor, isLive, liveSince, handBack, run, afterShip, log });
     this.busy = null;
   }
 
@@ -254,7 +266,9 @@ export class ShipQueue {
     if (this.busy) return null;
     const settings = readShipSettings(this.userDir);
     if (!Object.keys(settings).length) return null;
-    const next = nextToShip(items, products, settings, { isLive: this.isLive, folderFor: this.folderFor, handled: readHandled(this.userDir) });
+    const next = nextToShip(items, products, settings, {
+      isLive: this.isLive, liveSince: this.liveSince, folderFor: this.folderFor, handled: readHandled(this.userDir),
+    });
     if (!next) return null;
     // Marked handled only once the run has ENDED, pass or fail. Marked before
     // it, a run cut off by an app restart was never tried again

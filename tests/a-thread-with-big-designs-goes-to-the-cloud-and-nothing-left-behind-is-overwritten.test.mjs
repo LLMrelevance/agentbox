@@ -41,7 +41,7 @@ const archive = (files) => {
 describe('what a thread with big designs takes', () => {
   const small = { ...DOCS_LIMITS, ownFile: 10, own: 25 };
 
-  it('its newest designs, inside the limits, and never one over the per-file limit', () => {
+  it('its newest designs, inside the limits, and never one over the per-file limit', async () => {
     put(path.join(docs, 'designs/w-1/a-oldest.png'), '12345678', 3 * 3600_000);
     put(path.join(docs, 'designs/w-1/b-old.png'), '12345678', 2 * 3600_000);
     put(path.join(docs, 'designs/w-1/round2/c-new.png'), '12345678', 1 * 3600_000);
@@ -50,7 +50,7 @@ describe('what a thread with big designs takes', () => {
     expect(docsToSend(docs, { item: 'w-1', limits: small }).sort()).toEqual(['designs/w-1/b-old.png', 'designs/w-1/round2/c-new.png', 'designs/w-1/round2/d-newest.png', 'notes.md']);
   });
 
-  it('is the whole folder when it fits, as before', () => {
+  it('is the whole folder when it fits, as before', async () => {
     put(path.join(docs, 'designs/w-1/a.png'), 'a');
     put(path.join(docs, 'designs/w-1/b/c.png'), 'c');
     expect(docsToSend(docs, { item: 'w-1', limits: small }).sort()).toEqual(['designs/w-1/a.png', 'designs/w-1/b/c.png', 'notes.md']);
@@ -58,7 +58,7 @@ describe('what a thread with big designs takes', () => {
 });
 
 describe('a thread whose designs do not all fit', () => {
-  it('may go to the cloud', () => {
+  it('may go to the cloud', async () => {
     const product = { slug: 'p', dir: docs, repoPath: '/r' };
     const sup = new Supervisor({ storeRoot: tmp, home: tmp, authProfiles: ['default'], cloudRuns: 'all' }, { listItems: () => [], listProducts: () => [product], isDue: () => true }, tmp);
     put(path.join(docs, 'designs/w-1/huge.mp4'), Buffer.alloc(DOCS_LIMITS.ownFile + 1));
@@ -68,42 +68,42 @@ describe('a thread whose designs do not all fit', () => {
 });
 
 describe('laying the run\'s documents in, knowing what it took', () => {
-  it('never writes over a file here the run did not take, however old: its copy goes beside', () => {
+  it('never writes over a file here the run did not take, however old: its copy goes beside', async () => {
     put(path.join(docs, 'designs/w-1/left.png'), 'on the Mac', 3600_000);
-    const out = layDocs({ tgz: archive({ 'designs/w-1/left.png': 'from the run' }), dir: docs, sentAt: Date.now(), laid: {}, sent: ['notes.md'] });
+    const out = await layDocs({ tgz: await archive({ 'designs/w-1/left.png': 'from the run' }), dir: docs, sentAt: Date.now(), laid: {}, sent: ['notes.md'] });
     expect(fs.readFileSync(path.join(docs, 'designs/w-1/left.png'), 'utf8')).toBe('on the Mac');
     expect(out.beside).toEqual(['designs/w-1/left (cloud).png']);
     expect(fs.readFileSync(path.join(docs, 'designs/w-1/left (cloud).png'), 'utf8')).toBe('from the run');
   });
 
-  it('a file left here that the run wrote the same bytes over is still not the run\'s to change later (Codex\'s review of the diff, finding 1)', () => {
+  it('a file left here that the run wrote the same bytes over is still not the run\'s to change later (Codex\'s review of the diff, finding 1)', async () => {
     put(path.join(docs, 'designs/w-1/left.png'), 'same', 3600_000);
     const laid = {};
     const sentAt = Date.now();
-    layDocs({ tgz: archive({ 'designs/w-1/left.png': 'same' }), dir: docs, sentAt, laid, sent: [] });
-    const out = layDocs({ tgz: archive({ 'designs/w-1/left.png': 'edited by the run' }), dir: docs, sentAt, laid, sent: [] });
+    await layDocs({ tgz: await archive({ 'designs/w-1/left.png': 'same' }), dir: docs, sentAt, laid, sent: [] });
+    const out = await layDocs({ tgz: await archive({ 'designs/w-1/left.png': 'edited by the run' }), dir: docs, sentAt, laid, sent: [] });
     expect(fs.readFileSync(path.join(docs, 'designs/w-1/left.png'), 'utf8')).toBe('same');
     expect(out.beside).toEqual(['designs/w-1/left (cloud).png']);
   });
 
-  it('still writes over a file it took that nobody touched since', () => {
+  it('still writes over a file it took that nobody touched since', async () => {
     put(path.join(docs, 'designs/w-1/took.png'), 'before', 3600_000);
-    const out = layDocs({ tgz: archive({ 'designs/w-1/took.png': 'after' }), dir: docs, sentAt: Date.now(), laid: {}, sent: ['designs/w-1/took.png'] });
+    const out = await layDocs({ tgz: await archive({ 'designs/w-1/took.png': 'after' }), dir: docs, sentAt: Date.now(), laid: {}, sent: ['designs/w-1/took.png'] });
     expect(out.written).toEqual(['designs/w-1/took.png']);
   });
 
-  it('writes a new file, and over its own earlier copy of one', () => {
+  it('writes a new file, and over its own earlier copy of one', async () => {
     const laid = {};
     const sentAt = Date.now();
-    layDocs({ tgz: archive({ 'designs/w-1/round2/b.png': 'one' }), dir: docs, sentAt, laid, sent: [] });
-    const out = layDocs({ tgz: archive({ 'designs/w-1/round2/b.png': 'two' }), dir: docs, sentAt, laid, sent: [] });
+    await layDocs({ tgz: await archive({ 'designs/w-1/round2/b.png': 'one' }), dir: docs, sentAt, laid, sent: [] });
+    const out = await layDocs({ tgz: await archive({ 'designs/w-1/round2/b.png': 'two' }), dir: docs, sentAt, laid, sent: [] });
     expect(out.written).toEqual(['designs/w-1/round2/b.png']);
     expect(fs.readFileSync(path.join(docs, 'designs/w-1/round2/b.png'), 'utf8')).toBe('two');
   });
 
-  it('a run from before the list was kept is laid in as it always was', () => {
+  it('a run from before the list was kept is laid in as it always was', async () => {
     put(path.join(docs, 'plan.md'), 'old', 3600_000);
-    const out = layDocs({ tgz: archive({ 'plan.md': 'new' }), dir: docs, sentAt: Date.now(), laid: {} });
+    const out = await layDocs({ tgz: await archive({ 'plan.md': 'new' }), dir: docs, sentAt: Date.now(), laid: {} });
     expect(out.written).toEqual(['plan.md']);
   });
 });

@@ -33,7 +33,7 @@ import { holdAtBottom } from '../thread-bottom';
 import { onCloudPhone, onPhone } from '../phone-screen';
 import { typedParts } from '../typed-message';
 import { clock, dayHeading } from '../thread-history';
-import { chatLayout } from '../team/chat-layout';
+import { chatLayout, newestSaid } from '../team/chat-layout';
 import { ChatFold } from '../team/ChatFold';
 import { MessageActions, Reactions } from '../team/ChatActions';
 import { ThreadLine } from '../team/ThreadPanel';
@@ -242,6 +242,7 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
   // in a column, one head per run of messages, a line for each day. Which
   // message opens what is ../team/chat-layout.ts; a folded run is work to it.
   const slots = chat ? chatLayout(nodes.map((e) => (e.kind === 'run' ? { kind: 'work', at: e.at } : e))) : null;
+  const newest = chat ? newestSaid(nodes) : -1;
   // What a message's head says beside the name, in either layout: sending, the
   // way to cut the agent's step, and which row the words were said on.
   const headFacts = (e: AgentTurn, time: string) => <>
@@ -351,7 +352,7 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
                     {headFacts(e, clock(e.at))}
                   </div>
                 )}
-                <ChatFold lines={e.who === 'you'}>{md(e.text ?? '')}</ChatFold>
+                <ChatFold lines={e.who === 'you'} newest={n === newest}>{md(e.text ?? '')}</ChatFold>
                 {/* THE CHIPS, AND THE BAR WHEN YOU POINT AT IT (w-560647d4db).
                     Both hang off the message's own uid, which is the name the
                     store keeps a reaction under and the only name a message has
@@ -382,7 +383,7 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
                 )}
               </div>
               {/* AN AGENT IT MENTIONED ANSWERS UNDER IT (w-7b9cb8636a). */}
-              <AgentAnswers text={e.text ?? ''} md={md} />
+              <AgentAnswers text={e.text ?? ''} md={md} newest={n === newest} />
             </>) : (
               // A CONTINUATION THAT OPENS THE OTHER SIDE OF THE GAP IS NOT A
               // CONTINUATION OF ANYTHING SHE CAN SEE. `same` means one agent

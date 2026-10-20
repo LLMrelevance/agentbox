@@ -81,11 +81,11 @@ export const DEFAULTS = {
   // scripts/cloud-setup.mjs and an account has signed in from the cloud menu,
   // and before that the app is exactly the app it was. `false` turns it off
   // even then.
-  // `maxCloudSessions` is the cloud's own cap, apart from this Mac's. Each
-  // cloud run still costs this Mac about 120 MB (its relay and its tool
-  // servers, measured 2026-10-17), so it rises as that cost comes down.
+  // `maxCloudSessions` is the cloud's own cap, apart from this Mac's. Null is
+  // what this Mac can carry: 50 through the shared host (about 11 MB a run),
+  // 20 where each run needs a relay of its own (about 110 MB a run).
   cloudRuns: null,
-  maxCloudSessions: 20,
+  maxCloudSessions: null,
   // STOP WHAT FINISHED AGENTS LEAVE RUNNING (main/leftovers.mjs). Its own
   // switch, off until somebody turns it on; `cleanupLeftoversSince` is the
   // moment they did, so nothing is stopped sooner than the idle time after it.

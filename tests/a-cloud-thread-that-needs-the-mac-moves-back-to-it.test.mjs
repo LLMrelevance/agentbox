@@ -35,7 +35,9 @@ describe('what a cloud run is told', () => {
     expect(out.slice(3)).toEqual(['--model', 'opus']);
     expect(CLOUD_NOTE).toContain(HAND_BACK);
     // It says what is missing, by the things that were missing that day.
-    for (const word of ['ffmpeg', 'key', '50 MB']) expect(CLOUD_NOTE).toContain(word);
+    // A program is installed there, not a reason to move (2026-10-17); a key is.
+    for (const word of ['sudo', 'key', '50 MB']) expect(CLOUD_NOTE).toContain(word);
+    expect(CLOUD_NOTE).toMatch(/A program you can install is not a reason to stop/);
   });
 
   it('is added when the run had no instructions of its own', () => {

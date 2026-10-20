@@ -192,9 +192,10 @@ export function createTeamService({
         return products().filter((p) => on.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name || p.slug, dir: p.dir || null, repoPath: p.repoPath || null }));
       },
       listItems: (slug) => { const p = productOf(slug); try { return p ? disk.readWorkItems(p.dir) : []; } catch { return []; } },
-      historyOf: (slug, id, { all = false } = {}) => { try { return store.readHistory(slug, id, { max: all ? Number.MAX_SAFE_INTEGER : SNAPSHOT_LIMITS.lines }); } catch { return []; } },
+      historyOf: (slug, id, { all = false } = {}) => { try { return store.readHistory(slug, id, { max: all ? Number.MAX_SAFE_INTEGER : SNAPSHOT_LIMITS.lines * 4 }); } catch { return []; } },
       apply: phone.apply,
       liveOf: (slug, id) => phone.live?.(slug, id) ?? null,
+      approvalsOf: () => phone.approvals?.() ?? [],
       // One file per person: what this Mac sent up for one account is not
       // what the next one to sign in here has.
       stateFile: phone.stateFile.replace(/(\.json)?$/, `.${owner}.json`),

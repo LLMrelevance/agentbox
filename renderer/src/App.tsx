@@ -134,7 +134,7 @@ import { BoxFilter } from './components/BoxFilter';
 import { itemPriority, moveProduct, placeScore, placedScore } from '../../shared/rank.mjs';
 import { threadsMade, approvableFiled, doItHereWrites } from './threads-made';
 import { waitingCounts } from './threads-made';
-import { closeAsk, KEEP_OPEN } from './close-asks-first';
+import { closeAsk, closeAskOwnsKey, KEEP_OPEN } from './close-asks-first';
 import { ChatAgentsContext, type ChatAgentsValue } from './team/ChatAgents';
 import { agentLinks, chatProjects, chatTaskSharing, chatTranscript, taskBrief, taskTitle, withTask } from './team/agent-mentions';
 import { isCleanRun, ruleIdOf, ruleLabel, runToOpen } from '../../shared/repeats.mjs';
@@ -145,7 +145,7 @@ import { Face, TeamContext, firstName, teamView } from './team/people';
 import { FaceHover } from './team/status';
 import { TeamPage } from './team/TeamPage';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
-import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, StateTabs, WaitingContext } from './threads/Pages';
+import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, StateTabs, WaitingContext } from './threads/Pages';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
@@ -875,6 +875,16 @@ export default function App() {
   // leave. Cmd+Y is caught in the main process, so this is the renderer's only
   // evidence the press landed at all.
   const [answered, setAnswered] = useState<{ id: string; allow: boolean } | null>(null);
+  // An answer that did not go (the phone's database, a card that moved) puts the card back and says why.
+  const answerCard = async (id: string, allow: boolean) => {
+    setAnswered({ id, allow });
+    const r = await window.zero?.approve?.({ id, allow });
+    if (r && (r as { ok?: boolean }).ok === false) {
+      setAnswered(null);
+      showToast(`Not answered: ${(r as { error?: string }).error ?? 'it did not go through'}`);
+    }
+    await refresh();
+  };
   // The card that held the stage when she pressed: the store push usually beats
   // the animation, and a card cannot finish leaving once the snapshot has
   // forgotten it exists.
@@ -1815,6 +1825,7 @@ export default function App() {
   // status says, until its session exits (w-bc976fd247). Up here because every
   // list below reads it.
   const liveIds = useMemo(() => new Set(runningRows.map((r) => r.itemId)), [runningRows]);
+  const cloudIds = useMemo(() => new Set(runningRows.filter((r) => r.where === 'cloud').map((r) => r.itemId)), [runningRows]);
   // THE THREADS THE APP STILL HAS TO SHIP (w-0c1ba766eb). Waiting on the app,
   // not on her, so In progress reading "Shipping" and out of Needs you until
   // they have shipped or gone back to their agent.
@@ -2450,6 +2461,8 @@ export default function App() {
   const waitingByThread = useMemo(() => waitingCounts(items, stateOfMine), [items, stateOfMine]);
   // Which thread's close is asking, by `product/id`; null while none is.
   const [closeAskOn, setCloseAskOn] = useState<string | null>(null);
+  // Bumped on every raise, so a second E on the same thread scrolls to it again.
+  const [closeAskRaised, setCloseAskRaised] = useState(0);
   const keyOf = (item: WorkItem) => `${item.product}/${item.id}`;
   // Leaving the thread drops its question; a close asked from the list opens
   // the thread and asks in the same press, so the thread it opens keeps it.
@@ -3645,6 +3658,7 @@ export default function App() {
       if (focused?.id !== item.id || focused?.product !== item.product) { setFocused(item); markSeen(item); }
       setOptionSel(null);
       setCloseAskOn(keyOf(item));
+      setCloseAskRaised((n) => n + 1);
       return;
     }
     if (closesAgain(pendingRef.current, item)) return;
@@ -4069,7 +4083,8 @@ export default function App() {
       pushUndo({ label: 'Reply withdrawn, back in your inbox', undoes: 'take back that reply and stop the agent', restore, undid, run: async () => {
         if (wasScheduled && priorRunAt) await api.schedule({ product: item.product, id: item.id, runAt: priorRunAt });
         if (wasScheduled && priorSnooze) await api.snooze({ product: item.product, id: item.id, snoozedUntil: priorSnooze });
-        await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id });
+        // `withdraw`: on the phone, take back the reply itself if her Mac has not taken it.
+        await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id, withdraw: true });
         // Put the thread back exactly where the reply found it. The rule and
         // what it cost are in list-rules (`withdrawReply`): restoring the
         // status only when the reply had changed one left an already-open row
@@ -4425,15 +4440,20 @@ export default function App() {
     // these would be a write into nothing. Both behave like a task in every way
     // she can see and in none that she cannot.
     if (item.agent || isTroubleRow(item) || isUpdateRow(item)) return;
-    // NOR FROM THE PHONE WITH THE COMPUTER CLOSED, which cannot reach a run to
-    // stop it, and says so rather than saying it stopped (Codex's review of
-    // step 1, finding 7).
-    if (onCloudPhone()) { showToast('Stop it on your computer. Your phone can reply, close, and move things to Later.'); return; }
     // A MESSAGE STILL IN ITS THREE SECONDS IS WRITTEN BEFORE THE STOP. Held, it
     // landed after the kill, read as a reply sent after stopping, reopened the
     // row and started a fresh run on it two minutes later (2026-10-05).
     // tests/a-message-still-sending-lands-before-the-stop.test.mjs
     await flushPending();
+    // FROM THE PHONE WITH THE COMPUTER CLOSED the stop goes to her Mac, and the
+    // toast says it went rather than that it stopped (Codex's review of step 1,
+    // finding 7).
+    if (onCloudPhone()) {
+      try { await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id }); } catch (err) { showToast(`Not sent: ${String((err as Error)?.message ?? err)}`); return; }
+      showToast('Stop sent. Your Mac stops the agent when it gets it.');
+      await refresh();
+      return;
+    }
     const wasRunning = working(item);
     setFollowing({ product: item.product, id: item.id });
     await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id });
@@ -4915,16 +4935,16 @@ export default function App() {
         // its question owns the keys the options would: the numbers and Enter
         // answer it, the arrows walk it, and esc keeps the thread open rather
         // than leaving it. Nothing is selected when it comes up, so Enter on
-        // arrival does nothing, the same promise the options make.
+        // arrival does nothing, the same promise the options make. Every other
+        // key falls through (w-23de8a26c0): E raises it again and scrolls to it.
         const asking = closeAskOn === keyOf(focused) ? closeAsk(waitingFiled(focused).length) : null;
-        if (asking) {
+        if (asking && closeAskOwnsKey(e.key)) {
           const ns = asking.options.map((o) => o.n);
           if (e.key === 'Escape') { e.preventDefault(); keepThreadOpen(); }
           else if (e.key === 'ArrowDown') { e.preventDefault(); setOptionSel((s) => ns[Math.min(ns.indexOf(s ?? -1) + 1, ns.length - 1)]); }
           else if (e.key === 'ArrowUp') { e.preventDefault(); setOptionSel((s) => { const i = ns.indexOf(s ?? -1); return i <= 0 ? null : ns[i - 1]; }); }
           else if (e.key === 'Enter') { e.preventDefault(); if (optionSel !== null) answerCloseAsk(focused, optionSel); }
-          else if (/^[1-9]$/.test(e.key)) answerCloseAsk(focused, Number(e.key));
-          else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); }
+          else answerCloseAsk(focused, Number(e.key));
           return;
         }
         // Arrows walk the options; Enter sends ONLY a visible selection.
@@ -4967,7 +4987,8 @@ export default function App() {
         }
         // E archives, unconditionally. It must never approve on her behalf.
         else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); markDone(focused); }
-        else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setOpenDoc(null); setModal('reply'); }
+        // The page stays open: full screen draws the box under it.
+        else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setModal('reply'); }
         // N MEANS THE SAME THING ON BOTH SCREENS. The + in the top bar is on
         // this screen too and its tooltip says "New task (N)", so the key is
         // already advertised here.
@@ -5527,6 +5548,7 @@ export default function App() {
     <TeamContext.Provider value={team}>
     <ChatAgentsContext.Provider value={chatAgents}>
     <LiveContext.Provider value={liveIds}>
+    <CloudContext.Provider value={cloudIds}>
     <WaitingContext.Provider value={waitingByThread}>
     <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${workspaceCollapsed ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}`}>
       {signInGate && <SignInPage signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
@@ -6116,7 +6138,7 @@ export default function App() {
                   // The question a close asks while tasks still wait (w-d2744c6daa).
                   closeAsk={(() => {
                     const asked = closeAskOn === keyOf(focused) ? closeAsk(waitingFiled(focused).length) : null;
-                    return asked && { ...asked, onPick: (n: number) => answerCloseAsk(focused, n), keep: { label: KEEP_OPEN, onKeep: keepThreadOpen } };
+                    return asked && { ...asked, raised: closeAskRaised, onPick: (n: number) => answerCloseAsk(focused, n), keep: { label: KEEP_OPEN, onKeep: keepThreadOpen } };
                   })()}
                   onNotice={showToast}
                   /*
@@ -6252,6 +6274,7 @@ export default function App() {
                     onSearch={openSearch}
                   />
                 )}
+                {snap.phoneStatus && <div className="phone-status" role="status">{snap.phoneStatus}</div>}
                 {workspaceNavigation && emptyView && !theirRows.length ? (
                   // A FILTER IS READ FIRST, so it can never fall through to
                   // "Nothing needs you" (w-5a08121f99). That sentence is a
@@ -7053,6 +7076,12 @@ export default function App() {
           />
         </div>
       )}
+      {/* Offered and nobody signed in yet: the app's own sign-in page first.
+          Signing in sets the cloud up, and the same open state then shows
+          the setup's accounts. */}
+      {cloudSetupOpen && !snap.cloud?.setUp && snap.cloud?.offered && (
+        <SignInPage purpose="cloud" onClose={() => setCloudSetupOpen(false)} onSignedIn={() => setCloudSetupOpen(true)} />
+      )}
       {cloudSetupOpen && snap.cloud?.setUp && (
         <CloudSetup
           cloud={snap.cloud}
@@ -7235,8 +7264,8 @@ export default function App() {
                   {/* The acknowledgement starts on the press, not on the round
                       trip: main answers the file and echoes the same verdict
                       back, so the click and the chord land on one behaviour. */}
-                  <button className="approval-allow" onClick={async () => { setAnswered({ id: a.id, allow: true }); await window.zero?.approve?.({ id: a.id, allow: true }); await refresh(); }}>Allow</button>
-                  <button className="approval-deny" onClick={async () => { setAnswered({ id: a.id, allow: false }); await window.zero?.approve?.({ id: a.id, allow: false }); await refresh(); }}>Deny</button>
+                  <button className="approval-allow" onClick={() => void answerCard(a.id, true)}>Allow</button>
+                  <button className="approval-deny" onClick={() => void answerCard(a.id, false)}>Deny</button>
                   <span className="approval-hint">⌘Y / ⌘N · {a.tool}</span>
                 </div>
               </div>
@@ -7339,6 +7368,7 @@ export default function App() {
       <FindBar />
     </div>
     </WaitingContext.Provider>
+    </CloudContext.Provider>
     </LiveContext.Provider>
     </ChatAgentsContext.Provider>
     </TeamContext.Provider>

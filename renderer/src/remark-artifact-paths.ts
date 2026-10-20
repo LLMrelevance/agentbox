@@ -36,7 +36,9 @@ export function artifactUrlTransform(url: string): string {
 }
 
 const MEDIA_EXT = 'mp3|wav|m4a|aac|ogg|mp4|mov|m4v|webm';
-const EXT = `html?|pdf|png|jpe?g|gif|webp|svg|csv|md|markdown|${MEDIA_EXT}`;
+// Documents too, which open in the app that reads them (on the phone, from its own copy).
+const DOC_EXT = 'txt|json|tsv|ya?ml|docx?|xlsx?|pptx?|rtf|pages|numbers|zip';
+const EXT = `html?|pdf|png|jpe?g|gif|webp|svg|csv|md|markdown|${DOC_EXT}|${MEDIA_EXT}`;
 const PATH = new RegExp(String.raw`(?<![\w./:@~-])(?:\.\/)?[\w-][\w./-]*\.(?:${EXT})\b`, 'gi');
 const QUOTED = new RegExp(String.raw`["“]([^"”\r\n]+\.(?:${EXT}))["”]|['‘]([^'’\r\n]+\.(?:${EXT}))['’]`, 'gi');
 

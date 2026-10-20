@@ -50,7 +50,7 @@ import { usageEngine } from '../shared/usage.mjs';
 import { DEFAULT_ENGINE, isEngine } from '../shared/engines.mjs';
 import * as agents from './agents.mjs';
 import { findAgentFolders, readAgentFiles, readFolderAgents } from './agent-files.mjs';
-import { readCodexThreads } from './codex-threads.mjs';
+import { readCodexThreadsOffThread } from './codex-threads.mjs';
 import { appSessionFolders } from './agent-homes.mjs';
 import { readImportableThreads, readSearchableThreads } from './importable-threads.mjs';
 import { markImported } from '../shared/agent-import.mjs';
@@ -225,7 +225,10 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     try { return store.listProducts().some((p) => p.slug === slug && p.practice === true); } catch { return false; }
   };
 
-  ipcMain.handle('zero:approve', (_e, { id, allow, note }) => {
+  // From her phone the answer names the card it drew (main/phone-inbox.mjs),
+  // and a request rewritten since gets nothing.
+  ipcMain.handle('zero:approve', (_e, { id, allow, note, card }) => {
+    if (card !== undefined && !approvals.cardStillShown(config.storeRoot, id, card)) return { ok: false, error: 'the card changed after your phone showed it, so nothing was allowed' };
     return { ok: answerApproval(id, allow, note) };
   });
 
@@ -644,7 +647,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
           if (choice === 'yes') {
             try {
               const { codexDirs } = appSessionFolders({ config, supervisor });
-              thread = readCodexThreads({ codexDirs }).threads.find((t) => t.id === codexIdOf(row)) ?? null;
+              thread = (await readCodexThreadsOffThread({ codexDirs })).threads.find((t) => t.id === codexIdOf(row)) ?? null;
             } catch { thread = null; }
           }
           const out = store.answerCodexImport(product, id, choice, { thread });
@@ -1203,9 +1206,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // EVERY FOLDER EITHER TOOL KEEPS SESSIONS IN (main/agent-homes.mjs), not only
   // ~/.claude and ~/.codex, which is where the import used to look and nothing
   // else (w-e46f2e9cea).
-  const readAllThreads = () => readImportableThreads({ config, supervisor });
-  ipcMain.handle('zero:agent-threads', () => {
-    const threads = readAllThreads();
+  const readAllThreads = () => readImportableThreads({ config, supervisor, readCodex: readCodexThreadsOffThread });
+  ipcMain.handle('zero:agent-threads', async () => {
+    const threads = await readAllThreads();
     lastThreads = threads;
     // Each one already in the inbox says so, and the card leaves it out
     // (w-db6f5e331e). The walk's folder suggestions still read all of them.
@@ -1232,11 +1235,11 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
    *  against that list and a chat found by name has to be importable.
    */
   let searchable = null;
-  ipcMain.handle('zero:search-agent-threads', (_e, { again = false } = {}) => {
+  ipcMain.handle('zero:search-agent-threads', async (_e, { again = false } = {}) => {
     if (again) searchable = null;
     if (!searchable) {
       let got = { threads: [], reached: 0 };
-      try { got = readSearchableThreads({ config, supervisor }); } catch { got = { threads: [], reached: 0 }; }
+      try { got = await readSearchableThreads({ config, supervisor, readCodex: readCodexThreadsOffThread }); } catch { got = { threads: [], reached: 0 }; }
       searchable = got;
       const byId = new Map(lastThreads.map((t) => [String(t?.id ?? ''), t]));
       for (const t of got.threads) byId.set(String(t?.id ?? ''), t);
@@ -1252,7 +1255,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // is a row, and a row is what stops it being imported twice
   // (`threadsNeedingRows`). The row's first reply resumes the conversation as a
   // copy (`Supervisor#importedThreadFor`, GitHub #44).
-  ipcMain.handle('zero:import-threads', (_e, { product, threads } = {}) => {
+  ipcMain.handle('zero:import-threads', async (_e, { product, threads } = {}) => {
     if (!product) return { ok: false, added: 0, already: 0, ids: [] };
     const want = new Set(
       (Array.isArray(threads) ? threads : [])
@@ -1262,7 +1265,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     if (!want.size) { return { ok: true, added: 0, already: 0, ids: [] }; }
     // The read is taken again only if nothing has been handed out yet, which is
     // the case a test or a fresh window can reach and a person cannot.
-    if (!lastThreads.length) lastThreads = readAllThreads();
+    if (!lastThreads.length) lastThreads = await readAllThreads();
     // Two kinds, two rows.
     const chosen = lastThreads.filter((t) => want.has(String(t?.id ?? '')));
     let out = { ids: [], added: 0, already: 0 };
@@ -1594,6 +1597,39 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     }
   });
 
+  // SIGNING IN TO AGENTBOX CLOUD ITSELF, on the app's own sign-in page
+  // (main/cloud/account.mjs): Google, or an email and a password, traded for
+  // this Mac's cloud key. One session per page, made when the page first asks.
+  let cloudAccount = null;
+  const cloudAccountSessionNow = async () => {
+    const home = supervisor.config.home || os.homedir();
+    const { cloudAccountConfig, cloudAccountSession } = await import('./cloud/account.mjs');
+    const config = cloudAccountConfig(supervisor.appDir, { home });
+    if (!config) return null;
+    if (!cloudAccount || cloudAccount.config !== JSON.stringify(config)) {
+      const { shell } = await import('electron');
+      cloudAccount = { config: JSON.stringify(config), value: config, session: cloudAccountSession({ config, openExternal: (u) => shell.openExternal(u), log: (l) => console.log(`cloud account: ${l}`) }) };
+    }
+    return cloudAccount;
+  };
+  ipcMain.handle('zero:cloud-account-sign-in', async (_e, { method, email, password, name } = {}) => {
+    const acct = await cloudAccountSessionNow();
+    if (!acct) return { ok: false, error: 'This copy of the app has no cloud to sign in to.' };
+    const { cloudSignIn } = await import('./cloud/account.mjs');
+    const out = await cloudSignIn({ config: acct.value, session: acct.session, method, email, password, name, home: supervisor.config.home || os.homedir() });
+    if (method === 'google') { try { if (window?.isMinimized?.()) window.restore(); window?.show?.(); } catch { /* no window to raise */ } }
+    push();
+    return out;
+  });
+  ipcMain.handle('zero:cloud-account-cancel', async () => { (await cloudAccountSessionNow())?.session.cancel(); return { ok: true }; });
+  ipcMain.handle('zero:cloud-account-reopen', async () => { await (await cloudAccountSessionNow())?.session.reopen(); return { ok: true }; });
+  ipcMain.handle('zero:cloud-account-sign-out', async () => {
+    const { signOutOfCloud } = await import('./cloud/account.mjs');
+    const out = await signOutOfCloud({ home: supervisor.config.home || os.homedir() });
+    push();
+    return out;
+  });
+
   // THE CLOUD SETUP'S SIGN-IN for one account, made in the cloud
   // (main/cloud/logins.mjs). The Mac relays the link and the code only.
   ipcMain.handle('zero:cloud-signin', async (_e, { action, engine, key, code } = {}) => {
@@ -1867,7 +1903,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     const { shell } = await import('electron');
     if (typeof src !== 'string' || !src) return { ok: false, error: 'no path' };
     if (/^https?:/.test(src)) { if (mode !== 'resolve') shell.openExternal(src); return { ok: true, opened: src } }
-    const found = resolveArtifact({
+    const found = await resolveArtifact({
       src,
       product,
       products: store.listProducts(),
@@ -1913,7 +1949,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // text rather than the path. What may be written is decided in
   // main/doc-file.mjs: markdown only, inside this product's own folders only.
   ipcMain.handle('zero:read-doc', async (_e, { product, src }) => {
-    const found = resolveArtifact({
+    const found = await resolveArtifact({
       src,
       product,
       products: store.listProducts(),
@@ -1927,7 +1963,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // THE CHANGE A RUN MADE. Same finder as every other artifact, so a click on
   // the chip and a click on a path in her message open the same file.
   ipcMain.handle('zero:code-change', async (_e, { product, src }) => {
-    const found = resolveArtifact({
+    const found = await resolveArtifact({
       src,
       product,
       products: store.listProducts(),
@@ -1948,8 +1984,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // same pair the pane already has on screen. The change is re-read here rather
   // than trusted from the renderer, because it is what says which folders a
   // write may land in and that decision may not come from the window.
-  const openChange = (product, src) => {
-    const found = resolveArtifact({
+  const openChange = async (product, src) => {
+    const found = await resolveArtifact({
       src,
       product,
       products: store.listProducts(),
@@ -1965,7 +2001,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   };
 
   ipcMain.handle('zero:code-file', async (_e, { product, src, path: filePath }) => {
-    const opened = openChange(product, src);
+    const opened = await openChange(product, src);
     if (!opened.ok) return opened;
     const found = findFile({ change: opened.change, product: opened.prod, filePath });
     if (!found.ok) return found;
@@ -1973,7 +2009,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   });
 
   ipcMain.handle('zero:save-code-file', async (_e, { product, src, path: filePath, text, mtime }) => {
-    const opened = openChange(product, src);
+    const opened = await openChange(product, src);
     if (!opened.ok) return opened;
     const found = findFile({ change: opened.change, product: opened.prod, filePath });
     if (!found.ok) return found;
@@ -1982,7 +2018,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
 
   ipcMain.handle('zero:write-doc', async (_e, { product, src, text, mtime }) => {
     const prod = store.listProducts().find((p) => p.slug === product) ?? null;
-    const found = resolveArtifact({
+    const found = await resolveArtifact({
       src,
       product,
       products: store.listProducts(),

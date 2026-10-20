@@ -7,14 +7,20 @@
 //
 //   npm run ship
 //
-// Fetch, merge what moved, run the tests for what changed, push. If the push is
-// rejected because somebody pushed while the tests were running, do all of it
-// again rather than leaving the branch half-shipped. Three attempts, then it
-// stops and says so.
+// Fetch, merge what moved, push. If the push is rejected because somebody
+// pushed while the tests were running, do all of it again rather than leaving
+// the branch half-shipped. Three attempts, then it stops and says so.
 //
-// IT NEVER SKIPS THE HOOK. The pre-push hook is where the whole suite and the
+// IT NEVER SKIPS THE HOOK. The pre-push hook is where the tests and the
 // public-repository check live, and they are the point. This script is the
 // order of operations, not a replacement for the gates.
+//
+// AND IT DOES NOT RUN THE TESTS ITSELF (w-9e4d3f3cc1, 2026-10-19). It used to
+// run them here and then push, and the push runs the hook, which ran the same
+// set again: every ship paid for its gate twice, 12 minutes of it on a core
+// file. The hook's run is the one that was kept, because a push cannot get
+// around it and because it already runs a red file again on its own before
+// refusing, which this one never did.
 //
 // IT NEVER REACHES INTO ANOTHER CHECKOUT. The folder the app runs from follows
 // the public main by fast-forward, on its own; a script writing into it is the
@@ -22,8 +28,10 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
 import { racedWithAnotherPush, notReadyToShip } from './lib/ship-rules.mjs';
-import { testsThatRead } from './lib/tests-that-read.mjs';
+import { classify, shipVerdict, approvalCovers, readFacts, readGate, approvalFile, riskLogFile } from './lib/risk-tier.mjs';
+import { decide } from '../main/neo/decide.mjs';
 
 // THE FOLDER IT SHIPS IS THE ONE IT RUNS IN. `npm run ship` runs in the
 // package root, so a person or agent in a worktree ships that worktree as
@@ -53,11 +61,35 @@ const why = notReadyToShip({
 });
 if (why) stop(why);
 
-/** Everything this branch changes, for `vitest related`. */
-function changedFiles() {
-  const out = git('diff', '--name-only', `${PUBLIC}/main...HEAD`);
-  return out ? out.split('\n').filter((f) => f && !f.startsWith('docs/')) : [];
+// WHO HAS TO LOOK FIRST (scripts/lib/risk-tier.mjs). The gate file is read
+// beside this script, not from the branch: the app runs this copy from the
+// base checkout, so a branch cannot loosen the gate that judges it.
+async function riskGate() {
+  const gate = readGate(path.join(path.dirname(fileURLToPath(import.meta.url)), 'risk-gate.json'));
+  let verdict;
+  let entry = { at: new Date().toISOString(), branch, mode: gate.mode };
+  try {
+    const head = git('rev-parse', 'HEAD');
+    const found = await classify(readFacts(root, `${PUBLIC}/main`), { decideImpl: decide, ...gate });
+    let approvedSha = null;
+    try { approvedSha = fs.readFileSync(approvalFile(gitDir), 'utf8').trim() || null; } catch { /* none given */ }
+    const since = approvedSha ? gitSoft('rev-list', '--no-merges', `${approvedSha}..HEAD`) : null;
+    const ownCommitsSince = since?.status === 0 ? since.stdout.split('\n').filter(Boolean) : null;
+    const approved = approvalCovers({ approvedSha, head, ownCommitsSince });
+    verdict = shipVerdict({ mode: gate.mode, tier: found.tier, approved, reasons: found.reasons });
+    entry = { ...entry, head, ...found, approved, shipped: verdict.ship };
+  } catch (e) {
+    verdict = gate.mode === 'live'
+      ? { ship: false, say: `refused to ship without a person: the risk gate broke (${e.message}).` }
+      : { ship: true, say: `the risk gate broke (${e.message}); it is in shadow, so this ships as before.` };
+    entry = { ...entry, broke: e.message, shipped: verdict.ship };
+  }
+  try { fs.appendFileSync(riskLogFile(commonDir), `${JSON.stringify(entry)}\n`); } catch { /* the log is for reading later, never a gate */ }
+  if (!verdict.ship) stop(verdict.say);
+  say(verdict.say);
 }
+
+await riskGate();
 
 function mergeWhatMoved() {
   if (git('rev-list', '--count', `HEAD..${PUBLIC}/main`) === '0') return;
@@ -70,28 +102,14 @@ function mergeWhatMoved() {
   }
 }
 
-function runTests() {
-  const files = changedFiles();
-  if (!files.length) return;
-  say(`running the tests for ${files.length} changed file(s). The hook runs the rest on push.`);
-  // `related` runs the tests that import these; a test that reads one as
-  // text is invisible to it (scripts/lib/tests-that-read.mjs), so those are
-  // named too, and a test file named to related runs itself.
-  const readers = testsThatRead(files, root);
-  const out = spawnSync('npx', ['vitest', 'related', '--run', ...files, ...readers], {
-    cwd: root,
-    encoding: 'utf8',
-    stdio: 'inherit',
-    env: { ...process.env, VITEST_MAX_FORKS: process.env.VITEST_MAX_FORKS ?? '2', VITEST_MIN_FORKS: process.env.VITEST_MIN_FORKS ?? '1' },
-  });
-  if (out.status !== 0) stop('those tests are red, so nothing was pushed.');
-}
-
 for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
   mergeWhatMoved();
-  runTests();
-  say(`pushing to ${PUBLIC} main (attempt ${attempt} of ${ATTEMPTS}). The hook runs the suite and the public check now.`);
-  const pushed = spawnSync('git', ['push', PUBLIC, 'HEAD:main'], { cwd: root, encoding: 'utf8' });
+  say(`pushing to ${PUBLIC} main (attempt ${attempt} of ${ATTEMPTS}). The hook runs the tests and the public check now.`);
+  // ROOM FOR THE WHOLE TEST RUN TO COME BACK THROUGH HERE. The only test run a
+  // ship has is the hook's, inside this push, so this buffer now carries every
+  // failure anybody will read: node's default is a megabyte, and a truncated
+  // one returns no status at all and would be read as a refusal with no reason.
+  const pushed = spawnSync('git', ['push', PUBLIC, 'HEAD:main'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   process.stdout.write(pushed.stdout ?? '');
   process.stderr.write(pushed.stderr ?? '');
   if (pushed.status === 0) {

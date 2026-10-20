@@ -441,12 +441,13 @@ export interface SupervisorStatus {
 // shared/spawn-trouble.mjs): its owner renews it, no admin is involved.
 // 'model-not-on-plan' is a Codex login whose plan lacks the model the task asks
 // for; the fix is another model or another login, not this login.
+// 'level-not-offered' is a thinking level the task's model does not offer.
 // 'too-old' is a Claude Code older than the worker's command line (2.1.71), and
 // 'network' a proxy or company certificate the workers never had; both wait on
 // her, and neither is fixed by trying again. 'api-key' is a Codex signed in
 // with an API key, which is refused rather than billed; 'codex-config' is a
 // config.toml Codex cannot read.
-export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'too-old' | 'network' | 'api-key' | 'codex-config' | 'unknown';
+export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'level-not-offered' | 'too-old' | 'network' | 'api-key' | 'codex-config' | 'unknown';
 
 // A worker frozen mid-action, waiting on the user's allow/deny.
 export interface Approval {
@@ -674,6 +675,8 @@ export interface Snapshot {
   // ON THE PHONE WITH THE MAC SHUT ONLY (renderer/src/cloud-bridge.ts): her
   // replies from the phone her Mac has not taken yet, or turned down.
   phoneWaiting?: { product: string; id: string; at: number; text: string; refused?: string }[];
+  // On the hosted phone: a line saying what it shows may be out of date (cloud-bridge.ts phoneStatusLine).
+  phoneStatus?: string | null;
   // The team (main/team/index.mjs). Null or absent on a build with no team
   // cloud, which is the single-person app.
   team?: TeamState | null;
@@ -980,8 +983,9 @@ export interface WorkspaceSettings {
   } | null;
   permission: PermissionMode;
   permissionArgs: string[];
-  /** The mode cloud runs start in, or null for this computer's. */
-  cloudPermission?: PermissionMode | null;
+  /** The mode cloud runs start in, or 'same' for this computer's. */
+  cloudPermission?: PermissionMode | 'same' | null;
+  cloudCodexMode?: CodexModeId | 'same';
   /** What a Codex worker may do across the workspace. Never 'workspace' here. */
   codexMode: CodexModeId;
   // One switch over everything that leaves the machine, on at install

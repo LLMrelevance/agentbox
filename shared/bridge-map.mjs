@@ -112,6 +112,11 @@ export const REQUEST_CHANNELS = {
   cloudSignIn: 'zero:cloud-signin',
   // Claude's sign-in code, read from the clipboard while one is waiting for it.
   cloudClipboardCode: 'zero:cloud-clipboard-code',
+  // Signing in to Agentbox Cloud itself, on the app's sign-in page (main/cloud/account.mjs).
+  cloudAccountSignIn: 'zero:cloud-account-sign-in',
+  cloudAccountCancel: 'zero:cloud-account-cancel',
+  cloudAccountReopen: 'zero:cloud-account-reopen',
+  cloudAccountSignOut: 'zero:cloud-account-sign-out',
   projectRename: 'zero:project-rename',
   projectArchive: 'zero:project-archive',
   projectSeenBy: 'zero:project-seen-by',

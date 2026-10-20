@@ -8,9 +8,9 @@
 // throwaway copy with nobody there to approve anything, so it may want a
 // looser mode than this computer.
 //
-// The fix: a cloud permission mode of its own. Unset, a cloud run takes this
-// computer's mode, as it always has. Set, only the permission flag of a cloud
-// run is rewritten; every other argument stays where it was.
+// The fix: a cloud permission mode of its own. Only the permission flag of a
+// cloud run is rewritten; every other argument stays where it was. What an
+// unset cloud mode means is in a-cloud-run-does-not-ask-unless-told-to.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -24,7 +24,7 @@ describe('the flag a cloud run is given', () => {
     expect(cloudPermissionArgs(RUN, 'bypassPermissions')).toEqual(RUN.map((a) => (a === 'auto' ? 'bypassPermissions' : a)));
   });
 
-  it('unset, a cloud run takes this computer’s mode, untouched', () => {
+  it('with no mode to put on, the run keeps the flag it has', () => {
     expect(cloudPermissionArgs(RUN, null)).toEqual(RUN);
     expect(cloudPermissionArgs(RUN, undefined)).toEqual(RUN);
   });
@@ -70,7 +70,7 @@ describe('a cloud run', () => {
   it('is spawned with the cloud’s flag, and a run here is not', () => {
     const src = fs.readFileSync(new URL('../main/harnesses/claude.mjs', import.meta.url), 'utf8');
     const cloud = src.slice(src.indexOf('if (cloud) {'), src.indexOf('// The binary is the one this definition names'));
-    expect(cloud).toContain('cloudPermissionArgs(plan.args, sup.config.cloudPermission)');
+    expect(cloud).toContain('cloudPermissionArgs(plan.args, cloudClaudeMode(sup.config.cloudPermission, plan.answerMode))');
     expect(src.slice(src.indexOf('// The binary is the one this definition names'))).not.toContain('cloudPermissionArgs');
   });
 });

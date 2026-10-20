@@ -45,14 +45,38 @@ it. Three are habits on every change:
 `correct` (turn a repeated mistake into a check that fails) and `interrogate`
 (Claude and Codex both review a diff) run when someone asks.
 
+## NOTHING RETRIES FOR EVER, NOTHING WAITS FOR EVER, NOTHING FAILS IN SILENCE (2026-10-19)
+
+One cloud thread's start died in under a second, every 15 seconds, 16,135
+times over 30 hours, because its exit meant "try again, no attempt spent";
+another run hung for good on an AWS call whose timeout only warned. Neither
+said a word, and with the cloud on nothing else ran. Two tests now hold the
+line, so build with them, not around them:
+
+- Every run starts through `spawnWorker`, which asks `_heldFromStarting`, and
+  every run's end is counted by `_noteHowTheRunStarted`: six starts in ten
+  minutes that each ended before the agent began hold the thread and say so on
+  its row (`tests/no-thread-is-started-over-and-over-without-a-word`). A new
+  way to start or end a run goes through both.
+- Every network call has a deadline that ends it
+  (`tests/no-network-call-in-the-app-can-wait-forever`).
+
 ## SHIPPING IS ONE COMMAND: `npm run ship`
 
 Several agents work this repository at once, so the order of operations is not
 a matter of taste. Work on a branch `agentbox/<item id>` in a worktree, commit
-there, and ship with `npm run ship`: it fetches, merges main if it moved, runs
-the tests for what changed, and pushes, doing the whole lot again if somebody
-pushed first. The pre-push hook still runs the suite and the public check; the
-command is the order, not a way around the gates.
+there, and ship with `npm run ship`: it fetches, merges main if it moved, and
+pushes, doing the whole lot again if somebody pushed first. The command is the
+order, not a way around the gates.
+
+THE TESTS RUN ONCE PER SHIP, IN THE HOOK (2026-10-19). `npm run ship` used to
+run them and then push, and the push runs the pre-push hook, which ran the same
+set again; every ship paid for its gate twice, and a core change cost 12
+minutes. The hook is the one that was kept, and it stops at a cap: over 60 test
+files naming the change, it runs the ones most about it and GitHub runs the
+whole suite after the push (`scripts/lib/tests-the-push-runs.mjs`). So run
+`npm run test:changed` yourself before you say a branch is ready; the ship is
+not where you find out.
 
 Local `main` only ever points at something that is on the public `main`. Moving
 it onto a branch is refused (`scripts/hooks/reference-transaction`), because a
@@ -60,6 +84,32 @@ fast-forward writes no commit and so walked straight past the commit guards: on
 2026-10-01 that left a commit living in the folder the app runs from and
 nowhere else. That folder follows the public main on its own:
 `git fetch origin && git merge --ff-only refs/remotes/origin/main`.
+
+## WHO HAS TO LOOK BEFORE A CHANGE SHIPS (2026-10-17)
+
+The person's time is the bottleneck, so `npm run ship` sets a risk tier from
+the diff (`scripts/lib/risk-tier.mjs`): rules first, then the Decisions API for
+what the rules leave open. The tier comes from the change, never from you.
+
+- **low** ships on green tests alone: docs, tests, scripts, internal logic, a
+  bug fix its test proves, a few words of copy that move nothing.
+- **look** waits for the person to see it: anything on screen a designer could
+  judge, including copy that wraps or changes a layout.
+- **risky** waits for the person: the paths and lines listed in
+  `risk-tier.mjs`, over 600 changed lines, or a classifier that was not sure.
+
+Whether you ask before shipping is set by the person's own instructions, not
+by this file. `scripts/risk-gate.json` says whether the gate holds anything
+back: in `shadow` it only logs what it would have done (`npm run risk -- --log`);
+in `live` it refuses look and risky without an approval.
+
+- `npm run risk` previews the tier the rules give your branch.
+- When the person says ship it, run `npm run ship:approved`, then add the
+  label. The approval covers that commit; a new commit needs a new approval.
+- If the gate holds a ship back, you are woken with its reasons: show the
+  person and ask.
+- "Undo it" is: revert your commits on your branch, merge origin/main, add
+  `ship`.
 
 ## MAIN WAS REWRITTEN ON 2026-10-06
 

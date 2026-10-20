@@ -81,9 +81,8 @@ describe('the alert the phone is sent', () => {
   it('carries the thread name as its title', async () => {
     const sent = [];
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phone-alert-title-'));
-    const port = 41975;
     const link = createPhoneLink({
-      file: path.join(dir, 'phone-link.json'), channels: new Map(), listeners: new Set(), port,
+      file: path.join(dir, 'phone-link.json'), channels: new Map(), listeners: new Set(), port: 0,
       interfaces: () => ({ en0: [{ family: 'IPv4', internal: false, address: '192.168.1.20' }] }),
       log: {}, tailscale: null, warm: () => {}, coalesceMs: 10, atDesk: () => false,
       send: async (s, body) => { sent.push(JSON.parse(body)); },
@@ -91,6 +90,7 @@ describe('the alert the phone is sent', () => {
     try {
       await link.act({ action: 'on' });
       for (let i = 0; i < 100 && !(await link.status()).listening; i++) await new Promise((r) => setTimeout(r, 10));
+      const { port } = await link.status();
       await new Promise((resolve, reject) => {
         const req = http.request({
           host: '127.0.0.1', port, path: '/phone/alerts', method: 'POST',

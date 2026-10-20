@@ -333,6 +333,9 @@ export type Event =
  *  the project, `sent` when the task really exists. */
 export function advance(s: FirstRun, e: Event): FirstRun {
   switch (e.t) {
+    // The welcome's own Return went through here until w-e217e577e5, when the
+    // plan step stopped being a step only some computers walk: it is between
+    // these two now, and moves itself on with `stepTo`.
     case 'start':
       return s.step === 'welcome' ? { ...s, step: 'folder' } : s;
     case 'folder':

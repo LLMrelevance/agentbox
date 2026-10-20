@@ -66,6 +66,17 @@ async function peekUntil(pred, what, ms = 15_000) {
     await new Promise((r) => setTimeout(r, 50));
   }
 }
+// The Mac, there and reading, until what it waits for has happened.
+async function macUntil(pred, what, ms = 15_000) {
+  const end = Date.now() + ms;
+  for (;;) {
+    const { events } = await sandbox.handle({ action: 'events', since: 0 });
+    const hit = events.find(pred);
+    if (hit) return { hit, events };
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}; saw ${JSON.stringify(events.map((e) => e.kind))}`);
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
 const text = (events) => events.filter((e) => e.kind === 'stdout').map((e) => Buffer.from(e.data, 'base64').toString()).join('');
 
 // A stand-in for Claude Code: asks the app's store one thing through the
@@ -103,8 +114,7 @@ describe('while the Mac is away', () => {
   it('a call it never answered is answered "may or may not have happened", and its late answer is dropped', async () => {
     await startWith(agent({ delay: 0 }));
     // The Mac is there when the call goes out, then goes quiet.
-    await sandbox.handle({ action: 'events', since: 0 });
-    const { hit } = await peekUntil((e) => e.kind === 'mcp' && e.line.includes('"id":7'), 'the call sent to the Mac');
+    const { hit } = await macUntil((e) => e.kind === 'mcp' && e.line.includes('"id":7'), 'the call sent to the Mac');
     const { events } = await peekUntil((e) => e.kind === 'mcp-abandoned', 'the call given up on');
     expect(events.find((e) => e.kind === 'mcp-abandoned')).toMatchObject({ conn: hit.conn, id: 7 });
     const late = await sandbox.handle({ action: 'mcp', runId: 'r', n: 1, conn: hit.conn, line: JSON.stringify({ jsonrpc: '2.0', id: 7, result: { content: [{ type: 'text', text: 'late' }] } }) });
@@ -136,9 +146,10 @@ describe('while the Mac is away', () => {
 describe('while the Mac is there', () => {
   it('nothing is answered or closed for it', async () => {
     await startWith(agent({ delay: 0 }));
-    const end = Date.now() + AWAY * 4;
+    // At least AWAY * 4, and on until the agent's call has reached the Mac, however slow this machine is.
+    const end = Date.now() + AWAY * 4; const cap = Date.now() + 30_000;
     let seen = [];
-    while (Date.now() < end) { seen = (await sandbox.handle({ action: 'events', since: 0 })).events; await new Promise((r) => setTimeout(r, 50)); }
+    while (Date.now() < cap && (Date.now() < end || !seen.some((e) => e.kind === 'mcp'))) { seen = (await sandbox.handle({ action: 'events', since: 0 })).events; await new Promise((r) => setTimeout(r, 50)); }
     expect(seen.find((e) => ['mcp-offline', 'mcp-abandoned', 'input-closed'].includes(e.kind))).toBeUndefined();
     expect(seen.find((e) => e.kind === 'mcp')).toBeTruthy();
   });
@@ -148,7 +159,11 @@ describe('a start that does not ask for it', () => {
   it('waits for the Mac as before', async () => {
     const started = await startWith(agent({ delay: AWAY * 2 }), { offline: null });
     await new Promise((r) => setTimeout(r, AWAY * 4));
-    const { events } = await sandbox.handle({ action: 'events', since: 0, peek: true });
+    let events = [];
+    for (const cap = Date.now() + 30_000; Date.now() < cap; await new Promise((r) => setTimeout(r, 50))) {
+      ({ events } = await sandbox.handle({ action: 'events', since: 0, peek: true }));
+      if (events.some((e) => e.kind === 'mcp')) break;
+    }
     expect(events.find((e) => ['mcp-offline', 'mcp-abandoned', 'input-closed'].includes(e.kind))).toBeUndefined();
     expect(events.find((e) => e.kind === 'mcp')).toBeTruthy();
     expect(started.ok).toBe(true);
@@ -162,8 +177,7 @@ describe('a start that does not ask for it', () => {
 describe('after Codex\'s review', () => {
   it('a call given up on is refused when the waking Mac asks to make it; one it took up first is its to finish', async () => {
     await startWith(agent({ delay: 0 }));
-    await sandbox.handle({ action: 'events', since: 0 });
-    const { hit } = await peekUntil((e) => e.kind === 'mcp' && e.line.includes('"id":7'), 'the call sent to the Mac');
+    const { hit } = await macUntil((e) => e.kind === 'mcp' && e.line.includes('"id":7'), 'the call sent to the Mac');
     await peekUntil((e) => e.kind === 'mcp-abandoned', 'the call given up on');
     const asked = await sandbox.handle({ action: 'mcp-claim', runId: 'r', calls: [{ conn: hit.conn, id: 7 }, { conn: hit.conn, id: 99 }] });
     expect(asked.calls).toEqual([{ conn: hit.conn, id: 7, go: false }, { conn: hit.conn, id: 99, go: false }]);
@@ -171,8 +185,7 @@ describe('after Codex\'s review', () => {
 
   it('a call the Mac takes up while there is made', async () => {
     await startWith(agent({ delay: 0 }));
-    await sandbox.handle({ action: 'events', since: 0 });
-    const { hit } = await peekUntil((e) => e.kind === 'mcp' && e.line.includes('"id":7'), 'the call sent to the Mac');
+    const { hit } = await macUntil((e) => e.kind === 'mcp' && e.line.includes('"id":7'), 'the call sent to the Mac');
     const asked = await sandbox.handle({ action: 'mcp-claim', runId: 'r', calls: [{ conn: hit.conn, id: 7 }] });
     expect(asked.calls).toEqual([{ conn: hit.conn, id: 7, go: true }]);
     await sandbox.handle({ action: 'mcp', runId: 'r', n: 1, conn: hit.conn, line: JSON.stringify({ jsonrpc: '2.0', id: 7, result: { content: [{ type: 'text', text: 'noted' }] } }) });
@@ -188,7 +201,11 @@ describe('after Codex\'s review', () => {
     `);
     await sandbox.handle({ action: 'stdin', runId: 'r', n: 1, data: Buffer.from(JSON.stringify({ type: 'user', uuid: 'u1', message: { role: 'user', content: 'and also' } }) + '\n').toString('base64') });
     await new Promise((r) => setTimeout(r, AWAY * 4));
-    const { events } = await sandbox.handle({ action: 'events', since: 0, peek: true });
+    let events = [];
+    for (const cap = Date.now() + 30_000; Date.now() < cap; await new Promise((r) => setTimeout(r, 50))) {
+      ({ events } = await sandbox.handle({ action: 'events', since: 0, peek: true }));
+      if (events.some((e) => e.kind === 'mcp')) break;
+    }
     expect(events.find((e) => e.kind === 'input-closed')).toBeUndefined();
   });
 
@@ -241,8 +258,7 @@ describe('after Codex\'s review', () => {
 describe('after Codex\'s second review', () => {
   it('a call the Mac took up and then slept on is answered once', async () => {
     await startWith(agent({ delay: 0 }));
-    await sandbox.handle({ action: 'events', since: 0 });
-    const { hit } = await peekUntil((e) => e.kind === 'mcp' && e.line.includes('"id":7'), 'the call sent to the Mac');
+    const { hit } = await macUntil((e) => e.kind === 'mcp' && e.line.includes('"id":7'), 'the call sent to the Mac');
     expect((await sandbox.handle({ action: 'mcp-claim', runId: 'r', calls: [{ conn: hit.conn, id: 7 }] })).calls[0].go).toBe(true);
     await peekUntil((e) => e.kind === 'mcp-abandoned', 'the call given up on');
     const late = await sandbox.handle({ action: 'mcp', runId: 'r', n: 1, conn: hit.conn, line: JSON.stringify({ jsonrpc: '2.0', id: 7, result: { content: [{ type: 'text', text: 'late' }] } }) });

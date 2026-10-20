@@ -273,7 +273,7 @@ export function memoryBackend(cloud, personId) {
     // `owner = auth.uid()` refuses it.
     async putPhoneProject({ owner, device, project, name }) {
       if (owner && owner !== personId) refuse('write to somebody else\'s phone');
-      (cloud.phoneProjects ??= new Map()).set(`${personId}:${device}:${project}`, { owner: personId, device, project, name });
+      (cloud.phoneProjects ??= new Map()).set(`${personId}:${device}:${project}`, { owner: personId, device, project, name, updatedAt: cloud.now() });
     },
     async dropPhoneProject(device, project, owner) {
       if (owner && owner !== personId) return;
@@ -300,6 +300,11 @@ export function memoryBackend(cloud, personId) {
       if (data.length > 26_214_400) refuse('a file that big');
       const key = `${personId}/${device}/${name}`;
       if (!(cloud.phoneFiles ??= new Map()).has(key)) cloud.phoneFiles.set(key, { data: Buffer.from(data), type });
+    },
+    async getPhoneFile({ owner, device, name }) {
+      if (owner && owner !== personId) refuse('read somebody else\'s phone');
+      const f = cloud.phoneFiles?.get(`${personId}/${device}/${name}`);
+      return f ? Buffer.from(f.data) : null;
     },
     async dropPhoneFiles({ owner, device, names }) {
       if (owner && owner !== personId) return;

@@ -4,7 +4,7 @@ import {updateFixture} from './agent-update-fixture';
 // bridge; fixtures mode (?fixtures=1) serves canned data so the UI can be
 // developed, reviewed, and screenshotted without a live store or any agents.
 
-import type { AccountUsageReading, AgentConversation, AnswerMode, DemoOpened, FolderListing, FreshUser, PermissionMode, PhoneLink, PhoneRoute, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, TeamMessageFile, ThreadEditPatch, UpdateState, Usage, WorkItem } from './types';
+import type { AccountUsageReading, AgentConversation, AnswerMode, CodexModeId, DemoOpened, FolderListing, FreshUser, PermissionMode, PhoneLink, PhoneRoute, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, TeamMessageFile, ThreadEditPatch, UpdateState, Usage, WorkItem } from './types';
 import type { LedgerLine } from './thread-history';
 import type { AgentFile as AgentFileRow } from './onboarding';
 import type { AgentFolder, SessionThread } from './agent-import-card';
@@ -163,9 +163,11 @@ if (twoLogins) {
   const [first, second] = fixtureSettingsState.workspace.accounts;
   if (first) first.chosen = false;
   if (second) second.chosen = true;
-  // &cloudperm=<mode> draws the cloud on its own permission mode.
+  // &cloudperm=<mode> and &cloudcodexmode=<mode> draw the cloud on its own
+  // permission modes; unset, on the cloud's defaults.
   fixtureSettingsState.workspace.permission = 'auto';
-  fixtureSettingsState.workspace.cloudPermission = params.get('cloudperm') || null;
+  fixtureSettingsState.workspace.cloudPermission = (params.get('cloudperm') as PermissionMode | 'same' | null) || 'bypassPermissions';
+  fixtureSettingsState.workspace.cloudCodexMode = (params.get('cloudcodexmode') as CodexModeId | 'same' | null) || 'full-access';
 }
 
 function fixtureAccountUsage(): AccountUsageReading[] {
@@ -359,6 +361,8 @@ export const api = {
       const cloud = params.get('cloud');
       if (params.get('accounts') === 'two') {
         const until = new Date(); until.setHours(17, 10, 0, 0);
+        // A cloud reading carries the instant of each reset and no text (readReplyHeaders).
+        const on = (days: number, h: number, m = 0) => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(h, m, 0, 0); return d.getTime(); };
         // &cloudread draws the cloud logins as they will read once the cloud
         // reports each one's email and usage; without it, as they read today.
         const read = params.has('cloudread');
@@ -370,20 +374,26 @@ export const api = {
             {
               engine: 'claude', key: 'a1', name: read ? 'you@example.com' : null, ready: false, state: 'limited' as any, limitedUntil: until.getTime(),
               limits: read ? [
-                { span: 'session', qualifier: null, name: 'This session', percent: 100, resetsText: '5:10pm', resetsOn: null, resetsAt: until.getTime(), zone: null },
-                { span: 'week', qualifier: 'all models', name: 'This week', percent: 31, resetsText: '11:59am', resetsOn: 'Oct 22', resetsAt: null, zone: null },
+                { span: 'session', qualifier: null, name: 'This session', percent: 100, resetsText: null, resetsOn: null, resetsAt: until.getTime(), zone: null },
+                { span: 'week', qualifier: 'all models', name: 'This week', percent: 31, resetsText: null, resetsOn: null, resetsAt: on(2, 11, 59), zone: null },
               ] : null,
             },
             {
               engine: 'claude', key: 'a2', name: read ? 'work@example.com' : null, ready: true, state: 'ready',
               limits: read ? [
-                { span: 'session', qualifier: null, name: 'This session', percent: 12, resetsText: '8pm', resetsOn: null, resetsAt: null, zone: null },
-                { span: 'week', qualifier: 'all models', name: 'This week', percent: 9, resetsText: '4pm', resetsOn: 'Oct 22', resetsAt: null, zone: null },
+                { span: 'session', qualifier: null, name: 'This session', percent: 12, resetsText: null, resetsOn: null, resetsAt: on(0, 20), zone: null },
+                { span: 'week', qualifier: 'all models', name: 'This week', percent: 9, resetsText: null, resetsOn: null, resetsAt: on(2, 16), zone: null },
               ] : null,
             },
+            // &cloudcodex adds a Codex login in the cloud, so the Codex page draws its cloud rows.
+            ...(params.has('cloudcodex') ? [{ engine: 'codex' as const, key: 'c1', name: null, ready: true, state: 'ready' as const }] : []),
           ],
           signIns: [],
         } as typeof base.cloud;
+      } else if (cloud === 'new') {
+        // &cloud=new draws Agentbox Cloud offered with nobody signed in: the
+        // button's dot, its invitation, and the sign-in page it opens.
+        base.cloud = { setUp: false, offered: true, mode: 'full', whenOn: 'full', running: 0, month: { runs: 0, agentHours: 0, estimatedCost: 0, costPerAgentHour: 0 }, accounts: [], signIns: [] } as typeof base.cloud;
       } else if (cloud === 'mac' || cloud === 'full' || cloud === 'all') {
         base.cloud = {
           setUp: true, mode: cloud, whenOn: cloud === 'all' ? 'all' : 'full', running: 3,
@@ -1095,6 +1105,16 @@ export const api = {
     if (useFixtures && engineFixtures === 'nowhere') {
       return { engine, phase: 'idle', error: null, log: '', found: false, signedIn: false };
     }
+    /*
+     * AND THE MACHINE MOST PEOPLE ARRIVE ON (w-e217e577e5): Claude signed in
+     * already, nothing else here. Every fixture copy answers `assumeReady` for
+     * BOTH agents, which is a machine almost nobody has, so the screen that
+     * says what was found could only ever be photographed saying it found two.
+     */
+    if (useFixtures && engineFixtures === 'ready') {
+      const mine = engine === 'claude';
+      return { engine, phase: mine ? 'ready' : 'idle', error: null, log: '', found: mine, signedIn: mine };
+    }
     // AND THE MACHINE THE QUESTION MUST NOT ASK: Codex on the disk, signed out.
     // `afterCheck` reads this as "we already know which plan they have".
     if (useFixtures && engineFixtures === 'signedout') {
@@ -1226,6 +1246,16 @@ export const api = {
     if (!zero?.cloudSignIn) return { ok: false, error: RESTART_NOTE };
     return zero.cloudSignIn(p);
   },
+
+  /** Signing in to Agentbox Cloud itself, on the app's sign-in page: Google, email, or a new account. */
+  async cloudAccountSignIn(p: { method: 'google' | 'email' | 'sign-up'; email?: string; password?: string; name?: string }): Promise<{ ok: boolean; confirm?: boolean; error?: string; cancelled?: boolean }> {
+    const zero = window.zero as any;
+    if (!zero?.cloudAccountSignIn) return { ok: false, error: RESTART_NOTE };
+    return zero.cloudAccountSignIn(p);
+  },
+  async cloudAccountCancel(): Promise<void> { await (window.zero as any)?.cloudAccountCancel?.(); },
+  async cloudAccountReopen(): Promise<void> { await (window.zero as any)?.cloudAccountReopen?.(); },
+  async cloudAccountSignOut(): Promise<void> { await (window.zero as any)?.cloudAccountSignOut?.(); },
 
   /** Claude's sign-in code from the clipboard, while a sign-in waits for one; else null. */
   async cloudClipboardCode(): Promise<string | null> {

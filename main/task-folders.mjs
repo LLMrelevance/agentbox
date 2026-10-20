@@ -90,6 +90,12 @@ function tryRead(dir) {
   try { return fs.readdirSync(dir); } catch { return ['we could not look']; }
 }
 
+// Files that say nothing of anyone's work: Finder's, and the one an agent
+// writes when it recreates its deleted folder to keep its shell alive. A
+// folder holding only these is as good as empty.
+const LEFTOVER_MARKERS = new Set(['.DS_Store', '.keep-session']);
+const isPlainFile = (file) => { try { return fs.lstatSync(file).isFile(); } catch { return false; } };
+
 /** Git that answers rather than throws, for the questions where "no" is fine. */
 function tryGit(cwd, args) {
   try { return { ok: true, out: git(cwd, args) }; }
@@ -394,6 +400,48 @@ function holder(root, folder, pid) {
 }
 
 /**
+ * WHO ENDED UP IN THE LOCK, read off our own `worktree lock` and the lock as it
+ * stands a moment later. Four answers and one non-answer:
+ *
+ *   our pid in it            ours
+ *   another pid in it        theirs, and the row can name it
+ *   a lock with no pid       a person locked it by hand
+ *   our lock would not write this machine failing, in git's own words
+ *   nothing in it at all     NOT AN ANSWER YET: ask again
+ *
+ * THE NON-ANSWER IS THE WHOLE POINT. `unlock` and `lock` are two commands, so
+ * while another session takes the same dead owner's folder over, there is a
+ * moment when the folder carries no lock at all: ours is gone and theirs is not
+ * written yet. A read landing in that moment has nobody to name, and it used to
+ * answer `refused`, which reached the row as "its folder is refused" -- not
+ * something anybody can act on, and not true either, since that session is
+ * about to own it. Asked again, the lock has landed and the answer is real.
+ *
+ * GIT'S OWN REFUSAL IS READ RATHER THAN COUNTED AS A FAILURE. `is already
+ * locked` is a session that got in a moment before us and usually carries its
+ * pid, so it asks again too and names them when the asking runs out. Only a
+ * lock git would not write for some other reason -- a permission, a full disk,
+ * a path it does not know -- is this machine failing, and that one carries
+ * git's words out rather than naming a session that does not exist.
+ */
+const alreadyLocked = (out) => /is already locked/i.test(String(out ?? ''));
+
+export function whoEndedUpInTheLock({ pid, locked, after, triesLeft }) {
+  const now = pidInReason(after);
+  if (now === pid) return { taken: true, heldBy: pid };
+  if (after !== undefined) return { taken: false, reason: now ? 'held' : 'locked', heldBy: now ?? null };
+  if (!locked.ok && !alreadyLocked(locked.out)) {
+    return { taken: false, reason: 'unlockable', heldBy: null, detail: locked.out };
+  }
+  if (triesLeft > 0) return { again: true };
+  const them = pidInReason(locked.out);
+  if (them) return { taken: false, reason: 'held', heldBy: them };
+  // Git saw a lock we cannot read a pid out of, which is a person's own.
+  if (!locked.ok) return { taken: false, reason: 'locked', heldBy: null };
+  return { taken: false, reason: 'held', heldBy: null };
+}
+
+/**
  * TAKE THE FOLDER, OR SAY WHO HAS IT. Never a side effect: the caller gets
  * `taken` either way, and a refusal names the process in the way.
  *
@@ -403,20 +451,24 @@ function holder(root, folder, pid) {
  * commands, so two processes taking over the same dead owner's folder at the
  * same moment is possible, and the one that did not end up in the lock has to
  * hear that it did not get the folder.
+ *
+ * Asked up to `tries` times, because the read-back can land between another
+ * taker's unlock and its lock and see nobody at all. Each try is a fresh
+ * `worktree list`, which is the only pause the gap needs: the gap is one git
+ * command wide.
  */
-export function acquireTaskFolder(root, folder, { pid = process.pid } = {}) {
-  const held = holder(root, folder, pid);
-  if (!held.ok) return { taken: false, reason: held.reason, heldBy: held.heldBy };
-  if (!held.free && !held.stale) return { taken: true, heldBy: pid };
+export function acquireTaskFolder(root, folder, { pid = process.pid, tries = 5 } = {}) {
+  for (let triesLeft = tries - 1; ; triesLeft -= 1) {
+    const held = holder(root, folder, pid);
+    if (!held.ok) return { taken: false, reason: held.reason, heldBy: held.heldBy };
+    if (!held.free && !held.stale) return { taken: true, heldBy: pid };
 
-  if (held.stale) tryGit(root, ['worktree', 'unlock', folder]);
-  tryGit(root, ['worktree', 'lock', '--reason', lockReason(pid), folder]);
+    if (held.stale) tryGit(root, ['worktree', 'unlock', folder]);
+    const locked = tryGit(root, ['worktree', 'lock', '--reason', lockReason(pid), folder]);
 
-  const after = record(root, folder)?.lock;
-  const now = pidInReason(after);
-  if (now === pid) return { taken: true, heldBy: pid };
-  if (after === undefined) return { taken: false, reason: 'refused', heldBy: null };
-  return { taken: false, reason: now ? 'held' : 'locked', heldBy: now ?? null };
+    const said = whoEndedUpInTheLock({ pid, locked, after: record(root, folder)?.lock, triesLeft });
+    if (!said.again) return said;
+  }
 }
 
 /**
@@ -447,7 +499,14 @@ export function ensureTaskFolder(dir, id, { pid = process.pid, dependencies = tr
   firstCommitIfNone(root);
   const folder = taskFolderPath(root, name);
   const branch = taskBranch(name);
-  const refused = (held) => ({ taken: false, reason: held.reason, heldBy: held.heldBy ?? null, path: null });
+  // A LOCK GIT WOULD NOT WRITE IS NOT A REFUSAL. Nobody else has the folder,
+  // and every reason above names somebody or something; this one names this
+  // machine, so it leaves by the road failures leave by, which puts git's words
+  // on the row (`_couldNotGetAFolder` in main/supervisor.mjs).
+  const refused = (held) => {
+    if (held.reason === 'unlockable') throw Error(`Could not take the folder for ${name}: ${held.detail}`);
+    return { taken: false, reason: held.reason, heldBy: held.heldBy ?? null, path: null };
+  };
 
   // SOMEBODY ELSE FINISHED THE FOLDER WHILE WE WERE MAKING IT, which is not the
   // same thing as somebody still making it (w-36c51443df). Measured 2026-10-17,
@@ -476,12 +535,15 @@ export function ensureTaskFolder(dir, id, { pid = process.pid, dependencies = tr
   // moves INTO it, so the finished copy landed at `<folder>/.building-<id>` and
   // the session would have started in a directory holding almost none of the
   // code. Whatever it is, it is not ours to delete and not ours to fill — an
-  // EMPTY one excepted, since there is nothing there to lose and a stray empty
-  // directory would otherwise wedge the row for good.
+  // EMPTY one excepted, or one holding only LEFTOVER_MARKERS, since there is
+  // nothing there to lose and a stray one would otherwise wedge the row for good.
   if (fs.existsSync(folder)) {
-    const empty = tryRead(folder).length === 0;
-    if (!empty) return refused({ reason: 'in-the-way', heldBy: null });
-    try { fs.rmdirSync(folder); } catch { return refused({ reason: 'in-the-way', heldBy: null }); }
+    const left = tryRead(folder);
+    if (!left.every((name) => LEFTOVER_MARKERS.has(name) && isPlainFile(path.join(folder, name)))) return refused({ reason: 'in-the-way', heldBy: null });
+    try {
+      for (const name of left) fs.rmSync(path.join(folder, name));
+      fs.rmdirSync(folder);
+    } catch { return refused({ reason: 'in-the-way', heldBy: null }); }
   }
 
   // A registration whose directory somebody deleted by hand would refuse the

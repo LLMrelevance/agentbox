@@ -6481,7 +6481,14 @@ a.set-ghost { text-decoration: none; display: inline-block; }
   font-size: 13px; color: var(--text-faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.fr-folder-via { font-size: 12px; color: var(--text-faint); white-space: nowrap; }
+/* The folder screen leaves this column empty and the found screen says what is
+   true of the row in it, so it is a row of its own: the tick sits on the
+   word's middle rather than on its baseline. An empty one is still empty. */
+.fr-folder-via {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--text-faint); white-space: nowrap;
+}
+.fr-folder.lit .fr-folder-via { color: var(--text-dim); }
 .fr-folder-key { display: flex; justify-content: flex-end; }
 .fr-folder-other { margin-top: 4px; }
 .fr-folder-other .fr-folder-name { grid-column: 2 / 5; color: var(--text-dim); }
@@ -8987,11 +8994,6 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 #phone-locked-out p { margin-top: 8px; opacity: .8; }
 /* Her Mac turned a reply from the phone down (renderer/src/cloud-bridge.ts). */
 .msg-sending.msg-refused { color: var(--code-minus); }
-
-/* THE PHONE WITH THE MAC SHUT (renderer/src/cloud-bridge.ts) leaves a reply
-   for her Mac, which runs it on the model the thread already has: there is no
-   model to pick here, and no sending back that her Mac does not do. */
-:root[data-via="cloud"] .model-pick, :root[data-via="cloud"] .dock-pill .ts-model { display: none; }
 
 /* NEO, the voice alpha (w-e85fd9144f). The glow on what Neo just did:
    bloom plus lit from within, at the softer strength approved on 2026-10-15,

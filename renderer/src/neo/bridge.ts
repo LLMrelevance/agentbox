@@ -109,7 +109,13 @@ const NEW_WORK = /\b(new (task|thread|work)|start (a|an|new)|create (a|an)|kick 
 const FOLLOW_HOLD_MS = 800;
 const CHANGES_THREAD = new Set(['open_thread', 'next_thread', 'close_thread', 'later', 'run_command', 'pick_option']);
 
-const RISKY_COMMAND = /^(pause|done|approve|update|first-run|fresh-user|demo|tutorial|stop|resume|cloud|run-now)/;
+const RISKY_COMMAND = /^(pause|done|approve|update|first-run|fresh-user|demo|tutorial|stop|resume|cloud|run-now|unsnooze|send-back|redeliver)/;
+
+// Commands that only put a card on screen for her to finish. Running one
+// changes nothing, so it may not be reported as done: "Search threads" ran and
+// the bridge said "Done: Search threads." while nothing had been searched.
+// Snoozing is not here because `later` does it with her own time.
+const OPENS_A_CARD = new Set(['search', 'filter', 'new-project']);
 
 function saysWord(heard: string | undefined, word: string): boolean {
   const said = String(heard ?? '').toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -134,7 +140,8 @@ const LISTED = 12;
 const SUMMARY_CHARS = 400;
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-// An agent's words as they read aloud: a picture or link is named, never spelled out.
+// An agent's words as they read aloud: a picture, link or id is named, never
+// spelled out.
 export const spoken = (s: string) => s
   .replace(/!\[([^\]]*)\]\([^)]*\)/g, (_m, alt) => `[picture${alt ? `: ${alt}` : ''}]`)
   .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
@@ -342,16 +349,19 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           const text = String(args.text ?? '').trim();
           if (!text) return refused('There was nothing to start.');
           const projects = deps.projects();
+          const named = String(args.project ?? '').trim();
           let slug: string | undefined;
-          if (args.project) {
-            const want = String(args.project).trim().toLowerCase();
+          if (named) {
+            const want = named.toLowerCase();
             slug = projects.find((p) => p.slug.toLowerCase() === want || p.name.trim().toLowerCase() === want)?.slug;
-            if (!slug) return refused(`There is no project called ${args.project}. The projects are ${projects.map((p) => p.name).join(', ')}.`);
+            if (!slug) return refused(`There is no project called ${named}. The projects are ${projects.map((p) => p.name).join(', ')}.`);
           } else slug = deps.focused()?.product ?? projects[0]?.slug;
           if (!slug) return refused('There is no project to start it in.');
           const made = await deps.compose(text, slug);
           if (!made) return { ok: false, status: 'failed', said: 'It did not start.' };
           const project = projects.find((p) => p.slug === slug)?.name ?? slug;
+          // A project nobody named was a guess, so it is said as one.
+          if (!named) return done(`Started it in ${project}, the open thread's project, because no project was named. Say so, in case it belongs somewhere else.`);
           return done(`Started it in ${project}.`);
         }
 
@@ -376,6 +386,10 @@ export function neoBridge<R extends NeoRow>(deps: NeoDeps<R>) {
           // A yes counts for this command, with these words, on this thread:
           // "approve" means the open thread's approve, and that can change.
           const what = `${cmd.id}|${cmd.label}|${deps.focused()?.id ?? ''}`;
+          if (OPENS_A_CARD.has(cmd.id)) {
+            await cmd.run();
+            return done(`"${cmd.label}" is on screen now. Nothing has changed yet: tell the person to finish it there.`);
+          }
           if (RISKY_COMMAND.test(cmd.id)) {
             const verb = cmd.label.toLowerCase().match(/[a-z]+/)?.[0] ?? '';
             const saidIt = verb.length > 2 && saysWord(ctx.heard, verb);

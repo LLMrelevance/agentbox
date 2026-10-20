@@ -37,7 +37,7 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
     try { if (s) storage.setItem(SESSION_KEY, JSON.stringify(s)); else storage.removeItem(SESSION_KEY); } catch { /* private mode: this tab only */ }
   };
 
-  async function call(path: string, init: RequestInit & { auth?: boolean } = {}) {
+  async function call(path: string, init: RequestInit & { auth?: boolean } = {}, again = true): Promise<any> {
     const mine = gen;
     const headers: Record<string, string> = { apikey: cfg.anonKey, 'content-type': 'application/json', ...(init.headers as Record<string, string> | undefined) };
     if (init.auth !== false) headers.authorization = `Bearer ${await token()}`;
@@ -45,7 +45,13 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
     const text = await res.text();
     const body = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
     if (!res.ok) {
-      // Her sign-in has lapsed for good: signed out, so the page says so.
+      // A token the database thinks has run out (a clock that disagrees, a
+      // renewal elsewhere): renewed once and asked again. Only a refused
+      // renewal signs her out.
+      if (res.status === 401 && init.auth !== false && gen === mine && again && session) {
+        session = { ...session, expires_at: 0 };
+        return call(path, init, false);
+      }
       if (res.status === 401 && init.auth !== false && gen === mine) { gen += 1; keep(null); }
       const said = (body && typeof body === 'object' && (body.msg || body.message || body.error_description || body.error)) || `the cloud answered ${res.status}`;
       throw Object.assign(new Error(String(said)), { status: res.status });
@@ -53,6 +59,10 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
     if (gen !== mine) throw new Error('signed out');
     return body;
   }
+
+  // Whether this database takes a command's own name; learnt from the first refusal.
+  let unnamed = false;
+  const kindNotTaken = (err: unknown) => (/phone_commands_kind_check|violates check constraint/i.test(String((err as Error)?.message)) ? new Error('Your phone cannot do this yet: its online database needs an update.') : err);
 
   // From a token answer to a kept session, if it is still the sign-in asked for.
   const took = (body: any, mine: number): CloudSession => {
@@ -72,17 +82,24 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
   // renewal at a time, and one that is refused outright signs her out.
   async function token(): Promise<string> {
     if (!session) throw new Error('not signed in');
-    if (session.expires_at - now() > 60_000) return session.access_token;
+    // Another tab of the site may have renewed it, spending the refresh token this one holds.
+    if (session.expires_at - now() <= 60_000 && !renewing) {
+      try {
+        const kept = JSON.parse(storage.getItem(SESSION_KEY) || 'null');
+        if (kept?.user?.id === session.user.id && kept.access_token !== session.access_token && kept.expires_at > session.expires_at) session = kept;
+      } catch { /* this one's own */ }
+    }
+    if (session!.expires_at - now() > 60_000) return session!.access_token;
     if (!renewing) {
       const mine = gen;
-      const refresh = session.refresh_token;
+      const refresh = session!.refresh_token;
       renewing = (async () => {
         try {
           const res = await fetchImpl(`${base}/auth/v1/token?grant_type=refresh_token`, { method: 'POST', headers: { apikey: cfg.anonKey, 'content-type': 'application/json' }, body: JSON.stringify({ refresh_token: refresh }) });
           const body = await res.json().catch(() => null);
           if (!res.ok) {
             if ((res.status === 400 || res.status === 401) && gen === mine) { gen += 1; keep(null); }
-            throw new Error(body?.error_description || body?.msg || 'Your sign-in ran out. Sign in again.');
+            throw new Error(body?.error_description || body?.msg || body?.message || 'Your sign-in ran out. Sign in again.');
           }
           return took(body, mine).access_token;
         } finally {
@@ -139,11 +156,42 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
       return (await call(`/rest/v1/${table}?${query}`, { method: 'GET' })) ?? [];
     },
     async update(table: string, query: string, patch: Record<string, unknown>) {
-      return (await call(`/rest/v1/${table}?${query}`, { method: 'PATCH', headers: { prefer: 'return=representation' }, body: JSON.stringify(patch) })) ?? [];
+      return (await call(`/rest/v1/${table}?${query}`, { method: 'PATCH', keepalive: true, headers: { prefer: 'return=representation' }, body: JSON.stringify(patch) })) ?? [];
     },
     async insert(table: string, row: Record<string, unknown>) {
       const out = await call(`/rest/v1/${table}`, { method: 'POST', headers: { prefer: 'return=representation' }, body: JSON.stringify(row) });
       return Array.isArray(out) ? out[0] : out;
+    },
+    /**
+     * A command for her computer, named here so that the same command sent
+     * again after a lost answer is one. A database not yet updated for names
+     * (20261019000000_phone_commands_do_more.sql) takes it unnamed, as before.
+     */
+    async insertCommand(row: Record<string, unknown>): Promise<any> {
+      const named = { id: (row.id as string) ?? crypto.randomUUID(), ...row };
+      if (!unnamed) {
+        try {
+          const out = await call('/rest/v1/phone_commands?on_conflict=id', { method: 'POST', keepalive: true, headers: { prefer: 'return=representation,resolution=ignore-duplicates' }, body: JSON.stringify(named) });
+          return (Array.isArray(out) ? out[0] : out) ?? named;
+        } catch (err) {
+          if (!/permission denied|42501|column "id"/i.test(String((err as Error).message))) throw kindNotTaken(err);
+          unnamed = true;
+        }
+      }
+      const { id: _id, ...plain } = named;
+      try {
+        const out = await call('/rest/v1/phone_commands', { method: 'POST', keepalive: true, headers: { prefer: 'return=representation' }, body: JSON.stringify(plain) });
+        return Array.isArray(out) ? out[0] : out;
+      } catch (err) { throw kindNotTaken(err); }
+    },
+    /** A file into her own folder of a private bucket; one already there by that name is the same file. */
+    async putFile(bucket: string, path: string, bytes: Uint8Array, type: string) {
+      try {
+        await call(`/storage/v1/object/${bucket}/${path.split('/').map(encodeURIComponent).join('/')}`, { method: 'POST', headers: { 'content-type': type, 'x-upsert': 'false' }, body: bytes as BodyInit });
+      } catch (err) {
+        if ((err as { status?: number }).status === 409 || /exists|duplicate/i.test(String((err as Error).message))) return;
+        throw err;
+      }
     },
     /** Links to her own files in a private bucket, each good for `seconds`: path -> address. */
     async signFiles(bucket: string, paths: string[], seconds = 3600): Promise<Map<string, string>> {

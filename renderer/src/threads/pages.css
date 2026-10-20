@@ -115,6 +115,10 @@
 /* PINNED (w-20323283e6): the same faint ink and the same plain inline box, so
    the row's underline runs through it like the others. */
 .th-pin { display: inline; margin-left: 9px; color: var(--text-faint); vertical-align: -2px; }
+/* A run in the cloud: the running mark is a cloud, pulsing with the dot.
+   14px wide with 6px after it, so its title starts where a dot's does. */
+.th-st-cloud { display: inline; flex: none; margin-right: 6px; color: var(--accent); vertical-align: -1px; animation: th-breathe 1.6s ease-in-out infinite; }
+@keyframes th-breathe { 50% { opacity: .45; } }
 .th-shared-n { display: inline; margin-left: 3px; font: 10.5px var(--mono); color: var(--text-faint); vertical-align: 0.75px; }
 
 /* NOT STARTED, ON THE ROW (w-afb66e6661) was a boxed capital tag here. It is
@@ -401,9 +405,8 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 
 /* IN PROGRESS, AND AN AGENT ON IT NOW (2026-10-01). Queued and running share
    the word; only the ones an agent is on turn. */
-.th-st.live { animation: th-turn 1.6s linear infinite; }
-@keyframes th-turn { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .th-st.live { animation: none; } }
+.th-st.live { animation: th-breathe 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .th-st.live, .th-st-cloud { animation: none; } }
 .th-cell-title .th-st.live { margin-right: 8px; top: 1px; }
 .th-card .m .th-st.live { margin-right: 8px; top: 0; }
 
@@ -458,3 +461,6 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 
 /* An account being added: the moving mark on the line, beside its words. */
 .th-cloud-banner-say:has(.cs-busy) { display: flex; align-items: center; gap: 9px; }
+
+/* On the hosted phone, over the list: what it shows may be out of date. */
+.phone-status { margin: 6px 16px 2px; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--text-dim); font-size: 13px; line-height: 1.4; }
