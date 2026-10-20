@@ -536,6 +536,15 @@ export class Supervisor {
       this.threadPins = Object.fromEntries(Object.entries(state.threadPins ?? {}).filter(([, v]) => v === true));
       // Threads she keeps on this Mac whatever the cloud is set to.
       this.threadOnMac = Object.fromEntries(Object.entries(state.threadOnMac ?? {}).filter(([, v]) => v === true));
+      // Threads the app moved here for one request (`_moveToMac`). A state
+      // saved before moves had their own key held both in `threadOnMac`, and
+      // nearly all of those were moves.
+      if (Object.hasOwn(state, 'movedToMac')) {
+        this.movedToMac = Object.fromEntries(Object.entries(state.movedToMac ?? {}).filter(([, v]) => Number.isFinite(v)));
+      } else {
+        this.movedToMac = Object.fromEntries(Object.keys(this.threadOnMac).map((id) => [id, Date.now()]));
+        this.threadOnMac = {};
+      }
     } catch {
       this._handledAnswers = new Set();
       this._resumedWaits = new Set();
@@ -554,6 +563,7 @@ export class Supervisor {
       this.threadPlaces = {};
       this.threadPins = {};
       this.threadOnMac = {};
+      this.movedToMac = {};
     }
     // WHICH ROWS NOTHING HAS BEEN ABLE TO RUN ON, as of the last tick, for the
     // line above her list. Deliberately NOT persisted: it is derived from
@@ -3519,6 +3529,8 @@ export class Supervisor {
       if (keep === true) this.threadOnMac[id] = true;
       else if (keep === null || keep === false) delete this.threadOnMac[id];
       changed ||= was !== (this.threadOnMac[id] === true);
+      // The person's choice either way replaces a move the app made.
+      if (keep !== undefined && id in this.movedToMac) { delete this.movedToMac[id]; changed = true; }
       const session = this.sessions.get(id);
       if (keep === true && session?.cloud) {
         this._kill(session);
@@ -3531,18 +3543,30 @@ export class Supervisor {
   }
 
   // A CLOUD RUN THAT ENDED ON THE MARKED LINE (shared/cloud-hand-back.mjs):
-  // its request needs this Mac. The thread is kept here from now on, nothing
-  // it said goes on the row, and the same request runs again here, told why
-  // (`replyBrief`). True when it was one.
+  // its request needs this Mac. Nothing it said goes on the row, and the same
+  // request runs again here, told why (`replyBrief`). True when it was one.
   _noteCloudHandBack(item, session) {
     if (!session?.cloud || session.resultIsError || !handsBack(session.result)) return false;
     session.handedBack = true;
     this._handedBack ??= new Set();
     this._handedBack.add(item.id);
-    // Not `setThreadOnMac`, which would stop this session as it ends.
-    this.threadOnMac[item.id] = true;
-    this._saveState();
+    this._moveToMac(item.id);
     return true;
+  }
+
+  // THE APP'S OWN MOVE TO THIS MAC LASTS ONE REQUEST. The person's "Keep on
+  // this Mac" (`threadOnMac`) is for good; this one is spent once a run here
+  // has carried the request to an answer, and the next reply goes to the cloud
+  // first again.
+  _moveToMac(id) {
+    this.movedToMac[id] = Date.now();
+    this._saveState();
+  }
+
+  _spendMoveToMac(item, session) {
+    if (!item?.id || !(item.id in this.movedToMac) || session?.cloud || session?.exitFailed !== false) return;
+    delete this.movedToMac[item.id];
+    this._saveState();
   }
 
   // The snapshot's items with each one's place, pin and keep-on-this-Mac on
@@ -4593,8 +4617,8 @@ export class Supervisor {
   // A THREAD THE CLOUD CANNOT RUN RUNS HERE, rather than being started there
   // again at every check: a folder the cloud refused (KEEP_ON_MAC), or a
   // thread whose cloud starts died CLOUD_STARTS_TO_GIVE_UP times in a row
-  // before its agent started. Kept on this Mac as a hand-back is, so no
-  // attempt is spent and the next delivery runs here. True when it was kept.
+  // before its agent started. Moved to this Mac as a hand-back is, so no
+  // attempt is spent and the next delivery runs here. True when it was moved.
   _cloudKeptOnMac(item, session, code, signal = null) {
     if (!session?.cloud || !item?.id) return false;
     this._cloudStartFails ??= new Map();
@@ -4614,8 +4638,7 @@ export class Supervisor {
     session.handedBack = true;
     this._handedBack ??= new Set();
     this._handedBack.add(item.id);
-    this.threadOnMac[item.id] = true;
-    this._saveState();
+    this._moveToMac(item.id);
     return true;
   }
 
@@ -4674,7 +4697,7 @@ export class Supervisor {
   // command she typed, or a Remote Control session stays on this Mac.
   _mayRunInCloud(item, product, cwd, { remoteOnly = false } = {}) {
     if (remoteOnly) return false;
-    if (item?.id && this.threadOnMac?.[item.id] === true) return false;
+    if (item?.id && (this.threadOnMac?.[item.id] === true || item.id in (this.movedToMac ?? {}))) return false;
     if (!product?.repoPath || !cwd || cwd === product.repoPath) return false;
     if ((this.config.personalProducts || []).includes(product.slug)) return false;
     return !item?.id?.startsWith?.('digest-');
@@ -4947,7 +4970,7 @@ export class Supervisor {
   // The part of `_mayRunInCloud` that can be asked before a row has a folder.
   _cloudEligible(item) {
     if (!item || String(item.id || '').startsWith('digest-')) return false;
-    if (this.threadOnMac?.[item.id] === true) return false;
+    if (this.threadOnMac?.[item.id] === true || item.id in (this.movedToMac ?? {})) return false;
     const product = this.store.listProducts?.().find((p) => p.slug === item.product);
     if (!product?.repoPath) return false;
     return !(this.config.personalProducts || []).includes(product.slug);
@@ -5281,6 +5304,7 @@ export class Supervisor {
         threadPlaces: this.threadPlaces,
         threadPins: this.threadPins,
         threadOnMac: this.threadOnMac,
+        movedToMac: this.movedToMac,
         liveSessions: this._liveSessions,
         rowSessions: this._rowSessions,
         compactions: this._compactions,
@@ -8656,7 +8680,8 @@ export class Supervisor {
       this._noteHowTheRunStarted(item, session);
       onLine(`session exited (${code})`);
       if (this._noteCloudHandBack(item, session)) onLine('the cloud handed this thread back to this computer');
-      else if (this._cloudKeptOnMac(item, session, code, signal)) onLine('the cloud could not run this thread, so it runs on this computer from now on');
+      else if (this._cloudKeptOnMac(item, session, code, signal)) onLine('the cloud could not run this thread, so this request runs on this computer');
+      this._spendMoveToMac(item, session);
       // WHAT THE RUN CHANGED, SAVED WHERE SHE CAN OPEN IT.
       //
       // A tester could not see code on their onboarding call because there was no
