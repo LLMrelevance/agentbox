@@ -28,7 +28,7 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNod
 import { Face, TeamContext, firstName } from '../team/people';
 import { activitySummary, keepActivityKeyLocal } from '../activity-summary';
 import { actWhen, actWords } from '../act-line';
-import { herTurnEnds, herTurnStarts } from '../her-turns';
+import { herTurnEnds, herTurnStarts, threadParts } from '../her-turns';
 import { holdAtBottom } from '../thread-bottom';
 import { onCloudPhone, onPhone } from '../phone-screen';
 import { typedParts } from '../typed-message';
@@ -238,6 +238,8 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
   const cutAt = nodes.findIndex((e) => (e.kind === 'run' ? e.items[e.items.length - 1]?.i : e.i) === gapAfter);
   const turnStarts = herTurnStarts(nodes, cutAt);
   const turnEnds = herTurnEnds(nodes, cutAt);
+  // A chat has no turns, so each message is a part of its own.
+  const exchanges = chat ? nodes.map((_, n) => n) : threadParts(nodes, cutAt);
   // A CONVERSATION WITH A PERSON IS LAID OUT AS A CHAT (w-2e8aa16f0f): a face
   // in a column, one head per run of messages, a line for each day. Which
   // message opens what is ../team/chat-layout.ts; a folded run is work to it.
@@ -312,7 +314,7 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
           : slot && !slot.head ? 'is-msg is-chat-cont'
           : e.same ? 'is-msg-same' : 'is-msg';
         return (
-        <div key={`${e.at}-${key}-${n}`} className={`thread-block ${holds} ${ends === gapAfter ? 'has-gap' : ''}${chat && e.kind !== 'work' && e.kind !== 'run' && e.uid && e.uid === openThread ? ' is-thread-open' : ''}`}>
+        <div key={`${e.at}-${key}-${n}`} className={`thread-block ${holds} ${ends === gapAfter ? 'has-gap' : ''}${chat && e.kind !== 'work' && e.kind !== 'run' && e.uid && e.uid === openThread ? ' is-thread-open' : ''}`} data-exchange={exchanges[n]}>
           {slot?.day && <div className="chat-day">{slot.day}</div>}
           {e.kind === 'work' && e.yours
             ? <ActLine act={e} />

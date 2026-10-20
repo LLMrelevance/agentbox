@@ -9052,6 +9052,9 @@ body.neo-on.neo-orb-away .ts-panel .ts-foot { opacity: 1; }
 @keyframes pv-pic-in { from { opacity: 0; scale: .97; } }
 .pv-img.pv-zoomed { cursor: grab; transition: none; }
 .pv-img.pv-zoomed:active { cursor: grabbing; }
+/* The last picture held while the next one is read; dimmed only if that takes a moment. */
+.pv-img.pv-waiting { opacity: .45; transition: transform .2s cubic-bezier(.2, .8, .2, 1), opacity .2s ease .25s; }
+.pv-missing { margin: 0; font-size: 13px; color: color-mix(in srgb, var(--read-paper) 62%, transparent); }
 
 /* The controls fade once the pointer rests, leaving only the picture. */
 .pv-chrome { z-index: 2; transition: opacity .35s ease, background .15s, color .15s; }
@@ -9071,17 +9074,18 @@ body.neo-on.neo-orb-away .ts-panel .ts-foot { opacity: 1; }
 .pv-icon:hover { color: var(--read-paper); background: color-mix(in srgb, var(--read-paper) 9%, transparent); }
 .pv-rule { width: 1px; height: 18px; margin: 0 6px; background: color-mix(in srgb, var(--read-paper) 14%, transparent); }
 
-.pv-strip { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 8px;
+/* The open picture is twice the size of the rest, so it is found at a glance even among
+   screenshots that all look alike. */
+.pv-strip { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 8px;
   max-width: calc(100% - 64px); overflow-x: auto; }
-.pv-thumb { flex: none; width: 72px; height: 45px; padding: 0; border: 0; border-radius: var(--radius); overflow: hidden; cursor: pointer;
-  background: color-mix(in srgb, var(--read-paper) 6%, transparent); opacity: .38;
-  outline: 1px solid transparent; outline-offset: 3px; transition: opacity .2s, outline-color .2s; }
+.pv-thumb { flex: none; width: 56px; height: 35px; padding: 0; border: 0; border-radius: var(--radius); overflow: hidden; cursor: pointer;
+  background: color-mix(in srgb, var(--read-paper) 6%, transparent); opacity: .4; transition: width .2s, height .2s, opacity .2s; }
 .pv-thumb:hover { opacity: .75; }
-.pv-thumb.is-on { opacity: 1; outline-color: color-mix(in srgb, var(--read-paper) 85%, transparent); }
+.pv-thumb.is-on { width: 112px; height: 70px; opacity: 1; box-shadow: 0 0 0 1px color-mix(in srgb, var(--read-paper) 30%, transparent); }
 .pv-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* The picture's own colours, blurred, light the room; the controls are frosted glass over it. */
-.pv-glow { position: absolute; inset: -12%; background-size: cover; background-position: center;
+.pv-glow { position: absolute; left: -12%; top: -12%; width: 124%; height: 124%; object-fit: cover; pointer-events: none;
   filter: blur(80px) saturate(1.8) brightness(.95); opacity: .7; animation: pv-in .6s ease-out; }
 .picture-view::after { content: ''; position: absolute; inset: 0; pointer-events: none;
   background: radial-gradient(closest-side, transparent 55%, color-mix(in srgb, var(--read-ground) 70%, transparent)); }
@@ -9093,7 +9097,7 @@ body.neo-on.neo-orb-away .ts-panel .ts-foot { opacity: 1; }
 
 /* The step arrows: a thin chevron, and the edge of the window is the button. It stops short of
    the bar above and the strip below, or it lies over the close button and the thumbnails. */
-.pv-step { position: absolute; top: 78px; bottom: 96px; width: 104px; display: grid; place-items: center; padding: 0; border: 0; cursor: pointer;
+.pv-step { position: absolute; top: 78px; bottom: 108px; width: 104px; display: grid; place-items: center; padding: 0; border: 0; cursor: pointer;
   background: none; color: color-mix(in srgb, var(--read-paper) 40%, transparent); }
 .pv-step svg { width: 30px; height: 30px; }
 .pv-step:hover:not(:disabled) { color: var(--read-paper); }

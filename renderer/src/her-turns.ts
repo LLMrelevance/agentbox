@@ -32,6 +32,19 @@ export function herTurnStarts(nodes: TurnNode[], cutAfter = -1): boolean[] {
   });
 }
 
+// WHICH PART OF THE CONVERSATION EACH NODE IS IN: a turn of the person's and
+// everything after it up to their next. A picture opened from the thread steps
+// through the pictures of its own part only (../picture-view.ts). The cut
+// middle starts a new part, since what joined the two sides is out of sight.
+export function threadParts(nodes: TurnNode[], cutAfter = -1): number[] {
+  const starts = herTurnStarts(nodes, cutAfter);
+  let part = 0;
+  return nodes.map((_, n) => {
+    if (starts[n] || (n > 0 && n - 1 === cutAfter)) part++;
+    return part;
+  });
+}
+
 // AND WHERE IT ENDS. The first build ruled only ABOVE her turn, and the result
 // read the other way round, as if the divider were in the wrong place. With a
 // line on one side only,

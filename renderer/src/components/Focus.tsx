@@ -71,7 +71,7 @@ import { fileCount, figuresFrom, figuresLabel, signed, type ChangeFigures } from
 import { embeddedDocuments, isBookkeeping } from '../message-artifacts';
 import { opensInPane } from '../doc-pane';
 import { opensAsPicture } from '../picture-view';
-import { PictureView, picturesOnScreen, type Picture } from './PictureView';
+import { PictureView, picturesFor, type Picture } from './PictureView';
 import { watchScrollGutter } from '../scroll-gutter';
 import { artifactUrlTransform, isMediaPath, productPath, remarkArtifactPaths } from '../remark-artifact-paths';
 import { api } from '../api';
@@ -200,7 +200,7 @@ function CodePre({ children }: { children?: ReactNode }) {
 // which also hunts the project for the name. A picture a click could open and
 // the window drew as "missing image" was the screenshot on w-7fe215448b.
 export function ArtifactImg({ src, alt, roots, onOpen, find }: {
-  src?: string; alt?: string; roots: string[]; onOpen?: (src: string) => void;
+  src?: string; alt?: string; roots: string[]; onOpen?: (src: string, from?: HTMLElement) => void;
   find?: (src: string) => Promise<string | null>;
 }) {
   const [attempt, setAttempt] = useState(0);
@@ -256,8 +256,9 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
         type="button"
         className="inline-image-open"
         data-copy-file={/^https?:/.test(path) ? undefined : path}
+        data-picture={path}
         title={path}
-        onClick={() => onOpen(path)}
+        onClick={(e) => onOpen(path, e.currentTarget)}
       >{picture}</button>
     )
     : picture);
@@ -376,7 +377,7 @@ const folderSeen = new Map<string, { pictures: string[]; total: number }>();
 // for a thread's own designs is "Designs for this thread" (mentions.ts); the
 // path waits in the hover title.
 export function FolderPreview({ product, folder, onOpen, quiet, thread }: {
-  product: string; folder: string; onOpen: (src: string) => void; quiet?: boolean; thread?: string;
+  product: string; folder: string; onOpen: (src: string, from?: HTMLElement) => void; quiet?: boolean; thread?: string;
 }) {
   const navigation = useContext(TicketNavigation);
   const key = `${product}\n${folder}`;
@@ -426,7 +427,7 @@ export function FolderPreview({ product, folder, onOpen, quiet, thread }: {
         {pictures.map((file) => {
           const base = file.split('/').pop() ?? file;
           return (
-            <button key={file} type="button" className="folder-preview-shot" data-copy-file={file} title={base} onClick={() => onOpen(file)}>
+            <button key={file} type="button" className="folder-preview-shot" data-copy-file={file} data-picture={file} title={base} onClick={(e) => onOpen(file, e.currentTarget)}>
               <img src={pictureUrl(file)} alt={base} crossOrigin="anonymous" loading="lazy" />
               <span className="folder-preview-label">{base}</span>
             </button>
@@ -1060,12 +1061,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // current actions without making them React component identities: replacing
   // an `a` renderer remounts all its players and resets missing-file retries.
   const [picture, setPicture] = useState<{ pictures: Picture[]; start: number } | null>(null);
-  const openPicture = (href: string) => {
-    const pictures = picturesOnScreen(paneRef.current);
-    const start = pictures.findIndex((p) => p.path === href);
-    if (start >= 0) setPicture({ pictures, start });
-    else setPicture({ pictures: [{ path: href, url: null }], start: 0 });
-  };
+  const openPicture = (href: string, from?: HTMLElement) => setPicture(picturesFor(paneRef.current, href, from));
   const markdownActions = useRef({ onOpenDoc, onNotice, openPicture });
   useLayoutEffect(() => { markdownActions.current = { onOpenDoc, onNotice, openPicture }; });
 
@@ -1102,11 +1098,11 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     // wrong file, which is worse.
     //
     // A miss now SAYS SO.
-    const openHref = (href?: string) => {
+    const openHref = (href?: string, from?: HTMLElement) => {
       if (!href) return;
       const { onOpenDoc, onNotice, openPicture } = markdownActions.current;
       // A picture opens large over the thread; the pane squeezed it to half the window.
-      if (opensAsPicture(href)) { openPicture(href); return; }
+      if (opensAsPicture(href)) { openPicture(href, from); return; }
       // A PAGE OR A MARKDOWN FILE OPENS IN THE PANE.Everything else still goes
       // to the app that owns it, because Preview draws a png better than we
       // ever will.
