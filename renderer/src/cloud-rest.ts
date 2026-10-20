@@ -119,6 +119,11 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
     async signInWithPassword(email: string, password: string) {
       return signIn('/auth/v1/token?grant_type=password', { email, password });
     },
+    // The phone app's native sign-in: the token Apple handed it, and the
+    // unhashed nonce Apple was asked with.
+    async signInWithIdToken(provider: 'apple' | 'google', idToken: string, nonce?: string) {
+      return signIn('/auth/v1/token?grant_type=id_token', { provider, id_token: idToken, ...(nonce ? { nonce } : {}) });
+    },
     // A new account may have to confirm its email first; then there is no
     // session yet, and the page says to look for the email.
     async signUp(name: string, email: string, password: string): Promise<{ confirm: boolean }> {

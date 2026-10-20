@@ -26,9 +26,9 @@ describe('when a limit resets, in words', () => {
     expect(resetWords(limit('session', 9, { resetsAt: on(20, 18, 19) }), now)).toBe('6:19pm');
   });
 
-  it('another day carries the date, so a week reset is never read as today', () => {
-    expect(resetWords(limit('week', 37, { resetsAt: on(22, 16) }), now)).toBe('Oct 22, 4pm');
-    expect(resetWords(limit('session', 9, { resetsAt: on(21, 0, 30) }), now)).toBe('Oct 21, 12:30am');
+  it('another day leads with its weekday (tests/a-reset-says-its-weekday)', () => {
+    expect(resetWords(limit('week', 37, { resetsAt: on(22, 16) }), now)).toBe('Thu 4pm');
+    expect(resetWords(limit('session', 9, { resetsAt: on(21, 0, 30) }), now)).toBe('Wed 12:30am');
   });
 
   it('a reading with only the words Claude Code printed keeps them', () => {
@@ -47,15 +47,15 @@ describe('the meters on every account tile', () => {
   it('her case: a meter at 9% says when it resets', () => {
     const [session, week] = meterPair([limit('session', 9, { resetsAt: on(20, 18, 19) }), limit('week', 37, { resetsAt: on(22, 16) })], now);
     expect(session.resets).toBe('6:19pm');
-    expect(week.resets).toBe('Oct 22, 4pm');
-    expect(times(draw([limit('session', 9, { resetsAt: on(20, 18, 19) }), limit('week', 37, { resetsAt: on(22, 16) })]))).toEqual(['6:19pm', 'Oct 22, 4pm']);
+    expect(week.resets).toBe('Thu 4pm');
+    expect(times(draw([limit('session', 9, { resetsAt: on(20, 18, 19) }), limit('week', 37, { resetsAt: on(22, 16) })]))).toEqual(['6:19pm', 'Thu 4pm']);
   });
 
   it('a full meter keeps its number and still says when it resets', () => {
     const html = draw([limit('session', 100, { resetsText: '5:09pm' }), limit('week', 15, { resetsAt: on(26, 11, 59) })]);
     expect(html).toContain('acct-meter full');
     expect(html).toContain('100%');
-    expect(times(html)).toEqual(['5:09pm', 'Oct 26, 11:59am']);
+    expect(times(html)).toEqual(['5:09pm', 'Mon 11:59am']);
   });
 
   it('one at 0% and one at 99% say it the same way', () => {
