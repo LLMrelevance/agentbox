@@ -404,7 +404,8 @@ export function cloudLimits(read) {
     span: l.span === 'week' ? 'week' : 'session',
     qualifier: l.span === 'week' ? 'all models' : null,
     name: l.span === 'week' ? 'This week' : 'This session',
-    percent: l.percent, resetsText: null, resetsOn: null, resetsAt: l.resetsAt ?? null, zone: null,
+    // A session over its allowance reports utilization past 1.0.
+    percent: Math.min(100, l.percent), resetsText: null, resetsOn: null, resetsAt: l.resetsAt ?? null, zone: null,
   }));
 }
 

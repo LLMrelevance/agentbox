@@ -15,9 +15,17 @@
 // drive that throws or is killed leaves no orphan behind.
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { guard, sweep } from '../../../../scripts/lib/chrome-guard.mjs';
 
-export const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+/** Google Chrome on a Mac; elsewhere `VERIFY_CHROME`, or the Chromium Playwright installed (the Linux cloud has it). */
+export function findChrome(platform = process.platform, env = process.env, playwright = () => createRequire(import.meta.url)('playwright')) {
+  if (platform === 'darwin') return MAC_CHROME;
+  if (env.VERIFY_CHROME) return env.VERIFY_CHROME;
+  try { return playwright().chromium.executablePath(); } catch { return MAC_CHROME; }
+}
+export const CHROME = findChrome();
 
 const KEYS = {
   Enter: { code: 'Enter', keyCode: 13 },
@@ -66,7 +74,13 @@ export async function openTab(url, { width = 1440, height = 900 } = {}) {
  */
 export async function connect(wsUrl, { width = 1440, height = 900, targetId: existing = null } = {}) {
   const ws = new WebSocket(wsUrl);
-  await new Promise((r) => { ws.onopen = r; });
+  // A Chrome that has gone never opens the socket; without a deadline Node
+  // exits with "unsettled top-level await" and nothing says why.
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Chrome did not answer at ${wsUrl}`)), 10_000);
+    ws.onopen = () => { clearTimeout(timer); resolve(); };
+    ws.onerror = () => { clearTimeout(timer); reject(new Error(`Chrome is not there any more (${wsUrl})`)); };
+  });
   let nextId = 1;
   const pending = new Map();
   const events = [];

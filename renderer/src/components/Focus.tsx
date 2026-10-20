@@ -51,7 +51,7 @@ import { commandDraft } from '../../../shared/claude-commands.mjs';
 import { CompactionResult, runCompaction, runCommand } from './CompactionResult';
 import { codexCommand, COMPACTION_COPY } from '../../../shared/codex-commands.mjs';
 import { DEFAULT_ENGINE } from '../../../shared/engines.mjs';
-import { dayLabel, itemOptions, offerIsLive, optionsFrom, parseOptions, parseRepeat, type ParsedOption } from '../format';
+import { dayLabel, itemOptions, offerIsLive, optionsFrom, parseOptions, parseRepeat, stripOptionsSection, type ParsedOption } from '../format';
 import { ruleIdOf } from '../../../shared/repeats.mjs';
 import { shownPriority } from '../../../shared/rank.mjs';
 import { WhenPicker } from './When';
@@ -71,11 +71,12 @@ import { fileCount, figuresFrom, figuresLabel, signed, type ChangeFigures } from
 import { embeddedDocuments, isBookkeeping } from '../message-artifacts';
 import { opensInPane } from '../doc-pane';
 import { opensAsPicture } from '../picture-view';
-import { PictureView, picturesOnScreen, type Picture } from './PictureView';
+import { PictureView, picturesFor, type Picture } from './PictureView';
 import { watchScrollGutter } from '../scroll-gutter';
-import { artifactUrlTransform, isMediaPath, productPath, remarkArtifactPaths } from '../remark-artifact-paths';
+import { CODE_PATH, artifactUrlTransform, isMediaPath, productPath, remarkArtifactPaths } from '../remark-artifact-paths';
 import { api } from '../api';
-import { draftKey, readDraft, saveDraft, clearDraft, readDraftAttachments, saveDraftAttachments, type SentDraft } from '../drafts';
+import { draftKey, readDraft, saveDraft, clearDraft, readDraftAttachments, saveDraftAttachments, readDraftPick, saveDraftPick, type SentDraft } from '../drafts';
+import { effortSaid, pickOnTheRow, pickToSend, replyOpensOn } from '../reply-pick';
 import { withQuote } from '../team/chat-quote';
 import { THREAD_WIDTH, THREAD_WIDTH_KEY, clampThreadWidth, threadToOpen } from '../team/chat-threads';
 import { whatWaits } from '../../../shared/team-rules.mjs';
@@ -116,27 +117,10 @@ import { AGENT_SCHEME } from '../team/agent-mentions';
 import { engineModelLabel } from '../models';
 import { lookAgainAfter } from '../picture-looks-again';
 
-// With the options strip riding on the composer, the field's own "## Options"
-// section would say everything twice; drop the heading and its numbered items
-// (prose after the list stays). Only called while the strip is visible, and
-// only on the field the offer actually came from: an answered item keeps the
-// list where it was written, as the record of what was offered.
-function stripOptionsSection(body: string): string {
-  const lines = body.split('\n');
-  const out: string[] = [];
-  let inOptions = false;
-  for (const line of lines) {
-    if (/^#{1,4}\s/.test(line)) inOptions = /option/i.test(line);
-    else if (inOptions && line.trim() && !/^\s*\d+[.)]\s/.test(line)) inOptions = false;
-    if (!inOptions) out.push(line);
-  }
-  return out.join('\n');
-}
-
 // A relative product path is an artifact, however the worker wrote it:
 // images render inline, other files become links, and .html demos embed
 // below as live frames. Mechanism, not prompt hope.
-const PATH_RE = /^[\w-][\w./-]*\.(png|jpe?g|gif|webp|html?|pdf|md|csv|txt|json|mp3|wav|m4a|aac|ogg|mp4|mov|m4v|webm)$/i;
+const PATH_RE = CODE_PATH;
 
 // remarkArtifactPaths is what makes a path a worker typed into a sentence a
 // link like any other. Three ways to name a file were already in use and only
@@ -200,7 +184,7 @@ function CodePre({ children }: { children?: ReactNode }) {
 // which also hunts the project for the name. A picture a click could open and
 // the window drew as "missing image" was the screenshot on w-7fe215448b.
 export function ArtifactImg({ src, alt, roots, onOpen, find }: {
-  src?: string; alt?: string; roots: string[]; onOpen?: (src: string) => void;
+  src?: string; alt?: string; roots: string[]; onOpen?: (src: string, from?: HTMLElement) => void;
   find?: (src: string) => Promise<string | null>;
 }) {
   const [attempt, setAttempt] = useState(0);
@@ -256,8 +240,9 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
         type="button"
         className="inline-image-open"
         data-copy-file={/^https?:/.test(path) ? undefined : path}
+        data-picture={path}
         title={path}
-        onClick={() => onOpen(path)}
+        onClick={(e) => onOpen(path, e.currentTarget)}
       >{picture}</button>
     )
     : picture);
@@ -376,7 +361,7 @@ const folderSeen = new Map<string, { pictures: string[]; total: number }>();
 // for a thread's own designs is "Designs for this thread" (mentions.ts); the
 // path waits in the hover title.
 export function FolderPreview({ product, folder, onOpen, quiet, thread }: {
-  product: string; folder: string; onOpen: (src: string) => void; quiet?: boolean; thread?: string;
+  product: string; folder: string; onOpen: (src: string, from?: HTMLElement) => void; quiet?: boolean; thread?: string;
 }) {
   const navigation = useContext(TicketNavigation);
   const key = `${product}\n${folder}`;
@@ -426,7 +411,7 @@ export function FolderPreview({ product, folder, onOpen, quiet, thread }: {
         {pictures.map((file) => {
           const base = file.split('/').pop() ?? file;
           return (
-            <button key={file} type="button" className="folder-preview-shot" data-copy-file={file} title={base} onClick={() => onOpen(file)}>
+            <button key={file} type="button" className="folder-preview-shot" data-copy-file={file} data-picture={file} title={base} onClick={(e) => onOpen(file, e.currentTarget)}>
               <img src={pictureUrl(file)} alt={base} crossOrigin="anonymous" loading="lazy" />
               <span className="folder-preview-label">{base}</span>
             </button>
@@ -878,7 +863,10 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // Not on a running agent's row (a message goes straight into it) or on a
   // message to a person (no agent reads it).
   const modelWord = !agent && !direct
-    ? engineModelLabel(runningEngine ?? null, item.model ?? null, { codexModels, codexDefault: codexModelDefault })
+    // Through `pickOnTheRow`, because a cleared model is stored as '' and this
+    // read it with `??`: the pill then drew no model word at all, on every
+    // thread she had ever changed the model of (../reply-pick.ts).
+    ? engineModelLabel(runningEngine ?? null, pickOnTheRow(item).model, { codexModels, codexDefault: codexModelDefault })
     : null;
   const [openModel, setOpenModel] = useState(false);
   useEffect(() => { if (!replyOpen) setOpenModel(false); }, [replyOpen]);
@@ -1060,12 +1048,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // current actions without making them React component identities: replacing
   // an `a` renderer remounts all its players and resets missing-file retries.
   const [picture, setPicture] = useState<{ pictures: Picture[]; start: number } | null>(null);
-  const openPicture = (href: string) => {
-    const pictures = picturesOnScreen(paneRef.current);
-    const start = pictures.findIndex((p) => p.path === href);
-    if (start >= 0) setPicture({ pictures, start });
-    else setPicture({ pictures: [{ path: href, url: null }], start: 0 });
-  };
+  const openPicture = (href: string, from?: HTMLElement) => setPicture(picturesFor(paneRef.current, href, from));
   const markdownActions = useRef({ onOpenDoc, onNotice, openPicture });
   useLayoutEffect(() => { markdownActions.current = { onOpenDoc, onNotice, openPicture }; });
 
@@ -1102,11 +1085,11 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     // wrong file, which is worse.
     //
     // A miss now SAYS SO.
-    const openHref = (href?: string) => {
+    const openHref = (href?: string, from?: HTMLElement) => {
       if (!href) return;
       const { onOpenDoc, onNotice, openPicture } = markdownActions.current;
       // A picture opens large over the thread; the pane squeezed it to half the window.
-      if (opensAsPicture(href)) { openPicture(href); return; }
+      if (opensAsPicture(href)) { openPicture(href, from); return; }
       // A PAGE OR A MARKDOWN FILE OPENS IN THE PANE.Everything else still goes
       // to the app that owns it, because Preview draws a png better than we
       // ever will.
@@ -2289,14 +2272,31 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
      mid-flight. On a row with a worker already on it this sets what picks up the
      turn after, and the drawer's own sentence is the only promise made.
   */
-  const [touched, setTouched] = useState(false);
-  const [model, setModel] = useState<string | null>(item.model ?? null);
-  const [effort, setEffort] = useState<string | null>(item.effort ?? null);
+  const [touched, setTouched] = useState(() => replyOpensOn(item, readDraftPick(item)).touched);
+  const [model, setModel] = useState<string | null>(() => replyOpensOn(item, readDraftPick(item)).pick.model);
+  const [effort, setEffort] = useState<string | null>(() => replyOpensOn(item, readDraftPick(item)).pick.effort);
+  // ON THE ROW'S IDENTITY ONLY, the rule the mode below already follows and
+  // for the reason spelled out there: a snapshot arriving mid-sentence must
+  // not overwrite a pick she just made. The dependency list is pinned by
+  // tests/the-reply-box-keeps-the-model-you-picked-when-it-folds.
   useEffect(() => {
-    setTouched(false);
-    setModel(item.model ?? null);
-    setEffort(item.effort ?? null);
-  }, [item.product, item.id, item.model, item.effort]);
+    const opens = replyOpensOn(item, readDraftPick(item));
+    setTouched(opens.touched);
+    setModel(opens.pick.model);
+    setEffort(opens.pick.effort);
+  }, [item.product, item.id]);
+  // Written down as she makes it, beside her words, because this box dies when
+  // it folds and her sentence used to come back without it (../drafts.ts).
+  const pickTo = (next: { model?: string | null; effort?: string | null }) => {
+    const pick = {
+      model: next.model === undefined ? model : next.model,
+      effort: next.effort === undefined ? effort : next.effort,
+    };
+    setTouched(true);
+    setModel(pick.model);
+    setEffort(pick.effort);
+    saveDraftPick(item, pick);
+  };
   const ref = useRef<HTMLTextAreaElement | null>(null);
   // The hidden file input the formatting bar's attach button opens.
   const filePicker = useRef<HTMLInputElement>(null);
@@ -2458,8 +2458,11 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     // tag's rule: an untouched box must not write what it is merely displaying.
     // In a conversation, every agent mention goes out as its link, carrying the
     // project, model and effort the card holds (../team/agent-mentions.ts).
+    // THROUGH `pickToSend`, because the drawer reports the engine's own default
+    // as null and the store reads a null model as "clear it", so picking the
+    // default unpinned the thread rather than pinning it (../reply-pick.ts).
     onSend([chat.encode(words), attachedMd].filter(Boolean).join('\n\n'), prio ? priorityValueOf(prio) : undefined, repeat, sent, mode,
-      touched ? { model, effort } : undefined);
+      touched ? pickToSend({ model, effort }, { engine: runningEngine }) : undefined);
   };
   const hasDraft = !!text.trim() || attachments.length > 0;
   // NEO SENDS FROM THIS BOX WHEN THE PICTURES IN IT GO WITH ITS WORDS, so the
@@ -2560,6 +2563,12 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   // footer she could not find.
   const running: PermissionMode | CodexModeId = mode
     ?? (claudeCode ? (runningMode ?? 'auto') : CODEX_DEFAULT_MODE);
+  // The level this thread is set to, for the footer, or null when it is set to
+  // nothing and the engine is choosing.
+  const levelSaid = effortSaid({ model, effort }, { engine: runningEngine, codexModels, codexDefault: codexModelDefault });
+  // The drawer has been open at least once, so a close is really a close and
+  // not the first render reporting that it is shut.
+  const drawerWasOpen = useRef(false);
   /** What the chip and the toast say, in whichever engine's words this row is. */
   const statusOf = (m: PermissionMode | CodexModeId) => (claudeCode
     ? MODE_STATUS[m as PermissionMode]
@@ -2966,12 +2975,19 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           {'On '}
           <ModelPicker
             value={model}
-            onChange={(id) => { setTouched(true); setModel(id); }}
+            onChange={(id) => pickTo({ model: id })}
             engine={runningEngine}
             codexModels={codexModels}
             codexDefault={codexModelDefault}
             effort={effort}
-            onEffortChange={(id) => { setTouched(true); setEffort(id); }}
+            onEffortChange={(id) => pickTo({ effort: id })}
+            // AND THE BOX TAKES FOCUS BACK WHEN THE DRAWER SHUTS, because every
+            // way of closing it leaves focus on a button that has just been
+            // unmounted, which is the body, and ⌘↵ sends from the box.
+            onOpenChange={(drawer) => {
+              if (drawer) drawerWasOpen.current = true;
+              else if (drawerWasOpen.current) ref.current?.focus();
+            }}
             // TRUE WHETHER OR NOT A RUN IS UP. On an idle row the reply starts
             // a run on this model; on a running one the pick lands on the row
             // and the next run takes it, because a spawned harness cannot
@@ -2981,7 +2997,18 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
             // the folded box, which is what that word promised.
             openAtStart={openModel}
           />
-          {'.'}
+          {/* AND HOW HARD IT THINKS, WHEN THIS THREAD IS SET TO ANYTHING. The
+              level was readable in one place only, lit inside the drawer, and
+              the drawer is shut while she reads this line and decides to send.
+
+              ONLY WHEN THERE IS SOMETHING TO SAY. A level nobody set is the
+              engine's own choice for the model, which the drawer lights and
+              nothing sends, so the resting sentence is unchanged. It is also
+              why this clause is not on the new task card: that card opens
+              carrying a remembered level every time, so the word would be
+              permanent furniture there, and more words on that line is the one
+              thing she ruled out (./Model.tsx). */}
+          {levelSaid ? `, ${levelSaid}.` : '.'}
           </span>
           </>}
         </span>

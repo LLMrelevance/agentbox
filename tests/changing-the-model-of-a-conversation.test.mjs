@@ -88,12 +88,17 @@ describe('the wiring from the reply box is present in the source', () => {
   });
 
   it("shows the row's own model rather than a default", () => {
-    expect(focus).toContain('const [model, setModel] = useState<string | null>(item.model ?? null);');
-    expect(focus).toContain('const [effort, setEffort] = useState<string | null>(item.effort ?? null);');
+    // Through `replyOpensOn`, which is where the '' the store writes to clear a
+    // model stopped being read as a model whose name is the empty string
+    // (tests/a-reply-goes-out-on-the-model-you-picked).
+    expect(focus).toContain('const [model, setModel] = useState<string | null>(() => replyOpensOn(item, readDraftPick(item)).pick.model);');
+    expect(focus).toContain('const [effort, setEffort] = useState<string | null>(() => replyOpensOn(item, readDraftPick(item)).pick.effort);');
   });
 
   it('sends it only on a deliberate pick', () => {
-    expect(focus).toContain('touched ? { model, effort } : undefined');
+    // And through `pickToSend`, because the drawer reports the engine's own
+    // default as null and the store reads a null model as "clear it".
+    expect(focus).toContain('touched ? pickToSend({ model, effort }, { engine: runningEngine }) : undefined');
   });
 
   it('promises only what it can keep, on a running row as well as an idle one', () => {

@@ -10,6 +10,7 @@
 import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { awsTransport, awsStorage } from '../../main/cloud/aws.mjs';
 import { createGateway } from './gateway.mjs';
+import { stripeClient } from './stripe.mjs';
 
 const TIMEOUT_MS = 20_000;
 const http = { requestTimeout: TIMEOUT_MS, connectionTimeout: 5_000, throwOnRequestTimeout: true };
@@ -86,7 +87,10 @@ export async function gatewayFromEnv(env = process.env, { readSecret = (arn) => 
   const transport = awsTransport({ region, runtimeArn: env.RUNTIME_ARN });
   const signer = awsStorage({ region, bucket, credentials: { accessKeyId: key.id, secretAccessKey: key.secret } });
   const objects = bucketObjects({ region, bucket });
+  // Without it the server runs and says paying is not set up.
+  const billing = env.STRIPE_SECRET_ARN ? JSON.parse(await readSecret(env.STRIPE_SECRET_ARN)) : null;
   return createGateway({
+    ...(billing ? { stripe: stripeClient({ key: billing.key, webhookSecret: billing.webhookSecret }) } : {}),
     agentcore: transport,
     links: { get: signer.getUrl, put: signer.putUrl, head: signer.headUrl },
     removeObject: (k) => objects.del(k),
@@ -103,7 +107,9 @@ export function lambdaHandler(gw) {
     // ever read as one of the events below.
     if (event?.requestContext?.http) {
       const body = event.body ? (event.isBase64Encoded ? Buffer.from(event.body, 'base64').toString('utf8') : event.body) : '';
-      const out = await gw.handle({ method: event.requestContext.http.method, path: event.rawPath, headers: event.headers || {}, body });
+      const path = event.rawQueryString ? `${event.rawPath}?${event.rawQueryString}` : event.rawPath;
+      const out = await gw.handle({ method: event.requestContext.http.method, path, headers: event.headers || {}, body });
+      if (out.type === 'html') return { statusCode: out.status, headers: { 'content-type': 'text/html; charset=utf-8' }, body: out.body };
       return { statusCode: out.status, headers: { 'content-type': 'application/json' }, body: JSON.stringify(out.body) };
     }
     if (Array.isArray(event?.Records)) {
