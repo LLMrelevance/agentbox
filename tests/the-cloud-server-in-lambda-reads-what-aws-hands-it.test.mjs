@@ -190,4 +190,25 @@ describe('starting the server', () => {
     expect(asked).toEqual(['arn:secret']);
     expect(typeof gw.handle).toBe('function');
   });
+
+  it('reads Stripe\'s key from the secret store when it is set, and says paying is off when it is not', async () => {
+    const env = { REGION: 'us-east-1', BUCKET: 'b', RUNTIME_ARN: 'arn:r', SUPABASE_URL: 'https://db', SUPABASE_ANON_KEY: 'pub', SIGNER_SECRET_ARN: 'arn:secret' };
+    const asked = [];
+    const readSecret = async (arn) => { asked.push(arn); return JSON.stringify(arn === 'arn:stripe' ? { key: 'sk_test_x', webhookSecret: 'whsec_x' } : { id: 'AKIA-signer', secret: 's3cr3t' }); };
+    await gatewayFromEnv({ ...env, STRIPE_SECRET_ARN: 'arn:stripe' }, { readSecret });
+    expect(asked).toEqual(['arn:secret', 'arn:stripe']);
+    const off = await gatewayFromEnv(env, { readSecret });
+    // Unsigned, so a server with Stripe would say 400; one without says 503.
+    expect((await off.handle({ method: 'POST', path: '/v1/stripe', headers: {}, body: '{}' })).status).toBe(503);
+  });
+});
+
+describe('what a browser is sent back to', () => {
+  it('keeps the query, and answers as a page, not JSON', async () => {
+    const seen = [];
+    const gw = { handle: async (r) => { seen.push(r.path); return { status: 200, type: 'html', body: '<p>hi</p>' }; } };
+    const out = await lambdaHandler(gw)({ rawPath: '/v1/paid', rawQueryString: 'cancelled=1', headers: {}, requestContext: { http: { method: 'GET' } } });
+    expect(seen).toEqual(['/v1/paid?cancelled=1']);
+    expect(out).toEqual({ statusCode: 200, headers: { 'content-type': 'text/html; charset=utf-8' }, body: '<p>hi</p>' });
+  });
 });

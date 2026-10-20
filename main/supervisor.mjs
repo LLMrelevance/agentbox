@@ -41,6 +41,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, takeCloudNews } from './cloud/marker.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
+import { CLOUD_SENT, readSent } from '../shared/cloud-start.mjs';
 import { readCloudConfig, cloudAccountConfig, OLD_TOKEN_SERVICE, imageCaps } from './cloud/config.mjs';
 import { cloudVersionGaps } from '../shared/cloud-versions.mjs';
 import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
@@ -536,6 +537,15 @@ export class Supervisor {
       this.threadPins = Object.fromEntries(Object.entries(state.threadPins ?? {}).filter(([, v]) => v === true));
       // Threads she keeps on this Mac whatever the cloud is set to.
       this.threadOnMac = Object.fromEntries(Object.entries(state.threadOnMac ?? {}).filter(([, v]) => v === true));
+      // Threads the app moved here for one request (`_moveToMac`). A state
+      // saved before moves had their own key held both in `threadOnMac`, and
+      // nearly all of those were moves.
+      if (Object.hasOwn(state, 'movedToMac')) {
+        this.movedToMac = Object.fromEntries(Object.entries(state.movedToMac ?? {}).filter(([, v]) => Number.isFinite(v)));
+      } else {
+        this.movedToMac = Object.fromEntries(Object.keys(this.threadOnMac).map((id) => [id, Date.now()]));
+        this.threadOnMac = {};
+      }
     } catch {
       this._handledAnswers = new Set();
       this._resumedWaits = new Set();
@@ -554,6 +564,7 @@ export class Supervisor {
       this.threadPlaces = {};
       this.threadPins = {};
       this.threadOnMac = {};
+      this.movedToMac = {};
     }
     // WHICH ROWS NOTHING HAS BEEN ABLE TO RUN ON, as of the last tick, for the
     // line above her list. Deliberately NOT persisted: it is derived from
@@ -3533,6 +3544,8 @@ export class Supervisor {
       if (keep === true) this.threadOnMac[id] = true;
       else if (keep === null || keep === false) delete this.threadOnMac[id];
       changed ||= was !== (this.threadOnMac[id] === true);
+      // The person's choice either way replaces a move the app made.
+      if (keep !== undefined && id in (this.movedToMac ?? {})) { delete this.movedToMac[id]; changed = true; }
       const session = this.sessions.get(id);
       if (keep === true && session?.cloud) {
         this._kill(session);
@@ -3545,18 +3558,30 @@ export class Supervisor {
   }
 
   // A CLOUD RUN THAT ENDED ON THE MARKED LINE (shared/cloud-hand-back.mjs):
-  // its request needs this Mac. The thread is kept here from now on, nothing
-  // it said goes on the row, and the same request runs again here, told why
-  // (`replyBrief`). True when it was one.
+  // its request needs this Mac. Nothing it said goes on the row, and the same
+  // request runs again here, told why (`replyBrief`). True when it was one.
   _noteCloudHandBack(item, session) {
     if (!session?.cloud || session.resultIsError || !handsBack(session.result)) return false;
     session.handedBack = true;
     this._handedBack ??= new Set();
     this._handedBack.add(item.id);
-    // Not `setThreadOnMac`, which would stop this session as it ends.
-    this.threadOnMac[item.id] = true;
-    this._saveState();
+    this._moveToMac(item.id);
     return true;
+  }
+
+  // THE APP'S OWN MOVE TO THIS MAC LASTS ONE REQUEST. The person's "Keep on
+  // this Mac" (`threadOnMac`) is for good; this one is spent once a run here
+  // has carried the request to an answer, and the next reply goes to the cloud
+  // first again.
+  _moveToMac(id) {
+    (this.movedToMac ??= {})[id] = Date.now();
+    this._saveState();
+  }
+
+  _spendMoveToMac(item, session) {
+    if (!item?.id || !(item.id in (this.movedToMac ?? {})) || session?.cloud || session?.exitFailed !== false) return;
+    delete this.movedToMac[item.id];
+    this._saveState();
   }
 
   // The snapshot's items with each one's place, pin and keep-on-this-Mac on
@@ -4453,15 +4478,40 @@ export class Supervisor {
   }
 
   // Cloud runs still being packed and sent: a run's proxy holds its folder,
-  // documents and transcript in memory until its agent has started.
-  // A start older than CLOUD_START_PATIENCE_MS is stuck, not starting, and
-  // holds nothing back.
+  // documents and transcript in memory until the cloud has taken its start
+  // (`_noteCloudSent`). The wait for the cloud machine and its agent holds
+  // nothing here, so it does not count. A start older than
+  // CLOUD_START_PATIENCE_MS is stuck, not starting, and holds nothing back.
   _cloudStarting(now = Date.now()) {
     let n = 0;
     for (const s of this.sessions.values()) {
-      if (s.cloud && s.sessionId == null && s.result == null && now - (s.startedAt ?? now) < CLOUD_START_PATIENCE_MS) n += 1;
+      if (s.cloud && !s.cloudSentAt && s.sessionId == null && s.result == null && now - (s.startedAt ?? now) < CLOUD_START_PATIENCE_MS) n += 1;
     }
     return n;
+  }
+
+  // The relay's line saying the cloud took its start (shared/cloud-start.mjs).
+  // The next run waiting for a slot starts packing now, not at the next tick.
+  _noteCloudSent(session, text) {
+    if (!session?.cloud || session.cloudSentAt) return;
+    const times = readSent(text);
+    if (!times) return;
+    session.cloudSentAt = Date.now();
+    session.cloudTimes = times;
+    this.wake?.();
+  }
+
+  // HOW LONG EACH PART OF A CLOUD START TOOK, for the run's log once its agent
+  // begins: the wait before packing (from the newest message, when there is
+  // one), packing and sending here, the cloud taking it, and the agent starting.
+  _cloudStartLine(session, item, now = Date.now()) {
+    const s = (ms) => `${Math.round(ms / 1000)} s`;
+    const begun = session.startedAt ?? now;
+    if (!session.cloudSentAt || !session.cloudTimes) return `cloud start: ${s(now - begun)} from starting the relay to the agent beginning`;
+    const asked = lastFounderWrite(item);
+    const since = asked > 0 && asked <= begun ? `began ${s(now - asked)} after the newest message; ${s(begun - asked)} before packing, ` : '';
+    const { packMs, startMs } = session.cloudTimes;
+    return `cloud start: ${since}${s(packMs)} packing and sending here, ${s(startMs)} for the cloud to take it, ${s(now - session.cloudSentAt)} for the agent to begin`;
   }
 
   // Room in the cloud apart from the runs still starting.
@@ -4611,8 +4661,8 @@ export class Supervisor {
   // A THREAD THE CLOUD CANNOT RUN RUNS HERE, rather than being started there
   // again at every check: a folder the cloud refused (KEEP_ON_MAC), or a
   // thread whose cloud starts died CLOUD_STARTS_TO_GIVE_UP times in a row
-  // before its agent started. Kept on this Mac as a hand-back is, so no
-  // attempt is spent and the next delivery runs here. True when it was kept.
+  // before its agent started. Moved to this Mac as a hand-back is, so no
+  // attempt is spent and the next delivery runs here. True when it was moved.
   _cloudKeptOnMac(item, session, code, signal = null) {
     if (!session?.cloud || !item?.id) return false;
     this._cloudStartFails ??= new Map();
@@ -4632,8 +4682,7 @@ export class Supervisor {
     session.handedBack = true;
     this._handedBack ??= new Set();
     this._handedBack.add(item.id);
-    this.threadOnMac[item.id] = true;
-    this._saveState();
+    this._moveToMac(item.id);
     return true;
   }
 
@@ -4654,7 +4703,7 @@ export class Supervisor {
     this._heldStarts ??= {};
     if (starts.length < STORM_STARTS || this._heldStarts[key]) return;
     const said = (session.tail ?? []).filter((l) => typeof l === 'string' && l.startsWith('stderr:'))
-      .flatMap((l) => l.slice('stderr:'.length).split('\n')).map((l) => l.trim()).filter(Boolean).at(-1) ?? null;
+      .flatMap((l) => l.slice('stderr:'.length).split('\n')).map((l) => l.trim()).filter((l) => l && !l.startsWith(CLOUD_SENT)).at(-1) ?? null;
     this._heldStarts[key] = { since: now, said };
     this._saveState();
     try {
@@ -4694,7 +4743,7 @@ export class Supervisor {
   // stays on this Mac.
   _mayRunInCloud(item, product, cwd, { remoteOnly = false } = {}) {
     if (remoteOnly) return false;
-    if (item?.id && this.threadOnMac?.[item.id] === true) return false;
+    if (item?.id && (this.threadOnMac?.[item.id] === true || item.id in (this.movedToMac ?? {}))) return false;
     if (!product || !cwd || cwd === product.repoPath) return false;
     if (cwd === product.dir ? !item?.id || !this._cloudTakesPlain() : !product.repoPath) return false;
     if ((this.config.personalProducts || []).includes(product.slug)) return false;
@@ -5102,7 +5151,7 @@ export class Supervisor {
   // The part of `_mayRunInCloud` that can be asked before a row has a folder.
   _cloudEligible(item) {
     if (!item || String(item.id || '').startsWith('digest-')) return false;
-    if (this.threadOnMac?.[item.id] === true) return false;
+    if (this.threadOnMac?.[item.id] === true || item.id in (this.movedToMac ?? {})) return false;
     const product = this.store.listProducts?.().find((p) => p.slug === item.product);
     if (!product?.repoPath && !(product?.dir && this._cloudTakesPlain())) return false;
     return !(this.config.personalProducts || []).includes(product.slug);
@@ -5444,6 +5493,7 @@ export class Supervisor {
         threadPlaces: this.threadPlaces,
         threadPins: this.threadPins,
         threadOnMac: this.threadOnMac,
+        movedToMac: this.movedToMac,
         liveSessions: this._liveSessions,
         rowSessions: this._rowSessions,
         compactions: this._compactions,
@@ -8757,6 +8807,11 @@ export class Supervisor {
       // handler ever runs. It costs one small write per session.
       if (session.sessionId && !session.idRemembered) {
         session.idRemembered = true;
+        if (session.cloud) {
+          const started = this._cloudStartLine(session, item);
+          console.log(`${nameSlug}: ${item.id} ${started}`);
+          try { trace?.write(`${started}\n`); } catch {}
+        }
         this._liveSessions[item.id] = {
           sessionId: session.sessionId,
           product: item.product,
@@ -8799,6 +8854,7 @@ export class Supervisor {
     // note at the top of that file for why.
     harness.subscribe(child, session, absorb);
     child.stderr.on('data', (d) => {
+      if (session.cloud) this._noteCloudSent(session, d);
       onLine(`stderr: ${String(d).slice(0, 500)}`);
       try { trace?.write(`stderr: ${String(d).slice(0, 1000)}\n`); } catch {}
     });
@@ -8823,7 +8879,8 @@ export class Supervisor {
       this._noteHowTheRunStarted(item, session);
       onLine(`session exited (${code})`);
       if (this._noteCloudHandBack(item, session)) onLine('the cloud handed this thread back to this computer');
-      else if (this._cloudKeptOnMac(item, session, code, signal)) onLine('the cloud could not run this thread, so it runs on this computer from now on');
+      else if (this._cloudKeptOnMac(item, session, code, signal)) onLine('the cloud could not run this thread, so this request runs on this computer');
+      this._spendMoveToMac(item, session);
       // WHAT THE RUN CHANGED, SAVED WHERE SHE CAN OPEN IT.
       //
       // A tester could not see code on their onboarding call because there was no
