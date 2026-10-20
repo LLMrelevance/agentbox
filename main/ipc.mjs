@@ -1629,6 +1629,23 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     push();
     return out;
   });
+  // PAYING FOR A CLOUD PLAN: Stripe's own pages, in the browser.
+  const cloudCall = async (name, args = {}) => {
+    try {
+      const account = await import('./cloud/account.mjs');
+      const { shell } = await import('electron');
+      return await account[name]({ ...args, openExternal: (u) => shell.openExternal(u), home: supervisor.config.home || os.homedir() });
+    } catch (err) {
+      return { ok: false, error: 'unreachable', message: `The cloud did not answer: ${err?.message || err}` };
+    }
+  };
+  ipcMain.handle('zero:cloud-account-plan', async () => {
+    const plan = await cloudCall('cloudPlan');
+    supervisor.cloudPlanSeen?.(plan);
+    return plan;
+  });
+  ipcMain.handle('zero:cloud-account-pay', (_e, { plan } = {}) => cloudCall('payForCloud', { plan }));
+  ipcMain.handle('zero:cloud-account-billing', () => cloudCall('openCloudBilling'));
 
   // THE CLOUD SETUP'S SIGN-IN for one account, made in the cloud
   // (main/cloud/logins.mjs). The Mac relays the link and the code only.

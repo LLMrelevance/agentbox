@@ -13,6 +13,7 @@ import http from 'node:http';
 import { PLANS, RUN_CEILING_MS, SIGNIN_CEILING_MS, SIGNINS_AT_ONCE } from './plans.mjs';
 import { TERMS_VERSION } from './terms.mjs';
 import { LOGIN_NAME } from '../../shared/cloud-login-name.mjs';
+import { PAYING, planOfLookupKey } from './stripe.mjs';
 
 const PERSON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SESSION = /^[A-Za-z0-9_-]{1,180}$/;
@@ -89,7 +90,7 @@ export function memoryObjects() {
   };
 }
 
-export function createGateway({ agentcore, links, removeObject, objects, whoIs, now = Date.now, plans = PLANS, termsVersion = TERMS_VERSION, log = () => {} }) {
+export function createGateway({ agentcore, links, removeObject, objects, whoIs, stripe = null, now = Date.now, plans = PLANS, termsVersion = TERMS_VERSION, log = () => {} }) {
   const termsRefusal = () => new Refusal(403, 'terms', `accept the terms of ${termsVersion} first`, { terms: termsVersion });
   const personKey = (person) => `ledger/people/${person}.json`;
   const deviceKey = (key) => `ledger/devices/${sha256(key)}.json`;
@@ -359,8 +360,65 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     return { person, key };
   }
 
-  async function handle({ method, path, headers = {}, body = '' }) {
+  // BILLING. Stripe's page takes the card; its webhook sets the plan.
+  const billingRefusal = () => new Refusal(503, 'billing', 'Paying for the cloud is not set up on this server.');
+  const sellable = (plan) => typeof plan === 'string' && Object.hasOwn(plans, plan) && plans[plan].agents > 0;
+  const hostOf = (headers) => {
+    const host = headers.host || headers.Host;
+    if (typeof host !== 'string' || !/^[A-Za-z0-9.-]+(:\d+)?$/.test(host)) throw bad('no host');
+    return `https://${host}`;
+  };
+
+  async function checkout(person, { plan }, headers) {
+    if (!stripe) throw billingRefusal();
+    if (!sellable(plan)) throw bad('choose pro, plus or max');
+    const base = hostOf(headers);
+    const rec = await recOf(person);
+    // A second subscription would bill twice; a change of plan is made on the billing page.
+    if (PAYING.has(rec.stripe?.status)) return { url: await stripe.billing({ customer: rec.stripe.customer, returnUrl: `${base}/v1/paid?billing=1` }), where: 'billing' };
+    const url = await stripe.checkout({ person, plan, customer: rec.stripe?.customer, successUrl: `${base}/v1/paid`, cancelUrl: `${base}/v1/paid?cancelled=1` });
+    return { url, where: 'checkout' };
+  }
+
+  async function billing(person, headers) {
+    if (!stripe) throw billingRefusal();
+    const { customer } = (await recOf(person)).stripe || {};
+    if (!customer) throw new Refusal(404, 'no-billing', 'You have not paid for a cloud plan yet.');
+    return { url: await stripe.billing({ customer, returnUrl: `${hostOf(headers)}/v1/paid?billing=1` }) };
+  }
+
+  // An event names a subscription; what it says is read from Stripe, so one
+  // that arrives late or out of order lands on how things stand now.
+  async function stripeEvent(headers, raw) {
+    if (!stripe) throw billingRefusal();
+    if (!stripe.signed(raw, headers['stripe-signature'] || headers['Stripe-Signature'], now())) throw bad('not signed by Stripe');
+    let event;
+    try { event = JSON.parse(raw); } catch { throw bad('the body is not JSON'); }
+    const o = event?.data?.object || {};
+    const id = event?.type === 'checkout.session.completed' ? o.subscription : String(event?.type || '').startsWith('customer.subscription.') ? o.id : null;
+    if (typeof id !== 'string' || !id) return { received: true };
+    const sub = await stripe.subscription(id);
+    const person = String(sub?.metadata?.person || '').toLowerCase();
+    if (!PERSON.test(person)) { log(`subscription ${id} names nobody`); return { received: true }; }
+    const pays = PAYING.has(sub.status);
+    const plan = pays ? planOfLookupKey(sub.items?.data?.[0]?.price?.lookup_key) : 'none';
+    if (!sellable(plan) && plan !== 'none') { log(`subscription ${id} is on a price no plan sells`); return { received: true }; }
+    await update(person, (rec) => {
+      // An old subscription ending leaves alone a newer one that pays.
+      if (!pays && rec.stripe?.subscription && rec.stripe.subscription !== sub.id && PAYING.has(rec.stripe.status)) return;
+      rec.plan = plan;
+      rec.stripe = { customer: sub.customer, subscription: sub.id, status: sub.status, at: now() };
+    });
+    log(`${person} is on ${plan} (Stripe ${sub.status})`);
+    return { received: true };
+  }
+
+  async function handle({ method, path: asked, headers = {}, body = '' }) {
     try {
+      const [path, query = ''] = String(asked).split('?');
+      // Where Stripe's pages send people back to, in their browser.
+      if (method === 'GET' && path === '/v1/paid') return { status: 200, type: 'html', body: paidPage(new URLSearchParams(query)) };
+      if (method === 'POST' && path === '/v1/stripe') return { status: 200, body: await stripeEvent(headers, body) };
       let data = {};
       if (body) {
         if (Buffer.byteLength(body) > BODY_LIMIT) throw new Refusal(413, 'too-large', `a call over ${RELAY_BYTES} bytes goes through the bucket`);
@@ -383,6 +441,8 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
       if (route === 'POST /v1/stop') return { status: 200, body: await stop(person, data) };
       if (route === 'POST /v1/link') return { status: 200, body: await link(person, data) };
       if (route === 'POST /v1/delete') return { status: 200, body: await remove(person, data) };
+      if (route === 'POST /v1/checkout') return { status: 200, body: await checkout(person, data, headers) };
+      if (route === 'POST /v1/billing') return { status: 200, body: await billing(person, headers) };
       return { status: 404, body: { error: 'not-found' } };
     } catch (err) {
       if (err instanceof Refusal) return { status: err.status, body: { error: err.error, message: err.message, ...err.extra } };
@@ -452,7 +512,8 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     return { people: people.length, swept };
   }
 
-  // What the owner does by hand (scripts/cloud-gateway-admin.mjs), and Stripe later.
+  // What the owner does by hand (scripts/cloud-gateway-admin.mjs). A plan
+  // given here lasts until Stripe next says something about this person.
   async function admin({ do: what, person, plan }) {
     if (what === 'pause' || what === 'resume') { await objects.put(SWITCH, JSON.stringify({ paused: what === 'pause', at: now() })); return { ok: true }; }
     if (!PERSON.test(person || '')) throw new Error(`no such person: ${person}`);
@@ -476,6 +537,17 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
   return { handle, objectCreated, sweep, admin };
 }
 
+/** The page a browser lands on after Stripe's checkout or billing page. */
+export function paidPage(query) {
+  const line = query.has('cancelled') ? 'Nothing was charged. You can close this tab.'
+    : query.has('billing') ? 'You can close this tab and go back to Agentbox.'
+      : 'You’re on Agentbox Cloud. You can close this tab.';
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Agentbox Cloud</title>
+<style>html{color-scheme:light dark}body{margin:0;min-height:100vh;display:grid;place-items:center;font:16px/1.5 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;background:#fff;color:#1d1d1f}
+@media (prefers-color-scheme:dark){body{background:#161618;color:#ececee}}p{margin:0;padding:24px;text-align:center}</style>
+</head><body><p>${line}</p></body></html>`;
+}
+
 /** The server over plain HTTP, for tests and for running it on one machine. */
 export function gatewayServer(gw) {
   return http.createServer((req, res) => {
@@ -484,9 +556,10 @@ export function gatewayServer(gw) {
     req.on('data', (c) => { size += c.length; if (size <= BODY_LIMIT) chunks.push(c); });
     req.on('end', async () => {
       // As Lambda does: a body over its limit never reaches the function.
-      const out = size > BODY_LIMIT ? { status: 413, body: { error: 'too-large' } } : await gw.handle({ method: req.method, path: new URL(req.url, 'http://x').pathname, headers: req.headers, body: Buffer.concat(chunks).toString('utf8') });
-      res.writeHead(out.status, { 'content-type': 'application/json' });
-      res.end(JSON.stringify(out.body));
+      const u = new URL(req.url, 'http://x');
+      const out = size > BODY_LIMIT ? { status: 413, body: { error: 'too-large' } } : await gw.handle({ method: req.method, path: u.pathname + u.search, headers: req.headers, body: Buffer.concat(chunks).toString('utf8') });
+      res.writeHead(out.status, { 'content-type': out.type === 'html' ? 'text/html; charset=utf-8' : 'application/json' });
+      res.end(out.type === 'html' ? out.body : JSON.stringify(out.body));
     });
   });
 }

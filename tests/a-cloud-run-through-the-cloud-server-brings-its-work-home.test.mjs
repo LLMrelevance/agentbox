@@ -24,7 +24,7 @@ import { createGateway, gatewayServer, memoryObjects } from '../cloud/gateway/ga
 import { ROOMY_PLANS } from './fixtures/cloud-plans.mjs';
 import { managedClients, LOGIN_NAME } from '../main/cloud/managed.mjs';
 import { TERMS_VERSION } from '../cloud/gateway/terms.mjs';
-import { cloudRun } from '../main/cloud/run.mjs';
+import { cloudRun, CLOUD_NO_ROOM } from '../main/cloud/run.mjs';
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const FAKE_CLAUDE = here('./fixtures/cloud/fake-claude.mjs');
@@ -158,6 +158,17 @@ describe('a cloud run through the cloud server', () => {
     expect(await storage.get('runs/r9/missing')).toBe(null);
     await storage.del('runs/r9/x.txt');
     expect(objects.has(`runs/u-${PERSON}/r9/x.txt`)).toBe(false);
+  });
+
+  // A refusal for room (here the cloud paused; no plan or spent hours are the
+  // same) ends as its own exit, so the thread runs on the Mac with no attempt
+  // spent (tests/a-cloud-with-no-room-sends-threads-back-to-the-mac-and-says-why).
+  it('a start the server has no room for ends as CLOUD_NO_ROOM and says why', async () => {
+    const clients = managedClients({ url: gatewayUrl, key: await cloudKey() });
+    await gw.admin({ do: 'pause' });
+    const run = launch(clients);
+    expect(await run.done).toBe(CLOUD_NO_ROOM);
+    expect(run.err()).toMatch(/agentbox cloud: no room in the cloud \(paused\): The cloud is not starting new runs right now\./);
   });
 
   it('a key the server does not know is told it is signed out', async () => {
