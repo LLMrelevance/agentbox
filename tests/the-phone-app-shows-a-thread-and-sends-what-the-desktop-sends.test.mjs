@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest';
 import { phoneView, phoneSlug } from '../renderer/src/phone-rows';
 import { threadOf } from '../mobile/src/lib/thread';
 import { commandForPress } from '../mobile/src/lib/actions';
+import { withAttachments } from '../mobile/src/lib/attach';
 
 const NOW = Date.UTC(2026, 9, 20, 12);
 const DEV = 'a1b2c3d4e5f6';
@@ -98,8 +99,23 @@ describe('what a press leaves for your Mac', () => {
     );
     expect(commandForPress({ kind: 'new', product: A, body: '  ', choices: {} }, null)).toBeNull();
   });
+  it('Send later sends a new thread to Later, or for a moment, as the desktop\'s Send later does', () => {
+    expect(commandForPress({ kind: 'new', product: A, body: 'Draw it', choices: { start: 'later' } }, null)).toMatchObject({ kind: 'new', payload: { body: 'Draw it', start: 'later' } });
+    expect(commandForPress({ kind: 'new', product: A, body: 'Draw it', choices: { runAt: NOW + 86_400_000 } }, null)).toMatchObject({ kind: 'new', payload: { body: 'Draw it', runAt: NOW + 86_400_000 } });
+  });
   it('Later and Close are the site\'s snooze and close', () => {
     expect(commandForPress({ kind: 'later', until: NOW + 3_600_000 }, item)).toMatchObject({ kind: 'snooze', payload: { until: NOW + 3_600_000 } });
     expect(commandForPress({ kind: 'close' }, item)).toMatchObject({ kind: 'close' });
+  });
+});
+
+describe('a message with files', () => {
+  const saved = [{ rel: 'phone-files/ab.png', name: 'board.png', image: true }, { rel: 'phone-files/cd.pdf', name: 'brief.pdf', image: false }];
+  it('carries each file as the desktop\'s reply box links one, under the words', () => {
+    expect(withAttachments('Look at these', saved)).toBe('Look at these\n\n![board.png](phone-files/ab.png)\n[brief.pdf](phone-files/cd.pdf)');
+  });
+  it('is the links alone with no words, and the words alone with no files', () => {
+    expect(withAttachments('  ', saved)).toBe('![board.png](phone-files/ab.png)\n[brief.pdf](phone-files/cd.pdf)');
+    expect(withAttachments('Just words', [])).toBe('Just words');
   });
 });

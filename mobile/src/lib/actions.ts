@@ -8,7 +8,7 @@ import { closesTheTask, type ParsedOption } from '../../../renderer/src/format';
 import { statusForReply } from '../../../renderer/src/list-rules';
 import { commandFor, type Aliases } from '../../../renderer/src/phone-rows';
 
-export interface Choices { priority?: number; permissionMode?: string; model?: string; effort?: string; engine?: string }
+export interface Choices { priority?: number; permissionMode?: string; model?: string; effort?: string; engine?: string; runAt?: number; start?: 'later' | 'now' }
 
 export type Press =
   | { kind: 'reply'; text: string; choices?: Choices }

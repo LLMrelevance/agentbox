@@ -90,7 +90,10 @@ export async function persistAttachments(product: string, pending: PendingAttach
     product,
     files: pending.map(({ name, dataBase64, srcPath }) => ({ name, dataBase64, srcPath })),
   });
-  return saved
-    .map((s) => (s.image ? `![${s.name}](${s.rel})` : `[${s.name}](${s.rel})`))
-    .join('\n');
+  return attachmentLinks(saved);
+}
+
+/** Saved files as the message links them: a picture drawn, anything else a link. */
+export function attachmentLinks(saved: Array<{ rel: string; name: string; image: boolean }>): string {
+  return saved.map((s) => (s.image ? `![${s.name}](${s.rel})` : `[${s.name}](${s.rel})`)).join('\n');
 }

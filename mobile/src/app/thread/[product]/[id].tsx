@@ -15,9 +15,12 @@ import { priorityIdOf, priorityLabelOf, priorityValueOf } from '../../../../../r
 import { stateWordOf } from '../../../../../renderer/src/threads/summary-rules';
 import { summaryOf, threadState } from '../../../../../shared/thread-cards.mjs';
 import type { Choices, Press } from '../../../lib/actions';
+import { withAttachments } from '../../../lib/attach';
+import type { Picked } from '../../../platform/pick';
+import { AttachSheet, Attached } from '../../../ui/Attach';
 import { threadOf, type Thread } from '../../../lib/thread';
 import { useCloud } from '../../../state/cloud';
-import { Back, Cloud, More, Panel } from '../../../ui/icons';
+import { Back, Clip, Cloud, More, Panel } from '../../../ui/icons';
 import { Markdown } from '../../../ui/Markdown';
 import { IconButton, Pickable, PriorityBars, RunningMark, Sheet, SheetHead, SheetRow, SheetSep, T, TopBar, Wall } from '../../../ui/parts';
 import { ModelSheet, ModeSheet, PrioritySheet, barsFor } from '../../../ui/Pickers';
@@ -70,12 +73,15 @@ function Options({ ask, options, busy, pick }: { ask: string; options: ParsedOpt
   );
 }
 
-function Dock({ thread, busy, send }: { thread: Thread; busy: boolean; send: (text: string, choices: Choices) => Promise<boolean> }) {
+function Dock({ thread, busy, send }: { thread: Thread; busy: boolean; send: (text: string, choices: Choices, files: Picked[]) => Promise<boolean> }) {
   const inset = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
+  const [files, setFiles] = useState<Picked[]>([]);
+  const [failed, setFailed] = useState<string | null>(null);
   const [picked, setPicked] = useState<Choices>({});
-  const [sheet, setSheet] = useState<'priority' | 'mode' | 'model' | null>(null);
+  const [sheet, setSheet] = useState<'priority' | 'mode' | 'model' | 'attach' | null>(null);
+  const ready = !!text.trim() || files.length > 0;
   const priority = picked.priority ?? thread.item.priority ?? priorityValueOf('medium');
   const model = picked.model ?? thread.item.model ?? DEFAULT_MODEL;
   const mode = picked.permissionMode ?? 'auto';
@@ -92,25 +98,37 @@ function Dock({ thread, busy, send }: { thread: Thread; busy: boolean; send: (te
       ) : (
         <View style={{ ...card, borderColor: color.lineStrong }}>
           <TextInput autoFocus multiline value={text} onChangeText={setText} placeholder="What should the agent do next?" placeholderTextColor={color.faint}
-            onBlur={() => { if (!text.trim()) setOpen(false); }}
+            onBlur={() => { if (!text.trim() && !files.length && !sheet) setOpen(false); }}
             style={[{ minHeight: 92, maxHeight: 220, paddingTop: 12, paddingHorizontal: 16, paddingBottom: 6, fontFamily: font.regular, fontSize: 15.5, lineHeight: 24, color: color.text, textAlignVertical: 'top' }, Platform.OS === 'web' && ({ outlineStyle: 'none' } as object)]} />
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, borderTopWidth: 1, borderTopColor: color.line, paddingTop: 9, paddingBottom: 10, paddingLeft: 18, paddingRight: 14 }}>
+          {(files.length > 0 || failed) && (
+            <View style={{ paddingHorizontal: 16, paddingBottom: 10, gap: 8 }}>
+              <Attached files={files} drop={(i) => setFiles((f) => f.filter((_, n) => n !== i))} />
+              {failed && <T style={{ fontSize: 13, color: color.dim }}>{failed}</T>}
+            </View>
+          )}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, borderTopWidth: 1, borderTopColor: color.line, paddingTop: 9, paddingBottom: 10, paddingLeft: 12, paddingRight: 14 }}>
+            <Pressable onPress={() => setSheet('attach')} accessibilityLabel="Attach a file or picture" accessibilityRole="button" hitSlop={4}
+              style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginRight: -4 }}>
+              <Clip />
+            </Pressable>
             <T style={{ flex: 1, fontSize: 13, lineHeight: 21, color: color.faint }}>
               <Pickable style={{ fontSize: 13, color: color.dim }} onPress={() => setSheet('priority')}>{priorityLabelOf(priorityIdOf(priority))}</Pickable>
               {' priority. In '}
               <Pickable style={{ fontSize: 13, color: color.dim }} onPress={() => setSheet('mode')}>{MODE_WORDS[mode as keyof typeof MODE_WORDS] ?? mode}</Pickable>
               {' Mode. On '}
-              <Pickable style={{ fontSize: 13, color: color.dim }} onPress={() => setSheet('model')}>{modelLabelOf(model)}</Pickable>
+              {/* A no-break space, so a model's name never splits over two lines. */}
+              <Pickable style={{ fontSize: 13, color: color.dim }} onPress={() => setSheet('model')}>{modelLabelOf(model).replace(/ /g, ' ')}</Pickable>
               {'.'}
             </T>
-            <Pressable disabled={busy || !text.trim()} accessibilityRole="button"
-              onPress={async () => { if (await send(text, picked)) { setText(''); setPicked({}); setOpen(false); } }}
-              style={({ pressed }) => ({ height: 29, paddingHorizontal: 16, justifyContent: 'center', borderWidth: 1, borderColor: color.lineStrong, backgroundColor: pressed ? color.picked : 'transparent', opacity: busy || !text.trim() ? 0.5 : 1 })}>
+            <Pressable disabled={busy || !ready} accessibilityRole="button"
+              onPress={async () => { if (await send(text, picked, files)) { setText(''); setFiles([]); setPicked({}); setOpen(false); } }}
+              style={({ pressed }) => ({ height: 29, paddingHorizontal: 16, justifyContent: 'center', borderWidth: 1, borderColor: color.lineStrong, backgroundColor: pressed ? color.picked : 'transparent', opacity: busy || !ready ? 0.5 : 1 })}>
               <T style={{ fontSize: 13, fontFamily: font.semibold }}>Send</T>
             </Pressable>
           </View>
         </View>
       )}
+      <AttachSheet open={sheet === 'attach'} close={() => setSheet(null)} add={(more) => { setFailed(null); setFiles((f) => [...f, ...more]); }} fail={setFailed} />
       <PrioritySheet open={sheet === 'priority'} close={() => setSheet(null)} value={priority} pick={(v) => setPicked((p) => ({ ...p, priority: v }))} />
       <ModeSheet open={sheet === 'mode'} close={() => setSheet(null)} value={mode} pick={(v) => setPicked((p) => ({ ...p, permissionMode: v }))} />
       <ModelSheet open={sheet === 'model'} close={() => setSheet(null)} model={model} effort={picked.effort ?? thread.item.effort ?? null}
@@ -226,7 +244,11 @@ export default function ThreadScreen() {
           {thread.options.length > 0 && <Options ask={thread.ask} options={thread.options} busy={busy} pick={(o) => press({ kind: 'pick', option: o })} />}
           {error && <T style={{ fontSize: 13, color: color.dim, marginTop: 16 }}>{error}</T>}
         </ScrollView>
-        <Dock thread={thread} busy={busy} send={(text, choices) => press({ kind: 'reply', text, choices })} />
+        <Dock thread={thread} busy={busy} send={async (text, choices, files) => {
+          let saved;
+          try { saved = await c.attach(thread.item.product, files); } catch (err) { setError(String((err as Error)?.message ?? err)); return false; }
+          return press({ kind: 'reply', text: withAttachments(text, saved), choices });
+        }} />
       </KeyboardAvoidingView>
       <Sheet open={menu} close={() => setMenu(false)}>
         <SheetHead>Later</SheetHead>

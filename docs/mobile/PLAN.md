@@ -338,8 +338,12 @@ made-up threads), not yet on a phone:
   mode, model), the sheets, Settings' plates and the sign-in card. The wall
   runs under the status bar. The desktop's Later times moved out of
   Snooze.tsx into renderer/src/later-times.ts so both read them.
+- Attaching, on a new thread and a reply: Photo library or Files, uploaded by
+  the site's own sendFiles and linked as attachments.ts `attachmentLinks`
+  writes them. Send later on a new thread: Add it to Later, tomorrow or
+  Monday morning, or a typed time (composer-rules.ts).
 - Not yet on the phone: search and View and filters (the site's search draws
-  nothing without a Mac), attaching files, and messages between people.
+  nothing without a Mac), Repeat it, and messages between people.
 
 Tests: tests/the-phone-app-*.test.mjs pin the tabs, the thread and its
 commands, sign-in and the kept session, the request deadline and the

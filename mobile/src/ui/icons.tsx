@@ -32,6 +32,19 @@ export const Cross = ({ size = 18, tint = color.dim }: P) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={tint} strokeWidth={1.6} strokeLinecap="round"><Path d="M6 6l12 12M18 6 6 18" /></Svg>
 );
 
+/** Attach (components/Focus.tsx `compose-attach`). */
+export const Clip = ({ size = 18, tint = color.dim }: P) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={tint} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><Path d="m21 11.5-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l8-8" /></Svg>
+);
+
+export const Clock = ({ size = 15, tint = color.faint }: P) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={tint} strokeWidth={1.6} strokeLinecap="round"><Circle cx={12} cy={12} r={8.5} /><Path d="M12 7.5V12l3 2" /></Svg>
+);
+
+export const Caret = ({ size = 12, tint = '#fff' }: P) => (
+  <Svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke={tint} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><Path d="m4 6 4 4 4-4" /></Svg>
+);
+
 export const Tick = ({ size = 22, tint = 'rgba(238, 96, 24, 0.5)' }: P) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={tint} strokeWidth={1.7} strokeLinecap="square"><Path d="m4 12.5 5 5L20 6.5" /></Svg>
 );

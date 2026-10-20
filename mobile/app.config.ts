@@ -51,6 +51,8 @@ const config: ExpoConfig = {
     'expo-secure-store',
     'expo-apple-authentication',
     ['expo-notifications', { color: '#ee6018' }],
+    // Apple shows these words when the app first asks; the camera is never asked for.
+    ['expo-image-picker', { photosPermission: 'Pick a photo or video to attach to a message for your agent.', cameraPermission: false, microphonePermission: false }],
   ],
   experiments: { typedRoutes: false },
   extra: {

@@ -6,7 +6,11 @@ import Constants from 'expo-constants';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AppState } from 'react-native';
 import { cloudClient, type CloudClient } from '../../../renderer/src/cloud-rest';
-import { macSeenOf, phoneStatusLine, phoneView, readCommands, readThreads, type PhoneRows } from '../../../renderer/src/phone-rows';
+import { macSeenOf, phoneStatusLine, phoneView, readCommands, readThreads, splitSlug, type PhoneRows } from '../../../renderer/src/phone-rows';
+import { BUCKET } from '../../../renderer/src/cloud-files';
+import { SEND_MAX_BYTES, sendFiles } from '../../../renderer/src/phone-sends-files';
+import type { Saved } from '../lib/attach';
+import type { Picked } from '../platform/pick';
 import { commandForPress, type Press } from '../lib/actions';
 import { withDeadline } from '../lib/deadline';
 import { keptStore } from '../lib/kept';
@@ -14,7 +18,7 @@ import { previewCloud } from '../lib/preview';
 import { phoneTabs } from '../lib/tabs';
 import { persist } from '../platform/persist';
 
-export type Cloud = Pick<CloudClient, 'session' | 'signedIn' | 'generation' | 'select' | 'insertCommand' | 'signInWithPassword' | 'signInWithIdToken' | 'signUp' | 'googleUrl' | 'finishGoogle' | 'signOut'>;
+export type Cloud = Pick<CloudClient, 'session' | 'signedIn' | 'generation' | 'select' | 'insertCommand' | 'putFile' | 'signInWithPassword' | 'signInWithIdToken' | 'signUp' | 'googleUrl' | 'finishGoogle' | 'signOut'>;
 
 const EMPTY: PhoneRows = { projects: [], threads: [], commands: [] };
 const EVERY_MS = 5000;
@@ -88,6 +92,15 @@ function useCloudState() {
     setNow(Date.now());
   }, [cloud, view.aliases]);
 
+  // Files go to your own storage, in the folder of the computer the project is
+  // on, as the phone site sends them; the message then links them.
+  const attach = useCallback(async (product: string, files: Picked[]): Promise<Saved[]> => {
+    const where = splitSlug(product);
+    const owner = cloud?.session()?.user.id;
+    if (!cloud || !where || !owner || !files.length) return [];
+    return sendFiles({ put: (object, bytes, type) => cloud.putFile(BUCKET, object, bytes, type), owner, device: where.device, files, maxBytes: SEND_MAX_BYTES });
+  }, [cloud]);
+
   const signedInWith = useCallback(async (how: () => Promise<unknown>) => {
     const out = await how();
     if (out !== null) { setSignedIn(!!cloud?.signedIn()); setRead({ error: null, fetchedAt: 0, first: true }); }
@@ -100,7 +113,7 @@ function useCloudState() {
     setSignedIn(false);
   }, [cloud]);
 
-  return { cloud, opened, signedIn, rows, view, tabs, status, loading: read.first, now, refresh, send, signedInWith, signOut, preview: PREVIEW };
+  return { cloud, opened, signedIn, rows, view, tabs, status, loading: read.first, now, refresh, send, attach, signedInWith, signOut, preview: PREVIEW };
 }
 
 type CloudState = ReturnType<typeof useCloudState>;

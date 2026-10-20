@@ -20,7 +20,7 @@ import { installPhoneScreen } from './phone-screen';
 import { atMostEvery } from './phone-polls';
 import { madeHere } from '../../shared/phone-snapshot.mjs';
 import { setPictureLinks } from './picture';
-import { sendFiles, sentFileName, sentNamesIn } from './phone-sends-files';
+import { SEND_MAX_BYTES, sendFiles, sentFileName, sentNamesIn } from './phone-sends-files';
 import { BUCKET, cloudPlaces, findFile, homeOf, installCloudFiles, keyAt, pageForPhone, pageStyles, withStyles, type Place } from './cloud-files';
 import {
   LIVE_FOR_MS, NOT_HERE, UNDONE, approvalCommand, commandFor, macSeenOf, phoneHistory, phoneSlug, phoneStatusLine,
@@ -68,8 +68,6 @@ function findFolder(place: Place, src: string): { folder: string; keys: string[]
 }
 
 const LINK_LIFE_MS = 12 * 3600_000;
-// The bucket's own bound on a file (20261017000000_phone_files.sql).
-const SEND_MAX_BYTES = 25 * 1024 * 1024;
 const LINK_RENEW_MS = 3600_000;
 
 const SUPERVISOR = { paused: false, pausedProducts: [], running: [], stalled: [], queued: [], scheduled: [], productOrder: [], hiddenProducts: [], personalProducts: [], capacity: 0 };
