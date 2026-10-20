@@ -31,6 +31,9 @@ const RUN_ID = /^[A-Za-z0-9._-]{1,120}$/;
 const DONE_LOOK_AFTER_MS = 2 * 60_000;
 // A stop that fails this many sweeps running (an hour) is given up, and said.
 const STOP_TRIES = 12;
+// A session that has ended takes no new start for this long: far past the
+// function's own 90 s, so no late answer or late stop can reach a new run.
+const RETIRED_MS = 60 * 60_000;
 const SWEEP_AT_ONCE = 8;
 
 const month = (t) => new Date(t).toISOString().slice(0, 7);
@@ -106,6 +109,7 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
   function end(rec, ctx, sid, at, why) {
     const s = rec.live[sid];
     delete rec.live[sid];
+    rec.retired = { ...(rec.retired || {}), [sid]: at };
     const charged = s.kind === 'run' && why !== 'not-started';
     if (charged) for (const [m, secs] of secondsByMonth(s.at, at)) rec.used[m] = (rec.used[m] || 0) + secs;
     if (!stoppingOf(rec).some((e) => e.sid === sid)) rec.stopping = [...stoppingOf(rec), { sid, tries: 0 }];
@@ -120,6 +124,7 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
   // Whatever has outlived its ceiling ends at that ceiling; once the month's
   // hours are spent, every run ends.
   function settle(rec, ctx, t) {
+    rec.retired = Object.fromEntries(Object.entries(rec.retired || {}).filter(([, at]) => t - at < RETIRED_MS));
     for (const [sid, s] of Object.entries(rec.live)) if (t - s.at >= ceilingOf(s)) end(rec, ctx, sid, s.at + ceilingOf(s), 'ceiling');
     if (overHours(rec, t)) for (const [sid, s] of Object.entries(rec.live)) if (s.kind === 'run') end(rec, ctx, sid, t, 'hours');
   }
@@ -193,8 +198,9 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     // place. Anything else on a live session would run on that place: a run
     // on a sign-in's, which counts nothing, or a second run on a first's.
     if (was) return was.kind === kind && was.runId === (runId ?? null) ? { ok: true, nonce: was.nonce } : { ok: false, error: 'busy', message: 'this session is running something else' };
-    // A stop still owed to this session would land on whatever started here next.
-    if (stoppingOf(rec).some((e) => e.sid === sid)) return { ok: false, error: 'busy', message: 'this session is still being stopped' };
+    // A stop owed to this session, or a late one, would land on whatever
+    // started here next.
+    if (stoppingOf(rec).some((e) => e.sid === sid) || rec.retired?.[sid] !== undefined) return { ok: false, error: 'busy', message: 'this session has ended; a new run takes a new one' };
     if (kind === 'run') {
       const plan = planOf(rec);
       if (paused) return { ok: false, error: 'paused', message: 'The cloud is not starting new runs right now.' };

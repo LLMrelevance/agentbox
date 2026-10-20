@@ -489,16 +489,39 @@ describe('a stop that has not happened yet', () => {
   // Codex's second look: the sweep's late stop would kill a new run started
   // on the same session meanwhile.
   it('a session still owed a stop takes no new start until the stop is made', async () => {
-    const { gw, start, finish, ctl, stopped } = setup();
+    const { gw, start, finish, ctl, stopped, tick } = setup();
     await start(1);
-    ctl.stopFails = 1;
+    ctl.stopFails = 100;
     await finish(1);
+    // Past the hour an ended session is held, the owed stop still holds it.
+    tick(61 * 60_000);
     expect((await start(1)).body).toMatchObject({ ok: false, error: 'busy' });
+    ctl.stopFails = 0;
     await gw.sweep();
     expect(stopped()).toEqual([`u-${A}-run-1`]);
     expect((await start(1)).body.ok).toBe(true);
     await gw.sweep();
     expect(stopped()).toEqual([`u-${A}-run-1`]);
+  });
+
+  // Codex's third look: a start whose answer came back late, after a stop,
+  // stopped the session again, and by then a second run could be on it.
+  it('a session that has ended takes no new start for an hour, so a late stop can only reach what ended', async () => {
+    const { start, call, ctl, tick, me } = setup();
+    let open;
+    ctl.gate = new Promise((r) => { open = r; });
+    const first = start(1);
+    await new Promise((r) => setTimeout(r, 5));
+    await call('POST', '/v1/stop', { sessionId: 'run-1' });
+    ctl.gate = null;
+    expect((await start(1)).body).toMatchObject({ ok: false, error: 'busy' });
+    open();
+    await first;
+    expect((await me()).running).toBe(0);
+    tick(59 * 60_000);
+    expect((await start(1)).body.error).toBe('busy');
+    tick(2 * 60_000);
+    expect((await start(1)).body.ok).toBe(true);
   });
 
   it('a run record that could not be written is written by the sweep', async () => {
