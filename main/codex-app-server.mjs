@@ -525,8 +525,8 @@ export function createCodexAppServer({
   }
 
   /** Why this connection ended, in a sentence that names something actionable. */
-  function cause() {
-    const tail = stderrText.trim().split('\n').slice(-3).join(' ').trim();
+  function cause({ withTail = true } = {}) {
+    const tail = withTail ? stderrText.trim().split('\n').slice(-3).join(' ').trim() : '';
     const said = tail ? `: ${tail}` : '';
     if (!gone) return `the connection to codex app-server failed on write${said}`;
     switch (gone.reason) {
@@ -566,6 +566,7 @@ export function createCodexAppServer({
     if (finished) return;
     finished = true;
     gone.stderr = stderrText;
+    gone.why = cause({ withTail: false });
     const why = cause();
 
     for (const timer of openCards.values()) clearTimeout(timer);
