@@ -95,7 +95,7 @@ import { writeChangeForRun, changePath } from './code-change.mjs';
 import { snapshotRepo, changeFromRepo } from './git-change.mjs';
 import { importedAgentBrief, importedAgentName, THREAD_LABEL } from '../shared/agent-import.mjs';
 import { readTranscriptHead } from './agent-sessions.mjs';
-import { readPlan } from './claude-plan.mjs';
+import { planStamp, readPlan } from './claude-plan.mjs';
 import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
 import { readDeadRunTrace, traceShowsASilentDeath, tracesAToolCall } from '../shared/dead-run-trace.mjs';
 import { commandPrompt } from '../shared/claude-commands.mjs';
@@ -764,6 +764,24 @@ export class Supervisor {
       if (notHersToMend && this._anotherAccountCanRun(account, benched)) continue;
       this._profileCooldown[account] = 0;
     }
+  }
+
+  /**
+   * CHOOSING AN ACCOUNT IS A PERSON'S HAND ON IT, like Resume. The account
+   * picked is often the one just upgraded, and its old limit would otherwise
+   * hold every thread until the reset it printed. Its bench goes, and a limit
+   * mark with it, so a chat on the login left behind can move here. Still
+   * capped, its first run dies in seconds and benches it to its reset again.
+   */
+  accountChosen(engine, profile) {
+    if (!profile) return false;
+    const key = this._accountKey(engine, profile);
+    if (this._profileTrouble?.[key]?.cause === 'at-limit') this._clearProfileTrouble(key);
+    else if (this._profileCooldown) this._profileCooldown[key] = 0;
+    if (engineOf(engine) === DEFAULT_ENGINE) this._spawnCooldownUntil = 0;
+    this._saveState();
+    this.wake();
+    return true;
   }
 
   /**
@@ -3893,6 +3911,9 @@ export class Supervisor {
     if (cause === 'at-limit') {
       const resetsAt = limitResetMoment(raw);
       if (resetsAt) this._profileTrouble[profile].resetsAt = resetsAt;
+      // And which plan it was hit on, for `_forgetLimitsOfAnOldPlan`.
+      const stamp = plan ? planStamp(profile, { home: this.config.home || os.homedir() }) : null;
+      if (stamp) this._profileTrouble[profile].plan = stamp;
     }
     return cause;
   }
@@ -3922,6 +3943,34 @@ export class Supervisor {
       forgot = true;
     }
     if (forgot) this._saveState();
+    return forgot;
+  }
+
+  /**
+   * A LIMIT BELONGS TO THE PLAN IT WAS HIT ON. An upgrade, extra usage, or the
+   * folder signed in as another account gives the login room before the reset
+   * it printed, and the only sign of it here is the plan Claude Code writes
+   * into the login's file. When that moves, the limit goes and the next run is
+   * the proof: still capped, it dies in seconds and files the limit again
+   * against the new plan, so one change buys one try.
+   */
+  _forgetLimitsOfAnOldPlan() {
+    const home = this.config.home || os.homedir();
+    let forgot = false;
+    let noted = false;
+    for (const profile of this._profiles()) {
+      const key = this._accountKey(DEFAULT_ENGINE, profile);
+      const trouble = this._profileTrouble?.[key];
+      if (trouble?.cause !== 'at-limit') continue;
+      const stamp = planStamp(profile, { home });
+      if (!stamp || stamp === trouble.plan) continue;
+      // A limit filed before plans were kept takes today's as its own.
+      if (!trouble.plan) { trouble.plan = stamp; noted = true; continue; }
+      this._clearProfileTrouble(key);
+      forgot = true;
+    }
+    if (forgot) this._spawnCooldownUntil = 0;
+    if (forgot || noted) this._saveState();
     return forgot;
   }
 
@@ -6032,6 +6081,7 @@ export class Supervisor {
     // brake below, which would otherwise hold the fleet past the sign-in.
     try { this._noticeSignIns(); } catch (e) { console.warn('zero: could not look for a sign-in:', e.message); }
     try { this._forgetResetLimits(); } catch (e) { console.warn('zero: could not let a reset limit go:', e.message); }
+    try { this._forgetLimitsOfAnOldPlan(); } catch (e) { console.warn('zero: could not read a login for a new plan:', e.message); }
     try { this._forgetRenewedSubscriptions(); } catch (e) { console.warn('zero: could not let a renewed subscription back in:', e.message); }
     // _cloudReady reads the cloud's setup (at most once a minute) first.
     try { this._cloudReady('codex'); this._renewCloudLogins(); void this._noteCloudOrgs(); } catch (e) { console.warn('zero: could not check the cloud sign-ins:', e.message); }
