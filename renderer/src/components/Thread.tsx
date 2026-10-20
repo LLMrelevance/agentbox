@@ -55,6 +55,23 @@ export type ThreadNode =
   | Indexed<AgentEvent>
   | { kind: 'run'; at: number; items: Indexed<AgentWork>[]; i?: undefined };
 
+const cutIndex = (nodes: ThreadNode[], gapAfter: number) =>
+  nodes.findIndex((e) => (e.kind === 'run' ? e.items[e.items.length - 1]?.i : e.i) === gapAfter);
+
+// THE TURN OF EACH BLOCK (../her-turns.ts), and one more for the agent's answer
+// that ItemThread draws under the last block. A chat has no turns, so each
+// message is one of its own.
+function turnsOf(nodes: ThreadNode[], cutAt: number, chat: boolean): number[] {
+  return chat ? nodes.map((_, n) => n).concat(nodes.length) : threadParts([...nodes, { who: 'it' }], cutAt);
+}
+
+/** The turn of the answer drawn under the thread, so its pictures step with the agent's last turn. */
+export function answerTurn(events: AgentEvent[], omitted: number, chat: boolean): number {
+  const nodes = groupWork(events.map((e, i) => ({ ...e, i })), { min: 1 }) as ThreadNode[];
+  const turns = turnsOf(nodes, cutIndex(nodes, chat ? -2 : gapIndex(events, omitted)), chat);
+  return turns[turns.length - 1];
+}
+
 // THE WAY FROM A LINE IN THE CHAT INTO THE CODE.
 //
 // The thread does not know what a change is and must not learn: it draws two
@@ -235,11 +252,10 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
   const nodes = groupWork(events.map((e, i) => ({ ...e, i })), { min: 1 }) as ThreadNode[];
   // WHICH OF HER MESSAGES OPEN A CHAPTER, and so wear the rule above them. The
   // whole of when is in ../her-turns.ts; the cut middle counts as a break.
-  const cutAt = nodes.findIndex((e) => (e.kind === 'run' ? e.items[e.items.length - 1]?.i : e.i) === gapAfter);
+  const cutAt = cutIndex(nodes, gapAfter);
   const turnStarts = herTurnStarts(nodes, cutAt);
   const turnEnds = herTurnEnds(nodes, cutAt);
-  // A chat has no turns, so each message is a part of its own.
-  const exchanges = chat ? nodes.map((_, n) => n) : threadParts(nodes, cutAt);
+  const exchanges = turnsOf(nodes, cutAt, chat);
   // A CONVERSATION WITH A PERSON IS LAID OUT AS A CHAT (w-2e8aa16f0f): a face
   // in a column, one head per run of messages, a line for each day. Which
   // message opens what is ../team/chat-layout.ts; a folded run is work to it.

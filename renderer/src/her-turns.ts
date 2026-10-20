@@ -32,15 +32,20 @@ export function herTurnStarts(nodes: TurnNode[], cutAfter = -1): boolean[] {
   });
 }
 
-// WHICH PART OF THE CONVERSATION EACH NODE IS IN: a turn of the person's and
-// everything after it up to their next. A picture opened from the thread steps
-// through the pictures of its own part only (../picture-view.ts). The cut
-// middle starts a new part, since what joined the two sides is out of sight.
-export function threadParts(nodes: TurnNode[], cutAfter = -1): number[] {
-  const starts = herTurnStarts(nodes, cutAfter);
+// WHICH TURN EACH NODE IS IN, for the pictures a click steps through
+// (../picture-view.ts). What the person says or does in a row is one turn, a
+// picked option included, and everything the agent says and does until then is
+// the next. The cut middle starts a new one, since what joined the two sides is
+// out of sight.
+export function threadParts(nodes: (TurnNode & { yours?: boolean })[], cutAfter = -1): number[] {
   let part = 0;
-  return nodes.map((_, n) => {
-    if (starts[n] || (n > 0 && n - 1 === cutAfter)) part++;
+  let last: 'you' | 'agent' | null = null;
+  return nodes.map((e, n) => {
+    if (n > 0 && n - 1 === cutAfter) { part++; last = null; }
+    const said = e.kind !== 'run' && e.kind !== 'work';
+    const who = e.yours || (said && e.who === 'you') ? 'you' : 'agent';
+    if (last && who !== last) part++;
+    last = who;
     return part;
   });
 }

@@ -12,41 +12,50 @@
 // And a picture in a folder grid was listed under its bare file name while its
 // click passed the full path, so it never found itself and opened alone.
 //
-// A part is a turn of yours and everything said after it, up to your next turn:
-// the same sections the thread already rules off.
+// A part is a turn. "A turn is when, let's say, I send a message. That's one
+// turn. The agent returns with a bunch of messages. Those messages are
+// considered one turn." So the agent's 3 pictures in one reply and its 5 in the
+// next are two sets, not one of 8, and a picture you sent is in a set of its own.
+// Picking an option is your turn as much as typing is.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { threadParts } from '../renderer/src/her-turns.ts';
 import { picturesBeside } from '../renderer/src/picture-view.ts';
-import { Thread } from '../renderer/src/components/Thread.tsx';
+import { Thread, answerTurn } from '../renderer/src/components/Thread.tsx';
 import { ArtifactImg } from '../renderer/src/components/Focus.tsx';
 
 const you = { who: 'you' };
-const agent = { who: 'agent' };
+const agent = { who: 'it' };
 const work = { kind: 'work' };
+const run = { kind: 'run' };
+const picked = { kind: 'work', yours: true };
 
-describe('which part of the thread each message is in', () => {
-  it('your turn and the reply under it are one part, and your next turn starts the next', () => {
-    expect(threadParts([you, agent, you, agent])).toEqual([0, 0, 1, 1]);
+describe('which turn each message is in', () => {
+  it('your message is one turn and the reply under it is the next', () => {
+    expect(threadParts([you, agent, you, agent])).toEqual([0, 1, 2, 3]);
   });
 
-  it('keeps every message of a long reply, and the work between them, in your part', () => {
-    expect(threadParts([you, work, agent, work, agent, agent, you, agent])).toEqual([0, 0, 0, 0, 0, 0, 1, 1]);
+  it('keeps every message of a long reply, and the work between them, in one turn', () => {
+    expect(threadParts([you, work, agent, run, agent, agent, you, agent])).toEqual([0, 1, 1, 1, 1, 1, 2, 3]);
   });
 
-  it('keeps two of your messages in a row in one part', () => {
-    expect(threadParts([you, you, agent, you, agent])).toEqual([0, 0, 0, 1, 1]);
+  it('keeps two of your messages in a row in one turn', () => {
+    expect(threadParts([you, you, agent, you, agent])).toEqual([0, 0, 1, 2, 3]);
   });
 
-  it('puts what the agent said before you ever spoke in a part of its own', () => {
-    expect(threadParts([agent, agent, you, agent])).toEqual([0, 0, 1, 1]);
+  it('splits two replies when you answered between them by picking an option', () => {
+    expect(threadParts([agent, agent, picked, agent])).toEqual([0, 0, 1, 2]);
   });
 
-  it('starts a new part across the cut middle, whatever opens the far side', () => {
-    expect(threadParts([you, agent, agent, agent], 1)).toEqual([0, 0, 1, 1]);
-    expect(threadParts([you, agent, you, agent], 1)).toEqual([0, 0, 1, 1]);
+  it('keeps a reply in one turn when nothing of yours came between its messages', () => {
+    expect(threadParts([you, agent, work, agent, agent])).toEqual([0, 1, 1, 1, 1]);
+  });
+
+  it('starts a new turn across the cut middle, whatever opens the far side', () => {
+    expect(threadParts([you, agent, agent, agent], 1)).toEqual([0, 1, 2, 2]);
+    expect(threadParts([you, agent, you, agent], 1)).toEqual([0, 1, 2, 3]);
   });
 });
 
@@ -67,11 +76,31 @@ describe('the thread says which part each block is in', () => {
     return /data-exchange="(\d+)"/.exec(html.slice(open, html.indexOf('>', open)))?.[1];
   };
 
-  it('marks your ask and its reply alike, and the next ask apart', () => {
+  it('marks your ask and each reply as turns of their own', () => {
     expect(partOf('first ask')).toBe('0');
-    expect(partOf('first reply')).toBe('0');
-    expect(partOf('second ask')).toBe('1');
-    expect(partOf('second reply')).toBe('1');
+    expect(partOf('first reply')).toBe('1');
+    expect(partOf('second ask')).toBe('2');
+    expect(partOf('second reply')).toBe('3');
+  });
+
+  // The agent's newest answer is drawn under the thread, outside its blocks
+  // (ItemThread). Measured in a built window: a reply of 2 pictures in one
+  // message and 3 in the answer opened as a set of 3, because the answer had no
+  // turn of its own.
+  it('gives the answer under the thread the turn of the agent messages above it', () => {
+    expect(answerTurn([{ at: 1, who: 'you', text: 'ask' }, { at: 2, who: 'it', text: 'first two' }], 0, false)).toBe(1);
+    expect(answerTurn([{ at: 1, who: 'you', text: 'ask' }, { at: 2, who: 'it', text: 'two' }, { at: 3, kind: 'work', verb: 'ran', subject: 'x' }], 0, false)).toBe(1);
+  });
+
+  it('starts a turn for the answer when your message is right above it', () => {
+    expect(answerTurn([{ at: 1, who: 'it', text: 'three' }, { at: 2, who: 'you', text: 'ask' }], 0, false)).toBe(2);
+  });
+
+  it('puts that turn on the answer itself', () => {
+    const view = fs.readFileSync(new URL('../renderer/src/components/ItemThread.tsx', import.meta.url), 'utf8');
+    const answer = view.slice(view.indexOf('const answer = outcome'), view.indexOf('return (', view.indexOf('const answer = outcome')));
+    expect(answer.match(/data-exchange=\{answerAt\}/g)).toHaveLength(2);
+    expect(view).toMatch(/const answerAt = answerTurn\(events, omitted, chat\)/);
   });
 
   it('gives each message in a chat a part of its own, since a chat has no turns', () => {
@@ -87,25 +116,28 @@ describe('the thread says which part each block is in', () => {
 
 describe('the pictures a click steps through', () => {
   const shot = (path, section, url = `img://${path}`) => ({ path, url, section });
+  // Your ask with a screenshot, a reply with 3, your answer, a reply with 5.
   const thread = [
     shot('attachments/pasted-1.png', '0'),
-    shot('designs/r1/a.png', '0'),
-    shot('designs/r1/b.png', '0'),
-    shot('designs/r2/a.png', '1'),
-    shot('designs/r2/b.png', '1'),
-    shot('designs/r2/c.png', '1'),
+    ...['a', 'b', 'c'].map((l) => shot(`designs/r1/${l}.png`, '1')),
+    ...['a', 'b', 'c', 'd', 'e'].map((l) => shot(`designs/r2/${l}.png`, '3')),
   ];
 
-  it('are the ones in its own part, in reading order, with the clicked one open', () => {
-    const { pictures, start } = picturesBeside(thread, 4);
-    expect(pictures.map((p) => p.path)).toEqual(['designs/r2/a.png', 'designs/r2/b.png', 'designs/r2/c.png']);
+  it('are the 5 of the newest reply, not the 8 of both, with the clicked one open', () => {
+    const { pictures, start } = picturesBeside(thread, 6);
+    expect(pictures.map((p) => p.path)).toEqual(['a', 'b', 'c', 'd', 'e'].map((l) => `designs/r2/${l}.png`));
+    expect(start).toBe(2);
+  });
+
+  it('are the 3 of the earlier reply when one of those is clicked', () => {
+    const { pictures, start } = picturesBeside(thread, 2);
+    expect(pictures.map((p) => p.path)).toEqual(['designs/r1/a.png', 'designs/r1/b.png', 'designs/r1/c.png']);
     expect(start).toBe(1);
   });
 
-  it('include the picture you sent with your ask', () => {
-    const { pictures, start } = picturesBeside(thread, 2);
-    expect(pictures.map((p) => p.path)).toEqual(['attachments/pasted-1.png', 'designs/r1/a.png', 'designs/r1/b.png']);
-    expect(start).toBe(2);
+  it('keep a picture you sent out of the reply under it', () => {
+    expect(picturesBeside(thread, 0).pictures.map((p) => p.path)).toEqual(['attachments/pasted-1.png']);
+    expect(picturesBeside(thread, 1).pictures.map((p) => p.path)).not.toContain('attachments/pasted-1.png');
   });
 
   it('is the one picture alone when its part has no other', () => {

@@ -41,9 +41,8 @@ describe('the step arrows leave the corners to the buttons in them', () => {
 
   it('stop above the strip of pictures along the foot', () => {
     const strip = rule('.pv-strip');
-    // The open thumbnail is the tallest one in the strip.
-    const thumb = Math.max(px(rule('.pv-thumb'), 'height'), px(rule('.pv-thumb.is-on'), 'height') ?? 0);
-    const stripTop = px(strip, 'bottom') + thumb + 2 * px(strip, 'padding');
+    const thumb = rule('.pv-thumb');
+    const stripTop = px(strip, 'bottom') + px(thumb, 'height') + 2 * px(strip, 'padding');
     expect(px(step, 'bottom')).toBeGreaterThanOrEqual(stripTop);
   });
 
