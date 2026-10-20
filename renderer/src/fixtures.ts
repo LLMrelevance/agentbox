@@ -974,9 +974,9 @@ export const fixtureSettings = {
 //   ?engines=codex    two agents, workspace moved to Codex. The screen the
 //                     shipped bug was on.
 
-export type FixtureEngineWorld = 'missing' | 'claude' | 'codex' | 'nowhere' | 'chosen' | 'signedout';
+export type FixtureEngineWorld = 'missing' | 'claude' | 'codex' | 'nowhere' | 'chosen' | 'signedout' | 'ready';
 
-const ENGINE_WORLDS: FixtureEngineWorld[] = ['missing', 'claude', 'codex', 'nowhere', 'chosen', 'signedout'];
+const ENGINE_WORLDS: FixtureEngineWorld[] = ['missing', 'claude', 'codex', 'nowhere', 'chosen', 'signedout', 'ready'];
 
 /**
  * The world one url asks for, or null for the Mac she has. A word nothing
@@ -1108,6 +1108,20 @@ export function fixtureEngineSettings(world: FixtureEngineWorld | null): Partial
       codex: { found: true, certain: true, bin: CODEX_BIN, url: CODEX_INSTALL_URL, trouble: null },
     };
   }
+  /*
+   * THE MACHINE MOST PEOPLE ARRIVE ON (w-e217e577e5): Claude signed in
+   * already, nothing else here. Every other world answers this question with a
+   * machine that has a problem, so the screen that says what it FOUND could
+   * only be drawn on the default, where both agents are ready at once, which
+   * is a machine almost nobody has.
+   */
+  if (world === 'ready') {
+    return {
+      claudeFound: true, claudeCertain: true, claudeBin: '/Users/you/.local/bin/claude',
+      codexFound: false, codexCertain: true, codexInstallUrl: CODEX_INSTALL_URL,
+      codex: { found: false, certain: true, bin: '', url: CODEX_INSTALL_URL, trouble: null },
+    };
+  }
   if (world === 'nowhere') {
     return {
       claudeFound: false, claudeCertain: true, claudeBin: '/Users/you/.local/bin/claude',
@@ -1170,7 +1184,9 @@ export function fixtureSecondEngine(snap: Snapshot, world: FixtureEngineWorld | 
   // `nowhere` and `chosen` are the same: they are about WHERE the agents are,
   // not about which one a row runs on, so the rows they describe are the ones
   // already up (w-ce8c1a9275).
-  if (!world || world === 'missing' || world === 'nowhere' || world === 'chosen' || world === 'signedout') return snap;
+  // `ready` belongs with them: it says what is on the machine, not which agent
+  // any row runs on.
+  if (!world || world === 'missing' || world === 'nowhere' || world === 'chosen' || world === 'signedout' || world === 'ready') return snap;
   const byItem = OFF_THE_WORKSPACE[world];
   const engineOf = (id: string) => byItem[id] ?? world;
   return {
