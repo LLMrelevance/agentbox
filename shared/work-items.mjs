@@ -561,7 +561,7 @@ export function finishItem(raw, now = Date.now()) {
     delete item.said;
     if (Array.isArray(item.people) && item.people.length) {
       item.talk = talkOf(said);
-      const settled = settledBy(closes ?? []);
+      const settled = settledBy(closes ?? [], said);
       if (settled) item.talk.settled = settled;
     }
   }
@@ -703,12 +703,15 @@ const TALK_KEEP = 100;
  * For each person, the moment they last marked the chat done, or nothing if
  * they reopened it since without saying anything (an undo). A reopen that
  * carries their words keeps the moment: speaking is not taking the close back.
+ * So does one that follows their words since the close, because sending
+ * writes the message and the reopen as two lines (`answerItem`, main/store.mjs).
  */
-function settledBy(closes) {
+function settledBy(closes, said = []) {
   const at = {};
+  const spokeSince = (by, from, to) => said.some((s) => s.by === by && !s.body && s.ts > from && s.ts <= to);
   for (const c of [...closes].sort((a, b) => a.ts - b.ts)) {
     if (c.done) at[c.by] = c.ts;
-    else if (!c.spoke) delete at[c.by];
+    else if (!c.spoke && !spokeSince(c.by, at[c.by], c.ts)) delete at[c.by];
   }
   return Object.keys(at).length ? at : null;
 }

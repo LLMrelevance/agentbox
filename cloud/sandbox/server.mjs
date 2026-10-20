@@ -47,7 +47,7 @@ const PAGE_BYTES = 8 * 1024 * 1024;
 const MAX_MCP_LINE = 32 * 1024 * 1024;
 // What this server can do beyond the first version, said in a start's answer,
 // so a Mac knows rather than guesses whether its asks are honoured.
-const CAPS = ['offline', 'setup', 'kept', 'base'];
+const CAPS = ['offline', 'setup', 'kept', 'base', 'plain'];
 // A PROJECT'S OWN SETUP: `.agentbox/cloud-setup.sh` in its task folder, run as
 // the agent before the agent, on every cloud run, so a project needing a
 // program the image lacks says so in its own repository rather than in a new
@@ -548,37 +548,41 @@ export function createSandbox({
     try {
       const bundle = path.join(r.dir, 'in.bundle');
       fs.mkdirSync(cwd, { recursive: true });
-      await sh('git', ['init', '-q'], cwd);
-      // The history the bucket already had, then only the commits past it.
-      if (base) {
-        const file = path.join(r.dir, 'base.bundle');
-        await download(fetchImpl, base.url, file);
-        await sh('git', ['fetch', '-q', file, '+refs/*:refs/agentbox/base/*'], cwd);
-        fs.rmSync(file, { force: true });
-      }
-      // Every ref the Mac packed lands where it was. `--update-head-ok`: a
-      // fresh repository's HEAD already names a branch, and git otherwise
-      // refuses to fetch into the checked-out one.
-      if (bundleUrl) {
-        await download(fetchImpl, bundleUrl, bundle);
-        await sh('git', ['fetch', '-q', '--update-head-ok', bundle, '+refs/*:refs/*'], cwd);
-      }
-      // A thin bundle leaves out each ref whose commit the base holds.
-      for (const [ref, sha] of Object.entries(refs || {})) await sh('git', ['update-ref', ref, sha], cwd);
-      if (base) {
-        const left = (await sh('git', ['for-each-ref', '--format=%(refname)', 'refs/agentbox/base/'], cwd)).split('\n').filter(Boolean);
-        for (const ref of left) await sh('git', ['update-ref', '-d', ref], cwd);
-      }
-      await sh('git', ['checkout', '-q', branch], cwd);
-      if (remote) await sh('git', ['remote', 'add', 'origin', remote], cwd).catch(() => {});
-      r.startSha = (await sh('git', ['rev-parse', 'HEAD'], cwd)).trim();
-      r.lastCheckpoint = r.startSha;
-      // Work the task folder held uncommitted on the Mac, carried as one
-      // commit on its own ref and laid back down as uncommitted work here.
-      if (changesRef) {
-        const patch = await sh('git', ['diff', '--binary', 'HEAD', changesRef], cwd, {}, true);
-        if (patch.length) await sh('git', ['apply', '--whitespace=nowarn'], cwd, {}, false, patch);
-        await sh('git', ['update-ref', '-d', changesRef], cwd).catch(() => {});
+      // A project with no repository runs in its documents folder, which
+      // arrives with the files below: nothing to check out.
+      if (!r.spec.plain) {
+        await sh('git', ['init', '-q'], cwd);
+        // The history the bucket already had, then only the commits past it.
+        if (base) {
+          const file = path.join(r.dir, 'base.bundle');
+          await download(fetchImpl, base.url, file);
+          await sh('git', ['fetch', '-q', file, '+refs/*:refs/agentbox/base/*'], cwd);
+          fs.rmSync(file, { force: true });
+        }
+        // Every ref the Mac packed lands where it was. `--update-head-ok`: a
+        // fresh repository's HEAD already names a branch, and git otherwise
+        // refuses to fetch into the checked-out one.
+        if (bundleUrl) {
+          await download(fetchImpl, bundleUrl, bundle);
+          await sh('git', ['fetch', '-q', '--update-head-ok', bundle, '+refs/*:refs/*'], cwd);
+        }
+        // A thin bundle leaves out each ref whose commit the base holds.
+        for (const [ref, sha] of Object.entries(refs || {})) await sh('git', ['update-ref', ref, sha], cwd);
+        if (base) {
+          const left = (await sh('git', ['for-each-ref', '--format=%(refname)', 'refs/agentbox/base/'], cwd)).split('\n').filter(Boolean);
+          for (const ref of left) await sh('git', ['update-ref', '-d', ref], cwd);
+        }
+        await sh('git', ['checkout', '-q', branch], cwd);
+        if (remote) await sh('git', ['remote', 'add', 'origin', remote], cwd).catch(() => {});
+        r.startSha = (await sh('git', ['rev-parse', 'HEAD'], cwd)).trim();
+        r.lastCheckpoint = r.startSha;
+        // Work the task folder held uncommitted on the Mac, carried as one
+        // commit on its own ref and laid back down as uncommitted work here.
+        if (changesRef) {
+          const patch = await sh('git', ['diff', '--binary', 'HEAD', changesRef], cwd, {}, true);
+          if (patch.length) await sh('git', ['apply', '--whitespace=nowarn'], cwd, {}, false, patch);
+          await sh('git', ['update-ref', '-d', changesRef], cwd).catch(() => {});
+        }
       }
       if (r.spec.docs) fs.mkdirSync(r.spec.docs, { recursive: true });
       for (const f of files) await placeFile(f);
@@ -1054,8 +1058,23 @@ export function createSandbox({
     // The documents first: they are sent whether or not the folder ever got
     // as far as a checkout, and hold everything the Mac has not said it laid.
     const docs = docsUrl ? (await sendDocs(r, docsUrl)).files : [];
-    // A run cancelled before checkout has nothing in the folder to bring.
-    if (!r.startSha) return { ok: true, startSha: null, tip: null, commits: 0, uncommitted: false, changesRef: null, brought, docs };
+    const bringAll = async () => {
+      for (const b of bring) {
+        if (!fs.existsSync(b.dir)) continue;
+        if (r.secrets?.length) redactFolder(b.dir, r.secrets);
+        const tarball = tmp('bring.tgz');
+        await sh('tar', ['-czf', tarball, '-C', b.dir, '.'], r.spec.cwd);
+        await upload(fetchImpl, b.url, fs.readFileSync(tarball));
+        fs.rmSync(tarball, { force: true });
+        brought.push(b.dir);
+      }
+    };
+    // A run cancelled before checkout has nothing in the folder to bring; a
+    // run with no repository still has its conversation.
+    if (!r.startSha) {
+      if (r.spec.plain) await bringAll();
+      return { ok: true, startSha: null, tip: null, commits: 0, uncommitted: false, changesRef: null, brought, docs };
+    }
     const cwd = r.spec.cwd;
     const branch = r.spec.branch;
     const tip = (await sh('git', ['rev-parse', `refs/heads/${branch}`], cwd)).trim();
@@ -1112,15 +1131,7 @@ export function createSandbox({
       await upload(fetchImpl, changesUrl, fs.readFileSync(out));
       fs.rmSync(out, { force: true });
     }
-    for (const b of bring) {
-      if (!fs.existsSync(b.dir)) continue;
-      if (r.secrets?.length) redactFolder(b.dir, r.secrets);
-      const tarball = tmp('bring.tgz');
-      await sh('tar', ['-czf', tarball, '-C', b.dir, '.'], cwd);
-      await upload(fetchImpl, b.url, fs.readFileSync(tarball));
-      fs.rmSync(tarball, { force: true });
-      brought.push(b.dir);
-    }
+    await bringAll();
     return { ok: true, startSha: r.startSha, tip: withheld ? r.startSha : tip, head: withheld ? r.startSha : head, headRef, strayHead, commits, uncommitted: dirty, changesRef, brought, docs, ...(withheld ? { withheld } : {}) };
   }
 
@@ -1194,6 +1205,7 @@ export function createSandbox({
   }
 
   async function checkpoint(r, { bundleUrl }) {
+    if (!r.startSha) return { ok: true, changed: false, tip: null };
     const cwd = r.spec.cwd;
     const tip = (await sh('git', ['rev-parse', `refs/heads/${r.spec.branch}`], cwd)).trim();
     if (tip === r.lastCheckpoint) return { ok: true, changed: false, tip };
@@ -1482,11 +1494,13 @@ function invalidStart(req) {
   if (req.login && (!req.login.url || !['claude', 'codex'].includes(req.login.engine))) return 'a login needs its engine and its link';
   if (!req.runId || typeof req.runId !== 'string') return 'runId is required';
   if (!req.cwd || !path.isAbsolute(req.cwd)) return 'cwd must be an absolute path';
-  if (!req.branch) return 'branch is required';
+  if (req.plain != null && req.plain !== true) return 'plain is true or absent';
+  if (req.plain && (req.bundleUrl || req.base || req.refs || req.changesRef)) return 'a run with no repository takes no bundle';
+  if (!req.plain && !req.branch) return 'branch is required';
   if (req.base != null && (typeof req.base !== 'object' || !req.base.url || !/^[0-9a-f]{40,64}$/.test(req.base.sha || ''))) return 'base must be { url, sha }';
   if (req.refs != null && (typeof req.refs !== 'object' || Array.isArray(req.refs)
     || !Object.entries(req.refs).every(([ref, sha]) => /^refs\/[A-Za-z0-9._/-]+$/.test(ref) && !ref.includes('..') && /^[0-9a-f]{40,64}$/.test(sha)))) return 'refs must be { ref: sha }';
-  if (!req.bundleUrl && !req.base) return 'bundleUrl is required';
+  if (!req.plain && !req.bundleUrl && !req.base) return 'bundleUrl is required';
   if (!Array.isArray(req.argv) || !req.argv.length) return 'argv is required';
   if (req.offline != null && (typeof req.offline !== 'object' || (req.offline.endTurn != null && req.offline.endTurn !== 'claude-stream-json'))) return 'offline must be { afterMs, endTurn: "claude-stream-json" or null }';
   if (req.offline?.kept != null && (typeof req.offline.kept !== 'object' || Array.isArray(req.offline.kept)
