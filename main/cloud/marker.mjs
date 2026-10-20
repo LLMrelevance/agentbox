@@ -41,7 +41,11 @@ export function commonGitDirOf(folder) {
   try { return path.resolve(dir, fs.readFileSync(path.join(dir, 'commondir'), 'utf8').trim()); } catch { return dir; }
 }
 
+// `folder` is a task folder, or `{ folder, file }` for a project with no
+// repository: its threads share one documents folder, so each keeps its own
+// marker at `file` (Supervisor#_plainMarker).
 export function markerPath(folder) {
+  if (folder && typeof folder === 'object') return folder.file || null;
   const dir = gitDirOf(folder);
   return dir ? path.join(dir, NAME) : null;
 }
@@ -55,6 +59,7 @@ export function readMarker(folder) {
 export function writeMarker(folder, record) {
   const file = markerPath(folder);
   if (!file) throw new Error(`${folder} is not a git folder`);
+  if (typeof folder === 'object') fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify({ ...record, at: Date.now() }, null, 2));
   fs.renameSync(tmp, file);
@@ -68,6 +73,7 @@ export function clearMarker(folder) {
 // The one question the ship queue and the folder cleaner ask. A folder that
 // is not there, or not a git folder, has nothing pending.
 export function cloudWorkPending(folder) {
+  if (folder && typeof folder === 'object') return !!folder.file && !!readMarker(folder);
   if (!folder || !fs.existsSync(folder)) return false;
   return !!readMarker(folder);
 }

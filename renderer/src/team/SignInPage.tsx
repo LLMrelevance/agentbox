@@ -29,7 +29,19 @@ type Mode = 'sign-in' | 'sign-up' | 'check-email';
 // sign-in had opened in a browser window she could not see, and this page then
 // offered a disabled button for five minutes. Now it says where the sign-in
 // went, and gives the link back, a copy of it and a way out.
-export function SignInPage({ signedOut = false, error: startError = null, waitingUrl = null }: { signedOut?: boolean; error?: string | null; waitingUrl?: string | null }) {
+// AND IT SIGNS IN TO AGENTBOX CLOUD (2026-10-20, w-6633e825a7). The owner
+// turned down new screens for the cloud: "We already have a sign-in page
+// built that's pretty darn decent." With purpose cloud the same page signs in
+// through main/cloud/account.mjs, says one line about the terms, and can be
+// left: the cloud is something chosen, not a gate over the app.
+const TERMS_URL = 'https://agentbox.ac/terms';
+const PRIVACY_URL = 'https://agentbox.ac/privacy';
+
+export function SignInPage({ signedOut = false, error: startError = null, waitingUrl = null, purpose = 'team', onClose, onSignedIn }: {
+  signedOut?: boolean; error?: string | null; waitingUrl?: string | null;
+  purpose?: 'team' | 'cloud'; onClose?: () => void; onSignedIn?: () => void;
+}) {
+  const cloud = purpose === 'cloud';
   const [mode, setMode] = useState<Mode>('sign-in');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -42,10 +54,17 @@ export function SignInPage({ signedOut = false, error: startError = null, waitin
   const [copied, setCopied] = useState(false);
   const google = async () => {
     setBusy('google'); setError(null); setCopied(false);
-    const out = await api.teamSignIn();
+    const out = cloud ? await api.cloudAccountSignIn({ method: 'google' }) : await api.teamSignIn();
     setBusy(null);
-    if (!out.ok && !/cancelled/i.test(out.error ?? '')) setError(out.error ?? 'Google sign-in did not finish.');
+    if (out.ok) { if (cloud) onSignedIn?.(); return; }
+    if (!/cancelled/i.test(out.error ?? '')) setError(out.error ?? 'Google sign-in did not finish.');
   };
+  useEffect(() => {
+    if (!cloud || !onClose) return undefined;
+    const on = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onClose(); };
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  }, [cloud, onClose, busy]);
   // A reload while the browser is out still finds the sign-in waiting.
   const waiting = busy === 'google' || !!waitingUrl;
   const copy = async () => {
@@ -64,12 +83,12 @@ export function SignInPage({ signedOut = false, error: startError = null, waitin
               ? `Google sign-in is open in your default browser. Pick your account there and ${Name} carries on by itself.`
               : 'Opening Google sign-in in your browser…'}
           </p>
-          <button type="button" className="si-google" disabled={!waitingUrl} onClick={() => { setError(null); void api.teamSignInReopen(); }}>
+          <button type="button" className="si-google" disabled={!waitingUrl && !cloud} onClick={() => { setError(null); void (cloud ? api.cloudAccountReopen() : api.teamSignInReopen()); }}>
             <GoogleMark />Open the sign-in page again
           </button>
           <div className="si-wait-row">
-            <button type="button" disabled={!waitingUrl} onClick={copy}>{copied ? 'Link copied' : 'Copy the link'}</button>
-            <button type="button" onClick={() => { void api.teamSignInCancel(); setBusy(null); setError(null); }}>Cancel</button>
+            {!cloud && <button type="button" disabled={!waitingUrl} onClick={copy}>{copied ? 'Link copied' : 'Copy the link'}</button>}
+            <button type="button" onClick={() => { void (cloud ? api.cloudAccountCancel() : api.teamSignInCancel()); setBusy(null); setError(null); }}>Cancel</button>
           </div>
           {error && <p className="si-error" role="alert">{error}</p>}
         </div>
@@ -81,24 +100,29 @@ export function SignInPage({ signedOut = false, error: startError = null, waitin
     e.preventDefault();
     if (busy) return;
     setBusy('email'); setError(null);
-    const out = mode === 'sign-up'
-      ? await api.teamSignUp(name, email, password)
-      : await api.teamSignInEmail(email, password);
+    const out = cloud
+      ? await api.cloudAccountSignIn(mode === 'sign-up' ? { method: 'sign-up', name, email, password } : { method: 'email', email, password })
+      : mode === 'sign-up'
+        ? await api.teamSignUp(name, email, password)
+        : await api.teamSignInEmail(email, password);
     setBusy(null);
     if (!out.ok) { setError(out.error ?? 'That did not work. Try again.'); return; }
-    if (out.confirm) setMode('check-email');
+    if (out.confirm) { setMode('check-email'); return; }
+    if (cloud) onSignedIn?.();
   };
 
   const heading = mode === 'sign-up' ? 'Create your account'
     : mode === 'check-email' ? 'Check your email'
       : signedOut ? 'You are signed out' : `Sign in to ${Name}`;
-  const lede = mode === 'sign-up' ? 'Your teammates will see this name beside your threads and messages.'
-    : mode === 'check-email' ? `We sent a link to ${email}. Follow it to confirm your address, then sign in here.`
+  const lede = mode === 'check-email' ? `We sent a link to ${email}. Follow it to confirm your address, then sign in here.`
+    : cloud ? 'Then your agents run in the cloud.'
+      : mode === 'sign-up' ? 'Your teammates will see this name beside your threads and messages.'
       : signedOut ? 'Sign in again to get back to your inbox and your team.'
         // On the phone with the Mac shut: what signing in here gets her.
         : onCloudPhone() ? 'Use the account your computer is signed in with. Your threads are here even when it is closed.'
         : 'Your threads, your agents and your team, in one inbox.';
-  const canSubmit = !!email.trim() && !!password && (mode !== 'sign-up' || !!name.trim());
+  // The cloud asks no name: only teammates ever see one.
+  const canSubmit = !!email.trim() && !!password && (mode !== 'sign-up' || cloud || !!name.trim());
 
   return (
     <div className="si-page" role="dialog" aria-modal="true" aria-label={heading}>
@@ -116,13 +140,13 @@ export function SignInPage({ signedOut = false, error: startError = null, waitin
             </button>
             <div className="si-or"><span>or</span></div>
             <form className="si-form" onSubmit={submit}>
-              {mode === 'sign-up' && (
+              {mode === 'sign-up' && !cloud && (
                 <label><span>Name</span>
                   <input ref={first} value={name} autoComplete="name" onChange={(e) => setName(e.target.value)} />
                 </label>
               )}
               <label><span>Email</span>
-                <input ref={mode === 'sign-in' ? first : undefined} type="email" value={email} autoComplete="email" onChange={(e) => setEmail(e.target.value)} />
+                <input ref={mode === 'sign-in' || cloud ? first : undefined} type="email" value={email} autoComplete="email" onChange={(e) => setEmail(e.target.value)} />
               </label>
               <label><span>Password</span>
                 <input type="password" value={password} autoComplete={mode === 'sign-up' ? 'new-password' : 'current-password'} onChange={(e) => setPassword(e.target.value)} />
@@ -143,7 +167,15 @@ export function SignInPage({ signedOut = false, error: startError = null, waitin
               : <>Have an account? <button type="button" onClick={() => { setMode('sign-in'); setError(null); }}>Sign in</button></>}
           </p>
         )}
+        {cloud && mode !== 'check-email' && (
+          <p className="si-terms">Continuing accepts the <a href={TERMS_URL} onClick={(e) => { e.preventDefault(); window.open(TERMS_URL, '_blank'); }}>Terms</a> and the <a href={PRIVACY_URL} onClick={(e) => { e.preventDefault(); window.open(PRIVACY_URL, '_blank'); }}>Privacy policy</a>.</p>
+        )}
       </div>
+      {cloud && onClose && (
+        <button type="button" className="back-esc fr-back si-back" aria-label="Back" title="Back" onClick={onClose}>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M10 3.5L5.5 8l4.5 4.5" /></svg>
+        </button>
+      )}
     </div>
   );
 }
