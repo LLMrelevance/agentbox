@@ -544,12 +544,26 @@ async function stopProcesses(state, { how = 'quit', keepBrowser = false } = {}) 
     while (alive(state.pid) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
     try { process.kill(-state.pid, 'SIGKILL'); } catch { /* gone */ }
   }
-  // A restart is the app's, so the breaker's or tester's browser (its profile is in the instance) stays open.
-  const strays = execFileSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' }).split('\n')
-    .map((l) => l.trim().match(/^(\d+)\s+(.*)$/)).filter((m) => m && m[2].includes(INSTANCE) && Number(m[1]) !== process.pid)
-    .filter((m) => !(keepBrowser && m[2].includes(path.join(INSTANCE, 'chrome-profile'))));
-  for (const m of strays) { try { process.kill(Number(m[1]), 'SIGKILL'); } catch { /* gone */ } }
+  const table = execFileSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' }).split('\n')
+    .map((l) => l.trim().match(/^(\d+)\s+(.*)$/)).filter(Boolean).map((m) => ({ pid: Number(m[1]), command: m[2] }));
+  // The shell that ran this often names the folder too.
+  const strays = straysToStop(table, INSTANCE, { keepBrowser, self: [process.pid, process.ppid] });
+  for (const pid of strays) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
   return strays.length;
+}
+
+/**
+ * Which running processes belong to the copy in `instance`. On a restart the
+ * browser (its profile is in the instance) is the breaker's or tester's, not
+ * the app's, so it stays.
+ */
+export function straysToStop(table, instance, { keepBrowser = false, self = [] } = {}) {
+  // The folder whole: the plain copy's name is the start of every named copy's.
+  const mine = new RegExp(`${instance.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=/|\\s|$)`);
+  const spare = new Set([self].flat());
+  return table.filter((p) => mine.test(p.command) && !spare.has(p.pid))
+    .filter((p) => !(keepBrowser && p.command.includes(`${instance}/chrome-profile`)))
+    .map((p) => p.pid);
 }
 
 async function down() {
