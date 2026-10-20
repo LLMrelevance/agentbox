@@ -41,6 +41,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, takeCloudNews } from './cloud/marker.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
+import { CLOUD_SENT, readSent } from '../shared/cloud-start.mjs';
 import { readCloudConfig, cloudAccountConfig, OLD_TOKEN_SERVICE, imageCaps } from './cloud/config.mjs';
 import { cloudVersionGaps } from '../shared/cloud-versions.mjs';
 import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
@@ -536,6 +537,15 @@ export class Supervisor {
       this.threadPins = Object.fromEntries(Object.entries(state.threadPins ?? {}).filter(([, v]) => v === true));
       // Threads she keeps on this Mac whatever the cloud is set to.
       this.threadOnMac = Object.fromEntries(Object.entries(state.threadOnMac ?? {}).filter(([, v]) => v === true));
+      // Threads the app moved here for one request (`_moveToMac`). A state
+      // saved before moves had their own key held both in `threadOnMac`, and
+      // nearly all of those were moves.
+      if (Object.hasOwn(state, 'movedToMac')) {
+        this.movedToMac = Object.fromEntries(Object.entries(state.movedToMac ?? {}).filter(([, v]) => Number.isFinite(v)));
+      } else {
+        this.movedToMac = Object.fromEntries(Object.keys(this.threadOnMac).map((id) => [id, Date.now()]));
+        this.threadOnMac = {};
+      }
     } catch {
       this._handledAnswers = new Set();
       this._resumedWaits = new Set();
@@ -554,6 +564,7 @@ export class Supervisor {
       this.threadPlaces = {};
       this.threadPins = {};
       this.threadOnMac = {};
+      this.movedToMac = {};
     }
     // WHICH ROWS NOTHING HAS BEEN ABLE TO RUN ON, as of the last tick, for the
     // line above her list. Deliberately NOT persisted: it is derived from
@@ -868,7 +879,12 @@ export class Supervisor {
   stopSession(itemId) {
     if (this._preparing?.delete(itemId)) return true;
     const session = this.sessions.get(itemId);
-    if (!session) return false;
+    if (!session) {
+      const joined = this._comingHome?.get(itemId);
+      if (!joined) return false;
+      joined.stop();
+      return true;
+    }
     return this._kill(session);
   }
 
@@ -3528,6 +3544,8 @@ export class Supervisor {
       if (keep === true) this.threadOnMac[id] = true;
       else if (keep === null || keep === false) delete this.threadOnMac[id];
       changed ||= was !== (this.threadOnMac[id] === true);
+      // The person's choice either way replaces a move the app made.
+      if (keep !== undefined && id in (this.movedToMac ?? {})) { delete this.movedToMac[id]; changed = true; }
       const session = this.sessions.get(id);
       if (keep === true && session?.cloud) {
         this._kill(session);
@@ -3540,18 +3558,30 @@ export class Supervisor {
   }
 
   // A CLOUD RUN THAT ENDED ON THE MARKED LINE (shared/cloud-hand-back.mjs):
-  // its request needs this Mac. The thread is kept here from now on, nothing
-  // it said goes on the row, and the same request runs again here, told why
-  // (`replyBrief`). True when it was one.
+  // its request needs this Mac. Nothing it said goes on the row, and the same
+  // request runs again here, told why (`replyBrief`). True when it was one.
   _noteCloudHandBack(item, session) {
     if (!session?.cloud || session.resultIsError || !handsBack(session.result)) return false;
     session.handedBack = true;
     this._handedBack ??= new Set();
     this._handedBack.add(item.id);
-    // Not `setThreadOnMac`, which would stop this session as it ends.
-    this.threadOnMac[item.id] = true;
-    this._saveState();
+    this._moveToMac(item.id);
     return true;
+  }
+
+  // THE APP'S OWN MOVE TO THIS MAC LASTS ONE REQUEST. The person's "Keep on
+  // this Mac" (`threadOnMac`) is for good; this one is spent once a run here
+  // has carried the request to an answer, and the next reply goes to the cloud
+  // first again.
+  _moveToMac(id) {
+    (this.movedToMac ??= {})[id] = Date.now();
+    this._saveState();
+  }
+
+  _spendMoveToMac(item, session) {
+    if (!item?.id || !(item.id in (this.movedToMac ?? {})) || session?.cloud || session?.exitFailed !== false) return;
+    delete this.movedToMac[item.id];
+    this._saveState();
   }
 
   // The snapshot's items with each one's place, pin and keep-on-this-Mac on
@@ -4243,11 +4273,16 @@ export class Supervisor {
     for (const engine of [DEFAULT_ENGINE, 'codex']) {
       listCloudLogins(engine, { home: this.config.home }).forEach((r) => {
         const state = cloudLoginState(r, { now });
-        // A Claude login in the cloud can say its organization, not its email.
-        here ??= this._profiles().map((p) => accountIdentity(p === 'default' ? null : p, { home: this.config.home || os.homedir() }));
+        // A Claude login in the cloud can say its organization, not its email
+        // or its plan, so both come from the folder here in that organization.
+        const home = this.config.home || os.homedir();
+        here ??= this._profiles().map((p) => ({ ...accountIdentity(p === 'default' ? null : p, { home }), profile: p }));
         const name = r.email || (engine === DEFAULT_ENGINE ? nameForOrganization(r.org, here) : null);
+        const plans = engine === DEFAULT_ENGINE && r.org
+          ? new Set(here.filter((id) => id.organizationUuid === r.org).map((id) => readPlan(id.profile, { home }).label).filter(Boolean))
+          : new Set();
         out.push({
-          engine, key: r.key, name: name || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null,
+          engine, key: r.key, name: name || null, plan: plans.size === 1 ? [...plans][0] : null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null,
           limitedUntil: r.limitedUntil ?? null, limits: cloudLimits(r.limits), readAt: r.readAt ?? null, duplicateOf: r.duplicateOf ?? null,
         });
       });
@@ -4448,15 +4483,40 @@ export class Supervisor {
   }
 
   // Cloud runs still being packed and sent: a run's proxy holds its folder,
-  // documents and transcript in memory until its agent has started.
-  // A start older than CLOUD_START_PATIENCE_MS is stuck, not starting, and
-  // holds nothing back.
+  // documents and transcript in memory until the cloud has taken its start
+  // (`_noteCloudSent`). The wait for the cloud machine and its agent holds
+  // nothing here, so it does not count. A start older than
+  // CLOUD_START_PATIENCE_MS is stuck, not starting, and holds nothing back.
   _cloudStarting(now = Date.now()) {
     let n = 0;
     for (const s of this.sessions.values()) {
-      if (s.cloud && s.sessionId == null && s.result == null && now - (s.startedAt ?? now) < CLOUD_START_PATIENCE_MS) n += 1;
+      if (s.cloud && !s.cloudSentAt && s.sessionId == null && s.result == null && now - (s.startedAt ?? now) < CLOUD_START_PATIENCE_MS) n += 1;
     }
     return n;
+  }
+
+  // The relay's line saying the cloud took its start (shared/cloud-start.mjs).
+  // The next run waiting for a slot starts packing now, not at the next tick.
+  _noteCloudSent(session, text) {
+    if (!session?.cloud || session.cloudSentAt) return;
+    const times = readSent(text);
+    if (!times) return;
+    session.cloudSentAt = Date.now();
+    session.cloudTimes = times;
+    this.wake?.();
+  }
+
+  // HOW LONG EACH PART OF A CLOUD START TOOK, for the run's log once its agent
+  // begins: the wait before packing (from the newest message, when there is
+  // one), packing and sending here, the cloud taking it, and the agent starting.
+  _cloudStartLine(session, item, now = Date.now()) {
+    const s = (ms) => `${Math.round(ms / 1000)} s`;
+    const begun = session.startedAt ?? now;
+    if (!session.cloudSentAt || !session.cloudTimes) return `cloud start: ${s(now - begun)} from starting the relay to the agent beginning`;
+    const asked = lastFounderWrite(item);
+    const since = asked > 0 && asked <= begun ? `began ${s(now - asked)} after the newest message; ${s(begun - asked)} before packing, ` : '';
+    const { packMs, startMs } = session.cloudTimes;
+    return `cloud start: ${since}${s(packMs)} packing and sending here, ${s(startMs)} for the cloud to take it, ${s(now - session.cloudSentAt)} for the agent to begin`;
   }
 
   // Room in the cloud apart from the runs still starting.
@@ -4606,8 +4666,8 @@ export class Supervisor {
   // A THREAD THE CLOUD CANNOT RUN RUNS HERE, rather than being started there
   // again at every check: a folder the cloud refused (KEEP_ON_MAC), or a
   // thread whose cloud starts died CLOUD_STARTS_TO_GIVE_UP times in a row
-  // before its agent started. Kept on this Mac as a hand-back is, so no
-  // attempt is spent and the next delivery runs here. True when it was kept.
+  // before its agent started. Moved to this Mac as a hand-back is, so no
+  // attempt is spent and the next delivery runs here. True when it was moved.
   _cloudKeptOnMac(item, session, code, signal = null) {
     if (!session?.cloud || !item?.id) return false;
     this._cloudStartFails ??= new Map();
@@ -4627,8 +4687,7 @@ export class Supervisor {
     session.handedBack = true;
     this._handedBack ??= new Set();
     this._handedBack.add(item.id);
-    this.threadOnMac[item.id] = true;
-    this._saveState();
+    this._moveToMac(item.id);
     return true;
   }
 
@@ -4649,7 +4708,7 @@ export class Supervisor {
     this._heldStarts ??= {};
     if (starts.length < STORM_STARTS || this._heldStarts[key]) return;
     const said = (session.tail ?? []).filter((l) => typeof l === 'string' && l.startsWith('stderr:'))
-      .flatMap((l) => l.slice('stderr:'.length).split('\n')).map((l) => l.trim()).filter(Boolean).at(-1) ?? null;
+      .flatMap((l) => l.slice('stderr:'.length).split('\n')).map((l) => l.trim()).filter((l) => l && !l.startsWith(CLOUD_SENT)).at(-1) ?? null;
     this._heldStarts[key] = { since: now, said };
     this._saveState();
     try {
@@ -4689,7 +4748,7 @@ export class Supervisor {
   // stays on this Mac.
   _mayRunInCloud(item, product, cwd, { remoteOnly = false } = {}) {
     if (remoteOnly) return false;
-    if (item?.id && this.threadOnMac?.[item.id] === true) return false;
+    if (item?.id && (this.threadOnMac?.[item.id] === true || item.id in (this.movedToMac ?? {}))) return false;
     if (!product || !cwd || cwd === product.repoPath) return false;
     if (cwd === product.dir ? !item?.id || !this._cloudTakesPlain() : !product.repoPath) return false;
     if ((this.config.personalProducts || []).includes(product.slug)) return false;
@@ -4847,7 +4906,7 @@ export class Supervisor {
       child = this._spawnCloudRelay(['--agentbox-import-only'], {
         cwd: folder,
         env: { ...this._workerEnv(), ...(mcp ? { AGENTBOX_MCP_CONFIG: mcp } : {}), ...(file ? { AGENTBOX_CLOUD_MARKER: file } : {}) },
-        stdio: ['ignore', 'ignore', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (error) {
       forget();
@@ -4856,9 +4915,109 @@ export class Supervisor {
     }
     const rec = { child, at: Date.now() };
     this._homecomings.set(file || folder, rec);
+    const thread = this._threadComingHome(place);
+    const follow = thread ? this._followComingHome(thread, child) : null;
+    if (!follow) child.stdout?.resume();
     child.stderr?.on('data', (d) => console.warn(String(d).trim()));
-    child.on('error', () => { forget(); rec.child = null; rec.at = Date.now(); });
-    child.once('exit', () => { forget(); rec.child = null; rec.at = Date.now(); this._sayCloudNews(folder); this.wake?.(); });
+    child.on('error', () => { forget(); rec.child = null; rec.at = Date.now(); follow?.end(null); });
+    child.once('exit', (code) => { forget(); rec.child = null; rec.at = Date.now(); follow?.end(code); this._sayCloudNews(folder); this.wake?.(); });
+  }
+
+  // The thread whose cloud run lives in this folder, off the record its
+  // session left for a restart (`_liveSessions`).
+  _threadComingHome(place) {
+    const key = (p) => (p && typeof p === 'object' ? p.file : p ? path.resolve(p) : null);
+    const want = key(place);
+    for (const [itemId, rec] of Object.entries(this._liveSessions ?? {})) {
+      if (rec?.cloud && rec.cwd && key(this._cloudPlace(rec.cwd, rec.product, itemId)) === want) return { itemId, rec };
+    }
+    return null;
+  }
+
+  // A CLOUD RUN THE APP LEFT GOING IS STILL ITS THREAD'S RUN. Its stream is
+  // read here as a session's is, so the thread shows it running, its steps go
+  // into the thread's record, and its last message reaches the row
+  // (tests/a-cloud-run-the-app-restarted-under-still-reaches-its-thread). It
+  // shows once it speaks: a run that had already ended only comes home.
+  _followComingHome({ itemId, rec }, child) {
+    const { capture, stream, summarize, trace: traceOne, activity } = harnessFor('claude').readers();
+    const joinedAt = Date.now();
+    const view = {
+      itemId, product: rec.product, startedAt: rec.startedAt ?? joinedAt, engine: 'claude', cloud: true,
+      tail: [], saying: '', sayingAt: 0, stop: () => child.kill('SIGINT'),
+    };
+    const item = { id: itemId, product: rec.product };
+    // Made at its first line, so a run that only comes home leaves no record.
+    let trace = null;
+    const write = (text) => {
+      try {
+        if (trace === null) {
+          const product = this.store.listProducts().find((p) => p.slug === rec.product);
+          const dir = machineryPath(product.dir, path.join('sessions', itemId));
+          fs.mkdirSync(dir, { recursive: true });
+          trace = path.join(dir, `${joinedAt}.log`);
+          const title = this.store.readItem?.(rec.product, itemId)?.title ?? itemId;
+          fs.appendFileSync(trace, `# ${title}\n# ${itemId} · joined ${new Date(joinedAt).toISOString()} · the cloud run that carried on while ${Name} restarted\n\n`);
+        }
+        if (trace) fs.appendFileSync(trace, text);
+      } catch { trace = false; }
+    };
+    this._comingHome ??= new Map();
+    let buffered = '';
+    child.stdout?.on('data', (d) => {
+      buffered += d;
+      let i;
+      while ((i = buffered.indexOf('\n')) >= 0) {
+        const line = buffered.slice(0, i);
+        buffered = buffered.slice(i + 1);
+        if (!line.trim()) continue;
+        const first = this._comingHome.get(itemId) !== view;
+        this._comingHome.set(itemId, view);
+        capture(view, line);
+        const typed = stream(view, line);
+        const doing = activity(view, line);
+        let moved = typed || doing;
+        const said = summarize(line);
+        if (said) {
+          moved = true;
+          view.tail.push(said.slice(0, 2000));
+          if (view.tail.length > 200) view.tail.splice(0, view.tail.length - 200);
+        }
+        const detail = traceOne(line);
+        if (detail) write(`${detail}\n`);
+        if (first || moved) this.onChange?.();
+      }
+    });
+    let over = false;
+    return {
+      end: (code) => {
+        if (over) return;
+        over = true;
+        if (this._comingHome.get(itemId) === view) this._comingHome.delete(itemId);
+        if (trace) write(`\n# exited (${code}) ${new Date().toISOString()}\n`);
+        // Finished only when its work is home: 75 is the app going again, or
+        // results that did not come back, and a later homecoming tries again.
+        const session = { ...view, startedAt: rec.startedAt, child: { ranToTheEnd: () => code === 0 } };
+        if (this.speaksForTheSession(session)) {
+          try { this.store.recordSessionResult(rec.product, itemId, { result: session.result || '(the session ended with an empty reply)' }); } catch (e) { console.warn('zero: writing a joined run\'s answer failed:', e.message); }
+        } else if (this.closingMessageIsTheAnswer(session)) {
+          try { this.store.recordSessionResult(rec.product, itemId, { result: session.result, status: null }); } catch (e) { console.warn('zero: writing a joined run\'s answer failed:', e.message); }
+        }
+        // The reply this conversation heard is answered; one typed while it
+        // was away is left for the next run.
+        if (this.runFinished(session)) {
+          try {
+            const fresh = this.store.readItem?.(rec.product, itemId);
+            if (fresh?.answer && this._heardIn(fresh, rec.sessionId)) {
+              this._handledAnswers.add(this._answerKey(fresh));
+              this.store.settleAnswer?.(rec.product, itemId, answerTs(fresh));
+            }
+          } catch (e) { console.warn('zero: could not settle a joined run\'s reply:', e.message); }
+        }
+        this.forgetFinishedSession(item, session);
+        this.onChange?.();
+      },
+    };
   }
 
   // A CLOUD RUN'S WORK KEPT ON A BRANCH OF ITS OWN (main/cloud/run.mjs
@@ -4997,7 +5156,7 @@ export class Supervisor {
   // The part of `_mayRunInCloud` that can be asked before a row has a folder.
   _cloudEligible(item) {
     if (!item || String(item.id || '').startsWith('digest-')) return false;
-    if (this.threadOnMac?.[item.id] === true) return false;
+    if (this.threadOnMac?.[item.id] === true || item.id in (this.movedToMac ?? {})) return false;
     const product = this.store.listProducts?.().find((p) => p.slug === item.product);
     if (!product?.repoPath && !(product?.dir && this._cloudTakesPlain())) return false;
     return !(this.config.personalProducts || []).includes(product.slug);
@@ -5214,6 +5373,8 @@ export class Supervisor {
     }
     // A level the model does not offer is the task's setting, on every login.
     if (refusedBy === 'level-not-offered' || troubleCause(lastFailure) === 'level-not-offered') return;
+    // Another Codex window holds this conversation; the login is fine.
+    if (troubleCause(lastFailure) === 'open-elsewhere') return;
     const limitHit = refusedBy === 'at-limit' || needsHerHands(refusedBy);
     // A dropped provider connection is a transport failure too, even when
     // the local process and its pipe stayed up. It must not spend a reply's
@@ -5337,6 +5498,7 @@ export class Supervisor {
         threadPlaces: this.threadPlaces,
         threadPins: this.threadPins,
         threadOnMac: this.threadOnMac,
+        movedToMac: this.movedToMac,
         liveSessions: this._liveSessions,
         rowSessions: this._rowSessions,
         compactions: this._compactions,
@@ -5524,7 +5686,11 @@ export class Supervisor {
       // above, for the same reason: "Queued" over a Codex task while Codex
       // had no slot until the reset (found by the pre-deploy breaker).
       atLimit,
-      running: [...this.sessions.values()].filter(s => !s.remoteIdle).map((s) => ({
+      running: [
+        ...this.sessions.values(),
+        // A cloud run the app left going, followed home (`_followComingHome`).
+        ...[...(this._comingHome?.values() ?? [])].filter((v) => !this.sessions.has(v.itemId)),
+      ].filter(s => !s.remoteIdle).map((s) => ({
         itemId: s.itemId,
         product: s.product,
         startedAt: s.startedAt,
@@ -8646,6 +8812,11 @@ export class Supervisor {
       // handler ever runs. It costs one small write per session.
       if (session.sessionId && !session.idRemembered) {
         session.idRemembered = true;
+        if (session.cloud) {
+          const started = this._cloudStartLine(session, item);
+          console.log(`${nameSlug}: ${item.id} ${started}`);
+          try { trace?.write(`${started}\n`); } catch {}
+        }
         this._liveSessions[item.id] = {
           sessionId: session.sessionId,
           product: item.product,
@@ -8688,6 +8859,7 @@ export class Supervisor {
     // note at the top of that file for why.
     harness.subscribe(child, session, absorb);
     child.stderr.on('data', (d) => {
+      if (session.cloud) this._noteCloudSent(session, d);
       onLine(`stderr: ${String(d).slice(0, 500)}`);
       try { trace?.write(`stderr: ${String(d).slice(0, 1000)}\n`); } catch {}
     });
@@ -8712,7 +8884,8 @@ export class Supervisor {
       this._noteHowTheRunStarted(item, session);
       onLine(`session exited (${code})`);
       if (this._noteCloudHandBack(item, session)) onLine('the cloud handed this thread back to this computer');
-      else if (this._cloudKeptOnMac(item, session, code, signal)) onLine('the cloud could not run this thread, so it runs on this computer from now on');
+      else if (this._cloudKeptOnMac(item, session, code, signal)) onLine('the cloud could not run this thread, so this request runs on this computer');
+      this._spendMoveToMac(item, session);
       // WHAT THE RUN CHANGED, SAVED WHERE SHE CAN OPEN IT.
       //
       // A tester could not see code on their onboarding call because there was no

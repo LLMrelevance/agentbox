@@ -234,6 +234,19 @@ export function spanLeft(ms) {
   return `${hours}h ${minutes % 60}m`;
 }
 
+/**
+ * THE DAY A RESET FALLS ON, in this machine's calendar: null today, "Thu" this
+ * week, and "Tue Oct 27" six or more days out, where a weekday alone would
+ * read as today.
+ */
+export function resetDay(at, now = Date.now()) {
+  const d = new Date(at);
+  if (d.toDateString() === new Date(now).toDateString()) return null;
+  const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
+  if (at - now < 6 * 86_400_000) return weekday;
+  return `${weekday} ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+}
+
 /* -------------------------------- the panel ------------------------------- */
 
 /**

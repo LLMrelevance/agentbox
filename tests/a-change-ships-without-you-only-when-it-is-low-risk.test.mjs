@@ -79,6 +79,19 @@ describe('the rules decide without asking anyone', () => {
     expect(rulesTier(facts(file('renderer/src/assets/icon.svg', { added: ['<svg>'] }))).tier).toBe('look');
   });
 
+  // The phone app (docs/mobile/PLAN.md): its screens are looked at, and how it
+  // signs in, keeps a sign-in, asks for alerts, is built or what it depends on
+  // always needs a person. Its plain logic is left to the classifier.
+  it('the phone app\'s screens are looked at, and its sign-in, keychain, alerts and build need a person', () => {
+    for (const p of ['mobile/src/app/index.tsx', 'mobile/src/app/thread/[product]/[id].tsx', 'mobile/src/ui/parts.tsx', 'mobile/assets/icon.png']) {
+      expect(rulesTier(facts(file(p, { added: ['<View />'] }))).tier, p).toBe('look');
+    }
+    for (const p of ['mobile/src/platform/sign-in.ts', 'mobile/src/platform/persist.ts', 'mobile/src/platform/alerts.ts', 'mobile/eas.json', 'mobile/app.config.ts', 'mobile/package.json', 'mobile/package-lock.json']) {
+      expect(rulesTier(facts(file(p, { added: ['a'] }))).tier, p).toBe('risky');
+    }
+    expect(rulesTier(facts(file('mobile/src/lib/tabs.ts', { added: ['const a = 1;'] }))).tier).toBe(null);
+  });
+
   it('a renderer component goes to the classifier: one word of copy is not a design decision', () => {
     expect(rulesTier(facts(file('renderer/src/App.tsx', { added: ['<p>Close</p>'], removed: ['<p>Shut</p>'] }))).tier).toBe(null);
   });

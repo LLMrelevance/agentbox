@@ -26,6 +26,8 @@ import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from
 import { List } from './components/List';
 import { isTroubleRow, troubleRow } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
+import { needsYouLit } from './needs-you';
+import { arrivedAt, isUnread } from './unread';
 import { Focus } from './components/Focus';
 import { TicketItems } from './components/TicketReference';
 import type { PendingSaid } from './item-thread';
@@ -192,6 +194,17 @@ const WAITING_AT = waitingIndex(PRACTICE_ROWS);
 const LATER_AT = laterIndex(PRACTICE_ROWS);
 
 const SEEN_KEY = 'zero.seen';
+// When each thread was last opened, and when that started being kept: threads
+// older than it count as read, so the first launch does not dot everything.
+const SEEN_AT_KEY = 'zero.seenAt';
+const UNREAD_SINCE_KEY = 'zero.unreadSince';
+const unreadSince = (() => {
+  const kept = Number(localStorage.getItem(UNREAD_SINCE_KEY));
+  if (kept > 0) return kept;
+  const now = Date.now();
+  localStorage.setItem(UNREAD_SINCE_KEY, String(now));
+  return now;
+})();
 // WHAT COUNTS AS CLICKING SOMETHING RATHER THAN CLICKING NOTHING.
 //
 // This is the test for "has a function": a control, a link, a field, a row she
@@ -775,6 +788,9 @@ export default function App() {
     if (sk !== 'none') setTune(TUNE_DEFAULT[sk as SkinId]);
   }, [setTune]);
   const [seen, setSeen] = useState<Set<string>>(() => new Set(JSON.parse(localStorage.getItem(SEEN_KEY) ?? '[]')));
+  // When Needs You was last on screen; something arriving after it lights the tab.
+  const [needsLookedAt, setNeedsLookedAt] = useState(() => Date.now());
+  const [seenAt, setSeenAt] = useState<Record<string, number>>(() => JSON.parse(localStorage.getItem(SEEN_AT_KEY) ?? '{}'));
   // Batch selection (Superhuman: cmd-A, shift-select, then act on all).
   const [multiSel, setMultiSel] = useState<Set<string>>(new Set());
   const [snoozes, setSnoozes] = useState<Snooze>(() => JSON.parse(localStorage.getItem(SNOOZE_KEY) ?? '{}'));
@@ -837,6 +853,7 @@ export default function App() {
    * the screen reads it except the toast it already raised.
    */
   const undoAskRef = useRef<{ entry: Undoable & { at: number }; at: number } | null>(null);
+  const neoUndoAskRef = useRef<{ entry: Undoable & { at: number }; at: number; confirmation: string } | null>(null);
   /* * A TOAST CAN CARRY A WAY IN NOW, and on the one that says a task was made it does.
 
      `goes` is the row it was about, by id, NOT a closure that opens it. A
@@ -3002,12 +3019,25 @@ export default function App() {
   }, [modal]);
 
   useEffect(() => { localStorage.setItem(SEEN_KEY, JSON.stringify([...seen].slice(-2000))); }, [seen]);
+  useEffect(() => { if (view === 'inbox') setNeedsLookedAt(Date.now()); }, [view, inbox]);
+  useEffect(() => {
+    const newest = Object.entries(seenAt).sort((a, b) => b[1] - a[1]).slice(0, 2000);
+    localStorage.setItem(SEEN_AT_KEY, JSON.stringify(Object.fromEntries(newest)));
+  }, [seenAt]);
   useEffect(() => { localStorage.setItem(SNOOZE_KEY, JSON.stringify(snoozes)); }, [snoozes]);
 
   /* -------------------------------- actions ------------------------------- */
   const markSeen = useCallback((item: WorkItem) => {
     setSeen((s) => new Set(s).add(item.id));
+    setSeenAt((m) => ({ ...m, [item.id]: Date.now() }));
   }, []);
+  // An answer that lands on the thread you are reading is read already. Keyed
+  // on the answer's time, so Mark Unread on the open thread is not undone.
+  const focusedArrival = useMemo(() => {
+    if (!focused) return 0;
+    return arrivedAt(items.find((i) => i.id === focused.id && i.product === focused.product) ?? focused);
+  }, [focused, items]);
+  useEffect(() => { if (focused) markSeen(focused); }, [focusedArrival]); // eslint-disable-line react-hooks/exhaustive-deps
   // J AND K FROM AN OPEN THREAD OR AN OPEN TEAMMATE CARD (w-fb16bcaeba): open
   // the next stop, whoever's it is. Yours opens as your thread, theirs as
   // their card, exactly as a click on its row would.
@@ -4565,7 +4595,7 @@ export default function App() {
       leaveUndoMarks(pending.undid, now, now);
       setFocused(pending.item);
       showToast(graceUndoneLine({ said: pending.said, restored: !!restored }));
-      return;
+      return 'done' as const;
     }
     // PAST THE GRACE WINDOW, Z REACHES THE LAST THING SHE DID, AND AFTER THIRTY
     // SECONDS IT ASKS BEFORE IT DOES IT. It used to act silently for the rest of
@@ -4581,14 +4611,14 @@ export default function App() {
     if (!last) {
       undoAskRef.current = null;
       showToast(NOTHING_TO_UNDO);
-      return;
+      return 'none' as const;
     }
     const asked = undoAskRef.current;
     const answeringIt = asked?.entry === last && askStillStands(asked.at, now);
     if (!instant && !answeringIt) {
       undoAskRef.current = { entry: last, at: now };
       showToast(undoAsk(last.undoes));
-      return;
+      return 'old' as const;
     }
     undoAskRef.current = null;
     // The close that put this row away also queued the step onto the next task.
@@ -4610,13 +4640,13 @@ export default function App() {
     } catch (err) {
       setUndoStack((u) => [...u, last]);
       showToast(`Could not undo that. ${(err as Error)?.message ?? err}`);
-      return;
+      return { failed: `Could not undo that. ${(err as Error)?.message ?? err}` };
     }
     if (outcome && 'refused' in outcome) {
       showToast(outcome.refused);
       await refresh();
       if (outcome.open) { setFocused(outcome.open); markSeen(outcome.open); }
-      return;
+      return { failed: outcome.refused };
     }
     leaveUndoMarks(last.undid, from, Date.now());
     const restored = last.restore?.();
@@ -4640,6 +4670,7 @@ export default function App() {
     // on whatever the close had moved her to (w-7eb39d3c97).
     if (shown.open) { setFocused(shown.open); markSeen(shown.open); }
     else if (shown.compose) { setFocused(null); setModal('compose'); }
+    return 'done' as const;
   }, [undoStack, refresh, showToast, markSeen, leaveUndoMarks]);
 
   const paletteCommands = useRef<CommandRow[]>([]);
@@ -4655,9 +4686,14 @@ export default function App() {
     focused: () => focused,
     options: (row) => (offerIsLive(row) ? itemOptions(row) : []),
     summary: (row) => row.result || row.note || row.body || '',
+    answer: (row) => (row.wrote?.answer?.ts ?? 0) > (row.wrote?.result?.ts ?? 0) ? row.answer || '' : '',
     about: (row) => row.problem || '',
     projects: () => (snap?.products ?? []).filter((p) => !directSlugs.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name })),
-    open: (row) => { setSearch(null); setFocused(row); markSeen(row); },
+    open: (row) => {
+      setSettingsOpen(false); setSettingsPane(null); setTeamOpen(false); setOpenCard(null); setModal(null);
+      setFocusedRepeat(null); setEditingRule(false);
+      setSearch(null); setFocused(row); markSeen(row);
+    },
     pick: (row, n) => pickOption(row, n),
     reply: async (row, text, { attach } = {}) => {
       // The pictures in her reply box go out with the words, through the box's own send.
@@ -4670,7 +4706,12 @@ export default function App() {
       try { await answerWith(row, text); } finally { neoSending.current = false; }
       return attach ? 'no-pictures' : undefined;
     },
-    close: (row) => markDone(row),
+    close: (row, confirmed) => markDone(row, { force: confirmed }),
+    closePrompt: (row) => {
+      const waiting = waitingFiled(row).length;
+      if (waiting) return `This thread has ${waiting} task${waiting === 1 ? '' : 's'} waiting for approval. Ask whether to close it anyway.`;
+      return offerIsLive(row) ? 'The agent is waiting on your answer. Closing leaves it waiting. Ask whether to close it anyway.' : null;
+    },
     later: (row, ts, label) => snoozeUntil(row, ts, label),
     compose: async (text, product) => {
       const message = threadMessage(text, []);
@@ -4691,13 +4732,23 @@ export default function App() {
       }
       return made;
     },
-    undo: async () => {
-      if (pendingRef.current) { await undo(); return 'done'; }
-      const { take, instant } = nextUndo(undoStack, Date.now());
+    undo: async (confirmation) => {
+      if (pendingRef.current && !confirmation) return undo();
+      const now = Date.now();
+      const { take, instant } = nextUndo(undoStack, now);
+      if (confirmation) {
+        const asked = neoUndoAskRef.current;
+        neoUndoAskRef.current = null;
+        if (!asked || asked.confirmation !== confirmation || asked.entry !== take || pendingRef.current || now - asked.at > 60_000) return 'changed';
+        undoAskRef.current = { entry: take!, at: now };
+      }
       if (!take) return 'none';
-      if (!instant) return 'old';
-      await undo();
-      return 'done';
+      if (!instant && !confirmation) {
+        const token = crypto.randomUUID();
+        neoUndoAskRef.current = { entry: take, at: now, confirmation: token };
+        return { asked: `Do you want to ${take.undoes}?`, confirmation: token };
+      }
+      return undo();
     },
   });
 
@@ -5524,6 +5575,9 @@ export default function App() {
     <WaitingContext.Provider value={waitingByThread}>
     <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${workspaceCollapsed ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}`}>
       {signInGate && <SignInPage signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
+      {/* Dark's corner marks, outside the card. Their own element, because
+          `.workspace-layout::after` is the window's drag strip. */}
+      {workspaceNavigation && <div className="panel-marks" aria-hidden="true" />}
       {/* THE TOP BAR IS NOT DRAWN ON AN OPENED TASK.
 
           WHAT REPLACES IT IS NOT NOTHING, and the reason is three buttons this
@@ -6238,6 +6292,7 @@ export default function App() {
                       done: (mineShown ? shownCount(done) : 0) + theirCount('done'),
                     }}
                     needs={team ? needsWord(picked, team.me) : undefined}
+                    lit={needsYouLit(inbox, needsLookedAt)}
                     onView={(next) => { setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                     onSearch={openSearch}
                   />
@@ -6263,6 +6318,7 @@ export default function App() {
                       : <EmptyTab view={view} />
                 ) : <List
                   table={workspaceNavigation && search === null}
+                  unread={(item) => isUnread(item, seenAt, unreadSince)}
                   products={snap.products}
                   team={team}
                   mixed={search === null ? mixedRows : null}
@@ -6646,7 +6702,7 @@ export default function App() {
             // No Decline here, by design. Close This Task above
             // is the one way to say no.
             seen.has(target.id)
-              ? { id: 'unread', label: 'Mark Unread', run: () => { setSeen((s) => { const c = new Set(s); c.delete(target.id); return c; }); setModal(null); } }
+              ? { id: 'unread', label: 'Mark Unread', run: () => { setSeen((s) => { const c = new Set(s); c.delete(target.id); return c; }); setSeenAt((m) => ({ ...m, [target.id]: 0 })); setModal(null); } }
               : { id: 'read', label: 'Mark Read', run: () => { markSeen(target); setModal(null); } },
             ...(returnAt(target) > Date.now()
               ? [{
