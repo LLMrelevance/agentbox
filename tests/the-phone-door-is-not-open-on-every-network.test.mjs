@@ -52,7 +52,7 @@ const listening = (link, host) => new Promise((resolve) => {
   wait();
 });
 
-function ask(host, port, link, wait = 1500) {
+function ask(host, port, link, waitMs = 1500) {
   return new Promise((resolve) => {
     const req = http.request({ host, port, path: '/api/zero:snapshot', method: 'POST', headers: { 'x-agentbox-token': link.key } }, (res) => {
       res.resume();
@@ -61,8 +61,7 @@ function ask(host, port, link, wait = 1500) {
     req.on('error', (err) => resolve(err.code === 'ECONNREFUSED' ? 'no answer' : err.code));
     // A Mac with its firewall in stealth mode drops the knock rather than
     // refusing it, so silence is the same answer as a refusal.
-    // A busy machine answers slowly, so a case that expects an answer waits longer.
-    req.setTimeout(wait, () => { req.destroy(); resolve('no answer'); });
+    req.setTimeout(waitMs, () => { req.destroy(); resolve('no answer'); });
     req.end();
   });
 }
@@ -114,8 +113,10 @@ describe('with Tailscale picked', () => {
     await link.act({ action: 'via', via: 'wifi' });
     const s = await listening(link, '0.0.0.0');
     expect(s.host).toBe('0.0.0.0');
-    if (lan && fromThisNetwork(lan)) expect(await ask(lan, 41953, link, 15_000)).toBe(200);
-  });
+    // The first knock on a door that has just opened can wait over two seconds
+    // behind a stealth-mode firewall, so this one is given longer.
+    if (lan && fromThisNetwork(lan)) expect(await ask(lan, 41953, link, 8000)).toBe(200);
+  }, 15000);
 
   it('starts on this computer only when the app opens with Tailscale already picked', async () => {
     const first = make(41954, fakeTailscale());
