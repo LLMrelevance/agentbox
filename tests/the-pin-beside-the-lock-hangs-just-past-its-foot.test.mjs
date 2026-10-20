@@ -1,4 +1,4 @@
-// THE PIN BESIDE THE LOCK ENDS LEVEL WITH IT.
+// THE PIN BESIDE THE LOCK HANGS JUST PAST ITS FOOT.
 //
 // Reported 2026-10-20 (w-739077c097) with a crop of a pinned private title:
 // "not lined up well", and then, of the pin redrawn on the lock's grid: "the
@@ -9,8 +9,12 @@
 // Worked out from the marks as drawn: on its 13px box set 2px under the
 // baseline, the tip of the pin's needle ended 0.75px below the baseline, and
 // the foot of the lock's body ends 1.1px below it, so the pin stood 0.35px
-// high. Set half a pixel lower it ends 0.15px past the lock's foot, which on a
-// 2x screen is one device pixel.
+// high. Half a pixel lower its tip was level with the lock's foot (0.15px
+// past it), and on a 2x screen it still read high: "it still doesn't feel
+// perfectly lined up. It feels like it is a tiny bit too high." The pin's
+// weight is in its head and the lock's in its body, so level feet read as a
+// raised pin. A whole pixel below where it shipped, the tip hangs 0.65px past
+// the lock's foot.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import React from 'react';
@@ -78,18 +82,26 @@ const pin = svgOf(row, 'th-pin');
 const footOf = (va) => inkFoot(pin, va);
 const lockFoot = inkFoot(lock, valign('th-lock'));
 
+// How far the tip of the pin's needle ends past the foot of the lock, in px.
+const past = (va) => footOf(va) - lockFoot;
+const RIGHT = { from: 0.5, to: 0.8 };
+
 describe('the pin after a title', () => {
-  it('ends level with the foot of the lock, within a quarter of a pixel', () => {
-    expect(Math.abs(footOf(valign('th-pin')) - lockFoot)).toBeLessThanOrEqual(0.25);
+  it('hangs about two thirds of a pixel past the foot of the lock', () => {
+    expect(past(valign('th-pin'))).toBeGreaterThanOrEqual(RIGHT.from);
+    expect(past(valign('th-pin'))).toBeLessThanOrEqual(RIGHT.to);
   });
 
-  // The boundaries either side, worked out the same way: where it stood, and
-  // a whole pixel lower.
+  // Each half pixel it has stood at, worked out the same way, and the next
+  // one down.
   it('where it shipped, 2px under the baseline, it stood a third of a pixel high', () => {
-    expect(lockFoot - footOf(-2)).toBeCloseTo(0.35, 2);
+    expect(past(-2)).toBeCloseTo(-0.35, 2);
   });
-  it('a whole pixel lower would hang past the lock', () => {
-    expect(footOf(-3) - lockFoot).toBeGreaterThan(0.25);
+  it('level with the lock\'s foot, as it was at 2.5px, is still too high', () => {
+    expect(past(-2.5)).toBeLessThan(RIGHT.from);
+  });
+  it('another half pixel down would hang a whole pixel past the lock', () => {
+    expect(past(-3.5)).toBeGreaterThan(RIGHT.to);
   });
 
   it('keeps its own drawing: the menu\'s pin at 13px, not one drawn for the row', () => {
