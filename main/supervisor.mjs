@@ -1995,7 +1995,7 @@ export class Supervisor {
     // because a row somebody is already preparing is never a row to spawn on.
     const held = this._preparing.get(item.id);
     if (held) { held.item = item; held.opts = opts; this._saveState(); return true; }
-    if (fs.existsSync(folder)) return false;
+    // A folder already there is made ready here too: `restoreTaskFolder` runs git over it.
     const entry = { item, opts, engine };
     this._preparing.set(item.id, entry);
     this._saveState();
@@ -5325,6 +5325,11 @@ export class Supervisor {
   }
 
   status() {
+    // One read of the threads for the whole answer: this runs for every
+    // request the window makes.
+    const readAt = Date.now();
+    let threads = null;
+    const allThreads = () => (threads ??= this.store.listItems(readAt));
     // Stalled: the founder's answer is marked delivered, but nobody is on the
     // item and it never moved. A worker ran and exited without finishing (a
     // refused tool, a crash after the mark, a session that wrote to nowhere).
@@ -5339,7 +5344,7 @@ export class Supervisor {
     // something went wrong or it means nothing at all.
     let stalled = [];
     try {
-      stalled = this.store.listItems(Date.now())
+      stalled = allThreads()
         .filter((i) => i.status === 'open' && i.answer && i.answer !== '(withdrawn)'
           && !this.sessions.has(i.id)
           && !answerSettled(i)
@@ -5356,7 +5361,7 @@ export class Supervisor {
     let scheduled = [];
     try {
       const nowTs = Date.now();
-      scheduled = this.store.listItems(nowTs)
+      scheduled = allThreads()
         .filter((i) => i.status === 'open' && !this.store.isDue(i, nowTs))
         .map((i) => i.id);
     } catch {}
@@ -5375,7 +5380,7 @@ export class Supervisor {
       // a row a person holds on nobody's, by the same rule the tick obeys.
       const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
       const me = process.env.AGENTBOX_PERSON_ID;
-      queued = this.store.listItems(nowTs)
+      queued = allThreads()
         .filter((i) => mayRunHere(i, productBySlug.get(i.product), me))
         // NOTHING RUNS IN THE PRACTICE PROJECT, so nothing there is waiting
         // its turn. The tick skips these (`noWorkHere`) and `spawnWorker`
@@ -5409,21 +5414,21 @@ export class Supervisor {
     try {
       const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
       const me = process.env.AGENTBOX_PERSON_ID;
-      signInNeeded = this._waitingOnSignIn(this.store.listItems(Date.now())
+      signInNeeded = this._waitingOnSignIn(allThreads()
         .filter((i) => mayRunHere(i, productBySlug.get(i.product), me)));
     } catch {}
     let atLimit = {};
     try {
       const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
       const me = process.env.AGENTBOX_PERSON_ID;
-      atLimit = this._waitingOnLimit(this.store.listItems(Date.now())
+      atLimit = this._waitingOnLimit(allThreads()
         .filter((i) => mayRunHere(i, productBySlug.get(i.product), me)));
     } catch {}
     // ROWS THE SHIP QUEUE STILL OWES A SHIP (w-0c1ba766eb). Waiting on the
     // app and not on a person, so the window keeps them in In progress until
     // they have shipped or gone back to their agent.
     let shipping = [];
-    try { shipping = this.shipQueue.waitingIds(this.store.listItems(Date.now()), this.store.listProducts?.() ?? []); } catch {}
+    try { shipping = this.shipQueue.waitingIds(allThreads(), this.store.listProducts?.() ?? []); } catch {}
     return {
       paused: this.paused,
       shipping,
@@ -5471,7 +5476,7 @@ export class Supervisor {
       scheduled,
       // ROWS WHOSE LAST RUN ENDED WITHOUT SAYING ANYTHING. The row says so.
       // See `_silentRows`.
-      silent: this._silentRows(),
+      silent: this._silentRows(allThreads),
       productOrder: this.productOrder,
       hiddenProducts: [...this.hiddenProducts],
       capacity: this._capacity(),
@@ -5523,10 +5528,10 @@ export class Supervisor {
    * conversation and a sentence about the last run stops being the news. A row
    * with a live session, or one she has answered, is not here either.
    */
-  _silentRows() {
+  _silentRows(allThreads = () => this.store.listItems(Date.now())) {
     const out = {};
     let items;
-    try { items = this.store.listItems(Date.now()); } catch { return out; }
+    try { items = allThreads(); } catch { return out; }
     for (const item of items) {
       if (item.status !== 'open') continue;
       // Her answer is a different story with its own telling: a run that died

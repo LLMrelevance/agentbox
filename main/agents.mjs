@@ -102,6 +102,8 @@ function scrubbed(env) {
 const CHUNK_BYTES = 4 << 20;
 const historyCache = new Map(); // sessionId -> { file, size, mtimeMs, offset, ...facts }
 const dirCache = new Map();    // sessionId -> transcript path
+const missed = new Map();      // sessionId -> when it was last looked for and not found
+const MISS_KEPT_MS = 60_000;
 
 // Tools whose file paths count as touched. The card prints at most six, and
 // that cap is applied where they are shown, not here.
@@ -116,13 +118,18 @@ function transcriptPath(sessionId, cwd) {
   if (cached && fs.existsSync(cached)) return cached;
   const direct = path.join(PROJECTS_DIR(), slugFor(cwd), `${sessionId}.jsonl`);
   if (fs.existsSync(direct)) { dirCache.set(sessionId, direct); return direct; }
-  // The slug rule is Claude Code's, not ours, so a miss falls back to looking.
+  // The slug rule is Claude Code's, not ours, so a miss falls back to looking,
+  // through every folder there (ten thousand on a busy Mac), so a miss is
+  // remembered for a minute rather than looked for again at every measure.
+  if (Date.now() - (missed.get(sessionId) ?? -Infinity) < MISS_KEPT_MS) return null;
   let dirs = [];
   try { dirs = fs.readdirSync(PROJECTS_DIR()); } catch { return null; }
   for (const dir of dirs) {
     const p = path.join(PROJECTS_DIR(), dir, `${sessionId}.jsonl`);
-    if (fs.existsSync(p)) { dirCache.set(sessionId, p); return p; }
+    if (fs.existsSync(p)) { dirCache.set(sessionId, p); missed.delete(sessionId); return p; }
   }
+  missed.set(sessionId, Date.now());
+  if (missed.size > 1000) missed.delete(missed.keys().next().value);
   return null;
 }
 

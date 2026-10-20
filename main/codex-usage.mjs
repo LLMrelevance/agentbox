@@ -64,6 +64,8 @@
 import { codexLimits, mergeRateLimits } from '../shared/codex-usage.mjs';
 import { loggedCodexLimits } from './codex-usage-file.mjs';
 
+const LOG_EVERY_MS = 30_000;
+
 export class CodexUsage {
   /**
    * @param {object} how @param { => string|null} how.home Which CODEX_HOME the
@@ -108,9 +110,16 @@ export class CodexUsage {
    * The last figure in Codex's own session log under this home, shaped exactly
    *  like a pushed one. Null on a Mac where Codex has never run. */
   _logged() {
-    const reading = this._readLog(this._home(), { now: this._now() });
+    // Asked on every request the window makes; the log is walked at most
+    // every half minute.
+    const home = this._home();
+    const now = this._now();
+    if (this._loggedRead && this._loggedRead.home === home && now - this._loggedRead.at < LOG_EVERY_MS) return this._loggedRead.value;
+    const reading = this._readLog(home, { now });
     const limits = codexLimits(reading?.snapshot);
-    return limits.length ? { limits, at: reading.at } : null;
+    const value = limits.length ? { limits, at: reading.at } : null;
+    this._loggedRead = { home, at: now, value };
+    return value;
   }
 
   /**
