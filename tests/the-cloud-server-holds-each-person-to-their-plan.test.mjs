@@ -250,10 +250,11 @@ describe('someone with no plan', () => {
     expect(PLANS.none).toEqual({ agents: 0, hoursPerMonth: 0 });
   });
 
-  // The owner's numbers, 2026-10-20: "Pro: 400 cloud hours, Plus: 1,000,
-  // Max: 3,000", against a measured $0.07 an agent-hour.
+  // The owner's numbers, 2026-10-20: Pro 400, Plus 1,200, Max 3,000, so each
+  // step up gives more hours a dollar (10, 12, 15), against a measured $0.07
+  // an agent-hour.
   it('the paid plans carry the owner\'s hours, so each one can be given', async () => {
-    expect([PLANS.pro.hoursPerMonth, PLANS.plus.hoursPerMonth, PLANS.max.hoursPerMonth]).toEqual([400, 1000, 3000]);
+    expect([PLANS.pro.hoursPerMonth, PLANS.plus.hoursPerMonth, PLANS.max.hoursPerMonth]).toEqual([400, 1200, 3000]);
     const { gw } = setup({ plans: PLANS });
     for (const plan of ['pro', 'plus', 'max']) await gw.admin({ do: 'plan', person: A, plan });
   });

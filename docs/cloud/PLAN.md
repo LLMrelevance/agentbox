@@ -376,7 +376,7 @@ at AgentCore's published rates. The plan limits are set from these.
 - Sold as "+N agent slots": agents running in the cloud at once, on top of
   this Mac's. A monthly agent-hour limit sits behind each plan, high enough
   that most people never reach it; past it, threads wait for the Mac.
-- Pro $40 +10 slots and 400 hours a month, Plus $100 +25 and 1,000 hours,
+- Pro $40 +10 slots and 400 hours a month, Plus $100 +25 and 1,200 hours,
   Max $200 +60 and 3,000 hours (the owner's hours, 2026-10-20, against a
   measured $0.07 an agent-hour). No top-ups for now.
 - A cloud hour is one agent working for one hour; waiting for a reply is

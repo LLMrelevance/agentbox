@@ -7,7 +7,7 @@
 export const PLANS = Object.freeze({
   none: Object.freeze({ agents: 0, hoursPerMonth: 0 }),
   pro: Object.freeze({ agents: 10, hoursPerMonth: 400 }),
-  plus: Object.freeze({ agents: 25, hoursPerMonth: 1000 }),
+  plus: Object.freeze({ agents: 25, hoursPerMonth: 1200 }),
   max: Object.freeze({ agents: 60, hoursPerMonth: 3000 }),
 });
 
