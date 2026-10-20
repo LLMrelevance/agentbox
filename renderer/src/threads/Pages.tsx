@@ -71,10 +71,15 @@ export function SharedMark({ className = 'th-shared', label }: { className?: str
 }
 
 /* ------------------------------------------------------------ marks */
-/** A thread's state mark. `live` turns it: an agent is on the thread now,
+/** A thread's state mark. `live` pulses it: an agent is on the thread now,
  *  rather than the thread waiting its turn. */
 export function StateGlyph({ state, live = false }: { state: ThreadStateWord; live?: boolean }) {
-  return <span className={`th-st s-${state}${live ? ' live' : ''}`} aria-hidden="true" title={live ? 'An agent is on it now' : undefined} />;
+  return <span className={`th-st s-${state}${live ? ' live' : ''}`} aria-hidden="true" title={live ? 'An agent is on it now' : undefined} ref={live ? inStep : undefined} />;
+}
+
+/** Every running mark pulses on one beat: each starts on the page's clock, not when its row appeared. */
+export function inStep(el: Element | null) {
+  for (const a of el?.getAnimations?.() ?? []) a.startTime = 0;
 }
 
 /** The threads an agent is on right now, by id (App.tsx provides it). */
@@ -82,10 +87,10 @@ export const LiveContext = createContext<Set<string>>(new Set());
 /** The ones of those running in the cloud rather than on this Mac. */
 export const CloudContext = createContext<Set<string>>(new Set());
 
-/** An agent is on the thread now: the turning dot on this Mac, a pulsing cloud in the cloud. */
+/** An agent is on the thread now: the half-dot on this Mac, a cloud in the cloud, both pulsing. */
 export function RunningMark({ cloud = false }: { cloud?: boolean }) {
   if (!cloud) return <StateGlyph state="running" live />;
-  return <svg className="th-st-cloud" width="14" height="11" viewBox="2 5 21 15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" role="img" aria-label="An agent is on it now, in the cloud">
+  return <svg className="th-st-cloud" ref={inStep} width="14" height="11" viewBox="2 5 21 15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" role="img" aria-label="An agent is on it now, in the cloud">
     <title>An agent is on it now, in the cloud</title><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
   </svg>;
 }
@@ -152,7 +157,7 @@ export function HeaderActions({ page, display, onDisplay, products, items, onSea
   return <div className="th-right">
     {onSearch && <SearchButton onSearch={onSearch} />}
     <button type="button" className="th-new" data-hint="new-task" onClick={onCompose} title="New thread (N)"><PenIcon />New thread</button>
-    {cloud?.setUp && <CloudButton cloud={cloud} onMode={onCloudMode} onWhenOn={onCloudWhenOn} onSetUp={onCloudSetUp} />}
+    {(cloud?.setUp || cloud?.offered) && <CloudButton cloud={cloud} onMode={onCloudMode} onWhenOn={onCloudWhenOn} onSetUp={onCloudSetUp} />}
     <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
       <button type="button" className={`th-disp${worn ? ' faces' : ''}${open ? ' open' : ''}`}
         aria-label={whose ? `View and filters, showing ${whose}` : 'View and filters'} title={whose ? `${whose} · View and filters` : 'View and filters'}
@@ -477,7 +482,7 @@ export const RepeatMark = () => <svg className="th-repeat" width="13" height="13
 export function RowCells({ live = false, cloud = false, lead, title, hidden = false, lock = false, shared = false, chosen = 0, held = false, pinned = false, aside, where, person, priority, updatedAt, when, now, action }: {
   /** Pinned to the top of the list (w-20323283e6): a faint pin after the title. */
   pinned?: boolean;
-  /** An agent is on this thread right now: a turning mark before its name. */
+  /** An agent is on this thread right now: a pulsing mark before its name. */
   live?: boolean;
   /** And it is running in the cloud. */
   cloud?: boolean;

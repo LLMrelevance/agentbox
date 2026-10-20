@@ -52,7 +52,7 @@ describe('the actions on the open thread name the thread', () => {
 describe('the rest of the screen', () => {
   it('every other thread can be opened by name, and the open one is not offered twice', () => {
     expect(find(screen(), 'open:w-pricing').description).toMatch(/"Pricing page copy"/);
-    expect(values(screen())).not.toContain('open:w-jarvis');
+    expect(values(screen()).filter((v) => v === 'open:w-jarvis')).toHaveLength(1);
   });
 
   it('every ⌘K command is a choice', () => {

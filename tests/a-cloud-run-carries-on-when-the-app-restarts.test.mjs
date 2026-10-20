@@ -119,13 +119,16 @@ function launch(message, extra = {}) {
 // and none of the worker's own variables (main/supervisor.mjs _bringCloudHome).
 function bringHome(extraEnv = {}) {
   const stderr = new PassThrough();
-  let err = '';
+  const stdout = new PassThrough();
+  const signals = new EventEmitter();
+  let err = ''; let out = '';
   stderr.on('data', (d) => { err += d; });
+  stdout.on('data', (d) => { out += d; });
   const env = { ...process.env };
   for (const k of Object.keys(env)) if (/^(ZERO_|STORE_|AGENTBOX_)/.test(k)) delete env[k];
   Object.assign(env, extraEnv);
-  const done = cloudRun({ ...common(), importOnly: true, argv: [], env, stdin: new PassThrough(), stdout: new PassThrough(), stderr, signals: new EventEmitter() });
-  return { done, err: () => err };
+  const done = cloudRun({ ...common(), importOnly: true, argv: [], env, stdin: new PassThrough(), stdout, stderr, signals });
+  return { done, signals, err: () => err, out: () => out };
 }
 
 async function untilRunning() {
@@ -265,6 +268,59 @@ describe('when the app quits with a run in the cloud', () => {
     expect(readMarker(mac)).toBe(null);
   });
 
+  // THE THREAD HEARD NOTHING OF IT (2026-10-20, the multiplayer design
+  // thread). An update restarted the app at 11:46; the run carried on in the
+  // cloud, wrote its answer at 11:51 and came home at 12:00, and the joined
+  // process dropped every line of it. The thread said "Nothing running", its
+  // steps stopped at 11:45, and the answer never reached the row. The joined
+  // stream now goes to whoever brought it home (main/supervisor.mjs
+  // `_followComingHome`), from where the last process stopped.
+  it('passes on what the run says after the app came back, and nothing said before', async () => {
+    const run = launch('LATE please');
+    await untilRunning();
+    await sleep(400);
+    run.signals.emit('SIGHUP');
+    await run.done;
+    const home = bringHome();
+    expect(await home.done, home.err()).toBe(0);
+    const before = new Set(run.out().split('\n').filter(Boolean));
+    const after = home.out().split('\n').filter(Boolean);
+    const said = after.map((l) => JSON.parse(l));
+    expect(said.find((e) => e.type === 'assistant')?.message.content[0].text).toBe('working');
+    expect(said.find((e) => e.type === 'result')).toMatchObject({ is_error: false });
+    expect(after.filter((l) => before.has(l))).toEqual([]);
+  });
+
+  // Once the thread shows it as running, its Stop has to stop it. A SIGTERM
+  // or a SIGHUP is still the app going, which leaves it going.
+  it('stops a joined run on SIGINT, which is how the app says Stop to one', async () => {
+    const run = launch('HANG please');
+    await untilRunning();
+    await sleep(400);
+    run.signals.emit('SIGHUP');
+    await run.done;
+    const home = bringHome();
+    for (let i = 0; i < 100 && !/joining/.test(home.err()); i += 1) await sleep(50);
+    home.signals.emit('SIGINT');
+    await home.done;
+    expect(home.err()).toMatch(/stopping the cloud run \(asked to stop\)/);
+  });
+
+  it('leaves a joined run going on SIGTERM', async () => {
+    const run = launch('LATE please');
+    await untilRunning();
+    await sleep(400);
+    run.signals.emit('SIGHUP');
+    await run.done;
+    const home = bringHome();
+    for (let i = 0; i < 100 && !/joining/.test(home.err()); i += 1) await sleep(50);
+    home.signals.emit('SIGTERM');
+    expect(await home.done).toBe(IMPORT_FAILED);
+    expect(home.err()).not.toMatch(/stopping the cloud run/);
+    expect((await transport.invoke('x', { action: 'status' })).state).toBe('running');
+    expect(await bringHome().done).toBe(0);
+  });
+
   it('a Stop still stops it', async () => {
     const run = launch('HANG please');
     await untilRunning();
@@ -316,7 +372,7 @@ describe('the app', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
   it('hands the process that brings a run home its tool servers as they are now', () => {
-    const home = sup.slice(sup.indexOf('  _bringCloudHome(folder) {'), sup.indexOf('  _bringCloudHome(folder) {') + 2500);
+    const home = sup.slice(sup.indexOf('  _bringCloudHome(place) {'), sup.indexOf('  _bringCloudHome(place) {') + 2500);
     expect(home).toMatch(/this\.writeMcpConfig\(\)/);
     expect(home).toMatch(/AGENTBOX_MCP_CONFIG: mcp/);
   });

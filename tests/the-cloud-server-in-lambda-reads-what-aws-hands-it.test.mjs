@@ -147,7 +147,7 @@ describe('who a database session belongs to', () => {
     const fetchImpl = async (url, init) => {
       asked.push({ url, init });
       return init.headers.authorization === 'Bearer good'
-        ? { ok: true, json: async () => ({ id: '11111111-1111-4111-8111-111111111111', email: 'a@example.com', app_metadata: { providers: ['google'] } }) }
+        ? { ok: true, json: async () => ({ id: '11111111-1111-4111-8111-111111111111', email: 'a@example.com', email_confirmed_at: '2026-10-20T10:00:00Z' }) }
         : { ok: false, json: async () => ({}) };
     };
     const whoIs = supabaseWhoIs({ url: 'https://db.example/', anonKey: 'pub', fetchImpl });
@@ -158,17 +158,21 @@ describe('who a database session belongs to', () => {
     expect(asked[0].init.signal).toBeDefined();
   });
 
-  // Review, 2026-10-20: the database also lets anyone sign up with an email
-  // and a password, which is a free 5 hours per made-up address. The cloud
-  // takes Google sign-ins only.
-  it('only a Google sign-in gets the cloud; an email-and-password one does not', async () => {
-    const user = (app_metadata) => ({ ok: true, json: async () => ({ id: '11111111-1111-4111-8111-111111111111', app_metadata }) });
-    const answers = { google: user({ provider: 'google', providers: ['google'] }), both: user({ provider: 'email', providers: ['email', 'google'] }), email: user({ provider: 'email', providers: ['email'] }), none: user({}) };
+  // The owner's call, 2026-10-20: the cloud signs in through the app's own
+  // sign-in page, Google or an email and a password. Google-only guarded a
+  // free allowance per made-up address, and there is no free allowance now.
+  // An address nobody has confirmed still gets nothing.
+  it('a Google sign-in or a confirmed email counts; an email nobody confirmed does not', async () => {
+    const user = (extra) => ({ ok: true, json: async () => ({ id: '11111111-1111-4111-8111-111111111111', ...extra }) });
+    const answers = {
+      google: user({ app_metadata: { provider: 'google', providers: ['google'] }, email_confirmed_at: '2026-10-20T10:00:00Z' }),
+      email: user({ app_metadata: { provider: 'email', providers: ['email'] }, email_confirmed_at: '2026-10-20T10:00:00Z' }),
+      unconfirmed: user({ app_metadata: { provider: 'email', providers: ['email'] }, email_confirmed_at: null }),
+    };
     const whoIs = supabaseWhoIs({ url: 'https://db.example', anonKey: 'pub', fetchImpl: async (u, init) => answers[init.headers.authorization.slice(7)] });
     expect(await whoIs('google')).not.toBe(null);
-    expect(await whoIs('both')).not.toBe(null);
-    expect(await whoIs('email')).toBe(null);
-    expect(await whoIs('none')).toBe(null);
+    expect(await whoIs('email')).not.toBe(null);
+    expect(await whoIs('unconfirmed')).toBe(null);
   });
 });
 
@@ -185,5 +189,26 @@ describe('starting the server', () => {
     const gw = await gatewayFromEnv({ REGION: 'us-east-1', BUCKET: 'b', RUNTIME_ARN: 'arn:r', SUPABASE_URL: 'https://db', SUPABASE_ANON_KEY: 'pub', SIGNER_SECRET_ARN: 'arn:secret' }, { readSecret });
     expect(asked).toEqual(['arn:secret']);
     expect(typeof gw.handle).toBe('function');
+  });
+
+  it('reads Stripe\'s key from the secret store when it is set, and says paying is off when it is not', async () => {
+    const env = { REGION: 'us-east-1', BUCKET: 'b', RUNTIME_ARN: 'arn:r', SUPABASE_URL: 'https://db', SUPABASE_ANON_KEY: 'pub', SIGNER_SECRET_ARN: 'arn:secret' };
+    const asked = [];
+    const readSecret = async (arn) => { asked.push(arn); return JSON.stringify(arn === 'arn:stripe' ? { key: 'sk_test_x', webhookSecret: 'whsec_x' } : { id: 'AKIA-signer', secret: 's3cr3t' }); };
+    await gatewayFromEnv({ ...env, STRIPE_SECRET_ARN: 'arn:stripe' }, { readSecret });
+    expect(asked).toEqual(['arn:secret', 'arn:stripe']);
+    const off = await gatewayFromEnv(env, { readSecret });
+    // Unsigned, so a server with Stripe would say 400; one without says 503.
+    expect((await off.handle({ method: 'POST', path: '/v1/stripe', headers: {}, body: '{}' })).status).toBe(503);
+  });
+});
+
+describe('what a browser is sent back to', () => {
+  it('keeps the query, and answers as a page, not JSON', async () => {
+    const seen = [];
+    const gw = { handle: async (r) => { seen.push(r.path); return { status: 200, type: 'html', body: '<p>hi</p>' }; } };
+    const out = await lambdaHandler(gw)({ rawPath: '/v1/paid', rawQueryString: 'cancelled=1', headers: {}, requestContext: { http: { method: 'GET' } } });
+    expect(seen).toEqual(['/v1/paid?cancelled=1']);
+    expect(out).toEqual({ statusCode: 200, headers: { 'content-type': 'text/html; charset=utf-8' }, body: '<p>hi</p>' });
   });
 });

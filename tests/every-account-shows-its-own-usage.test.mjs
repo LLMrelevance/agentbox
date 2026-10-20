@@ -14,8 +14,8 @@ import { AccountUsage } from '../main/account-usage.mjs';
 import { STALE_MS } from '../main/claude-usage.mjs';
 
 const answers = {
-  default: 'Current session: 100% used · resets Oct 16 at 5:09pm\n',
-  '/h/.claude-2': 'Current session: 5% used · resets 8pm\nCurrent week (all models): 9% used · resets Oct 22 at 4pm\n',
+  default: JSON.stringify({ rate_limits_available: true, rate_limits: { five_hour: { utilization: 100 } } }),
+  '/h/.claude-2': JSON.stringify({ rate_limits_available: true, rate_limits: { five_hour: { utilization: 5 }, seven_day: { utilization: 9 } } }),
 };
 
 function make({ answer = (env) => answers[env.CLAUDE_CONFIG_DIR ?? 'default'] ?? '', clock = { t: 1_000 } } = {}) {

@@ -45,10 +45,15 @@ export interface CloudAccount {
   duplicateOf?: string | null;
   /** Its session and week, read off a reply's own headers in the cloud. */
   limits?: UsageLimit[] | null;
+  readAt?: number | null;
 }
 
 export interface CloudStatus {
   setUp: boolean;
+  /** Agentbox Cloud can be signed in to here, and nobody has yet. */
+  offered?: boolean;
+  /** Set up through Agentbox Cloud's server, not the owner's own AWS. */
+  managed?: boolean;
   mode: CloudMode;
   /** What "on" means, kept while the cloud is off. */
   whenOn?: Exclude<CloudMode, 'mac'>;

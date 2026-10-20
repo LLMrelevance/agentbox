@@ -117,8 +117,8 @@
    head, so with its tip level with the lock's foot it still read as high; it
    hangs about two thirds of a pixel past it. */
 .th-pin { display: inline; margin-left: 9px; color: var(--text-faint); vertical-align: -3px; }
-/* A run in the cloud: the running mark is a cloud, pulsing rather than
-   turning. 14px wide with 6px after it, so its title starts where a dot's does. */
+/* A run in the cloud: the running mark is a cloud, pulsing with the dot.
+   14px wide with 6px after it, so its title starts where a dot's does. */
 .th-st-cloud { display: inline; flex: none; margin-right: 6px; color: var(--accent); vertical-align: -1px; animation: th-breathe 1.6s ease-in-out infinite; }
 @keyframes th-breathe { 50% { opacity: .45; } }
 .th-shared-n { display: inline; margin-left: 3px; font: 10.5px var(--mono); color: var(--text-faint); vertical-align: 0.75px; }
@@ -402,8 +402,7 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 
 /* IN PROGRESS, AND AN AGENT ON IT NOW (2026-10-01). Queued and running share
    the word; only the ones an agent is on turn. */
-.th-st.live { animation: th-turn 1.6s linear infinite; }
-@keyframes th-turn { to { transform: rotate(360deg); } }
+.th-st.live { animation: th-breathe 1.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .th-st.live, .th-st-cloud { animation: none; } }
 .th-cell-title .th-st.live { margin-right: 8px; top: 1px; }
 .th-card .m .th-st.live { margin-right: 8px; top: 0; }
