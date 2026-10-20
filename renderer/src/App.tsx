@@ -145,6 +145,7 @@ import { FaceHover } from './team/status';
 import { TeamPage } from './team/TeamPage';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
 import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, StateTabs, WaitingContext } from './threads/Pages';
+import { FleetContext, type Fleet } from './fleet';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
@@ -1811,6 +1812,16 @@ export default function App() {
   // status says, until its session exits (w-bc976fd247). Up here because every
   // list below reads it.
   const liveIds = useMemo(() => new Set(runningRows.map((r) => r.itemId)), [runningRows]);
+  // EVERYTHING THE SUPERVISOR KNOWS ABOUT EVERY THREAD, in one context, so the
+  // Status column on a row and the word on a card are the same answer
+  // (renderer/src/fleet.ts, w-ec2b04d449).
+  const fleet = useMemo((): Fleet => ({
+    sessions: new Map(runningRows.map((r) => [r.itemId, r])),
+    queued: snap?.supervisor.queued, runNow: snap?.supervisor.runNow,
+    signInNeeded: snap?.supervisor.signInNeeded, atLimit: snap?.supervisor.atLimit,
+    shipping: snap?.supervisor.shipping, stalled: snap?.supervisor.stalled,
+    silent: snap?.supervisor.silent, paused: snap?.supervisor.paused,
+  }), [runningRows, snap?.supervisor]);
   const cloudIds = useMemo(() => new Set(runningRows.filter((r) => r.where === 'cloud').map((r) => r.itemId)), [runningRows]);
   // THE THREADS THE APP STILL HAS TO SHIP (w-0c1ba766eb). Waiting on the app,
   // not on her, so In progress reading "Shipping" and out of Needs you until
@@ -5543,6 +5554,7 @@ export default function App() {
     <ChatAgentsContext.Provider value={chatAgents}>
     <LiveContext.Provider value={liveIds}>
     <CloudContext.Provider value={cloudIds}>
+    <FleetContext.Provider value={fleet}>
     <WaitingContext.Provider value={waitingByThread}>
     <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${workspaceCollapsed ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}`}>
       {signInGate && <SignInPage signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
@@ -7357,6 +7369,7 @@ export default function App() {
       <FindBar />
     </div>
     </WaitingContext.Provider>
+    </FleetContext.Provider>
     </CloudContext.Provider>
     </LiveContext.Provider>
     </ChatAgentsContext.Provider>

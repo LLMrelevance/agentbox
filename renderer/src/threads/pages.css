@@ -90,6 +90,14 @@
 .th-st.s-running { border: 1.5px solid var(--accent); background: conic-gradient(var(--accent) 0 50%, transparent 50% 100%); }
 .th-st.s-scheduled { border: 1.5px dashed var(--text-faint); }
 .th-st.s-done { background: var(--text-faint); }
+/* Waiting its turn, which resolves itself, and held, which does not: the
+   second is the one worth looking at, so it is the one in the accent. */
+.th-st.s-queued { border: 1.5px solid var(--text-faint); }
+.th-st.s-held { border: 1.5px solid var(--accent); }
+/* The word is the thread's own state, which its tab has already said: no mark,
+   and the space one would take, so the column reads down one edge. */
+.th-st.s-none { background: none; border: 0; }
+.th-st.s-need { background: var(--accent); }
 .th-pr { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 11px; margin-right: 8px; flex: none; }
 .th-pr i { display: block; width: 3px; background: var(--line-strong); border-radius: 1px; }
 .th-pr i:nth-child(1) { height: 5px; } .th-pr i:nth-child(2) { height: 8px; } .th-pr i:nth-child(3) { height: 11px; }
@@ -136,13 +144,20 @@
 /* ------------------------------------------------------------ the list as a table */
 .th-table .row.th-head { padding-top: 10px; padding-bottom: 8px; font: 10.5px/16px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); cursor: default; }
 .th-table .row.th-head:hover { background: none; }
-.th-grid { display: grid; grid-template-columns: minmax(0, 1fr) 150px 112px 96px; column-gap: 16px; align-items: center; width: 100%; min-height: 20px; }
+/* Thread, status, project, priority, updated. The status column is the width
+   of the longest word it draws ("Nothing came back") at its own type size. */
+.th-grid { display: grid; grid-template-columns: minmax(0, 1fr) 160px 150px 112px 96px; column-gap: 16px; align-items: center; width: 100%; min-height: 20px; }
 .th-table .row { min-height: 0; }
 .th-grid > div { line-height: 20px; }
-.th-grid.with-person { grid-template-columns: minmax(0, 1fr) 140px 130px 112px 96px; }
+.th-grid.with-person { grid-template-columns: minmax(0, 1fr) 160px 140px 130px 112px 96px; }
 .th-grid > .num { text-align: right; }
 .th-cell-title { font-size: 14px; line-height: 20px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .th-cell-title.hidden { color: var(--text-dim); }
+/* THE STATUS COLUMN (w-ec2b04d449), in the project column's own type, because
+   both answer "what is this row" rather than carrying its words. It is dim
+   rather than faint: it is the one cell on the row that changes by itself. */
+.th-cell-state { font: 11.5px/20px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; min-width: 0; }
+.th-cell-state .th-st, .th-cell-state .th-st-cloud { margin-right: 8px; top: 0; }
 .th-cell-proj { font: 11.5px/20px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; min-width: 0; }
 .th-cell-proj .tm-av { width: 16px; height: 16px; line-height: 14px; font-size: 8px; margin-right: 8px; flex: none; }
 .th-cell-prio { font: 11.5px/20px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--text-faint); display: flex; align-items: center; }
@@ -321,6 +336,11 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 .th-card .th-msg .tm-av { margin-right: 0; top: 0; }
 .th-card .m { display: flex; align-items: center; font: 11px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--text-faint); min-width: 0; }
 .th-card .m .p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What is happening on the card, on the card's own line, ahead of its project
+   and in the ink the row's status cell wears (w-ec2b04d449). */
+.th-card .m .s { display: flex; align-items: center; color: var(--text-dim); white-space: nowrap; flex: none; }
+.th-card .m .s::after { content: ""; width: 1px; height: 9px; margin: 0 9px; background: var(--line-strong); }
+.th-card .m .s .th-st, .th-card .m .s .th-st-cloud { margin-right: 7px; }
 .th-card .m .tm-av { width: 18px; height: 18px; line-height: 16px; font-size: 8px; margin-left: auto; flex: none; }
 .th-col-empty { font-size: 13px; color: var(--text-faint); padding: 4px 2px; }
 .tm-team-pane.th-pane { height: 100%; overflow: auto; }

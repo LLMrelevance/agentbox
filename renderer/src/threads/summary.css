@@ -16,6 +16,13 @@
 .ts-st-need { background: var(--accent); }
 .ts-st-run { border: 1.5px solid var(--accent); background: conic-gradient(var(--accent) 0 50%, transparent 50% 100%); }
 .ts-st-wait { border: 1.5px solid var(--text-dim); }
+/* The row's Status column wears these same three (pages.css): an agent is on
+   it, it waits its turn, or nothing can start it. */
+.ts-st-working { border: 1.5px solid var(--accent); background: conic-gradient(var(--accent) 0 50%, transparent 50% 100%); }
+.ts-st-queued { border: 1.5px solid var(--text-faint); }
+.ts-st-held { border: 1.5px solid var(--accent); }
+.ts-st.live { animation: th-breathe 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .ts-st.live { animation: none; } }
 .ts-st-sched { border: 1.5px dashed var(--text-faint); }
 .ts-st-done { background: var(--text-faint); }
 
