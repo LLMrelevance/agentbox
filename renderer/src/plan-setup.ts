@@ -55,13 +55,35 @@ export const COPY = {
   nothingHere: 'Nothing is set up on this computer yet. Pick the plan you pay for above.',
   privacy: `You sign in on Claude's or OpenAI's own page. ${NAME} never sees your password.`,
 
+  /*
+   * THE OTHER HALF OF THIS SCREEN (w-e217e577e5). A computer with a plan
+   * already signed in was walked straight past the question, and told nothing,
+   * so the first anybody knew of it was an agent spending their tokens. In the
+   * founder's words, a new user "was like, 'Oh my God, where are the tokens
+   * coming from? I didn't even connect my account.'"
+   *
+   * It is the same screen, not a new one: you get the question or you get the
+   * answer, so no machine walks a step another machine does not.
+   */
+  foundHead: 'Found on this computer.',
+  signedIn: 'Signed in',
+  /** On the disk already, so there is nothing to install. */
+  signIn: 'Sign in',
+  setUp: 'Set up',
+  /**
+   * The line under the found card. The same promise `privacy` makes, without
+   * its second sentence: there is one sign-in left on this screen rather than
+   * a whole setup, and the row it belongs to is the one with no tick.
+   */
+  foundNote: "You sign in on Claude's or OpenAI's own page.",
+
   setupHead: (name: string) => `Setting up ${name}.`,
   setupLedeWait: 'One step needs you: approve the sign-in in your browser.',
   setupLedeBusy: 'This takes about half a minute. Nothing needs you yet.',
   setupLedeFailed: 'Something stopped the setup. Try again, or skip it for now.',
   setupOf: (n: number, of: number) => `${n} of ${of}`,
   install: (tool: string) => `Install ${tool}`,
-  signIn: (name: string) => `Sign in to your ${name} plan`,
+  signInStep: (name: string) => `Sign in to your ${name} plan`,
   signInSub: (name: string) => `A ${name === 'Claude' ? 'Claude' : 'ChatGPT'} page opened in your browser. Click Authorize there, then come back here.`,
   ready: 'Check that agents can start',
   done: 'Done',
@@ -144,6 +166,14 @@ export interface AskRow {
    */
   other?: boolean;
   /**
+   * WHAT IS TRUE OF THIS ONE ALREADY, at the right of the row: signed in, or
+   * the one word for what pressing it would do. Only the found screen has any,
+   * because only the found screen knows anything yet.
+   */
+  right?: string;
+  /** With a tick, which is for the one thing that needs nobody to do anything. */
+  tick?: boolean;
+  /**
    * A REAL LINK, when the row leaves the app. Drawn as an anchor rather than a
    * button so the address is in the page: it can be copied, opened in a new
    * window, and read by anything that reads pages. The gate's install row is
@@ -174,11 +204,82 @@ export interface AskRow {
  */
 export function planRows(): AskRow[] {
   return [
-    { key: 'claude', plan: 'claude', mark: 'C', name: COPY.claude, sub: COPY.claudePlans },
-    { key: 'codex', plan: 'codex', mark: 'G', name: COPY.chatgpt, sub: COPY.chatgptPlans },
+    { ...PLAN_ROW.claude },
+    { ...PLAN_ROW.codex },
     { key: 'both', plan: 'both', mark: '+', name: COPY.both, sub: COPY.bothPlans },
     { key: 'mine', name: COPY.haveOne, other: true },
   ];
+}
+
+/**
+ * ONE PLAN, DRAWN THE SAME WAY WHEREVER IT APPEARS. The question and the
+ *  answer are the same screen, so a plan that is asked about and a plan that was
+ *  found are the same row with different words at its right edge.
+ */
+const PLAN_ROW: Record<Engine, AskRow> = {
+  claude: { key: 'claude', plan: 'claude', mark: 'C', name: COPY.claude, sub: COPY.claudePlans },
+  codex: { key: 'codex', plan: 'codex', mark: 'G', name: COPY.chatgpt, sub: COPY.chatgptPlans },
+};
+
+type Reading = Pick<EngineSetupState, 'engine' | 'found' | 'signedIn'>;
+
+/** The plans that can run an agent right now, in the order they are asked in. */
+export function readyEngines(readings: Reading[]): Engine[] {
+  return (['claude', 'codex'] as Engine[]).filter((e) => {
+    const r = readings.find((x) => x.engine === e);
+    return !!r?.found && !!r?.signedIn;
+  });
+}
+
+/**
+ * WHAT WAS FOUND, SAID IN THE PLAN'S OWN NAME. Never a tier: a row reading
+ *  "Claude · Max 20x" shipped on 2026-10-07 and came out the same day, and the
+ *  question being answered is "did it connect to something of mine", not "what
+ *  am I paying for". Null when nothing is ready, because then there is nothing
+ *  to claim and the screen is the question instead.
+ */
+export function foundLede(ready: Engine[]): string | null {
+  if (!ready.length) return null;
+  const names = ready.map(planName);
+  return ready.length > 1
+    ? `Your agents will run on your own ${names.join(' and ')} plans.`
+    : `Your agents will run on your own ${names[0]} plan.`;
+}
+
+/**
+ * THE TWO PLANS, EACH CARRYING WHAT IS TRUE OF IT. "Both" is not here: it is a
+ *  thing to set up, and one is already set up. Neither is "I already have one",
+ *  which answers a question nobody is being asked on this screen.
+ *
+ *  AND AN INSTALL IS NOT A SIGN-IN. A tool sitting on the disk signed out needs
+ *  a sign-in, so offering to "Set up" it offers to install what is installed.
+ */
+export function foundRows(readings: Reading[]): AskRow[] {
+  const ready = readyEngines(readings);
+  return (['claude', 'codex'] as Engine[]).map((e) => {
+    const r = readings.find((x) => x.engine === e);
+    const isReady = ready.includes(e);
+    return {
+      ...PLAN_ROW[e],
+      right: isReady ? COPY.signedIn : r?.found ? COPY.signIn : COPY.setUp,
+      ...(isReady ? { tick: true } : {}),
+    };
+  });
+}
+
+/** Where Return rests: on the one that is already running agents. */
+export function litRow(rows: AskRow[]): number {
+  const at = rows.findIndex((r) => r.tick);
+  return at === -1 ? 0 : at;
+}
+
+/**
+ * WHAT A PRESS ON THE FOUND SCREEN MEANS. There are only two things it can
+ *  mean, and which one depends on the row rather than on a button: the one that
+ *  is ready is a yes, and the other one is a second plan to set up.
+ */
+export function afterFound(key: string, ready: Engine[]): { t: 'go' } | { t: 'setup'; plan: Plan } {
+  return ready.includes(key as Engine) ? { t: 'go' } : { t: 'setup', plan: key as Plan };
 }
 
 /**
@@ -213,7 +314,7 @@ export interface StepRow {
 export function setupRows(s: Pick<EngineSetupState, 'engine' | 'phase'>): StepRow[] {
   const name = planName(s.engine);
   const install: StepRow = { state: 'todo', title: COPY.install(toolName(s.engine)) };
-  const sign: StepRow = { state: 'todo', title: COPY.signIn(name) };
+  const sign: StepRow = { state: 'todo', title: COPY.signInStep(name) };
   const check: StepRow = { state: 'todo', title: COPY.ready };
   switch (s.phase) {
     case 'idle':

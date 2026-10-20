@@ -126,6 +126,7 @@ import { codexLaunchEnv } from './codex-launch-env.mjs';
 import { CodexUsage } from './codex-usage.mjs';
 import { createCodexWorker, mcpServerNames, workerThreadParams } from './codex-session.mjs';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
+import { cloudCodexMode } from './cloud-permission.mjs';
 import { createCodexApprovals } from './codex-approvals.mjs';
 import { approvalPublicKey } from './approvals.mjs';
 import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexModels } from './codex-models.mjs';
@@ -7414,7 +7415,7 @@ export class Supervisor {
       // thread already running cannot un-launch them. Read fresh for THIS start
       // rather than once per app-server, and never caught: see `_codexIsolation`.
       ready: this._codexIsolation(client, handshake),
-      threadParams: (mcpServers) => this.codexThreadParamsFor(plan, cwd, mcpServers, storeServer, home),
+      threadParams: (mcpServers) => this.codexThreadParamsFor(plan, cwd, mcpServers, storeServer, home, { cloud }),
       turnParams: this.codexTurnParamsFor(plan),
       resumeThreadId: plan.resumeId,
       // The card, which is the other half of what a worker needs to be able to
@@ -7562,7 +7563,7 @@ export class Supervisor {
    */
   // `home` is the login this thread runs on. Its own list is the one checked:
   // reading the main login's let a free-plan login be handed gpt-6.1-sol.
-  codexThreadParamsFor(plan, cwd, mcpServers, storeServer, home = this._codexHome()) {
+  codexThreadParamsFor(plan, cwd, mcpServers, storeServer, home = this._codexHome(), { cloud = false } = {}) {
     // ASKED HERE RATHER THAN CARRIED ON THE PLAN. A precomputed field would be
     // a second copy of this decision that a caller can forget to set, and the
     // way it fails is a word Codex cannot read reaching `thread/start` -- which
@@ -7597,8 +7598,9 @@ export class Supervisor {
       // engine's word, so this keeps only a Codex one and lets a Claude mode
       // fall through as though nothing were set (main/answer-modes.mjs says
       // why one field serves both).
-      mode: (isCodexMode(plan?.answerMode) ? plan.answerMode : null)
-        || this.effectiveCodexMode(plan?.product ?? ''),
+      mode: cloud
+        ? cloudCodexMode(this.config.cloudCodexMode, plan?.answerMode, this.effectiveCodexMode(plan?.product ?? ''))
+        : (isCodexMode(plan?.answerMode) ? plan.answerMode : null) || this.effectiveCodexMode(plan?.product ?? ''),
     });
   }
 

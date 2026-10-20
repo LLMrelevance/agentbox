@@ -25,6 +25,15 @@
 // fatal about a path nobody recognises, where "another session is building this
 // folder, it will be along in a moment" is both true and actionable.
 //
+// AND THE SAME SHAPE AGAIN ON THE OTHER HALF OF THE QUESTION, 2026-10-19. This
+// file turned main red on GitHub with "expected [ 'building', 'held', 'locked' ]
+// to include 'refused'": a loser's refusal reached the row as "its folder is
+// refused", which is not a word anybody can act on. The guard above reads a
+// failed `worktree add`; `whoEndedUpInTheLock` now reads the LOCK the same way,
+// because the race does not end at the add. Reproduced here by racing twenty
+// processes for one id instead of six -- once in about 250 racers -- and gone
+// across 960 racers after the fix.
+//
 // RE-MEASURED 2026-10-17 ON A BUSY MACHINE, which showed two things one run at
 // a time never did. Git has a fifth wording, and on a slow enough loser the
 // winner has already FINISHED -- the folder is at its own path and nobody is
@@ -37,7 +46,7 @@ import path from 'node:path';
 import { execFileSync, fork } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  ensureTaskFolder, buildingFolderPath, taskFolderPath, somebodyIsBuilding,
+  ensureTaskFolder, buildingFolderPath, taskFolderPath, somebodyIsBuilding, whoEndedUpInTheLock,
 } from '../main/task-folders.mjs';
 
 const git = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' });
@@ -132,6 +141,90 @@ describe('reading a failed `worktree add` for what it actually means', () => {
   });
 });
 
+/* ===== the lock read back, which is the other half of the same question ==== */
+
+describe('reading the lock back after writing our own', () => {
+  const ours = 4242;
+  const lock = (pid) => `agentbox pid=${pid}`;
+  const wrote = { ok: true, out: '' };
+  const wouldNotWrite = {
+    ok: false,
+    out: "fatal: could not open '.git/worktrees/w-x/locked' for writing: Permission denied",
+  };
+
+  it('is ours when our own pid is in it', () => {
+    expect(whoEndedUpInTheLock({ pid: ours, locked: wrote, after: lock(ours), triesLeft: 4 }))
+      .toEqual({ taken: true, heldBy: ours });
+  });
+
+  it('names the other session when its pid is in it', () => {
+    expect(whoEndedUpInTheLock({ pid: ours, locked: wrote, after: lock(99), triesLeft: 4 }))
+      .toEqual({ taken: false, reason: 'held', heldBy: 99 });
+  });
+
+  it('says locked for a lock with no pid to find, worded or bare', () => {
+    expect(whoEndedUpInTheLock({ pid: ours, locked: wrote, after: 'mine, do not touch', triesLeft: 4 }))
+      .toEqual({ taken: false, reason: 'locked', heldBy: null });
+    expect(whoEndedUpInTheLock({ pid: ours, locked: wrote, after: '', triesLeft: 4 }))
+      .toEqual({ taken: false, reason: 'locked', heldBy: null });
+  });
+
+  // THE ONE MAIN WENT RED ON. Measured by racing twenty processes for one id
+  // until it happened: our `worktree lock` returned 0, and a moment later the
+  // folder carried no lock at all, because the other taker's `unlock` ran
+  // between the two. Nobody is in the lock yet, so there is nobody to name.
+  it('asks again when the lock we just wrote is gone and nobody is named', () => {
+    expect(whoEndedUpInTheLock({ pid: ours, locked: wrote, after: undefined, triesLeft: 4 }))
+      .toEqual({ again: true });
+  });
+
+  it('ends with held, nobody named, once asking again has run out', () => {
+    expect(whoEndedUpInTheLock({ pid: ours, locked: wrote, after: undefined, triesLeft: 0 }))
+      .toEqual({ taken: false, reason: 'held', heldBy: null });
+  });
+
+  // AND THE CASE THAT MUST NOT MATCH, which is why the question is about our
+  // own `lock` as well as the read-back. A lock git would not write is this
+  // machine failing, and calling it "another session has this" would send
+  // whoever reads the row hunting for a session that does not exist.
+  it('does not call a lock git would not write another session holding it', () => {
+    const said = whoEndedUpInTheLock({ pid: ours, locked: wouldNotWrite, after: undefined, triesLeft: 4 });
+    expect(said.taken).toBe(false);
+    expect(said.reason).toBe('unlockable');
+    expect(said.again).toBe(undefined);
+    expect(said.detail).toContain('Permission denied');
+  });
+
+  it('still names the other session when git refused us because of their lock', () => {
+    const already = { ok: false, out: "fatal: '/w/x' is already locked" };
+    expect(whoEndedUpInTheLock({ pid: ours, locked: already, after: lock(99), triesLeft: 4 }))
+      .toEqual({ taken: false, reason: 'held', heldBy: 99 });
+  });
+
+  // FOUND BY RUNNING THE RACE TWENTY WIDE AFTER THE FIRST FIX, which is the
+  // only way this one shows up: git refuses our lock BECAUSE another session
+  // locked it a moment before, and the read-back then lands in that session's
+  // own unlock-and-lock gap, so git has named them and the lock has not. The
+  // first fix called that this machine failing and threw git's words at the row.
+  it('asks again when git says another session locked it first', () => {
+    const already = { ok: false, out: "fatal: '/w/x' is already locked, reason: agentbox pid=99" };
+    expect(whoEndedUpInTheLock({ pid: ours, locked: already, after: undefined, triesLeft: 4 }))
+      .toEqual({ again: true });
+  });
+
+  it('names the session git named, once asking again has run out', () => {
+    const already = { ok: false, out: "fatal: '/w/x' is already locked, reason: agentbox pid=99" };
+    expect(whoEndedUpInTheLock({ pid: ours, locked: already, after: undefined, triesLeft: 0 }))
+      .toEqual({ taken: false, reason: 'held', heldBy: 99 });
+  });
+
+  it("says locked when the lock git saw is a person's own", () => {
+    const already = { ok: false, out: "fatal: '/w/x' is already locked, reason: mine, do not touch" };
+    expect(whoEndedUpInTheLock({ pid: ours, locked: already, after: undefined, triesLeft: 0 }))
+      .toEqual({ taken: false, reason: 'locked', heldBy: null });
+  });
+});
+
 /* ============ the refusal the documented reason always promised =========== */
 
 describe('a folder somebody else is part way through making', () => {
@@ -171,6 +264,31 @@ describe('a folder somebody else is part way through making', () => {
       expect(asked.path).toBe(null);
     } finally {
       fs.chmodSync(path.dirname(staging), 0o700);
+    }
+  });
+});
+
+/* ===== a lock that cannot be written is not a folder somebody else has ==== */
+
+describe('a lock this git will not write', () => {
+  let dir;
+  beforeEach(() => { dir = repo(); });
+  afterEach(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* gone */ } });
+
+  it('reaches the row as git words, not as another session', () => {
+    const made = ensureTaskFolder(dir, 'w-nolock', { dependencies: false });
+    expect(made.taken).toBe(true);
+    // Unlocked so the next asker is offered the folder rather than told who has
+    // it, and git's own bookkeeping made read-only so its lock cannot land.
+    git(dir, 'worktree', 'unlock', made.path);
+    const admin = path.join(dir, '.git', 'worktrees');
+    const books = fs.readdirSync(admin);
+    for (const book of books) fs.chmodSync(path.join(admin, book), 0o500);
+    try {
+      expect(() => ensureTaskFolder(dir, 'w-nolock', { pid: process.pid + 1, dependencies: false }))
+        .toThrow(/Permission denied/);
+    } finally {
+      for (const book of books) fs.chmodSync(path.join(admin, book), 0o700);
     }
   });
 });
