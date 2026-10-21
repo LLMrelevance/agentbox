@@ -90,7 +90,7 @@ export async function gatewayFromEnv(env = process.env, { readSecret = (arn) => 
   // Without it the server runs and says paying is not set up.
   const billing = env.STRIPE_SECRET_ARN ? JSON.parse(await readSecret(env.STRIPE_SECRET_ARN)) : null;
   return createGateway({
-    ...(billing ? { stripe: stripeClient({ key: billing.key, webhookSecret: billing.webhookSecret }) } : {}),
+    ...(billing ? { stripe: stripeClient({ key: billing.key, webhookSecret: billing.webhookSecret, managedPayments: !!billing.managedPayments }) } : {}),
     agentcore: transport,
     links: { get: signer.getUrl, put: signer.putUrl, head: signer.headUrl },
     removeObject: (k) => objects.del(k),
