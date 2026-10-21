@@ -33,6 +33,8 @@
   --bg-raised: #f1f3f6;
   --bg-selected: #eaeef7;
   --bg-hover: #f6f7fa;
+  /* Highlighted text: a see-through wash the ground shows through, like Slack's. */
+  --select: rgba(46, 125, 230, 0.2);
   /* WHAT A DROPDOWN FLOATS ON. Every menu in the app reads this one token, so
      they move together; it is the window's own ground here, which is what each
      of them painted itself before the token existed. A look may override it,
@@ -392,6 +394,7 @@
   --pop: var(--bg);
   --bg-selected: #3a4049;
   --bg-hover: #33363c;
+  --select: rgba(110, 165, 255, 0.3);
   --film-strong: rgba(255, 255, 255, 0.10);
   --find-match: color-mix(in srgb, var(--accent) 22%, transparent);
   --find-current: var(--accent);
@@ -808,6 +811,9 @@ body {
   overflow: hidden;
   user-select: none;
 }
+
+/* The words keep their own colour; only the wash behind them is set. */
+::selection { background: var(--select); }
 
 .boot {
   height: 100%;

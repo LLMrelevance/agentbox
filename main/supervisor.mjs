@@ -132,7 +132,8 @@ import { cloudCodexMode } from './cloud-permission.mjs';
 import { createCodexApprovals } from './codex-approvals.mjs';
 import { approvalPublicKey } from './approvals.mjs';
 import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexModels } from './codex-models.mjs';
-import { codexPlanEnded } from './codex-account.mjs';
+import { codexAccount, codexPlanEnded } from './codex-account.mjs';
+import { accountName } from '../shared/account-names.mjs';
 import { nameRow, wantsName } from './row-label.mjs';
 import { LEVELS, latestMessage, sortMessage, wantsPriority } from './message-priority.mjs';
 import { NAME, Name, envName, nameSlug, isOurSlug } from '../shared/product-name.mjs';
@@ -1980,6 +1981,17 @@ export class Supervisor {
   }
 
   /**
+   * SOMETHING IS STILL RUNNING IN THIS TASK'S FOLDER: its terminal is open
+   * (main/ipc.mjs fills in `terminalOpen`), or programs its agents started are
+   * (main/leftovers.mjs). A server whose folder is deleted under it stops
+   * working, so the folder waits until they end.
+   */
+  _folderInUse(id) {
+    try { if (this.terminalOpen?.(id)) return true; } catch { /* no terminals */ }
+    return !!this._leftoverCleaner?.hasPrograms?.(id);
+  }
+
+  /**
    * Hand the folder back when the session lets go of it. It is only deleted
    * when losing it costs nothing, so the ordinary answer here is that it stays,
    * holding work she has not approved yet. The sweep then takes it on a later
@@ -1992,6 +2004,7 @@ export class Supervisor {
   // waits for the answer.
   async releaseWorkFolder(item, product) {
     if (!this._folderRow(item, product)) return null;
+    if (this._folderInUse(item.id)) return null;
     const base = this.productFolder(product);
     // NOT WHILE A CLOUD RUN'S WORK IS STILL ON ITS WAY BACK: the folder would
     // read as clean and merged, and be removed, with the work still in S3.
@@ -2224,7 +2237,7 @@ export class Supervisor {
   async parkClosedFolders(product) {
     const base = this.productFolder(product);
     if (!product?.repoPath || base !== product.repoPath) return 0;
-    const busy = (id) => this.sessions.has(id) || !!this._preparing?.has(id);
+    const busy = (id) => this.sessions.has(id) || !!this._preparing?.has(id) || this._folderInUse(id);
     let put = 0;
     // AND WHILE WE ARE HERE, WHAT ELSE IS HOLDING THE DISK (w-330eea6c66). This
     // is the only place that already walks a project's folders on a clock, and
@@ -3109,6 +3122,11 @@ export class Supervisor {
       // both halves in the same order the cause was, so it is always the text
       // that actually named the limit that names the hour too.
       const resetsAt = cause === 'at-limit' ? (limitResetsAt(raw) ?? limitResetsAt(errorResult)) : null;
+      // WHICH LOGIN THIS RUN WAS SPENDING, and which one can take the task
+      // now. With two subscriptions the sentence named neither, so nothing on
+      // the thread said which was spent (power-test-2, issue 20).
+      const spent = session.accountFault?.account ?? this._accountKey(session?.engine, session?.profile);
+      const free = cause === 'at-limit' && spent ? this._anotherLoginFree(item, spent) : null;
       const elsewhere = session.accountFault?.cause === 'model-not-on-plan'
         || (cause === 'at-limit' && !!session.accountFault?.account
           && this._anotherLoginIsFree(item, session.accountFault.account));
@@ -3134,6 +3152,8 @@ export class Supervisor {
         // waking it for the free login, so the sentence and the fleet said
         // different things about the same task (w-4338a63da6).
         elsewhere,
+        account: cause === 'at-limit' ? this._accountNameFor(session?.engine, spent) : null,
+        instead: free ? this._accountNameFor(session?.engine, free) : null,
         model: session.model || item.model || null,
         planEnded,
         gaveUp,
@@ -3408,6 +3428,13 @@ export class Supervisor {
         // (`stderr` in shared/dead-run-trace.mjs is stderr AND the error
         // result), so the hour was there to be read the whole time.
         const resetsAt = cause === 'at-limit' ? limitResetsAt(trace.stderr) : null;
+        // AND THE LOGIN IT WAS SPENDING, which the run recorded when it died
+        // (`seen.account`). Only where the sentence's own engine word is this
+        // row's engine, so the name and the agent in front of it are the same
+        // account.
+        const spent = cause === 'at-limit' && this._engineFor(item) === DEFAULT_ENGINE
+          ? this._accountNameFor(DEFAULT_ENGINE, seen.account)
+          : null;
         const written = this.store.recordSessionResult(product, id, {
           result: deadRunSentence({
             engineWord: 'Claude Code',
@@ -3415,6 +3442,7 @@ export class Supervisor {
             runs: seen.runs,
             resetsAt,
             worked: trace.worked,
+            account: spent,
           }),
           status: 'open',
         });
@@ -3901,6 +3929,41 @@ export class Supervisor {
     return harnessFor(engineOf(engine)).accountKey(profile);
   }
 
+  /**
+   * WHAT TO CALL ONE OF THIS ENGINE'S LOGINS, by the rule the Settings page
+   * names its rows with (shared/account-names.mjs): the email the vendor gave,
+   * else a counted name.
+   *
+   * Null where naming it would say nothing: one login on that engine, or a key
+   * no login here answers to. The sentence on her thread then reads exactly as
+   * it did before any of this (`deadRunSentence`).
+   */
+  _accountNameFor(engine, key) {
+    const which = engineOf(engine);
+    const profiles = this._profilesFor(which);
+    if (profiles.length < 2) return null;
+    const profile = profiles.find((p) => this._accountKey(which, p) === key);
+    if (!profile) return null;
+    const home = this.config.home || os.homedir();
+    const email = which === 'codex'
+      ? codexAccount(this._codexProfileHome(profile))?.email ?? null
+      : accountIdentity(profile === 'default' ? null : profile, { home })?.email ?? null;
+    return accountName({ email, engine: which, index: profiles.indexOf(profile), total: profiles.length });
+  }
+
+  /**
+   * THE LOGIN THAT COULD TAKE THIS TASK NOW, on the task's own engine: not
+   * resting, carrying no trouble, and not the one that just failed. Its key, or
+   * null. `_anotherLoginIsFree` is this question asked as a yes or no.
+   */
+  _anotherLoginFree(item, account) {
+    const engine = this._engineFor(item);
+    const free = this._liveProfilesFor(engine)
+      .map((p) => this._accountKey(engine, p))
+      .find((key) => key !== account && !this._profileTrouble?.[key]);
+    return free ?? null;
+  }
+
   // ACCOUNTS THAT CAN ACTUALLY RUN SOMETHING RIGHT NOW, and unlike
   // _liveProfiles this one is allowed to come back empty.
   //
@@ -3919,11 +3982,7 @@ export class Supervisor {
    * A free Claude login says nothing about a Codex task, and the other way round.
    */
   _anotherLoginIsFree(item, account) {
-    const engine = this._engineFor(item);
-    return this._liveProfilesFor(engine).some((p) => {
-      const key = this._accountKey(engine, p);
-      return key !== account && !this._profileTrouble?.[key];
-    });
+    return !!this._anotherLoginFree(item, account);
   }
 
   _healthyProfiles() {
@@ -10074,6 +10133,13 @@ export class Supervisor {
           if (!product) return false;
           try { return !!this.store.readItem?.(product, itemId); } catch { return false; }
         },
+        closedAt: (itemId, product) => {
+          if (!product) return null;
+          let item = null;
+          try { item = this.store.readItem?.(product, itemId); } catch { return null; }
+          if (item?.status !== 'done') return null;
+          return Number(item.wrote?.status?.ts ?? item.updatedAt) || null;
+        },
         log: (line) => console.log(`zero: ${line}`),
       });
     } else if (on) {
@@ -10103,9 +10169,11 @@ export class Supervisor {
     const parts = [];
     // EVERY RUN, not only a fresh one: a conversation resumed after the switch
     // went on, and a chat, never heard it otherwise (Codex's review).
+    // AGENTBOX_KEEP=1 is still honoured but no longer asked for: the task's
+    // rule decides what stays, not the agent's guess about what is needed.
     if (cleaner.enabled) {
-      parts.push('Anything you leave running after your turn (a dev server, a preview, a background job) is stopped two hours after you finish, sooner if this computer runs short of memory. '
-        + 'If the person needs something to keep running, start it with AGENTBOX_KEEP=1 in its environment and say so in your answer. Stop anything else you started before you finish.');
+      parts.push('Anything you leave running after your turn (a dev server, a preview, a background job) keeps running while this task is open and is stopped when the person closes it, or sooner if this computer runs short of memory. '
+        + 'Stop anything you started that the person will not need before you finish.');
     }
     const stopping = cleaner.stoppingNote(item.id);
     if (stopping) parts.push(stopping);

@@ -94,6 +94,11 @@ export function wordsLeftAfterSend(now: string, sent: string): string {
   return now;
 }
 
+/** The bar's quick emoji take half a side panel's width, so only a full-width chat shows them, and not in a thread. */
+export function quickOnBar({ full, thread }: { full: boolean; thread: boolean }): boolean {
+  return full && !thread;
+}
+
 /** The newest message of mine in the chat itself, for ↑ in an empty box. */
 export function myNewest(messages: readonly RoomMessage[], me: string | null, inReplyTo: string | null = null): RoomMessage | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
