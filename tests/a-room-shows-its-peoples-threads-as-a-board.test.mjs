@@ -138,6 +138,34 @@ describe('the Inbox with Rooms on', () => {
   });
 });
 
+// Round two, the same day: the first build squeezed four columns beside the
+// chat until titles wrapped. Asked for the Inbox's way instead: the columns
+// keep their width and the board scrolls sideways. And the People label sat
+// halfway down two rows of names instead of beside the first.
+describe('the room’s board is the Inbox’s board at its own width', () => {
+  const rooms = readFileSync(new URL('../renderer/src/team/rooms/rooms.css', import.meta.url), 'utf8');
+  const pages = readFileSync(new URL('../renderer/src/threads/pages.css', import.meta.url), 'utf8');
+  it('keeps the Inbox’s columns, never narrower', () => {
+    expect(pages).toMatch(/\.th-board \{[^}]*grid-template-columns: repeat\(4, minmax\(260px, 1fr\)\)/);
+    const ours = (rooms.match(/\.rm-main\.board \.th-board \{[^}]*\}/g) ?? []).join('');
+    expect(ours).not.toMatch(/grid-template-columns|min-width|width:/);
+  });
+  it('scrolls sideways inside the room when the columns do not fit', () => {
+    expect(rooms).toMatch(/\.rm-main\.board \{[^}]*overflow: auto/);
+  });
+});
+
+describe('a menu label beside rows of chips', () => {
+  const pages = readFileSync(new URL('../renderer/src/threads/pages.css', import.meta.url), 'utf8');
+  const chip = Number(pages.match(/\.th-pop \.opts > button \{[^}]*?height: (\d+)px/)?.[1]);
+  it('sits beside the first row, at the height of one chip', () => {
+    const rule = pages.match(/\.th-pop \.line:has\(> \.opts\) > \.lab \{([^}]*)\}/)?.[1] ?? '';
+    expect(rule).toMatch(/align-self: start/);
+    expect(Number(rule.match(/line-height: (\d+)px/)?.[1])).toBe(chip);
+    expect(chip).toBe(26);
+  });
+});
+
 describe('wired in the app', () => {
   const app = readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
   it('B flips a room between grid and board', () => {
