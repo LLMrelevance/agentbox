@@ -25,6 +25,7 @@ export const activityShown = (c: { me: boolean; teammate: boolean; showActivity:
 export type RoomView = 'grid' | 'board';
 const VIEW_KEY = 'rooms.view';
 const PICK_KEY = 'rooms.board.people';
+const LATER_KEY = 'rooms.board.later';
 type Store = Pick<Storage, 'getItem' | 'setItem'> | null;
 const local = (): Store => (typeof localStorage === 'undefined' ? null : localStorage);
 
@@ -54,6 +55,14 @@ export function readBoardPicks(store: Store = local()): Record<string, string[]>
 }
 export function writeBoardPicks(picks: Record<string, string[]>, store: Store = local()) {
   try { store?.setItem(PICK_KEY, JSON.stringify(picks)); } catch { /* not kept */ }
+}
+
+/** Whether a room's board shows its Later column, which it does not until asked. */
+export function readBoardLater(store: Store = local()): boolean {
+  try { return store?.getItem(LATER_KEY) === '1'; } catch { return false; }
+}
+export function writeBoardLater(shown: boolean, store: Store = local()) {
+  try { store?.setItem(LATER_KEY, shown ? '1' : '0'); } catch { /* not kept */ }
 }
 
 /** Their place in the room by agent hours this week; ties share a place. */

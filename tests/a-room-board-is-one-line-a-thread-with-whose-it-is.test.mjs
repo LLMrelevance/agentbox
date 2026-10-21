@@ -36,15 +36,15 @@ const draw = (props = {}) => renderToStaticMarkup(React.createElement(TeamContex
 const columns = (html) => [...html.matchAll(/class="rm-bcol"[\s\S]*?class="th-col-h">([\s\S]*?)<b>/g)].map((m) => m[1].replace(/<[^>]+>/g, ''));
 
 describe('a room’s board', () => {
-  it('has all four columns, In progress among them, in your order', () => {
-    expect(columns(draw())).toEqual(['Waiting', 'In progress', 'Later', 'Done today']);
-    expect(columns(draw({ columnOrder: ['running', 'waiting', 'scheduled', 'done'] }))).toEqual(['In progress', 'Waiting', 'Later', 'Done today']);
+  it('has In progress among its columns, in your order', () => {
+    expect(columns(draw({ later: true }))).toEqual(['Waiting', 'In progress', 'Later', 'Done today']);
+    expect(columns(draw({ later: true, columnOrder: ['running', 'waiting', 'scheduled', 'done'] }))).toEqual(['In progress', 'Waiting', 'Later', 'Done today']);
   });
 
-  it('draws each thread as one line, its title and whose it is by name', () => {
+  it('draws each thread with whose it is by name', () => {
     const html = draw();
-    expect(html).toMatch(/class="rm-brow running"[\s\S]*?Stripe webhook retries[\s\S]*?class="who"[\s\S]*?Maya<\/span>/);
-    expect(html).toMatch(/class="rm-brow waiting"[\s\S]*?Pricing page copy[\s\S]*?class="who"[\s\S]*?You<\/span>/);
+    expect(html).toMatch(/class="rm-brow running"[\s\S]*?class="who">Maya<\/span><span class="t">Stripe webhook retries/);
+    expect(html).toMatch(/class="rm-brow waiting"[\s\S]*?class="who">You<\/span><span class="t">Pricing page copy/);
   });
 
   it('shows no project and no card boxes', () => {
@@ -58,7 +58,7 @@ describe('a room’s board', () => {
   });
 
   it('says so when a column is empty', () => {
-    expect(draw()).toMatch(/Later[\s\S]*?Nothing here\./);
+    expect(draw({ later: true })).toMatch(/Later[\s\S]*?Nothing here\./);
   });
 
   it('leaves out a teammate who is not picked', () => {
@@ -69,6 +69,6 @@ describe('a room’s board', () => {
 describe('wired into the room', () => {
   const app = readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
   it('the room’s Board view draws the room board, not the Inbox’s cards', () => {
-    expect(app).toMatch(/renderBoard: \(people\) => <RoomBoard /);
+    expect(app).toMatch(/renderBoard: \(people, \{ later \}\) => <RoomBoard /);
   });
 });

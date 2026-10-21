@@ -149,10 +149,10 @@ describe('the Inbox with Rooms on', () => {
 describe('the room’s board keeps its column width', () => {
   const rooms = readFileSync(new URL('../renderer/src/team/rooms/rooms.css', import.meta.url), 'utf8');
   const rule = rooms.match(/\.rm-board \{([^}]*)\}/)?.[1] ?? '';
-  const least = Number(rule.match(/grid-template-columns: repeat\(4, minmax\((\d+)px, 1fr\)\)/)?.[1]);
+  const least = Number(rule.match(/grid-template-columns: repeat\(var\(--cols, 3\), minmax\((\d+)px, 1fr\)\)/)?.[1]);
   const gap = Number(rule.match(/gap: 0 (\d+)px/)?.[1]);
   const right = Number(rule.match(/padding-right: (\d+)px/)?.[1]);
-  it('fits all four columns beside the chat in a 1440 window', () => {
+  it('fits all four columns beside the chat in a 1440 window, Later shown', () => {
     expect(4 * least + 3 * gap + right).toBeLessThanOrEqual(780);
   });
   it('never squeezes a column below a readable line', () => {

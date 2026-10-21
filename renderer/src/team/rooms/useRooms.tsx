@@ -6,7 +6,7 @@ import { api } from '../../api';
 import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
 import { RoomsNav, useOutside, type RoomMenuAction } from './RoomsNav';
 import { RoomTabs } from './RoomTabs';
-import { boardPeople, boardPicked, cardName, readBoardPicks, readRoomView, roomTabs, tabWalk, withMe, writeBoardPicks, writeRoomView, type RoomView } from './room-rules';
+import { boardPeople, boardPicked, cardName, readBoardLater, readBoardPicks, readRoomView, roomTabs, tabWalk, withMe, writeBoardLater, writeBoardPicks, writeRoomView, type RoomView } from './room-rules';
 import { RoomViewButton } from './RoomView';
 import { landed, sameMessages } from './room-chat-rules';
 import { RoomPage, type RoomPane } from './RoomPage';
@@ -43,8 +43,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   onTeamMessage: (personIds: string[]) => void;
   /** Leave whatever covers the rooms: an open thread or direct chat, the Team page, search. */
   onLeavePage: () => void;
-  /** The Inbox's board, for these people's threads. */
-  renderBoard?: (people: string[]) => ReactNode;
+  /** The room's board, for these people's threads. */
+  renderBoard?: (people: string[], opts: { later: boolean }) => ReactNode;
 }) {
   const live = on && !!rooms?.on;
   const all = live ? rooms!.rooms : [];
@@ -59,6 +59,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const [folded, setFolded] = useState(() => { try { return localStorage.getItem(FOLD_KEY) === '1'; } catch { return false; } });
   const [view, setViewRaw] = useState<RoomView>(() => readRoomView());
   const [boardPicks, setBoardPicks] = useState<Record<string, string[]>>(() => readBoardPicks());
+  const [later, setLaterRaw] = useState(() => readBoardLater());
   const [dialog, setDialog] = useState<Dialog>(null);
   const [members, setMembers] = useState<{ roomId: string; at: DOMRect } | null>(null);
   const [links, setLinks] = useState<Record<string, string>>({});
@@ -299,9 +300,10 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     setBoardPicks(next);
     writeBoardPicks(next);
   };
-  const board = onRoom && view === 'board' && renderBoard ? renderBoard(onBoardPicked) : null;
+  const setLater = (shown: boolean) => { setLaterRaw(shown); writeBoardLater(shown); };
+  const board = onRoom && view === 'board' && renderBoard ? renderBoard(onBoardPicked, { later }) : null;
   const viewButton: ReactNode = onRoom && renderBoard
-    ? <RoomViewButton view={view} onView={setView} people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} />
+    ? <RoomViewButton view={view} onView={setView} people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} later={later} onLater={setLater} />
     : null;
   if (noChats && live) {
     heading = { title: backTitle('Messages'), right: null };
