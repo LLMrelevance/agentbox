@@ -13,8 +13,11 @@ export type MoreItem =
 const MENU_W = 220;
 const EDGE = 8;
 
+// Under a button the menu hangs from its right edge; at the pointer, from the
+// pointer, the way a right click menu opens.
 function placeMenu(at: DOMRect, height: number): CSSProperties {
-  const left = Math.max(EDGE, Math.min(at.right - MENU_W, window.innerWidth - MENU_W - EDGE));
+  const from = at.width === 0 ? at.left : at.right - MENU_W;
+  const left = Math.max(EDGE, Math.min(from, window.innerWidth - MENU_W - EDGE));
   const below = at.bottom + 4;
   const top = below + height <= window.innerHeight - EDGE ? below : Math.max(EDGE, at.top - 4 - height);
   return { left: Math.round(left), top: Math.round(top), width: MENU_W };

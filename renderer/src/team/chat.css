@@ -24,7 +24,9 @@
 /* A message that carries on a run sits close under it, and its time waits in
    the face column until the pointer is on it. */
 .thread-block.is-chat-cont { margin-top: -12px; }
-.chat-gt { display: block; font: 10px/25px var(--mono); color: var(--text-faint); text-align: right; visibility: hidden; }
+/* Wider than the face column, so it grows leftward out of it rather than into the words. */
+.chat-gutter { position: relative; }
+.chat-gt { position: absolute; right: 0; top: 2px; white-space: nowrap; font: 10px/25px var(--mono); color: var(--text-faint); text-align: right; visibility: hidden; }
 .chat-msg:hover .chat-gt { visibility: visible; }
 
 /* WHAT YOU DID STANDS IN THE TEXT COLUMN, NOT THE FACE COLUMN (w-2b0cd0f741).
