@@ -102,9 +102,10 @@ describe('the row', () => {
   });
   // Status joined the four on 2026-10-20 (w-ec2b04d449), picked out of five
   // drawn options: "I actually quite like them all having separate status line
-  // options, which is option 4." Nothing else may join them.
+  // options, which is option 4." Nothing else may join them. The time column
+  // is headed Sent since w-21b638d821.
   it('keeps exactly the approved columns', () => {
-    expect(text(renderToStaticMarkup(React.createElement(TableHead)))).toBe('Thread Status Project Priority Updated');
+    expect(text(renderToStaticMarkup(React.createElement(TableHead)))).toBe('Thread Status Project Priority Sent');
   });
 });
 

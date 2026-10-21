@@ -15,7 +15,7 @@ import { notStarted, rowTitle } from '../list-rules';
 import { toApproveWords } from '../threads-made';
 import { DONE } from '../done-word';
 import {
-  boardColumns, columnTo, conversationSlugs, DEFAULT_COLUMN_ORDER, entryScore, filteredEmptyWords, finishedAt, isDirect, isFiltered, nextPrivacy, dropWithPins, projectChoices, slotUnder,
+  boardColumns, columnTo, conversationSlugs, DEFAULT_COLUMN_ORDER, entryScore, filteredEmptyWords, finishedAt, sentAt, isDirect, isFiltered, nextPrivacy, dropWithPins, projectChoices, slotUnder,
   backWords, timeHeading, updatedWords,
   type BoardEntry, type Display, type PageId, type Privacy, type UpdatedWindow,
 } from './page-rules';
@@ -340,7 +340,7 @@ export function DisplayMenu({ page, display, onDisplay, products, items = [], sh
     </span></div>
     <div className="line"><span className="lab">Sort by</span><span className="opts">
       <button type="button" className={display.sort === 'priority' ? 'on' : ''} onClick={() => set({ sort: 'priority' })}>Priority</button>
-      <button type="button" className={display.sort === 'updated' ? 'on' : ''} onClick={() => set({ sort: 'updated' })}>Updated</button>
+      <button type="button" className={display.sort === 'updated' ? 'on' : ''} onClick={() => set({ sort: 'updated' })}>Sent</button>
       {/* Done ignores this, on purpose (w-c61f5bf497), and says so where the
           choice is made rather than leaving the list to look broken. */}
       {tab === 'done' && <span className="th-pop-note">Done runs newest first</span>}
@@ -364,7 +364,7 @@ export function DisplayMenu({ page, display, onDisplay, products, items = [], sh
     {people && <div className="line"><span className="lab">Privacy</span><span className="opts">
       {privacies.map(([p, label]) => <button type="button" key={p} className={privacy === p ? 'on' : ''} onClick={() => set({ privacy: nextPrivacy(privacy, p) })}>{label}</button>)}
     </span></div>}
-    <div className="line"><span className="lab">Updated</span><span className="opts">
+    <div className="line"><span className="lab">Sent</span><span className="opts">
       {windows.map(([w, label]) => <button type="button" key={w} className={display.updated === w ? 'on' : ''} onClick={() => set({ updated: w })}>{label}</button>)}
     </span></div>
     <div className="rule" />
@@ -606,7 +606,7 @@ export function ThreadCells({ item, product, now, person, tab }: {
   /** On Done the time is when the thread was finished, which is its order. */
   tab?: string;
 }) {
-  const when = tab === 'done' ? finishedAt(item) : item.updatedAt;
+  const when = tab === 'done' ? finishedAt(item) : sentAt(item);
   // ON LATER THE TIME COLUMN IS WHEN IT COMES BACK (power-test-1, issue 18),
   // not how long ago it was touched, which is what a page of things coming
   // back has no use for. A thread added to Later and never started comes back

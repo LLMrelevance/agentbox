@@ -22,8 +22,8 @@ describe('the time column on Later', () => {
   });
 
   it('leaves the other tabs alone', () => {
-    expect(timeHeading('inbox')).toBe('Updated');
-    expect(timeHeading('progress')).toBe('Updated');
+    expect(timeHeading('inbox')).toBe('Sent');
+    expect(timeHeading('progress')).toBe('Sent');
     expect(timeHeading('done')).toBe('Done');
   });
 });
