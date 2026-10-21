@@ -22,27 +22,28 @@
 .rm-one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rm-pop { background: var(--pop); border: 1px solid var(--line-strong); box-shadow: var(--shadow-lg); }
 
-/* the sidebar */
-.workspace-navigation button.workspace-section.rm-sec { display: flex; align-items: center; gap: 6px; height: 49px; padding: 24px 10px 10px; font-size: 11px; color: var(--text-faint); cursor: default; }
-.workspace-navigation button.workspace-section.rm-sec:hover { background: none; color: var(--text-dim); }
-.workspace-section.rm-sec svg { width: 12px; height: 12px; color: var(--text-faint); }
-.rm-nav .workspace-tab .rm-c { margin-left: auto; font: 11px var(--mono); color: var(--text-faint); display: inline-flex; align-items: center; gap: 2px; }
-.rm-nav .workspace-tab .rm-icons { display: none; }
-.rm-nav .workspace-tab:hover .rm-icons, .rm-nav .workspace-tab.menu-open .rm-icons { display: inline-flex; }
-.rm-nav .workspace-tab:hover .rm-count, .rm-nav .workspace-tab.menu-open .rm-count { display: none; }
-.rm-nav .rm-icons > span { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; color: var(--text-dim); }
-.rm-nav .rm-icons > span:hover, .rm-nav .rm-icons > span.on { background: var(--wash-strong); color: var(--text); }
-.rm-nav .rm-icons > span.pinned { color: var(--text); }
-.rm-nav .workspace-tab.rm-add, .rm-nav .workspace-tab.rm-add svg { color: var(--text-faint); }
-.rm-nav .workspace-tab .rm-muted { color: var(--text-faint); }
-
-/* Messages sits under Threads, one gap below it. */
+/* Messages and Rooms sit under Threads, one gap below it. */
 .workspace-tabs.rm-msgnav { margin-top: 3px; }
 
-/* the tabs */
 .rm-sep { width: 1px; height: 14px; background: var(--line-strong); flex: none; align-self: center; }
-.tm-tab.rm-tab { display: inline-flex; align-items: center; gap: 6px; }
-.tm-tab.rm-tab svg { width: 13px; height: 13px; }
+
+/* the Rooms page, in the threads table's rows and type */
+.rm-rooms { flex: 1; min-height: 0; overflow-y: auto; }
+.th-grid.rm-rgrid { grid-template-columns: 200px 150px 170px minmax(0, 1fr) 96px; }
+.rm-rnm { display: flex; align-items: center; gap: 9px; }
+.rm-rnm svg { color: var(--text-faint); flex: none; }
+.rm-rnm.muted { color: var(--text-dim); }
+.rm-rpp { display: flex; align-items: center; gap: 10px; }
+.rm-rpp .fs { display: flex; }
+.rm-rpp .fs .rm-pic + .rm-pic { margin-left: -3px; outline: 2px solid var(--skin-solid, var(--surface)); }
+.rm-rpp .n { font: 11.5px var(--mono); color: var(--text-dim); }
+.th-cell-title.rm-rlast { color: var(--text-dim); }
+.rm-rdots { padding: 0 6px; }
+.rm-rdots svg { width: 15px; height: 15px; }
+.th-table .row.menu .rm-rdots { opacity: 1; pointer-events: auto; }
+.th-table .row.menu .th-when { visibility: hidden; }
+.rm-rfind { color: var(--text-faint); font-size: 14px; }
+.rm-rfind:hover { color: var(--text); }
 
 /* the page */
 .list-pane.rm-open { display: flex; flex-direction: column; overflow: hidden; }
@@ -153,7 +154,6 @@
 .rm-menu .head { padding: 8px 9px 6px; }
 .rm-menu.members .row { height: 36px; }
 .rm-menu.members { max-height: 420px; overflow-y: auto; }
-.rm-tip { position: fixed; z-index: 70; white-space: nowrap; font-size: 12px; line-height: 16px; color: var(--text); padding: 5px 8px; pointer-events: none; }
 
 /* hover card */
 .rm-hc { position: fixed; z-index: 50; width: 300px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 14px; }

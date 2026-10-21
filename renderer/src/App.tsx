@@ -5076,13 +5076,14 @@ export default function App() {
       // ONLY WHERE THOSE TABS ARE ON THE SCREEN WITH NOTHING OVER THEM: not
       // from inside a field, not with a card or a menu open, not on an opened
       // task (pinned next door in tab-does-nothing-on-an-open-task.test.mjs),
-      // not while a search is up, and not in board view, which draws no tabs.
+      // not while a search is up, and not in board view or on a rooms page,
+      // which draw no tabs.
       // Everywhere else Tab goes on walking browser focus as it has since
       // 2026-09-14, and a field-level editor still eats its own first.
       if (e.key === 'Tab') {
         const onTheTabs = !inInput && !modal && !focused && !focusedRepeat && !inFullScreen
           && !settingsOpen && !teamShown && !openCard && !roomsUi.dialogOpen
-          && search === null && (inboxDisplay.view === 'list' || roomShown);
+          && search === null && inboxDisplay.view === 'list' && !roomShown;
         if (!onTheTabs) return;
         // Built, not left alone: the browser's own focus walk would otherwise
         // paint a ring on whatever it landed on behind the rotation.
@@ -5090,13 +5091,7 @@ export default function App() {
         setHoveredId(null);
         (document.activeElement as HTMLElement | null)?.blur?.();
         setMultiSel(new Set());
-        // With Rooms on, the pinned rooms are tabs too, after Done.
-        if (roomsUi.live) {
-          const next = roomsUi.walk(stateTabOrder, roomShown ? `room:${roomsUi.openId}` : view, e.shiftKey);
-          if (next.startsWith('room:')) { roomsUi.open(next.slice(5)); return; }
-          roomsUi.leave();
-          setView(next as View);
-        } else setView(nextTab(stateTabOrder, view, e.shiftKey) as View);
+        setView(nextTab(stateTabOrder, view, e.shiftKey) as View);
         setSelected(0);
         return;
       }
@@ -6583,7 +6578,6 @@ export default function App() {
                     lit={needsYouLit(inbox, needsLookedAt)}
                     onView={(next) => { roomsUi.leave(); setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                     onSearch={openSearch}
-                    after={roomsUi.tabs} dim={roomShown}
                   />
                 )}
                 {roomShown ? roomsUi.page : <>
