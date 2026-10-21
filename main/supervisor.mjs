@@ -5688,11 +5688,13 @@ export class Supervisor {
     // "stopped" in red, and every row that had ever worked ended up there:
     // twelve at once, and she read the whole fleet as broken. Red has to mean
     // something went wrong or it means nothing at all.
+    // A row in `_preparing` has its mark written and its run on the way.
+    const settingUp = (id) => !!this._preparing?.has(id);
     let stalled = [];
     try {
       stalled = allThreads()
         .filter((i) => i.status === 'open' && i.answer && i.answer !== '(withdrawn)'
-          && !this.sessions.has(i.id)
+          && !this.sessions.has(i.id) && !settingUp(i.id)
           && !answerSettled(i)
           && this._answerDelivered(i))
         .map((i) => i.id);
@@ -5752,7 +5754,7 @@ export class Supervisor {
         // delivered are all inside those two, so a row the tick is going to
         // walk past is never advertised as waiting its turn.
         .filter((i) => (this._isContinuation(i) && !answerSettled(i) && !this._answerDelivered(i))
-          || this._isFreshWork(i, nowTs, autonomous))
+          || this._isFreshWork(i, nowTs, autonomous) || settingUp(i.id))
         .map((i) => i.id);
     } catch {}
     if (this.paused) queued = [];
