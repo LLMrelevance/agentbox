@@ -22,6 +22,7 @@ import { hasLapsed, statusEnds } from '../../shared/team-status.mjs';
 import QRCode from 'qrcode';
 import { createPhoneInbox } from '../phone-inbox.mjs';
 import { SNAPSHOT_LIMITS, phoneProjectsOf, phoneEligible } from '../../shared/phone-snapshot.mjs';
+import { createRooms } from './rooms.mjs';
 
 // `signingIn` is { url } while a Google sign-in waits on the browser, so the
 // page can offer that link again rather than a button that does nothing.
@@ -35,6 +36,8 @@ export function createTeamService({
   // projects she put on it (slugs), how a command from it is done, and where
   // this Mac remembers what it sent. Needs no team, only a sign-in.
   phone = null,
+  // ROOMS (alpha, docs/team/ROOMS-PLAN.md): { enabled, device, presenceFacts, prefsFile }.
+  rooms: roomsSetup = null,
 }) {
   // The phone site's address, only an https one, and its code for Settings.
   const site = typeof phone?.site === 'string' && /^https:\/\/[^\s/]+(\/[^\s]*)?$/.test(phone.site) ? phone.site : null;
@@ -51,6 +54,7 @@ export function createTeamService({
   const kept = () => (local ??= fileSyncState(stateFile, fs));
 
   const set = (patch) => { state = { ...state, ...patch }; onChange(); };
+  const rooms = roomsSetup ? createRooms({ backend: () => backend, me: () => state.me, team: () => state, now, log, onChange, ...roomsSetup }) : null;
   if (site) QRCode.toString(site, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }).then((qr) => { siteQr = qr; set({ phoneSiteQr: qr }); }).catch(() => {});
 
   function products() {
@@ -155,6 +159,7 @@ export function createTeamService({
         // On its own, so a team sync that failed does not hold up her phone,
         // nor her phone the team.
         await phoneOnce();
+        await rooms?.tick().catch((err) => log(`rooms: ${err.message}`));
         pending = null;
       }
     });
@@ -246,7 +251,8 @@ export function createTeamService({
   }
 
   return {
-    state: () => state,
+    state: () => (rooms ? { ...state, rooms: rooms.state() } : state),
+    rooms,
 
     // THREE TRIES AT START, because one dropped request left the app signed
     // out until it was restarted (measured 2026-10-01 on a loaded Mac: the
@@ -313,6 +319,8 @@ export function createTeamService({
 
     async signOut() {
       stopLoop();
+      // While still signed in, so this Mac can say it has gone.
+      await rooms?.stop().catch(() => {});
       await session.signOut?.();
       disk.setLineAuthor(null);
       delete process.env.AGENTBOX_PERSON_ID;

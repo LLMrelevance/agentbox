@@ -28,3 +28,26 @@ export const OPENS_A_TEXT_FIELD = new Set(['r', 'l', 'c', 'n', '/']);
 export function opensATextField(key: string): boolean {
   return OPENS_A_TEXT_FIELD.has(key.toLowerCase());
 }
+
+// THE KEYBOARD TAKES THE LIST BACK, and Escape is one of the keys that does it.
+//
+// A pointer left sitting on a row owns R, E and Enter for as long as it sits
+// there (`pointed` in App.tsx), which is right while the hand is on the mouse
+// and wrong the moment the hand goes back to the keys. J and K have cleared
+// the hover for that reason since they were written.
+//
+// Escape out of a thread was the hole. The pointer has not moved since before
+// the thread was opened, so it is still on whichever row was under it then,
+// and Enter straight after, the way anyone walks an inbox, opened THAT row
+// rather than the one lit at the top of the list. Twice in one tester's
+// evening (power-test-2, issue 46): "I didn't notice the selection had moved
+// until the thread opened."
+//
+// Same shape as the rule above and for the same reason: applied once, to the
+// key, above the branches, because there are several branches and fixing them
+// one at a time is how the next one gets missed.
+const TAKES_THE_LIST_BACK = new Set(['j', 'k', 'arrowdown', 'arrowup', 'escape', 'tab']);
+
+export function takesTheListBack(key: string): boolean {
+  return TAKES_THE_LIST_BACK.has(key.toLowerCase());
+}

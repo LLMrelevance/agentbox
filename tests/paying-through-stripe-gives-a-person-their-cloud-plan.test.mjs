@@ -273,6 +273,18 @@ describe('setting Stripe up (scripts/stripe-setup.mjs)', () => {
 });
 
 describe('the Stripe parts on their own', () => {
+  // Managed Payments makes Stripe the seller of record; each checkout has to
+  // ask for it, and one that does not is an ordinary sale (2026-10-21).
+  it('asks for Managed Payments on a checkout only when it is switched on', async () => {
+    for (const managedPayments of [true, false]) {
+      const s = fakeStripe();
+      const client = stripeClient({ key: 'sk_live_x', webhookSecret: SECRET, managedPayments, fetchImpl: s.fetchImpl });
+      await client.checkout({ person: A, plan: 'pro', successUrl: 'https://x/v1/paid', cancelUrl: 'https://x/v1/paid?cancelled=1' });
+      const form = s.calls.find((c) => c.path === '/v1/checkout/sessions').form;
+      expect(form['managed_payments[enabled]']).toBe(managedPayments ? 'true' : undefined);
+    }
+  });
+
   it('encodes nested fields the way Stripe reads them', () => {
     expect(formOf({ a: 1, b: { c: 'd' }, e: [{ f: 'g' }], skip: undefined }).toString()).toBe('a=1&b%5Bc%5D=d&e%5B0%5D%5Bf%5D=g');
   });

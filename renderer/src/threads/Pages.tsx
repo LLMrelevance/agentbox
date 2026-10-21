@@ -16,7 +16,7 @@ import { toApproveWords } from '../threads-made';
 import { DONE } from '../done-word';
 import {
   boardColumns, columnTo, conversationSlugs, DEFAULT_COLUMN_ORDER, entryScore, filteredEmptyWords, finishedAt, isDirect, isFiltered, nextPrivacy, dropWithPins, projectChoices, slotUnder,
-  timeHeading, updatedWords,
+  backWords, timeHeading, updatedWords,
   type BoardEntry, type Display, type PageId, type Privacy, type UpdatedWindow,
 } from './page-rules';
 import { messageLine, messagePriority, rowSharing, sharePatch } from './page-rules';
@@ -29,6 +29,7 @@ import { shownPriority } from '../../../shared/rank.mjs';
 import { api } from '../api';
 import { CLOUD_KEY, CLOUD_WHEN_ON, cloudButtonCount, cloudFootLine, cloudIsOn, cloudMonthLine, countedAccounts, type CloudMode, type CloudStatus } from '../cloud-menu';
 import { menuSetupLine, SETUP } from '../cloud-setup';
+import type { Offer, OfferGo } from '../cloud-upgrade';
 import './pages.css';
 
 // Before the frame is drawn in the app; a plain effect where there is no
@@ -99,6 +100,39 @@ export function RunningMark({ cloud = false }: { cloud?: boolean }) {
  *  (App.tsx provides it, off `waitingCounts` in ../threads-made). */
 export const WaitingContext = createContext<Map<string, number>>(new Map());
 
+/** The threads queued while this Mac runs all it can (App.tsx provides it). */
+export const FreeAgentContext = createContext<Set<string>>(new Set());
+
+/** The cloud's offer at the end of In progress, and what its button does (../cloud-upgrade.ts). */
+export const CloudOfferContext = createContext<{ offer: Offer; onGo: (go: OfferGo) => void } | null>(null);
+
+// THE OFFER, NEVER A POP-UP (2026-10-13, w-1dc7ee2408): the last row of the
+// list, and a card at the foot of the board's In progress column.
+export function CloudOfferRow() {
+  const at = useContext(CloudOfferContext);
+  if (!at) return null;
+  const { offer, onGo } = at;
+  return <div className="row th-offer-row">
+    <span className="mark" aria-hidden="true" />
+    <div className="row-main th-offer-main">
+      <span className="th-offer-ic"><CloudIcon /></span>
+      <span className="th-offer-say">{offer.say} <span className="th-offer-wait">{offer.waiting}</span></span>
+      {offer.go && <button type="button" className="th-offer-go" onClick={() => onGo(offer.go!)}><CloudIcon />{offer.go.label}</button>}
+    </div>
+  </div>;
+}
+
+function CloudOfferCard() {
+  const at = useContext(CloudOfferContext);
+  if (!at) return null;
+  const { offer, onGo } = at;
+  return <div className="th-card th-offer-card">
+    <div className="t">{offer.say.replace(/\.$/, '')}</div>
+    <div className="m"><CloudIcon /><span className="p">{offer.waiting.replace(/ (is|are) waiting\.$/, ' waiting').replace(/threads? /, '')}</span>
+      {offer.go && <button type="button" className="th-offer-card-go" onClick={() => onGo(offer.go!)}>{offer.go.act === 'pay' ? offer.go.label.replace(/ · .*/, '') : 'Start in the cloud'}<span aria-hidden="true">→</span></button>}</div>
+  </div>;
+}
+
 // THE APP'S OWN PRIORITY BARS. Urgent is a fourth bar, never an exclamation
 // mark in a box (w-bba20a03f5, Priority.tsx), whatever the drawing showed.
 export function PriorityMark({ id }: { id: PriorityId }) {
@@ -135,7 +169,9 @@ export function SearchButton({ onSearch }: { onSearch: () => void }) {
 }
 
 /** New thread, the cloud and the Display icon (and Search on the board), at the right of the Inbox header. */
-export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode, onCloudWhenOn, onCloudSetUp }: {
+export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode, onCloudWhenOn, onCloudSetUp, filters = true }: {
+  /** False over a room, where there is no list to view or filter. */
+  filters?: boolean;
   page: PageId; display: Display; onDisplay: (d: Display) => void; products: Product[]; items?: WorkItem[];
   /** Only where no tabs row draws it (the board). */
   onSearch?: () => void; onCompose: () => void; shown?: number; total?: number; tab?: string;
@@ -158,7 +194,7 @@ export function HeaderActions({ page, display, onDisplay, products, items, onSea
     {onSearch && <SearchButton onSearch={onSearch} />}
     <button type="button" className="th-new" data-hint="new-task" onClick={onCompose} title="New thread (N)"><PenIcon />New thread</button>
     {(cloud?.setUp || cloud?.offered) && <CloudButton cloud={cloud} onMode={onCloudMode} onWhenOn={onCloudWhenOn} onSetUp={onCloudSetUp} />}
-    <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
+    {filters && <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
       <button type="button" className={`th-disp${worn ? ' faces' : ''}${open ? ' open' : ''}`}
         aria-label={whose ? `View and filters, showing ${whose}` : 'View and filters'} title={whose ? `${whose} · View and filters` : 'View and filters'}
         onClick={() => setOpen((o) => !o)}>
@@ -169,7 +205,7 @@ export function HeaderActions({ page, display, onDisplay, products, items, onSea
         <SlidersIcon />{dot && <i />}
       </button>
       {open && <DisplayMenu page={page} display={display} onDisplay={onDisplay} products={products} items={items} shown={shown} total={total} tab={tab} people={people} />}
-    </span>
+    </span>}
   </div>;
 }
 
@@ -346,8 +382,10 @@ export const INBOX_TABS: { view: TabView; label: string }[] = [
 const COUNTED: TabView[] = ['inbox', 'progress', 'snoozed'];
 
 /** `needs` renames the first tab (Waiting, once a teammate is on the page). */
-export function StateTabs({ view, counts, onView, needs, onSearch, lit = false }: {
+export function StateTabs({ view, counts, onView, needs, onSearch, after, dim = false, lit = false }: {
   view: TabView; counts: Partial<Record<TabView, number>>; onView: (v: TabView) => void; needs?: string;
+  /** Room tabs after Done (team/rooms/RoomTabs.tsx); `dim` while one of them is open. */
+  after?: ReactNode; dim?: boolean;
   /** Draws Search at the row's right end (w-3c51d02de5). */
   onSearch?: () => void;
   /** Something landed in Needs You since it was last open (w-22da913d00). */
@@ -355,7 +393,8 @@ export function StateTabs({ view, counts, onView, needs, onSearch, lit = false }
 }) {
   return <div className="th-bar"><div className="tm-tabs">
     {/* Every tab wears the Tab plate (hint-plate.ts, 'state-tab'). */}
-    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view ? ' on' : ''}${t.view === 'inbox' && lit && view !== 'inbox' ? ' fresh' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
+    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view && !dim ? ' on' : ''}${t.view === 'inbox' && lit && view !== 'inbox' ? ' fresh' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
+    {after}
   </div>{onSearch && <SearchButton onSearch={onSearch} />}</div>;
 }
 
@@ -544,9 +583,17 @@ export function ThreadCells({ item, product, now, person, tab }: {
   tab?: string;
 }) {
   const when = tab === 'done' ? finishedAt(item) : item.updatedAt;
+  // ON LATER THE TIME COLUMN IS WHEN IT COMES BACK (power-test-1, issue 18),
+  // not how long ago it was touched, which is what a page of things coming
+  // back has no use for. A thread added to Later and never started comes back
+  // when you say so and not on a clock, and its cell is EMPTY rather than
+  // falling through to Updated, which under a heading saying Back would be a
+  // return time that is not one. The row says "not started" beside its name.
+  const back = tab === 'snoozed' ? backWords(item, now) : undefined;
   const liveIds = useContext(LiveContext);
   const cloudIds = useContext(CloudContext);
   const waiting = useContext(WaitingContext);
+  const freeWait = useContext(FreeAgentContext);
   const team = useContext(TeamContext);
   // WHO SEES IT, AT A GLANCE AND ONE CLICK FROM CHANGING (2026-10-01). One
   // mark after the title, always: the people on a thread the team or chosen
@@ -581,7 +628,7 @@ export function ThreadCells({ item, product, now, person, tab }: {
   const said = messageLine(item, product, team?.me ?? null, (id) => firstName(team?.byId.get(id) ?? null));
   if (said) {
     return <RowCells live={liveIds.has(item.id)} cloud={cloudIds.has(item.id)} title={<MessageTitle people={said.people} fromMe={said.fromMe} text={said.text} />} pinned={!!item.pinned && item.status !== 'done'} where="Message" person={person}
-      priority={messagePriority(item)} updatedAt={when} now={now} action={action} />;
+      priority={messagePriority(item)} updatedAt={when} when={back} now={now} action={action} />;
   }
   // ONLY THE UNUSUAL CASE WEARS A MARK (2026-10-02). Shared with the team is
   // the default, so it carries nothing; the lock is on a thread only you can
@@ -593,8 +640,8 @@ export function ThreadCells({ item, product, now, person, tab }: {
   // AND HOW MANY TASKS IT FILED STILL WAIT FOR A YES (w-d2744c6daa), in the
   // faint words a repeating task uses for its schedule: "a little bit of text
   // that gives you extra information if you need to know."
-  return <RowCells live={liveIds.has(item.id)} cloud={cloudIds.has(item.id)} title={rowTitle(item)} aside={toApproveWords(waiting.get(`${item.product}/${item.id}`))} shared={seen === 'people'} chosen={chosen} lock={lock} held={notStarted(item)} pinned={!!item.pinned && item.status !== 'done'} where={product?.name ?? ''} person={person}
-    priority={shownPriority(item)} updatedAt={when} now={now} action={action} />;
+  return <RowCells live={liveIds.has(item.id)} cloud={cloudIds.has(item.id)} title={rowTitle(item)} aside={toApproveWords(waiting.get(`${item.product}/${item.id}`)) || (freeWait.has(item.id) ? 'waiting for a free agent' : undefined)} shared={seen === 'people'} chosen={chosen} lock={lock} held={notStarted(item)} pinned={!!item.pinned && item.status !== 'done'} where={product?.name ?? ''} person={person}
+    priority={shownPriority(item)} updatedAt={when} when={back} now={now} action={action} />;
 }
 
 /* ------------------------------------------------------------ the board */
@@ -628,6 +675,7 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
 }) {
   const liveIds = useContext(LiveContext);
   const cloudIds = useContext(CloudContext);
+  const freeWait = useContext(FreeAgentContext);
   const team = useContext(TeamContext);
   const me = team?.me ?? null;
   const who = picked ?? (me ? [me] : []);
@@ -897,9 +945,11 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
             : <TitleThenMark title={e.title ?? ''} mark={marks} />}
           </div>
           <div className="m">{e.live && <RunningMark cloud={!!e.item && cloudIds.has(e.item.id)} />}{e.priority !== null && <PriorityMark id={priorityIdOf(e.priority)} />}<span className="p">{e.project}</span>
+            {e.item && freeWait.has(e.item.id) && <span className="th-card-wait">waiting</span>}
             {withOthers && <Face person={e.ownerId ? team?.byId.get(e.ownerId) ?? null : null} me={e.ownerId === me} />}</div>
         </button>;
         })}
+        {col.state === 'running' && <CloudOfferCard />}
       </div>;
     })}
   </div></div>;
