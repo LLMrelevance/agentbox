@@ -36,6 +36,8 @@ import { NeoSettings } from '../neo/NeoSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
 import { accountLabel, countedAccounts, type CloudStatus } from '../cloud-menu';
+import { planCards, usageLine, usedPercent, type PaidPlan } from '../cloud-upgrade';
+import type { CloudPlan } from '../types';
 import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
 import { limitRows } from '../../../shared/usage.mjs';
 import { LOOKS, lookMeans, SKINS, TUNE_DEFAULT, TUNE_LIMITS, type Look, type SkinId, type SkinTune } from '../skins';
@@ -814,6 +816,81 @@ function PhonePage({ onFeedback, macShut }: { onFeedback?: () => void; macShut?:
   );
 }
 
+/* ------------------------------- Agentbox Cloud ------------------------------- */
+// THE PLANS, AS CARDS (the founder's design of 2026-10-13, w-1dc7ee2408,
+// cloud-slots/20): sold as agent slots, the plan you are on outlined with how
+// much of it is in use, how the cloud counts under them, and billing on
+// Stripe's own page. Choosing opens Stripe in the browser; the page reads the
+// plan again until it changes (../cloud-upgrade.ts).
+function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: () => void }) {
+  const [plan, setPlan] = useState<CloudPlan | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  const [waitingFor, setWaitingFor] = useState<string | null>(null);
+  const read = async () => { const p = await api.cloudAccountPlan(); setPlan(p); return p; };
+  useEffect(() => { void read(); }, [signedIn]);
+  // Back from Stripe's page: the plan changes once its webhook lands.
+  useEffect(() => {
+    if (!waitingFor) return;
+    const was = waitingFor;
+    let n = 0;
+    const t = setInterval(async () => {
+      n += 1;
+      const p = await read();
+      if (p.plan !== was || n > 60) { setWaitingFor(null); clearInterval(t); }
+    }, 5000);
+    return () => clearInterval(t);
+  }, [waitingFor]);
+  const choose = async (id: PaidPlan) => {
+    if (!signedIn) { onSignIn(); return; }
+    setSaid(null);
+    const out = await api.cloudAccountPay(id);
+    if (!out.ok) { setSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
+    setWaitingFor(plan?.plan ?? 'none');
+  };
+  const billing = async () => {
+    const out = await api.cloudAccountBilling();
+    if (!out.ok) setSaid(out.message || 'Stripe could not be opened. Try again.');
+  };
+  const cards = planCards(plan);
+  const paying = !!plan?.plan && plan.plan !== 'none';
+  return (
+    <Page title="Cloud" lede="Every thread needs a slot to run in. Your computer has a few. The cloud adds more.">
+      <div className="set-group cloud-plans" data-find="cloud-plans">
+        {cards.map((c) => (
+          <div key={c.id} className={`cloud-plan${c.current ? ' mine' : ''}`}>
+            <div className="cloud-plan-head"><span>{c.name}</span>{c.current && <span className="cloud-plan-mine">Your plan</span>}</div>
+            <div className="cloud-plan-price">{c.price}<span> a month</span></div>
+            <div className="cloud-plan-slots">{c.slots}</div>
+            <div className="cloud-plan-where">running in the cloud</div>
+            {c.current && plan ? (
+              <div className="cloud-plan-use">
+                <span>{usageLine(plan)}</span>
+                <span className="cloud-plan-bar"><i style={{ width: `${usedPercent(plan)}%` }} /></span>
+              </div>
+            ) : c.button && <button type="button" className="set-ghost cloud-plan-go" onClick={() => void choose(c.id)}>{c.button}</button>}
+          </div>
+        ))}
+      </div>
+      {said && <p className="cloud-plans-say">{said}</p>}
+      {waitingFor && <p className="cloud-plans-say">Finish on Stripe's page in your browser. This page changes when it's done.</p>}
+      <Group id="cloud-counts" label="How the cloud counts" bare>
+        <ul className="cloud-counts">
+          <li>Each slot runs one agent in the cloud, on top of the ones your computer runs.</li>
+          <li>Time counts only while an agent is working. Waiting for your reply is free.</li>
+          <li>Pro has 400 hours a month, Plus 1,200 and Max 3,000. Past them, threads wait for your computer until the month turns.</li>
+        </ul>
+      </Group>
+      {paying && (
+        <Group id="cloud-billing" label="Billing">
+          <Row label="Payment and invoices" desc="Handled by Stripe. Cancel any time.">
+            <button type="button" className="set-ghost" onClick={() => void billing()}>Open</button>
+          </Row>
+        </Group>
+      )}
+    </Page>
+  );
+}
+
 const Page = ({ title, lede, children }: { title: string; lede?: string; children: ReactNode }) => (
   <div className="set-inner">
     <h1 className="set-title">{title}</h1>
@@ -1391,6 +1468,7 @@ function NavIcon({ id }: { id: SettingsPageId }) {
     claude: <><rect x="3.5" y="5" width="17" height="14" rx="2" /><path d="m7.5 10 2.5 2-2.5 2M12.5 14.5h4" /></>,
     codex: <><path d="m9 8-4 4 4 4M15 8l4 4-4 4" /></>,
     running: <><circle cx="12" cy="12" r="8" /><path d="M10.5 9.2v5.6l4.5-2.8z" /></>,
+    cloud: <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />,
     instructions: <path d="M6.5 3.5h7.5l4 4V20.5h-11.5zM14 3.5V8h4M9.5 12h5M9.5 16h5" />,
     projects: <path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />,
     team: <><circle cx="9" cy="9" r="3" /><path d="M3.5 19c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5" /><circle cx="16.5" cy="9.5" r="2.5" /><path d="M16 14.6c2.3-.2 4 1.2 4.5 4" /></>,
@@ -1422,12 +1500,14 @@ function paneFrom(want: string, has: { team: boolean; neo?: boolean }): Pane {
 
 /* --------------------------------- screen --------------------------------- */
 
-export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, neoOn = false, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null }: {
+export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, neoOn = false, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null, cloudPlans = null }: {
   /** Opens the feedback card. A phone has no Feedback button in its corner,
    *  so its own Settings page offers it (2026-10-12). */
   onFeedback?: () => void;
   /** The cloud, when this Mac is set up for it: its own logins are listed on the agent's page. */
   cloud?: CloudStatus | null;
+  /** Agentbox Cloud's plans, where this copy offers it: the Cloud page. */
+  cloudPlans?: { signedIn: boolean; onSignIn: () => void } | null;
   // ONE control for the three of them. Light, dark and each picture are one
   // list, because a picture IS dark (skins.ts) and asking her to set a theme
   // and then a background is two decisions for one choice.
@@ -1601,7 +1681,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
 
   /** The pages this Mac has. Codex on every Mac (w-d5d632e503); Team only on
    *  a build with a team cloud; Neo only where the voice alpha is on. */
-  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'neo' || neoOn));
+  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'neo' || neoOn) && (p.id !== 'cloud' || !!cloudPlans));
   const hits = useMemo(
     () => searchSettings(query, { pages: pages.map((p) => p.id), projects }),
     [query, pages.length, projects],
@@ -1901,6 +1981,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             asks main for everything on it, so nothing here comes from the
             settings file either. */}
         {pane === 'neo' && neoOn && <NeoSettings />}
+        {pane === 'cloud' && cloudPlans && <CloudPlansPage signedIn={cloudPlans.signedIn} onSignIn={cloudPlans.onSignIn} />}
 
         {pane === 'team' && teamPane && (
           <Page title="Team" lede="Who is on your team, who has been invited, and the team's name. Everyone sees a short summary of your threads unless you mark one private.">

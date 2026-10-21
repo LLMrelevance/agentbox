@@ -67,6 +67,52 @@ export function clearDraft(item: ItemRef, store?: DraftStore): void {
   const s = backing(store);
   s.removeItem(draftKey(item));
   s.removeItem(draftImagesKey(item));
+  s.removeItem(draftPickKey(item));
+}
+
+/* ------------------------------- the pick -------------------------------- */
+
+// THE MODEL AND THE LEVEL ARE PART OF THE UNSENT MESSAGE TOO, and they were
+// the third thing the box lost by closing, after the words and the images.
+// Same fix as those: they live beside the words rather than in the composer's
+// own state, which dies with the box, and under their own key, so nothing she
+// can type into the box can be read as a pick.
+//
+// ABSENT MEANS UNTOUCHED, which is not a pick of nothing: the box then opens on
+// the thread's own model and the send writes nothing at all.
+
+/** A model and a level as the reply box holds them. `null` is the engine's own. */
+export interface DraftPick {
+  model: string | null;
+  effort: string | null;
+}
+
+export function draftPickKey(item: ItemRef): string {
+  return `zero.draftpick.${item.product}:${item.id}`;
+}
+
+/** Her pick, or null when she has not opened the drawer on this thread. */
+export function readDraftPick(item: ItemRef, store?: DraftStore): DraftPick | null {
+  let raw: string | null = null;
+  try { raw = backing(store).getItem(draftPickKey(item)); } catch { return null; }
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const word = (v: unknown) => (typeof v === 'string' && v ? v : null);
+    return { model: word(parsed.model), effort: word(parsed.effort) };
+  } catch {
+    return null;
+  }
+}
+
+/** Keep her pick, or take it off the box with null. */
+export function saveDraftPick(item: ItemRef, pick: DraftPick | null, store?: DraftStore): void {
+  const s = backing(store);
+  try {
+    if (!pick) s.removeItem(draftPickKey(item));
+    else s.setItem(draftPickKey(item), JSON.stringify({ model: pick.model ?? null, effort: pick.effort ?? null }));
+  } catch { /* a refused store is not a reason to lose the send */ }
 }
 
 /* ------------------------------ the images ------------------------------- */
@@ -364,15 +410,23 @@ export function clearComposeDraft(store?: DraftStore): void {
 }
 
 /**
- * The card's words, taken off it as Send is pressed (w-461fbd8d2d). The card
- * closes before the computer answers now, so clearing the draft when the
- * answer came would empty whatever card was opened in between. The send
- * carries what it took, for Z, and puts it back if it does not stand.
+ * The card's words go when the send LANDS, not when Send is pressed.
+ *
+ * They used to be taken at the press (w-461fbd8d2d), because the card closes
+ * before the computer answers. That leaves the only copy inside a call that
+ * has not returned, which is nowhere at all for as long as the app takes to
+ * answer, and the app can stop answering.
+ *
+ * So the copy outlives the press, and this drops it once something has come
+ * back, unless the box holds something else by then. Same rule as
+ * `restoreComposeDraft` below: a card opened and typed into in the meantime is
+ * never emptied by an older send landing.
  */
-export function takeComposeDraft(store?: DraftStore): ComposeDraft {
-  const taken = readComposeDraft(store);
+export function dropComposeDraft(sent: ComposeDraft, store?: DraftStore): void {
+  const now = readComposeDraft(store);
+  if (now.text !== sent.text) return;
+  if (now.attachments.length !== sent.attachments.length) return;
   clearComposeDraft(store);
-  return taken;
 }
 
 /**

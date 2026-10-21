@@ -95,7 +95,7 @@ import { writeChangeForRun, changePath } from './code-change.mjs';
 import { snapshotRepo, changeFromRepo } from './git-change.mjs';
 import { importedAgentBrief, importedAgentName, THREAD_LABEL } from '../shared/agent-import.mjs';
 import { readTranscriptHead } from './agent-sessions.mjs';
-import { readPlan } from './claude-plan.mjs';
+import { planStamp, readPlan } from './claude-plan.mjs';
 import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
 import { readDeadRunTrace, traceShowsASilentDeath, tracesAToolCall } from '../shared/dead-run-trace.mjs';
 import { commandPrompt } from '../shared/claude-commands.mjs';
@@ -764,6 +764,24 @@ export class Supervisor {
       if (notHersToMend && this._anotherAccountCanRun(account, benched)) continue;
       this._profileCooldown[account] = 0;
     }
+  }
+
+  /**
+   * CHOOSING AN ACCOUNT IS A PERSON'S HAND ON IT, like Resume. The account
+   * picked is often the one just upgraded, and its old limit would otherwise
+   * hold every thread until the reset it printed. Its bench goes, and a limit
+   * mark with it, so a chat on the login left behind can move here. Still
+   * capped, its first run dies in seconds and benches it to its reset again.
+   */
+  accountChosen(engine, profile) {
+    if (!profile) return false;
+    const key = this._accountKey(engine, profile);
+    if (this._profileTrouble?.[key]?.cause === 'at-limit') this._clearProfileTrouble(key);
+    else if (this._profileCooldown) this._profileCooldown[key] = 0;
+    if (engineOf(engine) === DEFAULT_ENGINE) this._spawnCooldownUntil = 0;
+    this._saveState();
+    this.wake();
+    return true;
   }
 
   /**
@@ -3893,6 +3911,9 @@ export class Supervisor {
     if (cause === 'at-limit') {
       const resetsAt = limitResetMoment(raw);
       if (resetsAt) this._profileTrouble[profile].resetsAt = resetsAt;
+      // And which plan it was hit on, for `_forgetLimitsOfAnOldPlan`.
+      const stamp = plan ? planStamp(profile, { home: this.config.home || os.homedir() }) : null;
+      if (stamp) this._profileTrouble[profile].plan = stamp;
     }
     return cause;
   }
@@ -3922,6 +3943,34 @@ export class Supervisor {
       forgot = true;
     }
     if (forgot) this._saveState();
+    return forgot;
+  }
+
+  /**
+   * A LIMIT BELONGS TO THE PLAN IT WAS HIT ON. An upgrade, extra usage, or the
+   * folder signed in as another account gives the login room before the reset
+   * it printed, and the only sign of it here is the plan Claude Code writes
+   * into the login's file. When that moves, the limit goes and the next run is
+   * the proof: still capped, it dies in seconds and files the limit again
+   * against the new plan, so one change buys one try.
+   */
+  _forgetLimitsOfAnOldPlan() {
+    const home = this.config.home || os.homedir();
+    let forgot = false;
+    let noted = false;
+    for (const profile of this._profiles()) {
+      const key = this._accountKey(DEFAULT_ENGINE, profile);
+      const trouble = this._profileTrouble?.[key];
+      if (trouble?.cause !== 'at-limit') continue;
+      const stamp = planStamp(profile, { home });
+      if (!stamp || stamp === trouble.plan) continue;
+      // A limit filed before plans were kept takes today's as its own.
+      if (!trouble.plan) { trouble.plan = stamp; noted = true; continue; }
+      this._clearProfileTrouble(key);
+      forgot = true;
+    }
+    if (forgot) this._spawnCooldownUntil = 0;
+    if (forgot || noted) this._saveState();
     return forgot;
   }
 
@@ -5677,14 +5726,14 @@ export class Supervisor {
         // lapses, and `queued` must never advertise a row the tick is going to
         // walk past (claimHeldElsewhere).
         .filter((i) => !this.claimHeldElsewhere(i))
-        .filter((i) => (i.answer && i.answer !== '(withdrawn)'
-            && !answerSettled(i) && !this._answerDelivered(i))
-          || (!i.answer && i.kind !== 'question' && i.kind !== 'review'
-            && ((i.labels ?? []).includes('founder') || autonomous.has(i.product))
-            // Resting, so NOT queued: the tick will not spawn it, and a row
-            // that reads as waiting its turn while nothing is going to touch it
-            // for hours is the confusion this list exists to prevent.
-            && this.restingUntil(i) <= nowTs))
+        // THE TICK'S OWN TWO TESTS, NOT A SECOND COPY OF THEM. The copy that
+        // was here said yes to a row already holding an agent's result nobody
+        // had replied to, which `_isFreshWork` has always said no to: search
+        // tagged a finished thread QUEUED. Resting, settled and already
+        // delivered are all inside those two, so a row the tick is going to
+        // walk past is never advertised as waiting its turn.
+        .filter((i) => (this._isContinuation(i) && !answerSettled(i) && !this._answerDelivered(i))
+          || this._isFreshWork(i, nowTs, autonomous))
         .map((i) => i.id);
     } catch {}
     if (this.paused) queued = [];
@@ -6024,6 +6073,89 @@ export class Supervisor {
     }
   }
 
+  /*
+   * THE TWO QUESTIONS THE TICK ASKS OF A ROW, IN ONE PLACE.
+   *
+   * They are methods rather than closures inside `_tick` because `status()`
+   * asks them too, to say which rows are queued. It used to ask its own copy,
+   * and the copies drifted: a row already holding an agent's result nobody
+   * had replied to was never fresh work, and the queued list did not know, so
+   * search tagged a finished thread QUEUED under a preview reading "Done:"
+   * (w-712fc99e8d).
+   */
+
+  /**
+   * A continuation is anything open carrying a founder answer with nobody
+   * acting on it. For a question that answer is the decision; for a review it
+   * is the verdict to ENACT (merge, ship, revise); for an agent-filed proposal
+   * it is the approval ("run it") that turns the proposal into work.
+   */
+  _isContinuation(item) {
+    if (!item.answer) return false;
+    // A withdrawn reply (Z after send in the inbox) is a cancel, not an
+    // answer; spawning on it would brief a worker with "(withdrawn)".
+    if (item.answer === '(withdrawn)') return false;
+    // A BLOCKED ROW IS STILL A ROW SHE CAN ANSWER. This used to read "blocked
+    // AND personal", because parking as blocked was how a personal thread
+    // waited for her. Personal projects are gone (w-d19d6d387c) and the rule
+    // behind the clause outlives them: blocked means a session stopped until
+    // something outside it changed, and her reply IS that change.
+    if (item.status !== 'open' && item.status !== 'blocked') return false;
+    // BUT NOT A ROW SHE STOPPED, on the reply she sent before stopping it.
+    // The kill hands that reply back to the queue, and this used to start a
+    // fresh run on it ten seconds after her stop, on a row sitting in her
+    // inbox. Her stop is the newest thing she said; a later reply wakes it.
+    if (stoppedByHer(item)) return false;
+    return true;
+  }
+
+  /**
+   * Fresh work: HUMAN-IN-THE-LOOP BY DEFAULT. Only founder-initiated items
+   * (the 'founder' label, stamped by compose) auto-spawn; everything an agent
+   * filed is a proposal that waits in the inbox until the founder's answer
+   * arrives (which makes it a continuation above). Autonomy is earned by
+   * category later, not assumed now. `autonomousProducts` is that later,
+   * granted per product in the config: there, agent-filed TASKS run without
+   * waiting, while questions and reviews still hold for the founder. THE
+   * WALK'S OWN ROW IS NEVER FRESH WORK. It looks like a real task because it
+   * IS one, down to the ledger, and it is answered by the app itself out of
+   * the folder she just chose. A worker picking it up would be a second
+   * answer to a question already answered, arriving a minute later over the
+   * top of it. A REPLY of hers still spawns, because by then the walk is over
+   * and the row is an ordinary task in her inbox: this is on fresh work alone
+   * and deliberately not on `_isContinuation`.
+   */
+  _isFreshWork(item, now = Date.now(), autonomous = new Set(this.config.autonomousProducts ?? [])) {
+    return !(item.labels ?? []).includes(FIRST_RUN_LABEL)
+      && item.status === 'open' && item.kind !== 'question' && item.kind !== 'review'
+      && ((item.labels ?? []).includes('founder') || autonomous.has(item.product)) && !item.answer
+      // A ROW THAT ALREADY HOLDS AN ANSWER FOR HER IS NOT FRESH WORK. This is
+      // the same rule as the paragraph above, read from the other end: a
+      // proposal waits for her, and a finished answer sitting on an open row
+      // IS a proposal, whoever labelled the row.
+      //
+      // Without this the row is fresh again the moment the rest expires, and
+      // the next worker arrives at a question that is already answered, has
+      // nothing new to do, and writes the answer a second time.
+      //
+      // Measured: hundreds of results were written with no reply since the
+      // previous one, many opening on a character-identical bold line, and
+      // several rows were carrying three answers to one unanswered ask: three
+      // sessions, three near-identical results, no reply between any of them.
+      //
+      // She loses nothing by the wait. `rowSummary` already shows a result
+      // newer than the body on an OPEN row, so the answer is in her inbox
+      // being read; the only thing that stops is writing it again. Any word
+      // from her moves `lastFounderWrite` past it and the row is fresh again.
+      // EXCEPT when the words are OURS, about an account that refused the run
+      // (`_onlyWeSpokeForAnAccount`): those are not an answer to her.
+      && (!awaitingHer(item) || this._onlyWeSpokeForAnAccount(item))
+      // A row a worker already took and gave nothing back rests before it is
+      // handed to another one. This pass had no memory whatsoever, which is
+      // the whole of the every-tick loop (FRUITLESS_RESTS_MS).
+      && this.restingUntil(item) <= now;
+  }
+
   async _tick() {
     if (this.paused) return;
     this._refreshMemoryReading();
@@ -6032,6 +6164,7 @@ export class Supervisor {
     // brake below, which would otherwise hold the fleet past the sign-in.
     try { this._noticeSignIns(); } catch (e) { console.warn('zero: could not look for a sign-in:', e.message); }
     try { this._forgetResetLimits(); } catch (e) { console.warn('zero: could not let a reset limit go:', e.message); }
+    try { this._forgetLimitsOfAnOldPlan(); } catch (e) { console.warn('zero: could not read a login for a new plan:', e.message); }
     try { this._forgetRenewedSubscriptions(); } catch (e) { console.warn('zero: could not let a renewed subscription back in:', e.message); }
     // _cloudReady reads the cloud's setup (at most once a minute) first.
     try { this._cloudReady('codex'); this._renewCloudLogins(); void this._noteCloudOrgs(); } catch (e) { console.warn('zero: could not check the cloud sign-ins:', e.message); }
@@ -6129,72 +6262,6 @@ export class Supervisor {
     // priority wins outright.
     const autonomous = new Set(this.config.autonomousProducts ?? []);
 
-    // A continuation is anything open carrying a founder answer with nobody
-    // acting on it. For a question that answer is the decision; for a review
-    // it is the verdict to ENACT (merge, ship, revise); for an agent-filed
-    // proposal it is the approval ("run it") that turns the proposal into work.
-    const isContinuation = (i) => {
-      if (!i.answer) return false;
-      // A withdrawn reply (Z after send in the inbox) is a cancel, not an
-      // answer; spawning on it would brief a worker with "(withdrawn)".
-      if (i.answer === '(withdrawn)') return false;
-      // A BLOCKED ROW IS STILL A ROW SHE CAN ANSWER. This used to read "blocked
-      // AND personal", because parking as blocked was how a personal thread
-      // waited for her. Personal projects are gone (w-d19d6d387c) and the rule
-      // behind the clause outlives them: blocked means a session stopped until
-      // something outside it changed, and her reply IS that change.
-      if (i.status !== 'open' && i.status !== 'blocked') return false;
-      // BUT NOT A ROW SHE STOPPED, on the reply she sent before stopping it.
-      // The kill hands that reply back to the queue, and this used to start a
-      // fresh run on it ten seconds after her stop, on a row sitting in her
-      // inbox. Her stop is the newest thing she said; a later reply wakes it.
-      if (stoppedByHer(i)) return false;
-      return true;
-    };
-
-    // Fresh work: HUMAN-IN-THE-LOOP BY DEFAULT. Only founder-initiated items
-    // (the 'founder' label, stamped by compose) auto-spawn; everything an agent
-    // filed is a proposal that waits in the inbox until the founder's answer
-    // arrives (which makes it a continuation above). Autonomy is earned by
-    // category later, not assumed now. `autonomousProducts` is that later,
-    // granted per product in the config: there, agent-filed TASKS run without
-    // waiting, while questions and reviews still hold for the founder. THE
-    // WALK'S OWN ROW IS NEVER FRESH WORK. It looks like a real task because it
-    // IS one, down to the ledger, and it is answered by the app itself out of
-    // the folder she just chose. A worker picking it up would be a second
-    // answer to a question already answered, arriving a minute later over the
-    // top of it. A REPLY of hers still spawns, because by then the walk is over
-    // and the row is an ordinary task in her inbox: this is on `isFresh` alone
-    // and deliberately not on `isContinuation`.
-    const isFresh = (i) => !(i.labels ?? []).includes(FIRST_RUN_LABEL)
-      && i.status === 'open' && i.kind !== 'question' && i.kind !== 'review'
-      && ((i.labels ?? []).includes('founder') || autonomous.has(i.product)) && !i.answer
-      // A ROW THAT ALREADY HOLDS AN ANSWER FOR HER IS NOT FRESH WORK. This is
-      // the same rule as the paragraph above, read from the other end: a
-      // proposal waits for her, and a finished answer sitting on an open row
-      // IS a proposal, whoever labelled the row.
-      //
-      // Without this the row is fresh again the moment the rest expires, and
-      // the next worker arrives at a question that is already answered, has
-      // nothing new to do, and writes the answer a second time.
-      //
-      // Measured: hundreds of results were written with no reply since the
-      // previous one, many opening on a character-identical bold line, and
-      // several rows were carrying three answers to one unanswered ask: three
-      // sessions, three near-identical results, no reply between any of them.
-      //
-      // She loses nothing by the wait. `rowSummary` already shows a result
-      // newer than the body on an OPEN row, so the answer is in her inbox
-      // being read; the only thing that stops is writing it again. Any word
-      // from her moves `lastFounderWrite` past it and the row is fresh again.
-      // EXCEPT when the words are OURS, about an account that refused the run
-      // (`_onlyWeSpokeForAnAccount`): those are not an answer to her.
-      && (!awaitingHer(i) || this._onlyWeSpokeForAnAccount(i))
-      // A row a worker already took and gave nothing back rests before it is
-      // handed to another one. This pass had no memory whatsoever, which is
-      // the whole of the every-tick loop (FRUITLESS_RESTS_MS).
-      && this.restingUntil(i) <= now;
-
     // NOTHING EVER RUNS IN THE PRACTICE PROJECT. The walk's own rows are
     // already safe by their label, but a REPLY to one is a continuation, and a
     // continuation spawns a real Claude Code session — in a project with no
@@ -6231,8 +6298,8 @@ export class Supervisor {
       // something on Friday and having it run Monday at 6am is the point, not
       // a special case.
       if (!this.store.isDue(item, now)) continue;
-      const continuation = isContinuation(item);
-      if (!continuation && !isFresh(item)) continue;
+      const continuation = this._isContinuation(item);
+      if (!continuation && !this._isFreshWork(item, now, autonomous)) continue;
       // ONE OF CLAUDE CODE'S OWN EIGHT COMMANDS, typed into this row's reply
       // box, ON A ROW THAT IS GOING TO CLAUDE CODE. `commandPrompt` is null for
       // everything else, so this is false for every ordinary message.

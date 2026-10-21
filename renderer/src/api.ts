@@ -426,6 +426,19 @@ export const api = {
           if (kept) kept.onMac = true;
         }
       }
+      // &cloud=managed draws Agentbox Cloud signed in through its server, and
+      // &noroom=hours|agents the server saying it had no room a moment ago.
+      if (cloud === 'managed') {
+        base.cloud = { setUp: true, managed: true, mode: 'full', whenOn: 'full', running: 0, month: { runs: 4, agentHours: 1.6, estimatedCost: 0, costPerAgentHour: 0 }, accounts: [{ engine: 'claude', key: 'a1', name: 'me@example.com', ready: true, state: 'ready' }], signIns: [] } as typeof base.cloud;
+      }
+      const room = params.get('noroom');
+      if (base.cloud && (room === 'hours' || room === 'agents')) base.cloud.noRoom = { error: room, message: null };
+      // &macfull draws this Mac running all it can, two threads queued behind it.
+      if (params.has('macfull')) {
+        const queued = base.items.filter((i) => /^(Can the welcome email|Bring back a list)/.test(i.title)).map((i) => i.id);
+        base.supervisor.queued = queued;
+        base.supervisor.capacity = base.supervisor.running.filter((r) => (r as { where?: string }).where !== 'cloud').length;
+      }
       return fixtureSecondEngine(base, engineFixtures);
     }
     return window.zero!.snapshot();
@@ -1259,7 +1272,10 @@ export const api = {
   async cloudAccountReopen(): Promise<void> { await (window.zero as any)?.cloudAccountReopen?.(); },
   async cloudAccountSignOut(): Promise<void> { await (window.zero as any)?.cloudAccountSignOut?.(); },
   async cloudAccountPlan(): Promise<CloudPlan> {
-    if (useFixtures) return { signedIn: true, plan: 'none', unlimited: false, agents: 0, hoursPerMonth: 0, running: 0, usedSeconds: 0 };
+    // &cloudplan=pro draws someone on Pro, 6 running and 88 of 400 hours used.
+    if (useFixtures) return params.get('cloudplan') === 'pro'
+      ? { signedIn: true, plan: 'pro', unlimited: false, agents: 10, hoursPerMonth: 400, running: 6, usedSeconds: 88 * 3600 }
+      : { signedIn: true, plan: 'none', unlimited: false, agents: 0, hoursPerMonth: 0, running: 0, usedSeconds: 0 };
     return (await (window.zero as any)?.cloudAccountPlan?.()) ?? { signedIn: false };
   },
   async cloudAccountPay(plan: 'pro' | 'plus' | 'max'): Promise<{ ok: boolean; where?: 'checkout' | 'billing'; error?: string; message?: string }> {

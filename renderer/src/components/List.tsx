@@ -20,7 +20,7 @@ import { splitHits } from '../search';
 import type { ThreadSearchDetails } from '../threads/search';
 import { clockLabel, isCleanRun, nextRunAt } from '../../../shared/repeats.mjs';
 import { Face, TeamRowEnd, type TeamView } from '../team/people';
-import { RepeatMark, RowCells, TableHead, ThreadCells, WaitingContext } from '../threads/Pages';
+import { CloudOfferRow, RepeatMark, RowCells, TableHead, ThreadCells, WaitingContext } from '../threads/Pages';
 import { toApproveWords } from '../threads-made';
 import type { MixedRow } from '../threads/people-rules';
 import { useRowDrag } from '../threads/row-drag';
@@ -787,6 +787,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
           })}
         </div>
       ))}
+      {table && view === 'progress' && !ranked && <CloudOfferRow />}
       {onEnd && <ListFoot onEnd={onEnd} />}
     </div>
   );

@@ -63,9 +63,15 @@ describe('"On", the model and the full stop stay one clause', () => {
       const open = src.lastIndexOf('<span className="', at);
       const cls = src.slice(open).match(/^<span className="([^"]*)"/)[1];
       expect(cls.split(/\s+/).some((c) => c === 'clause-model' || c === 'dock-model')).toBe(true);
+      // WHATEVER ENDS THE SENTENCE ENDS IT INSIDE THIS SPAN. The reply box's
+      // clause now carries the level when the thread is set to one ("On Opus
+      // 5.5, High."), so the stop is no longer the only thing written after
+      // the picker; what must not change is that all of it is hidden with
+      // "On" rather than leaving "On ." behind.
       const tail = src.slice(src.indexOf('/>', src.indexOf('<ModelPicker', at)) + 2).trimStart();
-      expect(tail.startsWith("{'.'}")).toBe(true);
-      expect(tail.slice(5).trimStart().startsWith('</span>')).toBe(true);
+      const ends = tail.slice(0, tail.indexOf('</span>'));
+      expect(ends, 'the full stop is written beside the model word').toMatch(/'\.'/);
+      expect(ends, 'and nothing else opens between the two').not.toMatch(/<[a-zA-Z]/);
     });
   }
 });
