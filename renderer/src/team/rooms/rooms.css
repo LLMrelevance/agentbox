@@ -327,7 +327,8 @@
 
 /* a mention in Needs you */
 .rm-mention { cursor: default; }
-.rm-mention .th-msg .rm-pic { display: inline-block; vertical-align: -4px; margin-right: 8px; }
+/* The threads below sit in their own group box, where `.row + .row` cannot see the mention above them. */
+.th-table .rm-mention + div > .row:first-child::after { content: ''; position: absolute; left: var(--gutter); right: var(--row-r); top: 0; height: 1px; background: var(--line); opacity: var(--row-line); }
 .rm-where { display: inline-flex; align-items: center; gap: 5px; }
 
 /* the messages page */
