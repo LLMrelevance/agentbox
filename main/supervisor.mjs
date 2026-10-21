@@ -4293,7 +4293,7 @@ export class Supervisor {
         out.push({
           engine, key: r.key, name: name || null, plan: plans.size === 1 ? [...plans][0] : null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null,
           limitedUntil: r.limitedUntil ?? null, limits: cloudLimits(r.limits), readAt: r.readAt ?? null, duplicateOf: r.duplicateOf ?? null,
-          profile, readError: failed ? r.lookError || 'The cloud did not answer.' : null,
+          profile, identified: !!r.org, readError: failed ? r.lookError || 'The cloud did not answer.' : null,
         });
       });
     }

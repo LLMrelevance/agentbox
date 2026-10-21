@@ -430,6 +430,8 @@ export type PlaceAccount = {
   usageError?: string | null;
   /** Offered when picking it would change something, with the words for it. */
   use?: { word: string; onUse: () => void } | null;
+  /** The cloud sign-in it is missing, at the end of the line under the name. */
+  cloudAct?: { word: string; onUse: () => void } | null;
   /** Why it cannot run, in main's words; replaces the meters. */
   trouble?: string | null;
   cmd?: string | null;
@@ -472,7 +474,12 @@ export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: Pl
             {a.inUse ? <span className="set-badge">In use</span>
               : a.use && <button type="button" className="set-ghost acct-switch" onClick={a.use.onUse}>{a.use.word}</button>}
           </div>
-          {(a.plan || a.about.length > 0) && <div className="acct-tile-about">{[a.plan, ...a.about].filter(Boolean).join(' · ')}</div>}
+          {(a.plan || a.about.length > 0) && (
+            <div className="acct-tile-about">
+              {[a.plan, ...a.about].filter(Boolean).join(' · ')}
+              {a.cloudAct && <button type="button" className="set-ghost acct-cloud-act" onClick={a.cloudAct.onUse}>{a.cloudAct.word}</button>}
+            </div>
+          )}
           {a.trouble ? (
             <>
               <div className="acct-tile-trouble">{a.trouble}</div>
@@ -521,24 +528,34 @@ export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex
 
 /**
  * A Claude account's one tile, wherever it is signed in (`accountsOnce`). The
- *  line under the name is the plan, and names a place only when the account
- *  is missing from one.
+ *  line under the name is the plan and, once a cloud is set up, where the
+ *  account is available. The cloud cannot borrow this computer's login, so an
+ *  account missing there, or whose sign-in there stopped, offers the sign-in.
  */
-export function accountTile(a: OneAccount, { picked, many, now, onUse }: {
+export function accountTile(a: OneAccount, { picked, many, onUse, cloud = false, onCloudSignIn }: {
   picked: boolean; many: boolean; now: number; onUse: (profile: string) => void;
+  cloud?: boolean;
+  onCloudSignIn?: (key: string | null, email: string | null) => void;
 }): PlaceAccount {
   const h = a.here;
-  const cloudBroken = a.cloud?.state === 'broken';
-  const about = h && !h.signedIn ? ['Finish signing in to use it']
-    // Not "only": a login whose organization is not read yet may be one of these.
-    : !h ? ['In the cloud']
-      : cloudBroken ? ['Sign in again in the cloud'] : [];
+  const c = a.cloud;
+  const broken = c?.state === 'broken';
+  const where = !cloud ? []
+    : broken ? ['Cloud sign-in stopped']
+      : h && c ? ['This computer and cloud']
+        : h ? ['This computer only']
+          // Not "only" until its organization is read: it may be one of these.
+          : [c?.identified ? 'Cloud only' : 'In the cloud'];
+  const signingIn = !!h && !h.signedIn;
+  const signIn = (word: string, key: string | null) => (onCloudSignIn ? { word, onUse: () => onCloudSignIn(key, h?.email ?? c?.name ?? null) } : null);
   return {
-    key: a.key, name: a.name, plan: a.plan, about,
+    key: a.key, name: a.name, plan: a.plan,
+    about: signingIn ? ['Finish signing in to use it'] : where,
+    cloudAct: !cloud || signingIn ? null : broken ? signIn('Sign in again', c!.key) : h && !c ? signIn('Add to cloud', null) : null,
     inUse: !!(picked && h?.chosen),
     limits: a.limits, checkedAt: a.checkedAt, usageError: a.usageError,
     use: h?.signedIn && !(picked && h.chosen) && many ? { word: picked ? 'Switch' : 'Use only this one', onUse: () => onUse(h.profile) } : null,
-    trouble: h?.trouble ?? (!h && cloudBroken ? cloudAccountState(a.cloud!, now) : null),
+    trouble: h?.trouble ?? null,
     cmd: h?.trouble && h.dir ? `CLAUDE_CONFIG_DIR=${h.dir} claude` : null,
     meters: !!(h || a.limits?.length),
   };
@@ -1430,12 +1447,14 @@ function paneFrom(want: string, has: { team: boolean; neo?: boolean }): Pane {
 
 /* --------------------------------- screen --------------------------------- */
 
-export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, neoOn = false, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null }: {
+export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, neoOn = false, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null, onCloudSignIn }: {
   /** Opens the feedback card. A phone has no Feedback button in its corner,
    *  so its own Settings page offers it (2026-10-12). */
   onFeedback?: () => void;
   /** The cloud, when this Mac is set up for it: its own logins are listed on the agent's page. */
   cloud?: CloudStatus | null;
+  /** Signs a Claude account in to the cloud (a login's key to sign it in again), on the cloud's own screen. */
+  onCloudSignIn?: (key: string | null, email: string | null) => void;
   // ONE control for the three of them. Light, dark and each picture are one
   // list, because a picture IS dark (skins.ts) and asking her to set a theme
   // and then a background is two decisions for one choice.
@@ -1546,6 +1565,8 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     // A search with words in it is emptied by its own Escape (`searchKeys`).
     const clearing = (e: KeyboardEvent) => !!queryRef.current && e.target === searchBox.current;
     const onKey = (e: KeyboardEvent) => {
+      // A screen over this one, such as the cloud's sign-in, takes its own keys.
+      if (document.querySelector('.ps-over')) return;
       if (e.key === 'Escape' && !clearing(e)) { e.preventDefault(); e.stopPropagation(); onClose(); return; }
       // ⌘F, or / from anywhere that is not a box being typed in, goes to the search.
       const typing = e.target instanceof HTMLElement && e.target.closest('input, textarea, [contenteditable="true"]');
@@ -1663,6 +1684,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
       .map((a) => accountTile(a, {
         picked, many: agent.accounts.length > 1, now,
         onUse: (profile) => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile } })),
+        cloud: !!cloud?.setUp, onCloudSignIn,
       }));
     const lastRead = Math.max(0, ...tiles.map((a) => a.checkedAt ?? 0));
     const checked = lastRead ? usageCheckedAt(lastRead, now) : '';

@@ -64,10 +64,9 @@ describe('the line under the name', () => {
     expect(draw([accountTile(account(), acts())])).not.toContain('Ready');
   });
 
-  it('says what is missing: a sign-in here, a place, or the cloud’s sign-in', () => {
+  // Where it is available, once a cloud is set up: an-account-tile-says-where-it-is-available.
+  it('says when the sign-in here is not finished', () => {
     expect(accountTile(account({ here: here({ signedIn: false }) }), acts()).about).toEqual(['Finish signing in to use it']);
-    expect(accountTile(account({ here: null, cloud: { engine: 'claude', key: 'a1', name: 'one@example.test', ready: true, state: 'ready' } }), acts()).about).toEqual(['In the cloud']);
-    expect(accountTile(account({ cloud: { engine: 'claude', key: 'a1', name: 'one@example.test', ready: false, state: 'broken' } }), acts()).about).toEqual(['Sign in again in the cloud']);
   });
 
   it('trouble here replaces the meters and carries the command that signs it back in', () => {

@@ -628,6 +628,8 @@ export default function App() {
   // THE CLOUD'S OWN SETUP SCREEN, opened from the cloud menu's Set up, or by
   // choosing to run in the cloud before it is set up (components/CloudSetup).
   const [cloudSetupOpen, setCloudSetupOpen] = useState(false);
+  // The account a cloud sign-in started from Settings is for, so its page can say whom to sign in as.
+  const [cloudSignInAs, setCloudSignInAs] = useState<string | null>(null);
   const floatingRef = useRef<OpenOverTheApp>(NOTHING_OVER_THE_APP);
   floatingRef.current = { modal, settings: settingsOpen, importAgents, newProject, teamShown, setupPlan: !!setupPlan };
   // WHICH PAGE OF SETTINGS A PRESS ASKED FOR, when it asked for one. ⌘K's
@@ -6802,6 +6804,11 @@ export default function App() {
           onSetTune={setTune}
           onResetTune={resetTune}
           cloud={snap.cloud?.setUp ? snap.cloud : null}
+          onCloudSignIn={(key, email) => {
+            void api.cloudSignIn({ action: 'start', engine: 'claude', key });
+            setCloudSignInAs(email);
+            setCloudSetupOpen(true);
+          }}
           startPane={settingsPane}
           onNewProject={() => setNewProject(true)}
           // The Priority page: the same running order every project list
@@ -7108,8 +7115,9 @@ export default function App() {
       {cloudSetupOpen && snap.cloud?.setUp && (
         <CloudSetup
           cloud={snap.cloud}
+          signInAs={cloudSignInAs}
           onMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
-          onClose={() => setCloudSetupOpen(false)}
+          onClose={() => { setCloudSetupOpen(false); setCloudSignInAs(null); }}
         />
       )}
       {/* THE TUTORIAL, OFFERING ITSELF ON A NEW PROJECT (w-9a6ea066d6).

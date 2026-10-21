@@ -376,7 +376,7 @@ export const api = {
             {
               // Read two hours ago, as the reported screenshot's was; the same login here was read since.
               engine: 'claude', key: 'a1', name: read ? 'you@example.com' : null, plan: read ? 'Max 20x' : null, ready: false, state: 'limited' as any, limitedUntil: until.getTime(),
-              profile: read ? fixtureSettingsState.workspace.accounts[0]?.profile ?? null : null, readAt: read ? Date.now() - 2 * 3_600_000 : null,
+              profile: read ? fixtureSettingsState.workspace.accounts[0]?.profile ?? null : null, readAt: read ? Date.now() - 2 * 3_600_000 : null, identified: read,
               limits: read ? [
                 { span: 'session', qualifier: null, name: 'This session', percent: 100, resetsText: null, resetsOn: null, resetsAt: until.getTime(), zone: null },
                 { span: 'week', qualifier: 'all models', name: 'This week', percent: 31, resetsText: null, resetsOn: null, resetsAt: on(2, 11, 59), zone: null },
@@ -384,7 +384,7 @@ export const api = {
             },
             {
               engine: 'claude', key: 'a2', name: read ? 'work@example.com' : null, plan: read ? 'Max 20x' : null, ready: true, state: 'ready',
-              profile: read ? fixtureSettingsState.workspace.accounts[1]?.profile ?? null : null, readAt: read ? Date.now() - 3 * 60_000 : null,
+              profile: read ? fixtureSettingsState.workspace.accounts[1]?.profile ?? null : null, readAt: read ? Date.now() - 3 * 60_000 : null, identified: read,
               limits: read ? [
                 { span: 'session', qualifier: null, name: 'This session', percent: 12, resetsText: null, resetsOn: null, resetsAt: on(0, 20), zone: null },
                 { span: 'week', qualifier: 'all models', name: 'This week', percent: 9, resetsText: null, resetsOn: null, resetsAt: on(2, 16), zone: null },
@@ -393,16 +393,21 @@ export const api = {
             // &cloudcodex adds a Codex login in the cloud, so the Codex page draws its cloud rows.
             ...(params.has('cloudcodex') ? [{ engine: 'codex' as const, key: 'c1', name: null, ready: true, state: 'ready' as const }] : []),
             // &cloudonly adds a Claude login signed in nowhere here, whose last look failed.
+            // Its email is unknown: the cloud's token cannot read it, and no folder here names it.
             ...(params.has('cloudonly') ? [{
-              engine: 'claude' as const, key: 'a3', name: 'team@example.com', plan: null, ready: true, state: 'ready' as const, profile: null,
+              engine: 'claude' as const, key: 'a3', name: null, plan: null, ready: true, state: 'ready' as const, profile: null, identified: true,
               readAt: Date.now() - 2 * 3_600_000, readError: 'The cloud could not be reached. Try again.',
               limits: [
                 { span: 'session' as const, qualifier: null, name: 'This session', percent: 40, resetsText: null, resetsOn: null, resetsAt: on(0, 23), zone: null },
                 { span: 'week' as const, qualifier: 'all models', name: 'This week', percent: 22, resetsText: null, resetsOn: null, resetsAt: on(2, 16), zone: null },
               ],
             }] : []),
-          ],
-          signIns: [],
+            // &cloudmissing leaves the work login out of the cloud, so it is only on this computer.
+          ].filter((a) => !(params.has('cloudmissing') && a.key === 'a2')),
+          // &cloudsigning has a Claude sign-in waiting on its code, as Add to cloud leaves one.
+          signIns: params.has('cloudsigning')
+            ? [{ engine: 'claude' as const, key: 'acct-new', state: 'needs-code' as const, url: 'https://claude.ai/oauth/authorize', code: null, message: null, attempt: 'signin-1' }]
+            : [],
         } as typeof base.cloud;
       } else if (cloud === 'new') {
         // &cloud=new draws Agentbox Cloud offered with nobody signed in: the
