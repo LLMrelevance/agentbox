@@ -18,7 +18,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { cursorIndex, cursorMark, type CursorMark } from './cursor-follows';
 import { flushSync } from 'react-dom';
 import { readySkin, swapLook } from './look-switch';
-import type { AnswerMode, Approval, PermissionMode, Product, RepeatRule, RepeatShape, Snapshot, ThreadCard, ThreadStateWord, View, WorkItem } from './types';
+import type { AnswerMode, Approval, CloudPlan, PermissionMode, Product, RepeatRule, RepeatShape, Snapshot, ThreadCard, ThreadStateWord, View, WorkItem } from './types';
 import { api } from './api';
 import { setClaudeModels } from './models';
 import { advanceAfter, advanceLandsHere, replyMovesOn, nextAfterAdvance, type Advance } from './advance';
@@ -146,7 +146,8 @@ import { Face, TeamContext, firstName, teamView } from './team/people';
 import { FaceHover } from './team/status';
 import { TeamPage } from './team/TeamPage';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
-import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, StateTabs, WaitingContext } from './threads/Pages';
+import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, CloudOfferContext, FreeAgentContext, StateTabs, WaitingContext } from './threads/Pages';
+import { cloudOffer, type OfferGo } from './cloud-upgrade';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
@@ -2085,6 +2086,38 @@ export default function App() {
     () => workMoving(progress, { live: liveIds, shipping: shippingIds, queued: queuedIds }),
     [progress, liveIds, shippingIds, queuedIds],
   );
+  // AGENTBOX CLOUD OFFERS ITSELF WHERE THE FOUNDER PUT IT (2026-10-13,
+  // cloud-upgrade.ts): threads queued while this Mac runs all it can say so,
+  // and the last row of In progress offers the cloud. The plan is read from
+  // the cloud server, again whenever it has had no room.
+  const [cloudPlan, setCloudPlan] = useState<CloudPlan | null>(null);
+  const cloudManaged = !!snap?.cloud?.managed;
+  const cloudRoom = snap?.cloud?.noRoom?.error ?? null;
+  useEffect(() => {
+    if (!cloudManaged) { setCloudPlan(null); return; }
+    let on = true;
+    const read = () => api.cloudAccountPlan().then((p) => { if (on) setCloudPlan(p); }, () => {});
+    void read();
+    const t = setInterval(read, 120_000);
+    return () => { on = false; clearInterval(t); };
+  }, [cloudManaged, cloudRoom]);
+  const localRunning = (snap?.supervisor.running ?? []).filter((r) => r.where !== 'cloud').length;
+  const macFull = !!snap && queuedIds.size > 0 && localRunning >= snap.supervisor.capacity;
+  const freeWaitIds = useMemo(() => (macFull || cloudRoom ? queuedIds : new Set<string>()), [macFull, cloudRoom, queuedIds]);
+  const cloudOfferNow = useMemo(
+    () => cloudOffer({ cloud: snap?.cloud ?? null, plan: cloudPlan, waiting: freeWaitIds.size, macFull }),
+    [snap?.cloud, cloudPlan, freeWaitIds, macFull],
+  );
+  const openCloudPlans = () => { setTeamOpen(false); setSettingsPane('cloud'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); };
+  const onCloudGo = async (go: OfferGo) => {
+    if (go.act === 'sign-in') setCloudSetupOpen(true);
+    else if (go.act === 'cloud-on') void api.setWorkspaceSetting({ key: 'cloudRuns', value: 'full' });
+    else if (go.act === 'plans') openCloudPlans();
+    else if (go.plan) {
+      const out = await api.cloudAccountPay(go.plan);
+      if (!out.ok) showToast(out.message || 'Stripe could not be opened. Try again.');
+    }
+  };
 
   // NOT A ROW THAT STILL NEEDS HER (2026-10-01): an agent's done on her own
   // thread waits in Needs you until she closes it, and Done counted it too,
@@ -5582,6 +5615,8 @@ export default function App() {
     <LiveContext.Provider value={liveIds}>
     <CloudContext.Provider value={cloudIds}>
     <WaitingContext.Provider value={waitingByThread}>
+    <FreeAgentContext.Provider value={freeWaitIds}>
+    <CloudOfferContext.Provider value={cloudOfferNow ? { offer: cloudOfferNow, onGo: (go) => void onCloudGo(go) } : null}>
     <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${workspaceCollapsed ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}`}>
       {signInGate && <SignInPage signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
       {/* Dark's corner marks, outside the card. Their own element, because
@@ -6811,6 +6846,7 @@ export default function App() {
           onSetTune={setTune}
           onResetTune={resetTune}
           cloud={snap.cloud?.setUp ? snap.cloud : null}
+          cloudPlans={snap.cloud?.managed || snap.cloud?.offered ? { signedIn: !!snap.cloud?.managed, onSignIn: () => { setSettingsOpen(false); setCloudSetupOpen(true); } } : null}
           startPane={settingsPane}
           onNewProject={() => setNewProject(true)}
           // The Priority page: the same running order every project list
@@ -7399,6 +7435,8 @@ export default function App() {
       {/* ⌘F, on every screen, for the same reason. */}
       <FindBar />
     </div>
+    </CloudOfferContext.Provider>
+    </FreeAgentContext.Provider>
     </WaitingContext.Provider>
     </CloudContext.Provider>
     </LiveContext.Provider>
