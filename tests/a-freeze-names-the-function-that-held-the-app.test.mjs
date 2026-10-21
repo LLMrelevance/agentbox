@@ -29,8 +29,11 @@ const tempDir = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'freeze-
 afterEach(() => { while (dirs.length) fs.rmSync(dirs.pop(), { recursive: true, force: true }); });
 
 describe('an app whose main thread stops answering', () => {
+  // The app's folder is reached through a link, as macOS's /var is
+  // /private/var, and the profile names files by their real path.
   it('writes which function held it, for a loop and for a wait on a program, and not for a short hold', async () => {
-    const dir = tempDir();
+    const dir = path.join(tempDir(), 'app');
+    fs.symlinkSync(tempDir(), dir);
     const script = path.join(dir, 'freezes.mjs');
     fs.writeFileSync(script, `
       import { execFileSync } from 'node:child_process';
@@ -116,6 +119,15 @@ describe('reading what held it off the profile', () => {
     const one = { profile: { ...aProfile(Array(10).fill(git)), startTime: 5_000_000 }, offsetUs: 5_000_000 };
     const two = { profile: { ...aProfile(Array(10).fill(git)), startTime: 9_100_000 }, offsetUs: 9_000_000 };
     expect(freezeFrom([one, two], { fromUs: 0, toUs: 200_000, appDir: app }).samples).toBe(20);
+  });
+
+  it('knows the app by either of its paths', () => {
+    const real = '/private/var/app';
+    const mine = [['changeFromRepo', `file://${real}/main/git-change.mjs`, 262]];
+    const read = freezeFrom([{ profile: aProfile(Array(10).fill(mine)) }], { fromUs: 0, toUs: 1e9, appDir: ['/var/app', real] });
+    expect(read.where).toBe('changeFromRepo main/git-change.mjs:262');
+    const other = freezeFrom([{ profile: aProfile(Array(10).fill(mine)) }], { fromUs: 0, toUs: 1e9, appDir: ['/var/app'] });
+    expect(other.where).toBe('changeFromRepo');
   });
 
   it('never writes a path outside the app in full', () => {

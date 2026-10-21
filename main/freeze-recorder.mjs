@@ -27,15 +27,19 @@ export const dayOf = (ms) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-function fileOf(url, appDir) {
+function fileOf(url, appDirs) {
   if (!url) return '';
   let file = url;
   if (url.startsWith('file://')) { try { file = fileURLToPath(url); } catch { /* keep the url */ } }
-  if (appDir && file.startsWith(appDir + path.sep)) return file.slice(appDir.length + 1);
+  const appDir = appDirs.find((d) => file.startsWith(d + path.sep));
+  if (appDir) return file.slice(appDir.length + 1);
   if (file.startsWith('node:') || !path.isAbsolute(file)) return file;
   // Never a home path in the log: a file outside the app is named by its last parts.
   return `…/${file.split(path.sep).slice(-2).join('/')}`;
 }
+
+// The profile names a file by its real path, which on macOS is /private/var for /var.
+const realPath = (dir) => { try { return dir ? fs.realpathSync(dir) : ''; } catch { return ''; } };
 
 const ours = (frame) => /\.(m?js|cjs|ts)$/.test(frame.file) && !/^(node:|…\/)/.test(frame.file) && !frame.file.includes('node_modules');
 const named = (f) => (f.file ? `${f.fn} ${f.file}:${f.line}` : f.fn);
@@ -43,9 +47,10 @@ const named = (f) => (f.file ? `${f.fn} ${f.file}:${f.line}` : f.fn);
 /**
  * What held the thread between `fromUs` and `toUs`, read off one or more CPU
  * profiles. Times are on the watcher's clock; `offsetUs` is each profile's
- * clock minus that one. Pure.
+ * clock minus that one. `appDir` is one path or several. Pure.
  */
 export function freezeFrom(profiles, { fromUs, toUs, appDir = '' }) {
+  const appDirs = [appDir].flat().filter(Boolean);
   const groups = new Map();
   let total = 0;
   let idle = 0;
@@ -62,7 +67,7 @@ export function freezeFrom(profiles, { fromUs, toUs, appDir = '' }) {
       for (let at = id; at != null; at = parent.get(at)) {
         const cf = byId.get(at)?.callFrame;
         if (!cf || cf.functionName === '(root)') continue;
-        frames.push({ fn: cf.functionName || '(anonymous)', file: fileOf(cf.url, appDir), line: cf.url ? cf.lineNumber + 1 : 0 });
+        frames.push({ fn: cf.functionName || '(anonymous)', file: fileOf(cf.url, appDirs), line: cf.url ? cf.lineNumber + 1 : 0 });
       }
       const leaf = frames[0]?.fn ?? '(program)';
       const kind = frames.length <= 1 && IDLE.has(leaf) ? 'idle' : leaf === GC ? 'gc' : 'busy';
@@ -122,7 +127,7 @@ export function startFreezeRecorder({ dir, appDir = '', thresholdMs = THRESHOLD_
   let worker = null;
   try {
     worker = new Worker(new URL('./freeze-recorder-thread.mjs', import.meta.url), {
-      workerData: { beat, dir, appDir, thresholdMs, rotateMs, intervalUs },
+      workerData: { beat, dir, appDir: [appDir, realPath(appDir)], thresholdMs, rotateMs, intervalUs },
     });
   } catch (err) {
     clearInterval(timer);
