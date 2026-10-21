@@ -42,7 +42,9 @@ export function stripeSigned(raw, header, secret, nowMs) {
   });
 }
 
-export function stripeClient({ key, webhookSecret, fetchImpl = fetch }) {
+// `managedPayments`: Stripe is the seller of record and handles sales tax
+// (Settings › Managed Payments in the Dashboard must be on).
+export function stripeClient({ key, webhookSecret, managedPayments = false, fetchImpl = fetch }) {
   async function call(method, path, params) {
     const form = params ? formOf(params).toString() : '';
     const url = method === 'GET' && form ? `${API}${path}?${form}` : `${API}${path}`;
@@ -76,6 +78,7 @@ export function stripeClient({ key, webhookSecret, fetchImpl = fetch }) {
         ...(customer ? { customer } : {}),
         success_url: successUrl,
         cancel_url: cancelUrl,
+        ...(managedPayments ? { managed_payments: { enabled: true } } : {}),
       });
       return session.url;
     },

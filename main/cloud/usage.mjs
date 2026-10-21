@@ -40,9 +40,9 @@ export function appendCloudUsage({ runId, item, engine, exitCode, usage }, { hom
   return line;
 }
 
-export function readCloudUsage({ home } = {}) {
+export function readCloudUsage({ home, file = cloudUsagePath({ home }) } = {}) {
   let text;
-  try { text = fs.readFileSync(cloudUsagePath({ home }), 'utf8'); } catch { return []; }
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return []; }
   const out = [];
   for (const l of text.split('\n')) {
     if (!l.trim()) continue;

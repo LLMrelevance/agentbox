@@ -112,7 +112,10 @@ describe('the board’s Done column', () => {
 describe('what the page says', () => {
   it('the time column is headed Done on the Done tab', () => expect(timeHeading('done')).toBe('Done'));
   it('and Updated everywhere else', () => {
-    for (const tab of ['inbox', 'progress', 'snoozed', 'all']) expect(timeHeading(tab)).toBe('Updated');
+    // Later is headed Back since w-c9da359466: a page of threads coming back
+    // has no use for how long ago each was touched.
+    for (const tab of ['inbox', 'progress', 'all']) expect(timeHeading(tab)).toBe('Updated');
+    expect(timeHeading('snoozed')).toBe('Back');
   });
   it('the app hands the tab to the sorter, for your rows and for the merge', () => {
     const app = src('App.tsx');

@@ -2,6 +2,8 @@
 // A REAL AGENTBOX, UNDER /tmp, THAT A VERIFYING AGENT CAN DRIVE AND THROW AWAY.
 //
 //   node .claude/skills/verify-agentbox/scripts/live.mjs up [--real-claude]
+//        [--projects "Payments API,Web app"], and on stand-ins [--logins 1-4] [--no-codex]
+//   VERIFY_INSTANCE=<name> before any verb: a second copy from the same checkout
 //   node .claude/skills/verify-agentbox/scripts/live.mjs doctor
 //   node .claude/skills/verify-agentbox/scripts/live.mjs drive <name> [--out <dir>]
 //   node .claude/skills/verify-agentbox/scripts/live.mjs down
@@ -36,7 +38,12 @@ export const ROOT = '/tmp/agentbox-verify';
 export const RUNS = path.join(ROOT, 'runs');
 const { FRESH_USER_ENV } = await import(path.join(REPO, 'shared', 'fresh-user-home.mjs'));
 const KEY = crypto.createHash('sha1').update(REPO).digest('hex').slice(0, 8);
-export const INSTANCE = path.join(ROOT, 'instances', KEY);
+/** One copy per checkout, or per name within it (`VERIFY_INSTANCE`), so a power test can run one copy per tester. */
+export function instanceDir(name = process.env.VERIFY_INSTANCE) {
+  const clean = String(name ?? '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+  return path.join(ROOT, 'instances', clean ? `${KEY}-${clean}` : KEY);
+}
+export const INSTANCE = instanceDir();
 const STATE = path.join(INSTANCE, 'instance.json');
 export const STUB = path.join(REPO, 'scripts', 'lib', 'stub-claude-worker.mjs');
 export const PRODUCT = { slug: 'sandbox', name: 'Sandbox' };
@@ -88,6 +95,19 @@ export function cleanEnv(base = process.env) {
 
 export const PROJECTS = [PRODUCT, { slug: 'second', name: 'Second' }];
 
+/**
+ * A COPY ON A TEAM (`up --team <file>`): a second person on a real team cloud,
+ * signed in as their own account, so a power tester can sit in a room with
+ * somebody. The file is JSON, `{ config, email, password }`, kept outside the
+ * repository and readable by this user only; `config` is the team's
+ * team.config.json. The copy is still a fresh user in every other way.
+ */
+export function teamEnv(file) {
+  const t = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (!t.config || !t.email || !t.password) throw new Error(`the team file ${file} needs config, email and password`);
+  return { AGENTBOX_TEAM_CONFIG: t.config, AGENTBOX_TEAM_TEST_LOGIN: `${t.email}:${t.password}` };
+}
+
 /** The Codex this Mac has, found the way the app finds it, or null. */
 async function realCodex() {
   const { findCodexBin } = await import(path.join(REPO, 'main', 'codex-bin.mjs'));
@@ -114,7 +134,7 @@ async function realCodex() {
  * home, the stand-in layered into their config.toml and signed with their own
  * login, and the copy finding codex and the home as theirs would.
  */
-async function prepare(real, setupName = null) {
+async function prepare(real, setupName = null, { logins = 2, codex = true, projectNames = null } = {}) {
   const data = path.join(INSTANCE, 'data');
   const storeRoot = path.join(INSTANCE, 'store');
   const accountRoot = path.join(storeRoot, 'accounts', ACCOUNT);
@@ -129,7 +149,10 @@ async function prepare(real, setupName = null) {
   // to stand, a thread can be checked to land under the right one, and the
   // first-run walk (which a store with no projects gets) is skipped.
   const repos = {};
-  for (const p of PROJECTS) {
+  const projects = projectNames?.length
+    ? projectNames.map((name) => ({ slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'project', name }))
+    : PROJECTS;
+  for (const p of projects) {
     const repo = path.join(INSTANCE, 'repos', p.slug);
     fs.mkdirSync(repo, { recursive: true });
     fs.mkdirSync(path.join(accountRoot, p.slug), { recursive: true });
@@ -147,7 +170,7 @@ async function prepare(real, setupName = null) {
   }
 
   const plan = path.join(INSTANCE, 'stub-plan.json');
-  fs.writeFileSync(plan, `${JSON.stringify({ say: 'The verify stand-in ran and answered.', receipts }, null, 1)}\n`);
+  fs.writeFileSync(plan, `${JSON.stringify({ say: 'The verify stand-in ran and answered.', receipts, world: path.join(INSTANCE, 'world.json') }, null, 1)}\n`);
 
   let claudeBin = null;
   let codexBin = null;
@@ -178,7 +201,8 @@ async function prepare(real, setupName = null) {
       layCodexHome(setup, { home, url: codexModel.url });
     }
   } else if (!real) {
-    for (const [dir, n] of [['.claude', 'one'], ['.claude-second', 'two']]) {
+    const LOGINS = [['.claude', 'one'], ['.claude-second', 'two'], ['.claude-third', 'three'], ['.claude-fourth', 'four']];
+    for (const [dir, n] of LOGINS.slice(0, Math.min(Math.max(1, logins), LOGINS.length))) {
       fs.mkdirSync(path.join(home, dir), { recursive: true });
       fs.writeFileSync(path.join(home, dir, '.claude.json'), `${JSON.stringify({ oauthAccount: { emailAddress: `${n}@verify.invalid`, accountUuid: `verify-account-${n}` } })}\n`);
     }
@@ -188,21 +212,22 @@ async function prepare(real, setupName = null) {
     // checkout: a checkout under ~/Desktop or ~/Documents is a folder macOS
     // guards, and the installed app reading a script there waits on a privacy
     // prompt on the person's screen. Measured 2026-10-12: four workers sat for
-    // minutes before running a line. (The stand-in imports nothing but Node's
-    // own modules, so the copy is the whole of it.)
+    // minutes before running a line. (The stand-in and the one file it imports
+    // use nothing but Node's own modules, so the two copies are the whole of it.)
     claudeBin = path.join(INSTANCE, 'bin', 'claude');
     fs.mkdirSync(path.dirname(claudeBin), { recursive: true });
     const stub = path.join(INSTANCE, 'bin', 'stub-claude-worker.mjs');
     fs.copyFileSync(STUB, stub);
+    fs.copyFileSync(path.join(path.dirname(STUB), 'stand-in-world.mjs'), path.join(INSTANCE, 'bin', 'stand-in-world.mjs'));
     fs.writeFileSync(claudeBin, `#!/bin/sh\nexec "${process.execPath}" "${stub}" "$@"\n`, { mode: 0o755 });
-    codexBin = await realCodex();
+    codexBin = codex ? await realCodex() : null;
     if (codexBin) {
       codexHome = path.join(INSTANCE, 'codex-home');
       fs.mkdirSync(codexHome, { recursive: true });
     }
   }
   const state = {
-    repoRoot: REPO, instance: INSTANCE, data, storeRoot, accountRoot, repo: repos[PRODUCT.slug], repos, receipts, plan, home,
+    repoRoot: REPO, instance: INSTANCE, data, storeRoot, accountRoot, repo: repos[PRODUCT.slug] ?? Object.values(repos)[0], repos, receipts, plan, home,
     log: path.join(INSTANCE, 'app.log'), engine: setup ? 'setup' : real ? 'real' : 'stub', claudeBin, codexBin, codexHome,
     setup: setup?.name ?? null, claudeModel, codexModel,
   };
@@ -311,7 +336,8 @@ async function start(state) {
     // team cloud even on a Mac that has a team key (so no sign-in screen and
     // nothing written to the shared project), and any counts go under the one
     // id that names itself as not a person (shared/fresh-user-home.mjs).
-    [FRESH_USER_ENV]: '1' };
+    [FRESH_USER_ENV]: '1',
+    ...(state.teamFile ? teamEnv(state.teamFile) : {}) };
   if (state.claudeModel) {
     // The setup's stand-in model, on the port its settings already name.
     const file = path.join(INSTANCE, 'claude-model.json');
@@ -366,6 +392,7 @@ async function start(state) {
     // every run and Codex may be picked from the composer.
     engineChoice: '2026-01-01T00:00:00.000Z',
     maxConcurrentSessions: 2,
+    ...(state.teamFile ? { alphaRooms: true } : {}),
   };
   // The app writes its account id back into this file, so keep what it added.
   const file = path.join(state.data, 'zero.config.json');
@@ -411,12 +438,23 @@ async function up(args) {
   const at = args.indexOf('--setup');
   const setupName = at >= 0 ? args[at + 1] : null;
   if (installed && real) stop('--installed runs on the stand-ins; use --real with the browser copy.');
+  const teamAt = args.indexOf('--team');
+  const teamFile = teamAt >= 0 ? path.resolve(args[teamAt + 1] ?? '') : null;
+  if (teamFile && installed) stop('--team runs the browser copy; an installed build never joins a team.');
+  if (teamFile) { try { teamEnv(teamFile); } catch (err) { stop(err.message); } }
   if (setupName && (real || installed)) stop('--setup runs the browser copy on its own home; it cannot be combined with --real or --installed.');
   if (installed) {
     const old = appIsStale();
     if (old) buildInstalled(); else say('the installed app is newer than its source; using the one already built');
   }
-  const prepared = await prepare(real, setupName);
+  // A power tester's own shape of copy: how many Claude logins, Codex or not, their projects.
+  const value = (name) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : null; };
+  const shape = {
+    logins: Number(value('logins')) || 2,
+    codex: !args.includes('--no-codex'),
+    projectNames: value('projects')?.split(',').map((s) => s.trim()).filter(Boolean) ?? null,
+  };
+  const prepared = { ...(await prepare(real, setupName, shape)), teamFile };
   const next = await start(installed ? { ...prepared, installed: true } : prepared);
   say(installed ? `up: the installed app, pid ${next.pid}, window on debugging port ${next.cdpPort}` : `up: ${next.url}`);
   say(setupName
@@ -425,7 +463,7 @@ async function up(args) {
       : `workers: the real Claude Code on the "${setupName}" setup, against a stand-in model (nothing billed)`)
     : real
     ? 'workers: the Claude Code and Codex this Mac has, on their own subscriptions'
-    : `workers: the Claude stand-in on two fake logins${next.codexBin ? ', and real codex on a scripted model' : '; no codex on this Mac, so Codex drives are skipped'}`);
+    : `workers: the Claude stand-in on ${shape.logins === 2 ? 'two' : shape.logins} fake login(s)${next.codexBin ? ', and real codex on a scripted model' : shape.codex ? '; no codex on this Mac, so Codex drives are skipped' : '; no Codex (--no-codex)'}`);
   say(`store: ${next.storeRoot}`);
   say('next: live.mjs doctor');
 }
@@ -434,7 +472,7 @@ async function up(args) {
 export async function restart(how = 'quit') {
   const state = readState();
   if (!state) stop('nothing to restart. Run: live.mjs up');
-  await stopProcesses(state, { how });
+  await stopProcesses(state, { how, keepBrowser: true });
   const next = await start(state);
   say(`restarted: ${next.url}`);
 }
@@ -500,7 +538,7 @@ export async function doctor({ quiet = false } = {}) {
  * running out of this instance's folder (a worker the group missed, the
  * scripted Codex model). Returns how many strays it had to kill.
  */
-async function stopProcesses(state, { how = 'quit' } = {}) {
+async function stopProcesses(state, { how = 'quit', keepBrowser = false } = {}) {
   if (state?.installed) {
     // The installed app: quit it as a person does, then anything still running
     // out of this checkout's build of it (its helpers).
@@ -525,10 +563,26 @@ async function stopProcesses(state, { how = 'quit' } = {}) {
     while (alive(state.pid) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
     try { process.kill(-state.pid, 'SIGKILL'); } catch { /* gone */ }
   }
-  const strays = execFileSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' }).split('\n')
-    .map((l) => l.trim().match(/^(\d+)\s+(.*)$/)).filter((m) => m && m[2].includes(INSTANCE) && Number(m[1]) !== process.pid);
-  for (const m of strays) { try { process.kill(Number(m[1]), 'SIGKILL'); } catch { /* gone */ } }
+  const table = execFileSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' }).split('\n')
+    .map((l) => l.trim().match(/^(\d+)\s+(.*)$/)).filter(Boolean).map((m) => ({ pid: Number(m[1]), command: m[2] }));
+  // The shell that ran this often names the folder too.
+  const strays = straysToStop(table, INSTANCE, { keepBrowser, self: [process.pid, process.ppid] });
+  for (const pid of strays) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
   return strays.length;
+}
+
+/**
+ * Which running processes belong to the copy in `instance`. On a restart the
+ * browser (its profile is in the instance) is the breaker's or tester's, not
+ * the app's, so it stays.
+ */
+export function straysToStop(table, instance, { keepBrowser = false, self = [] } = {}) {
+  // The folder whole: the plain copy's name is the start of every named copy's.
+  const mine = new RegExp(`${instance.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=/|\\s|$)`);
+  const spare = new Set([self].flat());
+  return table.filter((p) => mine.test(p.command) && !spare.has(p.pid))
+    .filter((p) => !(keepBrowser && p.command.includes(`${instance}/chrome-profile`)))
+    .map((p) => p.pid);
 }
 
 async function down() {

@@ -16,7 +16,7 @@ import { toApproveWords } from '../threads-made';
 import { DONE } from '../done-word';
 import {
   boardColumns, columnTo, conversationSlugs, DEFAULT_COLUMN_ORDER, entryScore, filteredEmptyWords, finishedAt, isDirect, isFiltered, nextPrivacy, dropWithPins, projectChoices, slotUnder,
-  timeHeading, updatedWords,
+  backWords, timeHeading, updatedWords,
   type BoardEntry, type Display, type PageId, type Privacy, type UpdatedWindow,
 } from './page-rules';
 import { messageLine, messagePriority, rowSharing, sharePatch } from './page-rules';
@@ -25,10 +25,13 @@ import { stopKey } from './walk-rules';
 import { PinMark } from './ThreadMenu';
 import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type Box } from './board-select';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
+import { FleetContext } from '../fleet';
+import { factsFor, saysOnCard, statusCell, type StatusCell } from '../status-word';
 import { shownPriority } from '../../../shared/rank.mjs';
 import { api } from '../api';
 import { CLOUD_KEY, CLOUD_WHEN_ON, cloudButtonCount, cloudFootLine, cloudIsOn, cloudMonthLine, countedAccounts, type CloudMode, type CloudStatus } from '../cloud-menu';
 import { menuSetupLine, SETUP } from '../cloud-setup';
+import type { Offer, OfferGo } from '../cloud-upgrade';
 import './pages.css';
 
 // Before the frame is drawn in the app; a plain effect where there is no
@@ -87,6 +90,15 @@ export const LiveContext = createContext<Set<string>>(new Set());
 /** The ones of those running in the cloud rather than on this Mac. */
 export const CloudContext = createContext<Set<string>>(new Set());
 
+/** The mark in the Status cell: the running one where an agent is on it, the
+ *  still ring where one is waiting its turn or held, and a blank of the same
+ *  width on the words that are the thread's own state, so every word in the
+ *  column starts on one line (status-word.ts). */
+export function StatusMark({ status }: { status: StatusCell }) {
+  if (status.live) return <RunningMark cloud={status.cloud} />;
+  return <span className={`th-st s-${status.agent ? status.mark : 'none'}`} aria-hidden="true" />;
+}
+
 /** An agent is on the thread now: the half-dot on this Mac, a cloud in the cloud, both pulsing. */
 export function RunningMark({ cloud = false }: { cloud?: boolean }) {
   if (!cloud) return <StateGlyph state="running" live />;
@@ -98,6 +110,39 @@ export function RunningMark({ cloud = false }: { cloud?: boolean }) {
 /** How many tasks each thread filed are waiting for a yes, by `product/id`
  *  (App.tsx provides it, off `waitingCounts` in ../threads-made). */
 export const WaitingContext = createContext<Map<string, number>>(new Map());
+
+/** The threads queued while this Mac runs all it can (App.tsx provides it). */
+export const FreeAgentContext = createContext<Set<string>>(new Set());
+
+/** The cloud's offer at the end of In progress, and what its button does (../cloud-upgrade.ts). */
+export const CloudOfferContext = createContext<{ offer: Offer; onGo: (go: OfferGo) => void } | null>(null);
+
+// THE OFFER, NEVER A POP-UP (2026-10-13, w-1dc7ee2408): the last row of the
+// list, and a card at the foot of the board's In progress column.
+export function CloudOfferRow() {
+  const at = useContext(CloudOfferContext);
+  if (!at) return null;
+  const { offer, onGo } = at;
+  return <div className="row th-offer-row">
+    <span className="mark" aria-hidden="true" />
+    <div className="row-main th-offer-main">
+      <span className="th-offer-ic"><CloudIcon /></span>
+      <span className="th-offer-say">{offer.say} <span className="th-offer-wait">{offer.waiting}</span></span>
+      {offer.go && <button type="button" className="th-offer-go" onClick={() => onGo(offer.go!)}><CloudIcon />{offer.go.label}</button>}
+    </div>
+  </div>;
+}
+
+function CloudOfferCard() {
+  const at = useContext(CloudOfferContext);
+  if (!at) return null;
+  const { offer, onGo } = at;
+  return <div className="th-card th-offer-card">
+    <div className="t">{offer.say.replace(/\.$/, '')}</div>
+    <div className="m"><CloudIcon /><span className="p">{offer.waiting.replace(/ (is|are) waiting\.$/, ' waiting').replace(/threads? /, '')}</span>
+      {offer.go && <button type="button" className="th-offer-card-go" onClick={() => onGo(offer.go!)}>{offer.go.act === 'pay' ? offer.go.label.replace(/ · .*/, '') : 'Start in the cloud'}<span aria-hidden="true">→</span></button>}</div>
+  </div>;
+}
 
 // THE APP'S OWN PRIORITY BARS. Urgent is a fourth bar, never an exclamation
 // mark in a box (w-bba20a03f5, Priority.tsx), whatever the drawing showed.
@@ -135,7 +180,9 @@ export function SearchButton({ onSearch }: { onSearch: () => void }) {
 }
 
 /** New thread, the cloud and the Display icon (and Search on the board), at the right of the Inbox header. */
-export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode, onCloudWhenOn, onCloudSetUp }: {
+export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode, onCloudWhenOn, onCloudSetUp, filters = true }: {
+  /** False over a room, where there is no list to view or filter. */
+  filters?: boolean;
   page: PageId; display: Display; onDisplay: (d: Display) => void; products: Product[]; items?: WorkItem[];
   /** Only where no tabs row draws it (the board). */
   onSearch?: () => void; onCompose: () => void; shown?: number; total?: number; tab?: string;
@@ -158,7 +205,7 @@ export function HeaderActions({ page, display, onDisplay, products, items, onSea
     {onSearch && <SearchButton onSearch={onSearch} />}
     <button type="button" className="th-new" data-hint="new-task" onClick={onCompose} title="New thread (N)"><PenIcon />New thread</button>
     {(cloud?.setUp || cloud?.offered) && <CloudButton cloud={cloud} onMode={onCloudMode} onWhenOn={onCloudWhenOn} onSetUp={onCloudSetUp} />}
-    <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
+    {filters && <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
       <button type="button" className={`th-disp${worn ? ' faces' : ''}${open ? ' open' : ''}`}
         aria-label={whose ? `View and filters, showing ${whose}` : 'View and filters'} title={whose ? `${whose} · View and filters` : 'View and filters'}
         onClick={() => setOpen((o) => !o)}>
@@ -169,7 +216,7 @@ export function HeaderActions({ page, display, onDisplay, products, items, onSea
         <SlidersIcon />{dot && <i />}
       </button>
       {open && <DisplayMenu page={page} display={display} onDisplay={onDisplay} products={products} items={items} shown={shown} total={total} tab={tab} people={people} />}
-    </span>
+    </span>}
   </div>;
 }
 
@@ -346,14 +393,19 @@ export const INBOX_TABS: { view: TabView; label: string }[] = [
 const COUNTED: TabView[] = ['inbox', 'progress', 'snoozed'];
 
 /** `needs` renames the first tab (Waiting, once a teammate is on the page). */
-export function StateTabs({ view, counts, onView, needs, onSearch }: {
+export function StateTabs({ view, counts, onView, needs, onSearch, after, dim = false, lit = false }: {
   view: TabView; counts: Partial<Record<TabView, number>>; onView: (v: TabView) => void; needs?: string;
+  /** Room tabs after Done (team/rooms/RoomTabs.tsx); `dim` while one of them is open. */
+  after?: ReactNode; dim?: boolean;
   /** Draws Search at the row's right end (w-3c51d02de5). */
   onSearch?: () => void;
+  /** Something landed in Needs You since it was last open (w-22da913d00). */
+  lit?: boolean;
 }) {
   return <div className="th-bar"><div className="tm-tabs">
     {/* Every tab wears the Tab plate (hint-plate.ts, 'state-tab'). */}
-    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view ? ' on' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
+    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view && !dim ? ' on' : ''}${t.view === 'inbox' && lit && view !== 'inbox' ? ' fresh' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
+    {after}
   </div>{onSearch && <SearchButton onSearch={onSearch} />}</div>;
 }
 
@@ -392,8 +444,10 @@ function PeopleLine({ everyone, picked, me, onPick }: PeoplePick) {
  *  first row would, under the tabs, left aligned with the titles, so the page
  *  does not jump when a thread lands. The tabs stay: an empty Needs you is
  *  still the Inbox, and Running is one click away. */
-export function InboxClear({ running, scheduled, onView, onCompose, team = false }: {
+export function InboxClear({ running, queued = 0, scheduled, onView, onCompose, team = false }: {
   running: number; scheduled: number; onView: (v: TabView) => void; onCompose: () => void;
+  /** Waiting its turn: in the tab, and no agent on it yet (`workMoving`, w-712fc99e8d). */
+  queued?: number;
   /** Signed into a team: only then does the quiet line offer a teammate (w-db6f5e331e). */
   team?: boolean;
 }) {
@@ -403,9 +457,11 @@ export function InboxClear({ running, scheduled, onView, onCompose, team = false
     <p>
       {running > 0
         ? <><button type="button" className="th-clear-link" onClick={() => onView('progress')}>{plural(running, 'thread is running', 'threads are running')}</button>. Each one lands here when it needs you.</>
-        : scheduled > 0
-          ? <><button type="button" className="th-clear-link" onClick={() => onView('snoozed')}>{plural(scheduled, 'thread is scheduled', 'threads are scheduled')}</button>. Nothing else is open.</>
-          : team ? 'Start a thread and an agent picks it up, or message a teammate.' : 'Start a thread and an agent picks it up.'}
+        : queued > 0
+          ? <><button type="button" className="th-clear-link" onClick={() => onView('progress')}>{plural(queued, 'thread is queued', 'threads are queued')}</button>. An agent starts on {queued === 1 ? 'it' : 'each'} as soon as one is free.</>
+          : scheduled > 0
+            ? <><button type="button" className="th-clear-link" onClick={() => onView('snoozed')}>{plural(scheduled, 'thread is scheduled', 'threads are scheduled')}</button>. Nothing else is open.</>
+            : team ? 'Start a thread and an agent picks it up, or message a teammate.' : 'Start a thread and an agent picks it up.'}
     </p>
     <div className="th-clear-acts">
       <button type="button" className="th-new" onClick={onCompose}><PenIcon />New thread</button>
@@ -461,7 +517,7 @@ export function EmptyTab({ view }: { view: TabView }) {
 /* ------------------------------------------------------------ one thread's cells */
 export function TableHead({ person = false, tab }: { person?: boolean; tab?: string }) {
   return <div className="row th-head"><span className="mark" aria-hidden="true" /><div className={`row-main th-grid${person ? ' with-person' : ''}`}>
-    <div>Thread</div><div>Project</div>{person && <div>Person</div>}<div>Priority</div><div className="num">{timeHeading(tab)}</div>
+    <div>Thread</div><div>Status</div><div>Project</div>{person && <div>Person</div>}<div>Priority</div><div className="num">{timeHeading(tab)}</div>
   </div></div>;
 }
 
@@ -479,13 +535,17 @@ export const RepeatMark = () => <svg className="th-repeat" width="13" height="13
   <path d="M13 6.5A5.5 5.5 0 0 0 3.2 4.8M3 2.5v2.6h2.6" /><path d="M3 9.5a5.5 5.5 0 0 0 9.8 1.7M13 13.5v-2.6h-2.6" />
 </svg>;
 
-export function RowCells({ live = false, cloud = false, lead, title, hidden = false, lock = false, shared = false, chosen = 0, held = false, pinned = false, aside, where, person, priority, updatedAt, when, now, action }: {
+export function RowCells({ status, lead, title, hidden = false, lock = false, shared = false, chosen = 0, held = false, pinned = false, aside, where, person, priority, updatedAt, when, now, action }: {
   /** Pinned to the top of the list (w-20323283e6): a faint pin after the title. */
   pinned?: boolean;
-  /** An agent is on this thread right now: a pulsing mark before its name. */
-  live?: boolean;
-  /** And it is running in the cloud. */
-  cloud?: boolean;
+  /**
+   * WHAT IS HAPPENING ON THIS THREAD, in the column of its own (w-ec2b04d449).
+   * The turning mark used to lead the title and was the only thing on the row
+   * about an agent, so a queued thread and a working one were one picture. It
+   * is in this cell now, the cloud shape included, and the title is the title.
+   * Absent on the rows that are not threads: a repeating rule, a teammate's
+   * card. The cell is still drawn, or the columns under it step left. */
+  status?: StatusCell;
   title: ReactNode; hidden?: boolean; lock?: boolean; shared?: boolean; where: ReactNode; person?: ReactNode;
   /** How many people a thread shared with chosen people reaches; 0 for the team. */
   chosen?: number;
@@ -504,7 +564,8 @@ export function RowCells({ live = false, cloud = false, lead, title, hidden = fa
     {/* THE MARK SAYS WHICH KIND OF SHARED, QUIETLY (w-41ff964775): the two
         people with a small count beside them for a thread only a few people
         see. The whole team, the default, carries nothing (2026-10-02). */}
-    <div className={`th-cell-title subject${hidden ? ' hidden' : ''}`}>{live ? <RunningMark cloud={cloud} /> : lead}{title}{aside && <span className="th-aside">{aside}</span>}{held && <span className="th-aside">not started</span>}{shared && <SharedMark label={chosen ? `Visible to ${chosen} ${chosen === 1 ? 'person' : 'people'}` : 'Visible to the team'} />}{chosen > 0 && <span className="th-shared-n" aria-hidden="true">{chosen}</span>}{lock && <LockMark />}{pinned && <PinMark size={13} className="th-pin" />}</div>
+    <div className={`th-cell-title subject${hidden ? ' hidden' : ''}`}>{lead}{title}{aside && <span className="th-aside">{aside}</span>}{held && <span className="th-aside">not started</span>}{shared && <SharedMark label={chosen ? `Visible to ${chosen} ${chosen === 1 ? 'person' : 'people'}` : 'Visible to the team'} />}{chosen > 0 && <span className="th-shared-n" aria-hidden="true">{chosen}</span>}{lock && <LockMark />}{pinned && <PinMark size={13} className="th-pin" />}</div>
+    <div className="th-cell-state" title={status?.title}>{status && <><StatusMark status={status} />{status.word}</>}</div>
     <div className="th-cell-proj">{where}</div>
     {person !== undefined && <div className="th-cell-person">{person}</div>}
     <div className={`th-cell-prio${id === 'urgent' ? ' urgent' : ''}`}>{id && <><PriorityMark id={id} />{priorityLabelOf(id)}</>}</div>
@@ -538,10 +599,21 @@ export function ThreadCells({ item, product, now, person, tab }: {
   tab?: string;
 }) {
   const when = tab === 'done' ? finishedAt(item) : item.updatedAt;
-  const liveIds = useContext(LiveContext);
-  const cloudIds = useContext(CloudContext);
+  // ON LATER THE TIME COLUMN IS WHEN IT COMES BACK (power-test-1, issue 18),
+  // not how long ago it was touched, which is what a page of things coming
+  // back has no use for. A thread added to Later and never started comes back
+  // when you say so and not on a clock, and its cell is EMPTY rather than
+  // falling through to Updated, which under a heading saying Back would be a
+  // return time that is not one. The row says "not started" beside its name.
+  const back = tab === 'snoozed' ? backWords(item, now) : undefined;
   const waiting = useContext(WaitingContext);
+  const freeWait = useContext(FreeAgentContext);
   const team = useContext(TeamContext);
+  // WHAT IS HAPPENING ON IT, for the Status column. `inProgress` is the tab
+  // this row is drawn under: the words about agents waiting their turn are
+  // only ever true there, which is the gate live-line has always had.
+  const fleet = useContext(FleetContext);
+  const status = statusCell(item, { ...factsFor(fleet, item.id), inProgress: tab === 'progress', now });
   // WHO SEES IT, AT A GLANCE AND ONE CLICK FROM CHANGING (2026-10-01). One
   // mark after the title, always: the people on a thread the team or chosen
   // people can see, the lock on one only you can see. A thread shared with
@@ -574,8 +646,8 @@ export function ThreadCells({ item, product, now, person, tab }: {
   // which is why it is handed your teammates' first names.
   const said = messageLine(item, product, team?.me ?? null, (id) => firstName(team?.byId.get(id) ?? null));
   if (said) {
-    return <RowCells live={liveIds.has(item.id)} cloud={cloudIds.has(item.id)} title={<MessageTitle people={said.people} fromMe={said.fromMe} text={said.text} />} pinned={!!item.pinned && item.status !== 'done'} where="Message" person={person}
-      priority={messagePriority(item)} updatedAt={when} now={now} action={action} />;
+    return <RowCells status={status} title={<MessageTitle people={said.people} fromMe={said.fromMe} text={said.text} />} pinned={!!item.pinned && item.status !== 'done'} where="Message" person={person}
+      priority={messagePriority(item)} updatedAt={when} when={back} now={now} action={action} />;
   }
   // ONLY THE UNUSUAL CASE WEARS A MARK (2026-10-02). Shared with the team is
   // the default, so it carries nothing; the lock is on a thread only you can
@@ -587,8 +659,12 @@ export function ThreadCells({ item, product, now, person, tab }: {
   // AND HOW MANY TASKS IT FILED STILL WAIT FOR A YES (w-d2744c6daa), in the
   // faint words a repeating task uses for its schedule: "a little bit of text
   // that gives you extra information if you need to know."
-  return <RowCells live={liveIds.has(item.id)} cloud={cloudIds.has(item.id)} title={rowTitle(item)} aside={toApproveWords(waiting.get(`${item.product}/${item.id}`))} shared={seen === 'people'} chosen={chosen} lock={lock} held={notStarted(item)} pinned={!!item.pinned && item.status !== 'done'} where={product?.name ?? ''} person={person}
-    priority={shownPriority(item)} updatedAt={when} now={now} action={action} />;
+  // "waiting for a free agent" came off this aside on the merge (w-ec2b04d449):
+  // the Status column says Queued on exactly those rows, and one fact in two
+  // places on one row is what the column was drawn to end. `FreeAgentContext`
+  // is untouched and still decides whether the cloud offers itself.
+  return <RowCells status={status} title={rowTitle(item)} aside={toApproveWords(waiting.get(`${item.product}/${item.id}`))} shared={seen === 'people'} chosen={chosen} lock={lock} held={notStarted(item)} pinned={!!item.pinned && item.status !== 'done'} where={product?.name ?? ''} person={person}
+    priority={shownPriority(item)} updatedAt={when} when={back} now={now} action={action} />;
 }
 
 /* ------------------------------------------------------------ the board */
@@ -622,6 +698,7 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
 }) {
   const liveIds = useContext(LiveContext);
   const cloudIds = useContext(CloudContext);
+  const fleet = useContext(FleetContext);
   const team = useContext(TeamContext);
   const me = team?.me ?? null;
   const who = picked ?? (me ? [me] : []);
@@ -869,6 +946,8 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
           const pick = !!e.item && !!onMark;
           const on = pick && !!marked?.has(e.item!.id);
           const edge = isSelected(e) && !marked?.size;
+          // A teammate's card carries their summary and never our agents.
+          const status = e.item ? statusCell(e.item, { ...factsFor(fleet, e.item.id), state: e.state, inProgress: e.state === 'running', now }) : null;
           const seen = e.item ? sharing(e.item) : null;
           const who = seen === 'people' ? <SharedMark label="Visible to the people on it" /> : seen === 'private' ? <LockMark /> : null;
           const pin = e.item?.pinned && e.item.status !== 'done' ? <PinMark size={13} className="th-pin" /> : null;
@@ -890,10 +969,20 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
             ? <MessageTitle people={e.message.people} fromMe={e.message.fromMe} text={e.title ?? ''} mark={pin} />
             : <TitleThenMark title={e.title ?? ''} mark={marks} />}
           </div>
-          <div className="m">{e.live && <RunningMark cloud={!!e.item && cloudIds.has(e.item.id)} />}{e.priority !== null && <PriorityMark id={priorityIdOf(e.priority)} />}<span className="p">{e.project}</span>
+          {/* WHAT IS HAPPENING ON IT, INSIDE THE CARD (w-ec2b04d449). A board
+              is a board: nothing goes between the cards, and the column says
+              the state over all of them, so the word is drawn on the card
+              exactly where it says something the column does not (saysOnCard).
+              It takes the running mark's place on the card's own line, and the
+              "waiting" chip beside the project with it: Queued is the same
+              fact in the place every card now says it. */}
+          <div className="m">{status && saysOnCard(status, e.item!, e.state)
+            ? <span className="s"><StatusMark status={status} />{status.word}</span>
+            : e.live && <RunningMark cloud={!!e.item && cloudIds.has(e.item.id)} />}{e.priority !== null && <PriorityMark id={priorityIdOf(e.priority)} />}<span className="p">{e.project}</span>
             {withOthers && <Face person={e.ownerId ? team?.byId.get(e.ownerId) ?? null : null} me={e.ownerId === me} />}</div>
         </button>;
         })}
+        {col.state === 'running' && <CloudOfferCard />}
       </div>;
     })}
   </div></div>;

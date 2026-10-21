@@ -10,6 +10,7 @@ import { EventEmitter } from 'node:events';
 import crypto from 'node:crypto';
 import { asPulled } from '../../shared/team-rules.mjs';
 import { cleanStatus } from '../../shared/team-status.mjs';
+import { roomsMemory } from './rooms-memory.mjs';
 
 // The database's own checks on a message's file (20261013000000_message_files.sql).
 const FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$/;
@@ -101,6 +102,7 @@ export function memoryBackend(cloud, personId) {
       if (at < 0) refuse('join a team that did not invite you');
       cloud.invites.splice(at, 1);
       if (!cloud.members.some((m) => m.teamId === teamId && m.personId === personId)) cloud.members.push({ teamId, personId, role: 'member' });
+      cloud.events.emit('rooms', { kind: 'membership' });
       return teamId;
     },
 
@@ -150,6 +152,7 @@ export function memoryBackend(cloud, personId) {
     async removeMember(teamId, who) {
       if (who !== personId && !owns(teamId)) refuse('remove somebody from a team you do not own');
       cloud.members = cloud.members.filter((m) => !(m.teamId === teamId && m.personId === who));
+      cloud.events.emit('rooms', { kind: 'membership' });
     },
 
     async listInvites(teamId) {
@@ -376,5 +379,7 @@ export function memoryBackend(cloud, personId) {
       cloud.events.on('phone', fire);
       return () => { cloud.events.off('lines', fire); cloud.events.off('cards', fire); cloud.events.off('people', fire); cloud.events.off('phone', fire); };
     },
+
+    ...roomsMemory(cloud, personId, { confirmedEmail, refuse }),
   };
 }
