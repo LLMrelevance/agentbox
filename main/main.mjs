@@ -25,6 +25,7 @@ import { readCodexThreadsOffThread } from './codex-threads.mjs';
 import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
 import { stallWatch } from './stall-watch.mjs';
+import { startFreezeRecorder } from './freeze-recorder.mjs';
 import { applyThrough, phoneDevice } from './phone-inbox.mjs';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
@@ -401,6 +402,13 @@ async function createWindow() {
   supervisor.count = (name, props) => analytics.track(name, props);
   const stalls = stallWatch();
   supervisor.stalls = stalls;
+  // AND WHICH OF OUR FUNCTIONS HELD THE THREAD, each time it froze.
+  const freezes = startFreezeRecorder({
+    dir: path.join(userDir, 'memory-log'),
+    appDir,
+    onFreeze: (f) => { stalls.noteFreeze(f); console.warn(`zero: the app froze for ${f.ms} ms in ${f.where}`); },
+  });
+  quitStep(app, 'before-quit', 'freezes.stop', () => freezes.stop());
   quitStep(app, 'before-quit', 'supervisor.killAll', () => supervisor.killAll());
   // THE TEAM. Off entirely on a build with no team cloud (the single-person
   // app). Otherwise it restores whoever was signed in, and from then on every
