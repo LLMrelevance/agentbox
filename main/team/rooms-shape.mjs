@@ -27,7 +27,8 @@ export const reactionOut = (r) => ({
 
 // The checks room_files makes (20261022000000_room_messages_do_more.sql).
 export const ROOM_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$/;
-// 10 MiB of file as base64, padding included.
+// 10 MiB of file, and that much as base64 with its padding.
+export const ROOM_FILE_MAX_BYTES = 10 * 1024 * 1024;
 export const ROOM_FILE_MAX_DATA = 13_981_016;
 // A name already in the room: the file is there, which is what was wanted.
 export const FILE_EXISTS = 'room-file-exists';

@@ -3,7 +3,7 @@
 // be tested with several people and no network. tests/rooms-backends-agree
 // runs one scenario against this and against a real database.
 import crypto from 'node:crypto';
-import { PROFILE_FIELDS, PRESENCE_FIELDS, pick, roomOut, messageOut, reactionOut, ROOM_FILE_NAME, ROOM_FILE_MAX_DATA, fileExists } from './rooms-shape.mjs';
+import { PROFILE_FIELDS, PRESENCE_FIELDS, pick, roomOut, messageOut, reactionOut, ROOM_FILE_NAME, ROOM_FILE_MAX_DATA, ROOM_FILE_MAX_BYTES, fileExists } from './rooms-shape.mjs';
 
 export const GENERAL_ROOM = '9e9e9e9e-0000-4000-8000-000000000001';
 const MIN = 60_000;
@@ -261,7 +261,7 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
       limit('files', [...s.roomFiles.values()].filter((f) => f.byPerson === personId && f.createdAt > now() - 10 * MIN).length, 30);
       if (!inRoom(r)) refuse('send a file to a room you are not in');
       if (!ROOM_FILE_NAME.test(n)) refuse('a file name that is not a plain name');
-      if (d.length > ROOM_FILE_MAX_DATA) refuse('a file that big');
+      if (d.length > ROOM_FILE_MAX_DATA || Buffer.from(d, 'base64').length > ROOM_FILE_MAX_BYTES) refuse('a file that big');
       if (s.roomFiles.has(`${r}:${n}`)) throw fileExists(n);
       s.roomFiles.set(`${r}:${n}`, { roomId: r, name: n, byPerson: personId, data: d, createdAt: now() });
       return n;

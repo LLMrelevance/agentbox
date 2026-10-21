@@ -24,7 +24,7 @@ import { pictureUrl } from '../../picture';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
 import { cardName, clockOf, mentionsIn } from './room-rules';
-import { drawnRoots, mentionMarkdown, myNewest, newLineAt, storedName } from './room-chat-rules';
+import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, storedName } from './room-chat-rules';
 
 export type ChatPerson = { id: string; name: string; avatarUrl: string | null; me: boolean };
 
@@ -85,8 +85,10 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
   // Marked unread from anywhere (the list's menu too) while it is open holds
   // it the same way; opening a room that was already marked reads it.
   useEffect(() => {
-    if (room.markedUnread && !wasMarked.current) { held.current = true; setReadFrom(room.readAt ?? null); }
-    wasMarked.current = !!room.markedUnread;
+    const marked = !!room.markedUnread;
+    if (marked && !wasMarked.current) setReadFrom(room.readAt ?? null);
+    held.current = holdsRead(held.current, wasMarked.current, marked);
+    wasMarked.current = marked;
   }, [room.markedUnread, room.readAt]);
   useEffect(() => {
     const read = () => { if (!held.current && document.visibilityState === 'visible' && document.hasFocus()) onRead(); };

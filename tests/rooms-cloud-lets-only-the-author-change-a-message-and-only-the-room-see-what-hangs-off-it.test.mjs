@@ -255,11 +255,15 @@ describe('files on a message', () => {
     expect(await src('react_room_message')).toMatch(/where id = m for share;/);
   });
 
-  // 10 MiB is 10,485,760 bytes, which base64 writes in 13,981,016 characters.
+  // 10 MiB is 10,485,760 bytes, which base64 writes in 13,981,016 characters
+  // ending in '=='. The same length without padding decodes to two bytes more.
   // A member can insert here directly, so this is the limit that holds.
-  it('up to 10 MiB of file as base64, and not one character more', async () => {
-    expect(await refused(MAYA, `insert into public.room_files (room_id, name, by_person, data) values ($1, 'big.bin', $2, repeat('A', 13981017))`, [room, MAYA])).toBe(true);
-    expect(await refused(MAYA, `insert into public.room_files (room_id, name, by_person, data) values ($1, 'big.bin', $2, repeat('A', 13981016))`, [room, MAYA])).toBe(false);
+  it('up to 10 MiB of file, counted in decoded bytes, and not one byte more', async () => {
+    const insert = (data) => refused(MAYA, `insert into public.room_files (room_id, name, by_person, data) values ($1, 'big.bin', $2, $3)`, [room, MAYA, data]);
+    expect(await insert(`${'A'.repeat(13981012)}AAA=`)).toBe(true);
+    expect(await insert('A'.repeat(13981016))).toBe(true);
+    expect(await insert('A'.repeat(13981020))).toBe(true);
+    expect(await insert(`${'A'.repeat(13981012)}AA==`)).toBe(false);
   });
 
   it('a name is kept once: a second file of that name is a conflict, and nothing is changed or deleted by hand', async () => {

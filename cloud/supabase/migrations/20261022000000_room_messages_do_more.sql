@@ -35,9 +35,10 @@ create table if not exists public.room_files (
   -- Unlike message_files, General outlives everyone in it, so a file there
   -- must not stop its sender's account from being deleted.
   by_person uuid not null references public.people(id) on delete cascade,
-  -- 10 MiB of file, the app's limit, is at most 13,981,016 characters of
-  -- base64. Members insert here directly, so this is the limit that holds.
-  data text not null check (length(data) <= 13981016),
+  -- 10 MiB of file, the app's limit, counted in decoded bytes: base64 without
+  -- its padding stretches the same length of text two bytes further. Members
+  -- insert here directly, so this is the limit that holds.
+  data text not null check (length(data) <= 13981016 and octet_length(decode(data, 'base64')) <= 10485760),
   created_at timestamptz not null default now(),
   primary key (room_id, name)
 );

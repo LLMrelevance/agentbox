@@ -32,6 +32,18 @@ export function storedName(name: string, now = Date.now(), rand = Math.random().
   return `${now.toString(36)}-${rand}-${safe}`;
 }
 
+/**
+ * Whether the open room holds off reading itself. Marking it unread, from a
+ * message or from the list, holds it until you leave; marking it read again
+ * lets go. Opening a room already marked unread does not hold: opening it is
+ * reading it.
+ */
+export function holdsRead(held: boolean, wasMarked: boolean, isMarked: boolean): boolean {
+  if (isMarked && !wasMarked) return true;
+  if (!isMarked && wasMarked) return false;
+  return held;
+}
+
 /** The newest message of mine in the chat itself, for ↑ in an empty box. */
 export function myNewest(messages: readonly RoomMessage[], me: string | null, inReplyTo: string | null = null): RoomMessage | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {

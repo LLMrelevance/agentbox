@@ -350,6 +350,10 @@ describe.each(worlds)('rooms on %s', (_kind, make) => {
       await w.maya.editRoomMessage(m.id, { body: 'live, edited' });
       await w.maya.reactRoomMessage(elsewhere.id, '👀', true);
       await w.maya.reactRoomMessage(m.id, '👀', true);
+      // A delete takes the message's reactions with it, and Supabase checks who
+      // may see a change by reading the row, so a reaction deleted a moment
+      // after it was made is heard by nobody. Nothing is lost: its message is gone.
+      for (let i = 0; i < 100 && !heard.some((h) => h[0] === 'reaction'); i += 1) await new Promise((r) => setTimeout(r, 100));
       await w.maya.deleteRoomMessage(m.id);
       for (let i = 0; i < 100 && heard.length < 4; i += 1) await new Promise((r) => setTimeout(r, 100));
       await new Promise((r) => setTimeout(r, 300));

@@ -8,7 +8,7 @@
 // address that merely contains a name does not; and a stored file keeps its
 // own name at the end so the voice note's length survives.
 import { describe, it, expect } from 'vitest';
-import { drawnRoots, mentionMarkdown, myNewest, newLineAt, storedName } from '../renderer/src/team/rooms/room-chat-rules.ts';
+import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, storedName } from '../renderer/src/team/rooms/room-chat-rules.ts';
 import { voiceNoteOf } from '../renderer/src/team/voice-note.ts';
 
 const ME = 'p-me', MAYA = 'p-maya';
@@ -58,6 +58,23 @@ describe('a file sent in a room', () => {
   it('carries no path or odd characters, whatever it was called', () => {
     expect(storedName('../../etc/pass wd', 1, 'x')).toBe('1-x-etc-pass-wd');
     expect(storedName('', 1, 'x')).toBe('1-x-file');
+  });
+});
+
+// Codex found the open room stayed held after "Mark as read" undid a "Mark as
+// unread", so new messages went on arriving unread while you read them.
+describe('whether the open room reads itself', () => {
+  it('holds once it is marked unread, from a message or from the list', () => {
+    expect(holdsRead(false, false, true)).toBe(true);
+  });
+  it('lets go when it is marked read again', () => {
+    expect(holdsRead(true, true, false)).toBe(false);
+  });
+  it('does not hold a room that was already marked when you opened it', () => {
+    expect(holdsRead(false, true, true)).toBe(false);
+  });
+  it('keeps holding while nothing about the mark changes', () => {
+    expect(holdsRead(true, false, false)).toBe(true);
   });
 });
 

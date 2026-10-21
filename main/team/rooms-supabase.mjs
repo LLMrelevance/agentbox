@@ -4,6 +4,9 @@
 import { Name } from '../../shared/product-name.mjs';
 import { PROFILE_COLS, PRESENCE_COLS, PROFILE_FIELDS, PRESENCE_FIELDS, MSG_COLS, REACTION_COLS, pick, roomOut, messageOut, reactionOut, fileExists } from './rooms-shape.mjs';
 
+// How long the chat waits to hear that reactions are listening before it says
+// it is ready anyway.
+const REACTIONS_WAIT_MS = 10_000;
 // The columns a cloud from before 20261022000000_room_messages_do_more.sql has.
 const OLD_MSG_COLS = 'id,room_id,by_person,body,in_reply_to,mentions,created_at';
 // Postgres and PostgREST's words for a column or a table that is not there.
@@ -238,6 +241,14 @@ export function roomsSupabase(client, myId, must) {
     // Subscribing takes a few seconds and a dropped socket subscribes again;
     // each time it is told, so whatever was sent meanwhile is read.
     subscribeRooms(onEvent) {
+      // SUBSCRIBED IS SAID ONCE BOTH CHANNELS LISTEN, or the reactions one has
+      // given up, since what is said on it is read again then. Said first by
+      // the chat's channel alone, a reaction made in the moment between was
+      // heard by nobody (measured on a local cloud). A channel that drops and
+      // subscribes again says it again.
+      let chatUp = false;
+      let reactionsSettled = false;
+      const ready = () => { if (chatUp && reactionsSettled) onEvent({ kind: 'subscribed' }); };
       const channel = client.channel(`rooms-${Math.random().toString(36).slice(2)}`)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'room_messages' }, (p) => onEvent({ kind: 'message', message: messageOut(p.new) }))
         // An edit, and a delete, which empties the message rather than removing it.
@@ -246,15 +257,17 @@ export function roomsSupabase(client, myId, must) {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'room_profiles' }, () => onEvent({ kind: 'profile' }))
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'room_events' }, () => onEvent({ kind: 'membership' }))
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'access_events' }, () => onEvent({ kind: 'membership' }))
-        .subscribe((status) => { if (status === 'SUBSCRIBED') onEvent({ kind: 'subscribed' }); });
+        .subscribe((status) => { if (status === 'SUBSCRIBED') { chatUp = true; ready(); } });
       // REACTIONS ON A CHANNEL OF THEIR OWN: one change the server cannot
       // follow fails its whole channel, and a cloud not yet updated has no
       // room_reactions table. Turning a reaction off is an update too.
       const reacting = client.channel(`room-reactions-${Math.random().toString(36).slice(2)}`)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'room_reactions' }, (p) => onEvent({ kind: 'reaction', reaction: reactionOut(p.new) }))
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_reactions' }, (p) => onEvent({ kind: 'reaction', reaction: reactionOut(p.new) }))
-        .subscribe();
-      return () => { client.removeChannel(channel); client.removeChannel(reacting); };
+        .subscribe((status) => { if (['SUBSCRIBED', 'CHANNEL_ERROR', 'TIMED_OUT'].includes(status)) { reactionsSettled = true; ready(); } });
+      const giveUp = setTimeout(() => { reactionsSettled = true; ready(); }, REACTIONS_WAIT_MS);
+      giveUp.unref?.();
+      return () => { clearTimeout(giveUp); client.removeChannel(channel); client.removeChannel(reacting); };
     },
   };
 }
