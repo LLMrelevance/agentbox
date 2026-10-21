@@ -103,8 +103,10 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
   const nameOf = (id: string | null) => { const p = who(id); return p ? cardName(p) : 'Someone'; };
   const listRef = useStick([room.id, thread, shown.length]);
   const slots = chatLayout(shown.map((m) => ({ at: m.at, by: m.by ?? '' })), now);
+  const myName = people.find((p) => p.me)?.name ?? null;
   const body = (m: RoomMessage) => (
-    <RoomMarkdown text={m.body} names={names} loadFile={calls.loadFile} roomId={room.id} mine={m.by === meId} />
+    <RoomMarkdown text={m.body} names={names} loadFile={calls.loadFile} roomId={room.id} mine={m.by === meId}
+      me={meId && m.by !== meId && m.mentions.includes(meId) ? myName : null} />
   );
 
   return <div className={full ? 'rm-full' : 'rm-chat'}>
@@ -126,14 +128,13 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
       {shown.map((m, i) => {
         const slot = slots[i];
         const mine = m.by === meId;
-        const mentioned = !!meId && m.mentions.includes(meId) && !mine;
         const reps = !root ? replies.get(m.id) ?? [] : [];
         const p = who(m.by);
         const headed = slot.head || (root && i === 0) || m.id === newAt;
         return <div key={m.id}>
           {slot.day && <div className="rm-day"><span className="rm-label">{slot.day}</span></div>}
           {m.id === newAt && <div className="rm-new" role="separator"><span>New</span></div>}
-          <div className={`rm-cm${headed ? '' : ' cont'}${mentioned ? ' mine' : ''}${root && i === 0 ? ' root' : ''}`}>
+          <div className={`rm-cm${headed ? '' : ' cont'}${root && i === 0 ? ' root' : ''}`}>
             {headed && <div className="h">
               <RoomFace name={p?.name ?? '?'} url={p?.avatarUrl} size={16} />
               <span>{nameOf(m.by)}</span><em>{clockOf(m.at)}</em>
@@ -204,8 +205,10 @@ function RoomPicture({ roomId, name, alt, loadFile }: { roomId: string; name: st
 const MARKDOWN_PLUGINS = [remarkGfm];
 const storedIn = (href: string) => /^attachments\/([A-Za-z0-9][\w.-]{0,159})$/.exec(href)?.[1] ?? null;
 
-function RoomMarkdown({ text, names, loadFile, roomId, mine }: {
+function RoomMarkdown({ text, names, loadFile, roomId, mine, me }: {
   text: string; names: string[]; roomId: string; mine: boolean; loadFile?: (name: string) => Promise<Blob | null>;
+  /** Your name, when this message names you. */
+  me: string | null;
 }) {
   // The same parts on every draw: new ones would remount each voice note in
   // the chat, so none could finish loading. The file is fetched through a ref
@@ -217,6 +220,7 @@ function RoomMarkdown({ text, names, loadFile, roomId, mine }: {
     return {
       a: ({ href, children }: { href?: string; children?: ReactNode }) => {
         if (href === '#mention') return <b className="rm-at">{children}</b>;
+        if (href === '#mention-me') return <b className="rm-at me">{children}</b>;
         const name = href ? storedIn(href) : null;
         const note = name ? voiceNoteOf(name) : null;
         if (name && note) return <VoiceNote id={`room:${roomId}:${name}`} ms={note.ms} mine={mine} load={() => fetchFile(name)} />;
@@ -229,7 +233,7 @@ function RoomMarkdown({ text, names, loadFile, roomId, mine }: {
       },
     };
   }, [roomId, mine]);
-  return <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>{mentionMarkdown(text, names)}</ReactMarkdown>;
+  return <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>{mentionMarkdown(text, names, me)}</ReactMarkdown>;
 }
 
 // Keeps the newest message in view while you are at the bottom, and leaves

@@ -105,7 +105,6 @@
 .rm-cm .rep:hover { color: var(--text-dim); }
 .rm-cm .act { display: none; margin-left: auto; font: 10px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--text-faint); background: none; border: 0; padding: 0; }
 .rm-cm:hover .act { display: inline; }
-.rm-cm.mine { margin: 0 -20px; padding-left: 20px; padding-right: 20px; background: var(--wash); box-shadow: inset 2px 0 0 var(--accent); }
 .rm-cm.root { padding-bottom: 12px; border-bottom: 1px solid var(--rm-line); margin-bottom: 4px; }
 .rm-day { margin: 6px 0 4px; }
 .rm-compose { margin: 8px 20px 20px; flex: none; border: 1px solid var(--line-strong); background: var(--control-face); display: flex; flex-direction: column; }
@@ -127,6 +126,7 @@
 .rm-cm .tx a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .rm-cm .tx code { font-family: var(--mono); font-size: .88em; background: var(--wash-strong); padding: 1px 4px; }
 .rm-cm .tx .rm-at { font-weight: 400; background: var(--wash-strong); padding: 0 3px; }
+.rm-cm .tx .rm-at.me { box-shadow: inset 0 -2px 0 var(--accent); }
 .rm-cm .tx .inline-image { display: block; max-width: min(100%, 360px); max-height: 240px; margin-top: 6px; }
 .rm-cm .tx .inline-image.arriving { width: min(100%, 360px); height: 160px; background: var(--wash); }
 .rm-cm .rm-file { display: inline-block; margin-top: 4px; padding: 3px 8px; border: 1px solid var(--line); font-size: 12.5px; color: var(--text-dim); }
@@ -358,7 +358,6 @@
 .rm-full > .hd { height: 52px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 28px; border-bottom: 1px solid var(--rm-line); font-size: 15px; color: var(--text); }
 .rm-full > .hd .ic { margin-left: auto; display: flex; gap: 8px; }
 .rm-full .rm-chat-list { padding: 10px 28px 4px; max-width: 760px; width: 100%; box-sizing: border-box; }
-.rm-full .rm-cm.mine { margin: 0 -28px; padding-left: 28px; padding-right: 28px; }
 .rm-full .rm-cm .h { font-size: 14px; }
 .rm-full .rm-cm .tx { font-size: 14.5px; line-height: 22px; }
 .rm-full .rm-compose { margin: 8px 28px 24px; max-width: 704px; }

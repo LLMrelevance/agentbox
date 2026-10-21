@@ -21,9 +21,13 @@ export function drawnRoots(messages: readonly RoomMessage[]): RoomMessage[] {
   return messages.filter((m) => !m.inReplyTo && (!m.deleted || answered.has(m.id)));
 }
 
-/** The message as markdown, each @name made a mention link so it can be drawn as one. */
-export function mentionMarkdown(body: string, names: readonly string[]): string {
-  return markMentions(body, names).map((part) => (part.mention ? `[${part.text}](#mention)` : part.text)).join('');
+/** The message as markdown, each @name made a mention link so it can be drawn as one, and yours told apart. */
+export function mentionMarkdown(body: string, names: readonly string[], me: string | null = null): string {
+  const mine = me ? `@${me}`.toLowerCase() : null;
+  return markMentions(body, names).map((part) => {
+    if (!part.mention) return part.text;
+    return `[${part.text}](${part.text.toLowerCase() === mine ? '#mention-me' : '#mention'})`;
+  }).join('');
 }
 
 /** The name a file sent in a room is stored under: unique, and still ending in its own name. */
