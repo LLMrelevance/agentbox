@@ -120,7 +120,7 @@ describe('1. the tutorial offers itself when somebody makes a new project', () =
   it('writes the bit on BOTH buttons, so turning it down is an answer too', () => {
     // An offer that only remembers being accepted comes back on the next
     // project, which is the nagging she refuses.
-    const started = app.slice(app.indexOf('const startTutorial = useCallback'), app.indexOf('}, []);', app.indexOf('const startTutorial = useCallback')));
+    const started = app.slice(app.indexOf('const startTutorial = useCallback'), app.indexOf('\n  }, [', app.indexOf('const startTutorial = useCallback')));
     expect(started).toContain('rememberOffered(localStorage)');
     const declined = app.slice(app.indexOf('<TutorialOffer'), app.indexOf('<TutorialOffer') + 1400);
     expect(declined).toContain('onNot={');
@@ -298,7 +298,7 @@ describe('2. the two of them are two things, and a stranger can tell them apart'
     // `walkAgain` calls `restartFirstRun` because that walk really is the first
     // run and has to believe it. The tutorial does not: the person is set up and
     // stays set up.
-    const fn = app.slice(app.indexOf('const startTutorial = useCallback'), app.indexOf('}, []);', app.indexOf('const startTutorial = useCallback')));
+    const fn = app.slice(app.indexOf('const startTutorial = useCallback'), app.indexOf('\n  }, [', app.indexOf('const startTutorial = useCallback')));
     expect(fn).not.toContain('restartFirstRun');
     expect(fn).toContain('setRun(tutorialRun(product))');
     // And it touches neither the store nor the main process.
@@ -333,7 +333,7 @@ describe('2. the two of them are two things, and a stranger can tell them apart'
   it('puts the ⌘K beat back to nobody-has-opened-it before either walk starts', () => {
     for (const name of ['walkAgain', 'startTutorial']) {
       const from = app.indexOf(`const ${name} = useCallback`);
-      const fn = app.slice(from, app.indexOf('}, []);', from));
+      const fn = app.slice(from, app.indexOf('\n  }, [', from));
       expect(fn, name).toContain('sawPalette.current = false;');
     }
   });

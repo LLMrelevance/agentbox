@@ -85,31 +85,8 @@ fast-forward writes no commit and so walked straight past the commit guards: on
 nowhere else. That folder follows the public main on its own:
 `git fetch origin && git merge --ff-only refs/remotes/origin/main`.
 
-## WHO HAS TO LOOK BEFORE A CHANGE SHIPS (2026-10-17)
-
-The person's time is the bottleneck, so `npm run ship` sets a risk tier from
-the diff (`scripts/lib/risk-tier.mjs`): rules first, then the Decisions API for
-what the rules leave open. The tier comes from the change, never from you.
-
-- **low** ships on green tests alone: docs, tests, scripts, internal logic, a
-  bug fix its test proves, a few words of copy that move nothing.
-- **look** waits for the person to see it: anything on screen a designer could
-  judge, including copy that wraps or changes a layout.
-- **risky** waits for the person: the paths and lines listed in
-  `risk-tier.mjs`, over 600 changed lines, or a classifier that was not sure.
-
 Whether you ask before shipping is set by the person's own instructions, not
-by this file. `scripts/risk-gate.json` says whether the gate holds anything
-back: in `shadow` it only logs what it would have done (`npm run risk -- --log`);
-in `live` it refuses look and risky without an approval.
-
-- `npm run risk` previews the tier the rules give your branch.
-- When the person says ship it, run `npm run ship:approved`, then add the
-  label. The approval covers that commit; a new commit needs a new approval.
-- If the gate holds a ship back, you are woken with its reasons: show the
-  person and ask.
-- "Undo it" is: revert your commits on your branch, merge origin/main, add
-  `ship`.
+by this file.
 
 ## MAIN WAS REWRITTEN ON 2026-10-06
 

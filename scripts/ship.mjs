@@ -28,10 +28,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import fs from 'node:fs';
 import { racedWithAnotherPush, notReadyToShip } from './lib/ship-rules.mjs';
-import { classify, shipVerdict, approvalCovers, readFacts, readGate, approvalFile, riskLogFile } from './lib/risk-tier.mjs';
-import { decide } from '../main/neo/decide.mjs';
 
 // THE FOLDER IT SHIPS IS THE ONE IT RUNS IN. `npm run ship` runs in the
 // package root, so a person or agent in a worktree ships that worktree as
@@ -60,36 +57,6 @@ const why = notReadyToShip({
   hasCommits: git('rev-list', '--count', `${PUBLIC}/main..HEAD`) !== '0',
 });
 if (why) stop(why);
-
-// WHO HAS TO LOOK FIRST (scripts/lib/risk-tier.mjs). The gate file is read
-// beside this script, not from the branch: the app runs this copy from the
-// base checkout, so a branch cannot loosen the gate that judges it.
-async function riskGate() {
-  const gate = readGate(path.join(path.dirname(fileURLToPath(import.meta.url)), 'risk-gate.json'));
-  let verdict;
-  let entry = { at: new Date().toISOString(), branch, mode: gate.mode };
-  try {
-    const head = git('rev-parse', 'HEAD');
-    const found = await classify(readFacts(root, `${PUBLIC}/main`), { decideImpl: decide, ...gate });
-    let approvedSha = null;
-    try { approvedSha = fs.readFileSync(approvalFile(gitDir), 'utf8').trim() || null; } catch { /* none given */ }
-    const since = approvedSha ? gitSoft('rev-list', '--no-merges', `${approvedSha}..HEAD`) : null;
-    const ownCommitsSince = since?.status === 0 ? since.stdout.split('\n').filter(Boolean) : null;
-    const approved = approvalCovers({ approvedSha, head, ownCommitsSince });
-    verdict = shipVerdict({ mode: gate.mode, tier: found.tier, approved, reasons: found.reasons });
-    entry = { ...entry, head, ...found, approved, shipped: verdict.ship };
-  } catch (e) {
-    verdict = gate.mode === 'live'
-      ? { ship: false, say: `refused to ship without a person: the risk gate broke (${e.message}).` }
-      : { ship: true, say: `the risk gate broke (${e.message}); it is in shadow, so this ships as before.` };
-    entry = { ...entry, broke: e.message, shipped: verdict.ship };
-  }
-  try { fs.appendFileSync(riskLogFile(commonDir), `${JSON.stringify(entry)}\n`); } catch { /* the log is for reading later, never a gate */ }
-  if (!verdict.ship) stop(verdict.say);
-  say(verdict.say);
-}
-
-await riskGate();
 
 function mergeWhatMoved() {
   if (git('rev-list', '--count', `HEAD..${PUBLIC}/main`) === '0') return;
