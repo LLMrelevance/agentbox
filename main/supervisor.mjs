@@ -9706,9 +9706,14 @@ export class Supervisor {
 
   // And forgotten at its end when it never said its id and left nothing in the
   // cloud: a refused start has nothing to rejoin.
+  // THE CLOUD QUESTION IS ASKED FIRST, and the memory is read as a maybe. This
+  // is on the end of EVERY run, and a supervisor that never loaded its state
+  // has no `_liveSessions`, so reading it here threw out of a child's exit
+  // handler long after the run's own work was done (w-05522a0a20).
   _forgetCloudStartThatLeftNothing(item, session) {
-    const rec = this._liveSessions[item.id];
-    if (!session?.cloud || session.idRemembered || !rec || rec.sessionId || rec.startedAt !== session.startedAt) return;
+    if (!session?.cloud || session.idRemembered) return;
+    const rec = this._liveSessions?.[item.id];
+    if (!rec || rec.sessionId || rec.startedAt !== session.startedAt) return;
     if (cloudWorkPending(this._cloudPlace(session.cwd, item.product, item.id))) return;
     delete this._liveSessions[item.id];
     this._saveState();
