@@ -76,6 +76,8 @@ contextBridge.exposeInMainWorld('zero', {
   teamSync: () => ipcRenderer.invoke('zero:team-sync'),
   teamRoute: (payload) => ipcRenderer.invoke('zero:team-route', payload),
   teamReact: (payload) => ipcRenderer.invoke('zero:team-react', payload),
+  teamEdit: (payload) => ipcRenderer.invoke('zero:team-edit', payload),
+  micAccess: () => ipcRenderer.invoke('zero:mic-access'),
   teamMessage: (payload) => ipcRenderer.invoke('zero:team-message', payload),
   rooms: (payload) => ipcRenderer.invoke('zero:rooms', payload),
   takeJoin: () => ipcRenderer.invoke('zero:take-join'),
