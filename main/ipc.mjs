@@ -102,7 +102,7 @@ const NO_UPDATER = {
   move: () => ({ moved: false, error: null }),
 };
 
-const ROOM_OPS = new Set(['refresh', 'send', 'markRead', 'older', 'saveProfile', 'goInvisible', 'comeBack', 'link', 'revokeLink', 'preview', 'listed', 'invitesSent', 'joinByLink', 'joinListed', 'acceptInvite', 'invite', 'create', 'rename', 'leave', 'remove', 'pin', 'mute']);
+const ROOM_OPS = new Set(['refresh', 'send', 'markRead', 'markUnread', 'react', 'edit', 'deleteMessage', 'putFile', 'file', 'older', 'saveProfile', 'goInvisible', 'comeBack', 'link', 'revokeLink', 'preview', 'listed', 'invitesSent', 'joinByLink', 'joinListed', 'acceptInvite', 'invite', 'create', 'rename', 'leave', 'remove', 'pin', 'mute']);
 
 export function registerIpc({ store, supervisor, config, window, analytics = NO_ANALYTICS, docGrants = null, updater = NO_UPDATER, host, team = null }) {
   // The three Electron things, or a plain Node stand-in for them. There is no
@@ -884,6 +884,23 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     const here = store.listProducts().find((p) => p.slug === product);
     if (!here?.team?.direct) throw new Error('reactions are for a conversation with a teammate');
     store.react(product, id, { on, emoji, off });
+    await team.syncNow();
+  }));
+
+  // 'granted', or 'settings' once macOS's Microphone page has been opened instead.
+  ipcMain.handle('zero:mic-access', async () => {
+    try { return host.micAccess ? await host.micAccess() : 'granted'; } catch { return 'settings'; }
+  });
+
+  // EDIT OR DELETE A MESSAGE YOU SENT TO A TEAMMATE, in a conversation only,
+  // for the same reason as a reaction above.
+  ipcMain.handle('zero:team-edit', teamCall(async ({ product, id, on, text, gone }) => {
+    if (!teamMe()) throw new Error('sign in first');
+    if (!store.readItem(product, id)) throw new Error('that conversation is gone');
+    const here = store.listProducts().find((p) => p.slug === product);
+    if (!here?.team?.direct) throw new Error('only a message to a teammate can be edited');
+    if (!gone && !String(text ?? '').trim()) throw new Error('a message needs words; delete it instead');
+    store.editMessage(product, id, { on, text, gone: gone === true });
     await team.syncNow();
   }));
 

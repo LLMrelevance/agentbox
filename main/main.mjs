@@ -55,6 +55,7 @@ import { writeHeldThenReload } from './write-before-reload.mjs';
 import { IS_SHE_TYPING_IN_THE_PAGE, theAppKeepsThisInput, theAppKeepsThisLetterInAPage } from '../shared/artifact-keys.mjs';
 import { NAME, Name, WAS } from '../shared/product-name.mjs';
 import { JOIN_SCHEME, tokenFromLink } from '../shared/room-links.mjs';
+import { getMic } from './neo/mic.mjs';
 
 // HOW LONG TO WAIT AFTER THE LID OPENS, and the wait is for the network rather
 // than for the wake. `powerMonitor`'s resume event fires while wifi is still
@@ -768,7 +769,13 @@ async function createWindow() {
   };
   // `readClipboardText` is read only by the cloud setup, and only for a
   // Claude sign-in code (main/ipc.mjs `zero:cloud-clipboard-code`).
-  const filingHost = { ipcMain: filingIpcMain, app, dialog, readClipboardText: () => clipboard.readText() };
+  const filingHost = {
+    ipcMain: filingIpcMain, app, dialog, readClipboardText: () => clipboard.readText(),
+    // A voice note asks for the microphone on the press of its button, the way Neo does.
+    micAccess: () => (process.platform === 'darwin'
+      ? getMic({ systemPreferences, openExternal: (url) => shell.openExternal(url) })
+      : 'granted'),
+  };
   const ipc = registerIpc({
     store, supervisor, config, window, analytics, docGrants, updater,
     host: filingHost,
