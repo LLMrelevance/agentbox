@@ -311,6 +311,8 @@ export interface ComposeDraft {
   when: { runAt: number; repeat: unknown };
   /** Images that did not fit, so the card can say so instead of coming back short. */
   dropped: number;
+  /** When Send was pressed on these words, while that send has not landed. */
+  sendingAt?: number;
 }
 
 export const COMPOSE_DRAFT_KEY = 'zero.draft.compose';
@@ -355,7 +357,29 @@ export function readComposeDraft(store?: DraftStore): ComposeDraft {
     priority: typeof d.priority === 'string' ? d.priority : null,
     when: { runAt: typeof when.runAt === 'number' ? when.runAt : 0, repeat: when.repeat ?? null },
     dropped: typeof d.dropped === 'number' && d.dropped > 0 ? d.dropped : 0,
+    ...(typeof d.sendingAt === 'number' ? { sendingAt: d.sendingAt } : {}),
   };
+}
+
+/** As long as an ordinary send takes; past it the app says it is not answering. */
+export const COMPOSE_SENDING_GRACE_MS = 6_000;
+
+/** Stamp the written copy as being sent, and return it. */
+export function markComposeDraftSending(store?: DraftStore, now = Date.now()): ComposeDraft {
+  const d = readComposeDraft(store);
+  if (composeDraftIsEmpty(d)) return d;
+  return saveComposeDraft({ ...d, sendingAt: now }, store);
+}
+
+/**
+ * What a NEW card opens with. Words whose send is still in flight are not a
+ * draft yet, or N straight after Send opens on the task just sent; once the
+ * send has hung past the grace they come back, as a frozen app needs.
+ */
+export function openingComposeDraft(store?: DraftStore, now = Date.now()): ComposeDraft {
+  const d = readComposeDraft(store);
+  if (d.sendingAt && now - d.sendingAt < COMPOSE_SENDING_GRACE_MS) return { ...EMPTY_COMPOSE_DRAFT };
+  return d;
 }
 
 /** Nothing typed, nothing pasted and nothing set is not a draft. */
@@ -454,7 +478,13 @@ export function dropComposeDraft(sent: ComposeDraft, store?: DraftStore): void {
  */
 export function restoreComposeDraft(draft: ComposeDraft, store?: DraftStore): boolean {
   if (!draft || composeDraftIsEmpty(draft)) return false;
-  if (!composeDraftIsEmpty(readComposeDraft(store))) return false;
-  saveComposeDraft(draft, store);
+  const now = readComposeDraft(store);
+  // A send that failed still holds its stamped copy: it comes back as a draft.
+  if (now.sendingAt && now.text === draft.text) {
+    saveComposeDraft({ ...now, sendingAt: undefined }, store);
+    return true;
+  }
+  if (!composeDraftIsEmpty(now)) return false;
+  saveComposeDraft({ ...draft, sendingAt: undefined }, store);
   return true;
 }

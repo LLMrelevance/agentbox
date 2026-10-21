@@ -100,8 +100,10 @@ describe('the card hands over before it waits on anything', () => {
 
     it(`${name}: the draft rides with the send from before the first await, and is back on a failure`, () => {
       const send = body(name);
-      expect(send.indexOf('const taken = readComposeDraft()')).toBeGreaterThan(-1);
-      expect(send.indexOf('const taken = readComposeDraft()')).toBeLessThan(send.indexOf('await '));
+      // Read and stamped as sending, still not taken
+      // (tests/a-new-thread-box-opened-right-after-send-starts-empty).
+      expect(send.indexOf('const taken = markComposeDraftSending()')).toBeGreaterThan(-1);
+      expect(send.indexOf('const taken = markComposeDraftSending()')).toBeLessThan(send.indexOf('await '));
       expect(send).toMatch(/restoreComposeDraft\(taken\)/);
       // Nothing clears the draft outright after the send lands: by then it may
       // be a second card's words. `dropComposeDraft` is the one that may,

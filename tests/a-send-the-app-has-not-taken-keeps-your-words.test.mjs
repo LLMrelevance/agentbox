@@ -81,8 +81,10 @@ describe('the card is wired to it', () => {
   for (const [name, mark] of [['a task', 'const sendTask'], ['a message to a person', 'const sendMessage']]) {
     it(`${name}: hands the words over before the first await, and keeps the copy`, () => {
       const send = composer.slice(composer.indexOf(mark), composer.indexOf('\n  };', composer.indexOf(mark)));
-      expect(send).toMatch(/const taken = readComposeDraft\(\);/);
-      expect(send.indexOf('const taken = readComposeDraft()')).toBeLessThan(send.indexOf('await '));
+      // Stamped as sending, still not taken
+      // (tests/a-new-thread-box-opened-right-after-send-starts-empty).
+      expect(send).toMatch(/const taken = markComposeDraftSending\(\);/);
+      expect(send.indexOf('const taken = markComposeDraftSending()')).toBeLessThan(send.indexOf('await '));
       expect(send).toMatch(/dropComposeDraft\(taken\)/);
       // The copy is dropped only after something has answered, which is the
       // whole of the change: a `dropComposeDraft` before the first await would
