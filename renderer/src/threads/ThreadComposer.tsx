@@ -42,7 +42,7 @@ import { conversationWith } from './page-rules';
 import { collectFiles, fromPaste, persistAttachments, type PendingAttachment } from '../attachments';
 import { AttachRow } from '../components/AttachRow';
 import { PRIORITIES, priorityLabelOf, priorityValueOf, startingPriority, type PriorityId } from '../priority';
-import { readComposeDraft, saveComposeDraft, takeComposeDraft, type ComposeDraft } from '../drafts';
+import { dropComposeDraft, readComposeDraft, restoreComposeDraft, saveComposeDraft, type ComposeDraft } from '../drafts';
 import { LAST_PRODUCT_KEY } from '../compose-project';
 import { practiceRefusal, noProjectYet } from '../compose-says';
 import { defaultModelFor, engineModelLabel, readLastModel, writeLastModel, type ModelChoice } from '../models';
@@ -406,7 +406,9 @@ export function ThreadComposer({
     // milliseconds on the desktop and a relay round trip on a phone, which read
     // as Send not having worked. The words come off the card now and go with
     // the send, for Z, and back onto it if the send does not stand.
-    const taken = takeComposeDraft();
+    //
+    // The written-down copy stays until something answers (`dropComposeDraft`).
+    const taken = readComposeDraft();
     try { localStorage.setItem(LAST_PRODUCT_KEY, product.slug); } catch { /* the send still stands */ }
     onSending?.({ kind: when.repeat ? 'repeat' : 'task', product: product.slug, ...(when.runAt ? { runAt: when.runAt } : {}), ...(when.start ? { start: when.start } : {}) });
     try {
@@ -429,6 +431,7 @@ export function ThreadComposer({
           product: product.slug, title: message.title, body: body || undefined, priority, rule: when.repeat,
           ...(harness.engine ? { engine: harness.engine } : {}), ...(harness.model ? { model: harness.model } : {}),
         });
+        dropComposeDraft(taken);
         onSent(null, { kind: 'repeat', product: product.slug, title: message.title, ruleId: rule?.id, draft: taken });
       } else {
         const made = await api.compose({
@@ -444,13 +447,15 @@ export function ThreadComposer({
           // The tutorial's own task, and only ever that one. See `scripted`.
           ...(scripted ? { labels: scripted.labels } : {}),
         });
+        dropComposeDraft(taken);
         onSent(made, { kind: 'task', product: product.slug, title: message.title, draft: taken, ...(when.runAt ? { runAt: when.runAt } : {}), ...(when.start ? { start: when.start } : {}) });
       }
     } catch (err) {
       // Every word goes back: a send that failed and also ate what she wrote
       // is two failures, and the second is the expensive one. With the card
-      // already closed, the caller reopens it on them.
-      saveComposeDraft(taken);
+      // already closed, the caller reopens it on them. Ordinarily they are
+      // still written down and this declines, which is the same thing.
+      restoreComposeDraft(taken);
       const said = `Not sent: ${String((err as Error)?.message ?? err)}`;
       if (onFailed) { onFailed(said, {}); return; }
       setError(said);
@@ -462,12 +467,13 @@ export function ThreadComposer({
     if (!canSend || !person) return;
     setSending(true);
     setError(null);
-    // Handed over at once, as a task is (sendTask above).
-    const taken = takeComposeDraft();
+    // Handed over at once, as a task is, and the written-down copy kept until
+    // the cloud answers (sendTask above).
+    const taken = readComposeDraft();
     const toMany = extra.length ? [person.id, ...also] : undefined;
     onSending?.({ kind: 'message', to: person.id, ...(toMany ? { toMany } : {}) });
     const failed = (said: string) => {
-      saveComposeDraft(taken);
+      restoreComposeDraft(taken);
       if (onFailed) { onFailed(said, { to: person.id, ...(also.length ? { also } : {}) }); return; }
       setError(said);
       setSending(false);
@@ -498,6 +504,7 @@ export function ThreadComposer({
       failed(`Not sent: ${res.error ?? 'the team cloud did not answer.'}`);
       return;
     }
+    dropComposeDraft(taken);
     onSent(null, { kind: 'message', to: person.id, draft: taken, ...(toMany ? { toMany } : {}), ...(res.made ? { made: res.made } : {}) });
   };
 

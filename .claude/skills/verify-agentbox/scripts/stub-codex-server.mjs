@@ -37,6 +37,7 @@ import { fileURLToPath } from 'node:url';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const { createStubModel, messageItem, httpError, promptOf, requestText, wordAnswer, offeredTools, searchedTools, toolSearchItem } = await import(path.join(REPO, 'scripts/lib/codex-stub-model.mjs'));
+const { readWorld, worldTurn, worldAnswer, titleIn } = await import(path.join(REPO, 'scripts/lib/stand-in-world.mjs'));
 
 const args = process.argv.slice(2);
 const setup = args.includes('--setup');
@@ -81,11 +82,15 @@ const model = createStubModel({
       return [messageItem(JSON.stringify({ risk_level: 'low', user_authorization: 'unknown', outcome: store ? 'allow' : 'deny',
         rationale: store ? 'A note on the worker\'s own thread in the app\'s store.' : 'The verify stand-in reviewer allows only the store write.' }))];
     }
-    if (directive('stub:limit') || (directive('stub:limit-first') && attempt === 1)) {
+    // A power test's world (scripts/lib/stand-in-world.mjs), rolled once per new turn.
+    const world = toolBack || searched ? {} : readWorld(path.join(instance, 'world.json'));
+    const turn = worldTurn(world, 'codex');
+    if (directive('stub:limit') || (directive('stub:limit-first') && attempt === 1) || turn.limit) {
       return httpError(429, 'The usage limit has been reached', 'usage_limit_reached');
     }
-    if (directive('stub:hang')) await new Promise(() => {});
-    const slow = Number(directive('stub:slow')?.[1]);
+    if (directive('stub:hang') || turn.hang) await new Promise(() => {});
+    if (turn.die) return httpError(500, 'The stand-in model went away mid-turn', 'server_error');
+    const slow = Number(directive('stub:slow')?.[1]) || turn.delayMs;
     if (slow > 0) await new Promise((r) => setTimeout(r, slow));
     // A new prompt on a setup: write onto the thread first, as a worker does,
     // asking Codex for its MCP tools first when it keeps them behind a search.
@@ -98,7 +103,8 @@ const model = createStubModel({
         arguments: JSON.stringify({ id: item, note: `The Codex stand-in model reached the store.${token ? ` [${token}]` : ''}` }),
       }];
     }
-    return [messageItem(wordAnswer(request) ?? `The verify Codex stand-in answered.${token ? ` [${token}]` : ''}`)];
+    const said = wordAnswer(request) ?? `The verify Codex stand-in answered.${token ? ` [${token}]` : ''}`;
+    return [messageItem(Object.keys(world).length ? worldAnswer(said, turn, titleIn(all), attempt) : said)];
   },
 });
 

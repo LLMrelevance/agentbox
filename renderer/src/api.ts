@@ -4,7 +4,7 @@ import {updateFixture} from './agent-update-fixture';
 // bridge; fixtures mode (?fixtures=1) serves canned data so the UI can be
 // developed, reviewed, and screenshotted without a live store or any agents.
 
-import type { AccountUsageReading, AgentConversation, AnswerMode, CodexModeId, DemoOpened, FolderListing, FreshUser, PermissionMode, PhoneLink, PhoneRoute, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, TeamMessageFile, ThreadEditPatch, UpdateState, Usage, WorkItem } from './types';
+import type { AccountUsageReading, AgentConversation, CloudPlan, AnswerMode, CodexModeId, DemoOpened, FolderListing, FreshUser, PermissionMode, PhoneLink, PhoneRoute, RepeatRule, RepeatShape, Settings, Snapshot, TeamCallResult, TeamMessageFile, ThreadEditPatch, UpdateState, Usage, WorkItem } from './types';
 import type { LedgerLine } from './thread-history';
 import type { AgentFile as AgentFileRow } from './onboarding';
 import type { AgentFolder, SessionThread } from './agent-import-card';
@@ -374,14 +374,14 @@ export const api = {
           month: { runs: 14, agentHours: 1.2, estimatedCost: 0.16, costPerAgentHour: 0.13 },
           accounts: [
             {
-              engine: 'claude', key: 'a1', name: read ? 'you@example.com' : null, ready: false, state: 'limited' as any, limitedUntil: until.getTime(),
+              engine: 'claude', key: 'a1', name: read ? 'you@example.com' : null, plan: read ? 'Max 20x' : null, ready: false, state: 'limited' as any, limitedUntil: until.getTime(),
               limits: read ? [
                 { span: 'session', qualifier: null, name: 'This session', percent: 100, resetsText: null, resetsOn: null, resetsAt: until.getTime(), zone: null },
                 { span: 'week', qualifier: 'all models', name: 'This week', percent: 31, resetsText: null, resetsOn: null, resetsAt: on(2, 11, 59), zone: null },
               ] : null,
             },
             {
-              engine: 'claude', key: 'a2', name: read ? 'work@example.com' : null, ready: true, state: 'ready',
+              engine: 'claude', key: 'a2', name: read ? 'work@example.com' : null, plan: read ? 'Max 20x' : null, ready: true, state: 'ready',
               limits: read ? [
                 { span: 'session', qualifier: null, name: 'This session', percent: 12, resetsText: null, resetsOn: null, resetsAt: on(0, 20), zone: null },
                 { span: 'week', qualifier: 'all models', name: 'This week', percent: 9, resetsText: null, resetsOn: null, resetsAt: on(2, 16), zone: null },
@@ -425,6 +425,19 @@ export const api = {
           const kept = base.items.find((i) => i.id === first.itemId);
           if (kept) kept.onMac = true;
         }
+      }
+      // &cloud=managed draws Agentbox Cloud signed in through its server, and
+      // &noroom=hours|agents the server saying it had no room a moment ago.
+      if (cloud === 'managed') {
+        base.cloud = { setUp: true, managed: true, mode: 'full', whenOn: 'full', running: 0, month: { runs: 4, agentHours: 1.6, estimatedCost: 0, costPerAgentHour: 0 }, accounts: [{ engine: 'claude', key: 'a1', name: 'me@example.com', ready: true, state: 'ready' }], signIns: [] } as typeof base.cloud;
+      }
+      const room = params.get('noroom');
+      if (base.cloud && (room === 'hours' || room === 'agents')) base.cloud.noRoom = { error: room, message: null };
+      // &macfull draws this Mac running all it can, two threads queued behind it.
+      if (params.has('macfull')) {
+        const queued = base.items.filter((i) => /^(Can the welcome email|Bring back a list)/.test(i.title)).map((i) => i.id);
+        base.supervisor.queued = queued;
+        base.supervisor.capacity = base.supervisor.running.filter((r) => (r as { where?: string }).where !== 'cloud').length;
       }
       return fixtureSecondEngine(base, engineFixtures);
     }
@@ -1267,6 +1280,23 @@ export const api = {
   async cloudAccountCancel(): Promise<void> { await (window.zero as any)?.cloudAccountCancel?.(); },
   async cloudAccountReopen(): Promise<void> { await (window.zero as any)?.cloudAccountReopen?.(); },
   async cloudAccountSignOut(): Promise<void> { await (window.zero as any)?.cloudAccountSignOut?.(); },
+  async cloudAccountPlan(): Promise<CloudPlan> {
+    // &cloudplan=pro draws someone on Pro, 6 running and 88 of 400 hours used.
+    if (useFixtures) return params.get('cloudplan') === 'pro'
+      ? { signedIn: true, plan: 'pro', unlimited: false, agents: 10, hoursPerMonth: 400, running: 6, usedSeconds: 88 * 3600 }
+      : { signedIn: true, plan: 'none', unlimited: false, agents: 0, hoursPerMonth: 0, running: 0, usedSeconds: 0 };
+    return (await (window.zero as any)?.cloudAccountPlan?.()) ?? { signedIn: false };
+  },
+  async cloudAccountPay(plan: 'pro' | 'plus' | 'max'): Promise<{ ok: boolean; where?: 'checkout' | 'billing'; error?: string; message?: string }> {
+    const zero = window.zero as any;
+    if (!zero?.cloudAccountPay) return { ok: false, message: RESTART_NOTE };
+    return zero.cloudAccountPay({ plan });
+  },
+  async cloudAccountBilling(): Promise<{ ok: boolean; error?: string; message?: string }> {
+    const zero = window.zero as any;
+    if (!zero?.cloudAccountBilling) return { ok: false, message: RESTART_NOTE };
+    return zero.cloudAccountBilling();
+  },
 
   /** Claude's sign-in code from the clipboard, while a sign-in waits for one; else null. */
   async cloudClipboardCode(): Promise<string | null> {

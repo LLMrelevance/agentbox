@@ -57,6 +57,26 @@ describe('where the Mac finds Agentbox Cloud', () => {
       expect(cloudAccountConfig(app, { home })?.gateway).toBe('https://home');
     } finally { fs.rmSync(app, { recursive: true, force: true }); }
   });
+
+  // A downloaded app has no cloud/ folder: scripts/release.mjs bakes the
+  // setting into the packaged package.json, as it does the analytics key.
+  it('a release build carries it in its own package.json, and half a setting there is none', () => {
+    const app = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudapp-'));
+    try {
+      fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({ name: 'agentbox-app', bakedCloud: { gateway: 'https://baked', supabaseUrl: 'https://db', anonKey: 'k' } }));
+      expect(cloudAccountConfig(app, { home })?.gateway).toBe('https://baked');
+      fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({ name: 'agentbox-app', bakedCloud: { gateway: 'https://baked' } }));
+      expect(cloudAccountConfig(app, { home })).toBe(null);
+      fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({ name: 'agentbox-app' }));
+      expect(cloudAccountConfig(app, { home })).toBe(null);
+    } finally { fs.rmSync(app, { recursive: true, force: true }); }
+  });
+
+  it('the release bakes exactly the three public settings it found, and nothing when it found none', () => {
+    const release = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'scripts', 'release.mjs'), 'utf8');
+    expect(release).toMatch(/const cloud = cloudAccountConfig\(repo\);/);
+    expect(release).toMatch(/if \(cloud\) \{\n\s+for \(const k of \['gateway', 'supabaseUrl', 'anonKey'\]\) args\.push\(`-c\.extraMetadata\.bakedCloud\.\$\{k\}=\$\{cloud\[k\]\}`\);/);
+  });
 });
 
 describe('signing in', () => {

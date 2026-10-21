@@ -20,7 +20,7 @@ import { splitHits } from '../search';
 import type { ThreadSearchDetails } from '../threads/search';
 import { clockLabel, isCleanRun, nextRunAt } from '../../../shared/repeats.mjs';
 import { Face, TeamRowEnd, type TeamView } from '../team/people';
-import { RepeatMark, RowCells, TableHead, ThreadCells, WaitingContext } from '../threads/Pages';
+import { CloudOfferRow, RepeatMark, RowCells, TableHead, ThreadCells, WaitingContext } from '../threads/Pages';
 import { toApproveWords } from '../threads-made';
 import type { MixedRow } from '../threads/people-rules';
 import { useRowDrag } from '../threads/row-drag';
@@ -139,7 +139,7 @@ export function dayGroups(
   return groups;
 }
 
-export function List({ items, view, keyView, hoveredId, selected, seen, running, engineChoice, engines, stalled, queued, signInNeeded, atLimit, shipping, silent, paused, multiSel, snoozes, repeats, allItems, terms, phrase, summaries, searchDetails, ranked, emptyText, walk, onSelect, onOpen, onOpenRepeat, onToggle, onRange, onHover: hoverTo, onAnswerImport, team = null, table = false, products = [], mixed = null, personCell, onOpenCard, selectedCard = null, onEnd, onReorder }: {
+export function List({ items, view, keyView, hoveredId, selected, seen, unread, running, engineChoice, engines, stalled, queued, signInNeeded, atLimit, shipping, silent, paused, multiSel, snoozes, repeats, allItems, terms, phrase, summaries, searchDetails, ranked, emptyText, walk, onSelect, onOpen, onOpenRepeat, onToggle, onRange, onHover: hoverTo, onAnswerImport, team = null, table = false, products = [], mixed = null, personCell, onOpenCard, selectedCard = null, onEnd, onReorder }: {
   items: WorkItem[];
   view: View;
   // WHICH VIEW'S KEYS THE ROW HINT PRINTS, which is not always the view this
@@ -153,6 +153,8 @@ export function List({ items, view, keyView, hoveredId, selected, seen, running,
   hoveredId?: string | null;
   selected: number;
   seen: Set<string>;
+  /** An agent wrote since you last opened it (renderer/src/unread.ts). */
+  unread?: (item: WorkItem) => boolean;
   running: RunningSession[];
   /**
    * WHETHER THIS MAC HAS TWO CODING AGENTS TO TELL APART. False on almost every
@@ -478,7 +480,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, running,
                 {...(view === 'inbox' && !isImportRow(item)
                   ? { 'data-hint': 'row', 'data-hint-text': '.subject' }
                   : {})}
-                className={`row ${made ? 'trouble-row ' : ''}${index === selected && !selectedCard ? 'selected' : ''} ${checked ? 'checked' : ''}`}
+                className={`row ${made ? 'trouble-row ' : ''}${index === selected && !selectedCard ? 'selected' : ''} ${checked ? 'checked' : ''}${view === 'inbox' && unread?.(item) ? ' unread' : ''}`}
                 /*
                  * ON MOUSE MOVE, NOT ON MOUSE ENTER. A pointer parked over the
                    list while she walks it with J and K would otherwise claim
@@ -785,6 +787,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, running,
           })}
         </div>
       ))}
+      {table && view === 'progress' && !ranked && <CloudOfferRow />}
       {onEnd && <ListFoot onEnd={onEnd} />}
     </div>
   );
