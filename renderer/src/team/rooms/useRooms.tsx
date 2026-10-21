@@ -16,7 +16,7 @@ import { roomConversations } from './conversations';
 import { FindRooms, type ListedRoom } from './FindRooms';
 import { InviteDialog, JoinDialog, MembersMenu, StartRoomDialog, type Preview, type Sent } from './RoomDialogs';
 import { joinLink, tokenFromLink } from '../../../../shared/room-links.mjs';
-import { RoomsSettings } from './RoomsSettings';
+import { RoomsNotReady, RoomsSettings } from './RoomsSettings';
 
 const FOLD_KEY = 'rooms.folded';
 
@@ -28,7 +28,7 @@ type Dialog =
 
 type Direct = Conversation & { people: string[] };
 
-export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, teamCards = [], directs = [], now, toast, onOpenDirect, onTeamMessage, onLeaveDirect }: {
+export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, teamCards = [], directs = [], now, toast, onOpenDirect, onTeamMessage, onLeavePage }: {
   rooms: RoomsState | null | undefined; on: boolean; meId: string | null; myName: string; fullName?: string; hasTeam: boolean; teamCards?: ThreadCard[];
   /** Direct records, for the messages page and the chat switcher. */
   directs?: Direct[];
@@ -37,8 +37,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   onOpenDirect: (id: string) => void;
   /** Message teammates the way the team version already does. */
   onTeamMessage: (personIds: string[]) => void;
-  /** Leave a direct record that is open, for a room's chat. */
-  onLeaveDirect: () => void;
+  /** Leave whatever covers the rooms: an open thread or direct chat, the Team page, search. */
+  onLeavePage: () => void;
 }) {
   const live = on && !!rooms?.on;
   const all = live ? rooms!.rooms : [];
@@ -93,7 +93,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     try { await navigator.clipboard.writeText(joinLink(token)); toast('Link copied'); } catch { toast(joinLink(token)); }
   };
 
-  const openRoom = (id: string, { asFull = false } = {}) => { setFinding(false); setNoChats(false); setOpenId(id); setPane('wall'); setPanelId(null); setFull(asFull); };
+  const openRoom = (id: string, { asFull = false } = {}) => { onLeavePage(); setFinding(false); setNoChats(false); setOpenId(id); setPane('wall'); setPanelId(null); setFull(asFull); };
   const close = () => {
     if (finding) { setFinding(false); return; }
     if (noChats) { setNoChats(false); return; }
@@ -103,7 +103,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   };
   // Somewhere else was picked: no room, no Find rooms, no messages page.
   const leave = () => { setOpenId(null); setFull(false); setPanelId(null); setFinding(false); setNoChats(false); };
-  const find = () => { setOpenId(null); setFull(false); setNoChats(false); setFinding(true); };
+  const find = () => { onLeavePage(); setOpenId(null); setFull(false); setNoChats(false); setFinding(true); };
   const loadListed = useCallback(async () => { const res = await call<ListedRoom[]>('listed'); return res.ok ? res.value ?? [] : null; }, [call]);
   const inviteId = dialog?.kind === 'invite' ? dialog.roomId : null;
   const loadSent = useCallback(async () => {
@@ -166,7 +166,6 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const conversations: Conversation[] = live ? [...roomConversations(rooms), ...directs] : [];
   const pick = (c: Conversation) => {
     if (c.kind === 'direct') { setOpenId(null); setFull(false); setNoChats(false); onOpenDirect(c.id); return; }
-    onLeaveDirect();
     openRoom(c.id, { asFull: true });
   };
 
@@ -174,7 +173,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const openMessages = () => {
     const newest = sortConversations(conversations)[0];
     if (newest) { pick(newest); return; }
-    onLeaveDirect(); setOpenId(null); setFinding(false); setNoChats(true);
+    onLeavePage(); setOpenId(null); setFinding(false); setNoChats(true);
   };
   const unreadChats = conversations.filter((c) => c.unread).length;
 
@@ -193,7 +192,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
 
   const tabs: ReactNode = live ? <RoomTabs rooms={list} openId={open?.kind === 'group' ? null : openId} invisible={invisibleUntil > now} onOpen={(id) => openRoom(id)} /> : null;
 
-  const meInChat = meId && rooms?.me ? { id: meId, name: rooms.me.display_name || myName, avatarUrl: rooms.me.avatar_url ?? null, me: true } : null;
+  const meInChat = meId ? { id: meId, name: rooms?.me?.display_name || myName, avatarUrl: rooms?.me?.avatar_url ?? null, me: true } : null;
   const chatPanel = (r: Room, asFull: boolean) => {
     const others = r.wall.filter((c) => !c.me);
     const head = asFull ? <FullChatHead title={r.kind === 'group' ? others.map(cardName).join(', ') || r.name : r.name}
@@ -300,11 +299,11 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     roomName={first?.name ?? null} card={first?.wall.find((c) => c.me) ?? null}
     save={(patch) => { void call('saveProfile', patch); }}
     goInvisible={(minutes) => { void call('goInvisible', minutes); }}
-    comeBack={() => { void call('comeBack'); }} /> : undefined;
+    comeBack={() => { void call('comeBack'); }} /> : live ? <RoomsNotReady error={rooms?.error ?? null} /> : undefined;
 
   const mentions: RoomMention[] = live ? rooms!.mentions : [];
   const faces = new Map(all.flatMap((r) => r.wall.map((c) => [c.id, c.avatarUrl] as const)));
-  const openMention = (m: RoomMention) => { onLeaveDirect(); openRoom(m.roomId); };
+  const openMention = (m: RoomMention) => openRoom(m.roomId);
 
   return {
     live, openId: open ? openId : finding && live ? 'find' : noChats && live ? 'messages' : null, openMessages, open: (id: string) => openRoom(id), close, leave, find, nav, tabs, page, dialogs, join, walk, invisible, settingsPane,

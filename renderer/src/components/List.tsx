@@ -21,6 +21,8 @@ import type { ThreadSearchDetails } from '../threads/search';
 import { clockLabel, isCleanRun, nextRunAt } from '../../../shared/repeats.mjs';
 import { Face, TeamRowEnd, type TeamView } from '../team/people';
 import { CloudOfferRow, RepeatMark, RowCells, TableHead, ThreadCells, WaitingContext } from '../threads/Pages';
+import { FleetContext } from '../fleet';
+import { cardStatus, factsFor, statusCell } from '../status-word';
 import { toApproveWords } from '../threads-made';
 import type { MixedRow } from '../threads/people-rules';
 import { useRowDrag } from '../threads/row-drag';
@@ -256,6 +258,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
   onReorder?: (id: string, beforeId: string | null, drawn: string[]) => void;
 }) {
   const waiting = useContext(WaitingContext);
+  const fleet = useContext(FleetContext);
   const drag = useRowDrag(table ? onReorder : undefined);
   // The hover does not move while a row is carried: each row crossed would
   // redraw the whole app under the drag (w-6e5b532a95).
@@ -390,12 +393,15 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
       {table && rules.map((rule) => {
         const pool = allItems ?? items;
         const last = rule.lastOccurrence ? pool.find((i) => i.id === rule.lastOccurrence) ?? null : null;
+        // A repeating rule's own state is its last run's: the mark turns only
+        // where an agent really is on that one (w-ec2b04d449).
         const live = !!last && (last.status === 'open' || last.status === 'claimed');
         return (
           <div key={rule.id} data-repeat-id={rule.id} className="row" title={repeatRow(rule, last).last}
             onClick={() => onOpenRepeat?.(rule)}>
             <span className="mark" aria-hidden="true" />
-            <RowCells live={live} lead={<RepeatMark />} title={rule.title} aside={repeatTag(rule)} where={rule.productName}
+            <RowCells status={last ? statusCell(last, { ...factsFor(fleet, last.id), inProgress: live, now: Date.now() }) : undefined}
+              lead={<RepeatMark />} title={rule.title} aside={repeatTag(rule)} where={rule.productName}
               person={withPerson ? personCell?.(team?.me ?? null) : undefined}
               priority={rule.priority ?? 5} updatedAt={rule.updatedAt ?? rule.createdAt}
               when={nextRunWords(rule)} now={Date.now()} />
@@ -447,7 +453,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
               return (
                 <div key={key} className={`row th-their-row${selectedCard === key ? ' selected' : ''}`} onClick={() => onOpenCard?.(c)}>
                   <span className="mark" aria-hidden="true" />
-                  <RowCells title={c.title ?? 'Private thread'} where={c.project ?? ''} person={personCell?.(c.personId)}
+                  <RowCells status={cardStatus(c.state)} title={c.title ?? 'Private thread'} where={c.project ?? ''} person={personCell?.(c.personId)}
                     priority={c.priority} updatedAt={c.updatedAt} now={Date.now()} />
                 </div>
               );

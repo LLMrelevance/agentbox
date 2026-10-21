@@ -54,6 +54,7 @@ export function createRooms({
   let mentioned = []; // my newest mentions, which may be older than the messages held
   let unsubscribe = null;
   let started = null; // the backend rooms were started on
+  let setUp = false; // my profile made, General joined if I have nowhere else, realtime on
   let lastSent = null;
   let lastSentAt = 0;
   let refreshing = null;
@@ -212,7 +213,28 @@ export function createRooms({
   async function ensureProfile(b) {
     const mine = await b.myRoomProfile();
     if (mine) return mine;
-    return b.saveRoomProfile({ display_name: displayNameOf(me()?.name ?? '') || 'Someone', avatar_url: me()?.avatarUrl ?? null });
+    // The cloud keeps an address of up to 500 characters, not a picture's bytes.
+    const face = me()?.avatarUrl ?? null;
+    const avatar = typeof face === 'string' && /^https?:\/\//.test(face) && face.length <= 500 ? face : null;
+    return b.saveRoomProfile({ display_name: displayNameOf(me()?.name ?? '') || 'Someone', avatar_url: avatar });
+  }
+
+  // Tried on every pass until it works: a cloud without the rooms tables yet,
+  // or a dropped network, must not leave me nameless and deaf for the session.
+  async function setUpOnce(b) {
+    try {
+      const mine = await ensureProfile(b);
+      state = { ...state, me: mine };
+      // Someone with no team and no room starts in General, pinned.
+      const rooms = await b.myRooms();
+      if (!rooms.length && !(team()?.team)) await b.joinListedRoom(GENERAL_ROOM).catch((err) => log(`rooms: General: ${err.message}`));
+      unsubscribe ??= b.subscribeRooms(hear);
+      setUp = true;
+      state = { ...state, error: null };
+    } catch (err) {
+      state = { ...state, error: String(err?.message ?? err) };
+      log(`rooms: starting: ${state.error}`);
+    }
   }
 
   async function start() {
@@ -222,17 +244,7 @@ export function createRooms({
     await stop();
     started = b;
     state = { ...EMPTY, on: true };
-    try {
-      const mine = await ensureProfile(b);
-      state = { ...state, me: mine };
-      // Someone with no team and no room starts in General, pinned.
-      const rooms = await b.myRooms();
-      if (!rooms.length && !(team()?.team)) await b.joinListedRoom(GENERAL_ROOM).catch((err) => log(`rooms: General: ${err.message}`));
-      unsubscribe = b.subscribeRooms(hear);
-    } catch (err) {
-      state = { ...state, error: String(err?.message ?? err) };
-      log(`rooms: starting: ${state.error}`);
-    }
+    await setUpOnce(b);
     await refresh();
     await publish({ force: true }).catch((err) => log(`rooms: presence: ${err.message}`));
   }
@@ -245,6 +257,7 @@ export function createRooms({
     if (settle) timers.clearTimeout(settle);
     settle = null;
     started = null;
+    setUp = false;
     lastSent = null;
     people = new Map(); profiles = new Map(); presence = []; messages = new Map(); reads = new Map(); mentioned = [];
     state = { ...EMPTY, on: !!enabled() };
@@ -258,8 +271,21 @@ export function createRooms({
     if (want && started !== backend()) return start();
     if (!want && started) return stop();
     if (!want) return;
+    if (!setUp) { await setUpOnce(started); if (setUp) await refresh(); }
+    await syncName().catch((err) => log(`rooms: name: ${err.message}`));
     await syncStatus().catch((err) => log(`rooms: status: ${err.message}`));
     await publish().catch((err) => log(`rooms: presence: ${err.message}`));
+  }
+
+  // A card made before my name was known reads "Someone" until it is.
+  async function syncName() {
+    const mine = state.me;
+    const name = displayNameOf(me()?.name ?? '');
+    if (!mine || !name || (mine.display_name && mine.display_name !== 'Someone')) return;
+    const saved = await backend().saveRoomProfile({ display_name: name });
+    local();
+    state = { ...state, me: saved };
+    changed();
   }
 
   // The line I wrote for my team (the account menu) is my room card's status.

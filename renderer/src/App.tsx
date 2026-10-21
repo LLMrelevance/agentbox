@@ -155,6 +155,7 @@ import { TeamPage } from './team/TeamPage';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
 import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, CloudOfferContext, FreeAgentContext, StateTabs, WaitingContext } from './threads/Pages';
 import { cloudOffer, type OfferGo } from './cloud-upgrade';
+import { FleetContext, type Fleet } from './fleet';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
@@ -1866,6 +1867,16 @@ export default function App() {
   // status says, until its session exits (w-bc976fd247). Up here because every
   // list below reads it.
   const liveIds = useMemo(() => new Set(runningRows.map((r) => r.itemId)), [runningRows]);
+  // EVERYTHING THE SUPERVISOR KNOWS ABOUT EVERY THREAD, in one context, so the
+  // Status column on a row and the word on a card are the same answer
+  // (renderer/src/fleet.ts, w-ec2b04d449).
+  const fleet = useMemo((): Fleet => ({
+    sessions: new Map(runningRows.map((r) => [r.itemId, r])),
+    queued: snap?.supervisor.queued, runNow: snap?.supervisor.runNow,
+    signInNeeded: snap?.supervisor.signInNeeded, atLimit: snap?.supervisor.atLimit,
+    shipping: snap?.supervisor.shipping, stalled: snap?.supervisor.stalled,
+    silent: snap?.supervisor.silent, paused: snap?.supervisor.paused,
+  }), [runningRows, snap?.supervisor]);
   const cloudIds = useMemo(() => new Set(runningRows.filter((r) => r.where === 'cloud').map((r) => r.itemId)), [runningRows]);
   // THE THREADS THE APP STILL HAS TO SHIP (w-0c1ba766eb). Waiting on the app,
   // not on her, so In progress reading "Shipping" and out of Needs you until
@@ -3437,7 +3448,7 @@ export default function App() {
     myName: snap?.team?.rooms?.me?.display_name ?? '', fullName: snap?.team?.me?.name ?? '', hasTeam: !!snap?.team?.team, teamCards: snap?.team?.cards ?? [], now: Date.now(), toast: showToast,
     directs,
     onOpenDirect: (id) => { const item = items.find((i) => i.id === id); if (item) { setTeamOpen(false); setSettingsOpen(false); setFocused(item); markSeen(item); } },
-    onLeaveDirect: () => setFocused(null),
+    onLeavePage: () => { setFocused(null); setFocusedRepeat(null); setTeamOpen(false); closeSearch(); },
     // Teammates: the conversation you already have, or the new thread card addressed to them.
     onTeamMessage: (ids) => {
       const want = [...ids].sort().join(',');
@@ -5014,8 +5025,9 @@ export default function App() {
       }
       // A ROOM OWNS THE KEYBOARD WHILE IT IS OPEN, as Settings does: the list
       // behind it is not on the screen. Escape goes back to the threads and
-      // Tab walks on along the tabs.
-      if (roomShown && e.key !== 'Tab') {
+      // Tab walks on along the tabs. N goes on to the room's branch below the
+      // guard, because it opens a text field.
+      if (roomShown && e.key !== 'Tab' && e.key !== 'n' && e.key !== 'N') {
         if (roomsUi.dialogOpen || modal || inInput || e.metaKey || e.ctrlKey || e.altKey) return;
         if (e.key === 'Escape') { e.preventDefault(); roomsUi.close(); }
         return;
@@ -5154,6 +5166,11 @@ export default function App() {
       // So this returns on everything, the way an open task does. It is placed
       // ABOVE the task branch rather than inside it because the two are
       // mutually exclusive states and only one of them owns the keyboard.
+      // N starts a thread from a room, as it does everywhere else.
+      if (roomShown) {
+        if ((e.key === 'n' || e.key === 'N') && !roomsUi.dialogOpen) setModal('compose');
+        return;
+      }
       if (focusedRepeat) {
         if (e.key === 'Escape') { e.preventDefault(); setFocusedRepeat(null); setEditingRule(false); }
         // R means the same thing it means on a task: open the box and say the
@@ -5815,6 +5832,7 @@ export default function App() {
     <ChatAgentsContext.Provider value={chatAgents}>
     <LiveContext.Provider value={liveIds}>
     <CloudContext.Provider value={cloudIds}>
+    <FleetContext.Provider value={fleet}>
     <WaitingContext.Provider value={waitingByThread}>
     <FreeAgentContext.Provider value={freeWaitIds}>
     <CloudOfferContext.Provider value={cloudOfferNow ? { offer: cloudOfferNow, onGo: (go) => void onCloudGo(go) } : null}>
@@ -7702,6 +7720,7 @@ export default function App() {
     </CloudOfferContext.Provider>
     </FreeAgentContext.Provider>
     </WaitingContext.Provider>
+    </FleetContext.Provider>
     </CloudContext.Provider>
     </LiveContext.Provider>
     </ChatAgentsContext.Provider>
