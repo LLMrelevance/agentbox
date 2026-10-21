@@ -90,13 +90,21 @@ export const LiveContext = createContext<Set<string>>(new Set());
 /** The ones of those running in the cloud rather than on this Mac. */
 export const CloudContext = createContext<Set<string>>(new Set());
 
-/** The mark in the Status cell: the running one where an agent is on it, the
- *  still ring where one is waiting its turn or held, and a blank of the same
- *  width on the words that are the thread's own state, so every word in the
- *  column starts on one line (status-word.ts). */
+/**
+ * The mark in the Status cell: the running one where an agent is on it, the
+ * still ring where one is waiting its turn or held, and NOTHING AT ALL on the
+ * words that are the thread's own state.
+ *
+ * Not a blank of the mark's width either, which is what shipped first and what
+ * she caught: "STATUS isn't properly lined up, it's off to the side". A whole
+ * tab of Waiting rows wore the spacer, so every word in the column sat 21px
+ * right of its own heading. The cell starts at the column's edge, mark or no
+ * mark, which is how Project and Priority read (status-word.ts).
+ */
 export function StatusMark({ status }: { status: StatusCell }) {
+  if (!status.agent) return null;
   if (status.live) return <RunningMark cloud={status.cloud} />;
-  return <span className={`th-st s-${status.agent ? status.mark : 'none'}`} aria-hidden="true" />;
+  return <span className={`th-st s-${status.mark}`} aria-hidden="true" />;
 }
 
 /** An agent is on the thread now: the half-dot on this Mac, a cloud in the cloud, both pulsing. */
