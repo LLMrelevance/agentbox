@@ -18,6 +18,14 @@ export function tabWalk(stateTabs: readonly string[], tabs: readonly { room: Roo
   return order[(i + (back ? order.length - 1 : 1)) % order.length];
 }
 
+/** A chat just started goes beside the room where that panel is drawn; a
+ *  person's page has none, so from there it opens full page, and Back returns. */
+export function whereChatOpens<P extends string>({ open, full, pane }: { open: { id: string; kind: string } | null; full: boolean; pane: P }):
+  { beside: true } | { beside: false; back: { roomId: string; pane: P } | null } {
+  if (!open || full || open.kind === 'group') return { beside: false, back: null };
+  return pane.startsWith('person:') ? { beside: false, back: { roomId: open.id, pane } } : { beside: true };
+}
+
 /** Their page's Activity tab: my own, or a teammate's who shares it. */
 export const activityShown = (c: { me: boolean; teammate: boolean; showActivity: boolean }) => c.me || (c.teammate && c.showActivity);
 
