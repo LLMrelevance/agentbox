@@ -142,13 +142,21 @@ describe('the Inbox with Rooms on', () => {
 // chat until titles wrapped. Asked for the Inbox's way instead: the columns
 // keep their width and the board scrolls sideways. And the People label sat
 // halfway down two rows of names instead of beside the first. Round four drew
-// the room's board one line a thread (RoomBoard.tsx); the rule still holds.
+// the room's board one line a thread (RoomBoard.tsx), and round five asked for
+// it on one screen, scrolling only when the screen is really small. Measured on
+// the built app at 1440 by 900 with the chat open: the board has 780px, and
+// columns of 200 needed 890.
 describe('the room’s board keeps its column width', () => {
   const rooms = readFileSync(new URL('../renderer/src/team/rooms/rooms.css', import.meta.url), 'utf8');
-  it('never squeezes a column below its own width', () => {
-    const rule = rooms.match(/\.rm-board \{([^}]*)\}/)?.[1] ?? '';
-    const least = Number(rule.match(/grid-template-columns: repeat\(4, minmax\((\d+)px, 1fr\)\)/)?.[1]);
-    expect(least).toBeGreaterThanOrEqual(200);
+  const rule = rooms.match(/\.rm-board \{([^}]*)\}/)?.[1] ?? '';
+  const least = Number(rule.match(/grid-template-columns: repeat\(4, minmax\((\d+)px, 1fr\)\)/)?.[1]);
+  const gap = Number(rule.match(/gap: 0 (\d+)px/)?.[1]);
+  const right = Number(rule.match(/padding-right: (\d+)px/)?.[1]);
+  it('fits all four columns beside the chat in a 1440 window', () => {
+    expect(4 * least + 3 * gap + right).toBeLessThanOrEqual(780);
+  });
+  it('never squeezes a column below a readable line', () => {
+    expect(least).toBeGreaterThanOrEqual(160);
     expect(rule).toMatch(/width: fit-content/);
   });
   it('scrolls sideways inside the room when the columns do not fit', () => {
