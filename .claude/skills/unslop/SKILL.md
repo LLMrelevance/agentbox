@@ -83,10 +83,43 @@ Read each sentence alone and ask what a reader loses if it goes. If the answer
 is nothing, it goes. Replacing it with a fact beats deleting when you need the
 length.
 
+## Voice and rhythm, which the rules above do not catch
+
+Everything above is about words. A page can pass all of it and still read as
+machine-made, and in October 2026 one did, twice. What a measurement of eight
+pieces by Julia Evans, Simon Willison and Dan Luu found, against six pages that
+had already been unslopped:
+
+| | Them | Us |
+|---|---|---|
+| First person per 1,000 words | 44.9 | 1.3 |
+| Sentences opening with a bare command | 0.0% | 5.0% |
+| Mean sentence length | 21.8 | 14.9 |
+| Sentences over 25 words | 37.5% | 10% |
+
+- **Never open a sentence with a bare command.** Not one of the eight does.
+  "Give every task its own git worktree" is an instruction manual shouting at a
+  stranger. Say what is true or what happened and let the reader draw the
+  instruction out of it. Inside a numbered how-to step a command is fine.
+- **Put a person in it.** Every reference opens with somebody in a situation:
+  "I have never been a C programmer but every so often I need to compile a
+  C/C++ program from source." Writing that reports work says who did the work.
+- **Never invent the person.** "We" attaches only to something that actually
+  happened. No war stories, no "in our experience", no anecdote that did not
+  occur. Faked experience is worse than no voice at all, and if no true
+  first-person claim fits, write a plain statement instead.
+- **Vary the length.** Sentences all the same length are the machine rhythm,
+  and that monotone is what gets read as incoherent. Let a thought run to its
+  end in one sentence rather than chopping it into three.
+- **Measure body prose and FAQ answers apart.** An answer under a question
+  heading should stay short and say "you". Body prose should not. Averaging
+  the two describes neither, and chasing the average pads the FAQ.
+
 ## Punctuation and formatting
 
 - **No em dashes.** Use a full stop or a comma.
-- **Colons** only before a list or an example.
+- **No colons in copy**, including before a list or a code block, where a full
+  stop reads just as well. Her rule, and it beats what the references do.
 - **Bold** for the one thing a skimmer must not miss, not every noun.
 - **No bold-label lists that repeat themselves**, like "**Speed:** Speed
   improved". A bold lead-in that names the item, followed by new detail, is
