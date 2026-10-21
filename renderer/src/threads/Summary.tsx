@@ -243,10 +243,15 @@ export interface RepeatHandle {
   onEnd: () => void;
 }
 
-export function SummaryPanel({ item, team, onFinish, onClose, repeat = null }: {
+export function SummaryPanel({ item, team, onFinish, onClose, repeat = null, peopleAsk = 0, onAsked }: {
   item: WorkItem;
   team: TeamView | null;
   repeat?: RepeatHandle | null;
+  /** When ⌘K's Share with Chosen People… was pressed; a new moment opens the
+   *  Visible to menu on its list of people. */
+  peopleAsk?: number;
+  /** Called once it has, so a panel drawn again later does not open it again. */
+  onAsked?: () => void;
   /** FOLD IT BACK TO THE RAIL, from the icon at the top of the summary (w-a3482b8c2c). */
   onClose?: () => void;
   /**
@@ -324,6 +329,12 @@ export function SummaryPanel({ item, team, onFinish, onClose, repeat = null }: {
     return () => { document.removeEventListener('pointerdown', away); window.removeEventListener('keydown', esc, true); };
   }, [menu]);
   useEffect(() => { setMenu(null); }, [item.product, item.id]);
+  // After the line above, so a panel that mounts for the ask keeps it open.
+  useEffect(() => {
+    if (!peopleAsk) return;
+    if (team) { setMenu('visibility'); setPickPeople(true); }
+    onAsked?.();
+  }, [peopleAsk]);
   const holdMenu = (which: Menu) => (el: HTMLElement | null) => { if (menu === which) menuRef.current = el; };
 
   const state = threadState(item);
@@ -784,13 +795,18 @@ export function useRename(name: string, onRename: ((name: string) => Promise<boo
  * The name keeps whole words up to 59 letters (crumb-rules.ts) and the whole
  * of it is one hover away.
  */
-export function ThreadCrumb({ from, name, onBack, onRename, threadKey = '' }: {
+export function ThreadCrumb({ from, name, onBack, onRename, threadKey = '', renameAsk = 0, onAsked }: {
   from: string; name: string; onBack: () => void;
   onRename?: (name: string) => Promise<boolean>; threadKey?: string;
+  /** When ⌘K's Rename Thread… was pressed; a new moment opens the name box. */
+  renameAsk?: number;
+  /** Called once it has, so a crumb drawn again later does not open it again. */
+  onAsked?: () => void;
 }) {
   const r = useRename(name, onRename, threadKey);
   const box = useRef<HTMLInputElement>(null);
   useEffect(() => { if (r.editing) box.current?.select(); }, [r.editing]);
+  useEffect(() => { if (renameAsk) { r.begin(); onAsked?.(); } }, [renameAsk]);
   return (
     <div className="thread-crumb">
       <button type="button" className="back-esc thread-crumb-back" data-hint="back" onClick={onBack} aria-label={`Back to ${from} (esc)`}>

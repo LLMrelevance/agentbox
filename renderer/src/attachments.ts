@@ -8,6 +8,10 @@ export interface PendingAttachment {
   dataBase64?: string;
   srcPath?: string;
   image: boolean;
+  /** A voice note's id in this Mac's store of unsent notes (team/voice-drafts.ts). */
+  draftId?: string;
+  /** In a room, the name it is stored under, the same on every try. */
+  storedAs?: string;
 }
 
 export const isImageName = (name: string) => /\.(png|jpe?g|gif|webp)$/i.test(name);

@@ -6,10 +6,10 @@ import type { Room } from '../../types';
 import { I } from './icons';
 import './rooms.css';
 
-export type RoomMenuAction = 'invite' | 'members' | 'ranks' | 'pin' | 'unpin' | 'mute' | 'unmute' | 'leave';
+export type RoomMenuAction = 'read' | 'unread' | 'invite' | 'members' | 'ranks' | 'pin' | 'unpin' | 'mute' | 'unmute' | 'leave';
 
-export function RoomsNav({ rooms, openId, folded, collapsed, onFold, onOpen, onPin, onMenu, onNewRoom }: {
-  rooms: Room[]; openId: string | null; folded: boolean; collapsed: boolean;
+export function RoomsNav({ rooms, openId, folded, onFold, onOpen, onPin, onMenu, onNewRoom }: {
+  rooms: Room[]; openId: string | null; folded: boolean;
   onFold: () => void; onOpen: (id: string) => void; onPin: (id: string, on: boolean) => void;
   onMenu: (id: string, action: RoomMenuAction, anchor: DOMRect) => void; onNewRoom: () => void;
 }) {
@@ -22,7 +22,7 @@ export function RoomsNav({ rooms, openId, folded, collapsed, onFold, onOpen, onP
     {!folded && <nav className="workspace-tabs rm-nav" aria-label="Rooms">
       {rooms.map((r) => <button type="button" key={r.id}
         className={`workspace-tab${openId === r.id ? ' active' : ''}${menu?.id === r.id ? ' menu-open' : ''}`}
-        aria-current={openId === r.id ? 'page' : undefined} title={collapsed ? r.name : undefined}
+        aria-current={openId === r.id ? 'page' : undefined}
         onClick={() => onOpen(r.id)}>
         {I.room()}<span className={r.muted ? 'rm-muted' : undefined}>{r.name}</span>
         <span className="rm-c">
@@ -52,7 +52,9 @@ export function RoomMenu({ room, at, onPick, onClose }: { room: Room; at: DOMRec
   const ref = useOutside(onClose);
   const row = (a: RoomMenuAction, icon: JSX.Element, label: string, k?: string | number) =>
     <button type="button" className="row" onClick={() => onPick(a)}>{icon}<span>{label}</span>{k != null && <span className="k">{k}</span>}</button>;
+  const unread = (room.unread > 0 && !room.muted) || !!room.markedUnread;
   return <div ref={ref} className="rm-menu rm-pop" role="menu" style={{ left: Math.max(8, at.left - 8), top: at.bottom + 6 }}>
+    {unread ? row('read', I.check(), 'Mark as read') : row('unread', I.chat(), 'Mark as unread')}
     {room.kind !== 'group' && row('invite', I.invite(), 'Invite people')}
     {row('members', I.people(), 'Members', room.members)}
     {row('ranks', I.trophy(), 'Ranks this week')}

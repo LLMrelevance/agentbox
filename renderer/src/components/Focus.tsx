@@ -84,6 +84,11 @@ import { withQuote } from '../team/chat-quote';
 import { THREAD_WIDTH, THREAD_WIDTH_KEY, clampThreadWidth, threadToOpen } from '../team/chat-threads';
 import { whatWaits } from '../../../shared/team-rules.mjs';
 import { FormatBar } from '../team/FormatBar';
+import { forgetVoiceDraft, markVoiceSent, sendTurnedBack, type Recorded, type VoiceControl } from '../team/useVoiceRecorder';
+import { VoiceNote } from '../team/VoiceNote';
+import { voiceNoteName, voiceNoteOf } from '../team/voice-note';
+import { voiceDraftsFor } from '../team/voice-drafts';
+import { editLast } from '../team/chat-events';
 import { RichReply, type RichBox } from '../team/RichReply';
 import { OptionsOffer } from './OptionsOffer';
 import { foldedReply } from '../folded-reply';
@@ -308,6 +313,14 @@ const players = playerShelf<HTMLMediaElement>({
   },
   drop: (player) => { player.pause(); player.removeAttribute('src'); player.load(); player.remove(); },
 });
+
+/** The first of these addresses that answers, as bytes. */
+async function firstFound(urls: string[]): Promise<Blob | null> {
+  for (const url of urls) {
+    try { const r = await fetch(url); if (r.ok) return await r.blob(); } catch { /* try the next */ }
+  }
+  return null;
+}
 
 export function ArtifactMedia({ src, label, roots, onOpen }: { src: string; label?: string; roots: string[]; onOpen?: (src: string) => void }) {
   const [attempt, setAttempt] = useState(0);
@@ -552,10 +565,17 @@ export function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null, pageAsk = null, onAsked, onShown }: {
   previewSample?: string;
   /** The repeating task this thread is a run of, drawn in its summary. */
   repeat?: RepeatHandle | null;
+  /** A ⌘K row that acts on this thread's own page (../thread-commands.ts):
+   *  fold the summary, open its people list, or open the name box. A new `at`
+   *  is a new press; `onAsked` says it has been carried out. */
+  pageAsk?: { what: 'summary' | 'people' | 'rename'; at: number } | null;
+  onAsked?: () => void;
+  /** What this page draws that ⌘K offers rows for. */
+  onShown?: (shown: { key: string; change: boolean; summary: 'open' | 'closed' | null }) => void;
   /**
    * A MESSAGE FROM A PERSON IS NOT WORK UNTIL SHE SAYS SO. The one line under
    *  the latest message on a message thread calls this to make it a task for
@@ -872,6 +892,11 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const summaryOffered = summarised && !openDoc;
   const summaryShown = summaryOffered && summaryOpen;
   useSummaryShortcut(toggleSummary, summaryOffered);
+  useEffect(() => {
+    if (!pageAsk || !summaryOffered) return;
+    if (pageAsk.what === 'summary') { toggleSummary(); onAsked?.(); }
+    else if (pageAsk.what === 'people' && !summaryOpen) toggleSummary();
+  }, [pageAsk?.at, summaryOffered]);
   // THE MODEL, IN THE REPLY BOX AND NOT THE HEADER. The folded box says which
   // model picks up what she sends next, at its right end, and pressing the word
   // opens the box with the model drawer already open: the same drawer and the
@@ -895,10 +920,24 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // closing the box is the exact moment this has to change: that close is what
   // re-renders this pane, and the pill has to come back already carrying her
   // words. Nothing here can lose them; it only decides what is shown.
-  const folded = useMemo(
-    () => foldedReply(readDraft(item), readDraftAttachments(item), agent?.name),
-    [replyOpen, item.product, item.id, agent?.name],
-  );
+  // The same when the reply box is folded shut: a note that went with an
+  // undone send is the box's again, for when it opens.
+  useEffect(() => {
+    const back = (event: Event) => {
+      if ((event as CustomEvent).detail !== draftKey(item)) return;
+      void sendTurnedBack(`direct:${item.product}:${item.id}`, readDraftAttachments(item).map((a) => a.draftId));
+    };
+    window.addEventListener('zero:reply-restored', back);
+    return () => window.removeEventListener('zero:reply-restored', back);
+  }, [item.product, item.id]);
+  const folded = useMemo(() => {
+    // A voice note kept for this box, and not in the draft, still counts.
+    const drafted = readDraftAttachments(item);
+    const kept = voiceDraftsFor(`direct:${item.product}:${item.id}`)
+      .filter((v) => !drafted.some((a) => a.draftId === v.id))
+      .map((v) => ({ name: voiceNoteName(v.ms ?? 1000), image: false }));
+    return foldedReply(readDraft(item), [...drafted, ...kept], agent?.name);
+  }, [replyOpen, item.product, item.id, agent?.name]);
 
   // A TASK OPENS AT ITS END, NOT AT ITS BEGINNING.
   //
@@ -1059,6 +1098,10 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     const timer = setInterval(read, pollEvery(4000, onPhone()));
     return () => { live = false; clearInterval(timer); };
   }, [item.product, item.id, item.updatedAt, session?.startedAt, agent]);
+  const summaryNow = summaryOffered ? (summaryShown ? 'open' : 'closed') : null;
+  useEffect(() => {
+    onShown?.({ key: `${item.product}/${item.id}`, change: !!figures, summary: summaryNow });
+  }, [item.product, item.id, !!figures, summaryNow]);
 
   // Parent callbacks change on polling and when a document opens. Keep the
   // current actions without making them React component identities: replacing
@@ -1154,6 +1197,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         if (href && !/^(https?|data):/.test(href) && /\.(png|jpe?g|gif|webp|svg)(?:[?#]|$)/i.test(href)) {
           const label = typeof children === 'string' ? children : href;
           return <ArtifactImg key={href} src={href} alt={label} roots={roots} onOpen={openHref} find={find} />;
+        }
+        // A VOICE NOTE PLAYS AS ONE, from wherever its file is found.
+        const note = href && !/^(https?|data):/.test(href) ? voiceNoteOf(href) : null;
+        if (href && note) {
+          const rel = href.replace(/^\.\//, '');
+          const urls = href.startsWith('/') ? [pictureUrl(href)] : roots.map((r) => pictureUrl(`${r}/${rel}`));
+          return <VoiceNote key={href} id={`${product}:${rel}`} ms={note.ms} load={() => firstFound(urls)} />;
         }
         // A SOUND OR A FILM PLAYS IN PLACE (ArtifactMedia, above).
         if (href && isMediaPath(href)) {
@@ -1464,7 +1514,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const rename = named ? undefined
     : (label: string) => api.threadEdit(item.product, item.id, { label }).then((r) => r.ok);
   const barContent = summaryOffered && crumbFrom
-    ? <ThreadCrumb from={crumbFrom} name={threadName} onBack={onClose} onRename={rename} threadKey={`${item.product}/${item.id}`} />
+    ? <ThreadCrumb from={crumbFrom} name={threadName} onBack={onClose} onRename={rename} threadKey={`${item.product}/${item.id}`} renameAsk={pageAsk?.what === 'rename' ? pageAsk.at : 0} onAsked={onAsked} />
     : <>{backButton}{bandLine}</>;
 
   // ANYTHING ADDED TO THIS ELEMENT RIDES BESIDE THE LITERAL, NEVER INSIDE IT.
@@ -1733,7 +1783,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
                 // other, so it reaches the same inboxes and syncs the same way;
                 // it only names the message it answers.
                 onSend: (uid, text) => api.answer({ product: item.product, id: item.id, answer: text, inReplyTo: uid })
-                  .catch(() => onNotice('That reply did not send. Try again.')),
+                  .then(() => true, () => { onNotice('That reply did not send. Try again.'); return false; }),
                 fresh: freshThreads,
               } : undefined}
             />
@@ -2055,7 +2105,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     {/* `onFinish` is the SAME ONE the three-dot menu's Mark done row takes
         (`canFinish ? onResolve : null` above), so the Status row's Done and
         that row and E are one action with one undo and one toast. */}
-    {summaryShown && <SummaryPanel item={item} team={teamCtx} onFinish={canFinish ? onResolve : null} onClose={toggleSummary} repeat={repeat} />}
+    {summaryShown && <SummaryPanel item={item} team={teamCtx} onFinish={canFinish ? onResolve : null} onClose={toggleSummary} repeat={repeat} peopleAsk={pageAsk?.what === 'people' ? pageAsk.at : 0} onAsked={onAsked} />}
     {summaryOffered && !summaryOpen && <SummaryRail item={item} team={teamCtx} onOpen={toggleSummary} />}
     {!direct && <TaskTerminal key={`${item.product}:${item.id}`} product={item.product} id={item.id} onOpenChange={setTerminalOpen}/>}
     </div>
@@ -2271,7 +2321,11 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     const restored = (event: Event) => {
       if ((event as CustomEvent).detail !== draftKey(item)) return;
       setText(readDraft(item));
-      setAttachments(readDraftAttachments(item));
+      const back = readDraftAttachments(item);
+      setAttachments(back);
+      // A voice note that went with the undone or refused send comes back
+      // too, whether or not the draft had room to carry it.
+      void sendTurnedBack(`direct:${item.product}:${item.id}`, back.map((a) => a.draftId)).then(() => voiceCtl.current?.restore());
     };
     window.addEventListener('zero:reply-restored', restored);
     return () => window.removeEventListener('zero:reply-restored', restored);
@@ -2368,6 +2422,13 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   // The hidden file input the formatting bar's attach button opens.
   const filePicker = useRef<HTMLInputElement>(null);
   const pickFiles = () => filePicker.current?.click();
+  // A finished voice note waits with the other attachments until Send, once.
+  const addVoice = (note: Recorded) => setAttachments((a) => (a.some((x) => x.draftId === note.draftId)
+    ? a : [...a, { name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId }]));
+  const voiceCtl = useRef<VoiceControl | null>(null);
+  const finishing = useRef(false);
+  const [recording, setRecording] = useState(false);
+  const attachedNow = attachments;
   // AGENTS IN A CONVERSATION WITH A PERSON (w-7b9cb8636a, ../team/ChatAgents.tsx):
   // the @ menu, mentions that carry their own project, model and effort, and
   // the rule that Send waits until every agent has a project.
@@ -2478,6 +2539,21 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
      always did. (w-5d1ad29efa, 2026-08-29.) */
   const [saving, setSaving] = useState(false);
   const send = async (spoken?: string) => {
+    // SEND WHILE A NOTE RECORDS finishes the note and sends it with the words.
+    // It comes straight here rather than through the box, which this send is
+    // about to empty, so it can never come back and go twice.
+    let attachments = attachedNow;
+    if (voiceCtl.current?.recording()) {
+      // A second press while the note is being finished is the same send.
+      if (finishing.current) return;
+      finishing.current = true;
+      const note = await voiceCtl.current.finish().finally(() => { finishing.current = false; });
+      if (note) {
+        // In the box at once, so a send that stops short below keeps it there.
+        addVoice(note);
+        attachments = [...attachments, { name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId }];
+      }
+    } else if (finishing.current) return;
     if (saving || (!(spoken ?? text).trim() && !attachments.length)) return;
     // AN AGENT WITH NO PROJECT DOES NOT GO OUT. The footer already says why;
     // ⌘↵ says it again rather than doing nothing.
@@ -2518,12 +2594,17 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     try {
       attachedMd = await persistAttachments(item.product, attachments);
     } catch (err) {
+      // A note finished by this Send waits in the box for the next try.
+      setAttachments(attachments);
       onNotice(`Not sent: ${String((err as Error)?.message ?? err)} Your draft has been kept.`);
       return;
     } finally {
       setSaving(false);
     }
     clearDraft(item);
+    // Saved with the conversation now. The spare copy is kept a while, out of
+    // the box, in case this send is undone or turned back.
+    markVoiceSent(`direct:${item.product}:${item.id}`, attachments.map((a) => a.draftId));
     // AND WHAT THIS ONE MESSAGE MAY DO, if she changed it. `null` is not the
     // same as leaving it out: it CLEARS a mode set on an earlier reply and puts
     // the thread back on the project's own setting, so it is sent whenever the
@@ -2540,7 +2621,8 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
         ? pickToSend({ model, effort }, { engine: engineShown, was: engineNow, engineCount: engineRows.length })
         : undefined);
   };
-  const hasDraft = !!text.trim() || attachments.length > 0;
+  // A note being recorded is a draft: the box stays open round it.
+  const hasDraft = !!text.trim() || attachments.length > 0 || recording;
   // NEO SENDS FROM THIS BOX WHEN THE PICTURES IN IT GO WITH ITS WORDS, so the
   // pictures go out the way her own send takes them (renderer/src/neo/useNeo.ts).
   const sendRef = useRef(send);
@@ -2787,6 +2869,12 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     // while one of them is up.
     if (chat.keyDown(e)) return;
     if (named.keyDown(e)) return;
+    // ↑ in an empty box to a person edits your newest message, as in Slack.
+    if (e.key === 'ArrowUp' && talkTo?.length && !text.trim() && !attachments.length) {
+      e.preventDefault();
+      editLast();
+      return;
+    }
     if (e.key === 'Tab' && e.shiftKey && canSetMode) {
       e.preventDefault();
       const next = claudeCode ? nextMode(running as PermissionMode) : nextCodexMode(running as CodexModeId);
@@ -2927,7 +3015,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           e.target.value = '';
         }}
       />
-      <AttachRow attachments={attachments} onRemove={(i) => setAttachments((x) => x.filter((_, j) => j !== i))} />
+      <AttachRow attachments={attachments} onRemove={(i) => { forgetVoiceDraft(attachments[i]?.draftId); setAttachments((x) => x.filter((_, j) => j !== i)); }} />
       {/* The notes, which cost a line only when there is something true to say,
           and which are NOT in the sentence: a sentence that grows a clause when
           something goes wrong is a sentence that moves under her. Same rule and
@@ -2972,7 +3060,8 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
             left of "Goes to Maya's inbox." and left of Send. A reply to an agent
             is an instruction rather than a formatted message, so that box keeps
             exactly the footer it had. */}
-        {talkTo?.length ? <FormatBar box={ref} onChange={changeText} onAttach={pickFiles} /> : null}
+        {talkTo?.length ? <FormatBar box={ref} onChange={changeText} onAttach={pickFiles} onVoice={addVoice} onNotice={onNotice}
+          voiceKey={`direct:${item.product}:${item.id}`} voice={voiceCtl} onRecording={setRecording} /> : null}
         {/* A PHONE HAS NO PASTE OF A FILE AND NO DROP, so a reply to an agent,
             which takes files only those two ways on the desktop, took none
             ("I can't upload files in mobile", 2026-10-12). It gets the same
