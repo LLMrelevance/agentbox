@@ -54,6 +54,7 @@ import crypto from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { spawn } from 'node:child_process';
 import { run } from './exec.mjs';
 import { readMarker, writeMarker, clearMarker, addCloudNews, commonGitDirOf } from './marker.mjs';
@@ -65,7 +66,7 @@ import { troubleCause, limitResetMoment } from '../../shared/spawn-trouble.mjs';
 import { HAND_BACK } from '../../shared/cloud-hand-back.mjs';
 import { sentLine } from '../../shared/cloud-start.mjs';
 import { serveApprovals } from '../approval-prompt-core.mjs';
-import { cacheKey, folderKey, sendOnce, pickBase, bundlePast, refsAt } from './reuse.mjs';
+import { cacheKey, folderKey, sendOnce, pickBase, bundlePast, refsAt, sendInParts, PART_BYTES } from './reuse.mjs';
 
 // WHAT A CLOUD RUN IS TOLD ABOUT WHERE IT IS. Without it an agent there found
 // its film's files, ffmpeg and a key missing, and asked the person to move the
@@ -179,6 +180,56 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // a letter or a digit becomes '-'. The supervisor's transcriptFile reads the
 // same rule.
 export function transcriptFolderName(cwd) { return cwd.replace(/[^a-zA-Z0-9]/g, '-'); }
+
+// A transcript sent in parts comes home as only what the run added past what
+// it was sent, listed in this file (the same name in cloud/sandbox/server.mjs).
+const TAILS = '.agentbox-tails.json';
+
+async function sha256OfStart(file, bytes) {
+  const h = crypto.createHash('sha256');
+  const fh = await fs.promises.open(file, 'r');
+  try {
+    const buf = Buffer.alloc(Math.max(1, Math.min(bytes, PART_BYTES)));
+    for (let at = 0; at < bytes;) {
+      const { bytesRead } = await fh.read(buf, 0, Math.min(buf.length, bytes - at), at);
+      if (!bytesRead) return null;
+      h.update(buf.subarray(0, bytesRead));
+      at += bytesRead;
+    }
+  } finally {
+    await fh.close();
+  }
+  return h.digest('hex');
+}
+
+const within = (dir, p) => { const rel = path.relative(dir, p); return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel); };
+
+/**
+ * Each tail the cloud sent into `dir`, added to the file it continues. The
+ * Mac's file is cut back to what was sent first, which is the cloud's copy
+ * exactly; one whose start changed here meanwhile keeps it and gains the
+ * tail all the same, so the run's turn is never lost.
+ */
+export async function layTails(dir, say = () => {}) {
+  const list = path.join(dir, TAILS);
+  let tails;
+  try { tails = JSON.parse(fs.readFileSync(list, 'utf8')); } catch { return; }
+  for (const t of Array.isArray(tails) ? tails : []) {
+    const file = path.resolve(dir, String(t?.file));
+    const tail = path.resolve(dir, String(t?.tail));
+    if (!within(dir, file) || !within(dir, tail) || !fs.existsSync(tail) || !Number.isSafeInteger(t.from)) continue;
+    let size = -1;
+    try { size = fs.statSync(file).size; } catch { /* not here */ }
+    if (size >= t.from && await sha256OfStart(file, t.from) === t.sha256) {
+      if (size > t.from) fs.truncateSync(file, t.from);
+    } else {
+      say(`${path.basename(file)} changed on this Mac while its run was in the cloud; the run's new lines are added after it`);
+    }
+    await pipeline(fs.createReadStream(tail), fs.createWriteStream(file, { flags: 'a' }));
+    fs.rmSync(tail, { force: true });
+  }
+  fs.rmSync(list, { force: true });
+}
 
 // THE PROJECT'S SAVED MEMORIES on this Mac, for a task folder that is a
 // linked worktree: Claude Code keeps them under the main checkout's folder
@@ -350,9 +401,11 @@ export async function cloudRun({
   pid: selfPid = process.pid,
   // What the cloud image said it can do at its last start (its `caps`), and
   // who to tell what this one says. 'base' lets a run send only the commits
-  // past a base the bucket already has (./reuse.mjs).
+  // past a base the bucket already has, 'parts' only the new end of the
+  // conversation (./reuse.mjs).
   imageCaps = [],
   onCaps = () => {},
+  partBytes = PART_BYTES,
 }) {
   const say = (msg) => stderr.write(`agentbox cloud: ${msg}\n`);
   const begunAt = Date.now();
@@ -562,8 +615,9 @@ export async function cloudRun({
   const resumeId = argValue(argv, '--resume');
   if (resumeId) {
     const t = path.join(projectsDir, `${resumeId}.jsonl`);
-    if (fs.existsSync(t)) sending.push(sendFile(t));
-    else say(`no transcript for ${resumeId} on this Mac; the cloud run starts without it`);
+    if (!fs.existsSync(t)) say(`no transcript for ${resumeId} on this Mac; the cloud run starts without it`);
+    else if (imageCaps.includes('parts')) sending.push(sendInParts(storage, t, { partBytes }).then((parts) => ({ path: t, parts })));
+    else sending.push(sendFile(t));
   }
   // Her saved memories for this project, where Claude Code in the cloud looks.
   const saved = codex ? null : plain ? folderWithFiles(path.join(projectsDir, 'memory')) : memoryFolderFor(cwd, configDir);
@@ -666,10 +720,10 @@ export async function cloudRun({
   }
   if (!started.ok) {
     signals.off('SIGHUP', early);
-    // An image that refused a start sent against a base, or with no
-    // repository, may not take one.
+    // An image that refused a start sent against a base, with no repository,
+    // or with a transcript in parts, may not take them.
     // Such a start is tried again without them, so the reply is not spent.
-    const outgrown = (base || plain) && started.error === 'bad-start';
+    const outgrown = (base || plain || files.some((f) => f.parts)) && started.error === 'bad-start';
     if (outgrown) { try { onCaps(started.caps || []); } catch { /* a hint */ } }
     const noRoom = refusedForRoom(started);
     say(noRoom ? noRoom.line : `the cloud run could not start: ${started.error || 'no answer'} ${started.message || ''}`.trim());
@@ -1268,6 +1322,7 @@ export async function cloudRun({
     for (const c of conversations) {
       fs.mkdirSync(c.dir, { recursive: true });
       await run('tar', ['-xzf', c.file, '-C', c.dir]);
+      await layTails(c.dir, say);
     }
   }
 
