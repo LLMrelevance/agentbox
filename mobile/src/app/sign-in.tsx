@@ -1,6 +1,7 @@
 // Sign in, as the phone site draws it (renderer/src/team/SignInPage.tsx), with
 // Sign in with Apple beside Google on an iPhone (guideline 4.8) in the same
 // button, which Apple's guidelines allow for a custom one.
+import Constants from 'expo-constants';
 import { Redirect } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
@@ -11,6 +12,9 @@ import { useCloud } from '../state/cloud';
 import { AppleMark, GoogleMark } from '../ui/icons';
 import { T, Wall } from '../ui/parts';
 import { color, font } from '../ui/theme';
+
+// Where a new account's email link lands: the phone website, which signs you in there.
+const phoneSite: string | undefined = Constants.expoConfig?.extra?.cloud?.phoneSite ?? undefined;
 
 type Mode = 'sign-in' | 'sign-up' | 'check-email';
 const smallCaps = { fontFamily: font.mono, fontSize: 10.5, letterSpacing: 0.84, textTransform: 'uppercase' as const, color: color.faint };
@@ -58,7 +62,7 @@ export default function SignIn() {
     } finally { setBusy(null); }
   };
   const signUp = async () => {
-    const out = await c.cloud!.signUp(name.trim(), email.trim(), password);
+    const out = await c.cloud!.signUp(name.trim(), email.trim(), password, phoneSite);
     if (out.confirm) { setMode('check-email'); return null; }
     return out;
   };

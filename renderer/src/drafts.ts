@@ -139,7 +139,7 @@ export function readDraftAttachments(item: ItemRef, store?: DraftStore): DraftAt
     // image, which reads as the app having damaged her paste.
     return parsed
       .filter((a) => a && typeof a === 'object' && typeof a.name === 'string' && (a.dataBase64 || a.srcPath))
-      .map((a) => ({ name: a.name, dataBase64: a.dataBase64, srcPath: a.srcPath, image: !!a.image }));
+      .map((a) => ({ name: a.name, dataBase64: a.dataBase64, srcPath: a.srcPath, image: !!a.image, ...(typeof a.draftId === 'string' ? { draftId: a.draftId } : {}) }));
   } catch {
     return [];
   }
@@ -306,6 +306,8 @@ export interface DraftAttachment {
   dataBase64?: string;
   srcPath?: string;
   image: boolean;
+  /** A voice note's id in the store of unsent notes, so it is never put back twice. */
+  draftId?: string;
 }
 
 export interface ComposeDraft {
