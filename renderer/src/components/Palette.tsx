@@ -22,7 +22,7 @@ export interface Command {
   run: () => void;
 }
 
-export function Palette({ products, supervisorPaused, itemCommands = [], batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onStanding, onSettings, onShortcuts, panelUp, onTogglePanel, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode, open = true, commandsRef }: {
+export function Palette({ products, supervisorPaused, itemCommands = [], batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onNewThread, onStanding, onSettings, onShortcuts, panelUp, onTogglePanel, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode, open = true, commandsRef }: {
   products: Product[];
   supervisorPaused: boolean;
   itemCommands?: Command[];
@@ -60,6 +60,8 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
   onOpenProjects?: () => void;
   // Opens the new project card, which does the naming.
   onNewProject: () => void;
+  // Opens the new thread card, the same thing N does.
+  onNewThread: () => void;
   onStanding: () => void;
   onSettings: () => void;
   /** Settings, opened on the Shortcuts page. */
@@ -92,8 +94,14 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
   commandsRef?: MutableRefObject<Command[]>;
 }) {
   const commands: Command[] = useMemo(() => [
-    // First, and labelled "project" because that is the word people type.
+    // First, and labelled "project" because that is the word people type. Row
+    // one by a product decision (tests/her-word-is-project).
     { id: 'new-project', label: 'New project…', hint: 'name it, and it is yours', run: onNewProject },
+    // AND THEN THE THREAD, which was not here at all: typing "new" offered New
+    // project, Check for updates, Set up again and Open as a new user, and no
+    // way to start a thread. "It is the thing I do most" (power-test-1, issue
+    // 22).
+    { id: 'new-thread', label: 'New thread', hint: 'ask an agent for something', keywords: 'task compose write message ask start', keyHint: 'N', run: onNewThread },
     // Actions on the selected item next, so every chord can be searched for.
     ...itemCommands,
     // One Filter row rather than a row per project, which filled the list. It
@@ -293,7 +301,7 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
       run: () => onSetKeyHints(!keyHints),
     },
 
-  ], [itemCommands, batch, products, supervisorPaused, order, onNewProject, filtering, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onStanding, onSettings, onShortcuts, look, machine, onSetLook, staleFiles, updateReady, onInstallUpdate, moveToApplications, onMoveToApplications, panelUp, onTogglePanel, boardUp, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, cloud, onCloudMode]);
+  ], [itemCommands, batch, products, supervisorPaused, order, onNewProject, onNewThread, filtering, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onStanding, onSettings, onShortcuts, look, machine, onSetLook, staleFiles, updateReady, onInstallUpdate, moveToApplications, onMoveToApplications, panelUp, onTogglePanel, boardUp, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, cloud, onCloudMode]);
   if (commandsRef) commandsRef.current = commands;
   return open ? <PaletteBox commands={commands} onClose={onClose} /> : null;
 }

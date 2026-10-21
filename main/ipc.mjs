@@ -1,5 +1,6 @@
 import { openSourceFile } from './open-source-file.mjs';
 import {submitReply} from './live-replies.mjs';
+import { whyItCannotMove } from '../shared/move-thread.mjs';
 import { createEngineSetup } from './engine-setup.mjs';
 // IPC: a thin, typed-by-convention surface. The renderer asks; the main
 // process derives from files and answers. Pushes go one way: "state changed,
@@ -623,7 +624,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // answered at once (supervisor.sendNow).
   ipcMain.handle('zero:send-now', (_e, { product, id }) => supervisor.sendNow(product, id));
 
-  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, model, effort, now, inReplyTo, fromPhone }) => {
+  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, engine, model, effort, now, inReplyTo, fromPhone }) => {
     if (isAgentRow(id)) return { ok: false };
     // A level picked from ⌘K arrives here with no words, and gives way the
     // same as one picked on the summary (zero:thread-edit). A reply that
@@ -670,7 +671,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     // handing them over in one call and writing the model afterwards would be a
     // race the run usually wins, so she would pick a model and watch the old one
     // take the task. `answerItem` writes both, and it writes the model first.
-    const out = await submitReply(supervisor,{product,id,answer,status,permissionMode,now:!!now},()=>store.answerItem(product, id, { answer, status, priority, permissionMode, model, effort, inReplyTo: thread, fromPhone }));
+    const out = await submitReply(supervisor,{product,id,answer,status,permissionMode,now:!!now},()=>store.answerItem(product, id, { answer, status, priority, permissionMode, engine, model, effort, inReplyTo: thread, fromPhone }));
     // A REPLY ON A ROW A TEAMMATE GAVE YOU HANDS IT BACK TO THEM, so the
     // conversation moves to their inbox instead of sitting in both
     // (shared/team-rules.mjs handedOnByReply). Archiving hands nothing on.
@@ -831,6 +832,26 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       return { ok: false, error: String(err?.message ?? err) };
     }
   });
+  // MOVE A THREAD TO ANOTHER PROJECT (w-c9da359466). Only a thread nothing has
+  // ever run on: shared/move-thread.mjs says why, and the store asks again.
+  // The one fact only this side has is whether a worker is inside it right
+  // now, which no field on the row can stand in for.
+  ipcMain.handle('zero:move-item', (_e, { product, id, to }) => {
+    try {
+      const live = supervisor.status().running.some((r) => r.itemId === id);
+      if (live) {
+        const why = whyItCannotMove(store.readItem(product, id), { live: true });
+        return { ok: false, error: why };
+      }
+      const out = store.moveItem(product, id, to);
+      push();
+      supervisor.wake();
+      return { ok: true, ...out };
+    } catch (err) {
+      return { ok: false, error: String(err?.message ?? err) };
+    }
+  });
+
   // A TASK A TEAMMATE GAVE YOU, ROUTED WITH ONE KEY. To an agent: it runs on
   // your Mac (you become its runner). Keep it: it stays yours and the routing
   // choices go away. Hand it back: it returns to whoever gave it to you.
@@ -1646,6 +1667,23 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     push();
     return out;
   });
+  // PAYING FOR A CLOUD PLAN: Stripe's own pages, in the browser.
+  const cloudCall = async (name, args = {}) => {
+    try {
+      const account = await import('./cloud/account.mjs');
+      const { shell } = await import('electron');
+      return await account[name]({ ...args, openExternal: (u) => shell.openExternal(u), home: supervisor.config.home || os.homedir() });
+    } catch (err) {
+      return { ok: false, error: 'unreachable', message: `The cloud did not answer: ${err?.message || err}` };
+    }
+  };
+  ipcMain.handle('zero:cloud-account-plan', async () => {
+    const plan = await cloudCall('cloudPlan');
+    supervisor.cloudPlanSeen?.(plan);
+    return plan;
+  });
+  ipcMain.handle('zero:cloud-account-pay', (_e, { plan } = {}) => cloudCall('payForCloud', { plan }));
+  ipcMain.handle('zero:cloud-account-billing', () => cloudCall('openCloudBilling'));
 
   // THE CLOUD SETUP'S SIGN-IN for one account, made in the cloud
   // (main/cloud/logins.mjs). The Mac relays the link and the code only.

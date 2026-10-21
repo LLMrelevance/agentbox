@@ -7,9 +7,10 @@
 // teammates' from the cards their Macs publish.
 import { shownToPeople, shownToTeam, visibilityOf } from '../../../shared/thread-cards.mjs';
 import type { Seen } from './summary-rules';
+import { hiddenUntil } from '../list-rules';
 import type { Product, ThreadCard, ThreadStateWord, WorkItem } from '../types';
 import { priorityIdOf, priorityValueOf, type PriorityId } from '../priority';
-import { firstRealLine } from '../format';
+import { dayAndTime, firstRealLine } from '../format';
 import { threadState } from '../../../shared/thread-cards.mjs';
 import { dropPlaces, placeScore, placedScore, shownPriority } from '../../../shared/rank.mjs';
 import { plainWords } from '../team/agent-mentions';
@@ -203,8 +204,25 @@ export const order = (d: Pick<Display, 'sort'>, tab?: string, projectOrder: stri
   return pinnedFirst(d.sort === 'updated' ? byUpdated : byPriority(projectOrder, direct));
 };
 
-/** The time column's heading: on Done it is when each thread was finished. */
-export const timeHeading = (tab?: string) => (tab === 'done' ? 'Done' : 'Updated');
+/** The time column's heading: on Done it is when each thread was finished, and
+ *  on Later when it comes back. */
+export const timeHeading = (tab?: string) => (tab === 'done' ? 'Done' : tab === 'snoozed' ? 'Back' : 'Updated');
+
+/**
+ * WHEN A THREAD IN LATER COMES BACK, for the column that used to say how long
+ * ago it was touched (power-test-1, issue 18). A tester set a weekly check to
+ * Monday 9am, went to Later to check it, and read "4 min ago": the return time
+ * had been said once, in a toast, and nowhere since.
+ *
+ * The same answer `returnAt` gives in App.tsx, which is what put the row in
+ * Later in the first place: a schedule, or a reminder you set. A thread added
+ * to Later and never started has neither, and the row already says "not
+ * started" beside its name.
+ */
+export function backWords(i: Parameters<typeof hiddenUntil>[0] & { runAt?: number }, now = Date.now()): string {
+  const at = Math.max(hiddenUntil(i), i.runAt ?? 0);
+  return at > 0 ? dayAndTime(at, now) : '';
+}
 
 /**
  * The rows in the order the Display menu asked for.

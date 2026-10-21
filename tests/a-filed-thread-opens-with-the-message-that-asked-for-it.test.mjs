@@ -77,9 +77,12 @@ describe('the opening line of a filed thread', () => {
     expect(r).toEqual({ kind: 'said', text: parent().body, at: 1000, on: parent().title });
   });
 
-  it('and to the parent title alone when that parent is an agent message', () => {
+  it('and to nothing at all when that parent is an agent message', () => {
+    // Her words are the only thing that opens a thread. The parent's title
+    // used to be drawn above the message instead, and that box is gone
+    // (tests/nothing-is-quoted-above-the-message).
     const r = recapFor(child({ createdAt: 2000 }), parent({ kind: 'question' }), history);
-    expect(r).toEqual({ kind: 'origin', title: parent().title, at: LATER_AT });
+    expect(r).toBeNull();
   });
 
   it('skips a send she took back, and what it took back', () => {
@@ -100,9 +103,9 @@ describe('the opening line of a filed thread', () => {
     expect(recapFor(child(), p)).toEqual({ kind: 'said', text: ASK, at: ASKED_AT, on: p.title });
   });
 
-  it('a reply on the thread itself still leads, whatever the parent says', () => {
+  it('a reply on the thread itself still ends it, whatever the parent says', () => {
     const r = recapFor(child({ answer: 'go', wrote: { answer: { ts: LATER_AT + 5, source: 'founder' } } }), parent(), history);
-    expect(r).toEqual({ kind: 'replied', text: 'go', at: LATER_AT + 5 });
+    expect(r).toBeNull();
   });
 });
 

@@ -1282,6 +1282,7 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
       if (!isEngine(engineId)) throw new Error(`unknown coding agent: ${engineId}`);
       const profile = typeof value?.profile === 'string' && value.profile ? value.profile : null;
       saveConfig(config, { activeAccount: { ...(config.activeAccount ?? {}), [engineId]: profile } });
+      supervisor.accountChosen?.(engineId, profile);
       supervisor.onChange?.();
       break;
     }

@@ -15,9 +15,9 @@
 // What is pinned here:
 //   - the card hands over (onSending) before its first await, on a task and on
 //     a message to a person, so nothing waits on the computer to close it;
-//   - the words are taken off the card at that moment and travel with the
-//     send, so Z and a failed send both still have them, and a second card
-//     opened in the meantime is not emptied by the first send landing;
+//   - the words come off the card at that moment and travel with the send, so
+//     Z and a failed send both still have them, and a second card opened in
+//     the meantime is not emptied by the first send landing;
 //   - a failed send puts the words back and says so;
 //   - the toast says it is on its way at once, in words that say where;
 //   - the row the computer hands back is in the list straight away, and is
@@ -98,13 +98,14 @@ describe('the card hands over before it waits on anything', () => {
       expect(send.indexOf('onSending?.(')).toBeLessThan(send.indexOf('await '));
     });
 
-    it(`${name}: the draft is taken off the card before the first await, and put back on a failure`, () => {
+    it(`${name}: the draft rides with the send from before the first await, and is back on a failure`, () => {
       const send = body(name);
-      expect(send.indexOf('const taken = takeComposeDraft()')).toBeGreaterThan(-1);
-      expect(send.indexOf('const taken = takeComposeDraft()')).toBeLessThan(send.indexOf('await '));
-      expect(send).toMatch(/saveComposeDraft\(taken\)/);
-      // Nothing clears the draft after the send lands: by then it may be a
-      // second card's words.
+      expect(send.indexOf('const taken = readComposeDraft()')).toBeGreaterThan(-1);
+      expect(send.indexOf('const taken = readComposeDraft()')).toBeLessThan(send.indexOf('await '));
+      expect(send).toMatch(/restoreComposeDraft\(taken\)/);
+      // Nothing clears the draft outright after the send lands: by then it may
+      // be a second card's words. `dropComposeDraft` is the one that may,
+      // because it looks first (tests/a-send-the-app-has-not-taken-keeps-your-words).
       expect(send).not.toMatch(/clearComposeDraft\(\)/);
     });
   }

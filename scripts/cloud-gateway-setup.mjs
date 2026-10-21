@@ -18,7 +18,8 @@
 //   - a sweep every 5 minutes
 //   - a notice from the budget the spike made (`agentcore-sandboxes`) that
 //     pauses new runs when the month's spend passes it
-// and prints the function URL.
+// and prints the function URL. Paying is on once scripts/stripe-setup.mjs has
+// stored Stripe's secret; run this again after it.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -32,7 +33,10 @@ const ROOT = path.join(HERE, '..');
 const NAMES = {
   fn: 'agentbox-gateway', role: 'agentbox-gateway-role', signer: 'agentbox-gateway-signer', notice: 'agentbox-gateway-done',
   sweep: 'agentbox-gateway-sweep', topic: 'agentbox-gateway-budget', budget: 'agentcore-sandboxes',
+  stripe: 'agentbox-gateway-stripe',
 };
+export const STRIPE_SECRET_NAME = NAMES.stripe;
+export const GATEWAY_FUNCTION = NAMES.fn;
 // The most functions running at once: the ceiling on a burst of calls. It
 // does not stop machines already going; `admin pause` and the sweep do.
 const CONCURRENCY = 200;
@@ -45,7 +49,7 @@ export const FUNCTION_SECONDS = 90;
  * the role reads and writes only its ledger and the calls it relays, looks
  * for a run's done.json, and deletes what a Mac asks it to.
  */
-export function rolePolicy({ bucket, runtimeArn, region, account, signerSecretArn = `arn:aws:secretsmanager:${region}:${account}:secret:${NAMES.signer}-*` }) {
+export function rolePolicy({ bucket, runtimeArn, region, account, signerSecretArn = `arn:aws:secretsmanager:${region}:${account}:secret:${NAMES.signer}-*`, stripeSecretArn = null }) {
   const at = (p) => `arn:aws:s3:::${bucket}/${p}`;
   return {
     Version: '2012-10-17',
@@ -56,7 +60,7 @@ export function rolePolicy({ bucket, runtimeArn, region, account, signerSecretAr
       { Effect: 'Allow', Action: ['s3:DeleteObject'], Resource: [at('runs/*'), at('logins/*')] },
       // runs/ too, so a done.json not there yet answers 404, not 403.
       { Effect: 'Allow', Action: ['s3:ListBucket'], Resource: `arn:aws:s3:::${bucket}`, Condition: { StringLike: { 's3:prefix': ['ledger/*', 'runs/*'] } } },
-      { Effect: 'Allow', Action: ['secretsmanager:GetSecretValue'], Resource: signerSecretArn },
+      { Effect: 'Allow', Action: ['secretsmanager:GetSecretValue'], Resource: stripeSecretArn ? [signerSecretArn, stripeSecretArn] : signerSecretArn },
       { Effect: 'Allow', Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'], Resource: `arn:aws:logs:${region}:${account}:log-group:/aws/lambda/${NAMES.fn}*` },
     ],
   };
@@ -157,15 +161,18 @@ async function main() {
     else aws(['secretsmanager', 'create-secret', '--name', NAMES.signer, '--secret-string', value]);
   }
   const signerSecretArn = aws(['secretsmanager', 'describe-secret', '--secret-id', NAMES.signer]).ARN;
+  // Stripe's key and webhook secret, once scripts/stripe-setup.mjs has stored them.
+  const stripeSecretArn = aws(['secretsmanager', 'describe-secret', '--secret-id', NAMES.stripe], { allowFail: true })?.ARN || null;
+  if (!stripeSecretArn) say('no Stripe secret yet: paying stays off until scripts/stripe-setup.mjs runs');
 
   // The role.
   const trust = JSON.stringify({ Version: '2012-10-17', Statement: [{ Effect: 'Allow', Principal: { Service: 'lambda.amazonaws.com' }, Action: 'sts:AssumeRole' }] });
   let role = aws(['iam', 'get-role', '--role-name', NAMES.role], { allowFail: true })?.Role;
   if (!role) { say(`making role ${NAMES.role}`); role = aws(['iam', 'create-role', '--role-name', NAMES.role, '--assume-role-policy-document', trust]).Role; }
-  aws(['iam', 'put-role-policy', '--role-name', NAMES.role, '--policy-name', `${NAMES.role}-policy`, '--policy-document', JSON.stringify(rolePolicy({ bucket, runtimeArn, region, account, signerSecretArn }))], { json: false });
+  aws(['iam', 'put-role-policy', '--role-name', NAMES.role, '--policy-name', `${NAMES.role}-policy`, '--policy-document', JSON.stringify(rolePolicy({ bucket, runtimeArn, region, account, signerSecretArn, stripeSecretArn }))], { json: false });
 
   // The function. A role made a moment ago is not assumable yet: retry.
-  const env = { REGION: region, BUCKET: bucket, RUNTIME_ARN: runtimeArn, SUPABASE_URL: db.url, SUPABASE_ANON_KEY: db.anonKey, SIGNER_SECRET_ARN: signerSecretArn };
+  const env = { REGION: region, BUCKET: bucket, RUNTIME_ARN: runtimeArn, SUPABASE_URL: db.url, SUPABASE_ANON_KEY: db.anonKey, SIGNER_SECRET_ARN: signerSecretArn, ...(stripeSecretArn ? { STRIPE_SECRET_ARN: stripeSecretArn } : {}) };
   // The chip goes with the code (create, or a code update), never with a settings update.
   const settings = ['--runtime', 'nodejs22.x', '--handler', 'index.handler', '--timeout', String(FUNCTION_SECONDS), '--memory-size', '512', '--environment', JSON.stringify({ Variables: env })];
   const arm = ['--architectures', 'arm64'];

@@ -71,6 +71,16 @@ export function keyAt(places: Map<string, Place>, file: string): { product: stri
 /** The full path on the phone of a key. */
 export const fileOf = (place: Place, key: string) => (key.startsWith('@repo/') ? `${place.repo}/${key.slice(6)}` : `${place.dir}/${key}`);
 
+/** A folder a message names, among those her Mac listed: its full path here and its pictures' keys. */
+export function findFolder(place: Place, src: string): { folder: string; keys: string[] } | null {
+  let raw = String(src ?? '').replace(/^file:\/\//, '').replace(/\/+$/, '');
+  try { raw = decodeURIComponent(raw); } catch { /* as written */ }
+  const full = raw.startsWith('~/') ? `${homeOf(place.device)}${raw.slice(1)}` : raw;
+  const key = full.startsWith(`${place.dir}/`) ? full.slice(place.dir.length + 1) : full.startsWith(`${place.repo}/`) && place.repo ? `@repo/${full.slice(place.repo.length + 1)}` : full.replace(/^\.\//, '');
+  const keys = place.folders.get(`${key}/`);
+  return keys ? { folder: key.startsWith('@repo/') ? `${place.repo}/${key.slice(6)}` : `${place.dir}/${key}`, keys } : null;
+}
+
 /**
  * What a path a message gives stands for, looked for where the Mac looks
  * (main/artifact-path.mjs resolveArtifact): in full, then under the project's

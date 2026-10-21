@@ -12,7 +12,7 @@
 
 export type SettingsPageId =
   | 'general' | 'appearance' | 'shortcuts' | 'phone' | 'neo' | 'alpha' | 'rooms'
-  | 'claude' | 'codex' | 'running' | 'instructions'
+  | 'claude' | 'codex' | 'running' | 'cloud' | 'instructions'
   | 'projects' | 'team';
 
 /** The menu, in the order it is drawn, under the three headings it is drawn
@@ -28,6 +28,7 @@ export const SETTINGS_PAGES: Array<{ id: SettingsPageId; label: string; group: '
   { id: 'claude', label: 'Claude Code', group: 'Agents' },
   { id: 'codex', label: 'Codex', group: 'Agents' },
   { id: 'running', label: 'Running', group: 'Agents' },
+  { id: 'cloud', label: 'Cloud', group: 'Agents' },
   { id: 'instructions', label: 'Instructions', group: 'Agents' },
   { id: 'projects', label: 'Projects', group: 'Workspace' },
   { id: 'team', label: 'Team', group: 'Workspace' },
@@ -81,6 +82,8 @@ const ENTRIES: Entry[] = [
   // The Memory group folded into the Agents card (w-e5225b62ba), so these three
   // land on `at-once` together. An anchor naming a group that no longer exists
   // is a search result that scrolls nowhere.
+  { page: 'cloud', label: 'Cloud plans', anchor: 'cloud-plans', words: 'agentbox cloud plan plans pro plus max slots upgrade price pay subscription' },
+  { page: 'cloud', label: 'Billing', anchor: 'cloud-billing', words: 'stripe payment invoices card cancel subscription' },
   { page: 'running', label: 'How many run at once', anchor: 'at-once', words: 'agents concurrent parallel sessions limit queue capacity automatic' },
   { page: 'running', label: 'Hold heavy work when memory is short', anchor: 'at-once', words: 'ram tests builds slow memory' },
   { page: 'running', label: 'Stop programs agents leave behind', anchor: 'at-once', words: 'leftovers left running finished dev servers background jobs processes cleanup kill ram memory' },

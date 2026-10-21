@@ -58,6 +58,8 @@ export const REQUEST_CHANNELS = {
   rooms: 'zero:rooms',
   takeJoin: 'zero:take-join',
   threadEdit: 'zero:thread-edit',
+  // Move a thread to another project (shared/move-thread.mjs).
+  moveItem: 'zero:move-item',
   repeats: 'zero:repeats',
   composeRepeat: 'zero:compose-repeat',
   setRepeat: 'zero:set-repeat',
@@ -119,6 +121,9 @@ export const REQUEST_CHANNELS = {
   cloudAccountCancel: 'zero:cloud-account-cancel',
   cloudAccountReopen: 'zero:cloud-account-reopen',
   cloudAccountSignOut: 'zero:cloud-account-sign-out',
+  cloudAccountPlan: 'zero:cloud-account-plan',
+  cloudAccountPay: 'zero:cloud-account-pay',
+  cloudAccountBilling: 'zero:cloud-account-billing',
   projectRename: 'zero:project-rename',
   projectArchive: 'zero:project-archive',
   projectSeenBy: 'zero:project-seen-by',
