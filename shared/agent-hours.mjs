@@ -5,15 +5,33 @@
 // ended. Every run whose agent actually began counts its wall time, failed or
 // not, and overlapping runs each count.
 
-export const LEVEL_MAX_HOURS = 5000;
+export const MASTERY_HOURS = 10_000;
 const MAX_RUN_SECONDS = 24 * 3600;
 const DAY_MS = 86_400_000;
 
-// Quick early, slow late, 99 at LEVEL_MAX_HOURS.
+// Up to 99, hours grow as level^2.5: level 2 in minutes, 99 at MASTERY_HOURS.
+// Not RuneScape's curve, which spends half its hours on the last seven levels
+// and so reads 82 after one heavy month. Past 99 there is no ceiling and each
+// level costs 5% more than the last, starting from the curve's pace at 99 so
+// no level ever costs less than the one before.
+const RISE = 2.5;
+const PAST = Math.log(1.05);
+const PACE_AT_99 = (MASTERY_HOURS * RISE) / 98;
+// A level starts at its exact hours, not one float step later.
+const EPS = 1e-10;
+
+export function hoursForLevel(level) {
+  const L = Number(level);
+  if (!(L > 1)) return 0;
+  if (L <= 99) return MASTERY_HOURS * ((L - 1) / 98) ** RISE;
+  return MASTERY_HOURS + (PACE_AT_99 * Math.expm1((L - 99) * PAST)) / PAST;
+}
+
 export function levelFor(hours) {
   const h = Number(hours);
   if (!Number.isFinite(h) || h <= 0) return 1;
-  return Math.min(99, 1 + Math.floor(98 * Math.cbrt(h / LEVEL_MAX_HOURS)));
+  if (h < MASTERY_HOURS) return 1 + Math.floor(98 * (h / MASTERY_HOURS) ** (1 / RISE) + EPS);
+  return 99 + Math.floor(Math.log1p(((h - MASTERY_HOURS) * PAST) / PACE_AT_99) / PAST + EPS);
 }
 
 const pad = (n) => String(n).padStart(2, '0');

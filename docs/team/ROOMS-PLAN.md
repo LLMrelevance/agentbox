@@ -229,10 +229,12 @@ There is no run history today (only PostHog counts and per-run trace logs).
   Monday, today), active dates, streak, monthly series, and the level.
   Persisted on my presence row only because other people cannot compute them:
   they read my numbers, never my ledger.
-- Level (quick early, slow late, 99 at 5,000 hours):
-  `level(h) = min(99, 1 + floor(98 * cbrt(h / 5000)))`. 12h is 14, 100h is
-  27, 500h is 46, 1,240h is 62. A person's level comes from the sum of their
-  Macs' hours.
+- Level (quick early, each level slower than the last, 99 at 10,000 hours,
+  no ceiling): up to 99, `level(h) = 1 + floor(98 * (h / 10000) ^ 0.4)`; past
+  99 each level costs 5% more hours than the one before. 1h is 3, 12h is 7,
+  100h is 16, 1,945h is 51, 10,000h is 99. At about 65 agent hours a day
+  that is the middle after a month, 99 after five, and about 125 after a
+  year. A person's level comes from the sum of their Macs' hours.
 - Streak across Macs: the union of each Mac's `active_days`, counted back from
   today (or yesterday, if today has no run yet).
 

@@ -238,8 +238,14 @@ describe('the row says where the work went', () => {
     return wrote;
   };
 
-  it('tells her it is moving when a second login has room', () => {
-    expect(whatTheRowReads(bare())).toContain('another account that has room');
+  // AND WHICH LOGIN EACH ONE IS (w-e1a42f6b21). With two subscriptions the
+  // sentence named neither, so nothing said which was spent or which took the
+  // task. These two have no readable email in this world, so they are named
+  // the way the Settings page names a login the vendor would not name.
+  it('tells her it is moving, and which login it is moving to', () => {
+    const said = whatTheRowReads(bare());
+    expect(said).toContain('usage limit on Claude account 1');
+    expect(said).toContain('runs it again on Claude account 2, which has room');
   });
 
   // THE CASE THAT MUST NOT MATCH: one login, so the hour really is the answer.

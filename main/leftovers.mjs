@@ -26,9 +26,11 @@
 //      leftovers and no record at all is recorded as ended when this app, whose
 //      store it is in, has no session for it; the clock starts then, never
 //      back-dated.
-//   4. ITS PROGRAMS STOP `idleMs` (2 h) AFTER THE RUN ENDED, or `tightIdleMs`
-//      (10 min) while memory is tight or critical, and never sooner than that
-//      long after the switch went on.
+//   4. ITS PROGRAMS STOP `closeGraceMs` (2 min) AFTER THE TASK IS CLOSED, so a
+//      Z that reopens it keeps them. While memory is tight or critical, also
+//      `tightIdleMs` (10 min) after the run ended, one task per look, the one
+//      whose run ended longest ago first. Never sooner than that long after
+//      the switch went on.
 //   5. NOTHING PROTECTED IS EVER STOPPED: AGENTBOX_KEEP=1 in its environment,
 //      an executable inside an installed app or the system (Docker Desktop and
 //      its VM, a browser an agent opened), an executable that cannot be read,
@@ -231,7 +233,7 @@ export async function listProcesses(platform = process.platform) {
   return procs;
 }
 
-async function readMacPressureWord() {
+export async function readMacPressureWord() {
   const out = await new Promise((resolve) => {
     execFile('/usr/sbin/sysctl', ['-n', 'kern.memorystatus_vm_pressure_level', 'kern.memorystatus_level'], { timeout: 5_000 },
       (err, stdout) => resolve(err ? '' : stdout));
@@ -276,7 +278,9 @@ export class LeftoverCleaner {
     enabledSince = Date.now(),
     live = () => false,
     owns = () => false,
-    idleMs = 2 * 60 * 60_000,
+    // When the task was closed, or null while it is open.
+    closedAt = () => null,
+    closeGraceMs = 2 * 60_000,
     tightIdleMs = 10 * 60_000,
     confirmMs = 60_000,
     settleMs = 30_000,
@@ -286,8 +290,9 @@ export class LeftoverCleaner {
     enabled = true,
     log = () => {},
   } = {}) {
-    Object.assign(this, { list, kill, clock, readPressure, file, enabledSince, live, owns, idleMs, tightIdleMs, confirmMs, settleMs, home, enabled, log });
+    Object.assign(this, { list, kill, clock, readPressure, file, enabledSince, live, owns, closedAt, closeGraceMs, tightIdleMs, confirmMs, settleMs, home, enabled, log });
     this.firstSeen = new Map();
+    this.withPrograms = new Set();
     this.lastStatus = { leftovers: [], survivors: [], stopped: null, pressure: 'normal' };
     const saved = this._load();
     this.runs = saved.runs;
@@ -335,6 +340,9 @@ export class LeftoverCleaner {
 
   status() { return this.lastStatus; }
 
+  /** Whether the last look found programs of this task's that could be stopped. */
+  hasPrograms(item) { return this.withPrograms.has(item); }
+
   /** Stop signalling from this moment, even in a look already under way. */
   disable() { this.enabled = false; }
 
@@ -369,6 +377,7 @@ export class LeftoverCleaner {
       return this.lastStatus;
     }
     const view = this._view(procs, now);
+    this.withPrograms = new Set([...view.tasks.values()].filter((t) => t.procs.length).map((t) => t.item));
     this._reconcileRuns(view, now);
     this._trackStopping(view, now);
     const due = this._due(view, now, pressure);
@@ -468,29 +477,51 @@ export class LeftoverCleaner {
     }
   }
 
-  _stopsAt(item, pressure) {
+  /** When this task's programs stop, or null while nothing says they should. */
+  _stopsAt(item, product, pressure) {
     const run = this.runs[item];
     if (!run || run.state !== 'ended') return null;
     const from = Math.max(run.endedAt, this.enabledSince);
-    return from + (pressure === 'normal' ? this.idleMs : this.tightIdleMs);
+    let closed = null;
+    try { closed = this.closedAt(item, product); } catch { closed = null; }
+    const times = [];
+    if (Number.isFinite(closed)) times.push(Math.max(from, closed) + this.closeGraceMs);
+    if (pressure !== 'normal') times.push(from + this.tightIdleMs);
+    return times.length ? Math.min(...times) : null;
   }
 
-  /** Programs whose time has come and that have been seen long enough. */
+  /**
+   * Programs whose time has come and that have been seen long enough: every
+   * closed task's, and while memory is short, one more task's, the one whose
+   * run ended longest ago.
+   */
   _due(view, now, pressure) {
     const due = [];
     if (!this.enabled) return due;
+    let short = null;
     for (const t of view.tasks.values()) {
       if (this._alive(t)) continue;
-      const at = this._stopsAt(t.item, pressure);
+      const closed = this._stopsAt(t.item, t.product, 'normal');
+      if (closed !== null && now >= closed) { due.push(...this._ready(t, now)); continue; }
+      const at = pressure === 'normal' ? null : this._stopsAt(t.item, t.product, pressure);
       if (at === null || now < at) continue;
-      for (const p of t.procs) {
-        const id = idOf(p);
-        if (this.stopping[id]) continue;
-        if (now - (this.firstSeen.get(id) ?? now) < this.confirmMs) continue;
-        due.push({ item: t.item, id, pid: p.pid });
-      }
+      const ready = this._ready(t, now);
+      const ended = this.runs[t.item].endedAt;
+      if (ready.length && (!short || ended < short.ended)) short = { ended, ready };
     }
+    if (short) due.push(...short.ready);
     return due;
+  }
+
+  _ready(t, now) {
+    const out = [];
+    for (const p of t.procs) {
+      const id = idOf(p);
+      if (this.stopping[id]) continue;
+      if (now - (this.firstSeen.get(id) ?? now) < this.confirmMs) continue;
+      out.push({ item: t.item, id, pid: p.pid });
+    }
+    return out;
   }
 
   /** One fresh look, every rule again, then SIGTERM to what still passes. */
@@ -509,8 +540,8 @@ export class LeftoverCleaner {
       const t = view.tasks.get(d.item);
       if (!t || !t.procs.includes(p)) continue; // protected now, or no longer this task's
       if (this._alive(t)) continue;
-      const at = this._stopsAt(d.item, pressure);
-      if (at === null || now < at) continue; // a run started meanwhile
+      const at = this._stopsAt(d.item, t.product, pressure);
+      if (at === null || now < at) continue; // a run started, or the task reopened, meanwhile
       // Switched off while this look was under way: nothing more is signalled.
       if (!this.enabled) break;
       try { this.kill(p.pid, 'SIGTERM'); } catch { continue; }
@@ -538,7 +569,7 @@ export class LeftoverCleaner {
         kept: t.guarded.length,
         mb: all.reduce((n, p) => n + (p.mb ?? 0), 0),
         oldest: Math.min(...all.map((p) => p.start * 1000)),
-        stopsAt: t.procs.length ? this._stopsAt(t.item, pressure) : null,
+        stopsAt: t.procs.length ? this._stopsAt(t.item, t.product, pressure) : null,
       });
     }
     return out.sort((a, b) => a.oldest - b.oldest);
