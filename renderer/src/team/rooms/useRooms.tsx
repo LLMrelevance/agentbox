@@ -11,7 +11,7 @@ import { RoomPage, type RoomPane } from './RoomPage';
 import { RoomChat, peopleOf } from './RoomChat';
 import { RoomFace } from './RoomFace';
 import { I } from './icons';
-import { FullChatHead, MessagesPage, sortConversations, type Conversation } from './MessagesPage';
+import { FullChatHead, MessagesPage, sortConversations, type Conversation, type ConversationAction } from './MessagesPage';
 import { roomConversations } from './conversations';
 import { FindRooms, type ListedRoom } from './FindRooms';
 import { InviteDialog, JoinDialog, MembersMenu, StartRoomDialog, type Preview, type Sent } from './RoomDialogs';
@@ -28,13 +28,15 @@ type Dialog =
 
 type Direct = Conversation & { people: string[] };
 
-export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, teamCards = [], directs = [], now, toast, onOpenDirect, onTeamMessage, onLeavePage }: {
+export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, teamCards = [], directs = [], now, toast, onOpenDirect, onDirectRead, onTeamMessage, onLeavePage }: {
   rooms: RoomsState | null | undefined; on: boolean; meId: string | null; myName: string; fullName?: string; hasTeam: boolean; teamCards?: ThreadCard[];
   /** Direct records, for the messages page and the chat switcher. */
   directs?: Direct[];
   now: number; toast: (text: string) => void;
   /** Open a direct record (its own view, on the messages page). */
   onOpenDirect: (id: string) => void;
+  /** Mark a direct record read, or unread. */
+  onDirectRead?: (id: string, read: boolean) => void;
   /** Message teammates the way the team version already does. */
   onTeamMessage: (personIds: string[]) => void;
   /** Leave whatever covers the rooms: an open thread or direct chat, the Team page, search. */
@@ -161,7 +163,53 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     const res = await call('send', roomId, body, opts);
     return res.ok ? null : res.error ?? 'Not sent';
   };
-  const read = (r: Room) => () => { if (r.unread > 0) void call('markRead', r.id); };
+  const read = (r: Room) => () => { if (r.unread > 0 || r.markedUnread) void call('markRead', r.id); };
+  // Everything else a room's chat can do to a message, or to the room.
+  const chatCalls = (r: Room) => ({
+    onReact: (messageId: string, emoji: string, on: boolean) => {
+      void call('react', r.id, messageId, emoji, on).then((res) => { if (!res.ok) toast(res.error ?? 'That reaction did not save'); });
+    },
+    onEdit: async (messageId: string, body: string, mentions: string[]) => {
+      const res = await call('edit', r.id, messageId, body, { mentions });
+      return res.ok ? null : res.error ?? 'That change did not save';
+    },
+    onDelete: (messageId: string) => {
+      void call('deleteMessage', r.id, messageId).then((res) => { if (!res.ok) toast(res.error ?? 'Not deleted'); });
+    },
+    onMarkUnread: (at: number) => {
+      void call('markUnread', r.id, at).then((res) => toast(res.ok ? 'Marked unread' : res.error ?? 'Not marked unread'));
+    },
+    onPutFile: async (name: string, dataBase64: string) => {
+      const res = await call('putFile', r.id, { name, dataBase64 });
+      return res.ok ? null : res.error ?? 'That file did not send';
+    },
+    loadFile: async (name: string) => {
+      const res = await call<string | null>('file', r.id, name);
+      if (!res.ok || !res.value) return null;
+      return new Blob([Uint8Array.from(atob(res.value), (c) => c.charCodeAt(0))]);
+    },
+    onNotice: toast,
+  });
+
+  // A conversation's own menu on the messages page.
+  const act = async (c: Conversation, action: ConversationAction) => {
+    if (c.kind === 'direct') {
+      if (action === 'read' || action === 'unread') onDirectRead?.(c.id, action === 'read');
+      return;
+    }
+    const r = all.find((x) => x.id === c.id);
+    if (!r) return;
+    if (action === 'read') { await call('markRead', r.id); return; }
+    if (action === 'unread') {
+      const held = rooms?.messages[r.id] ?? [];
+      const last = [...held].reverse().find((m) => !m.inReplyTo && !m.deleted && m.by !== meId) ?? [...held].reverse().find((m) => !m.inReplyTo && !m.deleted);
+      const res = await call('markUnread', r.id, last?.at ?? Date.now());
+      toast(res.ok ? 'Marked unread' : res.error ?? 'Not marked unread');
+      return;
+    }
+    if (action === 'mute' || action === 'unmute') { await menu(r.id, action, new DOMRect()); return; }
+    if (action === 'leave') await menu(r.id, 'leave', new DOMRect());
+  };
 
   const conversations: Conversation[] = live ? [...roomConversations(rooms), ...directs] : [];
   const pick = (c: Conversation) => {
@@ -200,7 +248,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       actions={r.kind === 'group' ? undefined
         : <button type="button" className="rm-btn" onClick={() => setDialog({ kind: 'invite', roomId: r.id })}>{I.invite(14)}Invite</button>} /> : undefined;
     return <RoomChat room={r} messages={rooms?.messages[r.id] ?? []} people={withMe(peopleOf(r.wall), meInChat)} meId={meId} now={now} full={asFull} head={head}
-      onSend={send(r.id)} onRead={read(r)}
+      onSend={send(r.id)} onRead={read(r)} {...chatCalls(r)}
       onInvite={() => setDialog({ kind: 'invite', roomId: r.id })}
       onExpand={asFull ? undefined : () => { setOpenId(r.id === open?.id ? open.id : r.id); setFull(true); setPanelId(null); }}
       onSwitch={(at) => setSwitcher(switcher ? null : at)} switchOpen={!!switcher} />;
@@ -215,7 +263,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   let page: ReactNode = null;
   if (noChats && live) {
     heading = { title: backTitle('Messages'), right: null };
-    page = <MessagesPage list={[]} onKey={null} now={now} onPick={pick}>
+    page = <MessagesPage list={[]} onKey={null} now={now} onPick={pick} onAction={(c, a) => void act(c, a)}>
       <div className="rm-empty" style={{ padding: '0 28px' }}><span className="t">No conversations yet.</span>
         <span className="s">Message someone from a room, or from New thread.</span></div>
     </MessagesPage>;
@@ -230,7 +278,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     if (full || open.kind === 'group') {
       const r = chatRoom ?? open;
       heading = { title: backTitle(open.kind === 'group' ? 'Messages' : open.name), right: null };
-      page = <MessagesPage list={conversations} onKey={`room:${r.id}`} now={now} onPick={pick}>{chatPanel(r, true)}</MessagesPage>;
+      page = <MessagesPage list={conversations} onKey={`room:${r.id}`} now={now} onPick={pick} onAction={(c, a) => void act(c, a)}>{chatPanel(r, true)}</MessagesPage>;
     } else {
       if (pane.startsWith('person:')) heading = { title: backTitle(open.name) };
       page = <RoomPage room={open} rooms={list} cards={teamCards} ranks={rooms.ranks ?? {}} me={rooms.me} now={now}
@@ -242,7 +290,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
 
   /** A direct record opened full page sits on the messages page too. */
   const messagesShell = (directId: string | null, child: ReactNode): ReactNode => live && directId
-    ? <MessagesPage list={conversations} onKey={`direct:${directId}`} now={now} onPick={pick}>{child}</MessagesPage>
+    ? <MessagesPage list={conversations} onKey={`direct:${directId}`} now={now} onPick={pick} onAction={(c, a) => void act(c, a)}>{child}</MessagesPage>
     : child;
 
   // The chats you have with people from this room, and All messages.

@@ -62,6 +62,9 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
   // took words only, so a screenshot pasted into a thread went nowhere.
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const filePicker = useRef<HTMLInputElement>(null);
+  // Said under the box until the next try, such as the microphone being refused.
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => { setNotice(null); }, [draft, attachments.length]);
   // WHAT YOU SENT AND THE LEDGER DOES NOT HAVE YET, drawn at once and dropped
   // when your own committed copy arrives, so a reply never appears to vanish
   // between Enter and the next read of the row.
@@ -234,6 +237,7 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
             }}
           />
           <AttachRow attachments={attachments} onRemove={(i) => setAttachments((x) => x.filter((_, j) => j !== i))} />
+          {notice && <div className="compose-note" role="alert">{notice}</div>}
           <input
             ref={filePicker}
             type="file"
@@ -246,7 +250,9 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
             }}
           />
           <div className="chat-thread-bar">
-            <FormatBar box={box} onChange={setDraft} onAttach={() => filePicker.current?.click()} />
+            <FormatBar box={box} onChange={setDraft} onAttach={() => filePicker.current?.click()}
+              onVoice={(note) => setAttachments((a) => [...a, { name: note.name, dataBase64: note.dataBase64, image: false }])}
+              onNotice={setNotice} />
             <button type="button" className="dock-send" disabled={!ready} onClick={() => void send()} title="Send · ↵">Send <kbd>↵</kbd></button>
           </div>
         </div>

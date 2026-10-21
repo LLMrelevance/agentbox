@@ -84,6 +84,10 @@ import { withQuote } from '../team/chat-quote';
 import { THREAD_WIDTH, THREAD_WIDTH_KEY, clampThreadWidth, threadToOpen } from '../team/chat-threads';
 import { whatWaits } from '../../../shared/team-rules.mjs';
 import { FormatBar } from '../team/FormatBar';
+import type { Recorded } from '../team/useVoiceRecorder';
+import { VoiceNote } from '../team/VoiceNote';
+import { voiceNoteOf } from '../team/voice-note';
+import { editLast } from '../team/chat-events';
 import { RichReply, type RichBox } from '../team/RichReply';
 import { OptionsOffer } from './OptionsOffer';
 import { foldedReply } from '../folded-reply';
@@ -307,6 +311,14 @@ const players = playerShelf<HTMLMediaElement>({
   },
   drop: (player) => { player.pause(); player.removeAttribute('src'); player.load(); player.remove(); },
 });
+
+/** The first of these addresses that answers, as bytes. */
+async function firstFound(urls: string[]): Promise<Blob | null> {
+  for (const url of urls) {
+    try { const r = await fetch(url); if (r.ok) return await r.blob(); } catch { /* try the next */ }
+  }
+  return null;
+}
 
 export function ArtifactMedia({ src, label, roots, onOpen }: { src: string; label?: string; roots: string[]; onOpen?: (src: string) => void }) {
   const [attempt, setAttempt] = useState(0);
@@ -1153,6 +1165,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         if (href && !/^(https?|data):/.test(href) && /\.(png|jpe?g|gif|webp|svg)(?:[?#]|$)/i.test(href)) {
           const label = typeof children === 'string' ? children : href;
           return <ArtifactImg key={href} src={href} alt={label} roots={roots} onOpen={openHref} find={find} />;
+        }
+        // A VOICE NOTE PLAYS AS ONE, from wherever its file is found.
+        const note = href && !/^(https?|data):/.test(href) ? voiceNoteOf(href) : null;
+        if (href && note) {
+          const rel = href.replace(/^\.\//, '');
+          const urls = href.startsWith('/') ? [pictureUrl(href)] : roots.map((r) => pictureUrl(`${r}/${rel}`));
+          return <VoiceNote key={href} id={`${product}:${rel}`} ms={note.ms} load={() => firstFound(urls)} />;
         }
         // A SOUND OR A FILM PLAYS IN PLACE (ArtifactMedia, above).
         if (href && isMediaPath(href)) {
@@ -2367,6 +2386,8 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   // The hidden file input the formatting bar's attach button opens.
   const filePicker = useRef<HTMLInputElement>(null);
   const pickFiles = () => filePicker.current?.click();
+  // A finished voice note waits with the other attachments until Send.
+  const addVoice = (note: Recorded) => setAttachments((a) => [...a, { name: note.name, dataBase64: note.dataBase64, image: false }]);
   // AGENTS IN A CONVERSATION WITH A PERSON (w-7b9cb8636a, ../team/ChatAgents.tsx):
   // the @ menu, mentions that carry their own project, model and effort, and
   // the rule that Send waits until every agent has a project.
@@ -2778,6 +2799,12 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     // The @ menu and a mention's card take their keys first, and only
     // while one of them is up.
     if (chat.keyDown(e)) return;
+    // ↑ in an empty box to a person edits your newest message, as in Slack.
+    if (e.key === 'ArrowUp' && talkTo?.length && !text.trim() && !attachments.length) {
+      e.preventDefault();
+      editLast();
+      return;
+    }
     if (e.key === 'Tab' && e.shiftKey && canSetMode) {
       e.preventDefault();
       const next = claudeCode ? nextMode(running as PermissionMode) : nextCodexMode(running as CodexModeId);
@@ -2958,7 +2985,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
             left of "Goes to Maya's inbox." and left of Send. A reply to an agent
             is an instruction rather than a formatted message, so that box keeps
             exactly the footer it had. */}
-        {talkTo?.length ? <FormatBar box={ref} onChange={changeText} onAttach={pickFiles} /> : null}
+        {talkTo?.length ? <FormatBar box={ref} onChange={changeText} onAttach={pickFiles} onVoice={addVoice} onNotice={onNotice} /> : null}
         {/* A PHONE HAS NO PASTE OF A FILE AND NO DROP, so a reply to an agent,
             which takes files only those two ways on the desktop, took none
             ("I can't upload files in mobile", 2026-10-12). It gets the same

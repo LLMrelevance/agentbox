@@ -1,8 +1,9 @@
 // THE BAR UNDER THE REPLY BOX IN A CHAT (drawing A, w-2e8aa16f0f).
 //
-// Bold, italic, strike, link, the two lists, quote and code, then a gap, then
-// @, attach and emoji. Square, monochrome, in the app's own materials: round
-// one came back as "no colour, no rounded corners" and nothing here has either.
+// @, attach, a voice note and emoji, then Aa, which brings out bold, italic,
+// strike, link, the two lists, quote and code. Square, monochrome, in the app's
+// own materials: round one came back as "no colour, no rounded corners" and
+// nothing here has either.
 //
 // IT IS ONLY EVER ON A CHAT. The reply box on a thread with an agent is a box
 // you type an instruction into, and an instruction is not formatted; the bar
@@ -13,6 +14,9 @@
 // button that has no symptom when it is wrong.
 import { useRef, useState } from 'react';
 import { EmojiPick } from './ChatActions';
+import { useVoiceRecorder, type Recorded } from './useVoiceRecorder';
+import { VOICE_MAX_MS, voiceClock } from './voice-note';
+import './voice-note.css';
 import { applyFormat, insertAt, type Format } from './compose-format';
 import { CHAT_KEYS } from './chat-editor';
 import type { RichBox } from './RichReply';
@@ -77,14 +81,34 @@ export function ClipGlyph() {
   );
 }
 
-export function FormatBar({ box, onChange, onAttach }: {
+export function MicGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" aria-hidden="true">
+      <rect x="5.8" y="1.8" width="4.4" height="8" rx="2.2" />
+      <path d="M3.4 7.6a4.6 4.6 0 0 0 9.2 0M8 12.2v2.2" />
+    </svg>
+  );
+}
+
+// WHETHER THE MARKS ARE OUT. They wait behind Aa so the bar under the box is
+// five quiet buttons, and stay out once you want them.
+const MARKS_KEY = 'chat.formatting';
+const marksWereOut = () => { try { return localStorage.getItem(MARKS_KEY) === '1'; } catch { return false; } };
+
+export function FormatBar({ box, onChange, onAttach, onVoice, onNotice }: {
   /** The reply box itself: the bar works on the selection that is in it. */
   box: { current: HTMLTextAreaElement | null };
   onChange: (text: string) => void;
   /** Open the file picker. Absent where there is nothing to attach to. */
   onAttach?: () => void;
+  /** A voice note finished recording. Absent where one cannot be sent. */
+  onVoice?: (note: Recorded) => void;
+  /** Say something went wrong, such as the microphone being refused. */
+  onNotice?: (text: string) => void;
 }) {
   const [picking, setPicking] = useState(false);
+  const [marks, setMarks] = useState(marksWereOut);
+  const voice = useVoiceRecorder({ onError: (text) => onNotice?.(text) });
   const emojiWrap = useRef<HTMLSpanElement>(null);
   // THE BOX MAY BE THE EDITOR THAT SHOWS ITS FORMATTING (./RichReply.tsx), in
   // which case B makes the words bold rather than typing asterisks round them.
@@ -131,6 +155,39 @@ export function FormatBar({ box, onChange, onAttach }: {
     else box.current?.focus();
   };
 
+  const showMarks = (on: boolean) => {
+    setMarks(on);
+    try { localStorage.setItem(MARKS_KEY, on ? '1' : '0'); } catch { /* not kept */ }
+  };
+  const finish = async () => {
+    const note = await voice.stop();
+    if (note) onVoice?.(note);
+    box.current?.focus();
+  };
+
+  // WHILE A NOTE RECORDS, THE BAR IS THE RECORDING: throw it away, how long it
+  // has been, what the microphone hears, and done.
+  if (voice.phase !== 'idle') {
+    return (
+      <div className="fmt-bar fmt-recording" role="toolbar" aria-label="Recording a voice note">
+        <button type="button" className="fmt-btn" title="Discard voice note" aria-label="Discard voice note" onMouseDown={hold} onClick={voice.cancel}>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="square" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+        </button>
+        <span className="voice-rec-dot" aria-hidden="true" />
+        <span className="voice-rec-time">{voice.phase === 'asking' ? 'Waiting for the microphone' : `${voiceClock(voice.elapsed)} / ${voiceClock(VOICE_MAX_MS)}`}</span>
+        <span className="voice-meter" aria-hidden="true">
+          {Array.from({ length: 36 }, (_, i) => voice.levels[voice.levels.length - 36 + i] ?? 0).map((v, i) => (
+            <span key={i} style={{ height: `${Math.round(Math.max(0.08, v) * 100)}%` }} />
+          ))}
+        </span>
+        <button type="button" className="fmt-btn fmt-done" title="Done, add the voice note" aria-label="Done, add the voice note"
+          disabled={voice.phase !== 'recording'} onMouseDown={hold} onClick={() => void finish()}>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" aria-hidden="true"><path d="M3.2 8.4l3.1 3 6.5-6.8" /></svg>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="fmt-bar" role="toolbar" aria-label="Formatting">
       {asking && (
@@ -148,21 +205,8 @@ export function FormatBar({ box, onChange, onAttach }: {
           }}
         />
       )}
-      {WRITES.map(({ what, title, glyph }) => (
-        <button
-          key={what}
-          type="button"
-          className="fmt-btn"
-          title={KEYS_SHOWN[what] ? `${title} (${KEYS_SHOWN[what]})` : title}
-          aria-label={title}
-          onMouseDown={hold}
-          onClick={() => press(what)}
-        >{glyph}</button>
-      ))}
-      {/* THE GAP THE DRAWING HAS. The three on the right are not formatting:
-          they put something INTO the message rather than marking what is
-          already there, and the space is what says so. */}
-      <span className="fmt-gap" aria-hidden="true" />
+      {/* WHAT PUTS SOMETHING INTO THE MESSAGE comes first; the marks that
+          change what is already there wait behind Aa, after a gap. */}
       <button type="button" className="fmt-btn" title="Mention someone" aria-label="Mention someone"
         onMouseDown={hold} onClick={() => put('@')}>
         <span className="fmt-letter">@</span>
@@ -171,6 +215,12 @@ export function FormatBar({ box, onChange, onAttach }: {
         <button type="button" className="fmt-btn" title="Attach a file" aria-label="Attach a file"
           onMouseDown={hold} onClick={onAttach}>
           <ClipGlyph />
+        </button>
+      )}
+      {onVoice && (
+        <button type="button" className="fmt-btn" title="Record a voice note" aria-label="Record a voice note"
+          onMouseDown={hold} onClick={() => void voice.start()}>
+          <MicGlyph />
         </button>
       )}
       <span className="fmt-emoji-wrap" ref={emojiWrap}>
@@ -190,6 +240,22 @@ export function FormatBar({ box, onChange, onAttach }: {
           </svg>
         </button>
       </span>
+      <button type="button" className={`fmt-btn fmt-aa${marks ? ' on' : ''}`} title={marks ? 'Hide formatting' : 'Show formatting'}
+        aria-label="Formatting" aria-pressed={marks} onMouseDown={hold} onClick={() => showMarks(!marks)}>
+        <span className="fmt-letter">Aa</span>
+      </button>
+      {marks && <span className="fmt-gap" aria-hidden="true" />}
+      {marks && WRITES.map(({ what, title, glyph }) => (
+        <button
+          key={what}
+          type="button"
+          className="fmt-btn fmt-mark"
+          title={KEYS_SHOWN[what] ? `${title} (${KEYS_SHOWN[what]})` : title}
+          aria-label={title}
+          onMouseDown={hold}
+          onClick={() => press(what)}
+        >{glyph}</button>
+      ))}
     </div>
   );
 }

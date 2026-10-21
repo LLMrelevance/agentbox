@@ -12,7 +12,26 @@ export const roomOut = (r) => ({
   role: r.role, members: Number(r.members) || 0, createdAt: Date.parse(r.created_at) || 0,
 });
 
+export const MSG_COLS = 'id,room_id,by_person,body,in_reply_to,mentions,created_at,edited_at,deleted_at';
+export const REACTION_COLS = 'message_id,room_id,person_id,emoji,is_on,updated_at';
+
 export const messageOut = (r) => ({
-  id: r.id, roomId: r.room_id, by: r.by_person ?? null, body: r.body, inReplyTo: r.in_reply_to ?? null,
-  mentions: r.mentions ?? [], at: Date.parse(r.created_at),
+  id: r.id, roomId: r.room_id, by: r.by_person ?? null, body: r.deleted_at ? '' : r.body, inReplyTo: r.in_reply_to ?? null,
+  mentions: r.deleted_at ? [] : r.mentions ?? [], at: Date.parse(r.created_at),
+  editedAt: r.edited_at ? Date.parse(r.edited_at) : null, deleted: !!r.deleted_at,
 });
+
+export const reactionOut = (r) => ({
+  messageId: r.message_id, roomId: r.room_id, by: r.person_id, emoji: r.emoji, on: !!r.is_on, at: Date.parse(r.updated_at),
+});
+
+// The checks room_files makes (20261022000000_room_messages_do_more.sql).
+export const ROOM_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$/;
+export const ROOM_FILE_MAX_DATA = 14_000_000;
+// A name already in the room: the file is there, which is what was wanted.
+export const FILE_EXISTS = 'room-file-exists';
+export function fileExists(name) {
+  const err = new Error(`${name} is already in the room`);
+  err.code = FILE_EXISTS;
+  return err;
+}

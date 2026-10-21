@@ -16,6 +16,7 @@ import crypto from 'node:crypto';
 import { createMemoryCloud, signUpMemory, memoryBackend } from '../main/team/memory-cloud.mjs';
 import { supabaseBackend } from '../main/team/supabase-backend.mjs';
 import { GENERAL_ROOM } from '../main/team/rooms-memory.mjs';
+import { FILE_EXISTS } from '../main/team/rooms-shape.mjs';
 
 const NAMES = ['Maya', 'Theo', 'Jun', 'Ana'];
 
@@ -170,6 +171,70 @@ describe.each(worlds)('rooms on %s', (_kind, make) => {
     await refused(w.ana.markRoomRead(teamRoom.id, t));
   });
 
+  it('a message is edited and deleted only by who wrote it, and keeps its place', async () => {
+    const m = await w.theo.sendRoomMessage(teamRoom.id, { body: 'draft' });
+    expect(m).toMatchObject({ editedAt: null, deleted: false });
+    await refused(w.maya.editRoomMessage(m.id, { body: 'not mine' }));
+    await refused(w.ana.editRoomMessage(m.id, { body: 'not mine' }));
+    await refused(w.theo.editRoomMessage(m.id, { body: '   ' }));
+    const edited = await w.theo.editRoomMessage(m.id, { body: 'final @Maya @Ana', mentions: [w.maya.personId, w.ana.personId] });
+    expect(edited).toMatchObject({ id: m.id, roomId: teamRoom.id, by: w.theo.personId, body: 'final @Maya @Ana', mentions: [w.maya.personId], deleted: false, at: m.at });
+    expect(edited.editedAt).toBeGreaterThanOrEqual(m.at);
+    expect((await w.maya.roomMessages(teamRoom.id)).find((x) => x.id === m.id)).toMatchObject({ body: 'final @Maya @Ana', editedAt: edited.editedAt });
+    expect((await w.maya.roomMentions()).map((x) => x.id)).toContain(m.id);
+    await refused(w.maya.deleteRoomMessage(m.id));
+    await w.theo.deleteRoomMessage(m.id);
+    expect((await w.maya.roomMessages(teamRoom.id)).find((x) => x.id === m.id)).toMatchObject({ id: m.id, by: w.theo.personId, body: '', mentions: [], deleted: true, at: m.at });
+    expect((await w.maya.roomMentions()).map((x) => x.id)).not.toContain(m.id);
+    await refused(w.theo.editRoomMessage(m.id, { body: 'back again' }));
+  });
+
+  it('reactions: only people in the room, one turned off stays as off, and a deleted message loses its own', async () => {
+    const target = (await w.maya.roomMessages(teamRoom.id)).find((x) => x.body === 'hey');
+    await w.jun.reactRoomMessage(target.id, '👍', true);
+    await w.theo.reactRoomMessage(target.id, '👍', true);
+    await refused(w.ana.reactRoomMessage(target.id, '👍', true));
+    await refused(w.jun.reactRoomMessage(target.id, '', true));
+    await refused(w.jun.reactRoomMessage(target.id, 'x'.repeat(17), true));
+    await w.theo.reactRoomMessage(target.id, '👍', false);
+    const got = (await w.maya.roomReactions(teamRoom.id)).filter((r) => r.messageId === target.id);
+    expect(got.map((r) => [r.by, r.emoji, r.on]).sort()).toEqual([[w.jun.personId, '👍', true], [w.theo.personId, '👍', false]].sort());
+    expect(got.every((r) => r.roomId === teamRoom.id && Number.isFinite(r.at))).toBe(true);
+    expect(await w.ana.roomReactions(teamRoom.id)).toEqual([]);
+    const doomed = await w.jun.sendRoomMessage(teamRoom.id, { body: 'to go' });
+    await w.maya.reactRoomMessage(doomed.id, '🎉', true);
+    await w.jun.deleteRoomMessage(doomed.id);
+    expect((await w.maya.roomReactions(teamRoom.id)).filter((r) => r.messageId === doomed.id)).toEqual([]);
+    await refused(w.maya.reactRoomMessage(doomed.id, '🎉', true));
+  });
+
+  it('files: only into a room I am in, under a plain name, once; deleting a message takes the files it names', async () => {
+    await w.theo.putRoomFile(teamRoom.id, 'voice-1.webm', 'QUJD');
+    expect(await w.maya.roomFile(teamRoom.id, 'voice-1.webm')).toBe('QUJD');
+    expect(await w.ana.roomFile(teamRoom.id, 'voice-1.webm')).toBeNull();
+    expect(await w.maya.roomFile(teamRoom.id, 'nothing.png')).toBeNull();
+    await refused(w.ana.putRoomFile(teamRoom.id, 'in.png', 'QUJD'));
+    await refused(w.theo.putRoomFile(teamRoom.id, '../x.png', 'QUJD'));
+    await expect(w.theo.putRoomFile(teamRoom.id, 'voice-1.webm', 'WFla')).rejects.toMatchObject({ code: FILE_EXISTS });
+    expect(await w.maya.roomFile(teamRoom.id, 'voice-1.webm')).toBe('QUJD');
+    await w.theo.putRoomFile(teamRoom.id, 'kept.png', 'QUJD');
+    const m = await w.theo.sendRoomMessage(teamRoom.id, { body: '[voice](attachments/voice-1.webm)' });
+    await w.theo.deleteRoomMessage(m.id);
+    expect(await w.maya.roomFile(teamRoom.id, 'voice-1.webm')).toBeNull();
+    expect(await w.maya.roomFile(teamRoom.id, 'kept.png')).toBe('QUJD');
+  });
+
+  it('marking unread moves my read point back, and only mine', async () => {
+    const t = Date.now() - 1000;
+    const theirs = (await w.theo.roomReads()).find((r) => r.roomId === teamRoom.id).readAt;
+    await w.maya.markRoomRead(teamRoom.id, t);
+    await w.maya.markRoomUnread(teamRoom.id, t - 60_000);
+    const mine = (await w.maya.roomReads()).find((r) => r.roomId === teamRoom.id).readAt;
+    expect(Math.abs(mine - (t - 60_000))).toBeLessThan(1000);
+    expect((await w.theo.roomReads()).find((r) => r.roomId === teamRoom.id).readAt).toBe(theirs);
+    await refused(w.ana.markRoomUnread(teamRoom.id, t));
+  });
+
   it('a room for only the people you invite has no link, and says so', async () => {
     const r = await w.maya.createRoom({ name: 'Board', inviteOnly: true });
     expect((await w.maya.myRooms()).find((x) => x.id === r)).toMatchObject({ inviteOnly: true, listed: false });
@@ -257,6 +322,36 @@ describe.each(worlds)('rooms on %s', (_kind, make) => {
       await w.maya.sendRoomMessage(teamRoom.id, { body: 'for the team only' });
       for (let i = 0; i < 100 && !heard.length; i += 1) await new Promise((r) => setTimeout(r, 100));
       expect(heard).toEqual(['for the open room']);
+    } finally { stop(); }
+  });
+
+  it('realtime: an edit, a reaction and a delete in my rooms are heard, and none from elsewhere', async () => {
+    const heard = [];
+    let ready = false;
+    const stop = w.ana.subscribeRooms((e) => {
+      if (e.kind === 'subscribed') ready = true;
+      if (e.kind === 'message') heard.push(['message', e.message.body, e.message.editedAt != null, e.message.deleted]);
+      if (e.kind === 'reaction') heard.push(['reaction', e.reaction.messageId, e.reaction.emoji, e.reaction.on]);
+    });
+    try {
+      for (let i = 0; i < 100 && !ready; i += 1) await new Promise((r) => setTimeout(r, 100));
+      expect(ready).toBe(true);
+      const open = (await w.ana.myRooms()).find((r) => r.name === 'Northwind open');
+      const m = await w.maya.sendRoomMessage(open.id, { body: 'live' });
+      const elsewhere = await w.maya.sendRoomMessage(teamRoom.id, { body: 'team only, live' });
+      await w.maya.editRoomMessage(m.id, { body: 'live, edited' });
+      await w.maya.reactRoomMessage(elsewhere.id, '👀', true);
+      await w.maya.reactRoomMessage(m.id, '👀', true);
+      await w.maya.deleteRoomMessage(m.id);
+      for (let i = 0; i < 100 && heard.length < 4; i += 1) await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 300));
+      expect(heard).toEqual(expect.arrayContaining([
+        ['message', 'live', false, false],
+        ['message', 'live, edited', true, false],
+        ['reaction', m.id, '👀', true],
+        ['message', '', true, true],
+      ]));
+      expect(heard).toHaveLength(4);
     } finally { stop(); }
   });
 });
