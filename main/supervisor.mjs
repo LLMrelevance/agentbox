@@ -91,8 +91,8 @@ import { DEFAULT_SESSIONS_AT_ONCE } from './config.mjs';
 import { accountIdentity, nameForOrganization, toolingLine } from './account-tooling.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
-import { writeChangeForRun, changePath } from './code-change.mjs';
-import { snapshotRepo, changeFromRepo } from './git-change.mjs';
+import { changePath } from './code-change.mjs';
+import { snapshotRepo } from './git-change.mjs';
 import { importedAgentBrief, importedAgentName, THREAD_LABEL } from '../shared/agent-import.mjs';
 import { readTranscriptHead } from './agent-sessions.mjs';
 import { planStamp, readPlan } from './claude-plan.mjs';
@@ -131,7 +131,8 @@ import { cloudCodexMode } from './cloud-permission.mjs';
 import { createCodexApprovals } from './codex-approvals.mjs';
 import { approvalPublicKey } from './approvals.mjs';
 import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexModels } from './codex-models.mjs';
-import { codexPlanEnded } from './codex-account.mjs';
+import { codexAccount, codexPlanEnded } from './codex-account.mjs';
+import { accountName } from '../shared/account-names.mjs';
 import { nameRow, wantsName } from './row-label.mjs';
 import { LEVELS, latestMessage, sortMessage, wantsPriority } from './message-priority.mjs';
 import { NAME, Name, envName, nameSlug, isOurSlug } from '../shared/product-name.mjs';
@@ -2022,7 +2023,7 @@ export class Supervisor {
    * reach one row at all. This is the second lock on the same door, because the
    * cost of being wrong here is an agent's work deleted mid run.
    */
-  endSession(item, session, product) {
+  endSession(item, session, product, { after = null } = {}) {
     if (session && this.sessions.get(item.id) !== session) {
       console.warn(`zero: a later session is on ${item.id}, so this one leaves its folder alone`);
       return Promise.resolve(null);
@@ -2035,7 +2036,12 @@ export class Supervisor {
     // nothing, so the usual answer is that it stays, holding work she has not
     // approved. The same call sweeps the folders whose work has since landed in
     // main, which is what stops them piling up unseen.
-    return Promise.resolve(this.releaseWorkFolder(item, product));
+    // `after` is the read of what the run changed, which needs the folder. A
+    // session that started on the row while it ran has the folder now.
+    if (!after) return Promise.resolve(this.releaseWorkFolder(item, product));
+    return after.catch(() => {}).then(() => (this.sessions.has(item.id) || this._preparing?.has(item.id)
+      ? null
+      : this.releaseWorkFolder(item, product)));
   }
 
   /**
@@ -3097,6 +3103,11 @@ export class Supervisor {
       // both halves in the same order the cause was, so it is always the text
       // that actually named the limit that names the hour too.
       const resetsAt = cause === 'at-limit' ? (limitResetsAt(raw) ?? limitResetsAt(errorResult)) : null;
+      // WHICH LOGIN THIS RUN WAS SPENDING, and which one can take the task
+      // now. With two subscriptions the sentence named neither, so nothing on
+      // the thread said which was spent (power-test-2, issue 20).
+      const spent = session.accountFault?.account ?? this._accountKey(session?.engine, session?.profile);
+      const free = cause === 'at-limit' && spent ? this._anotherLoginFree(item, spent) : null;
       const elsewhere = session.accountFault?.cause === 'model-not-on-plan'
         || (cause === 'at-limit' && !!session.accountFault?.account
           && this._anotherLoginIsFree(item, session.accountFault.account));
@@ -3122,6 +3133,8 @@ export class Supervisor {
         // waking it for the free login, so the sentence and the fleet said
         // different things about the same task (w-4338a63da6).
         elsewhere,
+        account: cause === 'at-limit' ? this._accountNameFor(session?.engine, spent) : null,
+        instead: free ? this._accountNameFor(session?.engine, free) : null,
         model: session.model || item.model || null,
         planEnded,
         gaveUp,
@@ -3396,6 +3409,13 @@ export class Supervisor {
         // (`stderr` in shared/dead-run-trace.mjs is stderr AND the error
         // result), so the hour was there to be read the whole time.
         const resetsAt = cause === 'at-limit' ? limitResetsAt(trace.stderr) : null;
+        // AND THE LOGIN IT WAS SPENDING, which the run recorded when it died
+        // (`seen.account`). Only where the sentence's own engine word is this
+        // row's engine, so the name and the agent in front of it are the same
+        // account.
+        const spent = cause === 'at-limit' && this._engineFor(item) === DEFAULT_ENGINE
+          ? this._accountNameFor(DEFAULT_ENGINE, seen.account)
+          : null;
         const written = this.store.recordSessionResult(product, id, {
           result: deadRunSentence({
             engineWord: 'Claude Code',
@@ -3403,6 +3423,7 @@ export class Supervisor {
             runs: seen.runs,
             resetsAt,
             worked: trace.worked,
+            account: spent,
           }),
           status: 'open',
         });
@@ -3889,6 +3910,41 @@ export class Supervisor {
     return harnessFor(engineOf(engine)).accountKey(profile);
   }
 
+  /**
+   * WHAT TO CALL ONE OF THIS ENGINE'S LOGINS, by the rule the Settings page
+   * names its rows with (shared/account-names.mjs): the email the vendor gave,
+   * else a counted name.
+   *
+   * Null where naming it would say nothing: one login on that engine, or a key
+   * no login here answers to. The sentence on her thread then reads exactly as
+   * it did before any of this (`deadRunSentence`).
+   */
+  _accountNameFor(engine, key) {
+    const which = engineOf(engine);
+    const profiles = this._profilesFor(which);
+    if (profiles.length < 2) return null;
+    const profile = profiles.find((p) => this._accountKey(which, p) === key);
+    if (!profile) return null;
+    const home = this.config.home || os.homedir();
+    const email = which === 'codex'
+      ? codexAccount(this._codexProfileHome(profile))?.email ?? null
+      : accountIdentity(profile === 'default' ? null : profile, { home })?.email ?? null;
+    return accountName({ email, engine: which, index: profiles.indexOf(profile), total: profiles.length });
+  }
+
+  /**
+   * THE LOGIN THAT COULD TAKE THIS TASK NOW, on the task's own engine: not
+   * resting, carrying no trouble, and not the one that just failed. Its key, or
+   * null. `_anotherLoginIsFree` is this question asked as a yes or no.
+   */
+  _anotherLoginFree(item, account) {
+    const engine = this._engineFor(item);
+    const free = this._liveProfilesFor(engine)
+      .map((p) => this._accountKey(engine, p))
+      .find((key) => key !== account && !this._profileTrouble?.[key]);
+    return free ?? null;
+  }
+
   // ACCOUNTS THAT CAN ACTUALLY RUN SOMETHING RIGHT NOW, and unlike
   // _liveProfiles this one is allowed to come back empty.
   //
@@ -3907,11 +3963,7 @@ export class Supervisor {
    * A free Claude login says nothing about a Codex task, and the other way round.
    */
   _anotherLoginIsFree(item, account) {
-    const engine = this._engineFor(item);
-    return this._liveProfilesFor(engine).some((p) => {
-      const key = this._accountKey(engine, p);
-      return key !== account && !this._profileTrouble?.[key];
-    });
+    return !!this._anotherLoginFree(item, account);
   }
 
   _healthyProfiles() {
@@ -9098,20 +9150,21 @@ export class Supervisor {
       // Most runs write nothing here and that is correct: a session that
       // answered a question or drew a page has no code to show, and
       // writeChangeForRun returns null rather than leaving an empty artifact.
+      //
+      // On the git thread (main/run-change.mjs): it runs git and parses the
+      // whole transcript. The trace ends, and the folder is let go, after it.
+      let changed;
       try {
-        // AND WHAT THE DISK SAYS, WHICH DOES NOT CARE HOW THE AGENT TYPED.
-        // The photograph taken at the spawn, read against the checkout now.
-        let repos = [];
-        try {
-          if (session.repoBefore) repos = [changeFromRepo(session.repoBefore)];
-        } catch (e) { console.warn('zero: could not read the repository back:', e.message); }
         const roots = [cwd, product.dir];
-        const wrote = writeChangeForRun({
+        changed = gitJob('saveRunChange', {
+          // AND WHAT THE DISK SAYS, WHICH DOES NOT CARE HOW THE AGENT TYPED.
+          // The photograph taken at the spawn, read against the checkout now.
+          repoBefore: session.repoBefore ?? null,
           // WITH THE ENGINE, or this looks for a Codex rollout under Claude
           // Code's projects folder and reads nothing. It is still passed for a
           // Codex run, because `transcriptFile` is also what the wake sweep
           // asks whether a session still exists.
-          transcript: this.transcriptFile({ sessionId: session.sessionId, profile, engine, cwd }),
+          transcript: this.transcriptFile({ sessionId: session.sessionId, profile, engine, cwd, cloud: !!session.cloud }),
           // AND FOR CODEX THE CONVERSATION HALF COMES FROM THE TURN INSTEAD.
           // `changeFromTranscript` speaks Claude Code's JSONL and nothing else,
           // so a rollout handed to it yields nothing and the card carried the
@@ -9124,17 +9177,18 @@ export class Supervisor {
           itemId: item.id,
           roots,
           since: session.startedAt ?? 0,
-          repos,
         });
-        if (wrote) {
-          const at = new Date().toTimeString().slice(0, 8);
-          try { trace?.write(`${at}  [Write] ${wrote}\n`); } catch {}
-          onLine(`saved what this run changed (${changePath(item.id)})`);
-        }
-      } catch (e) { console.warn('zero: could not save what the run changed:', e.message); }
-      try { trace?.write(`\n# exited (${code}) ${new Date().toISOString()}\n`); trace?.end(); } catch {}
+      } catch (e) { changed = Promise.reject(e); }
+      const exitedAt = new Date().toISOString();
+      changed.then((wrote) => {
+        if (!wrote) return;
+        const at = new Date().toTimeString().slice(0, 8);
+        try { trace?.write(`${at}  [Write] ${wrote}\n`); } catch {}
+        onLine(`saved what this run changed (${changePath(item.id)})`);
+      }).catch((e) => console.warn('zero: could not save what the run changed:', e.message))
+        .finally(() => { try { trace?.write(`\n# exited (${code}) ${exitedAt}\n`); trace?.end(); } catch {} });
       this.removeSpawnFiles(session);
-      this.endSession(item, session, product);
+      this.endSession(item, session, product, { after: changed });
       if (session.remoteIdle) {
         delete this._liveSessions[item.id];
         this._saveState(); this.onChange?.(); return;
