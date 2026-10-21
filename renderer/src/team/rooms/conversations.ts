@@ -42,10 +42,12 @@ export function directConversations({ items, products, me, people, waiting, mark
 
 export function roomConversations(rooms: RoomsState | null | undefined): Conversation[] {
   if (!rooms?.on) return [];
+  const meId = rooms.me?.person_id ?? null;
   return rooms.rooms.map((r: Room) => {
     const held = rooms.messages[r.id] ?? [];
     const last = [...held].reverse().find((m) => !m.deleted && !m.inReplyTo) ?? held.at(-1);
-    const by = last ? r.wall.find((c) => c.id === last.by) : null;
+    // Invisible, I am off my own wall, and my words are still mine.
+    const by = !last ? null : meId && last.by === meId ? { me: true, name: '' } : r.wall.find((c) => c.id === last.by);
     const others = r.wall.filter((c) => !c.me);
     return {
       key: `room:${r.id}`, kind: r.kind === 'group' ? 'group' as const : 'room' as const, id: r.id,
