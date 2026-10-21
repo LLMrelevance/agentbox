@@ -18,7 +18,7 @@ import { useCloud } from '../state/cloud';
 import { AttachSheet, Attached } from '../ui/Attach';
 import { Caret, Clip, Clock, Cross } from '../ui/icons';
 import { TimeBox, TypingSheet } from '../ui/Later';
-import { IconButton, Pickable, PriorityBars, Sheet, SheetHead, SheetRow, T, TopBar, Wall } from '../ui/parts';
+import { footRoom, IconButton, Pickable, PriorityBars, Sheet, SheetHead, SheetRow, T, TopBar, Wall } from '../ui/parts';
 import { ModelSheet, PrioritySheet, barsFor } from '../ui/Pickers';
 import { color, font, size } from '../ui/theme';
 
@@ -54,7 +54,7 @@ export default function NewThread() {
   const { text, files } = draft;
   const canSend = (!!text.trim() || files.length > 0) && !!product && !busy;
   const moment = momentFromWords(typed, c.now);
-  const foot = Math.max(8, inset.bottom - 14);
+  const foot = footRoom(inset);
 
   const sendNow = async (later: Choices = {}) => {
     if (!canSend) return;
