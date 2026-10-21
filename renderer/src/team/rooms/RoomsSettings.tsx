@@ -61,3 +61,11 @@ export function RoomsSettings({ me, fullName, card, roomName, now, save, goInvis
     </Group>
   </>;
 }
+
+/** Rooms is on but my card is not made yet; the service tries again every few seconds. */
+export function RoomsNotReady({ error }: { error: string | null }) {
+  return <Group id="rooms-card" label="Your card">
+    <Row label={error ? 'Your room card could not be made yet' : 'Making your room card'}
+      desc={error ? sentence(`Rooms tries again every few seconds. The cloud said: ${error}`) : 'This takes a few seconds.'} />
+  </Group>;
+}
