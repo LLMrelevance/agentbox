@@ -102,11 +102,18 @@ Tables (every foreign key named, with what happens on delete):
   rooms on delete cascade, by_person references people on delete set null,
   body text (1..4000), in_reply_to uuid null references room_messages on delete
   set null, mentions uuid[] default '{}', created_at default now() (forced by
-  trigger). No edit or delete in the alpha.
+  trigger). Since 20261022000000_room_messages_do_more.sql: edited_at and
+  deleted_at, set only by `edit_room_message` and `delete_room_message`, which
+  only the author may call. A deleted message keeps its row with an empty body.
+- `room_reactions` (message, person, emoji) with an on flag, written only by
+  `react_room_message`; turning one off is an update, because realtime sends
+  no deletes. `room_files` (room, plain name) holds base64 files up to 10 MiB,
+  voice notes among them; a message links one as `[name](attachments/name)`.
 - `room_reads`: (room_id references rooms on delete cascade, person_id
-  references people on delete cascade) pk, read_at. Written only through
+  references people on delete cascade) pk, read_at. Written through
   `mark_room_read(room, at)`, which keeps the later of the two times, so two
-  Macs never move it backwards.
+  Macs never move it backwards, and `mark_room_unread(room, at)`, which is a
+  person choosing to move their own read point back.
 
 Seeded idempotently by the migration: one team room per existing team
 (`on conflict do nothing`), a trigger that makes it for every new team, and
@@ -266,8 +273,9 @@ team sync loop upserts it when its hash changes (at most every 5s):
 - Unread on a room row: messages after my read time, shown as "9+" at most.
   Mentions always count, also in a muted room; other messages do not count in a
   muted room. Mute is local, per person.
-- Opening a room's chat (panel visible) marks it read up to the newest message
-  shown.
+- Staying on a room's chat (panel visible) for two seconds with the window in
+  front marks it read up to the newest message shown. Walking past its tab with
+  Tab does not, so a mention is not cleared on the way past.
 
 ## The messages page
 
@@ -429,3 +437,15 @@ Rooms paragraph in this work.
   built: rooms have no description line in Find rooms, a team room has no
   Leave in its menu (you leave by leaving the team), and Start a room offers
   Find a room to join, since the plus beside Rooms became New room.
+- A room can be a board (w-49cd37092c). The header's View button, the one the
+  Inbox has, switches a room between Grid and Board, and B does the same. The
+  board holds you and the teammates whose Activity you may open, and its People
+  line narrows it. With Rooms on, the Inbox shows only your own threads: its
+  People line and the faces on its button are gone, and the pick it kept comes
+  back if Rooms is turned off.
+- A person's page (w-88e1e23325). Activity is the Inbox's board for that one
+  person. The chart shows a value only where you point, with the total written
+  at the end of the line. The ranks say "this week" and "all time". Your own
+  page has your bio, with Add a bio and Edit. Message there opens the chat full
+  page on Messages, and Back returns to the page. The rooms they are in open
+  when clicked.

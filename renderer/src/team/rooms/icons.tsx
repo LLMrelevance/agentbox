@@ -18,6 +18,12 @@ export const I = {
   plus: () => svg('<path d="M12 5.5v13M5.5 12h13"/>', 15, 1.5),
   pin: () => svg(PIN, 15, 1.4),
   pinFill: () => svg('<path d="M9 4h6l-1 5 3 3H7l3-3z" fill="currentColor"/><path d="M12 15v5"/>', 15, 1.4),
+  // Cut to the pin itself, so its edge lines up with the text beside it.
+  pinMark: () => (
+    <svg width="8" height="12" viewBox="6.2 3.2 11.6 17.6" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 4h6l-1 5 3 3H7l3-3z" fill="currentColor" /><path d="M12 15v5" />
+    </svg>
+  ),
   invite: (size = 15) => svg(INVITE, size, 1.4),
   people: () => svg('<circle cx="9" cy="9" r="3.2"/><path d="M3 19.5c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><path d="M15.5 6.2a3 3 0 0 1 0 5.6M17.5 14.8c1.8.6 3 2.1 3.4 4.7"/>', 15, 1.4),
   trophy: () => svg('<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5v1.5A3 3 0 0 0 8 10.5M16 6h3v1.5a3 3 0 0 1-3 3"/><path d="M12 13v4M8.5 20h7"/>', 15, 1.4),
@@ -33,7 +39,7 @@ export const I = {
   check: () => svg('<path d="m5 12.5 4.5 4.5L19 7.5"/>', 12, 2),
   lock: () => svg('<rect x="5" y="11" width="14" height="9"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', 15, 1.4),
   chat: () => svg('<path d="M5 5h14v10H9l-4 4z"/>', 15, 1.4),
-  chatNav: () => svg('<path d="M5 5h14v10H9l-4 4z"/>', 20, 1.25, 'workspace-nav-icon'),
+  chatNav: () => svg('<path d="M15 9V4H4v8h2v3l3-3"/><path d="M9 9h11v8h-2v3l-3-3H9z"/>', 20, 1.25, 'workspace-nav-icon'),
   flame: () => svg('<path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5.3 1.5 1 2.5 2 3 0-3.5 0-6 1-8.5z"/>', 18, 1.4),
   smile: () => svg('<circle cx="12" cy="12" r="8"/><path d="M8.8 14c.8 1.1 1.9 1.7 3.2 1.7s2.4-.6 3.2-1.7"/><path d="M9.5 10h.01M14.5 10h.01" stroke-width="2"/>', 14, 1.4),
 };

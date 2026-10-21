@@ -72,6 +72,8 @@ export interface CloudStatus {
   noRoom?: { error: 'plan' | 'hours' | 'agents' | 'paused' | 'terms'; message: string | null } | null;
   /** The cloud image's Claude Code or Codex, as major.minor, when it is not this Mac's; `blocks` for a different major. */
   versionGap?: { engine: 'claude' | 'codex'; cloud: string; mac: string; blocks: boolean } | null;
+  /** The slugs of the projects whose threads the cloud may run (supervisor `_cloudTakesProject`). */
+  projects?: string[];
 }
 
 const agentName = (engine: 'claude' | 'codex') => (engine === 'codex' ? 'Codex' : 'Claude Code');
@@ -208,17 +210,16 @@ export function cloudMonthLine(month: CloudMonth): string {
  * WHERE ONE THREAD RUNS, for its menu's row (threads/ThreadMenu.tsx): in the
  * cloud now, kept on this Mac, or here and free to go to the cloud. Null where
  * the cloud could never run it: no cloud set up, the cloud off and the thread
- * not kept, or a project with no code folder of its own.
+ * not kept, or a project the cloud does not take.
  */
 export function threadPlace(
   item: { id: string; product: string; onMac?: boolean },
   session: { where?: string } | null,
   cloud: CloudStatus | null,
-  products: { slug: string; repoPath?: string | null }[],
 ): 'cloud' | 'here' | 'kept' | null {
   if (!cloud?.setUp) return null;
   if (item.onMac) return 'kept';
   if (session?.where === 'cloud') return 'cloud';
   if (!cloudIsOn(cloud)) return null;
-  return products.some((p) => p.slug === item.product && p.repoPath) ? 'here' : null;
+  return cloud.projects?.includes(item.product) ? 'here' : null;
 }

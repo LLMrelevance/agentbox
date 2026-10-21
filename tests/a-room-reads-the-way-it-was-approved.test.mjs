@@ -219,3 +219,13 @@ describe('getting to a room, and keys on it', () => {
     expect(branch).toBeGreaterThan(app.indexOf('if (opensATextField(e.key)) e.preventDefault();'));
   });
 });
+
+describe('the Messages row', () => {
+  // The founder picked "two bubbles" on 2026-10-21 over the single square
+  // bubble it had, an envelope, a bubble with dots and an at sign.
+  it('wears two bubbles, one behind the other', () => {
+    const icons = fs.readFileSync(new URL('../renderer/src/team/rooms/icons.tsx', import.meta.url), 'utf8');
+    const row = icons.match(/chatNav: \(\) => svg\('([^']*)'/)?.[1];
+    expect(row).toBe('<path d="M15 9V4H4v8h2v3l3-3"/><path d="M9 9h11v8h-2v3l-3-3H9z"/>');
+  });
+});

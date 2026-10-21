@@ -85,6 +85,10 @@ export interface ThreadEvent {
   // What was actually written, in full. The component shows the beginning and
   // opens the rest in place; nothing here decides how much is shown.
   words?: string;
+  /** When its author last edited the words (item-thread.ts, `withEdits`). */
+  edited?: number;
+  /** Deleted by its author, kept only because replies hang off it. */
+  deleted?: boolean;
   // AN ACTION OF HERS THAT ANSWERED THE AGENT, though it is not a message: a
   // picked option. The conversation treats it as her reply for what comes
   // after it, so the agent's result stays above it instead of being lifted

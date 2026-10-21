@@ -72,6 +72,14 @@
 .rm-selbar { position: sticky; bottom: 0; margin: 16px auto 0; width: max-content; z-index: 6; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 12px; font-size: 13px; color: var(--text); white-space: nowrap; }
 .rm-selbar .faces { display: flex; }
 .rm-selbar .x { color: var(--text-faint); display: flex; background: none; border: 0; padding: 4px; }
+/* The room as a board: the Inbox's board at its own column width. Where the
+   chat leaves too little room it scrolls sideways rather than squeezing. The
+   right gap is the board's own, so it is still there at the end of a scroll. */
+.rm-main.board { overflow: auto; padding-right: 0; }
+.rm-main.board > .rm-notice { margin-right: 24px; }
+.rm-main.board .th-board { padding: 0 24px 0 0; }
+.th-pop.rm-viewpop { width: max-content; max-width: 470px; }
+.rm-viewnote { font-size: 12px; color: var(--text-faint); }
 
 /* the chat */
 .rm-chat { width: 360px; flex: none; border-left: 1px solid var(--rm-line); display: flex; flex-direction: column; min-height: 0; position: relative; }
@@ -100,11 +108,46 @@
 .rm-cm.mine { margin: 0 -20px; padding-left: 20px; padding-right: 20px; background: var(--wash); box-shadow: inset 2px 0 0 var(--accent); }
 .rm-cm.root { padding-bottom: 12px; border-bottom: 1px solid var(--rm-line); margin-bottom: 4px; }
 .rm-day { margin: 6px 0 4px; }
-.rm-compose { margin: 8px 20px 20px; flex: none; border: 1px solid var(--line-strong); background: var(--control-face); display: flex; align-items: flex-end; }
-.rm-compose textarea { flex: 1; min-height: 38px; max-height: 160px; resize: none; border: 0; background: none; outline: none; color: var(--text); font: inherit; font-size: 13.5px; line-height: 20px; padding: 9px 12px; box-sizing: border-box; }
-.rm-compose textarea::placeholder { color: var(--text-faint); }
-.rm-chat-err { margin: 0 20px; font-size: 12.5px; color: var(--danger, var(--accent)); }
-.rm-picker { position: absolute; left: 20px; right: 20px; bottom: 64px; z-index: 30; padding: 4px; display: flex; flex-direction: column; gap: 1px; }
+.rm-compose { margin: 8px 20px 20px; flex: none; border: 1px solid var(--line-strong); background: var(--control-face); display: flex; flex-direction: column; }
+/* THE DIRECT CHAT'S BOX: the words, what is attached, then the bar and Send. */
+.rm-compose-input { min-height: 40px; max-height: 200px; overflow-y: auto; padding: 10px 12px 4px; box-sizing: border-box; color: var(--text); font-size: 13.5px; line-height: 20px; }
+.rm-compose .attach-row { padding: 2px 12px 8px; }
+.rm-compose .attach-thumb img { height: 48px; max-width: 120px; }
+.rm-compose-bar { display: flex; align-items: center; gap: 10px; padding: 4px 8px 6px 8px; }
+.rm-compose-bar .fmt-bar { margin-right: auto; min-width: 0; }
+.rm-compose-bar .dock-send { padding: 4px 12px; }
+.rm-compose-bar .dock-send:disabled { color: var(--text-faint); background: none; border-color: var(--line-strong); cursor: default; }
+.rm-chat .rm-compose-bar .fmt-mark, .rm-chat .rm-compose-bar .fmt-gap { display: none; }
+
+/* What a direct chat's message wears, worn by a room's too. */
+.rm-cm { position: relative; }
+.rm-cm:hover > .chat-acts { opacity: 1; pointer-events: auto; }
+.rm-cm .tx p { margin: 0; white-space: pre-line; }
+.rm-cm .tx p + p { margin-top: 8px; }
+.rm-cm .tx a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.rm-cm .tx code { font-family: var(--mono); font-size: .88em; background: var(--wash-strong); padding: 1px 4px; }
+.rm-cm .tx .rm-at { font-weight: 400; background: var(--wash-strong); padding: 0 3px; }
+.rm-cm .tx .inline-image { display: block; max-width: min(100%, 360px); max-height: 240px; margin-top: 6px; }
+.rm-cm .tx .inline-image.arriving { width: min(100%, 360px); height: 160px; background: var(--wash); }
+.rm-cm .rm-file { display: inline-block; margin-top: 4px; padding: 3px 8px; border: 1px solid var(--line); font-size: 12.5px; color: var(--text-dim); }
+.rm-cm .chat-chips { margin-top: 6px; }
+.rm-cm .rm-edited, .rm-cm .h .rm-edited { font: normal 10.5px var(--mono); color: var(--text-faint); }
+.rm-cm .rm-gone { color: var(--text-faint); font-style: italic; }
+.rm-cm .chat-edit { margin-top: 4px; }
+
+/* THE NEW LINE: where you had read to, a hairline in the accent with its word. */
+.rm-new { display: flex; align-items: center; gap: 10px; margin: 8px 0 2px; font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.rm-new::before { content: ''; flex: 1; height: 1px; background: var(--accent); opacity: .5; }
+/* What went wrong, in the text's own colour, with the accent kept to a dot. */
+.rm-chat-err { display: flex; align-items: center; gap: 8px; margin: 0 20px 2px; font-size: 12.5px; color: var(--text-dim); }
+.rm-chat-err::before { content: ''; flex: none; width: 6px; height: 6px; background: var(--accent); }
+.rm-full .rm-chat-err { margin: 0 28px 2px; max-width: 704px; }
+.rm-retry {
+  flex: none; height: 22px; padding: 0 8px; appearance: none; border: 1px solid var(--line-strong); border-radius: 0; cursor: pointer;
+  background: none; color: var(--text); font: inherit; font-size: 12px;
+}
+.rm-retry:hover { border-color: var(--text-faint); }
+.rm-picker { position: absolute; left: 20px; right: 20px; bottom: 112px; z-index: 30; padding: 4px; display: flex; flex-direction: column; gap: 1px; }
 
 /* menus */
 .rm-menu { position: fixed; z-index: 60; min-width: 250px; padding: 4px; display: flex; flex-direction: column; gap: 1px; }
@@ -167,25 +210,42 @@
 .rm-ptabs { display: flex; align-items: flex-end; margin: 0 -20px 0 calc(-1 * var(--text-x, 32px)); padding: 26px 20px 0 var(--text-x, 32px); border-bottom: 1px solid var(--rm-line); }
 .rm-ptabs .tm-tabs { margin-bottom: -1px; }
 .rm-pgrid { display: grid; grid-template-columns: minmax(0, 1fr) 240px; column-gap: 56px; padding: 28px 0 0; }
-.rm-chartbox { position: relative; }
-.rm-chartbox svg { display: block; width: 100%; height: 380px; overflow: visible; margin-top: 16px; }
+/* Padding, not the svg's margin: a margin collapses through the box and the
+   labels placed over the svg would land 16px low. */
+.rm-chartbox { position: relative; padding-top: 16px; }
+.rm-chartbox svg { display: block; width: 100%; height: 380px; overflow: visible; }
 .rm-chartbox .grid { stroke: var(--rm-line); }
 .rm-chartbox text { fill: var(--text-faint); font-family: var(--mono); font-size: 10.5px; }
 .rm-chartbox .ln { stroke: var(--text-dim); }
 .rm-chartbox .ar { fill: var(--wash); }
 .rm-chartbox .pt { fill: var(--text); stroke: var(--bg); }
-.rm-chartbox .tip { position: absolute; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--text); white-space: nowrap; }
+.rm-chartbox .guide { stroke: var(--line-strong); stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.rm-chartbox .tip, .rm-chartbox .end { position: absolute; pointer-events: none; white-space: nowrap; }
+.rm-chartbox .tip { padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--text); transform: translate(14px, -50%); }
+.rm-chartbox .tip.left { transform: translate(calc(-100% - 14px), -50%); }
 .rm-chartbox .tip span { font: 10.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); }
+.rm-chartbox .end { font-size: 12.5px; color: var(--text-dim); transform: translate(calc(-100% - 8px), calc(-100% - 8px)); }
 .rm-pcol .blk { padding: 0 0 22px; margin-bottom: 22px; border-bottom: 1px solid var(--rm-line); display: flex; flex-direction: column; gap: 11px; }
 .rm-pcol .blk:last-child { border-bottom: 0; }
 .rm-pcol .line { font-size: 13.5px; color: var(--text); display: flex; gap: 9px; align-items: center; }
 .rm-pcol .line svg { color: var(--text-faint); }
-.rm-groups { padding: 22px 0 0; display: flex; flex-direction: column; }
-.rm-gh { padding: 14px 0 8px; }
-.rm-trow { display: grid; grid-template-columns: minmax(0, 1fr) 160px 170px; column-gap: 20px; align-items: center; height: 44px; border-bottom: 1px solid var(--rm-line); font-size: 14px; color: var(--text); }
-.rm-trow .p { font: 11px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--text-faint); }
-.rm-trow .w { font-size: 13px; color: var(--text-faint); text-align: right; display: flex; justify-content: flex-end; }
-.rm-trow.done { color: var(--text-dim); }
+.rm-pcol button.line { background: none; border: 0; padding: 0; font: inherit; font-size: 13.5px; text-align: left; cursor: default; }
+.rm-pcol button.line:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--text-faint); }
+.rm-pact { padding: 28px 0 0; display: flex; flex-direction: column; gap: 14px; }
+.rm-pboard { overflow-x: auto; margin-right: -20px; }
+.rm-pboard .th-board { padding: 0 20px 0 0; }
+
+/* the bio */
+.rm-bio { font-size: 13.5px; line-height: 20px; color: var(--text-dim); max-width: 620px; }
+.rm-bio-edit, .rm-bio-add { background: none; border: 0; padding: 0; font: inherit; font-size: 13px; color: var(--text-faint); cursor: default; text-align: left; }
+.rm-bio-edit { margin-left: 10px; opacity: 0; }
+.rm-bio:hover .rm-bio-edit, .rm-bio-edit:focus-visible { opacity: 1; }
+.rm-bio-edit:hover, .rm-bio-add:hover { color: var(--text-dim); text-decoration: underline; text-underline-offset: 3px; }
+.rm-ph .who:has(.rm-bio-form) { flex: 1; }
+.rm-bio-form { position: relative; width: min(620px, 100%); margin-left: -11px; }
+.rm-bio-form textarea { display: block; box-sizing: border-box; width: 100%; field-sizing: content; min-height: 32px; resize: none; border: 1px solid var(--line-strong); background: var(--control-face); padding: 5px 10px; font: inherit; font-size: 13.5px; line-height: 20px; color: var(--text); outline: none; }
+.rm-bio-form textarea::placeholder { color: var(--text-faint); }
+.rm-bio-form .k { position: absolute; left: calc(100% + 12px); bottom: 8px; white-space: nowrap; font: 10.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); }
 
 /* dialogs, inside the app's own .modal */
 .modal.rm-dlg { width: 540px; }
@@ -267,7 +327,8 @@
 
 /* a mention in Needs you */
 .rm-mention { cursor: default; }
-.rm-mention .th-msg .rm-pic { display: inline-block; vertical-align: -4px; margin-right: 8px; }
+/* The threads below sit in their own group box, where `.row + .row` cannot see the mention above them. */
+.th-table .rm-mention + div > .row:first-child::after { content: ''; position: absolute; left: var(--gutter); right: var(--row-r); top: 0; height: 1px; background: var(--line); opacity: var(--row-line); }
 .rm-where { display: inline-flex; align-items: center; gap: 5px; }
 
 /* the messages page */
@@ -287,9 +348,29 @@
 .rm-conv .fc.two .rm-pic:last-child { right: 0; bottom: 0; outline: 2px solid var(--surface); }
 .rm-conv .fc.room { border: 1px solid var(--line-strong); }
 .rm-conv .t { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.rm-conv .t b { font-weight: 400; font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rm-conv .t span { font-size: 12.5px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rm-conv .m { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; font: 10.5px var(--mono); color: var(--text-faint); }
+.rm-conv .t .nm { display: flex; align-items: center; gap: 7px; min-width: 0; height: 18px; }
+.rm-conv .t b { min-width: 0; font-weight: 400; font-size: 14px; line-height: 18px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rm-conv .t .ls { font-size: 12.5px; line-height: 16px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A long name gives way before the pin does. */
+.rm-conv-pin { display: flex; flex: none; color: var(--text-faint); }
+/* The time on the name's line and the unread dot on the second, flush right.
+   The rows match .t's two lines. */
+.rm-conv .m { align-self: stretch; display: grid; grid-template-rows: 18px 16px; row-gap: 2px; justify-items: end; align-items: center; font: 10.5px var(--mono); color: var(--text-faint); }
+/* UNREAD READS BRIGHTER: the name and its last line, beside the dot. */
+.rm-conv.unread .t .ls { color: var(--text-dim); }
+.rm-conv.muted .t b { color: var(--text-dim); }
+/* The row's ⋯ waits over the time until you point at the row. */
+.rm-conv-wrap { position: relative; }
+.rm-conv-more {
+  position: absolute; right: 16px; top: 9px; width: 24px; height: 20px; padding: 0; display: grid; place-items: center;
+  appearance: none; border: 1px solid var(--line-strong); border-radius: 0; cursor: pointer;
+  background: var(--skin-solid, var(--surface)); color: var(--text-dim); visibility: hidden;
+}
+.rm-conv-more svg { width: 13px; height: 13px; }
+.rm-conv-wrap:hover .rm-conv-more, .rm-conv-wrap.menu .rm-conv-more, .rm-conv-more:focus-visible { visibility: visible; }
+/* The time steps aside for it; the unread dot stays. */
+.rm-conv-wrap:hover .rm-conv .m, .rm-conv-wrap.menu .rm-conv .m { color: transparent; }
+.rm-conv-more:hover { color: var(--text); }
 .rm-open { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; }
 .rm-full { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
 .rm-full > .hd { height: 52px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 28px; border-bottom: 1px solid var(--rm-line); font-size: 15px; color: var(--text); }
