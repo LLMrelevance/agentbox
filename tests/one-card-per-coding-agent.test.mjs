@@ -129,7 +129,9 @@ describe('nothing in the card is a black square', () => {
   });
 
   // AND NO DRAWN ICONS. Every mark is type or a rule; a tick drawn in an earlier
-  // round was one more shape to learn.
+  // round was one more shape to learn. The one exception was asked for
+  // (2026-10-21, "maybe with little icons"): the Local and Cloud marks on an
+  // account's places, which are the thread menu's own and drawn there.
   it('draws no icons inside the card', () => {
     expect(card).not.toContain('<svg');
   });

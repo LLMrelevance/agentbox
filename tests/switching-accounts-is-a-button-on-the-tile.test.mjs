@@ -11,6 +11,12 @@
 // button, now in the tile's top right corner; IN USE stays beside the
 // address. The line under the name is the plan, and "Ready" is gone from it:
 // the meters already say how much room is left.
+//
+// Later that day: "the switch button looks so wacky. Especially now, it looks
+// even weirder with these other tags". The bordered button was taller than
+// the address's row and hung off the corner. It is now a small filled button,
+// level with the address. It stays a button and not grey text, for the reason
+// at the top of this file.
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -31,7 +37,7 @@ describe('a tile on this computer', () => {
     ]);
     expect(html.match(/acct-switch/g)).toHaveLength(1);
     expect(html).toMatch(/one@example\.test<\/span><span class="set-badge">In use<\/span>/);
-    expect(html).toMatch(/two@example\.test<\/span><button type="button" class="set-ghost acct-switch">Switch<\/button>/);
+    expect(html).toMatch(/two@example\.test<\/span><button type="button" class="acct-switch">Switch<\/button>/);
   });
 
   it('switching writes the account it is on', () => {

@@ -13,8 +13,13 @@
 // The first answer put the places in the plan's line as words ("Max 20x ·
 // This computer and cloud"), and the reply was: "the cloud and local should
 // be more visible as tags rather than just text that people skim over. Maybe
-// with little icons". So each place is a small tag with its mark, and a place
-// the account is missing from is a dashed tag that signs it in there.
+// with little icons". So each place became a small tag with its mark.
+//
+// Those tags were bordered boxes, and the reply was: "they actually look like
+// buttons ... Local and Cloud aren't activated. I have to click those to
+// activate them." A place is now said in the label voice IN USE wears, small
+// mono capitals with its mark and no box, and the sign-in a place is missing
+// is a dotted link after them.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -55,7 +60,7 @@ describe('where an account is available', () => {
   it('a cloud sign-in that stopped loses its cloud tag and offers to sign that login in again', () => {
     const onCloudSignIn = vi.fn();
     const t = accountTile(account({ cloud: cloud({ state: 'broken', ready: false }) }), acts({ onCloudSignIn }));
-    expect(tags(t)).toEqual(['here', '+Sign in again']);
+    expect(tags(t)).toEqual(['here', '+Sign in to cloud again']);
     t.cloudAct.onUse();
     expect(onCloudSignIn).toHaveBeenCalledWith('acct-1', 'work@example.test');
   });
@@ -82,10 +87,18 @@ describe('the tags, drawn', () => {
     );
   });
 
-  it('a missing place is a dashed tag that is a button, with the cloud’s mark', () => {
+  it('the sign-in a place is missing is a dotted link after the tags, the cloud screen’s own link', () => {
     expect(html(accountTile(account({ cloud: null }), acts()))).toBe(
-      '<span>Max 20x</span><span class="acct-place"><svg/>Local</span><button type="button" class="acct-place acct-place-add"><svg/>Add to cloud</button>',
+      '<span>Max 20x</span><span class="acct-place"><svg/>Local</span><button type="button" class="ps-link acct-cloud-act">Add to cloud</button>',
     );
+  });
+
+  it('must NOT draw a place with a border or a fill, the two things that made it read as a button to press', () => {
+    const css = fs.readFileSync(new URL('../renderer/src/components/settings.css', import.meta.url), 'utf8');
+    const rule = css.match(/\n\.acct-place \{([^}]*)\}/)?.[1];
+    expect(rule).toBeTruthy();
+    expect(rule).not.toMatch(/border|background/);
+    expect(rule).toMatch(/font-family: var\(--mono\)/);
   });
 
   it('the marks are the ones the thread menu draws for this computer and the cloud', () => {

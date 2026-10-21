@@ -433,7 +433,7 @@ export type PlaceAccount = {
   use?: { word: string; onUse: () => void } | null;
   /** Where it is signed in and working, a tag each after the plan. */
   places?: Where[];
-  /** The cloud sign-in it is missing, a dashed tag after those. */
+  /** The cloud sign-in it is missing, a link after those. */
   cloudAct?: { word: string; onUse: () => void } | null;
   /** Why it cannot run, in main's words; replaces the meters. */
   trouble?: string | null;
@@ -468,7 +468,6 @@ const PLACE_TAG: Record<Where, { word: string; Mark: typeof CloudMark }> = {
   here: { word: 'Local', Mark: MacMark },
   cloud: { word: 'Cloud', Mark: CloudMark },
 };
-
 /**
  * One tile per account, two to a line, its meters stacked inside. IN USE sits
  *  beside the address (on the right margin it was missed), and the button
@@ -481,7 +480,7 @@ export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: Pl
           <div className="acct-tile-head">
             <span className="acct-tile-name">{a.name}</span>
             {a.inUse ? <span className="set-badge">In use</span>
-              : a.use && <button type="button" className="set-ghost acct-switch" onClick={a.use.onUse}>{a.use.word}</button>}
+              : a.use && <button type="button" className="acct-switch" onClick={a.use.onUse}>{a.use.word}</button>}
           </div>
           {(a.plan || a.about.length > 0 || a.places?.length || a.cloudAct) && (
             <div className="acct-tile-about">
@@ -490,7 +489,7 @@ export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: Pl
                 const { word, Mark } = PLACE_TAG[p];
                 return <span className="acct-place" key={p}><Mark size={12} />{word}</span>;
               })}
-              {a.cloudAct && <button type="button" className="acct-place acct-place-add" onClick={a.cloudAct.onUse}><CloudMark size={12} />{a.cloudAct.word}</button>}
+              {a.cloudAct && <button type="button" className="ps-link acct-cloud-act" onClick={a.cloudAct.onUse}>{a.cloudAct.word}</button>}
             </div>
           )}
           {a.trouble ? (
@@ -560,7 +559,7 @@ export function accountTile(a: OneAccount, { picked, many, onUse, cloud = false,
     key: a.key, name: a.name, plan: a.plan,
     about: signingIn ? ['Finish signing in to use it'] : [],
     places,
-    cloudAct: !cloud || signingIn ? null : broken ? signIn('Sign in again', c!.key) : h && !c ? signIn('Add to cloud', null) : null,
+    cloudAct: !cloud || signingIn ? null : broken ? signIn('Sign in to cloud again', c!.key) : h && !c ? signIn('Add to cloud', null) : null,
     inUse: !!(picked && h?.chosen),
     limits: a.limits, checkedAt: a.checkedAt, usageError: a.usageError,
     use: h?.signedIn && !(picked && h.chosen) && many ? { word: picked ? 'Switch' : 'Use only this one', onUse: () => onUse(h.profile) } : null,

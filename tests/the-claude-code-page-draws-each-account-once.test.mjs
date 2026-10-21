@@ -30,7 +30,8 @@ describe('the Claude Code page', () => {
     const rule = css.slice(css.indexOf('.acct-tile-head .set-badge {'), css.indexOf('}', css.indexOf('.acct-tile-head .set-badge {')));
     expect(rule).toContain('.acct-tile-head .set-badge {');
     expect(rule).not.toMatch(/margin-left:\s*auto/);
-    expect(css).toMatch(/\.set-ghost\.acct-switch \{[^}]*margin: -4px 0 -4px auto/);
+    // Switch takes the right margin instead, without making the address's row taller.
+    expect(css).toMatch(/\.acct-switch \{[^}]*margin: -2px 0 -2px auto/);
   });
 
   it('the cloud is one row with a switch, not a second set of tiles', () => {
