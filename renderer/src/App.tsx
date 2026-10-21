@@ -42,7 +42,7 @@ import { documentCandidates } from './message-artifacts';
 import { filesFromRuns } from './run-files';
 import { Rail } from './components/Rail';
 import { ThreadComposer } from './threads/ThreadComposer';
-import { joinNames, threadMessage } from './threads/composer-rules';
+import { joinNames, projectsOffered, threadMessage } from './threads/composer-rules';
 import { NewProject } from './components/NewProject';
 import { shortFolder } from './project-folder';
 import { ImportAgents } from './components/ImportAgents';
@@ -77,6 +77,7 @@ import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, cl
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
 import { opensATextField, takesTheListBack } from './keys';
 import { modelCommands } from './thread-model-commands';
+import { MOVE_KEYWORDS, whyItCannotMove } from '../../shared/move-thread.mjs';
 import { sidebarFits, useRoomyToggle, useWindowWidth } from './room';
 import { isUrgentRow, taskToReturnTo, urgentInterruption } from './interrupt';
 import { DONE } from './done-word';
@@ -4247,6 +4248,30 @@ export default function App() {
     await refresh();
   }, [refresh, showToast]);
 
+  // MOVE A THREAD TO ANOTHER PROJECT (shared/move-thread.mjs). The move is one
+  // write on each side, both in main, so there is one place that can refuse it
+  // and one answer to show when it does.
+  const moveToProject = useCallback(async (item: WorkItem, slug: string, name: string) => {
+    const out = await api.moveItem(item.product, item.id, slug);
+    if (!out.ok || !out.item) { showToast(out.error ?? 'That thread could not be moved.'); return; }
+    const made = out.item;
+    showToast(`Moved to ${name}`, { product: made.product ?? slug, id: made.id });
+    // Z PUTS IT BACK WHERE IT WAS. The ledger only grows, so the copy cannot be
+    // unwritten; it is closed, and the row that was here opens again, which is
+    // the state the move found.
+    pushUndo({
+      label: `Back in ${item.productName}`,
+      undoes: `put it back in ${item.productName}`,
+      brings: item,
+      run: async () => {
+        await api.answer({ product: made.product ?? slug, id: made.id, status: 'done' });
+        await api.answer({ product: item.product, id: item.id, status: 'open' });
+        await refresh();
+      },
+    });
+    await refresh();
+  }, [pushUndo, refresh, showToast]);
+
   const [snoozeItem, setSnoozeItem] = useState<WorkItem | WorkItem[] | null>(null);
   const [snoozeNote, setSnoozeNote] = useState<string | null>(null);
 
@@ -6676,6 +6701,7 @@ export default function App() {
           const options = itemOptions(target);
           const recommended = options.find((o) => o.recommended) ?? options[0];
           const open = () => { setFocused(target); markSeen(target); };
+          const moveRefusal = whyItCannotMove(target as never, { live: liveIds.has(target.id) });
           return [
             ...(focused
               ? [{id:'remote-control',label:'Remote Control',keywords:'phone mobile continue claude rc',run:()=>{setModal(null);window.dispatchEvent(new Event('task-remote-control-open'));}}, {id:'open-terminal',label:'Open Terminal',keywords:'shell command console',run:()=>{setModal(null);window.dispatchEvent(new Event('task-terminal-open'));}}]
@@ -6731,6 +6757,28 @@ export default function App() {
               id: c.id, label: c.label, hint: c.hint, keywords: c.keywords,
               run: () => { setModal(null); void handToModel(target, c.pick, c.label); },
             }))),
+            // AND WHICH PROJECT IT IS FILED IN (power-test-1, issue 20): "Move
+            // to project… for a thread I filed in the wrong project". One row
+            // per project, the way `Rank <project> first` already does it, so
+            // typing "move" brings the whole set up and no second card opens.
+            //
+            // WHEN IT CANNOT MOVE, THE WORD STILL FINDS SOMETHING THAT SAYS SO,
+            // and the reason is the row's own hint rather than a sentence you
+            // have to press for. Only a thread nothing has run on can go
+            // (shared/move-thread.mjs), and a "move" that matched nothing is
+            // the complaint this answers. The press says it again because a
+            // narrow window cuts the hint and not the toast.
+            ...(moveRefusal
+              ? [{ id: 'move-refused', label: 'Move to another project', keywords: MOVE_KEYWORDS, hint: moveRefusal, run: () => { setModal(null); showToast(moveRefusal); } }]
+              // The same list the new thread card offers (projectsOffered): a
+              // conversation with a person is not a project to file work in,
+              // and the practice project runs nothing.
+              : projectsOffered(rankedProducts).filter((p) => p.slug !== target.product && !p.practice).map((p) => ({
+                  id: `move-${p.slug}`,
+                  label: `Move to ${p.name}`,
+                  keywords: MOVE_KEYWORDS,
+                  run: () => { setModal(null); void moveToProject(target, p.slug, p.name); },
+                }))),
             // THE FIRST PLACE SHE LOOKED. It asked `supervisor.running`, so on
             // a task she had just composed there was no Stop in ⌘K at all —
             // and, because nothing was running, the one agent command that DID

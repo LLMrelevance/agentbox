@@ -1,5 +1,6 @@
 import { openSourceFile } from './open-source-file.mjs';
 import {submitReply} from './live-replies.mjs';
+import { whyItCannotMove } from '../shared/move-thread.mjs';
 import { createEngineSetup } from './engine-setup.mjs';
 // IPC: a thin, typed-by-convention surface. The renderer asks; the main
 // process derives from files and answers. Pushes go one way: "state changed,
@@ -814,6 +815,26 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       return { ok: false, error: String(err?.message ?? err) };
     }
   });
+  // MOVE A THREAD TO ANOTHER PROJECT (w-c9da359466). Only a thread nothing has
+  // ever run on: shared/move-thread.mjs says why, and the store asks again.
+  // The one fact only this side has is whether a worker is inside it right
+  // now, which no field on the row can stand in for.
+  ipcMain.handle('zero:move-item', (_e, { product, id, to }) => {
+    try {
+      const live = supervisor.status().running.some((r) => r.itemId === id);
+      if (live) {
+        const why = whyItCannotMove(store.readItem(product, id), { live: true });
+        return { ok: false, error: why };
+      }
+      const out = store.moveItem(product, id, to);
+      push();
+      supervisor.wake();
+      return { ok: true, ...out };
+    } catch (err) {
+      return { ok: false, error: String(err?.message ?? err) };
+    }
+  });
+
   // A TASK A TEAMMATE GAVE YOU, ROUTED WITH ONE KEY. To an agent: it runs on
   // your Mac (you become its runner). Keep it: it stays yours and the routing
   // choices go away. Hand it back: it returns to whoever gave it to you.

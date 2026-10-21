@@ -729,6 +729,13 @@ export const api = {
     if (useFixtures || !window.zero?.threadEdit) return { ok: true };
     try { return await window.zero.threadEdit({ product, id, patch }); } catch (err) { return { ok: false, error: String((err as Error)?.message ?? err) }; }
   },
+  // Move a thread to another project (shared/move-thread.mjs). Answers with
+  // the row it became there, or with the reason in words: only a thread
+  // nothing has ever run on can go, and main asks that again before it writes.
+  async moveItem(product: string, id: string, to: string): Promise<{ ok: boolean; error?: string; item?: WorkItem; from?: string; to?: string }> {
+    if (useFixtures || !window.zero?.moveItem) return { ok: false, error: `Quit and reopen ${NAME} to move a thread.` };
+    try { return await window.zero.moveItem({ product, id, to }); } catch (err) { return { ok: false, error: String((err as Error)?.message ?? err) }; }
+  },
   // Threads dragged to a place of their own in the list (w-6e5b532a95).
   async setThreadPlaces(places: Record<string, number | null>): Promise<void> {
     if (useFixtures || !window.zero?.setThreadPlaces) return;

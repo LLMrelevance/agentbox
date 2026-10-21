@@ -11,6 +11,7 @@ import { Repeats } from './repeats.mjs';
 import { CLEAN_LABEL, isCleanRun } from '../shared/repeats.mjs';
 import { answerFor, describeFor } from './first-run.mjs';
 import { checkProjectFolder } from '../shared/project-folder-check.mjs';
+import { SAME_PROJECT, movedAway, movedHere, splitForCompose, whatMoves, whyItCannotMove } from '../shared/move-thread.mjs';
 import { EXAMPLES, stampsFor } from '../shared/first-run-examples.mjs';
 import {
   PRACTICE_ANSWER, PRACTICE_BACKDROP, PRACTICE_FLAG, PRACTICE_NAME, PRACTICE_NOTE, PRACTICE_ROWS, PRACTICE_SLUG,
@@ -613,6 +614,51 @@ export class Store {
     // reached past the task to whatever was under it (w-c78d1e1607).
     const made = workItemsDisk.updateWorkItem(dir, created.id, contentPatch, { source: 'founder' });
     return made ? { ...made, product: slug } : made;
+  }
+
+  /**
+   * MOVE A THREAD TO ANOTHER PROJECT (w-c9da359466, power-test-1 issue 20).
+   *
+   * Only a thread nothing has ever run on, and shared/move-thread.mjs carries
+   * the whole of why: the rest of a thread is its session traces, its task
+   * folder and the git branch named after it, and a branch cannot change
+   * repository.
+   *
+   * THE RULE IS ASKED AGAIN HERE. ⌘K asked it to decide which rows to draw,
+   * off a snapshot that can be seconds old, and a worker that picked the
+   * thread up in those seconds would otherwise have the ground moved under it.
+   *
+   * THE NEW ROW IS WRITTEN BEFORE THE OLD ONE IS CLOSED. A close that landed
+   * first and a create that then failed on a full disk would be a thread that
+   * is in neither project, which is the one outcome this must not have.
+   */
+  moveItem(fromSlug, id, toSlug) {
+    if (fromSlug === toSlug) throw new Error(SAME_PROJECT);
+    const from = this.listProducts().find((p) => p.slug === fromSlug);
+    const to = this.listProducts().find((p) => p.slug === toSlug);
+    if (!to) throw new Error(`no such project: ${toSlug}`);
+    const item = this.readItem(fromSlug, id);
+    const why = whyItCannotMove(item, { live: false });
+    if (why) throw new Error(why);
+
+    const { compose, after } = splitForCompose(whatMoves(item));
+    // Where it came from, in the thread rather than only in a toast, because a
+    // thread that turns up in a project nobody filed it in is a thread nobody
+    // can account for a week later.
+    const said = movedHere(from?.name ?? fromSlug);
+    const body = compose.body ? `${compose.body}\n\n${said}` : said;
+    let made = this.composeItem(toSlug, { ...compose, body });
+    // The three `composeItem` has no argument for (shared/move-thread.mjs).
+    if (Object.keys(after).length) {
+      made = { ...this.modules.workItemsDisk.updateWorkItem(this.productDir(toSlug), made.id, after, { source: 'founder' }), product: toSlug };
+    }
+
+    // AND THE OLD ROW CLOSES SAYING WHERE ITS THREAD WENT. It is written as
+    // the app rather than as the founder: they moved a thread, they did not
+    // finish one, and a founder `done` is terminal in a way this need not be.
+    const note = movedAway(to.name ?? toSlug);
+    this.modules.workItemsDisk.updateWorkItem(this.productDir(fromSlug), id, { status: 'done', note }, { source: 'system' });
+    return { item: made, from: from?.name ?? fromSlug, to: to.name ?? toSlug, note };
   }
 
   /* ---------------------------- repeating tasks --------------------------- */

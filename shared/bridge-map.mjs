@@ -56,6 +56,8 @@ export const REQUEST_CHANNELS = {
   teamReact: 'zero:team-react',
   teamMessage: 'zero:team-message',
   threadEdit: 'zero:thread-edit',
+  // Move a thread to another project (shared/move-thread.mjs).
+  moveItem: 'zero:move-item',
   repeats: 'zero:repeats',
   composeRepeat: 'zero:compose-repeat',
   setRepeat: 'zero:set-repeat',

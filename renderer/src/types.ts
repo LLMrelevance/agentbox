@@ -1160,6 +1160,9 @@ declare global {
       teamReact(p: { product: string; id: string; on: string; emoji: string; off?: boolean }): Promise<TeamCallResult>;
       teamMessage(p: { to: string | string[]; body: string; priority?: number; files?: TeamMessageFile[] }): Promise<TeamCallResult>;
       threadEdit(p: { product: string; id: string; patch: ThreadEditPatch }): Promise<{ ok: boolean; error?: string }>;
+      /** Move a thread to another project (shared/move-thread.mjs). Answers
+       *  with the row it became there, or with the reason in words. */
+      moveItem(p: { product: string; id: string; to: string }): Promise<{ ok: boolean; error?: string; item?: WorkItem; from?: string; to?: string }>;
       schedule(p: { product: string; id: string; runAt: number }): Promise<WorkItem>;
       snooze(p: { product: string; id: string; snoozedUntil: number }): Promise<WorkItem>;
       repeats(): Promise<RepeatRule[]>;
