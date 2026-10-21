@@ -71,7 +71,10 @@ afterEach(async () => {
   await sandbox?.close();
   s3.closeAllConnections();
   await new Promise((r) => s3.close(r));
-  fs.rmSync(tmp, { recursive: true, force: true });
+  // The retries, as in a-cloud-sandbox-runs-one-command: a write already on
+  // its way can put an entry back between the delete reading this folder and
+  // emptying it, and ENOTEMPTY here failed a test that had already passed.
+  fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 const transport = {
