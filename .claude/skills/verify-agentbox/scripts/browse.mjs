@@ -23,7 +23,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { launchChrome, connect } from './cdp.mjs';
+import { launchChrome, connect, freeProfile } from './cdp.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const { readState, INSTANCE } = await import(path.join(here, 'live.mjs'));
@@ -80,6 +80,7 @@ async function launch() {
   fs.rmSync(FILE, { force: true });
   const profile = path.join(INSTANCE, 'chrome-profile');
   fs.mkdirSync(profile, { recursive: true });
+  if (freeProfile(profile)) await new Promise((r) => setTimeout(r, 500));
   const { chrome, wsUrl } = await launchChrome({ profile, detached: true });
   const t = await connect(wsUrl);
   fs.writeFileSync(FILE, JSON.stringify({ wsUrl, targetId: t.targetId, pid: chrome.pid, url: state.url }));
