@@ -41,6 +41,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, takeCloudNews } from './cloud/marker.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
+import { CLOUD_SENT, readSent } from '../shared/cloud-start.mjs';
 import { readCloudConfig, cloudAccountConfig, OLD_TOKEN_SERVICE, imageCaps } from './cloud/config.mjs';
 import { cloudVersionGaps } from '../shared/cloud-versions.mjs';
 import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
@@ -94,7 +95,7 @@ import { writeChangeForRun, changePath } from './code-change.mjs';
 import { snapshotRepo, changeFromRepo } from './git-change.mjs';
 import { importedAgentBrief, importedAgentName, THREAD_LABEL } from '../shared/agent-import.mjs';
 import { readTranscriptHead } from './agent-sessions.mjs';
-import { readPlan } from './claude-plan.mjs';
+import { planStamp, readPlan } from './claude-plan.mjs';
 import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
 import { readDeadRunTrace, traceShowsASilentDeath, tracesAToolCall } from '../shared/dead-run-trace.mjs';
 import { commandPrompt } from '../shared/claude-commands.mjs';
@@ -235,6 +236,11 @@ const CLOUD_START_PATIENCE_MS = 10 * 60_000;
 const CLOUD_FAULTS_TO_REST = 3;
 // main/cloud/run.mjs KEEP_ON_MAC: the folder cannot go to the cloud.
 const CLOUD_KEEP_ON_MAC = 78;
+// main/cloud/run.mjs CLOUD_NO_ROOM: the cloud server had no room for this
+// person, and how long no new thread goes there after (`_noteCloudNoRoom`).
+const CLOUD_NO_ROOM = 79;
+const CLOUD_FULL_WAIT_MS = 30_000;
+const CLOUD_NO_ROOM_WAIT_MS = 5 * 60_000;
 // A thread whose cloud start dies this many times in a row before its agent
 // starts runs on this Mac from then on (`_cloudKeptOnMac`).
 const CLOUD_STARTS_TO_GIVE_UP = 3;
@@ -536,6 +542,15 @@ export class Supervisor {
       this.threadPins = Object.fromEntries(Object.entries(state.threadPins ?? {}).filter(([, v]) => v === true));
       // Threads she keeps on this Mac whatever the cloud is set to.
       this.threadOnMac = Object.fromEntries(Object.entries(state.threadOnMac ?? {}).filter(([, v]) => v === true));
+      // Threads the app moved here for one request (`_moveToMac`). A state
+      // saved before moves had their own key held both in `threadOnMac`, and
+      // nearly all of those were moves.
+      if (Object.hasOwn(state, 'movedToMac')) {
+        this.movedToMac = Object.fromEntries(Object.entries(state.movedToMac ?? {}).filter(([, v]) => Number.isFinite(v)));
+      } else {
+        this.movedToMac = Object.fromEntries(Object.keys(this.threadOnMac).map((id) => [id, Date.now()]));
+        this.threadOnMac = {};
+      }
     } catch {
       this._handledAnswers = new Set();
       this._resumedWaits = new Set();
@@ -554,6 +569,7 @@ export class Supervisor {
       this.threadPlaces = {};
       this.threadPins = {};
       this.threadOnMac = {};
+      this.movedToMac = {};
     }
     // WHICH ROWS NOTHING HAS BEEN ABLE TO RUN ON, as of the last tick, for the
     // line above her list. Deliberately NOT persisted: it is derived from
@@ -748,6 +764,24 @@ export class Supervisor {
       if (notHersToMend && this._anotherAccountCanRun(account, benched)) continue;
       this._profileCooldown[account] = 0;
     }
+  }
+
+  /**
+   * CHOOSING AN ACCOUNT IS A PERSON'S HAND ON IT, like Resume. The account
+   * picked is often the one just upgraded, and its old limit would otherwise
+   * hold every thread until the reset it printed. Its bench goes, and a limit
+   * mark with it, so a chat on the login left behind can move here. Still
+   * capped, its first run dies in seconds and benches it to its reset again.
+   */
+  accountChosen(engine, profile) {
+    if (!profile) return false;
+    const key = this._accountKey(engine, profile);
+    if (this._profileTrouble?.[key]?.cause === 'at-limit') this._clearProfileTrouble(key);
+    else if (this._profileCooldown) this._profileCooldown[key] = 0;
+    if (engineOf(engine) === DEFAULT_ENGINE) this._spawnCooldownUntil = 0;
+    this._saveState();
+    this.wake();
+    return true;
   }
 
   /**
@@ -3533,6 +3567,8 @@ export class Supervisor {
       if (keep === true) this.threadOnMac[id] = true;
       else if (keep === null || keep === false) delete this.threadOnMac[id];
       changed ||= was !== (this.threadOnMac[id] === true);
+      // The person's choice either way replaces a move the app made.
+      if (keep !== undefined && id in (this.movedToMac ?? {})) { delete this.movedToMac[id]; changed = true; }
       const session = this.sessions.get(id);
       if (keep === true && session?.cloud) {
         this._kill(session);
@@ -3545,18 +3581,30 @@ export class Supervisor {
   }
 
   // A CLOUD RUN THAT ENDED ON THE MARKED LINE (shared/cloud-hand-back.mjs):
-  // its request needs this Mac. The thread is kept here from now on, nothing
-  // it said goes on the row, and the same request runs again here, told why
-  // (`replyBrief`). True when it was one.
+  // its request needs this Mac. Nothing it said goes on the row, and the same
+  // request runs again here, told why (`replyBrief`). True when it was one.
   _noteCloudHandBack(item, session) {
     if (!session?.cloud || session.resultIsError || !handsBack(session.result)) return false;
     session.handedBack = true;
     this._handedBack ??= new Set();
     this._handedBack.add(item.id);
-    // Not `setThreadOnMac`, which would stop this session as it ends.
-    this.threadOnMac[item.id] = true;
-    this._saveState();
+    this._moveToMac(item.id);
     return true;
+  }
+
+  // THE APP'S OWN MOVE TO THIS MAC LASTS ONE REQUEST. The person's "Keep on
+  // this Mac" (`threadOnMac`) is for good; this one is spent once a run here
+  // has carried the request to an answer, and the next reply goes to the cloud
+  // first again.
+  _moveToMac(id) {
+    (this.movedToMac ??= {})[id] = Date.now();
+    this._saveState();
+  }
+
+  _spendMoveToMac(item, session) {
+    if (!item?.id || !(item.id in (this.movedToMac ?? {})) || session?.cloud || session?.exitFailed !== false) return;
+    delete this.movedToMac[item.id];
+    this._saveState();
   }
 
   // The snapshot's items with each one's place, pin and keep-on-this-Mac on
@@ -3863,6 +3911,9 @@ export class Supervisor {
     if (cause === 'at-limit') {
       const resetsAt = limitResetMoment(raw);
       if (resetsAt) this._profileTrouble[profile].resetsAt = resetsAt;
+      // And which plan it was hit on, for `_forgetLimitsOfAnOldPlan`.
+      const stamp = plan ? planStamp(profile, { home: this.config.home || os.homedir() }) : null;
+      if (stamp) this._profileTrouble[profile].plan = stamp;
     }
     return cause;
   }
@@ -3892,6 +3943,34 @@ export class Supervisor {
       forgot = true;
     }
     if (forgot) this._saveState();
+    return forgot;
+  }
+
+  /**
+   * A LIMIT BELONGS TO THE PLAN IT WAS HIT ON. An upgrade, extra usage, or the
+   * folder signed in as another account gives the login room before the reset
+   * it printed, and the only sign of it here is the plan Claude Code writes
+   * into the login's file. When that moves, the limit goes and the next run is
+   * the proof: still capped, it dies in seconds and files the limit again
+   * against the new plan, so one change buys one try.
+   */
+  _forgetLimitsOfAnOldPlan() {
+    const home = this.config.home || os.homedir();
+    let forgot = false;
+    let noted = false;
+    for (const profile of this._profiles()) {
+      const key = this._accountKey(DEFAULT_ENGINE, profile);
+      const trouble = this._profileTrouble?.[key];
+      if (trouble?.cause !== 'at-limit') continue;
+      const stamp = planStamp(profile, { home });
+      if (!stamp || stamp === trouble.plan) continue;
+      // A limit filed before plans were kept takes today's as its own.
+      if (!trouble.plan) { trouble.plan = stamp; noted = true; continue; }
+      this._clearProfileTrouble(key);
+      forgot = true;
+    }
+    if (forgot) this._spawnCooldownUntil = 0;
+    if (forgot || noted) this._saveState();
     return forgot;
   }
 
@@ -4229,6 +4308,7 @@ export class Supervisor {
     return {
       setUp, offered, managed: typeof config?.gateway === 'string', mode, running: this._cloudLoad(), month: this._cloudMonth.month,
       ...this._cloudHealthNow(now),
+      noRoom: (({ error, message } = {}) => (error ? { error, message } : null))(this._cloudNoRoomNow(now) ?? {}),
       versionGap: setUp ? this._cloudVersionGaps(now).sort((a, b) => b.blocks - a.blocks)[0] ?? null : null,
       // What C turns the cloud back on to (main/settings.mjs cloudWhenOn).
       whenOn: this.config.cloudWhenOn === 'all' ? 'all' : 'full',
@@ -4248,11 +4328,16 @@ export class Supervisor {
     for (const engine of [DEFAULT_ENGINE, 'codex']) {
       listCloudLogins(engine, { home: this.config.home }).forEach((r) => {
         const state = cloudLoginState(r, { now });
-        // A Claude login in the cloud can say its organization, not its email.
-        here ??= this._profiles().map((p) => accountIdentity(p === 'default' ? null : p, { home: this.config.home || os.homedir() }));
+        // A Claude login in the cloud can say its organization, not its email
+        // or its plan, so both come from the folder here in that organization.
+        const home = this.config.home || os.homedir();
+        here ??= this._profiles().map((p) => ({ ...accountIdentity(p === 'default' ? null : p, { home }), profile: p }));
         const name = r.email || (engine === DEFAULT_ENGINE ? nameForOrganization(r.org, here) : null);
+        const plans = engine === DEFAULT_ENGINE && r.org
+          ? new Set(here.filter((id) => id.organizationUuid === r.org).map((id) => readPlan(id.profile, { home }).label).filter(Boolean))
+          : new Set();
         out.push({
-          engine, key: r.key, name: name || null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null,
+          engine, key: r.key, name: name || null, plan: plans.size === 1 ? [...plans][0] : null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null,
           limitedUntil: r.limitedUntil ?? null, limits: cloudLimits(r.limits), readAt: r.readAt ?? null, duplicateOf: r.duplicateOf ?? null,
         });
       });
@@ -4453,15 +4538,40 @@ export class Supervisor {
   }
 
   // Cloud runs still being packed and sent: a run's proxy holds its folder,
-  // documents and transcript in memory until its agent has started.
-  // A start older than CLOUD_START_PATIENCE_MS is stuck, not starting, and
-  // holds nothing back.
+  // documents and transcript in memory until the cloud has taken its start
+  // (`_noteCloudSent`). The wait for the cloud machine and its agent holds
+  // nothing here, so it does not count. A start older than
+  // CLOUD_START_PATIENCE_MS is stuck, not starting, and holds nothing back.
   _cloudStarting(now = Date.now()) {
     let n = 0;
     for (const s of this.sessions.values()) {
-      if (s.cloud && s.sessionId == null && s.result == null && now - (s.startedAt ?? now) < CLOUD_START_PATIENCE_MS) n += 1;
+      if (s.cloud && !s.cloudSentAt && s.sessionId == null && s.result == null && now - (s.startedAt ?? now) < CLOUD_START_PATIENCE_MS) n += 1;
     }
     return n;
+  }
+
+  // The relay's line saying the cloud took its start (shared/cloud-start.mjs).
+  // The next run waiting for a slot starts packing now, not at the next tick.
+  _noteCloudSent(session, text) {
+    if (!session?.cloud || session.cloudSentAt) return;
+    const times = readSent(text);
+    if (!times) return;
+    session.cloudSentAt = Date.now();
+    session.cloudTimes = times;
+    this.wake?.();
+  }
+
+  // HOW LONG EACH PART OF A CLOUD START TOOK, for the run's log once its agent
+  // begins: the wait before packing (from the newest message, when there is
+  // one), packing and sending here, the cloud taking it, and the agent starting.
+  _cloudStartLine(session, item, now = Date.now()) {
+    const s = (ms) => `${Math.round(ms / 1000)} s`;
+    const begun = session.startedAt ?? now;
+    if (!session.cloudSentAt || !session.cloudTimes) return `cloud start: ${s(now - begun)} from starting the relay to the agent beginning`;
+    const asked = lastFounderWrite(item);
+    const since = asked > 0 && asked <= begun ? `began ${s(now - asked)} after the newest message; ${s(begun - asked)} before packing, ` : '';
+    const { packMs, startMs } = session.cloudTimes;
+    return `cloud start: ${since}${s(packMs)} packing and sending here, ${s(startMs)} for the cloud to take it, ${s(now - session.cloudSentAt)} for the agent to begin`;
   }
 
   // Room in the cloud apart from the runs still starting.
@@ -4538,7 +4648,7 @@ export class Supervisor {
   // Not resting after failures of its own (`_noteCloudOutcome`), and not a
   // major version of this engine apart from this Mac (`_cloudVersionGaps`).
   _cloudUsable(engine) {
-    if (this._cloudResting()) return false;
+    if (this._cloudResting() || this._cloudNoRoomNow()) return false;
     const which = engineOf(engine);
     return !this._cloudVersionGaps().some((g) => g.engine === which && g.blocks);
   }
@@ -4589,7 +4699,7 @@ export class Supervisor {
   // sign-in that failed, or a folder still bringing an earlier run home says
   // nothing about the cloud.
   _noteCloudOutcome(session, code, signal = null) {
-    if (!session?.cloud || session.stoppedByUs || session.cloudLoginTrouble || code === CLOUD_KEEP_ON_MAC) return;
+    if (!session?.cloud || session.stoppedByUs || session.cloudLoginTrouble || code === CLOUD_KEEP_ON_MAC || code === CLOUD_NO_ROOM) return;
     const h = (this._cloudHealth ??= { faults: 0, lastError: null, restUntil: 0 });
     if (session.sessionId != null || session.result != null) {
       Object.assign(h, { faults: 0, lastError: null, restUntil: 0 });
@@ -4611,10 +4721,10 @@ export class Supervisor {
   // A THREAD THE CLOUD CANNOT RUN RUNS HERE, rather than being started there
   // again at every check: a folder the cloud refused (KEEP_ON_MAC), or a
   // thread whose cloud starts died CLOUD_STARTS_TO_GIVE_UP times in a row
-  // before its agent started. Kept on this Mac as a hand-back is, so no
-  // attempt is spent and the next delivery runs here. True when it was kept.
+  // before its agent started. Moved to this Mac as a hand-back is, so no
+  // attempt is spent and the next delivery runs here. True when it was moved.
   _cloudKeptOnMac(item, session, code, signal = null) {
-    if (!session?.cloud || !item?.id) return false;
+    if (!session?.cloud || !item?.id || code === CLOUD_NO_ROOM) return false;
     this._cloudStartFails ??= new Map();
     let keep = code === CLOUD_KEEP_ON_MAC;
     if (!keep) {
@@ -4632,8 +4742,7 @@ export class Supervisor {
     session.handedBack = true;
     this._handedBack ??= new Set();
     this._handedBack.add(item.id);
-    this.threadOnMac[item.id] = true;
-    this._saveState();
+    this._moveToMac(item.id);
     return true;
   }
 
@@ -4654,7 +4763,7 @@ export class Supervisor {
     this._heldStarts ??= {};
     if (starts.length < STORM_STARTS || this._heldStarts[key]) return;
     const said = (session.tail ?? []).filter((l) => typeof l === 'string' && l.startsWith('stderr:'))
-      .flatMap((l) => l.slice('stderr:'.length).split('\n')).map((l) => l.trim()).filter(Boolean).at(-1) ?? null;
+      .flatMap((l) => l.slice('stderr:'.length).split('\n')).map((l) => l.trim()).filter((l) => l && !l.startsWith(CLOUD_SENT)).at(-1) ?? null;
     this._heldStarts[key] = { since: now, said };
     this._saveState();
     try {
@@ -4680,6 +4789,33 @@ export class Supervisor {
     return true;
   }
 
+  // NO ROOM IN THE CLOUD for this person (main/cloud/run.mjs CLOUD_NO_ROOM):
+  // the thread waits for this Mac with no attempt spent, as a hand-back does
+  // but not kept here, and no new thread goes to the cloud for a while. The
+  // cloud button says why, which is where the upgrade is offered.
+  _noteCloudNoRoom(session, code) {
+    if (!session?.cloud || code !== CLOUD_NO_ROOM) return;
+    session.handedBack = true;
+    const said = (session.tail ?? []).filter((l) => typeof l === 'string')
+      .flatMap((l) => l.split('\n')).map((l) => /no room in the cloud \((\w+)\):\s*(.*)$/.exec(l)).filter(Boolean).at(-1);
+    const error = said?.[1] ?? 'plan';
+    this._cloudNoRoom = { error, message: said?.[2]?.trim() || null, until: Date.now() + (error === 'agents' ? CLOUD_FULL_WAIT_MS : CLOUD_NO_ROOM_WAIT_MS) };
+    this.onChange?.();
+  }
+
+  _cloudNoRoomNow(now = Date.now()) {
+    const r = this._cloudNoRoom;
+    return r && r.until > now ? r : null;
+  }
+
+  /** The plan the cloud server says this Mac is on; a paid one ends a wait for a plan. */
+  cloudPlanSeen(plan) {
+    if (this._cloudNoRoom?.error === 'plan' && plan?.plan && plan.plan !== 'none') {
+      this._cloudNoRoom = null;
+      this.onChange?.();
+    }
+  }
+
   _cloudHealthNow(now = Date.now()) {
     const h = this._cloudHealth;
     if (!h?.faults) return { health: 'ok', lastError: null, restingUntil: null };
@@ -4694,7 +4830,7 @@ export class Supervisor {
   // stays on this Mac.
   _mayRunInCloud(item, product, cwd, { remoteOnly = false } = {}) {
     if (remoteOnly) return false;
-    if (item?.id && this.threadOnMac?.[item.id] === true) return false;
+    if (item?.id && (this.threadOnMac?.[item.id] === true || item.id in (this.movedToMac ?? {}))) return false;
     if (!product || !cwd || cwd === product.repoPath) return false;
     if (cwd === product.dir ? !item?.id || !this._cloudTakesPlain() : !product.repoPath) return false;
     if ((this.config.personalProducts || []).includes(product.slug)) return false;
@@ -5102,7 +5238,7 @@ export class Supervisor {
   // The part of `_mayRunInCloud` that can be asked before a row has a folder.
   _cloudEligible(item) {
     if (!item || String(item.id || '').startsWith('digest-')) return false;
-    if (this.threadOnMac?.[item.id] === true) return false;
+    if (this.threadOnMac?.[item.id] === true || item.id in (this.movedToMac ?? {})) return false;
     const product = this.store.listProducts?.().find((p) => p.slug === item.product);
     if (!product?.repoPath && !(product?.dir && this._cloudTakesPlain())) return false;
     return !(this.config.personalProducts || []).includes(product.slug);
@@ -5319,6 +5455,8 @@ export class Supervisor {
     }
     // A level the model does not offer is the task's setting, on every login.
     if (refusedBy === 'level-not-offered' || troubleCause(lastFailure) === 'level-not-offered') return;
+    // Another Codex window holds this conversation; the login is fine.
+    if (troubleCause(lastFailure) === 'open-elsewhere') return;
     const limitHit = refusedBy === 'at-limit' || needsHerHands(refusedBy);
     // A dropped provider connection is a transport failure too, even when
     // the local process and its pipe stayed up. It must not spend a reply's
@@ -5442,6 +5580,7 @@ export class Supervisor {
         threadPlaces: this.threadPlaces,
         threadPins: this.threadPins,
         threadOnMac: this.threadOnMac,
+        movedToMac: this.movedToMac,
         liveSessions: this._liveSessions,
         rowSessions: this._rowSessions,
         compactions: this._compactions,
@@ -5587,14 +5726,14 @@ export class Supervisor {
         // lapses, and `queued` must never advertise a row the tick is going to
         // walk past (claimHeldElsewhere).
         .filter((i) => !this.claimHeldElsewhere(i))
-        .filter((i) => (i.answer && i.answer !== '(withdrawn)'
-            && !answerSettled(i) && !this._answerDelivered(i))
-          || (!i.answer && i.kind !== 'question' && i.kind !== 'review'
-            && ((i.labels ?? []).includes('founder') || autonomous.has(i.product))
-            // Resting, so NOT queued: the tick will not spawn it, and a row
-            // that reads as waiting its turn while nothing is going to touch it
-            // for hours is the confusion this list exists to prevent.
-            && this.restingUntil(i) <= nowTs))
+        // THE TICK'S OWN TWO TESTS, NOT A SECOND COPY OF THEM. The copy that
+        // was here said yes to a row already holding an agent's result nobody
+        // had replied to, which `_isFreshWork` has always said no to: search
+        // tagged a finished thread QUEUED. Resting, settled and already
+        // delivered are all inside those two, so a row the tick is going to
+        // walk past is never advertised as waiting its turn.
+        .filter((i) => (this._isContinuation(i) && !answerSettled(i) && !this._answerDelivered(i))
+          || this._isFreshWork(i, nowTs, autonomous))
         .map((i) => i.id);
     } catch {}
     if (this.paused) queued = [];
@@ -5934,6 +6073,89 @@ export class Supervisor {
     }
   }
 
+  /*
+   * THE TWO QUESTIONS THE TICK ASKS OF A ROW, IN ONE PLACE.
+   *
+   * They are methods rather than closures inside `_tick` because `status()`
+   * asks them too, to say which rows are queued. It used to ask its own copy,
+   * and the copies drifted: a row already holding an agent's result nobody
+   * had replied to was never fresh work, and the queued list did not know, so
+   * search tagged a finished thread QUEUED under a preview reading "Done:"
+   * (w-712fc99e8d).
+   */
+
+  /**
+   * A continuation is anything open carrying a founder answer with nobody
+   * acting on it. For a question that answer is the decision; for a review it
+   * is the verdict to ENACT (merge, ship, revise); for an agent-filed proposal
+   * it is the approval ("run it") that turns the proposal into work.
+   */
+  _isContinuation(item) {
+    if (!item.answer) return false;
+    // A withdrawn reply (Z after send in the inbox) is a cancel, not an
+    // answer; spawning on it would brief a worker with "(withdrawn)".
+    if (item.answer === '(withdrawn)') return false;
+    // A BLOCKED ROW IS STILL A ROW SHE CAN ANSWER. This used to read "blocked
+    // AND personal", because parking as blocked was how a personal thread
+    // waited for her. Personal projects are gone (w-d19d6d387c) and the rule
+    // behind the clause outlives them: blocked means a session stopped until
+    // something outside it changed, and her reply IS that change.
+    if (item.status !== 'open' && item.status !== 'blocked') return false;
+    // BUT NOT A ROW SHE STOPPED, on the reply she sent before stopping it.
+    // The kill hands that reply back to the queue, and this used to start a
+    // fresh run on it ten seconds after her stop, on a row sitting in her
+    // inbox. Her stop is the newest thing she said; a later reply wakes it.
+    if (stoppedByHer(item)) return false;
+    return true;
+  }
+
+  /**
+   * Fresh work: HUMAN-IN-THE-LOOP BY DEFAULT. Only founder-initiated items
+   * (the 'founder' label, stamped by compose) auto-spawn; everything an agent
+   * filed is a proposal that waits in the inbox until the founder's answer
+   * arrives (which makes it a continuation above). Autonomy is earned by
+   * category later, not assumed now. `autonomousProducts` is that later,
+   * granted per product in the config: there, agent-filed TASKS run without
+   * waiting, while questions and reviews still hold for the founder. THE
+   * WALK'S OWN ROW IS NEVER FRESH WORK. It looks like a real task because it
+   * IS one, down to the ledger, and it is answered by the app itself out of
+   * the folder she just chose. A worker picking it up would be a second
+   * answer to a question already answered, arriving a minute later over the
+   * top of it. A REPLY of hers still spawns, because by then the walk is over
+   * and the row is an ordinary task in her inbox: this is on fresh work alone
+   * and deliberately not on `_isContinuation`.
+   */
+  _isFreshWork(item, now = Date.now(), autonomous = new Set(this.config.autonomousProducts ?? [])) {
+    return !(item.labels ?? []).includes(FIRST_RUN_LABEL)
+      && item.status === 'open' && item.kind !== 'question' && item.kind !== 'review'
+      && ((item.labels ?? []).includes('founder') || autonomous.has(item.product)) && !item.answer
+      // A ROW THAT ALREADY HOLDS AN ANSWER FOR HER IS NOT FRESH WORK. This is
+      // the same rule as the paragraph above, read from the other end: a
+      // proposal waits for her, and a finished answer sitting on an open row
+      // IS a proposal, whoever labelled the row.
+      //
+      // Without this the row is fresh again the moment the rest expires, and
+      // the next worker arrives at a question that is already answered, has
+      // nothing new to do, and writes the answer a second time.
+      //
+      // Measured: hundreds of results were written with no reply since the
+      // previous one, many opening on a character-identical bold line, and
+      // several rows were carrying three answers to one unanswered ask: three
+      // sessions, three near-identical results, no reply between any of them.
+      //
+      // She loses nothing by the wait. `rowSummary` already shows a result
+      // newer than the body on an OPEN row, so the answer is in her inbox
+      // being read; the only thing that stops is writing it again. Any word
+      // from her moves `lastFounderWrite` past it and the row is fresh again.
+      // EXCEPT when the words are OURS, about an account that refused the run
+      // (`_onlyWeSpokeForAnAccount`): those are not an answer to her.
+      && (!awaitingHer(item) || this._onlyWeSpokeForAnAccount(item))
+      // A row a worker already took and gave nothing back rests before it is
+      // handed to another one. This pass had no memory whatsoever, which is
+      // the whole of the every-tick loop (FRUITLESS_RESTS_MS).
+      && this.restingUntil(item) <= now;
+  }
+
   async _tick() {
     if (this.paused) return;
     this._refreshMemoryReading();
@@ -5942,6 +6164,7 @@ export class Supervisor {
     // brake below, which would otherwise hold the fleet past the sign-in.
     try { this._noticeSignIns(); } catch (e) { console.warn('zero: could not look for a sign-in:', e.message); }
     try { this._forgetResetLimits(); } catch (e) { console.warn('zero: could not let a reset limit go:', e.message); }
+    try { this._forgetLimitsOfAnOldPlan(); } catch (e) { console.warn('zero: could not read a login for a new plan:', e.message); }
     try { this._forgetRenewedSubscriptions(); } catch (e) { console.warn('zero: could not let a renewed subscription back in:', e.message); }
     // _cloudReady reads the cloud's setup (at most once a minute) first.
     try { this._cloudReady('codex'); this._renewCloudLogins(); void this._noteCloudOrgs(); } catch (e) { console.warn('zero: could not check the cloud sign-ins:', e.message); }
@@ -6039,72 +6262,6 @@ export class Supervisor {
     // priority wins outright.
     const autonomous = new Set(this.config.autonomousProducts ?? []);
 
-    // A continuation is anything open carrying a founder answer with nobody
-    // acting on it. For a question that answer is the decision; for a review
-    // it is the verdict to ENACT (merge, ship, revise); for an agent-filed
-    // proposal it is the approval ("run it") that turns the proposal into work.
-    const isContinuation = (i) => {
-      if (!i.answer) return false;
-      // A withdrawn reply (Z after send in the inbox) is a cancel, not an
-      // answer; spawning on it would brief a worker with "(withdrawn)".
-      if (i.answer === '(withdrawn)') return false;
-      // A BLOCKED ROW IS STILL A ROW SHE CAN ANSWER. This used to read "blocked
-      // AND personal", because parking as blocked was how a personal thread
-      // waited for her. Personal projects are gone (w-d19d6d387c) and the rule
-      // behind the clause outlives them: blocked means a session stopped until
-      // something outside it changed, and her reply IS that change.
-      if (i.status !== 'open' && i.status !== 'blocked') return false;
-      // BUT NOT A ROW SHE STOPPED, on the reply she sent before stopping it.
-      // The kill hands that reply back to the queue, and this used to start a
-      // fresh run on it ten seconds after her stop, on a row sitting in her
-      // inbox. Her stop is the newest thing she said; a later reply wakes it.
-      if (stoppedByHer(i)) return false;
-      return true;
-    };
-
-    // Fresh work: HUMAN-IN-THE-LOOP BY DEFAULT. Only founder-initiated items
-    // (the 'founder' label, stamped by compose) auto-spawn; everything an agent
-    // filed is a proposal that waits in the inbox until the founder's answer
-    // arrives (which makes it a continuation above). Autonomy is earned by
-    // category later, not assumed now. `autonomousProducts` is that later,
-    // granted per product in the config: there, agent-filed TASKS run without
-    // waiting, while questions and reviews still hold for the founder. THE
-    // WALK'S OWN ROW IS NEVER FRESH WORK. It looks like a real task because it
-    // IS one, down to the ledger, and it is answered by the app itself out of
-    // the folder she just chose. A worker picking it up would be a second
-    // answer to a question already answered, arriving a minute later over the
-    // top of it. A REPLY of hers still spawns, because by then the walk is over
-    // and the row is an ordinary task in her inbox: this is on `isFresh` alone
-    // and deliberately not on `isContinuation`.
-    const isFresh = (i) => !(i.labels ?? []).includes(FIRST_RUN_LABEL)
-      && i.status === 'open' && i.kind !== 'question' && i.kind !== 'review'
-      && ((i.labels ?? []).includes('founder') || autonomous.has(i.product)) && !i.answer
-      // A ROW THAT ALREADY HOLDS AN ANSWER FOR HER IS NOT FRESH WORK. This is
-      // the same rule as the paragraph above, read from the other end: a
-      // proposal waits for her, and a finished answer sitting on an open row
-      // IS a proposal, whoever labelled the row.
-      //
-      // Without this the row is fresh again the moment the rest expires, and
-      // the next worker arrives at a question that is already answered, has
-      // nothing new to do, and writes the answer a second time.
-      //
-      // Measured: hundreds of results were written with no reply since the
-      // previous one, many opening on a character-identical bold line, and
-      // several rows were carrying three answers to one unanswered ask: three
-      // sessions, three near-identical results, no reply between any of them.
-      //
-      // She loses nothing by the wait. `rowSummary` already shows a result
-      // newer than the body on an OPEN row, so the answer is in her inbox
-      // being read; the only thing that stops is writing it again. Any word
-      // from her moves `lastFounderWrite` past it and the row is fresh again.
-      // EXCEPT when the words are OURS, about an account that refused the run
-      // (`_onlyWeSpokeForAnAccount`): those are not an answer to her.
-      && (!awaitingHer(i) || this._onlyWeSpokeForAnAccount(i))
-      // A row a worker already took and gave nothing back rests before it is
-      // handed to another one. This pass had no memory whatsoever, which is
-      // the whole of the every-tick loop (FRUITLESS_RESTS_MS).
-      && this.restingUntil(i) <= now;
-
     // NOTHING EVER RUNS IN THE PRACTICE PROJECT. The walk's own rows are
     // already safe by their label, but a REPLY to one is a continuation, and a
     // continuation spawns a real Claude Code session — in a project with no
@@ -6141,8 +6298,8 @@ export class Supervisor {
       // something on Friday and having it run Monday at 6am is the point, not
       // a special case.
       if (!this.store.isDue(item, now)) continue;
-      const continuation = isContinuation(item);
-      if (!continuation && !isFresh(item)) continue;
+      const continuation = this._isContinuation(item);
+      if (!continuation && !this._isFreshWork(item, now, autonomous)) continue;
       // ONE OF CLAUDE CODE'S OWN EIGHT COMMANDS, typed into this row's reply
       // box, ON A ROW THAT IS GOING TO CLAUDE CODE. `commandPrompt` is null for
       // everything else, so this is false for every ordinary message.
@@ -8755,6 +8912,11 @@ export class Supervisor {
       // handler ever runs. It costs one small write per session.
       if (session.sessionId && !session.idRemembered) {
         session.idRemembered = true;
+        if (session.cloud) {
+          const started = this._cloudStartLine(session, item);
+          console.log(`${nameSlug}: ${item.id} ${started}`);
+          try { trace?.write(`${started}\n`); } catch {}
+        }
         this._liveSessions[item.id] = {
           sessionId: session.sessionId,
           product: item.product,
@@ -8797,6 +8959,7 @@ export class Supervisor {
     // note at the top of that file for why.
     harness.subscribe(child, session, absorb);
     child.stderr.on('data', (d) => {
+      if (session.cloud) this._noteCloudSent(session, d);
       onLine(`stderr: ${String(d).slice(0, 500)}`);
       try { trace?.write(`stderr: ${String(d).slice(0, 1000)}\n`); } catch {}
     });
@@ -8817,11 +8980,13 @@ export class Supervisor {
       this.memoryGateTurnEnded(session);
       session.exitFailed = !!(signal || code !== 0 || session.transportFault || session.resultIsError || session.result == null);
       this.count?.('run_finished', runEndedProps(session, Date.now()));
+      this._noteCloudNoRoom(session, code);
       this._noteCloudOutcome(session, code, signal);
       this._noteHowTheRunStarted(item, session);
       onLine(`session exited (${code})`);
       if (this._noteCloudHandBack(item, session)) onLine('the cloud handed this thread back to this computer');
-      else if (this._cloudKeptOnMac(item, session, code, signal)) onLine('the cloud could not run this thread, so it runs on this computer from now on');
+      else if (this._cloudKeptOnMac(item, session, code, signal)) onLine('the cloud could not run this thread, so this request runs on this computer');
+      this._spendMoveToMac(item, session);
       // WHAT THE RUN CHANGED, SAVED WHERE SHE CAN OPEN IT.
       //
       // A tester could not see code on their onboarding call because there was no

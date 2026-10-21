@@ -37,7 +37,7 @@ import { marksFor, readUndoMarks, UNDO_MARKS_EVENT, type UndoMark } from '../und
 import type { LedgerLine } from '../thread-history';
 import type { TraceSession } from '../notes';
 import type { AgentTurn, RunningSession, WorkItem } from '../types';
-import { ActLine, Thread, ThreadWaiting } from './Thread';
+import { ActLine, Thread, ThreadWaiting, answerTurn } from './Thread';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 
 // THE BACKSTOP, NOT THE HEARTBEAT.
@@ -308,11 +308,12 @@ export function ItemThread({ item, engine, session, opening, sending, filed = []
   // two apart. What changed is where they sit. They used to be instead of the
   // conversation; they are now under it, and the thread above no longer draws
   // this message twice.
+  const answerAt = answerTurn(events, omitted, chat);
   const answer = outcome && (
     resultLeads(item) && outcome.field === 'result'
-      ? <div className="outcome">{md(clean(outcome.text))}</div>
+      ? <div className="outcome" data-exchange={answerAt}>{md(clean(outcome.text))}</div>
       : (
-        <div className="appendix appendix-foot">
+        <div className="appendix appendix-foot" data-exchange={answerAt}>
           <div className="appendix-label">{outcome.field === 'result' ? 'Result' : 'Latest checkpoint'}</div>
           {md(clean(outcome.text))}
         </div>

@@ -2,7 +2,8 @@
 
 Status: drafted 2026-10-20 on w-9f9c2570e2 and reviewed by Codex the same day.
 Its corrections are folded in below, and "What Codex's review changed" lists
-them. Nothing built.
+them. Phase 1's code is in `mobile/` and runs in the browser preview; it has
+not been on a phone yet ("Where phase 1 stands").
 
 ## What was asked
 
@@ -153,15 +154,16 @@ reviewers sometimes test there.
 
 ## Sign-in and accounts
 
-- Supabase Auth, as today. Google through its native sign-in and
-  `signInWithIdToken`; email and password; Sign in with Apple through
+- Supabase Auth, as today. Google through the database's own sign-in page in
+  the system's sign-in sheet; email and password; Sign in with Apple through
   `expo-apple-authentication` and `signInWithIdToken`. Native Apple sign-in
   needs no web OAuth secret, so there is no six-month secret rotation. Apple
   is off today (`[auth.external.apple] enabled = false` in
   cloud/supabase/config.toml) and is switched on in the hosted project.
-- The session is kept encrypted on the phone. The keychain (SecureStore) holds
-  only small values, so it keeps the encryption key, and the encrypted session
-  lives in AsyncStorage, the pattern Supabase's own Expo guide uses.
+- The session is kept in the keychain (SecureStore). The app keeps only the
+  access token, the refresh token, the expiry and the account's id and email,
+  which is well under the keychain's comfortable size, so nothing is split
+  out into AsyncStorage.
 - **Hidden Apple addresses and team invites.** "Hide My Email" gives an address
   no invite was sent to, and `accept_invite` deliberately takes only the
   sign-in's own confirmed email (migration 20261001000500). So the person types
@@ -306,6 +308,62 @@ is asleep.
    alongside phase 2 rather than at the end, then the listing and the
    submission. Waits on the three things in step 6 above.
 6. **Android.** The closed test, then production.
+
+## Where phase 1 stands
+
+Built on w-9f9c2570e2, shown in the browser preview (`EXPO_PUBLIC_PREVIEW=1`,
+made-up threads), not yet on a phone:
+
+- Sign in with Apple, Google and email. The sign-in client is the phone
+  site's own (renderer/src/cloud-rest.ts), which gained `signInWithIdToken`
+  for Apple. Google goes through the account database's own sign-in page in
+  the system's sign-in sheet and comes back to `agentbox://signed-in`, not
+  through Google's native SDK, so it needs no Google iOS client.
+- The inbox: the desktop's four tabs and its order. The phone site's rules
+  moved out of cloud-bridge.ts into renderer/src/phone-rows.ts so the site and
+  the app share them. The tabs are composed in mobile/src/lib/tabs.ts from
+  list-rules.ts, because App.tsx builds its lists inline; lifting those lists
+  into one module both read is a follow-up.
+- A thread: the desktop's conversation (item-thread.ts), the agent's live
+  options as buttons (a pick sends "Option N: …", "Close this task" closes),
+  a reply box, Later and Close. Each press leaves the phone site's command.
+- Alerts: the app asks for permission, gets its Expo push token and can send
+  itself a test alert through Expo's push service. Nothing in the cloud sends
+  alerts yet (phase 3).
+- A new thread, as the phone site's page: model, project, priority.
+- The app's icon is the phone site's icon at 1024px.
+- Every screen is drawn to the phone site's own measurements, read off the
+  site as it renders: the top bar and its line, rows and their hairlines, the
+  tabs' counts, the options card, the reply box and its sentence (priority,
+  mode, model), the sheets, Settings' plates and the sign-in card. The wall
+  runs under the status bar. The desktop's Later times moved out of
+  Snooze.tsx into renderer/src/later-times.ts so both read them.
+- Attaching, on a new thread and a reply: Photo library or Files, uploaded by
+  the site's own sendFiles and linked as attachments.ts `attachmentLinks`
+  writes them. Send later on a new thread: Add it to Later, tomorrow or
+  Monday morning, or a typed time (composer-rules.ts).
+- Not yet on the phone: search and View and filters (the site's search draws
+  nothing without a Mac), Repeat it, and messages between people.
+
+Tests: tests/the-phone-app-*.test.mjs pin the tabs, the thread and its
+commands, sign-in and the kept session, the request deadline and the
+markdown. The deadline test reads `mobile/src` too. The ship gate rates the
+app's screens "look" and its sign-in, keychain, alerts and build "risky".
+
+Not done in phase 1: native sign-in and alerts on a real phone, and CI that
+installs `mobile/` and type-checks it.
+
+To put it on the owner's phone:
+
+1. An Expo account; `npx eas-cli init` in `mobile/`, and its project id set
+   as `EAS_PROJECT_ID`.
+2. The bundle id chosen and set as `MOBILE_BUNDLE_ID`.
+3. In the hosted account database: Apple sign-in switched on, and
+   `agentbox://signed-in` added to the allowed redirect addresses.
+4. The cloud's address and public key set as EAS environment variables
+   (`EXPO_PUBLIC_CLOUD_URL`, `EXPO_PUBLIC_CLOUD_KEY`).
+5. `npx eas-cli build --profile production --platform ios --auto-submit`,
+   which lands in TestFlight.
 
 ## What Codex's review changed (2026-10-20)
 

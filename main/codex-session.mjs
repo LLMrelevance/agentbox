@@ -404,8 +404,10 @@ export function createCodexWorker({
     // `settleDelivery` spare the delivery attempt, while `noteExitForBackoff`
     // still counts the failure against the Codex account. A fake signal would
     // skip that count. `gone.stderr` is the app-server's tracing tail, where
-    // Codex's refusal wording appears.
+    // Codex's refusal wording appears; it goes last because the account books
+    // read the last line for a cause.
     onClosed: (gone) => {
+      say(gone?.why);
       say(gone?.stderr);
       end(1, null, { transportFault: true });
     },

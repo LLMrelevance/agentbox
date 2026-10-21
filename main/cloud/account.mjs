@@ -11,6 +11,7 @@ import path from 'node:path';
 import { cloudConfigPath, readCloudConfig, readCloudKey, writeCloudKey, cloudKeyPath, cloudAccountConfig } from './config.mjs';
 import { withDeadline, plainAuthError } from '../team/session.mjs';
 import { signInWithGoogle, cancelGoogleSignIn } from '../team/sign-in.mjs';
+import { Name } from '../../shared/product-name.mjs';
 
 const CALL_MS = 30_000;
 const RETURN_URL = 'http://127.0.0.1:54783/auth/callback';
@@ -107,6 +108,40 @@ export async function signInToCloud({ config, acceptedTerms, name = os.hostname(
   const me = await ask(config.gateway, '/v1/me', { key: made.body.key });
   return { ok: true, ...(me.status === 200 ? me.body : {}) };
 }
+
+// The server's cloud and this Mac's key for it, or null when signed out.
+function signedIn(env, home) {
+  const gateway = readCloudConfig(env, home)?.gateway;
+  const key = gateway ? readCloudKey(env, home) : null;
+  return key ? { gateway, key } : null;
+}
+
+/** The plan, its agents and hours, and what is used, as the server counts them. */
+export async function cloudPlan({ env = process.env, home = os.homedir() } = {}) {
+  const at = signedIn(env, home);
+  if (!at) return { signedIn: false };
+  const me = await ask(at.gateway, '/v1/me', { key: at.key });
+  return me.status === 200 ? { signedIn: true, ...me.body } : { signedIn: me.status !== 401, error: me.body.error || 'refused', message: me.body.message };
+}
+
+// Only Stripe's own two pages are opened: whatever else a server answers stays shut.
+const STRIPE_PAGE = /^https:\/\/(checkout|billing)\.stripe\.com\//;
+
+async function openStripe(route, body, openExternal, env, home) {
+  const at = signedIn(env, home);
+  if (!at) return { ok: false, error: 'signed-out', message: `Sign in to ${Name} Cloud first.` };
+  const out = await ask(at.gateway, route, { method: 'POST', key: at.key, body });
+  if (out.status !== 200) return { ok: false, error: out.body.error || 'refused', message: out.body.message || `the cloud said ${out.status}` };
+  if (typeof out.body.url !== 'string' || !STRIPE_PAGE.test(out.body.url)) return { ok: false, error: 'not-stripe', message: 'The cloud answered with a page that is not Stripe\'s.' };
+  await openExternal(out.body.url);
+  return { ok: true, ...(out.body.where ? { where: out.body.where } : {}) };
+}
+
+/** Stripe's checkout for a plan, in the browser; the billing page for someone already paying. */
+export const payForCloud = ({ plan, openExternal, env = process.env, home = os.homedir() }) => openStripe('/v1/checkout', { plan }, openExternal, env, home);
+
+/** Stripe's billing page: change plan, cancel, the card, invoices. */
+export const openCloudBilling = ({ openExternal, env = process.env, home = os.homedir() }) => openStripe('/v1/billing', {}, openExternal, env, home);
 
 /** Let this Mac's cloud key go, there and here. An own-AWS setup is left alone. */
 export async function signOutOfCloud({ env = process.env, home = os.homedir() } = {}) {
