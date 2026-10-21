@@ -102,11 +102,18 @@ Tables (every foreign key named, with what happens on delete):
   rooms on delete cascade, by_person references people on delete set null,
   body text (1..4000), in_reply_to uuid null references room_messages on delete
   set null, mentions uuid[] default '{}', created_at default now() (forced by
-  trigger). No edit or delete in the alpha.
+  trigger). Since 20261022000000_room_messages_do_more.sql: edited_at and
+  deleted_at, set only by `edit_room_message` and `delete_room_message`, which
+  only the author may call. A deleted message keeps its row with an empty body.
+- `room_reactions` (message, person, emoji) with an on flag, written only by
+  `react_room_message`; turning one off is an update, because realtime sends
+  no deletes. `room_files` (room, plain name) holds base64 files up to 10 MiB,
+  voice notes among them; a message links one as `[name](attachments/name)`.
 - `room_reads`: (room_id references rooms on delete cascade, person_id
-  references people on delete cascade) pk, read_at. Written only through
+  references people on delete cascade) pk, read_at. Written through
   `mark_room_read(room, at)`, which keeps the later of the two times, so two
-  Macs never move it backwards.
+  Macs never move it backwards, and `mark_room_unread(room, at)`, which is a
+  person choosing to move their own read point back.
 
 Seeded idempotently by the migration: one team room per existing team
 (`on conflict do nothing`), a trigger that makes it for every new team, and

@@ -101,6 +101,7 @@ import { ComposeIcon } from './components/ComposeIcon';
 import { WorkspaceNavigation } from './components/WorkspaceNavigation';
 import { useRooms } from './team/rooms/useRooms';
 import { directConversations } from './team/rooms/conversations';
+import { MARK_UNREAD, SAY } from './team/chat-events';
 import { MentionRows } from './team/rooms/MentionRows';
 import { FeedbackCard } from './components/FeedbackCard';
 import { searchFieldInStrip, workspaceDestinations, workspaceNavigationShown, workspacePageTitle } from './workspace-navigation.mjs';
@@ -3438,18 +3439,37 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), goes ? TOAST_GOES_MS : 2500);
   }, []);
   showToastRef.current = showToast;
+  // A CHAT'S OWN ASKS (team/chat-events.ts): mark this conversation unread, and say a short note.
+  useEffect(() => {
+    const mark = (e: Event) => {
+      const want = (e as CustomEvent<{ product: string; id: string }>).detail;
+      const it = items.find((i) => i.id === want?.id && i.product === want?.product);
+      if (it) { markUnseen(it); showToast('Marked unread'); }
+    };
+    const note = (e: Event) => showToast(String((e as CustomEvent<string>).detail ?? ''));
+    window.addEventListener(MARK_UNREAD, mark);
+    window.addEventListener(SAY, note);
+    return () => { window.removeEventListener(MARK_UNREAD, mark); window.removeEventListener(SAY, note); };
+  }, [items, markUnseen, showToast]);
 
   // ROOMS (alpha, team/rooms/useRooms.tsx). A room open is drawn in place of
   // the list, so it shows only where the list would.
   const directs = useMemo(() => (roomsOn ? directConversations({
     items, products: snap?.products ?? [], me: snap?.team?.me?.id ?? null,
     people: new Map((snap?.team?.people ?? []).map((p) => [p.id, p])), waiting: new Set(inbox.map((i) => i.id)),
-  }) : []), [roomsOn, items, snap?.products, snap?.team?.me?.id, snap?.team?.people, inbox]);
+    // Mark Unread stores 0 (./unread.ts).
+    marked: new Set(Object.keys(seenAt).filter((id) => seenAt[id] === 0)),
+  }) : []), [roomsOn, items, snap?.products, snap?.team?.me?.id, snap?.team?.people, inbox, seenAt]);
   const roomsUi = useRooms({
     rooms: snap?.team?.rooms, on: !!snap?.alpha?.rooms, meId: snap?.team?.me?.id ?? null,
     myName: snap?.team?.rooms?.me?.display_name ?? '', fullName: snap?.team?.me?.name ?? '', hasTeam: !!snap?.team?.team, teamCards: snap?.team?.cards ?? [], now: Date.now(), toast: showToast,
     directs,
     onOpenDirect: (id) => { const item = items.find((i) => i.id === id); if (item) { setTeamOpen(false); setSettingsOpen(false); setFocused(item); markSeen(item); } },
+    onDirectRead: (id, read) => {
+      const item = items.find((i) => i.id === id);
+      if (!item) return;
+      if (read) markSeen(item); else { markUnseen(item); showToast('Marked unread'); }
+    },
     onLeavePage: () => { setFocused(null); setFocusedRepeat(null); setTeamOpen(false); closeSearch(); },
     // Teammates: the conversation you already have, or the new thread card addressed to them.
     onTeamMessage: (ids) => {

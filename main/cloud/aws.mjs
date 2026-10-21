@@ -10,7 +10,10 @@
 // an IAM user that may only start and stop sessions on one runtime and read
 // and write one bucket's `runs/`. Never the 12-hour admin sign-in.
 import { BedrockAgentCoreClient, InvokeAgentRuntimeCommand, StopRuntimeSessionCommand } from '@aws-sdk/client-bedrock-agentcore';
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand,
+  CreateMultipartUploadCommand, UploadPartCopyCommand, UploadPartCommand, CompleteMultipartUploadCommand,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import fs from 'node:fs';
 import { pipeline } from 'node:stream/promises';
@@ -24,6 +27,16 @@ const LINK_SECONDS = 12 * 60 * 60;
 // throw. Minutes, not seconds: sending a run's code up and a cold start both
 // take longer than a minute, and a minute's limit killed every such run.
 const TIMEOUT_MS = 5 * 60_000;
+const COPY_PIECE_BYTES = 32 * 1024 * 1024;
+
+// The byte ranges `extend` copies a `size`-byte base in: each at least `piece`
+// long, so never under S3's 5 MiB, and together exactly the base.
+export function copyRanges(size, piece = COPY_PIECE_BYTES) {
+  const pieces = Math.max(1, Math.floor(size / piece));
+  const each = Math.ceil(size / pieces);
+  return Array.from({ length: pieces }, (_, i) => `bytes=${i * each}-${Math.min(size, (i + 1) * each) - 1}`);
+}
+
 const http = (timeoutMs = TIMEOUT_MS) => ({ requestTimeout: timeoutMs, connectionTimeout: Math.min(10_000, timeoutMs), throwOnRequestTimeout: true });
 // `endpoint` and `credentials` are for tests, which stand in for AWS.
 const where = ({ endpoint, credentials }) => ({ ...(endpoint ? { endpoint } : {}), ...(credentials ? { credentials } : {}) });
@@ -78,6 +91,24 @@ export function awsStorage({ region, bucket, profile, endpoint, credentials, tim
     },
     async putFile(key, file) {
       await s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: fs.createReadStream(file), ContentLength: fs.statSync(file).size }));
+    },
+    // `key` made in the bucket as `base` (which is `start` bytes long)
+    // followed by `file` from byte `start`, so only that tail leaves this Mac.
+    // The base is copied in pieces at once: as one piece, 400 MiB took 11 s.
+    // An upload that fails part-way is cleared by the bucket's lifecycle rule
+    // (scripts/cloud-setup.mjs), as this login may not abort one.
+    async extend(key, base, file, start) {
+      const { UploadId } = await s3.send(new CreateMultipartUploadCommand({ Bucket: bucket, Key: key }));
+      const copied = await Promise.all(copyRanges(start).map((range, i) => s3.send(new UploadPartCopyCommand({
+        Bucket: bucket, Key: key, UploadId, PartNumber: i + 1, CopySource: `${bucket}/${base}`, CopySourceRange: range,
+      })).then((r) => ({ PartNumber: i + 1, ETag: r.CopyPartResult?.ETag }))));
+      const last = copied.length + 1;
+      const length = fs.statSync(file).size - start;
+      const tail = await s3.send(new UploadPartCommand({ Bucket: bucket, Key: key, UploadId, PartNumber: last, Body: fs.createReadStream(file, { start }), ContentLength: length }));
+      await s3.send(new CompleteMultipartUploadCommand({
+        Bucket: bucket, Key: key, UploadId,
+        MultipartUpload: { Parts: [...copied, { PartNumber: last, ETag: tail.ETag }] },
+      }));
     },
     // Whether an object is there, without reading it.
     async exists(key) {

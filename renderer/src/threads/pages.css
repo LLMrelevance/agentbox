@@ -96,9 +96,6 @@
    second is the one worth looking at, so it is the one in the accent. */
 .th-st.s-queued { border: 1.5px solid var(--text-faint); }
 .th-st.s-held { border: 1.5px solid var(--accent); }
-/* The word is the thread's own state, which its tab has already said: no mark,
-   and the space one would take, so the column reads down one edge. */
-.th-st.s-none { background: none; border: 0; }
 .th-st.s-need { background: var(--accent); }
 .th-pr { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 11px; margin-right: 8px; flex: none; }
 .th-pr i { display: block; width: 3px; background: var(--line-strong); border-radius: 1px; }

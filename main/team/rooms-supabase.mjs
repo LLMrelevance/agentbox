@@ -2,12 +2,32 @@
 // cloud/supabase/migrations/20261021000000_rooms.sql. Row level security and
 // the functions there are what keep people apart; nothing here is trusted to.
 import { Name } from '../../shared/product-name.mjs';
-import { PROFILE_COLS, PRESENCE_COLS, PROFILE_FIELDS, PRESENCE_FIELDS, pick, roomOut, messageOut } from './rooms-shape.mjs';
+import { PROFILE_COLS, PRESENCE_COLS, PROFILE_FIELDS, PRESENCE_FIELDS, MSG_COLS, REACTION_COLS, pick, roomOut, messageOut, reactionOut, fileExists } from './rooms-shape.mjs';
 
-const MSG_COLS = 'id,room_id,by_person,body,in_reply_to,mentions,created_at';
+// How long the chat waits to hear that reactions are listening before it says
+// it is ready anyway.
+const REACTIONS_WAIT_MS = 10_000;
+// The columns a cloud from before 20261022000000_room_messages_do_more.sql has.
+const OLD_MSG_COLS = 'id,room_id,by_person,body,in_reply_to,mentions,created_at';
+// Postgres and PostgREST's words for a column or a table that is not there.
+const notThere = (err) => ['42703', '42P01', '42883', 'PGRST202', 'PGRST204', 'PGRST205'].includes(String(err?.code ?? ''))
+  || /does not exist|could not find/i.test(String(err?.message ?? ''));
 
 export function roomsSupabase(client, myId, must) {
   const rpc = async (fn, args, what) => must(await client.rpc(fn, args), what);
+  // AN APP CAN BE UPDATED BEFORE ITS CLOUD IS, since the cloud's update is run
+  // by hand. Until it is, messages are read on the columns it has and nothing
+  // hangs off them, rather than the whole chat failing to read.
+  let oldCloud = false;
+  const reading = async (make, what) => {
+    let res = await make(oldCloud ? OLD_MSG_COLS : MSG_COLS, oldCloud);
+    if (res.error && !oldCloud && notThere(res.error)) { oldCloud = true; res = await make(OLD_MSG_COLS, true); }
+    return must(res, what);
+  };
+  // What only an updated cloud can do says so, in place of a database error.
+  const BEHIND = 'Your team cloud needs its latest update for this. Ask whoever set it up to apply it.';
+  const newer = async (res, what) => { if (res.error && notThere(res.error)) throw new Error(BEHIND); return must(res, what); };
+  const newRpc = async (fn, args, what) => newer(await client.rpc(fn, args), what);
 
   return {
     async myRooms() {
@@ -53,21 +73,67 @@ export function roomsSupabase(client, myId, must) {
 
     async roomMessages(roomId, { before = null, limit = 200 } = {}) {
       await myId();
-      let q = client.from('room_messages').select(MSG_COLS).eq('room_id', roomId).order('created_at', { ascending: false }).limit(limit);
-      if (before) q = q.lt('created_at', new Date(before).toISOString());
-      return must(await q, 'reading the chat').map(messageOut).reverse();
+      return (await reading((cols) => {
+        let q = client.from('room_messages').select(cols).eq('room_id', roomId).order('created_at', { ascending: false }).limit(limit);
+        if (before) q = q.lt('created_at', new Date(before).toISOString());
+        return q;
+      }, 'reading the chat')).map(messageOut).reverse();
     },
 
     // My newest mentions in every room I am in, however busy the room is.
     async roomMentions({ limit = 50 } = {}) {
       const me = await myId();
-      return must(await client.from('room_messages').select(MSG_COLS).contains('mentions', [me]).order('created_at', { ascending: false }).limit(limit), 'reading your mentions').map(messageOut);
+      return (await reading((cols, old) => {
+        let q = client.from('room_messages').select(cols).contains('mentions', [me]);
+        if (!old) q = q.is('deleted_at', null);
+        return q.order('created_at', { ascending: false }).limit(limit);
+      }, 'reading your mentions')).map(messageOut);
     },
 
     async sendRoomMessage(roomId, { body, inReplyTo = null, mentions = [] }) {
       const me = await myId();
-      const row = must(await client.from('room_messages').insert({ room_id: roomId, by_person: me, body, in_reply_to: inReplyTo, mentions }).select(MSG_COLS).single(), 'sending your message');
+      const row = await reading((cols) => client.from('room_messages').insert({ room_id: roomId, by_person: me, body, in_reply_to: inReplyTo, mentions }).select(cols).single(), 'sending your message');
       return messageOut(row);
+    },
+
+    async editRoomMessage(messageId, { body, mentions = [] }) {
+      await myId();
+      const row = await newRpc('edit_room_message', { m: messageId, p_body: body, p_mentions: mentions }, 'editing your message');
+      return messageOut(Array.isArray(row) ? row[0] : row);
+    },
+
+    async deleteRoomMessage(messageId) {
+      await myId();
+      await newRpc('delete_room_message', { m: messageId }, 'deleting your message');
+    },
+
+    // Off ones too, since the service folds them. The newest 1000, oldest first.
+    async roomReactions(roomId) {
+      await myId();
+      if (oldCloud) return [];
+      const res = await client.from('room_reactions').select(REACTION_COLS).eq('room_id', roomId).order('updated_at', { ascending: false }).limit(1000);
+      if (res.error && notThere(res.error)) return [];
+      return must(res, 'reading reactions').map(reactionOut).reverse();
+    },
+
+    async reactRoomMessage(messageId, emoji, on = true) {
+      await myId();
+      await newRpc('react_room_message', { m: messageId, p_emoji: emoji, p_on: !!on }, 'reacting');
+    },
+
+    async putRoomFile(roomId, name, data) {
+      const me = await myId();
+      const { error } = await client.from('room_files').insert({ room_id: roomId, name, by_person: me, data });
+      if (error?.code === '23505') throw fileExists(name);
+      if (error && notThere(error)) throw new Error(BEHIND);
+      if (error) throw new Error(`sending the file: ${error.message}`);
+      return name;
+    },
+
+    async roomFile(roomId, name) {
+      await myId();
+      const rows = await newer(await client.from('room_files').select('data').eq('room_id', roomId).eq('name', name).limit(1), 'taking a file from the room');
+      return rows[0]?.data ?? null;
     },
 
     async roomReads() {
@@ -79,6 +145,11 @@ export function roomsSupabase(client, myId, must) {
     async markRoomRead(roomId, at) {
       await myId();
       await rpc('mark_room_read', { r: roomId, at: new Date(at).toISOString() }, 'marking the room read');
+    },
+
+    async markRoomUnread(roomId, at) {
+      await myId();
+      await newRpc('mark_room_unread', { r: roomId, at: new Date(at).toISOString() }, 'marking the room unread');
     },
 
     async roomLink(roomId) {
@@ -170,14 +241,33 @@ export function roomsSupabase(client, myId, must) {
     // Subscribing takes a few seconds and a dropped socket subscribes again;
     // each time it is told, so whatever was sent meanwhile is read.
     subscribeRooms(onEvent) {
+      // SUBSCRIBED IS SAID ONCE BOTH CHANNELS LISTEN, or the reactions one has
+      // given up, since what is said on it is read again then. Said first by
+      // the chat's channel alone, a reaction made in the moment between was
+      // heard by nobody (measured on a local cloud). A channel that drops and
+      // subscribes again says it again.
+      let chatUp = false;
+      let reactionsSettled = false;
+      const ready = () => { if (chatUp && reactionsSettled) onEvent({ kind: 'subscribed' }); };
       const channel = client.channel(`rooms-${Math.random().toString(36).slice(2)}`)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'room_messages' }, (p) => onEvent({ kind: 'message', message: messageOut(p.new) }))
+        // An edit, and a delete, which empties the message rather than removing it.
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_messages' }, (p) => onEvent({ kind: 'message', message: messageOut(p.new) }))
         .on('postgres_changes', { event: '*', schema: 'public', table: 'room_presence' }, () => onEvent({ kind: 'presence' }))
         .on('postgres_changes', { event: '*', schema: 'public', table: 'room_profiles' }, () => onEvent({ kind: 'profile' }))
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'room_events' }, () => onEvent({ kind: 'membership' }))
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'access_events' }, () => onEvent({ kind: 'membership' }))
-        .subscribe((status) => { if (status === 'SUBSCRIBED') onEvent({ kind: 'subscribed' }); });
-      return () => { client.removeChannel(channel); };
+        .subscribe((status) => { if (status === 'SUBSCRIBED') { chatUp = true; ready(); } });
+      // REACTIONS ON A CHANNEL OF THEIR OWN: one change the server cannot
+      // follow fails its whole channel, and a cloud not yet updated has no
+      // room_reactions table. Turning a reaction off is an update too.
+      const reacting = client.channel(`room-reactions-${Math.random().toString(36).slice(2)}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'room_reactions' }, (p) => onEvent({ kind: 'reaction', reaction: reactionOut(p.new) }))
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'room_reactions' }, (p) => onEvent({ kind: 'reaction', reaction: reactionOut(p.new) }))
+        .subscribe((status) => { if (['SUBSCRIBED', 'CHANNEL_ERROR', 'TIMED_OUT'].includes(status)) { reactionsSettled = true; ready(); } });
+      const giveUp = setTimeout(() => { reactionsSettled = true; ready(); }, REACTIONS_WAIT_MS);
+      giveUp.unref?.();
+      return () => { clearTimeout(giveUp); client.removeChannel(channel); client.removeChannel(reacting); };
     },
   };
 }
