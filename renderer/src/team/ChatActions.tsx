@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { EMOJI_GROUPS, findEmoji } from './emoji-list';
-import { chipPressed, quickRow, readRecent, rememberEmoji } from './recent-emoji';
+import { chipPressed, onArrival, quickRow, readRecent, rememberEmoji } from './recent-emoji';
 import { searchKey } from './picker-keys';
 import { MoreMenu, type MoreItem } from './MessageMore';
 import './chat.css';
@@ -25,6 +25,9 @@ const QUICK = 3;
 // + at the end of them (w-45cbac227a): "like in Slack ... hit Plus and then
 // see a more complete list".
 export const CHAT_EMOJI = ['👍', '🙏', '👀', '✅', '🎉', '❤️', '😄', '🤔'];
+
+/** The bar's emoji: your three latest, newest first, filled from the usual ones. */
+export const latestQuick = (store?: Parameters<typeof readRecent>[0]) => quickRow(readRecent(store), CHAT_EMOJI, QUICK);
 
 // The whole list's size, and how far it keeps from the window's edges.
 const EVERY_W = 320;
@@ -272,10 +275,15 @@ export function MessageActions({ onReact, quick: withQuick = true, onQuote, repl
 }) {
   const [picking, setPicking] = useState(false);
   const [menu, setMenu] = useState<DOMRect | null>(null);
-  const [recentRow] = useState(() => quickRow(readRecent(), CHAT_EMOJI, QUICK));
+  const bar = useRef<HTMLDivElement>(null);
+  const [recentRow, setRecentRow] = useState(latestQuick);
+  useEffect(() => {
+    const message = bar.current?.parentElement;
+    return message ? onArrival(message, () => setRecentRow(latestQuick())) : undefined;
+  }, []);
   const quick = withQuick ? recentRow : [];
   return (
-    <div className={`chat-acts${picking || menu ? ' open' : ''}`}>
+    <div className={`chat-acts${picking || menu ? ' open' : ''}`} ref={bar}>
       {picking && <EmojiPick onPick={(emoji) => { setPicking(false); onReact(emoji); }} onClose={() => setPicking(false)} />}
       {quick.map((emoji) => (
         <button key={emoji} type="button" className="chat-quick" title={`React with ${emoji}`} aria-label={`React with ${emoji}`}
