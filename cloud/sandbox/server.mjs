@@ -163,6 +163,13 @@ export function createSandbox({
   const at = (p) => (pathRoot ? path.join(pathRoot, p) : p);
   let run = null;
   let bridge = null;
+  // A start answers the Mac at once and lays the folder out behind it, so a
+  // close ends that preparation as well as the command: until it stops, git is
+  // writing in a folder whose owner believes the server is done with it.
+  let preparing = null;
+  const stopping = new AbortController();
+  const closed = () => stopping.signal.aborted;
+  const stillOpen = () => { if (closed()) throw new Error('the sandbox is closing'); };
   const rootHelper = rootSocket ? openRootHelper(rootSocket) : null;
   let statusChangedAt = Math.floor(Date.now() / 1000);
   let lastPing = null;
@@ -555,7 +562,8 @@ export function createSandbox({
         // The history the bucket already had, then only the commits past it.
         if (base) {
           const file = path.join(r.dir, 'base.bundle');
-          await download(fetchImpl, base.url, file);
+          await download(fetchImpl, base.url, file, stopping.signal);
+          stillOpen();
           await sh('git', ['fetch', '-q', file, '+refs/*:refs/agentbox/base/*'], cwd);
           fs.rmSync(file, { force: true });
         }
@@ -563,7 +571,8 @@ export function createSandbox({
         // fresh repository's HEAD already names a branch, and git otherwise
         // refuses to fetch into the checked-out one.
         if (bundleUrl) {
-          await download(fetchImpl, bundleUrl, bundle);
+          await download(fetchImpl, bundleUrl, bundle, stopping.signal);
+          stillOpen();
           await sh('git', ['fetch', '-q', '--update-head-ok', bundle, '+refs/*:refs/*'], cwd);
         }
         // A thin bundle leaves out each ref whose commit the base holds.
@@ -584,8 +593,9 @@ export function createSandbox({
           await sh('git', ['update-ref', '-d', changesRef], cwd).catch(() => {});
         }
       }
+      stillOpen();
       if (r.spec.docs) fs.mkdirSync(r.spec.docs, { recursive: true });
-      for (const f of files) await placeFile(f);
+      for (const f of files) { await placeFile(f); stillOpen(); }
       // Files that belong in the agent's own home here, wherever the Mac keeps
       // its: the person's own instructions to Claude (`.claude/CLAUDE.md`).
       const home = at(runAs?.home || process.env.HOME || '/root');
@@ -612,11 +622,15 @@ export function createSandbox({
         for (const p of own) await sh('chown', ['-R', `${runAs.uid}:${runAs.gid}`, p], '/');
       }
     } catch (err) {
-      emit({ kind: 'error', message: `could not prepare the run: ${err.message}` }, r);
+      emit({ kind: 'error', message: closed() ? 'the sandbox closed while the run was being prepared' : `could not prepare the run: ${err.message}` }, r);
       setState('failed', {}, r);
       return;
     }
+    // Closed while this was being laid out: the command does not start, and
+    // the results of a run nobody is waiting for do not go up.
+    if (closed()) { setState('failed', {}, r); return; }
     if (!r.cancelled && !r.spec.kind && fs.existsSync(path.join(cwd, SETUP_FILE))) await runSetup(r, cwd, env);
+    if (closed()) { setState('failed', {}, r); return; }
     if (r.cancelled) {
       // Cancelled before it ever started: nothing ran, so the results are the
       // folder exactly as it was packed, uploaded so the Mac's import is the
@@ -715,7 +729,7 @@ export function createSandbox({
 
   async function placeFile(f) {
     fs.mkdirSync(path.dirname(f.path), { recursive: true });
-    await download(fetchImpl, f.url, f.path);
+    await download(fetchImpl, f.url, f.path, stopping.signal);
     if (f.untar) {
       fs.mkdirSync(f.untar, { recursive: true });
       await sh('tar', ['-xzf', f.path, '-C', f.untar], f.untar);
@@ -1297,7 +1311,7 @@ export function createSandbox({
       run = r;
       if (r.offline) watchWhileAway(r);
       setState('preparing', {}, r);
-      prepareAndSpawn(r);
+      preparing = prepareAndSpawn(r).catch(() => {});
       return { ok: true, seq: r.log.index.length, caps: CAPS };
     }
     if (!run) return { ok: false, error: 'no-run' };
@@ -1443,6 +1457,11 @@ export function createSandbox({
   }
 
   async function close() {
+    // Aborted first, so what the preparation is waiting on is a download that
+    // has already ended rather than one that may never answer.
+    stopping.abort();
+    await preparing;
+    preparing = null;
     if (run?.child) killGroup(run.child.pid, 'SIGKILL');
     if (run) { clearTimeout(run.deadlineTimer); clearTimeout(run.killTimer); for (const w of [...run.waiters]) w(); }
     if (bridge) { for (const c of bridge.conns.values()) c.sock.destroy(); bridge.server.close(); bridge = null; }
@@ -1661,8 +1680,8 @@ function scanDocs(dir) {
   return out;
 }
 
-async function download(fetchImpl, url, file) {
-  const res = await fetchImpl(url);
+async function download(fetchImpl, url, file, signal) {
+  const res = await fetchImpl(url, signal ? { signal } : undefined);
   if (!res.ok) throw new Error(`fetch ${res.status} for ${redact(url)}`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
