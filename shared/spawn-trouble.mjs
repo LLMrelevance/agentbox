@@ -62,6 +62,7 @@
 // would be this app telling her to do the one thing it refuses to do.
 import { NAME, Name } from '../shared/product-name.mjs';
 import { harnessDefinition } from './harness-definitions.mjs';
+import { instantIn, wallIn } from './usage.mjs';
 
 // A CLAUDE CODE TOO OLD FOR THE LINE AGENTBOX STARTS IT WITH. Its argument
 // parser refuses the line before a single request, in one of two shapes,
@@ -349,6 +350,39 @@ export function limitResetsAt(raw, from = Date.now()) {
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
+const CLAUDE_DAY = /resets\s+([a-z]{3})[a-z]*\.?\s+(\d{1,2})\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:\(\s*([^)]+?)\s*\))?/i;
+const UTC_ZONE = /^(?:UTC|GMT)\s*(?:([+-])(\d{1,2})(?::?(\d{2}))?)?$/i;
+
+// "UTC", "GMT+2" or a place such as "America/Los_Angeles". A zone this
+// computer cannot name, or none, is its own clock.
+function zoneOf(word) {
+  const utc = UTC_ZONE.exec(word ?? '');
+  if (utc) return { offset: (utc[1] === '-' ? -1 : 1) * (Number(utc[2] ?? 0) * 60 + Number(utc[3] ?? 0)), name: null };
+  return { offset: null, name: word && wallIn(Date.now(), word) ? word : null };
+}
+
+// The moment a dated Claude Code reset names, or null. The line has no year,
+// so it is the year in that zone at `from`, or the next one when that puts the
+// reset more than a day behind (December reading a January date).
+function claudeResetDay(raw, from) {
+  const m = CLAUDE_DAY.exec(String(raw ?? ''));
+  if (!m) return null;
+  const month = MONTHS.indexOf(m[1].toLowerCase());
+  if (month < 0) return null;
+  const day = Number(m[2]);
+  const h = (Number(m[3]) % 12) + (m[5].toLowerCase() === 'pm' ? 12 : 0);
+  const min = Number(m[4] ?? 0);
+  const zone = zoneOf(m[6]);
+  const at = (year) => zone.offset != null
+    ? Date.UTC(year, month, day, h, min) - zone.offset * 60_000
+    : instantIn(year, month, day, h, min, zone.name);
+  const year = zone.offset != null
+    ? new Date(from + zone.offset * 60_000).getUTCFullYear()
+    : (wallIn(from, zone.name)?.year ?? new Date(from).getFullYear());
+  const moment = at(year);
+  return moment < from - 86_400_000 ? at(year + 1) : moment;
+}
+
 // THE SAME HOUR AS A MOMENT, so the fleet can wait exactly until it
 // (a limit that reset at, say, 6:50pm could hold every agent until 7:03pm,
 // because the app waited a fixed thirty minutes instead of reading this line).
@@ -366,6 +400,10 @@ export function limitResetMoment(raw, from = Date.now()) {
       return new Date(Number(dated[3]), month, Number(dated[2]), h, Number(dated[5]), 0, 0).getTime();
     }
   }
+  // Claude Code names the day when the reset is not today: "resets Oct 22 at
+  // 4pm (America/Los_Angeles)".
+  const datedReset = claudeResetDay(raw, from);
+  if (datedReset != null) return datedReset;
   const clock = resetClock(raw);
   if (!clock) return null;
   if (clock.offset == null) {

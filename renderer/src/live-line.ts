@@ -30,6 +30,7 @@
 
 import { spanLabel } from './notes';
 import { Name } from '../../shared/product-name.mjs';
+import { resetDay } from '../../shared/usage.mjs';
 import type { RunningSession, WorkItem } from './types';
 
 // THE FIFTH STATE, AND IT IS THE ONE SOMEBODY OUTSIDE THIS BUILDING ASKED FOR.
@@ -321,9 +322,10 @@ export function liveLine(item: WorkItem, facts: LiveFacts = {}): LiveLine | null
     const at = limit.until > now
       ? new Date(limit.until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s/g, '').toLowerCase()
       : null;
+    const day = at ? resetDay(limit.until, now) : null;
     return {
       state: 'limit',
-      line: `${limit.tool} is at its usage limit, so this starts on its own when it resets${at ? ` at ${at}` : ''}.`,
+      line: `${limit.tool} is at its usage limit, so this starts on its own when it resets${day ? ` on ${day}` : ''}${at ? ` at ${at}` : ''}.`,
     };
   }
 

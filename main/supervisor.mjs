@@ -533,6 +533,7 @@ export class Supervisor {
       // usually already passed by the time the app is back.
       this._profileTrouble = dropCloudLimits(state.profileTrouble ?? {});
       this._profileCooldown = state.profileCooldown ?? {};
+      this._benchUntilKnownResets();
       // The founder's standing running order over her companies, most
       // important first. Agents never write it. It replaced three buckets
       // (high/normal/low) because buckets left every tie inside a bucket
@@ -3978,6 +3979,18 @@ export class Supervisor {
     }
     if (forgot) this._saveState();
     return forgot;
+  }
+
+  // A limit kept across a restart rests its login until the reset its line
+  // names, whatever bench was saved with it.
+  _benchUntilKnownResets(now = Date.now()) {
+    for (const [key, trouble] of Object.entries(this._profileTrouble ?? {})) {
+      if (trouble?.cause !== 'at-limit') continue;
+      const resetsAt = trouble.resetsAt ?? limitResetMoment(trouble.raw, trouble.at);
+      if (!resetsAt || resetsAt <= now) continue;
+      trouble.resetsAt = resetsAt;
+      this._profileCooldown[key] = Math.max(this._profileCooldown[key] ?? 0, resetsAt + LIMIT_RESET_GRACE_MS);
+    }
   }
 
   /**
