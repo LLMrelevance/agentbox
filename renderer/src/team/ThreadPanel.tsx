@@ -21,6 +21,7 @@ import { clock } from '../thread-history';
 import { THREAD_WIDTH, threadLine } from './chat-threads';
 import { holdTheEdge } from './hold-the-edge';
 import { FormatBar } from './FormatBar';
+import { forgetVoiceDraft, type VoiceControl } from './useVoiceRecorder';
 import { RichReply } from './RichReply';
 import { AttachRow } from '../components/AttachRow';
 import { collectFiles, persistAttachments, type PendingAttachment } from '../attachments';
@@ -64,7 +65,9 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
   const filePicker = useRef<HTMLInputElement>(null);
   // Said under the box until the next try, such as the microphone being refused.
   const [notice, setNotice] = useState<string | null>(null);
-  useEffect(() => { setNotice(null); }, [draft, attachments.length]);
+  const voiceCtl = useRef<VoiceControl | null>(null);
+  const [recording, setRecording] = useState(false);
+  useEffect(() => { setNotice(null); }, [draft]);
   // WHAT YOU SENT AND THE LEDGER DOES NOT HAVE YET, drawn at once and dropped
   // when your own committed copy arrives, so a reply never appears to vanish
   // between Enter and the next read of the row.
@@ -105,24 +108,41 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
   }, [draft]);
 
   // The words, then a link to each file, the way the chat's box sends them.
+  // Send while a note records finishes it and sends it with the words. A send
+  // that fails puts everything back in the box rather than dropping it.
   const send = async () => {
+    let files = attachments;
+    if (voiceCtl.current?.recording()) {
+      const note = await voiceCtl.current.finish();
+      if (note) files = [...files, { name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId }];
+    }
     const words = draft.trim();
-    if (!words && !attachments.length) return;
-    const files = attachments;
+    if (!words && !files.length) return;
     setDraft('');
     setAttachments([]);
-    const text = [words, await persistAttachments(product, files)].filter(Boolean).join('\n\n');
+    let linked: string;
+    try {
+      linked = await persistAttachments(product, files);
+    } catch (err) {
+      setDraft(words);
+      setAttachments(files);
+      setNotice(`Not sent: ${String((err as Error)?.message ?? err)} Your message is still in the box.`);
+      return;
+    }
+    for (const a of files) forgetVoiceDraft(a.draftId);
+    const text = [words, linked].filter(Boolean).join('\n\n');
     if (!text) return;
     setSending((was) => [...was, { at: Date.now(), text }]);
     onSend(text);
   };
-  const ready = !!draft.trim() || attachments.length > 0;
+  const ready = !!draft.trim() || attachments.length > 0 || recording;
   // True when the key was taken, so the editor does not also act on it.
   const onKey = (e: globalThis.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); return true; }
     // Escape leaves the thread, and goes no further: the page behind it would
-    // otherwise take the same key as "leave this conversation".
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); return true; }
+    // otherwise take the same key as "leave this conversation". Not while a
+    // note is being recorded, which one stray key would otherwise cut short.
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (!voiceCtl.current?.recording()) onClose(); return true; }
     return false;
   };
 
@@ -236,7 +256,7 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
               if (got.length) setAttachments((a) => [...a, ...got]);
             }}
           />
-          <AttachRow attachments={attachments} onRemove={(i) => setAttachments((x) => x.filter((_, j) => j !== i))} />
+          <AttachRow attachments={attachments} onRemove={(i) => { forgetVoiceDraft(attachments[i]?.draftId); setAttachments((x) => x.filter((_, j) => j !== i)); }} />
           {notice && <div className="compose-note" role="alert">{notice}</div>}
           <input
             ref={filePicker}
@@ -251,8 +271,9 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
           />
           <div className="chat-thread-bar">
             <FormatBar box={box} onChange={setDraft} onAttach={() => filePicker.current?.click()}
-              onVoice={(note) => setAttachments((a) => [...a, { name: note.name, dataBase64: note.dataBase64, image: false }])}
-              onNotice={setNotice} />
+              onVoice={(note) => setAttachments((a) => (a.some((x) => x.draftId === note.draftId)
+                ? a : [...a, { name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId }]))}
+              onNotice={setNotice} voiceKey={`thread:${product}:${parent.uid ?? ''}`} voice={voiceCtl} onRecording={setRecording} />
             <button type="button" className="dock-send" disabled={!ready} onClick={() => void send()} title="Send · ↵">Send <kbd>↵</kbd></button>
           </div>
         </div>

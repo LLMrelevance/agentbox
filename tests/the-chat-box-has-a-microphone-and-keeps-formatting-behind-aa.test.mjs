@@ -15,7 +15,7 @@ import { FormatBar } from '../renderer/src/team/FormatBar.tsx';
 import { AttachRow } from '../renderer/src/components/AttachRow.tsx';
 
 const src = (rel) => fs.readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
-const bar = (props = {}) => renderToStaticMarkup(React.createElement(FormatBar, { box: { current: null }, onChange: () => {}, onAttach: () => {}, onVoice: () => {}, ...props }));
+const bar = (props = {}) => renderToStaticMarkup(React.createElement(FormatBar, { box: { current: null }, onChange: () => {}, onAttach: () => {}, onVoice: () => {}, voiceKey: 'direct:p:w-1', ...props }));
 const labels = (html) => [...html.matchAll(/aria-label="([^"]+)"/g)].map((m) => m[1]);
 
 describe('the bar under the box', () => {
@@ -30,8 +30,15 @@ describe('the bar under the box', () => {
     expect(html).toMatch(/class="fmt-btn fmt-aa"[^>]*aria-pressed="false"/);
   });
 
-  it('has no microphone where a voice note cannot go', () => {
+  it('has no microphone where a voice note cannot go, or could not be kept for its conversation', () => {
     expect(labels(bar({ onVoice: undefined }))).not.toContain('Record a voice note');
+    expect(labels(bar({ voiceKey: '' }))).not.toContain('Record a voice note');
+  });
+
+  it('is told which conversation its notes belong to, in every box that has one', () => {
+    expect(src('renderer/src/components/Focus.tsx')).toMatch(/voiceKey=\{`direct:\$\{item\.product\}:\$\{item\.id\}`\}/);
+    expect(src('renderer/src/team/ThreadPanel.tsx')).toMatch(/voiceKey=\{`thread:\$\{product\}:/);
+    expect(src('renderer/src/team/rooms/RoomChat.tsx')).toMatch(/voiceKey=\{`room:\$\{roomId\}:/);
   });
 
   it('is the same bar in a room’s chat, with Return to send', () => {

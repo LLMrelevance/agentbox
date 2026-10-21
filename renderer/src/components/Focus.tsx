@@ -84,9 +84,10 @@ import { withQuote } from '../team/chat-quote';
 import { THREAD_WIDTH, THREAD_WIDTH_KEY, clampThreadWidth, threadToOpen } from '../team/chat-threads';
 import { whatWaits } from '../../../shared/team-rules.mjs';
 import { FormatBar } from '../team/FormatBar';
-import type { Recorded } from '../team/useVoiceRecorder';
+import { forgetVoiceDraft, type Recorded, type VoiceControl } from '../team/useVoiceRecorder';
 import { VoiceNote } from '../team/VoiceNote';
-import { voiceNoteOf } from '../team/voice-note';
+import { voiceNoteName, voiceNoteOf } from '../team/voice-note';
+import { voiceDraftsFor } from '../team/voice-drafts';
 import { editLast } from '../team/chat-events';
 import { RichReply, type RichBox } from '../team/RichReply';
 import { OptionsOffer } from './OptionsOffer';
@@ -906,10 +907,14 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // closing the box is the exact moment this has to change: that close is what
   // re-renders this pane, and the pill has to come back already carrying her
   // words. Nothing here can lose them; it only decides what is shown.
-  const folded = useMemo(
-    () => foldedReply(readDraft(item), readDraftAttachments(item), agent?.name),
-    [replyOpen, item.product, item.id, agent?.name],
-  );
+  const folded = useMemo(() => {
+    // A voice note kept for this box, and not in the draft, still counts.
+    const drafted = readDraftAttachments(item);
+    const kept = voiceDraftsFor(`direct:${item.product}:${item.id}`)
+      .filter((v) => !drafted.some((a) => a.draftId === v.id))
+      .map((v) => ({ name: voiceNoteName(v.ms ?? 1000), image: false }));
+    return foldedReply(readDraft(item), [...drafted, ...kept], agent?.name);
+  }, [replyOpen, item.product, item.id, agent?.name]);
 
   // A TASK OPENS AT ITS END, NOT AT ITS BEGINNING.
   //
@@ -2386,8 +2391,12 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   // The hidden file input the formatting bar's attach button opens.
   const filePicker = useRef<HTMLInputElement>(null);
   const pickFiles = () => filePicker.current?.click();
-  // A finished voice note waits with the other attachments until Send.
-  const addVoice = (note: Recorded) => setAttachments((a) => [...a, { name: note.name, dataBase64: note.dataBase64, image: false }]);
+  // A finished voice note waits with the other attachments until Send, once.
+  const addVoice = (note: Recorded) => setAttachments((a) => (a.some((x) => x.draftId === note.draftId)
+    ? a : [...a, { name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId }]));
+  const voiceCtl = useRef<VoiceControl | null>(null);
+  const [recording, setRecording] = useState(false);
+  const attachedNow = attachments;
   // AGENTS IN A CONVERSATION WITH A PERSON (w-7b9cb8636a, ../team/ChatAgents.tsx):
   // the @ menu, mentions that carry their own project, model and effort, and
   // the rule that Send waits until every agent has a project.
@@ -2491,6 +2500,14 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
      always did. (w-5d1ad29efa, 2026-08-29.) */
   const [saving, setSaving] = useState(false);
   const send = async (spoken?: string) => {
+    // SEND WHILE A NOTE RECORDS finishes the note and sends it with the words.
+    // It comes straight here rather than through the box, which this send is
+    // about to empty, so it can never come back and go twice.
+    let attachments = attachedNow;
+    if (voiceCtl.current?.recording()) {
+      const note = await voiceCtl.current.finish();
+      if (note) attachments = [...attachments, { name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId }];
+    }
     if (saving || (!(spoken ?? text).trim() && !attachments.length)) return;
     // AN AGENT WITH NO PROJECT DOES NOT GO OUT. The footer already says why;
     // ⌘↵ says it again rather than doing nothing.
@@ -2531,12 +2548,16 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     try {
       attachedMd = await persistAttachments(item.product, attachments);
     } catch (err) {
+      // A note finished by this Send waits in the box for the next try.
+      setAttachments(attachments);
       onNotice(`Not sent: ${String((err as Error)?.message ?? err)} Your draft has been kept.`);
       return;
     } finally {
       setSaving(false);
     }
     clearDraft(item);
+    // Saved with the conversation now, so this Mac's spare copy can go.
+    for (const a of attachments) forgetVoiceDraft(a.draftId);
     // AND WHAT THIS ONE MESSAGE MAY DO, if she changed it. `null` is not the
     // same as leaving it out: it CLEARS a mode set on an earlier reply and puts
     // the thread back on the project's own setting, so it is sent whenever the
@@ -2553,7 +2574,8 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
         ? pickToSend({ model, effort }, { engine: engineShown, was: engineNow, engineCount: engineRows.length })
         : undefined);
   };
-  const hasDraft = !!text.trim() || attachments.length > 0;
+  // A note being recorded is a draft: the box stays open round it.
+  const hasDraft = !!text.trim() || attachments.length > 0 || recording;
   // NEO SENDS FROM THIS BOX WHEN THE PICTURES IN IT GO WITH ITS WORDS, so the
   // pictures go out the way her own send takes them (renderer/src/neo/useNeo.ts).
   const sendRef = useRef(send);
@@ -2940,7 +2962,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           e.target.value = '';
         }}
       />
-      <AttachRow attachments={attachments} onRemove={(i) => setAttachments((x) => x.filter((_, j) => j !== i))} />
+      <AttachRow attachments={attachments} onRemove={(i) => { forgetVoiceDraft(attachments[i]?.draftId); setAttachments((x) => x.filter((_, j) => j !== i)); }} />
       {/* The notes, which cost a line only when there is something true to say,
           and which are NOT in the sentence: a sentence that grows a clause when
           something goes wrong is a sentence that moves under her. Same rule and
@@ -2985,7 +3007,8 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
             left of "Goes to Maya's inbox." and left of Send. A reply to an agent
             is an instruction rather than a formatted message, so that box keeps
             exactly the footer it had. */}
-        {talkTo?.length ? <FormatBar box={ref} onChange={changeText} onAttach={pickFiles} onVoice={addVoice} onNotice={onNotice} /> : null}
+        {talkTo?.length ? <FormatBar box={ref} onChange={changeText} onAttach={pickFiles} onVoice={addVoice} onNotice={onNotice}
+          voiceKey={`direct:${item.product}:${item.id}`} voice={voiceCtl} onRecording={setRecording} /> : null}
         {/* A PHONE HAS NO PASTE OF A FILE AND NO DROP, so a reply to an agent,
             which takes files only those two ways on the desktop, took none
             ("I can't upload files in mobile", 2026-10-12). It gets the same

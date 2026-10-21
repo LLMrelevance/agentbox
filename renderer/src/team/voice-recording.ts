@@ -1,14 +1,24 @@
 // ONE VOICE NOTE BEING RECORDED, without React and without the browser's own
-// objects, so its promises can be tested: the microphone is let go on every
-// way out (done, the cross, the limit, a failure, the box going away), and a
-// note reaches whoever asked for it and nobody else. ./useVoiceRecorder.ts
-// hands it the real microphone.
-import { VOICE_MAX_MS, voiceNoteName } from './voice-note';
+// objects, so every way it can go wrong can be tested. Two promises it keeps:
+//
+//   THE MICROPHONE IS LET GO on every way out: done, the cross, the limit, the
+//   microphone dropping, a failure, the box going away.
+//
+//   NOTHING SAID IS LOST. Each piece is written to this Mac as it is recorded
+//   (./voice-drafts.ts), so the box closing, the app quitting or crashing, or
+//   the microphone dropping mid-sentence all keep what was said, and the note
+//   comes back to its conversation's box. Only the cross throws one away.
+//
+// ./useVoiceRecorder.ts hands it the real microphone and the real store.
+import { VOICE_MAX_MS, voiceClock, voiceNoteName } from './voice-note';
+import type { VoiceDraftStore } from './voice-drafts';
 
-export type Recorded = { name: string; ms: number; dataBase64: string; blob: Blob };
+export type Recorded = { name: string; ms: number; dataBase64: string; blob: Blob; draftId: string };
 export type VoicePhase = 'idle' | 'asking' | 'recording';
+/** How a note reached the box: just recorded, kept from before, or recovered after the app closed mid-note. */
+export type Arrival = 'recorded' | 'kept' | 'recovered';
 
-type Track = { stop: () => void };
+type Track = { stop: () => void; addEventListener?: (type: 'ended', fn: () => void) => void };
 export type StreamLike = { getTracks: () => Track[] };
 export type RecorderLike = {
   state: string;
@@ -17,6 +27,7 @@ export type RecorderLike = {
   stop: () => void;
   ondataavailable: ((e: { data: Blob }) => void) | null;
   onstop: (() => void) | null;
+  onerror?: ((e: unknown) => void) | null;
 };
 
 export type RecordingEnv = {
@@ -29,118 +40,236 @@ export type RecordingEnv = {
   every: (fn: () => void, ms: number) => number;
   clear: (id: number) => void;
   pack: (blob: Blob) => Promise<string>;
+  store: VoiceDraftStore;
+  /** Shared by every box in the window: one note records at a time. */
+  busy: { id: string | null };
+  newId: () => string;
 };
 
 export const TICK_MS = 90;
+/** How often the recorder hands over a piece, and so how much a crash can cost. */
+export const SLICE_MS = 1000;
 const METER = 36;
 // Shorter than this is a slip of the finger, not a note.
-const SHORTEST_MS = 400;
+export const SHORTEST_MS = 400;
+const WRITE_WAIT_MS = 3000;
 const extOf = (type: string) => (/mp4/.test(type) ? 'm4a' : /ogg/.test(type) ? 'ogg' : 'webm');
 
-export function voiceRecording(env: RecordingEnv, on: {
+// What a microphone that will not open says, by the name the browser gives it.
+export function micRefusal(err: unknown): string {
+  const name = (err as { name?: string })?.name ?? '';
+  if (name === 'NotAllowedError' || name === 'SecurityError') return 'Allow the microphone in System Settings, then press the mic again.';
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No microphone was found. Connect one, then press the mic again.';
+  if (name === 'NotReadableError' || name === 'AbortError') return 'Another app is using the microphone. Close it there, then press the mic again.';
+  return 'The microphone could not be opened. Check System Settings, then press the mic again.';
+}
+
+type Why = 'done' | 'limit' | 'lost' | 'cancel' | 'gone';
+
+export function voiceRecording(env: RecordingEnv, key: string, on: {
   phase: (p: VoicePhase) => void;
   tick: (elapsed: number, levels: number[]) => void;
-  done: (note: Recorded) => void;
-  error: (text: string) => void;
+  done: (note: Recorded, how: Arrival) => void;
+  say: (text: string) => void;
 }) {
-  type Live = { recorder: RecorderLike; stream: StreamLike; meter: { close: () => void } | null; timer: number; keep: boolean };
+  type Live = {
+    id: string; recorder: RecorderLike; stream: StreamLike; meter: { close: () => void } | null; timer: number;
+    why: Why | null; writes: Promise<void>; startedAt: number; finished: Promise<Recorded | null>; deliver: boolean;
+    end: (why: Why) => void;
+  };
   let live: Live | null = null;
   let asking = 0;
   let gone = false;
+  let phase: VoicePhase = 'idle';
+  const setPhase = (p: VoicePhase) => { phase = p; on.phase(p); };
 
   const release = (l: { stream: StreamLike; meter: { close: () => void } | null; timer: number }) => {
     env.clear(l.timer);
-    l.stream.getTracks().forEach((t) => t.stop());
+    l.stream.getTracks().forEach((t) => { try { t.stop(); } catch { /* already stopped */ } });
     try { l.meter?.close(); } catch { /* already closed */ }
   };
 
   async function start() {
-    if (live || gone) return;
+    if (live || gone || phase !== 'idle') return;
+    if (env.busy.id) { on.say('Another voice note is recording. Finish that one first.'); return; }
     const ask = (asking += 1);
     const still = () => !gone && ask === asking;
-    on.phase('asking');
+    setPhase('asking');
     const access = await env.ask().catch(() => 'settings' as const);
     if (!still()) return;
-    if (access !== 'granted') {
-      on.phase('idle');
-      on.error('Allow the microphone in System Settings, then press the mic again.');
-      return;
-    }
+    if (access !== 'granted') { setPhase('idle'); on.say(micRefusal({ name: 'NotAllowedError' })); return; }
     let stream: StreamLike;
-    try { stream = await env.open(); } catch {
-      if (still()) { on.phase('idle'); on.error('The microphone could not be opened. Check System Settings, then try again.'); }
+    try { stream = await env.open(); } catch (err) {
+      if (still()) { setPhase('idle'); on.say(micRefusal(err)); }
       return;
     }
-    if (!still()) { stream.getTracks().forEach((t) => t.stop()); return; }
-    const mine: Live = { recorder: null as unknown as RecorderLike, stream, meter: null, timer: 0, keep: false };
+    if (!still() || env.busy.id) {
+      stream.getTracks().forEach((t) => t.stop());
+      if (still()) { setPhase('idle'); on.say('Another voice note is recording. Finish that one first.'); }
+      return;
+    }
+    const id = env.newId();
+    let resolveFinished: (n: Recorded | null) => void = () => {};
+    const mine: Live = {
+      id, recorder: null as unknown as RecorderLike, stream, meter: null, timer: 0, why: null,
+      writes: Promise.resolve(), startedAt: env.now(), deliver: true, end: () => {},
+      finished: new Promise((r) => { resolveFinished = r; }),
+    };
+    // Writes go one after another, and one that fails costs only itself.
+    const keep = (fn: () => Promise<void>) => { mine.writes = mine.writes.then(fn).catch(() => {}); };
     try {
       const recorder = env.makeRecorder(stream);
       mine.recorder = recorder;
       const meter = env.makeMeter(stream);
       mine.meter = meter;
-      const chunks: Blob[] = [];
-      const startedAt = env.now();
+      const mime = recorder.mimeType || 'audio/webm';
+      keep(() => env.store.begin({ id, key, startedAt: mine.startedAt, mime, done: false }));
+      // Held here as well as written down: the note is read from memory, and
+      // the written copy is what survives this window closing.
+      const pieces: Blob[] = [];
       let levels: number[] = [];
-      recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-      // Each recording answers for itself, so one started while the last is
-      // still being packed cannot take its note.
+      recorder.ondataavailable = (e) => {
+        if (!e.data.size) return;
+        pieces.push(e.data);
+        const index = pieces.length;
+        const at = env.now();
+        keep(() => env.store.chunk(id, index, e.data, at));
+      };
+      const end = (why: Why) => {
+        if (mine.why) return;
+        mine.why = why;
+        if (recorder.state !== 'inactive') { try { recorder.stop(); } catch { void recorder.onstop?.(); } }
+      };
+      mine.end = end;
+      // THE MICROPHONE GOING AWAY MID-NOTE (unplugged, taken by the system,
+      // the Mac sleeping) ends the note where it is rather than losing it.
+      for (const t of stream.getTracks()) t.addEventListener?.('ended', () => end('lost'));
+      recorder.onerror = () => end('lost');
+      // Written down before the window lets go of it, so a box that opens
+      // again at once finds it finished rather than half recorded. A store
+      // that will not answer holds nothing up for long.
+      const settled = () => Promise.race([mine.writes, new Promise<void>((r) => { setTimeout(r, WRITE_WAIT_MS); })])
+        .finally(() => { if (env.busy.id === id) env.busy.id = null; });
       recorder.onstop = async () => {
         if (live === mine) live = null;
         release(mine);
-        on.phase('idle');
-        on.tick(0, []);
-        const ms = Math.min(VOICE_MAX_MS, env.now() - startedAt);
-        if (!mine.keep || !chunks.length || ms < SHORTEST_MS) return;
-        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
-        const note = { name: voiceNoteName(ms, extOf(blob.type)), ms, blob, dataBase64: await env.pack(blob) };
-        if (!gone) on.done(note);
+        if (!gone) { setPhase('idle'); on.tick(0, []); }
+        const why = mine.why ?? 'lost';
+        const ms = Math.min(VOICE_MAX_MS, env.now() - mine.startedAt);
+        if (why === 'cancel') { keep(() => env.store.remove(id)); await settled(); resolveFinished(null); return; }
+        if (ms < SHORTEST_MS || !pieces.length) {
+          keep(() => env.store.remove(id));
+          await settled();
+          if (!gone && why !== 'gone') on.say('That was too short to keep. Press the mic, talk, then press the tick.');
+          resolveFinished(null);
+          return;
+        }
+        const name = voiceNoteName(ms, extOf(mime));
+        keep(() => env.store.finish(id, { ms, name }));
+        await settled();
+        // The box went away: the note waits in the store for the next one.
+        if (why === 'gone') { resolveFinished(null); return; }
+        const blob = new Blob(pieces, { type: mime });
+        let note: Recorded | null = null;
+        try { note = { name, ms, blob, dataBase64: await env.pack(blob), draftId: id }; } catch { note = null; }
+        if (!note) {
+          if (!gone) on.say('The voice note was kept but could not be read back. Open this conversation again to find it.');
+          resolveFinished(null);
+          return;
+        }
+        resolveFinished(note);
+        if (gone || !mine.deliver) return;
+        on.done(note, 'recorded');
+        if (why === 'limit') on.say(`Voice notes stop at ${voiceClock(VOICE_MAX_MS)}. This one is in the box.`);
+        if (why === 'lost') on.say(`The microphone stopped, so the note ends at ${voiceClock(ms)}. It is in the box.`);
       };
       mine.timer = env.every(() => {
-        const ms = env.now() - startedAt;
+        const ms = env.now() - mine.startedAt;
         levels = [...levels, Math.min(1, meter.level())].slice(-METER);
         on.tick(ms, levels);
-        // At the limit the note is kept, as if Done had been pressed.
-        if (ms >= VOICE_MAX_MS && recorder.state === 'recording') { mine.keep = true; recorder.stop(); }
+        if (ms >= VOICE_MAX_MS) end('limit');
       }, TICK_MS);
+      env.busy.id = id;
       live = mine;
-      recorder.start(250);
-      on.phase('recording');
+      recorder.start(SLICE_MS);
+      setPhase('recording');
     } catch {
       live = null;
+      if (env.busy.id === id) env.busy.id = null;
       release(mine);
-      on.phase('idle');
-      on.error('A voice note could not be recorded on this computer.');
+      keep(() => env.store.remove(id));
+      setPhase('idle');
+      on.say('A voice note could not be recorded on this computer.');
     }
   }
 
-  /** Finish; the note arrives through `done` once it is packed. */
-  function stop() {
-    if (!live) return;
-    live.keep = true;
-    if (live.recorder.state !== 'inactive') live.recorder.stop();
+  const endLive = (why: Why) => live?.end(why);
+
+  /** Finish; the note arrives through `done`. */
+  function stop() { endLive('done'); }
+
+  /**
+   * Finish and hand the note to the caller instead of the box: Send pressed
+   * while recording sends it at once. Null when nothing was kept.
+   */
+  function finish(): Promise<Recorded | null> {
+    const l = live;
+    if (!l) return Promise.resolve(null);
+    l.deliver = false;
+    endLive('done');
+    return l.finished;
   }
 
   /** Throw it away, or stop waiting for the microphone. */
   function cancel() {
     asking += 1;
-    const l = live;
-    if (!l) { on.phase('idle'); return; }
-    l.keep = false;
-    if (l.recorder.state !== 'inactive') l.recorder.stop();
-    else { live = null; release(l); on.phase('idle'); }
+    if (live) { endLive('cancel'); return; }
+    if (phase === 'asking') setPhase('idle');
   }
 
-  /** The box went away: whatever was being recorded goes with it. */
+  /** The box went away. A note being recorded is kept for when it comes back. */
   function dispose() {
     gone = true;
     asking += 1;
     const l = live;
     if (!l) return;
-    l.keep = false;
-    try { if (l.recorder.state !== 'inactive') l.recorder.stop(); } catch { /* already stopped */ }
-    live = null;
+    endLive('gone');
+    // The microphone goes off now, not when the recorder gets round to it.
     release(l);
   }
 
-  return { start, stop, cancel, dispose };
+  /**
+   * Into the box: notes recorded here and not sent, and any the app was still
+   * recording when it closed. Not one still being recorded in this window.
+   */
+  async function restore() {
+    const drafts = await env.store.list(key).catch(() => []);
+    let recovered = 0;
+    for (const d of drafts.sort((a, b) => a.startedAt - b.startedAt)) {
+      if (gone) return;
+      if (env.busy.id === d.id) continue;
+      const kept = await env.store.read(d.id).catch(() => null);
+      if (!kept || !kept.blob.size) { await env.store.remove(d.id).catch(() => {}); continue; }
+      let ms = d.ms ?? 0;
+      let name = d.name ?? '';
+      if (!d.done || !name) {
+        ms = Math.max(1, Math.min(VOICE_MAX_MS, kept.lastAt - d.startedAt));
+        name = voiceNoteName(ms, extOf(d.mime));
+        await env.store.finish(d.id, { ms, name }).catch(() => {});
+      }
+      let dataBase64: string;
+      try { dataBase64 = await env.pack(kept.blob); } catch { continue; }
+      if (gone) return;
+      on.done({ name, ms, blob: kept.blob, dataBase64, draftId: d.id }, d.done ? 'kept' : 'recovered');
+      if (!d.done) recovered += 1;
+    }
+    if (recovered && !gone) on.say(recovered === 1
+      ? 'A voice note you were recording when the app closed was kept. It is in the box.'
+      : `${recovered} voice notes you were recording when the app closed were kept. They are in the box.`);
+  }
+
+  /** A note that has gone out, or was taken out of the box, leaves the store. */
+  const forget = (draftId: string) => env.store.remove(draftId).catch(() => {});
+
+  return { start, stop, finish, cancel, dispose, restore, forget, recording: () => !!live };
 }

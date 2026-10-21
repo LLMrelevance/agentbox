@@ -27,16 +27,16 @@
 
 .voice-time { flex: none; min-width: 30px; font: 11px var(--mono); letter-spacing: .03em; color: var(--text-dim); text-align: right; }
 
-/* The speed waits until you point at the note, the way the time in a run of
-   messages waits in the face column. */
+/* The speed is always there, so it is found without looking for it; a speed
+   other than 1× reads brighter. */
 .voice-speed {
-  flex: none; height: 20px; min-width: 32px; padding: 0 5px;
+  flex: none; height: 20px; min-width: 34px; padding: 0 5px;
   appearance: none; border: 1px solid var(--line); border-radius: 0; cursor: pointer;
-  background: none; color: var(--text-faint); font: 10.5px var(--mono);
-  visibility: hidden;
+  background: none; color: var(--text-dim); font: 10.5px var(--mono);
 }
-.voice-note:hover .voice-speed, .voice-speed:focus-visible, .voice-speed.set { visibility: visible; }
+.voice-speed.set { color: var(--text); border-color: var(--line-strong); }
 .voice-speed:hover { color: var(--text); border-color: var(--line-strong); }
+.voice-speed:focus-visible { outline: 1px solid var(--text-faint); outline-offset: 1px; }
 
 .voice-note.missing .voice-bars span { opacity: .3; }
 

@@ -6,6 +6,11 @@ import { VOICE_BARS, peaksOf, voiceClock } from './voice-note';
 import './voice-note.css';
 
 const SPEEDS = [1, 1.5, 2];
+// The speed you last picked is the speed every note starts at, on this Mac.
+const SPEED_KEY = 'voice.speed';
+const speedWas = () => {
+  try { const s = Number(localStorage.getItem(SPEED_KEY)); return SPEEDS.includes(s) ? s : 1; } catch { return 1; }
+};
 
 // Each note is fetched and measured once per window, however often the
 // message it is in is drawn again.
@@ -47,6 +52,10 @@ function hold(key: string, load: () => Promise<Blob | null>): Promise<Held | nul
 // One note plays at a time, as in every chat app.
 let playing: HTMLAudioElement | null = null;
 
+const RETRY_MS = [2000, 4000, 8000, 15000, 30000, 60000];
+/** How long to wait before asking again for a note that was not there, after `tries` asks. */
+export const retryAfter = (tries: number) => RETRY_MS[Math.min(Math.max(0, tries), RETRY_MS.length - 1)];
+
 const QUIET = Array.from({ length: VOICE_BARS }, (_, i) => 0.18 + 0.12 * Math.abs(Math.sin(i * 1.7)));
 
 export function VoiceNote({ id, ms: named, load, mine = false }: {
@@ -58,16 +67,25 @@ export function VoiceNote({ id, ms: named, load, mine = false }: {
   mine?: boolean;
 }) {
   const [got, setGot] = useState<Held | null | undefined>(undefined);
+  const [tries, setTries] = useState(0);
   const [on, setOn] = useState(false);
   const [at, setAt] = useState(0);
-  const [speed, setSpeed] = useState(1);
+  const [speed, setSpeed] = useState(speedWas);
   const audio = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     let live = true;
-    void hold(id, load).then((g) => { if (live) setGot(g); });
+    void hold(id, load).then((g) => { if (live && (g || !got)) setGot(g); });
     return () => { live = false; };
-  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [id, tries]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A NOTE NOT HERE YET is a teammate's that has not finished arriving, or a
+  // connection that dropped: it is asked for again, soon and then less often,
+  // for as long as it is on screen, and pressing play asks at once.
+  useEffect(() => {
+    if (got !== null) return undefined;
+    const t = setTimeout(() => setTries((n) => n + 1), retryAfter(tries));
+    return () => clearTimeout(t);
+  }, [got, tries]);
 
   // The player is made as soon as the note has loaded, so it has found its own
   // length before anyone presses play.
@@ -116,6 +134,7 @@ export function VoiceNote({ id, ms: named, load, mine = false }: {
   const nextSpeed = () => {
     const next = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length];
     setSpeed(next);
+    try { localStorage.setItem(SPEED_KEY, String(next)); } catch { /* not kept */ }
     if (audio.current) audio.current.playbackRate = next;
   };
 
@@ -135,9 +154,9 @@ export function VoiceNote({ id, ms: named, load, mine = false }: {
 
   return (
     <div className={`voice-note${on ? ' on' : ''}${mine ? ' mine' : ''}${missing ? ' missing' : ''}`} data-voice-note={id}>
-      <button type="button" className="voice-play" onClick={toggle} disabled={!got}
-        aria-label={missing ? 'This voice note could not be loaded' : on ? 'Pause voice note' : 'Play voice note'}
-        title={missing ? 'This voice note could not be loaded' : undefined}>
+      <button type="button" className="voice-play" onClick={missing ? () => setTries((n) => n + 1) : toggle} disabled={got === undefined}
+        aria-label={missing ? 'This voice note has not arrived yet. Press to try again' : on ? 'Pause voice note' : 'Play voice note'}
+        title={missing ? 'Not here yet. It is asked for again by itself, or press to try now.' : undefined}>
         {on
           ? <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3h2.4v10H4.5zM9.1 3h2.4v10H9.1z" fill="currentColor" /></svg>
           : <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 2.8v10.4L13.2 8z" fill="currentColor" /></svg>}
@@ -149,7 +168,7 @@ export function VoiceNote({ id, ms: named, load, mine = false }: {
           <span key={i} className={(i + 0.5) / bars.length <= done ? 'played' : ''} style={{ height: `${Math.round(Math.max(0.1, h) * 100)}%` }} />
         ))}
       </div>
-      <span className="voice-time">{shown}</span>
+      <span className="voice-time">{missing ? 'Arriving' : shown}</span>
       <button type="button" className={`voice-speed${speed !== 1 ? ' set' : ''}`} onClick={nextSpeed} aria-label={`Playback speed ${speed}×`} title="Playback speed">
         {speed}×
       </button>

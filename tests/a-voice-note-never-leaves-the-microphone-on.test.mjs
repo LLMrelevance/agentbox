@@ -1,164 +1,161 @@
 // A VOICE NOTE NEVER LEAVES THE MICROPHONE ON, AND REACHES ONLY WHOEVER ASKED.
 //
 // Recording a voice note opens the microphone. Codex's review of the first
-// build found three ways out that left it open or lost the note: a recorder
-// that failed to start after the microphone opened kept its tracks live; a
-// second note started while the first was still being packed took the
-// first's answer; and a note that reached the five minute limit was stopped
-// and handed to nobody. Measured here with a stand-in microphone that counts
-// its live tracks: every way out (done, the cross while recording, the cross
-// while the Mac is still asking, a failure to start, the box going away, the
-// limit) ends with no track live, the limit keeps the note, a slip shorter
-// than 0.4 s is not a note, and two notes in a row each arrive once.
+// build found ways out that left it open or lost the note: a recorder that
+// failed to start after the microphone opened kept its tracks live; a second
+// note started while the first was being packed took the first's answer; a
+// note that reached the five minute limit was handed to nobody. Measured here
+// with a stand-in microphone that counts its live tracks: every way out ends
+// with no track live, a refused or busy microphone says why, two boxes never
+// record at once, a slip shorter than 0.4 s is not a note, and two notes in a
+// row each arrive once, as themselves.
 import { describe, it, expect } from 'vitest';
-import { voiceRecording, TICK_MS } from '../renderer/src/team/voice-recording.ts';
+import { fakeMicrophone } from './helpers/fake-microphone.mjs';
+import { TICK_MS, micRefusal } from '../renderer/src/team/voice-recording.ts';
 import { VOICE_MAX_MS } from '../renderer/src/team/voice-note.ts';
-
-function world({ access = 'granted', recorderFails = false, holdAsk = false } = {}) {
-  let clock = 0;
-  const timers = new Map();
-  let nextTimer = 1;
-  const live = new Set();
-  let releaseAsk = null;
-  const recorders = [];
-  const env = {
-    ask: () => (holdAsk ? new Promise((r) => { releaseAsk = () => r(access); }) : Promise.resolve(access)),
-    open: async () => {
-      const track = { stop: () => live.delete(track) };
-      live.add(track);
-      return { getTracks: () => [track] };
-    },
-    makeRecorder: () => {
-      if (recorderFails) throw new Error('no recorder here');
-      const rec = {
-        state: 'inactive', mimeType: 'audio/webm', ondataavailable: null, onstop: null,
-        start() { this.state = 'recording'; },
-        stop() { if (this.state === 'inactive') return; this.state = 'inactive'; this.ondataavailable?.({ data: new Blob(['x']) }); queueMicrotask(() => this.onstop?.()); },
-      };
-      recorders.push(rec);
-      return rec;
-    },
-    makeMeter: () => ({ level: () => 0.5, close: () => {} }),
-    now: () => clock,
-    every: (fn) => { const id = nextTimer++; timers.set(id, fn); return id; },
-    clear: (id) => { timers.delete(id); },
-    pack: async () => 'QUJD',
-  };
-  const notes = [];
-  const errors = [];
-  const phases = [];
-  const on = { phase: (p) => phases.push(p), tick: () => {}, done: (n) => notes.push(n), error: (t) => errors.push(t) };
-  const r = voiceRecording(env, on);
-  const pass = (ms) => { clock += ms; for (const fn of [...timers.values()]) fn(); };
-  const settle = () => new Promise((res) => setTimeout(res, 0));
-  return { r, env, on, live, notes, errors, phases, pass, settle, timers, recorders, ask: () => releaseAsk?.() };
-}
 
 describe('every way out lets the microphone go', () => {
   it('done keeps the note, at its length, and closes the microphone', async () => {
-    const w = world();
-    await w.r.start();
-    expect(w.live.size).toBe(1);
-    w.pass(2500);
-    w.r.stop();
-    await w.settle();
-    expect(w.live.size).toBe(0);
-    expect(w.timers.size).toBe(0);
-    expect(w.notes).toHaveLength(1);
-    expect(w.notes[0].name).toBe('voice-note-2500ms.webm');
+    const m = fakeMicrophone();
+    const b = m.box();
+    await b.r.start();
+    expect(m.live.size).toBe(1);
+    m.pass(2500);
+    b.r.stop();
+    await m.settle();
+    expect(m.live.size).toBe(0);
+    expect(m.timers.size).toBe(0);
+    expect(b.notes).toHaveLength(1);
+    expect(b.notes[0]).toMatchObject({ name: 'voice-note-2500ms.webm', how: 'recorded' });
   });
 
   it('the cross throws it away and closes the microphone', async () => {
-    const w = world();
-    await w.r.start();
-    w.pass(2500);
-    w.r.cancel();
-    await w.settle();
-    expect(w.live.size).toBe(0);
-    expect(w.notes).toHaveLength(0);
+    const m = fakeMicrophone();
+    const b = m.box();
+    await b.r.start();
+    m.pass(2500);
+    b.r.cancel();
+    await m.settle();
+    expect(m.live.size).toBe(0);
+    expect(b.notes).toHaveLength(0);
   });
 
   it('the cross while the Mac is still asking never opens the microphone', async () => {
-    const w = world({ holdAsk: true });
-    const started = w.r.start();
-    w.r.cancel();
-    w.ask();
+    const m = fakeMicrophone({ holdAsk: true });
+    const b = m.box();
+    const started = b.r.start();
+    b.r.cancel();
+    m.ask();
     await started;
-    expect(w.live.size).toBe(0);
-    expect(w.recorders).toHaveLength(0);
+    expect(m.live.size).toBe(0);
+    expect(m.recorders).toHaveLength(0);
   });
 
   it('a recorder that cannot start closes the microphone it was given and says so', async () => {
-    const w = world({ recorderFails: true });
-    await w.r.start();
-    expect(w.live.size).toBe(0);
-    expect(w.errors).toEqual(['A voice note could not be recorded on this computer.']);
-    expect(w.phases.at(-1)).toBe('idle');
-  });
-
-  it('the box going away mid-note closes the microphone at once and sends nothing', async () => {
-    const w = world();
-    await w.r.start();
-    w.pass(3000);
-    w.r.dispose();
-    expect(w.live.size).toBe(0);
-    await w.settle();
-    expect(w.notes).toHaveLength(0);
+    const m = fakeMicrophone({ recorderFails: true });
+    const b = m.box();
+    await b.r.start();
+    expect(m.live.size).toBe(0);
+    expect(b.said).toEqual(['A voice note could not be recorded on this computer.']);
+    expect(b.phases.at(-1)).toBe('idle');
+    expect(m.env.busy.id).toBeNull();
   });
 
   it('a refused microphone opens nothing and says where to allow it', async () => {
-    const w = world({ access: 'settings' });
-    await w.r.start();
-    expect(w.live.size).toBe(0);
-    expect(w.errors[0]).toMatch(/System Settings/);
+    const m = fakeMicrophone({ access: 'settings' });
+    const b = m.box();
+    await b.r.start();
+    expect(m.live.size).toBe(0);
+    expect(b.said[0]).toMatch(/System Settings/);
+  });
+});
+
+describe('a microphone that will not open says why', () => {
+  it('names the reason the browser gives', () => {
+    expect(micRefusal({ name: 'NotAllowedError' })).toMatch(/Allow the microphone/);
+    expect(micRefusal({ name: 'NotFoundError' })).toMatch(/No microphone was found/);
+    expect(micRefusal({ name: 'NotReadableError' })).toMatch(/Another app is using the microphone/);
+    expect(micRefusal(new Error('odd'))).toMatch(/could not be opened/);
+  });
+
+  it('says it in the box when opening fails', async () => {
+    const m = fakeMicrophone({ openFails: 'NotReadableError' });
+    const b = m.box();
+    await b.r.start();
+    expect(b.said).toEqual([micRefusal({ name: 'NotReadableError' })]);
+    expect(b.phases.at(-1)).toBe('idle');
+  });
+});
+
+describe('one note at a time', () => {
+  it('a second box cannot start while another records, and can once it is done', async () => {
+    const m = fakeMicrophone();
+    const a = m.box('direct:p:w-1');
+    const b = m.box('room:r:');
+    await a.r.start();
+    await b.r.start();
+    expect(b.said).toEqual(['Another voice note is recording. Finish that one first.']);
+    expect(m.live.size).toBe(1);
+    m.pass(1000);
+    a.r.stop();
+    await m.settle();
+    await b.r.start();
+    expect(m.live.size).toBe(1);
+    expect(b.phases.at(-1)).toBe('recording');
   });
 });
 
 describe('what counts as a note', () => {
-  it('stops itself at the limit and keeps the note', async () => {
-    const w = world();
-    await w.r.start();
-    w.pass(VOICE_MAX_MS - TICK_MS);
-    expect(w.notes).toHaveLength(0);
-    w.pass(TICK_MS);
-    await w.settle();
-    expect(w.live.size).toBe(0);
-    expect(w.notes).toHaveLength(1);
-    expect(w.notes[0].ms).toBe(VOICE_MAX_MS);
+  it('stops itself at the limit, keeps the note, and says so', async () => {
+    const m = fakeMicrophone();
+    const b = m.box();
+    await b.r.start();
+    m.pass(VOICE_MAX_MS - TICK_MS);
+    expect(b.notes).toHaveLength(0);
+    m.pass(TICK_MS);
+    await m.settle();
+    expect(m.live.size).toBe(0);
+    expect(b.notes).toHaveLength(1);
+    expect(b.notes[0].ms).toBe(VOICE_MAX_MS);
+    expect(b.said).toEqual(['Voice notes stop at 5:00. This one is in the box.']);
   });
 
-  it('a slip shorter than 0.4 s is not a note, and 0.4 s is', async () => {
-    const short = world();
-    await short.r.start();
+  it('a slip shorter than 0.4 s is not a note and says so; 0.4 s is', async () => {
+    const short = fakeMicrophone();
+    const s = short.box();
+    await s.r.start();
     short.pass(399);
-    short.r.stop();
+    s.r.stop();
     await short.settle();
-    expect(short.notes).toHaveLength(0);
-    const just = world();
-    await just.r.start();
+    expect(s.notes).toHaveLength(0);
+    expect(s.said[0]).toMatch(/too short to keep/);
+    const just = fakeMicrophone();
+    const j = just.box();
+    await j.r.start();
     just.pass(400);
-    just.r.stop();
+    j.r.stop();
     await just.settle();
-    expect(just.notes).toHaveLength(1);
+    expect(j.notes).toHaveLength(1);
   });
 
   it('a second note recorded while the first is still being packed: each arrives once, as itself', async () => {
+    const m = fakeMicrophone();
     const packs = [];
-    const w = world();
-    w.r = voiceRecording({ ...w.env, pack: () => new Promise((res) => packs.push(res)) }, w.on);
-    await w.r.start();
-    w.pass(1000);
-    w.r.stop();
-    await w.settle();
+    const world = { ...m.env, pack: (blob) => new Promise((res) => packs.push(() => res(String(blob.size)))) };
+    const b = m.box('direct:p:w-1', world);
+    await b.r.start();
+    m.pass(1000);
+    b.r.stop();
+    await m.settle();
     expect(packs).toHaveLength(1);
-    await w.r.start();
-    w.pass(2000);
-    w.r.stop();
-    await w.settle();
-    packs[1]('second');
-    packs[0]('first');
-    await w.settle();
-    expect(w.notes.map((n) => [n.ms, n.dataBase64])).toEqual([[2000, 'second'], [1000, 'first']]);
-    expect(w.live.size).toBe(0);
+    await b.r.start();
+    m.pass(2000);
+    b.r.stop();
+    await m.settle();
+    packs[1]();
+    packs[0]();
+    await m.settle();
+    expect(b.notes.map((n) => n.ms)).toEqual([2000, 1000]);
+    expect(m.live.size).toBe(0);
   });
 });

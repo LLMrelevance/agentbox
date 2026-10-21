@@ -7,6 +7,7 @@ import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
 import { RoomsNav, useOutside, type RoomMenuAction } from './RoomsNav';
 import { RoomTabs } from './RoomTabs';
 import { cardName, roomTabs, tabWalk, withMe } from './room-rules';
+import { landed } from './room-chat-rules';
 import { RoomPage, type RoomPane } from './RoomPage';
 import { RoomChat, peopleOf } from './RoomChat';
 import { RoomFace } from './RoomFace';
@@ -114,9 +115,20 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     return res.ok ? res.value ?? [] : null;
   }, [call, inviteId]);
 
+  // The same from a room's menu in the sidebar and from its row on the messages page.
+  // Unread starts at the newest message someone else wrote, or the newest at all.
+  const readOrUnread = async (r: Room, action: 'read' | 'unread') => {
+    if (action === 'read') { await call('markRead', r.id); return; }
+    const held = rooms?.messages[r.id] ?? [];
+    const last = [...held].reverse().find((m) => !m.inReplyTo && !m.deleted && m.by !== meId) ?? [...held].reverse().find((m) => !m.inReplyTo && !m.deleted);
+    const res = await call('markUnread', r.id, last?.at ?? Date.now());
+    toast(res.ok ? 'Marked unread' : res.error ?? 'Not marked unread');
+  };
+
   const menu = async (id: string, action: RoomMenuAction, at: DOMRect) => {
     const r = all.find((x) => x.id === id);
     if (!r) return;
+    if (action === 'read' || action === 'unread') { await readOrUnread(r, action); return; }
     if (action === 'invite') setDialog({ kind: 'invite', roomId: id });
     if (action === 'members') setMembers({ roomId: id, at });
     if (action === 'ranks') { openRoom(id); setPane('ranks'); }
@@ -159,8 +171,19 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     else openRoom(id, { asFull: true });
   };
 
+  // A SEND TRIED AGAIN AFTER A DROPPED CONNECTION may already have landed: the
+  // room had it and only the answer was lost. Then it is not sent twice.
+  const tried = useRef(new Map<string, number>());
   const send = (roomId: string) => async (body: string, opts: { inReplyTo: string | null; mentions: string[] }) => {
+    const key = `${roomId}\u0000${opts.inReplyTo ?? ''}\u0000${body}`;
+    const first = tried.current.get(key);
+    if (first != null && landed(rooms?.messages[roomId] ?? [], { by: meId, body, inReplyTo: opts.inReplyTo, since: first })) {
+      tried.current.delete(key);
+      return null;
+    }
+    if (first == null) tried.current.set(key, Date.now());
     const res = await call('send', roomId, body, opts);
+    if (res.ok) tried.current.delete(key);
     return res.ok ? null : res.error ?? 'Not sent';
   };
   const read = (r: Room) => () => { if (r.unread > 0 || r.markedUnread) void call('markRead', r.id); };
@@ -199,14 +222,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     }
     const r = all.find((x) => x.id === c.id);
     if (!r) return;
-    if (action === 'read') { await call('markRead', r.id); return; }
-    if (action === 'unread') {
-      const held = rooms?.messages[r.id] ?? [];
-      const last = [...held].reverse().find((m) => !m.inReplyTo && !m.deleted && m.by !== meId) ?? [...held].reverse().find((m) => !m.inReplyTo && !m.deleted);
-      const res = await call('markUnread', r.id, last?.at ?? Date.now());
-      toast(res.ok ? 'Marked unread' : res.error ?? 'Not marked unread');
-      return;
-    }
+    if (action === 'read' || action === 'unread') { await readOrUnread(r, action); return; }
     if (action === 'mute' || action === 'unmute') { await menu(r.id, action, new DOMRect()); return; }
     if (action === 'leave') await menu(r.id, 'leave', new DOMRect());
   };

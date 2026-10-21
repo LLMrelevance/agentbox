@@ -12,9 +12,9 @@
 // What each button does to the text is ./compose-format.ts, which is pure and
 // pinned by a test, because where the caret ends up is the half of a formatting
 // button that has no symptom when it is wrong.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { EmojiPick } from './ChatActions';
-import { useVoiceRecorder, type Recorded } from './useVoiceRecorder';
+import { useVoiceRecorder, type Arrival, type Recorded, type VoiceControl } from './useVoiceRecorder';
 import { VOICE_MAX_MS, voiceClock } from './voice-note';
 import './voice-note.css';
 import { applyFormat, insertAt, type Format } from './compose-format';
@@ -95,23 +95,49 @@ export function MicGlyph() {
 const MARKS_KEY = 'chat.formatting';
 const marksWereOut = () => { try { return localStorage.getItem(MARKS_KEY) === '1'; } catch { return false; } };
 
-export function FormatBar({ box, onChange, onAttach, onVoice, onNotice }: {
+// A note longer than this asks once before the cross throws it away.
+const ASK_BEFORE_DISCARD_MS = 5000;
+
+export function FormatBar({ box, onChange, onAttach, onVoice, onNotice, voiceKey = '', voice: control, onRecording }: {
   /** The reply box itself: the bar works on the selection that is in it. */
   box: { current: HTMLTextAreaElement | null };
   onChange: (text: string) => void;
   /** Open the file picker. Absent where there is nothing to attach to. */
   onAttach?: () => void;
-  /** A voice note finished recording. Absent where one cannot be sent. */
-  onVoice?: (note: Recorded) => void;
-  /** Say something went wrong, such as the microphone being refused. */
+  /** A voice note for the box. Absent where one cannot be sent. */
+  onVoice?: (note: Recorded, how: Arrival) => void;
+  /** Say something, such as the microphone being refused. */
   onNotice?: (text: string) => void;
+  /** Which conversation and box a note belongs to, so one kept comes back to it. */
+  voiceKey?: string;
+  /** Filled in for the box, so Send can finish a note being recorded. */
+  voice?: MutableRefObject<VoiceControl | null>;
+  /** Whether a note is being recorded, which keeps the box open. */
+  onRecording?: (on: boolean) => void;
 }) {
   const [picking, setPicking] = useState(false);
   const [marks, setMarks] = useState(marksWereOut);
+  const canVoice = !!onVoice && !!voiceKey;
   const voice = useVoiceRecorder({
-    onError: (text) => onNotice?.(text),
-    onDone: (note) => { onVoice?.(note); box.current?.focus(); },
+    key: canVoice ? voiceKey : '',
+    onSay: (text) => onNotice?.(text),
+    onDone: (note, how) => { onVoice?.(note, how); if (how === 'recorded') box.current?.focus(); },
   });
+  if (control) control.current = canVoice ? { recording: voice.recording, finish: voice.finish } : null;
+  const recordingNow = voice.phase !== 'idle';
+  useEffect(() => { onRecording?.(recordingNow); }, [recordingNow]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [askDiscard, setAskDiscard] = useState(false);
+  useEffect(() => {
+    if (!askDiscard) return undefined;
+    const t = setTimeout(() => setAskDiscard(false), 3000);
+    return () => clearTimeout(t);
+  }, [askDiscard]);
+  useEffect(() => { if (!recordingNow) setAskDiscard(false); }, [recordingNow]);
+  const discard = () => {
+    if (voice.elapsed > ASK_BEFORE_DISCARD_MS && !askDiscard) { setAskDiscard(true); return; }
+    setAskDiscard(false);
+    voice.cancel();
+  };
   const emojiWrap = useRef<HTMLSpanElement>(null);
   // THE BOX MAY BE THE EDITOR THAT SHOWS ITS FORMATTING (./RichReply.tsx), in
   // which case B makes the words bold rather than typing asterisks round them.
@@ -167,8 +193,11 @@ export function FormatBar({ box, onChange, onAttach, onVoice, onNotice }: {
   if (voice.phase !== 'idle') {
     return (
       <div className="fmt-bar fmt-recording" role="toolbar" aria-label="Recording a voice note">
-        <button type="button" className="fmt-btn" title="Discard voice note" aria-label="Discard voice note" onMouseDown={hold} onClick={voice.cancel}>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="square" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+        <button type="button" className={`fmt-btn${askDiscard ? ' fmt-discard-ask' : ''}`} title={askDiscard ? 'Press again to discard' : 'Discard voice note'}
+          aria-label={askDiscard ? 'Press again to discard the voice note' : 'Discard voice note'} onMouseDown={hold} onClick={discard}>
+          {askDiscard
+            ? <span className="fmt-discard-word">Discard?</span>
+            : <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="square" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>}
         </button>
         <span className="voice-rec-dot" aria-hidden="true" />
         <span className="voice-rec-time">{voice.phase === 'asking' ? 'Waiting for the microphone' : `${voiceClock(voice.elapsed)} / ${voiceClock(VOICE_MAX_MS)}`}</span>
@@ -214,7 +243,7 @@ export function FormatBar({ box, onChange, onAttach, onVoice, onNotice }: {
           <ClipGlyph />
         </button>
       )}
-      {onVoice && (
+      {canVoice && (
         <button type="button" className="fmt-btn" title="Record a voice note" aria-label="Record a voice note"
           onMouseDown={hold} onClick={() => void voice.start()}>
           <MicGlyph />

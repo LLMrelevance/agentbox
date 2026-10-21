@@ -18,6 +18,7 @@ import { FormatBar } from '../FormatBar';
 import { RichReply, type RichBox } from '../RichReply';
 import { VoiceNote } from '../VoiceNote';
 import { voiceNoteOf } from '../voice-note';
+import { forgetVoiceDraft, type VoiceControl } from '../useVoiceRecorder';
 import { AttachRow } from '../../components/AttachRow';
 import { collectFiles, isImageName, type PendingAttachment } from '../../attachments';
 import { pictureUrl } from '../../picture';
@@ -172,7 +173,7 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
         </div>;
       })}
     </div>
-    <Composer key={`${room.id}:${thread ?? ''}`} roomId={room.id} people={others}
+    <Composer key={`${room.id}:${thread ?? ''}`} roomId={room.id} threadId={thread} people={others}
       placeholder={root ? `Reply to ${nameOf(root.by)}` : `Message ${room.kind === 'group' ? others.map((p) => p.name.split(' ')[0]).join(', ') || room.name : room.name}`}
       onPutFile={calls.onPutFile} onNotice={onNotice}
       onEditLast={() => { const mine = myNewest(messages, meId, root?.id ?? null); if (mine) setEditing(mine.id); }}
@@ -258,8 +259,11 @@ async function base64Of(a: PendingAttachment): Promise<string | null> {
   return btoa(bin);
 }
 
-function Composer({ roomId, placeholder, people, onSend, onPutFile, onNotice, onEditLast }: {
-  roomId: string; placeholder: string; people: ChatPerson[];
+// A file in the box is given the name it will be stored under once, here.
+const staged = (a: PendingAttachment): PendingAttachment => (a.storedAs ? a : { ...a, storedAs: storedName(a.name) });
+
+function Composer({ roomId, threadId, placeholder, people, onSend, onPutFile, onNotice, onEditLast }: {
+  roomId: string; threadId: string | null; placeholder: string; people: ChatPerson[];
   onSend: (body: string) => Promise<string | null>;
   onPutFile?: (name: string, dataBase64: string) => Promise<string | null>;
   onNotice?: (text: string) => void;
@@ -287,41 +291,74 @@ function Composer({ roomId, placeholder, people, onSend, onPutFile, onNotice, on
     setPick(0);
     requestAnimationFrame(() => { box.focus(); box.setSelectionRange(before.length, before.length); });
   };
-  const ready = !!text.trim() || attachments.length > 0;
+  const voiceCtl = useRef<VoiceControl | null>(null);
+  const [recording, setRecording] = useState(false);
+  // A send that failed, so it can be tried again, and is when the connection comes back.
+  const [failed, setFailed] = useState(false);
+  const ready = !!text.trim() || attachments.length > 0 || recording;
+  // EVERYTHING STAYS IN THE BOX UNTIL THE ROOM HAS IT. Each file keeps the
+  // name it was given when it went into the box, so a second try puts the
+  // same file rather than another copy, and a file the room already has
+  // counts as sent.
   const send = async () => {
     if (!ready || busy) return;
     setBusy(true);
     setError(null);
+    let files = attachments;
     try {
+      if (voiceCtl.current?.recording()) {
+        const note = await voiceCtl.current.finish();
+        if (note) {
+          files = [...files, staged({ name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId })];
+          setAttachments(files);
+        }
+      }
+      const words = text.trim();
+      if (!words && !files.length) return;
       const links: string[] = [];
-      for (const a of attachments) {
+      for (const a of files) {
         if (!onPutFile) throw new Error('Files cannot be sent in this room yet');
         const data = await base64Of(a);
         if (!data) throw new Error(`${a.name} could not be read`);
-        const name = storedName(a.name);
+        const name = a.storedAs ?? storedName(a.name);
         const err = await onPutFile(name, data);
         if (err) throw new Error(err);
         links.push(a.image ? `![${a.name}](attachments/${name})` : `[${a.name}](attachments/${name})`);
       }
-      const body = [text.trim(), links.join('\n')].filter(Boolean).join('\n\n');
+      const body = [words, links.join('\n')].filter(Boolean).join('\n\n');
       const err = await onSend(body);
-      if (err) { setError(err); return; }
+      if (err) throw new Error(err);
+      for (const a of files) forgetVoiceDraft(a.draftId);
       setText('');
       setAttachments([]);
+      setFailed(false);
       drafts.delete(draftKey);
     } catch (e) {
-      setError(`Not sent: ${String((e as Error)?.message ?? e)}. Your message is still in the box.`);
+      setFailed(true);
+      setError(`Not sent: ${String((e as Error)?.message ?? e).replace(/\.$/, '')}. Your message is still in the box.`);
     } finally {
       setBusy(false);
     }
   };
-  const add = (got: PendingAttachment[]) => { if (got.length) setAttachments((a) => [...a, ...got]); };
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  useEffect(() => {
+    if (!failed) return undefined;
+    const back = () => { void sendRef.current(); };
+    window.addEventListener('online', back);
+    return () => window.removeEventListener('online', back);
+  }, [failed]);
+  const add = (got: PendingAttachment[]) => {
+    if (!got.length) return;
+    setAttachments((a) => [...a, ...got.filter((g) => !g.draftId || !a.some((x) => x.draftId === g.draftId)).map(staged)]);
+  };
   return <>
     {matches.length > 0 && <div className="rm-picker rm-pop rm-menu" style={{ position: 'absolute' }}>
       {matches.map((p, i) => <button type="button" key={p.id} className={`row${i === pick ? ' on' : ''}`} onMouseDown={(e) => { e.preventDefault(); choose(p); }}>
         <RoomFace name={p.name} url={p.avatarUrl} size={18} /><span>{p.name}</span></button>)}
     </div>}
-    {error && <div className="rm-chat-err" role="alert">{error}</div>}
+    {error && <div className="rm-chat-err" role="alert">{error}
+      {failed && !busy && <button type="button" className="rm-retry" onClick={() => void send()}>Try again</button>}</div>}
     <div className="rm-compose">
       <RichReply className="rm-compose-input" boxRef={ref} value={text} onChange={setText} onPlain={setPlain}
         placeholder={placeholder} label={placeholder}
@@ -338,14 +375,14 @@ function Composer({ roomId, placeholder, people, onSend, onPutFile, onNotice, on
           if (e.key === 'Escape') { ref.current?.blur(); return true; }
           return false;
         }} />
-      <AttachRow attachments={attachments} onRemove={(i) => setAttachments((x) => x.filter((_, j) => j !== i))} />
+      <AttachRow attachments={attachments} onRemove={(i) => { forgetVoiceDraft(attachments[i]?.draftId); setAttachments((x) => x.filter((_, j) => j !== i)); }} />
       <input ref={filePicker} type="file" multiple style={{ display: 'none' }}
         onChange={async (e) => { add(await collectFiles(e.target.files ?? [])); e.target.value = ''; }} />
       <div className="rm-compose-bar">
         <FormatBar box={ref as unknown as { current: HTMLTextAreaElement | null }} onChange={setText}
           onAttach={onPutFile ? () => filePicker.current?.click() : undefined}
-          onVoice={onPutFile ? (note) => add([{ name: note.name, dataBase64: note.dataBase64, image: isImageName(note.name) }]) : undefined}
-          onNotice={setError} />
+          onVoice={onPutFile ? (note) => add([{ name: note.name, dataBase64: note.dataBase64, image: isImageName(note.name), draftId: note.draftId }]) : undefined}
+          onNotice={setError} voiceKey={`room:${roomId}:${threadId ?? ''}`} voice={voiceCtl} onRecording={setRecording} />
         <button type="button" className="dock-send" disabled={!ready || busy} onClick={() => void send()} title="Send · ↵">
           {busy ? 'Sending…' : <>Send <kbd>↵</kbd></>}
         </button>

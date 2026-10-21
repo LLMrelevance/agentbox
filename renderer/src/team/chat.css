@@ -288,6 +288,8 @@
 .voice-meter { display: flex; align-items: center; gap: 2px; height: 18px; flex: none; }
 .voice-meter span { width: 2px; min-height: 2px; background: var(--text-dim); }
 .fmt-done { color: var(--text); border: 1px solid var(--line-strong); }
+.fmt-btn.fmt-discard-ask { width: auto; padding: 0 7px; color: var(--text); border: 1px solid var(--line-strong); }
+.fmt-discard-word { font-size: 12px; white-space: nowrap; }
 .fmt-done:disabled { color: var(--text-faint); cursor: default; }
 .fmt-emoji-wrap { position: relative; display: inline-flex; }
 /* The address a link button asks for, on a line of its own above the bar. */

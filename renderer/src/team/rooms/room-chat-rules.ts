@@ -44,6 +44,16 @@ export function holdsRead(held: boolean, wasMarked: boolean, isMarked: boolean):
   return held;
 }
 
+/**
+ * Whether a message tried before is already in the room: mine, the same words
+ * in the same place, written no earlier than a minute before the first try
+ * (the room's clock and this Mac's may differ by that much).
+ */
+export function landed(messages: readonly RoomMessage[], m: { by: string | null; body: string; inReplyTo: string | null; since: number }): boolean {
+  return messages.some((x) => x.by === m.by && !x.deleted && x.body === m.body
+    && (x.inReplyTo ?? null) === (m.inReplyTo ?? null) && x.at >= m.since - 60_000);
+}
+
 /** The newest message of mine in the chat itself, for ↑ in an empty box. */
 export function myNewest(messages: readonly RoomMessage[], me: string | null, inReplyTo: string | null = null): RoomMessage | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
