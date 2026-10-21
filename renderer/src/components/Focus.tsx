@@ -126,6 +126,7 @@ import { defaultModelFor, engineModelLabel } from '../models';
 import { defaultEffortFor, effortChoicesFor, effortShown } from '../effort';
 import { ENGINES } from '../../../shared/engines.mjs';
 import { lookAgainAfter } from '../picture-looks-again';
+import { focusAtEnd } from '../focus-at-end';
 
 // A relative product path is an artifact, however the worker wrote it:
 // images render inline, other files become links, and .html demos embed
@@ -2480,7 +2481,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     const { dropped } = saveDraftAttachments(item, attachments);
     setTooBig(dropped.length);
   }, [attachments, item.product, item.id]);
-  useEffect(() => { ref.current?.focus(); }, []);
+  useEffect(() => { focusAtEnd(ref.current); }, []);
   // AND IT FOLLOWS THE ROW, not just the first row this box was opened on.
   // `useState(item.answerMode)` is an initial value and React keeps the old one
   // when a mounted composer is handed a different item, so navigating between
