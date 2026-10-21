@@ -8,10 +8,11 @@
 // among themselves.
 //
 // The first pin drawn sat 10px left of the time it hung under ("pushed to the
-// side"): an empty spacer and the icon's own margin pushed it. Measured in the
-// built app, the time now centres on the name's line and the pin and unread
-// dot on the last message's line, all three flush right at the same pixel,
-// and the row's ⋯ no longer runs 4px past them and onto the pin.
+// side"): an empty spacer and the icon's own margin pushed it. Of five places
+// drawn for it, the one picked is right after the conversation's name. Measured
+// in the built app: the pin centres on the name's line 7px after the name, the
+// time on that line and the unread dot on the next both flush right, and the
+// row's ⋯ no longer runs 4px past the time.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import React from 'react';
@@ -79,20 +80,29 @@ describe('where the pin sits', () => {
   const rule = (sel) => { const at = css.indexOf(`${sel} {`); return at < 0 ? '' : css.slice(at, css.indexOf('}', at)); };
   const px = (text, prop) => Number(new RegExp(`${prop}:\\s*([\\d.]+)px`).exec(text)?.[1]);
 
-  it('is the second line of the right column, which has the same two lines as the name and the last message', () => {
+  it('lines the time up with the name and the unread dot with the last message', () => {
     const m = rule('.rm-conv .m');
     const rows = /grid-template-rows:\s*([\d.]+)px\s+([\d.]+)px/.exec(m);
     expect(rows).not.toBeNull();
     expect(Number(rows[1])).toBe(px(rule('.rm-conv .t b'), 'line-height'));
-    expect(Number(rows[2])).toBe(px(rule('.rm-conv .t span'), 'line-height'));
+    expect(Number(rows[1])).toBe(px(rule('.rm-conv .t .nm'), 'height'));
+    expect(Number(rows[2])).toBe(px(rule('.rm-conv .t .ls'), 'line-height'));
     expect(px(m, 'row-gap')).toBe(px(rule('.rm-conv .t'), 'gap'));
     expect(m).toMatch(/justify-items:\s*end/);
   });
 
-  it('is drawn without a spacer beside it, so its edge meets the time’s', () => {
-    const src = fs.readFileSync(new URL('../renderer/src/team/rooms/MessagesPage.tsx', import.meta.url), 'utf8');
-    expect(src).not.toMatch(/style=\{\{ height: 6 \}\}/);
-    expect(src).toMatch(/I\.pinMark\(\)/);
+  it('is right after the name, on its line, and not in the right column', () => {
+    const html = renderToStaticMarkup(React.createElement(MessagesPage, { list: [conv('a', 0, { pinned: true, unread: true })], onKey: null, now: T, onPick: () => {}, pins: new Set(['a']) }, null));
+    expect(html).toMatch(/<span class="nm"><b>a<\/b><span class="rm-conv-pin"/);
+    expect(/<span class="m">.*?<\/span><\/button>/.exec(html)?.[0]).not.toContain('rm-conv-pin');
+    expect(rule('.rm-conv .t .nm')).toMatch(/align-items:\s*center/);
+  });
+
+  it('stays in view when a long name gives way', () => {
+    expect(rule('.rm-conv-pin')).toMatch(/flex:\s*none/);
+    expect(rule('.rm-conv .t .nm')).toMatch(/min-width:\s*0/);
+    expect(rule('.rm-conv .t b')).toMatch(/min-width:\s*0/);
+    expect(rule('.rm-conv .t b')).toMatch(/text-overflow:\s*ellipsis/);
   });
 
   it('leaves the row’s ⋯ on the name line, its edge on the time’s', () => {
@@ -113,7 +123,7 @@ describe('a pinned row', () => {
     expect(draw(conv('a', 0))).not.toContain('rm-conv-pin');
   });
 
-  it('keeps its unread dot beside the pin', () => {
+  it('keeps its unread dot', () => {
     const html = draw(conv('a', 0, { pinned: true, unread: true }));
     expect(html).toContain('rm-conv-pin');
     expect(html).toContain('class="rm-unread"');
