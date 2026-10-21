@@ -131,7 +131,8 @@ import { cloudCodexMode } from './cloud-permission.mjs';
 import { createCodexApprovals } from './codex-approvals.mjs';
 import { approvalPublicKey } from './approvals.mjs';
 import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexModels } from './codex-models.mjs';
-import { codexPlanEnded } from './codex-account.mjs';
+import { codexAccount, codexPlanEnded } from './codex-account.mjs';
+import { accountName } from '../shared/account-names.mjs';
 import { nameRow, wantsName } from './row-label.mjs';
 import { LEVELS, latestMessage, sortMessage, wantsPriority } from './message-priority.mjs';
 import { NAME, Name, envName, nameSlug, isOurSlug } from '../shared/product-name.mjs';
@@ -3064,6 +3065,11 @@ export class Supervisor {
       // both halves in the same order the cause was, so it is always the text
       // that actually named the limit that names the hour too.
       const resetsAt = cause === 'at-limit' ? (limitResetsAt(raw) ?? limitResetsAt(errorResult)) : null;
+      // WHICH LOGIN THIS RUN WAS SPENDING, and which one can take the task
+      // now. With two subscriptions the sentence named neither, so nothing on
+      // the thread said which was spent (power-test-2, issue 20).
+      const spent = session.accountFault?.account ?? this._accountKey(session?.engine, session?.profile);
+      const free = cause === 'at-limit' && spent ? this._anotherLoginFree(item, spent) : null;
       const elsewhere = session.accountFault?.cause === 'model-not-on-plan'
         || (cause === 'at-limit' && !!session.accountFault?.account
           && this._anotherLoginIsFree(item, session.accountFault.account));
@@ -3089,6 +3095,8 @@ export class Supervisor {
         // waking it for the free login, so the sentence and the fleet said
         // different things about the same task (w-4338a63da6).
         elsewhere,
+        account: cause === 'at-limit' ? this._accountNameFor(session?.engine, spent) : null,
+        instead: free ? this._accountNameFor(session?.engine, free) : null,
         model: session.model || item.model || null,
         planEnded,
         gaveUp,
@@ -3363,6 +3371,13 @@ export class Supervisor {
         // (`stderr` in shared/dead-run-trace.mjs is stderr AND the error
         // result), so the hour was there to be read the whole time.
         const resetsAt = cause === 'at-limit' ? limitResetsAt(trace.stderr) : null;
+        // AND THE LOGIN IT WAS SPENDING, which the run recorded when it died
+        // (`seen.account`). Only where the sentence's own engine word is this
+        // row's engine, so the name and the agent in front of it are the same
+        // account.
+        const spent = cause === 'at-limit' && this._engineFor(item) === DEFAULT_ENGINE
+          ? this._accountNameFor(DEFAULT_ENGINE, seen.account)
+          : null;
         const written = this.store.recordSessionResult(product, id, {
           result: deadRunSentence({
             engineWord: 'Claude Code',
@@ -3370,6 +3385,7 @@ export class Supervisor {
             runs: seen.runs,
             resetsAt,
             worked: trace.worked,
+            account: spent,
           }),
           status: 'open',
         });
@@ -3856,6 +3872,41 @@ export class Supervisor {
     return harnessFor(engineOf(engine)).accountKey(profile);
   }
 
+  /**
+   * WHAT TO CALL ONE OF THIS ENGINE'S LOGINS, by the rule the Settings page
+   * names its rows with (shared/account-names.mjs): the email the vendor gave,
+   * else a counted name.
+   *
+   * Null where naming it would say nothing: one login on that engine, or a key
+   * no login here answers to. The sentence on her thread then reads exactly as
+   * it did before any of this (`deadRunSentence`).
+   */
+  _accountNameFor(engine, key) {
+    const which = engineOf(engine);
+    const profiles = this._profilesFor(which);
+    if (profiles.length < 2) return null;
+    const profile = profiles.find((p) => this._accountKey(which, p) === key);
+    if (!profile) return null;
+    const home = this.config.home || os.homedir();
+    const email = which === 'codex'
+      ? codexAccount(this._codexProfileHome(profile))?.email ?? null
+      : accountIdentity(profile === 'default' ? null : profile, { home })?.email ?? null;
+    return accountName({ email, engine: which, index: profiles.indexOf(profile), total: profiles.length });
+  }
+
+  /**
+   * THE LOGIN THAT COULD TAKE THIS TASK NOW, on the task's own engine: not
+   * resting, carrying no trouble, and not the one that just failed. Its key, or
+   * null. `_anotherLoginIsFree` is this question asked as a yes or no.
+   */
+  _anotherLoginFree(item, account) {
+    const engine = this._engineFor(item);
+    const free = this._liveProfilesFor(engine)
+      .map((p) => this._accountKey(engine, p))
+      .find((key) => key !== account && !this._profileTrouble?.[key]);
+    return free ?? null;
+  }
+
   // ACCOUNTS THAT CAN ACTUALLY RUN SOMETHING RIGHT NOW, and unlike
   // _liveProfiles this one is allowed to come back empty.
   //
@@ -3874,11 +3925,7 @@ export class Supervisor {
    * A free Claude login says nothing about a Codex task, and the other way round.
    */
   _anotherLoginIsFree(item, account) {
-    const engine = this._engineFor(item);
-    return this._liveProfilesFor(engine).some((p) => {
-      const key = this._accountKey(engine, p);
-      return key !== account && !this._profileTrouble?.[key];
-    });
+    return !!this._anotherLoginFree(item, account);
   }
 
   _healthyProfiles() {
