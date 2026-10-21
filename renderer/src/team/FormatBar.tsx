@@ -123,7 +123,7 @@ export function FormatBar({ box, onChange, onAttach, onVoice, onNotice, voiceKey
     onSay: (text) => onNotice?.(text),
     onDone: (note, how) => { onVoice?.(note, how); if (how === 'recorded') box.current?.focus(); },
   });
-  if (control) control.current = canVoice ? { recording: voice.recording, finish: voice.finish } : null;
+  if (control) control.current = canVoice ? { recording: voice.recording, finish: voice.finish, restore: voice.restore } : null;
   const recordingNow = voice.phase !== 'idle';
   useEffect(() => { onRecording?.(recordingNow); }, [recordingNow]); // eslint-disable-line react-hooks/exhaustive-deps
   const [askDiscard, setAskDiscard] = useState(false);

@@ -8,14 +8,18 @@
 // read as broken for good; it now says it is arriving and asks again, soon and
 // then less often. Also: the folded reply box names a waiting voice note as
 // one, and a room send tried again after a dropped connection is not sent
-// twice when the first try had in fact landed.
+// twice when the first try had in fact landed. A review found the first
+// version of that check matched any identical message from the last minute,
+// so "ok" said twice in a row was sent once; it now ignores the ones that were
+// there before the first try. It also emptied the whole box when a send
+// landed, taking words typed while it was on its way; only what went leaves.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { VoiceNote, retryAfter } from '../renderer/src/team/VoiceNote.tsx';
 import { foldedReply } from '../renderer/src/folded-reply.ts';
-import { landed } from '../renderer/src/team/rooms/room-chat-rules.ts';
+import { landed, wordsLeftAfterSend } from '../renderer/src/team/rooms/room-chat-rules.ts';
 
 const css = fs.readFileSync(new URL('../renderer/src/team/voice-note.css', import.meta.url), 'utf8');
 const rule = (sel) => css.slice(css.indexOf(`${sel} {`), css.indexOf('}', css.indexOf(`${sel} {`)));
@@ -60,18 +64,52 @@ describe('the folded reply box', () => {
 describe('a room send tried again', () => {
   const me = 'p-me';
   const msg = (extra) => ({ id: 'm', roomId: 'r', by: me, body: 'on my way', inReplyTo: null, mentions: [], at: 10_000, ...extra });
+  const nothingBefore = new Set();
 
   it('counts as sent when the room already has it from the first try', () => {
-    expect(landed([msg()], { by: me, body: 'on my way', inReplyTo: null, since: 9_000 })).toBe(true);
+    expect(landed([msg()], { by: me, body: 'on my way', inReplyTo: null, before: nothingBefore })).toBe(true);
   });
 
   it('is sent when the room does not have it', () => {
-    expect(landed([msg({ body: 'something else' })], { by: me, body: 'on my way', inReplyTo: null, since: 9_000 })).toBe(false);
-    expect(landed([msg({ by: 'p-maya' })], { by: me, body: 'on my way', inReplyTo: null, since: 9_000 })).toBe(false);
-    expect(landed([msg({ inReplyTo: 'x' })], { by: me, body: 'on my way', inReplyTo: null, since: 9_000 })).toBe(false);
+    expect(landed([msg({ body: 'something else' })], { by: me, body: 'on my way', inReplyTo: null, before: nothingBefore })).toBe(false);
+    expect(landed([msg({ by: 'p-maya' })], { by: me, body: 'on my way', inReplyTo: null, before: nothingBefore })).toBe(false);
+    expect(landed([msg({ inReplyTo: 'x' })], { by: me, body: 'on my way', inReplyTo: null, before: nothingBefore })).toBe(false);
+    expect(landed([msg({ deleted: true })], { by: me, body: 'on my way', inReplyTo: null, before: nothingBefore })).toBe(false);
   });
 
-  it('does not mistake the same words said long before for this try', () => {
-    expect(landed([msg({ at: 1_000 })], { by: me, body: 'on my way', inReplyTo: null, since: 3_600_000 })).toBe(false);
+  it('does not mistake the same words said before the first try for this one', () => {
+    expect(landed([msg({ id: 'earlier' })], { by: me, body: 'ok', inReplyTo: null, before: new Set(['earlier']) })).toBe(false);
+    expect(landed([msg({ id: 'earlier', body: 'ok' })], { by: me, body: 'ok', inReplyTo: null, before: new Set(['earlier']) })).toBe(false);
+  });
+
+  it('finds this try beside the same words said before it', () => {
+    const room = [msg({ id: 'earlier', body: 'ok', at: 1_000 }), msg({ id: 'now', body: 'ok', at: 10_000 })];
+    expect(landed(room, { by: me, body: 'ok', inReplyTo: null, before: new Set(['earlier']) })).toBe(true);
+  });
+});
+
+describe('a room box once its send lands', () => {
+  it('is empty when nothing was typed meanwhile', () => {
+    expect(wordsLeftAfterSend('on my way', 'on my way')).toBe('');
+  });
+
+  it('keeps words typed after the ones that went', () => {
+    expect(wordsLeftAfterSend('on my way\nalso bring tea', 'on my way')).toBe('also bring tea');
+  });
+
+  it('keeps a box rewritten while it was sending, and words typed under a voice note sent alone', () => {
+    expect(wordsLeftAfterSend('actually wait', 'on my way')).toBe('actually wait');
+    expect(wordsLeftAfterSend('hello', '')).toBe('hello');
+  });
+});
+
+describe('the room send', () => {
+  const src = fs.readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
+  const send = src.slice(src.indexOf('const send = (roomId: string)'), src.indexOf('const read = (r: Room)'));
+
+  it('notes what was already there before the first try, and asks the room afresh before a second', () => {
+    expect(send).toMatch(/sameMessages\(rooms\?\.messages\[roomId\] \?\? \[\], mine\)\.map\(\(m\) => m\.id\)/);
+    expect(send.indexOf("api.rooms('refresh')")).toBeGreaterThan(-1);
+    expect(send.indexOf("api.rooms('refresh')")).toBeLessThan(send.indexOf('landed('));
   });
 });

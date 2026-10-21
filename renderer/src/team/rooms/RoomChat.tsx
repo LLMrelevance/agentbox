@@ -18,14 +18,14 @@ import { FormatBar } from '../FormatBar';
 import { RichReply, type RichBox } from '../RichReply';
 import { VoiceNote } from '../VoiceNote';
 import { voiceNoteOf } from '../voice-note';
-import { forgetVoiceDraft, type VoiceControl } from '../useVoiceRecorder';
+import { forgetVoiceDraft, markVoiceSent, sendTurnedBack, type VoiceControl } from '../useVoiceRecorder';
 import { AttachRow } from '../../components/AttachRow';
 import { collectFiles, isImageName, type PendingAttachment } from '../../attachments';
 import { pictureUrl } from '../../picture';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
 import { cardName, clockOf, mentionsIn } from './room-rules';
-import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, storedName } from './room-chat-rules';
+import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, storedName, wordsLeftAfterSend } from './room-chat-rules';
 
 export type ChatPerson = { id: string; name: string; avatarUrl: string | null; me: boolean };
 
@@ -201,24 +201,35 @@ function RoomPicture({ roomId, name, alt, loadFile }: { roomId: string; name: st
 }
 
 /** A room message as markdown: @names marked, voice notes and pictures drawn, other files named. */
+const MARKDOWN_PLUGINS = [remarkGfm];
+const storedIn = (href: string) => /^attachments\/([A-Za-z0-9][\w.-]{0,159})$/.exec(href)?.[1] ?? null;
+
 function RoomMarkdown({ text, names, loadFile, roomId, mine }: {
   text: string; names: string[]; roomId: string; mine: boolean; loadFile?: (name: string) => Promise<Blob | null>;
 }) {
-  const stored = (href: string) => /^attachments\/([A-Za-z0-9][\w.-]{0,159})$/.exec(href)?.[1] ?? null;
-  return <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-    a: ({ href, children }) => {
-      if (href === '#mention') return <b className="rm-at">{children}</b>;
-      const name = href ? stored(href) : null;
-      const note = name ? voiceNoteOf(name) : null;
-      if (name && note) return <VoiceNote id={`room:${roomId}:${name}`} ms={note.ms} mine={mine} load={() => loadFile?.(name) ?? Promise.resolve(null)} />;
-      if (name) return <span className="rm-file">{children}</span>;
-      return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
-    },
-    img: ({ src, alt }) => {
-      const name = src ? stored(src) : null;
-      return name ? <RoomPicture roomId={roomId} name={name} alt={alt ?? ''} loadFile={loadFile} /> : null;
-    },
-  }}>{mentionMarkdown(text, names)}</ReactMarkdown>;
+  // The same parts on every draw: new ones would remount each voice note in
+  // the chat, so none could finish loading. The file is fetched through a ref
+  // for the same reason.
+  const load = useRef(loadFile);
+  load.current = loadFile;
+  const components = useMemo(() => {
+    const fetchFile = (name: string) => load.current?.(name) ?? Promise.resolve(null);
+    return {
+      a: ({ href, children }: { href?: string; children?: ReactNode }) => {
+        if (href === '#mention') return <b className="rm-at">{children}</b>;
+        const name = href ? storedIn(href) : null;
+        const note = name ? voiceNoteOf(name) : null;
+        if (name && note) return <VoiceNote id={`room:${roomId}:${name}`} ms={note.ms} mine={mine} load={() => fetchFile(name)} />;
+        if (name) return <span className="rm-file">{children}</span>;
+        return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+      },
+      img: ({ src, alt }: { src?: string; alt?: string }) => {
+        const name = src ? storedIn(src) : null;
+        return name ? <RoomPicture roomId={roomId} name={name} alt={alt ?? ''} loadFile={fetchFile} /> : null;
+      },
+    };
+  }, [roomId, mine]);
+  return <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>{mentionMarkdown(text, names)}</ReactMarkdown>;
 }
 
 // Keeps the newest message in view while you are at the bottom, and leaves
@@ -292,6 +303,7 @@ function Composer({ roomId, threadId, placeholder, people, onSend, onPutFile, on
     requestAnimationFrame(() => { box.focus(); box.setSelectionRange(before.length, before.length); });
   };
   const voiceCtl = useRef<VoiceControl | null>(null);
+  const voiceKey = `room:${roomId}:${threadId ?? ''}`;
   const sendingNow = useRef(false);
   const [recording, setRecording] = useState(false);
   // A send that failed, so it can be tried again, and is when the connection comes back.
@@ -308,16 +320,22 @@ function Composer({ roomId, threadId, placeholder, people, onSend, onPutFile, on
     setBusy(true);
     setError(null);
     let files = attachments;
+    const typed = text;
+    let marked = false;
     try {
       if (voiceCtl.current?.recording()) {
         const note = await voiceCtl.current.finish();
         if (note) {
-          files = [...files, staged({ name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId })];
-          setAttachments(files);
+          const one = staged({ name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId });
+          files = [...files, one];
+          setAttachments((a) => (a.some((x) => x.draftId === one.draftId) ? a : [...a, one]));
         }
       }
-      const words = text.trim();
+      const words = typed.trim();
       if (!words && !files.length) return;
+      // On its way out: a box opened again meanwhile does not offer it back.
+      markVoiceSent(voiceKey, files.map((a) => a.draftId));
+      marked = true;
       const links: string[] = [];
       for (const a of files) {
         if (!onPutFile) throw new Error('Files cannot be sent in this room yet');
@@ -332,12 +350,16 @@ function Composer({ roomId, threadId, placeholder, people, onSend, onPutFile, on
       const err = await onSend(body);
       if (err) throw new Error(err);
       for (const a of files) forgetVoiceDraft(a.draftId);
-      setText('');
-      setAttachments([]);
+      // Only what went out leaves the box: a note recorded while it was sending stays.
+      setText((now) => wordsLeftAfterSend(now, typed));
+      setAttachments((now) => now.filter((a) => !files.some((f) => f === a || (f.draftId && f.draftId === a.draftId))));
       setFailed(false);
+      failedWith.current = null;
       drafts.delete(draftKey);
     } catch (e) {
+      if (marked) void sendTurnedBack(voiceKey, files.map((a) => a.draftId));
       setFailed(true);
+      failedWith.current = { text: typed, count: files.length };
       setError(`Not sent: ${String((e as Error)?.message ?? e).replace(/\.$/, '')}. Your message is still in the box.`);
     } finally {
       sendingNow.current = false;
@@ -346,9 +368,17 @@ function Composer({ roomId, threadId, placeholder, people, onSend, onPutFile, on
   };
   const sendRef = useRef(send);
   sendRef.current = send;
+  // BACK ONLINE, TRIED AGAIN, but only the message that failed: a box changed
+  // since is the person's to send.
+  const failedWith = useRef<{ text: string; count: number } | null>(null);
+  const boxNow = useRef({ text, count: attachments.length });
+  boxNow.current = { text, count: attachments.length };
   useEffect(() => {
     if (!failed) return undefined;
-    const back = () => { void sendRef.current(); };
+    const back = () => {
+      const was = failedWith.current;
+      if (was && was.text === boxNow.current.text && was.count === boxNow.current.count) void sendRef.current();
+    };
     window.addEventListener('online', back);
     return () => window.removeEventListener('online', back);
   }, [failed]);
@@ -386,7 +416,7 @@ function Composer({ roomId, threadId, placeholder, people, onSend, onPutFile, on
         <FormatBar box={ref as unknown as { current: HTMLTextAreaElement | null }} onChange={setText}
           onAttach={onPutFile ? () => filePicker.current?.click() : undefined}
           onVoice={onPutFile ? (note) => add([{ name: note.name, dataBase64: note.dataBase64, image: isImageName(note.name), draftId: note.draftId }]) : undefined}
-          onNotice={setError} voiceKey={`room:${roomId}:${threadId ?? ''}`} voice={voiceCtl} onRecording={setRecording} />
+          onNotice={setError} voiceKey={voiceKey} voice={voiceCtl} onRecording={setRecording} />
         <button type="button" className="dock-send" disabled={!ready || busy} onClick={() => void send()} title="Send · ↵">
           {busy ? 'Sending…' : <>Send <kbd>↵</kbd></>}
         </button>

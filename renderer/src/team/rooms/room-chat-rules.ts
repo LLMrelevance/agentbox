@@ -44,14 +44,29 @@ export function holdsRead(held: boolean, wasMarked: boolean, isMarked: boolean):
   return held;
 }
 
+/** My messages in the room with these words in this place, by id. */
+export function sameMessages(messages: readonly RoomMessage[], m: { by: string | null; body: string; inReplyTo: string | null }): RoomMessage[] {
+  return messages.filter((x) => x.by === m.by && !x.deleted && x.body === m.body && (x.inReplyTo ?? null) === (m.inReplyTo ?? null));
+}
+
 /**
  * Whether a message tried before is already in the room: mine, the same words
- * in the same place, written no earlier than a minute before the first try
- * (the room's clock and this Mac's may differ by that much).
+ * in the same place, and not one that was already there when it was first
+ * tried, so saying "ok" twice is never mistaken for one "ok" landing.
  */
-export function landed(messages: readonly RoomMessage[], m: { by: string | null; body: string; inReplyTo: string | null; since: number }): boolean {
-  return messages.some((x) => x.by === m.by && !x.deleted && x.body === m.body
-    && (x.inReplyTo ?? null) === (m.inReplyTo ?? null) && x.at >= m.since - 60_000);
+export function landed(messages: readonly RoomMessage[], m: { by: string | null; body: string; inReplyTo: string | null; before: ReadonlySet<string> }): boolean {
+  return sameMessages(messages, m).some((x) => !m.before.has(x.id));
+}
+
+/**
+ * The words left in the box once a send of `sent` lands: none if the box
+ * still says just that, what was typed after it if it was added to, and the
+ * box as it is if it was rewritten while sending.
+ */
+export function wordsLeftAfterSend(now: string, sent: string): string {
+  if (now === sent) return '';
+  if (sent && now.startsWith(sent)) return now.slice(sent.length).replace(/^\s+/, '');
+  return now;
 }
 
 /** The newest message of mine in the chat itself, for ↑ in an empty box. */

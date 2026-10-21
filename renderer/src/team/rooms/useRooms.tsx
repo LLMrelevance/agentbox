@@ -7,7 +7,7 @@ import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
 import { RoomsNav, useOutside, type RoomMenuAction } from './RoomsNav';
 import { RoomTabs } from './RoomTabs';
 import { cardName, roomTabs, tabWalk, withMe } from './room-rules';
-import { landed } from './room-chat-rules';
+import { landed, sameMessages } from './room-chat-rules';
 import { RoomPage, type RoomPane } from './RoomPage';
 import { RoomChat, peopleOf } from './RoomChat';
 import { RoomFace } from './RoomFace';
@@ -173,15 +173,19 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
 
   // A SEND TRIED AGAIN AFTER A DROPPED CONNECTION may already have landed: the
   // room had it and only the answer was lost. Then it is not sent twice.
-  const tried = useRef(new Map<string, number>());
+  const tried = useRef(new Map<string, Set<string>>());
   const send = (roomId: string) => async (body: string, opts: { inReplyTo: string | null; mentions: string[] }) => {
     const key = `${roomId}\u0000${opts.inReplyTo ?? ''}\u0000${body}`;
-    const first = tried.current.get(key);
-    if (first != null && landed(rooms?.messages[roomId] ?? [], { by: meId, body, inReplyTo: opts.inReplyTo, since: first })) {
-      tried.current.delete(key);
-      return null;
+    const mine = { by: meId, body, inReplyTo: opts.inReplyTo };
+    const before = tried.current.get(key);
+    if (before) {
+      // Looked at afresh: what this window held may be from before the drop.
+      const fresh = await api.rooms('refresh');
+      const held = (fresh.rooms ?? rooms)?.messages[roomId] ?? [];
+      if (landed(held, { ...mine, before })) { tried.current.delete(key); return null; }
+    } else {
+      tried.current.set(key, new Set(sameMessages(rooms?.messages[roomId] ?? [], mine).map((m) => m.id)));
     }
-    if (first == null) tried.current.set(key, Date.now());
     const res = await call('send', roomId, body, opts);
     if (res.ok) tried.current.delete(key);
     return res.ok ? null : res.error ?? 'Not sent';

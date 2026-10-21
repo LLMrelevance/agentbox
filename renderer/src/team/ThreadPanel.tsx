@@ -21,7 +21,7 @@ import { clock } from '../thread-history';
 import { THREAD_WIDTH, threadLine } from './chat-threads';
 import { holdTheEdge } from './hold-the-edge';
 import { FormatBar } from './FormatBar';
-import { forgetVoiceDraft, type VoiceControl } from './useVoiceRecorder';
+import { forgetVoiceDraft, markVoiceSent, sendTurnedBack, type VoiceControl } from './useVoiceRecorder';
 import { RichReply } from './RichReply';
 import { AttachRow } from '../components/AttachRow';
 import { collectFiles, persistAttachments, type PendingAttachment } from '../attachments';
@@ -46,7 +46,7 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
   width: number;
   reactions?: Record<string, Record<string, string[]>>;
   onReact?: (uid: string, emoji: string, off: boolean) => void;
-  /** Send a reply in this thread. */
+  /** Send a reply in this thread; false (or a rejection) when it did not go. */
   onSend: (text: string) => unknown;
   onClose: () => void;
   /** The width the left edge was dragged to; the caller holds it in its limits. */
@@ -66,6 +66,7 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
   // Said under the box until the next try, such as the microphone being refused.
   const [notice, setNotice] = useState<string | null>(null);
   const voiceCtl = useRef<VoiceControl | null>(null);
+  const voiceKey = `thread:${product}:${parent.uid ?? ''}`;
   const finishing = useRef(false);
   const [recording, setRecording] = useState(false);
   useEffect(() => { setNotice(null); }, [draft]);
@@ -118,26 +119,38 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
     if (voiceCtl.current?.recording()) {
       finishing.current = true;
       const note = await voiceCtl.current.finish().finally(() => { finishing.current = false; });
-      if (note) files = [...files, { name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId }];
+      if (note) {
+        const staged = { name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId };
+        setAttachments((a) => (a.some((x) => x.draftId === note.draftId) ? a : [...a, staged]));
+        files = [...files, staged];
+      }
     }
     const words = draft.trim();
     if (!words && !files.length) return;
+    const putBack = (why: string) => {
+      setDraft(words);
+      setAttachments(files);
+      setNotice(`Not sent: ${why} Your message is still in the box.`);
+    };
     setDraft('');
     setAttachments([]);
     let linked: string;
     try {
       linked = await persistAttachments(product, files);
     } catch (err) {
-      setDraft(words);
-      setAttachments(files);
-      setNotice(`Not sent: ${String((err as Error)?.message ?? err)} Your message is still in the box.`);
+      putBack(String((err as Error)?.message ?? err));
       return;
     }
-    for (const a of files) forgetVoiceDraft(a.draftId);
     const text = [words, linked].filter(Boolean).join('\n\n');
     if (!text) return;
-    setSending((was) => [...was, { at: Date.now(), text }]);
-    onSend(text);
+    markVoiceSent(voiceKey, files.map((a) => a.draftId));
+    const at = Date.now();
+    setSending((was) => [...was, { at, text }]);
+    const ok = await Promise.resolve(onSend(text)).then((r) => r !== false, () => false);
+    if (ok) return;
+    setSending((was) => was.filter((s) => s.at !== at));
+    await sendTurnedBack(voiceKey, files.map((a) => a.draftId));
+    putBack('the reply could not be saved.');
   };
   const ready = !!draft.trim() || attachments.length > 0 || recording;
   // True when the key was taken, so the editor does not also act on it.
@@ -277,7 +290,7 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
             <FormatBar box={box} onChange={setDraft} onAttach={() => filePicker.current?.click()}
               onVoice={(note) => setAttachments((a) => (a.some((x) => x.draftId === note.draftId)
                 ? a : [...a, { name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId }]))}
-              onNotice={setNotice} voiceKey={`thread:${product}:${parent.uid ?? ''}`} voice={voiceCtl} onRecording={setRecording} />
+              onNotice={setNotice} voiceKey={voiceKey} voice={voiceCtl} onRecording={setRecording} />
             <button type="button" className="dock-send" disabled={!ready} onClick={() => void send()} title="Send · ↵">Send <kbd>↵</kbd></button>
           </div>
         </div>

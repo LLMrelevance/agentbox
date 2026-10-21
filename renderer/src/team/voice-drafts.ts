@@ -18,12 +18,19 @@ export type VoiceDraft = {
   done: boolean;
   ms?: number;
   name?: string;
+  /**
+   * When it went out. A note being sent is not offered back to its box; it is
+   * kept a while in case the send is undone or fails, then dropped.
+   */
+  sentAt?: number | null;
 };
 
 export interface VoiceDraftStore {
   begin(draft: VoiceDraft): Promise<void>;
   chunk(id: string, index: number, blob: Blob, at: number): Promise<void>;
   finish(id: string, end: { ms: number; name: string }): Promise<void>;
+  /** Marks it sent at this moment, or not sent after all (null). */
+  sent(id: string, at: number | null): Promise<void>;
   remove(id: string): Promise<void>;
   list(key: string): Promise<VoiceDraft[]>;
   /** The note's pieces joined in order, and when the last of them arrived. */
@@ -37,6 +44,7 @@ export function memoryVoiceStore(): VoiceDraftStore {
     async begin(d) { drafts.set(d.id, { ...d }); chunks.set(d.id, []); },
     async chunk(id, index, blob, at) { if (drafts.has(id)) chunks.get(id)!.push({ index, blob, at }); },
     async finish(id, end) { const d = drafts.get(id); if (d) drafts.set(id, { ...d, ...end, done: true }); },
+    async sent(id, at) { const d = drafts.get(id); if (d) drafts.set(id, { ...d, sentAt: at }); },
     async remove(id) { drafts.delete(id); chunks.delete(id); },
     async list(key) { return [...drafts.values()].filter((d) => d.key === key).map((d) => ({ ...d })); },
     async read(id) {
@@ -54,6 +62,7 @@ const done = (t: IDBTransaction) => new Promise<void>((ok, bad) => { t.oncomplet
 
 export function indexedVoiceStore(idb: IDBFactory = indexedDB): VoiceDraftStore {
   let opened: Promise<IDBDatabase> | null = null;
+  // A connection the browser closes is opened again on the next write.
   const db = () => (opened ??= new Promise((ok, bad) => {
     const r = idb.open(DB, 1);
     r.onupgradeneeded = () => {
@@ -61,7 +70,12 @@ export function indexedVoiceStore(idb: IDBFactory = indexedDB): VoiceDraftStore 
       d.createObjectStore('drafts', { keyPath: 'id' }).createIndex('key', 'key');
       d.createObjectStore('chunks', { keyPath: ['id', 'index'] }).createIndex('id', 'id');
     };
-    r.onsuccess = () => ok(r.result);
+    r.onsuccess = () => {
+      const d = r.result;
+      d.onclose = () => { opened = null; };
+      d.onversionchange = () => { d.close(); opened = null; };
+      ok(d);
+    };
     r.onerror = () => { opened = null; bad(r.error); };
   }));
   const write = async (stores: string[], fn: (t: IDBTransaction) => void) => {
@@ -77,6 +91,13 @@ export function indexedVoiceStore(idb: IDBFactory = indexedDB): VoiceDraftStore 
       const s = t.objectStore('drafts');
       const d = await req(s.get(id) as IDBRequest<VoiceDraft | undefined>);
       if (d) s.put({ ...d, ...end, done: true });
+      await done(t);
+    },
+    async sent(id, at) {
+      const t = (await db()).transaction(['drafts'], 'readwrite');
+      const s = t.objectStore('drafts');
+      const d = await req(s.get(id) as IDBRequest<VoiceDraft | undefined>);
+      if (d) s.put({ ...d, sentAt: at });
       await done(t);
     },
     async remove(id) {
@@ -139,7 +160,23 @@ export function listedVoiceStore(inner: VoiceDraftStore, s: Storage = local()): 
     ...inner,
     async begin(d) { keyOf.set(d.id, d.key); put(d.key, d.id); await inner.begin(d); },
     async finish(id, end) { const key = keyOf.get(id); if (key) put(key, id, end.ms); await inner.finish(id, end); },
+    async sent(id, at) {
+      const key = keyOf.get(id);
+      if (key) { if (at == null) put(key, id); else drop(id); }
+      await inner.sent(id, at);
+    },
     async remove(id) { drop(id); keyOf.delete(id); await inner.remove(id); },
-    async list(key) { const got = await inner.list(key); for (const d of got) keyOf.set(d.id, d.key); return got; },
+    // The list follows what the store really holds for this box, so a write
+    // that never landed cannot leave the folded box naming a note forever.
+    async list(key) {
+      const got = await inner.list(key);
+      for (const d of got) keyOf.set(d.id, d.key);
+      const list = readList(s);
+      const waiting = got.filter((d) => !d.sentAt);
+      if (waiting.length) list[key] = waiting.map((d) => ({ id: d.id, ...(d.ms != null ? { ms: d.ms } : {}) }));
+      else delete list[key];
+      writeList(s, list);
+      return got;
+    },
   };
 }

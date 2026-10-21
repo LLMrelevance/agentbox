@@ -37,8 +37,10 @@ describe('the bar under the box', () => {
 
   it('is told which conversation its notes belong to, in every box that has one', () => {
     expect(src('renderer/src/components/Focus.tsx')).toMatch(/voiceKey=\{`direct:\$\{item\.product\}:\$\{item\.id\}`\}/);
-    expect(src('renderer/src/team/ThreadPanel.tsx')).toMatch(/voiceKey=\{`thread:\$\{product\}:/);
-    expect(src('renderer/src/team/rooms/RoomChat.tsx')).toMatch(/voiceKey=\{`room:\$\{roomId\}:/);
+    for (const [file, key] of [['renderer/src/team/ThreadPanel.tsx', /const voiceKey = `thread:\$\{product\}:/], ['renderer/src/team/rooms/RoomChat.tsx', /const voiceKey = `room:\$\{roomId\}:/]]) {
+      expect(src(file)).toMatch(key);
+      expect(src(file)).toMatch(/voiceKey=\{voiceKey\}/);
+    }
   });
 
   it('is the same bar in a room’s chat, with Return to send', () => {

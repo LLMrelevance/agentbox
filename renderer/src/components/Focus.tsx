@@ -84,7 +84,7 @@ import { withQuote } from '../team/chat-quote';
 import { THREAD_WIDTH, THREAD_WIDTH_KEY, clampThreadWidth, threadToOpen } from '../team/chat-threads';
 import { whatWaits } from '../../../shared/team-rules.mjs';
 import { FormatBar } from '../team/FormatBar';
-import { forgetVoiceDraft, type Recorded, type VoiceControl } from '../team/useVoiceRecorder';
+import { forgetVoiceDraft, markVoiceSent, sendTurnedBack, type Recorded, type VoiceControl } from '../team/useVoiceRecorder';
 import { VoiceNote } from '../team/VoiceNote';
 import { voiceNoteName, voiceNoteOf } from '../team/voice-note';
 import { voiceDraftsFor } from '../team/voice-drafts';
@@ -907,6 +907,16 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // closing the box is the exact moment this has to change: that close is what
   // re-renders this pane, and the pill has to come back already carrying her
   // words. Nothing here can lose them; it only decides what is shown.
+  // The same when the reply box is folded shut: a note that went with an
+  // undone send is the box's again, for when it opens.
+  useEffect(() => {
+    const back = (event: Event) => {
+      if ((event as CustomEvent).detail !== draftKey(item)) return;
+      void sendTurnedBack(`direct:${item.product}:${item.id}`, readDraftAttachments(item).map((a) => a.draftId));
+    };
+    window.addEventListener('zero:reply-restored', back);
+    return () => window.removeEventListener('zero:reply-restored', back);
+  }, [item.product, item.id]);
   const folded = useMemo(() => {
     // A voice note kept for this box, and not in the draft, still counts.
     const drafted = readDraftAttachments(item);
@@ -1756,7 +1766,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
                 // other, so it reaches the same inboxes and syncs the same way;
                 // it only names the message it answers.
                 onSend: (uid, text) => api.answer({ product: item.product, id: item.id, answer: text, inReplyTo: uid })
-                  .catch(() => onNotice('That reply did not send. Try again.')),
+                  .then(() => true, () => { onNotice('That reply did not send. Try again.'); return false; }),
                 fresh: freshThreads,
               } : undefined}
             />
@@ -2294,7 +2304,11 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     const restored = (event: Event) => {
       if ((event as CustomEvent).detail !== draftKey(item)) return;
       setText(readDraft(item));
-      setAttachments(readDraftAttachments(item));
+      const back = readDraftAttachments(item);
+      setAttachments(back);
+      // A voice note that went with the undone or refused send comes back
+      // too, whether or not the draft had room to carry it.
+      void sendTurnedBack(`direct:${item.product}:${item.id}`, back.map((a) => a.draftId)).then(() => voiceCtl.current?.restore());
     };
     window.addEventListener('zero:reply-restored', restored);
     return () => window.removeEventListener('zero:reply-restored', restored);
@@ -2510,7 +2524,11 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
       if (finishing.current) return;
       finishing.current = true;
       const note = await voiceCtl.current.finish().finally(() => { finishing.current = false; });
-      if (note) attachments = [...attachments, { name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId }];
+      if (note) {
+        // In the box at once, so a send that stops short below keeps it there.
+        addVoice(note);
+        attachments = [...attachments, { name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId }];
+      }
     } else if (finishing.current) return;
     if (saving || (!(spoken ?? text).trim() && !attachments.length)) return;
     // AN AGENT WITH NO PROJECT DOES NOT GO OUT. The footer already says why;
@@ -2560,8 +2578,9 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
       setSaving(false);
     }
     clearDraft(item);
-    // Saved with the conversation now, so this Mac's spare copy can go.
-    for (const a of attachments) forgetVoiceDraft(a.draftId);
+    // Saved with the conversation now. The spare copy is kept a while, out of
+    // the box, in case this send is undone or turned back.
+    markVoiceSent(`direct:${item.product}:${item.id}`, attachments.map((a) => a.draftId));
     // AND WHAT THIS ONE MESSAGE MAY DO, if she changed it. `null` is not the
     // same as leaving it out: it CLEARS a mode set on an earlier reply and puts
     // the thread back on the project's own setting, so it is sent whenever the

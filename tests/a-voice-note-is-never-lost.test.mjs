@@ -16,9 +16,15 @@
 //   a note is forgotten once sent, and the cross leaves nothing behind;
 //   a note still being recorded is never handed to another box;
 //   a box mounted twice (React's strict mode) hands each note over once.
+// A review of that build found more ways to lose or double a note, now held:
+//   a note being sent is not offered back to the box, comes back if the send
+//     is turned back, and is dropped ten minutes after it went;
+//   Send pressed between the tick and the note reaching the box takes it;
+//   a box opened while the last one is still writing its note waits for it;
+//   a store that will not write says so once, since a crash would cost the note.
 import { describe, it, expect } from 'vitest';
 import { fakeMicrophone } from './helpers/fake-microphone.mjs';
-import { voiceRecording } from '../renderer/src/team/voice-recording.ts';
+import { voiceRecording, SENT_KEEP_MS } from '../renderer/src/team/voice-recording.ts';
 import { listedVoiceStore, memoryVoiceStore, voiceDraftsFor } from '../renderer/src/team/voice-drafts.ts';
 
 const KEY = 'direct:p:w-1';
@@ -135,6 +141,26 @@ describe('a store that will not write', () => {
     expect(b.notes).toHaveLength(1);
     expect(b.notes[0].ms).toBe(6000);
   });
+
+  it('says once that there is no spare copy, so the note is sent before the app closes', async () => {
+    const m = fakeMicrophone({ storeFails: true });
+    const b = m.box(KEY);
+    await b.r.start();
+    m.pass(6000);
+    b.r.stop();
+    await m.settle();
+    expect(b.said).toEqual(['This computer is not keeping a spare copy of the voice note, so send it before you close the app.']);
+  });
+
+  it('says nothing when the store writes', async () => {
+    const m = fakeMicrophone();
+    const b = m.box(KEY);
+    await b.r.start();
+    m.pass(6000);
+    b.r.stop();
+    await m.settle();
+    expect(b.said).toEqual([]);
+  });
 });
 
 describe('what is kept afterwards', () => {
@@ -203,6 +229,101 @@ describe('two boxes and one note', () => {
     await twice.r.restore();
     expect(once.notes).toHaveLength(0);
     expect(twice.notes).toHaveLength(1);
+  });
+});
+
+describe('a note on its way out', () => {
+  const recorded = async (m, b, ms = 3000) => { await b.r.start(); m.pass(ms); b.r.stop(); await m.settle(); return b.notes.at(-1); };
+
+  it('is not offered back to the box while it is being sent', async () => {
+    const m = fakeMicrophone();
+    const note = await recorded(m, m.box(KEY));
+    await m.store.sent(note.draftId, m.now());
+    const next = m.box(KEY);
+    await next.r.restore();
+    expect(next.notes).toHaveLength(0);
+    expect(await m.store.list(KEY)).toHaveLength(1);
+  });
+
+  it('comes back when the send is turned back', async () => {
+    const m = fakeMicrophone();
+    const note = await recorded(m, m.box(KEY));
+    await m.store.sent(note.draftId, m.now());
+    await m.store.sent(note.draftId, null);
+    const next = m.box(KEY);
+    await next.r.restore();
+    expect(next.notes.map((n) => n.draftId)).toEqual([note.draftId]);
+  });
+
+  it('is kept for ten minutes after it went, then dropped', async () => {
+    const m = fakeMicrophone();
+    const note = await recorded(m, m.box(KEY));
+    await m.store.sent(note.draftId, m.now());
+    m.pass(SENT_KEEP_MS);
+    await m.box(KEY).r.restore();
+    expect(await m.store.list(KEY)).toHaveLength(1);
+    m.pass(1);
+    await m.box(KEY).r.restore();
+    expect(await m.store.list(KEY)).toEqual([]);
+  });
+
+  it('leaves the folded box’s list while it goes, and is back on it when turned back', async () => {
+    const mem = new Map();
+    const storage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v) };
+    const store = listedVoiceStore(memoryVoiceStore(), storage);
+    await store.begin({ id: 'n1', key: KEY, startedAt: 1, mime: 'audio/webm', done: false });
+    await store.sent('n1', 5);
+    expect(voiceDraftsFor(KEY, storage)).toEqual([]);
+    await store.sent('n1', null);
+    expect(voiceDraftsFor(KEY, storage)).toEqual([{ id: 'n1' }]);
+  });
+});
+
+describe('Send pressed just after the tick', () => {
+  it('takes the note that is still being written down, and the box never gets it too', async () => {
+    const m = fakeMicrophone();
+    // The note is stopped and being read back when Send is pressed.
+    let readBack;
+    const held = new Promise((r) => { readBack = r; });
+    const b = m.box(KEY, { ...m.env, pack: async (blob) => { await held; return m.env.pack(blob); } });
+    await b.r.start();
+    m.pass(4000);
+    b.r.stop();
+    await m.settle();
+    expect(b.r.recording()).toBe(true);
+    const sending = b.r.finish();
+    readBack();
+    const note = await sending;
+    await m.settle();
+    expect(note).toMatchObject({ ms: 4000 });
+    expect(b.notes).toHaveLength(0);
+    expect(b.r.recording()).toBe(false);
+  });
+});
+
+describe('a box that opens while the last one is still writing its note down', () => {
+  it('waits for it and has it, when the last box went away', async () => {
+    const m = fakeMicrophone();
+    const first = m.box(KEY);
+    await first.r.start();
+    m.pass(5000);
+    first.r.dispose();
+    const next = m.box(KEY);
+    await next.r.restore();
+    expect(next.notes.map((n) => n.ms)).toEqual([5000]);
+  });
+
+  it('leaves it to the box that recorded it, when that box is still there', async () => {
+    const m = fakeMicrophone();
+    const a = m.box(KEY);
+    await a.r.start();
+    m.pass(5000);
+    a.r.stop();
+    const other = m.box(KEY);
+    await other.r.restore();
+    await m.settle();
+    expect(other.notes).toHaveLength(0);
+    expect(a.notes).toHaveLength(1);
   });
 });
 

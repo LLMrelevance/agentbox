@@ -43,7 +43,7 @@ it.each([['claude','/reload-skills'],['codex','/review --base main'],['claude','
  // No picture going up from the phone.
  saving:false,setSaving:vi.fn(),
  // No voice note being recorded, and nothing kept to forget.
- attachedNow:[],voiceCtl:{current:null},finishing:{current:false},forgetVoiceDraft:vi.fn(),setAttachments:vi.fn()};
+ attachedNow:[],voiceCtl:{current:null},finishing:{current:false},forgetVoiceDraft:vi.fn(),setAttachments:vi.fn(),addVoice:vi.fn(),markVoiceSent:vi.fn()};
  const js=ts.transpile(body+'\nreturn send;', {target:ts.ScriptTarget.ES2022});
  const send=new Function(...Object.keys(context),js)(...Object.values(context));
  await send();

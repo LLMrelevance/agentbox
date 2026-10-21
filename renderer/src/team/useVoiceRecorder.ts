@@ -55,13 +55,43 @@ const browser = (): RecordingEnv => ({
   newId: () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`),
 });
 
-/** A note that went out, or was taken out of the box, is no longer kept. */
+/** A note taken out of the box is no longer kept. */
 export function forgetVoiceDraft(draftId: string | undefined) {
   if (draftId) void theStore().remove(draftId).catch(() => {});
 }
 
-/** What a box can ask of its recorder from outside the bar: is it recording, and finish it now. */
-export type VoiceControl = { recording: () => boolean; finish: () => Promise<Recorded | null> };
+// The notes the latest send from each box carried, so an undo brings back
+// those and never one sent earlier.
+const lastSent = new Map<string, string[]>();
+const ids = (list: (string | undefined)[]) => list.filter((id): id is string => !!id);
+
+/**
+ * A send from this box went out, carrying these notes (none is fine: it still
+ * becomes the latest send). They are no longer offered back to the box, but
+ * kept a while (SENT_KEEP_MS) in case the send is undone or turned back.
+ */
+export function markVoiceSent(key: string, draftIds: (string | undefined)[]) {
+  lastSent.set(key, ids(draftIds));
+  for (const id of ids(draftIds)) void theStore().sent(id, Date.now()).catch(() => {});
+}
+
+/**
+ * The latest send from this box was undone or turned back: its notes are the
+ * box's again, and so are any the restored draft names.
+ */
+export async function sendTurnedBack(key: string, draftIds: (string | undefined)[] = []) {
+  const back = [...new Set([...(lastSent.get(key) ?? []), ...ids(draftIds)])];
+  await Promise.all(back.map((id) => theStore().sent(id, null).catch(() => {})));
+}
+
+/** What a box can ask of its recorder from outside the bar. */
+export type VoiceControl = {
+  recording: () => boolean;
+  /** Finish the note being recorded and hand it here rather than to the box. */
+  finish: () => Promise<Recorded | null>;
+  /** Put back into the box what is kept for it, such as a note whose send was undone. */
+  restore: () => Promise<void>;
+};
 
 export function useVoiceRecorder({ key, onSay, onDone }: {
   /** The conversation and box the notes belong to. */
@@ -88,7 +118,12 @@ export function useVoiceRecorder({ key, onSay, onDone }: {
     });
     rec.current = r;
     void r.restore();
-    return () => { r.dispose(); if (rec.current === r) rec.current = null; };
+    return () => {
+      r.dispose();
+      if (rec.current === r) rec.current = null;
+      // A note set aside by a change of conversation leaves no bar behind.
+      setPhase('idle'); setElapsed(0); setLevels([]);
+    };
   }, [key]);
   const [actions] = useState(() => ({
     start: () => { void rec.current?.start(); },
@@ -96,6 +131,7 @@ export function useVoiceRecorder({ key, onSay, onDone }: {
     cancel: () => rec.current?.cancel(),
     finish: () => rec.current?.finish() ?? Promise.resolve(null),
     recording: () => !!rec.current?.recording(),
+    restore: () => rec.current?.restore() ?? Promise.resolve(),
   }));
   return { phase, elapsed, levels, ...actions };
 }

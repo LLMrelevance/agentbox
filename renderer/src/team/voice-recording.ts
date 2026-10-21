@@ -41,10 +41,16 @@ export type RecordingEnv = {
   clear: (id: number) => void;
   pack: (blob: Blob) => Promise<string>;
   store: VoiceDraftStore;
-  /** Shared by every box in the window: one note records at a time. */
-  busy: { id: string | null };
+  /**
+   * Shared by every box in the window: one note records at a time, and a note
+   * still being written down after it stopped is waited for, not skipped.
+   */
+  busy: { id: string | null; finishing?: Map<string, { done: Promise<void>; delivers: boolean }> };
   newId: () => string;
 };
+
+/** How long a sent note is kept, in case the send is undone or fails. */
+export const SENT_KEEP_MS = 10 * 60_000;
 
 export const TICK_MS = 90;
 /** How often the recorder hands over a piece, and so how much a crash can cost. */
@@ -78,10 +84,20 @@ export function voiceRecording(env: RecordingEnv, key: string, on: {
     end: (why: Why) => void;
   };
   let live: Live | null = null;
+  // Stopped, and not yet in the box: Send can still take it from here.
+  let stopping: Live | null = null;
   let asking = 0;
   let gone = false;
   let phase: VoicePhase = 'idle';
   const setPhase = (p: VoicePhase) => { phase = p; on.phase(p); };
+  const finishing = (env.busy.finishing ??= new Map());
+  // A store that will not write is said once, since a crash would now cost the note.
+  let warned = false;
+  const storeFailed = () => {
+    if (warned || gone) return;
+    warned = true;
+    on.say('This computer is not keeping a spare copy of the voice note, so send it before you close the app.');
+  };
 
   const release = (l: { stream: StreamLike; meter: { close: () => void } | null; timer: number }) => {
     env.clear(l.timer);
@@ -116,7 +132,7 @@ export function voiceRecording(env: RecordingEnv, key: string, on: {
       finished: new Promise((r) => { resolveFinished = r; }),
     };
     // Writes go one after another, and one that fails costs only itself.
-    const keep = (fn: () => Promise<void>) => { mine.writes = mine.writes.then(fn).catch(() => {}); };
+    const keep = (fn: () => Promise<void>) => { mine.writes = mine.writes.then(fn).catch(storeFailed); };
     try {
       const recorder = env.makeRecorder(stream);
       mine.recorder = recorder;
@@ -156,29 +172,38 @@ export function voiceRecording(env: RecordingEnv, key: string, on: {
         if (!gone) { setPhase('idle'); on.tick(0, []); }
         const why = mine.why ?? 'lost';
         const ms = Math.min(VOICE_MAX_MS, env.now() - mine.startedAt);
-        if (why === 'cancel') { keep(() => env.store.remove(id)); await settled(); resolveFinished(null); return; }
+        // Another box restoring this conversation waits for this to be
+        // written down, and leaves it alone if it is going to this box.
+        let landed: () => void = () => {};
+        finishing.set(id, { done: new Promise<void>((r) => { landed = r; }), delivers: why !== 'gone' && why !== 'cancel' });
+        const out = (note: Recorded | null) => { if (stopping === mine) stopping = null; finishing.delete(id); landed(); resolveFinished(note); };
+        if (why === 'cancel') { keep(() => env.store.remove(id)); await settled(); out(null); return; }
         if (ms < SHORTEST_MS || !pieces.length) {
           keep(() => env.store.remove(id));
           await settled();
           if (!gone && why !== 'gone') on.say('That was too short to keep. Press the mic, talk, then press the tick.');
-          resolveFinished(null);
+          out(null);
           return;
         }
+        if (why !== 'gone') stopping = mine;
         const name = voiceNoteName(ms, extOf(mime));
         keep(() => env.store.finish(id, { ms, name }));
         await settled();
         // The box went away: the note waits in the store for the next one.
-        if (why === 'gone') { resolveFinished(null); return; }
+        if (why === 'gone') { out(null); return; }
         const blob = new Blob(pieces, { type: mime });
         let note: Recorded | null = null;
         try { note = { name, ms, blob, dataBase64: await env.pack(blob), draftId: id }; } catch { note = null; }
         if (!note) {
           if (!gone) on.say('The voice note was kept but could not be read back. Open this conversation again to find it.');
-          resolveFinished(null);
+          out(null);
           return;
         }
-        resolveFinished(note);
-        if (gone || !mine.deliver) return;
+        // From here Send can no longer take it: it goes to the box, or to
+        // whoever already asked for it.
+        const toBox = !gone && mine.deliver;
+        out(note);
+        if (!toBox) return;
         on.done(note, 'recorded');
         if (why === 'limit') on.say(`Voice notes stop at ${voiceClock(VOICE_MAX_MS)}. This one is in the box.`);
         if (why === 'lost') on.say(`The microphone stopped, so the note ends at ${voiceClock(ms)}. It is in the box.`);
@@ -213,10 +238,10 @@ export function voiceRecording(env: RecordingEnv, key: string, on: {
    * while recording sends it at once. Null when nothing was kept.
    */
   function finish(): Promise<Recorded | null> {
-    const l = live;
+    const l = live ?? stopping;
     if (!l) return Promise.resolve(null);
     l.deliver = false;
-    endLive('done');
+    if (l === live) endLive('done');
     return l.finished;
   }
 
@@ -245,9 +270,26 @@ export function voiceRecording(env: RecordingEnv, key: string, on: {
   async function restore() {
     const drafts = await env.store.list(key).catch(() => []);
     let recovered = 0;
-    for (const d of drafts.sort((a, b) => a.startedAt - b.startedAt)) {
+    for (const listed of drafts.sort((a, b) => a.startedAt - b.startedAt)) {
       if (gone) return;
-      if (env.busy.id === d.id) continue;
+      let d = listed;
+      // Gone out: not offered back, and dropped once an undo is no longer possible.
+      if (d.sentAt) {
+        if (env.now() - d.sentAt > SENT_KEEP_MS) await env.store.remove(d.id).catch(() => {});
+        continue;
+      }
+      // Still being recorded in this window: it belongs to the box recording it.
+      if (env.busy.id === d.id && !finishing.has(d.id)) continue;
+      // Stopped and still being written down: waited for, then left alone if
+      // it is on its way to the box that recorded it.
+      const f = finishing.get(d.id);
+      if (f) {
+        await f.done;
+        if (f.delivers || gone) continue;
+        const now = (await env.store.list(key).catch(() => [])).find((x) => x.id === d.id);
+        if (!now || now.sentAt) continue;
+        d = now;
+      }
       const kept = await env.store.read(d.id).catch(() => null);
       if (!kept || !kept.blob.size) { await env.store.remove(d.id).catch(() => {}); continue; }
       let ms = d.ms ?? 0;
@@ -268,8 +310,8 @@ export function voiceRecording(env: RecordingEnv, key: string, on: {
       : `${recovered} voice notes you were recording when the app closed were kept. They are in the box.`);
   }
 
-  /** A note that has gone out, or was taken out of the box, leaves the store. */
+  /** A note taken out of the box, or that has certainly gone out, leaves the store. */
   const forget = (draftId: string) => env.store.remove(draftId).catch(() => {});
 
-  return { start, stop, finish, cancel, dispose, restore, forget, recording: () => !!live };
+  return { start, stop, finish, cancel, dispose, restore, forget, recording: () => !!live || !!stopping };
 }
