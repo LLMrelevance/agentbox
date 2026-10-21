@@ -2,8 +2,51 @@
 // drawing so they can be tested. tests/a-room-reads-the-way-it-was-approved.
 import type { RoomCard } from '../../types';
 
+/** A chat just started goes beside the room where that panel is drawn; a
+ *  person's page has none, so from there it opens full page, and Back returns. */
+export function whereChatOpens<P extends string>({ open, full, pane }: { open: { id: string; kind: string } | null; full: boolean; pane: P }):
+  { beside: true } | { beside: false; back: { roomId: string; pane: P } | null } {
+  if (!open || full || open.kind === 'group') return { beside: false, back: null };
+  return pane.startsWith('person:') ? { beside: false, back: { roomId: open.id, pane } } : { beside: true };
+}
+
 /** Their page's Activity tab: my own, or a teammate's who shares it. */
 export const activityShown = (c: { me: boolean; teammate: boolean; showActivity: boolean }) => c.me || (c.teammate && c.showActivity);
+
+/** A room drawn as its grid of people, or as a board of their threads. */
+export type RoomView = 'grid' | 'board';
+const VIEW_KEY = 'rooms.view';
+const PICK_KEY = 'rooms.board.people';
+type Store = Pick<Storage, 'getItem' | 'setItem'> | null;
+const local = (): Store => (typeof localStorage === 'undefined' ? null : localStorage);
+
+export function readRoomView(store: Store = local()): RoomView {
+  try { return store?.getItem(VIEW_KEY) === 'board' ? 'board' : 'grid'; } catch { return 'grid'; }
+}
+export function writeRoomView(view: RoomView, store: Store = local()) {
+  try { store?.setItem(VIEW_KEY, view); } catch { /* not kept */ }
+}
+
+/** Who can be on a room's board: whoever's Activity tab I may open. */
+export const boardPeople = <T extends { me: boolean; teammate: boolean; showActivity: boolean }>(wall: readonly T[]) => wall.filter(activityShown);
+
+/** The people picked for a room's board, kept to those still on it. Nobody left means everyone. */
+export function boardPicked(saved: readonly string[] | null | undefined, people: readonly { id: string }[]): string[] {
+  const ids = people.map((p) => p.id);
+  const kept = (saved ?? []).filter((id) => ids.includes(id));
+  return kept.length ? kept : ids;
+}
+
+/** Each room's pick, by room id. */
+export function readBoardPicks(store: Store = local()): Record<string, string[]> {
+  try {
+    const all = JSON.parse(store?.getItem(PICK_KEY) ?? 'null');
+    return all && typeof all === 'object' && !Array.isArray(all) ? all : {};
+  } catch { return {}; }
+}
+export function writeBoardPicks(picks: Record<string, string[]>, store: Store = local()) {
+  try { store?.setItem(PICK_KEY, JSON.stringify(picks)); } catch { /* not kept */ }
+}
 
 /** Their place in the room by agent hours this week; ties share a place. */
 export function weekRank(wall: readonly RoomCard[], id: string): number {
@@ -134,7 +177,7 @@ export function findOrder<T extends { members: number; createdAt: number }>(room
 }
 
 /** My card leaves the wall while I am invisible, so I leave the room's people count too. */
-export const peopleCount =(room: { members: number }, invisible: boolean) => Math.max(0, room.members - (invisible ? 1 : 0));
+export const peopleCount = (room: { members: number }, invisible: boolean) => Math.max(0, room.members - (invisible ? 1 : 0));
 
 /** My card leaves the wall while I am invisible; the chat still needs my name and face. */
 export function withMe<T extends { me: boolean }>(people: readonly T[], me: T | null): T[] {

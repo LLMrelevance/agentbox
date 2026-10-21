@@ -149,6 +149,7 @@ if (verb === 'open') {
     if (!el) return null;
     el.scrollIntoView({ block: 'center' });
     el.click();
+    if (el.matches('input, textarea, select, [contenteditable]')) el.focus();
     return (el.getAttribute('aria-label') || el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 60);
   })()`);
   await report(t, hit === null ? `Nothing numbered or named "${which}" on screen. Run look again.` : `Pressed "${hit}".`);

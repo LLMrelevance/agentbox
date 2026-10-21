@@ -9033,9 +9033,12 @@ body.neo-on.neo-orb-away .ts-panel .ts-foot { opacity: 1; }
 
 /* A picture opened from a thread (components/PictureView.tsx), full screen over the app.
    It is a dark room in every theme, like the reader: the picture is what is lit, so the
-   ink is --read-paper rather than --text, which turns nearly black on the light theme. */
+   ink is --read-paper rather than --text, which turns nearly black on the light theme.
+   no-drag: the corner buttons lie over the window's drag strips, which swallow a press
+   whatever is painted on them. It wins because the view is the last thing on the page. */
 .picture-view { position: fixed; inset: 0; z-index: 9400; outline: none; overflow: hidden;
-  background: var(--read-ground); color: var(--read-paper); animation: pv-in .22s ease-out; }
+  background: var(--read-ground); color: var(--read-paper); animation: pv-in .22s ease-out;
+  -webkit-app-region: no-drag; }
 @keyframes pv-in { from { opacity: 0; } }
 .pv-stage { position: absolute; inset: 86px 104px 116px; z-index: 1; display: flex; align-items: center; justify-content: center; }
 .pv-img { display: block; flex: none; cursor: zoom-in; user-select: none; border-radius: var(--radius); will-change: transform;

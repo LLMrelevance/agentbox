@@ -94,7 +94,8 @@ export function Live({ item, facts }: { item: WorkItem; facts: LiveFacts }) {
   return (
     <div className="live-activity">
       <div className={`live-brief live-${live.state}`}>
-        <LiveMark still={!working} />
+        {/* An agent outside this window is working too; only its steps are not ours to show. */}
+        <LiveMark still={!working && live.state !== 'elsewhere'} />
         {working ? (
           <button type="button" className="live-disclosure" onKeyDown={keepActivityKeyLocal} aria-expanded={expanded}
             aria-controls={detailId} onClick={() => setExpanded(value => !value)}>

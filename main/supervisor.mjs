@@ -1168,6 +1168,8 @@ export class Supervisor {
     let items;
     try { items = this.store.listItems(Date.now()); } catch { return out; }
     let dirty = false;
+    // Rows this sweep will bring back on a later pass. Not stopped (`status`).
+    const held = new Set();
     // IN HER RUNNING ORDER, so when slots are short after a restart the top of
     // it gets its session back first rather than whatever started first
     // (w-6165eb69b4). A record whose row is gone sorts anywhere; it is only
@@ -1213,6 +1215,7 @@ export class Supervisor {
       // that same tick. `_recoverPending` keeps the sweep coming back.
       if (this._preempted.has(itemId)) {
         out.queued += 1;
+        held.add(itemId);
         this._recoverPending = true;
         continue;
       }
@@ -1221,8 +1224,28 @@ export class Supervisor {
       // than reading the missing transcript as a session that is gone.
       if (rec.cloud && !this.transcriptFile(rec) && rec.cwd && cloudWorkPending(place)) {
         this._bringCloudHome(place);
+        if (!rec.sessionId && !rec.reachedTheCloud) { rec.reachedTheCloud = true; dirty = true; }
         out.queued += 1;
+        held.add(itemId);
         this._recoverPending = true;
+        continue;
+      }
+      // CUT OFF BEFORE ITS AGENT SAID ITS ID, AND NOTHING OF IT IN THE CLOUD TO
+      // JOIN. Its relay outlives the app and may still be sending it, so it gets
+      // the time any start gets. After that, or once its run has come home
+      // without a word, there is no session to resume, and its reply goes back
+      // in line as a run on this Mac cut off the same way does.
+      if (rec.cloud && !rec.sessionId) {
+        if (!rec.reachedTheCloud && Date.now() - (rec.startedAt ?? 0) < CLOUD_START_PATIENCE_MS) {
+          out.queued += 1;
+          held.add(itemId);
+          this._recoverPending = true;
+          continue;
+        }
+        if (rec.carrying) this._handledAnswers.delete(rec.carrying);
+        delete this._liveSessions[itemId];
+        this._announcedRecovery.delete(itemId);
+        dirty = true;
         continue;
       }
       if (!this.transcriptFile(rec)) {
@@ -1255,6 +1278,7 @@ export class Supervisor {
       // strand these rows forever on an account she had already fixed.
       if (this._profileResting(this._accountKey(rec.engine, rec.profile))) {
         out.resting += 1;
+        held.add(itemId);
         this._recoverPending = true;
         continue;
       }
@@ -1275,6 +1299,7 @@ export class Supervisor {
       const engine = engineOf(rec.engine);
       if (this._engineCanRun(engine) && !this._roomFor(engine, item)) {
         out.queued += 1;
+        held.add(itemId);
         this._recoverPending = true;
         continue;
       }
@@ -1293,6 +1318,7 @@ export class Supervisor {
       out.resumedIds.push(itemId);
       dirty = true;
     }
+    this._recovering = held;
     if (dirty) this._saveState();
     if (out.resumed || out.waiting || out.queued || out.resting || out.missing) {
       this._lastRecovery = { ...out, at: Date.now() };
@@ -4322,6 +4348,7 @@ export class Supervisor {
       whenOn: this.config.cloudWhenOn === 'all' ? 'all' : 'full',
       accounts: setUp ? this._cloudAccounts() : [],
       signIns: setUp ? this._cloudSignInsNow() : [],
+      projects: setUp ? (this.store.listProducts?.() ?? []).filter((p) => this._cloudTakesProject(p)).map((p) => p.slug) : [],
     };
   }
 
@@ -5090,6 +5117,7 @@ export class Supervisor {
         const first = this._comingHome.get(itemId) !== view;
         this._comingHome.set(itemId, view);
         capture(view, line);
+        if (view.sessionId && !rec.sessionId && this._liveSessions[itemId] === rec) this._learnJoinedSession(itemId, rec, view.sessionId);
         const typed = stream(view, line);
         const doing = activity(view, line);
         let moved = typed || doing;
@@ -5273,7 +5301,12 @@ export class Supervisor {
   _cloudEligible(item) {
     if (!item || String(item.id || '').startsWith('digest-')) return false;
     if (this.threadOnMac?.[item.id] === true || item.id in (this.movedToMac ?? {})) return false;
-    const product = this.store.listProducts?.().find((p) => p.slug === item.product);
+    return this._cloudTakesProject(this.store.listProducts?.().find((p) => p.slug === item.product));
+  }
+
+  // The thread menu's "Keep on this Mac" reads this too, through
+  // `cloudStatus().projects`, so it cannot offer a different set.
+  _cloudTakesProject(product) {
     if (!product?.repoPath && !(product?.dir && this._cloudTakesPlain())) return false;
     return !(this.config.personalProducts || []).includes(product.slug);
   }
@@ -5718,11 +5751,16 @@ export class Supervisor {
     // something went wrong or it means nothing at all.
     // A row in `_preparing` has its mark written and its run on the way.
     const settingUp = (id) => !!this._preparing?.has(id);
+    // NOR IS A ROW A RESTART IS BRINGING BACK: a cloud run followed home, or a
+    // session the startup sweep puts back once it can (`recoverInterrupted`).
+    const heldBySweep = (id) => !!this._recovering?.has(id) && !!this._liveSessions[id] && !this.sessions.has(id);
     let stalled = [];
     try {
       stalled = allThreads()
         .filter((i) => i.status === 'open' && i.answer && i.answer !== '(withdrawn)'
           && !this.sessions.has(i.id) && !settingUp(i.id)
+          && !this._comingHome?.has(i.id)
+          && !heldBySweep(i.id)
           && !answerSettled(i)
           && this._answerDelivered(i))
         .map((i) => i.id);
@@ -5784,6 +5822,7 @@ export class Supervisor {
         .filter((i) => (this._isContinuation(i) && !answerSettled(i) && !this._answerDelivered(i))
           || this._isFreshWork(i, nowTs, autonomous) || settingUp(i.id))
         .map((i) => i.id);
+      for (const id of this._recovering ?? []) if (heldBySweep(id) && !this._comingHome?.has(id) && !queued.includes(id)) queued.push(id);
     } catch {}
     if (this.paused) queued = [];
     let signInNeeded = {};
@@ -5850,6 +5889,9 @@ export class Supervisor {
       })),
       stalled,
       queued,
+      // Left out of `running`, but their claim is ours, not an agent elsewhere
+      // (renderer/src/live-line.ts).
+      remoteHeld: [...this.sessions.values()].filter((s) => s.remoteIdle).map((s) => s.itemId),
       // Waiting tasks she pushed with Run now that have not started yet, so
       // the task can say it is next rather than merely queued.
       runNow: [...this._runNow].filter(([id, r]) => !r.started && !this.sessions.has(id)).map(([id]) => id),
@@ -8758,6 +8800,7 @@ export class Supervisor {
       cloud: where === 'cloud',
     };
     this._noteRunCarrying(item, session, { continuation });
+    if (session.cloud) this._rememberCloudStart(item, session, { continuation });
     // The memory gate's clock counts starts on this Mac only: a cloud start
     // uses none of its memory (Codex's review, 2026-10-13).
     if (this._startsOnThisMac(session)) this._lastStartAt = session.startedAt;
@@ -9147,6 +9190,7 @@ export class Supervisor {
       // about, but it is exactly the session her next reply should go back to.
       // `pruneRowSessions` is what eventually forgets it.
       this.forgetFinishedSession(item, session);
+      this._forgetCloudStartThatLeftNothing(item, session);
       this.noteExitForBackoff(session, { onLine });
       if (session.cloud) this._sayCloudNews(cwd, item);
       const carryingAnswer = continuation && answerAtSpawn;
@@ -9647,6 +9691,40 @@ export class Supervisor {
     delete this._liveSessions[item.id];
     this._saveState();
     return true;
+  }
+
+  // A CLOUD RUN IS REMEMBERED FROM ITS START, not from its session id. The id
+  // comes from the agent once the cloud machine is up, a minute or more later,
+  // and a quit before then left the run going in the cloud with nothing here
+  // to rejoin it. `carrying` is the reply it took, settled when a rejoined run
+  // says its id (`_learnJoinedSession`).
+  _rememberCloudStart(item, session, { continuation = false } = {}) {
+    this._liveSessions[item.id] = {
+      sessionId: null, product: item.product, cwd: session.cwd, profile: session.profile,
+      engine: session.engine, continuation: !!continuation, startedAt: session.startedAt, cloud: true,
+      ...(session.carrying ? { carrying: session.carrying } : {}),
+    };
+    this._saveState();
+  }
+
+  // And forgotten at its end when it never said its id and left nothing in the
+  // cloud: a refused start has nothing to rejoin.
+  _forgetCloudStartThatLeftNothing(item, session) {
+    const rec = this._liveSessions[item.id];
+    if (!session?.cloud || session.idRemembered || !rec || rec.sessionId || rec.startedAt !== session.startedAt) return;
+    if (cloudWorkPending(this._cloudPlace(session.cwd, item.product, item.id))) return;
+    delete this._liveSessions[item.id];
+    this._saveState();
+  }
+
+  // The id a rejoined run says, when it was cut off before saying it here. Kept
+  // so a run whose work does not come home is resumed rather than restarted,
+  // and so the reply it took counts as heard.
+  _learnJoinedSession(itemId, rec, sessionId) {
+    rec.sessionId = sessionId;
+    if (rec.carrying) (this._heardAnswers ??= {})[rec.carrying] = sessionId;
+    this.rememberRowSession({ id: itemId, product: rec.product }, { sessionId, cwd: rec.cwd, profile: rec.profile, engine: rec.engine, startedAt: rec.startedAt });
+    this._saveState();
   }
 
   // A WORKER'S CLOSING MESSAGE IS ITS ANSWER, ON EVERY INSTALL.
