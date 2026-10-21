@@ -5,8 +5,9 @@
 // no word for when, while the room itself can already be the Inbox's board.
 // Measured on the built app: Activity on my page was three lists.
 //
-// Now it is the Inbox's board for that one person, under a line saying it is
-// their threads right now and what was done today. Who may see it is
+// Now it is the Inbox's board for that one person. The caption first put over
+// it ("Your threads right now, and done today") was not wanted: the tab itself
+// says "Today's activity" and the board stands alone. Who may see it is
 // unchanged: me, and a teammate who shares their activity.
 import { describe, it, expect } from 'vitest';
 import React from 'react';
@@ -18,16 +19,16 @@ const card = (id, o = {}) => ({ id, me: false, name: id, avatarUrl: null, headli
 const asked = [];
 const renderBoard = (people) => { asked.push(people); return React.createElement('div', { className: 'th-board' }, `board of ${people.join(',')}`); };
 
-describe('the Activity tab', () => {
+describe('the Today’s activity tab', () => {
   it('is the board of my own threads on my page', () => {
     const html = renderToStaticMarkup(React.createElement(ProfileActivity, { card: card('sam', { me: true, teammate: false }), renderBoard }));
     expect(html).toContain('board of sam');
-    expect(html).toContain('Your threads right now, and done today');
+    expect(html).not.toContain('right now');
   });
   it('is the board of a teammate’s threads on theirs, and only theirs', () => {
     const html = renderToStaticMarkup(React.createElement(ProfileActivity, { card: card('maya', { name: 'Maya C.' }), renderBoard }));
     expect(html).toContain('board of maya');
-    expect(html).toContain('Maya’s threads right now, and done today');
+    expect(html).not.toContain('right now');
     expect(asked.at(-1)).toEqual(['maya']);
   });
 });
@@ -38,11 +39,11 @@ describe('who has the tab', () => {
     return renderToStaticMarkup(React.createElement(ProfilePage, { card: c, room, rooms: [room], cards: [], rank: 1, onRanks: () => {}, renderBoard }));
   };
   it('me, and a teammate who shares it', () => {
-    expect(page(card('sam', { me: true, teammate: false }))).toContain('>Activity<');
-    expect(page(card('maya'))).toContain('>Activity<');
+    expect(page(card('sam', { me: true, teammate: false }))).toContain('>Today’s activity<');
+    expect(page(card('maya'))).toContain('>Today’s activity<');
   });
   it('never someone outside my team, nor a teammate who turned it off', () => {
-    expect(page(card('alex', { teammate: false }))).not.toContain('>Activity<');
-    expect(page(card('theo', { showActivity: false }))).not.toContain('>Activity<');
+    expect(page(card('alex', { teammate: false }))).not.toContain('>Today’s activity<');
+    expect(page(card('theo', { showActivity: false }))).not.toContain('>Today’s activity<');
   });
 });

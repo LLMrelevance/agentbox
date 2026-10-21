@@ -40,7 +40,7 @@ describe('the line', () => {
 
 describe('pointing at it', () => {
   it('picks the month nearest the pointer', () => {
-    // 900 wide, the plot from 52 to 880: four months sit at 52, 328, 604, 880.
+    // 900 wide, the plot from 44 to 880: four months sit at 44, 323, 601, 880.
     expect(pointUnder(52 / 900, 4)).toBe(0);
     expect(pointUnder(330 / 900, 4)).toBe(1);
     expect(pointUnder(470 / 900, 4)).toBe(2);
@@ -64,7 +64,7 @@ describe('drawn', () => {
     expect(chart).not.toContain('class="tip');
   });
   it('the total is written at the end of the line, as plain text', () => {
-    expect(chart).toMatch(/class="end"[^>]*>0\.5 agent hours</);
+    expect(chart).toMatch(/class="end[^"]*"[^>]*>0\.5 agent hours</);
   });
   it('one month of hours draws a line', () => {
     const one = renderToStaticMarkup(React.createElement(HoursChart, { byMonth: months([['2026-10', 0.5]]), total: 0.5 }));
@@ -80,8 +80,8 @@ describe('every number on the page says what it covers', () => {
     expect(html).toContain('In Astral this week');
     expect(html).toContain('On Agentbox all time');
   });
-  it('the chart is all time', () => {
-    expect(html).toContain('Agent hours, all time');
-    expect(html).not.toContain('Agent hours since');
+  // The label floating over the chart read as "a little weird" (2026-10-21).
+  it('no label floats over the chart', () => {
+    expect(html).not.toContain('Agent hours, all time');
   });
 });
