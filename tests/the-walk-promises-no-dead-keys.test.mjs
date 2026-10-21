@@ -314,7 +314,7 @@ describe('the coaching card promises no dead key either', () => {
     // (shared/first-run-practice.mjs) and a digit on a focused row picks AND
     // sends. If this ever became select-then-Enter the card would be promising
     // one key for a two-key move.
-    expect(app).toMatch(/\/\^\[1-9\]\$\/\.test\(e\.key\)\) pickOption\(focused, Number\(e\.key\)\)/);
+    expect(app).toMatch(/\/\^\[1-9\]\$\/\.test\(e\.key\)\) \{ e\.preventDefault\(\); pickOption\(focused, Number\(e\.key\)\); \}/);
   });
 
   // N, which beat four says. C was its twin until it turned to the cloud

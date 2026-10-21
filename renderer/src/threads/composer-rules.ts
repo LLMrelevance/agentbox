@@ -50,9 +50,21 @@ function claudeAliasOf(model: string): string {
 
 const keyOf = (p: ModelPick) => `${p.engine}:${p.model}`;
 
+/** How far back "the ones you use" looks: the last forty threads that named a
+ *  model. A count with no window lets a model you have finished with hold a row
+ *  for ever on the strength of a month nobody remembers. */
+const WINDOW = 40;
+
 /**
- * THE RECENT ROWS: the three most recently used distinct models, newest first,
- * read off the work items she already has.
+ * THE RECENT ROWS: the models you are using now, read off the work items you
+ * already have. The one you picked LAST is first, because that is what Recent
+ * promises; after it, the ones you reach for most often in the window above,
+ * ties going to whichever was used more recently.
+ *
+ * It was the three most recent DISTINCT models and nothing else, and three
+ * one-off picks on replies pushed out the model behind six of that morning's
+ * threads: "I have to go to All models (13 more) to get Opus" (power-test-2,
+ * issue 42).
  *
  * An item that named no model ran on a default nobody chose, so it says nothing
  * about what she uses and is skipped. An item that wrote no engine (it is only
@@ -79,14 +91,21 @@ export function recentModels(
   const used = items
     .filter((i) => typeof i.model === 'string' && i.model)
     .slice()
-    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
-  for (const i of used) {
-    const model = i.model as string;
-    const engine: Harness = i.engine === 'codex' || i.engine === 'claude' ? i.engine : harnessOf(model, codexModels);
-    if (engine === 'codex' && !codexOffered) continue;
-    if (engine === 'claude' && !claudeOffered) continue;
-    add({ engine, model: engine === 'claude' ? claudeAliasOf(model) : model });
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+    .slice(0, WINDOW)
+    .map((i) => {
+      const model = i.model as string;
+      const engine: Harness = i.engine === 'codex' || i.engine === 'claude' ? i.engine : harnessOf(model, codexModels);
+      return { pick: { engine, model: engine === 'claude' ? claudeAliasOf(model) : model }, at: i.createdAt ?? 0 };
+    })
+    .filter(({ pick }) => (pick.engine === 'codex' ? codexOffered : claudeOffered));
+  const tally = new Map<string, { pick: ModelPick; count: number; last: number }>();
+  for (const { pick, at } of used) {
+    const row = tally.get(keyOf(pick)) ?? { pick, count: 0, last: 0 };
+    tally.set(keyOf(pick), { pick, count: row.count + 1, last: Math.max(row.last, at) });
   }
+  if (used[0]) add(used[0].pick);
+  for (const row of [...tally.values()].sort((a, b) => b.count - a.count || b.last - a.last)) add(row.pick);
   // A MAC WITHOUT CLAUDE CODE IS OFFERED NO CLAUDE MODEL (w-db6f5e331e): it
   // has nothing to run one in, and the menu is a list of what it can run.
   if (!claudeOffered) {
@@ -120,6 +139,26 @@ export function moreCount(recent: readonly ModelPick[], all: { claude: readonly 
 export const sameModel = (a: ModelPick | null | undefined, b: ModelPick | null | undefined) =>
   !!a && !!b && a.engine === b.engine && a.model === b.model;
 
+// ONE AGENT IS NOT A CHOICE: there the card keeps the word and the single row
+// it has always drawn (tests/one-coding-agent-draws-nothing-new).
+
+type EngineRow = { id: string; label: string };
+
+/** The agents To offers, or nothing where there is only one. */
+export function agentChoices(engines?: readonly EngineRow[]): { id: Harness; label: string }[] {
+  const rows = engines ?? [];
+  if (rows.length < 2) return [];
+  return rows
+    .filter((e) => e.id === 'claude' || e.id === 'codex')
+    .map((e) => ({ id: e.id as Harness, label: e.label }));
+}
+
+/** The word on the To field: the agent's name, or "Agent" where there is one. */
+export function agentWordFor(engines: readonly EngineRow[] | undefined, engine: Harness): string {
+  const rows = agentChoices(engines);
+  return rows.find((e) => e.id === engine)?.label ?? 'Agent';
+}
+
 /**
  * WHAT A SEND SAYS ABOUT THE HARNESS, by the rules the old card followed and
  * explained at length (components/Compose.tsx, `send`):
@@ -145,6 +184,9 @@ export function harnessFields({ engine, model, effort, engineCount, codexDefault
     ...(effort ? { effort } : {}),
   };
 }
+
+// The same question on a REPLY is ../reply-pick.ts, `pickToSend`: there the
+// row already has answers to it, so every field is explicit and null clears.
 
 /* ------------------------------- send later ------------------------------- */
 

@@ -531,12 +531,20 @@ export const fixtureHistory: Record<string, Array<Record<string, any>>> = {
       },
     },
   ],
+  // AND THE MODEL IT RAN ON, which is a fact of the ledger and so a fact of
+  // this fixture: an answer is signed with the model the row named when the
+  // run that wrote it started (w-e1a42f6b21), and without a model on the
+  // ledger here there was nowhere that could be reviewed.
   'w-p1': [
     {
       id: 'w-p1', ts: now - 17 * min, source: 'agent',
       patch: {
         title: 'Six schedules, no session: something is eating the build menu\'s hour',
         status: 'open', kind: 'task', priority: 2, parent: 'w-p0',
+        // The agent is on the ledger as well as the model, which is what a
+        // card writes on a Mac that offers a choice; on a Mac with one agent
+        // nothing is drawn from it (byline.ts, `ranWords`).
+        model: 'opus', engine: 'claude',
         body: 'The menu has been scheduled six times and has never started. I do not know why yet.',
       },
     },
@@ -560,10 +568,14 @@ export const fixtureHistory: Record<string, Array<Record<string, any>>> = {
       patch: {
         title: 'The card art is finished and nothing is built. The build menu is the step you named before code.',
         status: 'open', kind: 'question', priority: 2,
+        model: 'opus', engine: 'claude',
         body: 'You said "not yet, we still need to design and plan before building."',
       },
     },
     { id: 'w-p0', ts: now - 31 * min, source: 'agent', epoch: 4, claim: { holder: 'mcp-38801', leaseUntil: now - 26 * min }, patch: { status: 'claimed' } },
+    // A finished answer, so the block at the foot of a thread has a fixture
+    // too: it is lifted out of the stream and it wears what wrote it.
+    { id: 'w-p0', ts: now - 28 * min, source: 'agent', epoch: 4, patch: { result: 'The build menu is the step you named before code, and the art is done. Approving this gets you one page that says what it makes.' } },
     { id: 'w-p0', ts: now - 27 * min, source: 'agent', epoch: 4, patch: { status: 'done' } },
   ],
 };

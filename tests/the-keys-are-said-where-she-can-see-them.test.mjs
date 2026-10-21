@@ -109,7 +109,7 @@ describe('the row prints the keys it really has', () => {
   // `view === 'inbox' || view === 'snoozed'`, so both of those print it and the
   // other two print nothing.
   it('prints L only where the reminder picker opens, and never S', () => {
-    expect(listSwitch).toMatch(/case 'l': case 'L':[\s\S]{0,400}view === 'inbox' \|\| view === 'snoozed'/);
+    expect(listSwitch).toMatch(/case 'l': case 'L':[\s\S]{0,600}view === 'inbox' \|\| view === 'snoozed' \|\| view === 'progress'/);
     const views = ['inbox', 'snoozed', 'progress', 'done'];
     expect(views.filter((v) => rowKeys(v).some((k) => k.key === 'L'))).toEqual(['inbox', 'snoozed']);
     expect(views.filter((v) => rowKeys(v).some((k) => k.key === 'S'))).toEqual([]);
@@ -123,7 +123,7 @@ describe('the hint is drawn on the row the keys act on', () => {
     expect(app).toMatch(/case 'Enter': if \(!multiSel\.size && pointed\)/);
     expect(app).toMatch(/else if \(pointed && view === 'inbox'\) markDone\(pointed\)/);
     expect(app).toMatch(/case 'r': case 'R': if \(!multiSel\.size && pointed && view === 'inbox'\)/);
-    expect(app).toMatch(/else if \(pointed && \(view === 'inbox' \|\| view === 'snoozed'\)\) openSnooze\(pointed\)/);
+    expect(app).toMatch(/else if \(pointed && \(view === 'inbox' \|\| view === 'snoozed' \|\| view === 'progress'\)\) openSnooze\(pointed\)/);
   });
 
   it('lets a ticked selection outrank the pointer', () => {

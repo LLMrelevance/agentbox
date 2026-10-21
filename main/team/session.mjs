@@ -62,10 +62,14 @@ export function teamConfigOnThisMac(home = os.homedir()) {
 // checkout, which holds a team key, so it opened on the same sign-in page:
 // "when i run this command i got the login screen again ... this was the
 // critical thing to fix". A new user is a new user of the single-person app.
+// A FRESH COPY HANDED A TEAM FILE IS A SECOND PERSON ON THAT TEAM (2026-10-21):
+// a power tester in her room. It loads that file and no other, so the ⌘K
+// window, which is handed none, stays the single-person app.
 export function loadCloudConfig(appDir, { packaged = isPackagedElectron(), home = os.homedir(), env = process.env } = {}) {
-  if (packaged || runningAsAFreshUser(env)) return null;
-  const tries = [
-    !packaged && process.env.AGENTBOX_TEAM_CONFIG,
+  if (packaged) return null;
+  if (runningAsAFreshUser(env) && !env.AGENTBOX_TEAM_CONFIG) return null;
+  const tries = runningAsAFreshUser(env) ? [env.AGENTBOX_TEAM_CONFIG] : [
+    env.AGENTBOX_TEAM_CONFIG,
     path.join(appDir, 'cloud', 'team.config.json'),
     teamConfigOnThisMac(home),
   ];

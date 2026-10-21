@@ -1,5 +1,6 @@
 import { openSourceFile } from './open-source-file.mjs';
 import {submitReply} from './live-replies.mjs';
+import { whyItCannotMove } from '../shared/move-thread.mjs';
 import { createEngineSetup } from './engine-setup.mjs';
 // IPC: a thin, typed-by-convention surface. The renderer asks; the main
 // process derives from files and answers. Pushes go one way: "state changed,
@@ -41,7 +42,7 @@ import { readDoc, writeDoc } from './doc-file.mjs';
 import { readChange } from './code-change.mjs';
 import { findFile, readCodeFile, writeCodeFile } from './code-file.mjs';
 import { readNote, writeNote } from './rail-note.mjs';
-import { addClaudeAccount, addCodexAccount, cornerTagTurnedOff, countsTurnedOff, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, recheckClaude, recheckCodex, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
+import { addClaudeAccount, addCodexAccount, alphaFeatures, cornerTagTurnedOff, countsTurnedOff, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, recheckClaude, recheckCodex, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
 import { ICON_KINDS, clearProjectIcon, setProjectIcon, setProjectName } from './project-identity.mjs';
 import { ClaudeUsage } from './claude-usage.mjs';
 import { AccountUsage } from './account-usage.mjs';
@@ -100,6 +101,8 @@ const NO_UPDATER = {
   // is a copy run from source (shared/where-it-runs-from.mjs).
   move: () => ({ moved: false, error: null }),
 };
+
+const ROOM_OPS = new Set(['refresh', 'send', 'markRead', 'older', 'saveProfile', 'goInvisible', 'comeBack', 'link', 'revokeLink', 'preview', 'listed', 'invitesSent', 'joinByLink', 'joinListed', 'acceptInvite', 'invite', 'create', 'rename', 'leave', 'remove', 'pin', 'mute']);
 
 export function registerIpc({ store, supervisor, config, window, analytics = NO_ANALYTICS, docGrants = null, updater = NO_UPDATER, host, team = null }) {
   // The three Electron things, or a plain Node stand-in for them. There is no
@@ -444,6 +447,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       // title-free activity of their private work. Null on a build with no
       // team cloud, which is the single-person app.
       team: team ? team.state() : null,
+      // Which alpha features are on (Settings, Alpha features).
+      alpha: alphaFeatures(config),
       agents: liveAgents(),
       approvals: approvals.listPending(config.storeRoot),
       supervisor: running,
@@ -619,7 +624,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // answered at once (supervisor.sendNow).
   ipcMain.handle('zero:send-now', (_e, { product, id }) => supervisor.sendNow(product, id));
 
-  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, model, effort, now, inReplyTo, fromPhone }) => {
+  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, engine, model, effort, now, inReplyTo, fromPhone }) => {
     if (isAgentRow(id)) return { ok: false };
     // A level picked from ⌘K arrives here with no words, and gives way the
     // same as one picked on the summary (zero:thread-edit). A reply that
@@ -666,7 +671,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     // handing them over in one call and writing the model afterwards would be a
     // race the run usually wins, so she would pick a model and watch the old one
     // take the task. `answerItem` writes both, and it writes the model first.
-    const out = await submitReply(supervisor,{product,id,answer,status,permissionMode,now:!!now},()=>store.answerItem(product, id, { answer, status, priority, permissionMode, model, effort, inReplyTo: thread, fromPhone }));
+    const out = await submitReply(supervisor,{product,id,answer,status,permissionMode,now:!!now},()=>store.answerItem(product, id, { answer, status, priority, permissionMode, engine, model, effort, inReplyTo: thread, fromPhone }));
     // A REPLY ON A ROW A TEAMMATE GAVE YOU HANDS IT BACK TO THEM, so the
     // conversation moves to their inbox instead of sitting in both
     // (shared/team-rules.mjs handedOnByReply). Archiving hands nothing on.
@@ -799,6 +804,19 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // A MESSAGE TO A PERSON (approved 2026-10-01: people get messages, never
   // tasks). main/team/index.mjs keeps it between the two of them.
   ipcMain.handle('zero:team-message', teamCall(({ to, body, priority, files }) => team.message(to, body, priority, files)));
+  // ROOMS (alpha): one door, and only these calls through it (main/team/rooms.mjs).
+  ipcMain.handle('zero:rooms', async (_e, { op, args = [] } = {}) => {
+    const rooms = team?.rooms;
+    if (!rooms) return { ok: false, error: 'This build has no team cloud set up.' };
+    if (!ROOM_OPS.has(op)) return { ok: false, error: `no room call named ${op}` };
+    try {
+      const value = await rooms[op](...(Array.isArray(args) ? args : [args]));
+      push();
+      return { ok: true, value: value ?? null, rooms: rooms.state() };
+    } catch (err) {
+      return { ok: false, error: String(err?.message ?? err), rooms: rooms.state() };
+    }
+  });
   // AN EDIT TO A THREAD, MADE IN PLACE from its summary: the summary's lines,
   // who sees it, its priority and what it is linked to. Works with or without a
   // team, since every thread has a summary.
@@ -814,6 +832,26 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       return { ok: false, error: String(err?.message ?? err) };
     }
   });
+  // MOVE A THREAD TO ANOTHER PROJECT (w-c9da359466). Only a thread nothing has
+  // ever run on: shared/move-thread.mjs says why, and the store asks again.
+  // The one fact only this side has is whether a worker is inside it right
+  // now, which no field on the row can stand in for.
+  ipcMain.handle('zero:move-item', (_e, { product, id, to }) => {
+    try {
+      const live = supervisor.status().running.some((r) => r.itemId === id);
+      if (live) {
+        const why = whyItCannotMove(store.readItem(product, id), { live: true });
+        return { ok: false, error: why };
+      }
+      const out = store.moveItem(product, id, to);
+      push();
+      supervisor.wake();
+      return { ok: true, ...out };
+    } catch (err) {
+      return { ok: false, error: String(err?.message ?? err) };
+    }
+  });
+
   // A TASK A TEAMMATE GAVE YOU, ROUTED WITH ONE KEY. To an agent: it runs on
   // your Mac (you become its runner). Keep it: it stays yours and the routing
   // choices go away. Hand it back: it returns to whoever gave it to you.
@@ -1678,6 +1716,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       // Before the save: once the switch is off, nothing leaves, not even this.
       if (countsTurnedOff(payload)) { analytics.track('counts_turned_off'); analytics.flush(); }
       setWorkspaceSetting({ config, supervisor, store }, payload ?? {});
+      if (payload?.key === 'alphaRooms') team?.rooms?.tick().catch(() => {});
       if (cornerTagTurnedOff(payload)) analytics.track('tag_turned_off');
       push();
       return { ok: true, ...readSettings({ config, supervisor, store }) };
