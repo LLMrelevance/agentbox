@@ -8,8 +8,8 @@ import './rooms.css';
 
 export type RoomMenuAction = 'read' | 'unread' | 'invite' | 'members' | 'ranks' | 'pin' | 'unpin' | 'mute' | 'unmute' | 'leave';
 
-export function RoomsNav({ rooms, openId, folded, collapsed, onFold, onOpen, onPin, onMenu, onNewRoom }: {
-  rooms: Room[]; openId: string | null; folded: boolean; collapsed: boolean;
+export function RoomsNav({ rooms, openId, folded, onFold, onOpen, onPin, onMenu, onNewRoom }: {
+  rooms: Room[]; openId: string | null; folded: boolean;
   onFold: () => void; onOpen: (id: string) => void; onPin: (id: string, on: boolean) => void;
   onMenu: (id: string, action: RoomMenuAction, anchor: DOMRect) => void; onNewRoom: () => void;
 }) {
@@ -22,7 +22,7 @@ export function RoomsNav({ rooms, openId, folded, collapsed, onFold, onOpen, onP
     {!folded && <nav className="workspace-tabs rm-nav" aria-label="Rooms">
       {rooms.map((r) => <button type="button" key={r.id}
         className={`workspace-tab${openId === r.id ? ' active' : ''}${menu?.id === r.id ? ' menu-open' : ''}`}
-        aria-current={openId === r.id ? 'page' : undefined} title={collapsed ? r.name : undefined}
+        aria-current={openId === r.id ? 'page' : undefined}
         onClick={() => onOpen(r.id)}>
         {I.room()}<span className={r.muted ? 'rm-muted' : undefined}>{r.name}</span>
         <span className="rm-c">

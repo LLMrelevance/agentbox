@@ -161,7 +161,7 @@ import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
 import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, flipView, isDirect, nextTab, pageDisplay, pageFor, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
-import { mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
+import { inboxEveryone, mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
 import { boardStops, listStops, stepFromPlace, stepStop, stopKey, type Stop } from './threads/walk-rules';
 import { opensTheToast, toastOpens, toastParts, type ToastGoes } from './toast-parts';
 
@@ -2385,11 +2385,14 @@ export default function App() {
   // WHOSE THREADS ARE ON THE PAGE (w-05ff3d1438): the faces on the header's
   // View and filters button (w-14bb56c833). The Inbox and the Team page were one question on two pages; this
   // is the one page, and it opens as yours. Remembered between launches.
+  // With Rooms on, teammates' threads are on a room's board instead, and the
+  // pick kept here waits untouched for Rooms going off.
+  const roomsOn = !!snap?.alpha?.rooms && !!snap?.team?.rooms?.on;
   const everyone = useMemo(() => {
     if (!team) return [];
     const people = [...team.byId.values()];
-    return team.state.me && !team.byId.has(team.state.me.id) ? [team.state.me, ...people] : people;
-  }, [team]);
+    return inboxEveryone(team.state.me && !team.byId.has(team.state.me.id) ? [team.state.me, ...people] : people, team.me, roomsOn);
+  }, [team, roomsOn]);
   const [pickedRaw, setPickedRaw] = useState<string[] | null>(() => readPicked());
   const picked = useMemo(() => normalizePicked(pickedRaw, team?.me ?? null, everyone.map((p) => p.id)), [pickedRaw, team?.me, everyone]);
   const setPicked = useCallback((next: string[]) => { setPickedRaw(next); writePicked(next); setSelected(0); }, []);
@@ -3451,7 +3454,6 @@ export default function App() {
 
   // ROOMS (alpha, team/rooms/useRooms.tsx). A room open is drawn in place of
   // the list, so it shows only where the list would.
-  const roomsOn = !!snap?.alpha?.rooms && !!snap?.team?.rooms?.on;
   const directs = useMemo(() => (roomsOn ? directConversations({
     items, products: snap?.products ?? [], me: snap?.team?.me?.id ?? null,
     people: new Map((snap?.team?.people ?? []).map((p) => [p.id, p])), waiting: new Set(inbox.map((i) => i.id)),
@@ -3477,6 +3479,10 @@ export default function App() {
       setComposeInitial({ to: ids[0], also: ids.slice(1) });
       setModal('compose');
     },
+    // A teammate's card opens over the room, and Back comes back to it.
+    renderBoard: (people) => <InboxBoard items={items} products={snap?.products ?? []} display={DEFAULT_DISPLAY.team} now={now} stateOf={stateOfMine} projectOrder={projectOrder}
+      cards={cards} picked={people} onOpenCard={openTeammateCard} columnOrder={columnOrder} onReorderColumns={reorderColumns}
+      onOpenItem={(item) => { setFocused(item); markSeen(item); }} />,
   });
   const roomShown = !!roomsUi.openId && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
   // A conversation with people, open full page, sits on the messages page.
@@ -5046,10 +5052,11 @@ export default function App() {
       // A ROOM OWNS THE KEYBOARD WHILE IT IS OPEN, as Settings does: the list
       // behind it is not on the screen. Escape goes back to the threads and
       // Tab walks on along the tabs. N goes on to the room's branch below the
-      // guard, because it opens a text field.
+      // guard, because it opens a text field. B flips grid and board, as on the Inbox.
       if (roomShown && e.key !== 'Tab' && e.key !== 'n' && e.key !== 'N') {
         if (roomsUi.dialogOpen || modal || inInput || e.metaKey || e.ctrlKey || e.altKey) return;
         if (e.key === 'Escape') { e.preventDefault(); roomsUi.close(); }
+        if ((e.key === 'b' || e.key === 'B') && roomsUi.flipView) { e.preventDefault(); roomsUi.flipView(); }
         return;
       }
       // ⌘J SHOWS AND HIDES THIS TASK'S TERMINAL.It is the chord VS Code,
@@ -6156,6 +6163,7 @@ export default function App() {
               onCloudWhenOn={(mode) => { void api.setWorkspaceSetting({ key: 'cloudWhenOn', value: mode }); }}
               onCloudSetUp={() => setCloudSetupOpen(true)}
               filters={!roomShown}
+              view={roomShown ? roomsUi.viewButton : null}
             />
           ))}
           {!workspaceNavigation && !focused && !settingsOpen && !inPractice && (
@@ -6303,10 +6311,11 @@ export default function App() {
                      same summary fields, and Message Maya in its top bar. */
                   <div className="th-card-page">
                     <div className="th-card-bar">
-                      {/* Back to Threads, with the same people picked. The
-                          page is called Threads since w-05ff3d1438: once a
-                          teammate is on it, it is more than an inbox. */}
-                      <button type="button" className="th-back" onClick={() => { setOpenCard(null); setTeamOpen(false); }}><span aria-hidden="true">←</span>Threads</button>
+                      {/* Back to Threads, with the same people picked, or to
+                          the room whose board it was opened from. The page is
+                          called Threads since w-05ff3d1438: once a teammate is
+                          on it, it is more than an inbox. */}
+                      <button type="button" className="th-back" onClick={() => { setOpenCard(null); setTeamOpen(false); }}><span aria-hidden="true">←</span>{roomsUi.roomName ?? 'Threads'}</button>
                       <MessagePerson person={team?.byId.get(openCard.personId) ?? null}
                         onMessage={() => {
                           const convo = conversationWith(openCard.personId, { products: snap.products, items, me: team?.me ?? null });

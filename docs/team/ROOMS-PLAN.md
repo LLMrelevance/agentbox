@@ -436,3 +436,9 @@ Rooms paragraph in this work.
   built: rooms have no description line in Find rooms, a team room has no
   Leave in its menu (you leave by leaving the team), and Start a room offers
   Find a room to join, since the plus beside Rooms became New room.
+- A room can be a board (w-49cd37092c). The header's View button, the one the
+  Inbox has, switches a room between Grid and Board, and B does the same. The
+  board holds you and the teammates whose Activity you may open, and its People
+  line narrows it. With Rooms on, the Inbox shows only your own threads: its
+  People line and the faces on its button are gone, and the pick it kept comes
+  back if Rooms is turned off.

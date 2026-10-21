@@ -72,6 +72,14 @@
 .rm-selbar { position: sticky; bottom: 0; margin: 16px auto 0; width: max-content; z-index: 6; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 12px; font-size: 13px; color: var(--text); white-space: nowrap; }
 .rm-selbar .faces { display: flex; }
 .rm-selbar .x { color: var(--text-faint); display: flex; background: none; border: 0; padding: 4px; }
+/* The room as a board: the Inbox's board at its own column width. Where the
+   chat leaves too little room it scrolls sideways rather than squeezing. The
+   right gap is the board's own, so it is still there at the end of a scroll. */
+.rm-main.board { overflow: auto; padding-right: 0; }
+.rm-main.board > .rm-notice { margin-right: 24px; }
+.rm-main.board .th-board { padding: 0 24px 0 0; }
+.th-pop.rm-viewpop { width: max-content; max-width: 470px; }
+.rm-viewnote { font-size: 12px; color: var(--text-faint); }
 
 /* the chat */
 .rm-chat { width: 360px; flex: none; border-left: 1px solid var(--rm-line); display: flex; flex-direction: column; min-height: 0; position: relative; }

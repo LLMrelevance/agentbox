@@ -6,7 +6,8 @@ import { api } from '../../api';
 import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
 import { RoomsNav, useOutside, type RoomMenuAction } from './RoomsNav';
 import { RoomTabs } from './RoomTabs';
-import { cardName, roomTabs, tabWalk, withMe } from './room-rules';
+import { boardPeople, boardPicked, cardName, readBoardPicks, readRoomView, roomTabs, tabWalk, withMe, writeBoardPicks, writeRoomView, type RoomView } from './room-rules';
+import { RoomViewButton } from './RoomView';
 import { landed, sameMessages } from './room-chat-rules';
 import { RoomPage, type RoomPane } from './RoomPage';
 import { RoomChat, peopleOf } from './RoomChat';
@@ -29,7 +30,7 @@ type Dialog =
 
 type Direct = Conversation & { people: string[] };
 
-export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, teamCards = [], directs = [], now, toast, onOpenDirect, onDirectRead, onTeamMessage, onLeavePage }: {
+export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, teamCards = [], directs = [], now, toast, onOpenDirect, onDirectRead, onTeamMessage, onLeavePage, renderBoard }: {
   rooms: RoomsState | null | undefined; on: boolean; meId: string | null; myName: string; fullName?: string; hasTeam: boolean; teamCards?: ThreadCard[];
   /** Direct records, for the messages page and the chat switcher. */
   directs?: Direct[];
@@ -42,6 +43,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   onTeamMessage: (personIds: string[]) => void;
   /** Leave whatever covers the rooms: an open thread or direct chat, the Team page, search. */
   onLeavePage: () => void;
+  /** The Inbox's board, for these people's threads. */
+  renderBoard?: (people: string[]) => ReactNode;
 }) {
   const live = on && !!rooms?.on;
   const all = live ? rooms!.rooms : [];
@@ -54,6 +57,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [switcher, setSwitcher] = useState<DOMRect | null>(null);
   const [folded, setFolded] = useState(() => { try { return localStorage.getItem(FOLD_KEY) === '1'; } catch { return false; } });
+  const [view, setViewRaw] = useState<RoomView>(() => readRoomView());
+  const [boardPicks, setBoardPicks] = useState<Record<string, string[]>>(() => readBoardPicks());
   const [dialog, setDialog] = useState<Dialog>(null);
   const [members, setMembers] = useState<{ roomId: string; at: DOMRect } | null>(null);
   const [links, setLinks] = useState<Record<string, string>>({});
@@ -252,10 +257,11 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
         {I.chatNav()}<span>Messages</span>{unreadChats > 0 && <small className="workspace-running" aria-label={`${unreadChats} unread`}>{unreadChats}</small>}
       </button>
     </nav>
-    <RoomsNav rooms={list} openId={open?.kind === 'group' || full ? null : openId} folded={folded} collapsed={collapsed}
+    {/* Narrow, every room is the same # and cannot be told apart, so the strip stops at Messages. */}
+    {!collapsed && <RoomsNav rooms={list} openId={open?.kind === 'group' || full ? null : openId} folded={folded}
       onFold={() => setFolded((f) => { try { localStorage.setItem(FOLD_KEY, f ? '0' : '1'); } catch { /* not kept */ } return !f; })}
       onOpen={(id) => openRoom(id)} onPin={(id, pin) => void call('pin', id, pin)} onMenu={(id, a, at) => void menu(id, a, at)}
-      onNewRoom={() => setDialog({ kind: 'start' })} />
+      onNewRoom={() => setDialog({ kind: 'start' })} />}
   </> : null;
 
   const tabs: ReactNode = live ? <RoomTabs rooms={list} openId={open?.kind === 'group' ? null : openId} invisible={invisibleUntil > now} onOpen={(id) => openRoom(id)} /> : null;
@@ -281,6 +287,22 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     <button type="button" className="rm-backt" title="Back (esc)" onClick={close}>{I.back()}<span>{title}</span></button></h1>;
   let heading: { title: ReactNode; right?: ReactNode } | null = null;
   let page: ReactNode = null;
+  // THE ROOM AS A BOARD: the Inbox's board, for the people here whose threads
+  // reach me. Only on the room itself, never over a person, the ranks or a chat.
+  const onRoom = !!open && !!rooms && !full && open.kind !== 'group' && pane === 'wall' && !finding && !noChats;
+  const onBoardPeople = onRoom ? boardPeople(open!.wall) : [];
+  const onBoardPicked = onRoom ? boardPicked(boardPicks[open!.id], onBoardPeople) : [];
+  const setView = (next: RoomView) => { setViewRaw(next); writeRoomView(next); };
+  const pickForBoard = (ids: string[]) => {
+    if (!open) return;
+    const next = { ...boardPicks, [open.id]: ids };
+    setBoardPicks(next);
+    writeBoardPicks(next);
+  };
+  const board = onRoom && view === 'board' && renderBoard ? renderBoard(onBoardPicked) : null;
+  const viewButton: ReactNode = onRoom && renderBoard
+    ? <RoomViewButton view={view} onView={setView} people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} />
+    : null;
   if (noChats && live) {
     heading = { title: backTitle('Messages'), right: null };
     page = <MessagesPage list={[]} onKey={null} now={now} onPick={pick} onAction={(c, a) => void act(c, a)}>
@@ -302,7 +324,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     } else {
       if (pane.startsWith('person:')) heading = { title: backTitle(open.name) };
       page = <RoomPage room={open} rooms={list} cards={teamCards} ranks={rooms.ranks ?? {}} me={rooms.me} now={now}
-        pane={pane} link={links[open.id] ?? null} onPane={setPane} chat={chatPanel(chatRoom ?? open, false)}
+        pane={pane} link={links[open.id] ?? null} onPane={setPane} chat={chatPanel(chatRoom ?? open, false)} board={board}
         picked={picked} onPick={(ids) => setPicked(new Set(ids))} onMessage={(ids) => void message(ids, open)}
         onComeBack={() => void call('comeBack')} onCopyLink={() => void copyLink(open.id)} />;
     }
@@ -377,6 +399,10 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     live, openId: open ? openId : finding && live ? 'find' : noChats && live ? 'messages' : null, openMessages, open: (id: string) => openRoom(id), close, leave, find, nav, tabs, page, dialogs, join, walk, invisible, settingsPane,
     mentions, openMention, faces, messagesShell, full, heading,
     dialogOpen: !!dialog || !!members || !!switcher,
+    /** The header's View button over a room, and B. Null anywhere else in rooms. */
+    viewButton, flipView: viewButton ? () => setView(view === 'board' ? 'grid' : 'board') : null,
+    /** The room a teammate's card was opened over, for its Back. */
+    roomName: open && !full && open.kind !== 'group' ? open.name : null,
   };
 }
 
