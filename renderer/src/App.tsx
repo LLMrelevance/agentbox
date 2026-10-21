@@ -6492,7 +6492,7 @@ export default function App() {
                   onStop={() => stopAgent(focused)}
                   onRunNow={() => runNow(focused)}
                   onPin={focused.agent ? undefined : (pin) => pinThread(focused.id, pin, true)}
-                  place={focused.agent ? null : threadPlace(focused, snap.supervisor.running.find((r) => r.itemId === focused.id) ?? null, snap.cloud ?? null, snap.products)}
+                  place={focused.agent ? null : threadPlace(focused, snap.supervisor.running.find((r) => r.itemId === focused.id) ?? null, snap.cloud ?? null)}
                   onPlace={(keep) => {
                     void api.setThreadOnMac({ [focused.id]: keep ? true : null });
                     showToast(keep ? 'This thread now runs only on this Mac' : 'This thread can run on the cloud again');
