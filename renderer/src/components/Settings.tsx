@@ -35,7 +35,7 @@ import { InstructionSettings, sizeLabel } from './InstructionSettings';
 import { NeoSettings } from '../neo/NeoSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
-import { accountLabel, countedAccounts, type CloudStatus } from '../cloud-menu';
+import { accountLabel, cloudAccountInUse, countedAccounts, type CloudStatus } from '../cloud-menu';
 import { planCards, usageLine, usedPercent, type PaidPlan } from '../cloud-upgrade';
 import type { CloudPlan } from '../types';
 import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
@@ -534,16 +534,25 @@ export function Place({ id, name, state = null, line = null, action, warn, accou
   );
 }
 
-/** The cloud's own logins, as a place card reads them. */
+/**
+ * The cloud's own logins, as a place card reads them. IT NAMES THE ONE IT RUNS
+ * ON AND CALLS THE REST SIGNED IN (w-dac993a554): every tile said "Ready",
+ * which was true while runs rotated over all of them and is a promise of work
+ * that will never start there now that one account runs.
+ */
 export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex', now: number): PlaceAccount[] {
   const all = cloud.accounts ?? [];
+  const inUse = cloudAccountInUse(all, engine);
   // A login of an account already added is the same account, and the cloud never runs on it.
   return countedAccounts(all).filter((a) => a.engine === engine).map((a) => {
+    const live = a.key === inUse?.key;
     const state = cloudAccountState(a, now);
     const read = !!a.limits?.length;
     // A full meter already says when it is back, so beside one the state is said short.
-    const about = read && state.startsWith('At its limit') ? 'At its limit' : state;
-    return { key: a.key, name: accountLabel(a, all), plan: a.plan ?? null, about: [about], limits: a.limits ?? null, meters: read, checkedAt: read ? a.readAt : null };
+    const about = read && state.startsWith('At its limit') ? 'At its limit'
+      : !live && state === 'Ready' ? 'Signed in'
+      : state;
+    return { key: a.key, name: accountLabel(a, all), plan: a.plan ?? null, about: [about], inUse: live, limits: a.limits ?? null, meters: read, checkedAt: read ? a.readAt : null };
   });
 }
 
@@ -1803,6 +1812,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                 /* TWO FOLDERS, ONE SUBSCRIPTION, SAID ABOVE THE ROWS
                    (w-f2a5c9894e). Main's sentence, about the pair. */
                 warn={w.accountsNote}
+                /* WHY A SECOND ACCOUNT BUYS NO MORE AGENTS, said only where
+                   somebody can see two of their own (w-dac993a554). */
+                line={hereAccounts.length > 1 ? 'Your agents run on one account at a time.' : null}
                 accounts={hereAccounts}
                 now={now}
                 onAdd={() => void addAccount(agent)}

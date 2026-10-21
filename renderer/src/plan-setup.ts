@@ -37,7 +37,7 @@ export const COPY = {
   both: 'Both',
   // NOT "whichever has room left", which was the walk's first word on the
   // subject of usage limits and read as a way around them (w-dac993a554).
-  bothPlans: 'A plan with each of them',
+  bothPlans: 'A paid plan with each',
   /*
    * THE ANSWER FOR SOMEBODY WHO ALREADY HAS ONE (w-ce8c1a9275). The search asks
    * their own login shell first and then looks in sixteen places, which between

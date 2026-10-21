@@ -45,10 +45,14 @@ describe('a tile on this computer', () => {
 });
 
 describe('a tile in the cloud', () => {
-  it('has the same lines, and no switch: the cloud takes its accounts in turn', () => {
+  // IN USE, AS THIS COMPUTER'S TILES SAY IT (w-dac993a554). The cloud used to
+  // take its accounts in turn, so no tile could claim to be the one; it runs
+  // on one account now, and the tiles are still one-to-one with this
+  // computer's apart from the switch, which the cloud has nowhere to put.
+  it('has the same lines and says which account runs, with no switch on it', () => {
     const [a] = cloudPlaceAccounts({ mode: 'all', accounts: [{ engine: 'claude', key: 'c', name: 'one@example.test', plan: 'Max 20x', ready: true, state: 'ready', limits: [limit('session', 5)] }] }, 'claude', Date.now());
     const html = draw([a]);
-    expect(html).toMatch(/acct-tile-name">one@example\.test<\/span><span class="acct-tile-plan">Max 20x/);
+    expect(html).toMatch(/acct-tile-name">one@example\.test<\/span><span class="set-badge">In use<\/span><span class="acct-tile-plan">Max 20x/);
     expect(html).toContain('<div class="acct-tile-about">Ready</div>');
     expect(html).not.toContain('acct-switch');
   });
