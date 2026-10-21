@@ -207,7 +207,13 @@ const byFinished = (a: Ranked, b: Ranked) => finishedAt(b) - finishedAt(a);
 // THE DONE TAB IS A HISTORY, NOT A QUEUE (w-c61f5bf497). Under Sort by Priority
 // it was a wall of Urgent rows in no order a reader could follow, and nothing
 // in it is waiting on a priority any more. So Done always runs newest finished
-// first, and every other tab keeps the Display's sort.
+// first.
+//
+// AND IN PROGRESS RUNS NEWEST SENT FIRST (w-21b638d821). It is where you go to
+// find what you just sent, and in the fleet's order that was often halfway
+// down. Nothing in it waits on you, so it reads by when you last wrote.
+// `running` is its column on the board. Needs you and Later keep the Display's
+// sort.
 type Cmp = (a: Ranked, b: Ranked) => number;
 //
 // A PINNED THREAD COMES FIRST (w-20323283e6), in every tab but Done and under
@@ -218,6 +224,7 @@ const pinnedOpen = (r: Ranked) => (r.pinned && r.status !== 'done' ? 1 : 0);
 const pinnedFirst = (then: Cmp): Cmp => (a, b) => pinnedOpen(b) - pinnedOpen(a) || then(a, b);
 export const order = (d: Pick<Display, 'sort'>, tab?: string, projectOrder: string[] = [], direct?: ReadonlySet<string>): Cmp => {
   if (tab === 'done') return byFinished;
+  if (tab === 'progress' || tab === 'running') return pinnedFirst(bySent);
   return pinnedFirst(d.sort === 'updated' ? bySent : byPriority(projectOrder, direct));
 };
 

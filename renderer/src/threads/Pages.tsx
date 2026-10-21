@@ -341,9 +341,11 @@ export function DisplayMenu({ page, display, onDisplay, products, items = [], sh
     <div className="line"><span className="lab">Sort by</span><span className="opts">
       <button type="button" className={display.sort === 'priority' ? 'on' : ''} onClick={() => set({ sort: 'priority' })}>Priority</button>
       <button type="button" className={display.sort === 'updated' ? 'on' : ''} onClick={() => set({ sort: 'updated' })}>Sent</button>
-      {/* Done ignores this, on purpose (w-c61f5bf497), and says so where the
-          choice is made rather than leaving the list to look broken. */}
+      {/* Done and In progress ignore this, on purpose (w-c61f5bf497,
+          w-21b638d821), and say so where the choice is made rather than
+          leaving the list to look broken. */}
       {tab === 'done' && <span className="th-pop-note">Done runs newest first</span>}
+      {tab === 'progress' && <span className="th-pop-note">In progress runs newest sent first</span>}
     </span></div>
     <div className="rule" />
     <div className="line"><span className="lab">Priority</span><span className="opts">
@@ -908,7 +910,7 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
     <div className={`th-board${dragging ? ' dragging' : ''}`} ref={boardRef}>
     {columns.map((col) => {
       const rows = col.rows;
-      const movable = !!onPlaces && col.state !== 'done' && display.sort === 'priority';
+      const movable = !!onPlaces && col.state !== 'done' && col.state !== 'running' && display.sort === 'priority';
       return <div key={col.state} className={`th-col${dragging === col.state ? ' lifted' : ''}`} data-drag-scope=""
         ref={(el) => { if (el) colEls.current.set(col.state, el); else colEls.current.delete(col.state); }}>
         {/* Your own board says what the tab says: what waits on you needs you.
