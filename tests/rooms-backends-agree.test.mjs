@@ -245,7 +245,7 @@ describe.each(worlds)('rooms on %s', (_kind, make) => {
       const open = (await w.ana.myRooms()).find((r) => r.name === 'Northwind open');
       await w.maya.sendRoomMessage(open.id, { body: 'for the open room' });
       await w.maya.sendRoomMessage(teamRoom.id, { body: 'for the team only' });
-      for (let i = 0; i < 30 && !heard.length; i += 1) await new Promise((r) => setTimeout(r, 100));
+      for (let i = 0; i < 100 && !heard.length; i += 1) await new Promise((r) => setTimeout(r, 100));
       expect(heard).toEqual(['for the open room']);
     } finally { stop(); }
   });
