@@ -34,7 +34,7 @@ describe('a Claude login in the cloud', () => {
     expect(one).toMatchObject({ name: 'work@example.test', plan: 'Max 20x' });
     // Drawn as an account signed in only there, so the plan can only have come from the cloud's login.
     const tiles = accountsOnce({ here: [], cloud: [one] }).map((a) => accountTile(a, { picked: false, many: false, now: Date.now(), onUse: () => {}, cloud: true }));
-    expect(renderToStaticMarkup(React.createElement(PlaceTiles, { accounts: tiles }))).toContain('<div class="acct-tile-about"><span>Max 20x · Cloud only</span></div>');
+    expect(renderToStaticMarkup(React.createElement(PlaceTiles, { accounts: tiles }))).toContain('<div class="acct-tile-about"><span>Max 20x</span><span class="acct-place">');
   });
 
   it('each login takes its own folder’s plan', () => {
@@ -53,6 +53,6 @@ describe('a Claude login in the cloud', () => {
     const [one] = supervisor(['default'])._cloudAccounts();
     expect(one.plan).toBeNull();
     const tiles = accountsOnce({ here: [], cloud: [one] }).map((a) => accountTile(a, { picked: false, many: false, now: Date.now(), onUse: () => {}, cloud: true }));
-    expect(renderToStaticMarkup(React.createElement(PlaceTiles, { accounts: tiles }))).toContain('<div class="acct-tile-about"><span>Cloud only</span></div>');
+    expect(renderToStaticMarkup(React.createElement(PlaceTiles, { accounts: tiles }))).toContain('<div class="acct-tile-about"><span class="acct-place">');
   });
 });

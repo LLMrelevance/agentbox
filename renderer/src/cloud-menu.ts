@@ -50,8 +50,6 @@ export interface CloudAccount {
   plan?: string | null;
   /** That folder, when it holds the same subscription: the two share one reading. */
   profile?: string | null;
-  /** Its organization has been read, so no folder here holding it means none does. */
-  identified?: boolean;
   /** Why the cloud's last look at it failed, when no look has read it since. */
   readError?: string | null;
 }

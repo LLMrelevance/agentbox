@@ -53,6 +53,7 @@ import { TaskTerminal } from './TaskTerminal';
 import { ProjectsPage } from './ProjectsPage';
 import { searchSettings, SETTINGS_PAGES, type SettingsHit, type SettingsPageId } from '../settings-search';
 import type { Product } from '../types';
+import { CloudMark, MacMark } from '../threads/ThreadMenu';
 import './settings.css';
 
 /* * TEAM IS A PANE HERE (w-8415594d19, 2026-10-01). The pane's CONTENT is
@@ -430,7 +431,9 @@ export type PlaceAccount = {
   usageError?: string | null;
   /** Offered when picking it would change something, with the words for it. */
   use?: { word: string; onUse: () => void } | null;
-  /** The cloud sign-in it is missing, at the end of the line under the name. */
+  /** Where it is signed in and working, a tag each after the plan. */
+  places?: Where[];
+  /** The cloud sign-in it is missing, a dashed tag after those. */
   cloudAct?: { word: string; onUse: () => void } | null;
   /** Why it cannot run, in main's words; replaces the meters. */
   trouble?: string | null;
@@ -460,6 +463,12 @@ export function MiniMeters({ limits, now = Date.now() }: { limits?: UsageLimit[]
 // The header says the newest reading's time; a tile older than this says its own.
 const OWN_TIME_AFTER_MS = 15 * 60_000;
 
+type Where = 'here' | 'cloud';
+const PLACE_TAG: Record<Where, { word: string; Mark: typeof CloudMark }> = {
+  here: { word: 'Local', Mark: MacMark },
+  cloud: { word: 'Cloud', Mark: CloudMark },
+};
+
 /**
  * One tile per account, two to a line, its meters stacked inside. IN USE sits
  *  beside the address (on the right margin it was missed), and the button
@@ -474,10 +483,14 @@ export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: Pl
             {a.inUse ? <span className="set-badge">In use</span>
               : a.use && <button type="button" className="set-ghost acct-switch" onClick={a.use.onUse}>{a.use.word}</button>}
           </div>
-          {(a.plan || a.about.length > 0) && (
+          {(a.plan || a.about.length > 0 || a.places?.length || a.cloudAct) && (
             <div className="acct-tile-about">
-              <span>{[a.plan, ...a.about].filter(Boolean).join(' · ')}</span>
-              {a.cloudAct && <button type="button" className="acct-cloud-act" onClick={a.cloudAct.onUse}>{a.cloudAct.word}</button>}
+              {(a.plan || a.about.length > 0) && <span>{[a.plan, ...a.about].filter(Boolean).join(' · ')}</span>}
+              {a.places?.map((p) => {
+                const { word, Mark } = PLACE_TAG[p];
+                return <span className="acct-place" key={p}><Mark size={12} />{word}</span>;
+              })}
+              {a.cloudAct && <button type="button" className="acct-place acct-place-add" onClick={a.cloudAct.onUse}><CloudMark size={12} />{a.cloudAct.word}</button>}
             </div>
           )}
           {a.trouble ? (
@@ -528,9 +541,9 @@ export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex
 
 /**
  * A Claude account's one tile, wherever it is signed in (`accountsOnce`). The
- *  line under the name is the plan and, once a cloud is set up, where the
- *  account is available. The cloud cannot borrow this computer's login, so an
- *  account missing there, or whose sign-in there stopped, offers the sign-in.
+ *  line under the name is the plan and, once a cloud is set up, a tag for each
+ *  place the account works. The cloud cannot borrow this computer's login, so
+ *  an account missing there, or whose sign-in there stopped, offers the sign-in.
  */
 export function accountTile(a: OneAccount, { picked, many, onUse, cloud = false, onCloudSignIn }: {
   picked: boolean; many: boolean; now: number; onUse: (profile: string) => void;
@@ -540,17 +553,13 @@ export function accountTile(a: OneAccount, { picked, many, onUse, cloud = false,
   const h = a.here;
   const c = a.cloud;
   const broken = c?.state === 'broken';
-  const where = !cloud ? []
-    : broken ? ['Signed out of cloud']
-      : h && c ? ['This computer and cloud']
-        : h ? ['This computer only']
-          // Not "only" until its organization is read: it may be one of these.
-          : [c?.identified ? 'Cloud only' : 'In the cloud'];
   const signingIn = !!h && !h.signedIn;
+  const places: Where[] = !cloud || signingIn ? [] : [...(h ? ['here' as const] : []), ...(c && !broken ? ['cloud' as const] : [])];
   const signIn = (word: string, key: string | null) => (onCloudSignIn ? { word, onUse: () => onCloudSignIn(key, h?.email ?? c?.name ?? null) } : null);
   return {
     key: a.key, name: a.name, plan: a.plan,
-    about: signingIn ? ['Finish signing in to use it'] : where,
+    about: signingIn ? ['Finish signing in to use it'] : [],
+    places,
     cloudAct: !cloud || signingIn ? null : broken ? signIn('Sign in again', c!.key) : h && !c ? signIn('Add to cloud', null) : null,
     inUse: !!(picked && h?.chosen),
     limits: a.limits, checkedAt: a.checkedAt, usageError: a.usageError,

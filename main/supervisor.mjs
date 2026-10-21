@@ -88,7 +88,7 @@ function whoHasIt(made) {
 }
 import { agentSpokeSince, answerSettled, answerTs, stoppedByHer } from '../shared/answers.mjs';
 import { DEFAULT_SESSIONS_AT_ONCE } from './config.mjs';
-import { accountIdentity, cloudLoginHere, nameForOrganization, toolingLine } from './account-tooling.mjs';
+import { accountIdentity, nameForOrganization, profileForCloudLogin, toolingLine } from './account-tooling.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
 import { writeChangeForRun, changePath } from './code-change.mjs';
@@ -4288,12 +4288,12 @@ export class Supervisor {
           ? new Set(here.filter((id) => id.organizationUuid === r.org).map((id) => readPlan(id.profile, { home }).label).filter(Boolean))
           : new Set();
         // The same subscription as that folder, so Settings draws one reading for both.
-        const { profile, known } = engine === DEFAULT_ENGINE ? cloudLoginHere(r, here) : { profile: null, known: false };
+        const profile = engine === DEFAULT_ENGINE ? profileForCloudLogin(r, here) : null;
         const failed = r.lookFailedAt && r.lookFailedAt > (r.readAt ?? 0);
         out.push({
           engine, key: r.key, name: name || null, plan: plans.size === 1 ? [...plans][0] : null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null,
           limitedUntil: r.limitedUntil ?? null, limits: cloudLimits(r.limits), readAt: r.readAt ?? null, duplicateOf: r.duplicateOf ?? null,
-          profile, identified: known, readError: failed ? r.lookError || 'The cloud did not answer.' : null,
+          profile, readError: failed ? r.lookError || 'The cloud did not answer.' : null,
         });
       });
     }
