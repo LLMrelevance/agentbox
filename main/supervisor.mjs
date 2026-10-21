@@ -1979,6 +1979,17 @@ export class Supervisor {
   }
 
   /**
+   * SOMETHING IS STILL RUNNING IN THIS TASK'S FOLDER: its terminal is open
+   * (main/ipc.mjs fills in `terminalOpen`), or programs its agents started are
+   * (main/leftovers.mjs). A server whose folder is deleted under it stops
+   * working, so the folder waits until they end.
+   */
+  _folderInUse(id) {
+    try { if (this.terminalOpen?.(id)) return true; } catch { /* no terminals */ }
+    return !!this._leftoverCleaner?.hasPrograms?.(id);
+  }
+
+  /**
    * Hand the folder back when the session lets go of it. It is only deleted
    * when losing it costs nothing, so the ordinary answer here is that it stays,
    * holding work she has not approved yet. The sweep then takes it on a later
@@ -1991,6 +2002,7 @@ export class Supervisor {
   // waits for the answer.
   async releaseWorkFolder(item, product) {
     if (!this._folderRow(item, product)) return null;
+    if (this._folderInUse(item.id)) return null;
     const base = this.productFolder(product);
     // NOT WHILE A CLOUD RUN'S WORK IS STILL ON ITS WAY BACK: the folder would
     // read as clean and merged, and be removed, with the work still in S3.
@@ -2218,7 +2230,7 @@ export class Supervisor {
   async parkClosedFolders(product) {
     const base = this.productFolder(product);
     if (!product?.repoPath || base !== product.repoPath) return 0;
-    const busy = (id) => this.sessions.has(id) || !!this._preparing?.has(id);
+    const busy = (id) => this.sessions.has(id) || !!this._preparing?.has(id) || this._folderInUse(id);
     let put = 0;
     // AND WHILE WE ARE HERE, WHAT ELSE IS HOLDING THE DISK (w-330eea6c66). This
     // is the only place that already walks a project's folders on a clock, and
@@ -10039,6 +10051,13 @@ export class Supervisor {
           if (!product) return false;
           try { return !!this.store.readItem?.(product, itemId); } catch { return false; }
         },
+        closedAt: (itemId, product) => {
+          if (!product) return null;
+          let item = null;
+          try { item = this.store.readItem?.(product, itemId); } catch { return null; }
+          if (item?.status !== 'done') return null;
+          return Number(item.wrote?.status?.ts ?? item.updatedAt) || null;
+        },
         log: (line) => console.log(`zero: ${line}`),
       });
     } else if (on) {
@@ -10068,9 +10087,11 @@ export class Supervisor {
     const parts = [];
     // EVERY RUN, not only a fresh one: a conversation resumed after the switch
     // went on, and a chat, never heard it otherwise (Codex's review).
+    // AGENTBOX_KEEP=1 is still honoured but no longer asked for: the task's
+    // rule decides what stays, not the agent's guess about what is needed.
     if (cleaner.enabled) {
-      parts.push('Anything you leave running after your turn (a dev server, a preview, a background job) is stopped two hours after you finish, sooner if this computer runs short of memory. '
-        + 'If the person needs something to keep running, start it with AGENTBOX_KEEP=1 in its environment and say so in your answer. Stop anything else you started before you finish.');
+      parts.push('Anything you leave running after your turn (a dev server, a preview, a background job) keeps running while this task is open and is stopped when the person closes it, or sooner if this computer runs short of memory. '
+        + 'Stop anything you started that the person will not need before you finish.');
     }
     const stopping = cleaner.stoppingNote(item.id);
     if (stopping) parts.push(stopping);
