@@ -56,6 +56,7 @@ node $P --who startup-engineer,founder --hours 2 --focus "replies after switchin
 | `--testers external` | you run each stretch yourself (below) | testers are `claude -p` |
 | `--tester-login inherit` | testers get this session's sign-in variables | their own login |
 | `--keep` | leave the copies up afterwards | taken down |
+| `--team <file>` / `--room <name>` | one tester on a real team, talking in that room (below) | no team |
 
 Evidence goes to `/tmp/agentbox-verify/runs/<time>-power/`, one folder per
 person: `diary.jsonl`, `actions.jsonl` (every press, with how long the app
@@ -143,8 +144,12 @@ coach it: the point is what a person in their shoes notices.
 
 ## What it does not cover yet
 
-- **The team version signed in**: copies run as a fresh single user, so two
-  people on one team, shared threads and invites are not tested.
+- **More than one person on a team**: `--team <file> --room <name>` signs
+  ONE tester in to a real team cloud as its own account (live.mjs `--team`),
+  with Rooms on, and tells it the person who asked is in that room reading it
+  live. The file is `{ config, email, password }`, kept outside the repository
+  with mode 600; the account must already exist, be confirmed and be in the
+  room. Two testers on one team, and shared threads, are not covered yet.
 - **The phone**: the phone app is a plan (`docs/mobile/PLAN.md`) and the
   phone site needs the team cloud. When the app's web build exists, a
   phone-sized surface for `browse.mjs` is the next step.
