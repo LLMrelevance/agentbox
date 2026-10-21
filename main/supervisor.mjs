@@ -4348,6 +4348,7 @@ export class Supervisor {
       whenOn: this.config.cloudWhenOn === 'all' ? 'all' : 'full',
       accounts: setUp ? this._cloudAccounts() : [],
       signIns: setUp ? this._cloudSignInsNow() : [],
+      projects: setUp ? (this.store.listProducts?.() ?? []).filter((p) => this._cloudTakesProject(p)).map((p) => p.slug) : [],
     };
   }
 
@@ -5300,7 +5301,12 @@ export class Supervisor {
   _cloudEligible(item) {
     if (!item || String(item.id || '').startsWith('digest-')) return false;
     if (this.threadOnMac?.[item.id] === true || item.id in (this.movedToMac ?? {})) return false;
-    const product = this.store.listProducts?.().find((p) => p.slug === item.product);
+    return this._cloudTakesProject(this.store.listProducts?.().find((p) => p.slug === item.product));
+  }
+
+  // The thread menu's "Keep on this Mac" reads this too, through
+  // `cloudStatus().projects`, so it cannot offer a different set.
+  _cloudTakesProject(product) {
     if (!product?.repoPath && !(product?.dir && this._cloudTakesPlain())) return false;
     return !(this.config.personalProducts || []).includes(product.slug);
   }
