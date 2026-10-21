@@ -142,6 +142,34 @@ function readPlanNow(at) {
 }
 
 /**
+ * WHICH ACCOUNT AND PLAN ONE LOGIN IS ON, as a string that changes only when
+ *  one of them does: an upgrade, extra usage switched on, a renewal, or a
+ *  /login as somebody else. Claude Code rewrites this file all day for other
+ *  reasons, so only these fields count (named as Claude Code 2.1.305 writes
+ *  them). Null when the file names no account or cannot be read.
+ */
+const PLAN_FIELDS = ['accountUuid', 'organizationUuid', 'organizationType', 'organizationRateLimitTier',
+  'userRateLimitTier', 'seatTier', 'billingType', 'hasExtraUsageEnabled', 'planDisplayName', 'subscriptionCreatedAt'];
+const stampCache = new Map();
+
+export function planStamp(profile, { home = os.homedir(), file = null } = {}) {
+  const at = file ?? planFile(profile, home);
+  let mtime;
+  try { mtime = fs.statSync(at).mtimeMs; } catch { return null; }
+  const hit = stampCache.get(at);
+  if (hit?.mtime === mtime) return hit.stamp;
+  let stamp = null;
+  try {
+    const account = JSON.parse(fs.readFileSync(at, 'utf8'))?.oauthAccount;
+    if (account?.accountUuid) {
+      stamp = JSON.stringify(PLAN_FIELDS.map((k) => (k === 'hasExtraUsageEnabled' ? account[k] === true : account[k] ?? null)));
+    }
+  } catch { /* half written: the next write has a new mtime and is read again */ }
+  stampCache.set(at, { mtime, stamp });
+  return stamp;
+}
+
+/**
  * THE PLAN ON EVERY ACCOUNT AGENTBOX IS CONFIGURED TO RUN ON, in the same order
  *  the supervisor round-robins them. */
 export function readPlans(profiles, { home = os.homedir() } = {}) {

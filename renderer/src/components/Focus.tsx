@@ -51,7 +51,7 @@ import { commandDraft } from '../../../shared/claude-commands.mjs';
 import { CompactionResult, runCompaction, runCommand } from './CompactionResult';
 import { codexCommand, COMPACTION_COPY } from '../../../shared/codex-commands.mjs';
 import { DEFAULT_ENGINE } from '../../../shared/engines.mjs';
-import { ago, dayLabel, itemOptions, offerIsLive, optionsFrom, parseOptions, parseRepeat, stripOptionsSection, type ParsedOption } from '../format';
+import { dayLabel, itemOptions, offerIsLive, optionsFrom, parseOptions, parseRepeat, stripOptionsSection, type ParsedOption } from '../format';
 import { ruleIdOf } from '../../../shared/repeats.mjs';
 import { shownPriority } from '../../../shared/rank.mjs';
 import { WhenPicker } from './When';
@@ -89,7 +89,7 @@ import { resumeTo } from '../thread-bottom';
 import { optionIsClipped, optionPeek } from '../option-peek';
 import { askLine, askFull, askIsClipped } from '../ask-line';
 import { replyIsSwallowed, replyReaches } from '../../../shared/agents.mjs';
-import { recapFor, type Recap as RecapValue } from '../recap';
+import { recapFor } from '../recap';
 import type { LedgerLine } from '../thread-history';
 import type { LiveFacts } from '../live-line';
 import { offersRunNow } from '../run-now';
@@ -1561,19 +1561,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             Claude Code session all draw through Thread.tsx.
          */}
 
-        {/* What this row answers, when it answers something the user wrote.
-            The user's own text on THIS row is not here any more: it is events
-            in the history above, at the time it was written. Which words these are is
-            recap.ts's decision, not this component's, because picking the wrong
-            ones leaves a screen that still looks perfectly plausible.
-
-           AND WHEN THOSE WORDS ARE THE USER'S, THEY ARE NOT DRAWN HERE AT ALL. They go to the
-           thread as its first message, whole (w-23db941885).
+        {/* NOTHING IS QUOTED ABOVE THE MESSAGE. A grey box headed "In response
+            to" stood here naming the row this one answers, and everything it
+            said is already on the screen: the parent's words open the thread
+            below, its title is in the breadcrumb, and the message restates the
+            ask. The words that are the user's own still go to the thread as its
+            first message (`openingSaid`, w-23db941885).
          */}
-        <Recap
-          recap={openingSaid ? null : said}
-          onOpen={() => parent && onOpenItem(parent)}
-        />
 
         {/* The agent stopped without finishing: the answer sits delivered-
             on-paper with nobody on it. Say so, and make the fix one click. */}
@@ -2039,48 +2033,6 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     {!direct && <TaskTerminal key={`${item.product}:${item.id}`} product={item.product} id={item.id} onOpenChange={setTerminalOpen}/>}
     </div>
     </TicketNavigation.Provider>
-  );
-}
-
-// The one block above the message. Two shapes now, one voice: hers.
-function Recap({ recap, onOpen }: {
-  recap: RecapValue;
-  onOpen: () => void;
-}) {
-  if (!recap) return null;
-
-  // SHE HAS ALREADY ANSWERED THIS ROW, and the band that used to say so is
-  // gone. The verdict it also carried is the one thing lost, and that trade
-  // was visible in the drawing before it was picked. Keeping it is option two:
-  // this branch returning the old block again.
-  if (recap.kind === 'replied') return null;
-
-  /* * AND NEITHER DOES "You said", SINCE 2026-08-30.
-
-     This box had two shapes and one of them printed her own last answer, or a whole
-     directive body, back at her above an agent's message under the heading "You said". Now
-     it is true of both: ONE shape, and it names the row this one answers rather than
-     repeating the user's words. Those words are not lost, they open the thread below as its
-     first message (`openingSaid`), which is where a conversation's first line goes.
-
-     THE WORD "thread" WENT WITH IT. This box said "open thread" and carried
-     "Open the full thread" as its tooltip, and those were the only places the
-     pane put that word in front of her. What the click does is open the PARENT
-     ROW, an ordinary row in her inbox, so the line names that row and going to
-     it needs no vocabulary of its own.
-
-     Naming the parent and stopping is the whole job: the parent's body is the
-     message below, restated, and printing it twice is what made this pane
-     unreadable.
-  */
-  const answering = recap.kind === 'said' ? recap.on : recap.title;
-  return (
-    <div className="origin origin-oneline" onClick={onOpen} title={`Open ${answering}`}>
-      <div className="origin-label">
-        In response to · {ago(recap.at)} ago<span className="origin-open">open →</span>
-      </div>
-      <div className="origin-title">{answering}</div>
-    </div>
   );
 }
 

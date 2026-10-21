@@ -39,7 +39,7 @@ import { answeredAlready, TOO_LATE_TO_WITHDRAW } from './withdraw-send';
 import { useNeo } from './neo/useNeo';
 import { addUndoMark, UNDO_MARKS_EVENT, type UndidSpec } from './undo-marks';
 import { whatTheFileSentUp } from '../../shared/artifact-keys.mjs';
-import { type Place, placeIsSomewhere, readPlace, writePlace, writeScroll } from './where-she-was';
+import { ALIVE_EVERY_MS, markWindowAlive, type Place, placeIsSomewhere, readPlace, windowWasJustHere, writePlace, writeScroll } from './where-she-was';
 import { documentCandidates } from './message-artifacts';
 import { filesFromRuns } from './run-files';
 import { Rail } from './components/Rail';
@@ -140,6 +140,7 @@ import { ChatAgentsContext, type ChatAgentsValue } from './team/ChatAgents';
 import { agentLinks, chatProjects, chatTaskSharing, chatTranscript, taskBrief, taskTitle, withTask } from './team/agent-mentions';
 import { isCleanRun, ruleIdOf, ruleLabel, runToOpen } from '../../shared/repeats.mjs';
 import { NAME, Name } from '../../shared/product-name.mjs';
+import { NOT_ANSWERING, NOT_ANSWERING_MS, RESTART_IT, RESTART_IT_MS, SEND_NOT_TAKEN } from './not-answering';
 import { isNew } from '../../shared/notify-rules.mjs';
 import { inMyInbox, isShared, heldByAPerson, runnerOf, iSpokeLast } from '../../shared/team-rules.mjs';
 import { Face, TeamContext, firstName, teamView } from './team/people';
@@ -251,6 +252,25 @@ const liveAnswer = (i: WorkItem) => (i.answer && i.answer !== '(withdrawn)' ? i.
 // on every snapshot.
 const NO_ORDER: string[] = [];
 
+// THE SCREEN BEFORE THERE IS A SCREEN. The app's name in the faintest grey
+// there is, which is right for the half second it is usually up and reads as
+// an empty window for anything longer. It waits exactly as long as it ever
+// did; it stops being silent about it.
+function Booting() {
+  const [said, setSaid] = useState<string | null>(null);
+  useEffect(() => {
+    const slow = setTimeout(() => setSaid(NOT_ANSWERING), NOT_ANSWERING_MS);
+    const stuck = setTimeout(() => setSaid(RESTART_IT), RESTART_IT_MS);
+    return () => { clearTimeout(slow); clearTimeout(stuck); };
+  }, []);
+  // The sentence replaces the wordmark: the wordmark says the app is coming
+  // up, which the sentence contradicts, and together they put the name on the
+  // screen twice in two sizes.
+  return said
+    ? <div className="boot boot-stuck"><p>{said}</p></div>
+    : <div className="boot"><span>{NAME}</span></div>;
+}
+
 export default function App() {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   // WHERE SHE WAS BEFORE ⌘R, read once, on the way in.
@@ -261,6 +281,10 @@ export default function App() {
   // because the snapshot arrives more than once and every arrival re-runs the
   // effect that reads this.
   const wasAt = useRef<Place | null>(readPlace(window.localStorage));
+  // AND WHETHER THE PAGE IS COMING BACK OR OPENING. Read here, on the way in,
+  // because the answer is how long ago the last window said it was alive and
+  // this one is about to say it (./where-she-was.ts).
+  const cameBack = useRef(windowWasJustHere(window.localStorage));
   // Whether that note has been acted on. STATE and not a ref, deliberately: the
   // boot screen below is held up until this turns true, and a ref that flips
   // without a render can leave the window on "the app" for good when the restore
@@ -458,6 +482,14 @@ export default function App() {
   // or cover whatever has been opened since.
   const modalNow = useRef<Modal>(null);
   modalNow.current = modal;
+  // A new thread handed over and not taken yet. The card closes on Send rather
+  // than on the answer, so nothing else on the screen can report on it.
+  const waitingOnSend = useRef<number | null>(null);
+  const doneSending = useCallback(() => {
+    if (waitingOnSend.current !== null) clearTimeout(waitingOnSend.current);
+    waitingOnSend.current = null;
+  }, []);
+  useEffect(() => doneSending, [doneSending]);
   // A hint promises a key, so it may not be drawn where the key is swallowed.
   // A modal takes the keyboard whole, so nothing underneath one may advertise
   // anything, and the hint the pointer was already on has to go with it: the
@@ -5194,6 +5226,17 @@ export default function App() {
   useEffect(() => { setSelected((s) => Math.min(s, Math.max(0, list.length - 1))); }, [list.length]);
 
   /* ------------------------- ⌘R comes back here -------------------------- */
+  // A reload she asked for, and a restart or a crash she did not: all three put
+  // her back, and only opening the app in the morning does not.
+  const comingBack = reloaded === true || cameBack.current;
+  // SAYING THE WINDOW IS STILL HERE, which is how the next page to load tells
+  // those two apart (./where-she-was.ts).
+  useEffect(() => {
+    const beat = () => markWindowAlive(window.localStorage);
+    beat();
+    const timer = setInterval(beat, ALIVE_EVERY_MS);
+    return () => clearInterval(timer);
+  }, []);
   // WRITING IT DOWN. Every move she makes, into localStorage, because the whole
   // of React state is thrown away by the reload and nothing else survives it.
   // It costs one small JSON write per navigation, which is far less than the
@@ -5203,7 +5246,7 @@ export default function App() {
   // the reloaded page, which is the inbox with nothing open, overwrites the
   // note it is about to read.
   useEffect(() => {
-    if (reloaded === null || (reloaded && !restored)) return;
+    if (reloaded === null || (comingBack && !restored)) return;
     const place: Place = { view };
     // The scroll position is NOT set here, and leaving it out is what clears it:
     // she has moved, so whatever she had scrolled to belongs to where she was,
@@ -5222,16 +5265,17 @@ export default function App() {
   }, [reloaded, restored, view, focused?.id, focused?.product, focusedRepeat?.id,
     openDoc?.src, openDoc?.product, settingsOpen, search, current?.id]);
 
-  // READING IT BACK, once, on a reload and never on a fresh launch. Opening
-  // Agentbox in the morning still opens on the inbox: that is the design of the
-  // app and the reason the idle screen and the first run have anywhere to be.
-  // `bootInfo.reloaded` is true only for the ⌘R it was added for.
+  // READING IT BACK, once, on a page that is coming back and never on a fresh
+  // launch. Opening Agentbox in the morning still opens on the inbox: that is
+  // the design of the app and the reason the idle screen and the first run have
+  // anywhere to be. `comingBack` is the ⌘R the main process reports plus the
+  // restart and the crash it cannot (./where-she-was.ts).
   //
   // A row that is gone since — she answered it elsewhere, an agent closed it —
   // simply does not come back, and she lands on the tab it was in, which is
   // still nearer where she was than the inbox is.
   useEffect(() => {
-    if (restored || reloaded !== true || !snap) return;
+    if (restored || reloaded === null || !comingBack || !snap) return;
     // THE FIRST RUN OUTRANKS IT. The walk drives the app itself, tab by tab,
     // and a reload in the middle of it belongs to the walk rather than to
     // wherever she happened to be standing. This effect is declared below the
@@ -5294,7 +5338,7 @@ export default function App() {
   // Without this the reloaded window draws the inbox for a beat and then jumps,
   // which is the same lost-place fault in a shorter form.
   const restoring = reloaded === null
-    || (reloaded === true && !restored && placeIsSomewhere(wasAt.current));
+    || (comingBack && !restored && placeIsSomewhere(wasAt.current));
 
   // NOTHING RESETS THE PANEL. There used to be an effect here putting it back
   // up every time she left a task, so "up by default" meant every time rather
@@ -5513,8 +5557,8 @@ export default function App() {
   // own line above the boot check rather than another clause inside it: on a
   // fresh launch `restoring` is false before the first paint, and the line
   // below has to go on reading exactly as it always did.
-  if (restoring) return <div className="boot">{NAME}</div>;
-  if (!snap) return <div className="boot">{NAME}</div>;
+  if (restoring) return <Booting />;
+  if (!snap) return <Booting />;
 
   // Searching is never inbox zero, whatever the inbox holds: the zero state
   // takes the whole screen, and it appearing under a query she is typing would
@@ -6512,6 +6556,12 @@ export default function App() {
               ? firstNames(how.toMany ?? [how.to ?? ''])
               : snap.products.find((x) => x.slug === how.product)?.name ?? how.product ?? '';
             showToast(sendingLine({ kind: how.kind, to, held: how.start === 'later', scheduled: !!how.runAt }));
+            // AND IF THE APP NEVER TAKES IT, SAY THAT TOO. The line above is a
+            // sentence about the next half second, and it expires; a send the
+            // app has not taken by then is read as a send that never happened,
+            // and the task gets written out and sent again.
+            doneSending();
+            waitingOnSend.current = window.setTimeout(() => showToast(SEND_NOT_TAKEN), NOT_ANSWERING_MS);
             // SHOW WHERE IT WENT (2026-10-01: a new thread looked as if it
             // was never made, since it was not in the inbox). A thread sent to
             // an agent is not waiting on her, so it never lands in Needs you.
@@ -6527,12 +6577,14 @@ export default function App() {
           // unless something else has been opened since; then the toast says
           // where the words are.
           onFailed={(said, back) => {
+            doneSending();
             if (modalNow.current) { showToast(`${said} Your words are in the new thread card.`); return; }
             setComposeInitial(back.to ? back : null);
             setModal('compose');
             showToast(said);
           }}
           onSent={async (made, how) => {
+            doneSending();
             // Everywhere but the tutorial the card closed on Send (onSending),
             // and closing anything here would close what she opened since.
             if (walkCard) { setComposeInitial(null); setModal(null); }

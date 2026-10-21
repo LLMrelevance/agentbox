@@ -30,6 +30,7 @@ import { activitySummary, keepActivityKeyLocal } from '../activity-summary';
 import { actWhen, actWords } from '../act-line';
 import { herTurnEnds, herTurnStarts, threadParts } from '../her-turns';
 import { holdAtBottom } from '../thread-bottom';
+import { NOT_ANSWERING, NOT_ANSWERING_MS } from '../not-answering';
 import { onCloudPhone, onPhone } from '../phone-screen';
 import { typedParts } from '../typed-message';
 import { clock, dayHeading } from '../thread-history';
@@ -482,10 +483,19 @@ const WAITING: Array<{ who: 'you' | 'them'; lines: number[] } | { work: number }
   { who: 'them', lines: [90, 76, 58] },
 ];
 
+// AND WHEN NOTHING ARRIVES AT ALL. The head is a promise about something in
+// flight, and the read goes through the app's own process, which can stop
+// answering while the window keeps drawing. The wait is unchanged, and the
+// answer still lands if it comes; the head stops claiming to be reading.
 export function ThreadWaiting({ head }: { head: ReactNode }) {
+  const [late, setLate] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setLate(true), NOT_ANSWERING_MS);
+    return () => clearTimeout(t);
+  }, []);
   return (
     <div className="thread thread-waiting" aria-busy="true">
-      <div className="thread-head">{head}</div>
+      <div className="thread-head">{late ? NOT_ANSWERING : head}</div>
       {WAITING.map((row, i) => ('work' in row ? (
         <div key={i} className="sk-did" style={{ width: `${row.work}%` }} />
       ) : (
