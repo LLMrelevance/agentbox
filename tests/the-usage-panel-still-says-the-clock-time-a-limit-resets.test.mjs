@@ -18,16 +18,16 @@ const report = (session, week) => ({
 });
 
 describe('a reset read from the provider', () => {
-  it('her case: today is a clock time, another day carries the date', () => {
+  it('her case: today is a clock time, another day carries its weekday', () => {
     const [session, week] = readUsageReport(report(iso(20, 18, 19), iso(22, 16)), now);
     expect(session).toMatchObject({ resetsText: '6:19pm', resetsOn: null });
-    expect(week).toMatchObject({ resetsText: '4pm', resetsOn: 'Oct 22' });
-    expect(limitRows([session, week], now).map((r) => r.when)).toEqual(['Resets 6:19pm', 'Resets Oct 22 at 4pm']);
+    expect(week).toMatchObject({ resetsText: '4pm', resetsOn: 'Thu' });
+    expect(limitRows([session, week], now).map((r) => r.when)).toEqual(['Resets 6:19pm', 'Resets Thu at 4pm']);
   });
 
   it('just after midnight is tomorrow, not today', () => {
     const [session] = readUsageReport(report(iso(21, 0, 5), null), now);
-    expect(session).toMatchObject({ resetsText: '12:05am', resetsOn: 'Oct 21' });
+    expect(session).toMatchObject({ resetsText: '12:05am', resetsOn: 'Wed' });
   });
 
   it('must NOT invent a time when the provider gives none', () => {

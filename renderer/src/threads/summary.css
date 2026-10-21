@@ -127,7 +127,15 @@
    the way the lines under it do, with the pencil and nothing filled, and the
    negative margin pays for the box's padding so the name sits exactly where
    it did. */
-.ts-title { margin: 0 0 22px; font-size: 16px; font-weight: 500; line-height: 22px; letter-spacing: -.01em; color: var(--text); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ts-title { margin: 0 0 22px; font-size: 16px; font-weight: 500; line-height: 22px; letter-spacing: -.01em; color: var(--text); }
+/* THE CLAMP IS ON THE WORDS, NOT ON THE BOX AROUND THEM (w-c9da359466). It sat
+   on the h2, which is also the click target for a rename and so carries 6px of
+   padding, and `overflow: hidden` clips at the PADDING box: those 6px were a
+   window onto the line the clamp had just hidden. Three lines ending in "…"
+   and then the top third of a fourth, sliced through
+   (designs/w-811757c0b5/reply-cannot-switch-to-codex.jpg). Clipping an inner
+   span leaves the click box exactly the size it was. */
+.ts-title-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .ts-title[role="button"], .ts-title-edit { position: relative; box-sizing: border-box; margin: -7px -8px 15px; padding: 6px 28px 6px 8px; border: 1px solid transparent; border-radius: var(--radius); cursor: text; }
 .ts-title[role="button"]:focus-visible { outline: none; border-color: var(--line-strong); }
 /* The pencil follows the last word, rather than standing off at the edge. */

@@ -29,16 +29,22 @@ export function readCloudConfig(env = process.env, home = os.homedir()) {
 
 /**
  * Where Agentbox Cloud is: the server's address and the database's public
- * address and key. A release build carries it in the app's own folder; a
- * Mac may keep its own copy. Both files are out of git.
+ * address and key. A checkout keeps it in cloud/, a Mac may keep its own
+ * copy, and a release build carries it baked into its package.json
+ * (scripts/release.mjs). All of them are out of git.
  */
 export function cloudAccountConfig(appDir, { home = os.homedir() } = {}) {
+  const whole = (c) => typeof c?.gateway === 'string' && typeof c.supabaseUrl === 'string' && typeof c.anonKey === 'string';
   for (const file of [path.join(appDir, 'cloud', 'cloud.public.json'), path.join(home, '.agentbox', 'cloud.public.json')]) {
     try {
       const c = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (typeof c.gateway === 'string' && typeof c.supabaseUrl === 'string' && typeof c.anonKey === 'string') return c;
+      if (whole(c)) return c;
     } catch { /* try the next */ }
   }
+  try {
+    const baked = JSON.parse(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')).bakedCloud;
+    if (whole(baked)) return baked;
+  } catch { /* none */ }
   return null;
 }
 

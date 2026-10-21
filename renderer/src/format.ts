@@ -123,6 +123,23 @@ export function itemOptions(item: HasFields): ParsedOption[] {
   return parseOptions(item[optionsFrom(item)]);
 }
 
+// With the options strip riding on the composer, the field's own "## Options"
+// section would say everything twice; drop the heading and its numbered items
+// (prose after the list stays). Only called while the strip is visible, and
+// only on the field the offer actually came from: an answered item keeps the
+// list where it was written, as the record of what was offered.
+export function stripOptionsSection(body: string): string {
+  const lines = body.split('\n');
+  const out: string[] = [];
+  let inOptions = false;
+  for (const line of lines) {
+    if (/^#{1,4}\s/.test(line)) inOptions = /option/i.test(line);
+    else if (inOptions && line.trim() && !/^\s*\d+[.)]\s/.test(line)) inOptions = false;
+    if (!inOptions) out.push(line);
+  }
+  return out.join('\n');
+}
+
 // AND WHETHER THE OFFER IS STILL LIVE, which is not the same as whether she has
 // ever replied on this row.
 //
@@ -163,8 +180,28 @@ export function offerIsLive(item: HasFields & { answer?: string }): boolean {
 // starts a run, so this is caught and done the way E does it instead. Only the
 // whole option: "Ship it, then close the task" is still a reply.
 export function closesTheTask(option: string): boolean {
-  const words = option.replace(/\s*\(recommended\)\s*/i, '').trim().replace(/[.!]+$/, '');
-  return /^close (this|the) (task|thread)$/i.test(words);
+  return /^close (this|the) (task|thread)$/i.test(bareOption(option));
+}
+
+const bareOption = (option: string) => option.replace(/\s*\(recommended\)\s*/i, '').trim().replace(/[.!]+$/, '');
+
+// THE OPTION THAT IS MEANINGLESS WITHOUT YOUR WORDS (w-c9da359466).
+//
+// Agents offer "Change something first" on nearly every run, and pressing 2
+// sent it, spent the offer and moved on to the next thread. The worker got
+// "change something first" with nothing to change: two testers in two runs,
+// one of them twice in the same session, each of them reaching for Z. "That
+// option is meaningless without my words."
+//
+// So the narrow case only: an option that asks for a change and names NONE.
+// "Change the empty state copy first" is a whole instruction and still sends.
+// Everything outside this list is untouched, because a pick that opens a box
+// instead of sending is the wrong surprise on an option that said enough.
+const SAYS_NOTHING = /^(?:change|revise|edit|adjust|tweak|amend|rework|redo|fix)\s+(?:something|anything|it|this|that|some of it|a few things|this (?:part|bit)|parts?|bits?)(?:\s+first)?$/i;
+
+export function needsYourWords(option: string): boolean {
+  const words = bareOption(option);
+  return SAYS_NOTHING.test(words) || /^(?:something|anything) else$/i.test(words);
 }
 
 // What Enter means in the schedule box, in one place so the key handler and the

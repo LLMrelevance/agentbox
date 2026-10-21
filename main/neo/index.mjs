@@ -47,8 +47,9 @@ export function createNeo({
   decideImpl = decide,
   composeImpl = composeReply,
   rememberImpl = composeMemory,
+  config = null,
 }) {
-  const on = neoEnabled({ userData, platform });
+  const on = neoEnabled({ userData, platform, config });
   ipcMain.handle('neo:enabled', () => on);
   if (!on) return { enabled: false };
 

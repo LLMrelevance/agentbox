@@ -12,9 +12,11 @@
 // agent's model moves the thread, which the session cannot follow, so the next
 // run starts fresh and the box says so before you send.
 //
-// Measured here: what a reply sends about the agent, and that the store writes
-// the agent BEFORE the answer, which is the race the model already won
-// (main/store.mjs, answerItem).
+// The store half of this landed first, from ⌘K (w-c9da359466, and
+// tests/a-thread-can-be-carried-on-in-the-other-engine). What is measured here
+// is the menu's half: a pick that crosses names the agent on the send, a pick
+// that stays says nothing, and the row the store leaves behind is one the real
+// resolver spawns on the other agent.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -23,41 +25,40 @@ import path from 'node:path';
 import { Store } from '../main/store.mjs';
 import * as disk from '../main/store/work-items.mjs';
 import { ENGINE_CHOICE_ENABLED, engineFor, modelForEngine } from '../shared/engines.mjs';
-import { replyFields } from '../renderer/src/threads/composer-rules';
+import { pickToSend } from '../renderer/src/reply-pick';
 
-describe('what a reply says about the agent, the model and the level', () => {
-  const two = { engineCount: 2, codexDefault: 'gpt-5.6-sol' };
+describe('what a reply says about the agent it runs on', () => {
+  const two = { engineCount: 2 };
 
   it('names the agent when the pick crosses to the other one', () => {
-    expect(replyFields({ engine: 'codex', model: 'gpt-5.6-terra', effort: null, was: 'claude', ...two }))
+    expect(pickToSend({ model: 'gpt-5.6-terra', effort: null }, { engine: 'codex', was: 'claude', ...two }))
       .toEqual({ engine: 'codex', model: 'gpt-5.6-terra', effort: null });
   });
 
   it('leaves the agent alone when the pick stays on this one', () => {
-    expect(replyFields({ engine: 'claude', model: 'sonnet', effort: 'high', was: 'claude', ...two }))
-      .toEqual({ model: 'sonnet', effort: 'high' });
-  });
-
-  // Codex's own default is the absence of a word: ~/.codex/config.toml decides,
-  // and a row that named a model would overrule it.
-  it('names no model when the pick is Codex\'s own default', () => {
-    expect(replyFields({ engine: 'codex', model: 'gpt-5.6-sol', effort: null, was: 'claude', ...two }))
-      .toEqual({ engine: 'codex', model: null, effort: null });
-  });
-
-  // A row that has never named a model follows the workspace's own, and a
-  // reply that only set a level must not quietly freeze it to today's default.
-  it('keeps "nothing chosen" when nothing was chosen', () => {
-    expect(replyFields({ engine: 'claude', model: null, effort: 'max', was: 'claude', ...two }))
-      .toEqual({ model: null, effort: 'max' });
+    const out = pickToSend({ model: 'sonnet', effort: 'high' }, { engine: 'claude', was: 'claude', ...two });
+    expect(out).toEqual({ model: 'sonnet', effort: 'high' });
+    expect('engine' in out).toBe(false);
   });
 
   // THE CASE THAT MUST NOT MATCH: one coding agent is no choice, so a reply
   // there says nothing about agents at all, exactly as it always did.
   it('never names the agent on a Mac with one', () => {
-    const out = replyFields({ engine: 'claude', model: 'opus', effort: null, was: 'claude', engineCount: 1, codexDefault: null });
-    expect(out).toEqual({ model: 'opus', effort: null });
+    const out = pickToSend({ model: 'opus', effort: null }, { engine: 'claude', was: 'claude', engineCount: 1 });
     expect('engine' in out).toBe(false);
+  });
+
+  // And never from a caller that does not know what the row is on, which is
+  // every caller but the reply box.
+  it('never names the agent without the row\'s own to compare', () => {
+    expect('engine' in pickToSend({ model: 'opus', effort: null }, { engine: 'claude' })).toBe(false);
+  });
+
+  // The model rule either side of the move is unchanged: Codex's own default
+  // is the absence of a word, and Claude Code always names one.
+  it('keeps the model rule it already had', () => {
+    expect(pickToSend({ model: null, effort: null }, { engine: 'codex', was: 'claude', ...two }).model).toBe(null);
+    expect(pickToSend({ model: null, effort: null }, { engine: 'claude', was: 'codex', ...two }).model).toBe('opus');
   });
 });
 

@@ -402,7 +402,7 @@ function coerceField(field, value) {
     // shared/effort-levels.mjs, and the spawn gates on them, so a value this
     // module does not recognise is a run at Claude Code's own choice rather
     // than a row that never runs.
-    case 'kind': case 'product': case 'parent': case 'engine': return str(value, MAX_SHORT);
+    case 'kind': case 'product': case 'parent': return str(value, MAX_SHORT);
     // THESE TWO ARE CLEARED BY WRITING '' AND SO '' IS A REAL VALUE, exactly
     // as runAt's 0 and start's 'now' are, and for the same reason: a field that
     // coerces to undefined is dropped by the fold, so without a falsy value
@@ -418,7 +418,12 @@ function coerceField(field, value) {
     // picking a model and pressing send lost the message, with nothing on
     // screen to say so. Five of the 14 crashes since the Oct 6 launch, on two
     // installs (PostHog, 2026-10-08).
-    case 'model': case 'effort': return clearable(value, MAX_SHORT);
+    //
+    // `engine` JOINED THEM WHEN A REPLY COULD FIRST CARRY ONE (w-c9da359466).
+    // It is written beside the model by the same call, so clearing it back to
+    // the workspace default would have thrown in exactly the place described
+    // above, before the answer was written, losing the message.
+    case 'model': case 'effort': case 'engine': return clearable(value, MAX_SHORT);
     case 'status': return WORK_ITEM_STATUSES.includes(value) ? value : undefined;
     case 'priority': return Number.isFinite(value) ? Math.trunc(value) : undefined;
     // When this item may next be acted on, in epoch ms. 0 means unscheduled,

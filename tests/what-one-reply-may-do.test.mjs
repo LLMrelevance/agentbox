@@ -687,8 +687,6 @@ describe('the wiring from the reply box is present in the source', () => {
     // thread is still this one call, naming the message it answers.
     // And `fromPhone` since the phone with the computer closed: the id of the
     // phone command a reply came from (main/phone-inbox.mjs).
-    // And `engine` since w-e1a42f6b21: a reply may move the thread to the
-    // other coding agent, and the store writes that before the answer.
     expect(ipc).toContain('store.answerItem(product, id, { answer, status, priority, permissionMode, engine, model, effort, inReplyTo: thread, fromPhone })');
   });
 });

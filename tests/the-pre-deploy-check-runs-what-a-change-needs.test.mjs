@@ -60,6 +60,8 @@ describe('which layers a branch gets', () => {
 
   it('a change to the stand-in worker or the skill re-proves the drive', () => {
     expect(runs(['scripts/lib/stub-claude-worker.mjs']).live).toBe(true);
+    // The stand-in imports it; a power test's world changes what every stand-in does.
+    expect(runs(['scripts/lib/stand-in-world.mjs']).live).toBe(true);
     expect(runs(['.claude/skills/verify-agentbox/scripts/drives.mjs']).live).toBe(true);
     expect(runs(['.claude/skills/verify-agentbox/scripts/machines.mjs']).machines).toBe(true);
   });

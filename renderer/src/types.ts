@@ -233,7 +233,106 @@ export interface TeamState {
   cards: ThreadCard[];
   lastSyncAt: number | null;
   error: string | null;
+  /** Rooms (alpha), while switched on in Alpha features (main/team/rooms.mjs). */
+  rooms?: RoomsState | null;
 }
+
+/** One person's card on a room's wall (shared/room-cards.mjs wallCards). */
+export interface RoomCard {
+  id: string;
+  me: boolean;
+  name: string;
+  avatarUrl: string | null;
+  headline: string | null;
+  bio: string | null;
+  /** Null when they hid it. */
+  agents: number | null;
+  level: number | null;
+  hoursTotal: number;
+  hoursWeek: number;
+  hoursToday: number;
+  streak: number;
+  /** Agent hours per month, oldest first, for their chart. */
+  byMonth: { month: string; hours: number }[];
+  /** On my team, so their shared threads reach me. */
+  teammate: boolean;
+  /** They let teammates see their activity on their page. */
+  showActivity: boolean;
+  status: string | null;
+  workingOn: string | null;
+  workingPrivate: boolean;
+}
+
+export interface RoomMessage {
+  id: string;
+  roomId: string;
+  by: string | null;
+  body: string;
+  inReplyTo: string | null;
+  mentions: string[];
+  at: number;
+}
+
+export interface Room {
+  id: string;
+  name: string;
+  kind: 'room' | 'group';
+  teamId: string | null;
+  listed: boolean;
+  /** Joined only by an email invite: no link works for it. */
+  inviteOnly: boolean;
+  role: 'owner' | 'member';
+  members: number;
+  createdAt: number;
+  pinned: boolean;
+  muted: boolean;
+  unread: number;
+  lastAt: number;
+  agents: number;
+  wall: RoomCard[];
+}
+
+export interface RoomProfile {
+  person_id: string;
+  display_name: string;
+  avatar_url: string | null;
+  headline: string | null;
+  bio: string | null;
+  show_working: 'none' | 'team' | 'everyone';
+  show_agents: boolean;
+  show_level: boolean;
+  show_status: boolean;
+  show_activity?: boolean;
+  invisible_until: string | null;
+  status_text: string | null;
+  status_until: string | null;
+}
+
+export interface RoomMention {
+  id: string;
+  messageId: string;
+  roomId: string;
+  roomName: string;
+  by: string | null;
+  byName: string;
+  body: string;
+  at: number;
+}
+
+export interface RoomsState {
+  on: boolean;
+  ready: boolean;
+  rooms: Room[];
+  messages: Record<string, RoomMessage[]>;
+  me: RoomProfile | null;
+  /** Each person's place on the whole app by agent hours, for me and people I share a room with. */
+  ranks: Record<string, number>;
+  invites: { roomId: string; roomName: string; invitedBy: string | null; invitedByName: string | null }[];
+  mentions: RoomMention[];
+  error: string | null;
+}
+
+export type RoomsResult<T = unknown> = { ok: true; value: T; rooms: RoomsState } | { ok: false; error: string; rooms?: RoomsState };
 
 export interface RunningSession {
   itemId: string;
@@ -332,6 +431,20 @@ export interface UsageLimit {
    *  Then the clock time is printed instead, or nothing. */
   resetsAt: number | null;
   zone: string | null;
+}
+
+/** The Agentbox Cloud plan this Mac is signed in to, as the cloud server counts it. */
+export interface CloudPlan {
+  signedIn: boolean;
+  plan?: 'none' | 'pro' | 'plus' | 'max';
+  unlimited?: boolean;
+  /** Agents at once; null when unlimited. */
+  agents?: number | null;
+  hoursPerMonth?: number;
+  running?: number;
+  usedSeconds?: number;
+  error?: string;
+  message?: string;
 }
 
 /**
@@ -446,8 +559,9 @@ export interface SupervisorStatus {
 // 'network' a proxy or company certificate the workers never had; both wait on
 // her, and neither is fixed by trying again. 'api-key' is a Codex signed in
 // with an API key, which is refused rather than billed; 'codex-config' is a
-// config.toml Codex cannot read.
-export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'level-not-offered' | 'too-old' | 'network' | 'api-key' | 'codex-config' | 'unknown';
+// config.toml Codex cannot read. 'open-elsewhere' is a Codex conversation
+// another Codex window is writing to.
+export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'level-not-offered' | 'too-old' | 'network' | 'api-key' | 'codex-config' | 'open-elsewhere' | 'unknown';
 
 // A worker frozen mid-action, waiting on the user's allow/deny.
 export interface Approval {
@@ -507,18 +621,6 @@ export interface AgentSession {
   // her inbox as work items, and a second row about the same agent is a
   // rejected duplicate picture.
   startedByZero: boolean;
-}
-
-/**
- * WHAT THE REPLY BOX'S MODEL MENU SENDS WITH A MESSAGE. Both fields are
- * explicit, because the row already has values and `null` is how they are
- * cleared. `engine` is sent only when the pick moved the thread to the other
- * coding agent (threads/composer-rules.ts, `replyFields`).
- */
-export interface ReplyPick {
-  engine?: string;
-  model: string | null;
-  effort: string | null;
 }
 
 // ONE TURN OF A CONVERSATION THE USER OPENED. Hers reads at full strength and
@@ -695,6 +797,8 @@ export interface Snapshot {
   // The team (main/team/index.mjs). Null or absent on a build with no team
   // cloud, which is the single-person app.
   team?: TeamState | null;
+  /** Which alpha features are switched on (Settings, Alpha features). */
+  alpha?: { neo: boolean; rooms: boolean };
   agents?: AgentSession[];
   approvals?: Approval[];
   supervisor: SupervisorStatus;
@@ -1011,6 +1115,8 @@ export interface WorkspaceSettings {
   // Whether the ADHD mode rules ride under "How agents write to you". Off
   // unless she turned it on (w-5737fe67cf).
   adhdMode?: boolean;
+  // Settings, Alpha features (w-3d0fa23ffb).
+  alpha?: { neo: boolean; rooms: boolean };
   // The corner tag over other apps (w-dafae58a23). On unless she turned it off.
   cornerTag?: boolean;
   outsideAgents: AgentMode;
@@ -1174,7 +1280,11 @@ declare global {
       teamRoute(p: { product: string; id: string; route: 'agent' | 'me' | 'back' }): Promise<TeamCallResult>;
       teamReact(p: { product: string; id: string; on: string; emoji: string; off?: boolean }): Promise<TeamCallResult>;
       teamMessage(p: { to: string | string[]; body: string; priority?: number; files?: TeamMessageFile[] }): Promise<TeamCallResult>;
+      rooms?(p: { op: string; args?: unknown[] }): Promise<RoomsResult>;
       threadEdit(p: { product: string; id: string; patch: ThreadEditPatch }): Promise<{ ok: boolean; error?: string }>;
+      /** Move a thread to another project (shared/move-thread.mjs). Answers
+       *  with the row it became there, or with the reason in words. */
+      moveItem(p: { product: string; id: string; to: string }): Promise<{ ok: boolean; error?: string; item?: WorkItem; from?: string; to?: string }>;
       schedule(p: { product: string; id: string; runAt: number }): Promise<WorkItem>;
       snooze(p: { product: string; id: string; snoozedUntil: number }): Promise<WorkItem>;
       repeats(): Promise<RepeatRule[]>;
@@ -1259,6 +1369,8 @@ declare global {
       // 'sharp' (main/screen-detail.mjs). It rides here rather than being
       // pushed because the answer is needed on the first paint.
       bootInfo?(): Promise<{ reloaded: boolean; builtAt: number; recovered?: string | null; screenDetail?: string }>;
+      onJoinRoom?(fn: () => void): () => void;
+      takeJoin?(): Promise<string | null>;
       // Keeping Agentbox current (main/updater.mjs). Look again now, and restart
       // onto the version that already downloaded itself.
       updateCheck(): Promise<UpdateState>;

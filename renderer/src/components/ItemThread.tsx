@@ -39,7 +39,7 @@ import type { ModelChoice } from '../models';
 import type { LedgerLine } from '../thread-history';
 import type { TraceSession } from '../notes';
 import type { AgentTurn, RunningSession, WorkItem } from '../types';
-import { ActLine, Thread, ThreadWaiting } from './Thread';
+import { ActLine, Thread, ThreadWaiting, answerTurn } from './Thread';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 
 // THE BACKSTOP, NOT THE HEARTBEAT.
@@ -64,7 +64,7 @@ const REFRESH_MS = 8_000;
 // screen is the kind of drift this row exists to end.
 const THEM = 'The agent';
 
-export function ItemThread({ item, engine, engineChoice, codexModels = [], codexModelDefault = null, session, opening, sending, filed = [], onOpenFiled, onApproveFiled, onHereFiled, onDismissFiled, onOpenOrigin, onSendNow, md, clean, onOpenDoc, chat = false, onQuote, onHandToAgent, thread }: {
+export function ItemThread({ item, engine, engineChoice, codexModels = [], codexModelDefault = null, session, opening, sending, filed = [], onOpenFiled, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, onOpenOrigin, onSendNow, md, clean, onOpenDoc, chat = false, onQuote, onHandToAgent, thread }: {
   // A CHAT'S THREAD, IN THE PANEL BESIDE IT (w-920461cbe6). The pane owns which
   // one is open and how wide it is; this draws it, because this is where the
   // replies were read. `host` is the pane the panel is drawn into. Absent
@@ -94,6 +94,9 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
   onHereFiled?: (id: string) => void;
   // And the one that drops it (w-fcb5fdc2e5).
   onDismissFiled?: (id: string) => void;
+  // And the two on the count line that answer every proposal in one list (w-fe64f35bdd).
+  onStartAllFiled?: (ids: string[]) => void;
+  onDismissAllFiled?: (ids: string[]) => void;
   // IN A CHAT ONLY: put a message's words in the reply box as a quote, and turn
   // this conversation into work. The second was a line under the whole
   // conversation and is an action on one message now (w-560647d4db).
@@ -304,7 +307,7 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
   // `atFoot` and is drawn under the checkpoint, which is that turn's last word.
   const made = filedOnTurn(events, filed);
   const madeList = (rows: typeof filed) => (
-    <ThreadsMade rows={rows} label="Filed from this thread" onOpen={(id) => onOpenFiled?.(id)} onApprove={onApproveFiled} onHere={onHereFiled} onDismiss={onDismissFiled} />
+    <ThreadsMade rows={rows} label="Filed from this thread" onOpen={(id) => onOpenFiled?.(id)} onApprove={onApproveFiled} onHere={onHereFiled} onDismiss={onDismissFiled} onStartAll={onStartAllFiled} onDismissAll={onDismissAllFiled} />
   );
 
   // THE ANSWER, WHOLE, AT THE FOOT OF THE CONVERSATION.
@@ -317,11 +320,12 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
   const ranOf = (e: { ran?: { engine?: string; model?: string } }) =>
     ranWords({ engineChoice, ran: e.ran, codexModels, codexDefault: codexModelDefault });
   const ranSaid = outcome ? ranOf(outcome) : null;
+  const answerAt = answerTurn(events, omitted, chat);
   const answer = outcome && (
     resultLeads(item) && outcome.field === 'result'
-      ? <div className="outcome">{md(clean(outcome.text))}</div>
+      ? <div className="outcome" data-exchange={answerAt}>{md(clean(outcome.text))}</div>
       : (
-        <div className="appendix appendix-foot">
+        <div className="appendix appendix-foot" data-exchange={answerAt}>
           {/* The newest answer is lifted out of the stream to the foot of the
               page, so it is signed in the label it already has rather than in
               a byline of its own. */}

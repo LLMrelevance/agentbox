@@ -9,6 +9,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { fitMenu } from '../keep-in-window';
+import { modelDrawerKey } from '../model-drawer-keys';
 import { ModelMenu } from '../threads/ModelMenu';
 import type { ModelPick } from '../threads/composer-rules';
 import type { EffortChoice } from '../effort';
@@ -64,8 +65,12 @@ export function ReplyModel({
     target?.focus({ preventScroll: true });
   }, [open, page]);
 
+  // ESCAPE FROM ANYWHERE IN THE MENU, by the one rule both boxes ask
+  // (../model-drawer-keys.ts). The arrows are this menu's own: its rows are
+  // focusable buttons, the way the new thread card's are, so moving between
+  // them is moving focus rather than a cursor.
   const menuKeys = (e: React.KeyboardEvent<HTMLElement>) => {
-    if (e.key === 'Escape') {
+    if (modelDrawerKey(e, { open, from: 'inside' }) === 'close') {
       e.preventDefault(); e.stopPropagation();
       setOpen(false);
       wrap.current?.querySelector<HTMLElement>('[data-trigger]')?.focus();
@@ -111,10 +116,15 @@ export function ReplyModel({
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={(e) => {
-          if (open) return;
-          if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setOpen(true);
+          const move = modelDrawerKey(e, { open, from: 'word' });
+          if (!move) return;
+          e.preventDefault();
+          if (move === 'open') setOpen(true);
+          if (move === 'close') { e.stopPropagation(); setOpen(false); }
+          // Arrows and Enter on the word open the menu and land on a row; the
+          // menu's own handler takes them from there.
+          if (move === 'down' || move === 'up' || move === 'pick') {
+            wrap.current?.querySelector<HTMLElement>('[data-item].on, [data-item]')?.focus();
           }
         }}
       >{label}</button>

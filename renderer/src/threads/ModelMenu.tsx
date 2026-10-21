@@ -29,7 +29,11 @@ export function ModelMenu({
   onPick: (p: ModelPick) => void;
   labelOf: (p: ModelPick) => string;
   engineLabel: (id: string) => string;
-  /** Name the agent beside each Recent model. Off on a Mac with one agent. */
+  /** NAME THE AGENT BESIDE EACH RECENT MODEL (w-c9da359466). The All models
+   *  columns are headed by their agent, so a model picked there says where it
+   *  runs; Recent mixes both lists under one heading and said nothing, and a
+   *  tester could not read "GPT-6.1-Sol, Sonnet 5.5, GPT-5.6-Terra" as two
+   *  agents. Off on a Mac with one, where the word tells nobody anything. */
   engineTags?: boolean;
   effortRows: readonly EffortChoice[];
   effortLit: string | null;

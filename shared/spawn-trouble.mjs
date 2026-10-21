@@ -253,6 +253,11 @@ const MODEL_NOT_ON_PLAN = [
 // Ours too, from `codexEffortRefusal`.
 const LEVEL_NOT_OFFERED = [/not a level that model offers/i];
 
+// Codex lets one process write to a conversation at a time, and refuses our
+// resume while the Codex app or a terminal has it open. codex-cli 0.163.0:
+// "thread <id> already has an active writer".
+const OPEN_ELSEWHERE = [/already has an active writer/i];
+
 // WHICH OF THE THREE THINGS WENT WRONG, from whatever the tool printed.
 // 'unknown' is a first-class answer, not a failure: an honest generic sentence
 // beats a confident wrong one.
@@ -269,6 +274,7 @@ export function troubleCause(raw) {
   // BEFORE SIGNED-OUT, because Codex's sentence says "ChatGPT account".
   if (MODEL_NOT_ON_PLAN.some((re) => re.test(text))) return 'model-not-on-plan';
   if (LEVEL_NOT_OFFERED.some((re) => re.test(text))) return 'level-not-offered';
+  if (OPEN_ELSEWHERE.some((re) => re.test(text))) return 'open-elsewhere';
   if (SIGNED_OUT.some((re) => re.test(text))) return 'signed-out';
   if (AT_LIMIT.some((re) => re.test(text))) return 'at-limit';
   // BEFORE WORKSPACE, whose /untrusted/ would read a certificate as a folder,
@@ -622,6 +628,7 @@ const DEAD_RUN_OPENERS = {
   'too-old': `on this computer is older than ${Name} needs, so nothing has been done on this task.`,
   'api-key': `is signed in with an API key, which ${Name} never bills, so nothing has been done.`,
   'codex-config': 'could not read its config.toml, so nothing has been done on this task.',
+  'open-elsewhere': 'has this conversation open in another window, so nothing has been done here.',
   unknown: 'stopped before it did anything, so this task has not been started.',
 };
 
@@ -663,6 +670,7 @@ const RUN_STOPPED = {
   'too-old': `This run stopped because Claude Code on this computer is older than ${Name} needs.`,
   'api-key': 'This run stopped because Codex is signed in with an API key.',
   'codex-config': 'This run stopped because Codex could not read its config.toml.',
+  'open-elsewhere': 'This run stopped because the conversation is open in another Codex window.',
   unknown: 'This run stopped before it finished.',
 };
 
@@ -691,6 +699,7 @@ function fixBeforeReplying({ cause, engineWord, resetsAt, model, planEnded }) {
   if (cause === 'too-old') return `To update it, ${UPDATE}.`;
   if (cause === 'api-key') return 'Run codex login in a terminal to sign in with your ChatGPT plan.';
   if (cause === 'codex-config') return 'Run codex in a terminal to see the line it points at and fix it.';
+  if (cause === 'open-elsewhere') return 'Close it there.';
   if (cause === 'model-not-on-plan') {
     return planEnded
       ? `That account's ChatGPT subscription ended on ${dayWords(planEnded)}, and the free plan does not include ${model || 'this model'}. Renew it at chatgpt.com, or pick another model for this task.`
@@ -745,6 +754,8 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
       ? ' Run codex login in a terminal to sign in with your ChatGPT plan, and it picks straight up.'
       : cause === 'codex-config'
       ? ` Run codex in a terminal to see the line it points at and fix it; ${Name} tries again on its own.`
+      : cause === 'open-elsewhere'
+      ? ` Close it there and ${Name} tries again on its own.`
       : cause === 'interrupted'
         ? ` ${Name} runs it again on its own.`
         : cause === 'model-not-on-plan'
@@ -863,6 +874,7 @@ export function causeWord(cause) {
   if (cause === 'level-not-offered') return 'a thinking level its model does not offer';
   if (cause === 'network') return 'a network that blocks secure connections';
   if (cause === 'too-old') return 'an out-of-date Claude Code';
+  if (cause === 'open-elsewhere') return 'a conversation open in another Codex window';
   return 'something we cannot name';
 }
 
@@ -881,6 +893,7 @@ export function causeWhat(cause, count) {
   if (cause === 'level-not-offered') return `${n} asking for a thinking level its model does not offer`;
   if (cause === 'network') return `${n} stopped by a network that blocks secure connections`;
   if (cause === 'too-old') return `${n} stopped by an out-of-date Claude Code`;
+  if (cause === 'open-elsewhere') return `${n} open in another Codex window`;
   return `${n} stopped for a reason we cannot name`;
 }
 
@@ -897,6 +910,7 @@ export function causeNext(cause, resetsAt = null) {
   if (cause === 'level-not-offered') return 'Pick another thinking level on each.';
   if (cause === 'network') return troubleRemedy('network');
   if (cause === 'too-old') return troubleRemedy('too-old');
+  if (cause === 'open-elsewhere') return 'Close them in the other Codex window.';
   return `${Name} keeps trying on its own.`;
 }
 
@@ -925,7 +939,7 @@ export function causeBreakdown(rows = [], resetsAt = null) {
       what: causeWhat(cause, count),
       next: causeNext(cause, cause === 'at-limit' ? resetsAt : null),
       act: causeAct(cause),
-      hers: needsHerHands(cause) || cause === 'workspace' || cause === 'model-not-on-plan' || cause === 'level-not-offered' || cause === 'network',
+      hers: needsHerHands(cause) || cause === 'workspace' || cause === 'model-not-on-plan' || cause === 'level-not-offered' || cause === 'network' || cause === 'open-elsewhere',
     }))
     .sort((a, b) => (b.hers - a.hers) || (b.count - a.count) || a.cause.localeCompare(b.cause));
 }

@@ -77,7 +77,10 @@ contextBridge.exposeInMainWorld('zero', {
   teamRoute: (payload) => ipcRenderer.invoke('zero:team-route', payload),
   teamReact: (payload) => ipcRenderer.invoke('zero:team-react', payload),
   teamMessage: (payload) => ipcRenderer.invoke('zero:team-message', payload),
+  rooms: (payload) => ipcRenderer.invoke('zero:rooms', payload),
+  takeJoin: () => ipcRenderer.invoke('zero:take-join'),
   threadEdit: (payload) => ipcRenderer.invoke('zero:thread-edit', payload),
+  moveItem: (payload) => ipcRenderer.invoke('zero:move-item', payload),
   // Repeating tasks. A rule, not a work item, so it has its own channels
   // rather than a flag on compose.
   repeats: () => ipcRenderer.invoke('zero:repeats'),
@@ -181,6 +184,9 @@ contextBridge.exposeInMainWorld('zero', {
   cloudAccountCancel: () => ipcRenderer.invoke('zero:cloud-account-cancel'),
   cloudAccountReopen: () => ipcRenderer.invoke('zero:cloud-account-reopen'),
   cloudAccountSignOut: () => ipcRenderer.invoke('zero:cloud-account-sign-out'),
+  cloudAccountPlan: () => ipcRenderer.invoke('zero:cloud-account-plan'),
+  cloudAccountPay: (payload) => ipcRenderer.invoke('zero:cloud-account-pay', payload),
+  cloudAccountBilling: () => ipcRenderer.invoke('zero:cloud-account-billing'),
   cloudClipboardCode: () => ipcRenderer.invoke('zero:cloud-clipboard-code'),
   // What a project is CALLED, and the mark beside the name. Not settings: both
   // are written into the project's own project.json and travel with the folder.
@@ -287,6 +293,12 @@ contextBridge.exposeInMainWorld('zero', {
     const handler = (_e, payload) => fn(payload);
     ipcRenderer.on('zero:recovered', handler);
     return () => ipcRenderer.removeListener('zero:recovered', handler);
+  },
+  // A room invite link opened the app (Rooms, alpha).
+  onJoinRoom: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('zero:join-room', handler);
+    return () => ipcRenderer.removeListener('zero:join-room', handler);
   },
   // She clicked the banner. The window is already coming forward; this says
   // which row it was about, so she lands on it rather than on wherever she
