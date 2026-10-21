@@ -188,3 +188,34 @@ describe('the rest of round 23, checked screen by screen on 2026-10-21', () => {
     expect(app).toMatch(/roomShown && roomsUi\.heading\?\.right !== undefined \? roomsUi\.heading\.right : \(?\s*<HeaderActions/);
   });
 });
+
+describe('before my room card exists', () => {
+  // The founder's first run on the real cloud: no card yet, so her messages
+  // read "Someone" and Settings had no Rooms page at all.
+  const rooms = fs.readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
+  it('my own messages still carry my name', () => {
+    expect(rooms).toMatch(/const meInChat = meId \? \{ id: meId, name: rooms\?\.me\?\.display_name \|\| myName/);
+  });
+  it('Settings still has its Rooms page, saying the card is on its way', () => {
+    expect(rooms).toMatch(/: live \? <RoomsNotReady error=\{rooms\?\.error \?\? null\} \/> : undefined;/);
+  });
+});
+
+describe('getting to a room, and keys on it', () => {
+  // The founder, 2026-10-21: on Messages, clicking Astral in the sidebar did
+  // not move her there, and N did nothing on a room's page.
+  const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
+  const rooms = fs.readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
+  it('opening a room leaves whatever covered it: a thread, a direct chat, the Team page, search', () => {
+    expect(rooms).toMatch(/const openRoom = \(id: string, \{ asFull = false \} = \{\}\) => \{ onLeavePage\(\);/);
+    expect(app).toMatch(/onLeavePage: \(\) => \{ setFocused\(null\); setFocusedRepeat\(null\); setTeamOpen\(false\); closeSearch\(\); \}/);
+    expect(rooms).not.toMatch(/onLeaveDirect/);
+  });
+  // Below the guard that swallows a key opening a text field, so the N is
+  // not typed into the box it opens (tests/shortcuts-swallow-their-key).
+  it('N starts a new thread from a room, as it does everywhere else', () => {
+    expect(app).toMatch(/if \(roomShown && e\.key !== 'Tab' && e\.key !== 'n' && e\.key !== 'N'\) \{/);
+    const branch = app.indexOf("if ((e.key === 'n' || e.key === 'N') && !roomsUi.dialogOpen) setModal('compose');");
+    expect(branch).toBeGreaterThan(app.indexOf('if (opensATextField(e.key)) e.preventDefault();'));
+  });
+});

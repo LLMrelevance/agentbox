@@ -26,14 +26,20 @@ function world() {
   cloud.now = () => clock;
   const mk = (name, email) => {
     const id = signUpMemory(cloud, { email, name });
-    const backend = memoryBackend(cloud, id);
+    const real = memoryBackend(cloud, id);
+    // `broken` stands for a cloud whose rooms tables are not there yet.
+    const backend = new Proxy(real, { get: (t, k) => {
+      const v = t[k];
+      if (typeof v !== 'function') return v;
+      return (...a) => (p.broken && /Room|Presence/.test(String(k)) ? Promise.reject(new Error('relation "public.room_profiles" does not exist')) : v.apply(t, a));
+    } });
     const p = {
       id, name, backend, on: false, signedIn: true, running: [], items: [], teamState: { team: null, people: [], cards: [] }, changes: 0,
       summary: { total: 0, week: 0, weekStart: '2026-10-19', today: 0, day: '2026-10-22', streak: 0, activeDays: [], byMonth: [] },
     };
     p.rooms = createRooms({
       backend: () => (p.signedIn ? backend : null),
-      me: () => (p.signedIn ? { id, name, status: p.status ?? null } : null),
+      me: () => (p.signedIn ? { id, name: p.nameKnown === false ? '' : name, avatarUrl: p.avatarUrl ?? null, status: p.status ?? null } : null),
       team: () => p.teamState,
       enabled: () => p.on,
       device: () => id.replace(/-/g, '').slice(0, 12).replace(/[^0-9a-f]/g, 'a'),
@@ -231,5 +237,60 @@ describe('switched on', () => {
     await flush();
     expect(w.jun.rooms.state().rooms.map((r) => r.id)).toContain(room);
     expect(w.maya.rooms.state().rooms[0].wall.map((c) => c.name)).toEqual(['Jun O.', 'Maya C.', 'Theo B.']);
+  });
+});
+
+// The founder, 2026-10-21, on the first real cloud: her messages read
+// "Someone", her own card was missing and Settings had no Rooms page. Rooms
+// was switched on before the cloud had its rooms tables; the one try at
+// making her profile failed, and nothing tried again.
+describe('a first start that fails', () => {
+  it('is tried again on the next pass: my card, my name and live messages come back', async () => {
+    const w = world();
+    await northwind(w);
+    w.maya.on = true;
+    w.theo.on = true;
+    w.maya.broken = true;
+    await w.maya.rooms.tick();
+    expect(w.maya.rooms.state().me).toBeNull();
+    w.maya.broken = false;
+    await w.maya.rooms.tick();
+    await w.theo.rooms.tick();
+    expect(w.maya.rooms.state().me).toMatchObject({ display_name: 'Maya C.' });
+    const room = w.maya.rooms.state().rooms[0];
+    expect(room.wall.map((c) => c.name)).toEqual(['Maya C.', 'Theo B.']);
+    await w.theo.rooms.send(room.id, 'are you there');
+    await flush();
+    expect(w.maya.rooms.state().messages[room.id].map((m) => m.body)).toEqual(['are you there']);
+  });
+
+  it('a face the cloud cannot keep is left off rather than losing the whole card', async () => {
+    const w = world();
+    await northwind(w);
+    w.maya.on = true;
+    w.maya.avatarUrl = `data:image/png;base64,${'A'.repeat(2000)}`;
+    await w.maya.rooms.tick();
+    expect(w.maya.rooms.state().me).toMatchObject({ display_name: 'Maya C.', avatar_url: null });
+    w.theo.on = true;
+    w.theo.avatarUrl = 'https://lh3.example.com/a/theo=s96-c';
+    await w.theo.rooms.tick();
+    expect(w.theo.rooms.state().me).toMatchObject({ avatar_url: 'https://lh3.example.com/a/theo=s96-c' });
+  });
+});
+
+describe('a card made before my name was known', () => {
+  it('takes my name once it is known, and leaves a name I chose alone', async () => {
+    const w = world();
+    await northwind(w);
+    w.maya.on = true;
+    w.maya.nameKnown = false;
+    await w.maya.rooms.tick();
+    expect(w.maya.rooms.state().me.display_name).toBe('Someone');
+    w.maya.nameKnown = true;
+    await w.maya.rooms.tick();
+    expect(w.maya.rooms.state().me.display_name).toBe('Maya C.');
+    await w.maya.rooms.saveProfile({ fullName: true });
+    await w.maya.rooms.tick();
+    expect(w.maya.rooms.state().me.display_name).toBe('Maya Costa');
   });
 });
