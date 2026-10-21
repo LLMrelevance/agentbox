@@ -439,6 +439,7 @@ Rooms paragraph in this work.
 - A room can be a board (w-49cd37092c). The header's View button, the one the
   Inbox has, switches a room between Grid and Board, and B does the same. The
   board holds you and the teammates whose Activity you may open, and its People
-  line narrows it. With Rooms on, the Inbox shows only your own threads: its
+  line narrows it. It draws each thread as one line, its title and whose it is,
+  with no project and no card. With Rooms on, the Inbox shows only your own threads: its
   People line and the faces on its button are gone, and the pick it kept comes
   back if Rooms is turned off.

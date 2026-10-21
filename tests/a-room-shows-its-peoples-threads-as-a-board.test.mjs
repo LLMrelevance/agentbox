@@ -141,14 +141,15 @@ describe('the Inbox with Rooms on', () => {
 // Round two, the same day: the first build squeezed four columns beside the
 // chat until titles wrapped. Asked for the Inbox's way instead: the columns
 // keep their width and the board scrolls sideways. And the People label sat
-// halfway down two rows of names instead of beside the first.
-describe('the room’s board is the Inbox’s board at its own width', () => {
+// halfway down two rows of names instead of beside the first. Round four drew
+// the room's board one line a thread (RoomBoard.tsx); the rule still holds.
+describe('the room’s board keeps its column width', () => {
   const rooms = readFileSync(new URL('../renderer/src/team/rooms/rooms.css', import.meta.url), 'utf8');
-  const pages = readFileSync(new URL('../renderer/src/threads/pages.css', import.meta.url), 'utf8');
-  it('keeps the Inbox’s columns, never narrower', () => {
-    expect(pages).toMatch(/\.th-board \{[^}]*grid-template-columns: repeat\(4, minmax\(260px, 1fr\)\)/);
-    const ours = (rooms.match(/\.rm-main\.board \.th-board \{[^}]*\}/g) ?? []).join('');
-    expect(ours).not.toMatch(/grid-template-columns|min-width|width:/);
+  it('never squeezes a column below its own width', () => {
+    const rule = rooms.match(/\.rm-board \{([^}]*)\}/)?.[1] ?? '';
+    const least = Number(rule.match(/grid-template-columns: repeat\(4, minmax\((\d+)px, 1fr\)\)/)?.[1]);
+    expect(least).toBeGreaterThanOrEqual(200);
+    expect(rule).toMatch(/width: fit-content/);
   });
   it('scrolls sideways inside the room when the columns do not fit', () => {
     expect(rooms).toMatch(/\.rm-main\.board \{[^}]*overflow: auto/);
