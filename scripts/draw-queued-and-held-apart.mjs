@@ -196,14 +196,29 @@ const openThread = async (id) => {
 };
 
 /* --------------------------------------------------------------- the run */
+// WHERE THE WORDS SIT, MEASURED (w-ec2b04d449): the heading over the column
+// and every word under it start on the same x, mark or no mark.
+const lineUp = () => page.evaluate(() => {
+  const left = (el) => (el ? Math.round(el.getBoundingClientRect().left) : null);
+  const head = [...document.querySelectorAll('.th-head .th-grid > div')].find((d) => d.textContent === 'Status');
+  const words = [...document.querySelectorAll('.row[data-item-id] .th-cell-state')].map((c) => {
+    const first = c.firstChild;
+    const box = first?.nodeType === 3 ? (() => { const r = document.createRange(); r.selectNode(first); return Math.round(r.getBoundingClientRect().left); })() : left(first);
+    return `${c.innerText.trim()} at ${box}`;
+  });
+  return `heading at ${left(head)}; ${[...new Set(words)].join(', ')}`;
+});
+
 await start();
 await openTab('in progress');
 await shoot('01-in-progress');
 console.log('STATUS CELLS:', await page.evaluate(() => [...document.querySelectorAll('.row[data-item-id]')]
   .map((r) => `${r.querySelector('.th-cell-title')?.innerText} — ${r.querySelector('.th-cell-state')?.innerText}`).join('\n')));
+console.log('IN PROGRESS, lined up:', await lineUp());
 
 await openTab('needs you');
 await shoot('02-needs-you');
+console.log('NEEDS YOU, lined up:', await lineUp());
 
 // The board: the word is inside the card, and nothing sits between cards.
 await start({ board: true });

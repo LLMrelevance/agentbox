@@ -19,7 +19,7 @@ describe('creating an account on the phone', () => {
 
   it('will not create the account without one, and sends the one typed', () => {
     expect(screen).toMatch(/canSubmit = [^;]*\(mode !== 'sign-up' \|\| !!name\.trim\(\)\)/);
-    expect(screen).toMatch(/signUp\(name\.trim\(\), email\.trim\(\), password\)/);
+    expect(screen).toMatch(/signUp\(name\.trim\(\), email\.trim\(\), password, phoneSite\)/);
     expect(screen).not.toMatch(/signUp\(''/);
   });
 
