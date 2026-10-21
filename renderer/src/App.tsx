@@ -45,7 +45,12 @@ import { documentCandidates } from './message-artifacts';
 import { filesFromRuns } from './run-files';
 import { Rail } from './components/Rail';
 import { ThreadComposer } from './threads/ThreadComposer';
-import { joinNames, projectsOffered, threadMessage } from './threads/composer-rules';
+import { joinNames, projectsOffered, teammates, threadMessage } from './threads/composer-rules';
+import { chosenNames, whoSees } from './threads/summary-rules';
+import { shownToPeople } from '../../shared/thread-cards.mjs';
+import { changePathFor } from './code-artifact';
+import { teamRouteChoices } from './team/TeamFocus';
+import { SEE_SAID, threadCommands, type ThreadCommand } from './thread-commands';
 import { NewProject } from './components/NewProject';
 import { shortFolder } from './project-folder';
 import { ImportAgents } from './components/ImportAgents';
@@ -160,8 +165,8 @@ import { FleetContext, type Fleet } from './fleet';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
-import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, flipView, isDirect, nextTab, pageDisplay, pageFor, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
-import { mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
+import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, flipView, isDirect, nextTab, pageDisplay, pageFor, peopleInConversation, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
+import { inboxEveryone, mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
 import { boardStops, listStops, stepFromPlace, stepStop, stopKey, type Stop } from './threads/walk-rules';
 import { opensTheToast, toastOpens, toastParts, type ToastGoes } from './toast-parts';
 
@@ -394,6 +399,13 @@ export default function App() {
     if (!v) { setHoveredId(null); setPointedHint(null); hints.current?.stop(); }
   }, []);
   const [focused, setFocused] = useState<WorkItem | null>(null);
+  // A ⌘K row that acts on the open thread's page (Focus `pageAsk`), and what that
+  // page reports it draws (Focus `onShown`), which is when those rows are offered.
+  const [threadAsk, setThreadAsk] = useState<{ key: string; what: 'summary' | 'people' | 'rename'; at: number } | null>(null);
+  const [openShows, setOpenShows] = useState<{ key: string; change: boolean; summary: 'open' | 'closed' | null } | null>(null);
+  useEffect(() => {
+    setThreadAsk((a) => (a && focused && a.key === `${focused.product}/${focused.id}` ? a : null));
+  }, [focused?.product, focused?.id]);
   // ON A PHONE AN OPEN THREAD IS A STEP IN THE HISTORY, so swiping back from
   // the left edge returns to the inbox (phone-screen.ts).
   usePhoneBack(!!focused, () => setFocused(null));
@@ -2385,11 +2397,14 @@ export default function App() {
   // WHOSE THREADS ARE ON THE PAGE (w-05ff3d1438): the faces on the header's
   // View and filters button (w-14bb56c833). The Inbox and the Team page were one question on two pages; this
   // is the one page, and it opens as yours. Remembered between launches.
+  // With Rooms on, teammates' threads are on a room's board instead, and the
+  // pick kept here waits untouched for Rooms going off.
+  const roomsOn = !!snap?.alpha?.rooms && !!snap?.team?.rooms?.on;
   const everyone = useMemo(() => {
     if (!team) return [];
     const people = [...team.byId.values()];
-    return team.state.me && !team.byId.has(team.state.me.id) ? [team.state.me, ...people] : people;
-  }, [team]);
+    return inboxEveryone(team.state.me && !team.byId.has(team.state.me.id) ? [team.state.me, ...people] : people, team.me, roomsOn);
+  }, [team, roomsOn]);
   const [pickedRaw, setPickedRaw] = useState<string[] | null>(() => readPicked());
   const picked = useMemo(() => normalizePicked(pickedRaw, team?.me ?? null, everyone.map((p) => p.id)), [pickedRaw, team?.me, everyone]);
   const setPicked = useCallback((next: string[]) => { setPickedRaw(next); writePicked(next); setSelected(0); }, []);
@@ -3451,7 +3466,6 @@ export default function App() {
 
   // ROOMS (alpha, team/rooms/useRooms.tsx). A room open is drawn in place of
   // the list, so it shows only where the list would.
-  const roomsOn = !!snap?.alpha?.rooms && !!snap?.team?.rooms?.on;
   const directs = useMemo(() => (roomsOn ? directConversations({
     items, products: snap?.products ?? [], me: snap?.team?.me?.id ?? null,
     people: new Map((snap?.team?.people ?? []).map((p) => [p.id, p])), waiting: new Set(inbox.map((i) => i.id)),
@@ -3477,6 +3491,10 @@ export default function App() {
       setComposeInitial({ to: ids[0], also: ids.slice(1) });
       setModal('compose');
     },
+    // A teammate's card opens over the room, and Back comes back to it.
+    renderBoard: (people) => <InboxBoard items={items} products={snap?.products ?? []} display={DEFAULT_DISPLAY.team} now={now} stateOf={stateOfMine} projectOrder={projectOrder}
+      cards={cards} picked={people} onOpenCard={openTeammateCard} columnOrder={columnOrder} onReorderColumns={reorderColumns}
+      onOpenItem={(item) => { setFocused(item); markSeen(item); }} />,
   });
   const roomShown = !!roomsUi.openId && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
   // A conversation with people, open full page, sits on the messages page.
@@ -5046,10 +5064,11 @@ export default function App() {
       // A ROOM OWNS THE KEYBOARD WHILE IT IS OPEN, as Settings does: the list
       // behind it is not on the screen. Escape goes back to the threads and
       // Tab walks on along the tabs. N goes on to the room's branch below the
-      // guard, because it opens a text field.
+      // guard, because it opens a text field. B flips grid and board, as on the Inbox.
       if (roomShown && e.key !== 'Tab' && e.key !== 'n' && e.key !== 'N') {
         if (roomsUi.dialogOpen || modal || inInput || e.metaKey || e.ctrlKey || e.altKey) return;
         if (e.key === 'Escape') { e.preventDefault(); roomsUi.close(); }
+        if ((e.key === 'b' || e.key === 'B') && roomsUi.flipView) { e.preventDefault(); roomsUi.flipView(); }
         return;
       }
       // ⌘J SHOWS AND HIDES THIS TASK'S TERMINAL.It is the chord VS Code,
@@ -5807,7 +5826,47 @@ export default function App() {
     setRepeats(await api.repeats());
     showToast(`Ended: ${rule.title}`);
   };
-  const focusedRule = focused ? repeats.find((r) => r.product === focused.product && r.id === ruleIdOf(focused)) ?? null : null;
+  const ruleOf = (item: WorkItem) => repeats.find((r) => r.product === item.product && r.id === ruleIdOf(item)) ?? null;
+  const focusedRule = focused ? ruleOf(focused) : null;
+
+  const placeThread = (item: WorkItem, keep: boolean) => {
+    void api.setThreadOnMac({ [item.id]: keep ? true : null });
+    showToast(keep ? 'This thread now runs only on this Mac' : 'This thread can run on the cloud again');
+  };
+  // The write the summary panel's Visible to menu makes.
+  const seeThread = async (item: WorkItem, to: 'team' | 'private') => {
+    const out = await api.threadEdit(item.product, item.id, { visibility: to });
+    if (!out.ok) { showToast('That change did not save.'); return; }
+    showToast(SEE_SAID[to]);
+    await refresh();
+  };
+  // A ⌘K row from ./thread-commands, on the thread it was offered over. The
+  // rows that act on the thread's page open that thread first.
+  const runThreadCommand = (item: WorkItem, c: ThreadCommand) => {
+    setModal(null);
+    const onPage = (what: 'summary' | 'people' | 'rename') => {
+      if (!focused || keyOf(focused) !== keyOf(item)) { setFocused(item); markSeen(item); }
+      if (what !== 'summary') setOpenDoc(null);
+      setThreadAsk({ key: keyOf(item), what, at: Date.now() });
+    };
+    const d = c.does;
+    switch (d.act) {
+      case 'see': if (d.already) showToast(SEE_SAID[d.to]); else void seeThread(item, d.to); return;
+      case 'people': case 'rename': case 'summary': onPage(d.act); return;
+      case 'pin': pinThread(item.id, d.pin, true); showToast(d.pin ? 'Pinned to the top of your list' : 'Unpinned'); return;
+      case 'place': placeThread(item, d.keep); return;
+      case 'code': setOpenDoc({ product: item.product, src: changePathFor(item.id) }); return;
+      case 'end-repeat': { const rule = ruleOf(item); if (rule) void endRule(rule); return; }
+      case 'add-people': {
+        const who = peopleInConversation(team?.products.get(item.product), team?.me ?? null, team?.state.people ?? []);
+        if (who) addPeopleToConversation(who);
+        return;
+      }
+      case 'route':
+        void api.teamRoute({ product: item.product, id: item.id, route: d.route })
+          .then((out) => { if (!out.ok) showToast(out.error ?? 'That did not work.'); });
+    }
+  };
 
   // AND A VIEW WITH NOTHING IN IT DRAWS NO CARD EITHER. The other half of the
   // same directive: painting the sentence out of the empty pane leaves a large
@@ -6156,6 +6215,7 @@ export default function App() {
               onCloudWhenOn={(mode) => { void api.setWorkspaceSetting({ key: 'cloudWhenOn', value: mode }); }}
               onCloudSetUp={() => setCloudSetupOpen(true)}
               filters={!roomShown}
+              view={roomShown ? roomsUi.viewButton : null}
             />
           ))}
           {!workspaceNavigation && !focused && !settingsOpen && !inPractice && (
@@ -6303,10 +6363,11 @@ export default function App() {
                      same summary fields, and Message Maya in its top bar. */
                   <div className="th-card-page">
                     <div className="th-card-bar">
-                      {/* Back to Threads, with the same people picked. The
-                          page is called Threads since w-05ff3d1438: once a
-                          teammate is on it, it is more than an inbox. */}
-                      <button type="button" className="th-back" onClick={() => { setOpenCard(null); setTeamOpen(false); }}><span aria-hidden="true">←</span>Threads</button>
+                      {/* Back to Threads, with the same people picked, or to
+                          the room whose board it was opened from. The page is
+                          called Threads since w-05ff3d1438: once a teammate is
+                          on it, it is more than an inbox. */}
+                      <button type="button" className="th-back" onClick={() => { setOpenCard(null); setTeamOpen(false); }}><span aria-hidden="true">←</span>{roomsUi.roomName ?? 'Threads'}</button>
                       <MessagePerson person={team?.byId.get(openCard.personId) ?? null}
                         onMessage={() => {
                           const convo = conversationWith(openCard.personId, { products: snap.products, items, me: team?.me ?? null });
@@ -6512,11 +6573,11 @@ export default function App() {
                   onStop={() => stopAgent(focused)}
                   onRunNow={() => runNow(focused)}
                   onPin={focused.agent ? undefined : (pin) => pinThread(focused.id, pin, true)}
-                  place={focused.agent ? null : threadPlace(focused, snap.supervisor.running.find((r) => r.itemId === focused.id) ?? null, snap.cloud ?? null, snap.products)}
-                  onPlace={(keep) => {
-                    void api.setThreadOnMac({ [focused.id]: keep ? true : null });
-                    showToast(keep ? 'This thread now runs only on this Mac' : 'This thread can run on the cloud again');
-                  }}
+                  place={focused.agent ? null : threadPlace(focused, snap.supervisor.running.find((r) => r.itemId === focused.id) ?? null, snap.cloud ?? null)}
+                  onPlace={(keep) => placeThread(focused, keep)}
+                  pageAsk={threadAsk?.key === keyOf(focused) ? threadAsk : null}
+                  onAsked={() => setThreadAsk(null)}
+                  onShown={setOpenShows}
                   onReveal={() => revealAgent(focused)}
                   // Remind me later and stop this task are neither of the two
                   // ways a task ends, and the card beside the bar names exactly
@@ -7019,6 +7080,26 @@ export default function App() {
                 }]
               : []),
             { id: 'snooze', label: 'Later', keywords: LATER_KEYWORDS, keyHint: 'L', run: () => openSnooze(target) },
+            // WHAT THE THREAD'S OWN CONTROLS DO (w-e85916b92c): its summary
+            // panel, three-dot menu, S key, Add people and a teammate's strip.
+            ...(() => {
+              const project = team?.products.get(target.product) ?? null;
+              const page = !target.agent && !isTroubleRow(target) && !isUpdateRow(target) && !isDirect(project ?? undefined);
+              const live = target.status !== 'done' && !target.agent && !isTroubleRow(target) && !isUpdateRow(target);
+              const key = keyOf(target);
+              return threadCommands({
+                seen: team && page ? whoSees(target, team.state.since ?? null, project) : null,
+                chosen: team ? chosenNames(shownToPeople(target, project), team.byId) : undefined,
+                teammates: !!team && teammates(team.state.people ?? [], team.me).length > 0,
+                pinned: live ? !!target.pinned : null,
+                place: live ? threadPlace(target, snap.supervisor.running.find((r) => r.itemId === target.id) ?? null, snap.cloud ?? null) : null,
+                open: focused && keyOf(focused) === key && openShows?.key === key ? openShows : null,
+                rename: page,
+                repeats: !!ruleOf(target),
+                addPeople: !!peopleInConversation(project, team?.me ?? null, team?.state.people ?? []),
+                routes: teamRouteChoices(target, team),
+              }).map((c) => ({ id: c.id, label: c.label, hint: c.hint, keywords: c.keywords, keyHint: c.keyHint, run: () => runThreadCommand(target, c) }));
+            })(),
             // WHICH MODEL, AND SO WHICH ENGINE, PICKS THIS THREAD UP NEXT
             // (thread-model-commands.ts). Not on an agent row, which stands
             // for a session running outside Agentbox and takes only words.

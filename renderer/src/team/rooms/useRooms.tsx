@@ -6,7 +6,8 @@ import { api } from '../../api';
 import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
 import { RoomsNav, useOutside, type RoomMenuAction } from './RoomsNav';
 import { RoomTabs } from './RoomTabs';
-import { cardName, roomTabs, tabWalk, withMe } from './room-rules';
+import { boardPeople, boardPicked, cardName, readBoardPicks, readRoomView, roomTabs, tabWalk, whereChatOpens, withMe, writeBoardPicks, writeRoomView, type RoomView } from './room-rules';
+import { RoomViewButton } from './RoomView';
 import { landed, sameMessages } from './room-chat-rules';
 import { RoomPage, type RoomPane } from './RoomPage';
 import { RoomChat, peopleOf } from './RoomChat';
@@ -29,7 +30,7 @@ type Dialog =
 
 type Direct = Conversation & { people: string[] };
 
-export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, teamCards = [], directs = [], now, toast, onOpenDirect, onDirectRead, onTeamMessage, onLeavePage }: {
+export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, teamCards = [], directs = [], now, toast, onOpenDirect, onDirectRead, onTeamMessage, onLeavePage, renderBoard }: {
   rooms: RoomsState | null | undefined; on: boolean; meId: string | null; myName: string; fullName?: string; hasTeam: boolean; teamCards?: ThreadCard[];
   /** Direct records, for the messages page and the chat switcher. */
   directs?: Direct[];
@@ -42,6 +43,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   onTeamMessage: (personIds: string[]) => void;
   /** Leave whatever covers the rooms: an open thread or direct chat, the Team page, search. */
   onLeavePage: () => void;
+  /** The Inbox's board, for these people's threads. */
+  renderBoard?: (people: string[]) => ReactNode;
 }) {
   const live = on && !!rooms?.on;
   const all = live ? rooms!.rooms : [];
@@ -54,12 +57,16 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [switcher, setSwitcher] = useState<DOMRect | null>(null);
   const [folded, setFolded] = useState(() => { try { return localStorage.getItem(FOLD_KEY) === '1'; } catch { return false; } });
+  const [view, setViewRaw] = useState<RoomView>(() => readRoomView());
+  const [boardPicks, setBoardPicks] = useState<Record<string, string[]>>(() => readBoardPicks());
   const [dialog, setDialog] = useState<Dialog>(null);
   const [members, setMembers] = useState<{ roomId: string; at: DOMRect } | null>(null);
   const [links, setLinks] = useState<Record<string, string>>({});
   const [finding, setFinding] = useState(false);
   // The Messages row with no conversation yet to open.
   const [noChats, setNoChats] = useState(false);
+  // A chat opened full page from a person's page, so Back goes back there.
+  const [cameFrom, setCameFrom] = useState<{ roomId: string; pane: RoomPane } | null>(null);
   const open = openId ? all.find((r) => r.id === openId) ?? null : null;
   const invisibleUntil = Date.parse(rooms?.me?.invisible_until ?? '');
   const chatRoom = (panelId ? all.find((r) => r.id === panelId) : null) ?? open;
@@ -96,17 +103,18 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     try { await navigator.clipboard.writeText(joinLink(token)); toast('Link copied'); } catch { toast(joinLink(token)); }
   };
 
-  const openRoom = (id: string, { asFull = false } = {}) => { onLeavePage(); setFinding(false); setNoChats(false); setOpenId(id); setPane('wall'); setPanelId(null); setFull(asFull); };
+  const openRoom = (id: string, { asFull = false } = {}) => { onLeavePage(); setFinding(false); setNoChats(false); setOpenId(id); setPane('wall'); setPanelId(null); setFull(asFull); setCameFrom(null); };
   const close = () => {
     if (finding) { setFinding(false); return; }
     if (noChats) { setNoChats(false); return; }
+    if (cameFrom) { openRoom(cameFrom.roomId); setPane(cameFrom.pane); return; }
     if (full && open?.kind !== 'group') { setFull(false); return; }
     if (pane !== 'wall') { setPane('wall'); return; }
     setOpenId(null); setFull(false); setPanelId(null);
   };
   // Somewhere else was picked: no room, no Find rooms, no messages page.
-  const leave = () => { setOpenId(null); setFull(false); setPanelId(null); setFinding(false); setNoChats(false); };
-  const find = () => { onLeavePage(); setOpenId(null); setFull(false); setNoChats(false); setFinding(true); };
+  const leave = () => { setOpenId(null); setFull(false); setPanelId(null); setFinding(false); setNoChats(false); setCameFrom(null); };
+  const find = () => { onLeavePage(); setOpenId(null); setFull(false); setNoChats(false); setFinding(true); setCameFrom(null); };
   const loadListed = useCallback(async () => { const res = await call<ListedRoom[]>('listed'); return res.ok ? res.value ?? [] : null; }, [call]);
   const inviteId = dialog?.kind === 'invite' ? dialog.roomId : null;
   const loadSent = useCallback(async () => {
@@ -167,8 +175,10 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       if (!res.ok || !res.value) { toast(res.error ?? 'Could not start the chat'); return; }
       id = res.value;
     }
-    if (open && open.kind !== 'group' && !full) setPanelId(id);
-    else openRoom(id, { asFull: true });
+    const where = whereChatOpens({ open, full, pane });
+    if (where.beside) { setPanelId(id); return; }
+    openRoom(id, { asFull: true });
+    setCameFrom(where.back);
   };
 
   // A SEND TRIED AGAIN AFTER A DROPPED CONNECTION may already have landed: the
@@ -233,7 +243,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
 
   const conversations: Conversation[] = live ? [...roomConversations(rooms), ...directs] : [];
   const pick = (c: Conversation) => {
-    if (c.kind === 'direct') { setOpenId(null); setFull(false); setNoChats(false); onOpenDirect(c.id); return; }
+    if (c.kind === 'direct') { setOpenId(null); setFull(false); setNoChats(false); setCameFrom(null); onOpenDirect(c.id); return; }
     openRoom(c.id, { asFull: true });
   };
 
@@ -282,6 +292,22 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     <button type="button" className="rm-backt" title="Back (esc)" onClick={close}>{I.back()}<span>{title}</span></button></h1>;
   let heading: { title: ReactNode; right?: ReactNode } | null = null;
   let page: ReactNode = null;
+  // THE ROOM AS A BOARD: the Inbox's board, for the people here whose threads
+  // reach me. Only on the room itself, never over a person, the ranks or a chat.
+  const onRoom = !!open && !!rooms && !full && open.kind !== 'group' && pane === 'wall' && !finding && !noChats;
+  const onBoardPeople = onRoom ? boardPeople(open!.wall) : [];
+  const onBoardPicked = onRoom ? boardPicked(boardPicks[open!.id], onBoardPeople) : [];
+  const setView = (next: RoomView) => { setViewRaw(next); writeRoomView(next); };
+  const pickForBoard = (ids: string[]) => {
+    if (!open) return;
+    const next = { ...boardPicks, [open.id]: ids };
+    setBoardPicks(next);
+    writeBoardPicks(next);
+  };
+  const board = onRoom && view === 'board' && renderBoard ? renderBoard(onBoardPicked) : null;
+  const viewButton: ReactNode = onRoom && renderBoard
+    ? <RoomViewButton view={view} onView={setView} people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} />
+    : null;
   if (noChats && live) {
     heading = { title: backTitle('Messages'), right: null };
     page = <MessagesPage list={[]} onKey={null} now={now} onPick={pick} onAction={(c, a) => void act(c, a)}>
@@ -303,8 +329,10 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     } else {
       if (pane.startsWith('person:')) heading = { title: backTitle(open.name) };
       page = <RoomPage room={open} rooms={list} cards={teamCards} ranks={rooms.ranks ?? {}} me={rooms.me} now={now}
-        pane={pane} link={links[open.id] ?? null} onPane={setPane} chat={chatPanel(chatRoom ?? open, false)}
+        pane={pane} link={links[open.id] ?? null} onPane={setPane} chat={chatPanel(chatRoom ?? open, false)} board={board} renderBoard={renderBoard}
         picked={picked} onPick={(ids) => setPicked(new Set(ids))} onMessage={(ids) => void message(ids, open)}
+        onRoom={(id) => openRoom(id)}
+        onSaveBio={async (bio) => { const res = await call('saveProfile', { bio }); return res.ok ? null : res.error ?? 'Your bio did not save'; }}
         onComeBack={() => void call('comeBack')} onCopyLink={() => void copyLink(open.id)} />;
     }
   }
@@ -378,6 +406,10 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     live, openId: open ? openId : finding && live ? 'find' : noChats && live ? 'messages' : null, openMessages, open: (id: string) => openRoom(id), close, leave, find, nav, tabs, page, dialogs, join, walk, invisible, settingsPane,
     mentions, openMention, faces, messagesShell, full, heading,
     dialogOpen: !!dialog || !!members || !!switcher,
+    /** The header's View button over a room, and B. Null anywhere else in rooms. */
+    viewButton, flipView: viewButton ? () => setView(view === 'board' ? 'grid' : 'board') : null,
+    /** The room a teammate's card was opened over, for its Back. */
+    roomName: open && !full && open.kind !== 'group' ? open.name : null,
   };
 }
 
