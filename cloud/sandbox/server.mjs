@@ -35,6 +35,8 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import http from 'node:http';
+import crypto from 'node:crypto';
+import { pipeline } from 'node:stream/promises';
 import { spawn, execFile, execFileSync } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { usageMeter } from './usage.mjs';
@@ -48,6 +50,9 @@ const MAX_MCP_LINE = 32 * 1024 * 1024;
 // What this server can do beyond the first version, said in a start's answer,
 // so a Mac knows rather than guesses whether its asks are honoured.
 const CAPS = ['offline', 'setup', 'kept', 'base', 'plain'];
+// A conversation sent home as only what the run added is listed in this file
+// (the same name in main/cloud/run.mjs).
+const TAILS = '.agentbox-tails.json';
 // A PROJECT'S OWN SETUP: `.agentbox/cloud-setup.sh` in its task folder, run as
 // the agent before the agent, on every cloud run, so a project needing a
 // program the image lacks says so in its own repository rather than in a new
@@ -595,7 +600,7 @@ export function createSandbox({
       }
       stillOpen();
       if (r.spec.docs) fs.mkdirSync(r.spec.docs, { recursive: true });
-      for (const f of files) { await placeFile(f); stillOpen(); }
+      for (const f of files) { await placeFile(f, r); stillOpen(); }
       // Files that belong in the agent's own home here, wherever the Mac keeps
       // its: the person's own instructions to Claude (`.claude/CLAUDE.md`).
       const home = at(runAs?.home || process.env.HOME || '/root');
@@ -727,9 +732,11 @@ export function createSandbox({
     r.killTimer = setTimeout(() => killGroup(child.pid, 'SIGKILL'), killGraceMs);
   }
 
-  async function placeFile(f) {
+  // What a run was given is noted, so only what it adds goes home (`stageTails`).
+  async function placeFile(f, r = null) {
     fs.mkdirSync(path.dirname(f.path), { recursive: true });
-    await download(fetchImpl, f.url, f.path, stopping.signal);
+    const body = await download(fetchImpl, f.url, f.path, stopping.signal);
+    if (r && !f.untar) (r.placed ||= new Map()).set(f.path, { size: body.length, sha256: sha256(body) });
     if (f.untar) {
       fs.mkdirSync(f.untar, { recursive: true });
       await sh('tar', ['-xzf', f.path, '-C', f.untar], f.untar);
@@ -1075,9 +1082,14 @@ export function createSandbox({
     const bringAll = async () => {
       for (const b of bring) {
         if (!fs.existsSync(b.dir)) continue;
-        if (r.secrets?.length) redactFolder(b.dir, r.secrets);
+        const staged = r.spec.tails ? await stageTails(r, b.dir, tmp('bring')) : null;
+        if (r.secrets?.length) redactFolder(staged || b.dir, r.secrets);
         const tarball = tmp('bring.tgz');
-        await sh('tar', ['-czf', tarball, '-C', b.dir, '.'], r.spec.cwd);
+        try {
+          await sh('tar', ['-czf', tarball, '-C', staged || b.dir, '.'], r.spec.cwd);
+        } finally {
+          if (staged) fs.rmSync(staged, { recursive: true, force: true });
+        }
         await upload(fetchImpl, b.url, fs.readFileSync(tarball));
         fs.rmSync(tarball, { force: true });
         brought.push(b.dir);
@@ -1381,7 +1393,7 @@ export function createSandbox({
           try {
             for (const f of req.files || []) {
               if (!f?.url || !path.isAbsolute(f?.path || '')) return { ok: false, error: 'bad-file', consumed: true };
-              await placeFile({ ...f, path: at(f.path), ...(f.untar ? { untar: at(f.untar) } : {}) });
+              await placeFile({ ...f, path: at(f.path), ...(f.untar ? { untar: at(f.untar) } : {}) }, r);
               if (runAs) await sh('chown', [`${runAs.uid}:${runAs.gid}`, at(f.path)], '/').catch(() => {});
             }
           } catch (err) {
@@ -1603,6 +1615,55 @@ async function redactChanged(cwd, secrets) {
   }
 }
 
+const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
+const within = (dir, p) => { const rel = path.relative(dir, p); return !!rel && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel); };
+
+async function sha256OfStart(file, bytes) {
+  const h = crypto.createHash('sha256');
+  if (bytes > 0) for await (const chunk of fs.createReadStream(file, { start: 0, end: bytes - 1 })) h.update(chunk);
+  return h.digest('hex');
+}
+
+// `from` copied into `to` by hard links where it can, leaving out `skip`.
+function mirror(from, to, skip) {
+  fs.mkdirSync(to, { recursive: true });
+  fs.chmodSync(to, fs.statSync(from).mode & 0o7777);
+  for (const e of fs.readdirSync(from, { withFileTypes: true })) {
+    const src = path.join(from, e.name);
+    const dst = path.join(to, e.name);
+    if (skip.has(src)) continue;
+    if (e.isDirectory()) mirror(src, dst, skip);
+    else if (e.isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(src), dst);
+    else if (e.isFile()) { try { fs.linkSync(src, dst); } catch { fs.copyFileSync(src, dst); } }
+  }
+}
+
+// THE FOLDER AS IT GOES HOME WHEN IT HOLDS A FILE THE RUN WAS GIVEN AND ONLY
+// ADDED TO (a conversation): that file as what the run added, listed in TAILS
+// for the Mac to add to its own copy (main/cloud/run.mjs `layTails`). Null
+// when there is none; a file whose start the run changed goes whole.
+async function stageTails(r, dir, staging) {
+  const tails = [];
+  for (const [file, was] of r.placed || []) {
+    if (!within(dir, file)) continue;
+    const st = fs.lstatSync(file, { throwIfNoEntry: false });
+    if (!st?.isFile() || st.size < was.size || await sha256OfStart(file, was.size) !== was.sha256) continue;
+    tails.push({ file, ...was });
+  }
+  if (!tails.length) return null;
+  fs.rmSync(staging, { recursive: true, force: true });
+  mirror(dir, staging, new Set(tails.map((t) => t.file)));
+  const list = [];
+  for (const t of tails) {
+    const rel = path.relative(dir, t.file);
+    const tail = `${rel}.agentbox-tail`;
+    await pipeline(fs.createReadStream(t.file, { start: t.size }), fs.createWriteStream(path.join(staging, tail)));
+    list.push({ file: rel, tail, from: t.size, sha256: t.sha256 });
+  }
+  fs.writeFileSync(path.join(staging, TAILS), JSON.stringify(list));
+  return staging;
+}
+
 // The transcripts that come home, with the login's text taken out of them.
 function redactFolder(dir, secrets) {
   const walk = (d) => {
@@ -1684,7 +1745,9 @@ async function download(fetchImpl, url, file, signal) {
   const res = await fetchImpl(url, signal ? { signal } : undefined);
   if (!res.ok) throw new Error(`fetch ${res.status} for ${redact(url)}`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+  const body = Buffer.from(await res.arrayBuffer());
+  fs.writeFileSync(file, body);
+  return body;
 }
 
 async function upload(fetchImpl, url, body) {
