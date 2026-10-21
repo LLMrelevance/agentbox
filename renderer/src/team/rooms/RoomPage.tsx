@@ -1,6 +1,6 @@
-// A room (round 23): the wall of people on one shared grid, four across, and
-// the chat beside it. Also the room's ranks this week, and the line that says
-// you are invisible.
+// A room (round 23): the wall of people on one shared grid, four across, or
+// their threads as a board, and the chat beside it. Also the room's ranks this
+// week, and the line that says you are invisible.
 import { useRef, useState, type ReactNode } from 'react';
 import type { Room, RoomCard, RoomProfile, ThreadCard } from '../../types';
 import { PersonHover, ProfilePage } from './RoomPerson';
@@ -13,11 +13,13 @@ import { joinLink } from '../../../../shared/room-links.mjs';
 /** The wall, the room's ranks, or one person's page. */
 export type RoomPane = 'wall' | 'ranks' | `person:${string}`;
 
-export function RoomPage({ room, rooms, cards, ranks, me, now, pane, link, chat, picked, onPick, onPane, onComeBack, onMessage, onCopyLink }: {
+export function RoomPage({ room, rooms, cards, ranks, me, now, pane, link, chat, board = null, picked, onPick, onPane, onComeBack, onMessage, onCopyLink }: {
   room: Room; rooms: Room[]; cards: ThreadCard[]; ranks: Record<string, number>;
   me: RoomProfile | null; now: number; pane: RoomPane; link: string | null;
   /** The chat panel beside the wall: this room's, or a chat switched to. */
   chat: ReactNode;
+  /** Their threads as a board, drawn in place of the wall while the room's view is Board. */
+  board?: ReactNode;
   /** Cards picked to message together. */
   picked: Set<string>; onPick: (ids: string[]) => void;
   onMessage?: (personIds: string[]) => void;
@@ -41,11 +43,11 @@ export function RoomPage({ room, rooms, cards, ranks, me, now, pane, link, chat,
     </div></div>;
   }
   return <div className="rm-split">
-    <div className="rm-main">
+    <div className={`rm-main${board && pane === 'wall' ? ' board' : ''}`}>
       {notice && <div className="rm-notice" role="status">{I.eyeOff()}{notice}<button type="button" className="rm-btn" onClick={onComeBack}>Come back</button></div>}
       {pane === 'ranks'
         ? <Ranks room={room} onBack={() => onPane('wall')} onPerson={(id) => onPane(`person:${id}`)} />
-        : <>
+        : board ?? <>
           <Wall cards={room.wall} onPoint={point} picked={picked}
             onCard={(c, many) => {
               setHover(null);

@@ -72,6 +72,10 @@
 .rm-selbar { position: sticky; bottom: 0; margin: 16px auto 0; width: max-content; z-index: 6; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 12px; font-size: 13px; color: var(--text); white-space: nowrap; }
 .rm-selbar .faces { display: flex; }
 .rm-selbar .x { color: var(--text-faint); display: flex; background: none; border: 0; padding: 4px; }
+/* The room as a board: the Inbox's board, its four columns sharing the room's width with the chat. */
+.rm-main.board .th-board { padding: 0; width: auto; min-width: 0; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.th-pop.rm-viewpop { width: max-content; max-width: 470px; }
+.rm-viewnote { font-size: 12px; color: var(--text-faint); }
 
 /* the chat */
 .rm-chat { width: 360px; flex: none; border-left: 1px solid var(--rm-line); display: flex; flex-direction: column; min-height: 0; position: relative; }
