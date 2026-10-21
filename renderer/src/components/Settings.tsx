@@ -35,8 +35,9 @@ import { InstructionSettings, sizeLabel } from './InstructionSettings';
 import { NeoSettings } from '../neo/NeoSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
-import { accountLabel, countedAccounts, type CloudStatus } from '../cloud-menu';
+import { accountLabel, cloudToggleTarget, countedAccounts, type CloudStatus } from '../cloud-menu';
 import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
+import { accountReadingFor, accountsOnce, type HereLogin, type OneAccount } from '../accounts-once';
 import { limitRows } from '../../../shared/usage.mjs';
 import { LOOKS, lookMeans, SKINS, TUNE_DEFAULT, TUNE_LIMITS, type Look, type SkinId, type SkinTune } from '../skins';
 import { readySkin } from '../look-switch';
@@ -281,20 +282,8 @@ function CopyCmd({ cmd }: { cmd: string }) {
    ==========================================================================
 */
 
-type CardAccount = {
-  profile: string;
-  email: string | null;
-  plan: string | null;
-  chosen: boolean;
-  signedIn: boolean;
-  /**
-   * WHY THIS ACCOUNT CANNOT BE USED, in main's words, or null. Kept because it
-   * is the one thing on an account row she can act on: a signed-out
-   * subscription reads as healthy-but-resting without it. */
-  trouble: string | null;
-  /** The folder, needed only to print the command that signs it back in. */
-  dir: string | null;
-};
+type CardAccount = HereLogin;
+export { accountReadingFor };
 
 /**
  * One agent's whole story, gathered from the pieces the model still keeps
@@ -427,20 +416,13 @@ export function AccountRows({ agent, onChoose, onAdd }: {
   }
 }
 
-export function accountReadingFor(profile: string, readings: AccountUsageReading[], current: Usage | null): Usage | null {
-  const own = readings.find(r => r.profile === profile && r.limits?.length && r.at);
-  const candidates = [own ? { engine: 'claude' as const, profile, at: own.at!, limits: own.limits! } : null,
-    current && (current.profile ?? 'default') === profile ? current : null];
-  return candidates.filter((r): r is Usage => !!r).sort((a, b) => b.at - a.at)[0] ?? null;
-}
-
 /** One account as a place card draws it, whether it lives here or in the cloud. */
 export type PlaceAccount = {
   key: string;
   name: string;
-  /** The plan, set against the name. */
+  /** The plan, first on the line under the name. */
   plan?: string | null;
-  /** A state to say where nothing is in use or offered, joined with a dot. */
+  /** Anything else that line says, after the plan, joined with a dot. */
   about: string[];
   inUse?: boolean;
   limits?: UsageLimit[] | null;
@@ -473,21 +455,13 @@ export function MiniMeters({ limits, now = Date.now() }: { limits?: UsageLimit[]
   );
 }
 
-/** A tile here's second line, in the words the cloud's tiles use. Trouble is said below it instead. */
-export function hereState({ signedIn, trouble, limits, now = Date.now() }: {
-  signedIn: boolean; trouble: string | null; limits?: UsageLimit[] | null; now?: number;
-}): string[] {
-  if (!signedIn) return ['Finish signing in to use it'];
-  if (trouble) return [];
-  const full = (limits ?? []).some((l) => l.percent >= 100 && !(l.resetsAt && l.resetsAt <= now)
-    && (l.span === 'session' || !l.qualifier || /all/i.test(l.qualifier)));
-  return [full ? 'At its limit' : 'Ready'];
-}
-
 // The header says the newest reading's time; a tile older than this says its own.
 const OWN_TIME_AFTER_MS = 15 * 60_000;
 
-/** One tile per account, two to a line, its meters stacked inside. */
+/**
+ * One tile per account, two to a line, its meters stacked inside. IN USE sits
+ *  beside the address (on the right margin it was missed), and the button
+ *  that switches to an account sits in its top right corner. */
 export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: PlaceAccount[]; onAdd?: () => void; now?: number }) {
   return (
     <div className="acct-tiles">
@@ -495,10 +469,10 @@ export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: Pl
         <div className={`acct-tile${a.inUse ? ' on' : ''}${a.trouble ? ' trouble' : ''}`} key={a.key}>
           <div className="acct-tile-head">
             <span className="acct-tile-name">{a.name}</span>
-            {a.inUse && <span className="set-badge">In use</span>}
-            {a.plan && <span className="acct-tile-plan">{a.plan}</span>}
+            {a.inUse ? <span className="set-badge">In use</span>
+              : a.use && <button type="button" className="set-ghost acct-switch" onClick={a.use.onUse}>{a.use.word}</button>}
           </div>
-          <div className="acct-tile-about">{a.about.join(' · ')}</div>
+          {(a.plan || a.about.length > 0) && <div className="acct-tile-about">{[a.plan, ...a.about].filter(Boolean).join(' · ')}</div>}
           {a.trouble ? (
             <>
               <div className="acct-tile-trouble">{a.trouble}</div>
@@ -509,7 +483,6 @@ export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: Pl
             {a.usageError && <div className="acct-tile-trouble" role="status">{a.usageError}</div>}
           </>}
           {!!a.checkedAt && (a.usageError || now - a.checkedAt >= OWN_TIME_AFTER_MS) && <div className="acct-reading-time">{usageCheckedAt(a.checkedAt, now)}</div>}
-          {a.use && <button type="button" className="set-ghost acct-switch" onClick={a.use.onUse}>{a.use.word}</button>}
         </div>
       ))}
       {onAdd && <button type="button" className="acct-tile acct-tile-add" onClick={onAdd}>Add account</button>}
@@ -544,6 +517,41 @@ export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex
     const about = read && state.startsWith('At its limit') ? 'At its limit' : state;
     return { key: a.key, name: accountLabel(a, all), plan: a.plan ?? null, about: [about], limits: a.limits ?? null, meters: read, checkedAt: read ? a.readAt : null };
   });
+}
+
+/**
+ * A Claude account's one tile, wherever it is signed in (`accountsOnce`). The
+ *  line under the name is the plan, and names a place only when the account
+ *  is missing from one.
+ */
+export function accountTile(a: OneAccount, { picked, many, now, onUse }: {
+  picked: boolean; many: boolean; now: number; onUse: (profile: string) => void;
+}): PlaceAccount {
+  const h = a.here;
+  const cloudBroken = a.cloud?.state === 'broken';
+  const about = h && !h.signedIn ? ['Finish signing in to use it']
+    // Not "only": a login whose organization is not read yet may be one of these.
+    : !h ? ['In the cloud']
+      : cloudBroken ? ['Sign in again in the cloud'] : [];
+  return {
+    key: a.key, name: a.name, plan: a.plan, about,
+    inUse: !!(picked && h?.chosen),
+    limits: a.limits, checkedAt: a.checkedAt, usageError: a.usageError,
+    use: h?.signedIn && !(picked && h.chosen) && many ? { word: picked ? 'Switch' : 'Use only this one', onUse: () => onUse(h.profile) } : null,
+    trouble: h?.trouble ?? (!h && cloudBroken ? cloudAccountState(a.cloud!, now) : null),
+    cmd: h?.trouble && h.dir ? `CLAUDE_CONFIG_DIR=${h.dir} claude` : null,
+    meters: !!(h || a.limits?.length),
+  };
+}
+
+/** The cloud row's sentence: when threads go there, and on which accounts. */
+export function cloudRunsLine(mode: CloudStatus['mode'], names: string[], accounts: number): string {
+  if (mode === 'mac') return 'Every thread runs on this computer.';
+  const when = mode === 'all' ? 'Threads start there first' : 'Threads start there when this computer is full';
+  const on = names.length === 1 ? `on ${names[0]}`
+    : names.length === accounts ? `on ${accounts === 2 ? 'both' : `all ${accounts}`} accounts in turn`
+      : `on ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} in turn`;
+  return `${when}, ${on}.`;
 }
 
 /*
@@ -1647,35 +1655,21 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   const enginePage = (engine: 'claude' | 'codex') => {
     if (!w) return null;
     const agent = agentStory(w, usageReadings, engine);
-    // Each login's own reading, never another's: by its folder, or the corner's if it is the same login.
-    const readingOf = (profile: string): Usage | null => {
-      return accountReadingFor(profile, accountReadings, agent.reading);
-    };
     const picked = agent.accounts.some((a) => a.chosen);
-    const hereAccounts: PlaceAccount[] = [...agent.accounts]
-      .sort((x, y) => Number(y.chosen) - Number(x.chosen))
-      .map((a) => ({
-        key: a.profile,
-        name: a.email ?? 'Not signed in',
-        plan: a.signedIn ? a.plan : null,
-        about: hereState({ signedIn: a.signedIn, trouble: a.trouble, limits: readingOf(a.profile)?.limits, now }),
-        inUse: picked && a.chosen,
-        limits: readingOf(a.profile)?.limits ?? null,
-        checkedAt: readingOf(a.profile)?.at ?? null,
-        usageError: accountReadings.find((r) => r.profile === a.profile)?.error ?? null,
-        use: a.signedIn && !(picked && a.chosen) && agent.accounts.length > 1
-          ? { word: picked ? 'Switch to this account' : 'Use only this account', onUse: () => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile: a.profile } })) }
-          : null,
-        trouble: a.trouble,
-        cmd: a.trouble && a.dir ? `CLAUDE_CONFIG_DIR=${a.dir} claude` : null,
-      }));
-    const lastRead = Math.max(0, ...hereAccounts.map((a) => a.checkedAt ?? 0));
-    const checked = lastRead ? usageCheckedAt(lastRead, now) : '';
     const cloudHere = cloud?.setUp && (cloud.accounts ?? []).some((a) => a.engine === engine) ? cloud : null;
-    // WHERE AGENTS GO FIRST IS DRAWN FIRST: the cloud while it is on, this computer while it is off.
+    const cloudLogins = cloudHere ? countedAccounts(cloudHere.accounts ?? []).filter((a) => a.engine === engine) : [];
+    // Each login's own reading, never another's, and the cloud's when it is the same subscription and newer.
+    const tiles = accountsOnce({ here: agent.accounts, cloud: cloudLogins, readings: accountReadings, current: agent.reading })
+      .map((a) => accountTile(a, {
+        picked, many: agent.accounts.length > 1, now,
+        onUse: (profile) => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile } })),
+      }));
+    const lastRead = Math.max(0, ...tiles.map((a) => a.checkedAt ?? 0));
+    const checked = lastRead ? usageCheckedAt(lastRead, now) : '';
+    // Codex still draws its cloud logins as a place of their own.
     const cloudFirst = !!cloudHere && cloudHere.mode !== 'mac';
-    const cloudAccounts = cloudHere ? cloudPlaceAccounts(cloudHere, engine, now) : [];
-    const cloudCard = cloudHere && (
+    const cloudAccounts = cloudHere && engine === 'codex' ? cloudPlaceAccounts(cloudHere, engine, now) : [];
+    const cloudCard = cloudHere && engine === 'codex' && (
       <Place id="cloud-accounts" name="Cloud" state={cloudHere.mode === 'mac' ? 'Off' : 'On'}
         line={cloudPlaceLine(cloudHere, cloudAccounts.length)} accounts={cloudAccounts} now={now} />
     );
@@ -1701,25 +1695,39 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             {cloudFirst && cloudCard}
             {engine === 'codex' && <Group id="usage" label="Usage"><UsageRows reading={agent.reading} now={now} /></Group>}
             {/* "SIGNED IN", NOT "ACCOUNTS": a heading that works at any
-                number, so one account is never shown a plural to fill. Beside
-                the cloud it names the place instead. */}
+                number, so one account is never shown a plural to fill. Refresh
+                heads it because it reads every account on it, here and in the
+                cloud. */}
             {engine === 'claude' ? (
-              <Place
-                id="usage"
-                name={cloudHere ? 'This computer' : 'Signed in'}
-                action={(
-                  <span className="acct-place-act">
-                    {!refreshing && checked && <span className="acct-checked">{checked}</span>}
-                    <button type="button" className="set-ghost" disabled={refreshing} onClick={() => void readAccounts(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
-                  </span>
+              <>
+                <Place
+                  id="usage"
+                  name="Signed in"
+                  action={(
+                    <span className="acct-place-act">
+                      {!refreshing && checked && <span className="acct-checked">{checked}</span>}
+                      <button type="button" className="set-ghost" disabled={refreshing} onClick={() => void readAccounts(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
+                    </span>
+                  )}
+                  /* TWO FOLDERS, ONE SUBSCRIPTION, SAID ABOVE THE ROWS
+                     (w-f2a5c9894e). Main's sentence, about the pair. */
+                  warn={w.accountsNote}
+                  accounts={tiles}
+                  now={now}
+                  onAdd={() => void addAccount(agent)}
+                />
+                {cloudHere && (
+                  <Group id="cloud-accounts" label="Cloud">
+                    <Row label="Use the cloud" desc={cloudRunsLine(cloudHere.mode, cloudLogins.map((a) => accountLabel(a, cloudLogins)), tiles.length)}>
+                      <Switch
+                        on={cloudHere.mode !== 'mac'}
+                        label="Use the cloud"
+                        onChange={() => void write(api.setWorkspaceSetting({ key: 'cloudRuns', value: cloudToggleTarget(cloudHere) }))}
+                      />
+                    </Row>
+                  </Group>
                 )}
-                /* TWO FOLDERS, ONE SUBSCRIPTION, SAID ABOVE THE ROWS
-                   (w-f2a5c9894e). Main's sentence, about the pair. */
-                warn={w.accountsNote}
-                accounts={hereAccounts}
-                now={now}
-                onAdd={() => void addAccount(agent)}
-              />
+              </>
             ) : (
               <Group id="accounts" label={cloudHere ? 'This computer' : 'Signed in'}>
                 <AccountRows

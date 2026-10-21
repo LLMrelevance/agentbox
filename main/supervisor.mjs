@@ -88,7 +88,7 @@ function whoHasIt(made) {
 }
 import { agentSpokeSince, answerSettled, answerTs, stoppedByHer } from '../shared/answers.mjs';
 import { DEFAULT_SESSIONS_AT_ONCE } from './config.mjs';
-import { accountIdentity, nameForOrganization, toolingLine } from './account-tooling.mjs';
+import { accountIdentity, nameForOrganization, profileForOrganization, toolingLine } from './account-tooling.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
 import { writeChangeForRun, changePath } from './code-change.mjs';
@@ -4287,9 +4287,13 @@ export class Supervisor {
         const plans = engine === DEFAULT_ENGINE && r.org
           ? new Set(here.filter((id) => id.organizationUuid === r.org).map((id) => readPlan(id.profile, { home }).label).filter(Boolean))
           : new Set();
+        // The same subscription as that folder, so Settings draws one reading for both.
+        const profile = engine === DEFAULT_ENGINE && (!r.email || r.email === nameForOrganization(r.org, here)) ? profileForOrganization(r.org, here) : null;
+        const failed = r.lookFailedAt && r.lookFailedAt > (r.readAt ?? 0);
         out.push({
           engine, key: r.key, name: name || null, plan: plans.size === 1 ? [...plans][0] : null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null,
           limitedUntil: r.limitedUntil ?? null, limits: cloudLimits(r.limits), readAt: r.readAt ?? null, duplicateOf: r.duplicateOf ?? null,
+          profile, readError: failed ? r.lookError || 'The cloud did not answer.' : null,
         });
       });
     }
@@ -4302,7 +4306,9 @@ export class Supervisor {
    * session and one tiny reply on that login (main/cloud/logins.mjs).
    */
   async lookAtCloudLogins({ force = false } = {}) {
-    if (this._cloudLooking || !readCloudConfig(process.env, this.config.home)) return;
+    if (!readCloudConfig(process.env, this.config.home)) return;
+    // A Refresh pressed mid-look is kept for when that look ends.
+    if (this._cloudLooking) { if (force) this._cloudLookAgain = true; return; }
     const now = Date.now();
     const due = listCloudLogins(DEFAULT_ENGINE, { home: this.config.home })
       .filter((r) => !r.broken && (force || !r.readAt || now - r.readAt > 10 * 60_000));
@@ -4311,13 +4317,19 @@ export class Supervisor {
     try {
       const { transport, storage } = await this._cloudClients();
       for (const r of due) {
-        await lookAtCloudLogin({ transport, storage, key: r.key, home: this.config.home }).catch(() => 'failed');
+        await lookAtCloudLogin({ transport, storage, key: r.key, home: this.config.home }).catch(() => {
+          markCloudLogin(DEFAULT_ENGINE, r.key, r.id, { lookFailedAt: Date.now(), lookError: 'The cloud could not be reached.' }, { home: this.config.home });
+        });
         this.onChange?.();
       }
     } catch (e) {
       console.warn('zero: could not look at the cloud sign-ins:', e.message);
     } finally {
       this._cloudLooking = false;
+    }
+    if (this._cloudLookAgain) {
+      this._cloudLookAgain = false;
+      await this.lookAtCloudLogins({ force: true });
     }
   }
 

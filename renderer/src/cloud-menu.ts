@@ -48,6 +48,10 @@ export interface CloudAccount {
   readAt?: number | null;
   /** The plan of the folder here in the same organization ("Max 20x"). */
   plan?: string | null;
+  /** That folder, when it holds the same subscription: the two share one reading. */
+  profile?: string | null;
+  /** Why the cloud's last look at it failed, when no look has read it since. */
+  readError?: string | null;
 }
 
 export interface CloudStatus {

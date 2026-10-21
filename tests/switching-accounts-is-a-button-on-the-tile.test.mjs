@@ -1,55 +1,87 @@
-// SWITCHING ACCOUNTS IS A BUTTON ON THE TILE, AND EVERY TILE SAYS ITS STATE.
+// SWITCHING ACCOUNTS IS A BUTTON ON THE TILE.
 //
 // What she said (2026-10-20): "I don't see how to switch accounts on Claude."
 // The switch was grey text in the line under the email, the same size and
-// colour as a status, so it read as one. And "these cards should be very
-// similar to each other, almost one-to-one": the cloud's tiles said "Ready" or
-// "At its limit" there, this computer's said IN USE or the switch. She picked
-// design C (designs/w-1e5b38c905/10-switch-c.png): IN USE beside the name,
-// the state on the second line of every tile, and a full-width "Switch to
-// this account" button under the meters of each one not in use.
+// colour as a status, so it read as one. The pick was a bordered button
+// (designs/w-1e5b38c905/10-switch-c.png), full width under the meters.
+//
+// 2026-10-21 (w-e74212ce7a): each account became one tile wherever it is
+// signed in, and the full-width button left the tile in use with an empty
+// band where the other had its button. The button is still a bordered
+// button, now in the tile's top right corner; IN USE stays beside the
+// address. The line under the name is the plan, and "Ready" is gone from it:
+// the meters already say how much room is left.
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { PlaceTiles, cloudPlaceAccounts, hereState } from '../renderer/src/components/Settings';
+import { PlaceTiles, accountTile, cloudPlaceAccounts } from '../renderer/src/components/Settings';
 
 const limit = (span, percent) => ({ span, qualifier: span === 'week' ? 'all models' : null, name: span, percent, resetsText: null, resetsOn: null, resetsAt: null, zone: null });
 const draw = (accounts) => renderToStaticMarkup(React.createElement(PlaceTiles, { accounts }));
-const tile = (extra = {}) => ({ key: 'k', name: 'one@example.test', plan: 'Max 20x', about: ['Ready'], limits: [limit('session', 5), limit('week', 9)], ...extra });
+const here = (extra = {}) => ({ profile: 'default', email: 'one@example.test', plan: 'Max 20x', chosen: false, signedIn: true, trouble: null, dir: null, ...extra });
+const account = (extra = {}) => ({ key: 'default', name: 'one@example.test', plan: 'Max 20x', here: here(), cloud: null, limits: [limit('session', 5), limit('week', 9)], checkedAt: null, usageError: null, ...extra });
+const acts = (extra = {}) => ({ picked: true, many: true, now: Date.now(), onUse: vi.fn(), ...extra });
 
 describe('a tile on this computer', () => {
-  it('her case: the account not in use has a full-width Switch to this account button', () => {
+  it('the reported case: the account not in use has a Switch button, the one in use says IN USE by its address', () => {
     const onUse = vi.fn();
-    const html = draw([tile({ key: 'a', inUse: true }), tile({ key: 'b', name: 'two@example.test', use: { word: 'Switch to this account', onUse } })]);
+    const html = draw([
+      accountTile(account({ here: here({ chosen: true }) }), acts()),
+      accountTile(account({ key: 'b', name: 'two@example.test', here: here({ profile: 'b', email: 'two@example.test' }) }), acts({ onUse })),
+    ]);
     expect(html.match(/acct-switch/g)).toHaveLength(1);
-    expect(html).toMatch(/two@example\.test.*<button type="button" class="set-ghost acct-switch">Switch to this account<\/button>/s);
+    expect(html).toMatch(/one@example\.test<\/span><span class="set-badge">In use<\/span>/);
+    expect(html).toMatch(/two@example\.test<\/span><button type="button" class="set-ghost acct-switch">Switch<\/button>/);
   });
 
-  it('the one in use says IN USE beside its name and its state on the next line', () => {
-    const html = draw([tile({ inUse: true })]);
-    expect(html).toMatch(/acct-tile-name">one@example\.test<\/span><span class="set-badge">In use<\/span><span class="acct-tile-plan">Max 20x/);
-    expect(html).toContain('<div class="acct-tile-about">Ready</div>');
+  it('switching writes the account it is on', () => {
+    const onUse = vi.fn();
+    accountTile(account({ here: here({ profile: '/h/.claude-2' }) }), acts({ onUse })).use.onUse();
+    expect(onUse).toHaveBeenCalledWith('/h/.claude-2');
+  });
+
+  it('the one in use has its plan on the next line and no switch', () => {
+    const html = draw([accountTile(account({ here: here({ chosen: true }) }), acts())]);
+    expect(html).toContain('<div class="acct-tile-about">Max 20x</div>');
     expect(html).not.toContain('acct-switch');
   });
 
-  it('says Ready, At its limit, or that it needs signing in', () => {
-    expect(hereState({ signedIn: true, trouble: null, limits: [limit('session', 99), limit('week', 9)] })).toEqual(['Ready']);
-    expect(hereState({ signedIn: true, trouble: null, limits: [limit('session', 100), limit('week', 9)] })).toEqual(['At its limit']);
-    expect(hereState({ signedIn: true, trouble: null, limits: null })).toEqual(['Ready']);
-    expect(hereState({ signedIn: false, trouble: null, limits: null })).toEqual(['Finish signing in to use it']);
+  it('with none picked, every account runs, so nothing says IN USE and each offers to be the only one', () => {
+    const html = draw([accountTile(account(), acts({ picked: false }))]);
+    expect(html).not.toContain('In use');
+    expect(html).toContain('>Use only this one</button>');
   });
 
-  it('must NOT claim Ready over trouble, which says what is wrong below it', () => {
-    expect(hereState({ signedIn: true, trouble: 'Signed out. Sign in again.', limits: null })).toEqual([]);
+  it('must NOT offer a switch when there is nothing to switch to', () => {
+    expect(accountTile(account({ here: here({ chosen: true }) }), acts({ many: false })).use).toBeNull();
+    expect(accountTile(account(), acts({ picked: false, many: false })).use).toBeNull();
   });
 });
 
-describe('a tile in the cloud', () => {
-  it('has the same lines, and no switch: the cloud takes its accounts in turn', () => {
-    const [a] = cloudPlaceAccounts({ mode: 'all', accounts: [{ engine: 'claude', key: 'c', name: 'one@example.test', plan: 'Max 20x', ready: true, state: 'ready', limits: [limit('session', 5)] }] }, 'claude', Date.now());
+describe('the line under the name', () => {
+  it('is the plan, and must NOT say Ready', () => {
+    expect(accountTile(account(), acts()).about).toEqual([]);
+    expect(draw([accountTile(account(), acts())])).not.toContain('Ready');
+  });
+
+  it('says what is missing: a sign-in here, a place, or the cloud’s sign-in', () => {
+    expect(accountTile(account({ here: here({ signedIn: false }) }), acts()).about).toEqual(['Finish signing in to use it']);
+    expect(accountTile(account({ here: null, cloud: { engine: 'claude', key: 'a1', name: 'one@example.test', ready: true, state: 'ready' } }), acts()).about).toEqual(['In the cloud']);
+    expect(accountTile(account({ cloud: { engine: 'claude', key: 'a1', name: 'one@example.test', ready: false, state: 'broken' } }), acts()).about).toEqual(['Sign in again in the cloud']);
+  });
+
+  it('trouble here replaces the meters and carries the command that signs it back in', () => {
+    const t = accountTile(account({ here: here({ trouble: 'Signed out. Sign in again.', dir: '/h/.claude-2' }) }), acts());
+    expect([t.trouble, t.cmd]).toEqual(['Signed out. Sign in again.', 'CLAUDE_CONFIG_DIR=/h/.claude-2 claude']);
+    expect(draw([t])).not.toContain('acct-meters');
+  });
+});
+
+describe('a Codex login in the cloud, still drawn as its own place', () => {
+  it('has the plan and state on one line, and no switch: the cloud takes its accounts in turn', () => {
+    const [a] = cloudPlaceAccounts({ mode: 'all', accounts: [{ engine: 'codex', key: 'c', name: 'one@example.test', plan: 'Plus', ready: true, state: 'ready', limits: [limit('session', 5)] }] }, 'codex', Date.now());
     const html = draw([a]);
-    expect(html).toMatch(/acct-tile-name">one@example\.test<\/span><span class="acct-tile-plan">Max 20x/);
-    expect(html).toContain('<div class="acct-tile-about">Ready</div>');
+    expect(html).toContain('<div class="acct-tile-about">Plus · Ready</div>');
     expect(html).not.toContain('acct-switch');
   });
 });

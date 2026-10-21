@@ -236,6 +236,12 @@ export function nameForOrganization(org, identities) {
   return emails.size === 1 ? [...emails][0] : null;
 }
 
+/** The folder here holding that one login, by the same rule, so the two can share one reading. */
+export function profileForOrganization(org, identities) {
+  const email = nameForOrganization(org, identities);
+  return email ? identities.find((id) => id?.organizationUuid === org && id.email === email)?.profile ?? null : null;
+}
+
 /**
  * THE SENTENCE FOR TWO ROWS THAT TURNED OUT TO BE ONE ACCOUNT. It only ever
  * speaks on a machine that already has two profile folders, so it describes a

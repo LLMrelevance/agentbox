@@ -370,11 +370,13 @@ export const api = {
         const read = params.has('cloudread');
         base.cloud = {
           // &cloudmode=mac draws the same accounts with the cloud turned off.
-          setUp: true, mode: params.get('cloudmode') === 'mac' ? 'mac' : 'full', whenOn: 'full', running: 0,
+          setUp: true, mode: params.get('cloudmode') === 'mac' ? 'mac' : params.get('cloudmode') === 'all' ? 'all' : 'full', whenOn: 'full', running: 0,
           month: { runs: 14, agentHours: 1.2, estimatedCost: 0.16, costPerAgentHour: 0.13 },
           accounts: [
             {
+              // Read two hours ago, as the reported screenshot's was; the same login here was read since.
               engine: 'claude', key: 'a1', name: read ? 'you@example.com' : null, plan: read ? 'Max 20x' : null, ready: false, state: 'limited' as any, limitedUntil: until.getTime(),
+              profile: read ? fixtureSettingsState.workspace.accounts[0]?.profile ?? null : null, readAt: read ? Date.now() - 2 * 3_600_000 : null,
               limits: read ? [
                 { span: 'session', qualifier: null, name: 'This session', percent: 100, resetsText: null, resetsOn: null, resetsAt: until.getTime(), zone: null },
                 { span: 'week', qualifier: 'all models', name: 'This week', percent: 31, resetsText: null, resetsOn: null, resetsAt: on(2, 11, 59), zone: null },
@@ -382,6 +384,7 @@ export const api = {
             },
             {
               engine: 'claude', key: 'a2', name: read ? 'work@example.com' : null, plan: read ? 'Max 20x' : null, ready: true, state: 'ready',
+              profile: read ? fixtureSettingsState.workspace.accounts[1]?.profile ?? null : null, readAt: read ? Date.now() - 3 * 60_000 : null,
               limits: read ? [
                 { span: 'session', qualifier: null, name: 'This session', percent: 12, resetsText: null, resetsOn: null, resetsAt: on(0, 20), zone: null },
                 { span: 'week', qualifier: 'all models', name: 'This week', percent: 9, resetsText: null, resetsOn: null, resetsAt: on(2, 16), zone: null },
@@ -389,6 +392,15 @@ export const api = {
             },
             // &cloudcodex adds a Codex login in the cloud, so the Codex page draws its cloud rows.
             ...(params.has('cloudcodex') ? [{ engine: 'codex' as const, key: 'c1', name: null, ready: true, state: 'ready' as const }] : []),
+            // &cloudonly adds a Claude login signed in nowhere here, whose last look failed.
+            ...(params.has('cloudonly') ? [{
+              engine: 'claude' as const, key: 'a3', name: 'team@example.com', plan: null, ready: true, state: 'ready' as const, profile: null,
+              readAt: Date.now() - 2 * 3_600_000, readError: 'The cloud could not be reached. Try again.',
+              limits: [
+                { span: 'session' as const, qualifier: null, name: 'This session', percent: 40, resetsText: null, resetsOn: null, resetsAt: on(0, 23), zone: null },
+                { span: 'week' as const, qualifier: 'all models', name: 'This week', percent: 22, resetsText: null, resetsOn: null, resetsAt: on(2, 16), zone: null },
+              ],
+            }] : []),
           ],
           signIns: [],
         } as typeof base.cloud;

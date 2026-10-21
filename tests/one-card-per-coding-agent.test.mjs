@@ -18,7 +18,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 const settings = read('renderer/src/components/Settings.tsx');
 const css = read('renderer/src/styles.css');
-const card = settings.slice(settings.indexOf('type CardAccount = {'), settings.indexOf('const Group = ({'));
+const card = settings.slice(settings.indexOf('type CardAccount ='), settings.indexOf('const Group = ({'));
 
 /**
  * The rule that draws one class, so a test asks the stylesheet rather than
