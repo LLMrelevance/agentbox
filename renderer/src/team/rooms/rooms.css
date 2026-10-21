@@ -212,19 +212,15 @@
 .rm-pgrid { display: grid; grid-template-columns: minmax(0, 1fr) 240px; column-gap: 56px; padding: 28px 0 0; }
 .rm-chartbox { position: relative; min-width: 0; }
 .rm-chartbox svg { display: block; overflow: visible; }
-.rm-chartbox text.unit { letter-spacing: .08em; }
 .rm-chartbox .grid { stroke: var(--rm-line); }
 .rm-chartbox text { fill: var(--text-faint); font-family: var(--mono); font-size: 10.5px; }
 .rm-chartbox .ln { stroke: var(--text-dim); }
 .rm-chartbox .ar { fill: var(--wash); }
 .rm-chartbox .pt { fill: var(--text); stroke: var(--bg); }
 .rm-chartbox .guide { stroke: var(--line-strong); stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
-.rm-chartbox .tip, .rm-chartbox .end { position: absolute; pointer-events: none; white-space: nowrap; }
-.rm-chartbox .tip { padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--text); transform: translate(14px, -50%); }
+.rm-chartbox .tip { position: absolute; pointer-events: none; white-space: nowrap; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--text); transform: translate(14px, -50%); }
 .rm-chartbox .tip.left { transform: translate(calc(-100% - 14px), -50%); }
 .rm-chartbox .tip span { font: 10.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); }
-.rm-chartbox .end { font-size: 12.5px; color: var(--text-dim); transform: translate(calc(-100% - 8px), calc(-100% - 8px)); }
-.rm-chartbox .end.number { font: 12px var(--mono); color: var(--text); transform: translate(calc(-100% + 4px), calc(-100% - 10px)); }
 .rm-pcol .blk { padding: 0 0 22px; margin-bottom: 22px; border-bottom: 1px solid var(--rm-line); display: flex; flex-direction: column; gap: 11px; }
 .rm-pcol .blk:last-child { border-bottom: 0; }
 .rm-pcol .line { font-size: 13.5px; color: var(--text); display: flex; gap: 9px; align-items: center; }
@@ -232,25 +228,8 @@
 .rm-prof button.line { background: none; border: 0; padding: 0; font: inherit; font-size: 13.5px; color: var(--text); text-align: left; cursor: default; display: flex; gap: 9px; align-items: center; }
 .rm-prof button.line svg { color: var(--text-faint); }
 .rm-prof button.line:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--text-faint); }
-/* LOOKS, scratch */
 .rm-ptotal { display: flex; flex-direction: column; gap: 9px; margin-bottom: 22px; }
-.rm-ptotal b, .rm-pfacts .fact b { font: 300 30px/32px var(--mono); color: var(--text); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-.rm-pfull { padding: 28px 0 0; }
-.rm-ph .rm-meta { display: flex; align-items: center; gap: 18px; margin-top: 3px; }
-.rm-ph .rm-meta button.line, .rm-ph .rm-meta .line { font-size: 13px; color: var(--text-dim); gap: 5px; }
-.rm-ph .rm-meta .since { font-size: 13px; color: var(--text-faint); }
-.rm-pgrid.panels { column-gap: 20px; grid-template-columns: minmax(0, 1fr) 260px; }
-.rm-panel { border: 1px solid var(--rm-line); align-self: start; }
-.rm-panel .hd { display: flex; align-items: center; height: 40px; padding: 0 16px; border-bottom: 1px solid var(--rm-line); font-size: 13px; color: var(--text); }
-.rm-panel .hd .v { margin-left: auto; font: 12.5px var(--mono); color: var(--text-dim); }
-.rm-panel .bd { padding: 20px 20px 10px 16px; }
-.rm-panel .bd.list { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
-.rm-panel .ft { height: 40px; display: flex; align-items: center; padding: 0 16px; border-top: 1px solid var(--rm-line); font-size: 13px; color: var(--text-faint); }
-.rm-panel .line { font-size: 13.5px; color: var(--text); }
-.rm-pfacts { display: grid; grid-template-columns: 200px minmax(0, 1fr); column-gap: 48px; padding: 28px 0 0; }
-.rm-pfacts .fact { display: flex; flex-direction: column; gap: 10px; padding: 0 0 20px; margin-bottom: 20px; border-bottom: 1px solid var(--rm-line); }
-.rm-pfacts .fact:last-child { border-bottom: 0; }
-.rm-pfacts .line { font-size: 13.5px; color: var(--text); }
+.rm-ptotal b { font: 300 30px/32px var(--mono); color: var(--text); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .rm-pact { padding: 28px 0 0; display: flex; flex-direction: column; gap: 14px; }
 .rm-pboard { overflow-x: auto; margin-right: -20px; }
 .rm-pboard .th-board { padding: 0 20px 0 0; }

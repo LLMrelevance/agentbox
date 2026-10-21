@@ -442,9 +442,10 @@ Rooms paragraph in this work.
   line narrows it. With Rooms on, the Inbox shows only your own threads: its
   People line and the faces on its button are gone, and the pick it kept comes
   back if Rooms is turned off.
-- A person's page (w-88e1e23325). Activity is the Inbox's board for that one
-  person. The chart shows a value only where you point, with the total written
-  at the end of the line. The ranks say "this week" and "all time". Your own
+- A person's page (w-88e1e23325). The second tab is "Today's activity", the
+  Inbox's board for that one person. Progress opens on the total ("64, agent
+  hours since July 2026", option A of five), and the chart under it shows a
+  value only where you point. The ranks say "this week" and "all time". Your own
   page has your bio, with Add a bio and Edit. Message there opens the chat full
   page on Messages, and Back returns to the page. The rooms they are in open
   when clicked.

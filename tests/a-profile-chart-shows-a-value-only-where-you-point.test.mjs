@@ -63,8 +63,8 @@ describe('drawn', () => {
     expect(chart).not.toContain('rm-pop');
     expect(chart).not.toContain('class="tip');
   });
-  it('the total is written at the end of the line, as plain text', () => {
-    expect(chart).toMatch(/class="end[^"]*"[^>]*>0\.5 agent hours</);
+  it('nothing is written on the line itself', () => {
+    expect(chart).not.toContain('agent hours<');
   });
   it('one month of hours draws a line', () => {
     const one = renderToStaticMarkup(React.createElement(HoursChart, { byMonth: months([['2026-10', 0.5]]), total: 0.5 }));
@@ -80,8 +80,10 @@ describe('every number on the page says what it covers', () => {
     expect(html).toContain('In Astral this week');
     expect(html).toContain('On Agentbox all time');
   });
-  // The label floating over the chart read as "a little weird" (2026-10-21).
-  it('no label floats over the chart', () => {
+  // The label floating over the chart read as "a little weird" (2026-10-21);
+  // option A of five was picked: the total above the chart, and since when.
+  it('the total sits above the chart, with when it started', () => {
     expect(html).not.toContain('Agent hours, all time');
+    expect(html).toMatch(/class="rm-ptotal"><b>0\.5<\/b><span class="rm-label">Agent hours since October 2026</);
   });
 });
