@@ -176,14 +176,28 @@ export function supabaseSession({ cloudConfig, sessionFile, encrypt = null, decr
     // answers { confirm: true } and the page says to check the inbox.
     async signUp({ email, password, name }) {
       if (!configured) throw new Error('this build has no team cloud configured');
-      const c = await getClient();
-      const { data, error } = await c.auth.signUp({
+      // The plain kind of email link, which the phone website can finish; this
+      // Mac's own client would ask for a code only this Mac could spend.
+      const { createClient } = await import('@supabase/supabase-js');
+      const plain = createClient(cloudConfig.url, cloudConfig.anonKey, {
+        global: { fetch: withDeadline() },
+        auth: { flowType: 'implicit', persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      });
+      const { data, error } = await plain.auth.signUp({
         email: String(email ?? '').trim(),
         password: String(password ?? ''),
-        options: { data: { full_name: String(name ?? '').trim() || undefined } },
+        options: {
+          data: { full_name: String(name ?? '').trim() || undefined },
+          // Else the email's link goes to the database's default, this Mac's sign-in listener, dead outside a sign-in.
+          emailRedirectTo: typeof cloudConfig.phoneSite === 'string' ? cloudConfig.phoneSite : undefined,
+        },
       });
       if (error) throw new Error(plainAuthError(error.message));
-      return data?.session ? { backend: supabaseBackend(c) } : { confirm: true };
+      if (!data?.session) return { confirm: true };
+      const c = await getClient();
+      const { error: kept } = await c.auth.setSession(data.session);
+      if (kept) throw new Error(plainAuthError(kept.message));
+      return { backend: supabaseBackend(c) };
     },
 
     cancelSignIn: () => cancelGoogleSignIn(),
