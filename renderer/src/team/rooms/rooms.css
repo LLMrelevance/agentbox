@@ -330,10 +330,12 @@
 .rm-conv .fc.two .rm-pic:last-child { right: 0; bottom: 0; outline: 2px solid var(--surface); }
 .rm-conv .fc.room { border: 1px solid var(--line-strong); }
 .rm-conv .t { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.rm-conv .t b { font-weight: 400; font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rm-conv .t span { font-size: 12.5px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rm-conv .m { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; font: 10.5px var(--mono); color: var(--text-faint); }
-.rm-conv .m .fl { display: flex; align-items: center; gap: 6px; height: 14px; }
+.rm-conv .t b { font-weight: 400; font-size: 14px; line-height: 18px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rm-conv .t span { font-size: 12.5px; line-height: 16px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The time on the name's line; the pin and the unread dot on the second line,
+   flush right under the time. The rows match .t's two lines. */
+.rm-conv .m { align-self: stretch; display: grid; grid-template-rows: 18px 16px; row-gap: 2px; justify-items: end; align-items: center; font: 10.5px var(--mono); color: var(--text-faint); }
+.rm-conv .m .fl { display: flex; align-items: center; gap: 6px; }
 .rm-conv-pin { display: flex; color: var(--text-dim); }
 /* UNREAD READS BRIGHTER: the name and its last line, beside the dot. */
 .rm-conv.unread .t span { color: var(--text-dim); }
@@ -341,7 +343,7 @@
 /* The row's ⋯ waits over the time until you point at the row. */
 .rm-conv-wrap { position: relative; }
 .rm-conv-more {
-  position: absolute; right: 12px; top: 10px; width: 24px; height: 22px; padding: 0; display: grid; place-items: center;
+  position: absolute; right: 16px; top: 9px; width: 24px; height: 20px; padding: 0; display: grid; place-items: center;
   appearance: none; border: 1px solid var(--line-strong); border-radius: 0; cursor: pointer;
   background: var(--skin-solid, var(--surface)); color: var(--text-dim); visibility: hidden;
 }

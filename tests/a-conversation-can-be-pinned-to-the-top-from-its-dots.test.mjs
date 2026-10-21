@@ -6,7 +6,14 @@
 // unread. It now also pins the conversation above the rest of the list, on
 // this computer, with a pin drawn on the row; pinned ones keep newest first
 // among themselves.
+//
+// The first pin drawn sat 10px left of the time it hung under ("pushed to the
+// side"): an empty spacer and the icon's own margin pushed it. Measured in the
+// built app, the time now centres on the name's line and the pin and unread
+// dot on the last message's line, all three flush right at the same pixel,
+// and the row's ⋯ no longer runs 4px past them and onto the pin.
 import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MessagesPage, conversationMenu, inListOrder, readPins, togglePin, PIN_KEY } from '../renderer/src/team/rooms/MessagesPage.tsx';
@@ -64,6 +71,37 @@ describe('the pins kept on this computer', () => {
   it('read as none when what is stored is not a list', () => {
     expect([...readPins(memory({ [PIN_KEY]: '{"a":1}' }))]).toEqual([]);
     expect([...readPins(memory({ [PIN_KEY]: 'not json' }))]).toEqual([]);
+  });
+});
+
+describe('where the pin sits', () => {
+  const css = fs.readFileSync(new URL('../renderer/src/team/rooms/rooms.css', import.meta.url), 'utf8');
+  const rule = (sel) => { const at = css.indexOf(`${sel} {`); return at < 0 ? '' : css.slice(at, css.indexOf('}', at)); };
+  const px = (text, prop) => Number(new RegExp(`${prop}:\\s*([\\d.]+)px`).exec(text)?.[1]);
+
+  it('is the second line of the right column, which has the same two lines as the name and the last message', () => {
+    const m = rule('.rm-conv .m');
+    const rows = /grid-template-rows:\s*([\d.]+)px\s+([\d.]+)px/.exec(m);
+    expect(rows).not.toBeNull();
+    expect(Number(rows[1])).toBe(px(rule('.rm-conv .t b'), 'line-height'));
+    expect(Number(rows[2])).toBe(px(rule('.rm-conv .t span'), 'line-height'));
+    expect(px(m, 'row-gap')).toBe(px(rule('.rm-conv .t'), 'gap'));
+    expect(m).toMatch(/justify-items:\s*end/);
+  });
+
+  it('is drawn without a spacer beside it, so its edge meets the time’s', () => {
+    const src = fs.readFileSync(new URL('../renderer/src/team/rooms/MessagesPage.tsx', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/style=\{\{ height: 6 \}\}/);
+    expect(src).toMatch(/I\.pinMark\(\)/);
+  });
+
+  it('leaves the row’s ⋯ on the name line, its edge on the time’s', () => {
+    const more = rule('.rm-conv-more');
+    const pad = /padding:\s*[\d.]+px\s+([\d.]+)px/.exec(rule('.rm-conv'))?.[1];
+    expect(px(more, 'right')).toBe(Number(pad));
+    const top = px(more, 'top'), h = px(more, 'height');
+    const lineTop = Number(/padding:\s*([\d.]+)px/.exec(rule('.rm-conv'))[1]), line = px(rule('.rm-conv .t b'), 'line-height');
+    expect(top + h / 2).toBe(lineTop + line / 2);
   });
 });
 

@@ -113,7 +113,7 @@ export function MessagesPage({ list, onKey, now, onPick, onAction, pins: pinsGiv
                   ? <span className="fc two">{c.faces.slice(0, 2).map((f, i) => <RoomFace key={i} name={f.name} url={f.url} size={18} />)}</span>
                   : <span className="fc"><RoomFace name={c.faces[0]?.name ?? c.name} url={c.faces[0]?.url} size={28} /></span>}
               <span className="t"><b>{c.name}</b><span>{c.last}</span></span>
-              <span className="m">{when(c.at, now)}<span className="fl">{c.pinned && <span className="rm-conv-pin" aria-label="Pinned">{I.pinFill(14)}</span>}{dot ? <span className="rm-unread" /> : <span style={{ height: 6 }} />}</span></span>
+              <span className="m"><span>{when(c.at, now)}</span><span className="fl">{c.pinned && <span className="rm-conv-pin" aria-label="Pinned">{I.pinMark()}</span>}{dot && <span className="rm-unread" />}</span></span>
             </button>
             {onAction && <button type="button" className="rm-conv-more" aria-label={`More for ${c.name}`} title="More"
               onClick={(e) => setMenu(menu?.c.key === c.key ? null : { c, at: e.currentTarget.getBoundingClientRect() })}>

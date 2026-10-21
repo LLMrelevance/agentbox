@@ -17,7 +17,13 @@ export const I = {
   plusRow: () => svg('<path d="M12 5.5v13M5.5 12h13"/>', 20, 1.25, 'workspace-nav-icon'),
   plus: () => svg('<path d="M12 5.5v13M5.5 12h13"/>', 15, 1.5),
   pin: () => svg(PIN, 15, 1.4),
-  pinFill: (size = 15) => svg('<path d="M9 4h6l-1 5 3 3H7l3-3z" fill="currentColor"/><path d="M12 15v5"/>', size, 1.4),
+  pinFill: () => svg('<path d="M9 4h6l-1 5 3 3H7l3-3z" fill="currentColor"/><path d="M12 15v5"/>', 15, 1.4),
+  // Cut to the pin itself, so its edge lines up with the text beside it.
+  pinMark: () => (
+    <svg width="8" height="12" viewBox="6.2 3.2 11.6 17.6" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 4h6l-1 5 3 3H7l3-3z" fill="currentColor" /><path d="M12 15v5" />
+    </svg>
+  ),
   invite: (size = 15) => svg(INVITE, size, 1.4),
   people: () => svg('<circle cx="9" cy="9" r="3.2"/><path d="M3 19.5c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><path d="M15.5 6.2a3 3 0 0 1 0 5.6M17.5 14.8c1.8.6 3 2.1 3.4 4.7"/>', 15, 1.4),
   trophy: () => svg('<path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5v1.5A3 3 0 0 0 8 10.5M16 6h3v1.5a3 3 0 0 1-3 3"/><path d="M12 13v4M8.5 20h7"/>', 15, 1.4),
