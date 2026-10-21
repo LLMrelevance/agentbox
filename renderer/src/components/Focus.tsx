@@ -27,11 +27,13 @@ import { providerCommand } from '../../../shared/provider-commands.mjs';
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as BoxKeyEvent, type ReactNode } from 'react';
 import { TeamContext, firstName } from '../team/people';
-import { joinNames } from '../threads/composer-rules';
+import {
+  allModels, joinNames, moreCount, recentModels, replyFields, type Harness, type ModelPick,
+} from '../threads/composer-rules';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { AnswerMode, CodexModeId, PermissionMode, RunningSession, WorkItem } from '../types';
+import type { AnswerMode, CodexModeId, PermissionMode, ReplyPick, RunningSession, WorkItem } from '../types';
 import {
   MENU_TITLE, MODE_ORDER, MODE_STATUS, MODE_WORDS, exactClear, exactMode, nextMode, slashQuery,
 } from '../modes';
@@ -55,7 +57,7 @@ import { ago, dayLabel, itemOptions, offerIsLive, optionsFrom, parseOptions, par
 import { ruleIdOf } from '../../../shared/repeats.mjs';
 import { shownPriority } from '../../../shared/rank.mjs';
 import { WhenPicker } from './When';
-import { ModelPicker } from './Model';
+import { ReplyModel } from './ReplyModel';
 import type { ModelChoice } from '../models';
 import { sameRule, type RepeatShape as RepeatRuleValue } from '../../../shared/repeats.mjs';
 import { collectFiles, fromPaste, persistAttachments, type PendingAttachment } from '../attachments';
@@ -113,7 +115,9 @@ import { ThreadMenu, type ThreadPlace } from '../threads/ThreadMenu';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { useChatMentions } from '../team/ChatAgents';
 import { AGENT_SCHEME } from '../team/agent-mentions';
-import { engineModelLabel } from '../models';
+import { defaultModelFor, engineModelLabel } from '../models';
+import { defaultEffortFor, effortChoicesFor, effortShown } from '../effort';
+import { ENGINES } from '../../../shared/engines.mjs';
 import { lookAgainAfter } from '../picture-looks-again';
 
 // With the options strip riding on the composer, the field's own "## Options"
@@ -561,7 +565,7 @@ export function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null }: {
   previewSample?: string;
   /** The repeating task this thread is a run of, drawn in its summary. */
   repeat?: RepeatHandle | null;
@@ -607,6 +611,10 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
    * different lists of the same Mac's Codex models. */
   codexModels?: ModelChoice[];
   codexModelDefault?: string | null;
+  /** The same two the card is handed: the agents this Mac offers, and every
+   *  thread she has, for the models she has used lately. */
+  engines?: { id: string; label: string }[];
+  items?: WorkItem[];
   runningEngine?: string | null;
   // WHERE A RELOAD SAYS SHE WAS, and only a reload: it names the task it
   // belongs to so it can never be spent on the wrong one, and clicking into a
@@ -684,7 +692,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   onResolve: () => void;
   onPick: (n: number) => void;
   onReply: () => void;
-  onReplySend: (text: string, priority?: number, repeat?: RepeatRuleValue | null, sent?: SentDraft, mode?: AnswerMode | null, pick?: { model: string | null; effort: string | null }) => void;
+  onReplySend: (text: string, priority?: number, repeat?: RepeatRuleValue | null, sent?: SentDraft, mode?: AnswerMode | null, pick?: ReplyPick) => void;
   onReplyClose: () => void;
   onStop: () => void;
   // Run now, the three-dot menu's row on a waiting task.
@@ -1686,6 +1694,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
                  ordinary message and `blocked` means what it always meant.
                  thread-history.ts holds the reasoning. */
               engine={runningEngine}
+              /* AND WHAT EACH ANSWER RAN ON, which is the other half of the
+                 same question: the thread names the agent only where this Mac
+                 has two, and the model off the row's own record of it
+                 (byline.ts, `ranWords`). */
+              engineChoice={engineChoice}
+              codexModels={codexModels}
+              codexModelDefault={codexModelDefault}
               session={session}
               opening={openingSaid}
               /*
@@ -2015,7 +2030,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
                than beside the box: that row is where this card already keeps
                the things you press. It is handed in whole so there is one stop
                button in the app and this card cannot grow a second. */
-            <DockComposer item={item} runningMode={runningMode} runningEngine={runningEngine} codexModels={codexModels} codexModelDefault={codexModelDefault} onSend={onReplySend} onClose={onReplyClose} onNotice={onNotice} openModel={openModel} talkTo={direct ? talkNames : null} stop={stopButton} />
+            <DockComposer item={item} runningMode={runningMode} runningEngine={runningEngine} codexModels={codexModels} codexModelDefault={codexModelDefault} engines={engines} items={items} onSend={onReplySend} onClose={onReplyClose} onNotice={onNotice} openModel={openModel} talkTo={direct ? talkNames : null} stop={stopButton} />
           ) : (
             /*
              * THE FOLDED BOX SHOWS WHAT IS IN IT. A pill saying "Reply…" over
@@ -2237,8 +2252,12 @@ function ModePicker({ value, options, label, onChange }: {
   );
 }
 
-function DockComposer({ item, runningMode, runningEngine, codexModels = [], codexModelDefault = null, onSend, onClose, onNotice, stop, openModel = false, talkTo = null }: {
+function DockComposer({ item, runningMode, runningEngine, codexModels = [], codexModelDefault = null, engines, items = [], onSend, onClose, onNotice, stop, openModel = false, talkTo = null }: {
   item: WorkItem;
+  /** The coding agents this Mac offers, off the snapshot. One is no choice. */
+  engines?: { id: string; label: string }[];
+  /** Every thread she has, for the models she has used lately (`recentModels`). */
+  items?: WorkItem[];
   /** On a conversation with a person, everyone's first name: the box replies
    *  to them, and nothing about an agent, a priority or a model is offered. */
   talkTo?: string[] | null;
@@ -2263,7 +2282,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
    *  and the new-task card cannot show two different lists. */
   codexModels?: ModelChoice[];
   codexModelDefault?: string | null;
-  onSend: (text: string, priority?: number, repeat?: RepeatRuleValue | null, sent?: SentDraft, mode?: AnswerMode | null, pick?: { model: string | null; effort: string | null }) => void;
+  onSend: (text: string, priority?: number, repeat?: RepeatRuleValue | null, sent?: SentDraft, mode?: AnswerMode | null, pick?: ReplyPick) => void;
   onClose: () => void;
   /**
    * HOW A MODE CHANGE IS ANNOUNCED NOW THAT NOTHING SITS IN THE FOOTER.So the
@@ -2340,11 +2359,47 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   const [touched, setTouched] = useState(false);
   const [model, setModel] = useState<string | null>(item.model ?? null);
   const [effort, setEffort] = useState<string | null>(item.effort ?? null);
+  // AND WHICH CODING AGENT, now the menu offers both. Null is the row's own,
+  // which main resolved and handed down as `runningEngine`; a value here is a
+  // pick that MOVES the thread, and the session cannot follow it.
+  const [engineChosen, setEngine] = useState<Harness | null>(null);
   useEffect(() => {
     setTouched(false);
     setModel(item.model ?? null);
     setEffort(item.effort ?? null);
-  }, [item.product, item.id, item.model, item.effort]);
+    setEngine(null);
+  }, [item.product, item.id, item.model, item.effort, item.engine]);
+  /* THE MENU'S OWN FACTS, worked out the way the new thread card works them
+     out, from the same pure rules, so the two boxes cannot offer different
+     lists (../threads/composer-rules.ts). */
+  const engineRows = engines?.length ? engines : [ENGINES[0]];
+  const codexOffered = engineRows.some((e) => e.id === 'codex');
+  const claudeOffered = engineRows.some((e) => e.id === 'claude');
+  const modelOpts = { codexModels, codexDefault: codexModelDefault };
+  // The agent the row runs on now, as main resolved it, and the one the menu
+  // is showing, which is the same until she picks the other.
+  const engineNow: Harness = (runningEngine === 'codex' ? 'codex' : 'claude');
+  const engineShown: Harness = engineChosen ?? engineNow;
+  const pick: ModelPick = { engine: engineShown, model: model ?? defaultModelFor(engineShown, codexModelDefault) };
+  const recent = useMemo(
+    () => recentModels(items, { codexModels, codexDefault: codexModelDefault, codexOffered, claudeOffered }),
+    [items, codexModels, codexModelDefault, codexOffered, claudeOffered],
+  );
+  const every = useMemo(() => allModels({ codexModels, codexOffered, claudeOffered }), [codexModels, codexOffered, claudeOffered]);
+  const effortRows = effortChoicesFor(engineShown, pick.model, modelOpts);
+  const effortLit = effortShown(effort, effortRows, defaultEffortFor(engineShown, pick.model, modelOpts));
+  // A LEVEL BELONGS TO THE MODEL IT WAS PICKED FOR, so crossing to the other
+  // agent drops it rather than sending a word that agent does not know.
+  const pickModel = (p: ModelPick) => {
+    setTouched(true);
+    setEngine(p.engine);
+    setModel(p.model);
+    if (p.engine !== engineShown) setEffort(null);
+  };
+  // What a move costs, said only while it is true (drawn below the box).
+  const freshNote = engineShown !== engineNow
+    ? `${engineRows.find((e) => e.id === engineShown)?.label ?? 'It'} starts fresh with this thread.`
+    : null;
   const ref = useRef<HTMLTextAreaElement | null>(null);
   // The hidden file input the formatting bar's attach button opens.
   const filePicker = useRef<HTMLInputElement>(null);
@@ -2507,7 +2562,16 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     // In a conversation, every agent mention goes out as its link, carrying the
     // project, model and effort the card holds (../team/agent-mentions.ts).
     onSend([chat.encode(words), attachedMd].filter(Boolean).join('\n\n'), prio ? priorityValueOf(prio) : undefined, repeat, sent, mode,
-      touched ? { model, effort } : undefined);
+      touched
+        ? replyFields({
+          engine: engineShown,
+          model,
+          effort,
+          engineCount: engineRows.length,
+          codexDefault: codexModelDefault ?? null,
+          was: engineNow,
+        })
+        : undefined);
   };
   const hasDraft = !!text.trim() || attachments.length > 0;
   // NEO SENDS FROM THIS BOX WHEN THE PICTURES IN IT GO WITH ITS WORDS, so the
@@ -2909,6 +2973,12 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
             : `${tooBig} pasted images are too big to save. Closing the box loses them.`}
         </div>
       )}
+      {/* THE THREAD IS ABOUT TO MOVE TO THE OTHER CODING AGENT, and a session
+          cannot cross, so what runs next is a fresh one briefed with the
+          thread. A note and not a clause in the sentence below, for the reason
+          every note here is one: a sentence that grows a clause when something
+          changes is a sentence that moves under her. */}
+      {freshNote && <div className="compose-note">{freshNote}</div>}
       {/* ONE text run, ONE size, ONE baseline, and the app's own send button:
           the new-task card's footer, on the reply box, because they are the same
           act. See the note at the top of this file for the measurements. */}
@@ -3012,14 +3082,23 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           {/* One span, so the cloud hides "On" and the stop with the model. */}
           <span className="dock-model">
           {'On '}
-          <ModelPicker
-            value={model}
-            onChange={(id) => { setTouched(true); setModel(id); }}
-            engine={runningEngine}
-            codexModels={codexModels}
-            codexDefault={codexModelDefault}
-            effort={effort}
-            onEffortChange={(id) => { setTouched(true); setEffort(id); }}
+          <ReplyModel
+            label={engineModelLabel(engineShown, model, modelOpts)}
+            pick={pick}
+            onPick={pickModel}
+            recent={recent}
+            every={every}
+            more={moreCount(recent, every)}
+            labelOf={(p) => engineModelLabel(p.engine, p.model, modelOpts)}
+            engineLabel={(id) => engineRows.find((e) => e.id === id)?.label ?? ENGINES.find((e) => e.id === id)?.label ?? id}
+            // The agent is named beside each model only where there are two of
+            // them; on every other Mac the menu reads as it always did.
+            engineTags={engineRows.length > 1}
+            effortRows={effortRows}
+            effortLit={effortLit}
+            // Toggled against HER pick, not against what is lit, so pressing
+            // the lit default sets it and pressing her own clears it.
+            onEffort={(id) => { setTouched(true); setEffort(id === effort ? null : id); }}
             // TRUE WHETHER OR NOT A RUN IS UP. On an idle row the reply starts
             // a run on this model; on a running one the pick lands on the row
             // and the next run takes it, because a spawned harness cannot

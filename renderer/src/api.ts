@@ -674,7 +674,10 @@ export const api = {
   // once instead of after it (main/claude-input.mjs `interrupt`).
   // `inReplyTo` is the uid of the message a reply in a thread answers
   // (w-920461cbe6); main keeps it only in a conversation between people.
-  async answer(p: { product: string; id: string; answer?: string; status?: string; priority?: number; permissionMode?: AnswerMode | null; model?: string | null; effort?: string | null; now?: boolean; inReplyTo?: string }): Promise<WorkItem | null> {
+  // `engine` comes with them when the pick moved the thread to the other
+  // coding agent. The session cannot cross, so the run this reply starts is a
+  // fresh one on that agent (threads/composer-rules.ts, `replyFields`).
+  async answer(p: { product: string; id: string; answer?: string; status?: string; priority?: number; permissionMode?: AnswerMode | null; engine?: string | null; model?: string | null; effort?: string | null; now?: boolean; inReplyTo?: string }): Promise<WorkItem | null> {
     if (useFixtures) return null;
     return window.zero!.answer(p);
   },

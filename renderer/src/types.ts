@@ -509,6 +509,18 @@ export interface AgentSession {
   startedByZero: boolean;
 }
 
+/**
+ * WHAT THE REPLY BOX'S MODEL MENU SENDS WITH A MESSAGE. Both fields are
+ * explicit, because the row already has values and `null` is how they are
+ * cleared. `engine` is sent only when the pick moved the thread to the other
+ * coding agent (threads/composer-rules.ts, `replyFields`).
+ */
+export interface ReplyPick {
+  engine?: string;
+  model: string | null;
+  effort: string | null;
+}
+
 // ONE TURN OF A CONVERSATION THE USER OPENED. Hers reads at full strength and
 // the agent's is quiet, the same split the pane makes everywhere else. `at` is
 // the moment it was written, so a five-day-old thread groups by day like the
@@ -517,6 +529,9 @@ export interface AgentTurn {
   at: number;
   who: 'you' | 'it';
   text: string;
+  /** What wrote it, off the ledger (thread-history.ts, `ran`). The thread
+   *  signs the message with it instead of "The agent". */
+  ran?: { engine?: string; model?: string };
   // Which person wrote it, on a shared project (the team version). A message
   // from a teammate is drawn with their face and name instead of "You".
   by?: string;
