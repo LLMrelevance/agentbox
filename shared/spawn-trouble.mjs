@@ -429,7 +429,7 @@ export function troubleRemedy(cause) {
   // thing to type.
   if (cause === 'signed-out') return 'Open Claude in a terminal, type /login, and they pick straight back up.';
   if (cause === 'org-blocked') return 'Ask an admin of that Claude workspace to turn Claude Code back on.';
-  if (cause === 'subscription-ended') return 'Renew it at claude.ai, or pick another account in Settings.';
+  if (cause === 'subscription-ended') return 'Renew it at claude.ai and they pick straight up.';
   if (cause === 'at-limit') return 'They start again on their own when it resets.';
   if (cause === 'workspace') return 'Open the folder in Claude once and say yes to trusting it.';
   if (cause === 'interrupted') return `Nothing to do. ${Name} tries them again on its own.`;
@@ -462,7 +462,7 @@ export function accountSentence(cause, dir) {
     return 'Signed in, but its organization has turned Claude Code off. Only an admin of that workspace can turn it back on.';
   }
   if (cause === 'subscription-ended') return 'Signed in, but its Claude subscription has ended. Renew it at claude.ai to use this account again.';
-  if (cause === 'at-limit') return 'At its limit. It rejoins on its own when the limit resets.';
+  if (cause === 'at-limit') return 'At its limit. Agents start again on their own when it resets.';
   if (cause === 'workspace') return 'Claude would not run in the folder this was asked to work in.';
   if (cause === 'interrupted') return `Its runs keep getting cut off. ${Name} is trying them again.`;
   // NOT THE ACCOUNT, and said so, because this is the page where she would
@@ -694,7 +694,7 @@ function dayWords(ms) {
 function fixBeforeReplying({ cause, engineWord, resetsAt, model, planEnded }) {
   if (cause === 'signed-out') return 'Sign that account back in.';
   if (cause === 'org-blocked') return 'Only an admin of that Claude workspace can turn it back on.';
-  if (cause === 'subscription-ended') return 'Renew it at claude.ai, or pick another account in Settings.';
+  if (cause === 'subscription-ended') return 'Renew it at claude.ai.';
   if (cause === 'at-limit') return resetsAt ? `The limit resets at ${resetsAt}.` : 'Wait for the limit to reset.';
   if (cause === 'too-old') return `To update it, ${UPDATE}.`;
   if (cause === 'api-key') return 'Run codex login in a terminal to sign in with your ChatGPT plan.';
@@ -703,7 +703,7 @@ function fixBeforeReplying({ cause, engineWord, resetsAt, model, planEnded }) {
   if (cause === 'model-not-on-plan') {
     return planEnded
       ? `That account's ChatGPT subscription ended on ${dayWords(planEnded)}, and the free plan does not include ${model || 'this model'}. Renew it at chatgpt.com, or pick another model for this task.`
-      : 'Pick another model for this task, or sign in a Codex account whose plan has it.';
+      : 'Pick another model for this task.';
   }
   if (cause === 'level-not-offered') return 'Pick another thinking level for this task.';
   if (cause === 'network') return `If your company uses a proxy or its own certificate, ${NETWORK_FIX} and reopen ${Name}.`;
@@ -712,19 +712,19 @@ function fixBeforeReplying({ cause, engineWord, resetsAt, model, planEnded }) {
   return null;
 }
 
-// `elsewhere` says another signed-in login can take this task now, so the
-// sentence promises the move instead of a wait. Read for 'model-not-on-plan'
-// (another login's plan has the model) and for 'at-limit' (another login has
-// room). An hour away is the wrong thing to say about a task that is about to
-// run somewhere else.
+// NO SENTENCE HERE OFFERS ANOTHER ACCOUNT (w-dac993a554). There used to be an
+// `elsewhere` flag: another signed-in login had room, or had the model, so the
+// line promised the move instead of the wait. Nothing moves work between
+// accounts any more, so a limit is named with the hour it resets and a model no
+// plan includes is answered with another model.
 //
-// `planEnded` is when that login's paid ChatGPT plan ended (main/codex-account.mjs
+// `planEnded` is when the account's paid ChatGPT plan ended (main/codex-account.mjs
 // `codexPlanEnded`), which is why its list lacks `model`.
 //
 // `gaveUp` is the app having stopped carrying a reply (`settleDeliveryAndSay`).
 // Nothing restarts the thread until somebody replies or resumes it, so the
 // sentence asks for that and promises nothing of its own.
-export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, elsewhere = false, worked = false, model = null, planEnded = null, gaveUp = false } = {}) {
+export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, worked = false, model = null, planEnded = null, gaveUp = false } = {}) {
   if (worked && !WORKED_OPENERS[cause]) cause = 'unknown';
   const opener = `${engineWord} ${(worked ? WORKED_OPENERS : DEAD_RUN_OPENERS)[cause] ?? DEAD_RUN_OPENERS.unknown}`;
 
@@ -743,11 +743,9 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
     : cause === 'org-blocked'
       ? ' Only an admin of that Claude workspace can turn it back on.'
       : cause === 'subscription-ended'
-      ? ' Renew it at claude.ai, or pick another account in Settings.'
+      ? ' Renew it at claude.ai and it picks straight up.'
       : cause === 'at-limit'
-      ? (elsewhere
-        ? ` ${Name} runs it again on another account that has room.`
-        : resetsAt ? ` It starts again on its own at ${resetsAt}.` : ' It starts again on its own when the limit resets.')
+      ? (resetsAt ? ` It starts again on its own at ${resetsAt}.` : ' It starts again on its own when the limit resets.')
       : cause === 'too-old'
       ? ` To update it, ${UPDATE}, and it starts again on its own.`
       : cause === 'api-key'
@@ -759,11 +757,9 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
       : cause === 'interrupted'
         ? ` ${Name} runs it again on its own.`
         : cause === 'model-not-on-plan'
-          ? (elsewhere
-            ? ` ${Name} runs it again on a Codex account whose plan has it.`
-            : planEnded
-              ? ` That account's ChatGPT subscription ended on ${dayWords(planEnded)}, and the free plan does not include ${model || 'this model'}. Renew it at chatgpt.com, or pick another model for this task.`
-              : ' Pick another model for this task, or sign in a Codex account whose plan has it.')
+          ? (planEnded
+            ? ` That account's ChatGPT subscription ended on ${dayWords(planEnded)}, and the free plan does not include ${model || 'this model'}. Renew it at chatgpt.com, or pick another model for this task.`
+            : ' Pick another model for this task.')
         : cause === 'level-not-offered'
           ? ' Pick another thinking level for this task and it will run.'
         : cause === 'network'
@@ -902,11 +898,11 @@ export function causeWhat(cause, count) {
 export function causeNext(cause, resetsAt = null) {
   if (cause === 'signed-out') return 'Type /login in a terminal and they pick straight up.';
   if (cause === 'org-blocked') return 'Ask an admin of that Claude workspace to turn Claude Code back on.';
-  if (cause === 'subscription-ended') return 'Renew it at claude.ai, or pick another account in Settings.';
+  if (cause === 'subscription-ended') return 'Renew it at claude.ai and they pick straight up.';
   if (cause === 'at-limit') return resetsAt ? `They start again on their own at ${resetsAt}.` : 'They start again on their own when it resets.';
   if (cause === 'workspace') return 'Open the folder in Claude once and say yes to trusting it.';
   if (cause === 'interrupted') return `Nothing to do. ${Name} is trying them again.`;
-  if (cause === 'model-not-on-plan') return 'Pick another model on each, or sign in a Codex account whose plan has it.';
+  if (cause === 'model-not-on-plan') return 'Pick another model on each.';
   if (cause === 'level-not-offered') return 'Pick another thinking level on each.';
   if (cause === 'network') return troubleRemedy('network');
   if (cause === 'too-old') return troubleRemedy('too-old');

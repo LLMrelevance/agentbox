@@ -19,9 +19,12 @@ const acct = (key, limitedUntil = null) => ({ engine: 'claude', key, name: null,
 const cloud = (accounts, running = 0, mode = 'all') => ({ setUp: true, mode, whenOn: 'all', running, accounts, signIns: [], month: { runs: 0, agentHours: 0 } });
 
 describe('the last line of the cloud menu', () => {
-  it('says every account is at its limit, and when the first comes back', () => {
+  // SAID IN THE SINGULAR, HOWEVER MANY ARE SIGNED IN (w-dac993a554): the cloud
+  // runs on one account, so "your cloud accounts" was the menu promising a
+  // rotation the cloud does not do.
+  it('says the account is at its limit, and when the first comes back', () => {
     const line = cloudFootLine(cloud([acct('a', at(22, 10)), acct('b', at(22, 40))]), now);
-    expect(line).toBe('Your cloud accounts are at their usage limit until 10:10pm. Threads wait for the cloud until then.');
+    expect(line).toBe('Your cloud account is at its usage limit until 10:10pm. Threads wait for the cloud until then.');
   });
 
   it('says what runs there while any account can still run', () => {

@@ -370,10 +370,10 @@ export function usageCheckedAt(at: number | null | undefined, now: number): stri
 /**
  * THE ACCOUNTS, one row each.
  *
- *  NOTHING IS MARKED WHEN SHE HAS NOT PICKED, and then every account really
- *  does run. Marking one at random would be the page telling her something
- *  about her own machine that is not true. Once she has picked, the live one
- *  says In use beside the address, in words, and every other one offers itself.
+ *  ONE OF THEM IS IN USE AND IT SAYS SO (w-dac993a554). Nothing used to be
+ *  marked until somebody picked, because until then every account took a share
+ *  of the work; one account runs it now, so one row always carries In use and
+ *  the others offer themselves.
  *
  *  A TROUBLED ACCOUNT IS NOT SOMETHING TO PICK, IT IS SOMETHING TO FIX. It says
  *  what is wrong in main's own words and carries the command that puts it
@@ -384,7 +384,6 @@ export function AccountRows({ agent, onChoose, onAdd }: {
   onAdd: (agent: Agent) => void;
 }) {
   const accounts = agent.accounts;
-  const picked = accounts.some((a) => a.chosen);
   return (
     <>
       {accounts.map((a) => <Fragment key={a.profile}>{accountRow(a)}</Fragment>)}
@@ -398,7 +397,7 @@ export function AccountRows({ agent, onChoose, onAdd }: {
   );
 
   function accountRow(a: CardAccount) {
-        const live = picked ? a.chosen : false;
+        const live = a.chosen;
         const label = a.email ?? 'Not signed in';
         if (a.trouble) {
           return (
@@ -420,7 +419,7 @@ export function AccountRows({ agent, onChoose, onAdd }: {
             {!live && accounts.length > 1 && (
               <div className="set-row-ctl">
                 <button type="button" className="set-ghost" onClick={() => onChoose(agent.engine, a.profile)}>
-                  {picked ? 'Use this one' : 'Use only this one'}
+                  Use this one
                 </button>
               </div>
             )}
@@ -1736,7 +1735,6 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     const readingOf = (profile: string): Usage | null => {
       return accountReadingFor(profile, accountReadings, agent.reading);
     };
-    const picked = agent.accounts.some((a) => a.chosen);
     const hereAccounts: PlaceAccount[] = [...agent.accounts]
       .sort((x, y) => Number(y.chosen) - Number(x.chosen))
       .map((a) => ({
@@ -1744,12 +1742,16 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
         name: a.email ?? 'Not signed in',
         plan: a.signedIn ? a.plan : null,
         about: hereState({ signedIn: a.signedIn, trouble: a.trouble, limits: readingOf(a.profile)?.limits, now }),
-        inUse: picked && a.chosen,
+        inUse: a.chosen,
         limits: readingOf(a.profile)?.limits ?? null,
         checkedAt: readingOf(a.profile)?.at ?? null,
         usageError: accountReadings.find((r) => r.profile === a.profile)?.error ?? null,
-        use: a.signedIn && !(picked && a.chosen) && agent.accounts.length > 1
-          ? { word: picked ? 'Switch to this account' : 'Use only this account', onUse: () => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile: a.profile } })) }
+        // "Use this one" and nothing else (w-dac993a554). "Switch to this
+        // account" read as a thing to do when the account in use ran out;
+        // picking which of your own plans runs your work is a setting, not a
+        // move you make at a limit.
+        use: a.signedIn && !a.chosen && agent.accounts.length > 1
+          ? { word: 'Use this one', onUse: () => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile: a.profile } })) }
           : null,
         trouble: a.trouble,
         cmd: a.trouble && a.dir ? `CLAUDE_CONFIG_DIR=${a.dir} claude` : null,
@@ -2404,7 +2406,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                     title="The Claude account this project's agents run on."
                     value={current.account ?? 'any'}
                     options={[
-                      { value: 'any', label: 'Any account' },
+                      /* 'any' IS THE ABSENCE OF A TIE, not a rotation: it read
+                         "Any account" while there was one (w-dac993a554). */
+                      { value: 'any', label: 'The account in use' },
                       ...(w?.accounts ?? []).map((a) => ({ value: a.profile, label: a.email ? `${a.email} (${a.label})` : a.label })),
                     ]}
                     onChange={(v) => setProject(current.slug, 'account', v)}

@@ -150,7 +150,9 @@ export function cloudFootLine(cloud: CloudStatus, now = Date.now()): string {
   const back = claude.map((a) => (a.limitedUntil && a.limitedUntil > now ? a.limitedUntil : null));
   if (cloudIsOn(cloud) && claude.length && back.every(Boolean)) {
     const at = clock(Math.min(...(back as number[])));
-    return `Your cloud accounts are at their usage limit until ${at}. ${cloud.mode === 'all' ? 'Threads wait for the cloud' : 'Threads run on this Mac'} until then.`;
+    // ONE ACCOUNT RUNS IN THE CLOUD, so this says "your cloud account" however
+    // many are signed in (w-dac993a554).
+    return `Your cloud account is at its usage limit until ${at}. ${cloud.mode === 'all' ? 'Threads wait for the cloud' : 'Threads run on this Mac'} until then.`;
   }
   if (gap) return rebuildLine(gap);
   return cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now';
