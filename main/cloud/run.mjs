@@ -65,7 +65,7 @@ import { troubleCause, limitResetMoment } from '../../shared/spawn-trouble.mjs';
 import { HAND_BACK } from '../../shared/cloud-hand-back.mjs';
 import { sentLine } from '../../shared/cloud-start.mjs';
 import { serveApprovals } from '../approval-prompt-core.mjs';
-import { cacheKey, folderKey, sendOnce, pickBase, bundlePast, refsAt } from './reuse.mjs';
+import { cacheKey, folderKey, sendOnce, pickBase, bundlePast, refsAt, sendConversation, sentRecordPath } from './reuse.mjs';
 
 // WHAT A CLOUD RUN IS TOLD ABOUT WHERE IT IS. Without it an agent there found
 // its film's files, ffmpeg and a key missing, and asked the person to move the
@@ -562,8 +562,11 @@ export async function cloudRun({
   const resumeId = argValue(argv, '--resume');
   if (resumeId) {
     const t = path.join(projectsDir, `${resumeId}.jsonl`);
-    if (fs.existsSync(t)) sending.push(sendFile(t));
-    else say(`no transcript for ${resumeId} on this Mac; the cloud run starts without it`);
+    if (!fs.existsSync(t)) say(`no transcript for ${resumeId} on this Mac; the cloud run starts without it`);
+    else {
+      sending.push(sendConversation(storage, t, { record: sentRecordPath(here) })
+        .then(async ({ key: k }) => ({ path: t, url: await storage.getUrl(k) })));
+    }
   }
   // Her saved memories for this project, where Claude Code in the cloud looks.
   const saved = codex ? null : plain ? folderWithFiles(path.join(projectsDir, 'memory')) : memoryFolderFor(cwd, configDir);
