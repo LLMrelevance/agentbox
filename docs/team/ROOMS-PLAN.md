@@ -436,3 +436,15 @@ Rooms paragraph in this work.
   built: rooms have no description line in Find rooms, a team room has no
   Leave in its menu (you leave by leaving the team), and Start a room offers
   Find a room to join, since the plus beside Rooms became New room.
+- A room can be a board (w-49cd37092c). The header's View button, the one the
+  Inbox has, switches a room between Grid and Board, and B does the same. The
+  board holds you and the teammates whose Activity you may open, and its People
+  line narrows it. With Rooms on, the Inbox shows only your own threads: its
+  People line and the faces on its button are gone, and the pick it kept comes
+  back if Rooms is turned off.
+- A person's page (w-88e1e23325). Activity is the Inbox's board for that one
+  person. The chart shows a value only where you point, with the total written
+  at the end of the line. The ranks say "this week" and "all time". Your own
+  page has your bio, with Add a bio and Edit. Message there opens the chat full
+  page on Messages, and Back returns to the page. The rooms they are in open
+  when clicked.

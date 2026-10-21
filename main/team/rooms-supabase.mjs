@@ -29,6 +29,23 @@ export function roomsSupabase(client, myId, must) {
   const newer = async (res, what) => { if (res.error && notThere(res.error)) throw new Error(BEHIND); return must(res, what); };
   const newRpc = async (fn, args, what) => newer(await client.rpc(fn, args), what);
 
+  // A row of my own: changed where it is, made when it is not there. Never an
+  // upsert, whose update half rewrites the key columns, which nobody may
+  // update on the hosted cloud ("permission denied", 2026-10-21).
+  async function saveOwn(table, keys, fields, cols, what) {
+    const change = async () => {
+      let q = Object.keys(fields).length ? client.from(table).update(fields) : client.from(table).select(cols);
+      for (const [k, v] of Object.entries(keys)) q = q.eq(k, v);
+      return must(await (Object.keys(fields).length ? q.select(cols) : q), what);
+    };
+    const had = await change();
+    if (had.length) return had[0];
+    const made = await client.from(table).insert({ ...keys, ...fields }).select(cols);
+    // Another Mac of mine made it a moment ago.
+    if (made.error?.code === '23505') return (await change())[0] ?? null;
+    return must(made, what)[0] ?? null;
+  }
+
   return {
     async myRooms() {
       await myId();
@@ -61,14 +78,12 @@ export function roomsSupabase(client, myId, must) {
 
     async saveRoomProfile(fields) {
       const me = await myId();
-      const row = pick(fields, PROFILE_FIELDS);
-      const rows = must(await client.from('room_profiles').upsert({ person_id: me, ...row }, { onConflict: 'person_id' }).select(PROFILE_COLS), 'saving your room profile');
-      return rows[0] ?? null;
+      return saveOwn('room_profiles', { person_id: me }, pick(fields, PROFILE_FIELDS), PROFILE_COLS, 'saving your room profile');
     },
 
     async putPresence(device, fields) {
       const me = await myId();
-      must(await client.from('room_presence').upsert({ person_id: me, device, ...pick(fields, PRESENCE_FIELDS) }, { onConflict: 'person_id,device' }), 'telling your rooms what you are doing');
+      await saveOwn('room_presence', { person_id: me, device }, pick(fields, PRESENCE_FIELDS), 'person_id', 'telling your rooms what you are doing');
     },
 
     async roomMessages(roomId, { before = null, limit = 200 } = {}) {
