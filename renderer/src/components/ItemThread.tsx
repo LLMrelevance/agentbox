@@ -40,6 +40,7 @@ import type { LedgerLine } from '../thread-history';
 import type { TraceSession } from '../notes';
 import type { AgentTurn, RunningSession, WorkItem } from '../types';
 import { ActLine, Thread, ThreadWaiting, answerTurn } from './Thread';
+import { askMarkUnread, say } from '../team/chat-events';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 
 // THE BACKSTOP, NOT THE HEARTBEAT.
@@ -370,6 +371,12 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
           onReact: chips.react,
           onQuote,
           onHandToAgent,
+          onEdit: (uid: string, change: { text: string } | { gone: true }) => {
+            void api.teamEdit({ product: item.product, id: item.id, on: uid, ...change })
+              .then((r) => { if (!r?.ok) say(r?.error ?? 'That change did not save.'); });
+          },
+          onMarkUnread: () => { askMarkUnread({ product: item.product, id: item.id }); },
+          onCopied: () => say('Copied'),
           ...(thread ? { replies: built.replies, openThread: thread.open, onOpenThread: thread.onOpen, freshThreads: thread.fresh } : {}),
         } : {})}
       />

@@ -173,11 +173,17 @@ describe('what the supervisor says about one thread', () => {
 });
 
 describe('the row', () => {
-  const draw = (fleet) => renderToStaticMarkup(
+  const draw = (fleet, row = item(), tab = 'progress') => renderToStaticMarkup(
     React.createElement(FleetContext.Provider, { value: fleet },
       React.createElement(LiveContext.Provider, { value: new Set(fleet.sessions ? [...fleet.sessions.keys()] : []) },
         React.createElement(CloudContext.Provider, { value: new Set() },
-          React.createElement(ThreadCells, { item: item(), product: { slug: 'payments', name: 'Payments API' }, now: NOW, tab: 'progress' })))));
+          React.createElement(ThreadCells, { item: row, product: { slug: 'payments', name: 'Payments API' }, now: NOW, tab })))));
+  // What the cell draws, past its own opening tag: the hover sentence lives in
+  // a title attribute there and carries the same words.
+  const stateCell = (html) => {
+    const open = html.indexOf('th-cell-state');
+    return html.slice(html.indexOf('>', open) + 1, html.indexOf('th-cell-proj'));
+  };
 
   it('draws the word in a cell of its own', () => {
     const html = draw({ queued: ['w-1'] });
@@ -191,6 +197,21 @@ describe('the row', () => {
     const title = html.slice(html.indexOf('th-cell-title'), html.indexOf('th-cell-state'));
     expect(title).not.toContain('th-st');
     expect(html.slice(html.indexOf('th-cell-state'))).toContain('th-st');
+  });
+
+  // "STATUS isn't properly lined up, it's off to the side", on a tab of
+  // Waiting rows: a blank where the mark would be pushed every word in the
+  // column off its own heading. The cell starts at the column's edge.
+  it('puts nothing before a word that carries no mark', () => {
+    const waiting = item({ kind: 'question', note: 'Two ways to do it.' });
+    const cell = stateCell(draw({ queued: [] }, waiting, 'inbox'));
+    expect(cell).toContain('Waiting');
+    expect(cell).not.toContain('<span');
+  });
+
+  it('and leads with the mark where there is one', () => {
+    const cell = stateCell(draw({ queued: ['w-1'] }));
+    expect(cell.indexOf('th-st')).toBeLessThan(cell.indexOf('Queued'));
   });
 });
 

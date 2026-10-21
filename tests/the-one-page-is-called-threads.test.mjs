@@ -50,8 +50,9 @@ describe('the page says Threads too', () => {
     expect(app).toContain('<h1 className="workspace-title">Threads</h1>');
     expect(app).not.toContain('<h1 className="workspace-title">Inbox</h1>');
   });
+  // Opened from a room's board, the way back names the room instead.
   it('on the way back from a teammate’s card, and in the heading over it', () => {
-    expect(app).toContain('<span aria-hidden="true">←</span>Threads</button>');
+    expect(app).toContain(`<span aria-hidden="true">←</span>{roomsUi.roomName ?? 'Threads'}</button>`);
     expect(app).toContain("openCard ? 'Threads' : 'Team'");
   });
   it('and the first tab still says Needs you, where the inbox meaning is true', () => {

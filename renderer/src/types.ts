@@ -271,6 +271,12 @@ export interface RoomMessage {
   inReplyTo: string | null;
   mentions: string[];
   at: number;
+  /** When its author last edited it. */
+  editedAt?: number | null;
+  /** Taken back by its author; the body is empty. */
+  deleted?: boolean;
+  /** emoji -> the people on it, oldest first. */
+  reactions?: Record<string, string[]>;
 }
 
 export interface Room {
@@ -287,6 +293,10 @@ export interface Room {
   pinned: boolean;
   muted: boolean;
   unread: number;
+  /** Where I have read to, ms; 0 when I never have. */
+  readAt?: number;
+  /** I marked it unread, and have not read it since. */
+  markedUnread?: boolean;
   lastAt: number;
   agents: number;
   wall: RoomCard[];
@@ -647,6 +657,10 @@ export interface AgentTurn {
   // A REPLY IN A THREAD: the uid of the message it answers (w-920461cbe6).
   // In a chat, `itemThread` lifts these out of the stream into `replies`.
   inReplyTo?: string;
+  /** When its author last edited it (shared/message-edits.mjs). */
+  edited?: number;
+  /** Deleted by its author, drawn only because replies hang off it. */
+  deleted?: boolean;
   // A CONTINUATION OF THE BLOCK ABOVE, not a new message. Shape B puts the
   // work between the messages, so a reply that stopped for a tool is drawn as
   // two blocks with the thing it ran between them. They are still one reply:
@@ -1281,6 +1295,8 @@ declare global {
       teamSync(): Promise<TeamCallResult>;
       teamRoute(p: { product: string; id: string; route: 'agent' | 'me' | 'back' }): Promise<TeamCallResult>;
       teamReact(p: { product: string; id: string; on: string; emoji: string; off?: boolean }): Promise<TeamCallResult>;
+      teamEdit(p: { product: string; id: string; on: string; text?: string; gone?: boolean }): Promise<TeamCallResult>;
+      micAccess?(): Promise<'granted' | 'settings'>;
       teamMessage(p: { to: string | string[]; body: string; priority?: number; files?: TeamMessageFile[] }): Promise<TeamCallResult>;
       rooms?(p: { op: string; args?: unknown[] }): Promise<RoomsResult>;
       threadEdit(p: { product: string; id: string; patch: ThreadEditPatch }): Promise<{ ok: boolean; error?: string }>;

@@ -195,6 +195,12 @@ const BACKOFF_CAP_MS = 30 * 60_000;
 // fallback for a login that lands somewhere it cannot see. A try on a login
 // that is still out costs a two-second run and is charged to nobody.
 const SIGNED_OUT_REST_MS = 5 * 60_000;
+// HOW LONG A LOGIN THAT IS OUT OF USAGE SITS OUT WHEN THE LIMIT PRINTED NO
+// RESET HOUR. One that printed one is waited out to it exactly, below. Five
+// minutes for the same reason as a signed-out login: a try that is still
+// refused costs a run of a few seconds and is charged to nobody, and a limit
+// that says nothing about its reset is as likely to be minutes as hours.
+const AT_LIMIT_REST_MS = 5 * 60_000;
 // How long past a limit's printed reset hour the fleet waits before trying.
 const LIMIT_RESET_GRACE_MS = 30_000;
 // HOW LONG NOTHING MAY WORK BEFORE THE APP SAYS SO OUT LOUD.
@@ -514,6 +520,7 @@ export class Supervisor {
       // are frequent. It is keyed and cleared exactly like _deliveryAttempts.
       this._fruitless = state.fruitless ?? {};
       this._heldStarts = state.heldStarts ?? {};
+      this._deadStarts = state.deadStarts ?? {};
       // WHAT IS WRONG WITH EACH ACCOUNT, KEPT ACROSS A RESTART (w-cf0e8821b3).
       //
       // The app came back up knowing that nothing was running and no longer
@@ -1161,6 +1168,8 @@ export class Supervisor {
     let items;
     try { items = this.store.listItems(Date.now()); } catch { return out; }
     let dirty = false;
+    // Rows this sweep will bring back on a later pass. Not stopped (`status`).
+    const held = new Set();
     // IN HER RUNNING ORDER, so when slots are short after a restart the top of
     // it gets its session back first rather than whatever started first
     // (w-6165eb69b4). A record whose row is gone sorts anywhere; it is only
@@ -1206,6 +1215,7 @@ export class Supervisor {
       // that same tick. `_recoverPending` keeps the sweep coming back.
       if (this._preempted.has(itemId)) {
         out.queued += 1;
+        held.add(itemId);
         this._recoverPending = true;
         continue;
       }
@@ -1214,8 +1224,28 @@ export class Supervisor {
       // than reading the missing transcript as a session that is gone.
       if (rec.cloud && !this.transcriptFile(rec) && rec.cwd && cloudWorkPending(place)) {
         this._bringCloudHome(place);
+        if (!rec.sessionId && !rec.reachedTheCloud) { rec.reachedTheCloud = true; dirty = true; }
         out.queued += 1;
+        held.add(itemId);
         this._recoverPending = true;
+        continue;
+      }
+      // CUT OFF BEFORE ITS AGENT SAID ITS ID, AND NOTHING OF IT IN THE CLOUD TO
+      // JOIN. Its relay outlives the app and may still be sending it, so it gets
+      // the time any start gets. After that, or once its run has come home
+      // without a word, there is no session to resume, and its reply goes back
+      // in line as a run on this Mac cut off the same way does.
+      if (rec.cloud && !rec.sessionId) {
+        if (!rec.reachedTheCloud && Date.now() - (rec.startedAt ?? 0) < CLOUD_START_PATIENCE_MS) {
+          out.queued += 1;
+          held.add(itemId);
+          this._recoverPending = true;
+          continue;
+        }
+        if (rec.carrying) this._handledAnswers.delete(rec.carrying);
+        delete this._liveSessions[itemId];
+        this._announcedRecovery.delete(itemId);
+        dirty = true;
         continue;
       }
       if (!this.transcriptFile(rec)) {
@@ -1248,6 +1278,7 @@ export class Supervisor {
       // strand these rows forever on an account she had already fixed.
       if (this._profileResting(this._accountKey(rec.engine, rec.profile))) {
         out.resting += 1;
+        held.add(itemId);
         this._recoverPending = true;
         continue;
       }
@@ -1268,6 +1299,7 @@ export class Supervisor {
       const engine = engineOf(rec.engine);
       if (this._engineCanRun(engine) && !this._roomFor(engine, item)) {
         out.queued += 1;
+        held.add(itemId);
         this._recoverPending = true;
         continue;
       }
@@ -1286,6 +1318,7 @@ export class Supervisor {
       out.resumedIds.push(itemId);
       dirty = true;
     }
+    this._recovering = held;
     if (dirty) this._saveState();
     if (out.resumed || out.waiting || out.queued || out.resting || out.missing) {
       this._lastRecovery = { ...out, at: Date.now() };
@@ -4315,6 +4348,7 @@ export class Supervisor {
       whenOn: this.config.cloudWhenOn === 'all' ? 'all' : 'full',
       accounts: setUp ? this._cloudAccounts() : [],
       signIns: setUp ? this._cloudSignInsNow() : [],
+      projects: setUp ? (this.store.listProducts?.() ?? []).filter((p) => this._cloudTakesProject(p)).map((p) => p.slug) : [],
     };
   }
 
@@ -4773,14 +4807,22 @@ export class Supervisor {
     if (!item?.id || !session) return;
     const key = `${item.product}:${item.id}`;
     this._deadStarts ??= {};
-    if (session.sessionId != null || session.result != null) { delete this._deadStarts[key]; return; }
+    // A RUN THE ACCOUNT REFUSED NEVER BEGAN, whatever it came back carrying.
+    // Codex names the thread (`thread/started`) before the model is asked
+    // anything and reports the refusal as the turn's own result, so an
+    // out-of-usage run arrives here with an id AND a result, and either of
+    // those read as the agent getting going. It can outlast FAST_EXIT_MS as
+    // well: a weekly limit is reported about two minutes in.
+    const refused = accountRefusedTheRun(session);
+    if (!refused && (session.sessionId != null || session.result != null)) { delete this._deadStarts[key]; return; }
     const now = Date.now();
-    if (session.stoppedByUs || now - (session.startedAt ?? now) >= FAST_EXIT_MS) return;
+    if (session.stoppedByUs || (!refused && now - (session.startedAt ?? now) >= FAST_EXIT_MS)) return;
     const starts = (this._deadStarts[key] ?? []).filter((t) => now - t < STORM_WINDOW_MS);
     starts.push(now);
     this._deadStarts[key] = starts;
     this._heldStarts ??= {};
-    if (starts.length < STORM_STARTS || this._heldStarts[key]) return;
+    // Saved every time, so the six are still six across a restart of the app.
+    if (starts.length < STORM_STARTS || this._heldStarts[key]) { this._saveState(); return; }
     const said = (session.tail ?? []).filter((l) => typeof l === 'string' && l.startsWith('stderr:'))
       .flatMap((l) => l.slice('stderr:'.length).split('\n')).map((l) => l.trim()).filter((l) => l && !l.startsWith(CLOUD_SENT)).at(-1) ?? null;
     this._heldStarts[key] = { since: now, said };
@@ -5075,6 +5117,7 @@ export class Supervisor {
         const first = this._comingHome.get(itemId) !== view;
         this._comingHome.set(itemId, view);
         capture(view, line);
+        if (view.sessionId && !rec.sessionId && this._liveSessions[itemId] === rec) this._learnJoinedSession(itemId, rec, view.sessionId);
         const typed = stream(view, line);
         const doing = activity(view, line);
         let moved = typed || doing;
@@ -5258,7 +5301,12 @@ export class Supervisor {
   _cloudEligible(item) {
     if (!item || String(item.id || '').startsWith('digest-')) return false;
     if (this.threadOnMac?.[item.id] === true || item.id in (this.movedToMac ?? {})) return false;
-    const product = this.store.listProducts?.().find((p) => p.slug === item.product);
+    return this._cloudTakesProject(this.store.listProducts?.().find((p) => p.slug === item.product));
+  }
+
+  // The thread menu's "Keep on this Mac" reads this too, through
+  // `cloudStatus().projects`, so it cannot offer a different set.
+  _cloudTakesProject(product) {
     if (!product?.repoPath && !(product?.dir && this._cloudTakesPlain())) return false;
     return !(this.config.personalProducts || []).includes(product.slug);
   }
@@ -5503,9 +5551,16 @@ export class Supervisor {
         this._profileCooldown = this._profileCooldown ?? {};
         this._profileCooldown[account] = resetAt + LIMIT_RESET_GRACE_MS;
       } else {
+        // AND A LIMIT THAT NAMES NO HOUR STILL BENCHES ITS LOGIN AT ONCE. It
+        // took three strikes, so the two runs after the first refusal went
+        // straight back to the capped login, and the rows read "Queued" the
+        // whole time: a row is only told a limit holds it once every login of
+        // its tool is resting (`_waitingOnLimit`). The account has said it is
+        // out, and asking it again fifteen seconds later cannot change that.
+        const outOfUsage = cause === 'at-limit';
         this._strikeProfile(account, {
-          hard: needsHerHands(cause),
-          rest: cause === 'signed-out' ? SIGNED_OUT_REST_MS : undefined,
+          hard: needsHerHands(cause) || outOfUsage,
+          rest: cause === 'signed-out' ? SIGNED_OUT_REST_MS : outOfUsage ? AT_LIMIT_REST_MS : undefined,
         });
       }
       // A DEATH THE ACCOUNT CAUSED IS NOT THE ROW'S. Read by `settleDelivery`
@@ -5608,6 +5663,12 @@ export class Supervisor {
         deliveryAttempts: this._deliveryAttempts,
         fruitless: this._fruitless,
         heldStarts: this._heldStarts,
+        // The starts a hold is counted from, pruned to the window they are
+        // counted in. A restart in the middle of a storm used to reset the
+        // count to zero while the hold it leads to was kept.
+        deadStarts: Object.fromEntries(Object.entries(this._deadStarts ?? {})
+          .map(([key, starts]) => [key, (starts ?? []).filter((t) => Date.now() - t < STORM_WINDOW_MS)])
+          .filter(([, starts]) => starts.length)),
         // Why each account cannot be used, so a restart does not go back to
         // knowing that nothing runs without knowing why.
         profileTrouble: this._profileTrouble,
@@ -5688,11 +5749,18 @@ export class Supervisor {
     // "stopped" in red, and every row that had ever worked ended up there:
     // twelve at once, and she read the whole fleet as broken. Red has to mean
     // something went wrong or it means nothing at all.
+    // A row in `_preparing` has its mark written and its run on the way.
+    const settingUp = (id) => !!this._preparing?.has(id);
+    // NOR IS A ROW A RESTART IS BRINGING BACK: a cloud run followed home, or a
+    // session the startup sweep puts back once it can (`recoverInterrupted`).
+    const heldBySweep = (id) => !!this._recovering?.has(id) && !!this._liveSessions[id] && !this.sessions.has(id);
     let stalled = [];
     try {
       stalled = allThreads()
         .filter((i) => i.status === 'open' && i.answer && i.answer !== '(withdrawn)'
-          && !this.sessions.has(i.id)
+          && !this.sessions.has(i.id) && !settingUp(i.id)
+          && !this._comingHome?.has(i.id)
+          && !heldBySweep(i.id)
           && !answerSettled(i)
           && this._answerDelivered(i))
         .map((i) => i.id);
@@ -5752,8 +5820,9 @@ export class Supervisor {
         // delivered are all inside those two, so a row the tick is going to
         // walk past is never advertised as waiting its turn.
         .filter((i) => (this._isContinuation(i) && !answerSettled(i) && !this._answerDelivered(i))
-          || this._isFreshWork(i, nowTs, autonomous))
+          || this._isFreshWork(i, nowTs, autonomous) || settingUp(i.id))
         .map((i) => i.id);
+      for (const id of this._recovering ?? []) if (heldBySweep(id) && !this._comingHome?.has(id) && !queued.includes(id)) queued.push(id);
     } catch {}
     if (this.paused) queued = [];
     let signInNeeded = {};
@@ -8731,6 +8800,7 @@ export class Supervisor {
       cloud: where === 'cloud',
     };
     this._noteRunCarrying(item, session, { continuation });
+    if (session.cloud) this._rememberCloudStart(item, session, { continuation });
     // The memory gate's clock counts starts on this Mac only: a cloud start
     // uses none of its memory (Codex's review, 2026-10-13).
     if (this._startsOnThisMac(session)) this._lastStartAt = session.startedAt;
@@ -9120,6 +9190,7 @@ export class Supervisor {
       // about, but it is exactly the session her next reply should go back to.
       // `pruneRowSessions` is what eventually forgets it.
       this.forgetFinishedSession(item, session);
+      this._forgetCloudStartThatLeftNothing(item, session);
       this.noteExitForBackoff(session, { onLine });
       if (session.cloud) this._sayCloudNews(cwd, item);
       const carryingAnswer = continuation && answerAtSpawn;
@@ -9622,6 +9693,40 @@ export class Supervisor {
     return true;
   }
 
+  // A CLOUD RUN IS REMEMBERED FROM ITS START, not from its session id. The id
+  // comes from the agent once the cloud machine is up, a minute or more later,
+  // and a quit before then left the run going in the cloud with nothing here
+  // to rejoin it. `carrying` is the reply it took, settled when a rejoined run
+  // says its id (`_learnJoinedSession`).
+  _rememberCloudStart(item, session, { continuation = false } = {}) {
+    this._liveSessions[item.id] = {
+      sessionId: null, product: item.product, cwd: session.cwd, profile: session.profile,
+      engine: session.engine, continuation: !!continuation, startedAt: session.startedAt, cloud: true,
+      ...(session.carrying ? { carrying: session.carrying } : {}),
+    };
+    this._saveState();
+  }
+
+  // And forgotten at its end when it never said its id and left nothing in the
+  // cloud: a refused start has nothing to rejoin.
+  _forgetCloudStartThatLeftNothing(item, session) {
+    const rec = this._liveSessions[item.id];
+    if (!session?.cloud || session.idRemembered || !rec || rec.sessionId || rec.startedAt !== session.startedAt) return;
+    if (cloudWorkPending(this._cloudPlace(session.cwd, item.product, item.id))) return;
+    delete this._liveSessions[item.id];
+    this._saveState();
+  }
+
+  // The id a rejoined run says, when it was cut off before saying it here. Kept
+  // so a run whose work does not come home is resumed rather than restarted,
+  // and so the reply it took counts as heard.
+  _learnJoinedSession(itemId, rec, sessionId) {
+    rec.sessionId = sessionId;
+    if (rec.carrying) (this._heardAnswers ??= {})[rec.carrying] = sessionId;
+    this.rememberRowSession({ id: itemId, product: rec.product }, { sessionId, cwd: rec.cwd, profile: rec.profile, engine: rec.engine, startedAt: rec.startedAt });
+    this._saveState();
+  }
+
   // A WORKER'S CLOSING MESSAGE IS ITS ANSWER, ON EVERY INSTALL.
   //
   // The answer she read twice (w-23d09d72ce, and w-0184f6e3f8 and w-94b3af4e70
@@ -10059,6 +10164,16 @@ export function unpacked(p) {
   return p.includes(`${path.sep}app.asar${path.sep}`)
     ? p.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`)
     : p;
+}
+
+// Did the account refuse this run outright: out of usage, signed out, an
+// admin's policy? Read from the run's own error, because the session is not
+// carrying `accountFault` yet: `_noteHowTheRunStarted` is asked before
+// `noteExitForBackoff` decides whose fault the death was.
+function accountRefusedTheRun(session) {
+  if (!session?.resultIsError || session.result == null) return false;
+  const cause = troubleCause(session.result);
+  return cause === 'at-limit' || needsHerHands(cause);
 }
 
 // When the founder last wrote ANYTHING to this row, from the fold's own record
