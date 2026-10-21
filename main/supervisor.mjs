@@ -91,6 +91,7 @@ import { DEFAULT_SESSIONS_AT_ONCE } from './config.mjs';
 import { accountIdentity, nameForOrganization, toolingLine } from './account-tooling.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
+import { namedThreadsBlock } from '../shared/named-threads.mjs';
 import { writeChangeForRun, changePath } from './code-change.mjs';
 import { snapshotRepo, changeFromRepo } from './git-change.mjs';
 import { importedAgentBrief, importedAgentName, THREAD_LABEL } from '../shared/agent-import.mjs';
@@ -2458,6 +2459,8 @@ export class Supervisor {
     // attached to the reply that woke it.
     const files = product ? this.attachmentBlock({ ...item, body: '', result: '', note: '' }, product) : '';
     if (files) parts.push(files);
+    const named = this.namedThreadsBlock(item, product, [item?.answer]);
+    if (named) parts.push(named);
     // A resumed session never saw the full brief's ship section if it began
     // before the project shipped through the app, and her "merge it" is
     // exactly when it needs it.
@@ -2514,6 +2517,8 @@ export class Supervisor {
       // thing a six-line wake-up can genuinely be missing.
       const files = product ? this.attachmentBlock({ ...item, body: '', result: '', note: '' }, product) : '';
       if (files) parts.push(files);
+      const named = this.namedThreadsBlock(item, product, [item.answer]);
+      if (named) parts.push(named);
     }
     if (product && this.shipsThroughTheApp(product)) parts.push(this.shipBrief());
     return parts.join('\n');
@@ -2548,6 +2553,8 @@ export class Supervisor {
     ];
     const files = product ? this.attachmentBlock({ ...item, result: '', note: '' }, product) : '';
     if (files) parts.push(files);
+    const named = this.namedThreadsBlock(item, product, [item.body]);
+    if (named) parts.push(named);
     return parts.join('\n');
   }
 
@@ -9291,6 +9298,20 @@ export class Supervisor {
     return this.attachedFiles(item, product, thread).filter((f) => f.image).map((f) => f.abs);
   }
 
+  /** The other threads these words name, summed up (shared/named-threads.mjs). */
+  namedThreadsBlock(item, product, texts) {
+    const find = (id) => {
+      const all = this.store?.listProducts?.() ?? [];
+      for (const p of [...all.filter((x) => x.slug === item.product), ...all.filter((x) => x.slug !== item.product)]) {
+        let hit = null;
+        try { hit = this.store.readItem?.(p.slug, id); } catch { /* a project it cannot read is not this one */ }
+        if (hit) return { item: hit, product: p };
+      }
+      return null;
+    };
+    return namedThreadsBlock({ texts, row: item, product, find });
+  }
+
   attachmentBlock(item, product, thread = [], engine = DEFAULT_ENGINE) {
     const files = this.attachedFiles(item, product, thread);
     const lost = this.lostPictures(item, product, thread);
@@ -9443,6 +9464,9 @@ export class Supervisor {
     let thread = [];
     try { thread = this.store.readThread?.(item.product, item.id) ?? []; } catch { thread = []; }
     const files = this.attachmentBlock(item, product, thread, engine);
+    // Only their own words: an agent's answer lists threads it filed, and
+    // those are not what was asked about.
+    const named = this.namedThreadsBlock(item, product, [item.body, item.answer, ...thread.filter((t) => t.source === 'founder').map((t) => t.text)]);
     const conversation = this.conversationBlock(item, thread, !continuation && item.note ? [item.note] : []);
     const header = [
       `# Your work item`,
@@ -9455,6 +9479,7 @@ export class Supervisor {
       `Title: ${item.title}`,
       item.body ? `\n${item.body}` : '',
       files,
+      named,
       conversation,
       continuation && item.answer
         ? `\n# The founder has answered\n\nThis item is a ${item.kind === 'review' ? 'review you filed; their answer is the verdict. Enact it (an approval means do the thing the review proposed: merge, ship, send), then update the item' : item.kind === 'question' ? 'question you (or a prior worker) asked' : 'work item the founder has replied to; their reply may have arrived after a prior session finished it, so read the item\'s result and status first'}. The founder's answer:\n\n> ${item.answer}\n\n${item.kind === 'review' ? '' : 'Apply their reply within the scope they authorized. Work they already authorized, including later stages of an agreed plan, is not a new proposal. If their reply explicitly expands the scope or delegates continued work toward an objective, carry it out. Otherwise, work beyond that scope needs a proposal and approval. An answer choosing a shell does not by itself authorize building an app.'}`

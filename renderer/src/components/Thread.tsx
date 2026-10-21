@@ -32,7 +32,8 @@ import { herTurnEnds, herTurnStarts, threadParts } from '../her-turns';
 import { holdAtBottom } from '../thread-bottom';
 import { NOT_ANSWERING, NOT_ANSWERING_MS } from '../not-answering';
 import { onCloudPhone, onPhone } from '../phone-screen';
-import { typedParts } from '../typed-message';
+import { threadPieces, typedParts } from '../typed-message';
+import { TicketLink } from './TicketReference';
 import { clock, dayHeading } from '../thread-history';
 import { chatLayout, newestSaid } from '../team/chat-layout';
 import { ChatFold } from '../team/ChatFold';
@@ -55,6 +56,13 @@ type Indexed<T> = T & { i: number };
 export type ThreadNode =
   | Indexed<AgentEvent>
   | { kind: 'run'; at: number; items: Indexed<AgentWork>[]; i?: undefined };
+
+// A person's words as typed, with each thread they named drawn as the thread.
+const asTyped = (text: string): ReactNode => {
+  const pieces = threadPieces(text);
+  if (pieces.length === 1 && !('thread' in pieces[0])) return text;
+  return pieces.map((q, j) => ('thread' in q ? <TicketLink key={j} id={q.thread}>{q.text}</TicketLink> : q.text));
+};
 
 const cutIndex = (nodes: ThreadNode[], gapAfter: number) =>
   nodes.findIndex((e) => (e.kind === 'run' ? e.items[e.items.length - 1]?.i : e.i) === gapAfter);
@@ -444,7 +452,7 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
                 {e.who === 'you'
                   ? <div className="msg-body typed">{typedParts(e.text ?? '').map((p, k, all) => ('embed' in p
                     ? <div key={k} className="typed-embed">{md(p.embed)}</div>
-                    : all.length === 1 ? p.text : <span key={k}>{p.text}</span>))}</div>
+                    : all.length === 1 ? asTyped(p.text) : <span key={k}>{asTyped(p.text)}</span>))}</div>
                   : <div className="msg-body">{md(e.text ?? '')}</div>}
               </div>
             )}
