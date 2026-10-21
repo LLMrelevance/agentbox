@@ -397,3 +397,24 @@ Rooms paragraph in this work.
 4. Mentions as renderer-drawn rows (not ledger items): any trap with the inbox
    rules (`belongsInInbox`, Done, counts)?
 5. Anything that should not be in the alpha, or that is missing.
+
+## What changed while building (2026-10-20)
+
+- A room can be for invited people only (`invite_only`): no link works for it.
+- Each person's place on the app comes from `agentbox_ranks(people)`, for me
+  and the people I share a room with, so a profile can show it.
+- `show_activity` on the profile: off, teammates see no Activity tab on my page.
+- A switch turned off keeps the value off the cloud: my Mac publishes no agent
+  count, hours or status, so no row, realtime event or invite preview has it.
+- A stranger reads "Private thread" where a name is kept to my team; my own
+  card always names my own thread.
+- Messages sits under Threads in the sidebar while Rooms is on. "Keep as a
+  room" was dropped. Renaming Threads to Inbox waits for the founder.
+- Mentions are read on their own (`roomMentions`), so a busy room cannot bury
+  one; the service reads the room again each time realtime subscribes.
+- At most fifty email invites a day; a listed room gets a new owner when its
+  owner leaves.
+- Light uses the app's own `--line`; the stronger line of round 22 answered a
+  screen's contrast fault.
+- Checked with three accounts (two on one team, one on none) on a local
+  Supabase, each with its own copy of the app and real Claude Code runs.
