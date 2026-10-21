@@ -292,6 +292,7 @@ function Composer({ roomId, threadId, placeholder, people, onSend, onPutFile, on
     requestAnimationFrame(() => { box.focus(); box.setSelectionRange(before.length, before.length); });
   };
   const voiceCtl = useRef<VoiceControl | null>(null);
+  const sendingNow = useRef(false);
   const [recording, setRecording] = useState(false);
   // A send that failed, so it can be tried again, and is when the connection comes back.
   const [failed, setFailed] = useState(false);
@@ -301,7 +302,9 @@ function Composer({ roomId, threadId, placeholder, people, onSend, onPutFile, on
   // same file rather than another copy, and a file the room already has
   // counts as sent.
   const send = async () => {
-    if (!ready || busy) return;
+    // Held in a ref as well, so two presses in one moment are one send.
+    if (!ready || busy || sendingNow.current) return;
+    sendingNow.current = true;
     setBusy(true);
     setError(null);
     let files = attachments;
@@ -337,6 +340,7 @@ function Composer({ roomId, threadId, placeholder, people, onSend, onPutFile, on
       setFailed(true);
       setError(`Not sent: ${String((e as Error)?.message ?? e).replace(/\.$/, '')}. Your message is still in the box.`);
     } finally {
+      sendingNow.current = false;
       setBusy(false);
     }
   };

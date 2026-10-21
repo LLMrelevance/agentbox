@@ -66,6 +66,7 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
   // Said under the box until the next try, such as the microphone being refused.
   const [notice, setNotice] = useState<string | null>(null);
   const voiceCtl = useRef<VoiceControl | null>(null);
+  const finishing = useRef(false);
   const [recording, setRecording] = useState(false);
   useEffect(() => { setNotice(null); }, [draft]);
   // WHAT YOU SENT AND THE LEDGER DOES NOT HAVE YET, drawn at once and dropped
@@ -112,8 +113,11 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
   // that fails puts everything back in the box rather than dropping it.
   const send = async () => {
     let files = attachments;
+    // A second press while the note is being finished is the same send.
+    if (finishing.current) return;
     if (voiceCtl.current?.recording()) {
-      const note = await voiceCtl.current.finish();
+      finishing.current = true;
+      const note = await voiceCtl.current.finish().finally(() => { finishing.current = false; });
       if (note) files = [...files, { name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId }];
     }
     const words = draft.trim();

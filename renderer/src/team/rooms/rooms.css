@@ -130,9 +130,12 @@
 /* THE NEW LINE: where you had read to, a hairline in the accent with its word. */
 .rm-new { display: flex; align-items: center; gap: 10px; margin: 8px 0 2px; font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
 .rm-new::before { content: ''; flex: 1; height: 1px; background: var(--accent); opacity: .5; }
-.rm-chat-err { margin: 0 20px; font-size: 12.5px; color: var(--danger, var(--accent)); }
+/* What went wrong, in the text's own colour, with the accent kept to a dot. */
+.rm-chat-err { display: flex; align-items: center; gap: 8px; margin: 0 20px 2px; font-size: 12.5px; color: var(--text-dim); }
+.rm-chat-err::before { content: ''; flex: none; width: 6px; height: 6px; background: var(--accent); }
+.rm-full .rm-chat-err { margin: 0 28px 2px; max-width: 704px; }
 .rm-retry {
-  margin-left: 8px; height: 22px; padding: 0 8px; appearance: none; border: 1px solid var(--line-strong); border-radius: 0; cursor: pointer;
+  flex: none; height: 22px; padding: 0 8px; appearance: none; border: 1px solid var(--line-strong); border-radius: 0; cursor: pointer;
   background: none; color: var(--text); font: inherit; font-size: 12px;
 }
 .rm-retry:hover { border-color: var(--text-faint); }
@@ -334,6 +337,8 @@
 }
 .rm-conv-more svg { width: 13px; height: 13px; }
 .rm-conv-wrap:hover .rm-conv-more, .rm-conv-wrap.menu .rm-conv-more, .rm-conv-more:focus-visible { visibility: visible; }
+/* The time steps aside for it; the unread dot stays. */
+.rm-conv-wrap:hover .rm-conv .m, .rm-conv-wrap.menu .rm-conv .m { color: transparent; }
 .rm-conv-more:hover { color: var(--text); }
 .rm-open { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; }
 .rm-full { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }

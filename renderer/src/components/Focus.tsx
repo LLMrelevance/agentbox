@@ -2395,6 +2395,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   const addVoice = (note: Recorded) => setAttachments((a) => (a.some((x) => x.draftId === note.draftId)
     ? a : [...a, { name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId }]));
   const voiceCtl = useRef<VoiceControl | null>(null);
+  const finishing = useRef(false);
   const [recording, setRecording] = useState(false);
   const attachedNow = attachments;
   // AGENTS IN A CONVERSATION WITH A PERSON (w-7b9cb8636a, ../team/ChatAgents.tsx):
@@ -2505,9 +2506,12 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     // about to empty, so it can never come back and go twice.
     let attachments = attachedNow;
     if (voiceCtl.current?.recording()) {
-      const note = await voiceCtl.current.finish();
+      // A second press while the note is being finished is the same send.
+      if (finishing.current) return;
+      finishing.current = true;
+      const note = await voiceCtl.current.finish().finally(() => { finishing.current = false; });
       if (note) attachments = [...attachments, { name: note.name, dataBase64: note.dataBase64, image: false, draftId: note.draftId }];
-    }
+    } else if (finishing.current) return;
     if (saving || (!(spoken ?? text).trim() && !attachments.length)) return;
     // AN AGENT WITH NO PROJECT DOES NOT GO OUT. The footer already says why;
     // ⌘↵ says it again rather than doing nothing.

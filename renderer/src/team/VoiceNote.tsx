@@ -169,9 +169,11 @@ export function VoiceNote({ id, ms: named, load, mine = false }: {
         ))}
       </div>
       <span className="voice-time">{missing ? 'Arriving' : shown}</span>
-      <button type="button" className={`voice-speed${speed !== 1 ? ' set' : ''}`} onClick={nextSpeed} aria-label={`Playback speed ${speed}×`} title="Playback speed">
-        {speed}×
-      </button>
+      {!missing && (
+        <button type="button" className={`voice-speed${speed !== 1 ? ' set' : ''}`} onClick={nextSpeed} aria-label={`Playback speed ${speed}×`} title="Playback speed">
+          {speed}×
+        </button>
+      )}
     </div>
   );
 }
