@@ -273,8 +273,9 @@ team sync loop upserts it when its hash changes (at most every 5s):
 - Unread on a room row: messages after my read time, shown as "9+" at most.
   Mentions always count, also in a muted room; other messages do not count in a
   muted room. Mute is local, per person.
-- Opening a room's chat (panel visible) marks it read up to the newest message
-  shown.
+- Staying on a room's chat (panel visible) for two seconds with the window in
+  front marks it read up to the newest message shown. Walking past its tab with
+  Tab does not, so a mention is not cleared on the way past.
 
 ## The messages page
 

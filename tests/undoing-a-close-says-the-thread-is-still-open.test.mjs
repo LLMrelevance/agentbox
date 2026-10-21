@@ -46,6 +46,6 @@ describe('the wiring in App.tsx', () => {
   it('keeps what the action said, and the undo reads it', () => {
     expect(app).not.toMatch(/'Undone\. Nothing was sent\.'/);
     expect(app).toMatch(/showToast\(graceUndoneLine\(\{ said: pending\.said, restored: !!restored \}\)\)/);
-    expect(app).toMatch(/pendingRef\.current = \{ item, timer, run, restore, undid, said: toast \}/);
+    expect(app).toMatch(/pendingRef\.current = \{ item, timer, run: afterTheLast, restore, undid, said: toast \}/);
   });
 });

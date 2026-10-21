@@ -92,8 +92,8 @@ import { accountIdentity, nameForOrganization, toolingLine } from './account-too
 import { effectiveProfiles } from './account-discovery.mjs';
 import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
 import { namedThreadsBlock } from '../shared/named-threads.mjs';
-import { writeChangeForRun, changePath } from './code-change.mjs';
-import { snapshotRepo, changeFromRepo } from './git-change.mjs';
+import { changePath } from './code-change.mjs';
+import { snapshotRepo } from './git-change.mjs';
 import { importedAgentBrief, importedAgentName, THREAD_LABEL } from '../shared/agent-import.mjs';
 import { readTranscriptHead } from './agent-sessions.mjs';
 import { planStamp, readPlan } from './claude-plan.mjs';
@@ -2023,7 +2023,7 @@ export class Supervisor {
    * reach one row at all. This is the second lock on the same door, because the
    * cost of being wrong here is an agent's work deleted mid run.
    */
-  endSession(item, session, product) {
+  endSession(item, session, product, { after = null } = {}) {
     if (session && this.sessions.get(item.id) !== session) {
       console.warn(`zero: a later session is on ${item.id}, so this one leaves its folder alone`);
       return Promise.resolve(null);
@@ -2036,7 +2036,12 @@ export class Supervisor {
     // nothing, so the usual answer is that it stays, holding work she has not
     // approved. The same call sweeps the folders whose work has since landed in
     // main, which is what stops them piling up unseen.
-    return Promise.resolve(this.releaseWorkFolder(item, product));
+    // `after` is the read of what the run changed, which needs the folder. A
+    // session that started on the row while it ran has the folder now.
+    if (!after) return Promise.resolve(this.releaseWorkFolder(item, product));
+    return after.catch(() => {}).then(() => (this.sessions.has(item.id) || this._preparing?.has(item.id)
+      ? null
+      : this.releaseWorkFolder(item, product)));
   }
 
   /**
@@ -5896,6 +5901,9 @@ export class Supervisor {
       })),
       stalled,
       queued,
+      // Left out of `running`, but their claim is ours, not an agent elsewhere
+      // (renderer/src/live-line.ts).
+      remoteHeld: [...this.sessions.values()].filter((s) => s.remoteIdle).map((s) => s.itemId),
       // Waiting tasks she pushed with Run now that have not started yet, so
       // the task can say it is next rather than merely queued.
       runNow: [...this._runNow].filter(([id, r]) => !r.started && !this.sessions.has(id)).map(([id]) => id),
@@ -9102,20 +9110,21 @@ export class Supervisor {
       // Most runs write nothing here and that is correct: a session that
       // answered a question or drew a page has no code to show, and
       // writeChangeForRun returns null rather than leaving an empty artifact.
+      //
+      // On the git thread (main/run-change.mjs): it runs git and parses the
+      // whole transcript. The trace ends, and the folder is let go, after it.
+      let changed;
       try {
-        // AND WHAT THE DISK SAYS, WHICH DOES NOT CARE HOW THE AGENT TYPED.
-        // The photograph taken at the spawn, read against the checkout now.
-        let repos = [];
-        try {
-          if (session.repoBefore) repos = [changeFromRepo(session.repoBefore)];
-        } catch (e) { console.warn('zero: could not read the repository back:', e.message); }
         const roots = [cwd, product.dir];
-        const wrote = writeChangeForRun({
+        changed = gitJob('saveRunChange', {
+          // AND WHAT THE DISK SAYS, WHICH DOES NOT CARE HOW THE AGENT TYPED.
+          // The photograph taken at the spawn, read against the checkout now.
+          repoBefore: session.repoBefore ?? null,
           // WITH THE ENGINE, or this looks for a Codex rollout under Claude
           // Code's projects folder and reads nothing. It is still passed for a
           // Codex run, because `transcriptFile` is also what the wake sweep
           // asks whether a session still exists.
-          transcript: this.transcriptFile({ sessionId: session.sessionId, profile, engine, cwd }),
+          transcript: this.transcriptFile({ sessionId: session.sessionId, profile, engine, cwd, cloud: !!session.cloud }),
           // AND FOR CODEX THE CONVERSATION HALF COMES FROM THE TURN INSTEAD.
           // `changeFromTranscript` speaks Claude Code's JSONL and nothing else,
           // so a rollout handed to it yields nothing and the card carried the
@@ -9128,17 +9137,18 @@ export class Supervisor {
           itemId: item.id,
           roots,
           since: session.startedAt ?? 0,
-          repos,
         });
-        if (wrote) {
-          const at = new Date().toTimeString().slice(0, 8);
-          try { trace?.write(`${at}  [Write] ${wrote}\n`); } catch {}
-          onLine(`saved what this run changed (${changePath(item.id)})`);
-        }
-      } catch (e) { console.warn('zero: could not save what the run changed:', e.message); }
-      try { trace?.write(`\n# exited (${code}) ${new Date().toISOString()}\n`); trace?.end(); } catch {}
+      } catch (e) { changed = Promise.reject(e); }
+      const exitedAt = new Date().toISOString();
+      changed.then((wrote) => {
+        if (!wrote) return;
+        const at = new Date().toTimeString().slice(0, 8);
+        try { trace?.write(`${at}  [Write] ${wrote}\n`); } catch {}
+        onLine(`saved what this run changed (${changePath(item.id)})`);
+      }).catch((e) => console.warn('zero: could not save what the run changed:', e.message))
+        .finally(() => { try { trace?.write(`\n# exited (${code}) ${exitedAt}\n`); trace?.end(); } catch {} });
       this.removeSpawnFiles(session);
-      this.endSession(item, session, product);
+      this.endSession(item, session, product, { after: changed });
       if (session.remoteIdle) {
         delete this._liveSessions[item.id];
         this._saveState(); this.onChange?.(); return;
