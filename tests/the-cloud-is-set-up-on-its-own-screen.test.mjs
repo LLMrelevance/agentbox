@@ -28,7 +28,7 @@ const si = (state, extra = {}) => ({ engine: 'claude', key: 'acct-9', state, url
 describe('the words', () => {
   it('keep each view to a heading and one line', () => {
     expect(SETUP.homeLede.split(' ').length).toBeLessThanOrEqual(10);
-    for (const s of [si('starting'), si('needs-code'), si('checking'), si('waiting', { engine: 'codex', code: 'WY6D-YCCOE' })]) {
+    for (const s of [si('starting'), si('needs-code'), si('checking'), si('waiting', { engine: 'codex', code: 'WY6D-YCCOE' }), si('waiting', { engine: 'codex' })]) {
       expect(signInView(s).lead.split(' ').length).toBeLessThanOrEqual(10);
     }
   });
@@ -50,6 +50,15 @@ describe('a sign-in on screen', () => {
     expect(signInView(si('needs-code'))).toMatchObject({ paste: true, codeToType: null });
     expect(signInView(si('waiting', { engine: 'codex', code: 'WY6D-YCCOE' }))).toMatchObject({ paste: false, codeToType: 'WY6D-YCCOE' });
     expect(signInView(si('failed', { message: 'Claude did not accept that code.' })).lead).toMatch(/did not accept/);
+  });
+
+  // ChatGPT refuses a device code unless the account turned it on
+  // (2026-10-21), so Codex signs in in the browser and comes back by itself:
+  // no code to type, and the wait still moves.
+  it('asks Codex for nothing but signing in when the browser comes back by itself', () => {
+    const view = signInView(si('waiting', { engine: 'codex', url: 'https://auth.openai.com/oauth/authorize?x', code: null }));
+    expect(view).toMatchObject({ lead: 'Sign in with ChatGPT in your browser.', busy: true, paste: false, codeToType: null });
+    expect(view.lead).not.toMatch(/code/i);
   });
 
   // A failure is shown on her accounts list now, not as a screen of its own

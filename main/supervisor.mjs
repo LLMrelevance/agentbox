@@ -5889,6 +5889,9 @@ export class Supervisor {
       })),
       stalled,
       queued,
+      // Left out of `running`, but their claim is ours, not an agent elsewhere
+      // (renderer/src/live-line.ts).
+      remoteHeld: [...this.sessions.values()].filter((s) => s.remoteIdle).map((s) => s.itemId),
       // Waiting tasks she pushed with Run now that have not started yet, so
       // the task can say it is next rather than merely queued.
       runNow: [...this._runNow].filter(([id, r]) => !r.started && !this.sessions.has(id)).map(([id]) => id),
