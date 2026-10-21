@@ -11,7 +11,7 @@ import { RoomPage, type RoomPane } from './RoomPage';
 import { RoomChat, peopleOf } from './RoomChat';
 import { RoomFace } from './RoomFace';
 import { I } from './icons';
-import { FullChatHead, MessagesPage, type Conversation } from './MessagesPage';
+import { FullChatHead, MessagesPage, sortConversations, type Conversation } from './MessagesPage';
 import { roomConversations } from './conversations';
 import { FindRooms, type ListedRoom } from './FindRooms';
 import { InviteDialog, JoinDialog, MembersMenu, StartRoomDialog, type Preview } from './RoomDialogs';
@@ -55,6 +55,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const [members, setMembers] = useState<{ roomId: string; at: DOMRect } | null>(null);
   const [links, setLinks] = useState<Record<string, string>>({});
   const [finding, setFinding] = useState(false);
+  // The Messages row with no conversation yet to open.
+  const [noChats, setNoChats] = useState(false);
   const open = openId ? all.find((r) => r.id === openId) ?? null : null;
   const chatRoom = (panelId ? all.find((r) => r.id === panelId) : null) ?? open;
 
@@ -90,13 +92,14 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     try { await navigator.clipboard.writeText(joinLink(token)); toast('Link copied'); } catch { toast(joinLink(token)); }
   };
 
-  const openRoom = (id: string, { asFull = false } = {}) => { setFinding(false); setOpenId(id); setPane('wall'); setPanelId(null); setFull(asFull); };
+  const openRoom = (id: string, { asFull = false } = {}) => { setFinding(false); setNoChats(false); setOpenId(id); setPane('wall'); setPanelId(null); setFull(asFull); };
   const close = () => {
     if (finding) { setFinding(false); return; }
+    if (noChats) { setNoChats(false); return; }
     if (full && open?.kind !== 'group') { setFull(false); return; }
     setOpenId(null); setFull(false); setPanelId(null);
   };
-  const find = () => { setOpenId(null); setFull(false); setFinding(true); };
+  const find = () => { setOpenId(null); setFull(false); setNoChats(false); setFinding(true); };
   const loadListed = useCallback(async () => { const res = await call<ListedRoom[]>('listed'); return res.ok ? res.value ?? [] : null; }, [call]);
 
   const menu = async (id: string, action: RoomMenuAction, at: DOMRect) => {
@@ -150,26 +153,42 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   };
   const read = (r: Room) => () => { if (r.unread > 0) void call('markRead', r.id); };
 
-  const nav = (collapsed: boolean): ReactNode => live ? <RoomsNav rooms={list} openId={open?.kind === 'group' ? null : openId} folded={folded} collapsed={collapsed}
-    onFold={() => setFolded((f) => { try { localStorage.setItem(FOLD_KEY, f ? '0' : '1'); } catch { /* not kept */ } return !f; })}
-    onOpen={(id) => openRoom(id)} onPin={(id, pin) => void call('pin', id, pin)} onMenu={(id, a, at) => void menu(id, a, at)}
-    onNewRoom={() => setDialog({ kind: 'start' })} /> : null;
-
-  const tabs: ReactNode = live ? <RoomTabs rooms={list} openId={open?.kind === 'group' ? null : openId} onOpen={(id) => openRoom(id)} /> : null;
-
   const conversations: Conversation[] = live ? [...roomConversations(rooms), ...directs] : [];
   const pick = (c: Conversation) => {
-    if (c.kind === 'direct') { setOpenId(null); setFull(false); onOpenDirect(c.id); return; }
+    if (c.kind === 'direct') { setOpenId(null); setFull(false); setNoChats(false); onOpenDirect(c.id); return; }
     onLeaveDirect();
     openRoom(c.id, { asFull: true });
   };
 
+  // Messages, under Threads: every chat in one place, opened on the newest.
+  const openMessages = () => {
+    const newest = sortConversations(conversations)[0];
+    if (newest) { pick(newest); return; }
+    onLeaveDirect(); setOpenId(null); setFinding(false); setNoChats(true);
+  };
+  const unreadChats = conversations.filter((c) => c.unread).length;
+
+  const nav = (collapsed: boolean, messagesLit = false): ReactNode => live ? <>
+    <nav className="workspace-tabs rm-msgnav" aria-label="Messages">
+      <button type="button" className={`workspace-tab${messagesLit || noChats || (full && !!open) || open?.kind === 'group' ? ' active' : ''}${unreadChats ? ' has-count' : ''}`}
+        aria-label="Messages" title={collapsed ? 'Messages' : undefined} onClick={openMessages}>
+        {I.chatNav()}<span>Messages</span>{unreadChats > 0 && <small className="workspace-running" aria-label={`${unreadChats} unread`}>{unreadChats}</small>}
+      </button>
+    </nav>
+    <RoomsNav rooms={list} openId={open?.kind === 'group' || full ? null : openId} folded={folded} collapsed={collapsed}
+      onFold={() => setFolded((f) => { try { localStorage.setItem(FOLD_KEY, f ? '0' : '1'); } catch { /* not kept */ } return !f; })}
+      onOpen={(id) => openRoom(id)} onPin={(id, pin) => void call('pin', id, pin)} onMenu={(id, a, at) => void menu(id, a, at)}
+      onNewRoom={() => setDialog({ kind: 'start' })} />
+  </> : null;
+
+  const tabs: ReactNode = live ? <RoomTabs rooms={list} openId={open?.kind === 'group' ? null : openId} onOpen={(id) => openRoom(id)} /> : null;
+
   const chatPanel = (r: Room, asFull: boolean) => {
     const others = r.wall.filter((c) => !c.me);
     const head = asFull ? <FullChatHead title={r.kind === 'group' ? others.map(cardName).join(', ') || r.name : r.name}
+      onBack={r.kind === 'group' ? undefined : () => setFull(false)}
       faces={r.kind === 'group' ? others.map((c) => ({ name: c.name, url: c.avatarUrl })) : undefined}
-      actions={r.kind === 'group'
-        ? <button type="button" className="rm-btn" onClick={() => void keepAsRoom(r)}>{I.hash(14)}Keep as a room</button>
+      actions={r.kind === 'group' ? undefined
         : <button type="button" className="rm-btn" onClick={() => setDialog({ kind: 'invite', roomId: r.id })}>{I.invite(14)}Invite</button>} /> : undefined;
     return <RoomChat room={r} messages={rooms?.messages[r.id] ?? []} people={peopleOf(r.wall)} meId={meId} now={now} full={asFull} head={head}
       onSend={send(r.id)} onRead={read(r)}
@@ -178,16 +197,14 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       onSwitch={(at) => setSwitcher(switcher ? null : at)} switchOpen={!!switcher} />;
   };
 
-  const keepAsRoom = async (g: Room) => {
-    const people = g.wall.filter((c) => !c.me).map((c) => c.id);
-    const res = await call<string>('create', { name: g.name, people });
-    if (!res.ok || !res.value) { toast(res.error ?? 'Could not make the room'); return; }
-    openRoom(res.value);
-    toast(`${g.name} is a room now`);
-  };
 
   let page: ReactNode = null;
-  if (finding && live) {
+  if (noChats && live) {
+    page = <MessagesPage list={[]} onKey={null} now={now} onPick={pick}>
+      <div className="rm-empty" style={{ padding: '0 28px' }}><span className="t">No conversations yet.</span>
+        <span className="s">Message someone from a room, or from New thread.</span></div>
+    </MessagesPage>;
+  } else if (finding && live) {
     page = <div className="rm-split"><div className="rm-main"><FindRooms load={loadListed} onOpen={(id) => openRoom(id)} onLink={(t) => void join(t)}
       onStart={() => setDialog({ kind: 'start' })}
       onJoin={async (id) => { const res = await call<string>('joinListed', id); return res.ok ? null : res.error ?? 'Could not join'; }} /></div></div>;
@@ -270,7 +287,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const openMention = (m: RoomMention) => { onLeaveDirect(); openRoom(m.roomId); };
 
   return {
-    live, openId: open ? openId : finding && live ? 'find' : null, open: (id: string) => openRoom(id), close, find, nav, tabs, page, dialogs, join, walk, invisible, settingsPane,
+    live, openId: open ? openId : finding && live ? 'find' : noChats && live ? 'messages' : null, openMessages, open: (id: string) => openRoom(id), close, find, nav, tabs, page, dialogs, join, walk, invisible, settingsPane,
     mentions, openMention, faces, messagesShell, full,
     dialogOpen: !!dialog || !!members || !!switcher,
   };

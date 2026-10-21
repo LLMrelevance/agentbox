@@ -31,6 +31,23 @@ describe('room tabs', () => {
   });
 });
 
+describe('hours, in words', () => {
+  it('whole hours from ten up, one decimal below, and never a 0 for some', async () => {
+    const { hoursWords } = await import('../renderer/src/team/rooms/room-rules.ts');
+    expect([4810, 41.6, 9.94, 0.25, 0.02, 0].map(hoursWords)).toEqual(['4,810', '42', '9.9', '0.3', 'under 0.1', '0']);
+  });
+});
+
+describe('their activity on their page', () => {
+  it('a teammate who shares it, and always my own; never a stranger, never someone who turned it off', async () => {
+    const { activityShown } = await import('../renderer/src/team/rooms/room-rules.ts');
+    expect(activityShown({ me: false, teammate: true, showActivity: true })).toBe(true);
+    expect(activityShown({ me: false, teammate: true, showActivity: false })).toBe(false);
+    expect(activityShown({ me: false, teammate: false, showActivity: true })).toBe(false);
+    expect(activityShown({ me: true, teammate: false, showActivity: false })).toBe(true);
+  });
+});
+
 describe('ranks this week', () => {
   const wall = [{ id: 'a', hoursWeek: 30 }, { id: 'b', hoursWeek: 12 }, { id: 'c', hoursWeek: 12 }, { id: 'd', hoursWeek: 0 }];
   it('most hours first, a tie shares a place', () => {
@@ -78,6 +95,8 @@ describe('invisible', () => {
     expect(invisibleNotice(new Date(now + 52 * 60_000).toISOString(), now)).toBe('You are invisible for 52 more minutes. Nobody in your rooms can see you.');
     expect(invisibleNotice(new Date(now + 30_000).toISOString(), now)).toBe('You are invisible for 1 more minute. Nobody in your rooms can see you.');
     expect(invisibleNotice(new Date(now + 150 * 60_000).toISOString(), now)).toBe('You are invisible for 3 more hours. Nobody in your rooms can see you.');
+    expect(invisibleNotice(new Date(now + 59.8 * 60_000).toISOString(), now)).toBe('You are invisible for 1 more hour. Nobody in your rooms can see you.');
+    expect(invisibleNotice(new Date(now + 59 * 60_000).toISOString(), now)).toBe('You are invisible for 59 more minutes. Nobody in your rooms can see you.');
     expect(invisibleNotice(new Date(now + UNTIL_TURNED_OFF_MS).toISOString(), now)).toBe('You are invisible until you turn it off. Nobody in your rooms can see you.');
   });
   it('says nothing when it has run out or was never on', () => {

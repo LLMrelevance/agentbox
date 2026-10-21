@@ -3338,6 +3338,8 @@ export default function App() {
     },
   });
   const roomShown = !!roomsUi.openId && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
+  // A conversation with people, open full page, sits on the messages page.
+  const directOnMessages = roomsUi.live && !!focused && !settingsOpen && isDirect(snap?.products.find((p) => p.slug === focused.product));
 
   // C TURNS THE CLOUD ON OR OFF, from anywhere a key reaches (2026-10-16), and
   // a note says which. Through a ref so the key handlers read the cloud as it
@@ -5627,7 +5629,7 @@ export default function App() {
            offering the move. Null on every copy that can. */
         move={announcesMove(snap?.update, { walking, closed: '' }) ? { place: snap?.update?.place ?? null, error: snap?.update?.moveError ?? null } : null}
         onMove={() => { void api.updateMove(); }}
-        page={settingsOpen ? 'settings' : null} roomOpen={roomShown} rooms={roomsUi.nav(workspaceCollapsed)} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
+        page={settingsOpen ? 'settings' : null} roomOpen={roomShown || directOnMessages} rooms={roomsUi.nav(workspaceCollapsed, directOnMessages)} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onSignOut={() => { void api.teamSignOut().then(() => refresh()); }}

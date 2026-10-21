@@ -256,6 +256,8 @@ export interface RoomCard {
   byMonth: { month: string; hours: number }[];
   /** On my team, so their shared threads reach me. */
   teammate: boolean;
+  /** They let teammates see their activity on their page. */
+  showActivity: boolean;
   status: string | null;
   workingOn: string | null;
   workingPrivate: boolean;
@@ -300,6 +302,7 @@ export interface RoomProfile {
   show_agents: boolean;
   show_level: boolean;
   show_status: boolean;
+  show_activity?: boolean;
   invisible_until: string | null;
   status_text: string | null;
   status_until: string | null;

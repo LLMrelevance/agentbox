@@ -10,7 +10,7 @@ const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 
-const PROFILE_DEFAULTS = { display_name: '', avatar_url: null, headline: null, bio: null, show_working: 'team', show_agents: true, show_level: true, show_status: true, invisible_until: null, status_text: null, status_until: null };
+const PROFILE_DEFAULTS = { display_name: '', avatar_url: null, headline: null, bio: null, show_working: 'team', show_agents: true, show_level: true, show_status: true, show_activity: true, invisible_until: null, status_text: null, status_until: null };
 const PRESENCE_DEFAULTS = { gone: false, agents_running: 0, working_on: null, working_private: false, working_at: null, hours_total: 0, hours_week: 0, week_start: null, hours_today: 0, day: null, streak_days: 0, active_days: [], hours_by_month: [] };
 
 function state(cloud) {
@@ -325,6 +325,7 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
         onEvent(e.kind === 'message' ? { kind: 'message', message: { ...e.message } } : { kind: e.kind });
       };
       cloud.events.on('rooms', hear);
+      queueMicrotask(() => onEvent({ kind: 'subscribed' }));
       return () => cloud.events.off('rooms', hear);
     },
   };

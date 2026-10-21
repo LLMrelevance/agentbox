@@ -18,6 +18,9 @@ export function tabWalk(stateTabs: readonly string[], tabs: readonly { room: Roo
   return order[(i + (back ? order.length - 1 : 1)) % order.length];
 }
 
+/** Their page's Activity tab: my own, or a teammate's who shares it. */
+export const activityShown = (c: { me: boolean; teammate: boolean; showActivity: boolean }) => c.me || (c.teammate && c.showActivity);
+
 /** Their place in the room by agent hours this week; ties share a place. */
 export function weekRank(wall: readonly RoomCard[], id: string): number {
   const mine = wall.find((c) => c.id === id)?.hoursWeek ?? 0;
@@ -106,10 +109,20 @@ export function invisibleNotice(untilIso: string | null | undefined, now: number
   const until = Date.parse(untilIso ?? '');
   if (!(until > now)) return null;
   const left = until - now;
+  const minutes = Math.max(1, Math.round(left / MIN));
+  const hours = Math.ceil(minutes / 60);
   const how = left > 365 * 24 * HOUR ? 'until you turn it off'
-    : left < HOUR ? `for ${Math.max(1, Math.round(left / MIN))} more ${Math.max(1, Math.round(left / MIN)) === 1 ? 'minute' : 'minutes'}`
-      : `for ${Math.ceil(left / HOUR)} more hours`;
+    : minutes < 60 ? `for ${minutes} more ${minutes === 1 ? 'minute' : 'minutes'}`
+      : `for ${hours} more ${hours === 1 ? 'hour' : 'hours'}`;
   return `You are invisible ${how}. Nobody in your rooms can see you.`;
+}
+
+/** Agent hours as a card or a chart says them. */
+export function hoursWords(h: number): string {
+  if (!(h > 0)) return '0';
+  if (h >= 10) return Math.round(h).toLocaleString('en-US');
+  if (h >= 0.05) return (Math.round(h * 10) / 10).toString();
+  return 'under 0.1';
 }
 
 /** Minutes until local midnight, for "Until tomorrow". */

@@ -64,6 +64,8 @@ create table if not exists public.room_profiles (
   show_agents boolean not null default true,
   show_level boolean not null default true,
   show_status boolean not null default true,
+  -- Whether teammates see what is waiting, running and done on my page.
+  show_activity boolean not null default true,
   invisible_until timestamptz,
   status_text text check (status_text is null or char_length(status_text) <= 80),
   status_until timestamptz,
@@ -578,7 +580,7 @@ grant select on public.room_links to authenticated;
 grant select, insert, delete on public.room_email_invites to authenticated;
 grant select, insert on public.room_profiles to authenticated;
 grant update (display_name, avatar_url, headline, bio, show_working, show_agents, show_level, show_status,
-  invisible_until, status_text, status_until) on public.room_profiles to authenticated;
+  show_activity, invisible_until, status_text, status_until) on public.room_profiles to authenticated;
 grant select, insert on public.room_presence to authenticated;
 grant update (gone, agents_running, working_on, working_private, working_at, hours_total, hours_week, week_start,
   hours_today, day, streak_days, active_days, hours_by_month) on public.room_presence to authenticated;

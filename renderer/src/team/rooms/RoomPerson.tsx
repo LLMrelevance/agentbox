@@ -6,7 +6,7 @@ import type { Room, RoomCard, ThreadCard } from '../../types';
 import { LiveMark } from '../../components/LiveMark';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
-import { cardName, weekRank } from './room-rules';
+import { activityShown, cardName, hoursWords, weekRank } from './room-rules';
 import { useOutside } from './RoomsNav';
 import { Name } from '../../../../shared/product-name.mjs';
 
@@ -23,7 +23,7 @@ export function PersonHover({ card, room, at, onMessage, onProfile, onRanks, onC
     <div className="nums">
       {card.level != null && <div><b>{card.level}</b><span>Level</span></div>}
       <div><button type="button" className="lnk" onClick={onRanks}>#{weekRank(room.wall, card.id)}</button><span>This week</span></div>
-      <div><b>{Math.round(card.hoursTotal).toLocaleString('en-US')}</b><span>Agent hours</span></div>
+      <div><b>{hoursWords(card.hoursTotal)}</b><span>Agent hours</span></div>
     </div>
     <div className="acts">
       {onMessage && !card.me && <button type="button" className="rm-btn" onClick={onMessage}>{I.chat()}Message</button>}
@@ -36,7 +36,7 @@ export function ProfilePage({ card, room, rooms, cards, rank, onBack, onMessage,
   card: RoomCard; room: Room; rooms: Room[]; cards: ThreadCard[]; rank: number | undefined;
   onBack: () => void; onMessage?: () => void; onRanks: () => void;
 }) {
-  const activity = card.teammate || card.me ? groups(cards.filter((c) => c.personId === card.id)) : null;
+  const activity = activityShown(card) ? groups(cards.filter((c) => c.personId === card.id)) : null;
   const [tab, setTab] = useState<'progress' | 'activity'>('progress');
   const shared = rooms.filter((r) => r.wall.some((c) => c.id === card.id));
   const firstMonth = card.byMonth.find((m) => m.hours > 0)?.month ?? null;
@@ -112,7 +112,7 @@ function monthName(ym: string, withYear = false) {
 // pinned where the line ends.
 export function HoursChart({ byMonth, total }: { byMonth: { month: string; hours: number }[]; total: number }) {
   const from = byMonth.findIndex((m) => m.hours > 0);
-  const months = from < 0 ? byMonth.slice(-1) : byMonth.slice(from);
+  const months = from < 0 ? byMonth.slice(-2) : byMonth.slice(Math.max(0, from - 1));
   let run = Math.max(0, total - months.reduce((n, m) => n + m.hours, 0));
   const pts = months.map((m) => (run += m.hours));
   const step = niceStep(Math.max(...pts, 1) / 3);
@@ -130,7 +130,7 @@ export function HoursChart({ byMonth, total }: { byMonth: { month: string; hours
       <path className="ln" d={line} fill="none" strokeWidth="1.75" strokeLinejoin="round" />
       <rect className="pt" x={X(last) - 4} y={Y(pts[last] ?? 0) - 4} width="8" height="8" strokeWidth="2" />
     </svg>
-    <div className="tip rm-pop" style={{ right: 6, top: 8 }}><span>Now</span>{Math.round(total).toLocaleString('en-US')} agent hours</div>
+    <div className="tip rm-pop" style={{ right: 6, top: 8 }}><span>Now</span>{hoursWords(total)} agent hours</div>
   </div>;
 }
 

@@ -43,10 +43,10 @@ describe('names', () => {
 describe('what I am working on', () => {
   const base = { members: [MAYA, JUN, ME], meId: ME, now: NOW };
 
-  it('team: my teammates see the name off my running thread card, strangers see none', () => {
+  it('team: my teammates see the name off my running thread card, strangers read Private thread', () => {
     const input = { ...base, profiles: [prof(MAYA, 'Maya C.')], presence: [pres(MAYA)], teamCards: [card(MAYA, 'Cloud launch video')] };
     expect(wallCards({ ...input, teammates: [MAYA] }).find((c) => c.id === MAYA).workingOn).toBe('Cloud launch video');
-    expect(wallCards({ ...input, teammates: [] }).find((c) => c.id === MAYA).workingOn).toBeNull();
+    expect(wallCards({ ...input, teammates: [] }).find((c) => c.id === MAYA)).toMatchObject({ workingOn: null, workingPrivate: true });
   });
 
   it('everyone: the name rides on my presence, so everyone in the room sees it', () => {
@@ -69,9 +69,9 @@ describe('what I am working on', () => {
     expect(w.find((c) => c.id === MAYA)).toMatchObject({ workingOn: null, workingPrivate: true });
   });
 
-  it('a done card is not what they are working on now', () => {
+  it('a done card is not what they are working on now: running with no shared card reads Private thread', () => {
     const w = wallCards({ ...base, teammates: [MAYA], profiles: [prof(MAYA, 'Maya C.')], presence: [pres(MAYA)], teamCards: [card(MAYA, 'Old thing', { state: 'done' })] });
-    expect(w.find((c) => c.id === MAYA).workingOn).toBeNull();
+    expect(w.find((c) => c.id === MAYA)).toMatchObject({ workingOn: null, workingPrivate: true });
   });
 });
 
@@ -114,6 +114,12 @@ describe('two Macs, and a Mac gone quiet', () => {
 });
 
 describe('what a card shows', () => {
+  it('a card says whether its person shares their activity, on unless they turned it off', () => {
+    const w = wallCards({ members: [MAYA, JUN], meId: ME, now: NOW, teammates: [], teamCards: [], presence: [],
+      profiles: [prof(MAYA, 'Maya C.'), prof(JUN, 'Jun O.', { show_activity: false })] });
+    expect(w.map((c) => [c.name, c.showActivity])).toEqual([['Jun O.', false], ['Maya C.', true]]);
+  });
+
   it('switches off blank their field', () => {
     const w = wallCards({ members: [MAYA], meId: ME, now: NOW, teammates: [], teamCards: [],
       profiles: [prof(MAYA, 'Maya C.', { show_agents: false, show_level: false, show_status: false, status_text: 'Heads down', status_until: null })], presence: [pres(MAYA)] });
@@ -130,6 +136,13 @@ describe('what a card shows', () => {
   it('a profile with no presence yet is on the wall, not running', () => {
     expect(wallCards({ members: [MAYA], meId: ME, now: NOW, teammates: [], teamCards: [], profiles: [prof(MAYA, 'Maya C.')], presence: [] })[0]).toMatchObject({ agents: 0, level: 1 });
   });
+  it('my own card names my own thread, whatever it shows others', () => {
+    const w = wallCards({ members: [ME], meId: ME, now: NOW, teammates: [], teamCards: [], profiles: [prof(ME, 'Sam R.', { show_working: 'none' })],
+      presence: [pres(ME, { working_private: true })], mine: { workingOn: 'Pricing page copy', workingPrivate: false } });
+    expect(w[0]).toMatchObject({ me: true, workingOn: 'Pricing page copy', workingPrivate: false });
+    expect(wallCards({ members: [ME], meId: ME, now: NOW, teammates: [], teamCards: [], profiles: [prof(ME, 'Sam R.')], presence: [pres(ME, { working_private: true })] })[0].workingPrivate).toBe(true);
+  });
+
   it('me, while invisible, is not on my own wall', () => {
     const w = wallCards({ members: [MAYA, ME], meId: ME, now: NOW, teammates: [], teamCards: [], profiles: [prof(MAYA, 'Maya C.'), prof(ME, 'Sam R.', { invisible_until: new Date(NOW + 60 * MIN).toISOString() })], presence: [] });
     expect(w.map((c) => c.id)).toEqual([MAYA]);

@@ -69,6 +69,7 @@ const ENTRIES: Entry[] = [
   { page: 'alpha', label: 'Rooms', anchor: 'alpha', words: 'alpha beta early try team teammates friends multiplayer people chat' },
   { page: 'rooms', label: 'Show my full name', anchor: 'rooms-name', words: 'name last surname initial' },
   { page: 'rooms', label: 'What you are working on', anchor: 'rooms-card', words: 'card thread private wall' },
+  { page: 'rooms', label: 'Your activity on your page', anchor: 'rooms-card', words: 'activity board inbox profile page hide' },
   { page: 'rooms', label: 'Go invisible', anchor: 'rooms-invisible', words: 'hide hidden away offline ghost' },
   { page: 'claude', label: 'Usage', anchor: 'usage', words: 'claude code limits plan left remaining quota' },
   { page: 'claude', label: 'Signed in', anchor: 'usage', words: 'claude code account accounts login subscription add email this computer local' },

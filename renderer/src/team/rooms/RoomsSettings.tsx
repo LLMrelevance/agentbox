@@ -47,6 +47,9 @@ export function RoomsSettings({ me, fullName, card, roomName, now, save, goInvis
         <Row label="How many agents are running"><Switch label="How many agents are running" on={me.show_agents} onChange={(v) => save({ show_agents: v })} /></Row>
         <Row label="Your level"><Switch label="Your level" on={me.show_level} onChange={(v) => save({ show_level: v })} /></Row>
         <Row label="Your status"><Switch label="Your status" on={me.show_status} onChange={(v) => save({ show_status: v })} /></Row>
+        <Row label="Your activity on your page" desc={me.show_activity === false ? 'Off, teammates see only your progress.' : undefined}>
+          <Switch label="Your activity on your page" on={me.show_activity !== false} onChange={(v) => save({ show_activity: v })} />
+        </Row>
       </div>
       {preview && <div className="pv"><div className="set-group-label" style={{ margin: 0 }}><span>How {roomName ?? 'your room'} sees you</span></div><WallCard card={preview} /></div>}
       </div>

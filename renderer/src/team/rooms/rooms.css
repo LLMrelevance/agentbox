@@ -1,8 +1,7 @@
 /* ROOMS (alpha, w-3d0fa23ffb), as approved in round 23. Only the app's own
-   tokens. Light's --line is 6.5% ink, so the grid and panels use the stronger
-   line there. */
+   tokens, and the app's own line in both looks: the stronger Light line of
+   round 22 answered a screen's contrast fault, not the design. */
 :root { --rm-line: var(--line); }
-:root[data-theme="light"] { --rm-line: var(--line-strong); }
 
 .rm-pic { display: block; flex: none; object-fit: cover; border: 1px solid var(--line-strong); box-sizing: border-box; background: var(--bg-selected); }
 .rm-ini { text-align: center; font-family: var(--mono); letter-spacing: .04em; background: var(--film-strong); color: var(--text-dim); }
@@ -36,6 +35,9 @@
 .rm-nav .rm-icons > span.pinned { color: var(--text); }
 .rm-nav .workspace-tab.rm-add, .rm-nav .workspace-tab.rm-add svg { color: var(--text-faint); }
 .rm-nav .workspace-tab .rm-muted { color: var(--text-faint); }
+
+/* Messages sits under Threads, one gap below it. */
+.workspace-tabs.rm-msgnav { margin-top: 3px; }
 
 /* the tabs */
 .rm-sep { width: 1px; height: 14px; background: var(--line-strong); flex: none; align-self: center; }
@@ -294,3 +296,5 @@
 .rm-full .rm-cm .tx { font-size: 14.5px; line-height: 22px; }
 .rm-full .rm-compose { margin: 8px 28px 24px; max-width: 704px; }
 .rm-full .rm-picker { left: 28px; right: auto; width: 320px; }
+.rm-back { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin-left: -8px; background: none; border: 0; color: var(--text-dim); }
+.rm-back:hover { background: var(--wash-strong); color: var(--text); }

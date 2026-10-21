@@ -72,6 +72,7 @@ export function createRooms({
     const muted = new Set(p.muted);
     const at = now();
     const mentions = [];
+    const mine = ownWork();
     const rooms = (state.rawRooms ?? []).map((r) => {
       const held = messages.get(r.id) ?? [];
       const readAt = reads.get(r.id) ?? 0;
@@ -79,7 +80,7 @@ export function createRooms({
       for (const m of unreadMsgs) {
         if (m.mentions.includes(who)) mentions.push({ id: `room-mention:${m.id}`, messageId: m.id, roomId: r.id, roomName: r.name, by: m.by, byName: profiles.get(m.by)?.display_name || '', body: m.body, at: m.at });
       }
-      const wall = wallCards({ members: people.get(r.id) ?? [], profiles: [...profiles.values()], presence, teammates, teamCards: t.cards ?? [], meId: who, now: at });
+      const wall = wallCards({ members: people.get(r.id) ?? [], profiles: [...profiles.values()], presence, teammates, teamCards: t.cards ?? [], meId: who, now: at, mine });
       return {
         ...r,
         pinned: pinned.has(r.id),
@@ -100,6 +101,16 @@ export function createRooms({
   }
 
   const changed = () => { build(); onChange(); };
+
+  // The thread this Mac's newest agent is on, for my own card only.
+  function ownWork() {
+    let f = {};
+    try { f = presenceFacts() ?? {}; } catch { return null; }
+    const lead = [...(f.running ?? [])].sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
+    if (!lead) return { workingOn: null };
+    const item = (f.items ?? []).find((i) => i.id === lead.itemId);
+    return { workingOn: (String(item?.label ?? '').trim() || String(item?.title ?? '')).slice(0, 64) || null };
+  }
   const local = () => { gen += 1; };
 
   // One pass at a time; a call during a pass asks for another, and resolves

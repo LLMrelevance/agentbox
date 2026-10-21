@@ -52,17 +52,20 @@ function workingOf({ profile, lead, teammate, cards }) {
   if (!lead) return none;
   if (profile.show_working === 'none' || lead.working_private) return { workingOn: null, workingPrivate: true };
   if (profile.show_working === 'everyone' && lead.working_on) return { workingOn: lead.working_on, workingPrivate: false };
-  if (!teammate) return none;
+  // Running, and no name this viewer may read: it says Private thread.
+  const hidden = { workingOn: null, workingPrivate: true };
+  if (!teammate) return hidden;
   const card = cards
     .filter((c) => c.state === 'running' && c.visible !== false && c.title)
     .sort((a, b) => num(b.updatedAt) - num(a.updatedAt))[0];
-  return card ? { workingOn: String(card.title).slice(0, WORKING_ON_MAX), workingPrivate: false } : none;
+  return card ? { workingOn: String(card.title).slice(0, WORKING_ON_MAX), workingPrivate: false } : hidden;
 }
 
 // One card per member with a profile, sorted by name so cards never jump.
 // Invisible people are already hidden from others by the cloud; my own
-// profile still reaches me, so I leave my own wall too.
-export function wallCards({ members = [], profiles = [], presence = [], teammates = [], teamCards = [], meId = null, now = Date.now() }) {
+// profile still reaches me, so I leave my own wall too. `mine` is what this
+// Mac knows I am working on, which my own card shows whatever others see.
+export function wallCards({ members = [], profiles = [], presence = [], teammates = [], teamCards = [], meId = null, now = Date.now(), mine = null }) {
   const inRoom = new Set(members);
   const mates = new Set(teammates);
   const out = [];
@@ -87,8 +90,10 @@ export function wallCards({ members = [], profiles = [], presence = [], teammate
       streak: s.streak,
       byMonth: s.byMonth,
       teammate: mates.has(id) && id !== meId,
+      showActivity: p.show_activity !== false,
       status: p.show_status !== false && p.status_text && !(ms(p.status_until) <= now) ? p.status_text : null,
-      ...workingOf({ profile: p, lead: s.lead, teammate: mates.has(id) && id !== meId, cards }),
+      ...(id === meId && mine ? { workingOn: mine.workingOn ?? null, workingPrivate: false }
+        : workingOf({ profile: p, lead: s.lead, teammate: mates.has(id) && id !== meId, cards })),
     });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));

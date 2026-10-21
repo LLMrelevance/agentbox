@@ -41,6 +41,7 @@ import { reportFromRenderer } from './crash-report.mjs';
 import * as workItemsDisk from './store/work-items.mjs';
 import { createTeamService, teamStateFile } from './team/index.mjs';
 import { loadCloudConfig, supabaseSession, headlessSessionFile } from './team/session.mjs';
+import { roomsSetup } from './team/room-setup.mjs';
 import { appHome, carryMisplacedMachinery, storeRootEnv } from './store/home.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -203,6 +204,7 @@ export async function bootHeadless({ dataDir = repoRoot, appDir = repoRoot, user
     accountRoot: config.accountRoot,
     stateFile: teamStateFile(config.storeRoot),
     onChange: () => ipc?.push?.(),
+    rooms: roomsSetup({ config, store, supervisor, userDir }),
   }) : null;
   // AND IT STOPS ITS OWN WORKERS ON THE WAY OUT, as main/main.mjs does for the
   // desktop. Control-C reaches the whole process group, so without this each

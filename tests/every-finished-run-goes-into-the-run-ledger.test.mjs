@@ -183,3 +183,25 @@ describe('my hours, as my presence row reads them', () => {
     expect(readRuns({ file: runLedgerPath(home) })).toHaveLength(2);
   });
 });
+
+describe('whose cloud runs count', () => {
+  // Measured 2026-10-20 on three copies run side by side: each read this Mac's
+  // own ~/.agentbox/cloud-usage.jsonl and wore its owner's level, 18.
+  it('a copy with a home of its own reads the cloud runs in that home, not this Mac’s', async () => {
+    const { roomsSetup } = await import('../main/team/room-setup.mjs');
+    const { envName } = await import('../shared/product-name.mjs');
+    const home = tmp('runs-copy-home-');
+    fs.writeFileSync(path.join(home, 'cloud-usage.jsonl'), `${JSON.stringify({ at: new Date().toISOString(), runId: 'r-own', item: 'w-1', wallSeconds: 3600 })}\n`);
+    const key = envName('HOME');
+    const was = process.env[key];
+    process.env[key] = home;
+    try {
+      const store = { listProducts: () => [], readItem: () => null };
+      const setup = roomsSetup({ config: { storeRoot: home, alphaRooms: true }, store, supervisor: { sessions: new Map() }, userDir: home, log: () => {} });
+      const { summary } = setup.presenceFacts();
+      expect(summary.total).toBeCloseTo(1);
+    } finally {
+      if (was === undefined) delete process.env[key]; else process.env[key] = was;
+    }
+  });
+});

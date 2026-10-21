@@ -224,9 +224,11 @@ describe.each(worlds)('rooms on %s', (_kind, make) => {
 
   it('realtime: I hear messages in my rooms and not in others', async () => {
     const heard = [];
-    const stop = w.ana.subscribeRooms((e) => { if (e.kind === 'message') heard.push(e.message.body); });
+    let ready = false;
+    const stop = w.ana.subscribeRooms((e) => { if (e.kind === 'subscribed') ready = true; if (e.kind === 'message') heard.push(e.message.body); });
     try {
-      await new Promise((r) => setTimeout(r, _kind === 'supabase' ? 1500 : 0));
+      for (let i = 0; i < 100 && !ready; i += 1) await new Promise((r) => setTimeout(r, 100));
+      expect(ready).toBe(true);
       const open = (await w.ana.myRooms()).find((r) => r.name === 'Northwind open');
       await w.maya.sendRoomMessage(open.id, { body: 'for the open room' });
       await w.maya.sendRoomMessage(teamRoom.id, { body: 'for the team only' });

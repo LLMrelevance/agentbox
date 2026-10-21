@@ -54,7 +54,11 @@ export function RoomChat({ room, messages, people, meId, now, onSend, onRead, on
         ? <><button type="button" className="rm-switch" onClick={() => setThread(null)}>{I.back()}<span>Thread</span></button>
           <span className="rm-label" style={{ marginLeft: 'auto', marginRight: 4 }}>{(replies.get(root.id)?.length ?? 0)} {(replies.get(root.id)?.length ?? 0) === 1 ? 'reply' : 'replies'}</span></>
         : <button type="button" className={`rm-switch${switchOpen ? ' open' : ''}`} onClick={(e) => onSwitch?.(e.currentTarget.getBoundingClientRect())}>
-          {I.hash(15)}<span>{room.name}</span>{onSwitch && I.down()}
+          {room.kind === 'group'
+            ? <><span className="rm-faces">{people.filter((p) => !p.me).slice(0, 3).map((p) => <RoomFace key={p.id} name={p.name} url={p.avatarUrl} size={18} />)}</span>
+              <span>{people.filter((p) => !p.me).map((p) => p.name).join(', ') || room.name}</span></>
+            : <>{I.hash(15)}<span>{room.name}</span></>}
+          {onSwitch && I.down()}
         </button>}
       {!root && onInvite && room.kind !== 'group' && <button type="button" className="ic" title={`Invite people to ${room.name}`} aria-label={`Invite people to ${room.name}`} onClick={onInvite}>{I.invite(14)}</button>}
       {onExpand && <button type="button" className="ic" style={root ? { marginLeft: 0 } : undefined} title="Open full page" aria-label="Open full page" onClick={onExpand}>{I.expand()}</button>}

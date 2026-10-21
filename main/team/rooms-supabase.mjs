@@ -154,6 +154,8 @@ export function roomsSupabase(client, myId, must) {
 
     // Realtime sends inserts and updates through row level security, never a
     // delete, so leaving is heard as a room_events or access_events insert.
+    // Subscribing takes a few seconds and a dropped socket subscribes again;
+    // each time it is told, so whatever was sent meanwhile is read.
     subscribeRooms(onEvent) {
       const channel = client.channel(`rooms-${Math.random().toString(36).slice(2)}`)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'room_messages' }, (p) => onEvent({ kind: 'message', message: messageOut(p.new) }))
@@ -161,7 +163,7 @@ export function roomsSupabase(client, myId, must) {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'room_profiles' }, () => onEvent({ kind: 'profile' }))
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'room_events' }, () => onEvent({ kind: 'membership' }))
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'access_events' }, () => onEvent({ kind: 'membership' }))
-        .subscribe();
+        .subscribe((status) => { if (status === 'SUBSCRIBED') onEvent({ kind: 'subscribed' }); });
       return () => { client.removeChannel(channel); };
     },
   };
