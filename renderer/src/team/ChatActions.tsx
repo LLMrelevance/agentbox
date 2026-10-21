@@ -242,9 +242,10 @@ export function Reactions({ on, me, onReact }: {
 }
 
 /**
- * THE BAR THAT APPEARS WHEN YOU POINT AT A MESSAGE: three quick reactions, your
- * most recent first, then react, reply, hand it to an agent, and the more
- * menu (./MessageMore.tsx) for editing, copying, marking unread and deleting.
+ * THE BAR THAT APPEARS WHEN YOU POINT AT A MESSAGE: three quick reactions where
+ * the chat is wide, your most recent first, then react, reply, hand it to an
+ * agent, and the more menu (./MessageMore.tsx) for editing, copying, marking
+ * unread and deleting.
  *
  * It is absolutely positioned over the message's top edge rather than laid out
  * in the flow, so a message does not change height when the pointer crosses it.
@@ -252,8 +253,11 @@ export function Reactions({ on, me, onReact }: {
  * it and a bar that vanished the moment the pointer moved into its own menu
  * would be unusable.
  */
-export function MessageActions({ onReact, onQuote, replyLabel = 'Reply', onHandToAgent, more }: {
+export function MessageActions({ onReact, quick: withQuick = true, onQuote, replyLabel = 'Reply', onHandToAgent, more }: {
   onReact: (emoji: string) => void;
+  // False in a thread or a narrow panel, where three emoji crowd the bar over
+  // the message; React still opens them, recent ones first.
+  quick?: boolean;
   // Absent inside a thread's panel, where the reply box is right there and a
   // reply to a reply would be a thread inside a thread (w-920461cbe6).
   onQuote?: () => void;
@@ -268,7 +272,8 @@ export function MessageActions({ onReact, onQuote, replyLabel = 'Reply', onHandT
 }) {
   const [picking, setPicking] = useState(false);
   const [menu, setMenu] = useState<DOMRect | null>(null);
-  const [quick] = useState(() => quickRow(readRecent(), CHAT_EMOJI, QUICK));
+  const [recentRow] = useState(() => quickRow(readRecent(), CHAT_EMOJI, QUICK));
+  const quick = withQuick ? recentRow : [];
   return (
     <div className={`chat-acts${picking || menu ? ' open' : ''}`}>
       {picking && <EmojiPick onPick={(emoji) => { setPicking(false); onReact(emoji); }} onClose={() => setPicking(false)} />}

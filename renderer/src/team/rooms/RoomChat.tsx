@@ -25,7 +25,7 @@ import { pictureUrl } from '../../picture';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
 import { cardName, clockOf, mentionsIn } from './room-rules';
-import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, storedName, wordsLeftAfterSend } from './room-chat-rules';
+import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, quickOnBar, storedName, wordsLeftAfterSend } from './room-chat-rules';
 
 export type ChatPerson = { id: string; name: string; avatarUrl: string | null; me: boolean };
 
@@ -159,6 +159,7 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
             </button>}
             {!m.deleted && editing !== m.id && onReact && <MessageActions
               onReact={(emoji) => onReact(m.id, emoji, !(m.reactions?.[emoji] ?? []).includes(meId ?? ''))}
+              quick={quickOnBar({ full, thread: !!root })}
               {...(!root ? { onQuote: () => setThread(m.id), replyLabel: 'Reply in thread' } : {})}
               more={messageMore({
                 mine,

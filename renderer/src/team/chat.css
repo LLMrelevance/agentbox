@@ -461,6 +461,9 @@ body.chat-thread-dragging * { cursor: col-resize !important; }
   display: flex; flex-direction: column; gap: 20px; padding: 24px 28px 20px;
 }
 .chat-thread-body .chat-day { margin: 2px 0 -2px; }
+/* The panel is drawn outside the reading pane, which is the one place that
+   undoes the body's `user-select: none`, so its words opt back in here. */
+.chat-thread-body .msg-head, .chat-thread-body .msg-body { user-select: text; -webkit-user-select: text; }
 
 /* The reply box, on the same line as the chat's and in the same plate. */
 .chat-thread-foot { flex: none; padding: 0 28px 24px; }
