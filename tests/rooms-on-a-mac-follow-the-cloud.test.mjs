@@ -122,6 +122,22 @@ describe('switched on', () => {
     expect(w.theo.rooms.state().rooms[0].unread).toBe(0);
   });
 
+  // Codex's review of the build: mentions were read only from the newest 200
+  // messages held, so a busy room buried an older one out of Needs you.
+  it('a mention stays in Needs you under two hundred newer messages, until read', async () => {
+    const room = w.maya.rooms.state().rooms[0].id;
+    await w.maya.rooms.send(room, '@Theo B. can you look at this?', { mentions: [w.theo.id] });
+    for (let i = 0; i < 210; i += 1) {
+      if (i % 20 === 0) w.tick(61_000);
+      await w.maya.backend.sendRoomMessage(room, { body: `note ${i}` });
+    }
+    await w.theo.rooms.refresh();
+    expect(w.theo.rooms.state().mentions.map((m) => m.body)).toEqual(['@Theo B. can you look at this?']);
+    await w.theo.rooms.markRead(room);
+    await w.theo.rooms.refresh();
+    expect(w.theo.rooms.state().mentions).toEqual([]);
+  });
+
   it('presence goes up only when it changes, and again after five quiet minutes', async () => {
     expect(await w.maya.rooms.publish()).toBe(false);
     w.tick(4 * 60_000);
@@ -175,6 +191,24 @@ describe('switched on', () => {
     w.maya.status = null;
     await w.maya.rooms.tick();
     expect(w.cloud.roomProfiles.get(w.maya.id)).toMatchObject({ status_text: null, status_until: null });
+  });
+
+  // Codex's review of the build, 2026-10-20: a switch turned off only hid
+  // the value on screen, while the cloud still held it for anyone to query.
+  it('a switch turned off keeps that value off the cloud, not just off the screen', async () => {
+    w.maya.summary = { ...w.maya.summary, total: 1240, week: 20, today: 3, streak: 5, activeDays: ['2026-10-22'], byMonth: [{ month: '2026-10', hours: 20 }] };
+    w.maya.status = { text: 'Heads down', until: null };
+    await w.maya.rooms.tick();
+    const row = () => [...w.cloud.roomPresence.values()].find((r) => r.person_id === w.maya.id);
+    expect(row()).toMatchObject({ agents_running: 2, hours_total: 1240 });
+    await w.maya.rooms.saveProfile({ show_agents: false, show_level: false, show_status: false });
+    await w.maya.rooms.tick();
+    expect(row()).toMatchObject({ agents_running: 0, hours_total: 0, hours_week: 0, hours_today: 0, streak_days: 0, active_days: [], hours_by_month: [] });
+    expect(w.cloud.roomProfiles.get(w.maya.id)).toMatchObject({ status_text: null });
+    await w.maya.rooms.saveProfile({ show_agents: true, show_level: true, show_status: true });
+    await w.maya.rooms.tick();
+    expect(row()).toMatchObject({ agents_running: 2, hours_total: 1240 });
+    expect(w.cloud.roomProfiles.get(w.maya.id)).toMatchObject({ status_text: 'Heads down' });
   });
 
   it('pins and mutes are mine, kept, and leaving a room drops them', async () => {

@@ -79,9 +79,9 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
     if (!row) return;
     s.roomMembers = s.roomMembers.filter((m) => m !== row);
     const room = s.rooms.get(r);
-    if (room && !room.teamId && !room.listed) {
+    if (room && !room.teamId) {
       const left = s.roomMembers.filter((m) => m.roomId === r);
-      if (!left.length) deleteRoom(r);
+      if (!left.length) { if (!room.listed) deleteRoom(r); }
       else if (row.role === 'owner' && !left.some((m) => m.role === 'owner')) {
         left.sort((a, b) => a.joinedAt - b.joinedAt || a.personId.localeCompare(b.personId))[0].role = 'owner';
       }
@@ -165,6 +165,11 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
       return state(cloud).roomMessages
         .filter((m) => m.roomId === r && (before == null || m.at < before))
         .slice(-n).map((m) => ({ ...m, mentions: [...m.mentions] }));
+    },
+
+    async roomMentions({ limit: n = 50 } = {}) {
+      return state(cloud).roomMessages.filter((m) => m.mentions.includes(personId) && inRoom(m.roomId))
+        .slice(-n).reverse().map((m) => ({ ...m, mentions: [...m.mentions] }));
     },
 
     async sendRoomMessage(r, { body, inReplyTo = null, mentions = [] }) {
@@ -282,7 +287,9 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
       const clean = String(email).trim().toLowerCase();
       if (!clean.includes('@')) refuse('an invite to no email');
       const s = state(cloud);
-      if (!s.roomInvites.some((i) => i.roomId === r && i.email === clean)) s.roomInvites.push({ roomId: r, email: clean, invitedBy: personId, createdAt: now() });
+      if (s.roomInvites.some((i) => i.roomId === r && i.email === clean)) return;
+      limit('invites', s.roomInvites.filter((i) => i.invitedBy === personId && i.createdAt > now() - DAY).length, 50);
+      s.roomInvites.push({ roomId: r, email: clean, invitedBy: personId, createdAt: now() });
     },
 
     async pendingRoomInvites() {

@@ -99,6 +99,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     if (full && open?.kind !== 'group') { setFull(false); return; }
     setOpenId(null); setFull(false); setPanelId(null);
   };
+  // Somewhere else was picked: no room, no Find rooms, no messages page.
+  const leave = () => { setOpenId(null); setFull(false); setPanelId(null); setFinding(false); setNoChats(false); };
   const find = () => { setOpenId(null); setFull(false); setNoChats(false); setFinding(true); };
   const loadListed = useCallback(async () => { const res = await call<ListedRoom[]>('listed'); return res.ok ? res.value ?? [] : null; }, [call]);
 
@@ -287,7 +289,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const openMention = (m: RoomMention) => { onLeaveDirect(); openRoom(m.roomId); };
 
   return {
-    live, openId: open ? openId : finding && live ? 'find' : noChats && live ? 'messages' : null, openMessages, open: (id: string) => openRoom(id), close, find, nav, tabs, page, dialogs, join, walk, invisible, settingsPane,
+    live, openId: open ? openId : finding && live ? 'find' : noChats && live ? 'messages' : null, openMessages, open: (id: string) => openRoom(id), close, leave, find, nav, tabs, page, dialogs, join, walk, invisible, settingsPane,
     mentions, openMention, faces, messagesShell, full,
     dialogOpen: !!dialog || !!members || !!switcher,
   };

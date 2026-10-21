@@ -244,16 +244,18 @@ installCrashReports({
 
 let window = null;
 // A ROOM INVITE LINK THAT OPENED THE APP (Rooms, alpha): agentbox://join/<token>.
-// Held until the window asks for it, or handed straight to a window that is up.
+// Held until the window takes it ('zero:take-join'); a window that is up is
+// told to come and take it, and one still starting takes it as it mounts.
 let pendingJoin = tokenFromLink(process.argv.find((a) => a.startsWith(`${JOIN_SCHEME}://`)) ?? '');
 function openJoinLink(url) {
   const token = tokenFromLink(url);
   if (!token) return;
+  pendingJoin = token;
   if (window && !window.isDestroyed()) {
-    window.webContents.send('zero:join-room', { token });
+    window.webContents.send('zero:join-room');
     if (window.isMinimized()) window.restore();
     window.focus();
-  } else pendingJoin = token;
+  }
 }
 // Set by ⌘R and read once by the renderer as it comes back up, so a reload can
 // say so. A reload that lands on an identical screen and a chord that did
@@ -995,17 +997,17 @@ async function createWindow() {
   ipcMain.handle('zero:boot-info', () => {
     const info = {
       reloaded: reloadRequested, builtAt: builtAt(), recovered: pendingRecovery,
-      screenDetail: currentScreenDetail(), joinRoom: pendingJoin,
+      screenDetail: currentScreenDetail(),
     };
     reloadRequested = false;
     pendingRecovery = null;
-    pendingJoin = null;
     return info;
   });
   // The window's own uncaught errors. The renderer cannot write a report
   // itself (it has no disk and should not have one), and 'render-process-gone'
   // only fires when the process DIES, which a thrown React error does not.
   ipcMain.handle('zero:crash', (_e, payload) => { reportFromRenderer(payload ?? {}); });
+  ipcMain.handle('zero:take-join', () => { const token = pendingJoin; pendingJoin = null; return token; });
   // External links from markdown open in the real browser; local artifacts
   // (a demo page, a screenshot a worker saved) open in their default app, so
   // "see it working" is one click from the message.

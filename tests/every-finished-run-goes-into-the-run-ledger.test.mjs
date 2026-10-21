@@ -96,6 +96,30 @@ describe('the backfill from old run logs', () => {
     expect(readRuns({ file: w.file })).toHaveLength(1);
   });
 
+  // Codex's review of the build: a run still going when Rooms is switched on
+  // was read at its length so far, and that short line outlived the real one.
+  it('a log still being written is left for the run to write when it ends', async () => {
+    const w = setup();
+    const start = now - 10 * 60_000;
+    const dir = path.join(machineryDir(w.products[0].dir, w.home), 'sessions', 'w-live');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${start}.log`);
+    fs.writeFileSync(file, '# still going\n');
+    fs.utimesSync(file, new Date(now - 60_000), new Date(now - 60_000));
+    expect(await backfillRuns({ home: w.home, products: w.products, file: w.file, now })).toBe(0);
+  });
+
+  it('a log that stopped long ago without a footer (the app crashed) is still read', async () => {
+    const w = setup();
+    const start = now - 5 * 3600_000;
+    const dir = path.join(machineryDir(w.products[0].dir, w.home), 'sessions', 'w-crashed');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${start}.log`);
+    fs.writeFileSync(file, '# crashed\n');
+    fs.utimesSync(file, new Date(start + 600_000), new Date(start + 600_000));
+    expect(await backfillRuns({ home: w.home, products: w.products, file: w.file, now })).toBe(1);
+  });
+
   it('logs older than 400 days are left alone', async () => {
     const w = setup();
     const old = now - 401 * 86_400_000;

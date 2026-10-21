@@ -44,9 +44,12 @@ describe('the app takes the link', () => {
     expect(main).toMatch(/if \(app\.isPackaged\) app\.setAsDefaultProtocolClient\(JOIN_SCHEME\)/);
     expect(main.match(/setAsDefaultProtocolClient/g)).toHaveLength(1);
   });
-  it('a link that comes before the window is held, and handed over once', () => {
+  // Codex's review of the build: a link sent while the window was still
+  // starting reached no listener and was gone. The window asks for it.
+  it('a link is held until the window takes it, and handed over once', () => {
     expect(main).toMatch(/app\.on\('open-url'/);
-    expect(main).toMatch(/joinRoom: pendingJoin/);
-    expect(main).toMatch(/pendingJoin = null;/);
+    const opened = main.slice(main.indexOf('function openJoinLink'), main.indexOf('function openJoinLink') + 500);
+    expect(opened).toMatch(/pendingJoin = token;/);
+    expect(main).toMatch(/ipcMain\.handle\('zero:take-join', \(\) => \{ const token = pendingJoin; pendingJoin = null; return token; \}\)/);
   });
 });

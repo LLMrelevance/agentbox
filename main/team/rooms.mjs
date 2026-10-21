@@ -4,7 +4,7 @@
 // switched on in Alpha features and someone is signed in.
 import fs from 'node:fs';
 import path from 'node:path';
-import { wallCards, myPresence, displayNameOf } from '../../shared/room-cards.mjs';
+import { wallCards, myPresence, displayNameOf, withoutHidden } from '../../shared/room-cards.mjs';
 import { GENERAL_ROOM } from './rooms-memory.mjs';
 
 const MESSAGES_HELD = 200;
@@ -51,6 +51,7 @@ export function createRooms({
   let presence = []; // rows
   let messages = new Map(); // roomId -> [message], oldest first
   let reads = new Map(); // roomId -> ms
+  let mentioned = []; // my newest mentions, which may be older than the messages held
   let unsubscribe = null;
   let started = null; // the backend rooms were started on
   let lastSent = null;
@@ -77,7 +78,8 @@ export function createRooms({
       const held = messages.get(r.id) ?? [];
       const readAt = reads.get(r.id) ?? 0;
       const unreadMsgs = held.filter((m) => m.at > readAt && m.by !== who);
-      for (const m of unreadMsgs) {
+      const pool = new Map([...mentioned.filter((m) => m.roomId === r.id && m.at > readAt && m.by !== who), ...unreadMsgs].map((m) => [m.id, m]));
+      for (const m of pool.values()) {
         if (m.mentions.includes(who)) mentions.push({ id: `room-mention:${m.id}`, messageId: m.id, roomId: r.id, roomName: r.name, by: m.by, byName: profiles.get(m.by)?.display_name || '', body: m.body, at: m.at });
       }
       const wall = wallCards({ members: people.get(r.id) ?? [], profiles: [...profiles.values()], presence, teammates, teamCards: t.cards ?? [], meId: who, now: at, mine });
@@ -134,9 +136,10 @@ export function createRooms({
       const ids = new Map();
       await Promise.all(rooms.map(async (r) => ids.set(r.id, await b.roomPeople(r.id))));
       const everyone = [...new Set([meId(), ...[...ids.values()].flat()])].filter(Boolean);
-      const [profileRows, presenceRows, readRows, mine, invites, ranks] = await Promise.all([
+      const [profileRows, presenceRows, readRows, mine, invites, ranks, mentionRows] = await Promise.all([
         b.roomProfiles(everyone), b.roomPresence(everyone), b.roomReads(), b.myRoomProfile(),
         b.pendingRoomInvites().catch(() => []), b.agentboxRanks(everyone).catch(() => ({})),
+        b.roomMentions({ limit: 50 }).catch(() => []),
       ]);
       const held = new Map();
       await Promise.all(rooms.map(async (r) => held.set(r.id, merge(messages.get(r.id), await b.roomMessages(r.id, { limit: MESSAGES_HELD })))));
@@ -147,6 +150,7 @@ export function createRooms({
       presence = presenceRows;
       messages = held;
       reads = new Map(readRows.map((r) => [r.roomId, r.readAt]));
+      mentioned = mentionRows;
       autoPin(rooms);
       state = { ...state, ready: true, rawRooms: rooms, me: mine, invites, ranks, error: null };
     } catch (err) {
@@ -196,7 +200,7 @@ export function createRooms({
     if (!b || !started) return false;
     const facts = presenceFacts() ?? {};
     const showWorking = state.me?.show_working ?? 'team';
-    const row = myPresence({ ...facts, now: now(), showWorking });
+    const row = withoutHidden(myPresence({ ...facts, now: now(), showWorking }), state.me);
     const key = JSON.stringify(row);
     if (!force && key === lastSent && now() - lastSentAt < HEARTBEAT_MS) return false;
     await b.putPresence(device(), { ...row, gone: false });
@@ -242,7 +246,7 @@ export function createRooms({
     settle = null;
     started = null;
     lastSent = null;
-    people = new Map(); profiles = new Map(); presence = []; messages = new Map(); reads = new Map();
+    people = new Map(); profiles = new Map(); presence = []; messages = new Map(); reads = new Map(); mentioned = [];
     state = { ...EMPTY, on: !!enabled() };
     if (b) await b.putPresence(device(), { gone: true, agents_running: 0, working_on: null, working_private: false }).catch(() => {});
     onChange();
@@ -262,7 +266,7 @@ export function createRooms({
   async function syncStatus() {
     const mine = state.me;
     if (!mine) return;
-    const s = me()?.status ?? null;
+    const s = mine.show_status === false ? null : me()?.status ?? null;
     const text = s?.text ?? null;
     const until = text && s?.until ? new Date(s.until).toISOString() : null;
     if ((mine.status_text ?? null) === text && (mine.status_until ? new Date(mine.status_until).toISOString() : null) === until) return;
@@ -322,7 +326,8 @@ export function createRooms({
       local();
       state = { ...state, me: saved };
       changed();
-      if ('show_working' in patch) await publish({ force: true }).catch(() => {});
+      if (['show_working', 'show_agents', 'show_level'].some((k) => k in patch)) await publish({ force: true }).catch(() => {});
+      if ('show_status' in patch) await syncStatus().catch(() => {});
       return saved;
     },
 

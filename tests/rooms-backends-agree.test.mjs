@@ -150,6 +150,12 @@ describe.each(worlds)('rooms on %s', (_kind, make) => {
     await refused(w.maya.sendRoomMessage(group, { body: 'x', inReplyTo: m.id }));
   });
 
+  it('my mentions are read on their own, newest first, only from rooms I am in', async () => {
+    const mine = await w.maya.roomMentions({ limit: 5 });
+    expect(mine.map((m) => m.body)).toEqual(['hi @Maya']);
+    expect(await w.ana.roomMentions()).toEqual([]);
+  });
+
   it('reading moves forward only', async () => {
     const t = Date.now() - 1000;
     await w.theo.markRoomRead(teamRoom.id, t);
@@ -182,6 +188,13 @@ describe.each(worlds)('rooms on %s', (_kind, make) => {
     expect(await w.ana.joinListedRoom(open)).toBe(open);
     expect((await w.ana.listedRooms()).find((r) => r.id === open).joined).toBe(true);
     await refused(w.ana.joinListedRoom(teamRoom.id));
+  });
+
+  it('a room open to everyone gets a new owner when its owner leaves', async () => {
+    const open = (await w.maya.myRooms()).find((r) => r.name === 'Northwind open');
+    await w.maya.leaveRoom(open.id);
+    expect((await w.ana.myRooms()).find((r) => r.id === open.id).role).toBe('owner');
+    await w.maya.joinListedRoom(open.id);
   });
 
   it('an email invite waits for that email, and is used up by joining', async () => {

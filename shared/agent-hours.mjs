@@ -35,12 +35,15 @@ function startOfDay(ms) {
 
 const counts = (r) => r && r.began !== false && Number.isFinite(r.at) && Number(r.seconds) > 0;
 
+// One line per key. The line written when the run ended beats one read back
+// from its log, which may have been read while the run was still going.
 export function dedupeRuns(runs) {
   const seen = new Map();
   for (const r of runs ?? []) {
     if (!r || typeof r !== 'object' || typeof r.key !== 'string' || !r.key) continue;
     if (!Number.isFinite(r.at) || !(Number(r.seconds) > 0)) continue;
-    if (!seen.has(r.key)) seen.set(r.key, r);
+    const had = seen.get(r.key);
+    if (!had || (had.backfilled && !r.backfilled)) seen.set(r.key, r);
   }
   return [...seen.values()];
 }

@@ -209,6 +209,18 @@ begin
   end if;
   return new;
 end $$;
+-- At most fifty email invites a day from one person.
+create or replace function public.room_invite_made() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  perform public.room_limit('invites', 50, interval '1 day');
+  new.created_at := now();
+  return new;
+end $$;
+drop trigger if exists room_invite_made on public.room_email_invites;
+create trigger room_invite_made before insert on public.room_email_invites
+  for each row execute function public.room_invite_made();
+
 drop trigger if exists room_message_made on public.room_messages;
 create trigger room_message_made before insert on public.room_messages
   for each row execute function public.room_message_made();
@@ -250,11 +262,11 @@ begin
     insert into public.room_events (room_id, kind, person_id) values (r, case when tg_op = 'DELETE' then 'left' else 'joined' end, p);
   end if;
   insert into public.access_events (person_id) select p where exists (select 1 from public.people where id = p);
-  -- In a room of its own (not a team's, not one listed for everyone), the last
-  -- one out deletes it and an owner leaving hands it to the longest member.
-  if tg_op = 'DELETE' and exists (select 1 from public.rooms where id = r and team_id is null and not listed) then
+  -- In a room of its own (not a team's), an owner leaving hands it to the
+  -- longest member, and the last one out deletes it unless it is listed.
+  if tg_op = 'DELETE' and exists (select 1 from public.rooms where id = r and team_id is null) then
     if not exists (select 1 from public.room_members where room_id = r) then
-      delete from public.rooms where id = r;
+      delete from public.rooms where id = r and not listed;
     elsif old.role = 'owner' and not exists (select 1 from public.room_members where room_id = r and role = 'owner') then
       update public.room_members set role = 'owner'
       where room_id = r and person_id = (select person_id from public.room_members where room_id = r order by joined_at, person_id limit 1);
@@ -593,7 +605,7 @@ begin
   foreach f in array array[
     'public.rooms_of(uuid)', 'public.in_room(uuid)', 'public.shares_room(uuid)', 'public.owns_room(uuid)',
     'public.room_member_count(uuid)', 'public.person_visible(uuid)', 'public.room_limit(text, int, interval)',
-    'public.room_message_made()', 'public.room_row_stamped()', 'public.room_made_now()', 'public.room_membership_moved()',
+    'public.room_message_made()', 'public.room_invite_made()', 'public.room_row_stamped()', 'public.room_made_now()', 'public.room_membership_moved()',
     'public.team_membership_moved()', 'public.room_renamed()', 'public.team_room_kept()', 'public.my_rooms()',
     'public.room_people(uuid)', 'public.create_room(text, text, boolean, uuid[], boolean)', 'public.join_into(uuid)',
     'public.join_listed_room(uuid)', 'public.join_room_by_link(text)', 'public.room_link(uuid)', 'public.revoke_room_link(uuid)',

@@ -6,6 +6,7 @@
 // the notice "You are invisible for N more minutes. Nobody in your rooms can
 // see you." These are the rules behind those pictures, measured on plain data.
 import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
 import { roomTabs, tabWalk, weekRank, agentsWords, mentionsIn, markMentions, invisibleNotice, minutesToMidnight, initialsOf, UNTIL_TURNED_OFF_MS } from '../renderer/src/team/rooms/room-rules.ts';
 
 const room = (id, pinned) => ({ id, name: id, pinned });
@@ -105,5 +106,17 @@ describe('invisible', () => {
   });
   it('until tomorrow is until midnight here', () => {
     expect(minutesToMidnight(now)).toBe(9 * 60);
+  });
+});
+
+describe('leaving a room', () => {
+  // Found on the built screens 2026-10-20: with a room's chat full page,
+  // clicking Threads only stepped out of full page and the room stayed up.
+  it('Escape steps back one level; picking a tab or Threads leaves rooms entirely', () => {
+    const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
+    expect(app).toMatch(/if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); roomsUi\.close\(\); \}/);
+    expect(app.match(/onView=\{next => \{ roomsUi\.leave\(\);/g)).toHaveLength(1);
+    expect(app.match(/onView=\{\(next\) => \{ roomsUi\.leave\(\);/g)).toHaveLength(1);
+    expect(app).not.toMatch(/onView=\{\(?next\)? => \{ roomsUi\.close\(\)/);
   });
 });

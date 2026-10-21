@@ -58,6 +58,12 @@ export function roomsSupabase(client, myId, must) {
       return must(await q, 'reading the chat').map(messageOut).reverse();
     },
 
+    // My newest mentions in every room I am in, however busy the room is.
+    async roomMentions({ limit = 50 } = {}) {
+      const me = await myId();
+      return must(await client.from('room_messages').select(MSG_COLS).contains('mentions', [me]).order('created_at', { ascending: false }).limit(limit), 'reading your mentions').map(messageOut);
+    },
+
     async sendRoomMessage(roomId, { body, inReplyTo = null, mentions = [] }) {
       const me = await myId();
       const row = must(await client.from('room_messages').insert({ room_id: roomId, by_person: me, body, in_reply_to: inReplyTo, mentions }).select(MSG_COLS).single(), 'sending your message');

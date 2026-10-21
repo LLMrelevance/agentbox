@@ -3412,7 +3412,6 @@ export default function App() {
       // Which set of theme pictures this screen wants, before anything else in
       // here: a toast that returns early must not take the wallpaper with it.
       applySkinDetail(resolveSkinDetail(info?.screenDetail));
-      if (info?.joinRoom) joinWaiting.current = info.joinRoom;
       // BEFORE ANY RETURN, because this is what puts her back where she was and
       // the two early exits below are about what to SAY. Read once here rather
       // than asked for again: the main process clears the flag as it hands it
@@ -3434,7 +3433,11 @@ export default function App() {
   // A ROOM INVITE LINK (Rooms, alpha): the room is shown first, and joined on a yes.
   const joinWaiting = useRef<string | null>(null);
   const [joinTick, setJoinTick] = useState(0);
-  useEffect(() => window.zero?.onJoinRoom?.((r) => { if (r?.token) { joinWaiting.current = r.token; setJoinTick((n) => n + 1); } }), []);
+  useEffect(() => {
+    const take = () => { void window.zero?.takeJoin?.().then((token) => { if (token) { joinWaiting.current = token; setJoinTick((n) => n + 1); } }).catch(() => {}); };
+    take();
+    return window.zero?.onJoinRoom?.(take);
+  }, []);
   useEffect(() => {
     const token = joinWaiting.current;
     if (!token || !snap) return;
@@ -4869,7 +4872,7 @@ export default function App() {
         if (roomsUi.live) {
           const next = roomsUi.walk(stateTabOrder, roomShown ? `room:${roomsUi.openId}` : view, e.shiftKey);
           if (next.startsWith('room:')) { roomsUi.open(next.slice(5)); return; }
-          roomsUi.close();
+          roomsUi.leave();
           setView(next as View);
         } else setView(nextTab(stateTabOrder, view, e.shiftKey) as View);
         setSelected(0);
@@ -5633,7 +5636,7 @@ export default function App() {
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onSignOut={() => { void api.teamSignOut().then(() => refresh()); }}
-        onTeam={() => { setSettingsOpen(false); setSettingsPane(null); closeSearch(); setFocused(null); setOpenCard(null); setTeamOpen(true); }} onSettings={() => { setTeamOpen(false); setSettingsPane(null); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }} inboxCount={inbox.length + roomsUi.mentions.length} scheduledCount={scheduledCount} view={view} collapsed={workspaceCollapsed} onToggle={toggleWorkspace} onSearch={openSearch} onCompose={() => setModal('compose')} onView={next => { roomsUi.close(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); }} />}
+        onTeam={() => { setSettingsOpen(false); setSettingsPane(null); closeSearch(); setFocused(null); setOpenCard(null); setTeamOpen(true); }} onSettings={() => { setTeamOpen(false); setSettingsPane(null); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }} inboxCount={inbox.length + roomsUi.mentions.length} scheduledCount={scheduledCount} view={view} collapsed={workspaceCollapsed} onToggle={toggleWorkspace} onSearch={openSearch} onCompose={() => setModal('compose')} onView={next => { roomsUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); }} />}
       {/* THE REACH (w-5dcff78971). The corner is transparent and it is the
           only part of our own document lying over the file, so a pointer
           brought up there wakes the marks that a pointer moving across the
@@ -6316,7 +6319,7 @@ export default function App() {
                       done: (mineShown ? shownCount(done) : 0) + theirCount('done'),
                     }}
                     needs={team ? needsWord(picked, team.me) : undefined}
-                    onView={(next) => { roomsUi.close(); setView(next as View); setSelected(0); setMultiSel(new Set()); }}
+                    onView={(next) => { roomsUi.leave(); setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                     onSearch={openSearch}
                     after={roomsUi.tabs} dim={roomShown}
                   />

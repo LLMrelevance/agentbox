@@ -131,6 +131,12 @@ describe('counted once', () => {
     const r = run('2026-10-22T10:00:00-07:00', 2, { key: 'w-1:1792000000000' });
     expect(dedupeRuns([r, { ...r }, run('2026-10-22T11:00:00-07:00', 1, { key: 'w-2:1' })])).toHaveLength(2);
   });
+  it('the line written when a run ended wins over one read back from its log', () => {
+    const read = run('2026-10-22T10:00:00-07:00', 0.1, { key: 'w-1:1', backfilled: true });
+    const written = run('2026-10-22T11:00:00-07:00', 1, { key: 'w-1:1' });
+    expect(dedupeRuns([read, written])).toEqual([written]);
+    expect(dedupeRuns([written, read])).toEqual([written]);
+  });
   it('a line with no key or no length is dropped', () => {
     expect(dedupeRuns([{ at: 1, seconds: 5 }, { key: 'x', at: 1 }, null, 'junk'])).toEqual([]);
   });

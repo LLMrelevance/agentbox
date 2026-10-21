@@ -12,6 +12,9 @@ import { dedupeRuns, runFromTrace } from '../shared/agent-hours.mjs';
 
 const BACKFILL_DAYS = 400;
 const TAIL_BYTES = 400;
+// A log with no exit line that was written to this recently is a run still
+// going; it writes its own line when it ends.
+const STILL_GOING_MS = 30 * 60_000;
 
 export function runLedgerPath(home = appHome()) {
   return path.join(home, 'runs.jsonl');
@@ -118,7 +121,9 @@ export async function backfillRuns({ home = appHome(), products = [], file = run
         const full = path.join(sessions, it.name, name);
         let mtimeMs;
         try { mtimeMs = fs.statSync(full).mtimeMs; } catch { continue; }
-        const run = runFromTrace({ name, text: tailOf(full), mtimeMs, item: it.name, product: p.slug ?? null });
+        const tail = tailOf(full);
+        if (!/# exited \(/.test(tail) && now - mtimeMs < STILL_GOING_MS) continue;
+        const run = runFromTrace({ name, text: tail, mtimeMs, item: it.name, product: p.slug ?? null });
         if (!run || have.has(run.key)) continue;
         pending.push({ ...run, backfilled: true });
         have.add(run.key);

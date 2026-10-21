@@ -134,3 +134,14 @@ export function myPresence({ running = [], items = [], products = [], summary, n
 }
 
 const round2 = (v) => Math.round(num(v) * 100) / 100;
+
+// A switch turned off keeps that value off the cloud, so nobody can read it
+// from the row, a realtime event or an invite preview.
+export function withoutHidden(row, profile) {
+  const out = { ...row };
+  if (profile?.show_agents === false) out.agents_running = 0;
+  if (profile?.show_level === false) {
+    Object.assign(out, { hours_total: 0, hours_week: 0, hours_today: 0, streak_days: 0, active_days: [], hours_by_month: [] });
+  }
+  return out;
+}

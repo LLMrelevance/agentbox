@@ -302,6 +302,16 @@ describe('leaving and being removed', () => {
     expect(n).toBe(0);
   });
 
+  it('a room open to everyone keeps an owner when its owner leaves, and stays when the last one goes', async () => {
+    const { r } = await one(MAYA, `select public.create_room('Open hours', 'room', true, '{}') as r`);
+    await as(JUN, `select public.join_listed_room($1)`, [r]);
+    await as(MAYA, `delete from public.room_members where room_id = $1 and person_id = $2`, [r, MAYA]);
+    expect((await one(JUN, `select role from public.my_rooms() where id = $1`, [r])).role).toBe('owner');
+    await as(JUN, `delete from public.room_members where room_id = $1 and person_id = $2`, [r, JUN]);
+    const { n } = (await db.query(`select count(*)::int as n from public.rooms where id = $1`, [r])).rows[0];
+    expect(n).toBe(1);
+  });
+
   it('General stays when people leave it', async () => {
     await as(JUN, `delete from public.room_members where room_id = $1 and person_id = $2`, [GENERAL, JUN]);
     const { n } = (await db.query(`select count(*)::int as n from public.rooms where id = $1`, [GENERAL])).rows[0];
@@ -310,6 +320,12 @@ describe('leaving and being removed', () => {
 });
 
 describe('invites by email', () => {
+  it('stop at fifty a day from one person', async () => {
+    const { r } = await one(THEO, `select public.create_room('Many', 'room', false, '{}') as r`);
+    for (let i = 0; i < 50; i += 1) await as(THEO, `insert into public.room_email_invites (room_id, email, invited_by) values ($1, $2, $3)`, [r, `p${i}@many.test`, THEO]);
+    expect(await refused(THEO, `insert into public.room_email_invites (room_id, email, invited_by) values ($1, 'one-more@many.test', $2)`, [r, THEO])).toBe(true);
+  });
+
   it('reach only a confirmed sign-in with that email', async () => {
     const { r } = await one(ANA, `select public.create_room('Friends', 'room', false, '{}') as r`);
     await as(ANA, `insert into public.room_email_invites (room_id, email, invited_by) values ($1, 'ben@friends.test', $2)`, [r, ANA]);
