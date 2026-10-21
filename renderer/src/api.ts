@@ -683,8 +683,8 @@ export const api = {
   // `engine`, `model` and `effort` are which coding agent and which model pick
   // up the run this reply starts. Undefined means the drawer was never opened
   // and the row keeps what it had; null clears it back to the engine's own
-  // choice. `engine` has no drawer: ⌘K sets it, because the reply box's list
-  // is one engine's and so cannot cross (w-c9da359466).
+  // choice. `engine` is set by ⌘K (w-c9da359466) and by the reply box's menu,
+  // which lists both agents' models (w-e1a42f6b21).
   // `now` cuts the running agent's current step so this message is answered at
   // once instead of after it (main/claude-input.mjs `interrupt`).
   // `inReplyTo` is the uid of the message a reply in a thread answers

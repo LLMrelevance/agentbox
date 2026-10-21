@@ -25,6 +25,8 @@ import { stopKey } from './walk-rules';
 import { PinMark } from './ThreadMenu';
 import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type Box } from './board-select';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
+import { FleetContext } from '../fleet';
+import { factsFor, saysOnCard, statusCell, type StatusCell } from '../status-word';
 import { shownPriority } from '../../../shared/rank.mjs';
 import { api } from '../api';
 import { CLOUD_KEY, CLOUD_WHEN_ON, cloudButtonCount, cloudFootLine, cloudIsOn, cloudMonthLine, countedAccounts, type CloudMode, type CloudStatus } from '../cloud-menu';
@@ -87,6 +89,15 @@ export function inStep(el: Element | null) {
 export const LiveContext = createContext<Set<string>>(new Set());
 /** The ones of those running in the cloud rather than on this Mac. */
 export const CloudContext = createContext<Set<string>>(new Set());
+
+/** The mark in the Status cell: the running one where an agent is on it, the
+ *  still ring where one is waiting its turn or held, and a blank of the same
+ *  width on the words that are the thread's own state, so every word in the
+ *  column starts on one line (status-word.ts). */
+export function StatusMark({ status }: { status: StatusCell }) {
+  if (status.live) return <RunningMark cloud={status.cloud} />;
+  return <span className={`th-st s-${status.agent ? status.mark : 'none'}`} aria-hidden="true" />;
+}
 
 /** An agent is on the thread now: the half-dot on this Mac, a cloud in the cloud, both pulsing. */
 export function RunningMark({ cloud = false }: { cloud?: boolean }) {
@@ -506,7 +517,7 @@ export function EmptyTab({ view }: { view: TabView }) {
 /* ------------------------------------------------------------ one thread's cells */
 export function TableHead({ person = false, tab }: { person?: boolean; tab?: string }) {
   return <div className="row th-head"><span className="mark" aria-hidden="true" /><div className={`row-main th-grid${person ? ' with-person' : ''}`}>
-    <div>Thread</div><div>Project</div>{person && <div>Person</div>}<div>Priority</div><div className="num">{timeHeading(tab)}</div>
+    <div>Thread</div><div>Status</div><div>Project</div>{person && <div>Person</div>}<div>Priority</div><div className="num">{timeHeading(tab)}</div>
   </div></div>;
 }
 
@@ -524,13 +535,17 @@ export const RepeatMark = () => <svg className="th-repeat" width="13" height="13
   <path d="M13 6.5A5.5 5.5 0 0 0 3.2 4.8M3 2.5v2.6h2.6" /><path d="M3 9.5a5.5 5.5 0 0 0 9.8 1.7M13 13.5v-2.6h-2.6" />
 </svg>;
 
-export function RowCells({ live = false, cloud = false, lead, title, hidden = false, lock = false, shared = false, chosen = 0, held = false, pinned = false, aside, where, person, priority, updatedAt, when, now, action }: {
+export function RowCells({ status, lead, title, hidden = false, lock = false, shared = false, chosen = 0, held = false, pinned = false, aside, where, person, priority, updatedAt, when, now, action }: {
   /** Pinned to the top of the list (w-20323283e6): a faint pin after the title. */
   pinned?: boolean;
-  /** An agent is on this thread right now: a pulsing mark before its name. */
-  live?: boolean;
-  /** And it is running in the cloud. */
-  cloud?: boolean;
+  /**
+   * WHAT IS HAPPENING ON THIS THREAD, in the column of its own (w-ec2b04d449).
+   * The turning mark used to lead the title and was the only thing on the row
+   * about an agent, so a queued thread and a working one were one picture. It
+   * is in this cell now, the cloud shape included, and the title is the title.
+   * Absent on the rows that are not threads: a repeating rule, a teammate's
+   * card. The cell is still drawn, or the columns under it step left. */
+  status?: StatusCell;
   title: ReactNode; hidden?: boolean; lock?: boolean; shared?: boolean; where: ReactNode; person?: ReactNode;
   /** How many people a thread shared with chosen people reaches; 0 for the team. */
   chosen?: number;
@@ -549,7 +564,8 @@ export function RowCells({ live = false, cloud = false, lead, title, hidden = fa
     {/* THE MARK SAYS WHICH KIND OF SHARED, QUIETLY (w-41ff964775): the two
         people with a small count beside them for a thread only a few people
         see. The whole team, the default, carries nothing (2026-10-02). */}
-    <div className={`th-cell-title subject${hidden ? ' hidden' : ''}`}>{live ? <RunningMark cloud={cloud} /> : lead}{title}{aside && <span className="th-aside">{aside}</span>}{held && <span className="th-aside">not started</span>}{shared && <SharedMark label={chosen ? `Visible to ${chosen} ${chosen === 1 ? 'person' : 'people'}` : 'Visible to the team'} />}{chosen > 0 && <span className="th-shared-n" aria-hidden="true">{chosen}</span>}{lock && <LockMark />}{pinned && <PinMark size={13} className="th-pin" />}</div>
+    <div className={`th-cell-title subject${hidden ? ' hidden' : ''}`}>{lead}{title}{aside && <span className="th-aside">{aside}</span>}{held && <span className="th-aside">not started</span>}{shared && <SharedMark label={chosen ? `Visible to ${chosen} ${chosen === 1 ? 'person' : 'people'}` : 'Visible to the team'} />}{chosen > 0 && <span className="th-shared-n" aria-hidden="true">{chosen}</span>}{lock && <LockMark />}{pinned && <PinMark size={13} className="th-pin" />}</div>
+    <div className="th-cell-state" title={status?.title}>{status && <><StatusMark status={status} />{status.word}</>}</div>
     <div className="th-cell-proj">{where}</div>
     {person !== undefined && <div className="th-cell-person">{person}</div>}
     <div className={`th-cell-prio${id === 'urgent' ? ' urgent' : ''}`}>{id && <><PriorityMark id={id} />{priorityLabelOf(id)}</>}</div>
@@ -590,11 +606,14 @@ export function ThreadCells({ item, product, now, person, tab }: {
   // falling through to Updated, which under a heading saying Back would be a
   // return time that is not one. The row says "not started" beside its name.
   const back = tab === 'snoozed' ? backWords(item, now) : undefined;
-  const liveIds = useContext(LiveContext);
-  const cloudIds = useContext(CloudContext);
   const waiting = useContext(WaitingContext);
   const freeWait = useContext(FreeAgentContext);
   const team = useContext(TeamContext);
+  // WHAT IS HAPPENING ON IT, for the Status column. `inProgress` is the tab
+  // this row is drawn under: the words about agents waiting their turn are
+  // only ever true there, which is the gate live-line has always had.
+  const fleet = useContext(FleetContext);
+  const status = statusCell(item, { ...factsFor(fleet, item.id), inProgress: tab === 'progress', now });
   // WHO SEES IT, AT A GLANCE AND ONE CLICK FROM CHANGING (2026-10-01). One
   // mark after the title, always: the people on a thread the team or chosen
   // people can see, the lock on one only you can see. A thread shared with
@@ -627,7 +646,7 @@ export function ThreadCells({ item, product, now, person, tab }: {
   // which is why it is handed your teammates' first names.
   const said = messageLine(item, product, team?.me ?? null, (id) => firstName(team?.byId.get(id) ?? null));
   if (said) {
-    return <RowCells live={liveIds.has(item.id)} cloud={cloudIds.has(item.id)} title={<MessageTitle people={said.people} fromMe={said.fromMe} text={said.text} />} pinned={!!item.pinned && item.status !== 'done'} where="Message" person={person}
+    return <RowCells status={status} title={<MessageTitle people={said.people} fromMe={said.fromMe} text={said.text} />} pinned={!!item.pinned && item.status !== 'done'} where="Message" person={person}
       priority={messagePriority(item)} updatedAt={when} when={back} now={now} action={action} />;
   }
   // ONLY THE UNUSUAL CASE WEARS A MARK (2026-10-02). Shared with the team is
@@ -640,7 +659,11 @@ export function ThreadCells({ item, product, now, person, tab }: {
   // AND HOW MANY TASKS IT FILED STILL WAIT FOR A YES (w-d2744c6daa), in the
   // faint words a repeating task uses for its schedule: "a little bit of text
   // that gives you extra information if you need to know."
-  return <RowCells live={liveIds.has(item.id)} cloud={cloudIds.has(item.id)} title={rowTitle(item)} aside={toApproveWords(waiting.get(`${item.product}/${item.id}`)) || (freeWait.has(item.id) ? 'waiting for a free agent' : undefined)} shared={seen === 'people'} chosen={chosen} lock={lock} held={notStarted(item)} pinned={!!item.pinned && item.status !== 'done'} where={product?.name ?? ''} person={person}
+  // "waiting for a free agent" came off this aside on the merge (w-ec2b04d449):
+  // the Status column says Queued on exactly those rows, and one fact in two
+  // places on one row is what the column was drawn to end. `FreeAgentContext`
+  // is untouched and still decides whether the cloud offers itself.
+  return <RowCells status={status} title={rowTitle(item)} aside={toApproveWords(waiting.get(`${item.product}/${item.id}`))} shared={seen === 'people'} chosen={chosen} lock={lock} held={notStarted(item)} pinned={!!item.pinned && item.status !== 'done'} where={product?.name ?? ''} person={person}
     priority={shownPriority(item)} updatedAt={when} when={back} now={now} action={action} />;
 }
 
@@ -675,7 +698,7 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
 }) {
   const liveIds = useContext(LiveContext);
   const cloudIds = useContext(CloudContext);
-  const freeWait = useContext(FreeAgentContext);
+  const fleet = useContext(FleetContext);
   const team = useContext(TeamContext);
   const me = team?.me ?? null;
   const who = picked ?? (me ? [me] : []);
@@ -923,6 +946,8 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
           const pick = !!e.item && !!onMark;
           const on = pick && !!marked?.has(e.item!.id);
           const edge = isSelected(e) && !marked?.size;
+          // A teammate's card carries their summary and never our agents.
+          const status = e.item ? statusCell(e.item, { ...factsFor(fleet, e.item.id), state: e.state, inProgress: e.state === 'running', now }) : null;
           const seen = e.item ? sharing(e.item) : null;
           const who = seen === 'people' ? <SharedMark label="Visible to the people on it" /> : seen === 'private' ? <LockMark /> : null;
           const pin = e.item?.pinned && e.item.status !== 'done' ? <PinMark size={13} className="th-pin" /> : null;
@@ -944,8 +969,16 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
             ? <MessageTitle people={e.message.people} fromMe={e.message.fromMe} text={e.title ?? ''} mark={pin} />
             : <TitleThenMark title={e.title ?? ''} mark={marks} />}
           </div>
-          <div className="m">{e.live && <RunningMark cloud={!!e.item && cloudIds.has(e.item.id)} />}{e.priority !== null && <PriorityMark id={priorityIdOf(e.priority)} />}<span className="p">{e.project}</span>
-            {e.item && freeWait.has(e.item.id) && <span className="th-card-wait">waiting</span>}
+          {/* WHAT IS HAPPENING ON IT, INSIDE THE CARD (w-ec2b04d449). A board
+              is a board: nothing goes between the cards, and the column says
+              the state over all of them, so the word is drawn on the card
+              exactly where it says something the column does not (saysOnCard).
+              It takes the running mark's place on the card's own line, and the
+              "waiting" chip beside the project with it: Queued is the same
+              fact in the place every card now says it. */}
+          <div className="m">{status && saysOnCard(status, e.item!, e.state)
+            ? <span className="s"><StatusMark status={status} />{status.word}</span>
+            : e.live && <RunningMark cloud={!!e.item && cloudIds.has(e.item.id)} />}{e.priority !== null && <PriorityMark id={priorityIdOf(e.priority)} />}<span className="p">{e.project}</span>
             {withOthers && <Face person={e.ownerId ? team?.byId.get(e.ownerId) ?? null : null} me={e.ownerId === me} />}</div>
         </button>;
         })}

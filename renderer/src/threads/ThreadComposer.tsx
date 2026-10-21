@@ -51,9 +51,11 @@ import { readLastEngine, startingEngine, writeLastEngine } from '../engines';
 import { repeatPresets } from '../components/When';
 import { readRule } from '../format';
 import { fitMenu } from '../keep-in-window';
+import { ModelMenu } from './ModelMenu';
 import {
+  agentChoices, agentWordFor,
   allModels, findPeople, harnessFields, laterHint, momentFromWords, mondayMorning, moreCount,
-  joinNames, placeholderFor, projectsOffered, projectSwatch, recentModels, sameModel,
+  joinNames, placeholderFor, projectsOffered, projectSwatch, recentModels,
   sharingFields, startingProject, startingVisibility, startingChosen, teammates, threadMessage, tomorrowMorning, chosenWords, VISIBILITY_ROWS,
   dueChoices, dueWords, headRows, taskFields,
   type Harness, type ModelPick, type SendAs, type Visibility,
@@ -266,6 +268,13 @@ export function ThreadComposer({
     writeLastEffort(next, undefined, pick.engine);
   };
   const labelOf = (p: ModelPick) => engineModelLabel(p.engine, p.model, modelOpts);
+  // WHO IS ABOUT TO GET THIS, by name, and the rows To offers. Both are empty
+  // words on a Mac with one coding agent, where they read exactly as before.
+  const agents = agentChoices(engineRows);
+  const engineTags = agents.length > 0;
+  const chooseAgent = (engine: Harness) => {
+    pickModel({ engine, model: readLastModel(undefined, engine, codexDefault) ?? defaultModelFor(engine, codexDefault) });
+  };
   const recent = useMemo(
     () => recentModels(items, { codexModels, codexDefault, codexOffered, claudeOffered }),
     [items, codexModels, codexDefault, codexOffered, claudeOffered],
@@ -552,11 +561,21 @@ export function ThreadComposer({
 
   const toMenu = (
     <div className="tc-menu tc-drop tc-to-menu" role="listbox" aria-label="To" onKeyDown={menuKeys}>
-      {!adding && (
-        <button type="button" data-item className={`tc-row ${person ? '' : 'on'}`} onPointerEnter={hover} onClick={() => chooseTo('agent')}>
-          <AgentFace /><span className="tc-row-label">Agent</span>
-        </button>
-      )}
+      {/* ONE ROW PER AGENT WHERE THIS MAC HAS TWO, and the one row it has
+          always drawn where it has one. Picking an agent is picking where the
+          task runs, so it moves the model with it (`chooseAgent`). */}
+      {!adding && (agents.length
+        ? agents.map((a) => (
+          <button key={a.id} type="button" data-item className={`tc-row ${!person && pick.engine === a.id ? 'on' : ''}`}
+            onPointerEnter={hover} onClick={() => { chooseAgent(a.id); chooseTo('agent'); }}>
+            <AgentFace /><span className="tc-row-label">{a.label}</span>
+          </button>
+        ))
+        : (
+          <button type="button" data-item className={`tc-row ${person ? '' : 'on'}`} onPointerEnter={hover} onClick={() => chooseTo('agent')}>
+            <AgentFace /><span className="tc-row-label">Agent</span>
+          </button>
+        ))}
       {team && others.length > 0 && (<>
         {!adding && <span className="tc-sep" />}
         <span className="tc-menu-head">People</span>
@@ -578,78 +597,28 @@ export function ThreadComposer({
     </div>
   );
 
-  // WHICH ENGINE A RECENT ROW RUNS IN, said on the row (w-c9da359466). The
-  // columns behind All models are headed by their engine, so a model picked
-  // there says where it runs; Recent mixes both lists under one heading and
-  // said nothing, and a tester reading it could not tell "GPT-6.1-Sol,
-  // Sonnet 5.5, GPT-5.6-Terra" apart as two engines (power-test-2, issue 42).
-  // Only with both engines on this Mac: with one, the word is on every row and
-  // tells nobody anything.
-  const modelRow = (p: ModelPick, saysEngine = false) => (
-    <button
-      key={`${p.engine}:${p.model}`}
-      type="button"
-      data-item
-      className={`tc-row ${sameModel(p, pick) ? 'on' : ''}`}
-      onPointerEnter={hover}
-      onClick={() => { pickModel(p); close('text'); }}
-    ><span className="tc-row-label">{labelOf(p)}</span>{saysEngine && <small>{engineLabel(p.engine)}</small>}</button>
-  );
   const engineLabel = (id: string) => engineRows.find((e) => e.id === id)?.label ?? ENGINES.find((e) => e.id === id)?.label ?? id;
 
+  // The menu itself is ./ModelMenu.tsx, which the reply box draws too.
   const modelMenu = (
-    <div className="tc-menu tc-drop tc-model-menu" role="listbox" aria-label="Model" onKeyDown={menuKeys}>
-      {modelPage === 'recent' ? (<>
-        <span className="tc-menu-head">Recent</span>
-        {recent.map((p) => modelRow(p, engineRows.length > 1))}
-        <span className="tc-sep" />
-        <button type="button" data-item className="tc-row" onPointerEnter={hover} onClick={() => setModelPage('all')}>
-          <span className="tc-row-label">All models</span>
-          {more > 0 && <small>{more} more ›</small>}
-        </button>
-      </>) : (<>
-        <button type="button" data-item className="tc-row" onPointerEnter={hover} onClick={() => setModelPage('recent')}>
-          <span className="tc-row-label">‹ Recent</span>
-        </button>
-        <span className="tc-sep" />
-        <div className="tc-cols">
-          {/* Only a column with rows (w-db6f5e331e): a Mac without Claude
-              Code drew an empty CLAUDE CODE heading here. */}
-          {every.claude.length > 0 && (
-            <div className="tc-col">
-              <span className="tc-menu-head">{engineLabel('claude')}</span>
-              {every.claude.map((p) => modelRow(p))}
-            </div>
-          )}
-          {every.codex.length > 0 && (
-            <div className="tc-col">
-              <span className="tc-menu-head">{engineLabel('codex')}</span>
-              {every.codex.map((p) => modelRow(p))}
-            </div>
-          )}
-        </div>
-      </>)}
-      {effortRows.length > 0 && (<>
-        <span className="tc-sep" />
-        <span className="tc-effort-head" id="tc-effort-head">Effort</span>
-        <span className="tc-effort" role="radiogroup" aria-labelledby="tc-effort-head">
-          {effortRows.map((e) => (
-            <button
-              key={e.id}
-              type="button"
-              data-item
-              role="radio"
-              aria-checked={e.id === effortLit}
-              className={e.id === effortLit ? 'lit' : ''}
-              onPointerEnter={hover}
-              // The level stays in the menu: she may be here to set the model
-              // and the level both, and closing on the first makes her reopen it.
-              onClick={() => pickEffort(e.id)}
-            >{e.label}</button>
-          ))}
-        </span>
-      </>)}
-    </div>
+    <ModelMenu
+      className="tc-menu tc-drop tc-model-menu"
+      page={modelPage}
+      onPage={setModelPage}
+      recent={recent}
+      every={every}
+      more={more}
+      pick={pick}
+      onPick={(p) => { pickModel(p); close('text'); }}
+      labelOf={labelOf}
+      engineLabel={engineLabel}
+      engineTags={engineTags}
+      effortRows={effortRows}
+      effortLit={effortLit}
+      onEffort={pickEffort}
+      onKeyDown={menuKeys}
+      onHover={hover}
+    />
   );
 
   // IS THIS A TASK OR A MESSAGE. Two rows, in the head's own menu, because
@@ -891,7 +860,7 @@ export function ThreadComposer({
               <button type="button" data-trigger className={`tc-word ${open === 'to' ? 'open' : ''}`} aria-haspopup="listbox" aria-expanded={open === 'to'}
                 onClick={() => toggle('to')} onKeyDown={triggerKeys('to')}>
                 {person ? <Face person={person} /> : <AgentFace />}
-                <span className="tc-word-text">{person ? person.name : 'Agent'}</span>
+                <span className="tc-word-text">{person ? person.name : agentWordFor(engineRows, pick.engine)}</span>
               </button>
               {extra.map((p) => (
                 <span key={p.id} className="tc-also">

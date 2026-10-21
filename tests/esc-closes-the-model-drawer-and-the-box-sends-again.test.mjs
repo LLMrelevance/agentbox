@@ -84,9 +84,22 @@ describe('the wiring is there, in both boxes that draw the drawer', () => {
 
   it('hands focus back to the reply box when the drawer shuts', () => {
     const dock = focus.slice(focus.indexOf('function DockComposer'));
-    const wired = dock.match(/<ModelPicker[\s\S]*?\/>/);
+    // The reply box draws the new thread card's menu since w-e1a42f6b21
+    // (../renderer/src/components/ReplyModel.tsx); what it reports when the
+    // drawer shuts, and what this box does with it, are unchanged.
+    const wired = dock.match(/<ReplyModel[\s\S]*?\/>/);
     expect(wired, 'the reply box draws the drawer').toBeTruthy();
     expect(wired[0]).toContain('onOpenChange=');
     expect(dock).toContain('ref.current?.focus()');
+  });
+
+  // And it asks the same rule about the keys, so Escape means one thing in
+  // both boxes.
+  it('asks the one function in the reply box too', () => {
+    const reply = fs.readFileSync(new URL('../renderer/src/components/ReplyModel.tsx', import.meta.url), 'utf8');
+    expect(reply).toContain("import { modelDrawerKey } from '../model-drawer-keys';");
+    expect(reply.match(/modelDrawerKey\(/g)?.length).toBe(2);
+    expect(reply).toContain("from: 'inside'");
+    expect(reply).toContain("from: 'word'");
   });
 });

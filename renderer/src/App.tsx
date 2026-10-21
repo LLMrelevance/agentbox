@@ -19,6 +19,7 @@ import { cursorIndex, cursorMark, type CursorMark } from './cursor-follows';
 import { flushSync } from 'react-dom';
 import { readySkin, swapLook } from './look-switch';
 import type { AnswerMode, Approval, CloudPlan, PermissionMode, Product, RepeatRule, RepeatShape, Snapshot, ThreadCard, ThreadStateWord, View, WorkItem } from './types';
+import type { ReplyPick } from './reply-pick';
 import { api } from './api';
 import { setClaudeModels } from './models';
 import { advanceAfter, advanceLandsHere, replyMovesOn, nextAfterAdvance, type Advance } from './advance';
@@ -154,6 +155,7 @@ import { TeamPage } from './team/TeamPage';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
 import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, CloudOfferContext, FreeAgentContext, StateTabs, WaitingContext } from './threads/Pages';
 import { cloudOffer, type OfferGo } from './cloud-upgrade';
+import { FleetContext, type Fleet } from './fleet';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
@@ -1865,6 +1867,16 @@ export default function App() {
   // status says, until its session exits (w-bc976fd247). Up here because every
   // list below reads it.
   const liveIds = useMemo(() => new Set(runningRows.map((r) => r.itemId)), [runningRows]);
+  // EVERYTHING THE SUPERVISOR KNOWS ABOUT EVERY THREAD, in one context, so the
+  // Status column on a row and the word on a card are the same answer
+  // (renderer/src/fleet.ts, w-ec2b04d449).
+  const fleet = useMemo((): Fleet => ({
+    sessions: new Map(runningRows.map((r) => [r.itemId, r])),
+    queued: snap?.supervisor.queued, runNow: snap?.supervisor.runNow,
+    signInNeeded: snap?.supervisor.signInNeeded, atLimit: snap?.supervisor.atLimit,
+    shipping: snap?.supervisor.shipping, stalled: snap?.supervisor.stalled,
+    silent: snap?.supervisor.silent, paused: snap?.supervisor.paused,
+  }), [runningRows, snap?.supervisor]);
   const cloudIds = useMemo(() => new Set(runningRows.filter((r) => r.where === 'cloud').map((r) => r.itemId)), [runningRows]);
   // THE THREADS THE APP STILL HAS TO SHIP (w-0c1ba766eb). Waiting on the app,
   // not on her, so In progress reading "Shipping" and out of Needs you until
@@ -3929,7 +3941,7 @@ export default function App() {
   // lives in `leaveResolved` above and still covers every way a row leaves her
   // inbox.
 
-  const answerWith = useCallback(async (item: WorkItem, text: string, priority?: number, sent?: SentDraft, mode?: AnswerMode | null, engine?: string | null, pick?: { model: string | null; effort: string | null }) => {
+  const answerWith = useCallback(async (item: WorkItem, text: string, priority?: number, sent?: SentDraft, mode?: AnswerMode | null, engine?: string | null, pick?: ReplyPick) => {
     // AN AGENT ROW IS NOT WORK OF HERS TO CLOSE, DEFER OR RESTART. It stands
     // for a session running outside Agentbox; the only two things that mean
     // anything to it are a reply and being taken to its window.
@@ -4067,7 +4079,7 @@ export default function App() {
           // mid-flight; the pick lands on the row and the next run reads it.
           // The drawer says "Which model this conversation runs on" rather than
           // anything about this message, for exactly this case.
-          ...(pick ? { model: pick.model, effort: pick.effort } : {}),
+          ...(pick ?? {}),
         }),
         // NOTHING IS TAKEN OFF THE SCREEN HERE. The row is re-read, the
         // committed copy of this message arrives with it, and `itemThread`
@@ -4214,7 +4226,7 @@ export default function App() {
           // drawer; the store writes it onto the item BEFORE the answer, so the
           // run this reply starts reads the model she just chose rather than the
           // one it was on (main/store.mjs, answerItem).
-          ...(pick ? { model: pick.model, effort: pick.effort } : {}),
+          ...(pick ?? {}),
         });
       } catch (error) {
         setSending((q) => q.filter((s) => s !== mine));
@@ -5820,6 +5832,7 @@ export default function App() {
     <ChatAgentsContext.Provider value={chatAgents}>
     <LiveContext.Provider value={liveIds}>
     <CloudContext.Provider value={cloudIds}>
+    <FleetContext.Provider value={fleet}>
     <WaitingContext.Provider value={waitingByThread}>
     <FreeAgentContext.Provider value={freeWaitIds}>
     <CloudOfferContext.Provider value={cloudOfferNow ? { offer: cloudOfferNow, onGo: (go) => void onCloudGo(go) } : null}>
@@ -6456,10 +6469,12 @@ export default function App() {
                   onResolve={() => markDone(focused)}
                   onPick={(n) => pickOption(focused, n)}
                   onReply={() => setModal('reply')}
-                  // The reply box's model drawer reads the same list the
-                  // new-task card does.
+                  // The reply box's model menu IS the new thread card's, so it
+                  // is handed the same four things the card is.
                   codexModels={codexModels}
                   codexModelDefault={codexModelDefault}
+                  engines={snap.engines?.choices}
+                  items={items}
                   onReplySend={(text, priority, repeat, sent, mode, pick) => {
                     // THE REPLY GOES WHERE THE ROW ACTUALLY LIVES. On an agent
                     // row there is no ledger to answer; the text is handed to
@@ -7705,6 +7720,7 @@ export default function App() {
     </CloudOfferContext.Provider>
     </FreeAgentContext.Provider>
     </WaitingContext.Provider>
+    </FleetContext.Provider>
     </CloudContext.Provider>
     </LiveContext.Provider>
     </ChatAgentsContext.Provider>

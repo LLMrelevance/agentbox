@@ -631,6 +631,9 @@ export interface AgentTurn {
   at: number;
   who: 'you' | 'it';
   text: string;
+  /** What wrote it, off the ledger (thread-history.ts, `ran`). The thread
+   *  signs the message with it instead of "The agent". */
+  ran?: { engine?: string; model?: string };
   // Which person wrote it, on a shared project (the team version). A message
   // from a teammate is drawn with their face and name instead of "You".
   by?: string;
