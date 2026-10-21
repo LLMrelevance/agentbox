@@ -27,7 +27,7 @@ import { List } from './components/List';
 import { isTroubleRow, troubleRow } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
 import { needsYouLit } from './needs-you';
-import { arrivedAt, isUnread } from './unread';
+import { arrivedAt, isUnread, readMoves } from './unread';
 import { Focus } from './components/Focus';
 import { TicketItems } from './components/TicketReference';
 import type { PendingSaid } from './item-thread';
@@ -135,7 +135,7 @@ import { withOlder } from './older-threads';
 import { NO_FILTER, filterBox, filterMenu, filterTags, isFiltering, toggleFilter, clearFilterPart, type BoxFilter as BoxFilterState, type FilterPart, type Harness } from './box-filter';
 import { BoxFilter } from './components/BoxFilter';
 import { itemPriority, moveProduct, placeScore, placedScore } from '../../shared/rank.mjs';
-import { threadsMade, approvableFiled, doItHereWrites } from './threads-made';
+import { threadsMade, approvableFiled, doItHereWrites, answerAllWrites, RUN_IT } from './threads-made';
 import { waitingCounts } from './threads-made';
 import { closeAsk, closeAskOwnsKey, KEEP_OPEN } from './close-asks-first';
 import { ChatAgentsContext, type ChatAgentsValue } from './team/ChatAgents';
@@ -3107,6 +3107,10 @@ export default function App() {
     setSeen((s) => new Set(s).add(item.id));
     setSeenAt((m) => ({ ...m, [item.id]: Date.now() }));
   }, []);
+  const markUnseen = useCallback((item: WorkItem) => {
+    setSeen((s) => { const c = new Set(s); c.delete(item.id); return c; });
+    setSeenAt((m) => ({ ...m, [item.id]: 0 }));
+  }, []);
   // An answer that lands on the thread you are reading is read already. Keyed
   // on the answer's time, so Mark Unread on the open thread is not undone.
   const focusedArrival = useMemo(() => {
@@ -3797,7 +3801,7 @@ export default function App() {
     } else if (item.kind === 'review' && !item.answer) {
       await approveWith('Approved. Proceed as you proposed.', `Approved → ${item.productName} will enact it`);
     } else if (isProposal) {
-      await approveWith('Approved. Run it.', `Running → ${item.title.slice(0, 40)}`);
+      await approveWith(RUN_IT, `Running → ${item.title.slice(0, 40)}`);
     } else {
       await markDone(item);
     }
@@ -3821,6 +3825,30 @@ export default function App() {
       pushUndo({ label: `Back as its own thread: ${clipToSentence(child.title, TOAST_TITLE)}. The message already went.`, undoes: `reopen “${clipToSentence(child.title, TOAST_TITLE)}”`, brings: child, undid, run: async () => { await api.answer({ product: child.product, id: child.id, status: 'open' }); } });
     }, `Doing it in this thread: ${clipToSentence(child.title, TOAST_TITLE)}`, undefined, true, { product: parent.product, id: parent.id }, undid);
   }, [items, deferCommit, pushUndo]);
+
+  // START ALL AND DISMISS ALL (w-fe64f35bdd), from the count line over one
+  // list of proposals. Written at once rather than held like a single answer,
+  // because the hold keeps one row and these are many; the Z after it is a real
+  // cancel, the same one a single approval's late undo makes.
+  const answerAllFiled = useCallback(async (kids: WorkItem[], act: 'start' | 'dismiss') => {
+    if (!kids.length) return;
+    await flushPending();
+    const { writes, undo } = answerAllWrites(kids, act);
+    for (const w of writes) await api.answer(w);
+    const n = kids.length;
+    const start = act === 'start';
+    pushUndo({
+      label: start ? `${n} approvals withdrawn` : `Reopened ${n} proposals`,
+      undoes: start ? `take back those ${n} approvals and stop their agents` : `reopen those ${n} proposals`,
+      undid: kids.map((k) => ({ product: k.product, id: k.id, words: start ? 'Undid your approval' : 'Undid closing it' })),
+      run: async () => {
+        if (start) for (const k of kids) await (window.zero as any)?.stopSession?.({ product: k.product, id: k.id });
+        for (const w of undo) await api.answer(w);
+      },
+    });
+    showToast(`${start ? `Started ${n} threads` : `Dismissed ${n} proposals`} · press Z to undo`);
+    await refresh();
+  }, [flushPending, pushUndo, showToast, refresh]);
 
   // THE ANSWER TO WHAT A CLOSE ASKED (w-d2744c6daa, ./close-asks-first.ts).
   // Deciding each one keeps the thread open and brings the list into view;
@@ -6316,6 +6344,8 @@ export default function App() {
                      want to reject something." The close its own row makes,
                      with its undo, without leaving this thread. */
                   onDismissFiled={(i) => markDone(i, { stay: true, force: true })}
+                  onStartAllFiled={(kids) => answerAllFiled(kids, 'start')}
+                  onDismissAllFiled={(kids) => answerAllFiled(kids, 'dismiss')}
                   // The question a close asks while tasks still wait (w-d2744c6daa).
                   closeAsk={(() => {
                     const asked = closeAskOn === keyOf(focused) ? closeAsk(waitingFiled(focused).length) : null;
@@ -6789,6 +6819,7 @@ export default function App() {
           if (multiSel.size) {
             const sel = selectable.filter((i) => multiSel.has(i.id));
             const n = sel.length;
+            const moves = readMoves(sel, seenAt, unreadSince);
             return [
               ...(view !== 'snoozed'
                 ? [{ id: 'done', label: `Close (${n} selected)`, keyHint: 'E', run: () => { setModal(null); batchDone(multiSel); } }]
@@ -6797,11 +6828,12 @@ export default function App() {
               ...(sel.some((i) => returnAt(i) > Date.now())
                 ? [{ id: 'unsnooze', label: `Back to Inbox (${n} selected)`, run: () => unsnooze(sel) }]
                 : []),
-              { id: 'read', label: `Mark Read (${n} selected)`, run: () => {
-                setSeen((s) => new Set([...s, ...sel.map((i) => i.id)]));
-                setMultiSel(new Set());
-                setModal(null);
-              } },
+              ...(moves.read
+                ? [{ id: 'read', label: `Mark Read (${n} selected)`, run: () => { sel.forEach(markSeen); setMultiSel(new Set()); setModal(null); } }]
+                : []),
+              ...(moves.unread
+                ? [{ id: 'unread', label: `Mark Unread (${n} selected)`, run: () => { sel.forEach(markUnseen); setMultiSel(new Set()); setModal(null); } }]
+                : []),
               // Resume only what she ticked. Some of what stops is work she
               // has moved past, and all-or-nothing made her choose between
               // restarting things she had written off and restarting nothing
@@ -6868,9 +6900,9 @@ export default function App() {
               : []),
             // No Decline here, by design. Close This Task above
             // is the one way to say no.
-            seen.has(target.id)
-              ? { id: 'unread', label: 'Mark Unread', run: () => { setSeen((s) => { const c = new Set(s); c.delete(target.id); return c; }); setSeenAt((m) => ({ ...m, [target.id]: 0 })); setModal(null); } }
-              : { id: 'read', label: 'Mark Read', run: () => { markSeen(target); setModal(null); } },
+            isUnread(target, seenAt, unreadSince)
+              ? { id: 'read', label: 'Mark Read', run: () => { markSeen(target); setModal(null); } }
+              : { id: 'unread', label: 'Mark Unread', run: () => { markUnseen(target); setModal(null); } },
             ...(returnAt(target) > Date.now()
               ? [{
                   id: 'unsnooze',

@@ -82,6 +82,6 @@ describe('the list draws it', () => {
     expect(app).toMatch(/setSeenAt\(\(m\) => \(\{ \.\.\.m, \[item\.id\]: Date\.now\(\) \}\)\)/);
   });
   it('and Mark Unread puts the dot back', () => {
-    expect(read('App.tsx')).toMatch(/setSeenAt\(\(m\) => \(\{ \.\.\.m, \[target\.id\]: 0 \}\)\)/);
+    expect(read('App.tsx')).toMatch(/setSeenAt\(\(m\) => \(\{ \.\.\.m, \[item\.id\]: 0 \}\)\)/);
   });
 });

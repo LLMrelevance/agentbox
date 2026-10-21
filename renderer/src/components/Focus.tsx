@@ -546,7 +546,7 @@ export function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null }: {
   previewSample?: string;
   /** The repeating task this thread is a run of, drawn in its summary. */
   repeat?: RepeatHandle | null;
@@ -621,6 +621,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   onHereFiled?: (item: WorkItem) => void;
   /** Drop a proposal this thread filed: it closes and never runs (w-fcb5fdc2e5). */
   onDismissFiled?: (item: WorkItem) => void;
+  /** Start, or drop, every proposal in one list at once (w-fe64f35bdd). */
+  onStartAllFiled?: (items: WorkItem[]) => void;
+  onDismissAllFiled?: (items: WorkItem[]) => void;
   /**
    * THE QUESTION A CLOSE ASKS when tasks this thread filed are still waiting
    * (w-d2744c6daa, ../close-asks-first.ts). While it is up it stands where the
@@ -760,6 +763,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const approveFiled = (id: string) => { const hit = filed.find((r) => r.id === id); if (hit) onApproveFiled?.(hit.item); };
   const hereFiled = (id: string) => { const hit = filed.find((r) => r.id === id); if (hit) onHereFiled?.(hit.item); };
   const dismissFiled = (id: string) => { const hit = filed.find((r) => r.id === id); if (hit) onDismissFiled?.(hit.item); };
+  const filedItems = (ids: string[]) => ids.flatMap((id) => filed.find((r) => r.id === id)?.item ?? []);
+  const startAllFiled = (ids: string[]) => onStartAllFiled?.(filedItems(ids));
+  const dismissAllFiled = (ids: string[]) => onDismissAllFiled?.(filedItems(ids));
   // ONE REASON THERE IS NO REPLY BOX, and it is a box. There was not one. A
   // quiet session is not stuck on anything — it is sitting at its prompt,
   // listening — and a message written to it lands and is worked on, measured
@@ -1687,6 +1693,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               onApproveFiled={onApproveFiled && approveFiled}
               onHereFiled={onHereFiled && hereFiled}
               onDismissFiled={onDismissFiled && dismissFiled}
+              onStartAllFiled={onStartAllFiled && startAllFiled}
+              onDismissAllFiled={onDismissAllFiled && dismissAllFiled}
               // REPLY, AND HAND IT TO AN AGENT, both on the message rather than
               // under the conversation (w-560647d4db). Reply takes the same
               // road the review strip already takes into the reply box: write
@@ -1724,6 +1732,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             onApprove={onApproveFiled && approveFiled}
             onHere={onHereFiled && hereFiled}
             onDismiss={onDismissFiled && dismissFiled}
+            onStartAll={onStartAllFiled && startAllFiled}
+            onDismissAll={onDismissAllFiled && dismissAllFiled}
           />
         )}
 
