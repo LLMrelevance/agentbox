@@ -78,6 +78,15 @@
    gap is the board's own, so it is still there at the end of a scroll. */
 .rm-main.board { overflow: auto; padding-right: 0; }
 .rm-main.board > .rm-notice { margin-right: 24px; }
+/* The grid's people over the board, left-aligned so the first face sits on the first column's edge. */
+.rm-bfaces { display: flex; flex-wrap: wrap; gap: 8px 4px; padding: 2px 24px 20px 0; }
+.rm-bface { display: flex; flex-direction: column; align-items: flex-start; width: 64px; padding: 0; border: 0; background: none; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
+.rm-bface .n { margin-top: 7px; max-width: 100%; font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rm-bface .ag { display: inline-flex; align-items: center; gap: 5px; font: 10.5px/14px var(--mono); color: var(--text-faint); }
+.rm-bface .ag .live-mark { width: 10px; height: 10px; gap: 1px; color: var(--text); }
+.rm-bface:hover .rm-pic { border-color: var(--text-faint); }
+.rm-bface.off { opacity: .4; }
+.rm-bface.off:hover { opacity: .7; }
 .rm-board { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(170px, 1fr)); gap: 0 18px; padding-right: 24px; width: fit-content; min-width: 100%; box-sizing: border-box; align-items: start; }
 .rm-board .th-col-h { height: 32px; }
 .rm-board .th-col-h .live-mark { width: 12px; height: 12px; gap: 1.5px; margin-right: 9px; color: var(--text); }

@@ -46,6 +46,13 @@ export function boardPicked(saved: readonly string[] | null | undefined, people:
   return kept.length ? kept : ids;
 }
 
+/** A face over the board picked: just them from everyone, back to everyone from them alone. */
+export function facePick(picked: readonly string[], all: readonly string[], id: string): string[] {
+  if (picked.length >= all.length) return [id];
+  if (picked.length === 1 && picked[0] === id) return [...all];
+  return picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id];
+}
+
 /** Each room's pick, by room id. */
 export function readBoardPicks(store: Store = local()): Record<string, string[]> {
   try {

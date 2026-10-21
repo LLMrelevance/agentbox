@@ -7,7 +7,7 @@ import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
 import { RoomsNav, useOutside, type RoomMenuAction } from './RoomsNav';
 import { RoomTabs } from './RoomTabs';
 import { boardPeople, boardPicked, cardName, readBoardLater, readBoardPicks, readRoomView, roomTabs, tabWalk, withMe, writeBoardLater, writeBoardPicks, writeRoomView, type RoomView } from './room-rules';
-import { RoomViewButton } from './RoomView';
+import { BoardFaces, RoomViewButton } from './RoomView';
 import { landed, sameMessages } from './room-chat-rules';
 import { RoomPage, type RoomPane } from './RoomPage';
 import { RoomChat, peopleOf } from './RoomChat';
@@ -301,7 +301,9 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     writeBoardPicks(next);
   };
   const setLater = (shown: boolean) => { setLaterRaw(shown); writeBoardLater(shown); };
-  const board = onRoom && view === 'board' && renderBoard ? renderBoard(onBoardPicked, { later }) : null;
+  const board = onRoom && view === 'board' && renderBoard
+    ? <><BoardFaces people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} />{renderBoard(onBoardPicked, { later })}</>
+    : null;
   const viewButton: ReactNode = onRoom && renderBoard
     ? <RoomViewButton view={view} onView={setView} people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} later={later} onLater={setLater} />
     : null;
