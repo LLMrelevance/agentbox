@@ -325,6 +325,8 @@
 .rm-conv .t b { font-weight: 400; font-size: 14px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rm-conv .t span { font-size: 12.5px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rm-conv .m { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; font: 10.5px var(--mono); color: var(--text-faint); }
+.rm-conv .m .fl { display: flex; align-items: center; gap: 6px; height: 14px; }
+.rm-conv-pin { display: flex; color: var(--text-dim); }
 /* UNREAD READS BRIGHTER: the name and its last line, beside the dot. */
 .rm-conv.unread .t span { color: var(--text-dim); }
 .rm-conv.muted .t b { color: var(--text-dim); }
