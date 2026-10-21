@@ -87,9 +87,11 @@ describe('what one thread is doing, in one word', () => {
     expect(statusCell(item(), inProgress()).word).toBe('In progress');
   });
 
-  it('says In progress on a thread another worker holds the claim on', () => {
+  // It said the tab's own name here, with no mark, and nobody could tell what
+  // that meant beside the Working rows (w-ae746145fc).
+  it('says Working on a thread another worker holds the claim on', () => {
     const held = item({ status: 'claimed', claim: { holder: 'mcp-2', leaseUntil: NOW + 5 * MIN } });
-    expect(statusCell(held, inProgress({ queued: [] })).word).toBe('In progress');
+    expect(statusCell(held, inProgress({ queued: [] })).word).toBe('Working');
   });
 
   it('says Stopped where the worker died', () => {
