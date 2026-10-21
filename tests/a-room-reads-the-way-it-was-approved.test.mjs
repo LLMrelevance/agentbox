@@ -39,6 +39,16 @@ describe('hours, in words', () => {
   });
 });
 
+describe('a sentence that ends in a name', () => {
+  // Seen in Settings 2026-10-21: "Off, rooms show you as Sam R.." with two stops.
+  it('takes one full stop, not two, after an initial', async () => {
+    const { sentence } = await import('../renderer/src/team/rooms/room-rules.ts');
+    expect(sentence('Off, rooms show you as Sam R.')).toBe('Off, rooms show you as Sam R.');
+    expect(sentence('Off, rooms show you as Sam Rivera')).toBe('Off, rooms show you as Sam Rivera.');
+    expect(sentence('Off, rooms show you as Sam R.  ')).toBe('Off, rooms show you as Sam R.');
+  });
+});
+
 describe('their activity on their page', () => {
   it('a teammate who shares it, and always my own; never a stranger, never someone who turned it off', async () => {
     const { activityShown } = await import('../renderer/src/team/rooms/room-rules.ts');

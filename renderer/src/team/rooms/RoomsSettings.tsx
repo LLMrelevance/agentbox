@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import type { RoomCard, RoomProfile } from '../../types';
 import { WallCard } from './RoomPage';
-import { invisibleNotice } from './room-rules';
+import { invisibleNotice, sentence } from './room-rules';
 
 function Row({ label, desc, children }: { label: string; desc?: ReactNode; children?: ReactNode }) {
   return <div className="set-row">
@@ -32,7 +32,7 @@ export function RoomsSettings({ me, fullName, card, roomName, now, save, goInvis
   const preview = card ? { ...card, me: false, name: me.display_name } : null;
   return <>
     <Group id="rooms-name" label="Your name">
-      <Row label="Show my full name" desc={`${full ? 'On' : 'Off'}, rooms show you as ${me.display_name}.`}>
+      <Row label="Show my full name" desc={sentence(`${full ? 'On' : 'Off'}, rooms show you as ${me.display_name}`)}>
         <Switch label="Show my full name" on={full} onChange={(v) => save({ fullName: v })} />
       </Row>
     </Group>

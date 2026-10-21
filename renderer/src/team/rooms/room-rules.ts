@@ -117,6 +117,9 @@ export function invisibleNotice(untilIso: string | null | undefined, now: number
   return `You are invisible ${how}. Nobody in your rooms can see you.`;
 }
 
+/** A sentence with one full stop, even when it ends on an initial like "Sam R.". */
+export const sentence = (s: string) => { const t = s.trimEnd(); return t.endsWith('.') ? t : `${t}.`; };
+
 /** Agent hours as a card or a chart says them. */
 export function hoursWords(h: number): string {
   if (!(h > 0)) return '0';
