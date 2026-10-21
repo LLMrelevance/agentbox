@@ -63,7 +63,8 @@ describe('the reply box in a thread', () => {
   // carries the link to it after the words.
   it('saves the picture into the conversation and links it from the reply', () => {
     const src = code(read('renderer/src/team/ThreadPanel.tsx'));
-    expect(src).toMatch(/\[words, await persistAttachments\(product, files\)\]\.filter\(Boolean\)\.join\('\\n\\n'\)/);
+    expect(src).toMatch(/linked = await persistAttachments\(product, files\);/);
+    expect(src).toMatch(/\[words, linked\]\.filter\(Boolean\)\.join\('\\n\\n'\)/);
     expect(code(read('renderer/src/components/ItemThread.tsx'))).toMatch(/<ThreadPanel\s+product=\{item\.product\}/);
   });
 
@@ -71,8 +72,9 @@ describe('the reply box in a thread', () => {
   // empty box is still not.
   it('sends a picture with no words, and never an empty reply', () => {
     const src = code(read('renderer/src/team/ThreadPanel.tsx'));
-    expect(src).toMatch(/if \(!words && !attachments\.length\) return;/);
-    expect(src).toMatch(/const ready = !!draft\.trim\(\) \|\| attachments\.length > 0;/);
+    // `files` is the box's attachments plus a note finished by this Send.
+    expect(src).toMatch(/if \(!words && !files\.length\) return;/);
+    expect(src).toMatch(/const ready = !!draft\.trim\(\) \|\| attachments\.length > 0 \|\| recording;/);
     expect(panel()).toMatch(/<button type="button" class="dock-send" disabled="" title="Send · ↵">Send <kbd>↵<\/kbd><\/button>/);
   });
 });
