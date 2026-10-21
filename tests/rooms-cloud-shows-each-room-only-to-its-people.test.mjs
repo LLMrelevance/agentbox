@@ -104,6 +104,8 @@ describe('a team has its room', () => {
   it('General exists, listed, and anyone signed in can see it in Find rooms', async () => {
     const listed = await rows(JUN, `select id, name, joined from public.listed_rooms()`);
     expect(listed).toContainEqual({ id: GENERAL, name: 'General', joined: false });
+    // Find rooms' New tab sorts on it.
+    expect((await rows(JUN, `select created_at from public.listed_rooms() where id = $1`, [GENERAL]))[0].created_at).toBeTruthy();
   });
 });
 
@@ -222,9 +224,14 @@ describe('chat', () => {
 
 describe('joining by link', () => {
   let token;
-  it('a member gets the room’s one live link, and a friend joins with it', async () => {
+  // Round 23's join dialog says who invited you, so a link is one person's:
+  // each member has their own, and the preview names whoever made it.
+  let theirs;
+  it('each member gets a live link of their own, and a friend joins with it', async () => {
     ({ t: token } = await one(MAYA, `select public.room_link($1) as t`, [northwindRoom]));
-    expect((await one(THEO, `select public.room_link($1) as t`, [northwindRoom])).t).toBe(token);
+    expect((await one(MAYA, `select public.room_link($1) as t`, [northwindRoom])).t).toBe(token);
+    ({ t: theirs } = await one(THEO, `select public.room_link($1) as t`, [northwindRoom]));
+    expect(theirs).not.toBe(token);
     expect(await refused(JUN, `select public.room_link($1)`, [northwindRoom])).toBe(true);
     await as(ANA, `select public.join_room_by_link($1)`, [token]);
     expect((await rows(ANA, `select name from public.my_rooms()`)).map((r) => r.name)).toContain('Northwind');
@@ -235,18 +242,24 @@ describe('joining by link', () => {
     expect(await rows(ANA, `select * from public.thread_cards where team_id = $1`, [northwind.id])).toEqual([]);
   });
   it('the preview shows the room to anyone with the link, and nothing for a dead one', async () => {
-    const [p] = (await as(null, `select name, members, agents_running, faces from public.room_preview($1)`, [token], 'anon')).rows;
+    const [p] = (await as(null, `select name, members, agents_running, faces, invited_by_name, invited_by_avatar from public.room_preview($1)`, [token], 'anon')).rows;
     expect(p.name).toBe('Northwind');
+    expect(p.invited_by_name).toBe('Maya C.');
     expect(p.members).toBe(3);
     expect(p.faces.length).toBeGreaterThan(0);
     expect(JSON.stringify(p)).not.toMatch(/@/);
     expect((await as(null, `select * from public.room_preview('nope')`, [], 'anon')).rows).toEqual([]);
   });
-  it('turning the link off makes a new one; the old one no longer works', async () => {
-    expect(await refused(ANA, `select public.revoke_room_link($1)`, [northwindRoom])).toBe(true);
+  it('turning my link off makes me a new one and leaves everyone else’s; the owner’s turns off them all', async () => {
+    const { t: anas } = await one(ANA, `select public.room_link($1) as t`, [northwindRoom]);
+    const { t: anasNext } = await one(ANA, `select public.revoke_room_link($1) as t`, [northwindRoom]);
+    expect(anasNext).not.toBe(anas);
+    expect(await rows(JUN, `select name from public.room_preview($1)`, [anas])).toEqual([]);
+    expect((await rows(JUN, `select name from public.room_preview($1)`, [theirs])).map((x) => x.name)).toEqual(['Northwind']);
     const { t: fresh } = await one(MAYA, `select public.revoke_room_link($1) as t`, [northwindRoom]);
     expect(fresh).not.toBe(token);
-    expect(await refused(JUN, `select public.join_room_by_link($1)`, [token])).toBe(true);
+    for (const old of [token, theirs, anasNext]) expect(await refused(JUN, `select public.join_room_by_link($1)`, [old])).toBe(true);
+    expect((await rows(JUN, `select invited_by_name from public.room_preview($1)`, [fresh])).map((x) => x.invited_by_name)).toEqual(['Maya C.']);
   });
   it('a link row cannot be edited by hand', async () => {
     expect(await refused(MAYA, `update public.room_links set room_id = $1`, [GENERAL])).toBe(true);
@@ -336,5 +349,14 @@ describe('invites by email', () => {
     await as(BEN, `select public.accept_room_invite($1)`, [r]);
     expect((await rows(BEN, `select name from public.my_rooms()`)).map((x) => x.name)).toEqual(['Friends']);
     expect(await refused(BEN, `select public.accept_room_invite($1)`, [r])).toBe(true);
+    expect(await rows(BEN, `select room_id from public.pending_room_invites()`)).toEqual([]);
+  });
+
+  // The invite dialog lists who you invited, and which of them joined.
+  it('stay, marked joined, so the one who sent them can see who came', async () => {
+    const [row] = await rows(ANA, `select email, accepted_at from public.room_email_invites where invited_by = $1 and email = 'ben@friends.test'`, [ANA]);
+    expect(row.accepted_at).toBeTruthy();
+    await as(BEN, `delete from public.room_members where room_id = (select id from public.rooms where name = 'Friends') and person_id = $1`, [BEN]);
+    expect(await rows(BEN, `select room_id from public.pending_room_invites()`)).toEqual([]);
   });
 });

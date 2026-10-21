@@ -61,7 +61,7 @@ export function RoomChat({ room, messages, people, meId, now, onSend, onRead, on
           {onSwitch && I.down()}
         </button>}
       {!root && onInvite && room.kind !== 'group' && <button type="button" className="ic" title={`Invite people to ${room.name}`} aria-label={`Invite people to ${room.name}`} onClick={onInvite}>{I.invite(14)}</button>}
-      {onExpand && <button type="button" className="ic" style={root ? { marginLeft: 0 } : undefined} title="Open full page" aria-label="Open full page" onClick={onExpand}>{I.expand()}</button>}
+      {onExpand && <button type="button" className="ic" title="Open full page" aria-label="Open full page" onClick={onExpand}>{I.expand()}</button>}
     </div>}
     <div className="rm-chat-list" ref={listRef}>
       {shown.map((m, i) => {

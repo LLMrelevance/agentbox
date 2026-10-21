@@ -5727,7 +5727,7 @@ export default function App() {
               <CrossIcon />
             </button>
           </nav>
-        ) : workspaceNavigation ? (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : (teamShown ? <h1 className="workspace-title">{openCard ? 'Threads' : 'Team'}</h1> : <h1 className="workspace-title">Threads</h1>)) : (
+        ) : workspaceNavigation ? (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : (teamShown ? <h1 className="workspace-title">{openCard ? 'Threads' : 'Team'}</h1> : roomShown && roomsUi.heading ? roomsUi.heading.title : <h1 className="workspace-title">Threads</h1>)) : (
         <nav
           className="tabs"
           /* NO HINT ON THIS NAV. This older strip is the layout without the
@@ -5879,7 +5879,7 @@ export default function App() {
               Not over a teammate's card or the team's setup. Search is drawn
               here only on the board; on the list it ends the tabs row
               (w-3c51d02de5). */}
-          {workspaceNavigation && !focused && !settingsOpen && !teamShown && (
+          {workspaceNavigation && !focused && !settingsOpen && !teamShown && (roomShown && roomsUi.heading?.right !== undefined ? roomsUi.heading.right : (
             <HeaderActions
               page="inbox"
               display={inboxDisplay}
@@ -5900,7 +5900,7 @@ export default function App() {
               onCloudSetUp={() => setCloudSetupOpen(true)}
               filters={!roomShown}
             />
-          )}
+          ))}
           {!workspaceNavigation && !focused && !settingsOpen && !inPractice && (
             <BoxFilter
               filter={boxFilter}
@@ -6308,7 +6308,7 @@ export default function App() {
                     // and the arrows carry on from that card on the way back.
                     onOpenItem={(item) => { const i = list.indexOf(item); setCardSel(null); if (i >= 0) setSelected(i); setFocused(item); markSeen(item); }} />
                 ) : <>
-                {workspaceNavigation && search === null && (
+                {workspaceNavigation && search === null && !(roomShown && roomsUi.heading) && (
                   <StateTabs
                     view={view}
                     // Yours while you are on the page, and the picked teammates' added in.

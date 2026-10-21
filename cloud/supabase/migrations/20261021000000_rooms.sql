@@ -44,13 +44,16 @@ create table if not exists public.room_links (
   created_at timestamptz not null default now(),
   revoked_at timestamptz
 );
-create unique index if not exists room_links_one_live on public.room_links (room_id) where revoked_at is null;
+-- One live link per person per room, so the link says who invited you.
+create unique index if not exists room_links_one_live on public.room_links (room_id, created_by) where revoked_at is null;
 
 create table if not exists public.room_email_invites (
   room_id uuid not null references public.rooms(id) on delete cascade,
   email text not null check (email = lower(btrim(email)) and email like '%@%'),
   invited_by uuid references public.people(id) on delete set null,
   created_at timestamptz not null default now(),
+  -- Kept once used, so whoever sent it sees that they joined.
+  accepted_at timestamptz,
   primary key (room_id, email)
 );
 
@@ -401,7 +404,7 @@ begin
   if not public.in_room(r) then raise exception 'you are not in that room'; end if;
   if exists (select 1 from public.rooms where id = r and kind = 'group') then raise exception 'a group has no invite link'; end if;
   if exists (select 1 from public.rooms where id = r and invite_only) then raise exception 'that room takes only people its members invite'; end if;
-  select token into tok from public.room_links where room_id = r and revoked_at is null;
+  select token into tok from public.room_links where room_id = r and created_by = auth.uid() and revoked_at is null;
   if tok is null then
     insert into public.room_links (room_id, created_by) values (r, auth.uid()) returning token into tok;
   end if;
@@ -412,10 +415,10 @@ create or replace function public.revoke_room_link(r uuid) returns text
 language plpgsql security definer set search_path = public as $$
 declare tok text;
 begin
-  if not (public.owns_room(r) or exists (select 1 from public.room_links where room_id = r and revoked_at is null and created_by = auth.uid())) then
-    raise exception 'only the room owner or whoever made the link can turn it off';
-  end if;
-  update public.room_links set revoked_at = now() where room_id = r and revoked_at is null;
+  if not public.in_room(r) then raise exception 'you are not in that room'; end if;
+  -- Mine, or every link to the room when it is the owner turning them off.
+  update public.room_links set revoked_at = now()
+  where room_id = r and revoked_at is null and (created_by = auth.uid() or public.owns_room(r));
   insert into public.room_links (room_id, created_by) values (r, auth.uid()) returning token into tok;
   return tok;
 end $$;
@@ -432,7 +435,7 @@ language sql stable security definer set search_path = public as $$
   from public.room_email_invites i
   join public.rooms r on r.id = i.room_id
   left join public.room_profiles pr on pr.person_id = i.invited_by
-  where i.email = public.my_email() and not public.in_room(i.room_id)
+  where i.email = public.my_email() and i.accepted_at is null and not public.in_room(i.room_id)
   order by i.created_at
 $$;
 
@@ -441,7 +444,7 @@ language plpgsql security definer set search_path = public as $$
 declare e text := public.my_email();
 begin
   if e is null then raise exception 'sign in with a confirmed email to join a room'; end if;
-  delete from public.room_email_invites where room_id = r and email = e;
+  update public.room_email_invites set accepted_at = now() where room_id = r and email = e and accepted_at is null;
   if not found then raise exception 'there is no invite to that room for you'; end if;
   return public.join_into(r);
 end $$;
@@ -462,10 +465,12 @@ begin
 end $$;
 
 -- What an invite link shows before you join, to anyone holding the link.
+-- Dropped first: a changed return type cannot be replaced in place.
+drop function if exists public.room_preview(text);
 create or replace function public.room_preview(tok text)
-returns table (name text, members int, agents_running int, faces jsonb)
+returns table (name text, members int, agents_running int, faces jsonb, invited_by_name text, invited_by_avatar text)
 language sql stable security definer set search_path = public as $$
-  with r as (select l.room_id from public.room_links l join public.rooms ro on ro.id = l.room_id
+  with r as (select l.room_id, l.created_by from public.room_links l join public.rooms ro on ro.id = l.room_id
              where l.token = tok and l.revoked_at is null and not ro.invite_only),
   everyone as (
     select m.person_id from public.room_members m where m.room_id = (select room_id from r)
@@ -478,13 +483,18 @@ language sql stable security definer set search_path = public as $$
          coalesce((select sum(p.agents_running)::int from public.room_presence p
                    where p.person_id in (select person_id from shown) and not p.gone and p.updated_at > now() - interval '15 minutes'), 0),
          coalesce((select jsonb_agg(jsonb_build_object('name', pr.display_name, 'avatar', pr.avatar_url))
-                   from (select pr.* from public.room_profiles pr where pr.person_id in (select person_id from shown) order by pr.updated_at desc limit 8) pr), '[]'::jsonb)
-  from public.rooms ro where ro.id = (select room_id from r)
+                   from (select pr.* from public.room_profiles pr where pr.person_id in (select person_id from shown) order by pr.updated_at desc limit 8) pr), '[]'::jsonb),
+         nullif(inviter.display_name, ''), inviter.avatar_url
+  from public.rooms ro
+  left join public.room_profiles inviter on inviter.person_id = (select created_by from r)
+    and inviter.person_id in (select person_id from everyone)
+  where ro.id = (select room_id from r)
 $$;
 
 -- Rooms open to everyone, for Find rooms.
+drop function if exists public.listed_rooms();
 create or replace function public.listed_rooms()
-returns table (id uuid, name text, members int, here_now int, joined boolean, faces jsonb)
+returns table (id uuid, name text, members int, here_now int, joined boolean, faces jsonb, created_at timestamptz)
 language sql stable security definer set search_path = public as $$
   select ro.id, ro.name, public.room_member_count(ro.id),
          (select count(distinct p.person_id)::int from public.room_presence p
@@ -493,7 +503,8 @@ language sql stable security definer set search_path = public as $$
          public.in_room(ro.id),
          coalesce((select jsonb_agg(jsonb_build_object('name', pr.display_name, 'avatar', pr.avatar_url))
                    from (select pr.* from public.room_profiles pr join public.room_members m on m.person_id = pr.person_id and m.room_id = ro.id
-                         where public.person_visible(pr.person_id) order by pr.updated_at desc limit 4) pr), '[]'::jsonb)
+                         where public.person_visible(pr.person_id) order by pr.updated_at desc limit 4) pr), '[]'::jsonb),
+         ro.created_at
   from public.rooms ro where ro.listed
   order by public.room_member_count(ro.id) desc, ro.created_at
   limit 100
@@ -545,7 +556,7 @@ drop policy if exists room_invites_read on public.room_email_invites;
 create policy room_invites_read on public.room_email_invites for select using (public.in_room(room_id));
 drop policy if exists room_invites_make on public.room_email_invites;
 create policy room_invites_make on public.room_email_invites for insert
-  with check (public.in_room(room_id) and invited_by = auth.uid() and not exists (select 1 from public.rooms where id = room_id and kind = 'group'));
+  with check (public.in_room(room_id) and invited_by = auth.uid() and accepted_at is null and not exists (select 1 from public.rooms where id = room_id and kind = 'group'));
 drop policy if exists room_invites_cancel on public.room_email_invites;
 create policy room_invites_cancel on public.room_email_invites for delete using (invited_by = auth.uid() or public.owns_room(room_id));
 

@@ -99,7 +99,7 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
   };
 
   const room = (r) => state(cloud).rooms.get(r);
-  const liveLink = (r) => state(cloud).roomLinks.find((l) => l.roomId === r && !l.revokedAt);
+  const liveLink = (r) => state(cloud).roomLinks.find((l) => l.roomId === r && l.createdBy === personId && !l.revokedAt);
   const newLink = (r) => { const l = { token: crypto.randomUUID().replaceAll('-', ''), roomId: r, createdBy: personId, createdAt: now(), revokedAt: null }; state(cloud).roomLinks.push(l); return l.token; };
   const faces = (ids, n) => ids.map((p) => state(cloud).roomProfiles.get(p)).filter(Boolean)
     .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at)).slice(0, n)
@@ -205,9 +205,8 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
     },
 
     async revokeRoomLink(r) {
-      const live = liveLink(r);
-      if (!ownsRoom(r) && live?.createdBy !== personId) refuse('turn off a link you did not make');
-      if (live) live.revokedAt = now();
+      if (!inRoom(r)) refuse('turn off a link to a room you are not in');
+      for (const l of state(cloud).roomLinks) if (l.roomId === r && !l.revokedAt && (l.createdBy === personId || ownsRoom(r))) l.revokedAt = now();
       return newLink(r);
     },
 
@@ -231,9 +230,9 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
         return {
           id: r.id, name: r.name, members: ids.length,
           hereNow: new Set(freshAgents([...members]).filter((p) => visible(p.person_id)).map((p) => p.person_id)).size,
-          joined: inRoom(r.id), faces: faces([...members].filter(visible), 4), createdAt: r.createdAt,
+          joined: inRoom(r.id), faces: faces([...members].filter(visible), 4), createdAt: r.createdAt ?? 0,
         };
-      }).sort((a, b) => b.members - a.members || a.createdAt - b.createdAt).map(({ createdAt, ...r }) => r);
+      }).sort((a, b) => b.members - a.members || a.createdAt - b.createdAt);
     },
 
     async roomPreview(token) {
@@ -242,7 +241,11 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
       if (!r || r.inviteOnly) return null;
       const ids = [...peopleOf(r.id)];
       const shown = ids.filter(visible);
-      return { name: r.name, members: ids.length, agentsRunning: freshAgents(shown).reduce((n, p) => n + p.agents_running, 0), faces: faces(shown, 8) };
+      const by = ids.includes(l.createdBy) ? state(cloud).roomProfiles.get(l.createdBy) : null;
+      return {
+        name: r.name, members: ids.length, agentsRunning: freshAgents(shown).reduce((n, p) => n + p.agents_running, 0), faces: faces(shown, 8),
+        invitedBy: by?.display_name ? { name: by.display_name, avatar: by.avatar_url ?? null } : null,
+      };
     },
 
     async createRoom({ name, kind = 'room', listed = false, people = [], inviteOnly = false }) {
@@ -289,14 +292,21 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
       const s = state(cloud);
       if (s.roomInvites.some((i) => i.roomId === r && i.email === clean)) return;
       limit('invites', s.roomInvites.filter((i) => i.invitedBy === personId && i.createdAt > now() - DAY).length, 50);
-      s.roomInvites.push({ roomId: r, email: clean, invitedBy: personId, createdAt: now() });
+      s.roomInvites.push({ roomId: r, email: clean, invitedBy: personId, createdAt: now(), acceptedAt: null });
+    },
+
+    async roomInvitesSent(r) {
+      if (!inRoom(r)) return [];
+      return state(cloud).roomInvites.filter((i) => i.roomId === r && i.invitedBy === personId)
+        .sort((a, b) => b.createdAt - a.createdAt).slice(0, 50)
+        .map((i) => ({ email: i.email, at: i.createdAt, joined: !!i.acceptedAt }));
     },
 
     async pendingRoomInvites() {
       const email = confirmedEmail();
       if (!email) return [];
       const s = state(cloud);
-      return s.roomInvites.filter((i) => i.email === email && !inRoom(i.roomId))
+      return s.roomInvites.filter((i) => i.email === email && !i.acceptedAt && !inRoom(i.roomId))
         .sort((a, b) => a.createdAt - b.createdAt)
         .map((i) => ({ roomId: i.roomId, roomName: room(i.roomId)?.name ?? '', invitedBy: i.invitedBy, invitedByName: s.roomProfiles.get(i.invitedBy)?.display_name || null }));
     },
@@ -305,9 +315,9 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
       const email = confirmedEmail();
       if (!email) refuse('join a room without a confirmed email');
       const s = state(cloud);
-      const before = s.roomInvites.length;
-      s.roomInvites = s.roomInvites.filter((i) => !(i.roomId === r && i.email === email));
-      if (s.roomInvites.length === before) refuse('join a room that did not invite you');
+      const invite = s.roomInvites.find((i) => i.roomId === r && i.email === email && !i.acceptedAt);
+      if (!invite) refuse('join a room that did not invite you');
+      invite.acceptedAt = now();
       return join(r);
     },
 

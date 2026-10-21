@@ -342,6 +342,7 @@ export function createRooms({
     revokeLink: (roomId) => need().revokeRoomLink(roomId),
     preview: (token) => need().roomPreview(token),
     listed: () => need().listedRooms(),
+    invitesSent: (roomId) => need().roomInvitesSent(roomId),
     joinByLink: (token) => after(need().joinRoomByLink(token)),
     joinListed: (roomId) => after(need().joinListedRoom(roomId)),
     acceptInvite: (roomId) => after(need().acceptRoomInvite(roomId)),

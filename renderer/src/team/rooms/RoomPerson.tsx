@@ -32,16 +32,15 @@ export function PersonHover({ card, room, at, onMessage, onProfile, onRanks, onC
   </div>;
 }
 
-export function ProfilePage({ card, room, rooms, cards, rank, onBack, onMessage, onRanks }: {
+export function ProfilePage({ card, room, rooms, cards, rank, onMessage, onRanks }: {
   card: RoomCard; room: Room; rooms: Room[]; cards: ThreadCard[]; rank: number | undefined;
-  onBack: () => void; onMessage?: () => void; onRanks: () => void;
+  onMessage?: () => void; onRanks: () => void;
 }) {
   const activity = activityShown(card) ? groups(cards.filter((c) => c.personId === card.id)) : null;
   const [tab, setTab] = useState<'progress' | 'activity'>('progress');
   const shared = rooms.filter((r) => r.wall.some((c) => c.id === card.id));
   const firstMonth = card.byMonth.find((m) => m.hours > 0)?.month ?? null;
   return <div className="rm-prof">
-    <div className="rm-rhead"><button type="button" className="bk" onClick={onBack}>{I.back()}{room.name}</button></div>
     <div className="rm-ph">
       <div className="top"><RoomFace name={card.name} url={card.avatarUrl} size={72} />
         <div className="who">

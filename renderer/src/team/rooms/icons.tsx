@@ -15,6 +15,7 @@ export const I = {
   down: () => svg('<path d="m7 10 5 5 5-5"/>', 12, 1.6),
   dots: () => svg('<path d="M6 12h.01M12 12h.01M18 12h.01" stroke-width="2.4"/>', 15, 1.5),
   plusRow: () => svg('<path d="M12 5.5v13M5.5 12h13"/>', 20, 1.25, 'workspace-nav-icon'),
+  plus: () => svg('<path d="M12 5.5v13M5.5 12h13"/>', 15, 1.5),
   pin: () => svg(PIN, 15, 1.4),
   pinFill: () => svg('<path d="M9 4h6l-1 5 3 3H7l3-3z" fill="currentColor"/><path d="M12 15v5"/>', 15, 1.4),
   invite: (size = 15) => svg(INVITE, size, 1.4),

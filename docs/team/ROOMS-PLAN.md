@@ -418,3 +418,14 @@ Rooms paragraph in this work.
   screen's contrast fault.
 - Checked with three accounts (two on one team, one on none) on a local
   Supabase, each with its own copy of the app and real Claude Code runs.
+- Each member has their own invite link, so the join dialog can say who
+  invited you. Turning yours off leaves everyone else's; the owner's turns off
+  them all.
+- An email invite is kept once used (`accepted_at`), so the invite dialog lists
+  who you invited and who joined.
+- Checked against round 23 screen by screen on 2026-10-21. Full pages (a room's
+  chat, Messages, a person's page, Find rooms) have their title in the top bar
+  and no state tabs. Day labels in the chat have no rule beside them. Left as
+  built: rooms have no description line in Find rooms, a team room has no
+  Leave in its menu (you leave by leaving the team), and Start a room offers
+  Find a room to join, since the plus beside Rooms became New room.

@@ -104,8 +104,9 @@ describe.each(worlds)('rooms on %s', (_kind, make) => {
 
   it('a link shows the room before joining, and joining by it lets me see in', async () => {
     const token = await w.maya.roomLink(teamRoom.id);
-    expect(await w.theo.roomLink(teamRoom.id)).toBe(token);
-    expect(await w.jun.roomPreview(token)).toMatchObject({ name: 'Northwind', members: 2 });
+    expect(await w.maya.roomLink(teamRoom.id)).toBe(token);
+    expect(await w.theo.roomLink(teamRoom.id)).not.toBe(token);
+    expect(await w.jun.roomPreview(token)).toMatchObject({ name: 'Northwind', members: 2, invitedBy: { name: 'Maya N.', avatar: null } });
     await w.maya.putPresence('aaaaaaaaaaaa', { agents_running: 3, hours_total: 120 });
     expect(await w.jun.roomMessages(teamRoom.id)).toEqual([]);
     expect(await w.jun.joinRoomByLink(token)).toBe(teamRoom.id);
@@ -113,12 +114,16 @@ describe.each(worlds)('rooms on %s', (_kind, make) => {
     expect((await w.jun.myRooms()).find((r) => r.id === teamRoom.id)).toMatchObject({ role: 'member', members: 3 });
   });
 
-  it('a link turned off stops working, and only its maker or the owner can turn it off', async () => {
+  it('a link turned off stops working; mine turns off mine, the owner’s turns off them all', async () => {
     const old = await w.maya.roomLink(teamRoom.id);
-    await refused(w.jun.revokeRoomLink(teamRoom.id));
+    const juns = await w.jun.roomLink(teamRoom.id);
+    const junsNext = await w.jun.revokeRoomLink(teamRoom.id);
+    expect(junsNext).not.toBe(juns);
+    expect(await w.ana.roomPreview(juns)).toBeNull();
+    expect(await w.ana.roomPreview(old)).toMatchObject({ name: 'Northwind' });
     const fresh = await w.maya.revokeRoomLink(teamRoom.id);
     expect(fresh).not.toBe(old);
-    await refused(w.ana.joinRoomByLink(old));
+    for (const dead of [old, junsNext]) await refused(w.ana.joinRoomByLink(dead));
     expect(await w.ana.roomPreview(old)).toBeNull();
   });
 
@@ -185,6 +190,7 @@ describe.each(worlds)('rooms on %s', (_kind, make) => {
     const listed = await w.ana.listedRooms();
     expect(listed.map((r) => r.id)).toEqual(expect.arrayContaining([open, GENERAL_ROOM]));
     expect(listed.find((r) => r.id === open)).toMatchObject({ name: 'Northwind open', members: 1, joined: false });
+    expect(listed.find((r) => r.id === open).createdAt).toBeGreaterThanOrEqual(listed.find((r) => r.id === GENERAL_ROOM).createdAt);
     expect(await w.ana.joinListedRoom(open)).toBe(open);
     expect((await w.ana.listedRooms()).find((r) => r.id === open).joined).toBe(true);
     await refused(w.ana.joinListedRoom(teamRoom.id));
@@ -204,8 +210,12 @@ describe.each(worlds)('rooms on %s', (_kind, make) => {
     expect(await w.theo.pendingRoomInvites()).toEqual([]);
     expect(await w.ana.pendingRoomInvites()).toEqual([expect.objectContaining({ roomId: room, roomName: 'Jun’s room', invitedBy: w.jun.personId, invitedByName: 'Jun E.' })]);
     await refused(w.theo.acceptRoomInvite(room));
+    expect(await w.jun.roomInvitesSent(room)).toEqual([expect.objectContaining({ email: w.emails.ana, joined: false })]);
+    expect(await w.theo.roomInvitesSent(room)).toEqual([]);
     expect(await w.ana.acceptRoomInvite(room)).toBe(room);
     expect(await w.ana.pendingRoomInvites()).toEqual([]);
+    expect(await w.jun.roomInvitesSent(room)).toEqual([expect.objectContaining({ email: w.emails.ana, joined: true })]);
+    expect(await w.ana.roomInvitesSent(room)).toEqual([]);
   });
 
   it('leaving: an owner hands the room on, the last one out ends it, a team room is left by leaving the team', async () => {

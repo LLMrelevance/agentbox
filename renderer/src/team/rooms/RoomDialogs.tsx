@@ -5,7 +5,7 @@ import type { Room } from '../../types';
 import { LiveMark } from '../../components/LiveMark';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
-import { cardName } from './room-rules';
+import { cardName, sentWords } from './room-rules';
 import { useOutside } from './RoomsNav';
 import { joinLink } from '../../../../shared/room-links.mjs';
 import { Name } from '../../../../shared/product-name.mjs';
@@ -23,20 +23,26 @@ function Dialog({ onClose, children, label }: { onClose: () => void; children: R
 
 const close = (onClose: () => void) => <button type="button" className="x" aria-label="Close" onClick={onClose}>{I.x()}</button>;
 
-export function InviteDialog({ room, link, onCopy, onEmail, onClose }: {
-  room: Room; link: string | null; onCopy: () => void; onEmail: (email: string) => Promise<string | null>; onClose: () => void;
+export type Sent = { email: string; at: number; joined: boolean };
+
+export function InviteDialog({ room, link, now, onCopy, onEmail, loadSent, onClose }: {
+  room: Room; link: string | null; now: number; onCopy: () => void; onEmail: (email: string) => Promise<string | null>;
+  /** The invites I sent to this room, newest first. */
+  loadSent: () => Promise<Sent[] | null>;
+  onClose: () => void;
 }) {
   const [email, setEmail] = useState('');
-  const [sent, setSent] = useState<string[]>([]);
+  const [sent, setSent] = useState<Sent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const others = room.wall.filter((c) => !c.me);
+  useEffect(() => { let on = true; void loadSent().then((s) => { if (on && s) setSent(s); }); return () => { on = false; }; }, [loadSent]);
   const send = async () => {
     const clean = email.trim();
     if (!clean) return;
     const err = await onEmail(clean);
     if (err) { setError(err); return; }
     setError(null);
-    setSent((s) => [clean, ...s.filter((x) => x !== clean)]);
+    setSent((s) => [{ email: clean.toLowerCase(), at: Date.now(), joined: false }, ...s.filter((x) => x.email !== clean.toLowerCase())]);
     setEmail('');
   };
   return <Dialog onClose={onClose} label={`Invite people to ${room.name}`}>
@@ -62,7 +68,7 @@ export function InviteDialog({ room, link, onCopy, onEmail, onClose }: {
       {error && <span className="rm-err" role="alert">{error}</span>}
     </div>
     {sent.length > 0 && <div className="sec rm-pend"><span className="rm-label">Invited</span>
-      {sent.map((e) => <div className="row2" key={e}><RoomFace name={e} size={22} />{e}<em>Sent just now</em></div>)}
+      {sent.map((s) => <div className="row2" key={s.email}><RoomFace name={s.email} size={22} />{s.email}<em>{sentWords(s, now)}</em></div>)}
     </div>}
   </Dialog>;
 }
@@ -110,10 +116,14 @@ export function StartRoomDialog({ canList, onStart, onClose, onFind }: {
   </Dialog>;
 }
 
-export type Preview = { name: string; members: number; agentsRunning: number; faces: { name: string; avatar: string | null }[] };
+export type Preview = {
+  name: string; members: number; agentsRunning: number; faces: { name: string; avatar: string | null }[];
+  /** Whoever made the link. */
+  invitedBy: { name: string; avatar: string | null } | null;
+};
 
-export function JoinDialog({ preview, from, myName, onJoin, onClose }: {
-  preview: Preview | null; from?: string | null; myName: string; onJoin: () => Promise<string | null>; onClose: () => void;
+export function JoinDialog({ preview, myName, onJoin, onClose }: {
+  preview: Preview | null; myName: string; onJoin: () => Promise<string | null>; onClose: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -123,7 +133,9 @@ export function JoinDialog({ preview, from, myName, onJoin, onClose }: {
         <span className="rm-note">Ask whoever sent it for a new one.</span></div>
       : <>
         <div className="sec">
-          <div className="rm-from" style={{ justifyContent: 'space-between' }}><span>{from ? `${from} invited you to` : 'You are invited to'}</span>{close(onClose)}</div>
+          <div className="rm-from">{preview.invitedBy
+            ? <><RoomFace name={preview.invitedBy.name} url={preview.invitedBy.avatar} size={20} />{preview.invitedBy.name} invited you to</>
+            : 'You are invited to'}</div>
           <span className="rm-big">{I.hash(24)}{preview.name}</span>
           {preview.faces.length > 0 && <div className="rm-joinfaces">{preview.faces.slice(0, 8).map((f, i) => <RoomFace key={i} name={f.name} url={f.avatar} size={48} />)}</div>}
           <span className="rm-live"><LiveMark still={!preview.agentsRunning} />{preview.members} {preview.members === 1 ? 'person' : 'people'} working with {preview.agentsRunning} {preview.agentsRunning === 1 ? 'agent' : 'agents'} right now</span>

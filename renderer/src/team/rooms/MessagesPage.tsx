@@ -60,9 +60,8 @@ export function MessagesPage({ list, onKey, now, onPick, children }: {
 }
 
 /** The head of a room or group chat on the messages page. */
-export function FullChatHead({ title, faces, actions, onBack }: { title: string; faces?: { name: string; url: string | null }[]; actions?: ReactNode; onBack?: () => void }) {
+export function FullChatHead({ title, faces, actions }: { title: string; faces?: { name: string; url: string | null }[]; actions?: ReactNode }) {
   return <div className="hd">
-    {onBack && <button type="button" className="rm-back" aria-label="Back to the room" title="Back to the room (esc)" onClick={onBack}>{I.back()}</button>}
     {faces?.length ? <span style={{ display: 'flex' }}>{faces.slice(0, 3).map((f, i) => <RoomFace key={i} name={f.name} url={f.url} size={22} />)}</span>
       : <span style={{ color: 'var(--text-faint)', display: 'flex' }}>{I.hash(15)}</span>}
     <span>{title}</span>

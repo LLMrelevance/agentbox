@@ -101,7 +101,7 @@ const NO_UPDATER = {
   move: () => ({ moved: false, error: null }),
 };
 
-const ROOM_OPS = new Set(['refresh', 'send', 'markRead', 'older', 'saveProfile', 'goInvisible', 'comeBack', 'link', 'revokeLink', 'preview', 'listed', 'joinByLink', 'joinListed', 'acceptInvite', 'invite', 'create', 'rename', 'leave', 'remove', 'pin', 'mute']);
+const ROOM_OPS = new Set(['refresh', 'send', 'markRead', 'older', 'saveProfile', 'goInvisible', 'comeBack', 'link', 'revokeLink', 'preview', 'listed', 'invitesSent', 'joinByLink', 'joinListed', 'acceptInvite', 'invite', 'create', 'rename', 'leave', 'remove', 'pin', 'mute']);
 
 export function registerIpc({ store, supervisor, config, window, analytics = NO_ANALYTICS, docGrants = null, updater = NO_UPDATER, host, team = null }) {
   // The three Electron things, or a plain Node stand-in for them. There is no

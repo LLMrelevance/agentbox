@@ -130,3 +130,61 @@ describe('leaving a room', () => {
     expect(app).not.toMatch(/onView=\{\(?next\)? => \{ roomsUi\.close\(\)/);
   });
 });
+
+describe('the chat looks as approved', () => {
+  // The founder, 2026-10-21, with a picture: the invite and full-page buttons
+  // sat right after the room's name; round 23 puts them at the panel's right
+  // end. `.ic:first-of-type` never matched, because the name is a button too.
+  // And the day labels lose their hairline: "the headers alone are enough".
+  const css = fs.readFileSync(new URL('../renderer/src/team/rooms/rooms.css', import.meta.url), 'utf8');
+  it('the chat head’s buttons sit at its right end', () => {
+    expect(css).toMatch(/\.rm-chat-head \.rm-switch \+ \.ic \{ margin-left: auto; \}/);
+    expect(css).not.toMatch(/\.ic:first-of-type/);
+  });
+  it('a day label in the chat has no rule beside it', () => {
+    expect(css).not.toMatch(/\.rm-day::after/);
+  });
+});
+
+describe('the rest of round 23, checked screen by screen on 2026-10-21', () => {
+  const now = Date.parse('2026-10-21T15:00:00-07:00');
+  it('an invite you sent says when, or that they joined', async () => {
+    const { sentWords } = await import('../renderer/src/team/rooms/room-rules.ts');
+    expect(sentWords({ at: now - 3_600_000, joined: false }, now)).toBe('Sent today');
+    expect(sentWords({ at: now - 20 * 3_600_000, joined: false }, now)).toBe('Sent yesterday');
+    expect(sentWords({ at: Date.parse('2026-10-14T12:00:00-07:00'), joined: false }, now)).toBe('Sent Oct 14');
+    expect(sentWords({ at: now - 3_600_000, joined: true }, now)).toBe('Joined');
+  });
+  it('Find rooms: Popular is most people first, New is newest first', async () => {
+    const { findOrder } = await import('../renderer/src/team/rooms/room-rules.ts');
+    const rooms = [{ id: 'a', members: 3, createdAt: 30 }, { id: 'b', members: 40, createdAt: 10 }, { id: 'c', members: 3, createdAt: 20 }];
+    expect(findOrder(rooms, 'popular').map((r) => r.id)).toEqual(['b', 'c', 'a']);
+    expect(findOrder(rooms, 'new').map((r) => r.id)).toEqual(['a', 'c', 'b']);
+  });
+  // Seen on the invisible screen: my card leaves my own wall, and the chat
+  // read its names from the wall, so "@Sam R." lost its mark and my own
+  // messages would have read "Someone".
+  it('the chat still knows me while I am invisible, and never twice', async () => {
+    const { withMe } = await import('../renderer/src/team/rooms/room-rules.ts');
+    const maya = { id: 'm', name: 'Maya C.', me: false };
+    const me = { id: 's', name: 'Sam R.', me: true };
+    expect(withMe([maya], me)).toEqual([maya, me]);
+    expect(withMe([maya, me], { ...me, name: 'other' })).toEqual([maya, me]);
+    expect(withMe([maya], null)).toEqual([maya]);
+  });
+  it('while I am invisible my own room tab counts one fewer, and never below none', async () => {
+    const { tabCount } = await import('../renderer/src/team/rooms/room-rules.ts');
+    expect(tabCount({ members: 15 }, false)).toBe(15);
+    expect(tabCount({ members: 15 }, true)).toBe(14);
+    expect(tabCount({ members: 0 }, true)).toBe(0);
+  });
+  // A room's chat full page, the messages page, a person's page and Find
+  // rooms are pages of their own: their title is in the top bar, and the
+  // state tabs are not drawn over them.
+  it('a full page has its own title and no state tabs', () => {
+    const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
+    expect(app).toMatch(/roomShown && roomsUi\.heading \? roomsUi\.heading\.title : <h1 className="workspace-title">Threads<\/h1>/);
+    expect(app).toMatch(/\{workspaceNavigation && search === null && !\(roomShown && roomsUi\.heading\) && \(\s*<StateTabs/);
+    expect(app).toMatch(/roomShown && roomsUi\.heading\?\.right !== undefined \? roomsUi\.heading\.right : \(?\s*<HeaderActions/);
+  });
+});

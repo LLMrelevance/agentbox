@@ -134,3 +134,25 @@ export function minutesToMidnight(now: number): number {
   d.setHours(24, 0, 0, 0);
   return Math.max(1, Math.round((d.getTime() - now) / MIN));
 }
+
+export function sentWords(invite: { at: number; joined: boolean }, now: number): string {
+  if (invite.joined) return 'Joined';
+  const day = new Date(now); day.setHours(0, 0, 0, 0);
+  if (invite.at >= day.getTime()) return 'Sent today';
+  if (invite.at >= day.getTime() - 86_400_000) return 'Sent yesterday';
+  return `Sent ${new Date(invite.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+}
+
+export function findOrder<T extends { members: number; createdAt: number }>(rooms: readonly T[], order: 'popular' | 'new'): T[] {
+  return [...rooms].sort(order === 'new'
+    ? (a, b) => b.createdAt - a.createdAt
+    : (a, b) => b.members - a.members || a.createdAt - b.createdAt);
+}
+
+/** My card leaves the wall while I am invisible, so I leave the tab's count too. */
+export const tabCount = (room: { members: number }, invisible: boolean) => Math.max(0, room.members - (invisible ? 1 : 0));
+
+/** My card leaves the wall while I am invisible; the chat still needs my name and face. */
+export function withMe<T extends { me: boolean }>(people: readonly T[], me: T | null): T[] {
+  return !me || people.some((p) => p.me) ? [...people] : [...people, me];
+}

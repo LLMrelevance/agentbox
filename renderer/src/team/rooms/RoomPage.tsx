@@ -35,8 +35,8 @@ export function RoomPage({ room, rooms, cards, ranks, me, now, pane, link, chat,
   };
   const person = pane.startsWith('person:') ? room.wall.find((c) => c.id === pane.slice(7)) ?? null : null;
   if (person) {
-    return <div className="rm-split"><div className="rm-main">
-      <ProfilePage card={person} room={room} rooms={rooms} cards={cards} rank={ranks[person.id]} onBack={() => onPane('wall')}
+    return <div className="rm-split"><div className="rm-main wide">
+      <ProfilePage card={person} room={room} rooms={rooms} cards={cards} rank={ranks[person.id]}
         onRanks={() => onPane('ranks')} onMessage={onMessage ? () => onMessage([person.id]) : undefined} />
     </div></div>;
   }

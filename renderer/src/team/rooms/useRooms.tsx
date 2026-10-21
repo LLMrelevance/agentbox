@@ -6,7 +6,7 @@ import { api } from '../../api';
 import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
 import { RoomsNav, useOutside, type RoomMenuAction } from './RoomsNav';
 import { RoomTabs } from './RoomTabs';
-import { cardName, roomTabs, tabWalk } from './room-rules';
+import { cardName, roomTabs, tabWalk, withMe } from './room-rules';
 import { RoomPage, type RoomPane } from './RoomPage';
 import { RoomChat, peopleOf } from './RoomChat';
 import { RoomFace } from './RoomFace';
@@ -14,7 +14,7 @@ import { I } from './icons';
 import { FullChatHead, MessagesPage, sortConversations, type Conversation } from './MessagesPage';
 import { roomConversations } from './conversations';
 import { FindRooms, type ListedRoom } from './FindRooms';
-import { InviteDialog, JoinDialog, MembersMenu, StartRoomDialog, type Preview } from './RoomDialogs';
+import { InviteDialog, JoinDialog, MembersMenu, StartRoomDialog, type Preview, type Sent } from './RoomDialogs';
 import { joinLink, tokenFromLink } from '../../../../shared/room-links.mjs';
 import { RoomsSettings } from './RoomsSettings';
 
@@ -58,6 +58,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   // The Messages row with no conversation yet to open.
   const [noChats, setNoChats] = useState(false);
   const open = openId ? all.find((r) => r.id === openId) ?? null : null;
+  const invisibleUntil = Date.parse(rooms?.me?.invisible_until ?? '');
   const chatRoom = (panelId ? all.find((r) => r.id === panelId) : null) ?? open;
 
   // A room I left, or was removed from, closes. One just joined or made may
@@ -97,12 +98,19 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     if (finding) { setFinding(false); return; }
     if (noChats) { setNoChats(false); return; }
     if (full && open?.kind !== 'group') { setFull(false); return; }
+    if (pane !== 'wall') { setPane('wall'); return; }
     setOpenId(null); setFull(false); setPanelId(null);
   };
   // Somewhere else was picked: no room, no Find rooms, no messages page.
   const leave = () => { setOpenId(null); setFull(false); setPanelId(null); setFinding(false); setNoChats(false); };
   const find = () => { setOpenId(null); setFull(false); setNoChats(false); setFinding(true); };
   const loadListed = useCallback(async () => { const res = await call<ListedRoom[]>('listed'); return res.ok ? res.value ?? [] : null; }, [call]);
+  const inviteId = dialog?.kind === 'invite' ? dialog.roomId : null;
+  const loadSent = useCallback(async () => {
+    if (!inviteId) return null;
+    const res = await call<Sent[]>('invitesSent', inviteId);
+    return res.ok ? res.value ?? [] : null;
+  }, [call, inviteId]);
 
   const menu = async (id: string, action: RoomMenuAction, at: DOMRect) => {
     const r = all.find((x) => x.id === id);
@@ -183,16 +191,16 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       onNewRoom={() => setDialog({ kind: 'start' })} />
   </> : null;
 
-  const tabs: ReactNode = live ? <RoomTabs rooms={list} openId={open?.kind === 'group' ? null : openId} onOpen={(id) => openRoom(id)} /> : null;
+  const tabs: ReactNode = live ? <RoomTabs rooms={list} openId={open?.kind === 'group' ? null : openId} invisible={invisibleUntil > now} onOpen={(id) => openRoom(id)} /> : null;
 
+  const meInChat = meId && rooms?.me ? { id: meId, name: rooms.me.display_name || myName, avatarUrl: rooms.me.avatar_url ?? null, me: true } : null;
   const chatPanel = (r: Room, asFull: boolean) => {
     const others = r.wall.filter((c) => !c.me);
     const head = asFull ? <FullChatHead title={r.kind === 'group' ? others.map(cardName).join(', ') || r.name : r.name}
-      onBack={r.kind === 'group' ? undefined : () => setFull(false)}
       faces={r.kind === 'group' ? others.map((c) => ({ name: c.name, url: c.avatarUrl })) : undefined}
       actions={r.kind === 'group' ? undefined
         : <button type="button" className="rm-btn" onClick={() => setDialog({ kind: 'invite', roomId: r.id })}>{I.invite(14)}Invite</button>} /> : undefined;
-    return <RoomChat room={r} messages={rooms?.messages[r.id] ?? []} people={peopleOf(r.wall)} meId={meId} now={now} full={asFull} head={head}
+    return <RoomChat room={r} messages={rooms?.messages[r.id] ?? []} people={withMe(peopleOf(r.wall), meInChat)} meId={meId} now={now} full={asFull} head={head}
       onSend={send(r.id)} onRead={read(r)}
       onInvite={() => setDialog({ kind: 'invite', roomId: r.id })}
       onExpand={asFull ? undefined : () => { setOpenId(r.id === open?.id ? open.id : r.id); setFull(true); setPanelId(null); }}
@@ -200,21 +208,32 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   };
 
 
+  // A page of its own takes the top bar's title and hides the state tabs.
+  // `right` undefined keeps the bar's own buttons; null clears them.
+  const backTitle = (title: string) => <h1 className="workspace-title">
+    <button type="button" className="rm-backt" title="Back (esc)" onClick={close}>{I.back()}<span>{title}</span></button></h1>;
+  let heading: { title: ReactNode; right?: ReactNode } | null = null;
   let page: ReactNode = null;
   if (noChats && live) {
+    heading = { title: backTitle('Messages'), right: null };
     page = <MessagesPage list={[]} onKey={null} now={now} onPick={pick}>
       <div className="rm-empty" style={{ padding: '0 28px' }}><span className="t">No conversations yet.</span>
         <span className="s">Message someone from a room, or from New thread.</span></div>
     </MessagesPage>;
   } else if (finding && live) {
-    page = <div className="rm-split"><div className="rm-main"><FindRooms load={loadListed} onOpen={(id) => openRoom(id)} onLink={(t) => void join(t)}
-      onStart={() => setDialog({ kind: 'start' })}
+    heading = {
+      title: <h1 className="workspace-title">Find rooms</h1>,
+      right: <div className="th-right"><button type="button" className="th-new" onClick={() => setDialog({ kind: 'start' })}>{I.plus()}Start a room</button></div>,
+    };
+    page = <div className="rm-split"><div className="rm-main wide"><FindRooms load={loadListed} onOpen={(id) => openRoom(id)} onLink={(t) => void join(t)}
       onJoin={async (id) => { const res = await call<string>('joinListed', id); return res.ok ? null : res.error ?? 'Could not join'; }} /></div></div>;
   } else if (open && rooms) {
     if (full || open.kind === 'group') {
       const r = chatRoom ?? open;
+      heading = { title: backTitle(open.kind === 'group' ? 'Messages' : open.name), right: null };
       page = <MessagesPage list={conversations} onKey={`room:${r.id}`} now={now} onPick={pick}>{chatPanel(r, true)}</MessagesPage>;
     } else {
+      if (pane.startsWith('person:')) heading = { title: backTitle(open.name) };
       page = <RoomPage room={open} rooms={list} cards={teamCards} ranks={rooms.ranks ?? {}} me={rooms.me} now={now}
         pane={pane} link={links[open.id] ?? null} onPane={setPane} chat={chatPanel(chatRoom ?? open, false)}
         picked={picked} onPick={(ids) => setPicked(new Set(ids))} onMessage={(ids) => void message(ids, open)}
@@ -237,7 +256,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const inviteRoom = dialog?.kind === 'invite' ? all.find((r) => r.id === dialog.roomId) : null;
   const membersRoom = members ? all.find((r) => r.id === members.roomId) : null;
   const dialogs: ReactNode = <>
-    {inviteRoom && <InviteDialog room={inviteRoom} link={links[inviteRoom.id] ?? null} onClose={() => setDialog(null)}
+    {inviteRoom && <InviteDialog room={inviteRoom} link={links[inviteRoom.id] ?? null} now={now} onClose={() => setDialog(null)} loadSent={loadSent}
       onCopy={() => void copyLink(inviteRoom.id)}
       onEmail={async (email) => { const res = await call('invite', inviteRoom.id, email); return res.ok ? null : res.error ?? 'Not sent'; }} />}
     {dialog?.kind === 'start' && <StartRoomDialog canList={hasTeam} onClose={() => setDialog(null)} onFind={finding ? undefined : () => { setDialog(null); find(); }}
@@ -269,7 +288,6 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   // Tab and Shift-Tab along the state tabs and then the room tabs.
   const walk = (stateTabs: readonly string[], at: string, back: boolean) => tabWalk(stateTabs, roomTabs(list, openId), at, back);
 
-  const invisibleUntil = Date.parse(rooms?.me?.invisible_until ?? '');
   const invisible = live && rooms?.me ? {
     on: invisibleUntil > now,
     onGo: (minutes: number | null) => { void call('goInvisible', minutes); },
@@ -290,7 +308,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
 
   return {
     live, openId: open ? openId : finding && live ? 'find' : noChats && live ? 'messages' : null, openMessages, open: (id: string) => openRoom(id), close, leave, find, nav, tabs, page, dialogs, join, walk, invisible, settingsPane,
-    mentions, openMention, faces, messagesShell, full,
+    mentions, openMention, faces, messagesShell, full, heading,
     dialogOpen: !!dialog || !!members || !!switcher,
   };
 }

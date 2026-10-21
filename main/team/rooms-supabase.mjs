@@ -104,13 +104,13 @@ export function roomsSupabase(client, myId, must) {
     async listedRooms() {
       await myId();
       const rows = (await rpc('listed_rooms', {}, 'finding rooms')) ?? [];
-      return rows.map((r) => ({ id: r.id, name: r.name, members: r.members, hereNow: r.here_now, joined: !!r.joined, faces: r.faces ?? [] }));
+      return rows.map((r) => ({ id: r.id, name: r.name, members: r.members, hereNow: r.here_now, joined: !!r.joined, faces: r.faces ?? [], createdAt: Date.parse(r.created_at) || 0 }));
     },
 
     async roomPreview(token) {
       const rows = (await rpc('room_preview', { tok: token }, 'reading the invite')) ?? [];
       const r = rows[0];
-      return r ? { name: r.name, members: r.members, agentsRunning: r.agents_running, faces: r.faces ?? [] } : null;
+      return r ? { name: r.name, members: r.members, agentsRunning: r.agents_running, faces: r.faces ?? [], invitedBy: r.invited_by_name ? { name: r.invited_by_name, avatar: r.invited_by_avatar ?? null } : null } : null;
     },
 
     async createRoom({ name, kind = 'room', listed = false, people = [], inviteOnly = false }) {
@@ -139,6 +139,13 @@ export function roomsSupabase(client, myId, must) {
       const clean = String(email).trim().toLowerCase();
       const { error } = await client.from('room_email_invites').insert({ room_id: roomId, email: clean, invited_by: me });
       if (error && error.code !== '23505') throw new Error(`inviting ${clean}: ${error.message}`);
+    },
+
+    async roomInvitesSent(roomId) {
+      const me = await myId();
+      const rows = must(await client.from('room_email_invites').select('email, created_at, accepted_at')
+        .eq('room_id', roomId).eq('invited_by', me).order('created_at', { ascending: false }).limit(50), 'reading who you invited');
+      return rows.map((r) => ({ email: r.email, at: Date.parse(r.created_at) || 0, joined: !!r.accepted_at }));
     },
 
     async pendingRoomInvites() {
