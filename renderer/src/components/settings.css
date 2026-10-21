@@ -135,21 +135,20 @@
 .acct-place-act { display: inline-flex; align-items: center; gap: 12px; }
 .acct-checked { font-size: 12px; font-weight: 400; color: var(--text-faint); }
 .acct-reading-time { margin-top: 12px; font-size: 12px; color: var(--text-faint); }
-/* Switching is a link, in sentence case, so it never reads as a second mark beside IN USE. */
-.acct-use { padding: 0; border: 0; background: none; font: inherit; font-size: 12px; color: var(--text-dim); cursor: pointer; }
-.acct-use:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
-/* TILES: an account each, two to a line, every one the same shape. The one in
-   use is lifted by its fill and its IN USE, not by a different edge, so the
-   tiles line up. */
+/* Switching is a button the width of the tile: as grey text on the state line it read as a status. */
+.settings-screen[data-pane] .set-ghost.acct-switch { display: flex; justify-content: center; width: 100%; margin-top: 16px; }
+/* TILES: an account each, two to a line, every one the same shape here and in
+   the cloud. The one in use is lifted by its fill and its IN USE, not by a
+   different edge, so the tiles line up. */
 .acct-place-line { margin: -4px 0 12px; font-size: 12.5px; line-height: 1.5; color: var(--text-dim); }
 .acct-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .acct-tile { padding: 16px 16px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--wash); text-align: left; }
 .acct-tile.on { background: var(--film-strong); border-color: var(--line-strong); }
-.acct-tile-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.acct-tile-head { display: flex; align-items: baseline; gap: 12px; }
 .acct-tile-name { min-width: 0; font-size: 13.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acct-tile-plan { flex: none; font-size: 12px; color: var(--text-faint); }
-.acct-tile-about { display: flex; align-items: center; min-height: 18px; margin-top: 6px; font-size: 12px; color: var(--text-faint); }
-.acct-tile-about .set-badge { margin: 0; }
+.acct-tile-head .set-badge { flex: none; margin-left: -2px; }
+.acct-tile-plan { flex: none; margin-left: auto; font-size: 12px; color: var(--text-faint); }
+.acct-tile-about { display: flex; align-items: center; min-height: 22px; margin-top: 6px; font-size: 12px; color: var(--text-faint); }
 .acct-tile-trouble { margin-top: 16px; font-size: 12px; line-height: 1.5; color: var(--text-dim); }
 .acct-tile-add { min-height: 112px; border-style: dashed; background: none; color: var(--text-faint); font: inherit; font-size: 13px; text-align: center; cursor: pointer; }
 .acct-tile-add:hover { color: var(--text); }

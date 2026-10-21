@@ -447,7 +447,25 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null): Threa
   }
   tagWriter();
 
-  return withTitleSaid(events, title, label);
+  return withTitleSaid(theAskComesFirst(events), title, label);
+}
+
+// NOTHING HAPPENED ON A THREAD BEFORE YOU ASKED FOR IT.
+//
+// The one exception to "nothing is re-sorted", and it is narrow on purpose: a
+// single event moves, to the top, and the rest keep the ledger's order.
+//
+// A thread you compose is two lines, the stamp that makes the row and then
+// your words (store.composeItem), and a worker can claim the row between them
+// and write before your words land. A tester's brand new thread opened on "Now
+// looking at how the open thread handles keys" with her own message under it
+// (power-test-2, issue 21). The clock is right and the reading is wrong: she
+// typed before any of it existed.
+function theAskComesFirst(events: ThreadEvent[]): ThreadEvent[] {
+  const bodied = events.findIndex((e) => e.field === 'body');
+  const i = bodied >= 0 ? bodied : events.findIndex((e) => /opened this$/.test(e.said));
+  if (i <= 0) return events;
+  return [events[i], ...events.slice(0, i), ...events.slice(i + 1)];
 }
 
 // WHEN THE HEADER SHOWS THE SHORT NAME, THE TITLE IS SAID IN THE OPENING.

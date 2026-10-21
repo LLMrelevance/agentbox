@@ -494,7 +494,7 @@ export function SummaryPanel({ item, team, onFinish, onClose, repeat = null }: {
           title="Click to rename"
           onClick={rename.begin}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); rename.begin(); } }}
-        >{rename.shown}<Pen /></h2>
+        ><span className="ts-title-text">{rename.shown}<Pen /></span></h2>
       )}
       {/* A LINE WITH NO WORDS IS NOT DRAWN AT ALL (w-54e9c7243f): no heading
           over a dim "Not written yet". The one being typed in stays, so

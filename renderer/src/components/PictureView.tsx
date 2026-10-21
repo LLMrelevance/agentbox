@@ -2,27 +2,42 @@
 // press away ("Open beside"), and so is Preview.
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { clickZoom, fitScale, panToKeep, stepTo, zoomBy } from '../picture-view';
+import { clickZoom, fitScale, panToKeep, picturesBeside, readyAround, stepTo, zoomBy, PICTURE_WAIT_MS, type Picture } from '../picture-view';
 import { CrossIcon } from './CrossIcon';
 
-export type Picture = { path: string; url: string | null };
+export type { Picture };
 
 /** How long the pointer has to rest before the controls fade and leave only the picture. */
 const IDLE_MS = 2400;
 
-/** Every picture drawn in this thread, in reading order, with the url it loaded from. */
-export function picturesOnScreen(root: ParentNode | null): Picture[] {
-  if (!root) return [];
-  const seen = new Set<string>();
-  const out: Picture[] = [];
-  root.querySelectorAll<HTMLButtonElement>('.inline-image-open, .folder-preview-shot').forEach((b) => {
-    const path = b.title;
-    const img = b.querySelector('img');
-    if (!path || !img || seen.has(path)) return;
-    seen.add(path);
-    out.push({ path, url: img.currentSrc || img.src });
-  });
-  return out;
+/** The pictures a click on `href` steps through: those in the pressed picture's part of the thread. */
+export function picturesFor(root: ParentNode | null, href: string, from?: Element | null): { pictures: Picture[]; start: number } {
+  const doors = root ? [...root.querySelectorAll<HTMLElement>('[data-picture]')].filter((d) => d.querySelector('img')) : [];
+  const pressed = from?.closest<HTMLElement>('[data-picture]');
+  let at = pressed ? doors.indexOf(pressed) : -1;
+  if (at < 0) at = doors.map((d) => d.dataset.picture).lastIndexOf(href);
+  if (at < 0) return { pictures: [{ path: href, url: null }], start: 0 };
+  return picturesBeside(doors.map((d) => {
+    const img = d.querySelector('img')!;
+    return { path: d.dataset.picture!, url: img.currentSrc || img.src || null, section: d.closest<HTMLElement>('[data-exchange]')?.dataset.exchange ?? null };
+  }), at);
+}
+
+type Ready = { url: string; w: number; h: number; img: HTMLImageElement };
+
+// Holding the decoded element keeps it in this window, so an <img> with the
+// same url draws at once instead of reading the file again: the app serves
+// pictures no-store.
+function decoded(url: string): Promise<Ready> {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.decoding = 'async';
+  img.src = url;
+  let timer: number | undefined;
+  const late = new Promise<never>((_, no) => { timer = window.setTimeout(() => no(new Error('slow')), PICTURE_WAIT_MS); });
+  return Promise.race([img.decode(), late])
+    .finally(() => window.clearTimeout(timer))
+    .then(() => ({ url, w: img.naturalWidth, h: img.naturalHeight, img }));
 }
 
 // The cross's recipe: a 24 grid, a 1.1 hairline, round caps, no fill.
@@ -48,25 +63,52 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
 }) {
   const [index, setIndex] = useState(start);
   const shown = pictures[index];
-  const [url, setUrl] = useState<string | null>(shown?.url ?? null);
-  const [natural, setNatural] = useState({ w: 0, h: 0 });
+  // What is on the stage. It stays there until the next picture can be drawn.
+  const [drawn, setDrawn] = useState<(Ready & { path: string }) | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [idle, setIdle] = useState(false);
   const stage = useRef<HTMLDivElement | null>(null);
+  const strip = useRef<HTMLDivElement | null>(null);
+  const placed = useRef(false);
   const dialog = useRef<HTMLDivElement | null>(null);
   const drag = useRef<{ px: number; py: number; x: number; y: number; moved: boolean } | null>(null);
   const idleTimer = useRef<number | undefined>(undefined);
+  const ready = useRef(new Map<string, Promise<Ready>>());
+
+  // The url the thread drew it from first; if that fails, the file is looked
+  // for by its path, the way a click on it outside this view would.
+  const read = (p: Picture): Promise<Ready> => {
+    const had = ready.current.get(p.path);
+    if (had) return had;
+    const found = () => resolve(p.path).then((u) => (u ? decoded(u) : Promise.reject(new Error('missing'))));
+    const got = p.url ? decoded(p.url).catch(found) : found();
+    ready.current.set(p.path, got);
+    got.catch(() => ready.current.delete(p.path));
+    return got;
+  };
 
   useEffect(() => {
-    setZoom(1); setPan({ x: 0, y: 0 }); setNatural({ w: 0, h: 0 });
+    setZoom(1); setPan({ x: 0, y: 0 });
     if (!shown) return;
-    if (shown.url) { setUrl(shown.url); return; }
     let live = true;
-    setUrl(null);
-    resolve(shown.path).then((u) => { if (live) setUrl(u); }).catch(() => {});
+    read(shown).then(
+      (r) => { if (live) { setDrawn({ ...r, path: shown.path }); setFailed(null); } },
+      () => { if (live) setFailed(shown.path); },
+    );
+    for (const i of readyAround(index, pictures.length)) read(pictures[i]).catch(() => {});
     return () => { live = false; };
+  }, [index]);
+
+  // The open one is kept in the middle of the row, so it is never scrolled out of sight.
+  useEffect(() => {
+    const row = strip.current;
+    const on = row?.children[index] as HTMLElement | undefined;
+    if (!row || !on) return;
+    row.scrollTo({ left: on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2, behavior: placed.current ? 'smooth' : 'auto' });
+    placed.current = true;
   }, [index]);
 
   useEffect(() => {
@@ -106,11 +148,12 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
     return () => window.removeEventListener('keydown', key, true);
   }, [pictures.length]);
 
+  const natural = drawn ? { w: drawn.w, h: drawn.h } : { w: 0, h: 0 };
   const fit = fitScale(natural, box);
-  const drawn = { w: natural.w * fit, h: natural.h * fit };
+  const size = { w: natural.w * fit, h: natural.h * fit };
   const clampPan = (p: { x: number; y: number }, z: number) => {
-    const lx = Math.max(0, (drawn.w * z - box.w) / 2);
-    const ly = Math.max(0, (drawn.h * z - box.h) / 2);
+    const lx = Math.max(0, (size.w * z - box.w) / 2);
+    const ly = Math.max(0, (size.h * z - box.h) / 2);
     return { x: Math.max(-lx, Math.min(lx, p.x)), y: Math.max(-ly, Math.min(ly, p.y)) };
   };
 
@@ -153,6 +196,8 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
   const name = shown.path.split('/').pop() ?? shown.path;
   const many = pictures.length > 1;
   const go = (by: number) => setIndex(stepTo(index, pictures.length, by));
+  const missing = failed === shown.path;
+  const waiting = !!drawn && drawn.path !== shown.path;
 
   return createPortal(
     <div
@@ -165,27 +210,26 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
       onPointerDown={wake}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      {url && <div className="pv-glow" style={{ backgroundImage: `url("${url}")` }} aria-hidden="true" />}
+      {drawn && !missing && <img className="pv-glow" src={drawn.url} crossOrigin="anonymous" alt="" aria-hidden="true" />}
       <div ref={stage} className="pv-stage" onWheel={wheel} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-        {url && (
-          <img
-            key={url}
-            src={url}
-            alt={name}
-            crossOrigin="anonymous"
-            draggable={false}
-            className={`pv-img${zoom > 1 ? ' pv-zoomed' : ''}`}
-            style={{
-              width: drawn.w || undefined, height: drawn.h || undefined,
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-              visibility: natural.w ? 'visible' : 'hidden',
-            }}
-            onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
-            onPointerDown={down}
-            onPointerMove={move}
-            onPointerUp={up}
-          />
-        )}
+        {missing
+          ? <p className="pv-missing">This picture could not be opened.</p>
+          : drawn && (
+            <img
+              src={drawn.url}
+              alt={name}
+              crossOrigin="anonymous"
+              draggable={false}
+              className={`pv-img${zoom > 1 ? ' pv-zoomed' : ''}${waiting ? ' pv-waiting' : ''}`}
+              style={{
+                width: size.w || undefined, height: size.h || undefined,
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              }}
+              onPointerDown={down}
+              onPointerMove={move}
+              onPointerUp={up}
+            />
+          )}
       </div>
 
       <header className="pv-top pv-chrome">
@@ -209,10 +253,10 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
       )}
 
       {many && (
-        <div className="pv-strip pv-chrome">
+        <div ref={strip} className="pv-strip pv-chrome">
           {pictures.map((p, i) => (
-            <button key={p.path} type="button" className={`pv-thumb${i === index ? ' is-on' : ''}`} onClick={() => setIndex(i)} title={p.path.split('/').pop()}>
-              {p.url && <img src={p.url} alt="" crossOrigin="anonymous" />}
+            <button key={p.path} type="button" className={`pv-thumb${i === index ? ' is-on' : ''}`} aria-current={i === index || undefined} onClick={() => setIndex(i)} title={p.path.split('/').pop()}>
+              {p.url && <img src={p.url} alt="" crossOrigin="anonymous" decoding="async" />}
             </button>
           ))}
         </div>

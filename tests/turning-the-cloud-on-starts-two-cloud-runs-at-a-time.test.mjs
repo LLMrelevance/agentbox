@@ -8,8 +8,9 @@
 // 278 MB) into memory before it sends them, on a Mac that is already full.
 //
 // Now at most two cloud runs are being packed and sent at once; the next one
-// starts when one of them has its agent running. Runs already going in the
-// cloud do not count.
+// starts when the cloud has taken one of them, or its agent is running
+// (tests/a-cloud-run-stops-holding-a-start-slot-once-it-is-sent). Runs already
+// going in the cloud do not count.
 import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';

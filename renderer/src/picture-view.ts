@@ -5,6 +5,40 @@ import { docKind } from './doc-pane';
 /** Zoom is counted from the fitted size, so 1 is "all of it on screen". */
 export const MAX_ZOOM = 8;
 
+/** How long a picture may take to read before the view says it could not. */
+export const PICTURE_WAIT_MS = 12_000;
+
+export type Picture = { path: string; url: string | null };
+
+/** A picture drawn in the thread: the path its click opens, the url it loaded from, and its part (../her-turns.ts). */
+export type Shot = Picture & { section: string | null };
+
+// One file drawn twice, by a relative path and by a full one or with a
+// look-again query, is one picture.
+const fileOf = (s: Shot) => (s.url ?? s.path).replace(/[?#].*$/, '');
+
+/**
+ * The pictures stepped through from the one at `at`: those in its own part of
+ * the thread, in reading order, each file once, with the clicked one open.
+ */
+export function picturesBeside(shots: Shot[], at: number): { pictures: Picture[]; start: number } {
+  const here = shots[at];
+  if (!here) return { pictures: [], start: 0 };
+  const seen = new Map<string, number>();
+  const pictures: Picture[] = [];
+  for (const s of shots) {
+    if (s.section !== here.section || seen.has(fileOf(s))) continue;
+    seen.set(fileOf(s), pictures.length);
+    pictures.push({ path: s.path, url: s.url });
+  }
+  return { pictures, start: seen.get(fileOf(here)) ?? 0 };
+}
+
+/** The pictures to read ahead of a step: the next one first, then the one before. */
+export function readyAround(index: number, count: number): number[] {
+  return [index + 1, index - 1].filter((i) => i >= 0 && i < count && i !== index);
+}
+
 export function opensAsPicture(path: string | undefined | null): boolean {
   return docKind(path) === 'image';
 }

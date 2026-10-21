@@ -63,6 +63,7 @@ import { appendCloudUsage } from './usage.mjs';
 import { docsFolderFor, docsToSend, tarDocs, layDocs } from './docs.mjs';
 import { troubleCause, limitResetMoment } from '../../shared/spawn-trouble.mjs';
 import { HAND_BACK } from '../../shared/cloud-hand-back.mjs';
+import { sentLine } from '../../shared/cloud-start.mjs';
 import { serveApprovals } from '../approval-prompt-core.mjs';
 import { cacheKey, folderKey, sendOnce, pickBase, bundlePast, refsAt } from './reuse.mjs';
 
@@ -122,6 +123,16 @@ export const LOGIN_TROUBLE = 77;
 // A folder the cloud cannot take: the thread runs on this Mac instead, and is
 // not tried in the cloud again (Supervisor#_cloudKeptOnMac).
 export const KEEP_ON_MAC = 78;
+// The cloud server had no room for this person (no plan, hours spent, every
+// agent running, paused, terms not accepted): not a failure of the thread or
+// the cloud, so the thread runs on this Mac meanwhile (Supervisor#_noteCloudNoRoom).
+export const CLOUD_NO_ROOM = 79;
+const NO_ROOM = new Set(['plan', 'hours', 'agents', 'paused', 'terms']);
+/** A refused start that is about room, as its exit and what it says; else null. */
+export function refusedForRoom(answer) {
+  if (!answer || answer.ok !== false || !NO_ROOM.has(answer.error)) return null;
+  return { code: CLOUD_NO_ROOM, line: `no room in the cloud (${answer.error}): ${answer.message || ''}`.trim() };
+}
 // A link to a login is good for half an hour: a run fetches it while it is
 // being prepared, never later.
 const LOGIN_LINK_SECONDS = 30 * 60;
@@ -344,6 +355,7 @@ export async function cloudRun({
   onCaps = () => {},
 }) {
   const say = (msg) => stderr.write(`agentbox cloud: ${msg}\n`);
+  const begunAt = Date.now();
   // Whether the sandbox keeps this run going while the Mac sleeps, so its
   // tool calls are asked about before they are made (`claimCalls`).
   let offlineOn = false;
@@ -592,6 +604,7 @@ export async function cloudRun({
   const system = argValue(argv, '--append-system-prompt') || '';
   for (const f of filesNamedIn(system, { cwd: plain ? null : cwd, roots })) sending.push(sendFile(f));
   const [pack, files, home] = await Promise.all([packed, Promise.all(sending), Promise.all(homeFiles)]);
+  const packedAt = Date.now();
   sentFiles = new Set(files.map((f) => f.path));
 
   const results = await resultUrls(runId);
@@ -658,10 +671,13 @@ export async function cloudRun({
     // Such a start is tried again without them, so the reply is not spent.
     const outgrown = (base || plain) && started.error === 'bad-start';
     if (outgrown) { try { onCaps(started.caps || []); } catch { /* a hint */ } }
-    say(`the cloud run could not start: ${started.error || 'no answer'} ${started.message || ''}`.trim());
+    const noRoom = refusedForRoom(started);
+    say(noRoom ? noRoom.line : `the cloud run could not start: ${started.error || 'no answer'} ${started.message || ''}`.trim());
     clearMarker(here);
+    if (noRoom) return noRoom.code;
     return outgrown ? IMPORT_FAILED : 1;
   }
+  stderr.write(sentLine({ packMs: packedAt - begunAt, startMs: Date.now() - packedAt }));
   try { onCaps(started.caps || []); } catch { /* only a hint for the next run */ }
   offlineOn = (started.caps || []).includes('offline');
   if (!offlineOn) say('this cloud image stops at its next tool call while this Mac sleeps; rebuild it (node scripts/cloud-setup.mjs) to keep runs going');

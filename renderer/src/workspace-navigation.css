@@ -16,6 +16,8 @@
 .workspace-tabs { display: flex; flex-direction: column; gap: 3px; }
 .workspace-navigation .workspace-tab { width: 100%; text-align: left; }
 .workspace-navigation .workspace-tab.active { background: var(--wash); color: var(--text); font-weight: 500; }
+/* Light: a lifted fill and a hairline rather than a grey block (w-22da913d00). */
+:root[data-theme="light"]:not([data-skin]) .workspace-navigation .workspace-tab.active { background: rgba(255, 255, 255, .75); box-shadow: inset 0 0 0 1px var(--line); }
 .workspace-navigation button:hover { background: var(--wash); color: var(--text); }
 .workspace-navigation button:focus-visible { outline: 2px solid var(--underline); outline-offset: 2px; }
 .workspace-footer { margin-top: auto; display: flex; align-items: center; gap: 4px; }
@@ -990,29 +992,37 @@ body {
 /* ═══ EMBER GRID, the launch film's look (w-b3e123a0af) ═══. The colours are in
    the theme's token block in styles.css; these are the film's shapes, each
    scoped to the theme so nothing already approved moves. The card is
-   edged with one hairline and the film's four corner marks instead of the
-   white top light the glass themes wear. The chrome (search, section label,
-   times) is Geist Mono in capitals, the count is the one orange, and titles are
-   the film's 400 weight rather than the app's 500. The floating cards (new
-   task, ⌘K and every other modal) wear the same marks over their own fill and
-   a firmer edge, and page headings drop from 600 to the film's 400. */
-:root[data-skin="ember-grid"] .workspace-layout::before,
-:root[data-skin="ember-grid"] .modal {
-  --grid-ticks:
-    linear-gradient(var(--skin-tick), var(--skin-tick)) left 8px top 8px / 12px 1px no-repeat,
-    linear-gradient(var(--skin-tick), var(--skin-tick)) left 8px top 8px / 1px 12px no-repeat,
-    linear-gradient(var(--skin-tick), var(--skin-tick)) right 8px top 8px / 12px 1px no-repeat,
-    linear-gradient(var(--skin-tick), var(--skin-tick)) right 8px top 8px / 1px 12px no-repeat,
-    linear-gradient(var(--skin-tick), var(--skin-tick)) left 8px bottom 8px / 12px 1px no-repeat,
-    linear-gradient(var(--skin-tick), var(--skin-tick)) left 8px bottom 8px / 1px 12px no-repeat,
-    linear-gradient(var(--skin-tick), var(--skin-tick)) right 8px bottom 8px / 12px 1px no-repeat,
-    linear-gradient(var(--skin-tick), var(--skin-tick)) right 8px bottom 8px / 1px 12px no-repeat;
-}
+   edged with one hairline instead of the white top light the glass themes
+   wear, and the film's four corner marks stand 7px outside it (w-22da913d00:
+   they read better outside than 8px inside). The chrome (search, section
+   label, times) is Geist Mono in capitals, the count is the one orange, and
+   titles are the film's 400 weight rather than the app's 500. Page headings
+   drop from 600 to the film's 400. */
 :root[data-skin="ember-grid"] .workspace-layout::before {
   box-shadow: inset 0 0 0 1px var(--skin-pane-line), var(--shadow-card);
-  background: var(--grid-ticks), var(--skin-pane);
+  background: var(--skin-pane);
 }
-:root[data-skin="ember-grid"] .modal { background: var(--grid-ticks), var(--bg-raised); border-color: var(--line-strong); }
+/* The marks need their own element: a card cannot paint outside itself, and
+   `.workspace-layout::after` is the window's drag strip. */
+.panel-marks { display: none; }
+:root[data-skin="ember-grid"] .panel-marks {
+  display: block; position: absolute; top: 40px; bottom: 22px; left: var(--workspace-left); right: 22px; pointer-events: none;
+}
+:root[data-window="flat"][data-skin="ember-grid"] .panel-marks { top: 22px; }
+:root[data-skin="ember-grid"] .panel-marks::after {
+  content: ''; position: absolute; inset: -7px;
+  background:
+    linear-gradient(var(--skin-tick), var(--skin-tick)) left top / 10px 1px no-repeat,
+    linear-gradient(var(--skin-tick), var(--skin-tick)) left top / 1px 10px no-repeat,
+    linear-gradient(var(--skin-tick), var(--skin-tick)) right top / 10px 1px no-repeat,
+    linear-gradient(var(--skin-tick), var(--skin-tick)) right top / 1px 10px no-repeat,
+    linear-gradient(var(--skin-tick), var(--skin-tick)) left bottom / 10px 1px no-repeat,
+    linear-gradient(var(--skin-tick), var(--skin-tick)) left bottom / 1px 10px no-repeat,
+    linear-gradient(var(--skin-tick), var(--skin-tick)) right bottom / 10px 1px no-repeat,
+    linear-gradient(var(--skin-tick), var(--skin-tick)) right bottom / 1px 10px no-repeat;
+}
+:root[data-skin="ember-grid"] .modal { background: var(--bg-raised); border-color: var(--line-strong); }
+:root[data-skin="ember-grid"] .modal.palette { background: rgba(38, 36, 34, .97); border-color: rgba(255, 255, 255, .08); }
 :root[data-skin="ember-grid"] .set-title { font-weight: 400; letter-spacing: -0.035em; }
 
 /* INBOX ZERO, the film's "0 terminals opened" card, made more visually
@@ -1038,8 +1048,9 @@ body {
 :root[data-skin="ember-grid"] .idle-zero-say { color: var(--text-dim); }
 :root[data-skin="ember-grid"] .idle-zero-col .idle-field { margin-top: 36px; }
 :root[data-skin="ember-grid"] .workspace-navigation .workspace-search { background: transparent; }
+/* A faint fill and a hairline: the solid selected grey was too much (w-22da913d00). */
 :root[data-skin="ember-grid"] .workspace-navigation .workspace-tab.active {
-  background: var(--bg-selected); box-shadow: inset 0 0 0 1px var(--line); font-weight: 400;
+  background: rgba(40, 38, 37, .7); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .07); font-weight: 400;
 }
 :root[data-skin="ember-grid"] .workspace-running { color: var(--accent); }
 

@@ -179,6 +179,10 @@ const start = async ({ board = false, light = false } = {}) => {
     // picture is normalised back over the light theme before the first paint.
     localStorage.setItem('zero.theme', wantLight ? 'light' : 'dark');
     localStorage.setItem('zero.skin', wantLight ? 'none' : 'ember-grid');
+    // The app comes back where it was left (where-she-was.ts), so a shot after
+    // one of the thread shots would open on that thread and never draw a row.
+    localStorage.removeItem('zero.where');
+    localStorage.removeItem('zero.alive');
   }, [board, light]);
   await page.goto(origin, { waitUntil: 'load' });
   await page.waitForSelector(board ? '.th-card' : '.row', { timeout: 20_000 });

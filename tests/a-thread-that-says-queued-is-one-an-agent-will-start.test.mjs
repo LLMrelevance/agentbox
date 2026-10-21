@@ -157,3 +157,60 @@ describe('a Codex account still being added', () => {
     expect(sup._pickProfile('codex')).toBe('default');
   });
 });
+
+// A FIFTH PATH, FOUND BY THE POWER TEST (run 1 issue 4, run 2 issue 41,
+// w-712fc99e8d): search tagged a finished thread QUEUED while its own preview
+// read "Done: Write the on-call runbook". The tick walks past a row already
+// holding an agent's result nobody has replied to (`awaitingHer` in `isFresh`,
+// which is what stops the same answer being written three times); the queued
+// list was a second copy of those rules and did not know it. Both now read the
+// one pair of predicates.
+describe('a thread already holding an answer for you', () => {
+  const answered = (extra = {}) => row({
+    wrote: { result: { ts: 50, source: 'agent' } }, updatedAt: 50, ...extra,
+  });
+
+  it('is not queued, because nothing is going to start on it', async () => {
+    const sup = build({ items: [answered()] });
+    expect(sup.status().queued).toEqual([]);
+    await sup.tick();
+    expect(codexSpawns()).toHaveLength(0);
+  });
+
+  it('is queued again once you have written back', async () => {
+    const sup = build({ items: [answered({ wrote: { result: { ts: 50, source: 'agent' }, body: { ts: 60, source: 'founder' } } })] });
+    expect(sup.status().queued).toEqual(['w-task']);
+    await sup.tick();
+    expect(codexSpawns()).toHaveLength(1);
+  });
+
+  it('and a thread with no result on it is queued, as it always was', async () => {
+    const sup = build({ items: [row()] });
+    expect(sup.status().queued).toEqual(['w-task']);
+    await sup.tick();
+    expect(codexSpawns()).toHaveLength(1);
+  });
+
+  it('is not queued either when only a note has been written, since that is no answer', () => {
+    const sup = build({ items: [row({ wrote: { note: { ts: 50, source: 'agent' } } })] });
+    expect(sup.status().queued).toEqual(['w-task']);
+  });
+});
+
+describe('the queued list and the tick', () => {
+  it('ask the same two questions, so neither can drift from the other', async () => {
+    const items = [
+      row({ id: 'w-fresh' }),
+      row({ id: 'w-answered', wrote: { result: { ts: 50, source: 'agent' } } }),
+      row({ id: 'w-reply', answer: 'go on', wrote: { answer: { ts: 60, source: 'founder' } } }),
+      row({ id: 'w-withdrawn', answer: '(withdrawn)' }),
+      row({ id: 'w-proposal', labels: [] }),
+      row({ id: 'w-question', kind: 'question' }),
+    ];
+    const sup = build({ items, extra: { maxConcurrentSessions: 6 } });
+    const queued = sup.status().queued;
+    await sup.tick();
+    expect(new Set(sup.sessions.keys())).toEqual(new Set(queued));
+    expect(new Set(queued)).toEqual(new Set(['w-fresh', 'w-reply']));
+  });
+});

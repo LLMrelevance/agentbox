@@ -22,7 +22,7 @@
 // timezone stamp it prints, and the refusal to count down from a stamp computed
 // somewhere else. What belongs to a LIMIT, any limit, is next door.
 
-import { instantIn, localZone, sessionLimit, untilReset, wallIn } from './usage.mjs';
+import { instantIn, localZone, resetDay, sessionLimit, untilReset, wallIn } from './usage.mjs';
 
 /** One limit, as the CLI reported it. */
 // { span, qualifier, name, percent, resetsAt|null, resetsText, resetsOn, zone }
@@ -173,10 +173,11 @@ export function readUsageReport(value, now = Date.now()) {
   ];
   return windows.flatMap(([span, qualifier, row]) => {
     const percent = row?.utilization;
-    if (typeof percent !== 'number' || !Number.isFinite(percent) || percent < 0 || percent > 100) return [];
+    // Over 100 is a limit past its allowance, which is full, not unreadable.
+    if (typeof percent !== 'number' || !Number.isFinite(percent) || percent < 0) return [];
     const at = typeof row.resets_at === 'string' ? Date.parse(row.resets_at) : NaN;
     // Whole percents, as the text report printed them; only a full limit reads 100, only an unused one 0.
-    const whole = percent === 0 || percent === 100 ? percent : Math.min(99, Math.max(1, Math.round(percent)));
+    const whole = percent === 0 || percent >= 100 ? Math.min(100, percent) : Math.min(99, Math.max(1, Math.round(percent)));
     const known = Number.isFinite(at);
     return [{ span, qualifier, name: limitName(span, qualifier), percent: whole, resetsAt: known ? at : null,
       ...(known ? clockWords(at, now) : { resetsText: null, resetsOn: null }), zone: known ? localZone() : null }];
@@ -190,8 +191,7 @@ function clockWords(at, now) {
   const h = d.getHours();
   const m = d.getMinutes();
   const resetsText = `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''}${h < 12 ? 'am' : 'pm'}`;
-  const today = d.toDateString() === new Date(now).toDateString();
-  return { resetsText, resetsOn: today ? null : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) };
+  return { resetsText, resetsOn: resetDay(at, now) };
 }
 
 /**

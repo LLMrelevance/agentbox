@@ -95,8 +95,8 @@ const HANDLED = {
     [compose, "if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') send();"],
     [focus, "if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') send();"],
   ],
-  '1': [[focused, "/^[1-9]$/.test(e.key)) pickOption(focused, Number(e.key))"]],
-  '9': [[focused, "/^[1-9]$/.test(e.key)) pickOption(focused, Number(e.key))"]],
+  '1': [[focused, "/^[1-9]$/.test(e.key)) { e.preventDefault(); pickOption(focused, Number(e.key)); }"]],
+  '9': [[focused, "/^[1-9]$/.test(e.key)) { e.preventDefault(); pickOption(focused, Number(e.key)); }"]],
   // The arrows walk the options, and Enter sends the one showing.
   '⌘Y': [
     [mainProc, "if (key !== 'y' && key !== 'n') return;"],
