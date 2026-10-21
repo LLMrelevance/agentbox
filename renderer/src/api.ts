@@ -402,8 +402,10 @@ export const api = {
                 { span: 'week' as const, qualifier: 'all models', name: 'This week', percent: 22, resetsText: null, resetsOn: null, resetsAt: on(2, 16), zone: null },
               ],
             }] : []),
-            // &cloudmissing leaves the work login out of the cloud, so it is only on this computer.
-          ].filter((a) => !(params.has('cloudmissing') && a.key === 'a2')),
+            // &cloudmissing leaves the work login out of the cloud, so it is only on this computer
+            // (&cloudmissing=a1 the other one). &cloudstopped has the work login's cloud sign-in stop working.
+          ].filter((a) => !(params.has('cloudmissing') && a.key === (params.get('cloudmissing') || 'a2')))
+            .map((a) => (params.has('cloudstopped') && a.key === 'a2' ? { ...a, ready: false, state: 'broken' as const } : a)),
           // &cloudsigning has a Claude sign-in waiting on its code, as Add to cloud leaves one.
           signIns: params.has('cloudsigning')
             ? [{ engine: 'claude' as const, key: 'acct-new', state: 'needs-code' as const, url: 'https://claude.ai/oauth/authorize', code: null, message: null, attempt: 'signin-1' }]

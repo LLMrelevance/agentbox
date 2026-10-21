@@ -236,10 +236,18 @@ export function nameForOrganization(org, identities) {
   return emails.size === 1 ? [...emails][0] : null;
 }
 
-/** The folder here holding that one login, by the same rule, so the two can share one reading. */
-export function profileForOrganization(org, identities) {
-  const email = nameForOrganization(org, identities);
-  return email ? identities.find((id) => id?.organizationUuid === org && id.email === email)?.profile ?? null : null;
+/**
+ * The folder here holding a cloud login, so the two share one reading, and
+ * whether "none" is certain. A login that says its email is that person in its
+ * organization; one that says only its organization is the one email here in
+ * it, and is unknown when two people here share it.
+ */
+export function cloudLoginHere({ org, email }, identities) {
+  if (!org) return { profile: null, known: false };
+  const inOrg = identities.filter((id) => id?.organizationUuid === org && id.email);
+  const who = email || nameForOrganization(org, identities);
+  const profile = who ? inOrg.find((id) => id.email === who)?.profile ?? null : null;
+  return { profile, known: !!profile || !!email || inOrg.length === 0 };
 }
 
 /**

@@ -476,8 +476,8 @@ export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: Pl
           </div>
           {(a.plan || a.about.length > 0) && (
             <div className="acct-tile-about">
-              {[a.plan, ...a.about].filter(Boolean).join(' · ')}
-              {a.cloudAct && <button type="button" className="set-ghost acct-cloud-act" onClick={a.cloudAct.onUse}>{a.cloudAct.word}</button>}
+              <span>{[a.plan, ...a.about].filter(Boolean).join(' · ')}</span>
+              {a.cloudAct && <button type="button" className="acct-cloud-act" onClick={a.cloudAct.onUse}>{a.cloudAct.word}</button>}
             </div>
           )}
           {a.trouble ? (
@@ -541,7 +541,7 @@ export function accountTile(a: OneAccount, { picked, many, onUse, cloud = false,
   const c = a.cloud;
   const broken = c?.state === 'broken';
   const where = !cloud ? []
-    : broken ? ['Cloud sign-in stopped']
+    : broken ? ['Signed out of cloud']
       : h && c ? ['This computer and cloud']
         : h ? ['This computer only']
           // Not "only" until its organization is read: it may be one of these.

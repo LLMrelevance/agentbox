@@ -27,7 +27,8 @@ const here = (extra = {}) => ({ profile: 'default', email: 'work@example.test', 
 const cloud = (extra = {}) => ({ engine: 'claude', key: 'acct-1', name: 'work@example.test', ready: true, state: 'ready', identified: true, ...extra });
 const account = (extra = {}) => ({ key: 'default', name: 'work@example.test', plan: 'Max 20x', here: here(), cloud: cloud(), limits: null, checkedAt: null, usageError: null, ...extra });
 const acts = (extra = {}) => ({ picked: true, many: true, now: Date.now(), onUse: vi.fn(), cloud: true, onCloudSignIn: vi.fn(), ...extra });
-const line = (t) => renderToStaticMarkup(React.createElement(PlaceTiles, { accounts: [t] })).match(/<div class="acct-tile-about">(.*?)<\/div>/)?.[1];
+// The words in their own span, which cuts them short rather than wrapping into the meters.
+const line = (t) => renderToStaticMarkup(React.createElement(PlaceTiles, { accounts: [t] })).match(/<div class="acct-tile-about"><span>(.*?)<\/span>(.*?)<\/div>/)?.slice(1).join('');
 
 describe('where an account is available', () => {
   it('the reported case: signed in here and in the cloud, said once on its one tile', () => {
@@ -37,7 +38,7 @@ describe('where an account is available', () => {
   it('here but not in the cloud says so, with Add to cloud, which signs in that account there', () => {
     const onCloudSignIn = vi.fn();
     const t = accountTile(account({ cloud: null }), acts({ onCloudSignIn }));
-    expect(line(t)).toBe('Max 20x · This computer only<button type="button" class="set-ghost acct-cloud-act">Add to cloud</button>');
+    expect(line(t)).toBe('Max 20x · This computer only<button type="button" class="acct-cloud-act">Add to cloud</button>');
     t.cloudAct.onUse();
     expect(onCloudSignIn).toHaveBeenCalledWith(null, 'work@example.test');
   });
@@ -47,10 +48,12 @@ describe('where an account is available', () => {
     expect(line(accountTile(account({ here: null, cloud: cloud({ identified: false }) }), acts()))).toBe('Max 20x · In the cloud');
   });
 
-  it('a cloud sign-in that stopped says so, with the button that signs that login in again', () => {
+  // "Cloud sign-in stopped" and its button did not fit one line: it wrapped into the meters.
+  it('a cloud sign-in that stopped says so in words that fit beside the button that signs that login in again', () => {
     const onCloudSignIn = vi.fn();
     const t = accountTile(account({ cloud: cloud({ state: 'broken', ready: false }) }), acts({ onCloudSignIn }));
-    expect(line(t)).toBe('Max 20x · Cloud sign-in stopped<button type="button" class="set-ghost acct-cloud-act">Sign in again</button>');
+    expect(line(t)).toBe('Max 20x · Signed out of cloud<button type="button" class="acct-cloud-act">Sign in again</button>');
+    expect('Signed out of cloud'.length).toBeLessThanOrEqual('This computer only'.length + 1);
     t.cloudAct.onUse();
     expect(onCloudSignIn).toHaveBeenCalledWith('acct-1', 'work@example.test');
   });
@@ -93,10 +96,43 @@ describe('main says whether it knows whose a cloud login is', () => {
   beforeEach(() => { home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-known-'))); });
   afterEach(() => { fs.rmSync(home, { recursive: true, force: true }); });
 
+  const signIn = (dir, email, org) => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: email, accountUuid: `a-${email}`, organizationUuid: org } }));
+  };
+  const listed = (profiles) => new Supervisor({ home, storeRoot: home, maxConcurrentSessions: 1, authProfiles: profiles }, { listItems: () => [], listProducts: () => [] }, '/nonexistent-app')
+    ._cloudAccounts().map((a) => [a.key, a.profile, a.identified]);
+
   it('known once its organization is read, and not before', () => {
     recordCloudLogin('claude', 'acct-1', { id: 'id-1', org: 'org-1' }, { home, now: 1 });
     recordCloudLogin('claude', 'acct-2', { id: 'id-2' }, { home, now: 2 });
-    const sup = new Supervisor({ home, storeRoot: home, maxConcurrentSessions: 1, authProfiles: ['default'] }, { listItems: () => [], listProducts: () => [] }, '/nonexistent-app');
-    expect(sup._cloudAccounts().map((a) => [a.key, a.identified])).toEqual([['acct-1', true], ['acct-2', false]]);
+    expect(listed(['default'])).toEqual([['acct-1', null, true], ['acct-2', null, false]]);
+  });
+
+  // A team plan: two people's logins here share one organization, and a cloud
+  // token says only the organization. It was called "Cloud only" and drawn as
+  // a second tile beside the one it may well be.
+  it('must NOT call a login only in the cloud when two people here share its organization and it cannot say which', () => {
+    const second = path.join(home, '.claude-2');
+    signIn(home, 'a@example.test', 'org-team');
+    signIn(second, 'b@example.test', 'org-team');
+    recordCloudLogin('claude', 'acct-1', { id: 'id-1', org: 'org-team' }, { home, now: 1 });
+    expect(listed(['default', second])).toEqual([['acct-1', null, false]]);
+  });
+
+  it('pairs a login that says its email with that person, even in an organization two people here share', () => {
+    const second = path.join(home, '.claude-2');
+    signIn(home, 'a@example.test', 'org-team');
+    signIn(second, 'b@example.test', 'org-team');
+    recordCloudLogin('claude', 'acct-1', { id: 'id-1', org: 'org-team', email: 'b@example.test' }, { home, now: 1 });
+    expect(listed(['default', second])).toEqual([['acct-1', second, true]]);
+  });
+
+  it('only in the cloud when nobody here is in its organization, or when it names someone not signed in here', () => {
+    signIn(home, 'a@example.test', 'org-team');
+    recordCloudLogin('claude', 'acct-1', { id: 'id-1', org: 'org-elsewhere' }, { home, now: 1 });
+    recordCloudLogin('claude', 'acct-2', { id: 'id-2', org: 'org-team', email: 'c@example.test' }, { home, now: 2 });
+    recordCloudLogin('claude', 'acct-3', { id: 'id-3', org: 'org-team' }, { home, now: 3 });
+    expect(listed(['default'])).toEqual([['acct-1', null, true], ['acct-2', null, true], ['acct-3', 'default', true]]);
   });
 });

@@ -42,7 +42,7 @@ describe('a tile on this computer', () => {
 
   it('the one in use has its plan on the next line and no switch', () => {
     const html = draw([accountTile(account({ here: here({ chosen: true }) }), acts())]);
-    expect(html).toContain('<div class="acct-tile-about">Max 20x</div>');
+    expect(html).toContain('<div class="acct-tile-about"><span>Max 20x</span></div>');
     expect(html).not.toContain('acct-switch');
   });
 
@@ -80,7 +80,7 @@ describe('a Codex login in the cloud, still drawn as its own place', () => {
   it('has the plan and state on one line, and no switch: the cloud takes its accounts in turn', () => {
     const [a] = cloudPlaceAccounts({ mode: 'all', accounts: [{ engine: 'codex', key: 'c', name: 'one@example.test', plan: 'Plus', ready: true, state: 'ready', limits: [limit('session', 5)] }] }, 'codex', Date.now());
     const html = draw([a]);
-    expect(html).toContain('<div class="acct-tile-about">Plus · Ready</div>');
+    expect(html).toContain('<div class="acct-tile-about"><span>Plus · Ready</span></div>');
     expect(html).not.toContain('acct-switch');
   });
 });
