@@ -12,6 +12,10 @@ import { describe, it, expect } from 'vitest';
 import { foldWorkItems, pickFields } from '../shared/work-items.mjs';
 import { whatATeammateMaySet } from '../shared/team-rules.mjs';
 import { itemThread } from '../renderer/src/item-thread.ts';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { Thread } from '../renderer/src/components/Thread.tsx';
+import { TeamContext } from '../renderer/src/team/people.tsx';
 
 const ID = 'w-1234567890';
 const ME = 'p-me', MAYA = 'p-maya';
@@ -98,6 +102,26 @@ describe('an edit in the chat', () => {
   it('draws the words as written when a teammate tried to change them', () => {
     const events = chat([open(MAYA), say(ME, 'my words', 'u-a'), edit(MAYA, 'u-a', { text: 'her words' })]);
     expect(events.find((e) => e.uid === 'u-a').text).toBe('my words');
+  });
+});
+
+describe('the chat as drawn', () => {
+  const team = { state: {}, me: ME, byId: new Map([[ME, { id: ME, name: 'Sam Rivera', email: '', avatarUrl: null }], [MAYA, { id: MAYA, name: 'Maya Chen', email: '', avatarUrl: null }]]), products: new Map() };
+  const draw = (events) => renderToStaticMarkup(React.createElement(TeamContext.Provider, { value: team },
+    React.createElement(Thread, { events, chat: true, name: 'Claude Code', landOn: 'w-1', onWhole: () => {}, md: (t) => React.createElement('p', null, t), onReact: () => {}, onQuote: () => {}, onEdit: () => {}, onMarkUnread: () => {} })));
+
+  it('marks an edited message, and only that one', () => {
+    const html = draw([
+      { at: 1, who: 'you', by: MAYA, text: 'hi', uid: 'u-1' },
+      { at: 2, who: 'you', by: ME, text: 'fixed words', uid: 'u-2', edited: 3 },
+    ]);
+    expect(html.match(/class="msg-edited"/g)).toHaveLength(1);
+  });
+
+  it('draws a deleted message kept for its replies as a quiet line with nothing to act on', () => {
+    const html = draw([{ at: 1, who: 'you', by: ME, text: 'This message was deleted.', uid: 'u-1', deleted: true }]);
+    expect(html).toContain('class="msg-body msg-deleted"');
+    expect(html).not.toContain('chat-acts');
   });
 });
 

@@ -102,7 +102,7 @@ describe('the thread reply box is laid out like the chat\'s own', () => {
   // THE CASE THAT MUST NOT HAPPEN: a panel dragged narrow pushing Send off the
   // edge. The marks go; @, the paperclip and the emoji stay.
   it('lets the formatting marks go before Send when the panel is narrow', () => {
-    expect(css).toMatch(/@container \(max-width: 400px\) \{\s*\.chat-thread-bar \.fmt-btn:has\(~ \.fmt-gap\), \.chat-thread-bar \.fmt-gap \{ display: none; \}/);
+    expect(css).toMatch(/@container \(max-width: 400px\) \{\s*\.chat-thread-bar \.fmt-mark, \.chat-thread-bar \.fmt-gap \{ display: none; \}/);
   });
 });
 

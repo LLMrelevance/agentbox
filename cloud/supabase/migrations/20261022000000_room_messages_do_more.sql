@@ -35,8 +35,9 @@ create table if not exists public.room_files (
   -- Unlike message_files, General outlives everyone in it, so a file there
   -- must not stop its sender's account from being deleted.
   by_person uuid not null references public.people(id) on delete cascade,
-  -- Ten megabytes of file is just under 14 million characters of base64.
-  data text not null check (length(data) <= 14000000),
+  -- 10 MiB of file, the app's limit, is at most 13,981,016 characters of
+  -- base64. Members insert here directly, so this is the limit that holds.
+  data text not null check (length(data) <= 13981016),
   created_at timestamptz not null default now(),
   primary key (room_id, name)
 );
@@ -112,7 +113,9 @@ returns public.room_messages
 language plpgsql security definer set search_path = public as $$
 declare msg public.room_messages;
 begin
-  select * into msg from public.room_messages where id = m;
+  -- Locked, so a delete cannot land between these checks and the update and
+  -- have the edit write its words back into a deleted message.
+  select * into msg from public.room_messages where id = m for update;
   if not found or not public.in_room(msg.room_id) then raise exception 'there is no such message in your rooms'; end if;
   if msg.by_person is distinct from auth.uid() then raise exception 'only the person who wrote a message can edit it'; end if;
   if msg.deleted_at is not null then raise exception 'that message was deleted'; end if;
@@ -123,7 +126,7 @@ begin
     mentions = coalesce((select array_agg(distinct x) from unnest(coalesce(p_mentions, '{}')) x
                          where x in (select person_id from public.room_members where room_id = msg.room_id
                                      union select tm.person_id from public.rooms ro join public.team_members tm on tm.team_id = ro.team_id where ro.id = msg.room_id)), '{}')
-  where id = m
+  where id = m and deleted_at is null
   returning * into msg;
   return msg;
 end $$;
@@ -133,7 +136,7 @@ create or replace function public.delete_room_message(m uuid) returns void
 language plpgsql security definer set search_path = public as $$
 declare msg public.room_messages;
 begin
-  select * into msg from public.room_messages where id = m;
+  select * into msg from public.room_messages where id = m for update;
   if not found or not public.in_room(msg.room_id) then raise exception 'there is no such message in your rooms'; end if;
   if msg.by_person is distinct from auth.uid() then raise exception 'only the person who wrote a message can delete it'; end if;
   if msg.deleted_at is not null then return; end if;
@@ -149,7 +152,8 @@ create or replace function public.react_room_message(m uuid, p_emoji text, p_on 
 language plpgsql security definer set search_path = public as $$
 declare msg public.room_messages;
 begin
-  select * into msg from public.room_messages where id = m;
+  -- Shared, so a delete waits rather than clearing reactions this then adds back.
+  select * into msg from public.room_messages where id = m for share;
   if not found or not public.in_room(msg.room_id) then raise exception 'there is no such message in your rooms'; end if;
   if msg.deleted_at is not null then raise exception 'that message was deleted'; end if;
   if char_length(coalesce(p_emoji, '')) not between 1 and 16 or btrim(p_emoji) = '' then raise exception 'a reaction is one emoji'; end if;

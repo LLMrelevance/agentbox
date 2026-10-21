@@ -108,7 +108,10 @@ export function FormatBar({ box, onChange, onAttach, onVoice, onNotice }: {
 }) {
   const [picking, setPicking] = useState(false);
   const [marks, setMarks] = useState(marksWereOut);
-  const voice = useVoiceRecorder({ onError: (text) => onNotice?.(text) });
+  const voice = useVoiceRecorder({
+    onError: (text) => onNotice?.(text),
+    onDone: (note) => { onVoice?.(note); box.current?.focus(); },
+  });
   const emojiWrap = useRef<HTMLSpanElement>(null);
   // THE BOX MAY BE THE EDITOR THAT SHOWS ITS FORMATTING (./RichReply.tsx), in
   // which case B makes the words bold rather than typing asterisks round them.
@@ -159,12 +162,6 @@ export function FormatBar({ box, onChange, onAttach, onVoice, onNotice }: {
     setMarks(on);
     try { localStorage.setItem(MARKS_KEY, on ? '1' : '0'); } catch { /* not kept */ }
   };
-  const finish = async () => {
-    const note = await voice.stop();
-    if (note) onVoice?.(note);
-    box.current?.focus();
-  };
-
   // WHILE A NOTE RECORDS, THE BAR IS THE RECORDING: throw it away, how long it
   // has been, what the microphone hears, and done.
   if (voice.phase !== 'idle') {
@@ -181,7 +178,7 @@ export function FormatBar({ box, onChange, onAttach, onVoice, onNotice }: {
           ))}
         </span>
         <button type="button" className="fmt-btn fmt-done" title="Done, add the voice note" aria-label="Done, add the voice note"
-          disabled={voice.phase !== 'recording'} onMouseDown={hold} onClick={() => void finish()}>
+          disabled={voice.phase !== 'recording'} onMouseDown={hold} onClick={voice.stop}>
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" aria-hidden="true"><path d="M3.2 8.4l3.1 3 6.5-6.8" /></svg>
         </button>
       </div>
@@ -241,7 +238,7 @@ export function FormatBar({ box, onChange, onAttach, onVoice, onNotice }: {
         </button>
       </span>
       <button type="button" className={`fmt-btn fmt-aa${marks ? ' on' : ''}`} title={marks ? 'Hide formatting' : 'Show formatting'}
-        aria-label="Formatting" aria-pressed={marks} onMouseDown={hold} onClick={() => showMarks(!marks)}>
+        aria-label="Formatting marks" aria-pressed={marks} onMouseDown={hold} onClick={() => showMarks(!marks)}>
         <span className="fmt-letter">Aa</span>
       </button>
       {marks && <span className="fmt-gap" aria-hidden="true" />}

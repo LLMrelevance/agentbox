@@ -80,7 +80,14 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
   // Reading the room is having it open with the window in front, except just
   // after you marked it unread, which holds until you leave it.
   const held = useRef(false);
-  useEffect(() => { held.current = false; }, [room.id]);
+  const wasMarked = useRef(!!room.markedUnread);
+  useEffect(() => { held.current = false; wasMarked.current = !!room.markedUnread; }, [room.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Marked unread from anywhere (the list's menu too) while it is open holds
+  // it the same way; opening a room that was already marked reads it.
+  useEffect(() => {
+    if (room.markedUnread && !wasMarked.current) { held.current = true; setReadFrom(room.readAt ?? null); }
+    wasMarked.current = !!room.markedUnread;
+  }, [room.markedUnread, room.readAt]);
   useEffect(() => {
     const read = () => { if (!held.current && document.visibilityState === 'visible' && document.hasFocus()) onRead(); };
     read();

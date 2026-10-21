@@ -10,6 +10,9 @@ const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 const ATTACHMENT = /\]\(attachments\/([A-Za-z0-9][A-Za-z0-9_.-]{0,159})\)/g;
+// 1 to 4000 characters once trimmed, counted as Postgres's char_length counts:
+// an emoji is one character, not the two halves JavaScript's length sees.
+const fitsAMessage = (text) => { const n = [...String(text).trim()].length; return n >= 1 && n <= 4000; };
 
 const PROFILE_DEFAULTS = { display_name: '', avatar_url: null, headline: null, bio: null, show_working: 'team', show_agents: true, show_level: true, show_status: true, show_activity: true, invisible_until: null, status_text: null, status_until: null };
 const PRESENCE_DEFAULTS = { gone: false, agents_running: 0, working_on: null, working_private: false, working_at: null, hours_total: 0, hours_week: 0, week_start: null, hours_today: 0, day: null, streak_days: 0, active_days: [], hours_by_month: [] };
@@ -196,7 +199,7 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
       const s = state(cloud);
       if (!inRoom(r)) refuse('write in a room you are not in');
       const text = String(body ?? '');
-      if (text.trim().length < 1 || text.trim().length > 4000) refuse('a message that empty or that long');
+      if (!fitsAMessage(text)) refuse('a message that empty or that long');
       limit('messages', s.roomMessages.filter((m) => m.by === personId && m.at > now() - MIN).length, 20);
       if (inReplyTo && !s.roomMessages.some((m) => m.id === inReplyTo && m.roomId === r)) refuse('a reply to a message in another room');
       const people = peopleOf(r);
@@ -210,7 +213,7 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
       const m = myMessage(id, 'edit');
       if (m.deleted) refuse('edit a deleted message');
       const text = String(body ?? '');
-      if (text.trim().length < 1 || text.trim().length > 4000) refuse('a message that empty or that long');
+      if (!fitsAMessage(text)) refuse('a message that empty or that long');
       act('edits', 20, MIN);
       const people = peopleOf(m.roomId);
       Object.assign(m, { body: text, editedAt: now(), mentions: [...new Set(mentions ?? [])].filter((p) => people.has(p)) });

@@ -208,6 +208,14 @@ describe.each(worlds)('rooms on %s', (_kind, make) => {
     await refused(w.maya.reactRoomMessage(doomed.id, '🎉', true));
   });
 
+  // Postgres counts an emoji as one character; JavaScript's length counts two.
+  it('counts a message in characters, so 4000 emoji fit and 4001 do not', async () => {
+    const m = await w.theo.sendRoomMessage(teamRoom.id, { body: '😀'.repeat(4000) });
+    await w.theo.editRoomMessage(m.id, { body: '🎉'.repeat(4000) });
+    await refused(w.theo.editRoomMessage(m.id, { body: '🎉'.repeat(4001) }));
+    await refused(w.theo.sendRoomMessage(teamRoom.id, { body: '😀'.repeat(4001) }));
+  });
+
   it('files: only into a room I am in, under a plain name, once; deleting a message takes the files it names', async () => {
     await w.theo.putRoomFile(teamRoom.id, 'voice-1.webm', 'QUJD');
     expect(await w.maya.roomFile(teamRoom.id, 'voice-1.webm')).toBe('QUJD');

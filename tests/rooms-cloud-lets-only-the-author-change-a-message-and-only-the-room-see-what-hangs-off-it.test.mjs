@@ -243,9 +243,23 @@ describe('files on a message', () => {
     expect(await refused(THEO, `insert into public.room_files (room_id, name, by_person, data) values ($1, $2, $3, 'AAAA')`, [room, `a${'b'.repeat(159)}`, THEO])).toBe(false);
   });
 
-  it('up to 14,000,000 characters of base64, and not one more', async () => {
-    expect(await refused(MAYA, `insert into public.room_files (room_id, name, by_person, data) values ($1, 'big.bin', $2, repeat('A', 14000001))`, [room, MAYA])).toBe(true);
-    expect(await refused(MAYA, `insert into public.room_files (room_id, name, by_person, data) values ($1, 'big.bin', $2, repeat('A', 14000000))`, [room, MAYA])).toBe(false);
+  // A delete landing between an edit's checks and its update must not have the
+  // edit write words back into a deleted row, where a member could still read
+  // them. PGlite has one connection and cannot interleave the two, so the
+  // locks and the guard are pinned in the function's own text.
+  it('locks the message while it is edited, deleted or reacted to, and never edits a deleted row', async () => {
+    const src = async (fn) => (await db.query(`select prosrc from pg_proc where proname = $1`, [fn])).rows[0].prosrc;
+    expect(await src('edit_room_message')).toMatch(/where id = m for update;/);
+    expect(await src('edit_room_message')).toMatch(/where id = m and deleted_at is null/);
+    expect(await src('delete_room_message')).toMatch(/where id = m for update;/);
+    expect(await src('react_room_message')).toMatch(/where id = m for share;/);
+  });
+
+  // 10 MiB is 10,485,760 bytes, which base64 writes in 13,981,016 characters.
+  // A member can insert here directly, so this is the limit that holds.
+  it('up to 10 MiB of file as base64, and not one character more', async () => {
+    expect(await refused(MAYA, `insert into public.room_files (room_id, name, by_person, data) values ($1, 'big.bin', $2, repeat('A', 13981017))`, [room, MAYA])).toBe(true);
+    expect(await refused(MAYA, `insert into public.room_files (room_id, name, by_person, data) values ($1, 'big.bin', $2, repeat('A', 13981016))`, [room, MAYA])).toBe(false);
   });
 
   it('a name is kept once: a second file of that name is a conflict, and nothing is changed or deleted by hand', async () => {
