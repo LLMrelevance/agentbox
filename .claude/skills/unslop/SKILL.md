@@ -5,6 +5,47 @@ description: Cut the habits that make writing read as machine-made. Use on anyth
 
 # Unslop
 
+Start with the fact test. Everything after it is secondary, and in October 2026
+a set of pages passed all of it twice and still read as machine-made.
+
+## The fact test
+
+For every sentence, name the fact a reader does not know until they read it.
+
+If the honest answer is "it links the two sentences around it", or "it sets up
+the next one", or "it tells you the previous one mattered", or the fact is
+already delivered earlier, **delete the sentence**. Do not reword it into a
+better-sounding version of the same nothing.
+
+The three she caught, none of which breaks any rule further down this file:
+
+- *"Those three facts are what send people looking for something else."* The
+  sentence before it listed the three facts. This one comments on its
+  neighbour by saying they had an effect.
+- *"The short answer"* as a heading. It names a section type, not its content.
+  "One command per task" names the content.
+- *"Almost nobody goes looking for a GUI because the terminal is ugly. People
+  go looking after they lose track of an agent, which is a different complaint
+  with a different answer."* It negates first, saying what the reason is not,
+  then gives it, then adds that the two differ. Thirty-three words, one fact.
+
+What they share is that the prose is argument-shaped. Set up, pivot, land.
+Negate, then correct. State, then comment. A reference page needs none of it,
+and no measurement of words, length, voice or punctuation can see it.
+
+**Write the body the way an FAQ is written.** [measured] On one guide the body
+carried about one no-fact sentence in eight and the FAQ about one in twenty,
+because a question forces an answer and an answer has no room for a run-up.
+Decide the question each paragraph answers, then answer it. Never write a
+sentence to get from one paragraph to the next; if a paragraph seems to need a
+bridge, it is two answers and should be split.
+
+**The page gets shorter.** [measured] 177 words left one body and no fact went
+with them. A word count or word target is not a reason to keep a sentence that
+carries nothing, and nothing gets written to replace what goes.
+
+## Then the rest
+
 Scan what you wrote for the patterns below and rewrite. Keep the meaning and
 the facts. Plain and specific beats polished.
 

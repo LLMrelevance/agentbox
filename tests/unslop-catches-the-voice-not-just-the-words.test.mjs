@@ -74,3 +74,50 @@ describe('the limits that keep the voice rules honest', () => {
     expect(body).toMatch(/faq|question heading/);
   });
 });
+
+// THE VOICE RULES ABOVE WERE STILL SURFACE, AND SHE CAUGHT THE PAGES AGAIN.
+//
+// Same work item, 2026-10-21, one round later. The guide pages had been
+// rewritten against measured references and passed everything in this file.
+// She read them and said "I still see slop left and right... Most of the
+// sentences I read are slop, so you need a completely different system to
+// writing I think", quoting three that break no rule the skill had:
+//
+//   "Those three facts are what send people looking for something else."
+//   "The short answer"
+//   "Almost nobody goes looking for a GUI because the terminal is ugly. People
+//    go looking after they lose track of an agent, which is a different
+//    complaint with a different answer."
+//
+// One comments on its neighbour, one is a heading naming a section type, and
+// the third spends thirty-three words to deliver one fact by negating first.
+// All three are rhetorical moves rather than information, which no measurement
+// of words, length, voice or punctuation can see.
+//
+// The replacement is a per-sentence question: name the fact a reader does not
+// know until they read this. No fact, no sentence. It is a judgement, not a
+// regex, so what this pins is that the skill still carries it.
+
+describe('the fact test, which supersedes the measurements above', () => {
+  it('asks what fact each sentence delivers', () => {
+    expect(body).toMatch(/fact test|what fact/);
+  });
+
+  it('says to delete rather than reword a sentence that carries nothing', () => {
+    expect(body).toMatch(/delete/);
+  });
+
+  it('names the three shapes she caught', () => {
+    expect(body).toMatch(/comments on|links the|sets up/);
+    expect(body).toMatch(/section type/);
+    expect(body).toMatch(/negat|what something is not|what the reason is not/);
+  });
+
+  it('warns that a word target is not a reason to keep a sentence', () => {
+    expect(body).toMatch(/word (count|target)/);
+  });
+
+  it('records why the FAQ sections were already clean', () => {
+    expect(body).toMatch(/question forces/);
+  });
+});
