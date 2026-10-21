@@ -35,8 +35,6 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import http from 'node:http';
-import crypto from 'node:crypto';
-import { pipeline } from 'node:stream/promises';
 import { spawn, execFile, execFileSync } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { usageMeter } from './usage.mjs';
@@ -49,11 +47,7 @@ const PAGE_BYTES = 8 * 1024 * 1024;
 const MAX_MCP_LINE = 32 * 1024 * 1024;
 // What this server can do beyond the first version, said in a start's answer,
 // so a Mac knows rather than guesses whether its asks are honoured.
-const CAPS = ['offline', 'setup', 'kept', 'base', 'plain', 'parts'];
-// A file sent in parts goes home as only what the run added past them, listed
-// in this file (the same name in main/cloud/run.mjs).
-const TAILS = '.agentbox-tails.json';
-const PARTS_AT_ONCE = 4;
+const CAPS = ['offline', 'setup', 'kept', 'base', 'plain'];
 // A PROJECT'S OWN SETUP: `.agentbox/cloud-setup.sh` in its task folder, run as
 // the agent before the agent, on every cloud run, so a project needing a
 // program the image lacks says so in its own repository rather than in a new
@@ -721,44 +715,12 @@ export function createSandbox({
 
   async function placeFile(f) {
     fs.mkdirSync(path.dirname(f.path), { recursive: true });
-    if (f.parts) await placeParts(f);
-    else await download(fetchImpl, f.url, f.path);
+    await download(fetchImpl, f.url, f.path);
     if (f.untar) {
       fs.mkdirSync(f.untar, { recursive: true });
       await sh('tar', ['-xzf', f.path, '-C', f.untar], f.untar);
       fs.rmSync(f.path, { force: true });
     }
-  }
-
-  // Each piece is checked against the name it was sent under, so one that is
-  // not what the Mac sent stops the start instead of becoming the file.
-  async function placeParts(f) {
-    const offsets = [];
-    let end = 0;
-    for (const p of f.parts) { offsets.push(end); end += p.size; }
-    const temp = `${f.path}.agentbox-parts`;
-    const fd = fs.openSync(temp, 'w');
-    try {
-      let next = 0;
-      const worker = async () => {
-        while (next < f.parts.length) {
-          const i = next++;
-          const p = f.parts[i];
-          const res = await fetchImpl(p.url, { signal: AbortSignal.timeout(120_000) });
-          if (!res.ok) throw new Error(`fetch ${res.status} for ${redact(p.url)}`);
-          const buf = Buffer.from(await res.arrayBuffer());
-          if (buf.length !== p.size || sha256(buf) !== p.sha256) throw new Error(`a piece of ${path.basename(f.path)} is not what was sent`);
-          fs.writeSync(fd, buf, 0, buf.length, offsets[i]);
-        }
-      };
-      await Promise.all(Array.from({ length: Math.min(PARTS_AT_ONCE, f.parts.length) }, worker));
-    } catch (err) {
-      fs.rmSync(temp, { force: true });
-      throw err;
-    } finally {
-      fs.closeSync(fd);
-    }
-    fs.renameSync(temp, f.path);
   }
 
   /* ----------------------------- THE SIGN-INS ----------------------------- */
@@ -1101,12 +1063,7 @@ export function createSandbox({
         if (!fs.existsSync(b.dir)) continue;
         if (r.secrets?.length) redactFolder(b.dir, r.secrets);
         const tarball = tmp('bring.tgz');
-        const staged = await stageTails(r, b.dir, tmp('bring'));
-        try {
-          await sh('tar', ['-czf', tarball, '-C', staged || b.dir, '.'], r.spec.cwd);
-        } finally {
-          if (staged) fs.rmSync(staged, { recursive: true, force: true });
-        }
+        await sh('tar', ['-czf', tarball, '-C', b.dir, '.'], r.spec.cwd);
         await upload(fetchImpl, b.url, fs.readFileSync(tarball));
         fs.rmSync(tarball, { force: true });
         brought.push(b.dir);
@@ -1409,7 +1366,7 @@ export function createSandbox({
         return sequenced(r, req, async () => {
           try {
             for (const f of req.files || []) {
-              if (!goodFile(f)) return { ok: false, error: 'bad-file', consumed: true };
+              if (!f?.url || !path.isAbsolute(f?.path || '')) return { ok: false, error: 'bad-file', consumed: true };
               await placeFile({ ...f, path: at(f.path), ...(f.untar ? { untar: at(f.untar) } : {}) });
               if (runAs) await sh('chown', [`${runAs.uid}:${runAs.gid}`, at(f.path)], '/').catch(() => {});
             }
@@ -1533,10 +1490,6 @@ function invalidSignin(action, req) {
   return null;
 }
 
-const goodParts = (parts) => Array.isArray(parts) && parts.every((p) => typeof p?.url === 'string' && p.url
-  && Number.isSafeInteger(p.size) && p.size >= 0 && /^[0-9a-f]{64}$/.test(p.sha256 || ''));
-const goodFile = (f) => path.isAbsolute(f?.path || '') && (f.parts !== undefined ? goodParts(f.parts) : !!f.url);
-
 function invalidStart(req) {
   if (req.login && (!req.login.url || !['claude', 'codex'].includes(req.login.engine))) return 'a login needs its engine and its link';
   if (!req.runId || typeof req.runId !== 'string') return 'runId is required';
@@ -1552,7 +1505,7 @@ function invalidStart(req) {
   if (req.offline != null && (typeof req.offline !== 'object' || (req.offline.endTurn != null && req.offline.endTurn !== 'claude-stream-json'))) return 'offline must be { afterMs, endTurn: "claude-stream-json" or null }';
   if (req.offline?.kept != null && (typeof req.offline.kept !== 'object' || Array.isArray(req.offline.kept)
     || !Object.values(req.offline.kept).every((tools) => Array.isArray(tools) && tools.every((t) => typeof t === 'string')))) return 'offline.kept must be { server: [tool, ...] }';
-  for (const f of req.files || []) if (!goodFile(f)) return 'every file needs an absolute path, and a url or its parts';
+  for (const f of req.files || []) if (!f?.url || !path.isAbsolute(f?.path || '')) return 'every file needs an absolute path and a url';
   if (req.docs !== undefined && (typeof req.docs !== 'string' || !path.isAbsolute(req.docs))) return 'docs must be an absolute path';
   for (const h of req.homeFiles || []) {
     if (!h?.url || typeof h.rel !== 'string' || !/^\.claude\/[A-Za-z0-9._-]+$/.test(h.rel) || h.rel.includes('..')) return 'a home file must be a plain name under .claude/';
@@ -1629,70 +1582,6 @@ async function redactChanged(cwd, secrets) {
       fs.writeFileSync(p, out, 'latin1');
     } catch { /* gone */ }
   }
-}
-
-const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
-const within = (dir, p) => { const rel = path.relative(dir, p); return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel); };
-
-// How far a file still starts with the pieces it was sent in, and the hash of
-// that much, or null when the run changed what it was sent.
-async function sentStart(file, parts) {
-  let fh;
-  try { fh = await fs.promises.open(file, 'r'); } catch { return null; }
-  try {
-    const whole = crypto.createHash('sha256');
-    let at = 0;
-    for (const p of parts) {
-      const buf = Buffer.alloc(p.size);
-      const { bytesRead } = await fh.read(buf, 0, p.size, at);
-      if (bytesRead !== p.size || sha256(buf) !== p.sha256) return null;
-      whole.update(buf);
-      at += p.size;
-    }
-    return { from: at, sha256: whole.digest('hex') };
-  } finally {
-    await fh.close();
-  }
-}
-
-function mirror(from, to, skip) {
-  fs.mkdirSync(to, { recursive: true });
-  fs.chmodSync(to, fs.statSync(from).mode & 0o7777);
-  for (const e of fs.readdirSync(from, { withFileTypes: true })) {
-    const src = path.join(from, e.name);
-    const dst = path.join(to, e.name);
-    if (skip.has(src)) continue;
-    if (e.isDirectory()) mirror(src, dst, skip);
-    else if (e.isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(src), dst);
-    else if (e.isFile()) { try { fs.linkSync(src, dst); } catch { fs.copyFileSync(src, dst); } }
-  }
-}
-
-// THE FOLDER AS IT GOES HOME WHEN IT HOLDS A FILE THE RUN WAS SENT IN PARTS:
-// that file cut down to what the run added, listed in TAILS for the Mac to
-// add to its own copy (main/cloud/run.mjs `layTails`). Null when nothing is
-// cut; a file whose start the run changed goes whole, as before.
-async function stageTails(r, dir, staging) {
-  const tails = [];
-  for (const f of r.spec.files || []) {
-    if (!f.parts || !within(dir, f.path)) continue;
-    const start = await sentStart(f.path, f.parts);
-    if (start) tails.push({ path: f.path, ...start });
-  }
-  if (!tails.length) return null;
-  fs.rmSync(staging, { recursive: true, force: true });
-  mirror(dir, staging, new Set(tails.map((t) => t.path)));
-  const list = [];
-  for (const t of tails) {
-    const rel = path.relative(dir, t.path);
-    const tail = `${rel}.agentbox-tail`;
-    await pipeline(fs.createReadStream(t.path, { start: t.from }), fs.createWriteStream(path.join(staging, tail)));
-    list.push({ file: rel, tail, from: t.from, sha256: t.sha256 });
-  }
-  // A file too big for redactFolder still has its tail redacted.
-  if (r.secrets?.length) redactFolder(staging, r.secrets);
-  fs.writeFileSync(path.join(staging, TAILS), JSON.stringify(list));
-  return staging;
 }
 
 // The transcripts that come home, with the login's text taken out of them.

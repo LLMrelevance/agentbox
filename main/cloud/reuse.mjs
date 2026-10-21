@@ -5,8 +5,6 @@
 // kept in the bucket under a name made from what it holds and sent again only
 // when that changes. The history goes as one base shared by every thread of
 // the repository, and each run sends only the commits past it (`pickBase`).
-// A conversation's transcript goes in pieces, so a reply sends its new end
-// (`sendInParts`).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -133,39 +131,4 @@ export async function refsAt(cwd, refs) {
   const out = {};
   for (const r of refs) out[r] = (await git(cwd, ['rev-parse', `${r}^{commit}`])).trim();
   return out;
-}
-
-export const PART_BYTES = 8 * 1024 * 1024;
-const PARTS_AT_ONCE = 4;
-
-/**
- * A file that only grows (a conversation's transcript), as pieces of
- * `partBytes` at fixed offsets, each kept under a name made from what it
- * holds. Every piece but the last is the same at the next reply, so only the
- * last piece and what is new go up. Read a few pieces at a time, never whole.
- * Returns `[{ url, size, sha256 }]` in order (cloud/sandbox/server.mjs).
- */
-export async function sendInParts(storage, file, { partBytes = PART_BYTES, now = Date.now() } = {}) {
-  const fh = await fs.promises.open(file, 'r');
-  try {
-    const { size } = await fh.stat();
-    const count = Math.ceil(size / partBytes);
-    const parts = new Array(count);
-    let next = 0;
-    const worker = async () => {
-      while (next < count) {
-        const i = next++;
-        const buf = Buffer.alloc(Math.min(partBytes, size - i * partBytes));
-        const { bytesRead } = await fh.read(buf, 0, buf.length, i * partBytes);
-        if (bytesRead !== buf.length) throw new Error(`${path.basename(file)} got shorter while it was being sent`);
-        const sha256 = crypto.createHash('sha256').update(buf).digest('hex');
-        const { key } = await sendOnce(storage, cacheKey(`part-${sha256}`, now), () => buf);
-        parts[i] = { url: await storage.getUrl(key), size: buf.length, sha256 };
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(PARTS_AT_ONCE, count) }, worker));
-    return parts;
-  } finally {
-    await fh.close();
-  }
 }
