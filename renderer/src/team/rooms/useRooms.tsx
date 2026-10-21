@@ -184,10 +184,11 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
         {I.chatNav()}<span>Messages</span>{unreadChats > 0 && <small className="workspace-running" aria-label={`${unreadChats} unread`}>{unreadChats}</small>}
       </button>
     </nav>
-    <RoomsNav rooms={list} openId={open?.kind === 'group' || full ? null : openId} folded={folded} collapsed={collapsed}
+    {/* Narrow, every room is the same # and cannot be told apart, so the strip stops at Messages. */}
+    {!collapsed && <RoomsNav rooms={list} openId={open?.kind === 'group' || full ? null : openId} folded={folded}
       onFold={() => setFolded((f) => { try { localStorage.setItem(FOLD_KEY, f ? '0' : '1'); } catch { /* not kept */ } return !f; })}
       onOpen={(id) => openRoom(id)} onPin={(id, pin) => void call('pin', id, pin)} onMenu={(id, a, at) => void menu(id, a, at)}
-      onNewRoom={() => setDialog({ kind: 'start' })} />
+      onNewRoom={() => setDialog({ kind: 'start' })} />}
   </> : null;
 
   const tabs: ReactNode = live ? <RoomTabs rooms={list} openId={open?.kind === 'group' ? null : openId} invisible={invisibleUntil > now} onOpen={(id) => openRoom(id)} /> : null;
