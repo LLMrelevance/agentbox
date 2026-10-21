@@ -122,6 +122,10 @@
 /* What a direct chat's message wears, worn by a room's too. */
 .rm-cm { position: relative; }
 .rm-cm:hover > .chat-acts { opacity: 1; pointer-events: auto; }
+/* The body is `user-select: none`, so the name, time and words opt back in. The
+   face does not, or its initials would ride along in every copy. */
+.rm-cm .h, .rm-cm .tx { user-select: text; -webkit-user-select: text; }
+.rm-cm .rm-pic { user-select: none; -webkit-user-select: none; }
 .rm-cm .tx p { margin: 0; white-space: pre-line; }
 .rm-cm .tx p + p { margin-top: 8px; }
 .rm-cm .tx a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }

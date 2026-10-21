@@ -724,9 +724,20 @@ function fixBeforeReplying({ cause, engineWord, resetsAt, model, planEnded }) {
 // `gaveUp` is the app having stopped carrying a reply (`settleDeliveryAndSay`).
 // Nothing restarts the thread until somebody replies or resumes it, so the
 // sentence asks for that and promises nothing of its own.
-export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, elsewhere = false, worked = false, model = null, planEnded = null, gaveUp = false } = {}) {
+// `account` is the login this run was spending, and `instead` the one it moves
+// to, each already in words (shared/account-names.mjs). Both are null on a Mac
+// with one login, where naming it tells nobody anything, and then every
+// sentence here is the one it has always been.
+export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, elsewhere = false, worked = false, model = null, planEnded = null, gaveUp = false, account = null, instead = null } = {}) {
   if (worked && !WORKED_OPENERS[cause]) cause = 'unknown';
-  const opener = `${engineWord} ${(worked ? WORKED_OPENERS : DEAD_RUN_OPENERS)[cause] ?? DEAD_RUN_OPENERS.unknown}`;
+  // A LIMIT IS A FACT ABOUT ONE LOGIN, so that is the one cause whose opener
+  // takes the name. The others are about the tool or the task.
+  const limitOpener = cause === 'at-limit' && account
+    ? (worked
+      ? `hit its usage limit on ${account} partway through, so this task is not finished.`
+      : `is at its usage limit on ${account}, so nothing has been done on this task.`)
+    : null;
+  const opener = `${engineWord} ${limitOpener ?? (worked ? WORKED_OPENERS : DEAD_RUN_OPENERS)[cause] ?? DEAD_RUN_OPENERS.unknown}`;
 
   const again = runs > 1 ? ` This has happened ${runs} times on this task.` : '';
 
@@ -746,7 +757,7 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
       ? ' Renew it at claude.ai, or pick another account in Settings.'
       : cause === 'at-limit'
       ? (elsewhere
-        ? ` ${Name} runs it again on another account that has room.`
+        ? ` ${Name} runs it again on ${instead ? `${instead}, which has room.` : 'another account that has room.'}`
         : resetsAt ? ` It starts again on its own at ${resetsAt}.` : ' It starts again on its own when the limit resets.')
       : cause === 'too-old'
       ? ` To update it, ${UPDATE}, and it starts again on its own.`
@@ -815,6 +826,10 @@ const UNDELIVERED = 'Your reply did not reach this task.';
 // thread carrying a reply, `settleDeliveryAndSay` writes one only once it has
 // stopped carrying the reply, so that thread waits on a person
 // (`gaveUpOnTheAnswer`, renderer/src/list-rules.ts).
+const DEAD_RUN_HALVES = {
+  'at-limit': ['is at its usage limit', 'so nothing has been done on this task.'],
+};
+
 export function saysARunGotNowhere(text) {
   const s = String(text ?? '');
   if (!s.trim()) return false;
@@ -837,11 +852,19 @@ export function saysARunGotNowhere(text) {
 // So a result is asked whose it is. Null means somebody wrote a real answer
 // there and the row is not stranded; a cause means the last word on that row is
 // still the app saying nothing ran.
+//
+// A NAMED LOGIN SITS INSIDE ONE OPENER ("is at its usage limit on
+// alex@acme.com, so nothing has been done"), so that one is read back by its
+// two halves. Without this a row stopped counting as one nothing had run on
+// the moment it said which account was spent.
 export function deadRunCause(text) {
   const s = String(text ?? '');
   if (!s.trim()) return null;
   for (const [cause, opener] of Object.entries(DEAD_RUN_OPENERS)) {
     if (s.includes(opener)) return cause;
+  }
+  for (const [cause, halves] of Object.entries(DEAD_RUN_HALVES)) {
+    if (halves.every((half) => s.includes(half))) return cause;
   }
   return null;
 }
