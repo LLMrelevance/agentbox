@@ -195,6 +195,12 @@ const BACKOFF_CAP_MS = 30 * 60_000;
 // fallback for a login that lands somewhere it cannot see. A try on a login
 // that is still out costs a two-second run and is charged to nobody.
 const SIGNED_OUT_REST_MS = 5 * 60_000;
+// HOW LONG A LOGIN THAT IS OUT OF USAGE SITS OUT WHEN THE LIMIT PRINTED NO
+// RESET HOUR. One that printed one is waited out to it exactly, below. Five
+// minutes for the same reason as a signed-out login: a try that is still
+// refused costs a run of a few seconds and is charged to nobody, and a limit
+// that says nothing about its reset is as likely to be minutes as hours.
+const AT_LIMIT_REST_MS = 5 * 60_000;
 // How long past a limit's printed reset hour the fleet waits before trying.
 const LIMIT_RESET_GRACE_MS = 30_000;
 // HOW LONG NOTHING MAY WORK BEFORE THE APP SAYS SO OUT LOUD.
@@ -514,6 +520,7 @@ export class Supervisor {
       // are frequent. It is keyed and cleared exactly like _deliveryAttempts.
       this._fruitless = state.fruitless ?? {};
       this._heldStarts = state.heldStarts ?? {};
+      this._deadStarts = state.deadStarts ?? {};
       // WHAT IS WRONG WITH EACH ACCOUNT, KEPT ACROSS A RESTART (w-cf0e8821b3).
       //
       // The app came back up knowing that nothing was running and no longer
@@ -4773,14 +4780,22 @@ export class Supervisor {
     if (!item?.id || !session) return;
     const key = `${item.product}:${item.id}`;
     this._deadStarts ??= {};
-    if (session.sessionId != null || session.result != null) { delete this._deadStarts[key]; return; }
+    // A RUN THE ACCOUNT REFUSED NEVER BEGAN, whatever it came back carrying.
+    // Codex names the thread (`thread/started`) before the model is asked
+    // anything and reports the refusal as the turn's own result, so an
+    // out-of-usage run arrives here with an id AND a result, and either of
+    // those read as the agent getting going. It can outlast FAST_EXIT_MS as
+    // well: a weekly limit is reported about two minutes in.
+    const refused = accountRefusedTheRun(session);
+    if (!refused && (session.sessionId != null || session.result != null)) { delete this._deadStarts[key]; return; }
     const now = Date.now();
-    if (session.stoppedByUs || now - (session.startedAt ?? now) >= FAST_EXIT_MS) return;
+    if (session.stoppedByUs || (!refused && now - (session.startedAt ?? now) >= FAST_EXIT_MS)) return;
     const starts = (this._deadStarts[key] ?? []).filter((t) => now - t < STORM_WINDOW_MS);
     starts.push(now);
     this._deadStarts[key] = starts;
     this._heldStarts ??= {};
-    if (starts.length < STORM_STARTS || this._heldStarts[key]) return;
+    // Saved every time, so the six are still six across a restart of the app.
+    if (starts.length < STORM_STARTS || this._heldStarts[key]) { this._saveState(); return; }
     const said = (session.tail ?? []).filter((l) => typeof l === 'string' && l.startsWith('stderr:'))
       .flatMap((l) => l.slice('stderr:'.length).split('\n')).map((l) => l.trim()).filter((l) => l && !l.startsWith(CLOUD_SENT)).at(-1) ?? null;
     this._heldStarts[key] = { since: now, said };
@@ -5503,9 +5518,16 @@ export class Supervisor {
         this._profileCooldown = this._profileCooldown ?? {};
         this._profileCooldown[account] = resetAt + LIMIT_RESET_GRACE_MS;
       } else {
+        // AND A LIMIT THAT NAMES NO HOUR STILL BENCHES ITS LOGIN AT ONCE. It
+        // took three strikes, so the two runs after the first refusal went
+        // straight back to the capped login, and the rows read "Queued" the
+        // whole time: a row is only told a limit holds it once every login of
+        // its tool is resting (`_waitingOnLimit`). The account has said it is
+        // out, and asking it again fifteen seconds later cannot change that.
+        const outOfUsage = cause === 'at-limit';
         this._strikeProfile(account, {
-          hard: needsHerHands(cause),
-          rest: cause === 'signed-out' ? SIGNED_OUT_REST_MS : undefined,
+          hard: needsHerHands(cause) || outOfUsage,
+          rest: cause === 'signed-out' ? SIGNED_OUT_REST_MS : outOfUsage ? AT_LIMIT_REST_MS : undefined,
         });
       }
       // A DEATH THE ACCOUNT CAUSED IS NOT THE ROW'S. Read by `settleDelivery`
@@ -5608,6 +5630,12 @@ export class Supervisor {
         deliveryAttempts: this._deliveryAttempts,
         fruitless: this._fruitless,
         heldStarts: this._heldStarts,
+        // The starts a hold is counted from, pruned to the window they are
+        // counted in. A restart in the middle of a storm used to reset the
+        // count to zero while the hold it leads to was kept.
+        deadStarts: Object.fromEntries(Object.entries(this._deadStarts ?? {})
+          .map(([key, starts]) => [key, (starts ?? []).filter((t) => Date.now() - t < STORM_WINDOW_MS)])
+          .filter(([, starts]) => starts.length)),
         // Why each account cannot be used, so a restart does not go back to
         // knowing that nothing runs without knowing why.
         profileTrouble: this._profileTrouble,
@@ -10056,6 +10084,16 @@ export function unpacked(p) {
   return p.includes(`${path.sep}app.asar${path.sep}`)
     ? p.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`)
     : p;
+}
+
+// Did the account refuse this run outright: out of usage, signed out, an
+// admin's policy? Read from the run's own error, because the session is not
+// carrying `accountFault` yet: `_noteHowTheRunStarted` is asked before
+// `noteExitForBackoff` decides whose fault the death was.
+function accountRefusedTheRun(session) {
+  if (!session?.resultIsError || session.result == null) return false;
+  const cause = troubleCause(session.result);
+  return cause === 'at-limit' || needsHerHands(cause);
 }
 
 // When the founder last wrote ANYTHING to this row, from the fold's own record

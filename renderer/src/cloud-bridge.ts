@@ -150,13 +150,18 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
 
   // Back from Google with a code: finish signing in, and take the code out of
   // the address bar (it is spent, and a screenshot should not carry it).
+  // A new account's email link comes back the same way, its sign-in after `#`.
   const code = new URL(location.href).searchParams.get('code');
+  const emailLink = /(^|[#&])(access_token|error)=/.test(location.hash) ? location.hash : '';
   const boot = (async () => {
     if (code) {
       const url = new URL(location.href);
       url.searchParams.delete('code');
       history.replaceState(history.state, '', url.toString());
       try { await client.finishGoogle(code); } catch (err) { error = String((err as Error)?.message ?? err); }
+    } else if (emailLink) {
+      history.replaceState(history.state, '', location.pathname + location.search);
+      try { await client.finishEmailLink(emailLink); } catch (err) { error = String((err as Error)?.message ?? err); }
     }
     await refresh();
     started = true;
@@ -224,7 +229,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     teamSignInReopen: async () => ({ ok: true }),
     teamSignInEmail: ({ email, password }: { email: string; password: string }) => signedInThen(() => client.signInWithPassword(email, password)),
     teamSignUp: ({ name, email, password }: { name: string; email: string; password: string }) => signedInThen(async () => {
-      const out = await client.signUp(name, email, password);
+      const out = await client.signUp(name, email, password, `${location.origin}${location.pathname}`);
       if (out.confirm) throw new Error('Check your email to confirm it, then sign in here.');
     }),
     teamSignOut: async () => {
