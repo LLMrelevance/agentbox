@@ -95,6 +95,19 @@ export function cleanEnv(base = process.env) {
 
 export const PROJECTS = [PRODUCT, { slug: 'second', name: 'Second' }];
 
+/**
+ * A COPY ON A TEAM (`up --team <file>`): a second person on a real team cloud,
+ * signed in as their own account, so a power tester can sit in a room with
+ * somebody. The file is JSON, `{ config, email, password }`, kept outside the
+ * repository and readable by this user only; `config` is the team's
+ * team.config.json. The copy is still a fresh user in every other way.
+ */
+export function teamEnv(file) {
+  const t = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (!t.config || !t.email || !t.password) throw new Error(`the team file ${file} needs config, email and password`);
+  return { AGENTBOX_TEAM_CONFIG: t.config, AGENTBOX_TEAM_TEST_LOGIN: `${t.email}:${t.password}` };
+}
+
 /** The Codex this Mac has, found the way the app finds it, or null. */
 async function realCodex() {
   const { findCodexBin } = await import(path.join(REPO, 'main', 'codex-bin.mjs'));
@@ -323,7 +336,8 @@ async function start(state) {
     // team cloud even on a Mac that has a team key (so no sign-in screen and
     // nothing written to the shared project), and any counts go under the one
     // id that names itself as not a person (shared/fresh-user-home.mjs).
-    [FRESH_USER_ENV]: '1' };
+    [FRESH_USER_ENV]: '1',
+    ...(state.teamFile ? teamEnv(state.teamFile) : {}) };
   if (state.claudeModel) {
     // The setup's stand-in model, on the port its settings already name.
     const file = path.join(INSTANCE, 'claude-model.json');
@@ -378,6 +392,7 @@ async function start(state) {
     // every run and Codex may be picked from the composer.
     engineChoice: '2026-01-01T00:00:00.000Z',
     maxConcurrentSessions: 2,
+    ...(state.teamFile ? { alphaRooms: true } : {}),
   };
   // The app writes its account id back into this file, so keep what it added.
   const file = path.join(state.data, 'zero.config.json');
@@ -423,6 +438,10 @@ async function up(args) {
   const at = args.indexOf('--setup');
   const setupName = at >= 0 ? args[at + 1] : null;
   if (installed && real) stop('--installed runs on the stand-ins; use --real with the browser copy.');
+  const teamAt = args.indexOf('--team');
+  const teamFile = teamAt >= 0 ? path.resolve(args[teamAt + 1] ?? '') : null;
+  if (teamFile && installed) stop('--team runs the browser copy; an installed build never joins a team.');
+  if (teamFile) { try { teamEnv(teamFile); } catch (err) { stop(err.message); } }
   if (setupName && (real || installed)) stop('--setup runs the browser copy on its own home; it cannot be combined with --real or --installed.');
   if (installed) {
     const old = appIsStale();
@@ -435,7 +454,7 @@ async function up(args) {
     codex: !args.includes('--no-codex'),
     projectNames: value('projects')?.split(',').map((s) => s.trim()).filter(Boolean) ?? null,
   };
-  const prepared = await prepare(real, setupName, shape);
+  const prepared = { ...(await prepare(real, setupName, shape)), teamFile };
   const next = await start(installed ? { ...prepared, installed: true } : prepared);
   say(installed ? `up: the installed app, pid ${next.pid}, window on debugging port ${next.cdpPort}` : `up: ${next.url}`);
   say(setupName

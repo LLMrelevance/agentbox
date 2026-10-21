@@ -139,6 +139,26 @@ export function moreCount(recent: readonly ModelPick[], all: { claude: readonly 
 export const sameModel = (a: ModelPick | null | undefined, b: ModelPick | null | undefined) =>
   !!a && !!b && a.engine === b.engine && a.model === b.model;
 
+// ONE AGENT IS NOT A CHOICE: there the card keeps the word and the single row
+// it has always drawn (tests/one-coding-agent-draws-nothing-new).
+
+type EngineRow = { id: string; label: string };
+
+/** The agents To offers, or nothing where there is only one. */
+export function agentChoices(engines?: readonly EngineRow[]): { id: Harness; label: string }[] {
+  const rows = engines ?? [];
+  if (rows.length < 2) return [];
+  return rows
+    .filter((e) => e.id === 'claude' || e.id === 'codex')
+    .map((e) => ({ id: e.id as Harness, label: e.label }));
+}
+
+/** The word on the To field: the agent's name, or "Agent" where there is one. */
+export function agentWordFor(engines: readonly EngineRow[] | undefined, engine: Harness): string {
+  const rows = agentChoices(engines);
+  return rows.find((e) => e.id === engine)?.label ?? 'Agent';
+}
+
 /**
  * WHAT A SEND SAYS ABOUT THE HARNESS, by the rules the old card followed and
  * explained at length (components/Compose.tsx, `send`):
@@ -164,6 +184,9 @@ export function harnessFields({ engine, model, effort, engineCount, codexDefault
     ...(effort ? { effort } : {}),
   };
 }
+
+// The same question on a REPLY is ../reply-pick.ts, `pickToSend`: there the
+// row already has answers to it, so every field is explicit and null clears.
 
 /* ------------------------------- send later ------------------------------- */
 

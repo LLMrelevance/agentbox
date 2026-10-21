@@ -24,6 +24,10 @@ export interface ReplyPick {
   model: string | null;
   /** A level, or null for "send nothing and let the engine choose". */
   effort: string | null;
+  /** WHICH CODING AGENT, and only when the pick MOVES the thread to the other
+   *  one (w-e1a42f6b21). Absent is the ordinary reply, which says nothing
+   *  about agents and leaves the row's own alone. */
+  engine?: string | null;
 }
 
 interface EngineFacts {
@@ -54,14 +58,25 @@ export function replyOpensOn(
   return { pick: pickOnTheRow(item), touched: false };
 }
 
-/** The pick as the row must record it, so the next run reads what she picked. */
-export function pickToSend(pick: ReplyPick, { engine = null }: EngineFacts = {}): ReplyPick {
+/**
+ * The pick as the row must record it, so the next run reads what she picked.
+ *
+ * `engine` is the agent the pick runs on, which is the row's own until the
+ * menu's other column moves it. It is only WRITTEN when it moves the thread
+ * (`was` is what the row runs on now) and when this Mac has more than one
+ * agent to move it between, which is the rule the new task card sends by.
+ */
+export function pickToSend(
+  pick: ReplyPick,
+  { engine = null, was = null, engineCount = 1 }: EngineFacts & { was?: string | null; engineCount?: number } = {},
+): ReplyPick {
   // Claude Code has an alias for every row in the drawer, so there is no way to
   // say "clear it" there and nothing is lost by naming what she picked. Codex
   // has no alias for its default and "Codex's own" is a real row, so null is
   // her saying her config.toml decides.
   const model = engine === 'codex' ? pick.model : (pick.model ?? DEFAULT_MODEL);
-  return { model, effort: pick.effort };
+  const moves = engineCount > 1 && !!was && !!engine && engine !== was;
+  return { model, effort: pick.effort, ...(moves ? { engine } : {}) };
 }
 
 /**

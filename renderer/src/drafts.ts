@@ -85,6 +85,9 @@ export function clearDraft(item: ItemRef, store?: DraftStore): void {
 export interface DraftPick {
   model: string | null;
   effort: string | null;
+  /** The coding agent, when her pick moved the thread to the other one
+   *  (w-e1a42f6b21). Kept with the model so a fold loses neither. */
+  engine?: string | null;
 }
 
 export function draftPickKey(item: ItemRef): string {
@@ -100,7 +103,10 @@ export function readDraftPick(item: ItemRef, store?: DraftStore): DraftPick | nu
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
     const word = (v: unknown) => (typeof v === 'string' && v ? v : null);
-    return { model: word(parsed.model), effort: word(parsed.effort) };
+    // The agent only when there is one: a pick that never crossed carries no
+    // engine at all, which is what every reader of this already expects.
+    const engine = word(parsed.engine);
+    return { model: word(parsed.model), effort: word(parsed.effort), ...(engine ? { engine } : {}) };
   } catch {
     return null;
   }
@@ -111,7 +117,7 @@ export function saveDraftPick(item: ItemRef, pick: DraftPick | null, store?: Dra
   const s = backing(store);
   try {
     if (!pick) s.removeItem(draftPickKey(item));
-    else s.setItem(draftPickKey(item), JSON.stringify({ model: pick.model ?? null, effort: pick.effort ?? null }));
+    else s.setItem(draftPickKey(item), JSON.stringify({ model: pick.model ?? null, effort: pick.effort ?? null, ...(pick.engine ? { engine: pick.engine } : {}) }));
   } catch { /* a refused store is not a reason to lose the send */ }
 }
 

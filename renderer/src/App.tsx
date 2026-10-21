@@ -19,6 +19,7 @@ import { cursorIndex, cursorMark, type CursorMark } from './cursor-follows';
 import { flushSync } from 'react-dom';
 import { readySkin, swapLook } from './look-switch';
 import type { AnswerMode, Approval, CloudPlan, PermissionMode, Product, RepeatRule, RepeatShape, Snapshot, ThreadCard, ThreadStateWord, View, WorkItem } from './types';
+import type { ReplyPick } from './reply-pick';
 import { api } from './api';
 import { setClaudeModels } from './models';
 import { advanceAfter, advanceLandsHere, replyMovesOn, nextAfterAdvance, type Advance } from './advance';
@@ -3940,7 +3941,7 @@ export default function App() {
   // lives in `leaveResolved` above and still covers every way a row leaves her
   // inbox.
 
-  const answerWith = useCallback(async (item: WorkItem, text: string, priority?: number, sent?: SentDraft, mode?: AnswerMode | null, engine?: string | null, pick?: { model: string | null; effort: string | null }) => {
+  const answerWith = useCallback(async (item: WorkItem, text: string, priority?: number, sent?: SentDraft, mode?: AnswerMode | null, engine?: string | null, pick?: ReplyPick) => {
     // AN AGENT ROW IS NOT WORK OF HERS TO CLOSE, DEFER OR RESTART. It stands
     // for a session running outside Agentbox; the only two things that mean
     // anything to it are a reply and being taken to its window.
@@ -4078,7 +4079,7 @@ export default function App() {
           // mid-flight; the pick lands on the row and the next run reads it.
           // The drawer says "Which model this conversation runs on" rather than
           // anything about this message, for exactly this case.
-          ...(pick ? { model: pick.model, effort: pick.effort } : {}),
+          ...(pick ?? {}),
         }),
         // NOTHING IS TAKEN OFF THE SCREEN HERE. The row is re-read, the
         // committed copy of this message arrives with it, and `itemThread`
@@ -4225,7 +4226,7 @@ export default function App() {
           // drawer; the store writes it onto the item BEFORE the answer, so the
           // run this reply starts reads the model she just chose rather than the
           // one it was on (main/store.mjs, answerItem).
-          ...(pick ? { model: pick.model, effort: pick.effort } : {}),
+          ...(pick ?? {}),
         });
       } catch (error) {
         setSending((q) => q.filter((s) => s !== mine));
@@ -6468,10 +6469,12 @@ export default function App() {
                   onResolve={() => markDone(focused)}
                   onPick={(n) => pickOption(focused, n)}
                   onReply={() => setModal('reply')}
-                  // The reply box's model drawer reads the same list the
-                  // new-task card does.
+                  // The reply box's model menu IS the new thread card's, so it
+                  // is handed the same four things the card is.
                   codexModels={codexModels}
                   codexModelDefault={codexModelDefault}
+                  engines={snap.engines?.choices}
+                  items={items}
                   onReplySend={(text, priority, repeat, sent, mode, pick) => {
                     // THE REPLY GOES WHERE THE ROW ACTUALLY LIVES. On an agent
                     // row there is no ledger to answer; the text is handed to

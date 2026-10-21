@@ -74,6 +74,9 @@ export interface ItemOutcome {
   at: number;
   text: string;
   field: 'result' | 'note';
+  /** What wrote it (thread-history.ts, `ran`), so the newest answer is signed
+   *  like the ones still in the stream. */
+  ran?: { engine?: string; model?: string };
 }
 
 /**
@@ -524,7 +527,7 @@ export function itemThread(
   // up again after a result has the agent talking below that result, and the
   // result is then no longer the end of the conversation.
   let spokeAt = -1;
-  let answer: { i: number; at: number; text: string; field: 'result' | 'note' } | null = null;
+  let answer: { i: number; at: number; text: string; field: 'result' | 'note'; ran?: { engine?: string; model?: string } } | null = null;
 
   // EVERY NODE WITH THE MOMENT IT HAPPENED, BEFORE ANYTHING IS PUT IN ORDER.
   //
@@ -570,9 +573,9 @@ export function itemThread(
     if (event.message && event.words) {
       const isAnswer = event.who === 'agent' && (event.field === 'result' || event.field === 'note');
       placed.push({
-        node: { at: event.at, who: event.who === 'you' ? 'you' : 'it', text: event.words, ...(event.by ? { by: event.by } : {}), ...(event.uid ? { uid: event.uid } : {}), ...(event.inReplyTo ? { inReplyTo: event.inReplyTo } : {}) },
+        node: { at: event.at, who: event.who === 'you' ? 'you' : 'it', text: event.words, ...(event.by ? { by: event.by } : {}), ...(event.uid ? { uid: event.uid } : {}), ...(event.inReplyTo ? { inReplyTo: event.inReplyTo } : {}), ...(event.ran ? { ran: event.ran } : {}) },
         run: null,
-        answer: isAnswer ? { at: event.at, text: event.words, field: event.field as 'result' | 'note' } : null,
+        answer: isAnswer ? { at: event.at, text: event.words, field: event.field as 'result' | 'note', ...(event.ran ? { ran: event.ran } : {}) } : null,
       });
       continue;
     }
@@ -688,7 +691,7 @@ export function itemThread(
   // finished result or checkpoint with nothing spoken under it. See ItemOutcome
   // above for why this exists and what draws it.
   const outcome: ItemOutcome | null = answer && answer.i === spokeAt
-    ? { at: answer.at, text: answer.text, field: answer.field }
+    ? { at: answer.at, text: answer.text, field: answer.field, ...(answer.ran ? { ran: answer.ran } : {}) }
     : null;
   // Counted before it is lifted: it is still a message on this task, and the
   // head line says how many there are, not how many are in the stream.

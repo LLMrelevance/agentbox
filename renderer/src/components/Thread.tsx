@@ -92,7 +92,7 @@ export interface CodeInThread {
   open: (path: string) => void;
 }
 
-export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, name, landOn, md, code, tail, chat = false, reactions, onReact, onQuote, onHandToAgent, replies, openThread = null, onOpenThread, freshThreads }: {
+export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, name, nameOf, landOn, md, code, tail, chat = false, reactions, onReact, onQuote, onHandToAgent, replies, openThread = null, onOpenThread, freshThreads }: {
   // CUT THE AGENT'S CURRENT STEP so a message of hers that is waiting on it is
   // answered now (w-f37a34def6). Absent where nothing can be cut.
   onSendNow?: () => unknown;
@@ -122,6 +122,10 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
   // is still loading, not a tally of what is already drawn.
   // Whose messages these are, on every block that is not hers.
   name: string;
+  /** What one message was written BY, when the thread knows: "Claude Code,
+   *  Opus 5.5" over the answer that came from there (w-e1a42f6b21). Null
+   *  wherever there is nothing true to say, and `name` stands. */
+  nameOf?: (e: AgentTurn) => string | null;
   // What "this is a different conversation" means. Changing it lands her at the
   // bottom again; anything else must not yank the page while she reads back.
   landOn: string;
@@ -418,7 +422,7 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
                   <div className="msg-head">
                     <span className="msg-who">{teammateOf(e)
                       ? <><Face person={teammateOf(e)} />{firstName(teammateOf(e))}</>
-                      : e.who === 'you' ? 'You' : name}</span>
+                      : e.who === 'you' ? 'You' : (nameOf?.(e) ?? name)}</span>
                     {headFacts(e, when(e.at))}
                   </div>
                 )}

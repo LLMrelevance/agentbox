@@ -34,6 +34,8 @@ import { itemThread, type PendingSaid } from '../item-thread';
 import { resultLeads } from '../recap';
 import { withoutTrailingWork } from '../trailing-work';
 import { marksFor, readUndoMarks, UNDO_MARKS_EVENT, type UndoMark } from '../undo-marks';
+import { ranWords } from '../byline';
+import type { ModelChoice } from '../models';
 import type { LedgerLine } from '../thread-history';
 import type { TraceSession } from '../notes';
 import type { AgentTurn, RunningSession, WorkItem } from '../types';
@@ -62,7 +64,7 @@ const REFRESH_MS = 8_000;
 // screen is the kind of drift this row exists to end.
 const THEM = 'The agent';
 
-export function ItemThread({ item, engine, session, opening, sending, filed = [], onOpenFiled, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, onOpenOrigin, onSendNow, md, clean, onOpenDoc, chat = false, onQuote, onHandToAgent, thread }: {
+export function ItemThread({ item, engine, engineChoice, codexModels = [], codexModelDefault = null, session, opening, sending, filed = [], onOpenFiled, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, onOpenOrigin, onSendNow, md, clean, onOpenDoc, chat = false, onQuote, onHandToAgent, thread }: {
   // A CHAT'S THREAD, IN THE PANEL BESIDE IT (w-920461cbe6). The pane owns which
   // one is open and how wide it is; this draws it, because this is where the
   // replies were read. `host` is the pane the panel is drawn into. Absent
@@ -112,6 +114,12 @@ export function ItemThread({ item, engine, session, opening, sending, filed = []
   // thread-history.ts holds the whole of why. Null on every Mac with one coding
   // agent, where the thread reads exactly as it always did.
   engine?: string | null;
+  /** Whether this Mac has more than one coding agent, which is the only case
+   *  an answer is signed with one (byline.ts, `ranWords`). */
+  engineChoice?: boolean;
+  /** This Mac's Codex models, to turn a slug into the name she picked. */
+  codexModels?: ModelChoice[];
+  codexModelDefault?: string | null;
   // Non-null while a worker is on this row right now.
   session: RunningSession | null;
   // THE USER'S ASK, WHEN IT WAS TYPED ON THE ROW ABOVE THIS ONE.
@@ -308,13 +316,23 @@ export function ItemThread({ item, engine, session, opening, sending, filed = []
   // two apart. What changed is where they sit. They used to be instead of the
   // conversation; they are now under it, and the thread above no longer draws
   // this message twice.
+  // What wrote one message, in the app's own words (byline.ts, `ranWords`).
+  const ranOf = (e: { ran?: { engine?: string; model?: string } }) =>
+    ranWords({ engineChoice, ran: e.ran, codexModels, codexDefault: codexModelDefault });
+  const ranSaid = outcome ? ranOf(outcome) : null;
   const answerAt = answerTurn(events, omitted, chat);
   const answer = outcome && (
     resultLeads(item) && outcome.field === 'result'
       ? <div className="outcome" data-exchange={answerAt}>{md(clean(outcome.text))}</div>
       : (
         <div className="appendix appendix-foot" data-exchange={answerAt}>
-          <div className="appendix-label">{outcome.field === 'result' ? 'Result' : 'Latest checkpoint'}</div>
+          {/* The newest answer is lifted out of the stream to the foot of the
+              page, so it is signed in the label it already has rather than in
+              a byline of its own. */}
+          <div className="appendix-label">
+            {outcome.field === 'result' ? 'Result' : 'Latest checkpoint'}
+            {ranSaid && <span className="appendix-ran">{ranSaid}</span>}
+          </div>
           {md(clean(outcome.text))}
         </div>
       )
@@ -327,6 +345,8 @@ export function ItemThread({ item, engine, session, opening, sending, filed = []
         omitted={omitted}
         chat={chat}
         name={THEM}
+        // AND WHAT THAT AGENT WAS, on the answers the row has a record for.
+        nameOf={ranOf}
         landOn={item.id}
         onWhole={() => setWhole(true)}
         onOpenOrigin={onOpenOrigin}
