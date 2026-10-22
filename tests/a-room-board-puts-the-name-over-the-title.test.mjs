@@ -10,6 +10,10 @@
 // Round eleven: titles wrapped once before they were cut, and on the built
 // board at 1728 one of Theo's ran to a second line while the rest sat on one.
 // Asked for every title on one line, cut with an ellipsis.
+//
+// Round twelve: then a tiny bit larger, as long as most still fit. Measured on
+// the built board at 1728 with 19 real-length titles: 13px cut 1, 13.5px cut 3,
+// 14px cut 5 and 14.5px cut 9.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import React from 'react';
@@ -60,6 +64,9 @@ describe('how much of a title shows', () => {
     expect(title).toMatch(/text-overflow: ellipsis/);
     expect(title).toMatch(/overflow: hidden/);
     expect(title).not.toMatch(/line-clamp/);
+  });
+  it('a touch larger than 13px, and no larger than most titles allow', () => {
+    expect(Number(title.match(/font-size: ([\d.]+)px/)?.[1])).toBe(13.5);
   });
   it('a name is one line, whatever its length', () => {
     expect(rooms.match(/\.rm-brow \.who \{([^}]*)\}/)?.[1] ?? '').toMatch(/white-space: nowrap/);

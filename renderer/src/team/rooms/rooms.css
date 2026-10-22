@@ -78,13 +78,16 @@
    gap is the board's own, so it is still there at the end of a scroll. */
 .rm-main.board { overflow: auto; padding-right: 0; }
 .rm-main.board > .rm-notice { margin-right: 24px; }
-/* The grid's people over the board, left-aligned so the first face sits on the first column's edge. */
-.rm-bfaces { display: flex; flex-wrap: wrap; gap: 8px 4px; padding: 2px 24px 20px 0; }
-.rm-bface { display: flex; flex-direction: column; align-items: flex-start; width: 64px; padding: 0; border: 0; background: none; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
-.rm-bface .n { margin-top: 7px; max-width: 100%; font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rm-bface .ag { display: inline-flex; align-items: center; gap: 5px; font: 10.5px/14px var(--mono); color: var(--text-faint); }
-.rm-bface .ag .live-mark { width: 10px; height: 10px; gap: 1px; color: var(--text); }
-.rm-bface:hover .rm-pic { border-color: var(--text-faint); }
+/* The grid's people over the board as one row of tiles in the Grid's lines.
+   The right margin is the board's own gap, so the row ends where the board does. */
+.rm-bfaces { display: grid; grid-template-columns: repeat(var(--per-row, 8), minmax(0, 1fr)); margin: 2px 24px 22px 0; border-top: 1px solid var(--rm-line); border-left: 1px solid var(--rm-line); }
+.rm-bface { display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 16px 4px 14px; border: 0; border-right: 1px solid var(--rm-line); border-bottom: 1px solid var(--rm-line); background: none; font: inherit; color: var(--text); cursor: pointer; }
+.rm-bface .n { margin-top: 11px; max-width: 100%; font-size: 13px; line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rm-bface .ag { display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; max-width: 100%; font: 9.5px/14px var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--text-faint); white-space: nowrap; }
+.rm-bface .ag b { font-weight: 400; color: var(--text-dim); }
+.rm-bface .ag .live-mark { flex: none; width: 10px; height: 10px; gap: 1px; color: var(--text); }
+.rm-bface:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
+.rm-bface[aria-pressed="true"] { background: color-mix(in srgb, var(--text) 5%, transparent); }
 .rm-bface.off { opacity: .4; }
 .rm-bface.off:hover { opacity: .7; }
 .rm-board { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(170px, 1fr)); gap: 0 18px; padding-right: 24px; width: fit-content; min-width: 100%; box-sizing: border-box; align-items: start; }
@@ -96,7 +99,7 @@
 .rm-brow > .tm-av { width: 24px; height: 24px; line-height: 22px; font-size: 8.5px; margin-top: 5px; }
 .rm-brow .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .rm-brow .who { font-size: 12px; line-height: 16px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rm-brow .t { font-size: 13px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rm-brow .t { font-size: 13.5px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rm-brow.running { color: var(--text); }
 .rm-brow.done { color: var(--text-faint); }
 .rm-brow:hover .t { color: var(--text); }

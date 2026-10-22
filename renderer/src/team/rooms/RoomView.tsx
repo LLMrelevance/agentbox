@@ -1,13 +1,13 @@
 // A room's View button, in the place the Inbox has its View and filters
 // button: the room as a grid of people or a board of their threads, and whose
 // threads the board shows. B flips the view, as it does on the Inbox.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { RoomCard } from '../../types';
 import { BoardIcon, SlidersIcon, StateGlyph } from '../../threads/Pages';
 import { togglePicked } from '../../threads/people-rules';
 import { LiveMark } from '../../components/LiveMark';
 import { RoomFace } from './RoomFace';
-import { agentsWords, cardName, facePick, type RoomView } from './room-rules';
+import { agentsWords, cardName, facePick, tilesPerRow, type RoomView } from './room-rules';
 
 const GridIcon = () => <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="4" y="4" width="7" height="7" /><rect x="13" y="4" width="7" height="7" /><rect x="4" y="13" width="7" height="7" /><rect x="13" y="13" width="7" height="7" /></svg>;
 
@@ -43,18 +43,18 @@ export function RoomViewButton(props: Props) {
   </span>;
 }
 
-/** The grid's people kept over the board: a face, a first name and agents working. A face narrows the board. */
+/** The grid's people kept over the board as a row of tiles: a face, a first name and agents working. A tile narrows the board. */
 export function BoardFaces({ people, picked, onPick }: { people: RoomCard[]; picked: string[]; onPick: (ids: string[]) => void }) {
   if (people.length < 2) return null;
   const all = people.map((p) => p.id);
   const narrowed = picked.length < people.length;
-  return <div className="rm-bfaces" role="group" aria-label="Whose threads">
+  return <div className="rm-bfaces" style={{ '--per-row': tilesPerRow(people.length) } as CSSProperties} role="group" aria-label="Whose threads">
     {people.map((p) => <button type="button" key={p.id} className={`rm-bface${narrowed && !picked.includes(p.id) ? ' off' : ''}`}
       aria-pressed={narrowed && picked.includes(p.id)} title={`${p.name}, ${agentsWords(p.agents).toLowerCase()}`}
       onClick={() => onPick(facePick(picked, all, p.id))}>
-      <RoomFace name={p.name} url={p.avatarUrl} size={32} />
+      <RoomFace name={p.name} url={p.avatarUrl} size={52} />
       <span className="n">{p.me ? 'You' : p.name.split(' ')[0] || 'Someone'}</span>
-      {p.agents != null && <span className="ag"><LiveMark still={!p.agents} />{p.agents}</span>}
+      {p.agents != null && <span className="ag"><LiveMark still={!p.agents} />{p.agents ? <><b>{p.agents}</b> working</> : 'Not running'}</span>}
     </button>)}
   </div>;
 }

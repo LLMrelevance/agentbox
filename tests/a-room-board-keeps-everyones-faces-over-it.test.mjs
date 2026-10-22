@@ -6,12 +6,17 @@
 // at the top. The board now opens on a row of them, each with a first name and
 // how many agents they have working, and a face is also how you narrow the
 // board to someone, as the View menu's People line does.
+//
+// Round twelve: of the layouts drawn since, G1 was picked, a row of tiles in
+// the Grid's lines. Each tile is a 52px face, the first name, and the 9-dot
+// mark with "3 working", never what anyone is working on. Eight to a row at
+// most, and a bigger room splits into even rows rather than a short last one.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { BoardFaces } from '../renderer/src/team/rooms/RoomView.tsx';
-import { facePick } from '../renderer/src/team/rooms/room-rules.ts';
+import { facePick, tilesPerRow } from '../renderer/src/team/rooms/room-rules.ts';
 globalThis.React = React;
 
 const card = (id, o = {}) => ({
@@ -41,10 +46,22 @@ describe('the faces over a room’s board', () => {
   });
   it('says how many agents each has working, with the mark moving only while some are', () => {
     const [her, , idle, hidden] = faces(draw());
-    expect(her).toMatch(/class="ag"><span class="live-mark "[\s\S]*?<\/span>4<\/span>/);
+    expect(her).toMatch(/class="ag"><span class="live-mark "[\s\S]*?<\/span><b>4<\/b> working<\/span>/);
     expect(her).toContain('title="Maya Chen, 4 agents working"');
-    expect(idle).toMatch(/class="ag"><span class="live-mark is-still"[\s\S]*?<\/span>0<\/span>/);
+    expect(idle).toMatch(/class="ag"><span class="live-mark is-still"[\s\S]*?<\/span>Not running<\/span>/);
     expect(hidden).not.toContain('class="ag"');
+  });
+  it('never says what anyone is working on', () => {
+    const busy = { ...maya, workingOn: 'Stripe webhook retries', status: 'Back Monday' };
+    const html = draw(all, [busy, me]);
+    expect(html).not.toContain('Stripe webhook retries');
+    expect(html).not.toContain('Back Monday');
+  });
+  it('draws the faces at the Grid’s tile size', () => {
+    expect(faces(draw())[0]).toMatch(/width:52px;height:52px/);
+  });
+  it('lays the tiles out as many to a row as tilesPerRow says', () => {
+    expect(draw()).toMatch(/class="rm-bfaces" style="--per-row:4"/);
   });
   it('dims nobody while the board shows everyone', () => {
     expect(draw()).not.toContain(' off"');
@@ -73,6 +90,20 @@ describe('picking a face', () => {
   });
 });
 
+describe('how many tiles to a row', () => {
+  it('everyone on one row up to eight', () => {
+    expect(tilesPerRow(2)).toBe(2);
+    expect(tilesPerRow(3)).toBe(3);
+    expect(tilesPerRow(8)).toBe(8);
+  });
+  it('even rows past eight, never a short last row when it can be helped', () => {
+    expect(tilesPerRow(9)).toBe(5);
+    expect(tilesPerRow(12)).toBe(6);
+    expect(tilesPerRow(16)).toBe(8);
+    expect(tilesPerRow(17)).toBe(6);
+  });
+});
+
 describe('wired into the room', () => {
   const hook = readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../renderer/src/team/rooms/rooms.css', import.meta.url), 'utf8');
@@ -81,5 +112,11 @@ describe('wired into the room', () => {
   });
   it('a face left out is dimmed, not hidden', () => {
     expect(css).toMatch(/\.rm-bface\.off \{[^}]*opacity: \.?\d/);
+  });
+  it('the tiles sit in the Grid’s lines, as many across as the row holds', () => {
+    const rule = css.match(/\.rm-bfaces \{([^}]*)\}/)?.[1] ?? '';
+    expect(rule).toMatch(/grid-template-columns: repeat\(var\(--per-row, 8\), minmax\(0, 1fr\)\)/);
+    expect(rule).toMatch(/border-top: 1px solid var\(--rm-line\)/);
+    expect(rule).toMatch(/border-left: 1px solid var\(--rm-line\)/);
   });
 });

@@ -53,6 +53,11 @@ export function facePick(picked: readonly string[], all: readonly string[], id: 
   return picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id];
 }
 
+/** Tiles to a row over the board: eight at most, and even rows past that. */
+export function tilesPerRow(n: number, most = 8): number {
+  return Math.ceil(n / Math.ceil(n / most));
+}
+
 /** Each room's pick, by room id. */
 export function readBoardPicks(store: Store = local()): Record<string, string[]> {
   try {
