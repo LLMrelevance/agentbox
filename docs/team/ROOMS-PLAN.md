@@ -442,3 +442,14 @@ Rooms paragraph in this work.
   line narrows it. With Rooms on, the Inbox shows only your own threads: its
   People line and the faces on its button are gone, and the pick it kept comes
   back if Rooms is turned off.
+- After an hour with a second person in the founder's room (2026-10-22,
+  `20261022000100_rooms_show_everyone.sql`): `show_working` defaults to
+  `everyone`, and cards on the old default moved. While `everyone` and
+  `show_activity` hold, a Mac puts up to 36 lines of what is waiting, running
+  and done today on its presence row (`activity`), only threads the whole team
+  may read, and a room-mate outside the team opens an Activity tab off it. The
+  board still holds only people whose thread cards reach you. `room_names(r)`
+  gives every member's name and face and nothing else, so a message keeps its
+  author's name while they are invisible, and a member with no card is on the
+  wall as "Not on Rooms yet". My own card counts this Mac's running agents. A
+  group chat nobody has written in is listed only for whoever started it.
