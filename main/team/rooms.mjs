@@ -152,9 +152,9 @@ export function createRooms({
     let f = {};
     try { f = presenceFacts() ?? {}; } catch { return null; }
     const lead = [...(f.running ?? [])].sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
-    if (!lead) return { workingOn: null };
+    if (!lead) return { workingOn: null, agents: 0 };
     const item = (f.items ?? []).find((i) => i.id === lead.itemId);
-    return { workingOn: (String(item?.label ?? '').trim() || String(item?.title ?? '')).slice(0, 64) || null };
+    return { workingOn: (String(item?.label ?? '').trim() || String(item?.title ?? '')).slice(0, 64) || null, agents: f.running.length };
   }
   const local = () => { gen += 1; };
 

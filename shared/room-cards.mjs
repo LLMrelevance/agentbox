@@ -93,7 +93,8 @@ export function wallCards({ members = [], profiles = [], presence = [], teammate
       avatarUrl: p.avatar_url ?? null,
       headline: p.headline ?? null,
       bio: p.bio ?? null,
-      agents: p.show_agents === false ? null : s.agents,
+      // My own count is this Mac's, not the cloud's last word on it.
+      agents: p.show_agents === false ? null : id === meId && Number.isFinite(mine?.agents) ? mine.agents : s.agents,
       level: p.show_level === false ? null : levelFor(s.total),
       hoursTotal: s.total,
       hoursWeek: s.week,
