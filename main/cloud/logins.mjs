@@ -458,8 +458,8 @@ export function cloudLimits(read) {
 
 // WHOSE ONE CLAUDE LOGIN IS, AND HOW MUCH OF IT IS LEFT: a sandbox session
 // that makes one tiny reply on it and reads the reply's headers. Kept on the
-// login's note only while that login is still the current one. Returns
-// 'read' or 'failed'.
+// login's note only while that login is still the current one. A failed look
+// keeps the last reading and notes why beside it. Returns 'read' or 'failed'.
 export async function lookAtCloudLogin({ transport, storage, key, home = os.homedir(), now = Date.now(), pollWaitMs }) {
   const rec = cloudLoginFor('claude', key, { home });
   if (!rec?.id || rec.broken) return 'failed';
@@ -468,7 +468,10 @@ export async function lookAtCloudLogin({ transport, storage, key, home = os.home
     pollWaitMs,
     start: { action: 'look', runId: `look-${crypto.randomUUID()}`, engine: 'claude', loginUrl: await storage.getUrl(loginObjectKey('claude', rec.id), LINK_SECONDS) },
   });
-  if (end.state !== 'saved') return 'failed';
+  if (end.state !== 'saved') {
+    markCloudLogin('claude', key, rec.id, { lookFailedAt: now, lookError: end.message ?? null }, { home });
+    return 'failed';
+  }
   markCloudLogin('claude', key, rec.id, { org: end.org ?? null, limits: end.limits ?? [], readAt: now }, { home });
   return 'read';
 }

@@ -31,7 +31,7 @@ export const SETUP = {
   sameAccount: 'The same Claude account as one above, so it adds nothing. Remove it and add a different one.',
   again: 'Sign in again',
   done: 'Done',
-  signInHead: (engine: CloudSignIn['engine']) => (engine === 'codex' ? 'Sign in to Codex' : 'Sign in to Claude'),
+  signInHead: (engine: CloudSignIn['engine'], as?: string | null) => (as ? `Sign in to ${as}` : engine === 'codex' ? 'Sign in to Codex' : 'Sign in to Claude'),
   openAgain: 'Open the page again',
   tryAgain: 'Try again',
   back: 'Back',

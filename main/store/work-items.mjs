@@ -220,6 +220,13 @@ function foldedLedger(file) {
     held.offset += end;
     const touched = new Set();
     foldRawInto(held.raw, chunk.split('\n').filter(usable), touched);
+    // Only threads new to this fold or reopened in it: the rest were looked at
+    // already, and one with no title anywhere would be read for on every line.
+    if (held.from > 0) {
+      const was = (id) => held.items.get(id);
+      const arrived = [...touched].filter((id) => !was(id) || was(id).status === 'done');
+      restoreCutHeads(held.raw, arrived, pin.fd, held.from, held.offset);
+    }
     for (const id of touched) held.items.set(id, finishItem(held.raw.get(id), 0));
     held.stamp = pin.stamp;
     return held.items;
@@ -232,6 +239,7 @@ function foldedLedger(file) {
   if (st) {
     const read = readWindow(file, st.size, pin.fd);
     foldRawInto(raw, read.text.split('\n').filter(usable));
+    if (read.from > 0) restoreCutHeads(raw, raw.keys(), pin.fd, read.from, read.end);
     offset = read.end;
     from = read.from;
   }
@@ -257,6 +265,63 @@ function readWindow(file, size, fd) {
   const n = fs.readSync(fd, buf, 0, buf.length, from);
   const end = n ? buf.lastIndexOf(0x0a, n - 1) + 1 : 0;
   return { text: buf.toString('utf8', 0, end), end: from + end, from };
+}
+
+// AN UNFINISHED THREAD WHOSE FIRST LINE IS BEFORE THE WINDOW is folded from its
+// later lines alone: no title, so a blank row in the inbox. A title is written
+// once, by the line that makes a thread, so no title means the cut went through
+// it, and its own lines are read from the start of the file and folded again.
+// A finished one is left to `readOlderWorkItems`, so a ledger without such a
+// thread is read exactly as it always was.
+//
+// THE CLAIM STAYS THE WINDOW'S. `claimWorkItem` numbers a claim from the window,
+// so one made after the cut can be lower than one before it, and the older one
+// would fence off everything its agent wrote since.
+function restoreCutHeads(raw, ids, fd, from, end) {
+  const cut = new Set();
+  for (const id of ids) {
+    const item = raw.get(id);
+    if (!item.wrote.title && item.status !== 'done') cut.add(id);
+  }
+  if (!cut.size) return;
+  const lines = linesUpTo(fd, end, cut);
+  const restored = new Map();
+  foldRawInto(restored, lines.filter((l) => l.at < from).map((l) => l.text));
+  const found = [...restored.keys()].filter((id) => cut.has(id));
+  for (const id of found) Object.assign(restored.get(id), { epoch: 0, claim: null });
+  foldRawInto(restored, lines.filter((l) => l.at >= from).map((l) => l.text));
+  for (const id of found) raw.set(id, restored.get(id));
+}
+
+// The whole lines before byte `end` that carry one of `ids`, with the byte each
+// starts at, read a megabyte at a time. Searched as bytes, so a line that is
+// not one of them is never decoded; the fold checks whose each line really is.
+const PIECE_BYTES = 1024 * 1024;
+const ID_KEY = Buffer.from('"id":"');
+function linesUpTo(fd, end, ids) {
+  const out = [];
+  let rest = Buffer.alloc(0);
+  let restAt = 0;
+  for (let pos = 0; pos < end;) {
+    const buf = Buffer.allocUnsafe(Math.min(PIECE_BYTES, end - pos));
+    const n = fs.readSync(fd, buf, 0, buf.length, pos);
+    if (!n) break;
+    pos += n;
+    const bytes = rest.length ? Buffer.concat([rest, buf.subarray(0, n)]) : buf.subarray(0, n);
+    const whole = bytes.lastIndexOf(0x0a) + 1;
+    const starts = new Set();
+    for (let at = bytes.indexOf(ID_KEY); at !== -1 && at < whole; at = bytes.indexOf(ID_KEY, at + ID_KEY.length)) {
+      const from = at + ID_KEY.length;
+      if (ids.has(bytes.toString('latin1', from, bytes.indexOf(0x22, from)))) starts.add(bytes.lastIndexOf(0x0a, at) + 1);
+    }
+    for (const start of starts) {
+      const text = bytes.toString('utf8', start, bytes.indexOf(0x0a, start));
+      if (usable(text)) out.push({ text, at: restAt + start });
+    }
+    rest = bytes.subarray(whole);
+    restAt += whole;
+  }
+  return out;
 }
 
 // One item as of `now`: a copy, with the lease rule that `foldWorkItems` applies
