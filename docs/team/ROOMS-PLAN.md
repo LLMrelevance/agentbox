@@ -34,6 +34,9 @@ Your level comes from agent hours. Ranks are weekly. You can go invisible.
   under the list. Pointing at a row shows dots for the room menu (Mark as read
   or unread, Invite people, Members, Ranks this week, Mute, Leave). A room opens
   as a page with a back arrow to the Rooms page, and Threads keeps its four tabs.
+  Since 2026-10-22 (w-49cd37092c) one room sits after Done: the first pinned or
+  first room until you pick, with an arrow that opens "Room in this tab" (each
+  room, and No room tab). A room's menu has Show in the Threads tab.
 - Invite: on the room row, in the room menu, and in the chat panel header. The
   invite dialog is the plain one (who is here, invite link, email).
 - Names show as "First L." by default; a person can turn on their full name.

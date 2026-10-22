@@ -106,7 +106,9 @@ describe('the Rooms page', () => {
   });
 });
 
-describe('no room is a tab', () => {
+// The pinned tabs and the tab per open room stay gone. Since 2026-10-22 one
+// room you pick sits after Done (tests/one-room-sits-in-the-threads-tabs-and-you-pick-which).
+describe('no pinned room tabs', () => {
   const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
   const hook = fs.readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
   it('the tab bar is given no room tabs', () => {

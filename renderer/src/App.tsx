@@ -6680,6 +6680,7 @@ export default function App() {
                     lit={needsYouLit(inbox, needsLookedAt)}
                     onView={(next) => { roomsUi.leave(); setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                     onSearch={openSearch}
+                    after={roomsUi.roomTab}
                   />
                 )}
                 {roomShown ? roomsUi.page : <>

@@ -5,8 +5,9 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '../../api';
 import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
 import { RoomsPage, useOutside, type RoomMenuAction } from './RoomsPage';
-import { boardPeople, boardPicked, cardName, chatPeople, readBoardLater, readBoardPicks, whereChatOpens, withMe, writeBoardLater, writeBoardPicks } from './room-rules';
+import { boardPeople, boardPicked, cardName, chatPeople, peopleCount, readBoardLater, readBoardPicks, readRoomTab, tabRoom, whereChatOpens, withMe, writeBoardLater, writeBoardPicks, writeRoomTab } from './room-rules';
 import { BoardFaces, RoomViewButton } from './RoomView';
+import { RoomTab, RoomTabMenu } from './RoomTab';
 import { landed, sameMessages } from './room-chat-rules';
 import { RoomPage, type RoomPane } from './RoomPage';
 import { RoomChat } from './RoomChat';
@@ -57,6 +58,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const [switcher, setSwitcher] = useState<DOMRect | null>(null);
   const [boardPicks, setBoardPicks] = useState<Record<string, string[]>>(() => readBoardPicks());
   const [later, setLaterRaw] = useState(() => readBoardLater());
+  const [tabChoice, setTabChoice] = useState<string | null>(() => readRoomTab());
+  const [tabMenu, setTabMenu] = useState<DOMRect | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [members, setMembers] = useState<{ roomId: string; at: DOMRect } | null>(null);
   const [links, setLinks] = useState<Record<string, string>>({});
@@ -135,10 +138,14 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     toast(res.ok ? 'Marked unread' : res.error ?? 'Not marked unread');
   };
 
+  const pickTab = (choice: string) => { setTabChoice(choice); writeRoomTab(choice); setTabMenu(null); };
+  const tabbed = live ? tabRoom(list, tabChoice) : null;
+
   const menu = async (id: string, action: RoomMenuAction, at: DOMRect) => {
     const r = all.find((x) => x.id === id);
     if (!r) return;
     if (action === 'read' || action === 'unread') { await readOrUnread(r, action); return; }
+    if (action === 'tab') pickTab(id);
     if (action === 'invite') setDialog({ kind: 'invite', roomId: id });
     if (action === 'members') setMembers({ roomId: id, at });
     if (action === 'ranks') { openRoom(id); setPane('ranks'); }
@@ -316,7 +323,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       right: <div className="th-right"><button type="button" className="th-new" onClick={() => setDialog({ kind: 'start' })}>{I.plus()}New room</button></div>,
     };
     page = <RoomsPage state={rooms} invisible={invisibleUntil > now} now={now} onOpen={(id) => openRoom(id)} onFind={find}
-      onMenu={(id, a, at) => void menu(id, a, at)} />;
+      onMenu={(id, a, at) => void menu(id, a, at)} tabbedId={tabbed?.id ?? null} />;
   } else if (noChats && live) {
     heading = { title: backTitle('Messages'), right: null };
     page = <MessagesPage list={[]} onKey={null} now={now} onPick={pick} onAction={(c, a) => void act(c, a)}>
@@ -360,7 +367,11 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
 
   const inviteRoom = dialog?.kind === 'invite' ? all.find((r) => r.id === dialog.roomId) : null;
   const membersRoom = members ? all.find((r) => r.id === members.roomId) : null;
+  const roomTab: ReactNode = tabbed
+    ? <RoomTab room={tabbed} count={peopleCount(tabbed, invisibleUntil > now)} open={!!tabMenu} onOpen={() => openRoom(tabbed.id)} onMenu={(at) => setTabMenu(tabMenu ? null : at)} />
+    : null;
   const dialogs: ReactNode = <>
+    {tabMenu && live && <RoomTabMenu rooms={list} current={tabbed?.id ?? null} invisible={invisibleUntil > now} at={tabMenu} onPick={pickTab} onClose={() => setTabMenu(null)} />}
     {inviteRoom && <InviteDialog room={inviteRoom} link={links[inviteRoom.id] ?? null} now={now} onClose={() => setDialog(null)} loadSent={loadSent}
       onCopy={() => void copyLink(inviteRoom.id)}
       onEmail={async (email) => { const res = await call('invite', inviteRoom.id, email); return res.ok ? null : res.error ?? 'Not sent'; }} />}
@@ -409,7 +420,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const openMention = (m: RoomMention) => openRoom(m.roomId);
 
   return {
-    live, openId: open ? openId : listing && live ? 'rooms' : finding && live ? 'find' : noChats && live ? 'messages' : null, openMessages, open: (id: string) => openRoom(id), close, leave, find, nav, page, dialogs, join, invisible, settingsPane,
+    live, openId: open ? openId : listing && live ? 'rooms' : finding && live ? 'find' : noChats && live ? 'messages' : null, openMessages, open: (id: string) => openRoom(id), close, leave, find, nav, page, dialogs, roomTab, join, invisible, settingsPane,
     mentions, openMention, faces, messagesShell, full, heading,
     dialogOpen: !!dialog || !!members || !!switcher,
     /** The header's View button over a room, and B. Null anywhere else in rooms. */

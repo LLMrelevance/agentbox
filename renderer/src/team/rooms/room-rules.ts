@@ -69,8 +69,24 @@ export function chatPeople(room: Pick<Room, 'people' | 'wall'>, meId: string | n
 
 const PICK_KEY = 'rooms.board.people';
 const LATER_KEY = 'rooms.board.later';
+const TAB_KEY = 'rooms.tab';
 type Store = Pick<Storage, 'getItem' | 'setItem'> | null;
 const local = (): Store => (typeof localStorage === 'undefined' ? null : localStorage);
+
+/** The room picked for the Threads tab bar: a room id, 'none' after No room tab, or null before any pick. */
+export function readRoomTab(store: Store = local()): string | null {
+  try { return store?.getItem(TAB_KEY) || null; } catch { return null; }
+}
+export function writeRoomTab(choice: string, store: Store = local()) {
+  try { store?.setItem(TAB_KEY, choice); } catch { /* not kept */ }
+}
+
+/** The room in the Threads tab: the one picked, else the first pinned room, else the first room. Never a group chat. */
+export function tabRoom<R extends Pick<Room, 'id' | 'kind' | 'pinned'>>(rooms: readonly R[], choice: string | null): R | null {
+  if (choice === 'none') return null;
+  const own = rooms.filter((r) => r.kind !== 'group');
+  return own.find((r) => r.id === choice) ?? own.find((r) => r.pinned) ?? own[0] ?? null;
+}
 
 /** Whose threads a room's board draws: whoever's Activity I may open, and a
  *  teammate not on Rooms yet, who has no Rooms switch but whose team cards reach me. */
