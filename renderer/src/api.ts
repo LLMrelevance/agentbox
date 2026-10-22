@@ -197,7 +197,7 @@ function fixtureWrite(scope: 'project' | 'workspace', p: any): Settings {
     } else if (p.key === 'memoryGate' && w.memoryGate) {
       w.memoryGate = { ...w.memoryGate, on: !!p.value, now: p.value ? 'Memory is fine. Nothing heavy running.' : null };
     } else if (p.key === 'cleanupLeftovers' && w.leftovers) {
-      w.leftovers = { on: !!p.value, now: p.value ? 'Finished agents have left 6 programs running. 4 stop in 1 h 40 m; 2 are kept.' : null };
+      w.leftovers = { on: !!p.value, now: p.value ? 'Finished agents have left 6 programs running. 4 stop when you close their tasks; 2 are kept.' : null };
     } else if (p.key === 'memoryGateSlots' && w.memoryGate) {
       w.memoryGate = { ...w.memoryGate, slots: p.value === null ? null : Math.max(1, Math.min(w.memoryGate.slotsMax, Number(p.value) || 1)) };
     } else if (p.key === 'activeAccount') {
@@ -370,11 +370,13 @@ export const api = {
         const read = params.has('cloudread');
         base.cloud = {
           // &cloudmode=mac draws the same accounts with the cloud turned off.
-          setUp: true, mode: params.get('cloudmode') === 'mac' ? 'mac' : 'full', whenOn: 'full', running: 0,
+          setUp: true, mode: params.get('cloudmode') === 'mac' ? 'mac' : params.get('cloudmode') === 'all' ? 'all' : 'full', whenOn: 'full', running: 0,
           month: { runs: 14, agentHours: 1.2, estimatedCost: 0.16, costPerAgentHour: 0.13 },
           accounts: [
             {
+              // Read two hours ago, as the reported screenshot's was; the same login here was read since.
               engine: 'claude', key: 'a1', name: read ? 'you@example.com' : null, plan: read ? 'Max 20x' : null, ready: false, state: 'limited' as any, limitedUntil: until.getTime(),
+              profile: read ? fixtureSettingsState.workspace.accounts[0]?.profile ?? null : null, readAt: read ? Date.now() - 2 * 3_600_000 : null,
               limits: read ? [
                 { span: 'session', qualifier: null, name: 'This session', percent: 100, resetsText: null, resetsOn: null, resetsAt: until.getTime(), zone: null },
                 { span: 'week', qualifier: 'all models', name: 'This week', percent: 31, resetsText: null, resetsOn: null, resetsAt: on(2, 11, 59), zone: null },
@@ -382,6 +384,7 @@ export const api = {
             },
             {
               engine: 'claude', key: 'a2', name: read ? 'work@example.com' : null, plan: read ? 'Max 20x' : null, ready: true, state: 'ready',
+              profile: read ? fixtureSettingsState.workspace.accounts[1]?.profile ?? null : null, readAt: read ? Date.now() - 3 * 60_000 : null,
               limits: read ? [
                 { span: 'session', qualifier: null, name: 'This session', percent: 12, resetsText: null, resetsOn: null, resetsAt: on(0, 20), zone: null },
                 { span: 'week', qualifier: 'all models', name: 'This week', percent: 9, resetsText: null, resetsOn: null, resetsAt: on(2, 16), zone: null },
@@ -389,8 +392,24 @@ export const api = {
             },
             // &cloudcodex adds a Codex login in the cloud, so the Codex page draws its cloud rows.
             ...(params.has('cloudcodex') ? [{ engine: 'codex' as const, key: 'c1', name: null, ready: true, state: 'ready' as const }] : []),
-          ],
-          signIns: [],
+            // &cloudonly adds a Claude login signed in nowhere here, whose last look failed.
+            // Its email is unknown: the cloud's token cannot read it, and no folder here names it.
+            ...(params.has('cloudonly') ? [{
+              engine: 'claude' as const, key: 'a3', name: null, plan: null, ready: true, state: 'ready' as const, profile: null,
+              readAt: Date.now() - 2 * 3_600_000, readError: 'The cloud could not be reached. Try again.',
+              limits: [
+                { span: 'session' as const, qualifier: null, name: 'This session', percent: 40, resetsText: null, resetsOn: null, resetsAt: on(0, 23), zone: null },
+                { span: 'week' as const, qualifier: 'all models', name: 'This week', percent: 22, resetsText: null, resetsOn: null, resetsAt: on(2, 16), zone: null },
+              ],
+            }] : []),
+            // &cloudmissing leaves the work login out of the cloud, so it is only on this computer
+            // (&cloudmissing=a1 the other one). &cloudstopped has the work login's cloud sign-in stop working.
+          ].filter((a) => !(params.has('cloudmissing') && a.key === (params.get('cloudmissing') || 'a2')))
+            .map((a) => (params.has('cloudstopped') && a.key === 'a2' ? { ...a, ready: false, state: 'broken' as const } : a)),
+          // &cloudsigning has a Claude sign-in waiting on its code, as Add to cloud leaves one.
+          signIns: params.has('cloudsigning')
+            ? [{ engine: 'claude' as const, key: 'acct-new', state: 'needs-code' as const, url: 'https://claude.ai/oauth/authorize', code: null, message: null, attempt: 'signin-1' }]
+            : [],
         } as typeof base.cloud;
       } else if (cloud === 'new') {
         // &cloud=new draws Agentbox Cloud offered with nobody signed in: the
@@ -731,6 +750,7 @@ export const api = {
   // A chip put on or taken off one message. `on` is the uid of the ledger line
   // the message was written as (w-560647d4db).
   async teamReact(p: { product: string; id: string; on: string; emoji: string; off?: boolean }): Promise<TeamCallResult> { return teamCall(() => window.zero!.teamReact(p)); },
+  async teamEdit(p: { product: string; id: string; on: string; text?: string; gone?: boolean }): Promise<TeamCallResult> { return teamCall(() => window.zero!.teamEdit(p)); },
   // A MESSAGE TO A PERSON (people get messages, never tasks), at the level the
   // sender picked. The level counts on the first message of a conversation and
   // is ignored after, which is the main process's rule (main/team/index.mjs).

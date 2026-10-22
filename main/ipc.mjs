@@ -21,7 +21,8 @@ import { createEngineSetup } from './engine-setup.mjs';
 // process can hand over its own, and the same 78 channels then answer a
 // browser over http without one line of this file being written twice.
 import {terminalSenderAllowed} from './terminal-access.mjs';
-import {TaskTerminals,terminalPlace} from './task-terminals.mjs';
+import {TaskTerminals,terminalPlace,terminalEnv} from './task-terminals.mjs';
+import {TerminalHosts,taskClosed} from './terminal-hosts.mjs';
 import {SETTINGS_TERMINAL} from '../shared/settings-terminal.mjs';
 import {AgentUpdates,installedAgent} from './agent-updates.mjs';
 import {refreshAgentModels} from './refresh-agent-models.mjs';
@@ -102,7 +103,7 @@ const NO_UPDATER = {
   move: () => ({ moved: false, error: null }),
 };
 
-const ROOM_OPS = new Set(['refresh', 'send', 'markRead', 'older', 'saveProfile', 'goInvisible', 'comeBack', 'link', 'revokeLink', 'preview', 'listed', 'invitesSent', 'joinByLink', 'joinListed', 'acceptInvite', 'invite', 'create', 'rename', 'leave', 'remove', 'pin', 'mute']);
+const ROOM_OPS = new Set(['refresh', 'send', 'markRead', 'markUnread', 'react', 'edit', 'deleteMessage', 'putFile', 'file', 'older', 'saveProfile', 'goInvisible', 'comeBack', 'link', 'revokeLink', 'preview', 'listed', 'invitesSent', 'joinByLink', 'joinListed', 'acceptInvite', 'invite', 'create', 'rename', 'leave', 'remove', 'pin', 'mute']);
 
 export function registerIpc({ store, supervisor, config, window, analytics = NO_ANALYTICS, docGrants = null, updater = NO_UPDATER, host, team = null }) {
   // The three Electron things, or a plain Node stand-in for them. There is no
@@ -363,9 +364,22 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     if(product===SETTINGS_TERMINAL.product&&id===SETTINGS_TERMINAL.id){
       return pendingLogin ?? config.home ?? os.homedir();
     }
+    return taskPlace(product,id);
+  }});
+  const taskPlace=(product,id)=>{
     const agent=id.startsWith('agent:')?liveAgents().find(a=>'agent:'+a.pid===id && (a.product??'')===product):null;
     return terminalPlace({store,supervisor,product,id,agent});
-  }});
+  };
+  /*
+   * A TASK'S TERMINAL LIVES AS LONG AS THE TASK IS OPEN, in a process that
+     outlives the app (main/terminal-host.mjs). The sign-in terminal on
+     Settings belongs to no task and stays in the app. */
+  const taskTerminals=new TerminalHosts({local:terminals,logFile:path.join(supervisor.userDir,'terminal-host.log'),log:line=>console.warn(`zero: ${line}`)});
+  // A task's folder is not deleted while its terminal is open (supervisor.mjs, `_folderInUse`).
+  supervisor.terminalOpen=itemId=>taskTerminals.hasTerminal(itemId);
+  const lookAtTerminals=()=>taskTerminals.endClosed(taskClosed(store)).catch(e=>console.warn('zero: terminals:',e.message));
+  void taskTerminals.ready().then(lookAtTerminals);
+  setInterval(lookAtTerminals,60_000).unref?.();
   const agentUpdates=new AgentUpdates({
     installation:async engine=>{if(engine==='claude')recheckClaude(config);else recheckCodex(config);return installedAgent(engine,config);},
     refresh:async engine=>{if(engine==='claude')recheckClaude(config);else recheckCodex(config);await refreshAgentModels(engine,config,supervisor._codexHome());if(engine==='codex')for(const profile of supervisor._codexProfiles())supervisor._releaseIdleCodex(profile);},
@@ -386,18 +400,26 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     event.preventDefault();
     if(!terminalQuitPending){terminalQuitPending=true;void Promise.all([terminals.shutdown(),agentUpdates.shutdown()]).finally(()=>{terminalQuitReady=true;app.quit();});}
   });
-  ipcMain.handle('zero:terminal',(_event,payload={})=>{
+  ipcMain.handle('zero:terminal',async(_event,payload={})=>{
     if(_event.senderFrame?.parent || (_event.sender && _event.sender!==window.webContents)) throw Error('Terminal is only available in the main app window.');
     const {product,id,action,data,cols,rows,offset,wait}=payload;
     if(typeof product!=='string'||typeof id!=='string'||!id||id.length>300)throw Error('Invalid task.');
     const key=JSON.stringify({product,id});
     if(product==='@agent-update')return agentUpdates.terminal(id,payload);
-    switch(action){
+    if(product===SETTINGS_TERMINAL.product&&id===SETTINGS_TERMINAL.id)switch(action){
       case 'open':return terminals.open(key);
       case 'read':return terminals.read(key,offset,wait);
       case 'write':terminals.write(key,data);return true;
       case 'resize':terminals.resize(key,cols,rows);return true;
       case 'close':terminals.close(key);return true;
+      default:throw Error('Unknown terminal action.');
+    }
+    switch(action){
+      case 'open':return taskTerminals.open(key,{...taskPlace(product,id),env:terminalEnv()});
+      case 'read':return taskTerminals.read(key,offset,wait);
+      case 'write':await taskTerminals.write(key,data);return true;
+      case 'resize':await taskTerminals.resize(key,cols,rows);return true;
+      case 'close':await taskTerminals.close(key);return true;
       default:throw Error('Unknown terminal action.');
     }
   });
@@ -884,6 +906,23 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     const here = store.listProducts().find((p) => p.slug === product);
     if (!here?.team?.direct) throw new Error('reactions are for a conversation with a teammate');
     store.react(product, id, { on, emoji, off });
+    await team.syncNow();
+  }));
+
+  // 'granted', or 'settings' once macOS's Microphone page has been opened instead.
+  ipcMain.handle('zero:mic-access', async () => {
+    try { return host.micAccess ? await host.micAccess() : 'granted'; } catch { return 'settings'; }
+  });
+
+  // EDIT OR DELETE A MESSAGE YOU SENT TO A TEAMMATE, in a conversation only,
+  // for the same reason as a reaction above.
+  ipcMain.handle('zero:team-edit', teamCall(async ({ product, id, on, text, gone }) => {
+    if (!teamMe()) throw new Error('sign in first');
+    if (!store.readItem(product, id)) throw new Error('that conversation is gone');
+    const here = store.listProducts().find((p) => p.slug === product);
+    if (!here?.team?.direct) throw new Error('only a message to a teammate can be edited');
+    if (!gone && !String(text ?? '').trim()) throw new Error('a message needs words; delete it instead');
+    store.editMessage(product, id, { on, text, gone: gone === true });
     await team.syncNow();
   }));
 

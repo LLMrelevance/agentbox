@@ -7,12 +7,12 @@
 // runEndedProps), and the only durable trace of a run was its log file.
 //
 // These are the rules, measured with fixed clocks in the test time zone
-// (America/Los_Angeles, set in tests/agentbox-home.setup.mjs): the level
-// curve at its marks, the edges of a week and a day, a streak with a gap,
-// runs counted once however often they are written, and a run read back
-// from its trace log.
+// (America/Los_Angeles, set in tests/agentbox-home.setup.mjs): the edges of
+// a week and a day, a streak with a gap, runs counted once however often they
+// are written, and a run read back from its trace log. The level curve is
+// tests/a-level-takes-months-to-master-not-weeks.test.mjs.
 import { describe, it, expect } from 'vitest';
-import { levelFor, summarizeRuns, dedupeRuns, runFromTrace, LEVEL_MAX_HOURS } from '../shared/agent-hours.mjs';
+import { summarizeRuns, dedupeRuns, runFromTrace } from '../shared/agent-hours.mjs';
 
 const H = 3600;
 const at = (iso) => new Date(iso).getTime();
@@ -20,27 +20,6 @@ const run = (endIso, hours, extra = {}) => {
   const end = at(endIso);
   return { key: `w-${end}`, at: end, start: end - hours * H * 1000, item: 'w-x', product: 'p', engine: 'claude', seconds: hours * H, failed: false, ...extra };
 };
-
-describe('the level', () => {
-  it('starts at 1 and reaches 99 at 5,000 hours', () => {
-    expect(levelFor(0)).toBe(1);
-    expect(LEVEL_MAX_HOURS).toBe(5000);
-    expect(levelFor(5000)).toBe(99);
-    expect(levelFor(4999)).toBe(98);
-    expect(levelFor(100000)).toBe(99);
-  });
-  it('is quick early and slow late', () => {
-    expect(levelFor(12)).toBe(14);
-    expect(levelFor(100)).toBe(27);
-    expect(levelFor(500)).toBe(46);
-    expect(levelFor(1240)).toBe(62);
-  });
-  it('treats nonsense as nothing', () => {
-    expect(levelFor(-5)).toBe(1);
-    expect(levelFor(Number.NaN)).toBe(1);
-    expect(levelFor(undefined)).toBe(1);
-  });
-});
 
 describe('a week, a day, all time', () => {
   // Wednesday 22 October 2026, 15:00 in Los Angeles.
@@ -80,7 +59,7 @@ describe('a week, a day, all time', () => {
 
   it('carries the level of the total', () => {
     const five = Array.from({ length: 5 }, (_, i) => run(`2026-10-0${i + 1}T10:00:00-07:00`, 20, { key: `d${i}` }));
-    expect(summarizeRuns(five, { now }).level).toBe(27);
+    expect(summarizeRuns(five, { now }).level).toBe(16);
   });
 
   it('one run is never believed past a day', () => {

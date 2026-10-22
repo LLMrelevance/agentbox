@@ -43,9 +43,9 @@ const SETTLE = { duration: 180, easing: 'cubic-bezier(.2,.8,.2,1)' };
 const GripIcon = () => <svg className="th-col-grip" viewBox="0 0 10 16" width="8" height="13" fill="currentColor" aria-hidden="true"><circle cx="2.5" cy="3" r="1.4" /><circle cx="7.5" cy="3" r="1.4" /><circle cx="2.5" cy="8" r="1.4" /><circle cx="7.5" cy="8" r="1.4" /><circle cx="2.5" cy="13" r="1.4" /><circle cx="7.5" cy="13" r="1.4" /></svg>;
 export const PenIcon = () => <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M12 20h8" /><path d="m4 20 1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z" /></svg>;
 const SearchGlyph = () => <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="m20 20-4.5-4.5" /></svg>;
-const SlidersIcon = () => <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></svg>;
+export const SlidersIcon = () => <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></svg>;
 const ListIcon = () => <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>;
-const BoardIcon = () => <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="3.5" y="4" width="5" height="16" rx="1" /><rect x="10.5" y="4" width="5" height="11" rx="1" /><rect x="17.5" y="4" width="3" height="7" rx="1" /></svg>;
+export const BoardIcon = () => <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="3.5" y="4" width="5" height="16" rx="1" /><rect x="10.5" y="4" width="5" height="11" rx="1" /><rect x="17.5" y="4" width="3" height="7" rx="1" /></svg>;
 export const PeopleIcon = () => <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><circle cx="9" cy="9" r="3.2" /><path d="M3 19.5c.6-3.2 3-5 6-5s5.4 1.8 6 5" /><path d="M15.5 6.2a3 3 0 0 1 0 5.6M17.5 14.8c1.8.6 3 2.1 3.4 4.7" /></svg>;
 export const LockMark = () => <svg className="th-lock" width="11" height="12" viewBox="0 0 11 12" fill="none" stroke="currentColor" strokeWidth="1.2" aria-label="Private"><rect x="1.5" y="5.5" width="8" height="6" rx="1" /><path d="M3.5 5.5V3.8a2 2 0 0 1 4 0v1.7" /></svg>;
 /** A title with a mark after it, where the mark never wraps onto a line by
@@ -90,13 +90,21 @@ export const LiveContext = createContext<Set<string>>(new Set());
 /** The ones of those running in the cloud rather than on this Mac. */
 export const CloudContext = createContext<Set<string>>(new Set());
 
-/** The mark in the Status cell: the running one where an agent is on it, the
- *  still ring where one is waiting its turn or held, and a blank of the same
- *  width on the words that are the thread's own state, so every word in the
- *  column starts on one line (status-word.ts). */
+/**
+ * The mark in the Status cell: the running one where an agent is on it, the
+ * still ring where one is waiting its turn or held, and NOTHING AT ALL on the
+ * words that are the thread's own state.
+ *
+ * Not a blank of the mark's width either, which is what shipped first and what
+ * she caught: "STATUS isn't properly lined up, it's off to the side". A whole
+ * tab of Waiting rows wore the spacer, so every word in the column sat 21px
+ * right of its own heading. The cell starts at the column's edge, mark or no
+ * mark, which is how Project and Priority read (status-word.ts).
+ */
 export function StatusMark({ status }: { status: StatusCell }) {
+  if (!status.agent) return null;
   if (status.live) return <RunningMark cloud={status.cloud} />;
-  return <span className={`th-st s-${status.agent ? status.mark : 'none'}`} aria-hidden="true" />;
+  return <span className={`th-st s-${status.mark}`} aria-hidden="true" />;
 }
 
 /** An agent is on the thread now: the half-dot on this Mac, a cloud in the cloud, both pulsing. */
@@ -180,9 +188,11 @@ export function SearchButton({ onSearch }: { onSearch: () => void }) {
 }
 
 /** New thread, the cloud and the Display icon (and Search on the board), at the right of the Inbox header. */
-export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode, onCloudWhenOn, onCloudSetUp, filters = true }: {
+export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode, onCloudWhenOn, onCloudSetUp, filters = true, view = null }: {
   /** False over a room, where there is no list to view or filter. */
   filters?: boolean;
+  /** What stands in the filters button's place when `filters` is false: a room's own View button. */
+  view?: ReactNode;
   page: PageId; display: Display; onDisplay: (d: Display) => void; products: Product[]; items?: WorkItem[];
   /** Only where no tabs row draws it (the board). */
   onSearch?: () => void; onCompose: () => void; shown?: number; total?: number; tab?: string;
@@ -217,6 +227,7 @@ export function HeaderActions({ page, display, onDisplay, products, items, onSea
       </button>
       {open && <DisplayMenu page={page} display={display} onDisplay={onDisplay} products={products} items={items} shown={shown} total={total} tab={tab} people={people} />}
     </span>}
+    {!filters && view}
   </div>;
 }
 
@@ -393,10 +404,8 @@ export const INBOX_TABS: { view: TabView; label: string }[] = [
 const COUNTED: TabView[] = ['inbox', 'progress', 'snoozed'];
 
 /** `needs` renames the first tab (Waiting, once a teammate is on the page). */
-export function StateTabs({ view, counts, onView, needs, onSearch, after, dim = false, lit = false }: {
+export function StateTabs({ view, counts, onView, needs, onSearch, lit = false }: {
   view: TabView; counts: Partial<Record<TabView, number>>; onView: (v: TabView) => void; needs?: string;
-  /** Room tabs after Done (team/rooms/RoomTabs.tsx); `dim` while one of them is open. */
-  after?: ReactNode; dim?: boolean;
   /** Draws Search at the row's right end (w-3c51d02de5). */
   onSearch?: () => void;
   /** Something landed in Needs You since it was last open (w-22da913d00). */
@@ -404,8 +413,7 @@ export function StateTabs({ view, counts, onView, needs, onSearch, after, dim = 
 }) {
   return <div className="th-bar"><div className="tm-tabs">
     {/* Every tab wears the Tab plate (hint-plate.ts, 'state-tab'). */}
-    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view && !dim ? ' on' : ''}${t.view === 'inbox' && lit && view !== 'inbox' ? ' fresh' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
-    {after}
+    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view ? ' on' : ''}${t.view === 'inbox' && lit && view !== 'inbox' ? ' fresh' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
   </div>{onSearch && <SearchButton onSearch={onSearch} />}</div>;
 }
 

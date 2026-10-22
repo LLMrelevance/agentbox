@@ -92,7 +92,7 @@ const spoken = (src) => src
    so the checks about a row's wording read this and the checks about where the
    cards SIT still read the pane. */
 const cardSource = spoken(settings.slice(
-  settings.indexOf('type CardAccount = {'),
+  settings.indexOf('type CardAccount ='),
   settings.indexOf('const Group = ({'),
 ));
 
@@ -185,7 +185,7 @@ describe('the account rows never tell anybody to get a second subscription', () 
     // Above the rows rather than inside one of them, because it is a fact
     // about the pair, and only on Claude Code's page, whose pair it is.
     // The Place card is drawn only on Claude Code's page.
-    expect(said).toMatch(/engine === 'claude' \? \(\s*<Place[\s\S]{0,900}warn=\{w\.accountsNote\}/);
+    expect(said).toMatch(/engine === 'claude' \? \(\s*(<>\s*)?<Place[\s\S]{0,900}warn=\{w\.accountsNote\}/);
   });
 
   /*
@@ -268,11 +268,12 @@ describe('where the account rows live', () => {
   // The claim that survives is the first half of it: the agents lead the page.
   // The agent's page reads in the order a person asks: how much is left, who
   // it is signed in as, then what it may do.
-  // Since 2026-10-16 the usage of the account in use sits under its own row.
+  // Since 2026-10-16 the usage of the account in use sits under its own row,
+  // and since 2026-10-21 every account is one tile, wherever it is signed in.
   it('reads who is signed in with how much is left, then permissions', () => {
     const said = spoken(accountsPane);
-    const who = said.indexOf("'Signed in'}");
-    const usage = said.indexOf('accounts={hereAccounts}');
+    const who = said.indexOf('name="Signed in"');
+    const usage = said.indexOf('accounts={tiles}');
     const perms = said.indexOf('label="Permissions"');
     expect(who).toBeGreaterThan(-1);
     expect(usage).toBeGreaterThan(who);
