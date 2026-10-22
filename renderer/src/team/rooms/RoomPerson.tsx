@@ -6,7 +6,7 @@ import type { Room, RoomCard, ThreadCard } from '../../types';
 import { LiveMark } from '../../components/LiveMark';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
-import { activityShown, cardName, hoursWords, weekRank } from './room-rules';
+import { activityCards, activityShown, cardName, chartMonths, hoursWords, weekRank } from './room-rules';
 import { useOutside } from './RoomsNav';
 import { Name } from '../../../../shared/product-name.mjs';
 
@@ -36,7 +36,7 @@ export function ProfilePage({ card, room, rooms, cards, rank, onMessage, onRanks
   card: RoomCard; room: Room; rooms: Room[]; cards: ThreadCard[]; rank: number | undefined;
   onMessage?: () => void; onRanks: () => void;
 }) {
-  const activity = activityShown(card) ? groups(cards.filter((c) => c.personId === card.id)) : null;
+  const activity = activityShown(card) ? groups(activityCards(card, cards)) : null;
   const [tab, setTab] = useState<'progress' | 'activity'>('progress');
   const shared = rooms.filter((r) => r.wall.some((c) => c.id === card.id));
   const firstMonth = card.byMonth.find((m) => m.hours > 0)?.month ?? null;
@@ -110,8 +110,7 @@ function monthName(ym: string, withYear = false) {
 // Cumulative agent hours by month, from the first month with any, the total
 // pinned where the line ends.
 export function HoursChart({ byMonth, total }: { byMonth: { month: string; hours: number }[]; total: number }) {
-  const from = byMonth.findIndex((m) => m.hours > 0);
-  const months = from < 0 ? byMonth.slice(-2) : byMonth.slice(Math.max(0, from - 1));
+  const { months, named } = chartMonths(byMonth);
   let run = Math.max(0, total - months.reduce((n, m) => n + m.hours, 0));
   const pts = months.map((m) => (run += m.hours));
   const step = niceStep(Math.max(...pts, 1) / 3);
@@ -124,7 +123,7 @@ export function HoursChart({ byMonth, total }: { byMonth: { month: string; hours
   return <div className="rm-chartbox">
     <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-label={`${Math.round(total)} agent hours`}>
       {ticks.map((v) => <g key={v}><line className="grid" x1="52" x2={W - 20} y1={Y(v)} y2={Y(v)} /><text x="42" y={Y(v) + 3.5} textAnchor="end">{v.toLocaleString('en-US')}</text></g>)}
-      {months.map((m, i) => <text key={m.month} x={X(i)} y={H - 6} textAnchor="middle">{MONTHS[Number(m.month.slice(5)) - 1]}</text>)}
+      {months.map((m, i) => named[i] && <text key={m.month} x={X(i)} y={H - 6} textAnchor="middle">{MONTHS[Number(m.month.slice(5)) - 1]}</text>)}
       {pts.length > 1 && <path className="ar" d={`${line} L${X(last)} ${Y(0)} L${X(0)} ${Y(0)} Z`} />}
       <path className="ln" d={line} fill="none" strokeWidth="1.75" strokeLinejoin="round" />
       <rect className="pt" x={X(last) - 4} y={Y(pts[last] ?? 0) - 4} width="8" height="8" strokeWidth="2" />

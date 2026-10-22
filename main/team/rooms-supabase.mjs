@@ -2,7 +2,7 @@
 // cloud/supabase/migrations/20261021000000_rooms.sql. Row level security and
 // the functions there are what keep people apart; nothing here is trusted to.
 import { Name } from '../../shared/product-name.mjs';
-import { PROFILE_COLS, PRESENCE_COLS, PROFILE_FIELDS, PRESENCE_FIELDS, MSG_COLS, REACTION_COLS, pick, roomOut, messageOut, reactionOut, fileExists } from './rooms-shape.mjs';
+import { PROFILE_COLS, PRESENCE_COLS, OLD_PRESENCE_COLS, PROFILE_FIELDS, PRESENCE_FIELDS, OLD_PRESENCE_FIELDS, MSG_COLS, REACTION_COLS, pick, roomOut, messageOut, reactionOut, fileExists } from './rooms-shape.mjs';
 
 // How long the chat waits to hear that reactions are listening before it says
 // it is ready anyway.
@@ -19,6 +19,8 @@ export function roomsSupabase(client, myId, must) {
   // by hand. Until it is, messages are read on the columns it has and nothing
   // hangs off them, rather than the whole chat failing to read.
   let oldCloud = false;
+  // The same for presence on a cloud from before 20261022000100: no activity.
+  let noActivity = false;
   const reading = async (make, what) => {
     let res = await make(oldCloud ? OLD_MSG_COLS : MSG_COLS, oldCloud);
     if (res.error && !oldCloud && notThere(res.error)) { oldCloud = true; res = await make(OLD_MSG_COLS, true); }
@@ -58,6 +60,14 @@ export function roomsSupabase(client, myId, must) {
       return rows.map((r) => (typeof r === 'string' ? r : r.room_people ?? r.person_id)).filter(Boolean);
     },
 
+    // Null on a cloud without room_names, which the wall and chat read as "use the cards".
+    async roomNames(roomId) {
+      await myId();
+      const res = await client.rpc('room_names', { r: roomId });
+      if (res.error && notThere(res.error)) return null;
+      return (must(res, 'reading the names in the room') ?? []).map((r) => ({ person_id: r.person_id, name: r.name ?? '', avatar_url: r.avatar_url ?? null, has_card: !!r.has_card }));
+    },
+
     async roomProfiles(ids) {
       await myId();
       if (!ids?.length) return [];
@@ -67,7 +77,10 @@ export function roomsSupabase(client, myId, must) {
     async roomPresence(ids) {
       await myId();
       if (!ids?.length) return [];
-      return must(await client.from('room_presence').select(PRESENCE_COLS).in('person_id', ids), 'reading who is working');
+      const read = () => client.from('room_presence').select(noActivity ? OLD_PRESENCE_COLS : PRESENCE_COLS).in('person_id', ids);
+      let res = await read();
+      if (res.error && !noActivity && notThere(res.error)) { noActivity = true; res = await read(); }
+      return must(res, 'reading who is working');
     },
 
     async myRoomProfile() {
@@ -83,7 +96,12 @@ export function roomsSupabase(client, myId, must) {
 
     async putPresence(device, fields) {
       const me = await myId();
-      await saveOwn('room_presence', { person_id: me, device }, pick(fields, PRESENCE_FIELDS), 'person_id', 'telling your rooms what you are doing');
+      const put = () => saveOwn('room_presence', { person_id: me, device }, pick(fields, noActivity ? OLD_PRESENCE_FIELDS : PRESENCE_FIELDS), 'person_id', 'telling your rooms what you are doing');
+      try { await put(); } catch (err) {
+        if (noActivity || !('activity' in (fields ?? {})) || !notThere(err)) throw err;
+        noActivity = true;
+        await put();
+      }
     },
 
     async roomMessages(roomId, { before = null, limit = 200 } = {}) {

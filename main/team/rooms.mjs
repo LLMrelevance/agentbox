@@ -74,6 +74,7 @@ export function createRooms({
   const prefs = prefsStore(prefsFile);
   let state = { ...EMPTY };
   let people = new Map(); // roomId -> [personId]
+  let names = new Map(); // roomId -> room_names rows, or null on a cloud without them
   let profiles = new Map(); // personId -> row
   let presence = []; // rows
   let messages = new Map(); // roomId -> [message], oldest first
@@ -111,11 +112,15 @@ export function createRooms({
       shown.set(r.id, withReactions(held, reactions.get(r.id)));
       const readAt = reads.get(r.id) ?? 0;
       const unreadMsgs = held.filter((m) => m.at > readAt && m.by !== who && !m.deleted);
+      const called = names.get(r.id) ?? null;
+      // Everyone in the room by name, invisible or with no card, for the chat.
+      const everyone = called?.map((n) => ({ id: n.person_id, name: n.has_card ? n.name : displayNameOf(n.name), avatarUrl: n.avatar_url ?? null })) ?? null;
+      const nameOf = (id) => profiles.get(id)?.display_name || everyone?.find((p) => p.id === id)?.name || '';
       const pool = new Map([...mentioned.filter((m) => m.roomId === r.id && m.at > readAt && m.by !== who && !m.deleted), ...unreadMsgs].map((m) => [m.id, m]));
       for (const m of pool.values()) {
-        if (m.mentions.includes(who)) mentions.push({ id: `room-mention:${m.id}`, messageId: m.id, roomId: r.id, roomName: r.name, by: m.by, byName: profiles.get(m.by)?.display_name || '', body: m.body, at: m.at });
+        if (m.mentions.includes(who)) mentions.push({ id: `room-mention:${m.id}`, messageId: m.id, roomId: r.id, roomName: r.name, by: m.by, byName: nameOf(m.by), body: m.body, at: m.at });
       }
-      const wall = wallCards({ members: people.get(r.id) ?? [], profiles: [...profiles.values()], presence, teammates, teamCards: t.cards ?? [], meId: who, now: at, mine });
+      const wall = wallCards({ members: people.get(r.id) ?? [], profiles: [...profiles.values()], presence, teammates, teamCards: t.cards ?? [], meId: who, now: at, mine, names: called });
       return {
         ...r,
         pinned: pinned.has(r.id),
@@ -128,6 +133,7 @@ export function createRooms({
         lastAt: held.at(-1)?.at ?? r.createdAt,
         agents: wall.reduce((n, c) => n + (c.agents ?? 0), 0),
         wall,
+        people: everyone,
       };
     });
     state = {
@@ -171,7 +177,12 @@ export function createRooms({
     try {
       const rooms = await b.myRooms();
       const ids = new Map();
-      await Promise.all(rooms.map(async (r) => ids.set(r.id, await b.roomPeople(r.id))));
+      const named = new Map();
+      await Promise.all(rooms.map(async (r) => {
+        const [who, called] = await Promise.all([b.roomPeople(r.id), b.roomNames ? b.roomNames(r.id).catch(() => null) : null]);
+        ids.set(r.id, who);
+        named.set(r.id, called);
+      }));
       const everyone = [...new Set([meId(), ...[...ids.values()].flat()])].filter(Boolean);
       const [profileRows, presenceRows, readRows, mine, invites, ranks, mentionRows] = await Promise.all([
         b.roomProfiles(everyone), b.roomPresence(everyone), b.roomReads(), b.myRoomProfile(),
@@ -188,6 +199,7 @@ export function createRooms({
       if (backend() !== b || started !== b) return;
       if (g !== gen) { again = true; return; }
       people = ids;
+      names = named;
       profiles = new Map(profileRows.map((row) => [row.person_id, row]));
       presence = presenceRows;
       messages = held;
@@ -274,8 +286,8 @@ export function createRooms({
     const b = backend();
     if (!b || !started) return false;
     const facts = presenceFacts() ?? {};
-    const showWorking = state.me?.show_working ?? 'team';
-    const row = withoutHidden(myPresence({ ...facts, now: now(), showWorking }), state.me);
+    const showWorking = state.me?.show_working ?? 'everyone';
+    const row = withoutHidden(myPresence({ ...facts, now: now(), showWorking, showActivity: state.me?.show_activity !== false }), state.me);
     const key = JSON.stringify(row);
     if (!force && key === lastSent && now() - lastSentAt < HEARTBEAT_MS) return false;
     await b.putPresence(device(), { ...row, gone: false });
@@ -290,7 +302,8 @@ export function createRooms({
     // The cloud keeps an address of up to 500 characters, not a picture's bytes.
     const face = me()?.avatarUrl ?? null;
     const avatar = typeof face === 'string' && /^https?:\/\//.test(face) && face.length <= 500 ? face : null;
-    return b.saveRoomProfile({ display_name: displayNameOf(me()?.name ?? '') || 'Someone', avatar_url: avatar });
+    // Said here as well as in the cloud's default, for a cloud from before it changed.
+    return b.saveRoomProfile({ display_name: displayNameOf(me()?.name ?? '') || 'Someone', avatar_url: avatar, show_working: 'everyone' });
   }
 
   // Tried on every pass until it works: a cloud without the rooms tables yet,
@@ -333,10 +346,10 @@ export function createRooms({
     started = null;
     setUp = false;
     lastSent = null;
-    people = new Map(); profiles = new Map(); presence = []; messages = new Map(); reads = new Map(); mentioned = [];
+    people = new Map(); names = new Map(); profiles = new Map(); presence = []; messages = new Map(); reads = new Map(); mentioned = [];
     reactions = new Map(); files = new Map();
     state = { ...EMPTY, on: !!enabled() };
-    if (b) await b.putPresence(device(), { gone: true, agents_running: 0, working_on: null, working_private: false }).catch(() => {});
+    if (b) await b.putPresence(device(), { gone: true, agents_running: 0, working_on: null, working_private: false, activity: [] }).catch(() => {});
     onChange();
   }
 

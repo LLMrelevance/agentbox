@@ -1,0 +1,129 @@
+// A ROOM NAMES EVERYONE IN IT AND SHOWS WORK TO ROOM-MATES (w-3d0fa23ffb, 2026-10-22).
+//
+// An hour with a second person (a test account outside the founder's team) in
+// the founder's room found three gaps in what the cloud lets a room-mate read:
+// - she went invisible and every message she had ever sent read "Someone" on
+//   the founder's side, because her name lived only on the card invisibility
+//   hides;
+// - the room said five people and its wall showed two: three teammates had not
+//   turned Rooms on, had no card, and so had no name anywhere in the room;
+// - the founder asked to see what she was working on and could not, because
+//   the default kept thread names to one's own team and she was on none.
+// Run on PGlite with every migration, as the other rooms cloud tests are.
+import { it, expect, beforeAll, describe } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { PGlite } from '@electric-sql/pglite';
+
+const dir = path.join(import.meta.dirname, '..', 'cloud/supabase/migrations');
+const files = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+const migration = files.map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
+const thisOne = fs.readFileSync(path.join(dir, '20261022000100_rooms_show_everyone.sql'), 'utf8');
+
+const STAND_IN = `
+create schema auth;
+create table auth.users (id uuid primary key, email text, email_confirmed_at timestamptz, raw_user_meta_data jsonb default '{}'::jsonb);
+create function auth.uid() returns uuid language sql stable as $$
+  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+$$;
+create role authenticated;
+create role anon;
+create role service_role;
+create publication supabase_realtime;
+`;
+const GRANTS = `
+grant usage on schema auth to authenticated;
+grant execute on function auth.uid() to authenticated;
+grant usage on schema public to anon;
+grant usage on schema auth to anon;
+grant execute on function auth.uid() to anon;
+`;
+
+const SAV = '11111111-1111-1111-1111-111111111111';
+const TEO = '22222222-2222-2222-2222-222222222222';
+const MAYA = '33333333-3333-3333-3333-333333333333';
+const JUN = '44444444-4444-4444-4444-444444444444';
+const DEVICE = 'a1b2c3d4e5f6';
+
+let db;
+let room;
+
+async function as(person, sql, params = [], role = 'authenticated') {
+  await db.exec(`reset role; select set_config('request.jwt.claim.sub', '${person ?? ''}', false); set role ${role};`);
+  try { return await db.query(sql, params); } finally { await db.exec('reset role;'); }
+}
+const rows = async (person, sql, params) => (await as(person, sql, params)).rows;
+const refused = async (person, sql, params, role) => { try { await as(person, sql, params, role); return false; } catch { return true; } };
+const names = async (person) => (await rows(person, `select person_id, name, has_card from public.room_names($1) order by name`, [room]));
+
+beforeAll(async () => {
+  db = new PGlite();
+  await db.exec(STAND_IN);
+  await db.exec(migration);
+  await db.exec(GRANTS);
+  for (const [id, email, name] of [[SAV, 'sav@astral.test', 'Sav Fox'], [TEO, 'teo@astral.test', 'Teo Park'], [MAYA, 'maya@tester.test', 'Maya Chen'], [JUN, 'jun@elsewhere.test', 'Jun Ito']]) {
+    await db.query(`insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data) values ($1, $2, now(), $3)`, [id, email, { full_name: name }]);
+  }
+  const [team] = await rows(SAV, `insert into public.teams (name, created_by) values ('Astral', $1) returning id`, [SAV]);
+  await as(SAV, `insert into public.team_members (team_id, person_id, role) values ($1, $2, 'owner')`, [team.id, SAV]);
+  await as(SAV, `insert into public.team_invites (team_id, email, invited_by) values ($1, 'teo@astral.test', $2)`, [team.id, SAV]);
+  await as(TEO, `select public.accept_invite($1)`, [team.id]);
+  ({ id: room } = (await rows(SAV, `select id from public.rooms where team_id = $1`, [team.id]))[0]);
+  await as(SAV, `insert into public.room_profiles (person_id, display_name) values ($1, 'Sav F.')`, [SAV]);
+  await as(MAYA, `insert into public.room_profiles (person_id, display_name) values ($1, 'Maya C.')`, [MAYA]);
+  await as(SAV, `insert into public.room_email_invites (room_id, email, invited_by) values ($1, 'maya@tester.test', $2)`, [room, SAV]);
+  await as(MAYA, `select public.accept_room_invite($1)`, [room]);
+}, 60_000);
+
+describe('everyone in a room is named', () => {
+  it('a member who is invisible keeps her name for her room-mates', async () => {
+    await as(MAYA, `update public.room_profiles set invisible_until = now() + interval '1 hour' where person_id = $1`, [MAYA]);
+    expect(await rows(SAV, `select display_name from public.room_profiles where person_id = $1`, [MAYA])).toEqual([]);
+    expect(await names(SAV)).toContainEqual({ person_id: MAYA, name: 'Maya C.', has_card: true });
+    await as(MAYA, `update public.room_profiles set invisible_until = null where person_id = $1`, [MAYA]);
+  });
+
+  it('a member with no card yet is named from their account, and says so', async () => {
+    expect(await names(SAV)).toContainEqual({ person_id: TEO, name: 'Teo Park', has_card: false });
+    expect(await names(MAYA)).toContainEqual({ person_id: TEO, name: 'Teo Park', has_card: false });
+  });
+
+  it('names nobody to someone outside the room, or signed out', async () => {
+    expect(await names(JUN)).toEqual([]);
+    expect(await refused(null, `select * from public.room_names($1)`, [room], 'anon')).toBe(true);
+  });
+
+  it('carries a name and a face, and nothing about their work', async () => {
+    const cols = Object.keys((await rows(SAV, `select * from public.room_names($1) limit 1`, [room]))[0]);
+    expect(cols.sort()).toEqual(['avatar_url', 'has_card', 'name', 'person_id']);
+  });
+});
+
+describe('work reaches everyone in your rooms', () => {
+  it('a new card shows what you work on to everyone, unless you say otherwise', async () => {
+    await as(JUN, `insert into public.room_profiles (person_id, display_name) values ($1, 'Jun I.')`, [JUN]);
+    expect((await rows(JUN, `select show_working from public.room_profiles where person_id = $1`, [JUN]))[0].show_working).toBe('everyone');
+  });
+
+  it('a card left on the old default moves when this runs, and running it again changes nothing else', async () => {
+    await as(SAV, `update public.room_profiles set show_working = 'team' where person_id = $1`, [SAV]);
+    await as(MAYA, `update public.room_profiles set show_working = 'none' where person_id = $1`, [MAYA]);
+    await db.exec(thisOne);
+    const of = async (p) => (await rows(p, `select show_working from public.room_profiles where person_id = $1`, [p]))[0].show_working;
+    expect(await of(SAV)).toBe('everyone');
+    expect(await of(MAYA)).toBe('none');
+  });
+
+  it('a Mac writes its activity on its own presence row, and a room-mate reads it', async () => {
+    const activity = [{ title: 'Ship the room wall', project: 'Agentbox', state: 'running', at: 1 }];
+    await as(MAYA, `insert into public.room_presence (person_id, device) values ($1, $2)`, [MAYA, DEVICE]);
+    await as(MAYA, `update public.room_presence set activity = $3 where person_id = $1 and device = $2`, [MAYA, DEVICE, JSON.stringify(activity)]);
+    expect((await rows(SAV, `select activity from public.room_presence where person_id = $1`, [MAYA]))[0].activity).toEqual(activity);
+  });
+
+  it('refuses an activity list longer than the wall can use', async () => {
+    const long = JSON.stringify(Array.from({ length: 37 }, (_, i) => ({ title: `t${i}`, state: 'done', at: i })));
+    expect(await refused(MAYA, `update public.room_presence set activity = $3 where person_id = $1 and device = $2`, [MAYA, DEVICE, long])).toBe(true);
+    expect(await refused(MAYA, `update public.room_presence set activity = '{}'::jsonb where person_id = $1 and device = $2`, [MAYA, DEVICE])).toBe(true);
+  });
+});

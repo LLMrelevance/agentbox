@@ -9,7 +9,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { Room, RoomCard, RoomMessage } from '../../types';
+import type { Room, RoomMessage } from '../../types';
 import { chatLayout } from '../chat-layout';
 import { MessageActions, Reactions } from '../ChatActions';
 import { DeleteMessage, MessageEditor } from '../MessageMore';
@@ -28,10 +28,6 @@ import { cardName, clockOf, mentionsIn } from './room-rules';
 import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, storedName, wordsLeftAfterSend } from './room-chat-rules';
 
 export type ChatPerson = { id: string; name: string; avatarUrl: string | null; me: boolean };
-
-export function peopleOf(wall: readonly RoomCard[]): ChatPerson[] {
-  return wall.map((c) => ({ id: c.id, name: c.name, avatarUrl: c.avatarUrl, me: c.me }));
-}
 
 /** What a room's chat asks of the rooms around it. Each answers null, or why it did not happen. */
 export type RoomChatCalls = {

@@ -6,11 +6,11 @@ import { api } from '../../api';
 import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
 import { RoomsNav, useOutside, type RoomMenuAction } from './RoomsNav';
 import { RoomTabs } from './RoomTabs';
-import { boardPeople, boardPicked, cardName, readBoardPicks, readRoomView, roomTabs, tabWalk, withMe, writeBoardPicks, writeRoomView, type RoomView } from './room-rules';
+import { boardPeople, boardPicked, cardName, chatPeople, readBoardPicks, readRoomView, roomTabs, tabWalk, withMe, writeBoardPicks, writeRoomView, type RoomView } from './room-rules';
 import { RoomViewButton } from './RoomView';
 import { landed, sameMessages } from './room-chat-rules';
 import { RoomPage, type RoomPane } from './RoomPage';
-import { RoomChat, peopleOf } from './RoomChat';
+import { RoomChat } from './RoomChat';
 import { RoomFace } from './RoomFace';
 import { I } from './icons';
 import { FullChatHead, MessagesPage, sortConversations, type Conversation, type ConversationAction } from './MessagesPage';
@@ -273,7 +273,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       faces={r.kind === 'group' ? others.map((c) => ({ name: c.name, url: c.avatarUrl })) : undefined}
       actions={r.kind === 'group' ? undefined
         : <button type="button" className="rm-btn" onClick={() => setDialog({ kind: 'invite', roomId: r.id })}>{I.invite(14)}Invite</button>} /> : undefined;
-    return <RoomChat room={r} messages={rooms?.messages[r.id] ?? []} people={withMe(peopleOf(r.wall), meInChat)} meId={meId} now={now} full={asFull} head={head}
+    return <RoomChat room={r} messages={rooms?.messages[r.id] ?? []} people={withMe(chatPeople(r, meId), meInChat)} meId={meId} now={now} full={asFull} head={head}
       onSend={send(r.id)} onRead={read(r)} {...chatCalls(r)}
       onInvite={() => setDialog({ kind: 'invite', roomId: r.id })}
       onExpand={asFull ? undefined : () => { setOpenId(r.id === open?.id ? open.id : r.id); setFull(true); setPanelId(null); }}

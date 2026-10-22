@@ -1,6 +1,6 @@
 // The rules the room screens draw by (w-3d0fa23ffb), kept apart from the
 // drawing so they can be tested. tests/a-room-reads-the-way-it-was-approved.
-import type { Room, RoomCard } from '../../types';
+import type { Room, RoomCard, ThreadCard } from '../../types';
 
 /** Pinned rooms in the sidebar's order, then the room open now if it is not pinned. */
 export function roomTabs(rooms: readonly Room[], openId: string | null): { room: Room; visiting: boolean }[] {
@@ -18,8 +18,39 @@ export function tabWalk(stateTabs: readonly string[], tabs: readonly { room: Roo
   return order[(i + (back ? order.length - 1 : 1)) % order.length];
 }
 
-/** Their page's Activity tab: my own, or a teammate's who shares it. */
-export const activityShown = (c: { me: boolean; teammate: boolean; showActivity: boolean }) => c.me || (c.teammate && c.showActivity);
+type Shares = { me: boolean; teammate: boolean; showActivity: boolean; activity?: unknown[] | null };
+/** Whose threads reach me as the team's thread cards: my own, or a teammate's who shares them. */
+const onTheTeamBoard = (c: Shares) => c.me || (c.teammate && c.showActivity);
+/** Their page's Activity tab: off the team's cards, or off their presence for someone outside my team who shows it to their rooms. */
+export const activityShown = (c: Shares) => onTheTeamBoard(c) || (!c.teammate && Array.isArray(c.activity));
+
+/**
+ * The months a person's hours chart draws: from the month before their first
+ * hours, so the line rises from nothing, with that month left unnamed, since
+ * the chart is "since" the first month with hours.
+ */
+export function chartMonths(byMonth: readonly { month: string; hours: number }[]): { months: { month: string; hours: number }[]; named: boolean[] } {
+  const from = byMonth.findIndex((m) => m.hours > 0);
+  const months = from < 0 ? byMonth.slice(-2) : byMonth.slice(Math.max(0, from - 1));
+  const leadIn = from > 0;
+  return { months, named: months.map((_, i) => !(leadIn && i === 0)) };
+}
+
+/** Their Activity tab's threads: the team's cards for a teammate and for me; for someone outside my team, the lines on their presence. */
+export function activityCards(card: RoomCard, cards: readonly ThreadCard[]): ThreadCard[] {
+  const team = cards.filter((c) => c.personId === card.id);
+  if (card.teammate || team.length || !card.activity) return team;
+  return card.activity.map((a, i) => ({
+    personId: card.id, threadId: `${card.id}:${i}`, visible: true, title: a.title, project: a.project, state: a.state, priority: null,
+    problem: null, progress: null, solution: null, blockedBy: [], blocks: [], people: null, updatedAt: a.at,
+  }));
+}
+
+/** The chat's people: everyone in the room by name where the cloud can say, else the wall. */
+export function chatPeople(room: Pick<Room, 'people' | 'wall'>, meId: string | null): { id: string; name: string; avatarUrl: string | null; me: boolean }[] {
+  if (!room.people) return room.wall.map((c) => ({ id: c.id, name: c.name, avatarUrl: c.avatarUrl, me: c.me }));
+  return room.people.map((p) => ({ ...p, me: p.id === meId }));
+}
 
 /** A room drawn as its grid of people, or as a board of their threads. */
 export type RoomView = 'grid' | 'board';
@@ -35,8 +66,8 @@ export function writeRoomView(view: RoomView, store: Store = local()) {
   try { store?.setItem(VIEW_KEY, view); } catch { /* not kept */ }
 }
 
-/** Who can be on a room's board: whoever's Activity tab I may open. */
-export const boardPeople = <T extends { me: boolean; teammate: boolean; showActivity: boolean }>(wall: readonly T[]) => wall.filter(activityShown);
+/** Who can be on a room's board: whoever's thread cards reach me. */
+export const boardPeople = <T extends Shares>(wall: readonly T[]) => wall.filter(onTheTeamBoard);
 
 /** The people picked for a room's board, kept to those still on it. Nobody left means everyone. */
 export function boardPicked(saved: readonly string[] | null | undefined, people: readonly { id: string }[]): string[] {
