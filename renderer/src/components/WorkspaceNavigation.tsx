@@ -44,8 +44,8 @@ import type { Invisible } from '../team/rooms/GoInvisible';
 export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearch: _onSearch, onCompose: _onCompose, inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, onAccount, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove, rooms = null, invisible = null, roomOpen = false }: {
   /** A room is open, which lights its row rather than Threads. */
   roomOpen?: boolean;
-  // ROOMS (alpha): the section under Threads (team/rooms/RoomsNav.tsx), and
-  // going invisible from your account menu.
+  // ROOMS (alpha): the Messages and Rooms rows under Threads (team/rooms/useRooms.tsx),
+  // and going invisible from your account menu.
   rooms?: ReactNode; invisible?: Invisible | null;
   // A NEW VERSION WAITING (SidebarUpdate.tsx). Null when there is none.
   // `version` is what its × closes, until a newer one arrives.

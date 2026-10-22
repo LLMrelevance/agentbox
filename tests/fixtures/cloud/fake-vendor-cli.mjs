@@ -10,6 +10,8 @@
 //   codex login --device-auth prints the link and a one-time code, then
 //                             writes CODEX_HOME/auth.json as if the person
 //                             finished on OpenAI's page
+//   codex login               serves its own way back on 127.0.0.1 and prints
+//                             the link; the code "good-code" signs in
 //   codex exec ...            renews the login when it is over 8 days old
 //   anything else             prints what a run would let slip: its token
 //                             and its auth file, for the redaction tests
@@ -94,6 +96,55 @@ if (name === 'claude' && args[0] === 'setup-token') {
     process.stdout.write('Successfully logged in\n');
     process.exit(0);
   }, 150);
+} else if (name === 'codex' && args[0] === 'login') {
+  // As 0.163.0 does it with no browser to open (measured 2026-10-21): its
+  // server on 127.0.0.1, the link printed, "State mismatch" (400) for another
+  // sign-in's return, an error page and exit 1 for a code OpenAI refuses, and
+  // for a good one auth.json, a 302 to /success with the id token in the
+  // link, and exit 0 once /success is fetched. The real port is always 1455;
+  // this one takes any free port, so tests can run side by side.
+  const http = await import('node:http');
+  const state = `st-${Math.random().toString(36).slice(2)}`;
+  const idToken = jwt(9_999_999_999);
+  let port;
+  const server = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://127.0.0.1');
+    if (u.pathname === '/auth/callback') {
+      if (u.searchParams.get('state') !== state) { res.writeHead(400, { 'content-type': 'text/plain' }); res.end('State mismatch'); return; }
+      if (u.searchParams.get('code') !== 'good-code') {
+        res.writeHead(200, { 'content-type': 'text/html' });
+        res.end('<title>Codex Sign-in Error</title>');
+        process.stderr.write('Error logging in: Token exchange failed: token endpoint returned status 401 Unauthorized\n');
+        setTimeout(() => process.exit(1), 20);
+        return;
+      }
+      fs.writeFileSync(path.join(process.env.CODEX_HOME, 'auth.json'), JSON.stringify({
+        OPENAI_API_KEY: null,
+        tokens: { id_token: idToken, access_token: jwt(Math.floor(Date.now() / 1000) + 240 * 3600), refresh_token: 'rt-real-refresh-token-0001', account_id: 'acct-1' },
+        last_refresh: new Date().toISOString(),
+      }));
+      res.writeHead(302, { location: `http://127.0.0.1:${port}/success?id_token=${idToken}&needs_setup=false` });
+      res.end();
+      return;
+    }
+    if (u.pathname === '/success') {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<title>Signed in to Codex</title>');
+      process.stdout.write('Successfully logged in\n');
+      setTimeout(() => process.exit(0), 20);
+      return;
+    }
+    res.writeHead(404, { 'content-type': 'text/plain' });
+    res.end('Not Found');
+  });
+  server.listen(0, '127.0.0.1', () => {
+    port = server.address().port;
+    const back = encodeURIComponent(`http://127.0.0.1:${port}/auth/callback`);
+    process.stdout.write(`Starting local login server on http://localhost:${port}.\nIf your browser did not open, navigate to this URL to authenticate:\n\n`);
+    process.stdout.write(`https://auth.openai.com/oauth/authorize?response_type=code&client_id=app_x&redirect_uri=${back}&code_challenge=cc&code_challenge_method=S256&state=${state}&originator=codex_cli_rs\n\n`);
+    process.stdout.write('On a remote or headless machine? Use `codex login --device-auth` instead.\n');
+    if (mode === 'codex-abandoned') setTimeout(() => process.exit(1), 150);
+  });
 } else if (name === 'codex' && args[0] === 'exec') {
   const file = path.join(process.env.CODEX_HOME, 'auth.json');
   const auth = JSON.parse(fs.readFileSync(file, 'utf8'));

@@ -22,27 +22,28 @@
 .rm-one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rm-pop { background: var(--pop); border: 1px solid var(--line-strong); box-shadow: var(--shadow-lg); }
 
-/* the sidebar */
-.workspace-navigation button.workspace-section.rm-sec { display: flex; align-items: center; gap: 6px; height: 49px; padding: 24px 10px 10px; font-size: 11px; color: var(--text-faint); cursor: default; }
-.workspace-navigation button.workspace-section.rm-sec:hover { background: none; color: var(--text-dim); }
-.workspace-section.rm-sec svg { width: 12px; height: 12px; color: var(--text-faint); }
-.rm-nav .workspace-tab .rm-c { margin-left: auto; font: 11px var(--mono); color: var(--text-faint); display: inline-flex; align-items: center; gap: 2px; }
-.rm-nav .workspace-tab .rm-icons { display: none; }
-.rm-nav .workspace-tab:hover .rm-icons, .rm-nav .workspace-tab.menu-open .rm-icons { display: inline-flex; }
-.rm-nav .workspace-tab:hover .rm-count, .rm-nav .workspace-tab.menu-open .rm-count { display: none; }
-.rm-nav .rm-icons > span { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; color: var(--text-dim); }
-.rm-nav .rm-icons > span:hover, .rm-nav .rm-icons > span.on { background: var(--wash-strong); color: var(--text); }
-.rm-nav .rm-icons > span.pinned { color: var(--text); }
-.rm-nav .workspace-tab.rm-add, .rm-nav .workspace-tab.rm-add svg { color: var(--text-faint); }
-.rm-nav .workspace-tab .rm-muted { color: var(--text-faint); }
-
-/* Messages sits under Threads, one gap below it. */
+/* Messages and Rooms sit under Threads, one gap below it. */
 .workspace-tabs.rm-msgnav { margin-top: 3px; }
 
-/* the tabs */
 .rm-sep { width: 1px; height: 14px; background: var(--line-strong); flex: none; align-self: center; }
-.tm-tab.rm-tab { display: inline-flex; align-items: center; gap: 6px; }
-.tm-tab.rm-tab svg { width: 13px; height: 13px; }
+
+/* the Rooms page, in the threads table's rows and type */
+.rm-rooms { flex: 1; min-height: 0; overflow-y: auto; }
+.th-grid.rm-rgrid { grid-template-columns: 200px 150px 170px minmax(0, 1fr) 96px; }
+.rm-rnm { display: flex; align-items: center; gap: 9px; }
+.rm-rnm svg { color: var(--text-faint); flex: none; }
+.rm-rnm.muted { color: var(--text-dim); }
+.rm-rpp { display: flex; align-items: center; gap: 10px; }
+.rm-rpp .fs { display: flex; }
+.rm-rpp .fs .rm-pic + .rm-pic { margin-left: -3px; outline: 2px solid var(--skin-solid, var(--surface)); }
+.rm-rpp .n { font: 11.5px var(--mono); color: var(--text-dim); }
+.th-cell-title.rm-rlast { color: var(--text-dim); }
+.rm-rdots { padding: 0 6px; }
+.rm-rdots svg { width: 15px; height: 15px; }
+.th-table .row.menu .rm-rdots { opacity: 1; pointer-events: auto; }
+.th-table .row.menu .th-when { visibility: hidden; }
+.rm-rfind { color: var(--text-faint); font-size: 14px; }
+.rm-rfind:hover { color: var(--text); }
 
 /* the page */
 .list-pane.rm-open { display: flex; flex-direction: column; overflow: hidden; }
@@ -122,6 +123,10 @@
 /* What a direct chat's message wears, worn by a room's too. */
 .rm-cm { position: relative; }
 .rm-cm:hover > .chat-acts { opacity: 1; pointer-events: auto; }
+/* The body is `user-select: none`, so the name, time and words opt back in. The
+   face does not, or its initials would ride along in every copy. */
+.rm-cm .h, .rm-cm .tx { user-select: text; -webkit-user-select: text; }
+.rm-cm .rm-pic { user-select: none; -webkit-user-select: none; }
 .rm-cm .tx p { margin: 0; white-space: pre-line; }
 .rm-cm .tx p + p { margin-top: 8px; }
 .rm-cm .tx a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
@@ -161,7 +166,6 @@
 .rm-menu .head { padding: 8px 9px 6px; }
 .rm-menu.members .row { height: 36px; }
 .rm-menu.members { max-height: 420px; overflow-y: auto; }
-.rm-tip { position: fixed; z-index: 70; white-space: nowrap; font-size: 12px; line-height: 16px; color: var(--text); padding: 5px 8px; pointer-events: none; }
 
 /* hover card */
 .rm-hc { position: fixed; z-index: 50; width: 300px; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
@@ -210,25 +214,41 @@
 .rm-ptabs { display: flex; align-items: flex-end; margin: 0 -20px 0 calc(-1 * var(--text-x, 32px)); padding: 26px 20px 0 var(--text-x, 32px); border-bottom: 1px solid var(--rm-line); }
 .rm-ptabs .tm-tabs { margin-bottom: -1px; }
 .rm-pgrid { display: grid; grid-template-columns: minmax(0, 1fr) 240px; column-gap: 56px; padding: 28px 0 0; }
-.rm-chartbox { position: relative; }
-.rm-chartbox svg { display: block; width: 100%; height: 380px; overflow: visible; margin-top: 16px; }
+.rm-chartbox { position: relative; min-width: 0; }
+.rm-chartbox svg { display: block; overflow: visible; }
 .rm-chartbox .grid { stroke: var(--rm-line); }
 .rm-chartbox text { fill: var(--text-faint); font-family: var(--mono); font-size: 10.5px; }
 .rm-chartbox .ln { stroke: var(--text-dim); }
 .rm-chartbox .ar { fill: var(--wash); }
 .rm-chartbox .pt { fill: var(--text); stroke: var(--bg); }
-.rm-chartbox .tip { position: absolute; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--text); white-space: nowrap; }
+.rm-chartbox .guide { stroke: var(--line-strong); stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.rm-chartbox .tip { position: absolute; pointer-events: none; white-space: nowrap; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--text); transform: translate(14px, -50%); }
+.rm-chartbox .tip.left { transform: translate(calc(-100% - 14px), -50%); }
 .rm-chartbox .tip span { font: 10.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); }
 .rm-pcol .blk { padding: 0 0 22px; margin-bottom: 22px; border-bottom: 1px solid var(--rm-line); display: flex; flex-direction: column; gap: 11px; }
 .rm-pcol .blk:last-child { border-bottom: 0; }
 .rm-pcol .line { font-size: 13.5px; color: var(--text); display: flex; gap: 9px; align-items: center; }
 .rm-pcol .line svg { color: var(--text-faint); }
-.rm-groups { padding: 22px 0 0; display: flex; flex-direction: column; }
-.rm-gh { padding: 14px 0 8px; }
-.rm-trow { display: grid; grid-template-columns: minmax(0, 1fr) 160px 170px; column-gap: 20px; align-items: center; height: 44px; border-bottom: 1px solid var(--rm-line); font-size: 14px; color: var(--text); }
-.rm-trow .p { font: 11px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--text-faint); }
-.rm-trow .w { font-size: 13px; color: var(--text-faint); text-align: right; display: flex; justify-content: flex-end; }
-.rm-trow.done { color: var(--text-dim); }
+.rm-prof button.line { background: none; border: 0; padding: 0; font: inherit; font-size: 13.5px; color: var(--text); text-align: left; cursor: default; display: flex; gap: 9px; align-items: center; }
+.rm-prof button.line svg { color: var(--text-faint); }
+.rm-prof button.line:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--text-faint); }
+.rm-ptotal { display: flex; flex-direction: column; gap: 9px; margin-bottom: 22px; }
+.rm-ptotal b { font: 300 30px/32px var(--mono); color: var(--text); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.rm-pact { padding: 28px 0 0; display: flex; flex-direction: column; gap: 14px; }
+.rm-pboard { overflow-x: auto; margin-right: -20px; }
+.rm-pboard .th-board { padding: 0 20px 0 0; }
+
+/* the bio */
+.rm-bio { font-size: 13.5px; line-height: 20px; color: var(--text-dim); max-width: 620px; }
+.rm-bio-edit, .rm-bio-add { background: none; border: 0; padding: 0; font: inherit; font-size: 13px; color: var(--text-faint); cursor: default; text-align: left; }
+.rm-bio-edit { margin-left: 10px; opacity: 0; }
+.rm-bio:hover .rm-bio-edit, .rm-bio-edit:focus-visible { opacity: 1; }
+.rm-bio-edit:hover, .rm-bio-add:hover { color: var(--text-dim); text-decoration: underline; text-underline-offset: 3px; }
+.rm-ph .who:has(.rm-bio-form) { flex: 1; }
+.rm-bio-form { position: relative; width: min(620px, 100%); margin-left: -11px; }
+.rm-bio-form textarea { display: block; box-sizing: border-box; width: 100%; field-sizing: content; min-height: 32px; resize: none; border: 1px solid var(--line-strong); background: var(--control-face); padding: 5px 10px; font: inherit; font-size: 13.5px; line-height: 20px; color: var(--text); outline: none; }
+.rm-bio-form textarea::placeholder { color: var(--text-faint); }
+.rm-bio-form .k { position: absolute; left: calc(100% + 12px); bottom: 8px; white-space: nowrap; font: 10.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); }
 
 /* dialogs, inside the app's own .modal */
 .modal.rm-dlg { width: 540px; }
@@ -310,7 +330,8 @@
 
 /* a mention in Needs you */
 .rm-mention { cursor: default; }
-.rm-mention .th-msg .rm-pic { display: inline-block; vertical-align: -4px; margin-right: 8px; }
+/* The threads below sit in their own group box, where `.row + .row` cannot see the mention above them. */
+.th-table .rm-mention + div > .row:first-child::after { content: ''; position: absolute; left: var(--gutter); right: var(--row-r); top: 0; height: 1px; background: var(--line); opacity: var(--row-line); }
 .rm-where { display: inline-flex; align-items: center; gap: 5px; }
 
 /* the messages page */

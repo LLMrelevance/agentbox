@@ -159,6 +159,8 @@
    rather than faint: it is the one cell on the row that changes by itself. */
 .th-cell-state { font: 11.5px/20px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; min-width: 0; }
 .th-cell-state .th-st, .th-cell-state .th-st-cloud { margin-right: 8px; top: 0; }
+/* 14px wide against the dot's 12, so the word starts where a dot's does. */
+.th-cell-state .th-st-cloud { margin-right: 6px; }
 /* UNREAD (w-22da913d00): a dot in the gutter and a heavier title. The dot sits
    1px under the row's middle, which centres it on the title's lowercase. */
 .th-table .row.unread::before { content: ''; position: absolute; left: 13px; top: 50%; width: 6px; height: 6px; background: var(--accent); }

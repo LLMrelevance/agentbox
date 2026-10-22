@@ -80,7 +80,8 @@ export function disposeTerminalProcess(pty){
  * last time the app was actually asked what this shell had to say.
  *
  * Idle AND unwatched for an hour is a shell that costs something and is
- * worth nothing, and it goes. Everything else stays until she or the app quits.
+ * worth nothing, and it goes. Everything else stays until its task is closed:
+ * task terminals run in ./terminal-host.mjs, which outlives the app.
  *
  * IT WAS TEN MINUTES, AND THAT WAS TOO SHORT (w-6841800f17): "I come back after
  * maybe 15 minutes and it's gone ... I don't see the error message." A deploy
@@ -119,10 +120,21 @@ function keptScreen(buffer){
 const READ_WAIT_MS=1000;
 const SWEEP_MS=60000;
 const MAX_TERMINALS=20;
+/*
+ * A TERMINAL LIVES AS LONG AS ITS TASK IS OPEN. Closing the task ends it; so,
+ * while memory is critical, does going unwatched. Each says why on the next
+ * terminal, in these words.
+ */
+export const ENDED={
+  closed:'This task was closed, so its terminal was ended.',
+  memory:'This terminal was ended because this computer was running out of memory.',
+};
+// While memory is critical, a terminal looked at this recently is still in use.
+const WATCHED_MS=600000;
 export class TaskTerminals {
-  constructor({spawn,resolve,disposeProcess=disposeTerminalProcess,env=terminalEnv(),shell=loginShell(),idleMs=IDLE_MS,sweepMs=SWEEP_MS,now=()=>Date.now()}={}){
+  constructor({spawn,resolve,disposeProcess=disposeTerminalProcess,env=terminalEnv(),shell=loginShell(),idleMs=IDLE_MS,sweepMs=SWEEP_MS,now=()=>Date.now(),readPressure=null,watchedMs=WATCHED_MS}={}){
     this.spawn=spawn??((...args)=>require('node-pty').spawn(...args));this.resolve=resolve;this.disposeProcess=disposeProcess;this.env=env;this.shell=shell;this.sessions=new Map();
-    this.idleMs=idleMs;this.now=now;
+    this.idleMs=idleMs;this.now=now;this.readPressure=readPressure;this.watchedMs=watchedMs;
     // Keys whose shell this class ended on its own, and WHY. The next open on
     // one says so rather than handing her a blank screen where her scrollback
     // was, and the two reasons are different sentences because they are
@@ -132,7 +144,7 @@ export class TaskTerminals {
     // `unref` so a sweep that is merely pending never holds the app open, and
     // never in a test: a suite that leaves an interval behind hangs the runner.
     if(sweepMs>0&&typeof setInterval==='function'){
-      this.timer=setInterval(()=>{try{this.sweepIdle();}catch{}},sweepMs);
+      this.timer=setInterval(()=>{try{this.sweepIdle();}catch{}this.relieveMemory().catch(()=>{});},sweepMs);
       this.timer?.unref?.();
     }
   }
@@ -181,7 +193,33 @@ export class TaskTerminals {
       this.retire(key,'The previous shell here was closed after an hour idle.');
     }
   }
-  open(key){
+  end(key,why){if(this.sessions.has(key))this.retire(key,why);}
+  list(){
+    return [...this.sessions].map(([key,s])=>({key,busy:this.busy(s),exited:s.exited,unread:this.unread(s),lastReadAt:s.lastReadAt??0,cwd:s.cwd,pid:s.pty.pid}));
+  }
+  /*
+   * TOO MUCH FOR THIS COMPUTER. Only while memory is critical, checked once a
+     minute: every shell at its prompt that nobody has looked at for ten
+     minutes, and one terminal running something, the one looked at least
+     recently. Never one looked at inside those ten minutes. */
+  async relieveMemory(){
+    if(!this.readPressure||!this.sessions.size)return [];
+    let pressure='normal';
+    try{pressure=await this.readPressure();}catch{}
+    if(pressure!=='critical')return [];
+    const cutoff=this.now()-this.watchedMs,idle=[];let busy=null,at=Infinity;
+    for(const [key,s] of this.sessions){
+      if(s.exited||(s.lastReadAt??0)>cutoff)continue;
+      if(!this.busy(s)){idle.push(key);continue;}
+      if((s.lastReadAt??0)<at){busy=key;at=s.lastReadAt??0;}
+    }
+    const ended=busy?[...idle,busy]:idle;
+    for(const key of ended)this.retire(key,ENDED.memory);
+    return ended;
+  }
+  // `given` is where to open it when the caller has already worked that out:
+  // the terminal host (./terminal-host.mjs) cannot read the store.
+  open(key,given){
     if(this.sessions.has(key))return this.read(key,0);
     if(this.sessions.size>=MAX_TERMINALS){
       /*
@@ -195,10 +233,10 @@ export class TaskTerminals {
       if(victim===null)throw Error('20 terminals are open and every one of them is running something. Stop one of those commands before opening another terminal.');
       this.retire(victim,'This shell was closed to make room for a newer terminal.');
     }
-    const place=this.resolve(key);
+    const place=given??this.resolve(key);
     const cwd=typeof place==='string'?place:place.cwd;
     const command=place?.command;
-    const pty=this.spawn(command?.file??this.shell,command?.args??['-l'],{cwd,env:{...this.env,...command?.env},cols:80,rows:24,name:'xterm-256color'});
+    const pty=this.spawn(command?.file??place?.shell??this.shell,command?.args??['-l'],{cwd,env:{...(place?.env??this.env),...command?.env},cols:80,rows:24,name:'xterm-256color'});
     let resolveExit;const exitPromise=new Promise(resolve=>{resolveExit=resolve;});
     const session={token:randomUUID(),pty,cwd,buffer:'',offset:0,exitCode:null,exited:false,exitPromise,lastReadAt:this.now(),waiters:new Set()};this.sessions.set(key,session);
     /*

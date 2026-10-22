@@ -6,7 +6,7 @@ import { LiveMark } from '../../components/LiveMark';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
 import { cardName, sentWords } from './room-rules';
-import { useOutside } from './RoomsNav';
+import { useOutside } from './RoomsPage';
 import { joinLink } from '../../../../shared/room-links.mjs';
 import { Name } from '../../../../shared/product-name.mjs';
 
