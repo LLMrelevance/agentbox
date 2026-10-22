@@ -307,7 +307,17 @@ export function supabaseBackend(client) {
       const rows = must(await client.from('phone_threads').select('owner,device,project,item,snapshot,updated_at').order('updated_at', { ascending: false }).limit(1000), 'reading the threads on your phone');
       return (rows ?? []).filter((r) => r.owner === me).map((r) => ({ owner: r.owner, device: r.device, project: r.project, item: r.item, snapshot: r.snapshot, updatedAt: Date.parse(r.updated_at) }));
     },
-    async addPhoneCommand({ device, project, item = null, kind, payload = {} }) {
+    // One row per computer (20261023000000_phone_settings.sql).
+    async putPhoneSettings({ owner, device, name, settings }) {
+      await myId();
+      must(await client.from('phone_settings').upsert({ ...(owner ? { owner } : {}), device, name, settings, updated_at: new Date().toISOString() }, { onConflict: 'owner,device' }), 'sending your settings to your phone');
+    },
+    async phoneSettings() {
+      const me = await myId();
+      const rows = must(await client.from('phone_settings').select('owner,device,name,settings,updated_at').order('updated_at', { ascending: false }), 'reading your computer\'s settings');
+      return (rows ?? []).filter((r) => r.owner === me).map((r) => ({ owner: r.owner, device: r.device, name: r.name, settings: r.settings, updatedAt: Date.parse(r.updated_at) }));
+    },
+    async addPhoneCommand({ device, project = null, item = null, kind, payload = {} }) {
       await myId();
       const row = must(await client.from('phone_commands').insert({ device, project, item, kind, payload }).select(COMMAND_COLUMNS).single(), 'sending that to your computer');
       return commandOut(row);

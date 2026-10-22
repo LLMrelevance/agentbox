@@ -29,6 +29,8 @@ export interface ChatAgentsValue {
   stateOf: (item: WorkItem) => ThreadStateWord | null;
   filed: (item: WorkItem) => WorkItem[];
   open: (item: WorkItem) => void;
+  /** Start every agent a message mentions; the message as it is to be written. */
+  start?: (item: WorkItem, text: string) => Promise<string>;
 }
 export const ChatAgentsContext = createContext<ChatAgentsValue | null>(null);
 
@@ -123,8 +125,10 @@ export function useChatMentions({ on, where, text, setText, input, people }: {
     if (hit < 0) { setCardFor(null); return; }
     // In the chat's editor the chip is drawn on the words themselves
     // (./chat-editor.ts), so it is found in the card rather than in the layer.
-    const chip = (layer.current ?? el.closest('.dock-card'))?.querySelector<HTMLElement>(`[data-mention="${hit}"]`);
-    const card = el.closest('.dock-card')?.getBoundingClientRect();
+    // A thread's box (./ThreadPanel.tsx) is the card there.
+    const host = el.closest('.dock-card, .chat-thread-box');
+    const chip = (layer.current ?? host)?.querySelector<HTMLElement>(`[data-mention="${hit}"]`);
+    const card = host?.getBoundingClientRect();
     setCardX(chip && card ? Math.max(0, chip.getBoundingClientRect().left - card.left - 4) : 12);
     setCardFor(hit);
   };
@@ -208,7 +212,7 @@ function MentionCard({ x, mention, pick, ctx, onProject, onPick, onClose }: {
   useEffect(() => {
     const away = (e: MouseEvent) => {
       const t = e.target as HTMLElement;
-      if (box.current?.contains(t) || t.closest?.('.dock-input')) return;
+      if (box.current?.contains(t) || t.closest?.('.dock-input, .chat-thread-input')) return;
       onClose();
     };
     document.addEventListener('mousedown', away);

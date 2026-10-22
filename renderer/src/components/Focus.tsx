@@ -120,7 +120,7 @@ import {
 import { SummaryPanel, SummaryRail, ThreadCrumb, ThreadStateMark, useSummaryOpen, useSummaryShortcut, type RepeatHandle } from '../threads/Summary';
 import { ThreadMenu, type ThreadPlace } from '../threads/ThreadMenu';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
-import { useChatMentions } from '../team/ChatAgents';
+import { ChatAgentsContext, useChatMentions } from '../team/ChatAgents';
 import { useThreadMentions } from './ThreadMentions';
 import { AGENT_SCHEME } from '../team/agent-mentions';
 import { defaultModelFor, engineModelLabel } from '../models';
@@ -725,6 +725,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
 }) {
   // A TASK GIVEN TO A PERSON has no agent on it, so nothing says one is not running.
   const teamCtx = useContext(TeamContext);
+  const chatAgents = useContext(ChatAgentsContext);
   const heldByPerson = teamHeld(item, teamCtx);
   // Whatever the pane is leading with, not the ask alone: on a row the user wrote,
   // the ask is the one field a worker cannot answer in (format.ts says why).
@@ -1782,10 +1783,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
                 onResize: resizeThread,
                 // A REPLY IN A THREAD is an answer on this conversation like any
                 // other, so it reaches the same inboxes and syncs the same way;
-                // it only names the message it answers.
-                onSend: (uid, text) => api.answer({ product: item.product, id: item.id, answer: text, inReplyTo: uid })
-                  .then(() => true, () => { onNotice('That reply did not send. Try again.'); return false; }),
+                // it only names the message it answers. An agent it mentions
+                // starts first, as from the chat's own box.
+                onSend: (uid, text) => (chatAgents?.start ? chatAgents.start(item, text) : Promise.resolve(text))
+                  .then((answer) => api.answer({ product: item.product, id: item.id, answer, inReplyTo: uid }).then(() => answer))
+                  .catch(() => { onNotice('That reply did not send. Try again.'); return false; }),
                 fresh: freshThreads,
+                people: talkNames ?? [],
               } : undefined}
             />
           )}

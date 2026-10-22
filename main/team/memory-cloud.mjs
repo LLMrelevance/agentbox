@@ -10,6 +10,7 @@ import { EventEmitter } from 'node:events';
 import crypto from 'node:crypto';
 import { asPulled } from '../../shared/team-rules.mjs';
 import { cleanStatus } from '../../shared/team-status.mjs';
+import { PHONE_COMMANDS } from '../../shared/phone-snapshot.mjs';
 import { roomsMemory } from './rooms-memory.mjs';
 
 // The database's own checks on a message's file (20261013000000_message_files.sql).
@@ -323,10 +324,21 @@ export function memoryBackend(cloud, personId) {
     async phoneProjects() {
       return [...(cloud.phoneProjects?.values() ?? [])].filter((p) => p.owner === personId);
     },
+    // One row per computer (20261023000000_phone_settings.sql).
+    async putPhoneSettings({ owner, device, name, settings }) {
+      if (owner && owner !== personId) refuse('write to somebody else\'s phone');
+      if (!/^[0-9a-f]{12}$/.test(String(device))) refuse('settings for no computer');
+      if (new TextEncoder().encode(JSON.stringify(settings)).length > 200_000) refuse('settings that big');
+      (cloud.phoneSettings ??= new Map()).set(`${personId}:${device}`, { owner: personId, device, name, settings, updatedAt: cloud.now() });
+    },
+    async phoneSettings() {
+      return [...(cloud.phoneSettings?.values() ?? [])].filter((s) => s.owner === personId).map((s) => ({ ...s }));
+    },
     // What her phone does: a command, as herself, for one computer, not yet taken.
-    async addPhoneCommand({ device, project, item = null, kind, payload = {} }) {
+    async addPhoneCommand({ device, project = null, item = null, kind, payload = {} }) {
       if (!/^[0-9a-f]{12}$/.test(String(device))) refuse('a command for no computer');
-      if (!['reply', 'new', 'snooze', 'close'].includes(kind)) refuse(`a ${kind} command`);
+      if (!PHONE_COMMANDS.includes(kind)) refuse(`a ${kind} command`);
+      if ((kind === 'setting') !== (project == null) || (kind === 'setting' && item != null)) refuse(`a ${kind} command for ${project == null ? 'no project' : 'a project'}`);
       const row = { id: crypto.randomUUID(), owner: personId, device, project, item, kind, payload, createdAt: new Date(cloud.now()).toISOString(), claimedAt: null, takenAt: null, outcome: null };
       (cloud.phoneCommands ??= []).push(row);
       cloud.events.emit('phone', 1);

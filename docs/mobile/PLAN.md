@@ -240,7 +240,9 @@ email or by a public link.
 5. **A week of daily use.** Fixes go out through EAS Update.
 6. **The public App Store** waits on three things outside this plan: accounts
    for anyone (w-6633e825a7, step 3), the privacy and terms pages
-   (w-7a670f07bb; today they say nothing is hosted), and an installed desktop
+   (w-7a670f07bb; today they say nothing is hosted, and they must also name
+   the copy of each computer's settings the phone reads, which carries no
+   paths and no instructions, shared/phone-settings.mjs), and an installed desktop
    app that can sign in to the cloud (`loadCloudConfig` in
    main/team/session.mjs answers null when packaged). Without them, a stranger
    who downloads the app has nothing to connect it to.

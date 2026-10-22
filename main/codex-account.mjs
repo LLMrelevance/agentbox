@@ -131,6 +131,17 @@ export function codexPlanEnded(home = null, { file = null, now = Date.now() } = 
 }
 
 /**
+ * WHETHER THE FREE PLAN IS WHY CODEX OFFERS FEW MODELS: `{ endedAt }` when every
+ * one of these logins reads Free, with the latest paid plan's end or null, and
+ * null when any login is paid or cannot say.
+ */
+export function codexFreePlan(homes, { now = Date.now() } = {}) {
+  if (!homes.length || !homes.every((h) => codexAccount(h)?.plan === PLANS.free)) return null;
+  const ended = homes.map((h) => codexPlanEnded(h, { now })).filter((t) => t != null);
+  return { endedAt: ended.length ? Math.max(...ended) : null };
+}
+
+/**
  * WHAT KIND OF LOGIN A CODEX HOME HOLDS: 'chatgpt' (a plan), 'apikey' (a key,
  * metered per call), or null when it cannot say.
  *

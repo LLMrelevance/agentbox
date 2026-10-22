@@ -67,6 +67,7 @@ import { EVENT_NAMES } from '../shared/analytics-events.mjs';
 import { Name } from '../shared/product-name.mjs';
 import { handedOnByReply } from '../shared/team-rules.mjs';
 import { saveAttachments } from './save-attachments.mjs';
+import { stageAttachment } from './stage-attachment.mjs';
 
 // WHAT A WORKER IS TOLD WHEN HER DECISION COULD NOT BE RECORDED.
 const SPOOL_REFUSED = `${Name} could not record the founder's decision, so nothing was allowed. Finish what your grants cover and file the rest as a review.`;
@@ -382,7 +383,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   setInterval(lookAtTerminals,60_000).unref?.();
   const agentUpdates=new AgentUpdates({
     installation:async engine=>{if(engine==='claude')recheckClaude(config);else recheckCodex(config);return installedAgent(engine,config);},
-    refresh:async engine=>{if(engine==='claude')recheckClaude(config);else recheckCodex(config);await refreshAgentModels(engine,config,supervisor._codexHome());if(engine==='codex')for(const profile of supervisor._codexProfiles())supervisor._releaseIdleCodex(profile);},
+    refresh:async engine=>{if(engine==='claude')recheckClaude(config);else recheckCodex(config);await refreshAgentModels(engine,config,supervisor._codexOfferHomes());if(engine==='codex')for(const profile of supervisor._codexProfiles())supervisor._releaseIdleCodex(profile);},
   });
   ipcMain.handle('zero:agent-update',async(event,{engine,action}={})=>{
     if(event.senderFrame?.parent||(event.sender&&event.sender!==window.webContents))throw Error('Updates are only available in the main app window.');
@@ -391,7 +392,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     if(action==='recheck')return agentUpdates.check(engine,true);
     if(action==='start')return agentUpdates.start(engine);
     if(action==='status')return agentUpdates.status(engine);
-    if(action==='refresh'){await refreshAgentModels(engine,config,supervisor._codexHome());return true;}
+    if(action==='refresh'){await refreshAgentModels(engine,config,supervisor._codexOfferHomes());return true;}
     throw Error('Unknown update action.');
   });
   let terminalQuitPending=false,terminalQuitReady=false;
@@ -1923,32 +1924,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // costs nothing at send time because `zero:save-attachments` above already
   // copies from `srcPath`. Bytes are copied on disk rather than carried through
   // this bridge as base64, which a file picked off disk should never need.
-  ipcMain.handle('zero:stage-attachment', async (_e, { name, dataBase64, srcPath }) => {
-    const fs = await import('node:fs');
-    const dir = path.join(config.accountRoot, '.staging');
-    fs.mkdirSync(dir, { recursive: true });
-    // Sweep on the way in rather than on a timer: an abandoned paste is only
-    // ever discovered by the next one, and a week is longer than any draft she
-    // has ever left open. Failure to sweep must never fail the paste.
-    try {
-      const week = Date.now() - 7 * 24 * 60 * 60 * 1000;
-      for (const f of fs.readdirSync(dir)) {
-        const p = path.join(dir, f);
-        try { if (fs.statSync(p).mtimeMs < week) fs.unlinkSync(p); } catch { /* leave it */ }
-      }
-    } catch { /* a sweep that cannot run is not a paste that failed */ }
-    const safe = String(name ?? 'pasted.png').replace(/[^\w.-]+/g, '-').slice(0, 80);
-    const abs = path.join(dir, `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}-${safe}`);
-    // A path is a drag, bytes are a paste. Already inside the folder we serve
-    // from is left alone: copying it would only make a second file to sweep.
-    if (typeof srcPath === 'string' && srcPath) {
-      if (path.resolve(srcPath) === path.resolve(path.join(dir, path.basename(srcPath)))) return { path: srcPath };
-      fs.copyFileSync(srcPath, abs);
-      return { path: abs };
-    }
-    fs.writeFileSync(abs, Buffer.from(String(dataBase64 ?? ''), 'base64'));
-    return { path: abs };
-  });
+  ipcMain.handle('zero:stage-attachment', async (_e, file) => stageAttachment(path.join(config.accountRoot, '.staging'), file));
 
   // Unstick ONE stalled item: forget its answer's delivery mark and tick, so
   // a fresh worker picks the answer up now.

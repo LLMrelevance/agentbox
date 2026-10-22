@@ -467,8 +467,9 @@ body.chat-thread-dragging * { cursor: col-resize !important; }
 
 /* The reply box, on the same line as the chat's and in the same plate. */
 .chat-thread-foot { flex: none; padding: 0 28px 24px; }
+/* Relative so the @ and # menus rise off it, as they do off the chat's box. */
 .chat-thread-box {
-  display: flex; flex-direction: column;
+  position: relative; display: flex; flex-direction: column;
   background: var(--wash); border: 1px solid var(--line); border-radius: 0;
   transition: border-color .18s, background .18s;
 }
@@ -500,4 +501,10 @@ body.chat-thread-dragging * { cursor: col-resize !important; }
    pushing Send off the edge. The marks are the buttons after the bar's gap. */
 @container (max-width: 400px) {
   .chat-thread-bar .fmt-mark, .chat-thread-bar .fmt-gap { display: none; }
+}
+/* And the bar over a message keeps every button but drops the words of Hand
+   to an agent, which would otherwise cover the name beside it. */
+.chat-thread-panel { container: thread-panel / inline-size; }
+@container thread-panel (max-width: 400px) {
+  .chat-thread-panel .chat-act-word { display: none; }
 }

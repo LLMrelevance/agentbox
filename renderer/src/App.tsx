@@ -21,7 +21,7 @@ import { readySkin, swapLook } from './look-switch';
 import type { AnswerMode, Approval, CloudPlan, PermissionMode, Product, RepeatRule, RepeatShape, Snapshot, ThreadCard, ThreadStateWord, View, WorkItem } from './types';
 import type { ReplyPick } from './reply-pick';
 import { api } from './api';
-import { setClaudeModels } from './models';
+import { setClaudeModels, setCodexFreePlan } from './models';
 import { advanceAfter, advanceLandsHere, replyMovesOn, nextAfterAdvance, type Advance } from './advance';
 import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from './stay-with-a-command';
 import { List } from './components/List';
@@ -1064,6 +1064,7 @@ export default function App() {
       // draws the table committed at build time, which is the same list it has
       // always drawn.
       setClaudeModels(s.workspace?.claudeModels);
+      setCodexFreePlan(s.workspace?.codexFreePlan);
       // And Codex's models, in the same trip rather than in one of their own.
       const models = s.workspace?.codexModels;
       if (Array.isArray(models)) setCodexModels(models);
@@ -3206,19 +3207,6 @@ export default function App() {
     if (inInbox >= 0) inboxPlace.current = { id: focused.id, index: inInbox };
   }, [focused, stops, shownInbox]);
 
-  // WHAT A CONVERSATION NEEDS TO BRING AN AGENT IN AND TO DRAW ITS ANSWER
-  // (w-7b9cb8636a, team/ChatAgents.tsx): the projects it can be sent to, the
-  // model lists, and the tasks themselves, read off this snapshot.
-  const chatAgents = useMemo<ChatAgentsValue>(() => ({
-    projects: chatProjects(snap?.products ?? [], snap?.supervisor.productOrder ?? [], snap?.supervisor.hiddenProducts ?? []),
-    codexModels,
-    codexDefault: codexModelDefault,
-    find: (product, id) => items.find((i) => i.id === id && i.product === product),
-    stateOf: stateOfMine,
-    filed: (task) => threadsMade(items, task),
-    open: (task) => { setFocused(task); markSeen(task); },
-  }), [snap?.products, snap?.supervisor.productOrder, snap?.supervisor.hiddenProducts, codexModels, codexModelDefault, items, stateOfMine, markSeen]);
-
   // THE AGENTS A MESSAGE MENTIONS START WHEN THE MESSAGE LANDS, after the undo
   // window, so a Z inside it leaves nothing behind. Each becomes a task in its
   // project, briefed with the ask and the conversation so far, and the message
@@ -3250,6 +3238,22 @@ export default function App() {
     }
     return out;
   }, [snap?.products, team]);
+
+  // WHAT A CONVERSATION NEEDS TO BRING AN AGENT IN AND TO DRAW ITS ANSWER
+  // (w-7b9cb8636a, team/ChatAgents.tsx): the projects it can be sent to, the
+  // model lists, and the tasks themselves, read off this snapshot. `start` is
+  // for a reply in a thread, which is written at once rather than after the
+  // undo window the chat's own reply waits out.
+  const chatAgents = useMemo<ChatAgentsValue>(() => ({
+    projects: chatProjects(snap?.products ?? [], snap?.supervisor.productOrder ?? [], snap?.supervisor.hiddenProducts ?? []),
+    codexModels,
+    codexDefault: codexModelDefault,
+    find: (product, id) => items.find((i) => i.id === id && i.product === product),
+    stateOf: stateOfMine,
+    filed: (task) => threadsMade(items, task),
+    open: (task) => { setFocused(task); markSeen(task); },
+    start: startChatAgents,
+  }), [snap?.products, snap?.supervisor.productOrder, snap?.supervisor.hiddenProducts, codexModels, codexModelDefault, items, stateOfMine, markSeen, startChatAgents]);
 
   // AN URGENT ROW THAT ARRIVES WHILE SHE IS READING TAKES THE SCREEN.
   //
