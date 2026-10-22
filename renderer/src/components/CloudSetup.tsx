@@ -30,7 +30,7 @@ const send = (engine: 'claude' | 'codex', action: 'start' | 'code' | 'cancel' | 
 // ONE SIGN-IN. Claude's code is read from the clipboard when she comes back
 // to the app (and every two seconds while it is in front), and sent the
 // moment it is there; the field is for pasting by hand if that fails.
-function SignIn({ s, existing }: { s: CloudSignIn; existing: boolean }) {
+function SignIn({ s, existing, as = null }: { s: CloudSignIn; existing: boolean; as?: string | null }) {
   const view = signInView(s);
   const [code, setCode] = useState('');
   const [copied, setCopied] = useState(false);
@@ -60,7 +60,7 @@ function SignIn({ s, existing }: { s: CloudSignIn; existing: boolean }) {
 
   return <div className="fr-stack fr-stack-folders">
     <span className="cs-signin-mark"><EngineLogo engine={s.engine} size={30} /></span>
-    <h1 className="fr-page">{SETUP.signInHead(s.engine)}</h1>
+    <h1 className="fr-page">{SETUP.signInHead(s.engine, as)}</h1>
     <p className={`fr-lede${s.state === 'failed' ? ' cs-trouble' : ''}`}>{view.busy && <Busy />}{view.lead}</p>
     {view.paste && <form className="fr-card cs-paste-card" onSubmit={(e) => { e.preventDefault(); submit(code); }}>
       <input autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder={SETUP.pastePlaceholder} aria-label="Claude’s sign-in code" spellCheck={false} />
@@ -78,10 +78,12 @@ function SignIn({ s, existing }: { s: CloudSignIn; existing: boolean }) {
   </div>;
 }
 
-export function CloudSetup({ cloud, onMode, onClose }: {
+export function CloudSetup({ cloud, onMode, onClose, signInAs = null }: {
   cloud: CloudStatus;
   onMode: (mode: CloudMode) => void;
   onClose: () => void;
+  /** The account a Claude sign-in started from Settings is for. */
+  signInAs?: string | null;
 }) {
   const accounts = cloud.accounts || [];
   // Her part of a sign-in, on screen; the cloud's part goes on behind her
@@ -127,7 +129,7 @@ export function CloudSetup({ cloud, onMode, onClose }: {
 
   let body: JSX.Element;
   if (shown) {
-    body = <SignIn s={shown} existing={accounts.some((a) => a.key === shown.key)} />;
+    body = <SignIn s={shown} existing={accounts.some((a) => a.key === shown.key)} as={shown.engine === 'claude' ? signInAs : null} />;
   } else if (where) {
     body = <div className="fr-stack fr-stack-folders">
       <h1 className="fr-page">{SETUP.doneHead}</h1>

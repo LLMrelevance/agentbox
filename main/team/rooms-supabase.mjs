@@ -9,6 +9,7 @@ import { PROFILE_COLS, PRESENCE_COLS, PROFILE_FIELDS, PRESENCE_FIELDS, MSG_COLS,
 const REACTIONS_WAIT_MS = 10_000;
 // The columns a cloud from before 20261022000000_room_messages_do_more.sql has.
 const OLD_MSG_COLS = 'id,room_id,by_person,body,in_reply_to,mentions,created_at';
+const OLD_RECHECK_MS = 60_000;
 // Postgres and PostgREST's words for a column or a table that is not there.
 const notThere = (err) => ['42703', '42P01', '42883', 'PGRST202', 'PGRST204', 'PGRST205'].includes(String(err?.code ?? ''))
   || /does not exist|could not find/i.test(String(err?.message ?? ''));
@@ -18,15 +19,30 @@ export function roomsSupabase(client, myId, must) {
   // AN APP CAN BE UPDATED BEFORE ITS CLOUD IS, since the cloud's update is run
   // by hand. Until it is, messages are read on the columns it has and nothing
   // hangs off them, rather than the whole chat failing to read.
-  let oldCloud = false;
+  // The update can land while the app is open, so an old cloud is asked again
+  // after a while. Anything only an updated cloud can do settles it for good,
+  // since a cloud is never taken back, so a late answer from before is ignored.
+  let oldSince = 0;
+  let updated = false;
+  const isOld = () => !updated && oldSince > 0 && Date.now() - oldSince < OLD_RECHECK_MS;
+  const settle = () => { updated = true; oldSince = 0; };
   const reading = async (make, what) => {
-    let res = await make(oldCloud ? OLD_MSG_COLS : MSG_COLS, oldCloud);
-    if (res.error && !oldCloud && notThere(res.error)) { oldCloud = true; res = await make(OLD_MSG_COLS, true); }
+    const old = isOld();
+    let res = await make(old ? OLD_MSG_COLS : MSG_COLS, old);
+    if (res.error && !old && notThere(res.error)) {
+      if (!updated) oldSince = Date.now();
+      res = await make(OLD_MSG_COLS, true);
+    } else if (!old && !res.error) settle();
     return must(res, what);
   };
   // What only an updated cloud can do says so, in place of a database error.
   const BEHIND = 'Your team cloud needs its latest update for this. Ask whoever set it up to apply it.';
-  const newer = async (res, what) => { if (res.error && notThere(res.error)) throw new Error(BEHIND); return must(res, what); };
+  const newer = async (res, what) => {
+    if (res.error && notThere(res.error)) throw new Error(BEHIND);
+    const data = must(res, what);
+    settle();
+    return data;
+  };
   const newRpc = async (fn, args, what) => newer(await client.rpc(fn, args), what);
 
   // A row of my own: changed where it is, made when it is not there. Never an
@@ -125,10 +141,10 @@ export function roomsSupabase(client, myId, must) {
     // Off ones too, since the service folds them. The newest 1000, oldest first.
     async roomReactions(roomId) {
       await myId();
-      if (oldCloud) return [];
+      if (isOld()) return [];
       const res = await client.from('room_reactions').select(REACTION_COLS).eq('room_id', roomId).order('updated_at', { ascending: false }).limit(1000);
       if (res.error && notThere(res.error)) return [];
-      return must(res, 'reading reactions').map(reactionOut).reverse();
+      return (await newer(res, 'reading reactions')).map(reactionOut).reverse();
     },
 
     async reactRoomMessage(messageId, emoji, on = true) {
@@ -139,9 +155,10 @@ export function roomsSupabase(client, myId, must) {
     async putRoomFile(roomId, name, data) {
       const me = await myId();
       const { error } = await client.from('room_files').insert({ room_id: roomId, name, by_person: me, data });
-      if (error?.code === '23505') throw fileExists(name);
+      if (error?.code === '23505') { settle(); throw fileExists(name); }
       if (error && notThere(error)) throw new Error(BEHIND);
       if (error) throw new Error(`sending the file: ${error.message}`);
+      settle();
       return name;
     },
 

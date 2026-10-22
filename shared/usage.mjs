@@ -235,12 +235,19 @@ export function spanLeft(ms) {
 }
 
 /**
+ * A reset to the nearest minute. Claude Code gives one a moment before the
+ * minute (11:59:59.6) and the cloud's header the minute itself, and both name
+ * the same reset.
+ */
+export const toMinute = (at) => Math.round(at / 60_000) * 60_000;
+
+/**
  * THE DAY A RESET FALLS ON, in this machine's calendar: null today, "Thu" this
  * week, and "Tue Oct 27" six or more days out, where a weekday alone would
  * read as today.
  */
 export function resetDay(at, now = Date.now()) {
-  const d = new Date(at);
+  const d = new Date(toMinute(at));
   if (d.toDateString() === new Date(now).toDateString()) return null;
   const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
   if (at - now < 6 * 86_400_000) return weekday;

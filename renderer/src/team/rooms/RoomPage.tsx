@@ -13,13 +13,17 @@ import { joinLink } from '../../../../shared/room-links.mjs';
 /** The wall, the room's ranks, or one person's page. */
 export type RoomPane = 'wall' | 'ranks' | `person:${string}`;
 
-export function RoomPage({ room, rooms, cards, ranks, me, now, pane, link, chat, board = null, picked, onPick, onPane, onComeBack, onMessage, onCopyLink }: {
+export function RoomPage({ room, rooms, cards, ranks, me, now, pane, link, chat, board = null, renderBoard, picked, onPick, onPane, onComeBack, onMessage, onCopyLink, onRoom, onSaveBio }: {
   room: Room; rooms: Room[]; cards: ThreadCard[]; ranks: Record<string, number>;
   me: RoomProfile | null; now: number; pane: RoomPane; link: string | null;
   /** The chat panel beside the wall: this room's, or a chat switched to. */
   chat: ReactNode;
   /** Their threads as a board, drawn in place of the wall while the room's view is Board. */
   board?: ReactNode;
+  /** The Inbox's board for these people, for a person's Activity. */
+  renderBoard?: (people: string[]) => ReactNode;
+  onRoom?: (roomId: string) => void;
+  onSaveBio?: (bio: string | null) => Promise<string | null>;
   /** Cards picked to message together. */
   picked: Set<string>; onPick: (ids: string[]) => void;
   onMessage?: (personIds: string[]) => void;
@@ -39,7 +43,8 @@ export function RoomPage({ room, rooms, cards, ranks, me, now, pane, link, chat,
   if (person) {
     return <div className="rm-split"><div className="rm-main wide">
       <ProfilePage card={person} room={room} rooms={rooms} cards={cards} rank={ranks[person.id]}
-        onRanks={() => onPane('ranks')} onMessage={onMessage ? () => onMessage([person.id]) : undefined} />
+        onRanks={() => onPane('ranks')} onMessage={onMessage ? () => onMessage([person.id]) : undefined}
+        onRoom={onRoom} onSaveBio={onSaveBio} renderBoard={renderBoard} />
     </div></div>;
   }
   return <div className="rm-split">

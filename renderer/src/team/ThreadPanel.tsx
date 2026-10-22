@@ -200,7 +200,7 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
             <Reactions on={reactions?.[e.uid]} me={me} onReact={(emoji, off) => onReact?.(e.uid!, emoji, off)} />
           )}
           {e.uid && onReact && (
-            <MessageActions onReact={(emoji) => onReact(e.uid!, emoji, (reactions?.[e.uid!]?.[emoji] ?? []).includes(me ?? ''))} />
+            <MessageActions quick={false} onReact={(emoji) => onReact(e.uid!, emoji, (reactions?.[e.uid!]?.[emoji] ?? []).includes(me ?? ''))} />
           )}
         </div>
       </div>

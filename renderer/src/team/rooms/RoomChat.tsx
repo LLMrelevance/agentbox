@@ -25,7 +25,7 @@ import { pictureUrl } from '../../picture';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
 import { cardName, clockOf, mentionsIn } from './room-rules';
-import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, storedName, wordsLeftAfterSend } from './room-chat-rules';
+import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, quickOnBar, roomReader, storedName, wordsLeftAfterSend } from './room-chat-rules';
 
 export type ChatPerson = { id: string; name: string; avatarUrl: string | null; me: boolean };
 
@@ -78,8 +78,8 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
   useEffect(() => { setReadFrom(room.readAt ?? null); setThread(null); setEditing(null); }, [room.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const newAt = root ? null : newLineAt(messages, readFrom, meId);
 
-  // Reading the room is having it open with the window in front, except just
-  // after you marked it unread, which holds until you leave it.
+  // Reading the room is staying on it with the window in front (roomReader),
+  // except just after you marked it unread, which holds until you leave it.
   const held = useRef(false);
   const wasMarked = useRef(!!room.markedUnread);
   useEffect(() => { held.current = false; wasMarked.current = !!room.markedUnread; }, [room.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -91,20 +91,37 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
     held.current = holdsRead(held.current, wasMarked.current, marked);
     wasMarked.current = marked;
   }, [room.markedUnread, room.readAt]);
+  const latestRead = useRef(onRead);
+  latestRead.current = onRead;
+  const reader = useRef<ReturnType<typeof roomReader> | null>(null);
   useEffect(() => {
-    const read = () => { if (!held.current && document.visibilityState === 'visible' && document.hasFocus()) onRead(); };
-    read();
-    window.addEventListener('focus', read);
-    return () => window.removeEventListener('focus', read);
-  }, [room.id, messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    const r = roomReader({
+      read: () => latestRead.current(),
+      canRead: () => !held.current && document.visibilityState === 'visible' && document.hasFocus(),
+    });
+    reader.current = r;
+    r.open();
+    window.addEventListener('focus', r.open);
+    window.addEventListener('blur', r.away);
+    return () => { r.close(); window.removeEventListener('focus', r.open); window.removeEventListener('blur', r.away); };
+  }, [room.id]);
+  useEffect(() => { reader.current?.arrived(); }, [messages.length]);
   const markUnread = onMarkUnread ? (at: number) => { held.current = true; setReadFrom(at - 1); onMarkUnread(at); } : undefined;
 
   const who = (id: string | null) => (id ? byId.get(id) : undefined);
   const nameOf = (id: string | null) => { const p = who(id); return p ? cardName(p) : 'Someone'; };
   const listRef = useStick([room.id, thread, shown.length]);
   const slots = chatLayout(shown.map((m) => ({ at: m.at, by: m.by ?? '' })), now);
+  const myNames = useMemo(() => {
+    const name = people.find((p) => p.me)?.name;
+    if (!name) return [];
+    const first = (n: string) => n.split(/\s+/)[0].toLowerCase();
+    const mine = first(name);
+    return people.filter((p) => first(p.name) === mine).length === 1 ? [name, name.split(/\s+/)[0]] : [name];
+  }, [people]);
   const body = (m: RoomMessage) => (
-    <RoomMarkdown text={m.body} names={names} loadFile={calls.loadFile} roomId={room.id} mine={m.by === meId} />
+    <RoomMarkdown text={m.body} names={names} loadFile={calls.loadFile} roomId={room.id} mine={m.by === meId}
+      me={meId && m.by !== meId && m.mentions.includes(meId) ? myNames : NOBODY} />
   );
 
   return <div className={full ? 'rm-full' : 'rm-chat'}>
@@ -126,14 +143,13 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
       {shown.map((m, i) => {
         const slot = slots[i];
         const mine = m.by === meId;
-        const mentioned = !!meId && m.mentions.includes(meId) && !mine;
         const reps = !root ? replies.get(m.id) ?? [] : [];
         const p = who(m.by);
         const headed = slot.head || (root && i === 0) || m.id === newAt;
         return <div key={m.id}>
           {slot.day && <div className="rm-day"><span className="rm-label">{slot.day}</span></div>}
           {m.id === newAt && <div className="rm-new" role="separator"><span>New</span></div>}
-          <div className={`rm-cm${headed ? '' : ' cont'}${mentioned ? ' mine' : ''}${root && i === 0 ? ' root' : ''}`}>
+          <div className={`rm-cm${headed ? '' : ' cont'}${root && i === 0 ? ' root' : ''}`}>
             {headed && <div className="h">
               <RoomFace name={p?.name ?? '?'} url={p?.avatarUrl} size={16} />
               <span>{nameOf(m.by)}</span><em>{clockOf(m.at)}</em>
@@ -159,6 +175,7 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
             </button>}
             {!m.deleted && editing !== m.id && onReact && <MessageActions
               onReact={(emoji) => onReact(m.id, emoji, !(m.reactions?.[emoji] ?? []).includes(meId ?? ''))}
+              quick={quickOnBar({ full, thread: !!root })}
               {...(!root ? { onQuote: () => setThread(m.id), replyLabel: 'Reply in thread' } : {})}
               more={messageMore({
                 mine,
@@ -202,10 +219,13 @@ function RoomPicture({ roomId, name, alt, loadFile }: { roomId: string; name: st
 
 /** A room message as markdown: @names marked, voice notes and pictures drawn, other files named. */
 const MARKDOWN_PLUGINS = [remarkGfm];
+const NOBODY: readonly string[] = [];
 const storedIn = (href: string) => /^attachments\/([A-Za-z0-9][\w.-]{0,159})$/.exec(href)?.[1] ?? null;
 
-function RoomMarkdown({ text, names, loadFile, roomId, mine }: {
+function RoomMarkdown({ text, names, loadFile, roomId, mine, me }: {
   text: string; names: string[]; roomId: string; mine: boolean; loadFile?: (name: string) => Promise<Blob | null>;
+  /** What you answer to, when this message names you. */
+  me: readonly string[];
 }) {
   // The same parts on every draw: new ones would remount each voice note in
   // the chat, so none could finish loading. The file is fetched through a ref
@@ -217,6 +237,7 @@ function RoomMarkdown({ text, names, loadFile, roomId, mine }: {
     return {
       a: ({ href, children }: { href?: string; children?: ReactNode }) => {
         if (href === '#mention') return <b className="rm-at">{children}</b>;
+        if (href === '#mention-me') return <b className="rm-at me">{children}</b>;
         const name = href ? storedIn(href) : null;
         const note = name ? voiceNoteOf(name) : null;
         if (name && note) return <VoiceNote id={`room:${roomId}:${name}`} ms={note.ms} mine={mine} load={() => fetchFile(name)} />;
@@ -229,7 +250,7 @@ function RoomMarkdown({ text, names, loadFile, roomId, mine }: {
       },
     };
   }, [roomId, mine]);
-  return <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>{mentionMarkdown(text, names)}</ReactMarkdown>;
+  return <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>{mentionMarkdown(text, names, me)}</ReactMarkdown>;
 }
 
 // Keeps the newest message in view while you are at the bottom, and leaves

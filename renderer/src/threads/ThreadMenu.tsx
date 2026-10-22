@@ -91,11 +91,11 @@ function RunMark() {
   return <svg {...mark}><path d="M5 5v14" /><path d="m9 5 10 7-10 7z" /></svg>;
 }
 /** This Mac: a square screen on its stand. */
-function MacMark() {
-  return <svg {...mark}><rect x="3" y="5" width="18" height="12" /><path d="M8 21h8M12 17v4" /></svg>;
+export function MacMark({ size = 16 }: { size?: number } = {}) {
+  return <svg {...mark} width={size} height={size}><rect x="3" y="5" width="18" height="12" /><path d="M8 21h8M12 17v4" /></svg>;
 }
-function CloudMark() {
-  return <svg {...mark}><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" /></svg>;
+export function CloudMark({ size = 16 }: { size?: number } = {}) {
+  return <svg {...mark} width={size} height={size}><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" /></svg>;
 }
 /** A square-headed pin, because every shape in this skin is square. */
 export function PinMark({ size = 16, className }: { size?: number; className?: string }) {
