@@ -103,6 +103,7 @@ export function signInView(s: CloudSignIn): { lead: string; busy: boolean; paste
   const claude = s.engine === 'claude';
   if (s.state === 'starting') return { lead: claude ? 'Opening Claude’s sign-in…' : 'Opening OpenAI’s sign-in…', busy: true, paste: false, codeToType: null };
   if (s.state === 'needs-code') return { lead: 'Approve on Claude’s page, then copy the code it shows.', busy: false, paste: true, codeToType: null };
+  if (s.state === 'waiting' && !s.code) return { lead: 'Sign in with ChatGPT in your browser.', busy: true, paste: false, codeToType: null };
   if (s.state === 'waiting') return { lead: 'Enter this code on OpenAI’s page.', busy: true, paste: false, codeToType: s.code };
   if (s.state === 'checking') return { lead: 'Checking…', busy: true, paste: false, codeToType: null };
   if (s.state === 'failed') return { lead: s.message || 'That didn’t work.', busy: false, paste: false, codeToType: null };

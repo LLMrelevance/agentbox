@@ -36,6 +36,8 @@ import { NeoSettings } from '../neo/NeoSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
 import { accountLabel, cloudToggleTarget, countedAccounts, type CloudStatus } from '../cloud-menu';
+import { planCards, usageLine, usedPercent, type PaidPlan } from '../cloud-upgrade';
+import type { CloudPlan } from '../types';
 import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
 import { accountReadingFor, accountsOnce, type HereLogin, type OneAccount } from '../accounts-once';
 import { limitRows } from '../../../shared/usage.mjs';
@@ -847,6 +849,81 @@ function PhonePage({ onFeedback, macShut }: { onFeedback?: () => void; macShut?:
   );
 }
 
+/* ------------------------------- Agentbox Cloud ------------------------------- */
+// THE PLANS, AS CARDS (the founder's design of 2026-10-13, w-1dc7ee2408,
+// cloud-slots/20): sold as agent slots, the plan you are on outlined with how
+// much of it is in use, how the cloud counts under them, and billing on
+// Stripe's own page. Choosing opens Stripe in the browser; the page reads the
+// plan again until it changes (../cloud-upgrade.ts).
+function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: () => void }) {
+  const [plan, setPlan] = useState<CloudPlan | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  const [waitingFor, setWaitingFor] = useState<string | null>(null);
+  const read = async () => { const p = await api.cloudAccountPlan(); setPlan(p); return p; };
+  useEffect(() => { void read(); }, [signedIn]);
+  // Back from Stripe's page: the plan changes once its webhook lands.
+  useEffect(() => {
+    if (!waitingFor) return;
+    const was = waitingFor;
+    let n = 0;
+    const t = setInterval(async () => {
+      n += 1;
+      const p = await read();
+      if (p.plan !== was || n > 60) { setWaitingFor(null); clearInterval(t); }
+    }, 5000);
+    return () => clearInterval(t);
+  }, [waitingFor]);
+  const choose = async (id: PaidPlan) => {
+    if (!signedIn) { onSignIn(); return; }
+    setSaid(null);
+    const out = await api.cloudAccountPay(id);
+    if (!out.ok) { setSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
+    setWaitingFor(plan?.plan ?? 'none');
+  };
+  const billing = async () => {
+    const out = await api.cloudAccountBilling();
+    if (!out.ok) setSaid(out.message || 'Stripe could not be opened. Try again.');
+  };
+  const cards = planCards(plan);
+  const paying = !!plan?.plan && plan.plan !== 'none';
+  return (
+    <Page title="Cloud" lede="Every thread needs a slot to run in. Your computer has a few. The cloud adds more.">
+      <div className="set-group cloud-plans" data-find="cloud-plans">
+        {cards.map((c) => (
+          <div key={c.id} className={`cloud-plan${c.current ? ' mine' : ''}`}>
+            <div className="cloud-plan-head"><span>{c.name}</span>{c.current && <span className="cloud-plan-mine">Your plan</span>}</div>
+            <div className="cloud-plan-price">{c.price}<span> a month</span></div>
+            <div className="cloud-plan-slots">{c.slots}</div>
+            <div className="cloud-plan-where">running in the cloud</div>
+            {c.current && plan ? (
+              <div className="cloud-plan-use">
+                <span>{usageLine(plan)}</span>
+                <span className="cloud-plan-bar"><i style={{ width: `${usedPercent(plan)}%` }} /></span>
+              </div>
+            ) : c.button && <button type="button" className="set-ghost cloud-plan-go" onClick={() => void choose(c.id)}>{c.button}</button>}
+          </div>
+        ))}
+      </div>
+      {said && <p className="cloud-plans-say">{said}</p>}
+      {waitingFor && <p className="cloud-plans-say">Finish on Stripe's page in your browser. This page changes when it's done.</p>}
+      <Group id="cloud-counts" label="How the cloud counts" bare>
+        <ul className="cloud-counts">
+          <li>Each slot runs one agent in the cloud, on top of the ones your computer runs.</li>
+          <li>Time counts only while an agent is working. Waiting for your reply is free.</li>
+          <li>Pro has 400 hours a month, Plus 1,200 and Max 3,000. Past them, threads wait for your computer until the month turns.</li>
+        </ul>
+      </Group>
+      {paying && (
+        <Group id="cloud-billing" label="Billing">
+          <Row label="Payment and invoices" desc="Handled by Stripe. Cancel any time.">
+            <button type="button" className="set-ghost" onClick={() => void billing()}>Open</button>
+          </Row>
+        </Group>
+      )}
+    </Page>
+  );
+}
+
 const Page = ({ title, lede, children }: { title: string; lede?: string; children: ReactNode }) => (
   <div className="set-inner">
     <h1 className="set-title">{title}</h1>
@@ -1424,11 +1501,14 @@ function NavIcon({ id }: { id: SettingsPageId }) {
     claude: <><rect x="3.5" y="5" width="17" height="14" rx="2" /><path d="m7.5 10 2.5 2-2.5 2M12.5 14.5h4" /></>,
     codex: <><path d="m9 8-4 4 4 4M15 8l4 4-4 4" /></>,
     running: <><circle cx="12" cy="12" r="8" /><path d="M10.5 9.2v5.6l4.5-2.8z" /></>,
+    cloud: <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />,
     instructions: <path d="M6.5 3.5h7.5l4 4V20.5h-11.5zM14 3.5V8h4M9.5 12h5M9.5 16h5" />,
     projects: <path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />,
     team: <><circle cx="9" cy="9" r="3" /><path d="M3.5 19c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5" /><circle cx="16.5" cy="9.5" r="2.5" /><path d="M16 14.6c2.3-.2 4 1.2 4.5 4" /></>,
     // The orb, the one thing of Neo's that is already on screen.
     neo: <><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="8.5" opacity="0.45" /></>,
+    alpha: <><path d="M9.5 3.5h5M10.5 3.5v5.2L5.6 17.6a2 2 0 0 0 1.8 2.9h9.2a2 2 0 0 0 1.8-2.9l-4.9-8.9V3.5" /><path d="M7.6 14.5h8.8" /></>,
+    rooms: <path d="M9.5 4.5 7.5 19.5M16.5 4.5l-2 15M5 9.5h14.5M4.5 14.5H19" />,
   };
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1455,7 +1535,7 @@ function paneFrom(want: string, has: { team: boolean; neo?: boolean }): Pane {
 
 /* --------------------------------- screen --------------------------------- */
 
-export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, neoOn = false, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null, onCloudSignIn }: {
+export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, neoOn = false, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null, onCloudSignIn, cloudPlans = null, roomsPane }: {
   /** Opens the feedback card. A phone has no Feedback button in its corner,
    *  so its own Settings page offers it (2026-10-12). */
   onFeedback?: () => void;
@@ -1463,6 +1543,8 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   cloud?: CloudStatus | null;
   /** Signs a Claude account in to the cloud (a login's key to sign it in again), on the cloud's own screen. */
   onCloudSignIn?: (key: string | null, email: string | null) => void;
+  /** Agentbox Cloud's plans, where this copy offers it: the Cloud page. */
+  cloudPlans?: { signedIn: boolean; onSignIn: () => void } | null;
   // ONE control for the three of them. Light, dark and each picture are one
   // list, because a picture IS dark (skins.ts) and asking her to set a theme
   // and then a background is two decisions for one choice.
@@ -1515,6 +1597,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
    *  on this screen; the button's own answer is only ever held until the next
    *  snapshot arrives. Null on a build with no updater behind it. */
   update?: UpdateState | null;
+  /** Rooms (alpha): what people in your rooms see of you, handed in like the
+   *  team's pane. Absent while Rooms is off, and then there is no Rooms row. */
+  roomsPane?: ReactNode;
   onClose: () => void;
 }) {
   const [model, setModel] = useState<SettingsModel | null>(null);
@@ -1638,7 +1723,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
 
   /** The pages this Mac has. Codex on every Mac (w-d5d632e503); Team only on
    *  a build with a team cloud; Neo only where the voice alpha is on. */
-  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'neo' || neoOn));
+  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'neo' || neoOn) && (p.id !== 'cloud' || !!cloudPlans) && (p.id !== 'rooms' || !!roomsPane));
   const hits = useMemo(
     () => searchSettings(query, { pages: pages.map((p) => p.id), projects }),
     [query, pages.length, projects],
@@ -1939,6 +2024,13 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             asks main for everything on it, so nothing here comes from the
             settings file either. */}
         {pane === 'neo' && neoOn && <NeoSettings />}
+        {pane === 'cloud' && cloudPlans && <CloudPlansPage signedIn={cloudPlans.signedIn} onSignIn={cloudPlans.onSignIn} />}
+
+        {pane === 'rooms' && roomsPane && (
+          <Page title="Rooms" lede="What people in your rooms see of you. Private threads never show.">
+            {roomsPane}
+          </Page>
+        )}
 
         {pane === 'team' && teamPane && (
           <Page title="Team" lede="Who is on your team, who has been invited, and the team's name. Everyone sees a short summary of your threads unless you mark one private.">
@@ -1966,6 +2058,19 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
 
         {/* GENERAL: you, your keys, what leaves this Mac and where your work is
             kept. Four small things set once. */}
+        {model && w && pane === 'alpha' && (
+          <Page title="Alpha features" lede="Early features you can try before they are finished. They may change or go away.">
+            <Group id="alpha">
+              <Row label="Neo" desc="A voice you wake by tapping ⌘ twice. Takes effect after a restart.">
+                <Switch label="Neo" on={!!w.alpha?.neo} onChange={(v) => setWorkspace('alphaNeo', v)} />
+              </Row>
+              <Row label="Rooms" desc="See the people you work with and their agents, with a chat beside them. Needs a team sign-in.">
+                <Switch label="Rooms" on={!!w.alpha?.rooms} onChange={(v) => setWorkspace('alphaRooms', v)} />
+              </Row>
+            </Group>
+          </Page>
+        )}
+
         {model && w && pane === 'general' && (
           <Page title="General">
             <Group id="keys" label="Keyboard">
@@ -2139,7 +2244,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
               {w.leftovers && (
                 <Row
                   label="Stop programs agents leave behind"
-                  desc={`Dev servers, previews and test runs an agent started and left running are stopped two hours after its run ends, or ten minutes while memory is short. Never stopped: anything you started yourself, apps installed on this computer, and what an agent was asked to keep.${twoEngines ? ' Codex agents’ programs are not found yet.' : ''}${w.leftovers.now ? ` ${w.leftovers.now}` : ''}`}
+                  desc={`Dev servers, previews and test runs an agent started keep running until you close its task, or until memory runs short. Apps installed on this computer are never stopped.${twoEngines ? ' Codex agents’ programs are not found yet.' : ''}${w.leftovers.now ? ` ${w.leftovers.now}` : ''}`}
                 >
                   <Switch label="Stop programs agents leave behind" on={w.leftovers.on} onChange={(v) => setWorkspace('cleanupLeftovers', v)} />
                 </Row>

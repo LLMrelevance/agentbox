@@ -55,17 +55,29 @@ describe('the cloud view shows the model', () => {
 });
 
 describe('"On", the model and the full stop stay one clause', () => {
-  for (const file of ['renderer/src/components/Focus.tsx', 'renderer/src/components/Compose.tsx']) {
+  // The reply box draws the new thread card's menu since w-e1a42f6b21 and the
+  // old card still has its own drawer, so each box is asked about the one it
+  // draws. The clause is the same clause in both.
+  for (const [file, tag] of [
+    ['renderer/src/components/Focus.tsx', 'ReplyModel'],
+    ['renderer/src/components/Compose.tsx', 'ModelPicker'],
+  ]) {
     it(file, () => {
       const src = read(file);
-      const at = src.search(/\{'On '\}\s*<ModelPicker/);
+      const at = src.search(new RegExp(`\\{'On '\\}\\s*<${tag}`));
       expect(at).toBeGreaterThan(-1);
       const open = src.lastIndexOf('<span className="', at);
       const cls = src.slice(open).match(/^<span className="([^"]*)"/)[1];
       expect(cls.split(/\s+/).some((c) => c === 'clause-model' || c === 'dock-model')).toBe(true);
-      const tail = src.slice(src.indexOf('/>', src.indexOf('<ModelPicker', at)) + 2).trimStart();
-      expect(tail.startsWith("{'.'}")).toBe(true);
-      expect(tail.slice(5).trimStart().startsWith('</span>')).toBe(true);
+      // WHATEVER ENDS THE SENTENCE ENDS IT INSIDE THIS SPAN. The reply box's
+      // clause now carries the level when the thread is set to one ("On Opus
+      // 5.5, High."), so the stop is no longer the only thing written after
+      // the picker; what must not change is that all of it is hidden with
+      // "On" rather than leaving "On ." behind.
+      const tail = src.slice(src.indexOf('/>', src.indexOf(`<${tag}`, at)) + 2).trimStart();
+      const ends = tail.slice(0, tail.indexOf('</span>'));
+      expect(ends, 'the full stop is written beside the model word').toMatch(/'\.'/);
+      expect(ends, 'and nothing else opens between the two').not.toMatch(/<[a-zA-Z]/);
     });
   }
 });

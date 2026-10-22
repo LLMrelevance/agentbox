@@ -54,8 +54,16 @@ export const REQUEST_CHANNELS = {
   teamSync: 'zero:team-sync',
   teamRoute: 'zero:team-route',
   teamReact: 'zero:team-react',
+  // New words for a message you sent to a teammate, or the message taken back.
+  teamEdit: 'zero:team-edit',
+  // The microphone, asked for when a voice note starts recording.
+  micAccess: 'zero:mic-access',
   teamMessage: 'zero:team-message',
+  rooms: 'zero:rooms',
+  takeJoin: 'zero:take-join',
   threadEdit: 'zero:thread-edit',
+  // Move a thread to another project (shared/move-thread.mjs).
+  moveItem: 'zero:move-item',
   repeats: 'zero:repeats',
   composeRepeat: 'zero:compose-repeat',
   setRepeat: 'zero:set-repeat',
@@ -175,6 +183,7 @@ export const PUSH_CHANNELS = {
   onFind: 'zero:find',
   onZoomPercent: 'zero:zoom-percent',
   onRecovered: 'zero:recovered',
+  onJoinRoom: 'zero:join-room',
   onOpenItem: 'zero:open-item',
   onOpenSettings: 'zero:open-settings',
   onScreenDetail: 'zero:screen-detail',

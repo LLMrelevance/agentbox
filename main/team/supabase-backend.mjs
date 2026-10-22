@@ -4,6 +4,7 @@
 // actually keeps people apart; nothing here is trusted to.
 import { asPulled } from '../../shared/team-rules.mjs';
 import { cleanStatus } from '../../shared/team-status.mjs';
+import { roomsSupabase } from './rooms-supabase.mjs';
 
 const PAGE = 500;
 const PUSH_BATCH = 200;
@@ -350,5 +351,7 @@ export function supabaseBackend(client) {
         .subscribe();
       return () => { client.removeChannel(channel); };
     },
+
+    ...roomsSupabase(client, myId, must),
   };
 }

@@ -1,11 +1,12 @@
 # The people who power test Agentbox
 
-Each file is one kind of person Agentbox is for, drawn from who it is sold
-to: software engineers, founding engineers, CTOs and technical founders at
-startups of 2 to 200 people and at AI companies, who run many Claude Code
-and Codex agents at once. Two sit at the edge of that on purpose: an engineer
-at a big company whose tools are locked down, and a teammate who is not an
-engineer but uses Claude Code through the app all day.
+Each file is one kind of person Agentbox is built for: people who run many
+Claude Code and Codex agents at once, mostly software engineers, founding
+engineers, CTOs and technical founders at startups and AI companies. Testing
+the way they work finds the bugs a quick check misses. Two sit at the edge of
+that on purpose: an engineer at a big company whose tools are locked down,
+and a teammate who is not an engineer but uses Claude Code through the app
+all day.
 
 | file | who | what they lean on |
 |---|---|---|

@@ -1,5 +1,6 @@
 import { openSourceFile } from './open-source-file.mjs';
 import {submitReply} from './live-replies.mjs';
+import { whyItCannotMove } from '../shared/move-thread.mjs';
 import { createEngineSetup } from './engine-setup.mjs';
 // IPC: a thin, typed-by-convention surface. The renderer asks; the main
 // process derives from files and answers. Pushes go one way: "state changed,
@@ -20,7 +21,8 @@ import { createEngineSetup } from './engine-setup.mjs';
 // process can hand over its own, and the same 78 channels then answer a
 // browser over http without one line of this file being written twice.
 import {terminalSenderAllowed} from './terminal-access.mjs';
-import {TaskTerminals,terminalPlace} from './task-terminals.mjs';
+import {TaskTerminals,terminalPlace,terminalEnv} from './task-terminals.mjs';
+import {TerminalHosts,taskClosed} from './terminal-hosts.mjs';
 import {SETTINGS_TERMINAL} from '../shared/settings-terminal.mjs';
 import {AgentUpdates,installedAgent} from './agent-updates.mjs';
 import {refreshAgentModels} from './refresh-agent-models.mjs';
@@ -41,7 +43,7 @@ import { readDoc, writeDoc } from './doc-file.mjs';
 import { readChange } from './code-change.mjs';
 import { findFile, readCodeFile, writeCodeFile } from './code-file.mjs';
 import { readNote, writeNote } from './rail-note.mjs';
-import { addClaudeAccount, addCodexAccount, cornerTagTurnedOff, countsTurnedOff, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, recheckClaude, recheckCodex, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
+import { addClaudeAccount, addCodexAccount, alphaFeatures, cornerTagTurnedOff, countsTurnedOff, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, recheckClaude, recheckCodex, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
 import { ICON_KINDS, clearProjectIcon, setProjectIcon, setProjectName } from './project-identity.mjs';
 import { ClaudeUsage } from './claude-usage.mjs';
 import { AccountUsage } from './account-usage.mjs';
@@ -100,6 +102,8 @@ const NO_UPDATER = {
   // is a copy run from source (shared/where-it-runs-from.mjs).
   move: () => ({ moved: false, error: null }),
 };
+
+const ROOM_OPS = new Set(['refresh', 'send', 'markRead', 'markUnread', 'react', 'edit', 'deleteMessage', 'putFile', 'file', 'older', 'saveProfile', 'goInvisible', 'comeBack', 'link', 'revokeLink', 'preview', 'listed', 'invitesSent', 'joinByLink', 'joinListed', 'acceptInvite', 'invite', 'create', 'rename', 'leave', 'remove', 'pin', 'mute']);
 
 export function registerIpc({ store, supervisor, config, window, analytics = NO_ANALYTICS, docGrants = null, updater = NO_UPDATER, host, team = null }) {
   // The three Electron things, or a plain Node stand-in for them. There is no
@@ -360,9 +364,22 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     if(product===SETTINGS_TERMINAL.product&&id===SETTINGS_TERMINAL.id){
       return pendingLogin ?? config.home ?? os.homedir();
     }
+    return taskPlace(product,id);
+  }});
+  const taskPlace=(product,id)=>{
     const agent=id.startsWith('agent:')?liveAgents().find(a=>'agent:'+a.pid===id && (a.product??'')===product):null;
     return terminalPlace({store,supervisor,product,id,agent});
-  }});
+  };
+  /*
+   * A TASK'S TERMINAL LIVES AS LONG AS THE TASK IS OPEN, in a process that
+     outlives the app (main/terminal-host.mjs). The sign-in terminal on
+     Settings belongs to no task and stays in the app. */
+  const taskTerminals=new TerminalHosts({local:terminals,logFile:path.join(supervisor.userDir,'terminal-host.log'),log:line=>console.warn(`zero: ${line}`)});
+  // A task's folder is not deleted while its terminal is open (supervisor.mjs, `_folderInUse`).
+  supervisor.terminalOpen=itemId=>taskTerminals.hasTerminal(itemId);
+  const lookAtTerminals=()=>taskTerminals.endClosed(taskClosed(store)).catch(e=>console.warn('zero: terminals:',e.message));
+  void taskTerminals.ready().then(lookAtTerminals);
+  setInterval(lookAtTerminals,60_000).unref?.();
   const agentUpdates=new AgentUpdates({
     installation:async engine=>{if(engine==='claude')recheckClaude(config);else recheckCodex(config);return installedAgent(engine,config);},
     refresh:async engine=>{if(engine==='claude')recheckClaude(config);else recheckCodex(config);await refreshAgentModels(engine,config,supervisor._codexHome());if(engine==='codex')for(const profile of supervisor._codexProfiles())supervisor._releaseIdleCodex(profile);},
@@ -383,18 +400,26 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     event.preventDefault();
     if(!terminalQuitPending){terminalQuitPending=true;void Promise.all([terminals.shutdown(),agentUpdates.shutdown()]).finally(()=>{terminalQuitReady=true;app.quit();});}
   });
-  ipcMain.handle('zero:terminal',(_event,payload={})=>{
+  ipcMain.handle('zero:terminal',async(_event,payload={})=>{
     if(_event.senderFrame?.parent || (_event.sender && _event.sender!==window.webContents)) throw Error('Terminal is only available in the main app window.');
     const {product,id,action,data,cols,rows,offset,wait}=payload;
     if(typeof product!=='string'||typeof id!=='string'||!id||id.length>300)throw Error('Invalid task.');
     const key=JSON.stringify({product,id});
     if(product==='@agent-update')return agentUpdates.terminal(id,payload);
-    switch(action){
+    if(product===SETTINGS_TERMINAL.product&&id===SETTINGS_TERMINAL.id)switch(action){
       case 'open':return terminals.open(key);
       case 'read':return terminals.read(key,offset,wait);
       case 'write':terminals.write(key,data);return true;
       case 'resize':terminals.resize(key,cols,rows);return true;
       case 'close':terminals.close(key);return true;
+      default:throw Error('Unknown terminal action.');
+    }
+    switch(action){
+      case 'open':return taskTerminals.open(key,{...taskPlace(product,id),env:terminalEnv()});
+      case 'read':return taskTerminals.read(key,offset,wait);
+      case 'write':await taskTerminals.write(key,data);return true;
+      case 'resize':await taskTerminals.resize(key,cols,rows);return true;
+      case 'close':await taskTerminals.close(key);return true;
       default:throw Error('Unknown terminal action.');
     }
   });
@@ -444,6 +469,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       // title-free activity of their private work. Null on a build with no
       // team cloud, which is the single-person app.
       team: team ? team.state() : null,
+      // Which alpha features are on (Settings, Alpha features).
+      alpha: alphaFeatures(config),
       agents: liveAgents(),
       approvals: approvals.listPending(config.storeRoot),
       supervisor: running,
@@ -619,7 +646,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // answered at once (supervisor.sendNow).
   ipcMain.handle('zero:send-now', (_e, { product, id }) => supervisor.sendNow(product, id));
 
-  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, model, effort, now, inReplyTo, fromPhone }) => {
+  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, engine, model, effort, now, inReplyTo, fromPhone }) => {
     if (isAgentRow(id)) return { ok: false };
     // A level picked from ⌘K arrives here with no words, and gives way the
     // same as one picked on the summary (zero:thread-edit). A reply that
@@ -666,7 +693,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     // handing them over in one call and writing the model afterwards would be a
     // race the run usually wins, so she would pick a model and watch the old one
     // take the task. `answerItem` writes both, and it writes the model first.
-    const out = await submitReply(supervisor,{product,id,answer,status,permissionMode,now:!!now},()=>store.answerItem(product, id, { answer, status, priority, permissionMode, model, effort, inReplyTo: thread, fromPhone }));
+    const out = await submitReply(supervisor,{product,id,answer,status,permissionMode,now:!!now},()=>store.answerItem(product, id, { answer, status, priority, permissionMode, engine, model, effort, inReplyTo: thread, fromPhone }));
     // A REPLY ON A ROW A TEAMMATE GAVE YOU HANDS IT BACK TO THEM, so the
     // conversation moves to their inbox instead of sitting in both
     // (shared/team-rules.mjs handedOnByReply). Archiving hands nothing on.
@@ -799,6 +826,19 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // A MESSAGE TO A PERSON (approved 2026-10-01: people get messages, never
   // tasks). main/team/index.mjs keeps it between the two of them.
   ipcMain.handle('zero:team-message', teamCall(({ to, body, priority, files }) => team.message(to, body, priority, files)));
+  // ROOMS (alpha): one door, and only these calls through it (main/team/rooms.mjs).
+  ipcMain.handle('zero:rooms', async (_e, { op, args = [] } = {}) => {
+    const rooms = team?.rooms;
+    if (!rooms) return { ok: false, error: 'This build has no team cloud set up.' };
+    if (!ROOM_OPS.has(op)) return { ok: false, error: `no room call named ${op}` };
+    try {
+      const value = await rooms[op](...(Array.isArray(args) ? args : [args]));
+      push();
+      return { ok: true, value: value ?? null, rooms: rooms.state() };
+    } catch (err) {
+      return { ok: false, error: String(err?.message ?? err), rooms: rooms.state() };
+    }
+  });
   // AN EDIT TO A THREAD, MADE IN PLACE from its summary: the summary's lines,
   // who sees it, its priority and what it is linked to. Works with or without a
   // team, since every thread has a summary.
@@ -814,6 +854,26 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       return { ok: false, error: String(err?.message ?? err) };
     }
   });
+  // MOVE A THREAD TO ANOTHER PROJECT (w-c9da359466). Only a thread nothing has
+  // ever run on: shared/move-thread.mjs says why, and the store asks again.
+  // The one fact only this side has is whether a worker is inside it right
+  // now, which no field on the row can stand in for.
+  ipcMain.handle('zero:move-item', (_e, { product, id, to }) => {
+    try {
+      const live = supervisor.status().running.some((r) => r.itemId === id);
+      if (live) {
+        const why = whyItCannotMove(store.readItem(product, id), { live: true });
+        return { ok: false, error: why };
+      }
+      const out = store.moveItem(product, id, to);
+      push();
+      supervisor.wake();
+      return { ok: true, ...out };
+    } catch (err) {
+      return { ok: false, error: String(err?.message ?? err) };
+    }
+  });
+
   // A TASK A TEAMMATE GAVE YOU, ROUTED WITH ONE KEY. To an agent: it runs on
   // your Mac (you become its runner). Keep it: it stays yours and the routing
   // choices go away. Hand it back: it returns to whoever gave it to you.
@@ -846,6 +906,23 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     const here = store.listProducts().find((p) => p.slug === product);
     if (!here?.team?.direct) throw new Error('reactions are for a conversation with a teammate');
     store.react(product, id, { on, emoji, off });
+    await team.syncNow();
+  }));
+
+  // 'granted', or 'settings' once macOS's Microphone page has been opened instead.
+  ipcMain.handle('zero:mic-access', async () => {
+    try { return host.micAccess ? await host.micAccess() : 'granted'; } catch { return 'settings'; }
+  });
+
+  // EDIT OR DELETE A MESSAGE YOU SENT TO A TEAMMATE, in a conversation only,
+  // for the same reason as a reaction above.
+  ipcMain.handle('zero:team-edit', teamCall(async ({ product, id, on, text, gone }) => {
+    if (!teamMe()) throw new Error('sign in first');
+    if (!store.readItem(product, id)) throw new Error('that conversation is gone');
+    const here = store.listProducts().find((p) => p.slug === product);
+    if (!here?.team?.direct) throw new Error('only a message to a teammate can be edited');
+    if (!gone && !String(text ?? '').trim()) throw new Error('a message needs words; delete it instead');
+    store.editMessage(product, id, { on, text, gone: gone === true });
     await team.syncNow();
   }));
 
@@ -1678,6 +1755,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       // Before the save: once the switch is off, nothing leaves, not even this.
       if (countsTurnedOff(payload)) { analytics.track('counts_turned_off'); analytics.flush(); }
       setWorkspaceSetting({ config, supervisor, store }, payload ?? {});
+      if (payload?.key === 'alphaRooms') team?.rooms?.tick().catch(() => {});
       if (cornerTagTurnedOff(payload)) analytics.track('tag_turned_off');
       push();
       return { ok: true, ...readSettings({ config, supervisor, store }) };

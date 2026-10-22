@@ -35,6 +35,8 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import http from 'node:http';
+import crypto from 'node:crypto';
+import { pipeline } from 'node:stream/promises';
 import { spawn, execFile, execFileSync } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { usageMeter } from './usage.mjs';
@@ -48,6 +50,9 @@ const MAX_MCP_LINE = 32 * 1024 * 1024;
 // What this server can do beyond the first version, said in a start's answer,
 // so a Mac knows rather than guesses whether its asks are honoured.
 const CAPS = ['offline', 'setup', 'kept', 'base', 'plain'];
+// A conversation sent home as only what the run added is listed in this file
+// (the same name in main/cloud/run.mjs).
+const TAILS = '.agentbox-tails.json';
 // A PROJECT'S OWN SETUP: `.agentbox/cloud-setup.sh` in its task folder, run as
 // the agent before the agent, on every cloud run, so a project needing a
 // program the image lacks says so in its own repository rather than in a new
@@ -102,6 +107,13 @@ const CODEX_DEVICE_URL = /(https:\/\/auth\.openai\.com\/[^\s"'<>]+)\s/;
 // A code is taken only once something ends it: `WY6D-YCCO` read a moment
 // before its last letter arrived is not the code.
 const CODEX_DEVICE_CODE = /\b([A-Z0-9]{4}-[A-Z0-9]{4,6})\s/;
+// CODEX'S BROWSER SIGN-IN (`flow: 'browser'`). ChatGPT refuses a device code
+// unless the account turned device code sign-in on, so a Mac that can asks
+// for `codex login`, whose link sends the browser back to Codex's own server
+// here. The Mac passes that return on as a query.
+const CODEX_BROWSER_URL = /(https:\/\/auth\.openai\.com\/oauth\/authorize\?[^\s"'<>]+)\s/;
+// RFC 3986's query characters, so nothing but a query reaches Codex's server.
+const RETURN_QUERY = /^[A-Za-z0-9\-._~%!$&'()*+,;=:@/?]{1,8192}$/;
 // What each vendor's command says when the login itself is refused, read
 // only from our own check, never from an agent's output.
 const CLAUDE_REFUSED = /invalid bearer token|oauth token (?:has )?(?:expired|been revoked|revoked)|authentication_error|please run \/login|invalid api key|\b401\b/i;
@@ -163,6 +175,13 @@ export function createSandbox({
   const at = (p) => (pathRoot ? path.join(pathRoot, p) : p);
   let run = null;
   let bridge = null;
+  // A start answers the Mac at once and lays the folder out behind it, so a
+  // close ends that preparation as well as the command: until it stops, git is
+  // writing in a folder whose owner believes the server is done with it.
+  let preparing = null;
+  const stopping = new AbortController();
+  const closed = () => stopping.signal.aborted;
+  const stillOpen = () => { if (closed()) throw new Error('the sandbox is closing'); };
   const rootHelper = rootSocket ? openRootHelper(rootSocket) : null;
   let statusChangedAt = Math.floor(Date.now() / 1000);
   let lastPing = null;
@@ -555,7 +574,8 @@ export function createSandbox({
         // The history the bucket already had, then only the commits past it.
         if (base) {
           const file = path.join(r.dir, 'base.bundle');
-          await download(fetchImpl, base.url, file);
+          await download(fetchImpl, base.url, file, stopping.signal);
+          stillOpen();
           await sh('git', ['fetch', '-q', file, '+refs/*:refs/agentbox/base/*'], cwd);
           fs.rmSync(file, { force: true });
         }
@@ -563,7 +583,8 @@ export function createSandbox({
         // fresh repository's HEAD already names a branch, and git otherwise
         // refuses to fetch into the checked-out one.
         if (bundleUrl) {
-          await download(fetchImpl, bundleUrl, bundle);
+          await download(fetchImpl, bundleUrl, bundle, stopping.signal);
+          stillOpen();
           await sh('git', ['fetch', '-q', '--update-head-ok', bundle, '+refs/*:refs/*'], cwd);
         }
         // A thin bundle leaves out each ref whose commit the base holds.
@@ -584,8 +605,9 @@ export function createSandbox({
           await sh('git', ['update-ref', '-d', changesRef], cwd).catch(() => {});
         }
       }
+      stillOpen();
       if (r.spec.docs) fs.mkdirSync(r.spec.docs, { recursive: true });
-      for (const f of files) await placeFile(f);
+      for (const f of files) { await placeFile(f, r); stillOpen(); }
       // Files that belong in the agent's own home here, wherever the Mac keeps
       // its: the person's own instructions to Claude (`.claude/CLAUDE.md`).
       const home = at(runAs?.home || process.env.HOME || '/root');
@@ -612,11 +634,15 @@ export function createSandbox({
         for (const p of own) await sh('chown', ['-R', `${runAs.uid}:${runAs.gid}`, p], '/');
       }
     } catch (err) {
-      emit({ kind: 'error', message: `could not prepare the run: ${err.message}` }, r);
+      emit({ kind: 'error', message: closed() ? 'the sandbox closed while the run was being prepared' : `could not prepare the run: ${err.message}` }, r);
       setState('failed', {}, r);
       return;
     }
+    // Closed while this was being laid out: the command does not start, and
+    // the results of a run nobody is waiting for do not go up.
+    if (closed()) { setState('failed', {}, r); return; }
     if (!r.cancelled && !r.spec.kind && fs.existsSync(path.join(cwd, SETUP_FILE))) await runSetup(r, cwd, env);
+    if (closed()) { setState('failed', {}, r); return; }
     if (r.cancelled) {
       // Cancelled before it ever started: nothing ran, so the results are the
       // folder exactly as it was packed, uploaded so the Mac's import is the
@@ -713,9 +739,11 @@ export function createSandbox({
     r.killTimer = setTimeout(() => killGroup(child.pid, 'SIGKILL'), killGraceMs);
   }
 
-  async function placeFile(f) {
+  // What a run was given is noted, so only what it adds goes home (`stageTails`).
+  async function placeFile(f, r = null) {
     fs.mkdirSync(path.dirname(f.path), { recursive: true });
-    await download(fetchImpl, f.url, f.path);
+    const body = await download(fetchImpl, f.url, f.path, stopping.signal);
+    if (r && !f.untar) (r.placed ||= new Map()).set(f.path, { size: body.length, sha256: sha256(body) });
     if (f.untar) {
       fs.mkdirSync(f.untar, { recursive: true });
       await sh('tar', ['-xzf', f.path, '-C', f.untar], f.untar);
@@ -788,7 +816,7 @@ export function createSandbox({
     const env = ownEnv(engine === 'claude' ? { CLAUDE_CONFIG_DIR: scratch, BROWSER: '/bin/false', TERM: 'xterm-256color' } : { CODEX_HOME: scratch, BROWSER: '/bin/false' });
     const argv = engine === 'claude'
       ? terminal('stty cols 4000 rows 50 2>/dev/null; exec claude setup-token')
-      : ['codex', 'login', '--device-auth'];
+      : r.spec.flow === 'browser' ? ['codex', 'login'] : ['codex', 'login', '--device-auth'];
     if (r.cancelled) return failSignin(r, 'The sign-in was cancelled.');
     let child;
     try {
@@ -828,6 +856,19 @@ export function createSandbox({
           const url = seen.match(CLAUDE_SIGNIN_URL)?.[1];
           if (url) { r.signinUrl = url; signinEvent(r, 'needs-code', { url }); }
         }
+      } else if (!r.signinUrl && r.spec.flow === 'browser') {
+        const url = seen.match(CODEX_BROWSER_URL)?.[1];
+        if (url) {
+          r.signinUrl = url;
+          r.returnPort = loopbackPort(url);
+          if (!r.returnPort) {
+            r.signinOver = true;
+            killGroup(child.pid, 'SIGTERM');
+            failSignin(r, 'Codex’s sign-in link had no way back. Try again.');
+            return;
+          }
+          signinEvent(r, 'waiting', { url, code: null });
+        }
       } else if (!r.signinUrl) {
         const url = seen.match(CODEX_DEVICE_URL)?.[1];
         const code = seen.match(CODEX_DEVICE_CODE)?.[1];
@@ -848,6 +889,7 @@ export function createSandbox({
       if (engine === 'codex' && code === 0 && !r.cancelled) { finishCodex(r); return; }
       if (r.cancelled) failSignin(r, 'The sign-in was cancelled.');
       else if (r.codeSent) failSignin(r, 'Claude didn’t accept that code. Copy the newest code from Claude’s page and try again.');
+      else if (r.returnRefused) failSignin(r, 'OpenAI didn’t accept that sign-in. Try again.');
       else failSignin(r, engine === 'claude' ? 'The sign-in ended before Claude finished it.' : 'Codex did not finish signing in.');
     }));
     r.signinTimer = setTimeout(() => {
@@ -901,6 +943,37 @@ export function createSandbox({
     note(r, 'looked');
     signinEvent(r, 'saved', { org: seen.org, limits: seen.limits });
     setState('collected', {}, r);
+  }
+
+  // THE BROWSER'S RETURN, handed to `codex login`'s own server as if the
+  // browser had reached it here. Its redirect to /success carries the id
+  // token, so it is followed here and nothing of it goes back; Codex exits
+  // once /success is fetched, and its exit says how the sign-in ended.
+  async function handBack(r, query) {
+    const at = `http://127.0.0.1:${r.returnPort}`;
+    let res;
+    try {
+      res = await fetchImpl(`${at}/auth/callback?${query}`, { redirect: 'manual', signal: AbortSignal.timeout(90_000) });
+      await res.arrayBuffer().catch(() => {});
+    } catch (err) {
+      note(r, `return not taken: ${shape(err.message)}`);
+      return { ok: false, error: 'not-taken' };
+    }
+    note(r, `return answered ${res.status}`);
+    // "State mismatch": another sign-in's return. Codex is still waiting.
+    if (res.status === 400) return { ok: false, error: 'wrong-sign-in' };
+    const to = res.headers.get('location');
+    if (res.status < 300 || res.status >= 400 || !to) {
+      r.returnRefused = true;
+      return { ok: false, error: 'refused' };
+    }
+    signinEvent(r, 'checking');
+    try {
+      const next = new URL(to, at);
+      const done = await fetchImpl(`${at}${next.pathname}${next.search}`, { signal: AbortSignal.timeout(30_000) });
+      await done.arrayBuffer().catch(() => {});
+    } catch { /* Codex has the login already; its exit decides */ }
+    return { ok: true };
   }
 
   async function finishCodex(r) {
@@ -1061,9 +1134,14 @@ export function createSandbox({
     const bringAll = async () => {
       for (const b of bring) {
         if (!fs.existsSync(b.dir)) continue;
-        if (r.secrets?.length) redactFolder(b.dir, r.secrets);
+        const staged = r.spec.tails ? await stageTails(r, b.dir, tmp('bring')) : null;
+        if (r.secrets?.length) redactFolder(staged || b.dir, r.secrets);
         const tarball = tmp('bring.tgz');
-        await sh('tar', ['-czf', tarball, '-C', b.dir, '.'], r.spec.cwd);
+        try {
+          await sh('tar', ['-czf', tarball, '-C', staged || b.dir, '.'], r.spec.cwd);
+        } finally {
+          if (staged) fs.rmSync(staged, { recursive: true, force: true });
+        }
         await upload(fetchImpl, b.url, fs.readFileSync(tarball));
         fs.rmSync(tarball, { force: true });
         brought.push(b.dir);
@@ -1258,7 +1336,7 @@ export function createSandbox({
       if (problem) return { ok: false, error: 'bad-start', message: problem };
       closeLog(run);
       const r = {
-        id: req.runId, spec: { kind: action, engine: req.engine, saveUrl: req.saveUrl, loginUrl: req.loginUrl },
+        id: req.runId, spec: { kind: action, engine: req.engine, saveUrl: req.saveUrl, loginUrl: req.loginUrl, flow: req.flow ?? null },
         state: 'preparing', waiters: new Set(), pendingStdin: [], child: null,
         exitCode: null, startSha: null, inSeq: 0, cancelled: null, manifest: null,
         dir: path.join(workRoot, '.agentbox', safe(req.runId)),
@@ -1297,7 +1375,7 @@ export function createSandbox({
       run = r;
       if (r.offline) watchWhileAway(r);
       setState('preparing', {}, r);
-      prepareAndSpawn(r);
+      preparing = prepareAndSpawn(r).catch(() => {});
       return { ok: true, seq: r.log.index.length, caps: CAPS };
     }
     if (!run) return { ok: false, error: 'no-run' };
@@ -1305,10 +1383,18 @@ export function createSandbox({
     const r = run;
     // Every ask is the Mac, there; a `peek` is something else reading.
     if (!(action === 'events' && req.peek)) r.macSeenAt = Date.now();
-    // A sign-in session takes its code and a cancel, and nothing a run takes:
-    // input to it would be typed into the vendor's own sign-in.
-    if (r.spec.kind && !['events', 'signal', 'signin-code'].includes(action)) return { ok: false, error: 'not-a-run' };
+    // A sign-in session takes its code, its browser's return and a cancel,
+    // and nothing a run takes: input to it would be typed into the vendor's
+    // own sign-in.
+    if (r.spec.kind && !['events', 'signal', 'signin-code', 'signin-callback'].includes(action)) return { ok: false, error: 'not-a-run' };
     switch (action) {
+      case 'signin-callback': {
+        if (r.spec.kind !== 'signin' || r.spec.flow !== 'browser') return { ok: false, error: 'not-a-browser-sign-in' };
+        if (!r.child || r.signinOver || !r.returnPort) return { ok: false, error: 'not-waiting' };
+        const query = typeof req.query === 'string' ? req.query : '';
+        if (!RETURN_QUERY.test(query)) return { ok: false, error: 'bad-callback' };
+        return handBack(r, query);
+      }
       case 'signin-code': {
         if (r.spec.kind !== 'signin' || r.spec.engine !== 'claude') return { ok: false, error: 'not-a-claude-sign-in' };
         if (!r.child || r.signinOver) return { ok: false, error: 'not-waiting' };
@@ -1367,7 +1453,7 @@ export function createSandbox({
           try {
             for (const f of req.files || []) {
               if (!f?.url || !path.isAbsolute(f?.path || '')) return { ok: false, error: 'bad-file', consumed: true };
-              await placeFile({ ...f, path: at(f.path), ...(f.untar ? { untar: at(f.untar) } : {}) });
+              await placeFile({ ...f, path: at(f.path), ...(f.untar ? { untar: at(f.untar) } : {}) }, r);
               if (runAs) await sh('chown', [`${runAs.uid}:${runAs.gid}`, at(f.path)], '/').catch(() => {});
             }
           } catch (err) {
@@ -1443,6 +1529,11 @@ export function createSandbox({
   }
 
   async function close() {
+    // Aborted first, so what the preparation is waiting on is a download that
+    // has already ended rather than one that may never answer.
+    stopping.abort();
+    await preparing;
+    preparing = null;
     if (run?.child) killGroup(run.child.pid, 'SIGKILL');
     if (run) { clearTimeout(run.deadlineTimer); clearTimeout(run.killTimer); for (const w of [...run.waiters]) w(); }
     if (bridge) { for (const c of bridge.conns.values()) c.sock.destroy(); bridge.server.close(); bridge = null; }
@@ -1481,11 +1572,24 @@ export function readReplyHeaders(text) {
   return org || limits.length ? { org, limits } : null;
 }
 
+// The port of the way back an OpenAI sign-in link names, when it is this
+// machine's own; null otherwise.
+function loopbackPort(link) {
+  try {
+    const back = new URL(new URL(link).searchParams.get('redirect_uri') || '');
+    const port = Number(back.port);
+    return back.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(back.hostname) && port > 0 ? port : null;
+  } catch {
+    return null;
+  }
+}
+
 function invalidSignin(action, req) {
   if (!req.runId || typeof req.runId !== 'string') return 'runId is required';
   if (action === 'look') return req.engine === 'claude' && req.loginUrl ? null : 'a look is at a Claude login, by its link';
   if (!req.saveUrl) return 'saveUrl is required';
   if (action === 'signin' && !['claude', 'codex'].includes(req.engine)) return 'engine must be claude or codex';
+  if (req.flow != null && (action !== 'signin' || req.engine !== 'codex' || req.flow !== 'browser')) return 'flow is browser, and only for a Codex sign-in';
   if (action === 'renew' && (req.engine !== 'codex' || !req.loginUrl)) return 'a renewal is for a Codex login, by its link';
   return null;
 }
@@ -1584,6 +1688,55 @@ async function redactChanged(cwd, secrets) {
   }
 }
 
+const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
+const within = (dir, p) => { const rel = path.relative(dir, p); return !!rel && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel); };
+
+async function sha256OfStart(file, bytes) {
+  const h = crypto.createHash('sha256');
+  if (bytes > 0) for await (const chunk of fs.createReadStream(file, { start: 0, end: bytes - 1 })) h.update(chunk);
+  return h.digest('hex');
+}
+
+// `from` copied into `to` by hard links where it can, leaving out `skip`.
+function mirror(from, to, skip) {
+  fs.mkdirSync(to, { recursive: true });
+  fs.chmodSync(to, fs.statSync(from).mode & 0o7777);
+  for (const e of fs.readdirSync(from, { withFileTypes: true })) {
+    const src = path.join(from, e.name);
+    const dst = path.join(to, e.name);
+    if (skip.has(src)) continue;
+    if (e.isDirectory()) mirror(src, dst, skip);
+    else if (e.isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(src), dst);
+    else if (e.isFile()) { try { fs.linkSync(src, dst); } catch { fs.copyFileSync(src, dst); } }
+  }
+}
+
+// THE FOLDER AS IT GOES HOME WHEN IT HOLDS A FILE THE RUN WAS GIVEN AND ONLY
+// ADDED TO (a conversation): that file as what the run added, listed in TAILS
+// for the Mac to add to its own copy (main/cloud/run.mjs `layTails`). Null
+// when there is none; a file whose start the run changed goes whole.
+async function stageTails(r, dir, staging) {
+  const tails = [];
+  for (const [file, was] of r.placed || []) {
+    if (!within(dir, file)) continue;
+    const st = fs.lstatSync(file, { throwIfNoEntry: false });
+    if (!st?.isFile() || st.size < was.size || await sha256OfStart(file, was.size) !== was.sha256) continue;
+    tails.push({ file, ...was });
+  }
+  if (!tails.length) return null;
+  fs.rmSync(staging, { recursive: true, force: true });
+  mirror(dir, staging, new Set(tails.map((t) => t.file)));
+  const list = [];
+  for (const t of tails) {
+    const rel = path.relative(dir, t.file);
+    const tail = `${rel}.agentbox-tail`;
+    await pipeline(fs.createReadStream(t.file, { start: t.size }), fs.createWriteStream(path.join(staging, tail)));
+    list.push({ file: rel, tail, from: t.size, sha256: t.sha256 });
+  }
+  fs.writeFileSync(path.join(staging, TAILS), JSON.stringify(list));
+  return staging;
+}
+
 // The transcripts that come home, with the login's text taken out of them.
 function redactFolder(dir, secrets) {
   const walk = (d) => {
@@ -1661,11 +1814,13 @@ function scanDocs(dir) {
   return out;
 }
 
-async function download(fetchImpl, url, file) {
-  const res = await fetchImpl(url);
+async function download(fetchImpl, url, file, signal) {
+  const res = await fetchImpl(url, signal ? { signal } : undefined);
   if (!res.ok) throw new Error(`fetch ${res.status} for ${redact(url)}`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+  const body = Buffer.from(await res.arrayBuffer());
+  fs.writeFileSync(file, body);
+  return body;
 }
 
 async function upload(fetchImpl, url, body) {

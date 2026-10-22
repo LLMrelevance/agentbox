@@ -125,12 +125,26 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
       return signIn('/auth/v1/token?grant_type=id_token', { provider, id_token: idToken, ...(nonce ? { nonce } : {}) });
     },
     // A new account may have to confirm its email first; then there is no
-    // session yet, and the page says to look for the email.
-    async signUp(name: string, email: string, password: string): Promise<{ confirm: boolean }> {
+    // session yet, and the page says to look for the email. Without `returnTo`
+    // the email's link goes to the database's own default, which is the
+    // desktop's listener on the Mac and nowhere on a phone.
+    async signUp(name: string, email: string, password: string, returnTo?: string): Promise<{ confirm: boolean }> {
       const mine = ++gen;
-      const body = await call('/auth/v1/signup', { method: 'POST', auth: false, body: JSON.stringify({ email, password, data: { full_name: name } }) });
+      const path = returnTo ? `/auth/v1/signup?redirect_to=${encodeURIComponent(returnTo)}` : '/auth/v1/signup';
+      const body = await call(path, { method: 'POST', auth: false, body: JSON.stringify({ email, password, data: { full_name: name } }) });
       if (body?.access_token) { took(body, mine); return { confirm: false }; }
       return { confirm: true };
+    },
+    // An email's link comes back with its sign-in after `#`, or why it failed.
+    // Only the renewal token is taken from it: the database answers that with
+    // a whole sign-in, so nothing in an address is trusted on its own word.
+    async finishEmailLink(hash: string): Promise<CloudSession | null> {
+      const got = new URLSearchParams(hash.replace(/^#/, ''));
+      const failed = got.get('error_description') || got.get('error');
+      if (failed) throw new Error(failed);
+      const refresh = got.get('refresh_token');
+      if (!refresh || !got.get('access_token')) return null;
+      return signIn('/auth/v1/token?grant_type=refresh_token', { refresh_token: refresh });
     },
     // GOOGLE, THROUGH THE DATABASE'S OWN SIGN-IN PAGE, with a one-time proof
     // (PKCE) so the code that comes back is no use to anybody else. It comes

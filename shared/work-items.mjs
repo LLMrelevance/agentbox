@@ -32,6 +32,8 @@
 // epoch, and neither erases the other. Same rule as beats in
 // shared/dashboard.mjs.
 
+import { resolveEdits } from './message-edits.mjs';
+
 /* ------------------------------- lifecycle ------------------------------- */
 // The only states the claim machinery reasons about. Everything else about what
 // a work item is (kind, labels) is free-form text the layer above interprets.
@@ -155,6 +157,10 @@ export const WORK_ITEM_FIELDS = [
   // mark on ONE line rather than a value the row holds, so the fold skips it;
   // the chat reads it per line (renderer/src/thread-history.ts).
   'inReplyTo',
+  // AN EDIT OR A DELETION OF ONE MESSAGE: `{ on, text }` or `{ on, gone: true }`,
+  // where `on` is the message's line uid. A delta like `react`, read back as
+  // `edits` and only from the message's own author (shared/message-edits.mjs).
+  'edit',
   // WHICH COMMAND FROM HER PHONE WROTE THIS LINE (docs/cloud/PHONE-PLAN.md):
   // the command's id, on the line of the reply or the new thread it made. It
   // is how the computer, starting again after stopping half way through a
@@ -402,7 +408,7 @@ function coerceField(field, value) {
     // shared/effort-levels.mjs, and the spawn gates on them, so a value this
     // module does not recognise is a run at Claude Code's own choice rather
     // than a row that never runs.
-    case 'kind': case 'product': case 'parent': case 'engine': return str(value, MAX_SHORT);
+    case 'kind': case 'product': case 'parent': return str(value, MAX_SHORT);
     // THESE TWO ARE CLEARED BY WRITING '' AND SO '' IS A REAL VALUE, exactly
     // as runAt's 0 and start's 'now' are, and for the same reason: a field that
     // coerces to undefined is dropped by the fold, so without a falsy value
@@ -418,7 +424,12 @@ function coerceField(field, value) {
     // picking a model and pressing send lost the message, with nothing on
     // screen to say so. Five of the 14 crashes since the Oct 6 launch, on two
     // installs (PostHog, 2026-10-08).
-    case 'model': case 'effort': return clearable(value, MAX_SHORT);
+    //
+    // `engine` JOINED THEM WHEN A REPLY COULD FIRST CARRY ONE (w-c9da359466).
+    // It is written beside the model by the same call, so clearing it back to
+    // the workspace default would have thrown in exactly the place described
+    // above, before the answer was written, losing the message.
+    case 'model': case 'effort': case 'engine': return clearable(value, MAX_SHORT);
     case 'status': return WORK_ITEM_STATUSES.includes(value) ? value : undefined;
     case 'priority': return Number.isFinite(value) ? Math.trunc(value) : undefined;
     // When this item may next be acted on, in epoch ms. 0 means unscheduled,
@@ -470,6 +481,14 @@ function coerceField(field, value) {
       return value.off === true ? { on, emoji, off: true } : { on, emoji };
     }
     case 'inReplyTo': return shortId(value) ?? undefined;
+    case 'edit': {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+      const on = shortId(value.on);
+      if (!on) return undefined;
+      if (value.gone === true) return { on, gone: true };
+      const text = str(value.text, MAX_TEXT_BYTES);
+      return text ? { on, text } : undefined;
+    }
     case 'fromPhone': return typeof value === 'string' && /^[0-9a-f-]{8,64}$/i.test(value) ? value : undefined;
     case 'visibility': return value === 'private' || value === 'team' || value === 'people' ? value : undefined;
     // An empty list is a real value: it is how the last chosen person comes
@@ -556,8 +575,16 @@ export function finishItem(raw, now = Date.now()) {
   }
   const closes = item.closes;
   delete item.closes;
+  const editLines = item.editLines;
+  delete item.editLines;
+  const edits = editLines ? resolveEdits(item.said ?? [], editLines) : null;
+  if (edits?.size) item.edits = Object.fromEntries(edits);
   if (item.said) {
-    const said = item.said;
+    const said = edits?.size ? item.said.flatMap((s) => {
+      const e = s.uid ? edits.get(s.uid) : null;
+      if (!e) return [s];
+      return e.gone ? [] : [{ ...s, text: e.text.trim().slice(0, TALK_TEXT) }];
+    }) : item.said;
     delete item.said;
     if (Array.isArray(item.people) && item.people.length) {
       item.talk = talkOf(said);
@@ -657,6 +684,10 @@ export function foldRawInto(items, lines, touched = null) {
       // WHICH MESSAGE A REPLY ANSWERS belongs to that reply's line alone. Held
       // as a value, the row would carry the newest reply's parent forever.
       if (field === 'inReplyTo') continue;
+      if (field === 'edit') {
+        (item.editLines ??= []).push({ on: value.on, by: line.by ?? null, ts: line.ts, ...(value.gone ? { gone: true } : { text: value.text }) });
+        continue;
+      }
       const held = item.wrote[field];
       // There used to be an exception here, for machinery spending a one-off
       // permission mode over the founder's own grant. That field is not on the

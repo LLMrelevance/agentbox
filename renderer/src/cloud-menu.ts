@@ -2,6 +2,7 @@
 // The button and the menu are drawn in threads/Pages.tsx, beside the filters
 // button and built like its menu; what they say lives here.
 import type { UsageLimit } from './types';
+import { accountName } from '../../shared/account-names.mjs';
 
 export type CloudMode = 'mac' | 'full' | 'all';
 
@@ -75,6 +76,8 @@ export interface CloudStatus {
   noRoom?: { error: 'plan' | 'hours' | 'agents' | 'paused' | 'terms'; message: string | null } | null;
   /** The cloud image's Claude Code or Codex, as major.minor, when it is not this Mac's; `blocks` for a different major. */
   versionGap?: { engine: 'claude' | 'codex'; cloud: string; mac: string; blocks: boolean } | null;
+  /** The slugs of the projects whose threads the cloud may run (supervisor `_cloudTakesProject`). */
+  projects?: string[];
 }
 
 const agentName = (engine: 'claude' | 'codex') => (engine === 'codex' ? 'Codex' : 'Claude Code');
@@ -92,12 +95,12 @@ export function pageToOpen(s: CloudSignIn | null): { key: string; url: string } 
 }
 
 // What an account is called: its email, or, when the vendor would not say,
-// "Claude account 2", counted among that engine's accounts.
+// "Claude account 2", counted among that engine's accounts. The rule itself is
+// shared, because the sentence a thread gets when a login runs out names one
+// too (shared/account-names.mjs).
 export function accountLabel(a: CloudAccount, all: CloudAccount[]): string {
-  if (a.name) return a.name;
   const same = all.filter((x) => x.engine === a.engine);
-  const n = same.indexOf(a) + 1;
-  return `${engineWord(a)} account${same.length > 1 ? ` ${n}` : ''}`;
+  return accountName({ email: a.name, engine: a.engine, index: same.indexOf(a), total: same.length });
 }
 
 export const CLOUD_MODES: { id: CloudMode; label: string; note: string }[] = [
@@ -211,17 +214,16 @@ export function cloudMonthLine(month: CloudMonth): string {
  * WHERE ONE THREAD RUNS, for its menu's row (threads/ThreadMenu.tsx): in the
  * cloud now, kept on this Mac, or here and free to go to the cloud. Null where
  * the cloud could never run it: no cloud set up, the cloud off and the thread
- * not kept, or a project with no code folder of its own.
+ * not kept, or a project the cloud does not take.
  */
 export function threadPlace(
   item: { id: string; product: string; onMac?: boolean },
   session: { where?: string } | null,
   cloud: CloudStatus | null,
-  products: { slug: string; repoPath?: string | null }[],
 ): 'cloud' | 'here' | 'kept' | null {
   if (!cloud?.setUp) return null;
   if (item.onMac) return 'kept';
   if (session?.where === 'cloud') return 'cloud';
   if (!cloudIsOn(cloud)) return null;
-  return products.some((p) => p.slug === item.product && p.repoPath) ? 'here' : null;
+  return cloud.projects?.includes(item.product) ? 'here' : null;
 }

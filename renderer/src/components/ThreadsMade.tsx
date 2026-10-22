@@ -42,10 +42,10 @@
 //   AND NOTHING SNAPS. "Everything immediately shades... You typically want
 //   those little transitions." Every hover fades (threads-made.css).
 //
-// ONE ROW AT A TIME. There is no press that answers the lot, and that is the
-// decision rather than an omission: three proposals are three decisions, and
-// this app has already been burned once by a key that approved on her behalf
-// (the E-key history in App.tsx's `resolve`). What each row carries is its own.
+// AND THE COUNT LINE ANSWERS FOR THE LOT (w-fe64f35bdd). DISMISS ALL and START
+// ALL stand over the rows' answers, grey so NEW THREAD stays the one orange
+// word, and only where two or more proposals wait. They are presses naming the
+// count, never a key: a key once approved on someone's behalf (App.tsx `resolve`).
 //
 // THE ROW IS A DIV, NOT A BUTTON: no browser accepts a button inside a button.
 // The press to open is its own control filling the row, so the row looks
@@ -65,11 +65,13 @@ export interface MadeRow {
 export const START_NEW = 'New thread';
 export const DO_HERE = 'Do here';
 export const DISMISS = 'Dismiss';
+export const START_ALL = 'Start all';
+export const DISMISS_ALL = 'Dismiss all';
 
 /** "2 proposals waiting on you". */
 export const waitingWords = (n: number): string => `${n} proposal${n === 1 ? '' : 's'} waiting on you`;
 
-export function ThreadsMade({ rows, onOpen, onApprove, onHere, onDismiss, label }: {
+export function ThreadsMade({ rows, onOpen, onApprove, onHere, onDismiss, onStartAll, onDismissAll, label }: {
   rows: MadeRow[];
   onOpen: (id: string) => void;
   /** Start it as its own thread: the approval that has always been here. */
@@ -81,6 +83,10 @@ export function ThreadsMade({ rows, onOpen, onApprove, onHere, onDismiss, label 
   onHere?: (id: string) => void;
   /** Drop it: it closes and never runs. */
   onDismiss?: (id: string) => void;
+  /** Start every proposal in this list, by id, in the order drawn. */
+  onStartAll?: (ids: string[]) => void;
+  /** Drop every proposal in this list. */
+  onDismissAll?: (ids: string[]) => void;
   label?: string;
 }) {
   if (!rows.length) return null;
@@ -92,9 +98,21 @@ export function ThreadsMade({ rows, onOpen, onApprove, onHere, onDismiss, label 
   const waiting = asks.length > 0;
   const shown = waiting ? [...asks, ...rows.filter((r) => !canPress(r))] : rows;
   const heading = waiting ? waitingWords(asks.length) : label;
+  const ids = asks.map((r) => r.id);
+  const all = asks.length > 1 && !!onStartAll;
   return (
     <div className={waiting ? 'made made-waiting' : 'made'}>
-      {heading && <div className="made-label">{heading}</div>}
+      {heading && (
+        <div className="made-label">
+          <span>{heading}</span>
+          {all && (
+            <div className="made-acts made-all">
+              {onDismissAll && <button type="button" className="made-all-dismiss" aria-label={`${DISMISS_ALL} ${asks.length}`} title={`${DISMISS_ALL} ${asks.length}: none of them will run`} onClick={() => onDismissAll(ids)}>{DISMISS_ALL}</button>}
+              <button type="button" className="made-all-start" aria-label={`${START_ALL} ${asks.length} as new threads`} title={`${START_ALL} ${asks.length} as new threads`} onClick={() => onStartAll!(ids)}>{START_ALL}</button>
+            </div>
+          )}
+        </div>
+      )}
       <div className="made-list">
         {shown.map((r) => {
           const press = canPress(r);

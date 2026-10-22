@@ -9,6 +9,7 @@ import { AppMark } from './AppMark';
 import { SidebarMove, SidebarUpdate } from './SidebarUpdate';
 import { changeLines, closedHere, readMoveClosed, readUpdateClosed, writeMoveClosed, writeUpdateClosed } from '../update-row';
 import { AccountMenu } from '../team/account-menu';
+import type { Invisible } from '../team/rooms/GoInvisible';
 /** ONE NUMBER IN THE SIDEBAR, ON INBOX, AND IT IS DRAWN IN THE TAB'S OWN TYPE.
  *
  *  w-5f02e7b525. Only Inbox shows a number, like a classic email client, and of
@@ -40,7 +41,12 @@ import { AccountMenu } from '../team/account-menu';
  *  deselected tab that is --text-faint at 400, exactly the word Inbox beside it;
  *  on the active one it is --text at 500. There is one rule rather than two.
  */
-export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearch: _onSearch, onCompose: _onCompose, inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, onAccount, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove }: {
+export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearch: _onSearch, onCompose: _onCompose, inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, onAccount, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove, rooms = null, invisible = null, roomOpen = false }: {
+  /** A room is open, which lights its row rather than Threads. */
+  roomOpen?: boolean;
+  // ROOMS (alpha): the Messages and Rooms rows under Threads (team/rooms/useRooms.tsx),
+  // and going invisible from your account menu.
+  rooms?: ReactNode; invisible?: Invisible | null;
   // A NEW VERSION WAITING (SidebarUpdate.tsx). Null when there is none.
   // `version` is what its × closes, until a newer one arrives.
   update?: { installing: boolean; version?: string | null; changes?: string[]; behind?: number | null; error?: string | null } | null; onUpdate?: () => void;
@@ -91,7 +97,7 @@ export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearc
   // ONE PAGE OF YOUR THREADS (approved 2026-10-01). In progress, Scheduled and
   // Closed are tabs on the Inbox now, not places in the sidebar, so the Inbox
   // tab is lit on every one of them.
-  const inboxLit = !page && (['inbox', 'progress', 'snoozed', 'done'] as string[]).includes(view);
+  const inboxLit = !page && !roomOpen && (['inbox', 'progress', 'snoozed', 'done'] as string[]).includes(view);
   const me = team?.signedIn ? team.me : null;
   const teamName = team?.team?.name ?? Name;
   // A team wears its initial. With no team the corner names the app itself, so
@@ -118,7 +124,7 @@ export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearc
   // `:last-child` rule close the gap under Settings (workspace-navigation.css).
   const corner = me
     ? (onAccount
-      ? <AccountMenu me={me} now={Date.now()} collapsed={collapsed} onAccount={onAccount} onInvite={onInvite} onSettings={onSettings} onSignOut={onSignOut} />
+      ? <AccountMenu me={me} now={Date.now()} collapsed={collapsed} onAccount={onAccount} onInvite={onInvite} onSettings={onSettings} onSignOut={onSignOut} invisible={invisible} />
       : <><Face person={me} me /><span>{me.name || me.email}<small>{me.email}</small></span></>)
     : team?.configured && onTeam
       ? <button type="button" className="th-me-signin" aria-label="Sign in to your team" onClick={onTeam}>Sign in to your team</button>
@@ -146,6 +152,7 @@ export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearc
           faces at the end of the Inbox's tab bar pick whose threads are on
           it. `onTeam` is still the sign-in link at the foot. */}
     </nav>
+    {rooms}
     <div className="workspace-bottom">
       {/* The card sits above the foot list; with the sidebar shut it is a
           row inside it (SidebarUpdate.tsx). */}

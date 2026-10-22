@@ -194,9 +194,6 @@ reviewers sometimes test there.
   `tests/**/*.test.mjs` (vitest.config.mjs) and the push hook only picks out
   that shape (scripts/lib/tests-the-push-runs.mjs). GitHub's workflow also
   installs `mobile/` and type-checks it.
-- `scripts/lib/risk-tier.mjs` learns `mobile/`: screens are "look", and
-  sign-in, account deletion and anything that publishes a build are "risky".
-  Its visual rules cover only `renderer/` today.
 - EAS credentials never enter git; the public check already refuses
   certificates and keys.
 - EAS build profiles: `development` (a development build on the owner's phone,

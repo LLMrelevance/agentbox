@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { run } from './exec.mjs';
-import { commonGitDirOf } from './marker.mjs';
+import { commonGitDirOf, markerPath } from './marker.mjs';
 
 // The bucket deletes everything under `runs/` seven days after it was written
 // (scripts/cloud-setup.mjs). Names carry the six-day period they were written
@@ -53,6 +53,80 @@ export async function sendOnce(storage, key, make) {
   const body = await make();
   await storage.put(key, body);
   return { key, sent: true };
+}
+
+const has = (storage, key) => (storage.exists ? storage.exists(key).catch(() => false) : false);
+
+// S3 copies a part only from 5 MiB, so a conversation smaller than that is
+// sent whole every time.
+export const MIN_JOIN_BYTES = 5 * 1024 * 1024;
+
+// Where this Mac notes the conversation it last sent from a folder: beside
+// the folder's cloud marker.
+export function sentRecordPath(here) {
+  const marker = markerPath(here);
+  return marker ? `${marker.replace(/\.json$/, '')}-sent.json` : null;
+}
+
+// The hash of the first `upTo` bytes (null when the file is shorter) and of
+// the whole file, in one read.
+async function hashes(file, upTo) {
+  const whole = crypto.createHash('sha256');
+  let prefix = null;
+  let seen = 0;
+  for await (const chunk of fs.createReadStream(file)) {
+    if (prefix === null && upTo > 0 && seen + chunk.length >= upTo) {
+      whole.update(chunk.subarray(0, upTo - seen));
+      prefix = whole.copy().digest('hex');
+      whole.update(chunk.subarray(upTo - seen));
+    } else whole.update(chunk);
+    seen += chunk.length;
+  }
+  return { prefix, whole: whole.digest('hex'), size: seen };
+}
+
+/**
+ * Puts a resumed conversation in the bucket and returns its key. Claude Code
+ * only ever adds to one, so once a copy is there only what was added since is
+ * sent, and joined to it in the bucket (`storage.extend`). Anything else, a
+ * conversation that changed or a copy the bucket no longer has, goes whole.
+ * A copy from an earlier period is joined from, never read by the cloud: the
+ * join is a new object under this period's name. `record` is where the last
+ * send is noted.
+ */
+export async function sendConversation(storage, file, { record = null, now = Date.now() } = {}) {
+  // Hashed and sent from one copy, so the key always names what was sent.
+  const copy = path.join(os.tmpdir(), `agentbox-conversation-${crypto.randomUUID()}.jsonl`);
+  try {
+    fs.copyFileSync(file, copy, fs.constants.COPYFILE_FICLONE);
+    let had = null;
+    try { had = record ? JSON.parse(fs.readFileSync(record, 'utf8')) : null; } catch { /* none yet */ }
+    const joinable = !!storage.extend && Number.isInteger(had?.size)
+      && had.size >= MIN_JOIN_BYTES && typeof had.key === 'string' && typeof had.sha === 'string';
+    const { prefix, whole, size } = await hashes(copy, joinable ? had.size : 0);
+    const key = cacheKey(`conversation-${whole}.jsonl`, now);
+    let sent = 0;
+    if (!(await has(storage, key))) {
+      if (joinable && prefix === had.sha && size > had.size && await has(storage, had.key)) {
+        try { await storage.extend(key, had.key, copy, had.size); sent = size - had.size; } catch { /* sent whole below */ }
+      }
+      if (!sent) {
+        if (storage.putFile) await storage.putFile(key, copy);
+        else await storage.put(key, fs.readFileSync(copy));
+        sent = size;
+      }
+    }
+    if (record) {
+      try {
+        const tmp = `${record}.${process.pid}.tmp`;
+        fs.writeFileSync(tmp, JSON.stringify({ period: periodOf(now), key, size, sha: whole }));
+        fs.renameSync(tmp, record);
+      } catch { /* the next send goes whole */ }
+    }
+    return { key, size, sent };
+  } finally {
+    fs.rmSync(copy, { force: true });
+  }
 }
 
 const git = (cwd, args) => run('git', args, { cwd });
