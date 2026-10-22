@@ -111,10 +111,13 @@ export function LastWordWall({ room, messages, onPerson }: { room: Room; message
 export type GroupEvent = { id: string; at: number; by: string; kind: 'started' | 'finished' | 'now'; title: string; project?: string | null; text: string; live?: boolean };
 
 /** How the work is woven into a group's chat, while one is picked (`groups.woven`). */
-export type WovenLook = 'quiet' | 'twitch' | 'cheer' | 'bursts' | 'lane' | 'ticker' | 'finishes' | 'digest' | 'riders' | 'tally' | 'peek';
-export const WOVEN_LOOKS: WovenLook[] = ['quiet', 'twitch', 'cheer', 'bursts', 'lane', 'ticker', 'finishes', 'digest', 'riders', 'tally', 'peek'];
+/** The top of the chat: today's count and the newest work, opening into the day. */
+export type TopLook = 'top-strip' | 'top-number' | 'top-people' | 'top-rhythm' | 'top-header';
+export const TOP_LOOKS: TopLook[] = ['top-strip', 'top-number', 'top-people', 'top-rhythm', 'top-header'];
+export type WovenLook = 'quiet' | 'twitch' | 'cheer' | 'bursts' | 'lane' | 'ticker' | 'finishes' | 'digest' | 'riders' | 'tally' | 'peek' | TopLook;
+export const WOVEN_LOOKS: WovenLook[] = ['quiet', 'twitch', 'cheer', 'bursts', 'lane', 'ticker', 'finishes', 'digest', 'riders', 'tally', 'peek', ...TOP_LOOKS];
 /** Looks whose conversation holds only talk; the work is somewhere beside it. */
-export const TALK_ONLY: WovenLook[] = ['lane', 'ticker', 'riders', 'tally', 'peek'];
+export const TALK_ONLY: WovenLook[] = ['lane', 'ticker', 'riders', 'tally', 'peek', ...TOP_LOOKS];
 /** Looks that keep the one-line ticker over the box. */
 export const WITH_TICKER: WovenLook[] = ['ticker', 'finishes', 'digest', 'riders', 'tally', 'peek'];
 /** More finishes than this between two messages fold into one card. */
@@ -320,6 +323,140 @@ export function TallyStrip({ past, now, who }: { past: GroupEvent[]; now: GroupE
     <span className="n"><WorkMark kind="finished" /><b>{done.length}</b> finished today</span>
     <div className="who">{top.slice(0, 4).map(([id, n]) => { const p = who(id); return <span key={id} className="p" title={nameIn(who, id)}><RoomFace name={p?.name ?? '?'} url={p?.avatarUrl} size={16} /><b>{n}</b></span>; })}</div>
   </div>;
+}
+
+const agoWords = (at: number, now: number) => { const m = Math.max(1, Math.round((now - at) / 60_000)); return m < 60 ? `${m}m` : clockOf(at); };
+const Chevron = ({ open }: { open: boolean }) => <svg className="ch" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={open ? 'm7 14 5-5 5 5' : 'm7 10 5 5 5-5'} /></svg>;
+
+/** The newest piece of work as one line: mark, first name, what, how long ago. */
+function NewestLine({ ev, who, at, verb = true }: { ev: GroupEvent; who: Who; at: number; verb?: boolean }) {
+  return <div className="gp-newest"><WorkMark kind={ev.kind} />
+    <span className="rm-one"><b>{nameIn(who, ev.by).split(' ')[0]}</b> {verb && `${ev.kind} `}<span className="t">{ev.title}</span></span>
+    <em>{agoWords(ev.at, at)}</em></div>;
+}
+
+/** One line of the day: time, mark, who and what, and its cheers when finished. */
+function DayRow({ ev, who, cheers, name = true }: { ev: GroupEvent; who: Who; cheers?: ReactNode; name?: boolean }) {
+  return <div className="gp-day-row"><em>{clockOf(ev.at)}</em><WorkMark kind={ev.kind} />
+    <span className="txt">{name && <><b>{nameIn(who, ev.by).split(' ')[0]}</b> {ev.kind} </>}<span className="t">{ev.title}</span></span>
+    {ev.kind === 'finished' && cheers}</div>;
+}
+
+/** The whole day's work: newest first, by kind, by person, or by hour. */
+export function DayList({ past, now, who, by, cheers }: {
+  past: GroupEvent[]; now: GroupEvent[]; who: Who; by: 'time' | 'kind' | 'person' | 'hour';
+  cheers?: (ev: GroupEvent) => ReactNode;
+}) {
+  const newest = [...past].reverse();
+  if (by === 'kind') {
+    const done = newest.filter((e) => e.kind === 'finished');
+    return <div className="gp-day">
+      <div className="gp-day-h"><span className="rm-label">Finished<b>{done.length}</b></span></div>
+      {done.map((e) => <DayRow key={e.id} ev={e} who={who} cheers={cheers?.(e)} />)}
+      <div className="gp-day-h"><span className="rm-label">Working now<b>{now.length}</b></span></div>
+      {now.map((e) => <DayRow key={e.id} ev={{ ...e, at: past.find((p) => p.by === e.by && p.title === e.title)?.at ?? e.at, kind: 'started' }} who={who} />)}
+    </div>;
+  }
+  if (by === 'person') {
+    const ids = [...new Set(newest.map((e) => e.by))];
+    return <div className="gp-day">{ids.map((id) => {
+      const p = who(id);
+      const theirs = newest.filter((e) => e.by === id);
+      const done = theirs.filter((e) => e.kind === 'finished');
+      const on = now.find((e) => e.by === id);
+      return <div key={id} className="gp-day-p">
+        <div className="hd"><RoomFace name={p?.name ?? '?'} url={p?.avatarUrl} size={20} /><b>{nameIn(who, id)}</b>
+          <span className="c">{done.length ? `finished ${done.length}` : ''}</span></div>
+        {on && <div className="gp-day-row on"><em /><WorkMark kind="now" /><span className="txt"><span className="t">{on.title}</span></span></div>}
+        {done.map((e) => <DayRow key={e.id} ev={e} who={who} name={false} cheers={cheers?.(e)} />)}
+      </div>;
+    })}</div>;
+  }
+  if (by === 'hour') {
+    const hours = new Map<number, GroupEvent[]>();
+    for (const e of newest) { const h = new Date(e.at).getHours(); hours.set(h, [...(hours.get(h) ?? []), e]); }
+    return <div className="gp-day">{[...hours.entries()].map(([h, evs]) => {
+      const done = evs.filter((e) => e.kind === 'finished').length;
+      return <div key={h} className="gp-day-hr">
+        <div className="gp-day-h"><span className="rm-label">{String(h).padStart(2, '0')}:00</span><span className="c">{[done && `${done} finished`, evs.length - done && `${evs.length - done} started`].filter(Boolean).join(', ')}</span></div>
+        {evs.map((e) => <DayRow key={e.id} ev={e} who={who} cheers={cheers?.(e)} />)}
+      </div>;
+    })}</div>;
+  }
+  return <div className="gp-day">{newest.map((e) => <DayRow key={e.id} ev={e} who={who} cheers={cheers?.(e)} />)}</div>;
+}
+
+/** The day as a line from the first piece of work to now, a tick for each finish. */
+function DayRhythm({ past, at }: { past: GroupEvent[]; at: number }) {
+  const from = Math.min(...past.map((e) => e.at), at - 3_600_000);
+  const x = (t: number) => `${((t - from) / (at - from)) * 100}%`;
+  return <div className="gp-rhythm">
+    <div className="line">{past.map((e) => <i key={e.id} className={e.kind} style={{ left: x(e.at) }} />)}</div>
+    <div className="ends"><span>{clockOf(from)}</span><span>now</span></div>
+  </div>;
+}
+
+/** Today's count and the newest work over the conversation, opening into the day. */
+export function TopProgress({ look, past, now, who, at, open, onToggle, cheers }: {
+  look: TopLook; past: GroupEvent[]; now: GroupEvent[]; who: Who; at: number;
+  open: boolean; onToggle: () => void; cheers?: (ev: GroupEvent) => ReactNode;
+}) {
+  const done = past.filter((e) => e.kind === 'finished');
+  const newest = [...past].reverse();
+  const count = <span className="n"><WorkMark kind="finished" /><b>{done.length}</b> finished today</span>;
+  if (look === 'top-number') {
+    return <div className={`gp-top number${open ? ' open' : ''}`}>
+      <button type="button" className="gp-top-hd" onClick={onToggle}>
+        <span className="big"><b>{done.length}</b><span className="rm-label">finished today</span></span>
+        <span className="latest">{newest.slice(0, 2).map((e) => <NewestLine key={e.id} ev={e} who={who} at={at} verb={false} />)}</span>
+        <Chevron open={open} />
+      </button>
+      {open && <div className="gp-top-sheet rm-pop"><DayList past={past} now={now} who={who} by="kind" cheers={cheers} /></div>}
+    </div>;
+  }
+  if (look === 'top-people') {
+    const by = new Map<string, number>();
+    for (const e of done) by.set(e.by, (by.get(e.by) ?? 0) + 1);
+    const ids = [...new Set([...now.map((e) => e.by), ...by.keys()])].sort((a, b) => (by.get(b) ?? 0) - (by.get(a) ?? 0));
+    return <div className={`gp-top people${open ? ' open' : ''}`}>
+      <button type="button" className="gp-top-hd" onClick={onToggle}>
+        {count}<span className="sp" /><Chevron open={open} />
+      </button>
+      {!open && <div className="gp-chips">{ids.slice(0, 6).map((id) => { const p = who(id); const on = now.some((e) => e.by === id); return <span key={id} className="c" title={nameIn(who, id)}>
+        <RoomFace name={p?.name ?? '?'} url={p?.avatarUrl} size={16} /><span className="nm">{nameIn(who, id).split(' ')[0]}</span><b>{by.get(id) ?? 0}</b>{on && <LiveMark />}</span>; })}</div>}
+      {open && <div className="gp-top-body"><DayList past={past} now={now} who={who} by="person" cheers={cheers} /></div>}
+    </div>;
+  }
+  if (look === 'top-rhythm') {
+    return <div className={`gp-top rhythm${open ? ' open' : ''}`}>
+      <button type="button" className="gp-top-hd" onClick={onToggle}>
+        {count}<span className="w"><LiveMark /><b>{now.length}</b> working</span><Chevron open={open} />
+      </button>
+      <DayRhythm past={past} at={at} />
+      {!open && newest[0] && <NewestLine ev={newest[0]} who={who} at={at} />}
+      {open && <div className="gp-top-body"><DayList past={past} now={now} who={who} by="hour" cheers={cheers} /></div>}
+    </div>;
+  }
+  if (look === 'top-header') {
+    return <div className={`gp-top header${open ? ' open' : ''}`}>
+      {newest[0] && <NewestLine ev={newest[0]} who={who} at={at} />}
+      {open && <div className="gp-top-sheet rm-pop"><DayList past={past} now={now} who={who} by="time" cheers={cheers} /></div>}
+    </div>;
+  }
+  return <div className={`gp-top strip${open ? ' open' : ''}`}>
+    <button type="button" className="gp-top-hd" onClick={onToggle}>
+      {count}<span className="w"><LiveMark /><b>{now.length}</b> working</span><Chevron open={open} />
+    </button>
+    {!open && newest[0] && <NewestLine ev={newest[0]} who={who} at={at} />}
+    {open && <div className="gp-top-body"><DayList past={past} now={now} who={who} by="time" cheers={cheers} /></div>}
+  </div>;
+}
+
+/** The count in the chat's own header, for the header look. */
+export function HeaderCount({ past, open, onToggle }: { past: GroupEvent[]; open: boolean; onToggle: () => void }) {
+  const done = past.filter((e) => e.kind === 'finished').length;
+  return <button type="button" className={`gp-hcount${open ? ' on' : ''}`} onClick={onToggle} title="Today's work">
+    <WorkMark kind="finished" /><b>{done}</b>&nbsp;today<Chevron open={open} /></button>;
 }
 
 /** The Now block at the foot of the woven stream: who is working, on what. */

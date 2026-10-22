@@ -25,7 +25,7 @@ import { pictureUrl } from '../../picture';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
 import { cardName, clockOf, mentionsIn } from './room-rules';
-import { BUSY, BurstRow, CheerBurst, CheerCard, DigestRow, LiveLane, NowLines, RiderLine, TALK_ONLY, TallyStrip, WITH_TICKER, WorkLine, WorkTick, WorkTicker, foldBursts, type Burst, type GroupEvent, type WovenLook } from './GroupPage';
+import { BUSY, BurstRow, CheerBurst, CheerCard, DigestRow, HeaderCount, LiveLane, NowLines, RiderLine, TALK_ONLY, TOP_LOOKS, TallyStrip, TopProgress, WITH_TICKER, WorkLine, WorkTick, WorkTicker, foldBursts, type Burst, type GroupEvent, type TopLook, type WovenLook } from './GroupPage';
 import { LiveMark } from '../../components/LiveMark';
 import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, quickOnBar, roomReader, storedName, wordsLeftAfterSend } from './room-chat-rules';
 
@@ -172,11 +172,14 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
             : <>{I.hash(15)}<span>{room.name}</span></>}
           {onSwitch && I.down()}
         </button>}
+      {!root && look === 'top-header' && <HeaderCount past={work} open={peek} onToggle={() => setPeek(!peek)} />}
       {!root && onInvite && room.kind !== 'group' && <button type="button" className="ic" title={`Invite people to ${room.name}`} aria-label={`Invite people to ${room.name}`} onClick={onInvite}>{I.invite(14)}</button>}
       {onExpand && <button type="button" className="ic" title="Open full page" aria-label="Open full page" onClick={onExpand}>{I.expand()}</button>}
     </div>}
     {look === 'lane' && !root && <LiveLane past={work} now={woven?.now ?? []} who={whoOf} agents={room.agents} />}
     {look === 'tally' && !root && <TallyStrip past={work} now={woven?.now ?? []} who={whoOf} />}
+    {look && (TOP_LOOKS as string[]).includes(look) && !root && woven && <TopProgress look={look as TopLook} past={work} now={woven.now} who={whoOf} at={now}
+      open={peek} onToggle={() => setPeek(!peek)} cheers={(e) => <Reactions on={{ '🎉': cheersFor(e)['🎉'] }} me={meId} onReact={() => {}} />} />}
     <div className={`rm-chat-list${dense ? ' gp-tw' : ''}`} ref={listRef}>
       {stream.map((m, i) => {
         const slot = slots[i];
