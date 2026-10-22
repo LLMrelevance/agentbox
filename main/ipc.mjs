@@ -1510,9 +1510,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // it. Every handler answers `{ ok, error }` rather than throwing across the
   // bridge, because the one thing this screen must never do is leave her
   // believing a setting took when it did not.
-  ipcMain.handle('zero:settings-read', () => {
+  ipcMain.handle('zero:settings-read', (_e, how) => {
     try {
-      return { ok: true, ...readSettings({ config, supervisor, store }) };
+      return { ok: true, ...readSettings({ config, supervisor, store }, { search: how?.search !== false }) };
     } catch (err) {
       return { ok: false, error: String(err.message) };
     }

@@ -251,10 +251,31 @@ export function setModelArg(base, model) {
 
 const lineCount = (text) => (text.trim() ? text.trim().split('\n').length : 0);
 
+// What launch found, or the last Check again, in the finder's own shape. For a
+// read nobody is looking at: the search starts a login shell on the window's
+// thread, and the phone reads settings every minute.
+function knownEngine(config, engine) {
+  if (engine === 'claude') {
+    return {
+      path: config.claudeBin ?? null,
+      found: !!config.claudeFound,
+      certain: config.claudeCertain !== false,
+      from: config.claudeBinConfigured ? 'settings' : (config.claudeFrom ?? null),
+    };
+  }
+  // recheckCodex moves codexBin and not codexFound, so the path is the answer.
+  return {
+    path: config.codexBin ?? null,
+    found: !!config.codexBin,
+    certain: config.codexCertain !== false,
+    from: config.codexBinConfigured ? 'settings' : (config.codexFrom ?? null),
+  };
+}
+
 // Claude Code: the path, whether it is really there, and where to get it when
 // it is not. One reader, here, so the screen and the config cannot disagree.
-export function claudeState(config) {
-  const found = harnessFor('claude').discover(config.claudeBinConfigured ?? null);
+export function claudeState(config, { search = true } = {}) {
+  const found = search ? harnessFor('claude').discover(config.claudeBinConfigured ?? null) : knownEngine(config, 'claude');
   return {
     claudeBin: found.path ?? config.claudeBin,
     claudeFound: found.found,
@@ -320,8 +341,8 @@ export function recheckClaude(config) {
  * checked by uninstalling Codex from the machine running the suite is a card
  * whose unsure state is not checked. Nothing in the app passes it.
  */
-export function codexState(config, where = {}) {
-  const found = harnessFor('codex').discover(config.codexBinConfigured ?? null, where);
+export function codexState(config, where = {}, { search = true } = {}) {
+  const found = search ? harnessFor('codex').discover(config.codexBinConfigured ?? null, where) : knownEngine(config, 'codex');
   return {
     // Empty rather than a path when there is nothing there, which is the same
     // asymmetry `config.codexBin` already keeps (main/config.mjs): a configured
@@ -339,8 +360,8 @@ export function codexState(config, where = {}) {
 }
 
 /** `codexState` under the names the walk's last card reads beside Claude's. */
-export function codexFoundState(config, where = {}) {
-  const state = codexState(config, where);
+export function codexFoundState(config, where = {}, how = {}) {
+  const state = codexState(config, where, how);
   return { codexFound: state.found, codexCertain: state.certain, codexInstallUrl: state.url };
 }
 
@@ -448,7 +469,8 @@ export function alphaFeatures(config) {
   return { neo: config?.alphaNeo === true, rooms: config?.alphaRooms === true };
 }
 
-export function readSettings({ config, supervisor, store }) {
+// `search: false` is for a read on a timer (`knownEngine`).
+export function readSettings({ config, supervisor, store }, { search = true } = {}) {
   const products = store.listProducts();
   const status = supervisor.status();
   const sessions = [...supervisor.sessions.values()];
@@ -632,7 +654,7 @@ export function readSettings({ config, supervisor, store }) {
       // comes back with ONE entry and this screen draws exactly what it drew
       // before. A page that derived its own list would offer her a choice the
       // supervisor is about to refuse.
-      ...engineSettings(supervisor, config),
+      ...engineSettings(supervisor, config, { search }),
       permission: permissionMode(workspaceArgs),
       permissionArgs: workspaceArgs,
       cloudPermission: config.cloudPermission ?? CLOUD_CLAUDE_DEFAULT,
@@ -677,11 +699,11 @@ export function readSettings({ config, supervisor, store }) {
       // Looked up again on every read of this screen, not taken from boot.
       // Someone who reads "install it, then open this screen again" and does
       // exactly that has to see it turn found, without restarting the app.
-      ...claudeState(config),
+      ...claudeState(config, { search }),
       // AND WHETHER CODEX IS, because the app needs one of the two and not
       // both: the last card of the walk only shuts the inbox when neither is
       // here (renderer/src/App.tsx).
-      ...codexFoundState(config),
+      ...codexFoundState(config, {}, { search }),
       // AND WHAT THIS MAC'S CLAUDE CODE CALLS ITS MODELS.
       //
       // In the same trip, and for the same reason the line above is looked up
@@ -733,7 +755,7 @@ function engineTroubleFor(supervisor, engine) {
   return trouble ? engineTroubleNote(trouble.cause) : null;
 }
 
-function engineSettings(supervisor, config) {
+function engineSettings(supervisor, config, { search = true } = {}) {
   const choices = supervisor.engineChoices();
   const engine = supervisor.engineFacts().workspace;
   // WHETHER THIS MAC HAS ASKED TO HEAR ABOUT CODEX AT ALL, which is a different
@@ -758,7 +780,7 @@ function engineSettings(supervisor, config) {
   // links the install, which is the question that person had.
   const codexIsHome = engine === 'codex';
   const codex = {
-    ...codexState(config),
+    ...codexState(config, {}, { search }),
     trouble: engineTroubleFor(supervisor, 'codex'),
     account: codexAccount(supervisor._codexHome()),
     // EVERY CODEX LOGIN ON THE MAC, NOT JUST THE FIRST. The supervisor has
