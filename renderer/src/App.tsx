@@ -3522,7 +3522,7 @@ export default function App() {
     },
     // A teammate's card opens over the room, and Back comes back to it.
     renderBoard: (people, { later }) => <RoomBoard items={items} products={snap?.products ?? []} display={DEFAULT_DISPLAY.team} now={now} stateOf={stateOfMine} projectOrder={projectOrder}
-      cards={cards} picked={people} onOpenCard={openTeammateCard} columnOrder={columnOrder} later={later}
+      cards={[...cards, ...roomMateCards(snap?.team?.rooms?.rooms ?? [])]} picked={people} onOpenCard={(c) => { if (!isPresenceCard(c)) openTeammateCard(c); }} columnOrder={columnOrder} later={later}
       onOpenItem={(item) => { setFocused(item); markSeen(item); }} />,
     // A room-mate outside the team has no thread cards; their presence lines stand in, and open nothing.
     renderPersonBoard: (people) => <InboxBoard items={items} products={snap?.products ?? []} display={DEFAULT_DISPLAY.team} now={now} stateOf={stateOfMine} projectOrder={projectOrder}

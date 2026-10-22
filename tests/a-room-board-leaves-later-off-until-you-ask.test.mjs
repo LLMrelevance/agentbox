@@ -107,7 +107,7 @@ describe('wired in the app', () => {
   const hook = readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
   it('the room keeps the choice and hands it to the board and the menu', () => {
     expect(hook).toMatch(/useState\(\(\) => readBoardLater\(\)\)/);
-    expect(hook).toMatch(/renderBoard\(onBoardPicked, \{ later \}\)/);
+    expect(hook).toMatch(/renderBoard\(onBoardPicked[^,]*, \{ later \}\)/);
     expect(hook).toMatch(/<RoomViewButton [^>]*later=\{later\} onLater=\{/);
   });
   it('the board it draws is told', () => {

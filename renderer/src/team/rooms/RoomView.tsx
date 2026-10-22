@@ -51,7 +51,8 @@ export function BoardFaces({ people, picked, onPick }: { people: RoomCard[]; pic
       onClick={() => onPick(facePick(picked, all, p.id))}>
       <RoomFace name={p.name} url={p.avatarUrl} size={52} />
       <span className="n">{p.me ? 'You' : p.name.split(' ')[0] || 'Someone'}</span>
-      {p.agents != null && <span className="ag"><LiveMark still={!p.agents} />{p.agents ? <><b>{p.agents}</b> working</> : 'Not running'}</span>}
+      {p.away ? <span className="ag">Not on Rooms yet</span>
+        : p.agents != null && <span className="ag"><LiveMark still={!p.agents} />{p.agents ? <><b>{p.agents}</b> working</> : 'Not running'}</span>}
     </button>)}
   </div>;
 }

@@ -293,8 +293,10 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   // THE ROOM IS ITS BOARD, for the people here whose threads reach me. Only on
   // the room itself, never over a person, the ranks or a chat.
   const onRoom = !!open && !!rooms && !full && open.kind !== 'group' && pane === 'wall' && !finding && !noChats;
+  // The tiles and the pick are everyone in the room; the board draws only those whose threads may reach me.
   const onBoardPeople = onRoom ? boardPeople(open!.wall) : [];
-  const onBoardPicked = onRoom ? boardPicked(boardPicks[open!.id], onBoardPeople) : [];
+  const onBoardIds = new Set(onBoardPeople.map((c) => c.id));
+  const onBoardPicked = onRoom ? boardPicked(boardPicks[open!.id], open!.wall) : [];
   const pickForBoard = (ids: string[]) => {
     if (!open) return;
     const next = { ...boardPicks, [open.id]: ids };
@@ -303,10 +305,10 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   };
   const setLater = (shown: boolean) => { setLaterRaw(shown); writeBoardLater(shown); };
   const board = onRoom && renderBoard
-    ? <><BoardFaces people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} />{renderBoard(onBoardPicked, { later })}</>
+    ? <><BoardFaces people={open!.wall} picked={onBoardPicked} onPick={pickForBoard} />{renderBoard(onBoardPicked.filter((id) => onBoardIds.has(id)), { later })}</>
     : null;
   const viewButton: ReactNode = onRoom && renderBoard
-    ? <RoomViewButton people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} later={later} onLater={setLater} />
+    ? <RoomViewButton people={open!.wall} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} later={later} onLater={setLater} />
     : null;
   if (listing && live && rooms) {
     heading = {

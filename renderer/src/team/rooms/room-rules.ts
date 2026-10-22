@@ -10,7 +10,7 @@ export function whereChatOpens<P extends string>({ open, full, pane }: { open: {
   return pane.startsWith('person:') ? { beside: false, back: { roomId: open.id, pane } } : { beside: true };
 }
 
-type Shares = { me: boolean; teammate: boolean; showActivity: boolean; activity?: unknown[] | null };
+type Shares = { me: boolean; teammate: boolean; showActivity: boolean; activity?: unknown[] | null; away?: boolean };
 /** Whose threads reach me as the team's thread cards: my own, or a teammate's who shares them. */
 const onTheTeamBoard = (c: Shares) => c.me || (c.teammate && c.showActivity);
 /** Their page's Activity tab: off the team's cards, or off their presence for someone outside my team who shows it to their rooms. */
@@ -72,8 +72,9 @@ const LATER_KEY = 'rooms.board.later';
 type Store = Pick<Storage, 'getItem' | 'setItem'> | null;
 const local = (): Store => (typeof localStorage === 'undefined' ? null : localStorage);
 
-/** Who can be on a room's board: whoever's thread cards reach me. */
-export const boardPeople = <T extends Shares>(wall: readonly T[]) => wall.filter(onTheTeamBoard);
+/** Whose threads a room's board draws: whoever's Activity I may open, and a
+ *  teammate not on Rooms yet, who has no Rooms switch but whose team cards reach me. */
+export const boardPeople = <T extends Shares>(wall: readonly T[]) => wall.filter((c) => activityShown(c) || (c.teammate && !!c.away));
 
 /** The people picked for a room's board, kept to those still on it. Nobody left means everyone. */
 export function boardPicked(saved: readonly string[] | null | undefined, people: readonly { id: string }[]): string[] {
