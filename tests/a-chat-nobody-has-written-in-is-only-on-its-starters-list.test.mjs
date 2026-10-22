@@ -1,6 +1,6 @@
 // A CHAT NOBODY HAS WRITTEN IN IS ONLY ON ITS STARTER'S LIST (w-3d0fa23ffb, 2026-10-22).
 //
-// The power tester's Messages list showed "Savannah F. 15:47" with no line
+// The power tester's Messages list showed the founder's name and "15:47" with no line
 // under it, and opening it showed an empty chat: the founder had pressed
 // Message on her card, which makes the conversation, and written nothing yet.
 // She logged it as a message she could not find. A chat with nothing in it
@@ -10,15 +10,15 @@ import { it, expect } from 'vitest';
 import { roomConversations } from '../renderer/src/team/rooms/conversations.ts';
 
 const state = (rooms, messages = {}) => ({ on: true, ready: true, ranks: {}, invites: [], mentions: [], error: null, me: { person_id: 'p-maya', display_name: 'Maya C.' }, rooms, messages });
-const group = (role, extra = {}) => ({ id: 'g1', kind: 'group', name: '', role, wall: [{ id: 'p-sav', name: 'Savannah F.', me: false, avatarUrl: null }], unread: 0, muted: false, markedUnread: false, createdAt: 5, ...extra });
+const group = (role, extra = {}) => ({ id: 'g1', kind: 'group', name: '', role, wall: [{ id: 'p-ana', name: 'Ana L.', me: false, avatarUrl: null }], unread: 0, muted: false, markedUnread: false, createdAt: 5, ...extra });
 
 it("someone else's empty chat with me is not on my list yet", () => {
   expect(roomConversations(state([group('member')]))).toEqual([]);
 });
 
 it('it is, once they write in it', () => {
-  const rows = roomConversations(state([group('member')], { g1: [{ id: 'm1', roomId: 'g1', by: 'p-sav', body: 'hey', at: 9 }] }));
-  expect(rows.map((r) => r.last)).toEqual(['Savannah F.: hey']);
+  const rows = roomConversations(state([group('member')], { g1: [{ id: 'm1', roomId: 'g1', by: 'p-ana', body: 'hey', at: 9 }] }));
+  expect(rows.map((r) => r.last)).toEqual(['Ana L.: hey']);
 });
 
 it('the one I started stays on my list, empty, so I can write in it', () => {

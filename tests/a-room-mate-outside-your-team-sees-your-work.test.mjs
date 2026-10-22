@@ -19,7 +19,7 @@ import { wallCards, myPresence, ACTIVITY_MAX } from '../shared/room-cards.mjs';
 
 const NOW = Date.parse('2026-10-22T15:00:00-07:00');
 const MIN = 60_000;
-const MAYA = 'p-maya', SAV = 'p-sav', TEO = 'p-teo', ME = 'p-me';
+const MAYA = 'p-maya', ANA = 'p-ana', TEO = 'p-teo', ME = 'p-me';
 const prof = (person_id, display_name, extra = {}) => ({ person_id, display_name, avatar_url: null, show_working: 'everyone', show_agents: true, show_level: true, show_status: true, show_activity: true, status_text: null, status_until: null, ...extra });
 const pres = (person_id, extra = {}) => ({ person_id, device: 'aaaaaaaaaaaa', gone: false, agents_running: 1, working_on: null, working_private: false, working_at: new Date(NOW - 5 * MIN).toISOString(), hours_total: 10, hours_week: 1, week_start: '2026-10-19', hours_today: 1, day: '2026-10-22', streak_days: 1, active_days: [], hours_by_month: [], activity: [], updated_at: new Date(NOW - MIN).toISOString(), ...extra });
 const card = (title, state, extra = {}) => ({ threadId: `t-${title}`, title, project: 'Payments API', state, people: null, updatedAt: NOW - 3 * MIN, ...extra });
@@ -57,7 +57,7 @@ describe('the activity my Mac sends', () => {
 });
 
 describe('the wall a room-mate outside my team sees', () => {
-  const base = { members: [MAYA, SAV, ME], meId: ME, now: NOW, teammates: [], teamCards: [] };
+  const base = { members: [MAYA, ANA, ME], meId: ME, now: NOW, teammates: [], teamCards: [] };
 
   it("carries Maya's activity off her presence, so her page has an Activity tab", () => {
     const activity = [{ title: 'Add an idempotency key', project: 'Payments API', state: 'running', at: NOW - MIN }];
@@ -80,24 +80,24 @@ describe('the wall a room-mate outside my team sees', () => {
 
 describe('everybody in the room is on the wall', () => {
   const names = [
-    { person_id: SAV, name: 'Sav F.', avatar_url: null, has_card: true },
+    { person_id: ANA, name: 'Ana L.', avatar_url: null, has_card: true },
     { person_id: TEO, name: 'Teo Park', avatar_url: 'https://x.test/t.png', has_card: false },
     { person_id: MAYA, name: 'Maya C.', avatar_url: null, has_card: true },
   ];
-  const base = { members: [SAV, TEO, MAYA, ME], meId: ME, now: NOW, teammates: [SAV, TEO], teamCards: [], names };
+  const base = { members: [ANA, TEO, MAYA, ME], meId: ME, now: NOW, teammates: [ANA, TEO], teamCards: [], names };
 
   it('a member who has not turned Rooms on is on it, named, and says so', () => {
-    const w = wallCards({ ...base, profiles: [prof(SAV, 'Sav F.')], presence: [] });
+    const w = wallCards({ ...base, profiles: [prof(ANA, 'Ana L.')], presence: [] });
     expect(w.find((c) => c.id === TEO)).toMatchObject({ name: 'Teo P.', avatarUrl: 'https://x.test/t.png', away: true, agents: null, level: null, workingOn: null });
   });
 
   it('a member who is invisible is not: they have a card nobody may read', () => {
-    const w = wallCards({ ...base, profiles: [prof(SAV, 'Sav F.')], presence: [] });
+    const w = wallCards({ ...base, profiles: [prof(ANA, 'Ana L.')], presence: [] });
     expect(w.some((c) => c.id === MAYA)).toBe(false);
   });
 
   it('with no names from the cloud, the wall is the cards, as before', () => {
-    const w = wallCards({ ...base, names: null, profiles: [prof(SAV, 'Sav F.')], presence: [] });
-    expect(w.map((c) => c.id)).toEqual([SAV]);
+    const w = wallCards({ ...base, names: null, profiles: [prof(ANA, 'Ana L.')], presence: [] });
+    expect(w.map((c) => c.id)).toEqual([ANA]);
   });
 });

@@ -11,10 +11,10 @@ import { personOf } from '../renderer/src/team/company.ts';
 import { roomMatesById } from '../renderer/src/team/rooms/room-rules.ts';
 
 const card = (id, name, extra = {}) => ({ id, name, me: false, teammate: false, avatarUrl: null, ...extra });
-const team = (alsoById) => ({ me: 'p-sav', byId: new Map([['p-teo', { id: 'p-teo', email: 'teo@x', name: 'Teo Park', avatarUrl: null }]]), alsoById });
+const team = (alsoById) => ({ me: 'p-ana', byId: new Map([['p-teo', { id: 'p-teo', email: 'teo@x', name: 'Teo Park', avatarUrl: null }]]), alsoById });
 
 it("a room-mate's card is named after them, not Someone", () => {
-  const rooms = [{ wall: [card('p-maya', 'Maya C.'), card('p-sav', 'You', { me: true })] }];
+  const rooms = [{ wall: [card('p-maya', 'Maya C.'), card('p-ana', 'You', { me: true })] }];
   expect(personOf(team(roomMatesById(rooms)), 'p-maya')?.name).toBe('Maya C.');
 });
 
@@ -28,6 +28,6 @@ it('nobody known is nobody, and no team is no answer', () => {
 });
 
 it('room-mates are kept out of the team map itself, and I am not one', () => {
-  const also = roomMatesById([{ wall: [card('p-maya', 'Maya C.'), card('p-sav', 'You', { me: true })] }]);
+  const also = roomMatesById([{ wall: [card('p-maya', 'Maya C.'), card('p-ana', 'You', { me: true })] }]);
   expect([...also.keys()]).toEqual(['p-maya']);
 });

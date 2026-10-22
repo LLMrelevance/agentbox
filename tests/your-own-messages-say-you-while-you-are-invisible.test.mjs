@@ -20,16 +20,16 @@ const state = ({ wall, by }) => ({
 });
 
 it('my last message reads "You" while my card is off the wall', () => {
-  const [row] = roomConversations(state({ wall: [card(MATE, 'Savannah F.')], by: ME }));
+  const [row] = roomConversations(state({ wall: [card(MATE, 'Ana L.')], by: ME }));
   expect(row.last).toBe('You: agree, empty wall feels like working alone');
 });
 
 it('my last message reads "You" while I am on the wall too', () => {
-  const [row] = roomConversations(state({ wall: [card(ME, 'Maya C.', true), card(MATE, 'Savannah F.')], by: ME }));
+  const [row] = roomConversations(state({ wall: [card(ME, 'Maya C.', true), card(MATE, 'Ana L.')], by: ME }));
   expect(row.last).toBe('You: agree, empty wall feels like working alone');
 });
 
 it("someone else's message keeps their name, and a stranger's is still Someone", () => {
-  expect(roomConversations(state({ wall: [card(MATE, 'Savannah F.')], by: MATE }))[0].last).toBe('Savannah F.: agree, empty wall feels like working alone');
-  expect(roomConversations(state({ wall: [card(MATE, 'Savannah F.')], by: 'p-gone' }))[0].last).toBe('Someone: agree, empty wall feels like working alone');
+  expect(roomConversations(state({ wall: [card(MATE, 'Ana L.')], by: MATE }))[0].last).toBe('Ana L.: agree, empty wall feels like working alone');
+  expect(roomConversations(state({ wall: [card(MATE, 'Ana L.')], by: 'p-gone' }))[0].last).toBe('Someone: agree, empty wall feels like working alone');
 });

@@ -39,7 +39,7 @@ grant usage on schema auth to anon;
 grant execute on function auth.uid() to anon;
 `;
 
-const SAV = '11111111-1111-1111-1111-111111111111';
+const ANA = '11111111-1111-1111-1111-111111111111';
 const TEO = '22222222-2222-2222-2222-222222222222';
 const MAYA = '33333333-3333-3333-3333-333333333333';
 const JUN = '44444444-4444-4444-4444-444444444444';
@@ -61,30 +61,30 @@ beforeAll(async () => {
   await db.exec(STAND_IN);
   await db.exec(migration);
   await db.exec(GRANTS);
-  for (const [id, email, name] of [[SAV, 'sav@astral.test', 'Sav Fox'], [TEO, 'teo@astral.test', 'Teo Park'], [MAYA, 'maya@tester.test', 'Maya Chen'], [JUN, 'jun@elsewhere.test', 'Jun Ito']]) {
+  for (const [id, email, name] of [[ANA, 'ana@astral.test', 'Ana Lima'], [TEO, 'teo@astral.test', 'Teo Park'], [MAYA, 'maya@tester.test', 'Maya Chen'], [JUN, 'jun@elsewhere.test', 'Jun Ito']]) {
     await db.query(`insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data) values ($1, $2, now(), $3)`, [id, email, { full_name: name }]);
   }
-  const [team] = await rows(SAV, `insert into public.teams (name, created_by) values ('Astral', $1) returning id`, [SAV]);
-  await as(SAV, `insert into public.team_members (team_id, person_id, role) values ($1, $2, 'owner')`, [team.id, SAV]);
-  await as(SAV, `insert into public.team_invites (team_id, email, invited_by) values ($1, 'teo@astral.test', $2)`, [team.id, SAV]);
+  const [team] = await rows(ANA, `insert into public.teams (name, created_by) values ('Astral', $1) returning id`, [ANA]);
+  await as(ANA, `insert into public.team_members (team_id, person_id, role) values ($1, $2, 'owner')`, [team.id, ANA]);
+  await as(ANA, `insert into public.team_invites (team_id, email, invited_by) values ($1, 'teo@astral.test', $2)`, [team.id, ANA]);
   await as(TEO, `select public.accept_invite($1)`, [team.id]);
-  ({ id: room } = (await rows(SAV, `select id from public.rooms where team_id = $1`, [team.id]))[0]);
-  await as(SAV, `insert into public.room_profiles (person_id, display_name) values ($1, 'Sav F.')`, [SAV]);
+  ({ id: room } = (await rows(ANA, `select id from public.rooms where team_id = $1`, [team.id]))[0]);
+  await as(ANA, `insert into public.room_profiles (person_id, display_name) values ($1, 'Ana L.')`, [ANA]);
   await as(MAYA, `insert into public.room_profiles (person_id, display_name) values ($1, 'Maya C.')`, [MAYA]);
-  await as(SAV, `insert into public.room_email_invites (room_id, email, invited_by) values ($1, 'maya@tester.test', $2)`, [room, SAV]);
+  await as(ANA, `insert into public.room_email_invites (room_id, email, invited_by) values ($1, 'maya@tester.test', $2)`, [room, ANA]);
   await as(MAYA, `select public.accept_room_invite($1)`, [room]);
 }, 60_000);
 
 describe('everyone in a room is named', () => {
   it('a member who is invisible keeps her name for her room-mates', async () => {
     await as(MAYA, `update public.room_profiles set invisible_until = now() + interval '1 hour' where person_id = $1`, [MAYA]);
-    expect(await rows(SAV, `select display_name from public.room_profiles where person_id = $1`, [MAYA])).toEqual([]);
-    expect(await names(SAV)).toContainEqual({ person_id: MAYA, name: 'Maya C.', has_card: true });
+    expect(await rows(ANA, `select display_name from public.room_profiles where person_id = $1`, [MAYA])).toEqual([]);
+    expect(await names(ANA)).toContainEqual({ person_id: MAYA, name: 'Maya C.', has_card: true });
     await as(MAYA, `update public.room_profiles set invisible_until = null where person_id = $1`, [MAYA]);
   });
 
   it('a member with no card yet is named from their account, and says so', async () => {
-    expect(await names(SAV)).toContainEqual({ person_id: TEO, name: 'Teo Park', has_card: false });
+    expect(await names(ANA)).toContainEqual({ person_id: TEO, name: 'Teo Park', has_card: false });
     expect(await names(MAYA)).toContainEqual({ person_id: TEO, name: 'Teo Park', has_card: false });
   });
 
@@ -94,7 +94,7 @@ describe('everyone in a room is named', () => {
   });
 
   it('carries a name and a face, and nothing about their work', async () => {
-    const cols = Object.keys((await rows(SAV, `select * from public.room_names($1) limit 1`, [room]))[0]);
+    const cols = Object.keys((await rows(ANA, `select * from public.room_names($1) limit 1`, [room]))[0]);
     expect(cols.sort()).toEqual(['avatar_url', 'has_card', 'name', 'person_id']);
   });
 });
@@ -106,11 +106,11 @@ describe('work reaches everyone in your rooms', () => {
   });
 
   it('a card left on the old default moves when this runs, and running it again changes nothing else', async () => {
-    await as(SAV, `update public.room_profiles set show_working = 'team' where person_id = $1`, [SAV]);
+    await as(ANA, `update public.room_profiles set show_working = 'team' where person_id = $1`, [ANA]);
     await as(MAYA, `update public.room_profiles set show_working = 'none' where person_id = $1`, [MAYA]);
     await db.exec(thisOne);
     const of = async (p) => (await rows(p, `select show_working from public.room_profiles where person_id = $1`, [p]))[0].show_working;
-    expect(await of(SAV)).toBe('everyone');
+    expect(await of(ANA)).toBe('everyone');
     expect(await of(MAYA)).toBe('none');
   });
 
@@ -118,7 +118,7 @@ describe('work reaches everyone in your rooms', () => {
     const activity = [{ title: 'Ship the room wall', project: 'Agentbox', state: 'running', at: 1 }];
     await as(MAYA, `insert into public.room_presence (person_id, device) values ($1, $2)`, [MAYA, DEVICE]);
     await as(MAYA, `update public.room_presence set activity = $3 where person_id = $1 and device = $2`, [MAYA, DEVICE, JSON.stringify(activity)]);
-    expect((await rows(SAV, `select activity from public.room_presence where person_id = $1`, [MAYA]))[0].activity).toEqual(activity);
+    expect((await rows(ANA, `select activity from public.room_presence where person_id = $1`, [MAYA]))[0].activity).toEqual(activity);
   });
 
   it('refuses an activity list longer than the wall can use', async () => {

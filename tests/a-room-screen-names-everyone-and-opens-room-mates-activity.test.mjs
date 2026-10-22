@@ -12,13 +12,13 @@ import { activityCards, activityShown, boardPeople, chartNamed, chatPeople, isPr
 const card = (id, extra = {}) => ({ id, me: false, name: id, avatarUrl: null, teammate: false, showActivity: true, activity: null, ...extra });
 
 describe("the chat's people", () => {
-  const wall = [card('sav', { name: 'Sav F.' })];
+  const wall = [card('ana', { name: 'Ana L.' })];
   it('everyone in the room by name when the cloud says, invisible or not on Rooms yet', () => {
-    const people = chatPeople({ wall, people: [{ id: 'sav', name: 'Sav F.', avatarUrl: null }, { id: 'maya', name: 'Maya C.', avatarUrl: null }] }, 'sav');
-    expect(people).toEqual([{ id: 'sav', name: 'Sav F.', avatarUrl: null, me: true }, { id: 'maya', name: 'Maya C.', avatarUrl: null, me: false }]);
+    const people = chatPeople({ wall, people: [{ id: 'ana', name: 'Ana L.', avatarUrl: null }, { id: 'maya', name: 'Maya C.', avatarUrl: null }] }, 'ana');
+    expect(people).toEqual([{ id: 'ana', name: 'Ana L.', avatarUrl: null, me: true }, { id: 'maya', name: 'Maya C.', avatarUrl: null, me: false }]);
   });
   it('the wall on a cloud that cannot say', () => {
-    expect(chatPeople({ wall, people: null }, 'me')).toEqual([{ id: 'sav', name: 'Sav F.', avatarUrl: null, me: false }]);
+    expect(chatPeople({ wall, people: null }, 'me')).toEqual([{ id: 'ana', name: 'Ana L.', avatarUrl: null, me: false }]);
   });
 });
 
