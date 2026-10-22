@@ -25,7 +25,7 @@ import { pictureUrl } from '../../picture';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
 import { cardName, clockOf, mentionsIn } from './room-rules';
-import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, storedName, wordsLeftAfterSend } from './room-chat-rules';
+import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, quickOnBar, roomReader, storedName, wordsLeftAfterSend } from './room-chat-rules';
 
 export type ChatPerson = { id: string; name: string; avatarUrl: string | null; me: boolean };
 
@@ -78,8 +78,8 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
   useEffect(() => { setReadFrom(room.readAt ?? null); setThread(null); setEditing(null); }, [room.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const newAt = root ? null : newLineAt(messages, readFrom, meId);
 
-  // Reading the room is having it open with the window in front, except just
-  // after you marked it unread, which holds until you leave it.
+  // Reading the room is staying on it with the window in front (roomReader),
+  // except just after you marked it unread, which holds until you leave it.
   const held = useRef(false);
   const wasMarked = useRef(!!room.markedUnread);
   useEffect(() => { held.current = false; wasMarked.current = !!room.markedUnread; }, [room.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -91,12 +91,21 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
     held.current = holdsRead(held.current, wasMarked.current, marked);
     wasMarked.current = marked;
   }, [room.markedUnread, room.readAt]);
+  const latestRead = useRef(onRead);
+  latestRead.current = onRead;
+  const reader = useRef<ReturnType<typeof roomReader> | null>(null);
   useEffect(() => {
-    const read = () => { if (!held.current && document.visibilityState === 'visible' && document.hasFocus()) onRead(); };
-    read();
-    window.addEventListener('focus', read);
-    return () => window.removeEventListener('focus', read);
-  }, [room.id, messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    const r = roomReader({
+      read: () => latestRead.current(),
+      canRead: () => !held.current && document.visibilityState === 'visible' && document.hasFocus(),
+    });
+    reader.current = r;
+    r.open();
+    window.addEventListener('focus', r.open);
+    window.addEventListener('blur', r.away);
+    return () => { r.close(); window.removeEventListener('focus', r.open); window.removeEventListener('blur', r.away); };
+  }, [room.id]);
+  useEffect(() => { reader.current?.arrived(); }, [messages.length]);
   const markUnread = onMarkUnread ? (at: number) => { held.current = true; setReadFrom(at - 1); onMarkUnread(at); } : undefined;
 
   const who = (id: string | null) => (id ? byId.get(id) : undefined);
@@ -166,6 +175,7 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
             </button>}
             {!m.deleted && editing !== m.id && onReact && <MessageActions
               onReact={(emoji) => onReact(m.id, emoji, !(m.reactions?.[emoji] ?? []).includes(meId ?? ''))}
+              quick={quickOnBar({ full, thread: !!root })}
               {...(!root ? { onQuote: () => setThread(m.id), replyLabel: 'Reply in thread' } : {})}
               more={messageMore({
                 mine,

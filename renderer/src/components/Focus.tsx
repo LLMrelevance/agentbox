@@ -121,6 +121,7 @@ import { SummaryPanel, SummaryRail, ThreadCrumb, ThreadStateMark, useSummaryOpen
 import { ThreadMenu, type ThreadPlace } from '../threads/ThreadMenu';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { useChatMentions } from '../team/ChatAgents';
+import { useThreadMentions } from './ThreadMentions';
 import { AGENT_SCHEME } from '../team/agent-mentions';
 import { defaultModelFor, engineModelLabel } from '../models';
 import { defaultEffortFor, effortChoicesFor, effortShown } from '../effort';
@@ -2449,6 +2450,13 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
       ? { text: plain, setText: (next: string) => (ref.current as RichBox | null)?.rich.setPlain(next) }
       : { text, setText }),
   });
+  // # NAMES ANOTHER THREAD, in any reply box (w-c110f2371d, ./ThreadMentions.tsx).
+  const named = useThreadMentions({
+    ...(richBox
+      ? { text: plain, setText: (next: string) => (ref.current as RichBox | null)?.rich.setPlain(next) }
+      : { text, setText }),
+    input: ref, here: item.id, rise: true,
+  });
   // WHAT THIS ONE MESSAGE MAY DO.So it is not a project setting and not a
   // workspace one; it rides on the send.
   //
@@ -2608,7 +2616,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     // THROUGH `pickToSend`, because the drawer reports the engine's own default
     // as null and the store reads a null model as "clear it", so picking the
     // default unpinned the thread rather than pinning it (../reply-pick.ts).
-    onSend([chat.encode(words), attachedMd].filter(Boolean).join('\n\n'), prio ? priorityValueOf(prio) : undefined, repeat, sent, mode,
+    onSend([named.encode(chat.encode(words)), attachedMd].filter(Boolean).join('\n\n'), prio ? priorityValueOf(prio) : undefined, repeat, sent, mode,
       touched
         ? pickToSend({ model, effort }, { engine: engineShown, was: engineNow, engineCount: engineRows.length })
         : undefined);
@@ -2860,6 +2868,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     // The @ menu and a mention's card take their keys first, and only
     // while one of them is up.
     if (chat.keyDown(e)) return;
+    if (named.keyDown(e)) return;
     // ↑ in an empty box to a person edits your newest message, as in Slack.
     if (e.key === 'ArrowUp' && talkTo?.length && !text.trim() && !attachments.length) {
       e.preventDefault();
@@ -2926,6 +2935,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           draws outside a conversation with a person. */}
       {chat.menu}
       {chat.card}
+      {named.menu}
       {richBox ? (
         // The editor draws a mention's chip on its own words; the layer of
         // chips behind a text field has no text field to sit behind.
@@ -2938,7 +2948,10 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           onChange={changeText}
           onPlain={setPlain}
           placeholder={`Reply to ${joinNames(talkTo ?? [])}`}
-          mentions={chat.mentions.map((m) => ({ start: m.start, end: m.end, loose: !m.project }))}
+          mentions={[
+            ...chat.mentions.map((m) => ({ start: m.start, end: m.end, loose: !m.project })),
+            ...named.mentions.map((m) => ({ start: m.start, end: m.end, loose: false })),
+          ]}
           // ⌘↵ and Escape are taken even where nothing above stops them, or
           // the editor's own ⌘↵ would add a line break under the send.
           onKeyDown={(e) => {
@@ -2949,19 +2962,20 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
             const got = await collectFiles(files);
             if (got.length) setAttachments((a) => [...a, ...got]);
           }}
-          onCaret={(box) => chat.track(box as unknown as HTMLTextAreaElement)}
+          onCaret={(box) => { chat.track(box as unknown as HTMLTextAreaElement); named.track(box as unknown as HTMLTextAreaElement); }}
           onClick={(box) => chat.click(box as unknown as HTMLTextAreaElement)}
         />
       ) : <>
       {chat.chips}
+      {named.chips}
       <textarea
-        className={`dock-input${chat.live ? ' with-mentions' : ''}`}
+        className={`dock-input${chat.live ? ' with-mentions' : ''} ${named.over}`}
         ref={ref}
         value={text}
-        onChange={(e) => { changeText(e.target.value); chat.track(e.target); }}
-        onSelect={(e) => chat.track(e.currentTarget)}
-        onScroll={(e) => chat.track(e.currentTarget)}
-        onClick={(e) => chat.click(e.currentTarget)}
+        onChange={(e) => { changeText(e.target.value); chat.track(e.target); named.track(e.target); }}
+        onSelect={(e) => { chat.track(e.currentTarget); named.track(e.currentTarget); }}
+        onScroll={(e) => { chat.track(e.currentTarget); named.track(e.currentTarget); }}
+        onClick={(e) => { chat.click(e.currentTarget); named.track(e.currentTarget); }}
         /* * ONE CLEAR SENTENCE. The old placeholder was unclear about what it even meant,
            and a reply box needs one simple sentence.
 

@@ -53,6 +53,31 @@ export function holdsRead(held: boolean, wasMarked: boolean, isMarked: boolean):
   return held;
 }
 
+/** How long a room stays in front of you before it counts as read: longer than
+ *  Tab resting on its tab on the way past, so walking the tabs reads nothing. */
+export const READ_AFTER_MS = 2000;
+
+/**
+ * Reads the open room once it has been on screen for READ_AFTER_MS, then each
+ * new message as it arrives. `open` starts the wait (the room drawn, the
+ * window back in front), `away` drops it, `close` stops. `canRead` is asked
+ * at the moment of reading.
+ */
+export function roomReader({ read, canRead, wait = READ_AFTER_MS }: { read: () => void; canRead: () => boolean; wait?: number }) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let stayed = false;
+  const stop = () => { clearTimeout(timer); timer = undefined; stayed = false; };
+  return {
+    open() {
+      stop();
+      timer = setTimeout(() => { timer = undefined; stayed = true; if (canRead()) read(); }, wait);
+    },
+    arrived() { if (stayed && canRead()) read(); },
+    away: stop,
+    close: stop,
+  };
+}
+
 /** My messages in the room with these words in this place, by id. */
 export function sameMessages(messages: readonly RoomMessage[], m: { by: string | null; body: string; inReplyTo: string | null }): RoomMessage[] {
   return messages.filter((x) => x.by === m.by && !x.deleted && x.body === m.body && (x.inReplyTo ?? null) === (m.inReplyTo ?? null));
@@ -76,6 +101,11 @@ export function wordsLeftAfterSend(now: string, sent: string): string {
   if (now === sent) return '';
   if (sent && now.startsWith(sent)) return now.slice(sent.length).replace(/^\s+/, '');
   return now;
+}
+
+/** The bar's quick emoji take half a side panel's width, so only a full-width chat shows them, and not in a thread. */
+export function quickOnBar({ full, thread }: { full: boolean; thread: boolean }): boolean {
+  return full && !thread;
 }
 
 /** The newest message of mine in the chat itself, for ↑ in an empty box. */

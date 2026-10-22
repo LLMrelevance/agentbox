@@ -1056,22 +1056,26 @@ export function leftoverSettings({ config, supervisor }) {
   // Codex, 2026-10-05).
   if (!on) {
     if (total && stoppable) {
-      now = `Right now finished agents have left ${total} program${total === 1 ? '' : 's'} running; turning this on stops ${stoppable === total ? (total === 1 ? 'it' : 'them') : `${stoppable} of them`}, two hours from then.`;
+      now = `Right now finished agents have left ${total} program${total === 1 ? '' : 's'} running; turning this on stops ${stoppable === total ? (total === 1 ? 'it' : 'them') : `${stoppable} of them`} when you close their tasks.`;
     }
     return { on, now };
   }
   {
     if (!total) now = 'Nothing left running by finished agents.';
     else {
-      const next = list.filter((l) => l.programs && l.stopsAt).map((l) => l.stopsAt).sort((a, b) => a - b)[0];
+      const timed = list.filter((l) => l.programs && l.stopsAt);
+      const next = timed.map((l) => l.stopsAt).sort((a, b) => a - b)[0];
+      const soon = timed.reduce((n, l) => n + l.programs, 0);
+      const open = stoppable - soon;
       const when = (ms) => {
         const m = Math.max(1, Math.round((ms - Date.now()) / 60_000));
         return m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} m` : ''}` : `${m} m`;
       };
-      now = `Finished agents have left ${total} program${total === 1 ? '' : 's'} running.`;
-      if (stoppable) now += ` ${stoppable} ${next && next > Date.now() ? `stop in ${when(next)}` : 'are stopping'}`;
-      if (kept) now += `${stoppable ? ';' : ''} ${kept} ${kept === 1 ? 'is' : 'are'} kept`;
-      now += '.';
+      const parts = [];
+      if (soon) parts.push(`${soon} ${next > Date.now() ? `stop${soon === 1 ? 's' : ''} in ${when(next)}` : `${soon === 1 ? 'is' : 'are'} stopping`}`);
+      if (open) parts.push(`${open} stop${open === 1 ? 's' : ''} when you close ${open === 1 ? 'its task' : 'their tasks'}`);
+      if (kept) parts.push(`${kept} ${kept === 1 ? 'is' : 'are'} kept`);
+      now = `Finished agents have left ${total} program${total === 1 ? '' : 's'} running. ${parts.join('; ')}.`;
       const survivors = s?.survivors?.length ?? 0;
       if (survivors) now += ` ${survivors} did not stop when asked.`;
     }

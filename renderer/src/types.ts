@@ -493,6 +493,8 @@ export interface SupervisorStatus {
   // Items a tick will spawn as soon as a slot frees: waiting their turn, not
   // forgotten. The row says "queued" so the two are never confused.
   queued?: string[];
+  // Sessions this app holds open between Remote Control turns, which `running` leaves out.
+  remoteHeld?: string[];
   // Rows nothing can start because their tool is signed out, id -> the tool's
   // name. Said instead of "queued", which would promise an agent that cannot come.
   signInNeeded?: Record<string, string>;
