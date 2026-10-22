@@ -135,22 +135,30 @@
 .acct-place-act { display: inline-flex; align-items: center; gap: 12px; }
 .acct-checked { font-size: 12px; font-weight: 400; color: var(--text-faint); }
 .acct-reading-time { margin-top: 12px; font-size: 12px; color: var(--text-faint); }
-/* Switching is a button the width of the tile: as grey text on the state line it read as a status. */
-.settings-screen[data-pane] .set-ghost.acct-switch { display: flex; justify-content: center; width: 100%; margin-top: 16px; }
+/* Switching is a button: as grey text on the state line it read as a status.
+   Filled, because nothing else on a tile is; held to the address's row. */
+.settings-screen[data-pane] .acct-switch {
+  flex: none; display: inline-flex; align-items: center; height: 24px; margin: -2px 0 -2px auto; padding: 0 10px;
+  border: 0; border-radius: var(--tag-radius); background: var(--line); color: var(--text); font: inherit; font-size: 12.5px; line-height: 1; white-space: nowrap; cursor: pointer;
+}
+.settings-screen[data-pane] .acct-switch:hover { background: var(--line-strong); }
 /* TILES: an account each, two to a line, every one the same shape here and in
    the cloud. The one in use is lifted by its fill and its IN USE, not by a
    different edge, so the tiles line up. */
 .acct-place-line { margin: -4px 0 12px; font-size: 12.5px; line-height: 1.5; color: var(--text-dim); }
 .acct-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.acct-tile { padding: 16px 16px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--wash); text-align: left; }
+.acct-tile { padding: 16px 18px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--wash); text-align: left; }
 .acct-tile.on { background: var(--film-strong); border-color: var(--line-strong); }
-.acct-tile-head { display: flex; align-items: baseline; gap: 12px; }
+.acct-tile-head { display: flex; align-items: center; gap: 12px; min-height: 20px; }
 .acct-tile-name { min-width: 0; font-size: 13.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acct-tile-head .set-badge { flex: none; margin-left: -2px; }
-.acct-tile-plan { flex: none; margin-left: auto; font-size: 12px; color: var(--text-faint); }
-.acct-tile-about { display: flex; align-items: center; min-height: 22px; margin-top: 6px; font-size: 12px; color: var(--text-faint); }
+.acct-tile-about { display: flex; align-items: center; gap: 12px; height: 20px; margin-top: 7px; font-size: 12px; color: var(--text-faint); }
+.acct-tile-about > span:not(.acct-place) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A place is a status in IN USE's label voice. No box: boxed, it read as a button not yet pressed. */
+.acct-place { flex: none; display: inline-flex; align-items: center; gap: 5px; color: var(--text-dim); font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; }
+.acct-tile-about .acct-cloud-act { flex: none; font-size: 12px; }
 .acct-tile-trouble { margin-top: 16px; font-size: 12px; line-height: 1.5; color: var(--text-dim); }
-.acct-tile-add { min-height: 112px; border-style: dashed; background: none; color: var(--text-faint); font: inherit; font-size: 13px; text-align: center; cursor: pointer; }
+.acct-tile-add { grid-column: 1 / -1; padding: 11px 16px; border-style: dashed; background: none; color: var(--text-faint); font: inherit; font-size: 13px; text-align: center; cursor: pointer; }
 .acct-tile-add:hover { color: var(--text); }
 /* IN USE is said in the app's label voice, the small mono capitals the
    new-task card's TO and MODEL wear, in the accent. */

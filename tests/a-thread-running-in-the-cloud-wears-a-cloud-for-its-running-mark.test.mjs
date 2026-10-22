@@ -11,11 +11,17 @@
 // Now a run in the cloud (`where: 'cloud'` on its running entry) draws the
 // cloud in place of the dot, in the list and on the board. A run on this Mac
 // keeps the dot, and a thread nothing is running on draws neither.
+//
+// THE MARK MOVED OUT OF THE TITLE AND INTO THE STATUS COLUMN (w-ec2b04d449),
+// in her words "move the cloud stuff into there rather than having it in the
+// query itself", so the row reads its run off the fleet rather than off the
+// live ids. The rule above is unchanged and is what these still measure.
 import { describe, it, expect } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import fs from 'node:fs';
 import { ThreadCells, InboxBoard, LiveContext, CloudContext } from '../renderer/src/threads/Pages.tsx';
+import { FleetContext } from '../renderer/src/fleet.ts';
 import { TeamContext } from '../renderer/src/team/people.tsx';
 globalThis.React = React;
 
@@ -29,10 +35,15 @@ const item = (o = {}) => ({
 });
 const team = { state: { since: NOW - 7 * DAY, signedIn: true }, me: ME, byId: new Map(), products: new Map() };
 const h = React.createElement;
+const fleetOf = (live, cloud) => ({
+  queued: [],
+  sessions: new Map(live.map((id) => [id, { itemId: id, product: 'northwind', startedAt: NOW - 60_000, tail: [], ...(cloud.includes(id) ? { where: 'cloud' } : {}) }])),
+});
 const within = ({ live = [], cloud = [] }, child) => renderToStaticMarkup(
   h(TeamContext.Provider, { value: team },
-    h(LiveContext.Provider, { value: new Set(live) },
-      h(CloudContext.Provider, { value: new Set(cloud) }, child))),
+    h(FleetContext.Provider, { value: fleetOf(live, cloud) },
+      h(LiveContext.Provider, { value: new Set(live) },
+        h(CloudContext.Provider, { value: new Set(cloud) }, child)))),
 );
 const row = (it, sets) => within(sets, h(ThreadCells, { item: it, product, now: NOW }));
 const dots = (html) => (html.match(/th-st s-running live/g) ?? []).length;
@@ -57,11 +68,14 @@ describe('the running mark on a row', () => {
     expect(dots(html) + clouds(html)).toBe(0);
   });
 
-  it('leaves a private thread its lock, and adds nothing after the title', () => {
+  // The title cell is the title, its lock and nothing else: the running mark
+  // is a column over now, so neither shape crowds the words (w-ec2b04d449).
+  it('leaves a private thread its lock, and keeps both marks out of the title', () => {
     const html = row(item({ createdAt: NOW - 30 * DAY }), { live: ['w-1'], cloud: ['w-1'] });
     expect(html).toMatch(/aria-label="Private"/);
-    const title = html.slice(html.indexOf('Acme renewal terms'));
-    expect(clouds(title)).toBe(0);
+    const titleCell = html.slice(html.indexOf('th-cell-title'), html.indexOf('th-cell-state'));
+    expect(titleCell).toContain('Acme renewal terms');
+    expect(clouds(titleCell) + dots(titleCell)).toBe(0);
   });
 });
 

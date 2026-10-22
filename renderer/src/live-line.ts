@@ -22,14 +22,16 @@
 // In progress with no session, no place in the queue and no schedule is a row
 // nothing is going to touch until something changes, and the honest word for it
 // is that nothing is running. It happens: a worker took the row twice and gave
-// nothing back, so the tick is resting it (`restingUntil`), or another Agentbox
-// holds the claim. Saying "queued" there would be the lie this whole vocabulary
+// nothing back, so the tick is resting it (`restingUntil`). A live claim this
+// window did not take is not that: an agent is on it, just not one of ours
+// (`elsewhere`). Saying "queued" there would be the lie this whole vocabulary
 // was invented to stop telling (`queued` in supervisor.mjs, and the founder's
 // own report on of a row reading "queued" under a sentence saying it was
 // reading).
 
 import { spanLabel } from './notes';
 import { Name } from '../../shared/product-name.mjs';
+import { resetDay } from '../../shared/usage.mjs';
 import type { RunningSession, WorkItem } from './types';
 
 // THE FIFTH STATE, AND IT IS THE ONE SOMEBODY OUTSIDE THIS BUILDING ASKED FOR.
@@ -51,7 +53,7 @@ import type { RunningSession, WorkItem } from './types';
 // would be worse than the silence it replaces.
 // `next` is a queued task she pushed with Run now (w-87ff499077): still
 // waiting, but first in line, and the word changing is how the press shows.
-export type LiveState = 'working' | 'shipping' | 'next' | 'queued' | 'signin' | 'limit' | 'paused' | 'silent' | 'idle';
+export type LiveState = 'working' | 'elsewhere' | 'shipping' | 'next' | 'queued' | 'signin' | 'limit' | 'paused' | 'silent' | 'idle';
 
 export interface LiveLine {
   state: LiveState;
@@ -64,6 +66,8 @@ export interface LiveFacts {
   session?: RunningSession | null;
   /** `supervisor.queued`: the ids a tick will spawn as soon as a slot frees. */
   queued?: string[];
+  /** On `supervisor.remoteHeld`: our own session, open between Remote Control turns. */
+  remoteHeld?: boolean;
   /**
    * `supervisor.signInNeeded`: rows nothing can start because the tool they run
    *  on is signed out, each with that tool's name ("Claude Code", "Codex"). */
@@ -141,6 +145,8 @@ export function shortWord(state: LiveState, helpers = 0): string {
     return helpers === 1 ? '1 Subagent Working' : `${helpers} Subagents Working`;
   }
   if (state === 'working') return 'Working';
+  // The same word as a run of ours; the mark beside it says where.
+  if (state === 'elsewhere') return 'Working';
   if (state === 'shipping') return 'Shipping';
   if (state === 'next') return 'Up next';
   if (state === 'queued') return 'Queued';
@@ -299,6 +305,18 @@ export function liveLine(item: WorkItem, facts: LiveFacts = {}): LiveLine | null
     };
   }
 
+  // A LIVE CLAIM THAT NO SESSION OF OURS HOLDS. Below shipping, where any claim
+  // left is a leftover; above everything about this app's own agents (signed
+  // out, at a limit, paused), none of which stops an agent somewhere else. A run
+  // killed outright leaves its claim for up to a lease (LEASE_MS), so the
+  // sentence does not promise the agent is busy this second.
+  if (item.status === 'claimed' && item.claim && !item.claimExpired && !facts.remoteHeld) {
+    return {
+      state: 'elsewhere',
+      line: 'An agent is working on this outside this window, in a terminal or on another computer, so its steps do not show here.',
+    };
+  }
+
   // SIGNED OUT IS NOT QUEUED (2026-10-04). "An agent starts on it as soon as
   // one is free" could sit on screen for half an hour while no agent could
   // start at all, because the Claude Code login had run out. The row says what is
@@ -321,9 +339,10 @@ export function liveLine(item: WorkItem, facts: LiveFacts = {}): LiveLine | null
     const at = limit.until > now
       ? new Date(limit.until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s/g, '').toLowerCase()
       : null;
+    const day = at ? resetDay(limit.until, now) : null;
     return {
       state: 'limit',
-      line: `${limit.tool} is at its usage limit, so this starts on its own when it resets${at ? ` at ${at}` : ''}.`,
+      line: `${limit.tool} is at its usage limit, so this starts on its own when it resets${day ? ` on ${day}` : ''}${at ? ` at ${at}` : ''}.`,
     };
   }
 

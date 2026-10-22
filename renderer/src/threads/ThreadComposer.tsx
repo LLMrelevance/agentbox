@@ -42,7 +42,7 @@ import { conversationWith } from './page-rules';
 import { collectFiles, fromPaste, persistAttachments, type PendingAttachment } from '../attachments';
 import { AttachRow } from '../components/AttachRow';
 import { PRIORITIES, priorityLabelOf, priorityValueOf, startingPriority, type PriorityId } from '../priority';
-import { readComposeDraft, saveComposeDraft, takeComposeDraft, type ComposeDraft } from '../drafts';
+import { composeDraftIsEmpty, dropComposeDraft, markComposeDraftSending, openingComposeDraft, readComposeDraft, restoreComposeDraft, saveComposeDraft, type ComposeDraft } from '../drafts';
 import { LAST_PRODUCT_KEY } from '../compose-project';
 import { practiceRefusal, noProjectYet } from '../compose-says';
 import { defaultModelFor, engineModelLabel, readLastModel, writeLastModel, type ModelChoice } from '../models';
@@ -51,9 +51,12 @@ import { readLastEngine, startingEngine, writeLastEngine } from '../engines';
 import { repeatPresets } from '../components/When';
 import { readRule } from '../format';
 import { fitMenu } from '../keep-in-window';
+import { ModelMenu } from './ModelMenu';
+import { useThreadMentions } from '../components/ThreadMentions';
 import {
+  agentChoices, agentWordFor,
   allModels, findPeople, harnessFields, laterHint, momentFromWords, mondayMorning, moreCount,
-  joinNames, placeholderFor, projectsOffered, projectSwatch, recentModels, sameModel,
+  joinNames, placeholderFor, projectsOffered, projectSwatch, recentModels,
   sharingFields, startingProject, startingVisibility, startingChosen, teammates, threadMessage, tomorrowMorning, chosenWords, VISIBILITY_ROWS,
   dueChoices, dueWords, headRows, taskFields,
   type Harness, type ModelPick, type SendAs, type Visibility,
@@ -183,7 +186,7 @@ export function ThreadComposer({
   const rows = headRows({ person: !!person, kind: sendAs });
 
   /* ------------------------------ words --------------------------------- */
-  const opened = useRef(readComposeDraft());
+  const opened = useRef(openingComposeDraft());
   const [text, setText] = useState(() => initial?.body || opened.current.text || '');
   const [attachments, setAttachments] = useState<PendingAttachment[]>(() => opened.current.attachments);
   const [dropped, setDropped] = useState(0);
@@ -266,6 +269,13 @@ export function ThreadComposer({
     writeLastEffort(next, undefined, pick.engine);
   };
   const labelOf = (p: ModelPick) => engineModelLabel(p.engine, p.model, modelOpts);
+  // WHO IS ABOUT TO GET THIS, by name, and the rows To offers. Both are empty
+  // words on a Mac with one coding agent, where they read exactly as before.
+  const agents = agentChoices(engineRows);
+  const engineTags = agents.length > 0;
+  const chooseAgent = (engine: Harness) => {
+    pickModel({ engine, model: readLastModel(undefined, engine, codexDefault) ?? defaultModelFor(engine, codexDefault) });
+  };
   const recent = useMemo(
     () => recentModels(items, { codexModels, codexDefault, codexOffered, claudeOffered }),
     [items, codexModels, codexDefault, codexOffered, claudeOffered],
@@ -283,6 +293,7 @@ export function ThreadComposer({
   const anchor = (key: MenuKey) => (el: HTMLElement | null) => { anchors.current[key] = el; };
   const textRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const named = useThreadMentions({ text, setText, input: textRef, threads: items });
 
   const toggle = (key: MenuKey) => {
     // WHICH LIST WAS OPENED, for the one caller that needs to know: the
@@ -357,7 +368,11 @@ export function ThreadComposer({
   // On every keystroke, every paste, every pick, the same draft the old card
   // kept, so an Escape or a reload never takes her words or her pictures.
   useEffect(() => {
-    const stored = saveComposeDraft({ text, attachments, priority: prio, when: { runAt: 0, repeat: null }, dropped: 0 });
+    const draft = { text, attachments, priority: prio, when: { runAt: 0, repeat: null }, dropped: 0 };
+    // A card opened while the last send is in flight starts empty, and must not
+    // wipe the copy that send keeps until it lands (`openingComposeDraft`).
+    if (composeDraftIsEmpty(draft) && readComposeDraft().sendingAt) return;
+    const stored = saveComposeDraft(draft);
     setDropped(stored.dropped);
   }, [text, attachments, prio]);
 
@@ -385,7 +400,7 @@ export function ThreadComposer({
   // off and she was stuck for fifteen minutes. If the practice text did not
   // arrive, Send sends it anyway.
   const typed = !text.trim() && scripted && !person ? `${PRACTICE_TASK.title}\n\n${PRACTICE_TASK.body}` : text;
-  const message = threadMessage(typed, person ? [] : attachments);
+  const message = threadMessage(typed, person ? [] : attachments, named);
   const refusal = person ? null : practiceRefusal(product, { scripted: !!scripted });
   // The other reason Send can be off: there is no project to send to at all
   // (w-f8d123be62). It gets a line in the bar rather than a tooltip, because
@@ -406,7 +421,9 @@ export function ThreadComposer({
     // milliseconds on the desktop and a relay round trip on a phone, which read
     // as Send not having worked. The words come off the card now and go with
     // the send, for Z, and back onto it if the send does not stand.
-    const taken = takeComposeDraft();
+    //
+    // The written-down copy stays until something answers (`dropComposeDraft`).
+    const taken = markComposeDraftSending();
     try { localStorage.setItem(LAST_PRODUCT_KEY, product.slug); } catch { /* the send still stands */ }
     onSending?.({ kind: when.repeat ? 'repeat' : 'task', product: product.slug, ...(when.runAt ? { runAt: when.runAt } : {}), ...(when.start ? { start: when.start } : {}) });
     try {
@@ -429,6 +446,7 @@ export function ThreadComposer({
           product: product.slug, title: message.title, body: body || undefined, priority, rule: when.repeat,
           ...(harness.engine ? { engine: harness.engine } : {}), ...(harness.model ? { model: harness.model } : {}),
         });
+        dropComposeDraft(taken);
         onSent(null, { kind: 'repeat', product: product.slug, title: message.title, ruleId: rule?.id, draft: taken });
       } else {
         const made = await api.compose({
@@ -444,13 +462,15 @@ export function ThreadComposer({
           // The tutorial's own task, and only ever that one. See `scripted`.
           ...(scripted ? { labels: scripted.labels } : {}),
         });
+        dropComposeDraft(taken);
         onSent(made, { kind: 'task', product: product.slug, title: message.title, draft: taken, ...(when.runAt ? { runAt: when.runAt } : {}), ...(when.start ? { start: when.start } : {}) });
       }
     } catch (err) {
       // Every word goes back: a send that failed and also ate what she wrote
       // is two failures, and the second is the expensive one. With the card
-      // already closed, the caller reopens it on them.
-      saveComposeDraft(taken);
+      // already closed, the caller reopens it on them. Ordinarily they are
+      // still written down and this declines, which is the same thing.
+      restoreComposeDraft(taken);
       const said = `Not sent: ${String((err as Error)?.message ?? err)}`;
       if (onFailed) { onFailed(said, {}); return; }
       setError(said);
@@ -462,12 +482,13 @@ export function ThreadComposer({
     if (!canSend || !person) return;
     setSending(true);
     setError(null);
-    // Handed over at once, as a task is (sendTask above).
-    const taken = takeComposeDraft();
+    // Handed over at once, as a task is, and the written-down copy kept until
+    // the cloud answers (sendTask above).
+    const taken = markComposeDraftSending();
     const toMany = extra.length ? [person.id, ...also] : undefined;
     onSending?.({ kind: 'message', to: person.id, ...(toMany ? { toMany } : {}) });
     const failed = (said: string) => {
-      saveComposeDraft(taken);
+      restoreComposeDraft(taken);
       if (onFailed) { onFailed(said, { to: person.id, ...(also.length ? { also } : {}) }); return; }
       setError(said);
       setSending(false);
@@ -486,7 +507,7 @@ export function ThreadComposer({
     try {
       res = await api.teamMessage(
         toMany ?? person.id,
-        text.trim(),
+        named.encode(text.trim()),
         prio ? priorityValueOf(prio) : undefined,
         attachments.map(({ name, dataBase64, srcPath }) => ({ name, dataBase64, srcPath })),
       );
@@ -498,6 +519,7 @@ export function ThreadComposer({
       failed(`Not sent: ${res.error ?? 'the team cloud did not answer.'}`);
       return;
     }
+    dropComposeDraft(taken);
     onSent(null, { kind: 'message', to: person.id, draft: taken, ...(toMany ? { toMany } : {}), ...(res.made ? { made: res.made } : {}) });
   };
 
@@ -541,11 +563,21 @@ export function ThreadComposer({
 
   const toMenu = (
     <div className="tc-menu tc-drop tc-to-menu" role="listbox" aria-label="To" onKeyDown={menuKeys}>
-      {!adding && (
-        <button type="button" data-item className={`tc-row ${person ? '' : 'on'}`} onPointerEnter={hover} onClick={() => chooseTo('agent')}>
-          <AgentFace /><span className="tc-row-label">Agent</span>
-        </button>
-      )}
+      {/* ONE ROW PER AGENT WHERE THIS MAC HAS TWO, and the one row it has
+          always drawn where it has one. Picking an agent is picking where the
+          task runs, so it moves the model with it (`chooseAgent`). */}
+      {!adding && (agents.length
+        ? agents.map((a) => (
+          <button key={a.id} type="button" data-item className={`tc-row ${!person && pick.engine === a.id ? 'on' : ''}`}
+            onPointerEnter={hover} onClick={() => { chooseAgent(a.id); chooseTo('agent'); }}>
+            <AgentFace /><span className="tc-row-label">{a.label}</span>
+          </button>
+        ))
+        : (
+          <button type="button" data-item className={`tc-row ${person ? '' : 'on'}`} onPointerEnter={hover} onClick={() => chooseTo('agent')}>
+            <AgentFace /><span className="tc-row-label">Agent</span>
+          </button>
+        ))}
       {team && others.length > 0 && (<>
         {!adding && <span className="tc-sep" />}
         <span className="tc-menu-head">People</span>
@@ -567,71 +599,28 @@ export function ThreadComposer({
     </div>
   );
 
-  const modelRow = (p: ModelPick) => (
-    <button
-      key={`${p.engine}:${p.model}`}
-      type="button"
-      data-item
-      className={`tc-row ${sameModel(p, pick) ? 'on' : ''}`}
-      onPointerEnter={hover}
-      onClick={() => { pickModel(p); close('text'); }}
-    ><span className="tc-row-label">{labelOf(p)}</span></button>
-  );
   const engineLabel = (id: string) => engineRows.find((e) => e.id === id)?.label ?? ENGINES.find((e) => e.id === id)?.label ?? id;
 
+  // The menu itself is ./ModelMenu.tsx, which the reply box draws too.
   const modelMenu = (
-    <div className="tc-menu tc-drop tc-model-menu" role="listbox" aria-label="Model" onKeyDown={menuKeys}>
-      {modelPage === 'recent' ? (<>
-        <span className="tc-menu-head">Recent</span>
-        {recent.map(modelRow)}
-        <span className="tc-sep" />
-        <button type="button" data-item className="tc-row" onPointerEnter={hover} onClick={() => setModelPage('all')}>
-          <span className="tc-row-label">All models</span>
-          {more > 0 && <small>{more} more ›</small>}
-        </button>
-      </>) : (<>
-        <button type="button" data-item className="tc-row" onPointerEnter={hover} onClick={() => setModelPage('recent')}>
-          <span className="tc-row-label">‹ Recent</span>
-        </button>
-        <span className="tc-sep" />
-        <div className="tc-cols">
-          {/* Only a column with rows (w-db6f5e331e): a Mac without Claude
-              Code drew an empty CLAUDE CODE heading here. */}
-          {every.claude.length > 0 && (
-            <div className="tc-col">
-              <span className="tc-menu-head">{engineLabel('claude')}</span>
-              {every.claude.map(modelRow)}
-            </div>
-          )}
-          {every.codex.length > 0 && (
-            <div className="tc-col">
-              <span className="tc-menu-head">{engineLabel('codex')}</span>
-              {every.codex.map(modelRow)}
-            </div>
-          )}
-        </div>
-      </>)}
-      {effortRows.length > 0 && (<>
-        <span className="tc-sep" />
-        <span className="tc-effort-head" id="tc-effort-head">Effort</span>
-        <span className="tc-effort" role="radiogroup" aria-labelledby="tc-effort-head">
-          {effortRows.map((e) => (
-            <button
-              key={e.id}
-              type="button"
-              data-item
-              role="radio"
-              aria-checked={e.id === effortLit}
-              className={e.id === effortLit ? 'lit' : ''}
-              onPointerEnter={hover}
-              // The level stays in the menu: she may be here to set the model
-              // and the level both, and closing on the first makes her reopen it.
-              onClick={() => pickEffort(e.id)}
-            >{e.label}</button>
-          ))}
-        </span>
-      </>)}
-    </div>
+    <ModelMenu
+      className="tc-menu tc-drop tc-model-menu"
+      page={modelPage}
+      onPage={setModelPage}
+      recent={recent}
+      every={every}
+      more={more}
+      pick={pick}
+      onPick={(p) => { pickModel(p); close('text'); }}
+      labelOf={labelOf}
+      engineLabel={engineLabel}
+      engineTags={engineTags}
+      effortRows={effortRows}
+      effortLit={effortLit}
+      onEffort={pickEffort}
+      onKeyDown={menuKeys}
+      onHover={hover}
+    />
   );
 
   // IS THIS A TASK OR A MESSAGE. Two rows, in the head's own menu, because
@@ -873,7 +862,7 @@ export function ThreadComposer({
               <button type="button" data-trigger className={`tc-word ${open === 'to' ? 'open' : ''}`} aria-haspopup="listbox" aria-expanded={open === 'to'}
                 onClick={() => toggle('to')} onKeyDown={triggerKeys('to')}>
                 {person ? <Face person={person} /> : <AgentFace />}
-                <span className="tc-word-text">{person ? person.name : 'Agent'}</span>
+                <span className="tc-word-text">{person ? person.name : agentWordFor(engineRows, pick.engine)}</span>
               </button>
               {extra.map((p) => (
                 <span key={p.id} className="tc-also">
@@ -934,11 +923,15 @@ export function ThreadComposer({
           </div>
         )}
 
+        {named.chips}
         <textarea
           ref={textRef}
-          className="tc-text"
+          className={`tc-text ${named.over}`}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => { setText(e.target.value); named.track(e.target); }}
+          onSelect={(e) => named.track(e.currentTarget)}
+          onScroll={(e) => named.track(e.currentTarget)}
+          onKeyDown={(e) => { named.keyDown(e); }}
           placeholder={person ? `Message ${names}` : placeholderFor(null)}
           onPaste={async (e) => {
             const pasted = await fromPaste(e);
@@ -950,6 +943,7 @@ export function ThreadComposer({
             await addFiles(e.dataTransfer.files);
           }}
         />
+        {named.menu}
         <AttachRow attachments={attachments} onRemove={(i) => setAttachments((x) => x.filter((_, j) => j !== i))} />
 
         {refusal && <div className="tc-note">{refusal}</div>}

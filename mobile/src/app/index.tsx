@@ -13,7 +13,7 @@ import { useCloud } from '../state/cloud';
 import { Magnifier, StateGlyph, ViewButton, ViewMenu } from '../ui/Filters';
 import { Cloud, Gear, Pen, Tick } from '../ui/icons';
 import { barsFor } from '../ui/Pickers';
-import { IconButton, PriorityBars, RunningMark, T, TopBar, Wall } from '../ui/parts';
+import { footRoom, IconButton, PriorityBars, RunningMark, T, TopBar, Wall } from '../ui/parts';
 import { color, font, size } from '../ui/theme';
 
 // The desktop's own words for an empty tab (renderer/src/threads/Pages.tsx `EmptyTab`).
@@ -60,11 +60,6 @@ function Tabs({ on, counts, pick, foot }: { on: TabId; counts: Record<TabId, num
           </Pressable>
         ))}
       </ScrollView>
-      {/* Search at the row's right end (Pages.tsx `StateTabs`). */}
-      <Pressable onPress={() => router.push('/search')} accessibilityLabel="Search threads" accessibilityRole="button" hitSlop={6}
-        style={({ pressed }) => ({ width: 32, height: 32, marginRight: 8, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
-        <Magnifier />
-      </Pressable>
     </View>
   );
 }
@@ -163,14 +158,12 @@ export default function Threads() {
   const rows = shown.rows[tab];
   const counts = { inbox: shown.rows.inbox.length, progress: shown.rows.progress.length, snoozed: shown.rows.snoozed.length, done: shown.rows.done.length };
   const hidden = shown.whole[tab] - rows.length;
-  // The home bar's room under the tabs, never under 8px (phone.css `--phone-foot`).
-  const foot = Math.max(8, inset.bottom - 14);
+  const foot = footRoom(inset);
   const clear = () => setDisplay({ ...display, priorities: [], projects: [], updated: 'any', privacy: 'any' });
   return (
     <Wall>
       <TopBar title="Threads" right={<>
-        {/* The board has no tabs row, so Search stays up here (Pages.tsx `HeaderActions`). */}
-        {board && <IconButton label="Search threads" onPress={() => router.push('/search')}><Magnifier /></IconButton>}
+        <IconButton label="Search threads" onPress={() => router.push('/search')}><Magnifier size={18} /></IconButton>
         <ViewButton display={display} open={menu} onPress={() => setMenu(!menu)} />
         <IconButton label="Settings" onPress={() => router.push('/settings')}><Gear /></IconButton>
       </>} />

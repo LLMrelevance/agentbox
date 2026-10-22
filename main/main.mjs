@@ -4,6 +4,7 @@
 import { app, BrowserWindow, Menu, Notification, clipboard, crashReporter, dialog, ipcMain, nativeImage, net, powerMonitor, protocol, screen as electronScreen, shell, session, safeStorage, systemPreferences, globalShortcut } from 'electron';
 import * as workItemsDisk from './store/work-items.mjs';
 import { createTeamService, teamStateFile } from './team/index.mjs';
+import { roomsSetup } from './team/room-setup.mjs';
 import { loadCloudConfig, supabaseSession } from './team/session.mjs';
 // MY WORKSPACE IS NOT A TEAM FEATURE ANY MORE (w-f8d123be62), even though it
 // still lives in the team folder next to the sharing rules it has to obey.
@@ -24,6 +25,7 @@ import { readCodexThreadsOffThread } from './codex-threads.mjs';
 import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
 import { stallWatch } from './stall-watch.mjs';
+import { startFreezeRecorder } from './freeze-recorder.mjs';
 import { applyThrough, phoneDevice } from './phone-inbox.mjs';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
@@ -52,6 +54,8 @@ import { hotWindowVerdict, storeHasWork } from './dev-window.mjs';
 import { writeHeldThenReload } from './write-before-reload.mjs';
 import { IS_SHE_TYPING_IN_THE_PAGE, theAppKeepsThisInput, theAppKeepsThisLetterInAPage } from '../shared/artifact-keys.mjs';
 import { NAME, Name, WAS } from '../shared/product-name.mjs';
+import { JOIN_SCHEME, tokenFromLink } from '../shared/room-links.mjs';
+import { getMic } from './neo/mic.mjs';
 
 // HOW LONG TO WAIT AFTER THE LID OPENS, and the wait is for the network rather
 // than for the wake. `powerMonitor`'s resume event fires while wifi is still
@@ -241,6 +245,20 @@ installCrashReports({
 });
 
 let window = null;
+// A ROOM INVITE LINK THAT OPENED THE APP (Rooms, alpha): agentbox://join/<token>.
+// Held until the window takes it ('zero:take-join'); a window that is up is
+// told to come and take it, and one still starting takes it as it mounts.
+let pendingJoin = tokenFromLink(process.argv.find((a) => a.startsWith(`${JOIN_SCHEME}://`)) ?? '');
+function openJoinLink(url) {
+  const token = tokenFromLink(url);
+  if (!token) return;
+  pendingJoin = token;
+  if (window && !window.isDestroyed()) {
+    window.webContents.send('zero:join-room');
+    if (window.isMinimized()) window.restore();
+    window.focus();
+  }
+}
 // Set by ⌘R and read once by the renderer as it comes back up, so a reload can
 // say so. A reload that lands on an identical screen and a chord that did
 // nothing at all look exactly alike, and telling them apart is the whole
@@ -385,6 +403,13 @@ async function createWindow() {
   supervisor.count = (name, props) => analytics.track(name, props);
   const stalls = stallWatch();
   supervisor.stalls = stalls;
+  // AND WHICH OF OUR FUNCTIONS HELD THE THREAD, each time it froze.
+  const freezes = startFreezeRecorder({
+    dir: path.join(userDir, 'memory-log'),
+    appDir,
+    onFreeze: (f) => { stalls.noteFreeze(f); console.warn(`zero: the app froze for ${f.ms} ms in ${f.where}`); },
+  });
+  quitStep(app, 'before-quit', 'freezes.stop', () => freezes.stop());
   quitStep(app, 'before-quit', 'supervisor.killAll', () => supervisor.killAll());
   // THE TEAM. Off entirely on a build with no team cloud (the single-person
   // app). Otherwise it restores whoever was signed in, and from then on every
@@ -431,6 +456,8 @@ async function createWindow() {
       // Where her phone reads it, once the site is up (cloud/team.config.json).
       site: typeof cloudConfig.phoneSite === 'string' ? cloudConfig.phoneSite : null,
     },
+    // ROOMS, while switched on in Alpha features (docs/team/ROOMS-PLAN.md).
+    rooms: roomsSetup({ config, store, supervisor, userDir }),
   }) : null;
   if (team) {
     team.start().then(() => supervisor.wake?.()).catch((err) => console.warn(`team: ${err.message}`));
@@ -742,7 +769,13 @@ async function createWindow() {
   };
   // `readClipboardText` is read only by the cloud setup, and only for a
   // Claude sign-in code (main/ipc.mjs `zero:cloud-clipboard-code`).
-  const filingHost = { ipcMain: filingIpcMain, app, dialog, readClipboardText: () => clipboard.readText() };
+  const filingHost = {
+    ipcMain: filingIpcMain, app, dialog, readClipboardText: () => clipboard.readText(),
+    // A voice note asks for the microphone on the press of its button, the way Neo does.
+    micAccess: () => (process.platform === 'darwin'
+      ? getMic({ systemPreferences, openExternal: (url) => shell.openExternal(url) })
+      : 'granted'),
+  };
   const ipc = registerIpc({
     store, supervisor, config, window, analytics, docGrants, updater,
     host: filingHost,
@@ -958,7 +991,7 @@ async function createWindow() {
   // in the code for everyone and on for one person.
   createNeo({
     app, BrowserWindow, ipcMain, screen: electronScreen, powerMonitor, systemPreferences, session, globalShortcut, shell,
-    mainWindow: window, userData: app.getPath('userData'),
+    mainWindow: window, userData: app.getPath('userData'), config,
     // Every few minutes of talk goes to a review thread in the project this
     // app is built from, which patches what went wrong (./neo/review.mjs).
     onReview: ({ files, seconds }) => {
@@ -989,6 +1022,7 @@ async function createWindow() {
   // itself (it has no disk and should not have one), and 'render-process-gone'
   // only fires when the process DIES, which a thrown React error does not.
   ipcMain.handle('zero:crash', (_e, payload) => { reportFromRenderer(payload ?? {}); });
+  ipcMain.handle('zero:take-join', () => { const token = pendingJoin; pendingJoin = null; return token; });
   // External links from markdown open in the real browser; local artifacts
   // (a demo page, a screenshot a worker saved) open in their default app, so
   // "see it working" is one click from the message.
@@ -1149,12 +1183,15 @@ async function createWindow() {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_e, argv = []) => {
     if (window) {
       if (window.isMinimized()) window.restore();
       window.focus();
     }
+    const link = argv.find((a) => String(a).startsWith(`${JOIN_SCHEME}://`));
+    if (link) openJoinLink(link);
   });
+  app.on('open-url', (e, url) => { e.preventDefault(); openJoinLink(url); });
   app.whenReady().then(() => {
     // A from-source Linux launch keeps the launcher command installed. The
     // entry runs that command; this only refreshes where it points. A packaged
@@ -1170,6 +1207,9 @@ if (!app.requestSingleInstanceLock()) {
     // THE ABOUT BOX SAYS AGENTBOX AND ITS OWN VERSION (w-db6f5e331e). Run from
     // source it read the bundle's, which is Electron's: "Electron 43.0.0".
     app.setAboutPanelOptions({ applicationName: NAME, applicationVersion: app.getVersion(), version: '' });
+    // Only the installed app takes the invite scheme: run from source it would
+    // point every link on the Mac at this checkout's Electron.
+    if (app.isPackaged) app.setAsDefaultProtocolClient(JOIN_SCHEME);
     // Serve a granted file, and nothing else. A page under this scheme is one
     // of ours, but it is written by an agent and read by her, so the check is
     // on every request rather than only on the one the pane asked for.

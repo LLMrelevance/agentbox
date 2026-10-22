@@ -23,7 +23,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { launchChrome, connect } from './cdp.mjs';
+import { launchChrome, connect, freeProfile } from './cdp.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const { readState, INSTANCE } = await import(path.join(here, 'live.mjs'));
@@ -80,6 +80,7 @@ async function launch() {
   fs.rmSync(FILE, { force: true });
   const profile = path.join(INSTANCE, 'chrome-profile');
   fs.mkdirSync(profile, { recursive: true });
+  if (freeProfile(profile)) await new Promise((r) => setTimeout(r, 500));
   const { chrome, wsUrl } = await launchChrome({ profile, detached: true });
   const t = await connect(wsUrl);
   fs.writeFileSync(FILE, JSON.stringify({ wsUrl, targetId: t.targetId, pid: chrome.pid, url: state.url }));
@@ -149,6 +150,7 @@ if (verb === 'open') {
     if (!el) return null;
     el.scrollIntoView({ block: 'center' });
     el.click();
+    if (el.matches('input, textarea, select, [contenteditable]')) el.focus();
     return (el.getAttribute('aria-label') || el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 60);
   })()`);
   await report(t, hit === null ? `Nothing numbered or named "${which}" on screen. Run look again.` : `Pressed "${hit}".`);

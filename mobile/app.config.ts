@@ -11,14 +11,15 @@ import path from 'node:path';
 import type { ExpoConfig } from 'expo/config';
 import { NAME, nameSlug } from '../shared/product-name.mjs';
 
-function cloudConfig(): { url: string; anonKey: string } | null {
+// `phoneSite` is where a new account's email link lands (the phone website).
+function cloudConfig(): { url: string; anonKey: string; phoneSite: string | null } | null {
   const url = process.env.EXPO_PUBLIC_CLOUD_URL;
   const anonKey = process.env.EXPO_PUBLIC_CLOUD_KEY;
-  if (url && anonKey) return { url, anonKey };
+  if (url && anonKey) return { url, anonKey, phoneSite: process.env.EXPO_PUBLIC_PHONE_SITE || null };
   for (const file of [path.join(__dirname, '..', 'cloud', 'team.config.json'), path.join(os.homedir(), `.${nameSlug}`, 'team.config.json')]) {
     if (!fs.existsSync(file)) continue;
     const c = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (typeof c?.url === 'string' && typeof c?.anonKey === 'string') return { url: c.url, anonKey: c.anonKey };
+    if (typeof c?.url === 'string' && typeof c?.anonKey === 'string') return { url: c.url, anonKey: c.anonKey, phoneSite: typeof c.phoneSite === 'string' ? c.phoneSite : null };
   }
   return null;
 }

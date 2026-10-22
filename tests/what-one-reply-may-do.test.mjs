@@ -465,6 +465,7 @@ describe('clearing a mode puts the row back on the project setting', () => {
         // undefined so the child exiting does not throw past the assertion.
         _fruitless: {},
         _profileCooldown: {},
+        _liveSessions: {},
         emit: () => {},
         tick: () => {},
         // `true` exits 0 at once and emits a real 'spawn' event before it does.
@@ -687,6 +688,6 @@ describe('the wiring from the reply box is present in the source', () => {
     // thread is still this one call, naming the message it answers.
     // And `fromPhone` since the phone with the computer closed: the id of the
     // phone command a reply came from (main/phone-inbox.mjs).
-    expect(ipc).toContain('store.answerItem(product, id, { answer, status, priority, permissionMode, model, effort, inReplyTo: thread, fromPhone })');
+    expect(ipc).toContain('store.answerItem(product, id, { answer, status, priority, permissionMode, engine, model, effort, inReplyTo: thread, fromPhone })');
   });
 });

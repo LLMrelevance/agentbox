@@ -12,6 +12,7 @@
 //     --tester-login inherit                           testers sign in with this session's variables
 //     --testers external                               the agent that started this runs each stretch itself
 //     --keep                                           leave the copies up afterwards
+//     --team <file> --room <name>                      one tester signs in to a real team (live.mjs --team) and talks in that room
 //
 // For each person: a copy of the app of their own (live.mjs with
 // VERIFY_INSTANCE=power-<who>), shaped like their setup; a watcher reading it
@@ -34,7 +35,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { readPeople, pickPeople, chaosPlan, worldAt, nextRound, roundOutcome, coverage, testerPrompt, projectNamedIn } from './plan.mjs';
+import { readPeople, pickPeople, chaosPlan, worldAt, nextRound, restartAgain, roundOutcome, coverage, testerPrompt, projectNamedIn } from './plan.mjs';
 import { createWatcher, freeMemoryMb, readAllLines, keepEvidence } from './watch.mjs';
 import { writeReport } from './report.mjs';
 import { readDiary } from './diary.mjs';
@@ -68,6 +69,10 @@ const focus = opt('focus');
 const model = opt('model');
 const inherit = opt('tester-login') === 'inherit';
 const external = opt('testers') === 'external';
+const team = opt('team');
+const room = opt('room');
+if (team && people.length !== 1) stop('--team signs one account in, so it runs one tester: name them with --who.');
+if (room && !team) stop('--room needs --team: a copy with no team is in no room.');
 try { chaosPlan(chaos, totalMs); } catch (err) { stop(err.message); }
 
 const need = people.length * (real ? 2500 : 1200) + 1000;
@@ -173,7 +178,7 @@ for (const person of people) {
   fs.mkdirSync(dir, { recursive: true });
   const shape = real ? [] : ['--logins', String(person.logins), ...(person.codex ? [] : ['--no-codex'])];
   say(`${person.name}: starting a copy of the app shaped like their setup`);
-  const up = await live(name, 'up', ...(real ? ['--real'] : []), ...shape, '--projects', person.projects.join(','));
+  const up = await live(name, 'up', ...(real ? ['--real'] : []), ...shape, '--projects', person.projects.join(','), ...(team ? ['--team', team] : []));
   fs.writeFileSync(path.join(dir, 'up.log'), up.out);
   const stateFile = path.join(instanceDir(name), 'instance.json');
   const state = readJson(stateFile);
@@ -249,6 +254,7 @@ async function runPerson({ person, name, dir, stateFile, seeded, failed, cmds })
   const fired = new Set();
   let quietUntil = 0;
   let busy = false;
+  let down = null;
   let worldText = null;
   const watcher = createWatcher({ state: state(), out: dir, seeded, afterMs: (real ? 30 : 10) * MIN, quiet: (now) => now < quietUntil, readState: state });
 
@@ -258,6 +264,17 @@ async function runPerson({ person, name, dir, stateFile, seeded, failed, cmds })
     try {
       const now = Date.now();
       const elapsed = now - startedAt;
+      if (restartAgain({ down, now, deadline })) {
+        down.tried = now;
+        quietUntil = now + 2 * MIN;
+        const r = await live(name, 'restart');
+        if (r.code === 0) {
+          const mins = Math.max(1, Math.round((Date.now() - down.since) / MIN));
+          fs.appendFileSync(path.join(dir, 'timeline.jsonl'), `${JSON.stringify({ at: Date.now(), kind: 'restart-recovered', says: `The app came back after ${mins} min down.` })}\n`);
+          say(`${person.name}'s app: came back after ${mins} min down`);
+          down = null;
+        }
+      }
       if (!real) {
         const text = JSON.stringify(worldAt(events, elapsed));
         if (text !== worldText) { fs.writeFileSync(path.join(state().instance, 'world.json'), text); worldText = text; }
@@ -272,7 +289,10 @@ async function runPerson({ person, name, dir, stateFile, seeded, failed, cmds })
         if (e.kind === 'restart' || e.kind === 'crash') {
           quietUntil = now + 2 * MIN;
           const r = await live(name, 'restart', ...(e.kind === 'crash' ? ['--ctrl-c'] : []));
-          if (r.code !== 0) fs.appendFileSync(path.join(dir, 'timeline.jsonl'), `${JSON.stringify({ at: Date.now(), kind: 'restart-failed', says: `The app did not come back: ${r.out.trim().split('\n').pop()}` })}\n`);
+          if (r.code !== 0) {
+            fs.appendFileSync(path.join(dir, 'timeline.jsonl'), `${JSON.stringify({ at: Date.now(), kind: 'restart-failed', says: `The app did not come back: ${r.out.trim().split('\n').pop()}` })}\n`);
+            down = { since: now, tried: Date.now() };
+          }
         }
         if (e.kind === 'sleep') {
           const pid = state().pid;
@@ -301,7 +321,7 @@ async function runPerson({ person, name, dir, stateFile, seeded, failed, cmds })
       const cov = coverage({ actions: readJsonl(path.join(dir, 'actions.jsonl')), lines: readAllLines(state()), seeded, maxAtOnce: watcher.maxAtOnce, person });
       fs.writeFileSync(path.join(dir, 'clock.json'), JSON.stringify({ round, deadline, roundEnd: next.endsAt }));
       const prompt = testerPrompt({
-        person, focus, browse: cmds.browse, diary: cmds.diary, shots: dir, round, real,
+        person, focus, room, browse: cmds.browse, diary: cmds.diary, shots: dir, round, real,
         totalMinutes: Math.round(totalMs / MIN), minutesLeft: Math.round((deadline - now) / MIN), roundMinutes: Math.round((next.endsAt - now) / MIN),
         fraction: (now - startedAt) / totalMs, diaryTail: diaryTail(dir),
         issues: issues.map((i) => `#${i.n} [${i.severity}] ${i.title} (seen ${i.seen})`), notYet: cov.notYet, stoppedEarlyMin: early,

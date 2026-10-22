@@ -266,10 +266,10 @@ export function createCodexWorker({
   worker.turnId = null;
 
   let ended = false;
-  worker.steer = async text => {
+  worker.steer = async (text, pictures = []) => {
     if (ended || !worker.threadId || !worker.turnId) throw Error('The turn is not running. Send again when the conversation is ready.');
     const expected=worker.turnId;
-    const result=await server.steerTurn(worker.threadId,expected,text);
+    const result=await server.steerTurn(worker.threadId,expected,text,pictures);
     if(result?.turnId!==expected)throw Error('The provider did not confirm the active turn.');
     return result;
   };

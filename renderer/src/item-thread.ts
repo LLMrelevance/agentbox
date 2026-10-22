@@ -33,6 +33,7 @@
 import { changedFile, commandWork, isBookkeeping, plainCommand, saidCount, shortPath, threadWindow, unleaked, workVerb } from '../../shared/agents.mjs';
 import { said, traceLines } from './terminal';
 import { handsBack } from '../../shared/cloud-hand-back.mjs';
+import { editOfLine, resolveEdits, type EditLine } from '../../shared/message-edits.mjs';
 import type { TraceSession } from './notes';
 import { threadEvents, withRuns, type LedgerLine, type ThreadEvent } from './thread-history';
 import type { AgentEvent, AgentSaid, AgentTurn, AgentWork } from './types';
@@ -74,6 +75,9 @@ export interface ItemOutcome {
   at: number;
   text: string;
   field: 'result' | 'note';
+  /** What wrote it (thread-history.ts, `ran`), so the newest answer is signed
+   *  like the ones still in the stream. */
+  ran?: { engine?: string; model?: string };
 }
 
 /**
@@ -493,6 +497,28 @@ function collapseRepeats(placed: Placed[]): Placed[] {
     .filter((_, i) => !gone.has(i));
 }
 
+/** What a deleted message that still has replies under it reads as. */
+export const DELETED_WORDS = 'This message was deleted.';
+
+/**
+ * A message's newest words from its own author, and a deleted one taken out,
+ * except where replies hang off it: there it stays as a line saying so, or its
+ * thread would have nothing to open from.
+ */
+function withEdits(events: ThreadEvent[], lines: LedgerLine[]): ThreadEvent[] {
+  const editLines = lines.map(editOfLine).filter((e): e is EditLine => !!e);
+  if (!editLines.length) return events;
+  const edits = resolveEdits(events.filter((e) => e.message), editLines);
+  if (!edits.size) return events;
+  const answered = new Set(events.map((e) => e.inReplyTo).filter(Boolean));
+  return events.flatMap((e) => {
+    const edit = e.message && e.uid ? edits.get(e.uid) : undefined;
+    if (!edit) return [e];
+    if (!edit.gone) return [{ ...e, words: edit.text, edited: edit.at }];
+    return answered.has(e.uid) ? [{ ...e, words: DELETED_WORDS, deleted: true }] : [];
+  });
+}
+
 export function itemThread(
   lines: LedgerLine[],
   sessions: TraceSession[],
@@ -517,14 +543,14 @@ export function itemThread(
   // credited to the wrong pickup reads exactly like one credited to the right
   // one), and it is pinned in tests/one-door-one-list.test.mjs. `readNotes` is
   // given one session at a time there, so a run's `raw` IS that session's text.
-  const events = withRuns(threadEvents(lines, opts.engine), sessions);
+  const events = withEdits(withRuns(threadEvents(lines, opts.engine), sessions), lines);
   const out: AgentEvent[] = [];
   // Where the newest thing SAID sits, and which ledger message it was. A run's
   // narration is a message on the screen too, so it counts here: a row picked
   // up again after a result has the agent talking below that result, and the
   // result is then no longer the end of the conversation.
   let spokeAt = -1;
-  let answer: { i: number; at: number; text: string; field: 'result' | 'note' } | null = null;
+  let answer: { i: number; at: number; text: string; field: 'result' | 'note'; ran?: { engine?: string; model?: string } } | null = null;
 
   // EVERY NODE WITH THE MOMENT IT HAPPENED, BEFORE ANYTHING IS PUT IN ORDER.
   //
@@ -570,9 +596,9 @@ export function itemThread(
     if (event.message && event.words) {
       const isAnswer = event.who === 'agent' && (event.field === 'result' || event.field === 'note');
       placed.push({
-        node: { at: event.at, who: event.who === 'you' ? 'you' : 'it', text: event.words, ...(event.by ? { by: event.by } : {}), ...(event.uid ? { uid: event.uid } : {}), ...(event.inReplyTo ? { inReplyTo: event.inReplyTo } : {}) },
+        node: { at: event.at, who: event.who === 'you' ? 'you' : 'it', text: event.words, ...(event.by ? { by: event.by } : {}), ...(event.uid ? { uid: event.uid } : {}), ...(event.inReplyTo ? { inReplyTo: event.inReplyTo } : {}), ...(event.ran ? { ran: event.ran } : {}), ...(event.edited ? { edited: event.edited } : {}), ...(event.deleted ? { deleted: true } : {}) },
         run: null,
-        answer: isAnswer ? { at: event.at, text: event.words, field: event.field as 'result' | 'note' } : null,
+        answer: isAnswer ? { at: event.at, text: event.words, field: event.field as 'result' | 'note', ...(event.ran ? { ran: event.ran } : {}) } : null,
       });
       continue;
     }
@@ -688,7 +714,7 @@ export function itemThread(
   // finished result or checkpoint with nothing spoken under it. See ItemOutcome
   // above for why this exists and what draws it.
   const outcome: ItemOutcome | null = answer && answer.i === spokeAt
-    ? { at: answer.at, text: answer.text, field: answer.field }
+    ? { at: answer.at, text: answer.text, field: answer.field, ...(answer.ran ? { ran: answer.ran } : {}) }
     : null;
   // Counted before it is lifted: it is still a message on this task, and the
   // head line says how many there are, not how many are in the stream.

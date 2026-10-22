@@ -5,8 +5,8 @@
 import { useRef, useState } from 'react';
 import { isImageName } from '../../../renderer/src/attachments';
 import {
-  clearDraft, readComposeDraft, readDraft, readDraftAttachments, restoreComposeDraft, restoreDraft, restoreFailedDraft,
-  saveComposeDraft, saveDraft, saveDraftAttachments, takeComposeDraft, type DraftAttachment, type DraftStore, type ItemRef,
+  clearDraft, dropComposeDraft, readComposeDraft, readDraft, readDraftAttachments, restoreComposeDraft, restoreDraft,
+  restoreFailedDraft, saveComposeDraft, saveDraft, saveDraftAttachments, type DraftAttachment, type DraftStore, type ItemRef,
 } from '../../../renderer/src/drafts';
 import { startingPriority, type PriorityId } from '../../../renderer/src/priority';
 import type { Picked } from '../platform/pick';
@@ -40,7 +40,8 @@ export function saveDraftOf(key: DraftKey, d: Draft, store: DraftStore): { dropp
 /** What a send takes off the box, leaving it empty. */
 export function takeDraftOf(key: DraftKey, store: DraftStore): Draft {
   if (key === 'new') {
-    const d = takeComposeDraft(store);
+    const d = readComposeDraft(store);
+    dropComposeDraft(d, store);
     return { text: d.text, files: d.attachments.flatMap(asPicked), priority: startingPriority(d.priority) };
   }
   const taken = readDraftOf(key, store);

@@ -1,7 +1,7 @@
 {
   "name": "agentbox-app",
   "productName": "Agentbox",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "An inbox for managing dozens of Claude Code and Codex agents.",
   "author": "Savannah Feder",
   "repository": {
@@ -66,8 +66,6 @@
     "hooks:install": "node scripts/install-hooks.mjs",
     "check:public": "node scripts/check-before-public.mjs --all",
     "ship": "node scripts/ship.mjs",
-    "ship:approved": "node scripts/risk.mjs --approved",
-    "risk": "node scripts/risk.mjs",
     "relay:build": "node relay/build.mjs",
     "relay:dev": "node relay/build.mjs && cd relay && npm ci --no-audit --no-fund && npx wrangler dev --port 8787",
     "relay:deploy": "node relay/deploy.mjs",
@@ -162,7 +160,8 @@
         "NSDocumentsFolderUsageDescription": "Agentbox needs this to let your agents work in a project you keep in Documents.",
         "NSDownloadsFolderUsageDescription": "Agentbox needs this to let your agents work in a project you keep in Downloads.",
         "NSRemovableVolumesUsageDescription": "Agentbox needs this to let your agents work in a project you keep on an external disk.",
-        "NSAppleEventsUsageDescription": "Agentbox needs this when an agent you started asks another app to do something."
+        "NSAppleEventsUsageDescription": "Agentbox needs this when an agent you started asks another app to do something.",
+        "NSMicrophoneUsageDescription": "Agentbox needs this to record a voice note when you press the microphone button."
       },
       "category": "public.app-category.productivity",
       "icon": "build/icon.icns",

@@ -9,6 +9,13 @@
 // room at rest and lighting only paints it. The count's letter spacing is 0 so
 // the digit sits centred: with the tabs' spacing it sat about a pixel left,
 // measured off a close-up of the built app.
+//
+// IT IS A DOT NOW, NOT A TINTED COUNT (power test 3, 2026-10-20). Sending a
+// thread moves the page to In progress, and the lit count on the tab left
+// behind was the brightest thing on the strip: a tester read NEEDS YOU 8 over
+// the one row of the list he was now looking at and logged that eight threads
+// had vanished. The orange sits in the gutter instead, where it marks the tab
+// without competing with the tab you are on.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -48,13 +55,17 @@ describe('the tab draws it', () => {
   });
 
   const css = read('team/team.css');
-  const fresh = css.match(/\.tm-tab\.fresh b \{([^}]*)\}/)?.[1] ?? '';
-  it('with every count keeping its room, so nothing moves when it lights', () => {
+  const dot = css.match(/\.tm-tab\.fresh::before \{([^}]*)\}/)?.[1] ?? '';
+  it('as a dot in the gutter, which takes no room, so nothing moves when it lights', () => {
+    expect(dot).toMatch(/position: absolute/);
+    expect(dot).toMatch(/background: var\(--accent\)/);
+    expect(css).toMatch(/\.tm-tab\.fresh \{[^}]*position: relative/);
     expect(css).toMatch(/\.tm-tab b \{[^}]*display: inline-block;[^}]*padding: 0 5px;[^}]*letter-spacing: 0;/);
-    expect(fresh).toMatch(/background:/);
-    expect(fresh).not.toMatch(/padding|margin|width|font-size/);
   });
-  it('quietly: a tint, with no ring and no glow', () => {
-    expect(fresh).not.toMatch(/box-shadow|border/);
+  it('and never on the count, which reads like every other tab\'s', () => {
+    expect(css).not.toMatch(/\.tm-tab\.fresh b \{/);
+  });
+  it('quietly: a square, with no ring and no glow', () => {
+    expect(dot).not.toMatch(/box-shadow|border-radius/);
   });
 });

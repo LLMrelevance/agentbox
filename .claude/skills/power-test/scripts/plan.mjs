@@ -124,6 +124,11 @@ export function worldAt(events, elapsed) {
   return world;
 }
 
+/** Whether to try again to bring back a copy whose restart failed: once a minute, and only while the clock runs. */
+export function restartAgain({ down, now, deadline, everyMs = 60_000 }) {
+  return !!down && now < deadline && now - down.tried >= everyMs;
+}
+
 /**
  * Whether another round starts. The clock owns the test, not the tester: a
  * tester that decides it is done after two minutes gets another round. What
@@ -219,7 +224,7 @@ const PACE = {
 
 const KEYS = 'N new thread; ⌘↵ (press Enter meta) sends; J/K or arrows move in the list; ↵ opens; esc goes back; R replies in an open thread; E closes a thread; L puts it off until later; Z undoes; ⌘K (press k meta) opens the command bar; / searches; B switches list and board; Tab moves between the tabs; S shows or hides the summary; 1 to 9 pick an option an agent offered.';
 
-export function testerPrompt({ person, focus, browse, diary, shots, round, totalMinutes, minutesLeft, roundMinutes, fraction, diaryTail, issues, notYet, real, stoppedEarlyMin = 0 }) {
+export function testerPrompt({ person, focus, room = null, browse, diary, shots, round, totalMinutes, minutesLeft, roundMinutes, fraction, diaryTail, issues, notYet, real, stoppedEarlyMin = 0 }) {
   const list = (xs, none) => (xs.length ? xs.map((x) => `- ${x}`).join('\n') : none);
   return `You are ${person.name}, ${person.role}. Below is who you are. Stay in character: use Agentbox the way you would on a real working day, to get your own work done, and notice what goes wrong the way you would.
 
@@ -246,7 +251,10 @@ ${real
 TODAY'S TEST
 ${focus ? `The team shipped a change and asked you to lean on it today: ${focus}` : 'Nothing in particular: use it the way you always do.'}
 
-YOUR DIARY
+${room ? `YOUR ROOM
+You are signed in to a real team, and you are in the ${room} room, under Rooms in the sidebar. The person who asked for this test is in the room with you and reads it live, so it is like sharing an office: say hello when you start, tell them now and then what you are working on and how it is going, ask them when you are stuck or something in the app confused you, and answer when they write to you. Use the room the way you would with a coworker, not as a report. Look at their card, open their page, try what a room offers (a thread, a mention with @, going invisible for a little while), and log anything about Rooms in your diary like anything else.
+
+` : ''}YOUR DIARY
 You keep a diary while you work, and the person who asked you to test reads all of it.
   ${diary} note "what you did, what you expected, how it felt"
   ${diary} issue --severity broken|wrong|slow|confusing --title "..." --steps "1. ... 2. ..." --expected "..." --actual "..." --shot name

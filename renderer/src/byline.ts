@@ -31,6 +31,7 @@
 import { liveLine, shortSpan, shortWord, type LiveFacts, type LiveState } from './live-line';
 import { ago } from './format';
 import { engineLabel } from '../../shared/engines.mjs';
+import { engineModelLabel, type ModelChoice } from './models';
 import type { WorkItem } from './types';
 
 /* ------------------------------ where it is ------------------------------- */
@@ -154,6 +155,25 @@ export function engineWordFor(facts: EngineFacts = {}): string | null {
 }
 
 /**
+ * WHAT WROTE THIS ANSWER, over the answer itself.
+ *
+ * The agent is named by the rule above, which is silent on a Mac with one of
+ * them. The model and the agent are named only where the row NAMED them: a
+ * default nobody chose is a guess, and this line is read as a record. Null is
+ * "nothing true to say", and the thread keeps the word it always had.
+ */
+export function ranWords({ engineChoice, ran, codexModels = [], codexDefault = null }: {
+  engineChoice?: boolean;
+  ran?: { engine?: string; model?: string };
+  codexModels?: ModelChoice[];
+  codexDefault?: string | null;
+}): string | null {
+  const agent = ran?.engine ? engineWordFor({ engineChoice, engine: ran.engine }) : null;
+  const model = ran?.model ? engineModelLabel(ran.engine ?? null, ran.model, { codexModels, codexDefault }) : null;
+  return [agent, model].filter(Boolean).join(', ') || null;
+}
+
+/**
  * WHICH CODING AGENT IS ON THIS ROW RIGHT NOW, in the one word she reads
  * everywhere else. Null on every Mac with one agent, which is almost all of
  * them.
@@ -266,7 +286,7 @@ export function bylineFacts(
 /** The fact beside the state word, when there is one it does not already say. */
 function besideTheState(f: BylineFacts): string | null {
   if (f.state === 'working') return f.stateWord && f.stateWord !== 'Working' ? f.stateWord.replace(/ Working$/, '') : null;
-  if (f.state === 'idle') return null;
+  if (f.state === 'idle' || f.state === 'elsewhere') return null;
   return f.stateWord;
 }
 

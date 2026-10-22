@@ -18,7 +18,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 const settings = read('renderer/src/components/Settings.tsx');
 const css = read('renderer/src/styles.css');
-const card = settings.slice(settings.indexOf('type CardAccount = {'), settings.indexOf('const Group = ({'));
+const card = settings.slice(settings.indexOf('type CardAccount ='), settings.indexOf('const Group = ({'));
 
 /**
  * The rule that draws one class, so a test asks the stylesheet rather than
@@ -129,7 +129,9 @@ describe('nothing in the card is a black square', () => {
   });
 
   // AND NO DRAWN ICONS. Every mark is type or a rule; a tick drawn in an earlier
-  // round was one more shape to learn.
+  // round was one more shape to learn. The one exception was asked for
+  // (2026-10-21, "maybe with little icons"): the Local and Cloud marks on an
+  // account's places, which are the thread menu's own and drawn there.
   it('draws no icons inside the card', () => {
     expect(card).not.toContain('<svg');
   });

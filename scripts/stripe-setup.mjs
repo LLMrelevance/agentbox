@@ -4,6 +4,8 @@
 //
 //   node scripts/stripe-setup.mjs          # the sandbox (Keychain: agentbox-stripe-test)
 //   node scripts/stripe-setup.mjs --live   # real money (Keychain: agentbox-stripe-live)
+//   add --managed once Managed Payments is on in the Dashboard: Stripe is
+//   then the seller of record and handles sales tax
 //   then: node scripts/cloud-gateway-setup.mjs
 //
 // Safe to run again. The key is read from the Keychain and never printed.
@@ -121,7 +123,7 @@ async function main() {
     ({ secret: webhookSecret, id: endpoint } = made);
     say(`webhook made for ${url}`);
   }
-  const value = JSON.stringify({ key, webhookSecret, endpoint, live });
+  const value = JSON.stringify({ key, webhookSecret, endpoint, live, managedPayments: process.argv.includes('--managed') });
   if (stored) aws(['secretsmanager', 'put-secret-value', '--secret-id', STRIPE_SECRET_NAME, '--secret-string', 'file:///dev/stdin'], value);
   else aws(['secretsmanager', 'create-secret', '--name', STRIPE_SECRET_NAME, '--secret-string', 'file:///dev/stdin'], value);
   say(`key and webhook secret stored in ${STRIPE_SECRET_NAME}; now run scripts/cloud-gateway-setup.mjs`);

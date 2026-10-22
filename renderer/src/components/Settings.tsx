@@ -35,8 +35,11 @@ import { InstructionSettings, sizeLabel } from './InstructionSettings';
 import { NeoSettings } from '../neo/NeoSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
-import { accountLabel, countedAccounts, type CloudStatus } from '../cloud-menu';
+import { accountLabel, cloudToggleTarget, countedAccounts, type CloudStatus } from '../cloud-menu';
+import { planCards, usageLine, usedPercent, type PaidPlan } from '../cloud-upgrade';
+import type { CloudPlan } from '../types';
 import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
+import { accountReadingFor, accountsOnce, type HereLogin, type OneAccount } from '../accounts-once';
 import { limitRows } from '../../../shared/usage.mjs';
 import { LOOKS, lookMeans, SKINS, TUNE_DEFAULT, TUNE_LIMITS, type Look, type SkinId, type SkinTune } from '../skins';
 import { readySkin } from '../look-switch';
@@ -52,6 +55,7 @@ import { TaskTerminal } from './TaskTerminal';
 import { ProjectsPage } from './ProjectsPage';
 import { searchSettings, SETTINGS_PAGES, type SettingsHit, type SettingsPageId } from '../settings-search';
 import type { Product } from '../types';
+import { CloudMark, MacMark } from '../threads/ThreadMenu';
 import './settings.css';
 
 /* * TEAM IS A PANE HERE (w-8415594d19, 2026-10-01). The pane's CONTENT is
@@ -281,20 +285,8 @@ function CopyCmd({ cmd }: { cmd: string }) {
    ==========================================================================
 */
 
-type CardAccount = {
-  profile: string;
-  email: string | null;
-  plan: string | null;
-  chosen: boolean;
-  signedIn: boolean;
-  /**
-   * WHY THIS ACCOUNT CANNOT BE USED, in main's words, or null. Kept because it
-   * is the one thing on an account row she can act on: a signed-out
-   * subscription reads as healthy-but-resting without it. */
-  trouble: string | null;
-  /** The folder, needed only to print the command that signs it back in. */
-  dir: string | null;
-};
+type CardAccount = HereLogin;
+export { accountReadingFor };
 
 /**
  * One agent's whole story, gathered from the pieces the model still keeps
@@ -427,20 +419,13 @@ export function AccountRows({ agent, onChoose, onAdd }: {
   }
 }
 
-export function accountReadingFor(profile: string, readings: AccountUsageReading[], current: Usage | null): Usage | null {
-  const own = readings.find(r => r.profile === profile && r.limits?.length && r.at);
-  const candidates = [own ? { engine: 'claude' as const, profile, at: own.at!, limits: own.limits! } : null,
-    current && (current.profile ?? 'default') === profile ? current : null];
-  return candidates.filter((r): r is Usage => !!r).sort((a, b) => b.at - a.at)[0] ?? null;
-}
-
 /** One account as a place card draws it, whether it lives here or in the cloud. */
 export type PlaceAccount = {
   key: string;
   name: string;
-  /** The plan, set against the name. */
+  /** The plan, first on the line under the name. */
   plan?: string | null;
-  /** A state to say where nothing is in use or offered, joined with a dot. */
+  /** Anything else that line says, after the plan, joined with a dot. */
   about: string[];
   inUse?: boolean;
   limits?: UsageLimit[] | null;
@@ -448,6 +433,10 @@ export type PlaceAccount = {
   usageError?: string | null;
   /** Offered when picking it would change something, with the words for it. */
   use?: { word: string; onUse: () => void } | null;
+  /** Where it is signed in and working, a tag each after the plan. */
+  places?: Where[];
+  /** The cloud sign-in it is missing, a link after those. */
+  cloudAct?: { word: string; onUse: () => void } | null;
   /** Why it cannot run, in main's words; replaces the meters. */
   trouble?: string | null;
   cmd?: string | null;
@@ -473,21 +462,18 @@ export function MiniMeters({ limits, now = Date.now() }: { limits?: UsageLimit[]
   );
 }
 
-/** A tile here's second line, in the words the cloud's tiles use. Trouble is said below it instead. */
-export function hereState({ signedIn, trouble, limits, now = Date.now() }: {
-  signedIn: boolean; trouble: string | null; limits?: UsageLimit[] | null; now?: number;
-}): string[] {
-  if (!signedIn) return ['Finish signing in to use it'];
-  if (trouble) return [];
-  const full = (limits ?? []).some((l) => l.percent >= 100 && !(l.resetsAt && l.resetsAt <= now)
-    && (l.span === 'session' || !l.qualifier || /all/i.test(l.qualifier)));
-  return [full ? 'At its limit' : 'Ready'];
-}
-
 // The header says the newest reading's time; a tile older than this says its own.
 const OWN_TIME_AFTER_MS = 15 * 60_000;
 
-/** One tile per account, two to a line, its meters stacked inside. */
+type Where = 'here' | 'cloud';
+const PLACE_TAG: Record<Where, { word: string; Mark: typeof CloudMark }> = {
+  here: { word: 'Local', Mark: MacMark },
+  cloud: { word: 'Cloud', Mark: CloudMark },
+};
+/**
+ * One tile per account, two to a line, its meters stacked inside. IN USE sits
+ *  beside the address (on the right margin it was missed), and the button
+ *  that switches to an account sits in its top right corner. */
 export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: PlaceAccount[]; onAdd?: () => void; now?: number }) {
   return (
     <div className="acct-tiles">
@@ -495,10 +481,19 @@ export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: Pl
         <div className={`acct-tile${a.inUse ? ' on' : ''}${a.trouble ? ' trouble' : ''}`} key={a.key}>
           <div className="acct-tile-head">
             <span className="acct-tile-name">{a.name}</span>
-            {a.inUse && <span className="set-badge">In use</span>}
-            {a.plan && <span className="acct-tile-plan">{a.plan}</span>}
+            {a.inUse ? <span className="set-badge">In use</span>
+              : a.use && <button type="button" className="acct-switch" onClick={a.use.onUse}>{a.use.word}</button>}
           </div>
-          <div className="acct-tile-about">{a.about.join(' · ')}</div>
+          {(a.plan || a.about.length > 0 || a.places?.length || a.cloudAct) && (
+            <div className="acct-tile-about">
+              {(a.plan || a.about.length > 0) && <span>{[a.plan, ...a.about].filter(Boolean).join(' · ')}</span>}
+              {a.places?.map((p) => {
+                const { word, Mark } = PLACE_TAG[p];
+                return <span className="acct-place" key={p}><Mark size={12} />{word}</span>;
+              })}
+              {a.cloudAct && <button type="button" className="ps-link acct-cloud-act" onClick={a.cloudAct.onUse}>{a.cloudAct.word}</button>}
+            </div>
+          )}
           {a.trouble ? (
             <>
               <div className="acct-tile-trouble">{a.trouble}</div>
@@ -509,7 +504,6 @@ export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: Pl
             {a.usageError && <div className="acct-tile-trouble" role="status">{a.usageError}</div>}
           </>}
           {!!a.checkedAt && (a.usageError || now - a.checkedAt >= OWN_TIME_AFTER_MS) && <div className="acct-reading-time">{usageCheckedAt(a.checkedAt, now)}</div>}
-          {a.use && <button type="button" className="set-ghost acct-switch" onClick={a.use.onUse}>{a.use.word}</button>}
         </div>
       ))}
       {onAdd && <button type="button" className="acct-tile acct-tile-add" onClick={onAdd}>Add account</button>}
@@ -544,6 +538,47 @@ export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex
     const about = read && state.startsWith('At its limit') ? 'At its limit' : state;
     return { key: a.key, name: accountLabel(a, all), plan: a.plan ?? null, about: [about], limits: a.limits ?? null, meters: read, checkedAt: read ? a.readAt : null };
   });
+}
+
+/**
+ * A Claude account's one tile, wherever it is signed in (`accountsOnce`). The
+ *  line under the name is the plan and, once a cloud is set up, a tag for each
+ *  place the account works. The cloud cannot borrow this computer's login, so
+ *  an account missing there, or whose sign-in there stopped, offers the sign-in.
+ */
+export function accountTile(a: OneAccount, { picked, many, onUse, cloud = false, onCloudSignIn }: {
+  picked: boolean; many: boolean; now: number; onUse: (profile: string) => void;
+  cloud?: boolean;
+  onCloudSignIn?: (key: string | null, email: string | null) => void;
+}): PlaceAccount {
+  const h = a.here;
+  const c = a.cloud;
+  const broken = c?.state === 'broken';
+  const signingIn = !!h && !h.signedIn;
+  const places: Where[] = !cloud || signingIn ? [] : [...(h ? ['here' as const] : []), ...(c && !broken ? ['cloud' as const] : [])];
+  const signIn = (word: string, key: string | null) => (onCloudSignIn ? { word, onUse: () => onCloudSignIn(key, h?.email ?? c?.name ?? null) } : null);
+  return {
+    key: a.key, name: a.name, plan: a.plan,
+    about: signingIn ? ['Finish signing in to use it'] : [],
+    places,
+    cloudAct: !cloud || signingIn ? null : broken ? signIn('Sign in to cloud again', c!.key) : h && !c ? signIn('Add to cloud', null) : null,
+    inUse: !!(picked && h?.chosen),
+    limits: a.limits, checkedAt: a.checkedAt, usageError: a.usageError,
+    use: h?.signedIn && !(picked && h.chosen) && many ? { word: picked ? 'Switch' : 'Use only this one', onUse: () => onUse(h.profile) } : null,
+    trouble: h?.trouble ?? null,
+    cmd: h?.trouble && h.dir ? `CLAUDE_CONFIG_DIR=${h.dir} claude` : null,
+    meters: !!(h || a.limits?.length),
+  };
+}
+
+/** The cloud row's sentence: when threads go there, and on which accounts. */
+export function cloudRunsLine(mode: CloudStatus['mode'], names: string[], accounts: number): string {
+  if (mode === 'mac') return 'Every thread runs on this computer.';
+  const when = mode === 'all' ? 'Threads start there first' : 'Threads start there when this computer is full';
+  const on = names.length === 1 ? `on ${names[0]}`
+    : names.length === accounts ? `on ${accounts === 2 ? 'both' : `all ${accounts}`} accounts in turn`
+      : `on ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} in turn`;
+  return `${when}, ${on}.`;
 }
 
 /*
@@ -810,6 +845,81 @@ function PhonePage({ onFeedback, macShut }: { onFeedback?: () => void; macShut?:
     <Page title="Phone" lede="Read and reply from your phone, even with this computer closed.">
       <MacShutGroup macShut={macShut} />
       {feedback}
+    </Page>
+  );
+}
+
+/* ------------------------------- Agentbox Cloud ------------------------------- */
+// THE PLANS, AS CARDS (the founder's design of 2026-10-13, w-1dc7ee2408,
+// cloud-slots/20): sold as agent slots, the plan you are on outlined with how
+// much of it is in use, how the cloud counts under them, and billing on
+// Stripe's own page. Choosing opens Stripe in the browser; the page reads the
+// plan again until it changes (../cloud-upgrade.ts).
+function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: () => void }) {
+  const [plan, setPlan] = useState<CloudPlan | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  const [waitingFor, setWaitingFor] = useState<string | null>(null);
+  const read = async () => { const p = await api.cloudAccountPlan(); setPlan(p); return p; };
+  useEffect(() => { void read(); }, [signedIn]);
+  // Back from Stripe's page: the plan changes once its webhook lands.
+  useEffect(() => {
+    if (!waitingFor) return;
+    const was = waitingFor;
+    let n = 0;
+    const t = setInterval(async () => {
+      n += 1;
+      const p = await read();
+      if (p.plan !== was || n > 60) { setWaitingFor(null); clearInterval(t); }
+    }, 5000);
+    return () => clearInterval(t);
+  }, [waitingFor]);
+  const choose = async (id: PaidPlan) => {
+    if (!signedIn) { onSignIn(); return; }
+    setSaid(null);
+    const out = await api.cloudAccountPay(id);
+    if (!out.ok) { setSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
+    setWaitingFor(plan?.plan ?? 'none');
+  };
+  const billing = async () => {
+    const out = await api.cloudAccountBilling();
+    if (!out.ok) setSaid(out.message || 'Stripe could not be opened. Try again.');
+  };
+  const cards = planCards(plan);
+  const paying = !!plan?.plan && plan.plan !== 'none';
+  return (
+    <Page title="Cloud" lede="Every thread needs a slot to run in. Your computer has a few. The cloud adds more.">
+      <div className="set-group cloud-plans" data-find="cloud-plans">
+        {cards.map((c) => (
+          <div key={c.id} className={`cloud-plan${c.current ? ' mine' : ''}`}>
+            <div className="cloud-plan-head"><span>{c.name}</span>{c.current && <span className="cloud-plan-mine">Your plan</span>}</div>
+            <div className="cloud-plan-price">{c.price}<span> a month</span></div>
+            <div className="cloud-plan-slots">{c.slots}</div>
+            <div className="cloud-plan-where">running in the cloud</div>
+            {c.current && plan ? (
+              <div className="cloud-plan-use">
+                <span>{usageLine(plan)}</span>
+                <span className="cloud-plan-bar"><i style={{ width: `${usedPercent(plan)}%` }} /></span>
+              </div>
+            ) : c.button && <button type="button" className="set-ghost cloud-plan-go" onClick={() => void choose(c.id)}>{c.button}</button>}
+          </div>
+        ))}
+      </div>
+      {said && <p className="cloud-plans-say">{said}</p>}
+      {waitingFor && <p className="cloud-plans-say">Finish on Stripe's page in your browser. This page changes when it's done.</p>}
+      <Group id="cloud-counts" label="How the cloud counts" bare>
+        <ul className="cloud-counts">
+          <li>Each slot runs one agent in the cloud, on top of the ones your computer runs.</li>
+          <li>Time counts only while an agent is working. Waiting for your reply is free.</li>
+          <li>Pro has 400 hours a month, Plus 1,200 and Max 3,000. Past them, threads wait for your computer until the month turns.</li>
+        </ul>
+      </Group>
+      {paying && (
+        <Group id="cloud-billing" label="Billing">
+          <Row label="Payment and invoices" desc="Handled by Stripe. Cancel any time.">
+            <button type="button" className="set-ghost" onClick={() => void billing()}>Open</button>
+          </Row>
+        </Group>
+      )}
     </Page>
   );
 }
@@ -1391,11 +1501,14 @@ function NavIcon({ id }: { id: SettingsPageId }) {
     claude: <><rect x="3.5" y="5" width="17" height="14" rx="2" /><path d="m7.5 10 2.5 2-2.5 2M12.5 14.5h4" /></>,
     codex: <><path d="m9 8-4 4 4 4M15 8l4 4-4 4" /></>,
     running: <><circle cx="12" cy="12" r="8" /><path d="M10.5 9.2v5.6l4.5-2.8z" /></>,
+    cloud: <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />,
     instructions: <path d="M6.5 3.5h7.5l4 4V20.5h-11.5zM14 3.5V8h4M9.5 12h5M9.5 16h5" />,
     projects: <path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />,
     team: <><circle cx="9" cy="9" r="3" /><path d="M3.5 19c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5" /><circle cx="16.5" cy="9.5" r="2.5" /><path d="M16 14.6c2.3-.2 4 1.2 4.5 4" /></>,
     // The orb, the one thing of Neo's that is already on screen.
     neo: <><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="8.5" opacity="0.45" /></>,
+    alpha: <><path d="M9.5 3.5h5M10.5 3.5v5.2L5.6 17.6a2 2 0 0 0 1.8 2.9h9.2a2 2 0 0 0 1.8-2.9l-4.9-8.9V3.5" /><path d="M7.6 14.5h8.8" /></>,
+    rooms: <path d="M9.5 4.5 7.5 19.5M16.5 4.5l-2 15M5 9.5h14.5M4.5 14.5H19" />,
   };
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1422,12 +1535,16 @@ function paneFrom(want: string, has: { team: boolean; neo?: boolean }): Pane {
 
 /* --------------------------------- screen --------------------------------- */
 
-export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, neoOn = false, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null }: {
+export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, neoOn = false, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null, onCloudSignIn, cloudPlans = null, roomsPane }: {
   /** Opens the feedback card. A phone has no Feedback button in its corner,
    *  so its own Settings page offers it (2026-10-12). */
   onFeedback?: () => void;
   /** The cloud, when this Mac is set up for it: its own logins are listed on the agent's page. */
   cloud?: CloudStatus | null;
+  /** Signs a Claude account in to the cloud (a login's key to sign it in again), on the cloud's own screen. */
+  onCloudSignIn?: (key: string | null, email: string | null) => void;
+  /** Agentbox Cloud's plans, where this copy offers it: the Cloud page. */
+  cloudPlans?: { signedIn: boolean; onSignIn: () => void } | null;
   // ONE control for the three of them. Light, dark and each picture are one
   // list, because a picture IS dark (skins.ts) and asking her to set a theme
   // and then a background is two decisions for one choice.
@@ -1480,6 +1597,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
    *  on this screen; the button's own answer is only ever held until the next
    *  snapshot arrives. Null on a build with no updater behind it. */
   update?: UpdateState | null;
+  /** Rooms (alpha): what people in your rooms see of you, handed in like the
+   *  team's pane. Absent while Rooms is off, and then there is no Rooms row. */
+  roomsPane?: ReactNode;
   onClose: () => void;
 }) {
   const [model, setModel] = useState<SettingsModel | null>(null);
@@ -1538,6 +1658,8 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     // A search with words in it is emptied by its own Escape (`searchKeys`).
     const clearing = (e: KeyboardEvent) => !!queryRef.current && e.target === searchBox.current;
     const onKey = (e: KeyboardEvent) => {
+      // A screen over this one, such as the cloud's sign-in, takes its own keys.
+      if (document.querySelector('.ps-over')) return;
       if (e.key === 'Escape' && !clearing(e)) { e.preventDefault(); e.stopPropagation(); onClose(); return; }
       // ⌘F, or / from anywhere that is not a box being typed in, goes to the search.
       const typing = e.target instanceof HTMLElement && e.target.closest('input, textarea, [contenteditable="true"]');
@@ -1601,7 +1723,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
 
   /** The pages this Mac has. Codex on every Mac (w-d5d632e503); Team only on
    *  a build with a team cloud; Neo only where the voice alpha is on. */
-  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'neo' || neoOn));
+  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'neo' || neoOn) && (p.id !== 'cloud' || !!cloudPlans) && (p.id !== 'rooms' || !!roomsPane));
   const hits = useMemo(
     () => searchSettings(query, { pages: pages.map((p) => p.id), projects }),
     [query, pages.length, projects],
@@ -1647,35 +1769,22 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   const enginePage = (engine: 'claude' | 'codex') => {
     if (!w) return null;
     const agent = agentStory(w, usageReadings, engine);
-    // Each login's own reading, never another's: by its folder, or the corner's if it is the same login.
-    const readingOf = (profile: string): Usage | null => {
-      return accountReadingFor(profile, accountReadings, agent.reading);
-    };
     const picked = agent.accounts.some((a) => a.chosen);
-    const hereAccounts: PlaceAccount[] = [...agent.accounts]
-      .sort((x, y) => Number(y.chosen) - Number(x.chosen))
-      .map((a) => ({
-        key: a.profile,
-        name: a.email ?? 'Not signed in',
-        plan: a.signedIn ? a.plan : null,
-        about: hereState({ signedIn: a.signedIn, trouble: a.trouble, limits: readingOf(a.profile)?.limits, now }),
-        inUse: picked && a.chosen,
-        limits: readingOf(a.profile)?.limits ?? null,
-        checkedAt: readingOf(a.profile)?.at ?? null,
-        usageError: accountReadings.find((r) => r.profile === a.profile)?.error ?? null,
-        use: a.signedIn && !(picked && a.chosen) && agent.accounts.length > 1
-          ? { word: picked ? 'Switch to this account' : 'Use only this account', onUse: () => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile: a.profile } })) }
-          : null,
-        trouble: a.trouble,
-        cmd: a.trouble && a.dir ? `CLAUDE_CONFIG_DIR=${a.dir} claude` : null,
-      }));
-    const lastRead = Math.max(0, ...hereAccounts.map((a) => a.checkedAt ?? 0));
-    const checked = lastRead ? usageCheckedAt(lastRead, now) : '';
     const cloudHere = cloud?.setUp && (cloud.accounts ?? []).some((a) => a.engine === engine) ? cloud : null;
-    // WHERE AGENTS GO FIRST IS DRAWN FIRST: the cloud while it is on, this computer while it is off.
+    const cloudLogins = cloudHere ? countedAccounts(cloudHere.accounts ?? []).filter((a) => a.engine === engine) : [];
+    // Each login's own reading, never another's, and the cloud's when it is the same subscription and newer.
+    const tiles = accountsOnce({ here: agent.accounts, cloud: cloudLogins, readings: accountReadings, current: agent.reading })
+      .map((a) => accountTile(a, {
+        picked, many: agent.accounts.length > 1, now,
+        onUse: (profile) => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile } })),
+        cloud: !!cloud?.setUp, onCloudSignIn,
+      }));
+    const lastRead = Math.max(0, ...tiles.map((a) => a.checkedAt ?? 0));
+    const checked = lastRead ? usageCheckedAt(lastRead, now) : '';
+    // Codex still draws its cloud logins as a place of their own.
     const cloudFirst = !!cloudHere && cloudHere.mode !== 'mac';
-    const cloudAccounts = cloudHere ? cloudPlaceAccounts(cloudHere, engine, now) : [];
-    const cloudCard = cloudHere && (
+    const cloudAccounts = cloudHere && engine === 'codex' ? cloudPlaceAccounts(cloudHere, engine, now) : [];
+    const cloudCard = cloudHere && engine === 'codex' && (
       <Place id="cloud-accounts" name="Cloud" state={cloudHere.mode === 'mac' ? 'Off' : 'On'}
         line={cloudPlaceLine(cloudHere, cloudAccounts.length)} accounts={cloudAccounts} now={now} />
     );
@@ -1701,25 +1810,39 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             {cloudFirst && cloudCard}
             {engine === 'codex' && <Group id="usage" label="Usage"><UsageRows reading={agent.reading} now={now} /></Group>}
             {/* "SIGNED IN", NOT "ACCOUNTS": a heading that works at any
-                number, so one account is never shown a plural to fill. Beside
-                the cloud it names the place instead. */}
+                number, so one account is never shown a plural to fill. Refresh
+                heads it because it reads every account on it, here and in the
+                cloud. */}
             {engine === 'claude' ? (
-              <Place
-                id="usage"
-                name={cloudHere ? 'This computer' : 'Signed in'}
-                action={(
-                  <span className="acct-place-act">
-                    {!refreshing && checked && <span className="acct-checked">{checked}</span>}
-                    <button type="button" className="set-ghost" disabled={refreshing} onClick={() => void readAccounts(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
-                  </span>
+              <>
+                <Place
+                  id="usage"
+                  name="Signed in"
+                  action={(
+                    <span className="acct-place-act">
+                      {!refreshing && checked && <span className="acct-checked">{checked}</span>}
+                      <button type="button" className="set-ghost" disabled={refreshing} onClick={() => void readAccounts(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
+                    </span>
+                  )}
+                  /* TWO FOLDERS, ONE SUBSCRIPTION, SAID ABOVE THE ROWS
+                     (w-f2a5c9894e). Main's sentence, about the pair. */
+                  warn={w.accountsNote}
+                  accounts={tiles}
+                  now={now}
+                  onAdd={() => void addAccount(agent)}
+                />
+                {cloudHere && (
+                  <Group id="cloud-accounts" label="Cloud">
+                    <Row label="Use the cloud" desc={cloudRunsLine(cloudHere.mode, cloudLogins.map((a) => accountLabel(a, cloudLogins)), tiles.length)}>
+                      <Switch
+                        on={cloudHere.mode !== 'mac'}
+                        label="Use the cloud"
+                        onChange={() => void write(api.setWorkspaceSetting({ key: 'cloudRuns', value: cloudToggleTarget(cloudHere) }))}
+                      />
+                    </Row>
+                  </Group>
                 )}
-                /* TWO FOLDERS, ONE SUBSCRIPTION, SAID ABOVE THE ROWS
-                   (w-f2a5c9894e). Main's sentence, about the pair. */
-                warn={w.accountsNote}
-                accounts={hereAccounts}
-                now={now}
-                onAdd={() => void addAccount(agent)}
-              />
+              </>
             ) : (
               <Group id="accounts" label={cloudHere ? 'This computer' : 'Signed in'}>
                 <AccountRows
@@ -1901,6 +2024,13 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             asks main for everything on it, so nothing here comes from the
             settings file either. */}
         {pane === 'neo' && neoOn && <NeoSettings />}
+        {pane === 'cloud' && cloudPlans && <CloudPlansPage signedIn={cloudPlans.signedIn} onSignIn={cloudPlans.onSignIn} />}
+
+        {pane === 'rooms' && roomsPane && (
+          <Page title="Rooms" lede="What people in your rooms see of you. Private threads never show.">
+            {roomsPane}
+          </Page>
+        )}
 
         {pane === 'team' && teamPane && (
           <Page title="Team" lede="Who is on your team, who has been invited, and the team's name. Everyone sees a short summary of your threads unless you mark one private.">
@@ -1928,6 +2058,19 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
 
         {/* GENERAL: you, your keys, what leaves this Mac and where your work is
             kept. Four small things set once. */}
+        {model && w && pane === 'alpha' && (
+          <Page title="Alpha features" lede="Early features you can try before they are finished. They may change or go away.">
+            <Group id="alpha">
+              <Row label="Neo" desc="A voice you wake by tapping ⌘ twice. Takes effect after a restart.">
+                <Switch label="Neo" on={!!w.alpha?.neo} onChange={(v) => setWorkspace('alphaNeo', v)} />
+              </Row>
+              <Row label="Rooms" desc="See the people you work with and their agents, with a chat beside them. Needs a team sign-in.">
+                <Switch label="Rooms" on={!!w.alpha?.rooms} onChange={(v) => setWorkspace('alphaRooms', v)} />
+              </Row>
+            </Group>
+          </Page>
+        )}
+
         {model && w && pane === 'general' && (
           <Page title="General">
             <Group id="keys" label="Keyboard">
@@ -2101,7 +2244,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
               {w.leftovers && (
                 <Row
                   label="Stop programs agents leave behind"
-                  desc={`Dev servers, previews and test runs an agent started and left running are stopped two hours after its run ends, or ten minutes while memory is short. Never stopped: anything you started yourself, apps installed on this computer, and what an agent was asked to keep.${twoEngines ? ' Codex agents’ programs are not found yet.' : ''}${w.leftovers.now ? ` ${w.leftovers.now}` : ''}`}
+                  desc={`Dev servers, previews and test runs an agent started keep running until you close its task, or until memory runs short. Apps installed on this computer are never stopped.${twoEngines ? ' Codex agents’ programs are not found yet.' : ''}${w.leftovers.now ? ` ${w.leftovers.now}` : ''}`}
                 >
                   <Switch label="Stop programs agents leave behind" on={w.leftovers.on} onChange={(v) => setWorkspace('cleanupLeftovers', v)} />
                 </Row>

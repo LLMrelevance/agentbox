@@ -85,11 +85,26 @@ export interface ThreadEvent {
   // What was actually written, in full. The component shows the beginning and
   // opens the rest in place; nothing here decides how much is shown.
   words?: string;
+  /** When its author last edited the words (item-thread.ts, `withEdits`). */
+  edited?: number;
+  /** Deleted by its author, kept only because replies hang off it. */
+  deleted?: boolean;
   // AN ACTION OF HERS THAT ANSWERED THE AGENT, though it is not a message: a
   // picked option. The conversation treats it as her reply for what comes
   // after it, so the agent's result stays above it instead of being lifted
   // under it.
   answers?: true;
+  /**
+   * WHAT THIS ANSWER RAN ON, folded off the ledger rather than recorded anew:
+   * the row's agent and model are written BEFORE the reply that starts a run
+   * (main/store.mjs, `answerItem`), so what the row said at this point in the
+   * file is what the run that wrote this was spawned with. Absent where the
+   * row named neither, because this line never guesses.
+   *
+   * A result and a checkpoint carry it and the opening ask does not: a row an
+   * agent filed was written by a run on ANOTHER row.
+   */
+  ran?: { engine?: string; model?: string };
 }
 
 // '(withdrawn)' is the tombstone an undone send leaves behind, not words.
@@ -192,6 +207,13 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null): Threa
   // The short written name, folded forward like `title`. Read once at the end:
   // see `withTitleSaid`.
   let label: string | null = null;
+  // The agent and model the row is on, folded the same way (`ran` above).
+  // Both are cleared by writing '', which is how the ledger says "none".
+  let ranEngine: string | undefined;
+  let ranModel: string | undefined;
+  const ranNow = (): { engine?: string; model?: string } | undefined => (
+    ranEngine || ranModel ? { ...(ranEngine ? { engine: ranEngine } : {}), ...(ranModel ? { model: ranModel } : {}) } : undefined
+  );
   // WHO SAID EACH EVENT, for a teammate's line (the team version). Every event
   // a line produced is tagged with its writer when the next line begins, and
   // once more after the last, which leaves the loop below exactly as it was.
@@ -226,6 +248,8 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null): Threa
     markReply = typeof reply === 'string' && reply ? reply : undefined;
     const patch = line.patch ?? null;
     if (has(patch, 'label')) label = String(patch!.label ?? '');
+    if (has(patch, 'engine')) ranEngine = String(patch!.engine ?? '') || undefined;
+    if (has(patch, 'model')) ranModel = String(patch!.model ?? '') || undefined;
     const mine = line.source === 'founder';
     const who: ThreadEvent['who'] = mine ? 'you' : 'agent';
     const at = line.ts;
@@ -362,12 +386,12 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null): Threa
     }
 
     if (words(patch.result)) {
-      events.push({ at, who: 'agent', said: 'It came back to you', words: words(patch.result)!, message: true, field: 'result' });
+      events.push({ at, who: 'agent', said: 'It came back to you', words: words(patch.result)!, message: true, field: 'result', ...(ranNow() ? { ran: ranNow() } : {}) });
       continue;
     }
 
     if (words(patch.note)) {
-      events.push({ at, who: 'agent', said: 'It checked in', words: words(patch.note)!, message: true, field: 'note' });
+      events.push({ at, who: 'agent', said: 'It checked in', words: words(patch.note)!, message: true, field: 'note', ...(ranNow() ? { ran: ranNow() } : {}) });
       continue;
     }
 
@@ -447,7 +471,25 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null): Threa
   }
   tagWriter();
 
-  return withTitleSaid(events, title, label);
+  return withTitleSaid(theAskComesFirst(events), title, label);
+}
+
+// NOTHING HAPPENED ON A THREAD BEFORE YOU ASKED FOR IT.
+//
+// The one exception to "nothing is re-sorted", and it is narrow on purpose: a
+// single event moves, to the top, and the rest keep the ledger's order.
+//
+// A thread you compose is two lines, the stamp that makes the row and then
+// your words (store.composeItem), and a worker can claim the row between them
+// and write before your words land. A tester's brand new thread opened on "Now
+// looking at how the open thread handles keys" with her own message under it
+// (power-test-2, issue 21). The clock is right and the reading is wrong: she
+// typed before any of it existed.
+function theAskComesFirst(events: ThreadEvent[]): ThreadEvent[] {
+  const bodied = events.findIndex((e) => e.field === 'body');
+  const i = bodied >= 0 ? bodied : events.findIndex((e) => /opened this$/.test(e.said));
+  if (i <= 0) return events;
+  return [events[i], ...events.slice(0, i), ...events.slice(i + 1)];
 }
 
 // WHEN THE HEADER SHOWS THE SHORT NAME, THE TITLE IS SAID IN THE OPENING.

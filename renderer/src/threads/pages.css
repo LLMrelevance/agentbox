@@ -71,6 +71,8 @@
 :root[data-theme="light"] .th-pop { background: var(--surface); }
 .th-pop .line { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 10px; padding: 7px 16px; }
 .th-pop .lab { font: 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
+/* Beside chips that wrap, the label belongs to the first row, not the middle of them all. */
+.th-pop .line:has(> .opts) > .lab { align-self: start; line-height: 26px; }
 .th-pop .opts { display: flex; flex-wrap: wrap; gap: 5px; }
 .th-pop .opts > button { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 9px; border: 1px solid var(--line); border-radius: var(--tag-radius); background: none; font: inherit; font-size: 12.5px; color: var(--text-dim); white-space: nowrap; cursor: pointer; }
 .th-pop .opts > button.on { background: rgba(255,255,255,.09); border-color: var(--text-faint); color: var(--text); }
@@ -90,6 +92,11 @@
 .th-st.s-running { border: 1.5px solid var(--accent); background: conic-gradient(var(--accent) 0 50%, transparent 50% 100%); }
 .th-st.s-scheduled { border: 1.5px dashed var(--text-faint); }
 .th-st.s-done { background: var(--text-faint); }
+/* Waiting its turn, which resolves itself, and held, which does not: the
+   second is the one worth looking at, so it is the one in the accent. */
+.th-st.s-queued { border: 1.5px solid var(--text-faint); }
+.th-st.s-held { border: 1.5px solid var(--accent); }
+.th-st.s-need { background: var(--accent); }
 .th-pr { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 11px; margin-right: 8px; flex: none; }
 .th-pr i { display: block; width: 3px; background: var(--line-strong); border-radius: 1px; }
 .th-pr i:nth-child(1) { height: 5px; } .th-pr i:nth-child(2) { height: 8px; } .th-pr i:nth-child(3) { height: 11px; }
@@ -138,13 +145,22 @@
 /* ------------------------------------------------------------ the list as a table */
 .th-table .row.th-head { padding-top: 10px; padding-bottom: 8px; font: 10.5px/16px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); cursor: default; }
 .th-table .row.th-head:hover { background: none; }
-.th-grid { display: grid; grid-template-columns: minmax(0, 1fr) 150px 112px 96px; column-gap: 16px; align-items: center; width: 100%; min-height: 20px; }
+/* Thread, status, project, priority, updated. The status column is the width
+   of the longest word it draws ("Nothing came back") at its own type size. */
+.th-grid { display: grid; grid-template-columns: minmax(0, 1fr) 160px 150px 112px 96px; column-gap: 16px; align-items: center; width: 100%; min-height: 20px; }
 .th-table .row { min-height: 0; }
 .th-grid > div { line-height: 20px; }
-.th-grid.with-person { grid-template-columns: minmax(0, 1fr) 140px 130px 112px 96px; }
+.th-grid.with-person { grid-template-columns: minmax(0, 1fr) 160px 140px 130px 112px 96px; }
 .th-grid > .num { text-align: right; }
 .th-cell-title { font-size: 14px; line-height: 20px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .th-cell-title.hidden { color: var(--text-dim); }
+/* THE STATUS COLUMN (w-ec2b04d449), in the project column's own type, because
+   both answer "what is this row" rather than carrying its words. It is dim
+   rather than faint: it is the one cell on the row that changes by itself. */
+.th-cell-state { font: 11.5px/20px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; min-width: 0; }
+.th-cell-state .th-st, .th-cell-state .th-st-cloud { margin-right: 8px; top: 0; }
+/* 14px wide against the dot's 12, so the word starts where a dot's does. */
+.th-cell-state .th-st-cloud { margin-right: 6px; }
 /* UNREAD (w-22da913d00): a dot in the gutter and a heavier title. The dot sits
    1px under the row's middle, which centres it on the title's lowercase. */
 .th-table .row.unread::before { content: ''; position: absolute; left: 13px; top: 50%; width: 6px; height: 6px; background: var(--accent); }
@@ -328,6 +344,11 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 .th-card .th-msg .tm-av { margin-right: 0; top: 0; }
 .th-card .m { display: flex; align-items: center; font: 11px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--text-faint); min-width: 0; }
 .th-card .m .p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What is happening on the card, on the card's own line, ahead of its project
+   and in the ink the row's status cell wears (w-ec2b04d449). */
+.th-card .m .s { display: flex; align-items: center; color: var(--text-dim); white-space: nowrap; flex: none; }
+.th-card .m .s::after { content: ""; width: 1px; height: 9px; margin: 0 9px; background: var(--line-strong); }
+.th-card .m .s .th-st, .th-card .m .s .th-st-cloud { margin-right: 7px; }
 .th-card .m .tm-av { width: 18px; height: 18px; line-height: 16px; font-size: 8px; margin-left: auto; flex: none; }
 .th-col-empty { font-size: 13px; color: var(--text-faint); padding: 4px 2px; }
 .tm-team-pane.th-pane { height: 100%; overflow: auto; }
@@ -466,3 +487,23 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 
 /* On the hosted phone, over the list: what it shows may be out of date. */
 .phone-status { margin: 6px 16px 2px; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--text-dim); font-size: 13px; line-height: 1.4; }
+
+/* THE CLOUD'S OFFER (cloud-upgrade.ts; the founder's design of 2026-10-13):
+   the last row of In progress and a card at the foot of its board column.
+   Quiet: the cloud in accent, the words in the list's own ink, an outlined
+   button the size of the row's own controls. */
+.th-table .row.th-offer-row, .th-table .row.th-offer-row:hover { cursor: default; background: none; }
+.th-offer-main { display: flex; align-items: center; gap: 10px; min-height: 30px; font-size: 14px; line-height: 20px; }
+.th-offer-ic { display: inline-flex; color: var(--accent); }
+.th-offer-ic svg { width: 15px; height: 15px; }
+.th-offer-say { flex: 1; min-width: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.th-offer-wait { color: var(--text-faint); }
+.th-offer-go { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; flex: none; border: 1px solid var(--line-strong); border-radius: var(--radius); background: none; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.th-offer-go:hover { background: var(--bg-hover); }
+.th-offer-go svg { width: 14px; height: 14px; }
+.th-card.th-offer-card { cursor: default; background: none; border-style: dashed; }
+.th-offer-card .m { gap: 8px; }
+.th-offer-card .m .p { flex: none; }
+.th-offer-card .m svg { width: 13px; height: 13px; flex: none; }
+.th-offer-card-go { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; border: 0; padding: 0; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--accent); cursor: pointer; }
+.th-card .m .th-card-wait { margin-left: 8px; text-transform: none; letter-spacing: 0; }

@@ -76,8 +76,13 @@ contextBridge.exposeInMainWorld('zero', {
   teamSync: () => ipcRenderer.invoke('zero:team-sync'),
   teamRoute: (payload) => ipcRenderer.invoke('zero:team-route', payload),
   teamReact: (payload) => ipcRenderer.invoke('zero:team-react', payload),
+  teamEdit: (payload) => ipcRenderer.invoke('zero:team-edit', payload),
+  micAccess: () => ipcRenderer.invoke('zero:mic-access'),
   teamMessage: (payload) => ipcRenderer.invoke('zero:team-message', payload),
+  rooms: (payload) => ipcRenderer.invoke('zero:rooms', payload),
+  takeJoin: () => ipcRenderer.invoke('zero:take-join'),
   threadEdit: (payload) => ipcRenderer.invoke('zero:thread-edit', payload),
+  moveItem: (payload) => ipcRenderer.invoke('zero:move-item', payload),
   // Repeating tasks. A rule, not a work item, so it has its own channels
   // rather than a flag on compose.
   repeats: () => ipcRenderer.invoke('zero:repeats'),
@@ -290,6 +295,12 @@ contextBridge.exposeInMainWorld('zero', {
     const handler = (_e, payload) => fn(payload);
     ipcRenderer.on('zero:recovered', handler);
     return () => ipcRenderer.removeListener('zero:recovered', handler);
+  },
+  // A room invite link opened the app (Rooms, alpha).
+  onJoinRoom: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('zero:join-room', handler);
+    return () => ipcRenderer.removeListener('zero:join-room', handler);
   },
   // She clicked the banner. The window is already coming forward; this says
   // which row it was about, so she lands on it rather than on wherever she

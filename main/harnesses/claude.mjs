@@ -14,6 +14,7 @@ import { cloudClaudeMode, cloudPermissionArgs } from '../cloud-permission.mjs';
 import { claudeActivity } from '../agent-activity.mjs';
 import { captureStream, streamingText, summarizeStreamLine, traceStreamLine } from './claude-stream.mjs';
 import { definitionMethods, commonUpdatePlan } from './common.mjs';
+import { findTranscript } from '../transcript-search.mjs';
 const definition = harnessDefinition('claude');
 
 // THE SETTINGS LAYER THAT TAKES A METERED KEY BACK OFF A RUN. Claude Code reads
@@ -82,15 +83,7 @@ export const claudeHarness = {
   transcript(sup, rec) {
     if (!rec?.sessionId) return null;
     const home = rec.profile && rec.profile !== 'default' ? rec.profile : path.join(os.homedir(), '.claude');
-    const projects = path.join(home, 'projects');
-    const slug = String(rec.cwd ?? '').replace(/[^a-zA-Z0-9]/g, '-');
-    const direct = path.join(projects, slug, `${rec.sessionId}.jsonl`);
-    if (fs.existsSync(direct)) return direct;
-    try { for (const dir of fs.readdirSync(projects)) {
-      const file = path.join(projects, dir, `${rec.sessionId}.jsonl`);
-      if (fs.existsSync(file)) return file;
-    } } catch {}
-    return null;
+    return findTranscript(path.join(home, 'projects'), rec.sessionId, rec.cwd, { look: rec.cloud ? 'never' : 'now' });
   },
   change: () => null,
   release: () => {},

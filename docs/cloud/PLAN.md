@@ -58,10 +58,22 @@ between runs.
     (`signin-code`). The token is read by the sandbox server, checked with one
     word from Claude, and PUT to the login's object. It is never an event,
     never in the log, never sent to the Mac.
-  - Codex: `codex login --device-auth`, OpenAI's documented sign-in for remote
-    machines. The sandbox sends the link and the one-time code; the person
-    enters the code on OpenAI's page; Codex writes `auth.json` in a scratch
-    `CODEX_HOME`, which the sandbox PUTs. The sandbox also reports the
+  - Codex: `codex login`, its ordinary browser sign-in (`flow: 'browser'`).
+    The first build used `codex login --device-auth`, but ChatGPT refuses a
+    device code unless the account turned "device code sign-in" on in its
+    Security settings (2026-10-21), and a workspace admin can keep it off.
+    `codex login` sends the browser back to http://127.0.0.1:1455/auth/callback
+    on the machine it runs on. The sandbox sends the Mac the link; the Mac
+    listens on that address while the person signs in
+    (`main/cloud/browser-return.mjs`) and passes the query, a one-time code
+    only the sandbox's Codex can spend (PKCE), to the sandbox
+    (`signin-callback`), which hands it to Codex and follows its redirect to
+    `/success` itself, because that link carries the id token. This is
+    OpenAI's documented SSH port-forward for remote machines, done by the
+    app. A sandbox image older than this ignores `flow` and runs the device
+    code sign-in, and the Mac shows the code as before. Either way Codex
+    writes `auth.json` in a scratch `CODEX_HOME`, which the sandbox PUTs.
+    The sandbox also reports the
     account's email from the id token, which the Mac checks against the
     account it is signing in (a different ChatGPT account is refused).
   The sandbox tells the Mac only `saved` (with the expiry, for Codex) or
