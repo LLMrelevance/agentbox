@@ -1369,7 +1369,8 @@ declare global {
       pathForFile(file: File): string | null;
       /** Pasted bytes to disk, so the draft carries a path. */
       // Bytes for a paste, a path for a drag. One or the other, never neither.
-      stageAttachment(p: { name: string; dataBase64?: string; srcPath?: string }): Promise<{ path: string }>;
+      // `name` comes back when a TIFF or HEIC was turned into a PNG or JPEG.
+      stageAttachment(p: { name: string; dataBase64?: string; srcPath?: string }): Promise<{ path: string; name?: string }>;
       onChanged(fn: () => void): () => void;
       approve?(p: { id: string; allow: boolean; note?: string }): Promise<{ ok: boolean }>;
       // Fired for the button AND for the Cmd+Y/Cmd+N chord that main catches
