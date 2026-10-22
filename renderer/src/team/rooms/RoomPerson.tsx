@@ -6,7 +6,7 @@ import type { Room, RoomCard, ThreadCard } from '../../types';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
 import { activityShown, cardName, hoursWords, weekRank } from './room-rules';
-import { useOutside } from './RoomsNav';
+import { useOutside } from './RoomsPage';
 import { Name } from '../../../../shared/product-name.mjs';
 
 export function PersonHover({ card, room, at, onMessage, onProfile, onRanks, onClose }: {

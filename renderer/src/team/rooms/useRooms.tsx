@@ -1,12 +1,11 @@
-// Rooms in the app (alpha): which room is open, the sidebar section, the tabs,
-// the page, the messages page and the dialogs, in one place so App.tsx only
-// places them.
+// Rooms in the app (alpha): which room is open, the sidebar's Rooms row, the
+// Rooms page, a room's page, the messages page and the dialogs, in one place
+// so App.tsx only places them.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../../api';
 import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
-import { RoomsNav, useOutside, type RoomMenuAction } from './RoomsNav';
-import { RoomTabs } from './RoomTabs';
-import { boardPeople, boardPicked, cardName, readBoardPicks, readRoomView, roomTabs, tabWalk, whereChatOpens, withMe, writeBoardPicks, writeRoomView, type RoomView } from './room-rules';
+import { RoomsPage, useOutside, type RoomMenuAction } from './RoomsPage';
+import { boardPeople, boardPicked, cardName, readBoardPicks, readRoomView, whereChatOpens, withMe, writeBoardPicks, writeRoomView, type RoomView } from './room-rules';
 import { RoomViewButton } from './RoomView';
 import { landed, sameMessages } from './room-chat-rules';
 import { RoomPage, type RoomPane } from './RoomPage';
@@ -19,8 +18,6 @@ import { FindRooms, type ListedRoom } from './FindRooms';
 import { InviteDialog, JoinDialog, MembersMenu, StartRoomDialog, type Preview, type Sent } from './RoomDialogs';
 import { joinLink, tokenFromLink } from '../../../../shared/room-links.mjs';
 import { RoomsNotReady, RoomsSettings } from './RoomsSettings';
-
-const FOLD_KEY = 'rooms.folded';
 
 type Dialog =
   | { kind: 'invite'; roomId: string }
@@ -48,7 +45,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
 }) {
   const live = on && !!rooms?.on;
   const all = live ? rooms!.rooms : [];
-  // Groups are chats: they live on the messages page and in the switcher, not in the sidebar.
+  // Groups are chats: they live on the messages page and in the switcher, not on the Rooms page.
   const list = all.filter((r) => r.kind !== 'group');
   const [openId, setOpenId] = useState<string | null>(null);
   const [pane, setPane] = useState<RoomPane>('wall');
@@ -56,12 +53,12 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const [full, setFull] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [switcher, setSwitcher] = useState<DOMRect | null>(null);
-  const [folded, setFolded] = useState(() => { try { return localStorage.getItem(FOLD_KEY) === '1'; } catch { return false; } });
   const [view, setViewRaw] = useState<RoomView>(() => readRoomView());
   const [boardPicks, setBoardPicks] = useState<Record<string, string[]>>(() => readBoardPicks());
   const [dialog, setDialog] = useState<Dialog>(null);
   const [members, setMembers] = useState<{ roomId: string; at: DOMRect } | null>(null);
   const [links, setLinks] = useState<Record<string, string>>({});
+  const [listing, setListing] = useState(false);
   const [finding, setFinding] = useState(false);
   // The Messages row with no conversation yet to open.
   const [noChats, setNoChats] = useState(false);
@@ -78,7 +75,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     if (open) seen.current = open.id;
     else if (openId && seen.current === openId && live && rooms?.ready) { seen.current = null; setOpenId(null); }
   }, [openId, live, rooms?.ready, open]);
-  useEffect(() => { if (!live) { setOpenId(null); setDialog(null); setMembers(null); setFull(false); } }, [live]);
+  useEffect(() => { if (!live) { setOpenId(null); setDialog(null); setMembers(null); setFull(false); setListing(false); } }, [live]);
   useEffect(() => { setPicked(new Set()); setSwitcher(null); }, [openId]);
 
   const call = useCallback(async <T,>(op: string, ...args: unknown[]): Promise<{ ok: boolean; value?: T; error?: string }> => {
@@ -103,18 +100,21 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     try { await navigator.clipboard.writeText(joinLink(token)); toast('Link copied'); } catch { toast(joinLink(token)); }
   };
 
-  const openRoom = (id: string, { asFull = false } = {}) => { onLeavePage(); setFinding(false); setNoChats(false); setOpenId(id); setPane('wall'); setPanelId(null); setFull(asFull); setCameFrom(null); };
+  const openRoom = (id: string, { asFull = false } = {}) => { onLeavePage(); setListing(false); setFinding(false); setNoChats(false); setOpenId(id); setPane('wall'); setPanelId(null); setFull(asFull); setCameFrom(null); };
+  const openRooms = () => { onLeavePage(); setOpenId(null); setFull(false); setPanelId(null); setFinding(false); setNoChats(false); setCameFrom(null); setListing(true); };
+  // A room and Find rooms both sit inside the Rooms page, so stepping out of either lands there.
   const close = () => {
-    if (finding) { setFinding(false); return; }
+    if (listing) { setListing(false); return; }
+    if (finding) { setFinding(false); setListing(true); return; }
     if (noChats) { setNoChats(false); return; }
     if (cameFrom) { openRoom(cameFrom.roomId); setPane(cameFrom.pane); return; }
     if (full && open?.kind !== 'group') { setFull(false); return; }
     if (pane !== 'wall') { setPane('wall'); return; }
-    setOpenId(null); setFull(false); setPanelId(null);
+    setOpenId(null); setFull(false); setPanelId(null); setListing(open?.kind !== 'group');
   };
-  // Somewhere else was picked: no room, no Find rooms, no messages page.
-  const leave = () => { setOpenId(null); setFull(false); setPanelId(null); setFinding(false); setNoChats(false); setCameFrom(null); };
-  const find = () => { onLeavePage(); setOpenId(null); setFull(false); setNoChats(false); setFinding(true); setCameFrom(null); };
+  // Somewhere else was picked: no room, no Rooms page, no Find rooms, no messages page.
+  const leave = () => { setOpenId(null); setFull(false); setPanelId(null); setListing(false); setFinding(false); setNoChats(false); setCameFrom(null); };
+  const find = () => { onLeavePage(); setOpenId(null); setFull(false); setListing(false); setNoChats(false); setFinding(true); setCameFrom(null); };
   const loadListed = useCallback(async () => { const res = await call<ListedRoom[]>('listed'); return res.ok ? res.value ?? [] : null; }, [call]);
   const inviteId = dialog?.kind === 'invite' ? dialog.roomId : null;
   const loadSent = useCallback(async () => {
@@ -123,7 +123,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     return res.ok ? res.value ?? [] : null;
   }, [call, inviteId]);
 
-  // The same from a room's menu in the sidebar and from its row on the messages page.
+  // The same from a room's menu on the Rooms page and from its row on the messages page.
   // Unread starts at the newest message someone else wrote, or the newest at all.
   const readOrUnread = async (r: Room, action: 'read' | 'unread') => {
     if (action === 'read') { await call('markRead', r.id); return; }
@@ -140,7 +140,6 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     if (action === 'invite') setDialog({ kind: 'invite', roomId: id });
     if (action === 'members') setMembers({ roomId: id, at });
     if (action === 'ranks') { openRoom(id); setPane('ranks'); }
-    if (action === 'pin' || action === 'unpin') await call('pin', id, action === 'pin');
     if (action === 'mute' || action === 'unmute') { await call('mute', id, action === 'mute'); toast(action === 'mute' ? `${r.name} is muted` : `${r.name} is not muted any more`); }
     if (action === 'leave') {
       const res = await call('leave', id);
@@ -243,7 +242,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
 
   const conversations: Conversation[] = live ? [...roomConversations(rooms), ...directs] : [];
   const pick = (c: Conversation) => {
-    if (c.kind === 'direct') { setOpenId(null); setFull(false); setNoChats(false); setCameFrom(null); onOpenDirect(c.id); return; }
+    if (c.kind === 'direct') { setOpenId(null); setFull(false); setListing(false); setNoChats(false); setCameFrom(null); onOpenDirect(c.id); return; }
     openRoom(c.id, { asFull: true });
   };
 
@@ -251,25 +250,22 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const openMessages = () => {
     const newest = sortConversations(conversations)[0];
     if (newest) { pick(newest); return; }
-    onLeavePage(); setOpenId(null); setFinding(false); setNoChats(true);
+    onLeavePage(); setOpenId(null); setListing(false); setFinding(false); setNoChats(true);
   };
   const unreadChats = conversations.filter((c) => c.unread).length;
 
-  const nav = (collapsed: boolean, messagesLit = false): ReactNode => live ? <>
-    <nav className="workspace-tabs rm-msgnav" aria-label="Messages">
-      <button type="button" className={`workspace-tab${messagesLit || noChats || (full && !!open) || open?.kind === 'group' ? ' active' : ''}${unreadChats ? ' has-count' : ''}`}
-        aria-label="Messages" title={collapsed ? 'Messages' : undefined} onClick={openMessages}>
-        {I.chatNav()}<span>Messages</span>{unreadChats > 0 && <small className="workspace-running" aria-label={`${unreadChats} unread`}>{unreadChats}</small>}
-      </button>
-    </nav>
-    {/* Narrow, every room is the same # and cannot be told apart, so the strip stops at Messages. */}
-    {!collapsed && <RoomsNav rooms={list} openId={open?.kind === 'group' || full ? null : openId} folded={folded}
-      onFold={() => setFolded((f) => { try { localStorage.setItem(FOLD_KEY, f ? '0' : '1'); } catch { /* not kept */ } return !f; })}
-      onOpen={(id) => openRoom(id)} onPin={(id, pin) => void call('pin', id, pin)} onMenu={(id, a, at) => void menu(id, a, at)}
-      onNewRoom={() => setDialog({ kind: 'start' })} />}
-  </> : null;
-
-  const tabs: ReactNode = live ? <RoomTabs rooms={list} openId={open?.kind === 'group' ? null : openId} invisible={invisibleUntil > now} onOpen={(id) => openRoom(id)} /> : null;
+  // A room's unread is counted on Messages, so the Rooms row carries no count of its own.
+  const roomsLit = listing || finding || (!!open && !full && open.kind !== 'group');
+  const nav = (collapsed: boolean, messagesLit = false): ReactNode => live ? <nav className="workspace-tabs rm-msgnav" aria-label="Messages and rooms">
+    <button type="button" className={`workspace-tab${messagesLit || noChats || (full && !!open) || open?.kind === 'group' ? ' active' : ''}${unreadChats ? ' has-count' : ''}`}
+      aria-label="Messages" title={collapsed ? 'Messages' : undefined} onClick={openMessages}>
+      {I.chatNav()}<span>Messages</span>{unreadChats > 0 && <small className="workspace-running" aria-label={`${unreadChats} unread`}>{unreadChats}</small>}
+    </button>
+    <button type="button" className={`workspace-tab${roomsLit && !messagesLit ? ' active' : ''}`}
+      aria-label="Rooms" title={collapsed ? 'Rooms' : undefined} onClick={openRooms}>
+      {I.room()}<span>Rooms</span>
+    </button>
+  </nav> : null;
 
   const meInChat = meId ? { id: meId, name: rooms?.me?.display_name || myName, avatarUrl: rooms?.me?.avatar_url ?? null, me: true } : null;
   const chatPanel = (r: Room, asFull: boolean) => {
@@ -308,7 +304,14 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const viewButton: ReactNode = onRoom && renderBoard
     ? <RoomViewButton view={view} onView={setView} people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} />
     : null;
-  if (noChats && live) {
+  if (listing && live && rooms) {
+    heading = {
+      title: <h1 className="workspace-title">Rooms</h1>,
+      right: <div className="th-right"><button type="button" className="th-new" onClick={() => setDialog({ kind: 'start' })}>{I.plus()}New room</button></div>,
+    };
+    page = <RoomsPage state={rooms} invisible={invisibleUntil > now} now={now} onOpen={(id) => openRoom(id)} onFind={find}
+      onMenu={(id, a, at) => void menu(id, a, at)} />;
+  } else if (noChats && live) {
     heading = { title: backTitle('Messages'), right: null };
     page = <MessagesPage list={[]} onKey={null} now={now} onPick={pick} onAction={(c, a) => void act(c, a)}>
       <div className="rm-empty" style={{ padding: '0 28px' }}><span className="t">No conversations yet.</span>
@@ -327,7 +330,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       heading = { title: backTitle(open.kind === 'group' ? 'Messages' : open.name), right: null };
       page = <MessagesPage list={conversations} onKey={`room:${r.id}`} now={now} onPick={pick} onAction={(c, a) => void act(c, a)}>{chatPanel(r, true)}</MessagesPage>;
     } else {
-      if (pane.startsWith('person:')) heading = { title: backTitle(open.name) };
+      heading = { title: backTitle(open.name) };
       page = <RoomPage room={open} rooms={list} cards={teamCards} ranks={rooms.ranks ?? {}} me={rooms.me} now={now}
         pane={pane} link={links[open.id] ?? null} onPane={setPane} chat={chatPanel(chatRoom ?? open, false)} board={board} renderBoard={renderBoard}
         picked={picked} onPick={(ids) => setPicked(new Set(ids))} onMessage={(ids) => void message(ids, open)}
@@ -377,12 +380,9 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     {switcher && switchRoom && <SwitchMenu at={switcher} room={switchRoom} groups={switchList} directs={switchDirects} current={chatRoom?.id ?? switchRoom.id}
       onClose={() => setSwitcher(null)}
       onRoom={(id) => { setSwitcher(null); setPanelId(id === switchRoom.id ? null : id); }}
-      onDirect={(id) => { setSwitcher(null); setOpenId(null); onOpenDirect(id); }}
+      onDirect={(id) => { setSwitcher(null); setOpenId(null); setListing(false); onOpenDirect(id); }}
       onAll={() => { setSwitcher(null); setFull(true); }} />}
   </>;
-
-  // Tab and Shift-Tab along the state tabs and then the room tabs.
-  const walk = (stateTabs: readonly string[], at: string, back: boolean) => tabWalk(stateTabs, roomTabs(list, openId), at, back);
 
   const invisible = live && rooms?.me ? {
     on: invisibleUntil > now,
@@ -403,7 +403,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const openMention = (m: RoomMention) => openRoom(m.roomId);
 
   return {
-    live, openId: open ? openId : finding && live ? 'find' : noChats && live ? 'messages' : null, openMessages, open: (id: string) => openRoom(id), close, leave, find, nav, tabs, page, dialogs, join, walk, invisible, settingsPane,
+    live, openId: open ? openId : listing && live ? 'rooms' : finding && live ? 'find' : noChats && live ? 'messages' : null, openMessages, open: (id: string) => openRoom(id), close, leave, find, nav, page, dialogs, join, invisible, settingsPane,
     mentions, openMention, faces, messagesShell, full, heading,
     dialogOpen: !!dialog || !!members || !!switcher,
     /** The header's View button over a room, and B. Null anywhere else in rooms. */

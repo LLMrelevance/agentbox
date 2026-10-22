@@ -9,7 +9,7 @@ Everything in it is the target; this file says how to build it and in what order
 ## What it is, in one paragraph
 
 A room is a place where people who work with agents can see each other working.
-It is a tab after Done on the Threads page: a wall of cards, one per person
+It is a page of its own, reached from the Rooms page: a wall of cards, one per person
 (face, name, level, the short name of what they are working on, how many agents
 are running), with the room's chat beside it. Your team is a room. You can be in
 other rooms too, including public ones like General, and invite friends by link.
@@ -25,14 +25,15 @@ Your level comes from agent hours. Ranks are weekly. You can go invisible.
 - The chat panel: faces in the name line, no header above messages beyond the
   room switcher. Chats run top-down everywhere: a short chat starts at the top;
   once it is full the newest message sits just above the box you type in.
-- Sidebar: a Rooms section that folds (arrow right when folded, down when open),
-  one row per room, and a "New room" row at the end of the list. No plus in the
-  header. Pointing at a room shows a pin where its count was and dots that open
-  the room menu (Invite people, Members, Ranks this week, Pin or Unpin, Mute,
-  Leave).
-- Room tabs: rooms are pinned as tabs after Done. Your first room is pinned for
-  you. A room you open but have not pinned sits at the end of the tabs while you
-  are in it. No dropdown on a tab.
+- Sidebar and tabs, replaced 2026-10-21 (w-a0429b3d5e): the folding Rooms list,
+  its New room row, pins, and room tabs after Done all went, because a tab that
+  came and went and a busy sidebar made rooms confusing. The sidebar has one
+  Rooms row under Messages. It opens the Rooms page, which lists the rooms you
+  are in the way the threads table lists threads (people, agents working, last
+  message, an unread dot) with New room in the top bar and Find rooms to join
+  under the list. Pointing at a row shows dots for the room menu (Mark as read
+  or unread, Invite people, Members, Ranks this week, Mute, Leave). A room opens
+  as a page with a back arrow to the Rooms page, and Threads keeps its four tabs.
 - Invite: on the room row, in the room menu, and in the chat panel header. The
   invite dialog is the plain one (who is here, invite link, email).
 - Names show as "First L." by default; a person can turn on their full name.
@@ -228,10 +229,12 @@ There is no run history today (only PostHog counts and per-run trace logs).
   Monday, today), active dates, streak, monthly series, and the level.
   Persisted on my presence row only because other people cannot compute them:
   they read my numbers, never my ledger.
-- Level (quick early, slow late, 99 at 5,000 hours):
-  `level(h) = min(99, 1 + floor(98 * cbrt(h / 5000)))`. 12h is 14, 100h is
-  27, 500h is 46, 1,240h is 62. A person's level comes from the sum of their
-  Macs' hours.
+- Level (quick early, each level slower than the last, 99 at 10,000 hours,
+  no ceiling): up to 99, `level(h) = 1 + floor(98 * (h / 10000) ^ 0.4)`; past
+  99 each level costs 5% more hours than the one before. 1h is 3, 12h is 7,
+  100h is 16, 1,945h is 51, 10,000h is 99. At about 65 agent hours a day
+  that is the middle after a month, 99 after five, and about 125 after a
+  year. A person's level comes from the sum of their Macs' hours.
 - Streak across Macs: the union of each Mac's `active_days`, counted back from
   today (or yesterday, if today has no run yet).
 
@@ -273,8 +276,9 @@ team sync loop upserts it when its hash changes (at most every 5s):
 - Unread on a room row: messages after my read time, shown as "9+" at most.
   Mentions always count, also in a muted room; other messages do not count in a
   muted room. Mute is local, per person.
-- Opening a room's chat (panel visible) marks it read up to the newest message
-  shown.
+- Staying on a room's chat (panel visible) for two seconds with the window in
+  front marks it read up to the newest message shown. Passing through it does
+  not, so a mention is not cleared on the way past.
 
 ## The messages page
 
@@ -290,18 +294,14 @@ team sync loop upserts it when its hash changes (at most every 5s):
 
 ## UI, where it goes
 
-- Sidebar: `components/WorkspaceNavigation.tsx` gains a `RoomsSection` (new
-  file `renderer/src/rooms/RoomsSection.tsx`): fold arrow, rows, hover pin and
-  dots, the room menu, New room.
-- Tabs: `threads/Pages.tsx` `StateTabs` gains the pinned and visiting room tabs
-  after a divider. `View` widens to include `room:<id>`. The tab order cycles
-  through them.
+- Sidebar: the Messages and Rooms rows come from `team/rooms/useRooms.tsx`
+  (`nav`). The Rooms page and the room menu are `team/rooms/RoomsPage.tsx`.
+  There are no room tabs (w-a0429b3d5e).
 - Room page: `renderer/src/rooms/RoomPage.tsx` (the wall), `RoomChat.tsx` (the
   panel, the switcher, invite button, expand arrows), `PersonHover.tsx`,
   `RoomRanks.tsx`, `ProfilePage.tsx`, `InviteDialog.tsx`, `StartRoomDialog.tsx`,
   `FindRooms.tsx`, `MessagesPage.tsx`, `GoInvisible.tsx`.
 - Settings: `settings-search.ts` gains `alpha` and `rooms` pages.
-- Pins and fold state: local (`localStorage`), per person id.
 - Every new surface is checked in Dark and Light with the app's own tokens; the
   wall's grid uses `--line-strong` in Light, columns snapped to whole pixels.
 

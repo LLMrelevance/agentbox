@@ -42,6 +42,16 @@ export function rememberEmoji(emoji: string, store: Store = local()): void {
   try { store?.setItem(RECENT_KEY, JSON.stringify(used(readRecent(store), emoji))); } catch { /* only a convenience */ }
 }
 
+/**
+ * Calls `fresh` each time the pointer arrives on a message, and returns the way
+ * to stop. A row read on arrival, not on every pick, never reorders under a
+ * pointer that is already on it.
+ */
+export function onArrival(message: EventTarget, fresh: () => void): () => void {
+  message.addEventListener('pointerenter', fresh);
+  return () => message.removeEventListener('pointerenter', fresh);
+}
+
 /** A reaction's chip pressed: joining it is using that emoji, leaving it is not. */
 export function chipPressed(emoji: string, off: boolean, store: Store = local()): void {
   if (!off) rememberEmoji(emoji, store);
