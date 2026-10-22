@@ -1,6 +1,6 @@
 // The rules the room screens draw by (w-3d0fa23ffb), kept apart from the
 // drawing so they can be tested. tests/a-room-reads-the-way-it-was-approved.
-import type { RoomCard } from '../../types';
+import type { Person, Room, RoomCard, ThreadCard } from '../../types';
 
 /** A chat just started goes beside the room where that panel is drawn; a
  *  person's page has none, so from there it opens full page, and Back returns. */
@@ -10,8 +10,62 @@ export function whereChatOpens<P extends string>({ open, full, pane }: { open: {
   return pane.startsWith('person:') ? { beside: false, back: { roomId: open.id, pane } } : { beside: true };
 }
 
-/** Their page's Activity tab: my own, or a teammate's who shares it. */
-export const activityShown = (c: { me: boolean; teammate: boolean; showActivity: boolean }) => c.me || (c.teammate && c.showActivity);
+type Shares = { me: boolean; teammate: boolean; showActivity: boolean; activity?: unknown[] | null };
+/** Whose threads reach me as the team's thread cards: my own, or a teammate's who shares them. */
+const onTheTeamBoard = (c: Shares) => c.me || (c.teammate && c.showActivity);
+/** Their page's Activity tab: off the team's cards, or off their presence for someone outside my team who shows it to their rooms. */
+export const activityShown = (c: Shares) => onTheTeamBoard(c) || (!c.teammate && Array.isArray(c.activity));
+
+/**
+ * Which of the hours chart's months carry their name. The line rises from
+ * nothing the month before the first hours; that month is left unnamed, since
+ * the chart is "since" the first month with hours.
+ */
+export function chartNamed(months: readonly string[], byMonth: readonly { month: string; hours: number }[]): boolean[] {
+  const first = byMonth.find((m) => m.hours > 0)?.month ?? null;
+  return months.map((m) => !first || m >= first);
+}
+
+const PRESENCE = 'presence:';
+/** A card made from a room-mate's presence line, with no thread behind it to open. */
+export const isPresenceCard = (c: Pick<ThreadCard, 'threadId'>) => c.threadId.startsWith(PRESENCE);
+
+/** Their Activity tab's threads: the team's cards for a teammate and for me; for someone outside my team, the lines on their presence. */
+export function activityCards(card: RoomCard, cards: readonly ThreadCard[]): ThreadCard[] {
+  const team = cards.filter((c) => c.personId === card.id);
+  if (card.teammate || team.length || !card.activity) return team;
+  return card.activity.map((a, i) => ({
+    personId: card.id, threadId: `${PRESENCE}${card.id}:${i}`, visible: true, title: a.title, project: a.project, state: a.state, priority: null,
+    problem: null, progress: null, solution: null, blockedBy: [], blocks: [], people: null, updatedAt: a.at,
+  }));
+}
+
+/** Everyone on my rooms' walls but me, as people the board can name and draw. */
+export function roomMatesById(rooms: readonly Pick<Room, 'wall'>[]): Map<string, Person> {
+  const out = new Map<string, Person>();
+  for (const r of rooms) for (const c of r.wall) if (!c.me && !out.has(c.id)) out.set(c.id, { id: c.id, email: '', name: c.name, avatarUrl: c.avatarUrl });
+  return out;
+}
+
+/** Every room-mate outside my team's presence lines, as cards for the board their page draws. */
+export function roomMateCards(rooms: readonly Pick<Room, 'wall'>[]): ThreadCard[] {
+  const seen = new Set<string>();
+  const out: ThreadCard[] = [];
+  for (const r of rooms) {
+    for (const c of r.wall) {
+      if (c.me || c.teammate || !Array.isArray(c.activity) || seen.has(c.id)) continue;
+      seen.add(c.id);
+      out.push(...activityCards(c, []));
+    }
+  }
+  return out;
+}
+
+/** The chat's people: everyone in the room by name where the cloud can say, else the wall. */
+export function chatPeople(room: Pick<Room, 'people' | 'wall'>, meId: string | null): { id: string; name: string; avatarUrl: string | null; me: boolean }[] {
+  if (!room.people) return room.wall.map((c) => ({ id: c.id, name: c.name, avatarUrl: c.avatarUrl, me: c.me }));
+  return room.people.map((p) => ({ ...p, me: p.id === meId }));
+}
 
 /** A room drawn as its grid of people, or as a board of their threads. */
 export type RoomView = 'grid' | 'board';
@@ -28,8 +82,8 @@ export function writeRoomView(view: RoomView, store: Store = local()) {
   try { store?.setItem(VIEW_KEY, view); } catch { /* not kept */ }
 }
 
-/** Who can be on a room's board: whoever's Activity tab I may open. */
-export const boardPeople = <T extends { me: boolean; teammate: boolean; showActivity: boolean }>(wall: readonly T[]) => wall.filter(activityShown);
+/** Who can be on a room's board: whoever's thread cards reach me. */
+export const boardPeople = <T extends Shares>(wall: readonly T[]) => wall.filter(onTheTeamBoard);
 
 /** The people picked for a room's board, kept to those still on it. Nobody left means everyone. */
 export function boardPicked(saved: readonly string[] | null | undefined, people: readonly { id: string }[]): string[] {

@@ -3,7 +3,7 @@
 import type { Person, Product, Room, RoomsState, WorkItem } from '../../types';
 import { isDirect, messageLine } from '../../threads/page-rules';
 import type { Conversation } from './MessagesPage';
-import { cardName } from './room-rules';
+import { cardName, chatPeople } from './room-rules';
 import { voiceSaid } from '../voice-note';
 
 const nameOf = (p: Person | undefined) => (p?.name ? shortName(p.name) : 'Someone');
@@ -42,10 +42,15 @@ export function directConversations({ items, products, me, people, waiting, mark
 
 export function roomConversations(rooms: RoomsState | null | undefined): Conversation[] {
   if (!rooms?.on) return [];
-  return rooms.rooms.map((r: Room) => {
+  const meId = rooms.me?.person_id ?? null;
+  // A chat nobody has written in yet waits on its starter's list alone.
+  const said = (r: Room) => (rooms.messages[r.id] ?? []).some((m) => !m.deleted);
+  return rooms.rooms.filter((r) => r.kind !== 'group' || r.role === 'owner' || said(r)).map((r: Room) => {
     const held = rooms.messages[r.id] ?? [];
     const last = [...held].reverse().find((m) => !m.deleted && !m.inReplyTo) ?? held.at(-1);
-    const by = last ? r.wall.find((c) => c.id === last.by) : null;
+    // Invisible, I am off my own wall, and my words are still mine.
+    const by = !last ? null : meId && last.by === meId ? { me: true, name: '' }
+      : r.wall.find((c) => c.id === last.by) ?? chatPeople(r, meId).find((p) => p.id === last.by);
     const others = r.wall.filter((c) => !c.me);
     return {
       key: `room:${r.id}`, kind: r.kind === 'group' ? 'group' as const : 'room' as const, id: r.id,

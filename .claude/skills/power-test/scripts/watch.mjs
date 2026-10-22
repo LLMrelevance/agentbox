@@ -34,10 +34,14 @@ export function waitingTooLong(lines, now, { afterMs, seeded = new Set() }) {
     .map((t) => ({ id: t.id, title: t.title, product: t.product, waitingMs: now - t.lastAsk }));
 }
 
-/** Threads started `max` times or more inside `windowMs`: the loop the app must never run. */
+/**
+ * Threads started `max` times or more inside `windowMs` by runs that never
+ * answered: the loop the app must never run. A run that answered is a reply
+ * landing, which a busy tester does six times in ten minutes.
+ */
 export function startLoops(starts, now, { windowMs = 10 * 60_000, max = 6 } = {}) {
   const counts = new Map();
-  for (const s of starts) if (now - s.at <= windowMs) counts.set(s.id, (counts.get(s.id) ?? 0) + 1);
+  for (const s of starts) if (!s.answered && now - s.at <= windowMs) counts.set(s.id, (counts.get(s.id) ?? 0) + 1);
   return [...counts].filter(([, n]) => n >= max).map(([id, n]) => ({ id, starts: n }));
 }
 
@@ -101,6 +105,23 @@ export function instanceProcesses(state, table = processTable()) {
   };
 }
 
+/** Whether a run's session log carries a result its engine did not mark ERROR (main/codex.mjs, harnesses/claude-stream.mjs). */
+export function answeredRun(log) {
+  return /== RESULT \((?![^)]*\bERROR\b)[^)]*\) ==/.test(log);
+}
+
+/** The end of a file, where a run's result is written. */
+function tailOf(file, bytes = 8192) {
+  try {
+    const size = fs.statSync(file).size;
+    const fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(Math.min(size, bytes));
+    fs.readSync(fd, buf, 0, buf.length, Math.max(0, size - buf.length));
+    fs.closeSync(fd);
+    return buf.toString('utf8');
+  } catch { return ''; }
+}
+
 /** Each thread's starts, from the session logs the app writes per run (`sessions/<id>/<ms>.log`). */
 function readStarts(state) {
   const out = [];
@@ -113,7 +134,10 @@ function readStarts(state) {
     for (const id of ids) {
       let logs = [];
       try { logs = fs.readdirSync(path.join(root, d, 'sessions', id)); } catch { continue; }
-      for (const f of logs) { const at = Number(f.split('.')[0]); if (at) out.push({ id, at }); }
+      for (const f of logs) {
+        const at = Number(f.split('.')[0]);
+        if (at) out.push({ id, at, answered: answeredRun(tailOf(path.join(root, d, 'sessions', id, f))) });
+      }
     }
   }
   return out;

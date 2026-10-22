@@ -454,3 +454,14 @@ Rooms paragraph in this work.
   page has your bio, with Add a bio and Edit. Message there opens the chat full
   page on Messages, and Back returns to the page. The rooms they are in open
   when clicked.
+- After an hour with a second person in the founder's room (2026-10-22,
+  `20261022000100_rooms_show_everyone.sql`): `show_working` defaults to
+  `everyone`, and cards on the old default moved. While `everyone` and
+  `show_activity` hold, a Mac puts up to 36 lines of what is waiting, running
+  and done today on its presence row (`activity`), only threads the whole team
+  may read, and a room-mate outside the team's page draws those lines on its board. The
+  board still holds only people whose thread cards reach you. `room_names(r)`
+  gives every member's name and face and nothing else, so a message keeps its
+  author's name while they are invisible, and a member with no card is on the
+  wall as "Not on Rooms yet". My own card counts this Mac's running agents. A
+  group chat nobody has written in is listed only for whoever started it.
