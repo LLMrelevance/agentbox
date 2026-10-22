@@ -44,7 +44,7 @@ export function advanceAfter(p: { fromTask: boolean; index: number; id: string }
  * (tests/a-reply-keeps-you-on-the-thread-unless-you-are-clearing-your-inbox).
  */
 export function replyMovesOn(p: { view: string; onBoard: boolean; index: number; inboxSize: number; searching?: boolean }): boolean {
-  // Search open, the tab under it is not where she is working.
+  // With search open, the tab under it is not where the work is happening.
   return !p.searching && advanceLandsHere(p) && p.index >= 0 && p.inboxSize > 1;
 }
 

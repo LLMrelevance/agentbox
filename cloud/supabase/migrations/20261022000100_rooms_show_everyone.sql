@@ -1,10 +1,5 @@
--- ROOMS SHOW EVERYONE (w-3d0fa23ffb, 2026-10-22).
---
--- After an hour with a second person in a room: what someone works on reached
--- only their own team, so a room-mate from outside it saw an agent count and
--- nothing else; a person who went invisible turned every message they had ever
--- sent into "Someone"; and a member who had not turned Rooms on was on no wall
--- at all, so the room said five people and showed two.
+-- ROOMS SHOW EVERYONE (w-3d0fa23ffb, 2026-10-22): room-mates outside your team
+-- see your work, and everyone in a room is named, invisible or not on Rooms yet.
 --
 -- Safe to run twice. An app from before this keeps working on it, and this
 -- app keeps working on a cloud that has not had it yet.
