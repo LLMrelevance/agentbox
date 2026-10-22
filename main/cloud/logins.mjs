@@ -165,16 +165,23 @@ export function listCloudLogins(engine, { home = os.homedir() } = {}) {
     .sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0));
 }
 
+export function cloudAccountsFrom(env = process.env) {
+  const list = String(env.AGENTBOX_CLOUD_ACCOUNTS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return list.length ? list : null;
+}
+
 // THE ACCOUNT A CLOUD RUN USES: of this engine's accounts that may run, the
 // one used least recently, so runs spread over every account she added. Its
 // use is written down in the same step, so two runs starting together take
-// two accounts when there are two.
-export function pickCloudLogin(engine, { home = os.homedir(), now = Date.now() } = {}) {
+// two accounts when there are two. `only` (emails or keys) narrows it for a
+// copy of the app under test, which shares this list with the person's own app.
+export function pickCloudLogin(engine, { home = os.homedir(), now = Date.now(), only = null } = {}) {
   return withLock(home, () => {
     const all = readCloudLogins({ home });
     const dup = duplicatesIn(Object.values(all).filter((r) => r?.engine === engine));
+    const named = (r) => !only || [r.email, r.key ?? r.dir].some((n) => n && only.includes(String(n).toLowerCase()));
     const ready = Object.entries(all)
-      .filter(([, r]) => r?.engine === engine && !dup.has(r.key ?? r.dir) && mayRunOn(cloudLoginState(r, { now })))
+      .filter(([, r]) => r?.engine === engine && !dup.has(r.key ?? r.dir) && named(r) && mayRunOn(cloudLoginState(r, { now })))
       .sort(([, a], [, b]) => (a.lastUsedAt || 0) - (b.lastUsedAt || 0));
     if (!ready.length) return null;
     const [k, r] = ready[0];

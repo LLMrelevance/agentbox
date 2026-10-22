@@ -13,7 +13,7 @@ import path from 'node:path';
 import { cloudRun, IMPORT_FAILED, LOGIN_TROUBLE } from './run.mjs';
 import { cloudClients } from './clients.mjs';
 import { readCloudConfig, imageCaps, noteImageCaps } from './config.mjs';
-import { pickCloudLogin, markCloudLogin, loginObjectKey } from './logins.mjs';
+import { pickCloudLogin, markCloudLogin, loginObjectKey, cloudAccountsFrom } from './logins.mjs';
 
 // SIGNED AS THE CLOUD RUNS' OWN USER AND NOBODY ELSE. AWS's libraries read
 // keys from the environment before they read a named profile, so an app
@@ -48,7 +48,7 @@ export async function cloudRunFromArgs({ args, env, cwd, stdin, stdout, stderr, 
   // The cloud account it runs on: of the ones she added for this engine, the
   // one used least recently (main/cloud/logins.mjs). Not the Mac's account:
   // the folder below only says where the conversation is kept.
-  const rec = importOnly ? null : pickCloudLogin(engine);
+  const rec = importOnly ? null : pickCloudLogin(engine, { only: cloudAccountsFrom(env) });
   if (!importOnly && !rec) { say(`no ${codex ? 'Codex' : 'Claude'} account is signed in for the cloud yet (the cloud button)`); return LOGIN_TROUBLE; }
   const dir = rec?.key;
   let made;
