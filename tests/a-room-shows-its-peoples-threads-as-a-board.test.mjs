@@ -60,9 +60,9 @@ describe('whose threads the board shows', () => {
 });
 
 describe('what a room remembers', () => {
-  it('opens as the grid, and as the board once you chose it', () => {
+  it('opens as the board, and as the grid once you chose it', () => {
     const store = memory();
-    expect(readRoomView(store)).toBe('grid');
+    expect(readRoomView(store)).toBe('board');
     writeRoomView('board', store);
     expect(readRoomView(store)).toBe('board');
     writeRoomView('grid', store);

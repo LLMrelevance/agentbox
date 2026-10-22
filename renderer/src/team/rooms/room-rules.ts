@@ -76,7 +76,7 @@ type Store = Pick<Storage, 'getItem' | 'setItem'> | null;
 const local = (): Store => (typeof localStorage === 'undefined' ? null : localStorage);
 
 export function readRoomView(store: Store = local()): RoomView {
-  try { return store?.getItem(VIEW_KEY) === 'board' ? 'board' : 'grid'; } catch { return 'grid'; }
+  try { return store?.getItem(VIEW_KEY) === 'grid' ? 'grid' : 'board'; } catch { return 'board'; }
 }
 export function writeRoomView(view: RoomView, store: Store = local()) {
   try { store?.setItem(VIEW_KEY, view); } catch { /* not kept */ }
