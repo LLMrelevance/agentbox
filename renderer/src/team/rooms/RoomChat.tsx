@@ -25,6 +25,7 @@ import { pictureUrl } from '../../picture';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
 import { cardName, clockOf, mentionsIn } from './room-rules';
+import type { GroupEvent } from './GroupPage';
 import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, quickOnBar, roomReader, storedName, wordsLeftAfterSend } from './room-chat-rules';
 
 export type ChatPerson = { id: string; name: string; avatarUrl: string | null; me: boolean };
@@ -45,12 +46,16 @@ export type RoomChatCalls = {
   onNotice?: (text: string) => void;
 };
 
-export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand, onSwitch, switchOpen, full = false, head, ...calls }: {
+export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand, onSwitch, switchOpen, full = false, head, events, foot, ...calls }: {
   room: Room; messages: RoomMessage[]; people: ChatPerson[]; meId: string | null; now: number;
   onInvite?: () => void; onExpand?: () => void;
   onSwitch?: (anchor: DOMRect) => void; switchOpen?: boolean;
   /** Drawn on the messages page, at full width, with its own header. */
   full?: boolean; head?: ReactNode;
+  /** Work done in the group, drawn between the messages by time. */
+  events?: GroupEvent[];
+  /** Drawn after the newest message, above the box. */
+  foot?: ReactNode;
 } & RoomChatCalls) {
   const { onSend, onRead, onReact, onEdit, onDelete, onMarkUnread, onNotice } = calls;
   const [thread, setThread] = useState<string | null>(null);
@@ -107,7 +112,8 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
   const who = (id: string | null) => (id ? byId.get(id) : undefined);
   const nameOf = (id: string | null) => { const p = who(id); return p ? cardName(p) : 'Someone'; };
   const listRef = useStick([room.id, thread, shown.length]);
-  const slots = chatLayout(shown.map((m) => ({ at: m.at, by: m.by ?? '' })), now);
+  const stream: (RoomMessage | GroupEvent)[] = root || !events?.length ? shown : [...shown, ...events].sort((a, b) => a.at - b.at);
+  const slots = chatLayout(stream.map((m) => ({ at: m.at, by: 'body' in m ? m.by ?? '' : m.id })), now);
   const myNames = useMemo(() => {
     const name = people.find((p) => p.me)?.name;
     if (!name) return [];
@@ -136,8 +142,15 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
       {onExpand && <button type="button" className="ic" title="Open full page" aria-label="Open full page" onClick={onExpand}>{I.expand()}</button>}
     </div>}
     <div className="rm-chat-list" ref={listRef}>
-      {shown.map((m, i) => {
+      {stream.map((m, i) => {
         const slot = slots[i];
+        if (!('body' in m)) {
+          const p = who(m.by);
+          return <div key={m.id}>
+            {slot.day && <div className="rm-day"><span className="rm-label">{slot.day}</span></div>}
+            <div className="gp-ev"><RoomFace name={p?.name ?? '?'} url={p?.avatarUrl} size={16} /><span className="rm-one"><b>{nameOf(m.by)}</b> {m.text}</span><em>{clockOf(m.at)}</em></div>
+          </div>;
+        }
         const mine = m.by === meId;
         const reps = !root ? replies.get(m.id) ?? [] : [];
         const p = who(m.by);
@@ -185,6 +198,7 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
           </div>
         </div>;
       })}
+      {!root && foot}
     </div>
     <Composer key={`${room.id}:${thread ?? ''}`} roomId={room.id} threadId={thread} people={others}
       placeholder={root ? `Reply to ${nameOf(root.by)}` : `Message ${room.kind === 'group' ? others.map((p) => p.name.split(' ')[0]).join(', ') || room.name : room.name}`}

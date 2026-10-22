@@ -18,6 +18,7 @@ import { FindRooms, type ListedRoom } from './FindRooms';
 import { InviteDialog, JoinDialog, MembersMenu, StartRoomDialog, type Preview, type Sent } from './RoomDialogs';
 import { joinLink, tokenFromLink } from '../../../../shared/room-links.mjs';
 import { RoomsNotReady, RoomsSettings } from './RoomsSettings';
+import { GroupPage, NowLines, TitleFaces, groupEvents, readGroupLook } from './GroupPage';
 
 type Dialog =
   | { kind: 'invite'; roomId: string }
@@ -67,6 +68,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const [noChats, setNoChats] = useState(false);
   // A chat opened full page from a person's page, so Back goes back there.
   const [cameFrom, setCameFrom] = useState<{ roomId: string; pane: RoomPane } | null>(null);
+  const [look] = useState(readGroupLook);
   const open = openId ? all.find((r) => r.id === openId) ?? null : null;
   const invisibleUntil = Date.parse(rooms?.me?.invisible_until ?? '');
   const chatRoom = (panelId ? all.find((r) => r.id === panelId) : null) ?? open;
@@ -111,9 +113,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     if (finding) { setFinding(false); setListing(true); return; }
     if (noChats) { setNoChats(false); return; }
     if (cameFrom) { openRoom(cameFrom.roomId); setPane(cameFrom.pane); return; }
-    if (full && open?.kind !== 'group') { setFull(false); return; }
     if (pane !== 'wall') { setPane('wall'); return; }
-    setOpenId(null); setFull(false); setPanelId(null); setListing(open?.kind !== 'group');
+    setOpenId(null); setFull(false); setPanelId(null); setListing(true);
   };
   // Somewhere else was picked: no room, no Rooms page, no Find rooms, no messages page.
   const leave = () => { setOpenId(null); setFull(false); setPanelId(null); setListing(false); setFinding(false); setNoChats(false); setCameFrom(null); };
@@ -257,16 +258,12 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   };
   const unreadChats = conversations.filter((c) => c.unread).length;
 
-  // A room's unread is counted on Messages, so the Rooms row carries no count of its own.
-  const roomsLit = listing || finding || (!!open && !full && open.kind !== 'group');
-  const nav = (collapsed: boolean, messagesLit = false): ReactNode => live ? <nav className="workspace-tabs rm-msgnav" aria-label="Messages and rooms">
-    <button type="button" className={`workspace-tab${messagesLit || noChats || (full && !!open) || open?.kind === 'group' ? ' active' : ''}${unreadChats ? ' has-count' : ''}`}
-      aria-label="Messages" title={collapsed ? 'Messages' : undefined} onClick={openMessages}>
-      {I.chatNav()}<span>Messages</span>{unreadChats > 0 && <small className="workspace-running" aria-label={`${unreadChats} unread`}>{unreadChats}</small>}
-    </button>
-    <button type="button" className={`workspace-tab${roomsLit && !messagesLit ? ' active' : ''}`}
-      aria-label="Rooms" title={collapsed ? 'Rooms' : undefined} onClick={openRooms}>
-      {I.room()}<span>Rooms</span>
+  // One row: every group, and the count of groups with something unread.
+  const groupsLit = listing || finding || noChats || !!open;
+  const nav = (collapsed: boolean, messagesLit = false): ReactNode => live ? <nav className="workspace-tabs rm-msgnav" aria-label="Groups">
+    <button type="button" className={`workspace-tab${groupsLit || messagesLit ? ' active' : ''}${unreadChats ? ' has-count' : ''}`}
+      aria-label="Groups" title={collapsed ? 'Groups' : undefined} onClick={openRooms}>
+      {I.groupNav()}<span>Groups</span>{unreadChats > 0 && <small className="workspace-running" aria-label={`${unreadChats} unread`}>{unreadChats}</small>}
     </button>
   </nav> : null;
 
@@ -312,11 +309,11 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     : null;
   if (listing && live && rooms) {
     heading = {
-      title: <h1 className="workspace-title">Rooms</h1>,
-      right: <div className="th-right"><button type="button" className="th-new" onClick={() => setDialog({ kind: 'start' })}>{I.plus()}New room</button></div>,
+      title: <h1 className="workspace-title">Groups</h1>,
+      right: <div className="th-right"><button type="button" className="th-new" onClick={() => setDialog({ kind: 'start' })}>{I.plus()}New group</button></div>,
     };
     page = <RoomsPage state={rooms} invisible={invisibleUntil > now} now={now} onOpen={(id) => openRoom(id)} onFind={find}
-      onMenu={(id, a, at) => void menu(id, a, at)} />;
+      onMenu={(id, a, at) => void menu(id, a, at)} groups />;
   } else if (noChats && live) {
     heading = { title: backTitle('Messages'), right: null };
     page = <MessagesPage list={[]} onKey={null} now={now} onPick={pick} onAction={(c, a) => void act(c, a)}>
@@ -330,8 +327,24 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     };
     page = <div className="rm-split"><div className="rm-main wide"><FindRooms load={loadListed} onOpen={(id) => openRoom(id)} onLink={(t) => void join(t)}
       onJoin={async (id) => { const res = await call<string>('joinListed', id); return res.ok ? null : res.error ?? 'Could not join'; }} /></div></div>;
+  } else if (open && rooms && pane === 'wall') {
+    const others = open.wall.filter((c) => !c.me);
+    const name = open.kind === 'group' ? others.map((c) => c.name).join(', ') || open.name : open.name;
+    const people = withMe(chatPeople(open, meId), meInChat);
+    const woven = look === 'woven' ? groupEvents(open, teamCards, now) : null;
+    const chat = <RoomChat room={open} messages={rooms.messages[open.id] ?? []} people={people} meId={meId} now={now} full head={<></>}
+      events={woven?.past} foot={woven && <NowLines room={open} lines={woven.now} />}
+      onSend={send(open.id)} onRead={read(open)} {...chatCalls(open)} />;
+    heading = {
+      title: backTitle(name),
+      right: <div className="th-right">
+        {look === 'title' && <TitleFaces room={open} onPerson={(id) => setPane(`person:${id}`)} />}
+        {open.kind !== 'group' && <button type="button" className="th-new" onClick={() => setDialog({ kind: 'invite', roomId: open.id })}>{I.invite(15)}Invite</button>}
+      </div>,
+    };
+    page = <GroupPage room={open} look={look} chat={chat} messages={rooms.messages[open.id] ?? []} onPerson={(id) => setPane(`person:${id}`)} />;
   } else if (open && rooms) {
-    if (full || open.kind === 'group') {
+    if (full) {
       const r = chatRoom ?? open;
       heading = { title: backTitle(open.kind === 'group' ? 'Messages' : open.name), right: null };
       page = <MessagesPage list={conversations} onKey={`room:${r.id}`} now={now} onPick={pick} onAction={(c, a) => void act(c, a)}>{chatPanel(r, true)}</MessagesPage>;

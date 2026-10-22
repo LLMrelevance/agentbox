@@ -410,3 +410,72 @@
 .rm-full .rm-cm .tx { font-size: 14.5px; line-height: 22px; }
 .rm-full .rm-compose { margin: 8px 28px 24px; max-width: 704px; }
 .rm-full .rm-picker { left: 28px; right: auto; width: 320px; }
+
+/* GROUPS (w-dcaa2c122e): a group's chat and its people on one page. */
+.gp { flex: 1; min-height: 0; display: flex; }
+.gp-chat { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.gp .rm-full .rm-chat-list { padding-left: var(--text-x, 32px); }
+.gp .rm-full .rm-compose { margin-left: var(--text-x, 32px); }
+.gp .rm-full .rm-chat-err { margin-left: var(--text-x, 32px); }
+.gp-ag-s { font-size: 10px; }
+.gp-ag-s .live-mark { width: 11px; height: 11px; gap: 1px; }
+
+/* beside: the people down the right */
+.gp-side { width: 300px; flex: none; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--rm-line); }
+.gp-side-h { height: 44px; flex: none; display: flex; align-items: center; gap: 20px; padding: 0 20px; border-bottom: 1px solid var(--rm-line); }
+.gp-side-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 0 12px; }
+.gp-person { display: grid; grid-template-columns: 32px minmax(0, 1fr); column-gap: 12px; align-items: start; width: 100%; padding: 11px 20px; background: none; border: 0; text-align: left; font: inherit; color: inherit; cursor: default; }
+.gp-person:hover { background: var(--wash); }
+.gp-person .txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.gp-person .rm-nm { font-size: 13.5px; line-height: 17px; }
+.gp-person .on { font-size: 12.5px; line-height: 17px; color: var(--text-dim); }
+.gp-person .rm-ag { margin-top: 3px; }
+.gp-person .on.faint, .gp-tile .on.faint { color: var(--text-faint); }
+.gp-more { padding: 12px 20px; font-size: 12.5px; color: var(--text-faint); }
+
+/* above: one row of tiles over the chat */
+.gp-above { flex-direction: column; }
+.gp-strip { flex: none; display: grid; grid-template-columns: repeat(var(--per-row, 4), minmax(0, 1fr)); margin: 12px 20px 0 var(--text-x, 32px); border-top: 1px solid var(--rm-line); border-left: 1px solid var(--rm-line); }
+.gp-tile { display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; padding: 16px 12px 13px; border: 0; border-right: 1px solid var(--rm-line); border-bottom: 1px solid var(--rm-line); background: none; font: inherit; color: var(--text); cursor: default; }
+.gp-tile:hover { background: var(--wash); }
+.gp-tile .rm-nm { margin-top: 10px; font-size: 13.5px; justify-content: center; max-width: 100%; }
+.gp-tile .on { margin-top: 3px; font-size: 12.5px; line-height: 17px; color: var(--text-dim); max-width: 100%; }
+.gp-tile .rm-ag { margin-top: 9px; }
+.gp-tile.more { justify-content: center; font-size: 13px; color: var(--text-faint); }
+
+/* wall: the people, each with the last thing they said, and the box under them */
+.gp-wall { flex-direction: column; }
+.gp-wall-top { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 20px 12px var(--text-x, 32px); }
+.gp-dock { flex: none; }
+.gp-wall:not(.whole) .gp-dock .rm-chat-list { display: none; }
+.gp-wall:not(.whole) .gp-wall-top { flex: none; }
+.gp-wall.whole .gp-wall-top { flex: none; max-height: 52%; }
+.gp-wall.whole .gp-dock { flex: 1; min-height: 0; border-top: 1px solid var(--rm-line); }
+.gp-lw > .gp-lwc { height: auto; padding: 20px 18px 18px; border-top: 0; border-left: 0; }
+.gp-lwc .rm-nm { margin-top: 12px; }
+.gp-lwc .rm-on.faint { color: var(--text-faint); }
+.gp-lwc .rm-ag { margin-top: 10px; }
+.gp-lwc .said { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--rm-line); width: 100%; display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.gp-lwc .said .tx { font-size: 13.5px; line-height: 20px; color: var(--text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.gp-lwc .said em { font: normal 10.5px var(--mono); color: var(--text-faint); }
+.gp-lwc .said .none { font-size: 13px; color: var(--text-faint); }
+.gp-whole { margin-top: 14px; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; color: var(--text-faint); cursor: default; }
+.gp-whole:hover { color: var(--text); }
+
+/* title: faces in the top bar, and who is on what under them */
+.gp-tfaces { position: relative; display: flex; align-items: center; margin-right: 6px; }
+.gp-tbtn { display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 10px; border: 1px solid transparent; background: none; font: inherit; color: inherit; cursor: default; }
+.gp-tbtn:hover, .gp-tbtn.on { border-color: var(--line-strong); background: var(--wash); }
+.gp-tbtn .fs { display: flex; gap: 4px; }
+.gp-tpop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: 320px; padding: 6px 0; }
+
+/* woven: what people did, between the messages, and who is working now */
+.gp-ev { display: flex; align-items: center; gap: 8px; padding: 7px 0 5px; font-size: 13px; line-height: 18px; color: var(--text-faint); min-width: 0; }
+.gp-ev > .rm-one { min-width: 0; }
+.gp-ev b { font-weight: 400; color: var(--text-dim); }
+.gp-ev em { margin-left: auto; padding-left: 12px; flex: none; font: normal 10.5px var(--mono); color: var(--text-faint); }
+.gp-now { margin: 16px 0 2px; padding-top: 12px; border-top: 1px solid var(--rm-line); display: flex; flex-direction: column; }
+.gp-now > .rm-label { margin-bottom: 6px; }
+.gp-now-row { display: grid; grid-template-columns: 16px auto minmax(0, 1fr) auto; column-gap: 8px; align-items: center; height: 28px; font-size: 13px; }
+.gp-now-row .who { color: var(--text); }
+.gp-now-row .what { color: var(--text-dim); }
