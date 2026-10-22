@@ -7,10 +7,10 @@
 // a stand-in that answers the way PostgREST does: presence still saves and
 // reads, without activity, and names answer null so the wall and chat keep to
 // the cards. On an updated cloud activity is sent and names are read.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { roomsSupabase } from '../main/team/rooms-supabase.mjs';
 
-function cloud({ updated }) {
+function cloud(state) {
   const writes = [];
   const reads = [];
   const missing = { code: 'PGRST204', message: "Could not find the 'activity' column of 'room_presence' in the schema cache" };
@@ -24,8 +24,8 @@ function cloud({ updated }) {
       then(ok, bad) {
         let res;
         const asksActivity = (q.fields && 'activity' in q.fields) || /activity/.test(q.cols);
-        if (!updated && asksActivity) res = { data: null, error: missing };
-        else if (q.op === 'select') { reads.push({ table, cols: q.cols }); res = { data: [{ person_id: 'p2', device: 'aaaaaaaaaaaa', agents_running: 1, ...(updated ? { activity: [] } : {}) }], error: null }; }
+        if (!state.updated && asksActivity) res = { data: null, error: missing };
+        else if (q.op === 'select') { reads.push({ table, cols: q.cols }); res = { data: [{ person_id: 'p2', device: 'aaaaaaaaaaaa', agents_running: 1, ...(state.updated ? { activity: [] } : {}) }], error: null }; }
         else { writes.push({ table, op: q.op, fields: q.fields }); res = { data: [{ person_id: 'p1' }], error: null }; }
         return Promise.resolve(res).then(ok, bad);
       },
@@ -33,7 +33,7 @@ function cloud({ updated }) {
     return chain;
   };
   const must = (res, what) => { if (res.error) throw new Error(`${what}: ${res.error.message}`); return res.data; };
-  const rpc = async (fn) => (fn === 'room_names' && !updated
+  const rpc = async (fn) => (fn === 'room_names' && !state.updated
     ? { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.room_names(r) in the schema cache' } }
     : { data: fn === 'room_names' ? [{ person_id: 'p2', name: 'Maya C.', avatar_url: null, has_card: true }] : [], error: null });
   return { writes, reads, backend: roomsSupabase({ from: query, rpc }, async () => 'p1', must) };
@@ -60,6 +60,23 @@ describe('a cloud not yet updated', () => {
   it('answers names with null, which the wall and chat read as "use the cards"', async () => {
     const { backend } = cloud({ updated: false });
     await expect(backend.roomNames('r1')).resolves.toBeNull();
+  });
+});
+
+describe('a cloud updated while the app is open', () => {
+  it('is asked again a minute later, and from then on is sent the activity', async () => {
+    vi.useFakeTimers({ now: Date.parse('2026-10-22T10:00:00Z'), toFake: ['Date'] });
+    try {
+      const state = { updated: false };
+      const { backend, writes } = cloud(state);
+      await backend.putPresence('aaaaaaaaaaaa', row);
+      state.updated = true;
+      await backend.putPresence('aaaaaaaaaaaa', row);
+      expect('activity' in writes.at(-1).fields).toBe(false);
+      vi.setSystemTime(Date.parse('2026-10-22T10:01:01Z'));
+      await backend.putPresence('aaaaaaaaaaaa', row);
+      expect(writes.at(-1).fields.activity).toEqual(row.activity);
+    } finally { vi.useRealTimers(); }
   });
 });
 
