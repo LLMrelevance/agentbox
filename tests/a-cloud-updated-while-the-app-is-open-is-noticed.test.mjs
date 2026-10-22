@@ -7,8 +7,10 @@
 // until it was restarted: reactions read as none and edits never showed.
 // Measured against a stand-in cloud that is updated mid-session: within a
 // minute the new columns are asked for again and reactions read, and anything
-// only an updated cloud can do that succeeds settles it at once. The case that
-// must not change: a cloud still old is not asked again before the minute.
+// only an updated cloud can do that succeeds settles it at once, even against
+// a late answer to a read asked before the update (Codex found that race).
+// The case that must not change: a cloud still old is not asked again before
+// the minute.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { roomsSupabase } from '../main/team/rooms-supabase.mjs';
 
@@ -16,23 +18,25 @@ const NEW = ['edited_at', 'deleted_at'];
 const row = { id: 'm1', room_id: 'r1', by_person: 'p1', body: 'hi', in_reply_to: null, mentions: [], created_at: '2026-10-21T10:00:00Z' };
 
 function cloud() {
-  const state = { updated: false, asked: [] };
+  // `hold`: the next question is answered as the cloud was when asked, once it resolves.
+  const state = { updated: false, asked: [], hold: null };
   const query = (table) => {
-    const q = { cols: '', single: false };
+    const q = { cols: '', single: false, was: state.updated, wait: null };
     const chain = {
-      select(cols) { q.cols = cols; state.asked.push({ table, cols }); return chain; },
+      select(cols) { q.cols = cols; q.was = state.updated; q.wait = state.hold; state.hold = null; state.asked.push({ table, cols }); return chain; },
       insert() { return chain; },
       eq() { return chain; }, lt() { return chain; }, order() { return chain; }, limit() { return chain; },
       contains() { return chain; }, is() { return chain; },
       single() { q.single = true; return chain; },
       then(ok, bad) {
+        const updated = table === 'room_files' ? state.updated : q.was;
         let res;
-        if (table === 'room_reactions') res = state.updated ? { data: [{ message_id: 'm1', person_id: 'p2', emoji: '👍', is_on: true, updated_at: row.created_at }], error: null } : { data: null, error: { code: 'PGRST205', message: "Could not find the table 'public.room_reactions'" } };
-        else if (table === 'room_files') res = state.updated ? { data: null, error: null } : { data: null, error: { code: 'PGRST205', message: "Could not find the table 'public.room_files'" } };
-        else if (!state.updated && NEW.some((c) => q.cols.includes(c))) res = { data: null, error: { code: '42703', message: 'column room_messages.edited_at does not exist' } };
-        else res = { data: [{ ...row, ...(state.updated ? { edited_at: null, deleted_at: null } : {}) }], error: null };
+        if (table === 'room_reactions') res = updated ? { data: [{ message_id: 'm1', person_id: 'p2', emoji: '👍', is_on: true, updated_at: row.created_at }], error: null } : { data: null, error: { code: 'PGRST205', message: "Could not find the table 'public.room_reactions'" } };
+        else if (table === 'room_files') res = updated ? { data: null, error: null } : { data: null, error: { code: 'PGRST205', message: "Could not find the table 'public.room_files'" } };
+        else if (!updated && NEW.some((c) => q.cols.includes(c))) res = { data: null, error: { code: '42703', message: 'column room_messages.edited_at does not exist' } };
+        else res = { data: [{ ...row, ...(updated ? { edited_at: null, deleted_at: null } : {}) }], error: null };
         if (q.single && res.data) res = { ...res, data: res.data[0] };
-        return Promise.resolve(res).then(ok, bad);
+        return Promise.resolve(q.wait).then(() => res).then(ok, bad);
       },
     };
     return chain;
@@ -65,6 +69,24 @@ describe('a cloud updated while the app is open', () => {
     await backend.putRoomFile('r1', 'voice-note-4000ms.webm', 'AAAA');
     await backend.roomMessages('r1');
     expect(lastMessageRead(state.asked)).toContain('edited_at');
+  });
+});
+
+describe('two reads crossing as the cloud is updated', () => {
+  it('does not let a late answer from before the update mark it old again', async () => {
+    const { state, backend } = cloud();
+    let release;
+    state.hold = new Promise((r) => { release = r; });
+    const late = backend.roomMessages('r1');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(state.asked).toHaveLength(1);
+    state.updated = true;
+    await backend.roomMessages('r1');
+    release();
+    await late;
+    await backend.roomMessages('r1');
+    expect(lastMessageRead(state.asked)).toContain('edited_at');
+    await expect(backend.roomReactions('r1')).resolves.toHaveLength(1);
   });
 });
 

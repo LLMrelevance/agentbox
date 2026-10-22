@@ -103,10 +103,16 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
   const nameOf = (id: string | null) => { const p = who(id); return p ? cardName(p) : 'Someone'; };
   const listRef = useStick([room.id, thread, shown.length]);
   const slots = chatLayout(shown.map((m) => ({ at: m.at, by: m.by ?? '' })), now);
-  const myName = people.find((p) => p.me)?.name ?? null;
+  const myNames = useMemo(() => {
+    const name = people.find((p) => p.me)?.name;
+    if (!name) return [];
+    const first = (n: string) => n.split(/\s+/)[0].toLowerCase();
+    const mine = first(name);
+    return people.filter((p) => first(p.name) === mine).length === 1 ? [name, name.split(/\s+/)[0]] : [name];
+  }, [people]);
   const body = (m: RoomMessage) => (
     <RoomMarkdown text={m.body} names={names} loadFile={calls.loadFile} roomId={room.id} mine={m.by === meId}
-      me={meId && m.by !== meId && m.mentions.includes(meId) ? myName : null} />
+      me={meId && m.by !== meId && m.mentions.includes(meId) ? myNames : NOBODY} />
   );
 
   return <div className={full ? 'rm-full' : 'rm-chat'}>
@@ -203,12 +209,13 @@ function RoomPicture({ roomId, name, alt, loadFile }: { roomId: string; name: st
 
 /** A room message as markdown: @names marked, voice notes and pictures drawn, other files named. */
 const MARKDOWN_PLUGINS = [remarkGfm];
+const NOBODY: readonly string[] = [];
 const storedIn = (href: string) => /^attachments\/([A-Za-z0-9][\w.-]{0,159})$/.exec(href)?.[1] ?? null;
 
 function RoomMarkdown({ text, names, loadFile, roomId, mine, me }: {
   text: string; names: string[]; roomId: string; mine: boolean; loadFile?: (name: string) => Promise<Blob | null>;
-  /** Your name, when this message names you. */
-  me: string | null;
+  /** What you answer to, when this message names you. */
+  me: readonly string[];
 }) {
   // The same parts on every draw: new ones would remount each voice note in
   // the chat, so none could finish loading. The file is fetched through a ref

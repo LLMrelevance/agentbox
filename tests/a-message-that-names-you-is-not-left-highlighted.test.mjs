@@ -44,6 +44,24 @@ describe('a message that names you', () => {
 
   it('does not take a longer name that starts with yours for you', () => {
     expect(html).toContain('<b class="rm-at">@Sam Rivera</b>');
-    expect(mentionMarkdown('@Sam Rivera and @sam', ['Sam', 'Sam Rivera'], 'Sam')).toBe('[@Sam Rivera](#mention) and [@sam](#mention-me)');
+    expect(mentionMarkdown('@Sam Rivera and @sam', ['Sam', 'Sam Rivera'], ['Sam'])).toBe('[@Sam Rivera](#mention) and [@sam](#mention-me)');
+  });
+});
+
+describe('a message that names you by your first name', () => {
+  const people2 = [{ id: ME, name: 'Sam Rivera', avatarUrl: null, me: true }, { id: MAYA, name: 'Maya Chen', avatarUrl: null, me: false }];
+  const draw2 = (messages, who = people2) => renderToStaticMarkup(React.createElement(RoomChat, { room, messages, people: who, meId: ME, now: T + 3_600_000, full: true, ...calls }));
+
+  it('marks it as yours, as it counts as a mention of you', () => {
+    expect(draw2([m('a', MAYA, 0, 'can @sam look?', { mentions: [ME] })])).toContain('<b class="rm-at me">@sam</b>');
+  });
+
+  it('leaves it alone when someone else in the room shares the first name', () => {
+    const who = [...people2, { id: SAMR, name: 'Sam Ortiz', avatarUrl: null, me: false }];
+    expect(draw2([m('a', MAYA, 0, 'can @sam look?', { mentions: [] })], who)).not.toContain('rm-at');
+  });
+
+  it('does not mark the start of a longer word', () => {
+    expect(mentionMarkdown('ask @Samantha', ['Sam Rivera'], ['Sam Rivera', 'Sam'])).toBe('ask @Samantha');
   });
 });

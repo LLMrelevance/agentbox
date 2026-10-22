@@ -20,14 +20,19 @@ export function roomsSupabase(client, myId, must) {
   // by hand. Until it is, messages are read on the columns it has and nothing
   // hangs off them, rather than the whole chat failing to read.
   // The update can land while the app is open, so an old cloud is asked again
-  // after a while, and anything only an updated cloud can do settles it.
+  // after a while. Anything only an updated cloud can do settles it for good,
+  // since a cloud is never taken back, so a late answer from before is ignored.
   let oldSince = 0;
-  const isOld = () => oldSince > 0 && Date.now() - oldSince < OLD_RECHECK_MS;
+  let updated = false;
+  const isOld = () => !updated && oldSince > 0 && Date.now() - oldSince < OLD_RECHECK_MS;
+  const settle = () => { updated = true; oldSince = 0; };
   const reading = async (make, what) => {
     const old = isOld();
     let res = await make(old ? OLD_MSG_COLS : MSG_COLS, old);
-    if (res.error && !old && notThere(res.error)) { oldSince = Date.now(); res = await make(OLD_MSG_COLS, true); }
-    else if (!old && !res.error) oldSince = 0;
+    if (res.error && !old && notThere(res.error)) {
+      if (!updated) oldSince = Date.now();
+      res = await make(OLD_MSG_COLS, true);
+    } else if (!old && !res.error) settle();
     return must(res, what);
   };
   // What only an updated cloud can do says so, in place of a database error.
@@ -35,7 +40,7 @@ export function roomsSupabase(client, myId, must) {
   const newer = async (res, what) => {
     if (res.error && notThere(res.error)) throw new Error(BEHIND);
     const data = must(res, what);
-    oldSince = 0;
+    settle();
     return data;
   };
   const newRpc = async (fn, args, what) => newer(await client.rpc(fn, args), what);
@@ -153,7 +158,7 @@ export function roomsSupabase(client, myId, must) {
       if (error?.code === '23505') throw fileExists(name);
       if (error && notThere(error)) throw new Error(BEHIND);
       if (error) throw new Error(`sending the file: ${error.message}`);
-      oldSince = 0;
+      settle();
       return name;
     },
 

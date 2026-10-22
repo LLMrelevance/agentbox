@@ -10,6 +10,7 @@
 // and every box around them may be narrower than its contents.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
+import { THREAD_WIDTH } from '../renderer/src/team/chat-threads.ts';
 
 const css = fs.readFileSync(new URL('../renderer/src/team/voice-note.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 const rule = (sel) => {
@@ -48,5 +49,26 @@ describe('a voice note in a narrow chat', () => {
 
   it('keeps the button that takes it out of the box at its full size', () => {
     expect(rule('.attach-voice-remove').flex).toBe('none');
+  });
+});
+
+// Codex found the direct chat's thread panel, dragged to its narrowest, still
+// too narrow: 320px less its border, 28px each side and the box's border
+// leaves 261px, and the note with its speed needs 268px inside 16px padding.
+describe('a voice note in the thread panel at its narrowest', () => {
+  const box = THREAD_WIDTH.min - 1 - 2 * 28 - 2;
+  const narrow = css.match(/@container \(width < (\d+)px\) \{([^}]*\{[^}]*\})\s*\}/);
+
+  it('lets the speed go from a note still waiting to be sent, and only in a box that narrow', () => {
+    expect(narrow).not.toBeNull();
+    expect(narrow[2]).toMatch(/\.attach-voice \.voice-speed \{ display: none; \}/);
+    expect(box).toBeLessThan(Number(narrow[1]));
+    // Wide enough for the note with its speed beyond the threshold: 268px inside 16px padding each side.
+    expect(Number(narrow[1]) - 32).toBeGreaterThanOrEqual(268);
+  });
+
+  it('fits there without it', () => {
+    const floor = px(rule('.voice-bars')['min-width']);
+    expect(floor + 28 + 30 + 20 + 16 + 2 + 28).toBeLessThanOrEqual(box - 32);
   });
 });

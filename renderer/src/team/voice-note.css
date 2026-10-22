@@ -50,6 +50,9 @@
   background: var(--wash); color: var(--text-faint); font: inherit; font-size: 15px; line-height: 1;
 }
 .attach-voice-remove:hover { color: var(--text); border-color: var(--line-strong); }
+/* A thread panel dragged to its narrowest has no room for the speed of a
+   note you have not sent yet; the sent note keeps it. */
+@container (width < 300px) { .attach-voice .voice-speed { display: none; } }
 
 /* In a sent message the note sits on its own line under any words. */
 .chat-msg .typed-embed .voice-note, .rm-cm .voice-note { margin-top: 6px; }

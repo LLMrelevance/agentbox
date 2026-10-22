@@ -21,12 +21,21 @@ export function drawnRoots(messages: readonly RoomMessage[]): RoomMessage[] {
   return messages.filter((m) => !m.inReplyTo && (!m.deleted || answered.has(m.id)));
 }
 
-/** The message as markdown, each @name made a mention link so it can be drawn as one, and yours told apart. */
-export function mentionMarkdown(body: string, names: readonly string[], me: string | null = null): string {
-  const mine = me ? `@${me}`.toLowerCase() : null;
-  return markMentions(body, names).map((part) => {
+/**
+ * The message as markdown, each @name made a mention link so it can be drawn
+ * as one. `me` is what you answer to in it, your name and first name, and
+ * those are told apart; a first name only counts as a whole word.
+ */
+export function mentionMarkdown(body: string, names: readonly string[], me: readonly string[] = []): string {
+  const at = (n: string) => `@${n}`.toLowerCase();
+  const full = new Set(names.map(at));
+  const mine = new Set(me.filter(Boolean).map(at));
+  const parts = markMentions(body, [...names, ...me]);
+  return parts.map((part, i) => {
     if (!part.mention) return part.text;
-    return `[${part.text}](${part.text.toLowerCase() === mine ? '#mention-me' : '#mention'})`;
+    const said = part.text.toLowerCase();
+    if (!full.has(said) && /^[\p{L}\p{N}]/u.test(parts[i + 1]?.text ?? '')) return part.text;
+    return `[${part.text}](${mine.has(said) ? '#mention-me' : '#mention'})`;
   }).join('');
 }
 
