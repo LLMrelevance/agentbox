@@ -121,6 +121,7 @@ import { SummaryPanel, SummaryRail, ThreadCrumb, ThreadStateMark, useSummaryOpen
 import { ThreadMenu, type ThreadPlace } from '../threads/ThreadMenu';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { useChatMentions } from '../team/ChatAgents';
+import { useThreadMentions } from './ThreadMentions';
 import { AGENT_SCHEME } from '../team/agent-mentions';
 import { defaultModelFor, engineModelLabel } from '../models';
 import { defaultEffortFor, effortChoicesFor, effortShown } from '../effort';
@@ -564,10 +565,17 @@ export function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null, pageAsk = null, onAsked, onShown }: {
   previewSample?: string;
   /** The repeating task this thread is a run of, drawn in its summary. */
   repeat?: RepeatHandle | null;
+  /** A ⌘K row that acts on this thread's own page (../thread-commands.ts):
+   *  fold the summary, open its people list, or open the name box. A new `at`
+   *  is a new press; `onAsked` says it has been carried out. */
+  pageAsk?: { what: 'summary' | 'people' | 'rename'; at: number } | null;
+  onAsked?: () => void;
+  /** What this page draws that ⌘K offers rows for. */
+  onShown?: (shown: { key: string; change: boolean; summary: 'open' | 'closed' | null }) => void;
   /**
    * A MESSAGE FROM A PERSON IS NOT WORK UNTIL SHE SAYS SO. The one line under
    *  the latest message on a message thread calls this to make it a task for
@@ -884,6 +892,11 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const summaryOffered = summarised && !openDoc;
   const summaryShown = summaryOffered && summaryOpen;
   useSummaryShortcut(toggleSummary, summaryOffered);
+  useEffect(() => {
+    if (!pageAsk || !summaryOffered) return;
+    if (pageAsk.what === 'summary') { toggleSummary(); onAsked?.(); }
+    else if (pageAsk.what === 'people' && !summaryOpen) toggleSummary();
+  }, [pageAsk?.at, summaryOffered]);
   // THE MODEL, IN THE REPLY BOX AND NOT THE HEADER. The folded box says which
   // model picks up what she sends next, at its right end, and pressing the word
   // opens the box with the model drawer already open: the same drawer and the
@@ -1085,6 +1098,10 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     const timer = setInterval(read, pollEvery(4000, onPhone()));
     return () => { live = false; clearInterval(timer); };
   }, [item.product, item.id, item.updatedAt, session?.startedAt, agent]);
+  const summaryNow = summaryOffered ? (summaryShown ? 'open' : 'closed') : null;
+  useEffect(() => {
+    onShown?.({ key: `${item.product}/${item.id}`, change: !!figures, summary: summaryNow });
+  }, [item.product, item.id, !!figures, summaryNow]);
 
   // Parent callbacks change on polling and when a document opens. Keep the
   // current actions without making them React component identities: replacing
@@ -1497,7 +1514,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const rename = named ? undefined
     : (label: string) => api.threadEdit(item.product, item.id, { label }).then((r) => r.ok);
   const barContent = summaryOffered && crumbFrom
-    ? <ThreadCrumb from={crumbFrom} name={threadName} onBack={onClose} onRename={rename} threadKey={`${item.product}/${item.id}`} />
+    ? <ThreadCrumb from={crumbFrom} name={threadName} onBack={onClose} onRename={rename} threadKey={`${item.product}/${item.id}`} renameAsk={pageAsk?.what === 'rename' ? pageAsk.at : 0} onAsked={onAsked} />
     : <>{backButton}{bandLine}</>;
 
   // ANYTHING ADDED TO THIS ELEMENT RIDES BESIDE THE LITERAL, NEVER INSIDE IT.
@@ -2088,7 +2105,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     {/* `onFinish` is the SAME ONE the three-dot menu's Mark done row takes
         (`canFinish ? onResolve : null` above), so the Status row's Done and
         that row and E are one action with one undo and one toast. */}
-    {summaryShown && <SummaryPanel item={item} team={teamCtx} onFinish={canFinish ? onResolve : null} onClose={toggleSummary} repeat={repeat} />}
+    {summaryShown && <SummaryPanel item={item} team={teamCtx} onFinish={canFinish ? onResolve : null} onClose={toggleSummary} repeat={repeat} peopleAsk={pageAsk?.what === 'people' ? pageAsk.at : 0} onAsked={onAsked} />}
     {summaryOffered && !summaryOpen && <SummaryRail item={item} team={teamCtx} onOpen={toggleSummary} />}
     {!direct && <TaskTerminal key={`${item.product}:${item.id}`} product={item.product} id={item.id} onOpenChange={setTerminalOpen}/>}
     </div>
@@ -2433,6 +2450,13 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
       ? { text: plain, setText: (next: string) => (ref.current as RichBox | null)?.rich.setPlain(next) }
       : { text, setText }),
   });
+  // # NAMES ANOTHER THREAD, in any reply box (w-c110f2371d, ./ThreadMentions.tsx).
+  const named = useThreadMentions({
+    ...(richBox
+      ? { text: plain, setText: (next: string) => (ref.current as RichBox | null)?.rich.setPlain(next) }
+      : { text, setText }),
+    input: ref, here: item.id, rise: true,
+  });
   // WHAT THIS ONE MESSAGE MAY DO.So it is not a project setting and not a
   // workspace one; it rides on the send.
   //
@@ -2592,7 +2616,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     // THROUGH `pickToSend`, because the drawer reports the engine's own default
     // as null and the store reads a null model as "clear it", so picking the
     // default unpinned the thread rather than pinning it (../reply-pick.ts).
-    onSend([chat.encode(words), attachedMd].filter(Boolean).join('\n\n'), prio ? priorityValueOf(prio) : undefined, repeat, sent, mode,
+    onSend([named.encode(chat.encode(words)), attachedMd].filter(Boolean).join('\n\n'), prio ? priorityValueOf(prio) : undefined, repeat, sent, mode,
       touched
         ? pickToSend({ model, effort }, { engine: engineShown, was: engineNow, engineCount: engineRows.length })
         : undefined);
@@ -2844,6 +2868,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     // The @ menu and a mention's card take their keys first, and only
     // while one of them is up.
     if (chat.keyDown(e)) return;
+    if (named.keyDown(e)) return;
     // ↑ in an empty box to a person edits your newest message, as in Slack.
     if (e.key === 'ArrowUp' && talkTo?.length && !text.trim() && !attachments.length) {
       e.preventDefault();
@@ -2910,6 +2935,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           draws outside a conversation with a person. */}
       {chat.menu}
       {chat.card}
+      {named.menu}
       {richBox ? (
         // The editor draws a mention's chip on its own words; the layer of
         // chips behind a text field has no text field to sit behind.
@@ -2922,7 +2948,10 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           onChange={changeText}
           onPlain={setPlain}
           placeholder={`Reply to ${joinNames(talkTo ?? [])}`}
-          mentions={chat.mentions.map((m) => ({ start: m.start, end: m.end, loose: !m.project }))}
+          mentions={[
+            ...chat.mentions.map((m) => ({ start: m.start, end: m.end, loose: !m.project })),
+            ...named.mentions.map((m) => ({ start: m.start, end: m.end, loose: false })),
+          ]}
           // ⌘↵ and Escape are taken even where nothing above stops them, or
           // the editor's own ⌘↵ would add a line break under the send.
           onKeyDown={(e) => {
@@ -2933,19 +2962,20 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
             const got = await collectFiles(files);
             if (got.length) setAttachments((a) => [...a, ...got]);
           }}
-          onCaret={(box) => chat.track(box as unknown as HTMLTextAreaElement)}
+          onCaret={(box) => { chat.track(box as unknown as HTMLTextAreaElement); named.track(box as unknown as HTMLTextAreaElement); }}
           onClick={(box) => chat.click(box as unknown as HTMLTextAreaElement)}
         />
       ) : <>
       {chat.chips}
+      {named.chips}
       <textarea
-        className={`dock-input${chat.live ? ' with-mentions' : ''}`}
+        className={`dock-input${chat.live ? ' with-mentions' : ''} ${named.over}`}
         ref={ref}
         value={text}
-        onChange={(e) => { changeText(e.target.value); chat.track(e.target); }}
-        onSelect={(e) => chat.track(e.currentTarget)}
-        onScroll={(e) => chat.track(e.currentTarget)}
-        onClick={(e) => chat.click(e.currentTarget)}
+        onChange={(e) => { changeText(e.target.value); chat.track(e.target); named.track(e.target); }}
+        onSelect={(e) => { chat.track(e.currentTarget); named.track(e.currentTarget); }}
+        onScroll={(e) => { chat.track(e.currentTarget); named.track(e.currentTarget); }}
+        onClick={(e) => { chat.click(e.currentTarget); named.track(e.currentTarget); }}
         /* * ONE CLEAR SENTENCE. The old placeholder was unclear about what it even meant,
            and a reply box needs one simple sentence.
 

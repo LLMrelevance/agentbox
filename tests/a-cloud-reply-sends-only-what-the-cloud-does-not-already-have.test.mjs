@@ -348,10 +348,26 @@ describe('sending a conversation', () => {
     expect(joins).toHaveLength(0);
   });
 
-  it('is sent whole when the copy was sent in an earlier period, which the bucket may be about to drop', async () => {
+  // The copy is only joined from, into a name of the new period, so what the
+  // cloud reads is never one the bucket is about to drop. A 430 MB
+  // conversation went up whole once every six days without this.
+  it('is joined to a copy sent in an earlier period while the bucket still has it', async () => {
     const now = (periodOf(Date.now()) + 0.9) * CACHE_PERIOD_MS;
     const f = write(6 * MB);
-    await send(f, { now });
+    const first = await send(f, { now });
+    fs.appendFileSync(f, 'more\n');
+    const later = now + 0.2 * CACHE_PERIOD_MS;
+    const second = await send(f, { now: later });
+    expect(second.sent).toBe(5);
+    expect(joins).toEqual([{ key: second.key, base: first.key, size: 5 }]);
+    expect(second.key.startsWith(`runs/cache/${periodOf(later)}/`)).toBe(true);
+    expect(objects.get(second.key).equals(fs.readFileSync(f))).toBe(true);
+  });
+
+  it('is sent whole when the copy from an earlier period is gone', async () => {
+    const now = (periodOf(Date.now()) + 0.9) * CACHE_PERIOD_MS;
+    const f = write(6 * MB);
+    objects.delete((await send(f, { now })).key);
     fs.appendFileSync(f, 'more\n');
     expect((await send(f, { now: now + 0.2 * CACHE_PERIOD_MS })).sent).toBe(6 * MB + 5);
     expect(joins).toHaveLength(0);

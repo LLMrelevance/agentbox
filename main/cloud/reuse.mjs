@@ -90,7 +90,9 @@ async function hashes(file, upTo) {
  * only ever adds to one, so once a copy is there only what was added since is
  * sent, and joined to it in the bucket (`storage.extend`). Anything else, a
  * conversation that changed or a copy the bucket no longer has, goes whole.
- * `record` is where the last send is noted.
+ * A copy from an earlier period is joined from, never read by the cloud: the
+ * join is a new object under this period's name. `record` is where the last
+ * send is noted.
  */
 export async function sendConversation(storage, file, { record = null, now = Date.now() } = {}) {
   // Hashed and sent from one copy, so the key always names what was sent.
@@ -99,7 +101,7 @@ export async function sendConversation(storage, file, { record = null, now = Dat
     fs.copyFileSync(file, copy, fs.constants.COPYFILE_FICLONE);
     let had = null;
     try { had = record ? JSON.parse(fs.readFileSync(record, 'utf8')) : null; } catch { /* none yet */ }
-    const joinable = !!storage.extend && had?.period === periodOf(now) && Number.isInteger(had.size)
+    const joinable = !!storage.extend && Number.isInteger(had?.size)
       && had.size >= MIN_JOIN_BYTES && typeof had.key === 'string' && typeof had.sha === 'string';
     const { prefix, whole, size } = await hashes(copy, joinable ? had.size : 0);
     const key = cacheKey(`conversation-${whole}.jsonl`, now);

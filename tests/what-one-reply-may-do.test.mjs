@@ -465,6 +465,7 @@ describe('clearing a mode puts the row back on the project setting', () => {
         // undefined so the child exiting does not throw past the assertion.
         _fruitless: {},
         _profileCooldown: {},
+        _liveSessions: {},
         emit: () => {},
         tick: () => {},
         // `true` exits 0 at once and emits a real 'spawn' event before it does.

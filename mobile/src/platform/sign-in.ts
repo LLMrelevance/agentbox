@@ -3,8 +3,8 @@
 // system's sign-in sheet and comes back to the app with a one-time code.
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
-import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
+import { googleReturn } from '../lib/google-return';
 import type { Cloud } from '../state/cloud';
 
 export async function appleSignIn(cloud: Cloud) {
@@ -21,8 +21,7 @@ export async function appleSignIn(cloud: Cloud) {
 export const appleAvailable = () => AppleAuthentication.isAvailableAsync().catch(() => false);
 
 export async function googleSignIn(cloud: Cloud) {
-  const back = Linking.createURL('signed-in');
-  const done = await WebBrowser.openAuthSessionAsync(await cloud.googleUrl(back), back);
+  const done = await WebBrowser.openAuthSessionAsync(await cloud.googleUrl(googleReturn), googleReturn);
   if (done.type !== 'success') return null;
   const code = new URL(done.url).searchParams.get('code');
   if (!code) throw new Error('Google did not sign you in. Try again.');

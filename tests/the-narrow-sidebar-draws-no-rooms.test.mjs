@@ -9,7 +9,8 @@
 //
 // Measured by drawing the section through useRooms with two rooms: narrow, it
 // drew the Rooms header, both rooms and New room, exactly as wide did. Now the
-// narrow strip stops at Messages, whose dot still carries a room's unread.
+// narrow strip has Messages, whose dot still carries a room's unread, and the
+// one Rooms row that opens the Rooms page (w-a0429b3d5e).
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect } from 'vitest';
@@ -30,9 +31,10 @@ const two = [room('design'), room('launch')];
 
 describe('the narrow sidebar', () => {
   const html = draw(two, true);
-  it('has no Rooms header or its fold arrow', () => {
+  it('has no Rooms header or its fold arrow, only the one Rooms row', () => {
     expect(html).not.toContain('rm-sec');
-    expect(html).not.toContain('>Rooms<');
+    expect(html.match(/>Rooms</g)).toHaveLength(1);
+    expect(html).toContain('aria-label="Rooms" title="Rooms"');
   });
   it('has no row for any room', () => {
     expect(html).not.toContain('rm-nav');
@@ -54,12 +56,12 @@ describe('the narrow sidebar', () => {
   });
 });
 
-describe('the wide sidebar keeps the section', () => {
+describe('the wide sidebar', () => {
   const html = draw(two, false);
-  it('header, every room, and New room', () => {
-    expect(html).toContain('rm-sec');
-    expect(html).toContain('>design<');
-    expect(html).toContain('>launch<');
-    expect(html).toContain('New room');
+  it('has the same two rows and no list of rooms (tests/rooms-live-on-a-page-of-their-own)', () => {
+    expect(html).toContain('aria-label="Messages"');
+    expect(html).toContain('aria-label="Rooms"');
+    expect(html).not.toContain('>design<');
+    expect(html).not.toContain('New room');
   });
 });
