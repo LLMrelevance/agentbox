@@ -2,7 +2,7 @@
 // first with an unread dot, and the open one beside them. A direct record
 // keeps its own view on the right; a room or a group is the room chat at full
 // width. A right click on a conversation, or its ⋯, marks it read or unread,
-// mutes it, or leaves it.
+// pins it to the top, mutes it, or leaves it.
 import { useState, type ReactNode } from 'react';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
@@ -22,9 +22,10 @@ export type Conversation = {
   /** Marked unread by hand: the dot stays even while it is open. */
   marked?: boolean;
   muted?: boolean;
+  pinned?: boolean;
 };
 
-export type ConversationAction = 'read' | 'unread' | 'mute' | 'unmute' | 'leave';
+export type ConversationAction = 'read' | 'unread' | 'pin' | 'unpin' | 'mute' | 'unmute' | 'leave';
 
 export function sortConversations(list: Conversation[]): Conversation[] {
   return [...list].sort((a, b) => b.at - a.at || a.name.localeCompare(b.name));
@@ -34,10 +35,36 @@ export function sortConversations(list: Conversation[]): Conversation[] {
 export function conversationMenu(c: Conversation): { label: string; action: ConversationAction }[] {
   const out: { label: string; action: ConversationAction }[] = [
     c.unread ? { label: 'Mark as read', action: 'read' } : { label: 'Mark as unread', action: 'unread' },
+    c.pinned ? { label: 'Unpin', action: 'unpin' } : { label: 'Pin to top', action: 'pin' },
   ];
   if (c.kind !== 'direct') out.push(c.muted ? { label: 'Unmute', action: 'unmute' } : { label: 'Mute', action: 'mute' });
   if (c.kind === 'group') out.push({ label: 'Leave conversation', action: 'leave' });
   return out;
+}
+
+// Pins are kept on this computer, by conversation key.
+export const PIN_KEY = 'messages.pinned';
+type Store = Pick<Storage, 'getItem' | 'setItem'>;
+const local = (): Store | null => { try { return localStorage; } catch { return null; } };
+
+export function readPins(s: Store | null = local()): Set<string> {
+  try {
+    const got = JSON.parse(s?.getItem(PIN_KEY) ?? '[]');
+    return new Set(Array.isArray(got) ? got.filter((k): k is string => typeof k === 'string') : []);
+  } catch { return new Set(); }
+}
+
+export function togglePin(key: string, s: Store | null = local()): Set<string> {
+  const pins = readPins(s);
+  if (pins.has(key)) pins.delete(key); else pins.add(key);
+  try { s?.setItem(PIN_KEY, JSON.stringify([...pins])); } catch { /* full or off: pinned until the page closes */ }
+  return pins;
+}
+
+/** Pinned first, then the rest, each newest first. */
+export function inListOrder(list: Conversation[], pins: ReadonlySet<string>): Conversation[] {
+  const sorted = sortConversations(list).map((c) => ({ ...c, pinned: pins.has(c.key) }));
+  return [...sorted.filter((c) => c.pinned), ...sorted.filter((c) => !c.pinned)];
 }
 
 function when(ms: number, now: number) {
@@ -49,19 +76,22 @@ function when(ms: number, now: number) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export function MessagesPage({ list, onKey, now, onPick, onAction, children }: {
+export function MessagesPage({ list, onKey, now, onPick, onAction, pins: pinsGiven, children }: {
   list: Conversation[]; onKey: string | null; now: number; onPick: (c: Conversation) => void;
   onAction?: (c: Conversation, action: ConversationAction) => void;
+  /** Read from this computer when not given. */
+  pins?: ReadonlySet<string>;
   children: ReactNode;
 }) {
   const [query, setQuery] = useState('');
   const [menu, setMenu] = useState<{ c: Conversation; at: DOMRect } | null>(null);
+  const [pins, setPins] = useState<ReadonlySet<string>>(() => pinsGiven ?? readPins());
   const q = query.trim().toLowerCase();
-  const shown = sortConversations(list).filter((c) => !q || c.name.toLowerCase().includes(q) || c.last.toLowerCase().includes(q));
+  const shown = inListOrder(list, pins).filter((c) => !q || c.name.toLowerCase().includes(q) || c.last.toLowerCase().includes(q));
   const items = (c: Conversation): MoreItem[] => {
     const out: MoreItem[] = [];
     for (const row of conversationMenu(c)) {
-      const run = () => onAction?.(c, row.action);
+      const run = row.action === 'pin' || row.action === 'unpin' ? () => setPins(togglePin(c.key)) : () => onAction?.(c, row.action);
       if (row.action === 'leave') out.push('rule', { label: row.label, danger: true, onClick: run });
       else out.push({ label: row.label, onClick: run });
     }
@@ -82,8 +112,11 @@ export function MessagesPage({ list, onKey, now, onPick, onAction, children }: {
                 : c.faces.length > 1
                   ? <span className="fc two">{c.faces.slice(0, 2).map((f, i) => <RoomFace key={i} name={f.name} url={f.url} size={18} />)}</span>
                   : <span className="fc"><RoomFace name={c.faces[0]?.name ?? c.name} url={c.faces[0]?.url} size={28} /></span>}
-              <span className="t"><b>{c.name}</b><span>{c.last}</span></span>
-              <span className="m">{when(c.at, now)}{dot ? <span className="rm-unread" /> : <span style={{ height: 6 }} />}</span>
+              <span className="t">
+                <span className="nm"><b>{c.name}</b>{c.pinned && <span className="rm-conv-pin" aria-label="Pinned">{I.pinMark()}</span>}</span>
+                <span className="ls">{c.last}</span>
+              </span>
+              <span className="m"><span>{when(c.at, now)}</span>{dot && <span className="rm-unread" />}</span>
             </button>
             {onAction && <button type="button" className="rm-conv-more" aria-label={`More for ${c.name}`} title="More"
               onClick={(e) => setMenu(menu?.c.key === c.key ? null : { c, at: e.currentTarget.getBoundingClientRect() })}>

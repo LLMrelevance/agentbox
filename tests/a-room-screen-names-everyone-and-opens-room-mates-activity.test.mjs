@@ -7,7 +7,7 @@
 // no activity for a room-mate outside the team. And that chart said "since
 // August" under an axis that began at July.
 import { describe, it, expect } from 'vitest';
-import { activityCards, activityShown, boardPeople, chartMonths, chatPeople } from '../renderer/src/team/rooms/room-rules.ts';
+import { activityCards, activityShown, boardPeople, chartNamed, chatPeople, isPresenceCard, roomMateCards } from '../renderer/src/team/rooms/room-rules.ts';
 
 const card = (id, extra = {}) => ({ id, me: false, name: id, avatarUrl: null, teammate: false, showActivity: true, activity: null, ...extra });
 
@@ -49,18 +49,24 @@ describe("a room-mate's activity lines", () => {
     const team = [{ personId: 'teo', threadId: 't1', title: 'From the team', state: 'running', updatedAt: 1 }];
     expect(activityCards(card('teo', { teammate: true, activity }), team).map((r) => r.title)).toEqual(['From the team']);
   });
+  it('reach the board their page draws, once a person, and are known as lines with nothing to open', () => {
+    const maya = card('maya', { activity });
+    const cards = roomMateCards([{ wall: [maya, card('teo', { teammate: true, activity })] }, { wall: [maya] }]);
+    expect(cards.map((c) => [c.personId, c.title])).toEqual([['maya', 'Pick a font for the receipts'], ['maya', 'Make the checkout faster']]);
+    expect(cards.every(isPresenceCard)).toBe(true);
+    expect(isPresenceCard({ threadId: 'w-1a2b3c4d5e' })).toBe(false);
+  });
 });
 
 describe('the hours chart', () => {
-  it('starts from nothing the month before, and leaves that month unnamed', () => {
-    const { months, named } = chartMonths([{ month: '2026-07', hours: 0 }, { month: '2026-08', hours: 900 }, { month: '2026-09', hours: 300 }]);
-    expect(months.map((m) => m.month)).toEqual(['2026-07', '2026-08', '2026-09']);
-    expect(named).toEqual([false, true, true]);
+  const byMonth = [{ month: '2026-07', hours: 0 }, { month: '2026-08', hours: 900 }, { month: '2026-09', hours: 300 }];
+  it('leaves the month before the first hours unnamed, so "since August" is not over July', () => {
+    expect(chartNamed(['2026-07', '2026-08', '2026-09'], byMonth)).toEqual([false, true, true]);
   });
-  it('names every month when the first one already had hours', () => {
-    expect(chartMonths([{ month: '2026-08', hours: 5 }, { month: '2026-09', hours: 3 }]).named).toEqual([true, true]);
+  it('names every month when the first one drawn already had hours', () => {
+    expect(chartNamed(['2026-08', '2026-09'], byMonth)).toEqual([true, true]);
   });
-  it('names the last two when there are no hours yet', () => {
-    expect(chartMonths([{ month: '2026-08', hours: 0 }, { month: '2026-09', hours: 0 }]).named).toEqual([true, true]);
+  it('names them all when there are no hours yet', () => {
+    expect(chartNamed(['2026-09', '2026-10'], [])).toEqual([true, true]);
   });
 });

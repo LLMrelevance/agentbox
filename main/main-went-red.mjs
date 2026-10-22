@@ -90,8 +90,11 @@ export function machineOf(job) {
 }
 
 const ANSI = /\u001b\[[0-9;]*m/g;
-// A job log is one timestamped line per line of output.
+// A job log is one timestamped line per line of output, and GitHub's own
+// lines carry a kind in front of them.
 const STAMP = /^\S+Z\s/;
+const GITHUB_SAYS = /^##\[[a-z]+\]/;
+const clean = (raw) => String(raw).replace(ANSI, '').replace(STAMP, '').replace(GITHUB_SAYS, '').trim();
 // Vitest's own `FAIL  tests/x.test.mjs > suite > case`, and ONLY at the start
 // of the line. A LINE VITEST QUOTED IS NOT THE RUNNER SPEAKING: the ship queue
 // learned that three times over (w-560647d4db). A failing text assertion
@@ -105,21 +108,63 @@ const NAMES_A_RED_TEST = /^FAIL\s+(\S+?\.(?:test|spec)\.[a-z]+)(?:\s|$)/;
 export function failedTestsIn(log) {
   const found = [];
   for (const raw of String(log ?? '').split('\n')) {
-    const line = raw.replace(ANSI, '').replace(STAMP, '').trim();
-    const name = NAMES_A_RED_TEST.exec(line)?.[1];
+    const name = NAMES_A_RED_TEST.exec(clean(raw))?.[1];
     if (name && !found.includes(name)) found.push(name);
   }
   return found;
 }
 
+// VITEST EXITS 1 FOR THINGS THAT ARE NOT A FAILING TEST, and none of them
+// print FAIL: an error thrown after a file's tests have passed, a collection
+// that never started, a worker that died. The row used to stop at "names no
+// failing test" with the log it had already fetched left unread.
+//
+// A banner is matched along with the rule vitest draws it in, because a line
+// vitest QUOTED is not the runner speaking. The plural heading over the whole
+// section is not one of these, and the three lines of advice are about
+// unhandled errors in general rather than about this run.
+const UNHANDLED = /^⎯+\s*Unhandled (?:Error|Rejection)\s*⎯*$/;
+const NAMES_A_BREAKAGE = /^(?:No test files found|FATAL ERROR:)/;
+const ADVICE = /^(?:Vitest caught|This might cause|Serialized Error)/;
+const SAID_AT_MOST = 5;
+
+/** What the runner itself said, for a row that can name no failing test. */
+export function whatTheRunnerSaid(log) {
+  const lines = String(log ?? '').split('\n').map(clean);
+  const said = [];
+  const keep = (line) => {
+    if (line && !ADVICE.test(line) && !said.includes(line)) said.push(line);
+  };
+  lines.forEach((line, i) => {
+    if (UNHANDLED.test(line)) keep(lines.slice(i + 1, i + 8).find((l) => l && !ADVICE.test(l)));
+    else if (NAMES_A_BREAKAGE.test(line)) keep(line);
+  });
+  return said.slice(0, SAID_AT_MOST);
+}
+
 const shortSha = (sha) => String(sha ?? '').slice(0, 7);
 const NOTHING_NAMED = 'nothing in its log names a failing test';
+// A log `gh` could not hand over says nothing about the run, and a row that
+// reported it as "names no failing test" would be making that up.
+const NOT_READ = 'its log could not be read from here';
+const unread = (machines) => machines.length > 0 && machines.every((m) => m.read === false);
+/** The first thing any machine said, cut to something a title can hold. */
+const firstWords = (machines, max) => {
+  const said = machines.flatMap((m) => m.said ?? []).find(Boolean);
+  if (!said) return '';
+  return said.length > max ? `${said.slice(0, max - 1).trimEnd()}…` : said;
+};
 
 /** The row's title: the one test, or the count and the machines. */
 export function redTitle(machines) {
   const names = [...new Set(machines.flatMap((m) => m.tests))];
   if (names.length === 1) return `main went red on GitHub: ${names[0]}`;
-  if (!names.length) return 'main went red on GitHub, and its log names no failing test';
+  if (!names.length) {
+    const said = firstWords(machines, 58);
+    if (said) return `main went red on GitHub: ${said}`;
+    if (unread(machines)) return `main went red on GitHub, and ${NOT_READ}`;
+    return 'main went red on GitHub, and its log names no failing test';
+  }
   const where = machines.filter((m) => m.tests.length).map((m) => m.machine);
   return `main went red on GitHub: ${names.length} tests, on ${where.join(' and ')}`;
 }
@@ -128,7 +173,13 @@ export function redTitle(machines) {
 export function redContext({ sha, machines }) {
   const names = [...new Set(machines.flatMap((m) => m.tests))];
   const where = machines.filter((m) => m.tests.length).map((m) => m.machine);
-  if (!names.length) return `main's tests run went red on GitHub at ${shortSha(sha)}, and ${NOTHING_NAMED}. The run itself is in the task.`;
+  if (!names.length) {
+    const said = firstWords(machines, 110);
+    let how = NOTHING_NAMED;
+    if (said) how = `no test failed and the runner said "${said}"`;
+    else if (unread(machines)) how = NOT_READ;
+    return `main's tests run went red on GitHub at ${shortSha(sha)}, and ${how}. The run itself is in the task.`;
+  }
   return [
     `main's tests run went red on GitHub at ${shortSha(sha)}, on ${where.join(' and ')}.`,
     `${names.length === 1 ? 'The failing test' : `The ${names.length} failing tests`}: ${names.join(', ')}.`,
@@ -146,9 +197,12 @@ export function redRow({ sha, subject, url, machines }) {
       '',
       `    ${shortSha(sha)}  ${subject || 'no title'}`,
       '',
-      ...machines.flatMap(({ machine, tests }) => [
+      ...machines.flatMap(({ machine, tests, said, read }) => [
         `${machine}:`,
-        ...(tests.length ? tests.map((t) => `- ${t}`) : [`- ${NOTHING_NAMED}`]),
+        ...(tests.length ? tests.map((t) => `- ${t}`) : [
+          `- ${read === false ? NOT_READ : NOTHING_NAMED}${said?.length ? ', and the runner said:' : ''}`,
+          ...(said ?? []).map((line) => `  ${line}`),
+        ]),
         '',
       ]),
       ...(url ? [`The whole run: ${url}`, ''] : []),
@@ -244,7 +298,9 @@ export class MainTests {
     for (const job of jobs) {
       if (String(job?.conclusion ?? '') !== 'failure') continue;
       const { code, out } = await this.gh(['api', `repos/{owner}/{repo}/actions/jobs/${job.id}/logs`], { cwd });
-      machines.push({ machine: machineOf(job), tests: code === 0 ? failedTestsIn(out) : [] });
+      const read = code === 0;
+      const tests = read ? failedTestsIn(out) : [];
+      machines.push({ machine: machineOf(job), tests, read, said: read && !tests.length ? whatTheRunnerSaid(out) : [] });
     }
     const row = redRow({ sha: run.headSha, subject: run.displayTitle, url: run.url, machines });
     let filed = null;

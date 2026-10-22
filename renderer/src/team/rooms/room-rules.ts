@@ -2,20 +2,12 @@
 // drawing so they can be tested. tests/a-room-reads-the-way-it-was-approved.
 import type { Room, RoomCard, ThreadCard } from '../../types';
 
-/** Pinned rooms in the sidebar's order, then the room open now if it is not pinned. */
-export function roomTabs(rooms: readonly Room[], openId: string | null): { room: Room; visiting: boolean }[] {
-  const out = rooms.filter((r) => r.pinned).map((room) => ({ room, visiting: false }));
-  const open = openId ? rooms.find((r) => r.id === openId) : null;
-  if (open && !open.pinned) out.push({ room: open, visiting: true });
-  return out;
-}
-
-/** What Tab walks: the state tabs, then the room tabs. */
-export function tabWalk(stateTabs: readonly string[], tabs: readonly { room: Room }[], at: string, back = false): string {
-  const order = [...stateTabs, ...tabs.map((t) => `room:${t.room.id}`)];
-  const i = order.indexOf(at);
-  if (i < 0) return order[0];
-  return order[(i + (back ? order.length - 1 : 1)) % order.length];
+/** A chat just started goes beside the room where that panel is drawn; a
+ *  person's page has none, so from there it opens full page, and Back returns. */
+export function whereChatOpens<P extends string>({ open, full, pane }: { open: { id: string; kind: string } | null; full: boolean; pane: P }):
+  { beside: true } | { beside: false; back: { roomId: string; pane: P } | null } {
+  if (!open || full || open.kind === 'group') return { beside: false, back: null };
+  return pane.startsWith('person:') ? { beside: false, back: { roomId: open.id, pane } } : { beside: true };
 }
 
 type Shares = { me: boolean; teammate: boolean; showActivity: boolean; activity?: unknown[] | null };
@@ -25,25 +17,41 @@ const onTheTeamBoard = (c: Shares) => c.me || (c.teammate && c.showActivity);
 export const activityShown = (c: Shares) => onTheTeamBoard(c) || (!c.teammate && Array.isArray(c.activity));
 
 /**
- * The months a person's hours chart draws: from the month before their first
- * hours, so the line rises from nothing, with that month left unnamed, since
+ * Which of the hours chart's months carry their name. The line rises from
+ * nothing the month before the first hours; that month is left unnamed, since
  * the chart is "since" the first month with hours.
  */
-export function chartMonths(byMonth: readonly { month: string; hours: number }[]): { months: { month: string; hours: number }[]; named: boolean[] } {
-  const from = byMonth.findIndex((m) => m.hours > 0);
-  const months = from < 0 ? byMonth.slice(-2) : byMonth.slice(Math.max(0, from - 1));
-  const leadIn = from > 0;
-  return { months, named: months.map((_, i) => !(leadIn && i === 0)) };
+export function chartNamed(months: readonly string[], byMonth: readonly { month: string; hours: number }[]): boolean[] {
+  const first = byMonth.find((m) => m.hours > 0)?.month ?? null;
+  return months.map((m) => !first || m >= first);
 }
+
+const PRESENCE = 'presence:';
+/** A card made from a room-mate's presence line, with no thread behind it to open. */
+export const isPresenceCard = (c: Pick<ThreadCard, 'threadId'>) => c.threadId.startsWith(PRESENCE);
 
 /** Their Activity tab's threads: the team's cards for a teammate and for me; for someone outside my team, the lines on their presence. */
 export function activityCards(card: RoomCard, cards: readonly ThreadCard[]): ThreadCard[] {
   const team = cards.filter((c) => c.personId === card.id);
   if (card.teammate || team.length || !card.activity) return team;
   return card.activity.map((a, i) => ({
-    personId: card.id, threadId: `${card.id}:${i}`, visible: true, title: a.title, project: a.project, state: a.state, priority: null,
+    personId: card.id, threadId: `${PRESENCE}${card.id}:${i}`, visible: true, title: a.title, project: a.project, state: a.state, priority: null,
     problem: null, progress: null, solution: null, blockedBy: [], blocks: [], people: null, updatedAt: a.at,
   }));
+}
+
+/** Every room-mate outside my team's presence lines, as cards for the board their page draws. */
+export function roomMateCards(rooms: readonly Pick<Room, 'wall'>[]): ThreadCard[] {
+  const seen = new Set<string>();
+  const out: ThreadCard[] = [];
+  for (const r of rooms) {
+    for (const c of r.wall) {
+      if (c.me || c.teammate || !Array.isArray(c.activity) || seen.has(c.id)) continue;
+      seen.add(c.id);
+      out.push(...activityCards(c, []));
+    }
+  }
+  return out;
 }
 
 /** The chat's people: everyone in the room by name where the cloud can say, else the wall. */
@@ -215,8 +223,8 @@ export function findOrder<T extends { members: number; createdAt: number }>(room
     : (a, b) => b.members - a.members || a.createdAt - b.createdAt);
 }
 
-/** My card leaves the wall while I am invisible, so I leave the tab's count too. */
-export const tabCount = (room: { members: number }, invisible: boolean) => Math.max(0, room.members - (invisible ? 1 : 0));
+/** My card leaves the wall while I am invisible, so I leave the room's people count too. */
+export const peopleCount = (room: { members: number }, invisible: boolean) => Math.max(0, room.members - (invisible ? 1 : 0));
 
 /** My card leaves the wall while I am invisible; the chat still needs my name and face. */
 export function withMe<T extends { me: boolean }>(people: readonly T[], me: T | null): T[] {

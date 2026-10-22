@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { bootHeadless, createServer, newToken } from '../main/serve.mjs';
 import { appHome } from '../main/store/home.mjs';
 import { learnShellDataDirs } from '../main/shell-path.mjs';
+import { startFreezeRecorder } from '../main/freeze-recorder.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.dirname(here);
@@ -66,6 +67,12 @@ if (!fs.existsSync(path.join(dist, 'index.html'))) {
 // workers signed in to ~/.claude and ~/.codex (w-6d8c543a43).
 await learnShellDataDirs();
 const booted = await bootHeadless({ dataDir, appDir, userDir: dataDir });
+// What held the thread each time it froze, as the desktop records it.
+startFreezeRecorder({
+  dir: path.join(dataDir, 'memory-log'),
+  appDir,
+  onFreeze: (f) => console.warn(`zero: the app froze for ${f.ms} ms in ${f.where}`),
+});
 // ZERO_NO_SUPERVISOR: the desktop already honors this (main/main.mjs). This
 // entry is the same inbox, so a launch that asks for no agents must not start
 // them here either.

@@ -88,11 +88,12 @@ function whoHasIt(made) {
 }
 import { agentSpokeSince, answerSettled, answerTs, stoppedByHer } from '../shared/answers.mjs';
 import { DEFAULT_SESSIONS_AT_ONCE } from './config.mjs';
-import { accountIdentity, nameForOrganization, toolingLine } from './account-tooling.mjs';
+import { accountIdentity, nameForOrganization, profileForCloudLogin, toolingLine } from './account-tooling.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
-import { writeChangeForRun, changePath } from './code-change.mjs';
-import { snapshotRepo, changeFromRepo } from './git-change.mjs';
+import { namedThreadsBlock } from '../shared/named-threads.mjs';
+import { changePath } from './code-change.mjs';
+import { snapshotRepo } from './git-change.mjs';
 import { importedAgentBrief, importedAgentName, THREAD_LABEL } from '../shared/agent-import.mjs';
 import { readTranscriptHead } from './agent-sessions.mjs';
 import { planStamp, readPlan } from './claude-plan.mjs';
@@ -131,7 +132,8 @@ import { cloudCodexMode } from './cloud-permission.mjs';
 import { createCodexApprovals } from './codex-approvals.mjs';
 import { approvalPublicKey } from './approvals.mjs';
 import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexModels } from './codex-models.mjs';
-import { codexPlanEnded } from './codex-account.mjs';
+import { codexAccount, codexPlanEnded } from './codex-account.mjs';
+import { accountName } from '../shared/account-names.mjs';
 import { nameRow, wantsName } from './row-label.mjs';
 import { LEVELS, latestMessage, sortMessage, wantsPriority } from './message-priority.mjs';
 import { NAME, Name, envName, nameSlug, isOurSlug } from '../shared/product-name.mjs';
@@ -533,6 +535,7 @@ export class Supervisor {
       // usually already passed by the time the app is back.
       this._profileTrouble = dropCloudLimits(state.profileTrouble ?? {});
       this._profileCooldown = state.profileCooldown ?? {};
+      this._benchUntilKnownResets();
       // The founder's standing running order over her companies, most
       // important first. Agents never write it. It replaced three buckets
       // (high/normal/low) because buckets left every tie inside a bucket
@@ -1979,6 +1982,17 @@ export class Supervisor {
   }
 
   /**
+   * SOMETHING IS STILL RUNNING IN THIS TASK'S FOLDER: its terminal is open
+   * (main/ipc.mjs fills in `terminalOpen`), or programs its agents started are
+   * (main/leftovers.mjs). A server whose folder is deleted under it stops
+   * working, so the folder waits until they end.
+   */
+  _folderInUse(id) {
+    try { if (this.terminalOpen?.(id)) return true; } catch { /* no terminals */ }
+    return !!this._leftoverCleaner?.hasPrograms?.(id);
+  }
+
+  /**
    * Hand the folder back when the session lets go of it. It is only deleted
    * when losing it costs nothing, so the ordinary answer here is that it stays,
    * holding work she has not approved yet. The sweep then takes it on a later
@@ -1991,6 +2005,7 @@ export class Supervisor {
   // waits for the answer.
   async releaseWorkFolder(item, product) {
     if (!this._folderRow(item, product)) return null;
+    if (this._folderInUse(item.id)) return null;
     const base = this.productFolder(product);
     // NOT WHILE A CLOUD RUN'S WORK IS STILL ON ITS WAY BACK: the folder would
     // read as clean and merged, and be removed, with the work still in S3.
@@ -2022,7 +2037,7 @@ export class Supervisor {
    * reach one row at all. This is the second lock on the same door, because the
    * cost of being wrong here is an agent's work deleted mid run.
    */
-  endSession(item, session, product) {
+  endSession(item, session, product, { after = null } = {}) {
     if (session && this.sessions.get(item.id) !== session) {
       console.warn(`zero: a later session is on ${item.id}, so this one leaves its folder alone`);
       return Promise.resolve(null);
@@ -2035,7 +2050,12 @@ export class Supervisor {
     // nothing, so the usual answer is that it stays, holding work she has not
     // approved. The same call sweeps the folders whose work has since landed in
     // main, which is what stops them piling up unseen.
-    return Promise.resolve(this.releaseWorkFolder(item, product));
+    // `after` is the read of what the run changed, which needs the folder. A
+    // session that started on the row while it ran has the folder now.
+    if (!after) return Promise.resolve(this.releaseWorkFolder(item, product));
+    return after.catch(() => {}).then(() => (this.sessions.has(item.id) || this._preparing?.has(item.id)
+      ? null
+      : this.releaseWorkFolder(item, product)));
   }
 
   /**
@@ -2218,7 +2238,7 @@ export class Supervisor {
   async parkClosedFolders(product) {
     const base = this.productFolder(product);
     if (!product?.repoPath || base !== product.repoPath) return 0;
-    const busy = (id) => this.sessions.has(id) || !!this._preparing?.has(id);
+    const busy = (id) => this.sessions.has(id) || !!this._preparing?.has(id) || this._folderInUse(id);
     let put = 0;
     // AND WHILE WE ARE HERE, WHAT ELSE IS HOLDING THE DISK (w-330eea6c66). This
     // is the only place that already walks a project's folders on a clock, and
@@ -2491,6 +2511,8 @@ export class Supervisor {
     // attached to the reply that woke it.
     const files = product ? this.attachmentBlock({ ...item, body: '', result: '', note: '' }, product) : '';
     if (files) parts.push(files);
+    const named = this.namedThreadsBlock(item, product, [item?.answer]);
+    if (named) parts.push(named);
     // A resumed session never saw the full brief's ship section if it began
     // before the project shipped through the app, and her "merge it" is
     // exactly when it needs it.
@@ -2547,6 +2569,8 @@ export class Supervisor {
       // thing a six-line wake-up can genuinely be missing.
       const files = product ? this.attachmentBlock({ ...item, body: '', result: '', note: '' }, product) : '';
       if (files) parts.push(files);
+      const named = this.namedThreadsBlock(item, product, [item.answer]);
+      if (named) parts.push(named);
     }
     if (product && this.shipsThroughTheApp(product)) parts.push(this.shipBrief());
     return parts.join('\n');
@@ -2581,6 +2605,8 @@ export class Supervisor {
     ];
     const files = product ? this.attachmentBlock({ ...item, result: '', note: '' }, product) : '';
     if (files) parts.push(files);
+    const named = this.namedThreadsBlock(item, product, [item.body]);
+    if (named) parts.push(named);
     return parts.join('\n');
   }
 
@@ -3097,6 +3123,11 @@ export class Supervisor {
       // both halves in the same order the cause was, so it is always the text
       // that actually named the limit that names the hour too.
       const resetsAt = cause === 'at-limit' ? (limitResetsAt(raw) ?? limitResetsAt(errorResult)) : null;
+      // WHICH LOGIN THIS RUN WAS SPENDING, and which one can take the task
+      // now. With two subscriptions the sentence named neither, so nothing on
+      // the thread said which was spent (power-test-2, issue 20).
+      const spent = session.accountFault?.account ?? this._accountKey(session?.engine, session?.profile);
+      const free = cause === 'at-limit' && spent ? this._anotherLoginFree(item, spent) : null;
       const elsewhere = session.accountFault?.cause === 'model-not-on-plan'
         || (cause === 'at-limit' && !!session.accountFault?.account
           && this._anotherLoginIsFree(item, session.accountFault.account));
@@ -3122,6 +3153,8 @@ export class Supervisor {
         // waking it for the free login, so the sentence and the fleet said
         // different things about the same task (w-4338a63da6).
         elsewhere,
+        account: cause === 'at-limit' ? this._accountNameFor(session?.engine, spent) : null,
+        instead: free ? this._accountNameFor(session?.engine, free) : null,
         model: session.model || item.model || null,
         planEnded,
         gaveUp,
@@ -3396,6 +3429,13 @@ export class Supervisor {
         // (`stderr` in shared/dead-run-trace.mjs is stderr AND the error
         // result), so the hour was there to be read the whole time.
         const resetsAt = cause === 'at-limit' ? limitResetsAt(trace.stderr) : null;
+        // AND THE LOGIN IT WAS SPENDING, which the run recorded when it died
+        // (`seen.account`). Only where the sentence's own engine word is this
+        // row's engine, so the name and the agent in front of it are the same
+        // account.
+        const spent = cause === 'at-limit' && this._engineFor(item) === DEFAULT_ENGINE
+          ? this._accountNameFor(DEFAULT_ENGINE, seen.account)
+          : null;
         const written = this.store.recordSessionResult(product, id, {
           result: deadRunSentence({
             engineWord: 'Claude Code',
@@ -3403,6 +3443,7 @@ export class Supervisor {
             runs: seen.runs,
             resetsAt,
             worked: trace.worked,
+            account: spent,
           }),
           status: 'open',
         });
@@ -3889,6 +3930,41 @@ export class Supervisor {
     return harnessFor(engineOf(engine)).accountKey(profile);
   }
 
+  /**
+   * WHAT TO CALL ONE OF THIS ENGINE'S LOGINS, by the rule the Settings page
+   * names its rows with (shared/account-names.mjs): the email the vendor gave,
+   * else a counted name.
+   *
+   * Null where naming it would say nothing: one login on that engine, or a key
+   * no login here answers to. The sentence on her thread then reads exactly as
+   * it did before any of this (`deadRunSentence`).
+   */
+  _accountNameFor(engine, key) {
+    const which = engineOf(engine);
+    const profiles = this._profilesFor(which);
+    if (profiles.length < 2) return null;
+    const profile = profiles.find((p) => this._accountKey(which, p) === key);
+    if (!profile) return null;
+    const home = this.config.home || os.homedir();
+    const email = which === 'codex'
+      ? codexAccount(this._codexProfileHome(profile))?.email ?? null
+      : accountIdentity(profile === 'default' ? null : profile, { home })?.email ?? null;
+    return accountName({ email, engine: which, index: profiles.indexOf(profile), total: profiles.length });
+  }
+
+  /**
+   * THE LOGIN THAT COULD TAKE THIS TASK NOW, on the task's own engine: not
+   * resting, carrying no trouble, and not the one that just failed. Its key, or
+   * null. `_anotherLoginIsFree` is this question asked as a yes or no.
+   */
+  _anotherLoginFree(item, account) {
+    const engine = this._engineFor(item);
+    const free = this._liveProfilesFor(engine)
+      .map((p) => this._accountKey(engine, p))
+      .find((key) => key !== account && !this._profileTrouble?.[key]);
+    return free ?? null;
+  }
+
   // ACCOUNTS THAT CAN ACTUALLY RUN SOMETHING RIGHT NOW, and unlike
   // _liveProfiles this one is allowed to come back empty.
   //
@@ -3907,11 +3983,7 @@ export class Supervisor {
    * A free Claude login says nothing about a Codex task, and the other way round.
    */
   _anotherLoginIsFree(item, account) {
-    const engine = this._engineFor(item);
-    return this._liveProfilesFor(engine).some((p) => {
-      const key = this._accountKey(engine, p);
-      return key !== account && !this._profileTrouble?.[key];
-    });
+    return !!this._anotherLoginFree(item, account);
   }
 
   _healthyProfiles() {
@@ -3978,6 +4050,18 @@ export class Supervisor {
     }
     if (forgot) this._saveState();
     return forgot;
+  }
+
+  // A limit kept across a restart rests its login until the reset its line
+  // names, whatever bench was saved with it.
+  _benchUntilKnownResets(now = Date.now()) {
+    for (const [key, trouble] of Object.entries(this._profileTrouble ?? {})) {
+      if (trouble?.cause !== 'at-limit') continue;
+      const resetsAt = trouble.resetsAt ?? limitResetMoment(trouble.raw, trouble.at);
+      if (!resetsAt || resetsAt <= now) continue;
+      trouble.resetsAt = resetsAt;
+      this._profileCooldown[key] = Math.max(this._profileCooldown[key] ?? 0, resetsAt + LIMIT_RESET_GRACE_MS);
+    }
   }
 
   /**
@@ -4371,9 +4455,13 @@ export class Supervisor {
         const plans = engine === DEFAULT_ENGINE && r.org
           ? new Set(here.filter((id) => id.organizationUuid === r.org).map((id) => readPlan(id.profile, { home }).label).filter(Boolean))
           : new Set();
+        // The same subscription as that folder, so Settings draws one reading for both.
+        const profile = engine === DEFAULT_ENGINE ? profileForCloudLogin(r, here) : null;
+        const failed = r.lookFailedAt && r.lookFailedAt > (r.readAt ?? 0);
         out.push({
           engine, key: r.key, name: name || null, plan: plans.size === 1 ? [...plans][0] : null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null,
           limitedUntil: r.limitedUntil ?? null, limits: cloudLimits(r.limits), readAt: r.readAt ?? null, duplicateOf: r.duplicateOf ?? null,
+          profile, readError: failed ? r.lookError || 'The cloud did not answer.' : null,
         });
       });
     }
@@ -4386,7 +4474,9 @@ export class Supervisor {
    * session and one tiny reply on that login (main/cloud/logins.mjs).
    */
   async lookAtCloudLogins({ force = false } = {}) {
-    if (this._cloudLooking || !readCloudConfig(process.env, this.config.home)) return;
+    if (!readCloudConfig(process.env, this.config.home)) return;
+    // A Refresh pressed mid-look is kept for when that look ends.
+    if (this._cloudLooking) { if (force) this._cloudLookAgain = true; return; }
     const now = Date.now();
     const due = listCloudLogins(DEFAULT_ENGINE, { home: this.config.home })
       .filter((r) => !r.broken && (force || !r.readAt || now - r.readAt > 10 * 60_000));
@@ -4395,13 +4485,19 @@ export class Supervisor {
     try {
       const { transport, storage } = await this._cloudClients();
       for (const r of due) {
-        await lookAtCloudLogin({ transport, storage, key: r.key, home: this.config.home }).catch(() => 'failed');
+        await lookAtCloudLogin({ transport, storage, key: r.key, home: this.config.home }).catch(() => {
+          markCloudLogin(DEFAULT_ENGINE, r.key, r.id, { lookFailedAt: Date.now(), lookError: 'The cloud could not be reached.' }, { home: this.config.home });
+        });
         this.onChange?.();
       }
     } catch (e) {
       console.warn('zero: could not look at the cloud sign-ins:', e.message);
     } finally {
       this._cloudLooking = false;
+    }
+    if (this._cloudLookAgain) {
+      this._cloudLookAgain = false;
+      await this.lookAtCloudLogins({ force: true });
     }
   }
 
@@ -5889,6 +5985,9 @@ export class Supervisor {
       })),
       stalled,
       queued,
+      // Left out of `running`, but their claim is ours, not an agent elsewhere
+      // (renderer/src/live-line.ts).
+      remoteHeld: [...this.sessions.values()].filter((s) => s.remoteIdle).map((s) => s.itemId),
       // Waiting tasks she pushed with Run now that have not started yet, so
       // the task can say it is next rather than merely queued.
       runNow: [...this._runNow].filter(([id, r]) => !r.started && !this.sessions.has(id)).map(([id]) => id),
@@ -9095,20 +9194,21 @@ export class Supervisor {
       // Most runs write nothing here and that is correct: a session that
       // answered a question or drew a page has no code to show, and
       // writeChangeForRun returns null rather than leaving an empty artifact.
+      //
+      // On the git thread (main/run-change.mjs): it runs git and parses the
+      // whole transcript. The trace ends, and the folder is let go, after it.
+      let changed;
       try {
-        // AND WHAT THE DISK SAYS, WHICH DOES NOT CARE HOW THE AGENT TYPED.
-        // The photograph taken at the spawn, read against the checkout now.
-        let repos = [];
-        try {
-          if (session.repoBefore) repos = [changeFromRepo(session.repoBefore)];
-        } catch (e) { console.warn('zero: could not read the repository back:', e.message); }
         const roots = [cwd, product.dir];
-        const wrote = writeChangeForRun({
+        changed = gitJob('saveRunChange', {
+          // AND WHAT THE DISK SAYS, WHICH DOES NOT CARE HOW THE AGENT TYPED.
+          // The photograph taken at the spawn, read against the checkout now.
+          repoBefore: session.repoBefore ?? null,
           // WITH THE ENGINE, or this looks for a Codex rollout under Claude
           // Code's projects folder and reads nothing. It is still passed for a
           // Codex run, because `transcriptFile` is also what the wake sweep
           // asks whether a session still exists.
-          transcript: this.transcriptFile({ sessionId: session.sessionId, profile, engine, cwd }),
+          transcript: this.transcriptFile({ sessionId: session.sessionId, profile, engine, cwd, cloud: !!session.cloud }),
           // AND FOR CODEX THE CONVERSATION HALF COMES FROM THE TURN INSTEAD.
           // `changeFromTranscript` speaks Claude Code's JSONL and nothing else,
           // so a rollout handed to it yields nothing and the card carried the
@@ -9121,17 +9221,18 @@ export class Supervisor {
           itemId: item.id,
           roots,
           since: session.startedAt ?? 0,
-          repos,
         });
-        if (wrote) {
-          const at = new Date().toTimeString().slice(0, 8);
-          try { trace?.write(`${at}  [Write] ${wrote}\n`); } catch {}
-          onLine(`saved what this run changed (${changePath(item.id)})`);
-        }
-      } catch (e) { console.warn('zero: could not save what the run changed:', e.message); }
-      try { trace?.write(`\n# exited (${code}) ${new Date().toISOString()}\n`); trace?.end(); } catch {}
+      } catch (e) { changed = Promise.reject(e); }
+      const exitedAt = new Date().toISOString();
+      changed.then((wrote) => {
+        if (!wrote) return;
+        const at = new Date().toTimeString().slice(0, 8);
+        try { trace?.write(`${at}  [Write] ${wrote}\n`); } catch {}
+        onLine(`saved what this run changed (${changePath(item.id)})`);
+      }).catch((e) => console.warn('zero: could not save what the run changed:', e.message))
+        .finally(() => { try { trace?.write(`\n# exited (${code}) ${exitedAt}\n`); trace?.end(); } catch {} });
       this.removeSpawnFiles(session);
-      this.endSession(item, session, product);
+      this.endSession(item, session, product, { after: changed });
       if (session.remoteIdle) {
         delete this._liveSessions[item.id];
         this._saveState(); this.onChange?.(); return;
@@ -9362,6 +9463,29 @@ export class Supervisor {
     return this.attachedFiles(item, product, thread).filter((f) => f.image).map((f) => f.abs);
   }
 
+  /** What a reply sent to a running session carries: its files as a block (`attachmentBlock`), and its pictures for an engine that takes them in the turn. */
+  replyFiles(slug, answer, engine = DEFAULT_ENGINE) {
+    let product = null;
+    try { product = this.store.listProducts?.().find((p) => p.slug === slug) ?? null; } catch { /* none */ }
+    if (!product?.dir) return { block: '', pictures: [] };
+    const row = { answer };
+    return { block: this.attachmentBlock(row, product, [], engine), pictures: this.attachedPictures(row, product) };
+  }
+
+  /** The other threads these words name, summed up (shared/named-threads.mjs). */
+  namedThreadsBlock(item, product, texts) {
+    const find = (id) => {
+      const all = this.store?.listProducts?.() ?? [];
+      for (const p of [...all.filter((x) => x.slug === item.product), ...all.filter((x) => x.slug !== item.product)]) {
+        let hit = null;
+        try { hit = this.store.readItem?.(p.slug, id); } catch { /* a project it cannot read is not this one */ }
+        if (hit) return { item: hit, product: p };
+      }
+      return null;
+    };
+    return namedThreadsBlock({ texts, row: item, product, find });
+  }
+
   attachmentBlock(item, product, thread = [], engine = DEFAULT_ENGINE) {
     const files = this.attachedFiles(item, product, thread);
     const lost = this.lostPictures(item, product, thread);
@@ -9514,6 +9638,9 @@ export class Supervisor {
     let thread = [];
     try { thread = this.store.readThread?.(item.product, item.id) ?? []; } catch { thread = []; }
     const files = this.attachmentBlock(item, product, thread, engine);
+    // Only their own words: an agent's answer lists threads it filed, and
+    // those are not what was asked about.
+    const named = this.namedThreadsBlock(item, product, [item.body, item.answer, ...thread.filter((t) => t.source === 'founder').map((t) => t.text)]);
     const conversation = this.conversationBlock(item, thread, !continuation && item.note ? [item.note] : []);
     const header = [
       `# Your work item`,
@@ -9526,6 +9653,7 @@ export class Supervisor {
       `Title: ${item.title}`,
       item.body ? `\n${item.body}` : '',
       files,
+      named,
       conversation,
       continuation && item.answer
         ? `\n# The founder has answered\n\nThis item is a ${item.kind === 'review' ? 'review you filed; their answer is the verdict. Enact it (an approval means do the thing the review proposed: merge, ship, send), then update the item' : item.kind === 'question' ? 'question you (or a prior worker) asked' : 'work item the founder has replied to; their reply may have arrived after a prior session finished it, so read the item\'s result and status first'}. The founder's answer:\n\n> ${item.answer}\n\n${item.kind === 'review' ? '' : 'Apply their reply within the scope they authorized. Work they already authorized, including later stages of an agreed plan, is not a new proposal. If their reply explicitly expands the scope or delegates continued work toward an objective, carry it out. Otherwise, work beyond that scope needs a proposal and approval. An answer choosing a shell does not by itself authorize building an app.'}`
@@ -9706,9 +9834,14 @@ export class Supervisor {
 
   // And forgotten at its end when it never said its id and left nothing in the
   // cloud: a refused start has nothing to rejoin.
+  // THE CLOUD QUESTION IS ASKED FIRST, and the memory is read as a maybe. This
+  // is on the end of EVERY run, and a supervisor that never loaded its state
+  // has no `_liveSessions`, so reading it here threw out of a child's exit
+  // handler long after the run's own work was done (w-05522a0a20).
   _forgetCloudStartThatLeftNothing(item, session) {
-    const rec = this._liveSessions[item.id];
-    if (!session?.cloud || session.idRemembered || !rec || rec.sessionId || rec.startedAt !== session.startedAt) return;
+    if (!session?.cloud || session.idRemembered) return;
+    const rec = this._liveSessions?.[item.id];
+    if (!rec || rec.sessionId || rec.startedAt !== session.startedAt) return;
     if (cloudWorkPending(this._cloudPlace(session.cwd, item.product, item.id))) return;
     delete this._liveSessions[item.id];
     this._saveState();
@@ -10039,6 +10172,13 @@ export class Supervisor {
           if (!product) return false;
           try { return !!this.store.readItem?.(product, itemId); } catch { return false; }
         },
+        closedAt: (itemId, product) => {
+          if (!product) return null;
+          let item = null;
+          try { item = this.store.readItem?.(product, itemId); } catch { return null; }
+          if (item?.status !== 'done') return null;
+          return Number(item.wrote?.status?.ts ?? item.updatedAt) || null;
+        },
         log: (line) => console.log(`zero: ${line}`),
       });
     } else if (on) {
@@ -10068,9 +10208,11 @@ export class Supervisor {
     const parts = [];
     // EVERY RUN, not only a fresh one: a conversation resumed after the switch
     // went on, and a chat, never heard it otherwise (Codex's review).
+    // AGENTBOX_KEEP=1 is still honoured but no longer asked for: the task's
+    // rule decides what stays, not the agent's guess about what is needed.
     if (cleaner.enabled) {
-      parts.push('Anything you leave running after your turn (a dev server, a preview, a background job) is stopped two hours after you finish, sooner if this computer runs short of memory. '
-        + 'If the person needs something to keep running, start it with AGENTBOX_KEEP=1 in its environment and say so in your answer. Stop anything else you started before you finish.');
+      parts.push('Anything you leave running after your turn (a dev server, a preview, a background job) keeps running while this task is open and is stopped when the person closes it, or sooner if this computer runs short of memory. '
+        + 'Stop anything you started that the person will not need before you finish.');
     }
     const stopping = cleaner.stoppingNote(item.id);
     if (stopping) parts.push(stopping);

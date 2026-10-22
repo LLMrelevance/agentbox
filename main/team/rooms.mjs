@@ -517,8 +517,8 @@ export function createRooms({
       const saved = await b.saveRoomProfile(patch);
       local();
       state = { ...state, me: saved };
-      // The wall reads my card from here: coming back must not wait for a read.
-      if (saved?.person_id) profiles.set(saved.person_id, saved);
+      // My own card is built from `profiles`, which otherwise waits for the next read.
+      if (saved?.person_id && profiles.has(saved.person_id)) profiles.set(saved.person_id, saved);
       changed();
       if (['show_working', 'show_agents', 'show_level', 'show_activity'].some((k) => k in patch)) await publish({ force: true }).catch(() => {});
       if ('show_status' in patch) await syncStatus().catch(() => {});

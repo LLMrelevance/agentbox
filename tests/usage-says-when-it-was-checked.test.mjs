@@ -24,8 +24,10 @@ it('each account shows its own two numbers, the one in use first', () => {
 
 it('never draws a different account’s cached percentage', () => {
   const settings = fs.readFileSync(new URL('../renderer/src/components/Settings.tsx', import.meta.url), 'utf8');
+  const once = fs.readFileSync(new URL('../renderer/src/accounts-once.ts', import.meta.url), 'utf8');
   // Readings are looked up by the account's own folder, never handed across.
-  expect(settings).toContain('return accountReadingFor(profile, accountReadings, agent.reading);');
+  expect(settings).toContain('accountsOnce({ here: agent.accounts, cloud: cloudLogins, readings: accountReadings, current: agent.reading })');
+  expect(once).toContain('accountReadingFor(h.profile, readings, current)');
 });
 
 it('an account here with no reading says so', () => {

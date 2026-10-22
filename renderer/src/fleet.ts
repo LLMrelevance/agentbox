@@ -13,6 +13,8 @@ export interface Fleet {
   sessions?: Map<string, RunningSession>;
   /** `supervisor.queued`: a tick spawns these as soon as a slot frees. */
   queued?: string[];
+  /** `supervisor.remoteHeld`: sessions of ours open between Remote Control turns. */
+  remoteHeld?: string[];
   /** `supervisor.runNow`: the queued ones pushed to the front. */
   runNow?: string[];
   /** `supervisor.signInNeeded`: the tool each held thread is signed out of. */

@@ -56,7 +56,7 @@ describe('a message in a room', () => {
   });
 
   it('marks an @name as a mention', () => {
-    expect(html).toContain('<b class="rm-at">@Sam Rivera</b>');
+    expect(html).toContain('<b class="rm-at me">@Sam Rivera</b>');
   });
 
   it('draws the New line above the first message someone else wrote after your read point', () => {
@@ -83,10 +83,10 @@ describe('the list of conversations', () => {
     expect(list([conv({ marked: false })], 'direct:w-1')).not.toContain('class="rm-unread"');
   });
 
-  it('offers mark read or unread on every conversation, mute on rooms and groups, and leave on a group only', () => {
-    expect(conversationMenu(conv({ unread: true })).map((r) => r.label)).toEqual(['Mark as read']);
-    expect(conversationMenu(conv({ kind: 'room', unread: false })).map((r) => r.label)).toEqual(['Mark as unread', 'Mute']);
-    expect(conversationMenu(conv({ kind: 'group', unread: false, muted: true })).map((r) => r.label)).toEqual(['Mark as unread', 'Unmute', 'Leave conversation']);
+  it('offers mark read or unread and a pin on every conversation, mute on rooms and groups, and leave on a group only', () => {
+    expect(conversationMenu(conv({ unread: true })).map((r) => r.label)).toEqual(['Mark as read', 'Pin to top']);
+    expect(conversationMenu(conv({ kind: 'room', unread: false })).map((r) => r.label)).toEqual(['Mark as unread', 'Pin to top', 'Mute']);
+    expect(conversationMenu(conv({ kind: 'group', unread: false, muted: true })).map((r) => r.label)).toEqual(['Mark as unread', 'Pin to top', 'Unmute', 'Leave conversation']);
   });
 
   it('counts a direct conversation you marked unread as unread until you open it', () => {

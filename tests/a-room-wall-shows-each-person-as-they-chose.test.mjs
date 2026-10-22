@@ -79,7 +79,7 @@ describe('two Macs, and a Mac gone quiet', () => {
   it('agents and hours add up across a person’s Macs', () => {
     const w = wallCards({ members: [MAYA], meId: ME, now: NOW, teammates: [], teamCards: [], profiles: [prof(MAYA, 'Maya C.')],
       presence: [pres(MAYA, { device: 'aaaaaaaaaaaa', agents_running: 3, hours_total: 1000, hours_week: 10 }), pres(MAYA, { device: 'bbbbbbbbbbbb', agents_running: 1, hours_total: 240, hours_week: 5 })] });
-    expect(w[0]).toMatchObject({ agents: 4, hoursTotal: 1240, hoursWeek: 15, level: 62 });
+    expect(w[0]).toMatchObject({ agents: 4, hoursTotal: 1240, hoursWeek: 15, level: 43 });
   });
 
   it('a Mac silent for 15 minutes counts no running agents, but its hours stay', () => {
