@@ -11,7 +11,8 @@ import { cloudPlaces } from './cloud-files';
 export interface PhoneRows {
   projects: { device: string; project: string; name: string; updated_at?: string }[];
   threads: { device: string; project: string; item: string; snapshot: any; updated_at?: string }[];
-  commands: { id: string; device: string; project: string; item: string | null; kind: string; payload: any; created_at: string; claimed_at?: string | null; taken_at: string | null; outcome: string | null }[];
+  // `project` is null only on a 'setting', which is for the computer, not a thread.
+  commands: { id: string; device: string; project: string | null; item: string | null; kind: string; payload: any; created_at: string; claimed_at?: string | null; taken_at: string | null; outcome: string | null }[];
 }
 
 export interface Waiting { product: string; id: string; at: number; text: string; refused?: string }
@@ -109,6 +110,7 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
   const waiting: Waiting[] = [];
   const ordered = [...rows.commands].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   for (const c of ordered) {
+    if (c.kind === 'setting' || c.project === null) continue;
     const at = Date.parse(c.created_at) || now;
     const refused = c.outcome?.startsWith('refused') ? c.outcome.replace(/^refused:\s*/, '') : null;
     const takenAt = c.taken_at ? Date.parse(c.taken_at) || at : null;
@@ -182,6 +184,14 @@ export async function readCommands(select: Select, now = Date.now()): Promise<Ph
   return [...waiting, ...done];
 }
 
+/** Each computer's settings as it last sent them (shared/phone-settings.mjs), newest first. */
+export const readSettingsRows = (select: Select) => select('phone_settings', 'select=device,name,settings,updated_at&order=updated_at.desc&limit=20');
+
+/** A change for one computer's settings, which its own handlers carry out. */
+export function settingCommand(device: string, change: { scope: 'workspace' | 'project'; key: string; value: unknown; product?: string }) {
+  return { device, project: null, item: null, kind: 'setting', payload: change };
+}
+
 // Each card drawn on the phone: where it is, and the fingerprint her Mac drew it with.
 export type Cards = Record<string, { device: string; project: string; item: string; card: string }>;
 /** Her answer to a card, for her Mac, carrying the fingerprint it was drawn with; null for a card never drawn. */
@@ -245,7 +255,7 @@ export function commandFor(channel: string, p: any, aliases: Aliases = {}): { de
   return null;
 }
 
-const ago = (ms: number) => {
+export const ago = (ms: number) => {
   const m = Math.max(1, Math.round(ms / 60_000));
   if (m < 60) return `${m} minute${m === 1 ? '' : 's'} ago`;
   const h = Math.round(m / 60);

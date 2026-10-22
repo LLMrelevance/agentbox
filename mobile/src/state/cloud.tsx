@@ -23,7 +23,7 @@ import { previewCloud } from '../lib/preview';
 import { phoneTabs } from '../lib/tabs';
 import { persist } from '../platform/persist';
 
-export type Cloud = Pick<CloudClient, 'session' | 'signedIn' | 'generation' | 'select' | 'insertCommand' | 'update' | 'putFile' | 'signFiles' | 'signInWithPassword' | 'signInWithIdToken' | 'signUp' | 'googleUrl' | 'finishGoogle' | 'signOut'>;
+export type Cloud = Pick<CloudClient, 'session' | 'signedIn' | 'generation' | 'select' | 'insertCommand' | 'update' | 'putFile' | 'signFiles' | 'signInWithPassword' | 'signInWithIdToken' | 'signUp' | 'googleUrl' | 'finishGoogle' | 'signOut' | 'insert' | 'remove' | 'rpc'>;
 
 const EMPTY: PhoneRows = { projects: [], threads: [], commands: [] };
 const EVERY_MS = 5000;

@@ -422,6 +422,7 @@ async function createWindow() {
   // (tests/the-installed-app-is-the-single-person-app.test.mjs).
   const cloudConfig = loadCloudConfig(appDir, { packaged: app.isPackaged });
   let phoneApply = null;
+  let phoneSettings = null;
   const team = cloudConfig ? createTeamService({
     session: supabaseSession({
       cloudConfig,
@@ -447,6 +448,9 @@ async function createWindow() {
       projects: () => config.phoneProducts ?? null,
       ready: () => !!phoneApply,
       apply: (cmd) => phoneApply(cmd),
+      // The Settings pages' model, read through the window's own handler.
+      readSettings: () => phoneSettings?.() ?? null,
+      version: app.getVersion(),
       live: (slug, id) => supervisor.liveFor(slug, id),
       // The cards waiting on her, each with the fingerprint her answer must carry back.
       approvals: () => approvals.listPending(config.storeRoot).map((r) => ({ ...r, card: approvals.cardShown(config.storeRoot, r.id) })),
@@ -790,6 +794,7 @@ async function createWindow() {
   // a browser tab gets.
   answerWhatOnlyTheWindowAnswered({ handle: (channel, fn) => { if (!phoneChannels.has(channel)) phoneChannels.set(channel, fn); } });
   phoneApply = applyThrough(phoneChannels);
+  phoneSettings = () => phoneChannels.get('zero:settings-read')?.({ sender: null }) ?? null;
   updater.start();
   // A task the app just shipped moved main: look now rather than in half an
   // hour, so the restart is offered while she still remembers the task.

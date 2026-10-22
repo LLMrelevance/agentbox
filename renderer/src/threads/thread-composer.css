@@ -230,6 +230,11 @@
    lighting a row half its width (w-db6f5e331e). */
 .tc-col { display: flex; flex-direction: column; gap: 1px; min-width: 176px; flex: 1; }
 
+/* "Free plan" and "Update" beside a column's agent name. Line height 1 so the
+   heading stays the height of its neighbour and the rows below stay level. */
+.tc-head-side { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; line-height: 1; }
+.tc-head-tag { font: inherit; font-size: 11.5px; letter-spacing: 0.02em; text-transform: none; color: var(--text-faint); }
+
 /* The effort strip at the foot of the model menu, as the old drawer drew it,
    with its first word on the menu's own left line. */
 .tc-effort-head { display: block; padding: 6px 10px 2px; font-size: 11px; color: var(--text-faint); letter-spacing: 0.02em; }

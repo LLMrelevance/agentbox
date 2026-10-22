@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '../../api';
 import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
 import { RoomsPage, useOutside, type RoomMenuAction } from './RoomsPage';
-import { boardPeople, boardPicked, cardName, chatPeople, readBoardLater, readBoardPicks, readRoomView, whereChatOpens, withMe, writeBoardLater, writeBoardPicks, writeRoomView, type RoomView } from './room-rules';
+import { boardPeople, boardPicked, cardName, chatPeople, readBoardLater, readBoardPicks, whereChatOpens, withMe, writeBoardLater, writeBoardPicks } from './room-rules';
 import { BoardFaces, RoomViewButton } from './RoomView';
 import { landed, sameMessages } from './room-chat-rules';
 import { RoomPage, type RoomPane } from './RoomPage';
@@ -55,7 +55,6 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const [full, setFull] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [switcher, setSwitcher] = useState<DOMRect | null>(null);
-  const [view, setViewRaw] = useState<RoomView>(() => readRoomView());
   const [boardPicks, setBoardPicks] = useState<Record<string, string[]>>(() => readBoardPicks());
   const [later, setLaterRaw] = useState(() => readBoardLater());
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -291,12 +290,11 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     <button type="button" className="rm-backt" title="Back (esc)" onClick={close}>{I.back()}<span>{title}</span></button></h1>;
   let heading: { title: ReactNode; right?: ReactNode } | null = null;
   let page: ReactNode = null;
-  // THE ROOM AS A BOARD: the Inbox's board, for the people here whose threads
-  // reach me. Only on the room itself, never over a person, the ranks or a chat.
+  // THE ROOM IS ITS BOARD, for the people here whose threads reach me. Only on
+  // the room itself, never over a person, the ranks or a chat.
   const onRoom = !!open && !!rooms && !full && open.kind !== 'group' && pane === 'wall' && !finding && !noChats;
   const onBoardPeople = onRoom ? boardPeople(open!.wall) : [];
   const onBoardPicked = onRoom ? boardPicked(boardPicks[open!.id], onBoardPeople) : [];
-  const setView = (next: RoomView) => { setViewRaw(next); writeRoomView(next); };
   const pickForBoard = (ids: string[]) => {
     if (!open) return;
     const next = { ...boardPicks, [open.id]: ids };
@@ -304,11 +302,11 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     writeBoardPicks(next);
   };
   const setLater = (shown: boolean) => { setLaterRaw(shown); writeBoardLater(shown); };
-  const board = onRoom && view === 'board' && renderBoard
+  const board = onRoom && renderBoard
     ? <><BoardFaces people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} />{renderBoard(onBoardPicked, { later })}</>
     : null;
   const viewButton: ReactNode = onRoom && renderBoard
-    ? <RoomViewButton view={view} onView={setView} people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} later={later} onLater={setLater} />
+    ? <RoomViewButton people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} later={later} onLater={setLater} />
     : null;
   if (listing && live && rooms) {
     heading = {
@@ -413,7 +411,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     mentions, openMention, faces, messagesShell, full, heading,
     dialogOpen: !!dialog || !!members || !!switcher,
     /** The header's View button over a room, and B. Null anywhere else in rooms. */
-    viewButton, flipView: viewButton ? () => setView(view === 'board' ? 'grid' : 'board') : null,
+    viewButton,
     /** The room a teammate's card was opened over, for its Back. */
     roomName: open && !full && open.kind !== 'group' ? open.name : null,
   };

@@ -1,5 +1,5 @@
-// A room (round 23): the wall of people on one shared grid, four across, or
-// their threads as a board, and the chat beside it. Also the room's ranks this
+// A room (round 23): its board, or the wall of people on one shared grid where
+// no board is handed in, and the chat beside it. Also the room's ranks this
 // week, and the line that says you are invisible.
 import { useRef, useState, type ReactNode } from 'react';
 import type { Room, RoomCard, RoomProfile, ThreadCard } from '../../types';
@@ -40,6 +40,12 @@ export function RoomPage({ room, rooms, cards, ranks, me, now, pane, link, chat,
     timer.current = setTimeout(() => setHover(card && at ? { card, at } : null), card ? 450 : 250);
   };
   const person = pane.startsWith('person:') ? room.wall.find((c) => c.id === pane.slice(7)) ?? null : null;
+  const justYou = alone && room.kind !== 'group' && <div className="rm-empty">
+    <span className="t">It is just you in {room.name}.</span>
+    <span className="s">{room.listed ? 'Anyone on the app can find it and join.' : 'Anyone with the link can join.'}</span>
+    <div className="rm-field"><span className="rm-input">{I.link()}<span className="v">{link ? joinLink(link).replace(/^https:\/\//, '') : 'Making a link…'}</span></span>
+      <button type="button" className="rm-btn" disabled={!link} onClick={onCopyLink}>Copy link</button></div>
+  </div>;
   if (person) {
     return <div className="rm-split"><div className="rm-main wide">
       <ProfilePage card={person} room={room} rooms={rooms} cards={cards} rank={ranks[person.id]}
@@ -52,7 +58,7 @@ export function RoomPage({ room, rooms, cards, ranks, me, now, pane, link, chat,
       {notice && <div className="rm-notice" role="status">{I.eyeOff()}{notice}<button type="button" className="rm-btn" onClick={onComeBack}>Come back</button></div>}
       {pane === 'ranks'
         ? <Ranks room={room} onBack={() => onPane('wall')} onPerson={(id) => onPane(`person:${id}`)} />
-        : board ?? <>
+        : board ? <>{justYou}{board}</> : <>
           <Wall cards={room.wall} onPoint={point} picked={picked}
             onCard={(c, many) => {
               setHover(null);
@@ -66,12 +72,7 @@ export function RoomPage({ room, rooms, cards, ranks, me, now, pane, link, chat,
               onMessage={onMessage ? () => { setHover(null); onMessage([hover.card.id]); } : undefined}
               onProfile={() => { setHover(null); onPane(`person:${hover.card.id}`); }} onRanks={() => { setHover(null); onPane('ranks'); }} />
           </div>}
-          {alone && room.kind !== 'group' && <div className="rm-empty">
-            <span className="t">It is just you in {room.name}.</span>
-            <span className="s">{room.listed ? 'Anyone on the app can find it and join.' : 'Anyone with the link can join.'}</span>
-            <div className="rm-field"><span className="rm-input">{I.link()}<span className="v">{link ? joinLink(link).replace(/^https:\/\//, '') : 'Making a link…'}</span></span>
-              <button type="button" className="rm-btn" disabled={!link} onClick={onCopyLink}>Copy link</button></div>
-          </div>}
+          {justYou}
         </>}
     </div>
     {chat}

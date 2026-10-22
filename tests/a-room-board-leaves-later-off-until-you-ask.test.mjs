@@ -75,7 +75,7 @@ describe('whether Later is shown, remembered', () => {
 describe('the View menu’s Show line', () => {
   const me = { id: 'sam', me: true, name: 'Sam', avatarUrl: null, teammate: false, showActivity: true };
   const her = { id: 'maya', me: false, name: 'Maya', avatarUrl: null, teammate: true, showActivity: true };
-  const props = (view, later) => ({ view, onView: () => {}, people: [me, her], picked: ['sam', 'maya'], onPick: () => {}, unseen: 0, later, onLater: () => {} });
+  const props = (_view, later) => ({ people: [me, her], picked: ['sam', 'maya'], onPick: () => {}, unseen: 0, later, onLater: () => {} });
   const menu = (view, later) => renderToStaticMarkup(React.createElement(RoomViewMenu, props(view, later)));
   const chip = (html) => html.match(/<span class="lab">Show<\/span><span class="opts">(<button[^>]*>[\s\S]*?<\/button>)/)?.[1] ?? '';
   it('offers Later on the board, not lit while it is off', () => {
@@ -86,9 +86,6 @@ describe('the View menu’s Show line', () => {
   });
   it('lights Later while it is shown', () => {
     expect(chip(menu('board', true))).toMatch(/class="on"[^>]*aria-pressed="true"|aria-pressed="true"[^>]*class="on"/);
-  });
-  it('is not on the grid, which has no columns', () => {
-    expect(menu('grid', false)).not.toContain('>Show<');
   });
   it('does not light the button’s dot: Later off is how the board starts, not a filter', () => {
     const dot = (later) => /<i><\/i>|<i\/>/.test(renderToStaticMarkup(React.createElement(RoomViewButton, props('board', later))));

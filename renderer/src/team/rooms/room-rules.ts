@@ -67,20 +67,10 @@ export function chatPeople(room: Pick<Room, 'people' | 'wall'>, meId: string | n
   return room.people.map((p) => ({ ...p, me: p.id === meId }));
 }
 
-/** A room drawn as its grid of people, or as a board of their threads. */
-export type RoomView = 'grid' | 'board';
-const VIEW_KEY = 'rooms.view';
 const PICK_KEY = 'rooms.board.people';
 const LATER_KEY = 'rooms.board.later';
 type Store = Pick<Storage, 'getItem' | 'setItem'> | null;
 const local = (): Store => (typeof localStorage === 'undefined' ? null : localStorage);
-
-export function readRoomView(store: Store = local()): RoomView {
-  try { return store?.getItem(VIEW_KEY) === 'board' ? 'board' : 'grid'; } catch { return 'grid'; }
-}
-export function writeRoomView(view: RoomView, store: Store = local()) {
-  try { store?.setItem(VIEW_KEY, view); } catch { /* not kept */ }
-}
 
 /** Who can be on a room's board: whoever's thread cards reach me. */
 export const boardPeople = <T extends Shares>(wall: readonly T[]) => wall.filter(onTheTeamBoard);
