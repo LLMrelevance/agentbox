@@ -991,9 +991,8 @@ async function createWindow() {
       else tagWindow.loadFile(builtTag, { search: `part=${part}` });
     },
   });
-  // NEO, the voice alpha (w-e85fd9144f). Nothing at all unless this Mac's
-  // user data folder holds a `neo-alpha` file (main/neo/gate.mjs), so it is
-  // in the code for everyone and on for one person.
+  // NEO, the voice alpha (w-e85fd9144f). Nothing at all unless its switch in
+  // Alpha features is on (main/neo/gate.mjs).
   createNeo({
     app, BrowserWindow, ipcMain, screen: electronScreen, powerMonitor, systemPreferences, session, globalShortcut, shell,
     mainWindow: window, userData: app.getPath('userData'), config,
