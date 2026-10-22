@@ -8,8 +8,9 @@ import './rooms.css';
 
 export type RoomMenuAction = 'read' | 'unread' | 'invite' | 'members' | 'ranks' | 'pin' | 'unpin' | 'mute' | 'unmute' | 'leave';
 
-export function RoomsNav({ rooms, openId, folded, onFold, onOpen, onPin, onMenu, onNewRoom }: {
-  rooms: Room[]; openId: string | null; folded: boolean;
+export function RoomsNav({ rooms, ready, openId, folded, onFold, onOpen, onPin, onMenu, onNewRoom }: {
+  /** The rooms have been read: before that, "New room" alone would say I am in none. */
+  rooms: Room[]; ready: boolean; openId: string | null; folded: boolean;
   onFold: () => void; onOpen: (id: string) => void; onPin: (id: string, on: boolean) => void;
   onMenu: (id: string, action: RoomMenuAction, anchor: DOMRect) => void; onNewRoom: () => void;
 }) {
@@ -37,7 +38,7 @@ export function RoomsNav({ rooms, openId, folded, onFold, onOpen, onPin, onMenu,
           </span>
         </span>
       </button>)}
-      <button type="button" className="workspace-tab rm-add" onClick={onNewRoom}>{I.plusRow()}<span>New room</span></button>
+      {ready && <button type="button" className="workspace-tab rm-add" onClick={onNewRoom}>{I.plusRow()}<span>New room</span></button>}
     </nav>}
     {tip && <span className="rm-tip rm-pop" style={{ left: tip.at.right + 10, top: tip.at.top + tip.at.height / 2 - 13 }}>{tip.text}</span>}
     {menu && (() => {
