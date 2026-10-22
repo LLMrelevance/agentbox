@@ -5,8 +5,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '../../api';
 import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
 import { RoomsPage, useOutside, type RoomMenuAction } from './RoomsPage';
-import { boardPeople, boardPicked, cardName, chatPeople, readBoardPicks, readRoomView, whereChatOpens, withMe, writeBoardPicks, writeRoomView, type RoomView } from './room-rules';
-import { RoomViewButton } from './RoomView';
+import { boardPeople, boardPicked, cardName, chatPeople, readBoardLater, readBoardPicks, readRoomView, whereChatOpens, withMe, writeBoardLater, writeBoardPicks, writeRoomView, type RoomView } from './room-rules';
+import { BoardFaces, RoomViewButton } from './RoomView';
 import { landed, sameMessages } from './room-chat-rules';
 import { RoomPage, type RoomPane } from './RoomPage';
 import { RoomChat } from './RoomChat';
@@ -27,7 +27,7 @@ type Dialog =
 
 type Direct = Conversation & { people: string[] };
 
-export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, teamCards = [], directs = [], now, toast, onOpenDirect, onDirectRead, onTeamMessage, onLeavePage, renderBoard }: {
+export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, teamCards = [], directs = [], now, toast, onOpenDirect, onDirectRead, onTeamMessage, onLeavePage, renderBoard, renderPersonBoard }: {
   rooms: RoomsState | null | undefined; on: boolean; meId: string | null; myName: string; fullName?: string; hasTeam: boolean; teamCards?: ThreadCard[];
   /** Direct records, for the messages page and the chat switcher. */
   directs?: Direct[];
@@ -40,8 +40,10 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   onTeamMessage: (personIds: string[]) => void;
   /** Leave whatever covers the rooms: an open thread or direct chat, the Team page, search. */
   onLeavePage: () => void;
-  /** The Inbox's board, for these people's threads. */
-  renderBoard?: (people: string[]) => ReactNode;
+  /** The room's board, for these people's threads. */
+  renderBoard?: (people: string[], opts: { later: boolean }) => ReactNode;
+  /** The Inbox's board, for one person's Activity tab on their page. */
+  renderPersonBoard?: (people: string[]) => ReactNode;
 }) {
   const live = on && !!rooms?.on;
   const all = live ? rooms!.rooms : [];
@@ -55,6 +57,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const [switcher, setSwitcher] = useState<DOMRect | null>(null);
   const [view, setViewRaw] = useState<RoomView>(() => readRoomView());
   const [boardPicks, setBoardPicks] = useState<Record<string, string[]>>(() => readBoardPicks());
+  const [later, setLaterRaw] = useState(() => readBoardLater());
   const [dialog, setDialog] = useState<Dialog>(null);
   const [members, setMembers] = useState<{ roomId: string; at: DOMRect } | null>(null);
   const [links, setLinks] = useState<Record<string, string>>({});
@@ -300,9 +303,12 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     setBoardPicks(next);
     writeBoardPicks(next);
   };
-  const board = onRoom && view === 'board' && renderBoard ? renderBoard(onBoardPicked) : null;
+  const setLater = (shown: boolean) => { setLaterRaw(shown); writeBoardLater(shown); };
+  const board = onRoom && view === 'board' && renderBoard
+    ? <><BoardFaces people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} />{renderBoard(onBoardPicked, { later })}</>
+    : null;
   const viewButton: ReactNode = onRoom && renderBoard
-    ? <RoomViewButton view={view} onView={setView} people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} />
+    ? <RoomViewButton view={view} onView={setView} people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} later={later} onLater={setLater} />
     : null;
   if (listing && live && rooms) {
     heading = {
@@ -332,7 +338,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     } else {
       heading = { title: backTitle(open.name) };
       page = <RoomPage room={open} rooms={list} cards={teamCards} ranks={rooms.ranks ?? {}} me={rooms.me} now={now}
-        pane={pane} link={links[open.id] ?? null} onPane={setPane} chat={chatPanel(chatRoom ?? open, false)} board={board} renderBoard={renderBoard}
+        pane={pane} link={links[open.id] ?? null} onPane={setPane} chat={chatPanel(chatRoom ?? open, false)} board={board} renderBoard={renderPersonBoard}
         picked={picked} onPick={(ids) => setPicked(new Set(ids))} onMessage={(ids) => void message(ids, open)}
         onRoom={(id) => openRoom(id)}
         onSaveBio={async (bio) => { const res = await call('saveProfile', { bio }); return res.ok ? null : res.error ?? 'Your bio did not save'; }}

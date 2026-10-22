@@ -141,14 +141,23 @@ describe('the Inbox with Rooms on', () => {
 // Round two, the same day: the first build squeezed four columns beside the
 // chat until titles wrapped. Asked for the Inbox's way instead: the columns
 // keep their width and the board scrolls sideways. And the People label sat
-// halfway down two rows of names instead of beside the first.
-describe('the room’s board is the Inbox’s board at its own width', () => {
+// halfway down two rows of names instead of beside the first. Round four drew
+// the room's board one line a thread (RoomBoard.tsx), and round five asked for
+// it on one screen, scrolling only when the screen is really small. Measured on
+// the built app at 1440 by 900 with the chat open: the board has 780px, and
+// columns of 200 needed 890.
+describe('the room’s board keeps its column width', () => {
   const rooms = readFileSync(new URL('../renderer/src/team/rooms/rooms.css', import.meta.url), 'utf8');
-  const pages = readFileSync(new URL('../renderer/src/threads/pages.css', import.meta.url), 'utf8');
-  it('keeps the Inbox’s columns, never narrower', () => {
-    expect(pages).toMatch(/\.th-board \{[^}]*grid-template-columns: repeat\(4, minmax\(260px, 1fr\)\)/);
-    const ours = (rooms.match(/\.rm-main\.board \.th-board \{[^}]*\}/g) ?? []).join('');
-    expect(ours).not.toMatch(/grid-template-columns|min-width|width:/);
+  const rule = rooms.match(/\.rm-board \{([^}]*)\}/)?.[1] ?? '';
+  const least = Number(rule.match(/grid-template-columns: repeat\(var\(--cols, 3\), minmax\((\d+)px, 1fr\)\)/)?.[1]);
+  const gap = Number(rule.match(/gap: 0 (\d+)px/)?.[1]);
+  const right = Number(rule.match(/padding-right: (\d+)px/)?.[1]);
+  it('fits all four columns beside the chat in a 1440 window, Later shown', () => {
+    expect(4 * least + 3 * gap + right).toBeLessThanOrEqual(780);
+  });
+  it('never squeezes a column below a readable line', () => {
+    expect(least).toBeGreaterThanOrEqual(160);
+    expect(rule).toMatch(/width: fit-content/);
   });
   it('scrolls sideways inside the room when the columns do not fit', () => {
     expect(rooms).toMatch(/\.rm-main\.board \{[^}]*overflow: auto/);

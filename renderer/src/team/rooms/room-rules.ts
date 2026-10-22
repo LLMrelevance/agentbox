@@ -71,6 +71,7 @@ export function chatPeople(room: Pick<Room, 'people' | 'wall'>, meId: string | n
 export type RoomView = 'grid' | 'board';
 const VIEW_KEY = 'rooms.view';
 const PICK_KEY = 'rooms.board.people';
+const LATER_KEY = 'rooms.board.later';
 type Store = Pick<Storage, 'getItem' | 'setItem'> | null;
 const local = (): Store => (typeof localStorage === 'undefined' ? null : localStorage);
 
@@ -91,6 +92,18 @@ export function boardPicked(saved: readonly string[] | null | undefined, people:
   return kept.length ? kept : ids;
 }
 
+/** A face over the board picked: just them from everyone, back to everyone from them alone. */
+export function facePick(picked: readonly string[], all: readonly string[], id: string): string[] {
+  if (picked.length >= all.length) return [id];
+  if (picked.length === 1 && picked[0] === id) return [...all];
+  return picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id];
+}
+
+/** Tiles to a row over the board: eight at most, and even rows past that. */
+export function tilesPerRow(n: number, most = 8): number {
+  return Math.ceil(n / Math.ceil(n / most));
+}
+
 /** Each room's pick, by room id. */
 export function readBoardPicks(store: Store = local()): Record<string, string[]> {
   try {
@@ -100,6 +113,14 @@ export function readBoardPicks(store: Store = local()): Record<string, string[]>
 }
 export function writeBoardPicks(picks: Record<string, string[]>, store: Store = local()) {
   try { store?.setItem(PICK_KEY, JSON.stringify(picks)); } catch { /* not kept */ }
+}
+
+/** Whether a room's board shows its Later column, which it does not until asked. */
+export function readBoardLater(store: Store = local()): boolean {
+  try { return store?.getItem(LATER_KEY) === '1'; } catch { return false; }
+}
+export function writeBoardLater(shown: boolean, store: Store = local()) {
+  try { store?.setItem(LATER_KEY, shown ? '1' : '0'); } catch { /* not kept */ }
 }
 
 /** Their place in the room by agent hours this week; ties share a place. */

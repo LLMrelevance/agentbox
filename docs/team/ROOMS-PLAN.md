@@ -439,7 +439,12 @@ Rooms paragraph in this work.
 - A room can be a board (w-49cd37092c). The header's View button, the one the
   Inbox has, switches a room between Grid and Board, and B does the same. The
   board holds you and the teammates whose Activity you may open, and its People
-  line narrows it. With Rooms on, the Inbox shows only your own threads: its
+  line narrows it. It draws each thread as a face beside the person's name over
+  the title, with no project and no card, and leaves Later off until the View
+  menu's Show line turns it on. Titles are one line, cut with an ellipsis. The
+  grid's people stay over it as a row of tiles in the Grid's lines, eight to a
+  row at most: a face, a first name and agents working, never what anyone is
+  on. Clicking a tile narrows the board. With Rooms on, the Inbox shows only your own threads: its
   People line and the faces on its button are gone, and the pick it kept comes
   back if Rooms is turned off.
 - A person's page (w-88e1e23325). The second tab is "Today's activity", the
