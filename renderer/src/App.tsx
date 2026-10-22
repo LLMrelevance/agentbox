@@ -27,7 +27,7 @@ import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from
 import { List } from './components/List';
 import { isTroubleRow, troubleRow } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
-import { needsYouLit } from './needs-you';
+import { lookedAtNow, needsYouLit } from './needs-you';
 import { arrivedAt, isUnread, readMoves } from './unread';
 import { Focus } from './components/Focus';
 import { TicketItems } from './components/TicketReference';
@@ -105,7 +105,9 @@ import { resolveTaskShape, TASK_SHAPE_KEY, type TaskShape } from './task-shape';
 import { ComposeIcon } from './components/ComposeIcon';
 import { WorkspaceNavigation } from './components/WorkspaceNavigation';
 import { useRooms } from './team/rooms/useRooms';
+import { RoomBoard } from './team/rooms/RoomBoard';
 import { directConversations } from './team/rooms/conversations';
+import { isPresenceCard, roomMateCards, roomMatesById } from './team/rooms/room-rules';
 import { MARK_UNREAD, SAY } from './team/chat-events';
 import { MentionRows } from './team/rooms/MentionRows';
 import { FeedbackCard } from './components/FeedbackCard';
@@ -161,7 +163,7 @@ import { TeamPage } from './team/TeamPage';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
 import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, CloudOfferContext, FreeAgentContext, StateTabs, WaitingContext } from './threads/Pages';
 import { cloudOffer, type OfferGo } from './cloud-upgrade';
-import { FleetContext, type Fleet } from './fleet';
+import { FleetContext, queuedWithHeld, type Fleet } from './fleet';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
@@ -681,6 +683,8 @@ export default function App() {
   // THE CLOUD'S OWN SETUP SCREEN, opened from the cloud menu's Set up, or by
   // choosing to run in the cloud before it is set up (components/CloudSetup).
   const [cloudSetupOpen, setCloudSetupOpen] = useState(false);
+  // The account a cloud sign-in started from Settings is for, so its page can say whom to sign in as.
+  const [cloudSignInAs, setCloudSignInAs] = useState<string | null>(null);
   const floatingRef = useRef<OpenOverTheApp>(NOTHING_OVER_THE_APP);
   floatingRef.current = { modal, settings: settingsOpen, importAgents, newProject, teamShown, setupPlan: !!setupPlan };
   // WHICH PAGE OF SETTINGS A PRESS ASKED FOR, when it asked for one. ⌘K's
@@ -962,6 +966,8 @@ export default function App() {
     next.delete(id);
     return next;
   }), []);
+  // The last held action when it was an answer, which reads as queued while its row is held.
+  const [heldAnswer, setHeldAnswer] = useState<string | null>(null);
 
   const [run, setRun] = useState<FirstRun | null>(null);
   // THE FIRST SECOND OF HER OWN PROJECT. Null except for the five seconds after
@@ -1822,7 +1828,10 @@ export default function App() {
   // THE TEAM, as the window reads it: who is signed in, their people, and
   // which projects are shared. Null when nobody is signed in, and then every
   // list below is exactly the single-person app's.
-  const team = useMemo(() => teamView(snap?.team, snap?.products ?? []), [snap?.team, snap?.products]);
+  const team = useMemo(() => {
+    const view = teamView(snap?.team, snap?.products ?? []);
+    return view ? { ...view, alsoById: roomMatesById(snap?.team?.rooms?.rooms ?? []) } : view;
+  }, [snap?.team, snap?.products]);
   // "Maya", "Maya and Jun": who a message from the new thread card went to.
   const firstNames = (ids: string[]) => joinNames(ids.map((id) => team?.byId.get(id)?.name?.split(/\s+/)[0]).filter(Boolean) as string[]);
   // A SHARED ROW IS IN ONE INBOX AT A TIME (shared/team-rules.mjs). A row given
@@ -1902,11 +1911,11 @@ export default function App() {
   // (renderer/src/fleet.ts, w-ec2b04d449).
   const fleet = useMemo((): Fleet => ({
     sessions: new Map(runningRows.map((r) => [r.itemId, r])),
-    queued: snap?.supervisor.queued, remoteHeld: snap?.supervisor.remoteHeld, runNow: snap?.supervisor.runNow,
+    queued: queuedWithHeld(snap?.supervisor.queued, heldAnswer && pendingIds.has(heldAnswer) ? heldAnswer : null), remoteHeld: snap?.supervisor.remoteHeld, runNow: snap?.supervisor.runNow,
     signInNeeded: snap?.supervisor.signInNeeded, atLimit: snap?.supervisor.atLimit,
     shipping: snap?.supervisor.shipping, stalled: snap?.supervisor.stalled,
     silent: snap?.supervisor.silent, paused: snap?.supervisor.paused,
-  }), [runningRows, snap?.supervisor]);
+  }), [runningRows, snap?.supervisor, heldAnswer, pendingIds]);
   const cloudIds = useMemo(() => new Set(runningRows.filter((r) => r.where === 'cloud').map((r) => r.itemId)), [runningRows]);
   // THE THREADS THE APP STILL HAS TO SHIP (w-0c1ba766eb). Waiting on the app,
   // not on her, so In progress reading "Shipping" and out of Needs you until
@@ -3143,7 +3152,7 @@ export default function App() {
   }, [modal]);
 
   useEffect(() => { localStorage.setItem(SEEN_KEY, JSON.stringify([...seen].slice(-2000))); }, [seen]);
-  useEffect(() => { if (view === 'inbox') setNeedsLookedAt(Date.now()); }, [view, inbox]);
+  useEffect(() => { if (view === 'inbox') setNeedsLookedAt((at) => lookedAtNow(inbox, at, Date.now())); }, [view, inbox]);
   useEffect(() => {
     const newest = Object.entries(seenAt).sort((a, b) => b[1] - a[1]).slice(0, 2000);
     localStorage.setItem(SEEN_AT_KEY, JSON.stringify(Object.fromEntries(newest)));
@@ -3509,8 +3518,12 @@ export default function App() {
       setModal('compose');
     },
     // A teammate's card opens over the room, and Back comes back to it.
-    renderBoard: (people) => <InboxBoard items={items} products={snap?.products ?? []} display={DEFAULT_DISPLAY.team} now={now} stateOf={stateOfMine} projectOrder={projectOrder}
-      cards={cards} picked={people} onOpenCard={openTeammateCard} columnOrder={columnOrder} onReorderColumns={reorderColumns}
+    renderBoard: (people, { later }) => <RoomBoard items={items} products={snap?.products ?? []} display={DEFAULT_DISPLAY.team} now={now} stateOf={stateOfMine} projectOrder={projectOrder}
+      cards={cards} picked={people} onOpenCard={openTeammateCard} columnOrder={columnOrder} later={later}
+      onOpenItem={(item) => { setFocused(item); markSeen(item); }} />,
+    // A room-mate outside the team has no thread cards; their presence lines stand in, and open nothing.
+    renderPersonBoard: (people) => <InboxBoard items={items} products={snap?.products ?? []} display={DEFAULT_DISPLAY.team} now={now} stateOf={stateOfMine} projectOrder={projectOrder}
+      cards={[...cards, ...roomMateCards(snap?.team?.rooms?.rooms ?? [])]} picked={people} onOpenCard={(c) => { if (!isPresenceCard(c)) openTeammateCard(c); }} columnOrder={columnOrder} onReorderColumns={reorderColumns}
       onOpenItem={(item) => { setFocused(item); markSeen(item); }} />,
   });
   const roomShown = !!roomsUi.openId && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
@@ -3708,8 +3721,8 @@ export default function App() {
 
   // Whether a reply from inside this thread moves her on to the next (./advance).
   const movesOn = useCallback((item: WorkItem) => replyMovesOn({
-    view, onBoard, index: shownInbox.findIndex((i) => i.id === item.id), inboxSize: shownInbox.length,
-  }), [view, onBoard, shownInbox]);
+    view, onBoard, index: shownInbox.findIndex((i) => i.id === item.id), inboxSize: shownInbox.length, searching: search !== null,
+  }), [view, onBoard, shownInbox, search]);
 
   // Every resolving action goes through here: the UI advances instantly, the
   // write happens after the grace window (unless Z cancels it first).
@@ -3753,6 +3766,8 @@ export default function App() {
     if (!stay) leaveResolved(item);
     if (!neoSending.current) setModal(null);
     holdRow(item.id); // out of the inbox NOW; the write can wait, the signal cannot
+    // Only an answer passes `goes`, and only an answer starts an agent.
+    setHeldAnswer(goes ? item.id : null);
     // "PRESS Z", NOT A BARE LETTER. The toast used to read "Closed: Added the
     // sign-in route. Tests g · Z to undo": the title had been cut mid-word at
     // 32 characters, so "Tests green." came out "Tests g", and the bare Z ran
@@ -7237,6 +7252,11 @@ export default function App() {
           onSetTune={setTune}
           onResetTune={resetTune}
           cloud={snap.cloud?.setUp ? snap.cloud : null}
+          onCloudSignIn={(key, email) => {
+            void api.cloudSignIn({ action: 'start', engine: 'claude', key });
+            setCloudSignInAs(email);
+            setCloudSetupOpen(true);
+          }}
           cloudPlans={snap.cloud?.managed || snap.cloud?.offered ? { signedIn: !!snap.cloud?.managed, onSignIn: () => { setSettingsOpen(false); setCloudSetupOpen(true); } } : null}
           startPane={settingsPane}
           onNewProject={() => setNewProject(true)}
@@ -7545,8 +7565,9 @@ export default function App() {
       {cloudSetupOpen && snap.cloud?.setUp && (
         <CloudSetup
           cloud={snap.cloud}
+          signInAs={cloudSignInAs}
           onMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
-          onClose={() => setCloudSetupOpen(false)}
+          onClose={() => { setCloudSetupOpen(false); setCloudSignInAs(null); }}
         />
       )}
       {/* THE TUTORIAL, OFFERING ITSELF ON A NEW PROJECT (w-9a6ea066d6).

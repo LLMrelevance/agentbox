@@ -23,6 +23,9 @@ export function Wall({ children, style }: { children: ReactNode; style?: ViewSty
   );
 }
 
+// The room under a bottom bar: the whole home bar, as iOS's own tab bars keep it.
+export const footRoom = (inset: { bottom: number }) => Math.max(8, inset.bottom);
+
 export function T({ style, ...rest }: TextProps) {
   return <Text {...rest} style={[{ fontFamily: font.regular, color: color.text, fontSize: 15.5 }, style]} />;
 }

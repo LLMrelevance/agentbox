@@ -237,6 +237,18 @@ export function nameForOrganization(org, identities) {
 }
 
 /**
+ * The folder here holding a cloud login, so the two share one reading. A login
+ * that says its email is that person in its organization; one that says only
+ * its organization is the one email here in it, and none when two people here
+ * share it.
+ */
+export function profileForCloudLogin({ org, email }, identities) {
+  if (!org) return null;
+  const who = email || nameForOrganization(org, identities);
+  return who ? identities.find((id) => id?.organizationUuid === org && id.email === who)?.profile ?? null : null;
+}
+
+/**
  * THE SENTENCE FOR TWO ROWS THAT TURNED OUT TO BE ONE ACCOUNT. It only ever
  * speaks on a machine that already has two profile folders, so it describes a
  * setup rather than suggesting one.

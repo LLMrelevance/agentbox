@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import type { Room, RoomCard, ThreadCard } from '../../types';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
-import { activityShown, cardName, hoursWords, weekRank } from './room-rules';
+import { activityCards, activityShown, cardName, chartNamed, hoursWords, weekRank } from './room-rules';
 import { useOutside } from './RoomsPage';
 import { Name } from '../../../../shared/product-name.mjs';
 
@@ -40,7 +40,7 @@ export function ProfilePage({ card, room, rooms, cards, rank, onMessage, onRanks
   /** The Inbox's board, for these people's threads. */
   renderBoard?: (people: string[]) => ReactNode;
 }) {
-  const activity = activityShown(card) && renderBoard ? count(cards.filter((c) => c.personId === card.id)) : null;
+  const activity = activityShown(card) && renderBoard ? count(activityCards(card, cards)) : null;
   const [tab, setTab] = useState<'progress' | 'activity'>('progress');
   const shared = rooms.filter((r) => r.wall.some((c) => c.id === card.id));
   const firstMonth = card.byMonth.find((m) => m.hours > 0)?.month ?? null;
@@ -179,13 +179,14 @@ export function HoursChart({ byMonth, total }: { byMonth: { month: string; hours
   const line = pts.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
   const last = pts.length - 1;
   const ticks = Array.from({ length: Math.round(top / step) + 1 }, (_, i) => i * step);
+  const named = chartNamed(months, byMonth);
   const place = (i: number) => ({ left: X(i), top: Y(pts[i]) });
   return <div className="rm-chartbox" ref={box}>
     <svg width={w} height={H} viewBox={`0 0 ${w} ${H}`} aria-label={`${hoursWords(total)} agent hours`}
       onPointerMove={(e) => { const r = e.currentTarget.getBoundingClientRect(); setAt(pointUnder((e.clientX - r.left) / r.width, pts.length, w)); }}
       onPointerLeave={() => setAt(null)}>
       {ticks.map((v) => <g key={v}><line className="grid" x1={LEFT} x2={w - RIGHT} y1={Y(v)} y2={Y(v)} /><text x="0" y={Y(v) + 3.5}>{v.toLocaleString('en-US')}</text></g>)}
-      {months.map((m, i) => <text key={m} x={X(i)} y={H - 6} textAnchor="middle">{MONTHS[Number(m.slice(5)) - 1]}</text>)}
+      {months.map((m, i) => named[i] && <text key={m} x={X(i)} y={H - 6} textAnchor="middle">{MONTHS[Number(m.slice(5)) - 1]}</text>)}
       <path className="ar" d={`${line} L${X(last)} ${Y(0)} L${X(0)} ${Y(0)} Z`} />
       {at != null && <line className="guide" x1={X(at)} x2={X(at)} y1={Y(top)} y2={Y(0)} />}
       <path className="ln" d={line} fill="none" strokeWidth="1.75" strokeLinejoin="round" />
