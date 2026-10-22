@@ -97,7 +97,7 @@ import { snapshotRepo } from './git-change.mjs';
 import { importedAgentBrief, importedAgentName, THREAD_LABEL } from '../shared/agent-import.mjs';
 import { readTranscriptHead } from './agent-sessions.mjs';
 import { planStamp, readPlan } from './claude-plan.mjs';
-import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
+import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, deadRunPromisesARetry, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
 import { readDeadRunTrace, traceShowsASilentDeath, tracesAToolCall } from '../shared/dead-run-trace.mjs';
 import { commandPrompt } from '../shared/claude-commands.mjs';
 import { machineryPath, storeRootEnv } from './store/home.mjs';
@@ -2951,6 +2951,18 @@ export class Supervisor {
     return (item.wrote?.result?.ts ?? 0) <= seen.saidTs;
   }
 
+  // THE LAST WORDS ON THIS ROW ARE OURS, AND THEY SAID THE APP TRIES AGAIN.
+  // They are written as an agent's result, which `awaitingHer` reads as an
+  // answer, so without this the promised retry never comes. A cause worked out
+  // before a run used a tool is kept in `saidWhy`; a run that worked keeps
+  // none, and its sentence promises the retry.
+  _weSaidItRunsAgain(item) {
+    if (this._onlyWeSpokeForAnAccount(item)) return true;
+    const seen = this._fruitless[`${item.product}:${item.id}`];
+    if (!seen?.saidTs || (item.wrote?.result?.ts ?? 0) > seen.saidTs) return false;
+    return deadRunPromisesARetry({ cause: seen.saidWhy ?? 'unknown', elsewhere: !!seen.account, gaveUp: !!seen.saidGaveUp });
+  }
+
   restingUntil(item) {
     const seen = this._fruitless[`${item.product}:${item.id}`];
     const runs = this._emptyRuns(item);
@@ -3148,6 +3160,7 @@ export class Supervisor {
         runs,
         resetsAt,
         worked,
+        partway: !!session.resumed,
         // A LIMIT ON ONE LOGIN IS NOT A WAIT WHEN ANOTHER HAS ROOM. The row
         // was promising a reset hours away while `restingUntil` was already
         // waking it for the free login, so the sentence and the fleet said
@@ -3179,6 +3192,7 @@ export class Supervisor {
         // keeping it costs nothing.
         // A run that used a tool did start, so it is not counted there.
         if (worked) delete seen.saidWhy; else seen.saidWhy = cause;
+        if (gaveUp) seen.saidGaveUp = true; else delete seen.saidGaveUp;
         if (resetsAt) seen.resetsAt = resetsAt; else delete seen.resetsAt;
         // WHEN THIS ROW GOT STUCK, which is the first of these failures and not
         // the newest. `sayItOnEveryStrandedRow` gives the reason at length: a
@@ -4727,12 +4741,24 @@ export class Supervisor {
       && this._cloudEligible(item) && !this._mustRunHere(item, engine) && !this._cloudSlotFor(engine);
   }
 
-  // A Codex reply resumes the thread this Mac's app-server holds, so it runs
-  // here and never waits for the cloud (the spawn keeps it here too).
+  // A Codex reply to a thread this Mac's app-server has open runs here and
+  // never waits for the cloud (the spawn keeps it here too).
   _mustRunHere(item, engine) {
     if (engineOf(engine) !== 'codex' || !item?.answer || item.answer === '(withdrawn)') return false;
     const product = this.store.listProducts?.().find((p) => p.slug === item.product);
-    return !!(product && this.rowSessionFor(item, product));
+    const chat = product && this.rowSessionFor(item, product);
+    return !!chat && this._codexHeldHere(chat.sessionId);
+  }
+
+  // Whether a live app-server on this Mac has had this thread open.
+  _codexHeldHere(threadId) {
+    if (!threadId) return false;
+    return [...(this._codexServers?.values() ?? [])].some((e) => !e.client.isClosed() && e.loaded?.has(threadId));
+  }
+
+  // The thread a run on this Mac opened stays open on its server after the run.
+  _noteCodexThreadHere(entry, worker) {
+    worker.once('exit', () => { if (worker.threadId) entry.loaded?.add(worker.threadId); });
   }
 
   // Set up, the engine offered, and an account of it signed in in the cloud,
@@ -6334,9 +6360,9 @@ export class Supervisor {
       // newer than the body on an OPEN row, so the answer is in her inbox
       // being read; the only thing that stops is writing it again. Any word
       // from her moves `lastFounderWrite` past it and the row is fresh again.
-      // EXCEPT when the words are OURS, about an account that refused the run
-      // (`_onlyWeSpokeForAnAccount`): those are not an answer to her.
-      && (!awaitingHer(item) || this._onlyWeSpokeForAnAccount(item))
+      // EXCEPT when the words are OURS and promised a retry
+      // (`_weSaidItRunsAgain`): those are not an answer to her.
+      && (!awaitingHer(item) || this._weSaidItRunsAgain(item))
       // A row a worker already took and gave nothing back rests before it is
       // handed to another one. This pass had no memory whatsoever, which is
       // the whole of the every-tick loop (FRUITLESS_RESTS_MS).
@@ -7924,9 +7950,10 @@ export class Supervisor {
     // through the proxy (main/cloud/run-cli.mjs --agentbox-codex), never the
     // shared one: that one belongs to this Mac's threads.
     const home = this._codexProfileHome(profile);
-    const { client, handshake, procExit } = cloud
+    const server = cloud
       ? this._cloudCodexServer({ cwd, item, home })
       : this._codexServer(home);
+    const { client, handshake, procExit } = server;
     const storeServer = this._codexStoreServer(item);
     // THIS WORKER'S OWN CARDS, SO THEY CAN DIE WITH IT.
     //
@@ -7976,6 +8003,7 @@ export class Supervisor {
     // matter: the approval reaches the handler on a microtask, long after every
     // listener on this event has run.
     worker.on('event', cards.remember);
+    if (!cloud) this._noteCodexThreadHere(server, worker);
     // AND THE CARDS GO WHEN THE WORKER DOES. `end` fires exactly once for every
     // ending there is -- a completed turn, a failed one, our own kill, the
     // app-server dying underneath it -- so this is the one hook that covers a
@@ -8438,7 +8466,7 @@ export class Supervisor {
     // is a second branch off the same promise, never a replacement for it: every
     // worker still sees the failure.
     handshake.catch(() => { /* every worker chains its own catch off this */ });
-    const entry = { client, handshake, home };
+    const entry = { client, handshake, home, loaded: new Set() };
     this._codexServers.set(home, entry);
     // AND THE MEMORY HOOK IS TRUSTED HERE, ON THE WAY UP (w-e5225b62ba).
     //
@@ -8771,9 +8799,11 @@ export class Supervisor {
     const plan = this.spawnPlan(item, product, { continuation, resumeSessionId, engine, shipFailure });
     const { args } = plan;
     // Waiting its turn for the cloud, unless it runs here anyway: a command, or
-    // a Codex resume (below), when there is room (Codex's review, 2026-10-16).
+    // a Codex thread this Mac holds (below), when there is room (Codex's
+    // review, 2026-10-16).
+    const codexHeldHere = engine === 'codex' && !!plan.resumeId && this._codexHeldHere(plan.resumeId);
     if (where === 'cloud-wait') {
-      if ((plan.command || (engine === 'codex' && plan.resumeId)) && mayRunHereInstead()) where = 'local';
+      if ((plan.command || codexHeldHere) && mayRunHereInstead()) where = 'local';
       else {
         if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
         return;
@@ -8781,13 +8811,13 @@ export class Supervisor {
     }
     // A command she typed is over in seconds and needs nothing a sandbox has.
     if (where === 'cloud' && plan.command) where = 'local';
-    // A CODEX THREAD GOES TO THE CLOUD FRESH, NEVER AS A RESUME. This Mac's
-    // shared app-server may still hold that thread loaded, and a thread
-    // continued elsewhere would come back to a server reading its old state
-    // (Codex's review, 2026-10-13). A thread that started in the cloud has
-    // never been loaded here, so its replies run here and load the rollout
-    // that came home. A resume with no room here waits for room here.
-    if (where === 'cloud' && engine === 'codex' && plan.resumeId) {
+    // A CODEX THREAD THIS MAC'S APP-SERVER HAS OPEN STAYS HERE. That server
+    // keeps a thread it has loaded, and a thread continued elsewhere would come
+    // back to a server reading its old state (Codex's review, 2026-10-13). Any
+    // other resume goes up with its rollout (`codexLineForTheCloud`) and runs
+    // on the cloud's sign-in, not this Mac's Codex login. A held resume with no
+    // room here waits for room here.
+    if (where === 'cloud' && codexHeldHere) {
       if (mayRunHereInstead()) where = 'local';
       else {
         if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
@@ -8882,6 +8912,8 @@ export class Supervisor {
     const session = {
       child, itemId: item.id, product: item.product, startedAt: Date.now(), tail: [], profile,
       command: !!plan.command, engine,
+      // Picking up a conversation an earlier run had, so a death says "not finished".
+      resumed: !!plan.resumeId,
       // Which model, so a plan that refuses it strikes that model off this login.
       ...(model ? { model } : {}),
       // AND THE FOLDER IT IS RUNNING IN, which is now the row's own rather than

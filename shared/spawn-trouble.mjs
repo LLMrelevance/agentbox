@@ -766,8 +766,13 @@ function fixBeforeReplying({ cause, engineWord, resetsAt, model, planEnded }) {
 // to, each already in words (shared/account-names.mjs). Both are null on a Mac
 // with one login, where naming it tells nobody anything, and then every
 // sentence here is the one it has always been.
-export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, elsewhere = false, worked = false, model = null, planEnded = null, gaveUp = false, account = null, instead = null } = {}) {
-  if (worked && !WORKED_OPENERS[cause]) cause = 'unknown';
+//
+// `partway` is a run that was picking up a thread an earlier run worked on: it
+// may have done nothing itself, but the task has been started. A cause with no
+// partway words stopped this run before it began, and keeps its own opener.
+export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, elsewhere = false, worked: usedATool = false, partway = false, model = null, planEnded = null, gaveUp = false, account = null, instead = null } = {}) {
+  if (usedATool && !WORKED_OPENERS[cause]) cause = 'unknown';
+  const worked = usedATool || (partway && !!WORKED_OPENERS[cause]);
   // A LIMIT IS A FACT ABOUT ONE LOGIN, so that is the one cause whose opener
   // takes the name. The others are about the tool or the task.
   const limitOpener = cause === 'at-limit' && account
@@ -775,7 +780,7 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
       ? `hit its usage limit on ${account} partway through, so this task is not finished.`
       : `is at its usage limit on ${account}, so nothing has been done on this task.`)
     : null;
-  const opener = `${engineWord} ${limitOpener ?? (worked ? WORKED_OPENERS : DEAD_RUN_OPENERS)[cause] ?? DEAD_RUN_OPENERS.unknown}`;
+  const opener = `${engineWord} ${limitOpener ?? (worked ? WORKED_OPENERS[cause] ?? WORKED_OPENERS.unknown : DEAD_RUN_OPENERS[cause] ?? DEAD_RUN_OPENERS.unknown)}`;
 
   const again = runs > 1 ? ` This has happened ${runs} times on this task.` : '';
 
@@ -824,6 +829,15 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
         : ` ${UNNAMED_CHECK[engineWord] ?? ''}${Name} tries again on its own.`;
 
   return `${opener}${again}${next}`;
+}
+
+// Whether `deadRunSentence` tells her the app runs the task again by itself.
+// The fresh-work pass keeps a row in the queue on exactly these, so a row is
+// never promised a retry and then read as an answer waiting on her.
+export function deadRunPromisesARetry({ cause = 'unknown', elsewhere = false, gaveUp = false } = {}) {
+  if (gaveUp) return false;
+  if (cause === 'model-not-on-plan') return elsewhere;
+  return cause !== 'org-blocked' && cause !== 'subscription-ended' && cause !== 'level-not-offered';
 }
 
 /* ------------- a run that finished and still delivered nothing ------------ */
