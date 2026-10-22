@@ -44,7 +44,7 @@ async function teamCall(fn: () => Promise<TeamCallResult>): Promise<TeamCallResu
 // it runs.
 const search = typeof location === 'undefined' ? '' : location.search;
 const params = new URLSearchParams(search);
-const modelUpdateFixture=updateFixture(params.get('modelUpdates')==='fail');
+const modelUpdateFixture=updateFixture(params.get('modelUpdates')==='fail',['claude','codex'].includes(params.get('modelUpdates')??'')?params.get('modelUpdates'):null);
 const useFixtures = params.has('fixtures') || typeof window === 'undefined' || !window.zero;
 const emptyFixtures = params.get('fixtures') === 'empty';
 // ?working=3 puts three running agents into ?fixtures=empty. The empty
@@ -118,6 +118,20 @@ const fixtureSettingsState: any = structuredClone(fixtureSettings);
 // she runs, which leaves the object exactly as ./fixtures wrote it.
 const engineSettings = fixtureEngineSettings(engineFixtures);
 if (engineSettings) Object.assign(fixtureSettingsState.workspace, structuredClone(engineSettings));
+// &codexPlan=free is a Mac whose Codex logins are all on ChatGPT's free plan,
+// the paid one having ended Oct 18 2026: the three models that plan lists
+// (w-62f14f8b3e).
+if (params.get('codexPlan') === 'free') {
+  Object.assign(fixtureSettingsState.workspace, {
+    codexModels: [
+      { id: 'gpt-6-luna', label: 'GPT-6-Luna', levels: ['low', 'medium', 'high', 'xhigh'], defaultLevel: 'medium' },
+      { id: 'gpt-5.6-terra', label: 'GPT-5.6-Terra', levels: ['low', 'medium', 'high', 'xhigh'], defaultLevel: 'medium' },
+      { id: 'gpt-5.6-luna', label: 'GPT-5.6-Luna', levels: ['low', 'medium', 'high', 'xhigh'], defaultLevel: 'medium' },
+    ],
+    codexModelDefault: 'gpt-6-luna',
+    codexFreePlan: { endedAt: Date.parse('2026-10-18T19:00:00Z') },
+  });
+}
 // &memory=held draws the Running page the way it read when memory ran out on
 // 2026-10-11 (w-ec27ff1a51): six running, memory tight, commands waiting, and
 // new agents held. &memory=fine is the same page with memory back to normal.

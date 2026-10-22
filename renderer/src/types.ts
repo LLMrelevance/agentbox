@@ -1068,6 +1068,8 @@ export interface WorkspaceSettings {
    *  See main/codex-models.mjs. */
   codexModels?: Array<{ id: string; label: string; levels?: string[]; defaultLevel?: string | null }>;
   codexModelDefault?: string | null;
+  /** Set when every Codex login offered is on ChatGPT's free plan; `endedAt` is when the latest paid plan ended. */
+  codexFreePlan?: { endedAt: number | null } | null;
   /**
    * What CLAUDE CODE calls its models on THIS Mac, read off the installed
    * binary rather than off the table committed when Agentbox was built, so a

@@ -21,7 +21,7 @@ import { readySkin, swapLook } from './look-switch';
 import type { AnswerMode, Approval, CloudPlan, PermissionMode, Product, RepeatRule, RepeatShape, Snapshot, ThreadCard, ThreadStateWord, View, WorkItem } from './types';
 import type { ReplyPick } from './reply-pick';
 import { api } from './api';
-import { setClaudeModels } from './models';
+import { setClaudeModels, setCodexFreePlan } from './models';
 import { advanceAfter, advanceLandsHere, replyMovesOn, nextAfterAdvance, type Advance } from './advance';
 import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from './stay-with-a-command';
 import { List } from './components/List';
@@ -1058,6 +1058,7 @@ export default function App() {
       // draws the table committed at build time, which is the same list it has
       // always drawn.
       setClaudeModels(s.workspace?.claudeModels);
+      setCodexFreePlan(s.workspace?.codexFreePlan);
       // And Codex's models, in the same trip rather than in one of their own.
       const models = s.workspace?.codexModels;
       if (Array.isArray(models)) setCodexModels(models);

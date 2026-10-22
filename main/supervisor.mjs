@@ -3756,6 +3756,15 @@ export class Supervisor {
     return !word || word === 'default' ? this._codexHome() : word;
   }
 
+  // The homes whose models the menu offers and whose catalogs are refreshed:
+  // the signed-in logins a task may run on, main first. A login still being
+  // added has no plan yet, and its list would offer what nothing can run.
+  _codexOfferHomes() {
+    const pool = this._profilesFor('codex');
+    const signedIn = pool.filter((p) => this._codexSignedIn(p));
+    return [...new Set((signedIn.length ? signedIn : pool).map((p) => this._codexProfileHome(p)))];
+  }
+
   _profilesFor(engine) {
     const all = harnessFor(engineOf(engine)).profiles(this);
     return this._narrowToChosen(engine, all);

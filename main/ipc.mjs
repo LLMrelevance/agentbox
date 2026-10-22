@@ -382,7 +382,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   setInterval(lookAtTerminals,60_000).unref?.();
   const agentUpdates=new AgentUpdates({
     installation:async engine=>{if(engine==='claude')recheckClaude(config);else recheckCodex(config);return installedAgent(engine,config);},
-    refresh:async engine=>{if(engine==='claude')recheckClaude(config);else recheckCodex(config);await refreshAgentModels(engine,config,supervisor._codexHome());if(engine==='codex')for(const profile of supervisor._codexProfiles())supervisor._releaseIdleCodex(profile);},
+    refresh:async engine=>{if(engine==='claude')recheckClaude(config);else recheckCodex(config);await refreshAgentModels(engine,config,supervisor._codexOfferHomes());if(engine==='codex')for(const profile of supervisor._codexProfiles())supervisor._releaseIdleCodex(profile);},
   });
   ipcMain.handle('zero:agent-update',async(event,{engine,action}={})=>{
     if(event.senderFrame?.parent||(event.sender&&event.sender!==window.webContents))throw Error('Updates are only available in the main app window.');
@@ -391,7 +391,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     if(action==='recheck')return agentUpdates.check(engine,true);
     if(action==='start')return agentUpdates.start(engine);
     if(action==='status')return agentUpdates.status(engine);
-    if(action==='refresh'){await refreshAgentModels(engine,config,supervisor._codexHome());return true;}
+    if(action==='refresh'){await refreshAgentModels(engine,config,supervisor._codexOfferHomes());return true;}
     throw Error('Unknown update action.');
   });
   let terminalQuitPending=false,terminalQuitReady=false;
