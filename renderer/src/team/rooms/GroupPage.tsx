@@ -111,8 +111,14 @@ export function LastWordWall({ room, messages, onPerson }: { room: Room; message
 export type GroupEvent = { id: string; at: number; by: string; kind: 'started' | 'finished' | 'now'; title: string; project?: string | null; text: string; live?: boolean };
 
 /** How the work is woven into a group's chat, while one is picked (`groups.woven`). */
-export type WovenLook = 'quiet' | 'twitch' | 'cheer' | 'bursts' | 'lane' | 'ticker';
-export const WOVEN_LOOKS: WovenLook[] = ['quiet', 'twitch', 'cheer', 'bursts', 'lane', 'ticker'];
+export type WovenLook = 'quiet' | 'twitch' | 'cheer' | 'bursts' | 'lane' | 'ticker' | 'finishes' | 'digest' | 'riders' | 'tally' | 'peek';
+export const WOVEN_LOOKS: WovenLook[] = ['quiet', 'twitch', 'cheer', 'bursts', 'lane', 'ticker', 'finishes', 'digest', 'riders', 'tally', 'peek'];
+/** Looks whose conversation holds only talk; the work is somewhere beside it. */
+export const TALK_ONLY: WovenLook[] = ['lane', 'ticker', 'riders', 'tally', 'peek'];
+/** Looks that keep the one-line ticker over the box. */
+export const WITH_TICKER: WovenLook[] = ['ticker', 'finishes', 'digest', 'riders', 'tally', 'peek'];
+/** More finishes than this between two messages fold into one card. */
+export const BUSY = 2;
 export function readWovenLook(): WovenLook | null {
   try {
     const got = localStorage.getItem('groups.woven');
@@ -154,11 +160,11 @@ const nameIn = (who: Who, id: string) => { const p = who(id); return p ? cardNam
 /** Work that happened back to back, folded into one line. */
 export type Burst = { burst: GroupEvent[]; id: string; at: number };
 
-export function foldBursts<M extends { id: string; at: number }>(stream: (M | GroupEvent)[]): (M | GroupEvent | Burst)[] {
+export function foldBursts<M extends { id: string; at: number }>(stream: (M | GroupEvent)[], min = 2): (M | GroupEvent | Burst)[] {
   const out: (M | GroupEvent | Burst)[] = [];
   let run: GroupEvent[] = [];
   const flush = () => {
-    if (run.length > 1) out.push({ burst: run, id: `burst:${run[0].id}`, at: run[0].at });
+    if (run.length >= min) out.push({ burst: run, id: `burst:${run[0].id}`, at: run[0].at });
     else out.push(...run);
     run = [];
   };
@@ -191,12 +197,12 @@ export function WorkTick({ ev, who }: { ev: GroupEvent; who: Who }) {
 }
 
 /** Finished work as a card the group can cheer. */
-export function CheerCard({ ev, who, cheers, children }: { ev: GroupEvent; who: Who; cheers?: ReactNode; children?: ReactNode }) {
+export function CheerCard({ ev, who, cheers, children, project = true }: { ev: GroupEvent; who: Who; cheers?: ReactNode; children?: ReactNode; project?: boolean }) {
   const p = who(ev.by);
   return <div className="gp-cheer">
     <div className="top"><RoomFace name={p?.name ?? '?'} url={p?.avatarUrl} size={16} /><span><b>{nameIn(who, ev.by)}</b> finished</span><em>{clockOf(ev.at)}</em></div>
     <div className="t"><WorkMark kind="finished" /><span>{ev.title}</span></div>
-    {ev.project && <div className="p">{ev.project}</div>}
+    {project && ev.project && <div className="p">{ev.project}</div>}
     {cheers}{children}
   </div>;
 }
@@ -233,14 +239,86 @@ export function LiveLane({ past, now, who, agents }: { past: GroupEvent[]; now: 
 }
 
 /** One line over the box: the newest piece of work, and who is working. */
-export function WorkTicker({ past, now, who, at }: { past: GroupEvent[]; now: GroupEvent[]; who: Who; at: number }) {
+export function WorkTicker({ past, now, who, at, open, onOpen, children }: {
+  past: GroupEvent[]; now: GroupEvent[]; who: Who; at: number;
+  /** Pressed, the ticker opens what it has been showing. */
+  open?: boolean; onOpen?: () => void; children?: ReactNode;
+}) {
   const last = past.at(-1);
   if (!last) return null;
   const mins = Math.max(1, Math.round((at - last.at) / 60_000));
-  return <div className="gp-ticker" title={`${now.length} working now`}>
+  const line = <>
     <WorkMark kind={last.kind} />
     <span className="rm-one"><b>{nameIn(who, last.by).split(' ')[0]}</b> {last.kind} <span className="t">{last.title}</span></span>
     <em>{mins < 60 ? `${mins} min ago` : clockOf(last.at)}</em>
+  </>;
+  if (!onOpen) return <div className="gp-ticker" title={`${now.length} working now`}>{line}</div>;
+  return <div className="gp-tickwrap">
+    {open && <div className="gp-peek rm-pop">{children}</div>}
+    <button type="button" className={`gp-ticker btn${open ? ' on' : ''}`} onClick={onOpen}>{line}
+      <svg className="ch" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={open ? 'm7 10 5 5 5-5' : 'm7 14 5-5 5 5'} /></svg>
+    </button>
+  </div>;
+}
+
+const firstNames = (who: Who, ids: string[]) => {
+  const names = ids.map((id, i) => { const n = nameIn(who, id).split(' ')[0]; return i > 0 && who(id)?.me ? 'you' : n; });
+  return names.length > 2 ? `${names.slice(0, 2).join(', ')} and ${names.length - 2} more` : names.join(' and ');
+};
+
+/** Finishes that came back to back, as one card the group can cheer at once. */
+export function CheerBurst({ burst, who, cheers }: { burst: Burst; who: Who; cheers?: ReactNode }) {
+  const ids = [...new Set(burst.burst.map((e) => e.by))];
+  const shown = burst.burst.slice(-3).reverse();
+  const more = burst.burst.length - shown.length;
+  return <div className="gp-cheer gp-cburst">
+    <div className="top">
+      <span className="fs">{ids.slice(0, 3).map((id) => { const p = who(id); return <RoomFace key={id} name={p?.name ?? '?'} url={p?.avatarUrl} size={16} />; })}</span>
+      <span className="rm-one"><b>{firstNames(who, ids)}</b> finished {burst.burst.length}</span>
+      <em>{clockOf(burst.burst.at(-1)!.at)}</em>
+    </div>
+    {shown.map((e) => <div key={e.id} className="t"><WorkMark kind="finished" /><span className="rm-one">{e.title}</span></div>)}
+    {more > 0 && <div className="more">and {more} more</div>}
+    {cheers}
+  </div>;
+}
+
+/** All the work between two messages, as one sentence that opens. */
+export function DigestRow({ burst, who, open, onToggle }: { burst: Burst; who: Who; open: boolean; onToggle: () => void }) {
+  const done = burst.burst.filter((e) => e.kind === 'finished');
+  const lead = done.at(-1) ?? burst.burst.at(-1)!;
+  const ids = [...new Set([lead.by, ...burst.burst.map((e) => e.by)])];
+  const rest = burst.burst.length - 1;
+  return <div className={`gp-burst gp-digest${open ? ' open' : ''}`}>
+    <button type="button" className="hd" onClick={onToggle}>
+      <span className="fs">{ids.slice(0, 3).map((id) => { const p = who(id); return <RoomFace key={id} name={p?.name ?? '?'} url={p?.avatarUrl} size={16} />; })}</span>
+      <span className="w"><b>{nameIn(who, lead.by).split(' ')[0]}</b> {lead.kind} <span className="t">{lead.title}</span>{rest > 0 && <>, and {rest} more</>}</span>
+      <svg className="ch" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={open ? 'm7 14 5-5 5 5' : 'm7 10 5 5 5-5'} /></svg>
+    </button>
+    {open && <div className="ls">{burst.burst.map((e) => <WorkTick key={e.id} ev={e} who={who} />)}</div>}
+  </div>;
+}
+
+/** What someone did since they said this, under their message. */
+export function RiderLine({ evs }: { evs: GroupEvent[] }) {
+  const lead = evs.filter((e) => e.kind === 'finished').at(-1) ?? evs.at(-1)!;
+  const more = evs.length - 1;
+  return <div className="gp-ride">
+    <WorkMark kind={lead.kind} />
+    <span className="rm-one">{lead.kind === 'finished' ? 'Since then finished' : 'Since then started'} <span className="t">{lead.title}</span></span>
+    {more > 0 && <span className="more">and {more} more</span>}
+  </div>;
+}
+
+/** Today's count for the group, pinned over the conversation. */
+export function TallyStrip({ past, now, who }: { past: GroupEvent[]; now: GroupEvent[]; who: Who }) {
+  const done = past.filter((e) => e.kind === 'finished');
+  const by = new Map<string, number>();
+  for (const e of done) by.set(e.by, (by.get(e.by) ?? 0) + 1);
+  const top = [...by.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  return <div className="gp-tally" title={`${now.length} working now`}>
+    <span className="n"><WorkMark kind="finished" /><b>{done.length}</b> finished today</span>
+    <div className="who">{top.slice(0, 4).map(([id, n]) => { const p = who(id); return <span key={id} className="p" title={nameIn(who, id)}><RoomFace name={p?.name ?? '?'} url={p?.avatarUrl} size={16} /><b>{n}</b></span>; })}</div>
   </div>;
 }
 

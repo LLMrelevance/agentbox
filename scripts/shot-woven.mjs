@@ -9,7 +9,7 @@ import { openStage } from './lib/groups-stage.mjs';
 
 const [dist, out, only] = process.argv.slice(2);
 fs.mkdirSync(out, { recursive: true });
-const looks = only ? only.split(',') : ['none', 'quiet', 'twitch', 'cheer', 'bursts', 'lane', 'ticker'];
+const looks = only ? only.split(',') : ['finishes', 'digest', 'riders', 'tally', 'peek'];
 
 for (const look of looks) {
   const init = { 'rooms.view': 'board', ...(look === 'none' ? {} : { 'groups.woven': look }) };
@@ -17,6 +17,7 @@ for (const look of looks) {
   for (const [row, name] of [['Northwind', 'team'], ['General', 'public']]) {
     await app.click('button[aria-label="Groups"]');
     await app.click(`.rm-rooms .row:has-text("${row}")`);
+    if (look === 'peek') await app.click('.gp-ticker.btn');
     await app.shot(path.join(out, `woven-${look}-${name}.png`));
   }
   const errors = await app.errors();

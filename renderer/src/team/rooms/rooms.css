@@ -529,6 +529,43 @@
 .gp-lane-h { flex: none; display: flex; align-items: center; justify-content: space-between; height: 34px; padding: 0 20px; }
 .gp-lane-ls { flex: 1; min-height: 0; overflow-y: auto; padding: 0 20px 8px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent 8px, #000 48px); mask-image: linear-gradient(to bottom, transparent 0, transparent 8px, #000 48px); }
 
+/* finishes: a card for each, and a busy stretch folded into one */
+.gp-cheer .top .rm-one { min-width: 0; }
+.gp-cburst .top .fs { display: flex; flex: none; }
+.gp-cburst .top .fs .rm-pic + .rm-pic { margin-left: -3px; outline: 2px solid var(--skin-solid, var(--surface)); }
+.gp-cburst .t + .t { margin-top: 4px; }
+.gp-cburst .t .rm-one { min-width: 0; }
+.gp-cburst .more { margin: 4px 0 0 19px; font-size: 12.5px; line-height: 17px; color: var(--text-faint); }
+
+/* digest: everything between two messages as one sentence */
+.gp-digest .hd { align-items: flex-start; }
+.gp-digest .hd .fs { margin-top: 1px; }
+.gp-digest .hd .ch { margin-top: 3px; margin-left: auto; }
+.gp-digest .hd .t { color: var(--text-dim); }
+
+/* riders: work under its author's message */
+.gp-ride { display: flex; align-items: center; gap: 7px; margin-top: 6px; padding: 3px 0 3px 10px; border-left: 1px solid var(--line-strong); font-size: 12.5px; line-height: 17px; color: var(--text-faint); }
+.gp-ride > .rm-one { min-width: 0; }
+.gp-ride .t { color: var(--text-dim); }
+.gp-ride .more { flex: none; color: var(--text-faint); }
+
+/* tally: today's count, pinned over the conversation */
+.gp-tally { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 40px; padding: 0 20px; border-bottom: 1px solid var(--rm-line); }
+.gp-tally .n { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-faint); white-space: nowrap; }
+.gp-tally .n b { font-weight: 400; color: var(--text); font-variant-numeric: tabular-nums; }
+.gp-tally .who { display: flex; gap: 10px; }
+.gp-tally .p { display: inline-flex; align-items: center; gap: 4px; font: 11px var(--mono); color: var(--text-dim); }
+.gp-tally .p b { font-weight: 400; }
+
+/* peek: the ticker opens today's work */
+.gp-tickwrap { position: relative; flex: none; }
+.gp-ticker.btn { width: calc(100% - 40px); box-sizing: border-box; background: none; font: inherit; font-size: 12.5px; line-height: 16px; text-align: left; cursor: default; }
+.gp-ticker.btn:hover, .gp-ticker.btn.on { border-color: var(--line-strong); background: var(--wash); }
+.gp-ticker .ch { flex: none; margin-left: 2px; color: var(--text-faint); }
+.gp-peek { position: absolute; left: 20px; right: 20px; bottom: calc(100% + 6px); z-index: 30; padding: 0 0 6px; }
+.gp-peek-h { display: flex; align-items: center; justify-content: space-between; height: 34px; padding: 0 12px; margin-bottom: 4px; border-bottom: 1px solid var(--rm-line); }
+.gp-peek-ls { padding: 0 12px; }
+
 /* ticker: the newest piece of work, over the box */
 .gp-ticker { flex: none; display: flex; align-items: center; gap: 8px; margin: 6px 20px 0; padding: 7px 10px; border: 1px solid var(--rm-line); font-size: 12.5px; line-height: 16px; color: var(--text-faint); }
 .gp-ticker b { font-weight: 400; color: var(--text-dim); }
