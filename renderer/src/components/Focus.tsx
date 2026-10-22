@@ -95,7 +95,7 @@ import { foldedReply } from '../folded-reply';
 import { applyDockHeight } from '../dock-height';
 import { resumeTo } from '../thread-bottom';
 import { optionIsClipped, optionPeek } from '../option-peek';
-import { askLine, askFull, askIsClipped } from '../ask-line';
+import { askHeading, askFull, askIsClipped } from '../ask-line';
 import { replyIsSwallowed, replyReaches } from '../../../shared/agents.mjs';
 import { recapFor } from '../recap';
 import type { LedgerLine } from '../thread-history';
@@ -1063,7 +1063,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const [askPeek, setAskPeek] = useState(false);
   useEffect(() => { setAskPeek(false); }, [item.id]);
   const onAskEnter = (el: HTMLElement) => {
-    setAskPeek(askIsClipped(ask, askAll, el.querySelector('span')));
+    setAskPeek(!!ask && askIsClipped(ask, askAll, el.querySelector('span')));
   };
 
   const product = item.product;
@@ -1335,7 +1335,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const offered = (item[optSource] ?? '').trim();
   // The sentence the options answer, drawn as the strip's heading below, and
   // the whole of it for the card that opens when the heading cannot hold it.
-  const ask = useMemo(() => askLine(item), [item.result, item.note, item.body, item.title]);
+  const ask = useMemo(() => askHeading(item), [item.result, item.note, item.body, item.title]);
   const askAll = useMemo(() => askFull(item), [item.result, item.note, item.body, item.title]);
 
   // WHAT A MESSAGE LOOKS LIKE ONCE THE PANE HAS TAKEN ITS SHARE. The thread
