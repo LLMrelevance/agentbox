@@ -19,7 +19,7 @@ export function computerLine(s: SettingsState, now: number) {
   return now - at > AWAY_MS ? `From ${s.computer.name}, last online ${ago(now - at)}. What you change waits for it.` : `From ${s.computer.name}.`;
 }
 
-export function asideOf(id: PageId, s: SettingsState, email: string | undefined) {
+function asideOf(id: PageId, s: SettingsState, email: string | undefined) {
   const w = s.settings?.workspace;
   const chosen = (list?: { chosen: boolean; email: string | null }[]) => list?.find((a) => a.chosen)?.email ?? (list?.length ? `${list.length} account${list.length === 1 ? '' : 's'}` : undefined);
   if (id === 'general') return email;

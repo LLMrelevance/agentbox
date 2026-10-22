@@ -1,5 +1,5 @@
 // The Settings pages, in the desktop's words (renderer/src/components/Settings.tsx).
-// Each is only its plates, so a page can stand alone or sit with the others.
+// Each is only its plates; app/settings/[page].tsx puts it on a page.
 // A row that belongs to the computer reads its copy and sends a change to it
 // (state/settings.tsx); the account and the alerts belong to this phone.
 import { router } from 'expo-router';
@@ -29,7 +29,7 @@ const AGENT_SENTENCE: Record<string, string> = {
 const NOT_YET = 'Your computer has not sent its settings yet.';
 
 /** A switch on the computer, with the phone's change laid over its copy. */
-export function SettingSwitch({ label, desc, k, copy, first }: { label: string; desc?: string | null; k: string; copy: boolean; first?: boolean }) {
+function SettingSwitch({ label, desc, k, copy, first }: { label: string; desc?: string | null; k: string; copy: boolean; first?: boolean }) {
   const s = useSettings();
   const r = s.reading('workspace', k, copy);
   return <Row first={first} label={label} desc={desc} reading={r} control={<Switch label={label} on={!!r.value} onChange={(v) => void s.change({ scope: 'workspace', key: k, value: v })} />} />;
@@ -56,7 +56,7 @@ function General() {
   );
 }
 
-export function PhoneProjects({ first = true }: { first?: boolean }) {
+function PhoneProjects() {
   const s = useSettings();
   const [open, setOpen] = useState(false);
   const projects: { slug: string; name: string; onPhone: boolean }[] = s.settings?.projects ?? [];
@@ -74,7 +74,7 @@ export function PhoneProjects({ first = true }: { first?: boolean }) {
   };
   return (
     <>
-      <Row first={first} label="Projects on your phone" desc="A copy of their threads is kept in your account, so your phone can read and reply with this computer closed." reading={r}
+      <Row first label="Projects on your phone" desc="A copy of their threads is kept in your account, so your phone can read and reply with this computer closed." reading={r}
         control={<Chip label="Projects on your phone" now={word} onPress={() => setOpen(true)} />} />
       <Sheet open={open} close={() => setOpen(false)}>
         <SheetHead>Projects on your phone</SheetHead>
@@ -87,7 +87,7 @@ export function PhoneProjects({ first = true }: { first?: boolean }) {
   );
 }
 
-export function AlertRows({ first = true }: { first?: boolean }) {
+function AlertRows() {
   const [token, setToken] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -95,11 +95,11 @@ export function AlertRows({ first = true }: { first?: boolean }) {
     setBusy(true); setSaid(null);
     try { await fn(); } catch (err) { setSaid(String((err as Error)?.message ?? err)); } finally { setBusy(false); }
   };
-  if (!alertsHere) return <Row first={first} label="Alerts on this phone" desc="Alerts need the app on your phone." />;
-  if (!token) return <Row first={first} label="Alerts on this phone" desc={said ?? 'A thread that needs you arrives on the lock screen.'} control={<Button title="Turn on" disabled={busy} onPress={attempt(async () => setToken(await alertToken()))} />} />;
+  if (!alertsHere) return <Row first label="Alerts on this phone" desc="Alerts need the app on your phone." />;
+  if (!token) return <Row first label="Alerts on this phone" desc={said ?? 'A thread that needs you arrives on the lock screen.'} control={<Button title="Turn on" disabled={busy} onPress={attempt(async () => setToken(await alertToken()))} />} />;
   return (
     <>
-      <Row first={first} label="Alerts on this phone" desc="On. A thread that needs you arrives on the lock screen." />
+      <Row first label="Alerts on this phone" desc="On. A thread that needs you arrives on the lock screen." />
       <Row label="Send a test alert" desc={said ?? 'Lock your phone after sending to see it arrive.'} control={<Button title="Send" disabled={busy} onPress={attempt(async () => { await sendTestAlert(token, withDeadline(fetch)); setSaid('Sent. Lock your phone to see it arrive.'); })} />} />
     </>
   );
@@ -175,8 +175,7 @@ function Codex() {
   );
 }
 
-/** "How many run at once", one row, so a page of quick settings can carry it too. */
-export function AgentsAtOnce({ first = true }: { first?: boolean }) {
+function AgentsAtOnce() {
   const s = useSettings();
   const w = s.settings!.workspace;
   const auto = s.reading('workspace', 'agentsAuto', w.agentsAuto);
@@ -185,7 +184,7 @@ export function AgentsAtOnce({ first = true }: { first?: boolean }) {
   const say = (n: number) => `${n} ${n === 1 ? 'agent' : 'agents'}`;
   const options = [{ value: 'auto', label: `Automatic (${say(w.agentsTotal)})` }, ...Array.from({ length: w.slotsMax ?? 12 }, (_, i) => ({ value: String(i + 1), label: say(i + 1) }))];
   return (
-    <Row first={first} stack label="How many run at once" reading={auto.waiting || auto.refused ? auto : count}
+    <Row first stack label="How many run at once" reading={auto.waiting || auto.refused ? auto : count}
       desc={isAuto ? 'From this computer’s memory, kept there as you add accounts or turn the memory check on.' : `You set this. Automatic would run ${w.agentsAutoTotal ?? w.sessionsAtOnce} on this computer.`}
       control={<Choice label="How many run at once" value={isAuto ? 'auto' : String(count.value)} options={options}
         onChange={(v) => void (v === 'auto' ? s.change({ scope: 'workspace', key: 'agentsAuto', value: true }) : s.change({ scope: 'workspace', key: 'sessionsAtOnce', value: Number(v) }))} />} />
@@ -196,15 +195,6 @@ const isAutoNow = (s: SettingsState, w: any) => {
   const count = s.reading('workspace', 'sessionsAtOnce', w.sessionsAtOnce);
   return auto.waiting ? !!auto.value : count.waiting ? false : !!auto.value;
 };
-
-export function PermissionRow({ first = true }: { first?: boolean }) {
-  const s = useSettings();
-  const w = s.settings!.workspace;
-  const r = s.reading('workspace', 'permission', w.permission);
-  if (w.permission === 'custom') return <Row first={first} label="Claude Code permission mode" desc={MODE_SENTENCE.custom} />;
-  return <Row first={first} label="Claude Code permission mode" desc={MODE_SENTENCE[r.value as keyof typeof MODE_SENTENCE]} reading={r}
-    control={<Choice label="Permission mode" value={r.value as string} options={MODES} onChange={(v) => void s.change({ scope: 'workspace', key: 'permission', value: v })} />} />;
-}
 
 function Running() {
   const s = useSettings();
