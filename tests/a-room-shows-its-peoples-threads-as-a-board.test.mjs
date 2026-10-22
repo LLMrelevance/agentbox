@@ -7,14 +7,15 @@
 // nothing there, and the Inbox menu opened on "People: Everyone, Just you, …".
 //
 // Now a room's header has the Inbox's View button: Grid or Board, and on the
-// board whose threads. B flips it. The board holds me and the teammates whose
+// board whose threads. B flips it. (Since 2026-10-22 a room is always its board,
+// tests/a-room-is-its-board-with-no-grid-to-switch-to.) The board holds me and the teammates whose
 // Activity I may open, never a stranger. With Rooms on, the Inbox is yours
 // alone: no People line, no faces on its button, and Privacy stays.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { boardPeople, boardPicked, readRoomView, writeRoomView, readBoardPicks, writeBoardPicks } from '../renderer/src/team/rooms/room-rules.ts';
+import { boardPeople, boardPicked, readBoardPicks, writeBoardPicks } from '../renderer/src/team/rooms/room-rules.ts';
 import { inboxEveryone } from '../renderer/src/threads/people-rules.ts';
 import { HeaderActions, DisplayMenu } from '../renderer/src/threads/Pages.tsx';
 import { RoomViewButton } from '../renderer/src/team/rooms/RoomView.tsx';
@@ -60,14 +61,6 @@ describe('whose threads the board shows', () => {
 });
 
 describe('what a room remembers', () => {
-  it('opens as the board, and as the grid once you chose it', () => {
-    const store = memory();
-    expect(readRoomView(store)).toBe('board');
-    writeRoomView('board', store);
-    expect(readRoomView(store)).toBe('board');
-    writeRoomView('grid', store);
-    expect(readRoomView(store)).toBe('grid');
-  });
   it('each room’s pick, and nothing from a broken entry', () => {
     const store = memory();
     writeBoardPicks({ r1: ['maya'] }, store);
@@ -79,20 +72,17 @@ describe('what a room remembers', () => {
   });
 });
 
-describe('the room’s View button', () => {
-  const draw = (view, picked) => renderToStaticMarkup(React.createElement(RoomViewButton, {
-    view, onView: () => {}, people: [me, maya], picked, onPick: () => {}, unseen: 0,
+describe('the room’s filters button', () => {
+  const draw = (picked) => renderToStaticMarkup(React.createElement(RoomViewButton, {
+    people: [me, maya], picked, onPick: () => {}, unseen: 0, later: false, onLater: () => {},
   }));
   const dot = (html) => /<i><\/i>|<i\/>/.test(html);
-  it('is the filters button, with B on it', () => {
-    const html = draw('grid', ['maya', 'sam']);
-    expect(html).toContain('class="th-disp');
-    expect(html).toContain('View (B)');
+  it('is the Inbox’s filters button', () => {
+    expect(draw(['maya', 'sam'])).toContain('class="th-disp');
   });
   it('lights its dot only when the board leaves someone out', () => {
-    expect(dot(draw('board', ['maya', 'sam']))).toBe(false);
-    expect(dot(draw('board', ['maya']))).toBe(true);
-    expect(dot(draw('grid', ['maya']))).toBe(false);
+    expect(dot(draw(['maya', 'sam']))).toBe(false);
+    expect(dot(draw(['maya']))).toBe(true);
   });
 });
 
@@ -177,10 +167,7 @@ describe('a menu label beside rows of chips', () => {
 
 describe('wired in the app', () => {
   const app = readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
-  it('B flips a room between grid and board', () => {
-    expect(app).toMatch(/\(e\.key === 'b' \|\| e\.key === 'B'\) && roomsUi\.flipView\) \{ e\.preventDefault\(\); roomsUi\.flipView\(\); \}/);
-  });
-  it('the header shows the room’s View button over a room', () => {
+  it('the header shows the room’s filters button over a room', () => {
     expect(app).toMatch(/<HeaderActions[\s\S]{0,1400}view=\{roomShown \? roomsUi\.viewButton : null\}/);
   });
   it('the Inbox’s people go through the Rooms rule', () => {

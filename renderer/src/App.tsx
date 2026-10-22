@@ -5106,11 +5106,10 @@ export default function App() {
       // A ROOM OWNS THE KEYBOARD WHILE IT IS OPEN, as Settings does: the list
       // behind it is not on the screen. Escape goes back to the threads and
       // Tab walks on along the tabs. N goes on to the room's branch below the
-      // guard, because it opens a text field. B flips grid and board, as on the Inbox.
+      // guard, because it opens a text field.
       if (roomShown && e.key !== 'Tab' && e.key !== 'n' && e.key !== 'N') {
         if (roomsUi.dialogOpen || modal || inInput || e.metaKey || e.ctrlKey || e.altKey) return;
         if (e.key === 'Escape') { e.preventDefault(); roomsUi.close(); }
-        if ((e.key === 'b' || e.key === 'B') && roomsUi.flipView) { e.preventDefault(); roomsUi.flipView(); }
         return;
       }
       // ⌘J SHOWS AND HIDES THIS TASK'S TERMINAL.It is the chord VS Code,

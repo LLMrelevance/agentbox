@@ -79,6 +79,7 @@
    gap is the board's own, so it is still there at the end of a scroll. */
 .rm-main.board { overflow: auto; padding-right: 0; }
 .rm-main.board > .rm-notice { margin-right: 24px; }
+.rm-main.board > .rm-empty { margin: 4px 24px 24px 0; }
 /* The grid's people over the board as one row of tiles in the Grid's lines.
    The right margin is the board's own gap, so the row ends where the board does. */
 .rm-bfaces { display: grid; grid-template-columns: repeat(var(--per-row, 8), minmax(0, 1fr)); margin: 2px 24px 22px 0; border-top: 1px solid var(--rm-line); border-left: 1px solid var(--rm-line); }
