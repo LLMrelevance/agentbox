@@ -27,7 +27,7 @@ import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from
 import { List } from './components/List';
 import { isTroubleRow, troubleRow } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
-import { needsYouLit } from './needs-you';
+import { lookedAtNow, needsYouLit } from './needs-you';
 import { arrivedAt, isUnread, readMoves } from './unread';
 import { Focus } from './components/Focus';
 import { TicketItems } from './components/TicketReference';
@@ -3126,7 +3126,7 @@ export default function App() {
   }, [modal]);
 
   useEffect(() => { localStorage.setItem(SEEN_KEY, JSON.stringify([...seen].slice(-2000))); }, [seen]);
-  useEffect(() => { if (view === 'inbox') setNeedsLookedAt(Date.now()); }, [view, inbox]);
+  useEffect(() => { if (view === 'inbox') setNeedsLookedAt((at) => lookedAtNow(inbox, at, Date.now())); }, [view, inbox]);
   useEffect(() => {
     const newest = Object.entries(seenAt).sort((a, b) => b[1] - a[1]).slice(0, 2000);
     localStorage.setItem(SEEN_AT_KEY, JSON.stringify(Object.fromEntries(newest)));
