@@ -9,7 +9,7 @@ import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef,
 import { useRowDrag } from './row-drag';
 import type { Person, Product, ThreadCard, ThreadStateWord, View, WorkItem } from '../types';
 import { priorityIdOf, priorityLabelOf, PRIORITIES, type PriorityId } from '../priority';
-import { Face, TeamContext, firstName } from '../team/people';
+import { Face, TeamContext, firstName, personOf } from '../team/people';
 import { PriorityIcon } from '../components/Priority';
 import { notStarted, rowTitle } from '../list-rules';
 import { toApproveWords } from '../threads-made';
@@ -726,7 +726,7 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
   // Held between renders, because J re-renders the board on every press and
   // the columns do not change when only the keyboard's card does.
   const columns = useMemo(
-    () => boardColumns({ items, products, display, now, stateOf, cards, picked, me, since, live: liveIds, order: shown, projectOrder, nameOf: (id) => firstName(team?.byId.get(id) ?? null) }),
+    () => boardColumns({ items, products, display, now, stateOf, cards, picked, me, since, live: liveIds, order: shown, projectOrder, nameOf: (id) => firstName(personOf(team, id)) }),
     [items, products, display, now, stateOf, cards, picked, me, since, liveIds, shown, projectOrder, team],
   );
   // THE OTHER COLUMNS SLIDE TO THEIR NEW PLACES (2026-10-02): they used to
@@ -987,7 +987,7 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
           <div className="m">{status && saysOnCard(status, e.item!, e.state)
             ? <span className="s"><StatusMark status={status} />{status.word}</span>
             : e.live && <RunningMark cloud={!!e.item && cloudIds.has(e.item.id)} />}{e.priority !== null && <PriorityMark id={priorityIdOf(e.priority)} />}<span className="p">{e.project}</span>
-            {withOthers && <Face person={e.ownerId ? team?.byId.get(e.ownerId) ?? null : null} me={e.ownerId === me} />}</div>
+            {withOthers && <Face person={personOf(team, e.ownerId)} me={e.ownerId === me} />}</div>
         </button>;
         })}
         {col.state === 'running' && <CloudOfferCard />}

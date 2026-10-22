@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Answered } from '../../../renderer/src/approval-stage';
 import { APPROVAL_EXIT_MS, approvalCard, cardOnStage, type Approval } from '../lib/overlays';
 import { useCloud } from '../state/cloud';
-import { T } from './parts';
+import { footRoom, T } from './parts';
 import { color, font, size } from './theme';
 
 // The site's glass is --bg-raised at 62% over a 22px blur. The app has no
@@ -137,7 +137,7 @@ export function Approvals() {
     void c.refresh();
   };
   // Above the inbox's tabs on every screen, as the site's `--phone-tabs` holds it.
-  const foot = Math.max(8, inset.bottom - 14);
+  const foot = footRoom(inset);
   return (
     <View pointerEvents="box-none" style={{ position: 'absolute', left: 8, right: 8, bottom: size.tabs + 8 + foot }}>
       <View>

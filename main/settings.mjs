@@ -31,8 +31,8 @@ import { NAME, Name } from '../shared/product-name.mjs';
 import { autoSlots } from './memory-gate.mjs';
 import { accountIdentity, claudeLoginCommand, duplicateAccountNote, linkAccountTooling, makeClaudeHome } from './account-tooling.mjs';
 import { isEngine } from '../shared/engines.mjs';
-import { codexAccount, codexLoginCommand, makeCodexHome } from './codex-account.mjs';
-import { codexDefaultModel, codexModels } from './codex-models.mjs';
+import { codexAccount, codexFreePlan, codexLoginCommand, makeCodexHome } from './codex-account.mjs';
+import { codexDefaultModel, codexModelsAcross } from './codex-models.mjs';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
 import { CLOUD_SAME, CLOUD_CLAUDE_DEFAULT, CLOUD_CODEX_DEFAULT } from './cloud-permission.mjs';
 import { claudeModels } from './claude-models.mjs';
@@ -773,6 +773,7 @@ function engineSettings(supervisor, config) {
     return { engine, engineChoices: choices, codex, codexModels: [], codexModelDefault: null, codexModel: null };
   }
   const home = supervisor._codexHome();
+  const offered = supervisor._codexOfferHomes();
   return {
     engine,
     engineChoices: choices,
@@ -781,9 +782,12 @@ function engineSettings(supervisor, config) {
     // strip in the model drawer draws the picked model's list, so they travel
     // beside the name rather than as a list of their own that could disagree
     // with it.
-    codexModels: codexModels({ home }).map((m) => ({
+    codexModels: codexModelsAcross(offered).map((m) => ({
       id: m.id, label: m.label, levels: m.levels.map((l) => l.id), defaultLevel: m.defaultLevel,
     })),
+    // Set when every login offered is on ChatGPT's free plan, so the menu can
+    // say why Codex lists so few models.
+    codexFreePlan: codexFreePlan(offered),
     // What her own `codex` in a terminal runs, so the card's word and her
     // terminal cannot disagree. Null is a real answer and the card says
     // "Codex's own" for it rather than guessing (renderer/src/models.ts).

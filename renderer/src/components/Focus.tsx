@@ -95,7 +95,7 @@ import { foldedReply } from '../folded-reply';
 import { applyDockHeight } from '../dock-height';
 import { resumeTo } from '../thread-bottom';
 import { optionIsClipped, optionPeek } from '../option-peek';
-import { askLine, askFull, askIsClipped } from '../ask-line';
+import { askHeading, askFull, askIsClipped } from '../ask-line';
 import { replyIsSwallowed, replyReaches } from '../../../shared/agents.mjs';
 import { recapFor } from '../recap';
 import type { LedgerLine } from '../thread-history';
@@ -127,6 +127,7 @@ import { defaultModelFor, engineModelLabel } from '../models';
 import { defaultEffortFor, effortChoicesFor, effortShown } from '../effort';
 import { ENGINES } from '../../../shared/engines.mjs';
 import { lookAgainAfter } from '../picture-looks-again';
+import { focusAtEnd } from '../focus-at-end';
 
 // A relative product path is an artifact, however the worker wrote it:
 // images render inline, other files become links, and .html demos embed
@@ -1063,7 +1064,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const [askPeek, setAskPeek] = useState(false);
   useEffect(() => { setAskPeek(false); }, [item.id]);
   const onAskEnter = (el: HTMLElement) => {
-    setAskPeek(askIsClipped(ask, askAll, el.querySelector('span')));
+    setAskPeek(!!ask && askIsClipped(ask, askAll, el.querySelector('span')));
   };
 
   const product = item.product;
@@ -1335,7 +1336,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const offered = (item[optSource] ?? '').trim();
   // The sentence the options answer, drawn as the strip's heading below, and
   // the whole of it for the card that opens when the heading cannot hold it.
-  const ask = useMemo(() => askLine(item), [item.result, item.note, item.body, item.title]);
+  const ask = useMemo(() => askHeading(item), [item.result, item.note, item.body, item.title]);
   const askAll = useMemo(() => askFull(item), [item.result, item.note, item.body, item.title]);
 
   // WHAT A MESSAGE LOOKS LIKE ONCE THE PANE HAS TAKEN ITS SHARE. The thread
@@ -2488,7 +2489,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     const { dropped } = saveDraftAttachments(item, attachments);
     setTooBig(dropped.length);
   }, [attachments, item.product, item.id]);
-  useEffect(() => { ref.current?.focus(); }, []);
+  useEffect(() => { focusAtEnd(ref.current); }, []);
   // AND IT FOLLOWS THE ROW, not just the first row this box was opened on.
   // `useState(item.answerMode)` is an initial value and React keeps the old one
   // when a mounted composer is handed a different item, so navigating between

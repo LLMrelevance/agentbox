@@ -3756,6 +3756,15 @@ export class Supervisor {
     return !word || word === 'default' ? this._codexHome() : word;
   }
 
+  // The homes whose models the menu offers and whose catalogs are refreshed:
+  // the signed-in logins a task may run on, main first. A login still being
+  // added has no plan yet, and its list would offer what nothing can run.
+  _codexOfferHomes() {
+    const pool = this._profilesFor('codex');
+    const signedIn = pool.filter((p) => this._codexSignedIn(p));
+    return [...new Set((signedIn.length ? signedIn : pool).map((p) => this._codexProfileHome(p)))];
+  }
+
   _profilesFor(engine) {
     const all = harnessFor(engineOf(engine)).profiles(this);
     return this._narrowToChosen(engine, all);
@@ -9461,6 +9470,15 @@ export class Supervisor {
   attachedPictures(item, product, thread = []) {
     if (!product?.dir) return [];
     return this.attachedFiles(item, product, thread).filter((f) => f.image).map((f) => f.abs);
+  }
+
+  /** What a reply sent to a running session carries: its files as a block (`attachmentBlock`), and its pictures for an engine that takes them in the turn. */
+  replyFiles(slug, answer, engine = DEFAULT_ENGINE) {
+    let product = null;
+    try { product = this.store.listProducts?.().find((p) => p.slug === slug) ?? null; } catch { /* none */ }
+    if (!product?.dir) return { block: '', pictures: [] };
+    const row = { answer };
+    return { block: this.attachmentBlock(row, product, [], engine), pictures: this.attachedPictures(row, product) };
   }
 
   /** The other threads these words name, summed up (shared/named-threads.mjs). */

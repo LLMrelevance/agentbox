@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { waitingTooLong, startLoops, errorLines, growth, instanceProcesses, keepEvidence } from '../.claude/skills/power-test/scripts/watch.mjs';
+import { waitingTooLong, startLoops, answeredRun, errorLines, growth, instanceProcesses, keepEvidence } from '../.claude/skills/power-test/scripts/watch.mjs';
 
 const MIN = 60_000;
 const created = (id, ts) => [
@@ -61,6 +61,28 @@ describe('a thread started over and over', () => {
     expect(startLoops(at(6, MIN), 6 * MIN)).toEqual([{ id: 'a', starts: 6 }]);
     expect(startLoops(at(5, MIN), 5 * MIN)).toEqual([]);
     expect(startLoops(at(6, 3 * MIN), 15 * MIN)).toEqual([]);
+  });
+
+  // w-3d0fa23ffb, 2026-10-21: the first stretch in the founder's room called two
+  // threads broken. One was a tester replying eight times in 13 minutes, every
+  // run answered; the other was three answered replies and three Codex starts
+  // refused in under a second. The app counts only runs that ended before the
+  // agent began, and so does this now.
+  it('does not count a run that answered, so a busy back-and-forth is not a loop', () => {
+    const busy = Array.from({ length: 8 }, (_, i) => ({ id: 'a', at: i * MIN, answered: true }));
+    expect(startLoops(busy, 8 * MIN)).toEqual([]);
+    const mixed = [0, 1, 2].map((i) => ({ id: 'b', at: i * MIN, answered: true }))
+      .concat([3, 4, 5].map((i) => ({ id: 'b', at: i * MIN, answered: false })));
+    expect(startLoops(mixed, 6 * MIN)).toEqual([]);
+    const dead = Array.from({ length: 6 }, (_, i) => ({ id: 'c', at: i * MIN, answered: false }));
+    expect(startLoops(dead, 6 * MIN)).toEqual([{ id: 'c', starts: 6 }]);
+  });
+
+  it('reads a run as answered from a clean result line, and not from one marked ERROR or none', () => {
+    expect(answeredRun('21:59:01  == RESULT (success · ? turns) ==\nWorked on it.\n\n# exited (0) 2026-10-21T21:59:01.784Z\n')).toBe(true);
+    expect(answeredRun('14:02:11  == RESULT (completed · 3m) ==\nDone.\n')).toBe(true);
+    expect(answeredRun('14:02:11  == RESULT (success ERROR · 1 turns) ==\nYou are out of usage.\n')).toBe(false);
+    expect(answeredRun('stderr: this row asks to run on "stub-model"\n\n# exited (1) 2026-10-21T22:00:28.737Z\n')).toBe(false);
   });
 });
 

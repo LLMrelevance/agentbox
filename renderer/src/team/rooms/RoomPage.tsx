@@ -106,8 +106,10 @@ export function WallCard({ card, sel = false, onClick, onPoint }: { card: RoomCa
     {sel && <span className="rm-check">{I.check()}</span>}
     <RoomFace name={card.name} url={card.avatarUrl} size={64} />
     <span className="rm-nm"><span className="n">{cardName(card)}</span>{card.level != null && <span className="rm-quiet">{card.level}</span>}</span>
-    <span className="rm-on rm-one">{card.workingOn ?? (card.workingPrivate ? <span className="rm-priv">Private thread</span> : card.status ? <span className="rm-priv">{card.status}</span> : ' ')}</span>
-    <span className="rm-ag"><LiveMark still={!card.agents} />{card.agents ? <><b>{card.agents}</b>{agentsWords(card.agents).replace(/^\d+ /, ' ')}</> : 'Not running'}</span>
+    <span className="rm-on rm-one">{card.away ? <span className="rm-priv">Not on Rooms yet</span> : card.workingOn ?? (card.workingPrivate ? <span className="rm-priv">Private thread</span> : card.status ? <span className="rm-priv">{card.status}</span> : ' ')}</span>
+    {card.away
+      ? <span className="rm-ag" aria-hidden="true">{' '}</span>
+      : <span className="rm-ag"><LiveMark still={!card.agents} />{card.agents ? <><b>{card.agents}</b>{agentsWords(card.agents).replace(/^\d+ /, ' ')}</> : 'Not running'}</span>}
   </div>;
 }
 

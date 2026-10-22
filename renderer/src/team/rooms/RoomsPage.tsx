@@ -23,6 +23,8 @@ export function RoomsPage({ state, invisible, now, onOpen, onFind, onMenu }: {
   const find = <div role="button" tabIndex={0} className="row rm-rfind" onClick={onFind} onKeyDown={(e) => { if (e.key === 'Enter') onFind(); }}>
     <span className="mark" aria-hidden="true" /><div className="row-main rm-rnm">{I.search()}<span>Find rooms to join</span></div>
   </div>;
+  // Before the first read, "none" would be the one thing not true.
+  if (!state.ready) return <div className="list th-table rm-rooms" />;
   if (!rooms.length) return <div className="list th-table rm-rooms"><div className="th-empty">You are not in any rooms yet.</div>{find}</div>;
   return <div className="list th-table rm-rooms">
     <div className="row th-head"><span className="mark" aria-hidden="true" /><div className="row-main th-grid rm-rgrid">
