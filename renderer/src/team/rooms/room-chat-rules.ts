@@ -23,19 +23,15 @@ export function drawnRoots(messages: readonly RoomMessage[]): RoomMessage[] {
 
 /**
  * The message as markdown, each @name made a mention link so it can be drawn
- * as one. `me` is what you answer to in it, your name and first name, and
- * those are told apart; a first name only counts as a whole word.
+ * as one, when it is a whole word. `me` is what you answer to in it, your
+ * name and first name, and those are told apart.
  */
 export function mentionMarkdown(body: string, names: readonly string[], me: readonly string[] = []): string {
-  const at = (n: string) => `@${n}`.toLowerCase();
-  const full = new Set(names.map(at));
-  const mine = new Set(me.filter(Boolean).map(at));
+  const mine = new Set(me.filter(Boolean).map((n) => `@${n}`.toLowerCase()));
   const parts = markMentions(body, [...names, ...me]);
   return parts.map((part, i) => {
-    if (!part.mention) return part.text;
-    const said = part.text.toLowerCase();
-    if (!full.has(said) && /^[\p{L}\p{N}]/u.test(parts[i + 1]?.text ?? '')) return part.text;
-    return `[${part.text}](${mine.has(said) ? '#mention-me' : '#mention'})`;
+    if (!part.mention || /^[\p{L}\p{N}]/u.test(parts[i + 1]?.text ?? '')) return part.text;
+    return `[${part.text}](${mine.has(part.text.toLowerCase()) ? '#mention-me' : '#mention'})`;
   }).join('');
 }
 

@@ -61,7 +61,9 @@ describe('a message that names you by your first name', () => {
     expect(draw2([m('a', MAYA, 0, 'can @sam look?', { mentions: [] })], who)).not.toContain('rm-at');
   });
 
-  it('does not mark the start of a longer word', () => {
+  it('does not mark the start of a longer word, first name or full', () => {
     expect(mentionMarkdown('ask @Samantha', ['Sam Rivera'], ['Sam Rivera', 'Sam'])).toBe('ask @Samantha');
+    expect(mentionMarkdown('ask @Sam RiveraX', ['Sam Rivera'], ['Sam Rivera', 'Sam'])).toBe('ask @Sam RiveraX');
+    expect(mentionMarkdown('thanks @Sam Rivera, done', ['Sam Rivera'], ['Sam Rivera'])).toBe('thanks [@Sam Rivera](#mention-me), done');
   });
 });

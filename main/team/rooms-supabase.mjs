@@ -155,7 +155,7 @@ export function roomsSupabase(client, myId, must) {
     async putRoomFile(roomId, name, data) {
       const me = await myId();
       const { error } = await client.from('room_files').insert({ room_id: roomId, name, by_person: me, data });
-      if (error?.code === '23505') throw fileExists(name);
+      if (error?.code === '23505') { settle(); throw fileExists(name); }
       if (error && notThere(error)) throw new Error(BEHIND);
       if (error) throw new Error(`sending the file: ${error.message}`);
       settle();

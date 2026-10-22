@@ -32,6 +32,7 @@ function cloud() {
         const updated = table === 'room_files' ? state.updated : q.was;
         let res;
         if (table === 'room_reactions') res = updated ? { data: [{ message_id: 'm1', person_id: 'p2', emoji: '👍', is_on: true, updated_at: row.created_at }], error: null } : { data: null, error: { code: 'PGRST205', message: "Could not find the table 'public.room_reactions'" } };
+        else if (table === 'room_files' && updated && state.fileThere) res = { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint' } };
         else if (table === 'room_files') res = updated ? { data: null, error: null } : { data: null, error: { code: 'PGRST205', message: "Could not find the table 'public.room_files'" } };
         else if (!updated && NEW.some((c) => q.cols.includes(c))) res = { data: null, error: { code: '42703', message: 'column room_messages.edited_at does not exist' } };
         else res = { data: [{ ...row, ...(updated ? { edited_at: null, deleted_at: null } : {}) }], error: null };
@@ -60,6 +61,16 @@ describe('a cloud updated while the app is open', () => {
     await backend.roomMessages('r1');
     expect(lastMessageRead(state.asked)).toContain('edited_at');
     await expect(backend.roomReactions('r1')).resolves.toHaveLength(1);
+  });
+
+  it('is read the new way at once after a retried voice note finds it already there', async () => {
+    const { state, backend } = cloud();
+    await backend.roomMessages('r1');
+    state.updated = true;
+    state.fileThere = true;
+    await expect(backend.putRoomFile('r1', 'voice-note-4000ms.webm', 'AAAA')).rejects.toThrow();
+    await backend.roomMessages('r1');
+    expect(lastMessageRead(state.asked)).toContain('edited_at');
   });
 
   it('is read the new way at once after a voice note reaches it', async () => {
