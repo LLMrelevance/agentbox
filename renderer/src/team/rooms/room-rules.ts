@@ -1,6 +1,6 @@
 // The rules the room screens draw by (w-3d0fa23ffb), kept apart from the
 // drawing so they can be tested. tests/a-room-reads-the-way-it-was-approved.
-import type { Room, RoomCard, ThreadCard } from '../../types';
+import type { Person, Room, RoomCard, ThreadCard } from '../../types';
 
 /** A chat just started goes beside the room where that panel is drawn; a
  *  person's page has none, so from there it opens full page, and Back returns. */
@@ -38,6 +38,13 @@ export function activityCards(card: RoomCard, cards: readonly ThreadCard[]): Thr
     personId: card.id, threadId: `${PRESENCE}${card.id}:${i}`, visible: true, title: a.title, project: a.project, state: a.state, priority: null,
     problem: null, progress: null, solution: null, blockedBy: [], blocks: [], people: null, updatedAt: a.at,
   }));
+}
+
+/** Everyone on my rooms' walls but me, as people the board can name and draw. */
+export function roomMatesById(rooms: readonly Pick<Room, 'wall'>[]): Map<string, Person> {
+  const out = new Map<string, Person>();
+  for (const r of rooms) for (const c of r.wall) if (!c.me && !out.has(c.id)) out.set(c.id, { id: c.id, email: '', name: c.name, avatarUrl: c.avatarUrl });
+  return out;
 }
 
 /** Every room-mate outside my team's presence lines, as cards for the board their page draws. */

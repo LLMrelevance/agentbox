@@ -7,6 +7,12 @@ import { dayAndTime } from '../format';
 
 export const firstName = (person: Person | undefined | null) => (person?.name || person?.email || 'Someone').split(/\s+/)[0];
 
+/** A person to draw: off the team, or else one of my room-mates, who are never the team's people to pick. */
+export function personOf(team: { byId: Map<string, Person>; alsoById?: Map<string, Person> } | null | undefined, id: string | null | undefined): Person | null {
+  if (!team || !id) return null;
+  return team.byId.get(id) ?? team.alsoById?.get(id) ?? null;
+}
+
 export type LineState = 'run' | 'wait' | 'sched';
 export type CompanyLine = {
   key: string;

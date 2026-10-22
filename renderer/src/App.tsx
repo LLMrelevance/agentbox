@@ -106,7 +106,7 @@ import { ComposeIcon } from './components/ComposeIcon';
 import { WorkspaceNavigation } from './components/WorkspaceNavigation';
 import { useRooms } from './team/rooms/useRooms';
 import { directConversations } from './team/rooms/conversations';
-import { isPresenceCard, roomMateCards } from './team/rooms/room-rules';
+import { isPresenceCard, roomMateCards, roomMatesById } from './team/rooms/room-rules';
 import { MARK_UNREAD, SAY } from './team/chat-events';
 import { MentionRows } from './team/rooms/MentionRows';
 import { FeedbackCard } from './components/FeedbackCard';
@@ -965,7 +965,7 @@ export default function App() {
     next.delete(id);
     return next;
   }), []);
-  // The held one when it is an answer, which reads as queued while it waits.
+  // The last held action when it was an answer, which reads as queued while its row is held.
   const [heldAnswer, setHeldAnswer] = useState<string | null>(null);
 
   const [run, setRun] = useState<FirstRun | null>(null);
@@ -1619,17 +1619,16 @@ export default function App() {
     if (!pending) return;
     pendingRef.current = null;
     clearTimeout(pending.timer);
-    const done = () => { letRowGo(pending.item.id); setHeldAnswer((p) => (p === pending.item.id ? null : p)); };
     try {
       await pending.run();
     } catch (err) {
-      done();
+      letRowGo(pending.item.id);
       throw err;
     }
     // Let go only once the snapshot after the write is in, or the row is
     // drawn open again for as long as that snapshot takes. Not waited for:
     // the next write needs this one written, not redrawn.
-    void Promise.resolve(refreshRef.current?.()).catch(() => {}).finally(done);
+    void Promise.resolve(refreshRef.current?.()).catch(() => {}).finally(() => letRowGo(pending.item.id));
   }, [letRowGo]);
 
   // A RELOAD WRITES WHAT IS HELD BEFORE IT HAPPENS (w-47218417a5). The window
@@ -1827,7 +1826,10 @@ export default function App() {
   // THE TEAM, as the window reads it: who is signed in, their people, and
   // which projects are shared. Null when nobody is signed in, and then every
   // list below is exactly the single-person app's.
-  const team = useMemo(() => teamView(snap?.team, snap?.products ?? []), [snap?.team, snap?.products]);
+  const team = useMemo(() => {
+    const view = teamView(snap?.team, snap?.products ?? []);
+    return view ? { ...view, alsoById: roomMatesById(snap?.team?.rooms?.rooms ?? []) } : view;
+  }, [snap?.team, snap?.products]);
   // "Maya", "Maya and Jun": who a message from the new thread card went to.
   const firstNames = (ids: string[]) => joinNames(ids.map((id) => team?.byId.get(id)?.name?.split(/\s+/)[0]).filter(Boolean) as string[]);
   // A SHARED ROW IS IN ONE INBOX AT A TIME (shared/team-rules.mjs). A row given
@@ -1907,11 +1909,11 @@ export default function App() {
   // (renderer/src/fleet.ts, w-ec2b04d449).
   const fleet = useMemo((): Fleet => ({
     sessions: new Map(runningRows.map((r) => [r.itemId, r])),
-    queued: queuedWithHeld(snap?.supervisor.queued, heldAnswer), remoteHeld: snap?.supervisor.remoteHeld, runNow: snap?.supervisor.runNow,
+    queued: queuedWithHeld(snap?.supervisor.queued, heldAnswer && pendingIds.has(heldAnswer) ? heldAnswer : null), remoteHeld: snap?.supervisor.remoteHeld, runNow: snap?.supervisor.runNow,
     signInNeeded: snap?.supervisor.signInNeeded, atLimit: snap?.supervisor.atLimit,
     shipping: snap?.supervisor.shipping, stalled: snap?.supervisor.stalled,
     silent: snap?.supervisor.silent, paused: snap?.supervisor.paused,
-  }), [runningRows, snap?.supervisor, heldAnswer]);
+  }), [runningRows, snap?.supervisor, heldAnswer, pendingIds]);
   const cloudIds = useMemo(() => new Set(runningRows.filter((r) => r.where === 'cloud').map((r) => r.itemId)), [runningRows]);
   // THE THREADS THE APP STILL HAS TO SHIP (w-0c1ba766eb). Waiting on the app,
   // not on her, so In progress reading "Shipping" and out of Needs you until
@@ -3780,7 +3782,6 @@ export default function App() {
         await refresh();
       } finally {
         letRowGo(item.id);
-        setHeldAnswer((p) => (p === item.id ? null : p));
       }
     };
     if (holdMs <= 0) { await write(); return; }
@@ -4871,7 +4872,6 @@ export default function App() {
       clearTimeout(pending.timer);
       advanceRef.current = null;
       letRowGo(pending.item.id);
-      setHeldAnswer(null);
       // the draft has to be back on disk before the item is focused, because it
       // is the draft's presence that opens the reply dock (the effect below).
       // Otherwise she lands on a closed composer holding a message she cannot
