@@ -107,6 +107,30 @@ describe("a room-mate's work", () => {
   });
 });
 
+describe('coming back', () => {
+  // The tester pressed Come back and for one to three seconds the wall had no
+  // card at all: the notice had gone and her card waited for the next read.
+  it('puts my card straight back on my own wall, before anything is read again', async () => {
+    const w = world();
+    const { room } = await together(w);
+    await w.jun.rooms.goInvisible(60);
+    const mine = () => w.jun.rooms.state().rooms.find((r) => r.id === room.id);
+    expect(mine().wall.some((c) => c.id === w.jun.id)).toBe(false);
+    await w.jun.rooms.comeBack();
+    expect(mine().wall.some((c) => c.id === w.jun.id)).toBe(true);
+  });
+
+  // A switch turned off keeps the value off the cloud, as the others do.
+  it('turning my activity off takes it off the cloud at once, not on the next pass', async () => {
+    const w = world();
+    await together(w);
+    const rows = async () => (await w.maya.backend.roomPresence([w.jun.id])).map((r) => r.activity.length);
+    expect(await rows()).toEqual([2]);
+    await w.jun.rooms.saveProfile({ show_activity: false });
+    expect(await rows()).toEqual([0]);
+  });
+});
+
 describe('on a cloud without the names call', () => {
   it('the wall is the cards and the chat names from them, as before', async () => {
     const w = world({ oldCloud: true });
