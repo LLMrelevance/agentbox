@@ -30,3 +30,9 @@ export interface Fleet {
 }
 
 export const FleetContext = createContext<Fleet>({});
+
+/** The queue as she should read it: an answer held for its undo is already on its way to an agent. */
+export function queuedWithHeld(queued: string[] | undefined, held: string | null): string[] | undefined {
+  if (!held || !queued || queued.includes(held)) return queued;
+  return [...queued, held];
+}

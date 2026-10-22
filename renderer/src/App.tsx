@@ -161,7 +161,7 @@ import { TeamPage } from './team/TeamPage';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
 import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, CloudOfferContext, FreeAgentContext, StateTabs, WaitingContext } from './threads/Pages';
 import { cloudOffer, type OfferGo } from './cloud-upgrade';
-import { FleetContext, type Fleet } from './fleet';
+import { FleetContext, queuedWithHeld, type Fleet } from './fleet';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
@@ -953,6 +953,8 @@ export default function App() {
   // progress immediately, because a sent thing still sitting in the inbox
   // reads as not sent.
   const [pendingId, setPendingId] = useState<string | null>(null);
+  // The held one when it is an answer, which reads as queued while it waits.
+  const [heldAnswer, setHeldAnswer] = useState<string | null>(null);
 
   const [run, setRun] = useState<FirstRun | null>(null);
   // THE FIRST SECOND OF HER OWN PROJECT. Null except for the five seconds after
@@ -1607,6 +1609,7 @@ export default function App() {
     clearTimeout(pending.timer);
     await pending.run();
     setPendingId(null);
+    setHeldAnswer(null);
     await refreshRef.current?.();
   }, []);
 
@@ -1885,11 +1888,11 @@ export default function App() {
   // (renderer/src/fleet.ts, w-ec2b04d449).
   const fleet = useMemo((): Fleet => ({
     sessions: new Map(runningRows.map((r) => [r.itemId, r])),
-    queued: snap?.supervisor.queued, runNow: snap?.supervisor.runNow,
+    queued: queuedWithHeld(snap?.supervisor.queued, heldAnswer), runNow: snap?.supervisor.runNow,
     signInNeeded: snap?.supervisor.signInNeeded, atLimit: snap?.supervisor.atLimit,
     shipping: snap?.supervisor.shipping, stalled: snap?.supervisor.stalled,
     silent: snap?.supervisor.silent, paused: snap?.supervisor.paused,
-  }), [runningRows, snap?.supervisor]);
+  }), [runningRows, snap?.supervisor, heldAnswer]);
   const cloudIds = useMemo(() => new Set(runningRows.filter((r) => r.where === 'cloud').map((r) => r.itemId)), [runningRows]);
   // THE THREADS THE APP STILL HAS TO SHIP (w-0c1ba766eb). Waiting on the app,
   // not on her, so In progress reading "Shipping" and out of Needs you until
@@ -3733,6 +3736,12 @@ export default function App() {
     if (!stay) leaveResolved(item);
     if (!neoSending.current) setModal(null);
     setPendingId(item.id); // out of the inbox NOW; the write can wait, the signal cannot
+    // Only an answer passes `goes`, and only an answer starts an agent.
+    setHeldAnswer(goes ? item.id : null);
+    const settled = () => {
+      setPendingId((p) => (p === item.id ? null : p));
+      setHeldAnswer((p) => (p === item.id ? null : p));
+    };
     // "PRESS Z", NOT A BARE LETTER. The toast used to read "Closed: Added the
     // sign-in route. Tests g · Z to undo": the title had been cut mid-word at
     // 32 characters, so "Tests green." came out "Tests g", and the bare Z ran
@@ -3748,7 +3757,7 @@ export default function App() {
     if (holdMs <= 0) {
       await run();
       await refresh();
-      setPendingId((p) => (p === item.id ? null : p));
+      settled();
       return;
     }
     const timer = setTimeout(async () => {
@@ -3756,7 +3765,7 @@ export default function App() {
       pendingRef.current = null;
       await run();
       await refresh();
-      setPendingId((p) => (p === item.id ? null : p));
+      settled();
     }, UNDO_GRACE_MS);
     pendingRef.current = { item, timer, run, restore, undid, said: toast };
   }, [flushPending, leaveResolved, refresh, showToast]);
@@ -4838,6 +4847,7 @@ export default function App() {
       clearTimeout(pending.timer);
       advanceRef.current = null;
       setPendingId(null);
+      setHeldAnswer(null);
       // the draft has to be back on disk before the item is focused, because it
       // is the draft's presence that opens the reply dock (the effect below).
       // Otherwise she lands on a closed composer holding a message she cannot
