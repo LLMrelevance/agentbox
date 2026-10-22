@@ -43,7 +43,9 @@ export function directConversations({ items, products, me, people, waiting, mark
 export function roomConversations(rooms: RoomsState | null | undefined): Conversation[] {
   if (!rooms?.on) return [];
   const meId = rooms.me?.person_id ?? null;
-  return rooms.rooms.map((r: Room) => {
+  // A chat nobody has written in yet waits on its starter's list alone.
+  const said = (r: Room) => (rooms.messages[r.id] ?? []).some((m) => !m.deleted);
+  return rooms.rooms.filter((r) => r.kind !== 'group' || r.role === 'owner' || said(r)).map((r: Room) => {
     const held = rooms.messages[r.id] ?? [];
     const last = [...held].reverse().find((m) => !m.deleted && !m.inReplyTo) ?? held.at(-1);
     // Invisible, I am off my own wall, and my words are still mine.
