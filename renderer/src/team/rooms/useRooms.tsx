@@ -18,7 +18,7 @@ import { FindRooms, type ListedRoom } from './FindRooms';
 import { InviteDialog, JoinDialog, MembersMenu, StartRoomDialog, type Preview, type Sent } from './RoomDialogs';
 import { joinLink, tokenFromLink } from '../../../../shared/room-links.mjs';
 import { RoomsNotReady, RoomsSettings } from './RoomsSettings';
-import { GroupPage, NowLines, TitleFaces, groupEvents, readGroupLook } from './GroupPage';
+import { GroupPage, NowLines, TitleFaces, groupEvents, readGroupLook, readWovenLook } from './GroupPage';
 
 type Dialog =
   | { kind: 'invite'; roomId: string }
@@ -69,6 +69,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   // A chat opened full page from a person's page, so Back goes back there.
   const [cameFrom, setCameFrom] = useState<{ roomId: string; pane: RoomPane } | null>(null);
   const [look] = useState(readGroupLook);
+  const [woven] = useState(readWovenLook);
   const open = openId ? all.find((r) => r.id === openId) ?? null : null;
   const invisibleUntil = Date.parse(rooms?.me?.invisible_until ?? '');
   const chatRoom = (panelId ? all.find((r) => r.id === panelId) : null) ?? open;
@@ -275,6 +276,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       actions={r.kind === 'group' ? undefined
         : <button type="button" className="rm-btn" onClick={() => setDialog({ kind: 'invite', roomId: r.id })}>{I.invite(14)}Invite</button>} /> : undefined;
     return <RoomChat room={r} messages={rooms?.messages[r.id] ?? []} people={withMe(chatPeople(r, meId), meInChat)} meId={meId} now={now} full={asFull} head={head}
+      woven={woven ? { look: woven, ...groupEvents(r, teamCards, now) } : undefined}
       onSend={send(r.id)} onRead={read(r)} {...chatCalls(r)}
       onInvite={() => setDialog({ kind: 'invite', roomId: r.id })}
       onExpand={asFull ? undefined : () => { setOpenId(r.id === open?.id ? open.id : r.id); setFull(true); setPanelId(null); }}
@@ -327,7 +329,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     };
     page = <div className="rm-split"><div className="rm-main wide"><FindRooms load={loadListed} onOpen={(id) => openRoom(id)} onLink={(t) => void join(t)}
       onJoin={async (id) => { const res = await call<string>('joinListed', id); return res.ok ? null : res.error ?? 'Could not join'; }} /></div></div>;
-  } else if (open && rooms && pane === 'wall') {
+  } else if (open && rooms && pane === 'wall' && look) {
     const others = open.wall.filter((c) => !c.me);
     const name = open.kind === 'group' ? others.map((c) => c.name).join(', ') || open.name : open.name;
     const people = withMe(chatPeople(open, meId), meInChat);

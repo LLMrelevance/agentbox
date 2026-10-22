@@ -476,6 +476,63 @@
 .gp-ev em { margin-left: auto; padding-left: 12px; flex: none; font: normal 10.5px var(--mono); color: var(--text-faint); }
 .gp-now { margin: 16px 0 2px; padding-top: 12px; border-top: 1px solid var(--rm-line); display: flex; flex-direction: column; }
 .gp-now > .rm-label { margin-bottom: 6px; }
-.gp-now-row { display: grid; grid-template-columns: 16px auto minmax(0, 1fr) auto; column-gap: 8px; align-items: center; height: 28px; font-size: 13px; }
-.gp-now-row .who { color: var(--text); }
-.gp-now-row .what { color: var(--text-dim); }
+.gp-now-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; column-gap: 8px; align-items: center; height: 28px; font-size: 13px; }
+.gp-now-row b { font-weight: 400; color: var(--text); }
+.gp-now-row .t { color: var(--text-dim); }
+.gp-ev .t { color: var(--text-dim); }
+.gp-ev.wrap { align-items: flex-start; }
+.gp-ev.wrap > .rm-pic { margin-top: 1px; }
+.gp-ev .w { min-width: 0; }
+.gp-mk { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 12px; height: 12px; color: var(--text-dim); }
+.gp-mk .live-mark { width: 11px; height: 11px; gap: 1px; color: var(--text-dim); }
+
+/* twitch: every message and every piece of work one dense line */
+.gp-tw .rm-cm { position: relative; padding: 2px 0 3px 43px; }
+.gp-tw .rm-cm .h { display: inline-flex; gap: 7px; margin-right: 7px; vertical-align: top; line-height: 19px; }
+.gp-tw .rm-cm .h em { position: absolute; left: 0; top: 2px; line-height: 19px; }
+.gp-tw .rm-cm .h .rm-pic { display: none; }
+.gp-tw .rm-cm .h > span { font-weight: 500; }
+.gp-tw .rm-cm .tx { display: inline; margin: 0; font-size: 13px; line-height: 19px; }
+.gp-tw .rm-cm .tx p { display: inline; }
+.gp-tw .rm-new { margin: 6px 0 4px; }
+.gp-tick { display: flex; align-items: flex-start; gap: 7px; padding: 2px 0 3px; font-size: 13px; line-height: 19px; color: var(--text-faint); min-width: 0; }
+.gp-tick > em { flex: none; width: 36px; font: normal 10.5px/19px var(--mono); color: var(--text-faint); }
+.gp-tick > .gp-mk { margin-top: 3.5px; }
+.gp-tick > span { min-width: 0; }
+.gp-tick b { font-weight: 400; color: var(--text-dim); }
+.gp-tick .t { color: var(--text-dim); }
+
+/* cheer: finished work as a card people react to */
+.gp-cheer { margin: 8px 0 6px; padding: 10px 12px 11px; border: 1px solid var(--line-strong); background: var(--wash); }
+.gp-cheer .top { display: flex; align-items: center; gap: 7px; font-size: 12.5px; line-height: 16px; color: var(--text-faint); }
+.gp-cheer .top b { font-weight: 400; color: var(--text-dim); }
+.gp-cheer .top em { margin-left: auto; font: normal 10.5px var(--mono); }
+.gp-cheer .t { display: flex; align-items: flex-start; gap: 7px; margin-top: 7px; font-size: 13.5px; line-height: 19px; color: var(--text); }
+.gp-cheer .t .gp-mk { margin-top: 3.5px; }
+.gp-cheer .p { margin: 3px 0 0 19px; font: 10.5px/14px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--text-faint); }
+.gp-cheer .chat-chips { margin: 9px 0 0 19px; }
+
+/* bursts: work back to back folds into one line */
+.gp-burst { margin: 3px 0; }
+.gp-burst .hd { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 0 5px; border: 0; background: none; font: inherit; font-size: 13px; line-height: 18px; color: var(--text-faint); text-align: left; cursor: default; }
+.gp-burst .hd:hover { color: var(--text-dim); }
+.gp-burst .hd .fs { display: flex; flex: none; }
+.gp-burst .hd .fs .rm-pic + .rm-pic { margin-left: -3px; outline: 2px solid var(--skin-solid, var(--surface)); }
+.gp-burst .hd .w { min-width: 0; }
+.gp-burst .hd b { font-weight: 400; color: var(--text-dim); }
+.gp-burst .hd em { margin-left: auto; flex: none; font: normal 10.5px var(--mono); }
+.gp-burst .hd .ch { flex: none; }
+.gp-burst .ls { margin: 0 0 6px 7px; padding-left: 12px; border-left: 1px solid var(--line); }
+
+/* lane: only work, over the conversation */
+.gp-lane { flex: none; height: 40%; display: flex; flex-direction: column; border-bottom: 1px solid var(--rm-line); }
+.gp-lane-h { flex: none; display: flex; align-items: center; justify-content: space-between; height: 34px; padding: 0 20px; }
+.gp-lane-ls { flex: 1; min-height: 0; overflow-y: auto; padding: 0 20px 8px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent 8px, #000 48px); mask-image: linear-gradient(to bottom, transparent 0, transparent 8px, #000 48px); }
+
+/* ticker: the newest piece of work, over the box */
+.gp-ticker { flex: none; display: flex; align-items: center; gap: 8px; margin: 6px 20px 0; padding: 7px 10px; border: 1px solid var(--rm-line); font-size: 12.5px; line-height: 16px; color: var(--text-faint); }
+.gp-ticker b { font-weight: 400; color: var(--text-dim); }
+.gp-ticker .t { color: var(--text-dim); }
+.gp-ticker em { flex: none; font: normal 10.5px var(--mono); }
+.gp-ticker .fs { display: flex; flex: none; margin-left: 2px; }
+.gp-ticker .fs .rm-pic + .rm-pic { margin-left: -3px; outline: 2px solid var(--skin-solid, var(--surface)); }

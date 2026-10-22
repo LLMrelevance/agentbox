@@ -1,6 +1,6 @@
 // A group: its chat and what everyone in it is doing, on one page. Five ways
 // to lay it out while one is picked (w-dcaa2c122e); `groups.look` chooses.
-import { useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Room, RoomCard, RoomMessage, ThreadCard } from '../../types';
 import { LiveMark } from '../../components/LiveMark';
 import { RoomFace } from './RoomFace';
@@ -9,11 +9,12 @@ import { agentsWords, cardName, clockOf } from './room-rules';
 export type GroupLook = 'beside' | 'above' | 'woven' | 'wall' | 'title';
 export const GROUP_LOOKS: GroupLook[] = ['beside', 'above', 'woven', 'wall', 'title'];
 
-export function readGroupLook(): GroupLook {
+/** Unset, a group is the room page as shipped: the wall or board, and the chat beside it. */
+export function readGroupLook(): GroupLook | null {
   try {
     const got = localStorage.getItem('groups.look');
-    return (GROUP_LOOKS as string[]).includes(got ?? '') ? got as GroupLook : 'beside';
-  } catch { return 'beside'; }
+    return (GROUP_LOOKS as string[]).includes(got ?? '') ? got as GroupLook : null;
+  } catch { return null; }
 }
 
 /** You first; then working, most agents first; then the rest; people not on yet last. */
@@ -106,20 +107,141 @@ export function LastWordWall({ room, messages, onPerson }: { room: Room; message
   </div>;
 }
 
-/** What happened in the group today besides talk, for the woven look. */
-export type GroupEvent = { id: string; at: number; by: string; text: string; live?: boolean };
+/** What happened in the group today besides talk, for the woven chat. */
+export type GroupEvent = { id: string; at: number; by: string; kind: 'started' | 'finished' | 'now'; title: string; project?: string | null; text: string; live?: boolean };
+
+/** How the work is woven into a group's chat, while one is picked (`groups.woven`). */
+export type WovenLook = 'quiet' | 'twitch' | 'cheer' | 'bursts' | 'lane' | 'ticker';
+export const WOVEN_LOOKS: WovenLook[] = ['quiet', 'twitch', 'cheer', 'bursts', 'lane', 'ticker'];
+export function readWovenLook(): WovenLook | null {
+  try {
+    const got = localStorage.getItem('groups.woven');
+    return (WOVEN_LOOKS as string[]).includes(got ?? '') ? got as WovenLook : null;
+  } catch { return null; }
+}
+
+type Started = ThreadCard & { startedAt?: number };
+const DAY = 12 * 3_600_000;
 
 export function groupEvents(room: Room, cards: readonly ThreadCard[], now: number): { past: GroupEvent[]; now: GroupEvent[] } {
   const ids = new Set(room.wall.map((c) => c.id));
   const past: GroupEvent[] = [];
-  for (const t of cards) {
-    if (!ids.has(t.personId) || !t.title || now - t.updatedAt > 12 * 3_600_000) continue;
-    if (t.state === 'done') past.push({ id: `ev:${t.threadId}`, at: t.updatedAt, by: t.personId, text: `finished ${t.title}` });
-    if (t.state === 'running') past.push({ id: `ev:${t.threadId}`, at: t.updatedAt - 40 * 60_000, by: t.personId, text: `started ${t.title}` });
+  const add = (id: string, by: string, kind: 'started' | 'finished', title: string, project: string | null, at: number) => {
+    if (now - at <= DAY) past.push({ id, at, by, kind, title, project, text: `${kind} ${title}` });
+  };
+  for (const t of cards as readonly Started[]) {
+    if (!ids.has(t.personId) || !t.title) continue;
+    if (t.state === 'done') add(`ev:${t.threadId}`, t.personId, 'finished', t.title, t.project, t.updatedAt);
+    if (t.state === 'running' || t.state === 'done') add(`st:${t.threadId}`, t.personId, 'started', t.title, t.project, t.startedAt ?? t.updatedAt);
   }
+  // Someone outside my team shows their work on their presence line instead.
+  for (const c of room.wall) {
+    if (c.teammate || c.me || !c.activity) continue;
+    c.activity.forEach((a, i) => {
+      if (a.state === 'done') add(`pa:${c.id}:${i}`, c.id, 'finished', a.title, a.project, a.at);
+      if (a.state === 'running') add(`pa:${c.id}:${i}`, c.id, 'started', a.title, a.project, a.at);
+    });
+  }
+  past.sort((a, b) => a.at - b.at);
   const live = inGroupOrder(room.wall).filter((c) => (c.agents ?? 0) > 0)
-    .map((c) => ({ id: `now:${c.id}`, at: now, by: c.id, text: c.workingOn ?? 'Private thread', live: true }));
+    .map((c) => ({ id: `now:${c.id}`, at: now, by: c.id, kind: 'now' as const, title: c.workingOn ?? 'Private thread', text: c.workingOn ?? 'Private thread', live: true }));
   return { past, now: live };
+}
+
+type Who = (id: string | null) => { name: string; avatarUrl: string | null; me: boolean } | undefined;
+const nameIn = (who: Who, id: string) => { const p = who(id); return p ? cardName(p) : 'Someone'; };
+
+/** Work that happened back to back, folded into one line. */
+export type Burst = { burst: GroupEvent[]; id: string; at: number };
+
+export function foldBursts<M extends { id: string; at: number }>(stream: (M | GroupEvent)[]): (M | GroupEvent | Burst)[] {
+  const out: (M | GroupEvent | Burst)[] = [];
+  let run: GroupEvent[] = [];
+  const flush = () => {
+    if (run.length > 1) out.push({ burst: run, id: `burst:${run[0].id}`, at: run[0].at });
+    else out.push(...run);
+    run = [];
+  };
+  for (const x of stream) {
+    if ('kind' in x && 'title' in x) run.push(x as GroupEvent);
+    else { flush(); out.push(x); }
+  }
+  flush();
+  return out;
+}
+
+export function WorkMark({ kind }: { kind: GroupEvent['kind'] }) {
+  return kind === 'finished'
+    ? <span className="gp-mk done" aria-label="Finished"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg></span>
+    : <span className="gp-mk" aria-label="Started"><LiveMark still={kind !== 'now'} /></span>;
+}
+
+/** One piece of work as a quiet line between the messages. */
+export function WorkLine({ ev, who, wrap = false }: { ev: GroupEvent; who: Who; wrap?: boolean }) {
+  const p = who(ev.by);
+  return <div className={`gp-ev${wrap ? ' wrap' : ''}`}><RoomFace name={p?.name ?? '?'} url={p?.avatarUrl} size={16} />
+    <span className={wrap ? 'w' : 'rm-one'}><b>{nameIn(who, ev.by)}</b> {ev.kind} <span className="t">{ev.title}</span></span><em>{clockOf(ev.at)}</em></div>;
+}
+
+/** The dense look: time, mark, name and the work, on one line like a busy chat. */
+export function WorkTick({ ev, who }: { ev: GroupEvent; who: Who }) {
+  const verb = ev.kind === 'now' ? (who(ev.by)?.me ? 'are on' : 'is on') : ev.kind;
+  return <div className="gp-tick"><em>{ev.kind === 'now' ? 'now' : clockOf(ev.at)}</em><WorkMark kind={ev.kind} />
+    <span><b>{nameIn(who, ev.by)}</b> {verb} <span className="t">{ev.title}</span></span></div>;
+}
+
+/** Finished work as a card the group can cheer. */
+export function CheerCard({ ev, who, cheers, children }: { ev: GroupEvent; who: Who; cheers?: ReactNode; children?: ReactNode }) {
+  const p = who(ev.by);
+  return <div className="gp-cheer">
+    <div className="top"><RoomFace name={p?.name ?? '?'} url={p?.avatarUrl} size={16} /><span><b>{nameIn(who, ev.by)}</b> finished</span><em>{clockOf(ev.at)}</em></div>
+    <div className="t"><WorkMark kind="finished" /><span>{ev.title}</span></div>
+    {ev.project && <div className="p">{ev.project}</div>}
+    {cheers}{children}
+  </div>;
+}
+
+export function BurstRow({ burst, who, open, onToggle }: { burst: Burst; who: Who; open: boolean; onToggle: () => void }) {
+  const ids = [...new Set(burst.burst.map((e) => e.by))];
+  const names = ids.map((id, i) => { const n = nameIn(who, id).split(' ')[0]; return i > 0 && who(id)?.me ? 'you' : n; });
+  const said = names.length > 2 ? `${names.slice(0, 2).join(', ')} and ${names.length - 2} more` : names.join(' and ');
+  const done = burst.burst.filter((e) => e.kind === 'finished').length;
+  const started = burst.burst.length - done;
+  const counts = [done && `finished ${done}`, started && `started ${started}`].filter(Boolean).join(', ');
+  return <div className={`gp-burst${open ? ' open' : ''}`}>
+    <button type="button" className="hd" onClick={onToggle}>
+      <span className="fs">{ids.slice(0, 3).map((id) => { const p = who(id); return <RoomFace key={id} name={p?.name ?? '?'} url={p?.avatarUrl} size={16} />; })}</span>
+      <span className="w"><b>{said}</b> {counts}</span>
+      <em>{clockOf(burst.burst.at(-1)!.at)}</em>
+      <svg className="ch" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={open ? 'm7 14 5-5 5 5' : 'm7 10 5 5 5-5'} /></svg>
+    </button>
+    {open && <div className="ls">{burst.burst.map((e) => <WorkTick key={e.id} ev={e} who={who} />)}</div>}
+  </div>;
+}
+
+/** The live lane over the conversation: only work, newest at the bottom. */
+export function LiveLane({ past, now, who, agents }: { past: GroupEvent[]; now: GroupEvent[]; who: Who; agents: number }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight; });
+  return <div className="gp-lane">
+    <div className="gp-lane-h"><span className="rm-label">Live</span><span className="rm-ag"><LiveMark still={!agents} /><b>{agents}</b>&nbsp;agents working</span></div>
+    <div className="gp-lane-ls" ref={ref}>
+      {past.map((e) => <WorkTick key={e.id} ev={e} who={who} />)}
+      {now.map((e) => <WorkTick key={e.id} ev={e} who={who} />)}
+    </div>
+  </div>;
+}
+
+/** One line over the box: the newest piece of work, and who is working. */
+export function WorkTicker({ past, now, who, at }: { past: GroupEvent[]; now: GroupEvent[]; who: Who; at: number }) {
+  const last = past.at(-1);
+  if (!last) return null;
+  const mins = Math.max(1, Math.round((at - last.at) / 60_000));
+  return <div className="gp-ticker" title={`${now.length} working now`}>
+    <WorkMark kind={last.kind} />
+    <span className="rm-one"><b>{nameIn(who, last.by).split(' ')[0]}</b> {last.kind} <span className="t">{last.title}</span></span>
+    <em>{mins < 60 ? `${mins} min ago` : clockOf(last.at)}</em>
+  </div>;
 }
 
 /** The Now block at the foot of the woven stream: who is working, on what. */
@@ -132,9 +254,8 @@ export function NowLines({ room, lines }: { room: Room; lines: GroupEvent[] }) {
       const c = byId.get(l.by)!;
       return <div key={l.id} className="gp-now-row">
         <RoomFace name={c.name} url={c.avatarUrl} size={16} />
-        <span className="who">{cardName(c)}</span>
-        <span className="what rm-one">{l.text}</span>
-        <Agents n={c.agents} small />
+        <span className="rm-one"><b>{cardName(c)}</b> <span className="t">{l.text}</span></span>
+        <span className="rm-ag gp-ag-s"><LiveMark /><b>{c.agents}</b></span>
       </div>;
     })}
   </div>;

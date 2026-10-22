@@ -25,7 +25,7 @@ import { pictureUrl } from '../../picture';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
 import { cardName, clockOf, mentionsIn } from './room-rules';
-import type { GroupEvent } from './GroupPage';
+import { BurstRow, CheerCard, LiveLane, NowLines, WorkLine, WorkTick, WorkTicker, foldBursts, type Burst, type GroupEvent, type WovenLook } from './GroupPage';
 import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, quickOnBar, roomReader, storedName, wordsLeftAfterSend } from './room-chat-rules';
 
 export type ChatPerson = { id: string; name: string; avatarUrl: string | null; me: boolean };
@@ -46,7 +46,7 @@ export type RoomChatCalls = {
   onNotice?: (text: string) => void;
 };
 
-export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand, onSwitch, switchOpen, full = false, head, events, foot, ...calls }: {
+export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand, onSwitch, switchOpen, full = false, head, events, foot, woven, ...calls }: {
   room: Room; messages: RoomMessage[]; people: ChatPerson[]; meId: string | null; now: number;
   onInvite?: () => void; onExpand?: () => void;
   onSwitch?: (anchor: DOMRect) => void; switchOpen?: boolean;
@@ -56,6 +56,8 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
   events?: GroupEvent[];
   /** Drawn after the newest message, above the box. */
   foot?: ReactNode;
+  /** What everyone did today, and how it is woven in. */
+  woven?: { look: WovenLook; past: GroupEvent[]; now: GroupEvent[] };
 } & RoomChatCalls) {
   const { onSend, onRead, onReact, onEdit, onDelete, onMarkUnread, onNotice } = calls;
   const [thread, setThread] = useState<string | null>(null);
@@ -112,8 +114,25 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
   const who = (id: string | null) => (id ? byId.get(id) : undefined);
   const nameOf = (id: string | null) => { const p = who(id); return p ? cardName(p) : 'Someone'; };
   const listRef = useStick([room.id, thread, shown.length]);
-  const stream: (RoomMessage | GroupEvent)[] = root || !events?.length ? shown : [...shown, ...events].sort((a, b) => a.at - b.at);
+  const look = woven?.look ?? (events?.length ? 'quiet' : null);
+  const work = woven?.past ?? events ?? [];
+  const inStream = !root && work.length > 0 && look !== 'lane' && look !== 'ticker';
+  const merged: (RoomMessage | GroupEvent)[] = inStream ? [...shown, ...work].sort((a, b) => a.at - b.at) : shown;
+  const stream: (RoomMessage | GroupEvent | Burst)[] = look === 'bursts' && inStream ? foldBursts(merged) : merged;
   const slots = chatLayout(stream.map((m) => ({ at: m.at, by: 'body' in m ? m.by ?? '' : m.id })), now);
+  const dense = look === 'twitch';
+  const lastBurst = [...stream].reverse().find((x) => 'burst' in x)?.id ?? null;
+  const [openBurst, setOpenBurst] = useState<string | null>(null);
+  const burstOpen = (id: string) => (openBurst ?? lastBurst) === id;
+  // Cheers on finished work are drawn from the people here; nothing stores them yet.
+  const cheersFor = (ev: GroupEvent) => {
+    const others = people.filter((p) => p.id !== ev.by).map((p) => p.id);
+    const n = [...ev.id].reduce((s, c) => s + c.charCodeAt(0), 0);
+    const out: Record<string, string[]> = { '🎉': others.slice(0, 1 + (n % Math.max(1, others.length))) };
+    if (n % 3 === 0) out['🙌'] = others.slice(-1);
+    return out;
+  };
+  const whoOf = (id: string | null) => who(id);
   const myNames = useMemo(() => {
     const name = people.find((p) => p.me)?.name;
     if (!name) return [];
@@ -141,20 +160,21 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
       {!root && onInvite && room.kind !== 'group' && <button type="button" className="ic" title={`Invite people to ${room.name}`} aria-label={`Invite people to ${room.name}`} onClick={onInvite}>{I.invite(14)}</button>}
       {onExpand && <button type="button" className="ic" title="Open full page" aria-label="Open full page" onClick={onExpand}>{I.expand()}</button>}
     </div>}
-    <div className="rm-chat-list" ref={listRef}>
+    {look === 'lane' && !root && <LiveLane past={work} now={woven?.now ?? []} who={whoOf} agents={room.agents} />}
+    <div className={`rm-chat-list${dense ? ' gp-tw' : ''}`} ref={listRef}>
       {stream.map((m, i) => {
         const slot = slots[i];
         if (!('body' in m)) {
-          const p = who(m.by);
-          return <div key={m.id}>
-            {slot.day && <div className="rm-day"><span className="rm-label">{slot.day}</span></div>}
-            <div className="gp-ev"><RoomFace name={p?.name ?? '?'} url={p?.avatarUrl} size={16} /><span className="rm-one"><b>{nameOf(m.by)}</b> {m.text}</span><em>{clockOf(m.at)}</em></div>
-          </div>;
+          const day = slot.day && <div className="rm-day"><span className="rm-label">{slot.day}</span></div>;
+          if ('burst' in m) return <div key={m.id}>{day}<BurstRow burst={m} who={whoOf} open={burstOpen(m.id)} onToggle={() => setOpenBurst(burstOpen(m.id) ? '' : m.id)} /></div>;
+          if (look === 'twitch') return <div key={m.id}>{day}<WorkTick ev={m} who={whoOf} /></div>;
+          if (look === 'cheer' && m.kind === 'finished') return <div key={m.id}>{day}<CheerCard ev={m} who={whoOf} cheers={<Reactions on={cheersFor(m)} me={meId} onReact={() => {}} />} /></div>;
+          return <div key={m.id}>{day}<WorkLine ev={m} who={whoOf} wrap={!full} /></div>;
         }
         const mine = m.by === meId;
         const reps = !root ? replies.get(m.id) ?? [] : [];
         const p = who(m.by);
-        const headed = slot.head || (root && i === 0) || m.id === newAt;
+        const headed = dense || slot.head || (root && i === 0) || m.id === newAt;
         return <div key={m.id}>
           {slot.day && <div className="rm-day"><span className="rm-label">{slot.day}</span></div>}
           {m.id === newAt && <div className="rm-new" role="separator"><span>New</span></div>}
@@ -198,8 +218,9 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
           </div>
         </div>;
       })}
-      {!root && foot}
+      {!root && (foot ?? (look === 'quiet' && woven && <NowLines room={room} lines={woven.now} />))}
     </div>
+    {look === 'ticker' && woven && !root && <WorkTicker past={work} now={woven.now} who={whoOf} at={now} />}
     <Composer key={`${room.id}:${thread ?? ''}`} roomId={room.id} threadId={thread} people={others}
       placeholder={root ? `Reply to ${nameOf(root.by)}` : `Message ${room.kind === 'group' ? others.map((p) => p.name.split(' ')[0]).join(', ') || room.name : room.name}`}
       onPutFile={calls.onPutFile} onNotice={onNotice}
