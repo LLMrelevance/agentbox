@@ -198,7 +198,8 @@
 .rm-tab .rm-tabname { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; cursor: pointer; }
 .rm-tab .rm-tabname svg { width: 13px; height: 13px; }
 .rm-tab .rm-tabname b { font-weight: 400; color: var(--text-faint); margin-left: 2px; }
-.rm-tab .rm-tabpick { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; background: none; color: var(--text-faint); cursor: pointer; }
+.rm-tab .rm-tabpick { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; background: none; color: var(--text-faint); cursor: pointer; opacity: 0; }
+.rm-tab:hover .rm-tabpick, .rm-tab .rm-tabpick.open, .rm-tab .rm-tabpick:focus-visible { opacity: 1; }
 .rm-tab .rm-tabpick:hover, .rm-tab .rm-tabpick.open { color: var(--text); background: var(--wash-strong); }
 .rm-tabmenu { min-width: 220px; }
 .rm-tabmenu .row .n { font: 11px var(--mono); color: var(--text-faint); }

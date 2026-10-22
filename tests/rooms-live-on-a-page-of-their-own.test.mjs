@@ -124,8 +124,9 @@ describe('no pinned room tabs', () => {
     expect(items).not.toContain('Pin as a tab');
     expect(hook).not.toMatch(/call\('pin'/);
   });
+  // Out of the room in the Threads tab it goes back to Threads (tests/the-room-tab-opens-its-room-under-the-threads-tabs).
   it('stepping out of a room or Find rooms goes back to the Rooms page, and out of a group chat does not', () => {
     expect(hook).toMatch(/if \(finding\) \{ setFinding\(false\); setListing\(true\); return; \}/);
-    expect(hook).toMatch(/setOpenId\(null\); setFull\(false\); setPanelId\(null\); setListing\(open\?\.kind !== 'group'\);/);
+    expect(hook).toMatch(/setOpenId\(null\); setFull\(false\); setPanelId\(null\); setListing\(open\?\.kind !== 'group'( && !inTab)?\);/);
   });
 });
