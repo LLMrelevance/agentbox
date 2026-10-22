@@ -1256,7 +1256,8 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
     case 'adhdMode':
       saveConfig(config, { adhdMode: !!value });
       break;
-    // Neo reads its switch once, at start; Rooms is read on every snapshot.
+    // Neo starts only if its switch was on at launch, and stops waking the
+    // moment it goes off; Rooms is read on every snapshot.
     case 'alphaNeo':
       saveConfig(config, { alphaNeo: !!value });
       break;

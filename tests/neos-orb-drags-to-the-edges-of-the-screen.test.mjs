@@ -23,7 +23,6 @@ const SCREEN = { x: 0, y: 0, width: 1920, height: 1080 };
 
 function fakes() {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'neo-orb-'));
-  fs.writeFileSync(path.join(userData, 'neo-alpha'), '');
   const handlers = new Map();
   const listeners = new Map();
   const windows = {};
@@ -45,7 +44,7 @@ function fakes() {
     session: { fromPartition: () => ({ setPermissionRequestHandler() {}, setPermissionCheckHandler() {} }) },
     globalShortcut: { register: () => true, unregister() {} },
     mainWindow: { isDestroyed: () => false, isFocused: () => true, moveTop: () => {}, getContentBounds: () => ({ x: 0, y: 0, width: 1920, height: 1080 }), on: () => {}, webContents: { send: () => {} } },
-    preload: '/x', load: () => {}, userData, listen: () => ({ stop() {} }), platform: 'darwin',
+    preload: '/x', load: () => {}, userData, config: { alphaNeo: true }, listen: () => ({ stop() {} }), platform: 'darwin',
   });
   return { neo, windows, listeners, finishLoad: () => finishLoad?.(), from: { sender: neoContents } };
 }
