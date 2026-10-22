@@ -62,7 +62,18 @@ it('finds the Chrome started on this profile, and nothing else', () => {
     { pid: 4, command: `${app}` },
     { pid: 5, command: `grep --user-data-dir=${profile}` },
   ];
-  expect(holdersOf(profile, list)).toEqual([1, 2]);
+  expect(holdersOf(profile, list, app)).toEqual([1, 2]);
+});
+
+it('on Linux, the Chromium the copy runs, helpers included', () => {
+  const chromium = '/opt/ms-playwright/chromium-1248/chrome-linux-arm64/chrome';
+  const profile = '/tmp/agentbox-verify/instances/x-power/chrome-profile';
+  const list = () => [
+    { pid: 7, command: `${chromium} --headless=new --user-data-dir=${profile} about:blank` },
+    { pid: 8, command: `${chromium} --type=renderer --user-data-dir=${profile}` },
+    { pid: 9, command: `/usr/bin/google-chrome --user-data-dir=${profile}` },
+  ];
+  expect(holdersOf(profile, list, chromium)).toEqual([7, 8]);
 });
 
 it("the tester's browser frees its profile before it opens", () => {
