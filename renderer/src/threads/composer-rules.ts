@@ -245,10 +245,18 @@ export function momentFromWords(text: string, now = Date.now()): { ts: number; h
  * in ../message-split.ts, which never drops a word she typed. Files with no
  * words are titled by the first file. Null when there is nothing to send.
  */
-export function threadMessage(text: string, attachments: ReadonlyArray<{ name: string }>): { title: string; body: string } | null {
+export function threadMessage(
+  text: string,
+  attachments: ReadonlyArray<{ name: string }>,
+  named?: { encode: (words: string) => string; plain: (words: string) => string },
+): { title: string; body: string } | null {
   const trimmed = (text ?? '').trim();
   if (!trimmed && !attachments.length) return null;
-  return splitMessage(trimmed || `Attached: ${attachments[0]?.name}`);
+  const sent = named ? named.encode(trimmed) : trimmed;
+  if (sent === trimmed) return splitMessage(trimmed || `Attached: ${attachments[0]?.name}`);
+  // A thread named in the first line would leave the body with the title
+  // lifted out, and the title is plain words, so the body keeps every line.
+  return { title: splitMessage(named!.plain(trimmed)).title, body: sent };
 }
 
 /* -------------------------------- projects -------------------------------- */

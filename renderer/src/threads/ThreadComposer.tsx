@@ -52,6 +52,7 @@ import { repeatPresets } from '../components/When';
 import { readRule } from '../format';
 import { fitMenu } from '../keep-in-window';
 import { ModelMenu } from './ModelMenu';
+import { useThreadMentions } from '../components/ThreadMentions';
 import {
   agentChoices, agentWordFor,
   allModels, findPeople, harnessFields, laterHint, momentFromWords, mondayMorning, moreCount,
@@ -292,6 +293,7 @@ export function ThreadComposer({
   const anchor = (key: MenuKey) => (el: HTMLElement | null) => { anchors.current[key] = el; };
   const textRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const named = useThreadMentions({ text, setText, input: textRef, threads: items });
 
   const toggle = (key: MenuKey) => {
     // WHICH LIST WAS OPENED, for the one caller that needs to know: the
@@ -398,7 +400,7 @@ export function ThreadComposer({
   // off and she was stuck for fifteen minutes. If the practice text did not
   // arrive, Send sends it anyway.
   const typed = !text.trim() && scripted && !person ? `${PRACTICE_TASK.title}\n\n${PRACTICE_TASK.body}` : text;
-  const message = threadMessage(typed, person ? [] : attachments);
+  const message = threadMessage(typed, person ? [] : attachments, named);
   const refusal = person ? null : practiceRefusal(product, { scripted: !!scripted });
   // The other reason Send can be off: there is no project to send to at all
   // (w-f8d123be62). It gets a line in the bar rather than a tooltip, because
@@ -505,7 +507,7 @@ export function ThreadComposer({
     try {
       res = await api.teamMessage(
         toMany ?? person.id,
-        text.trim(),
+        named.encode(text.trim()),
         prio ? priorityValueOf(prio) : undefined,
         attachments.map(({ name, dataBase64, srcPath }) => ({ name, dataBase64, srcPath })),
       );
@@ -921,11 +923,15 @@ export function ThreadComposer({
           </div>
         )}
 
+        {named.chips}
         <textarea
           ref={textRef}
-          className="tc-text"
+          className={`tc-text ${named.over}`}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => { setText(e.target.value); named.track(e.target); }}
+          onSelect={(e) => named.track(e.currentTarget)}
+          onScroll={(e) => named.track(e.currentTarget)}
+          onKeyDown={(e) => { named.keyDown(e); }}
           placeholder={person ? `Message ${names}` : placeholderFor(null)}
           onPaste={async (e) => {
             const pasted = await fromPaste(e);
@@ -937,6 +943,7 @@ export function ThreadComposer({
             await addFiles(e.dataTransfer.files);
           }}
         />
+        {named.menu}
         <AttachRow attachments={attachments} onRemove={(i) => setAttachments((x) => x.filter((_, j) => j !== i))} />
 
         {refusal && <div className="tc-note">{refusal}</div>}

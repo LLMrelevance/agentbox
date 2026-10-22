@@ -56,7 +56,7 @@ describe('a message in a room', () => {
   });
 
   it('marks an @name as a mention', () => {
-    expect(html).toContain('<b class="rm-at">@Sam Rivera</b>');
+    expect(html).toContain('<b class="rm-at me">@Sam Rivera</b>');
   });
 
   it('draws the New line above the first message someone else wrote after your read point', () => {

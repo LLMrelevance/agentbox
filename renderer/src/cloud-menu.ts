@@ -2,6 +2,7 @@
 // The button and the menu are drawn in threads/Pages.tsx, beside the filters
 // button and built like its menu; what they say lives here.
 import type { UsageLimit } from './types';
+import { accountName } from '../../shared/account-names.mjs';
 
 export type CloudMode = 'mac' | 'full' | 'all';
 
@@ -90,12 +91,12 @@ export function pageToOpen(s: CloudSignIn | null): { key: string; url: string } 
 }
 
 // What an account is called: its email, or, when the vendor would not say,
-// "Claude account 2", counted among that engine's accounts.
+// "Claude account 2", counted among that engine's accounts. The rule itself is
+// shared, because the sentence a thread gets when a login runs out names one
+// too (shared/account-names.mjs).
 export function accountLabel(a: CloudAccount, all: CloudAccount[]): string {
-  if (a.name) return a.name;
   const same = all.filter((x) => x.engine === a.engine);
-  const n = same.indexOf(a) + 1;
-  return `${engineWord(a)} account${same.length > 1 ? ` ${n}` : ''}`;
+  return accountName({ email: a.name, engine: a.engine, index: same.indexOf(a), total: same.length });
 }
 
 export const CLOUD_MODES: { id: CloudMode; label: string; note: string }[] = [

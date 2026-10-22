@@ -2206,7 +2206,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
               {w.leftovers && (
                 <Row
                   label="Stop programs agents leave behind"
-                  desc={`Dev servers, previews and test runs an agent started and left running are stopped two hours after its run ends, or ten minutes while memory is short. Never stopped: anything you started yourself, apps installed on this computer, and what an agent was asked to keep.${twoEngines ? ' Codex agents’ programs are not found yet.' : ''}${w.leftovers.now ? ` ${w.leftovers.now}` : ''}`}
+                  desc={`Dev servers, previews and test runs an agent started keep running until you close its task, or until memory runs short. Apps installed on this computer are never stopped.${twoEngines ? ' Codex agents’ programs are not found yet.' : ''}${w.leftovers.now ? ` ${w.leftovers.now}` : ''}`}
                 >
                   <Switch label="Stop programs agents leave behind" on={w.leftovers.on} onChange={(v) => setWorkspace('cleanupLeftovers', v)} />
                 </Row>

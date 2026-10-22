@@ -21,9 +21,18 @@ export function drawnRoots(messages: readonly RoomMessage[]): RoomMessage[] {
   return messages.filter((m) => !m.inReplyTo && (!m.deleted || answered.has(m.id)));
 }
 
-/** The message as markdown, each @name made a mention link so it can be drawn as one. */
-export function mentionMarkdown(body: string, names: readonly string[]): string {
-  return markMentions(body, names).map((part) => (part.mention ? `[${part.text}](#mention)` : part.text)).join('');
+/**
+ * The message as markdown, each @name made a mention link so it can be drawn
+ * as one, when it is a whole word. `me` is what you answer to in it, your
+ * name and first name, and those are told apart.
+ */
+export function mentionMarkdown(body: string, names: readonly string[], me: readonly string[] = []): string {
+  const mine = new Set(me.filter(Boolean).map((n) => `@${n}`.toLowerCase()));
+  const parts = markMentions(body, [...names, ...me]);
+  return parts.map((part, i) => {
+    if (!part.mention || /^[\p{L}\p{N}]/u.test(parts[i + 1]?.text ?? '')) return part.text;
+    return `[${part.text}](${mine.has(part.text.toLowerCase()) ? '#mention-me' : '#mention'})`;
+  }).join('');
 }
 
 /** The name a file sent in a room is stored under: unique, and still ending in its own name. */
@@ -42,6 +51,31 @@ export function holdsRead(held: boolean, wasMarked: boolean, isMarked: boolean):
   if (isMarked && !wasMarked) return true;
   if (!isMarked && wasMarked) return false;
   return held;
+}
+
+/** How long a room stays in front of you before it counts as read: longer than
+ *  Tab resting on its tab on the way past, so walking the tabs reads nothing. */
+export const READ_AFTER_MS = 2000;
+
+/**
+ * Reads the open room once it has been on screen for READ_AFTER_MS, then each
+ * new message as it arrives. `open` starts the wait (the room drawn, the
+ * window back in front), `away` drops it, `close` stops. `canRead` is asked
+ * at the moment of reading.
+ */
+export function roomReader({ read, canRead, wait = READ_AFTER_MS }: { read: () => void; canRead: () => boolean; wait?: number }) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let stayed = false;
+  const stop = () => { clearTimeout(timer); timer = undefined; stayed = false; };
+  return {
+    open() {
+      stop();
+      timer = setTimeout(() => { timer = undefined; stayed = true; if (canRead()) read(); }, wait);
+    },
+    arrived() { if (stayed && canRead()) read(); },
+    away: stop,
+    close: stop,
+  };
 }
 
 /** My messages in the room with these words in this place, by id. */
@@ -67,6 +101,11 @@ export function wordsLeftAfterSend(now: string, sent: string): string {
   if (now === sent) return '';
   if (sent && now.startsWith(sent)) return now.slice(sent.length).replace(/^\s+/, '');
   return now;
+}
+
+/** The bar's quick emoji take half a side panel's width, so only a full-width chat shows them, and not in a thread. */
+export function quickOnBar({ full, thread }: { full: boolean; thread: boolean }): boolean {
+  return full && !thread;
 }
 
 /** The newest message of mine in the chat itself, for ↑ in an empty box. */
