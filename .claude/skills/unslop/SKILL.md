@@ -133,7 +133,7 @@ had already been unslopped:
 
 | | Them | Us |
 |---|---|---|
-| First person per 1,000 words | 44.9 | 1.3 |
+| First person per 1,000 words, counted as one thing | 44.9 | 1.3 |
 | Sentences opening with a bare command | 0.0% | 5.0% |
 | Mean sentence length | 21.8 | 14.9 |
 | Sentences over 25 words | 37.5% | 10% |
@@ -142,9 +142,6 @@ had already been unslopped:
   "Give every task its own git worktree" is an instruction manual shouting at a
   stranger. Say what is true or what happened and let the reader draw the
   instruction out of it. Inside a numbered how-to step a command is fine.
-- **Put a person in it.** Every reference opens with somebody in a situation:
-  "I have never been a C programmer but every so often I need to compile a
-  C/C++ program from source." Writing that reports work says who did the work.
 - **Never invent the person.** "We" attaches only to something that actually
   happened. No war stories, no "in our experience", no anecdote that did not
   occur. Faked experience is worse than no voice at all, and if no true
@@ -155,6 +152,42 @@ had already been unslopped:
 - **Measure body prose and FAQ answers apart.** An answer under a question
   heading should stay short and say "you". Body prose should not. Averaging
   the two describes neither, and chasing the average pads the FAQ.
+
+## Write about the thing, not about having looked at it
+
+That 44.9 is two numbers added together, and chasing it produced six pages she
+read as "you overly use the word we. It feels like Smiegel is almost talking".
+Split by pronoun, the same eight pieces and the same six pages:
+
+| per 1,000 words | Them | Us, after chasing 44.9 |
+|---|---|---|
+| I, me, my | 22.8 | 0.0 |
+| we, our, us | 15.1 | 14.5 |
+
+Their "we" is the reader and the writer walking through something together.
+Dan Luu writes "let's say we want to write a file safely". The pages' "we" was
+a company reporting its own research, and 87 of its 134 uses were "we" plus a
+verb of having looked at something, as in "we found", "we read", "we checked".
+A product page has no "I" available to it, so copying a personal blog's
+first-person number leaves only the corporate plural, which is the one that
+grates.
+
+- **State a fact, never report it.** Cut the clause saying somebody went and
+  looked. "The twenty-three tools we found all automate that step" is "All
+  twenty-three tools automate that step". "When we checked, its last commit was
+  20 August" is "Its last commit was 20 August". The date and the source go
+  once, in the as-of line or the method section, where a reader checking the
+  work goes anyway.
+- **"We" meaning the product is the product's name.** "Where we lose" is
+  "Where Agentbox loses". A table cell saying "ours" says what it means.
+- **An admission keeps its force without the pronoun.** "We have not tested ten
+  agents" is "Ten agents remain untested", which concedes the same thing.
+  Dropping the concession along with the pronoun is the one way this rule does
+  damage, and on a comparison page it is dishonest.
+- **"You" is for a reader being asked or instructed.** An FAQ question keeps
+  its wording and a how-to step keeps its "you". Otherwise name the subject.
+  "the subscription you already pay for" is "an existing Claude Code
+  subscription", which also says which subscription.
 
 ## Punctuation and formatting
 
