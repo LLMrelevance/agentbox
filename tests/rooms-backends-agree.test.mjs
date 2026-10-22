@@ -100,7 +100,8 @@ describe.each(worlds)('rooms on %s', (_kind, make) => {
     const ids = [w.maya.personId, w.theo.personId, w.jun.personId];
     expect((await w.theo.roomProfiles(ids)).map((p) => p.display_name).sort()).toEqual(['Maya N.', 'Theo N.']);
     expect((await w.jun.roomProfiles(ids)).map((p) => p.display_name)).toEqual(['Jun E.']);
-    expect(await w.jun.myRoomProfile()).toMatchObject({ display_name: 'Jun E.', show_working: 'team', show_agents: true });
+    // A new card names its work to everyone in its rooms (20261022000100_rooms_show_everyone.sql).
+    expect(await w.jun.myRoomProfile()).toMatchObject({ display_name: 'Jun E.', show_working: 'everyone', show_agents: true });
   });
 
   it('a link shows the room before joining, and joining by it lets me see in', async () => {

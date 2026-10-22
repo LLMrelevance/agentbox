@@ -95,7 +95,7 @@ import { foldedReply } from '../folded-reply';
 import { applyDockHeight } from '../dock-height';
 import { resumeTo } from '../thread-bottom';
 import { optionIsClipped, optionPeek } from '../option-peek';
-import { askLine, askFull, askIsClipped } from '../ask-line';
+import { askHeading, askFull, askIsClipped } from '../ask-line';
 import { replyIsSwallowed, replyReaches } from '../../../shared/agents.mjs';
 import { recapFor } from '../recap';
 import type { LedgerLine } from '../thread-history';
@@ -120,13 +120,14 @@ import {
 import { SummaryPanel, SummaryRail, ThreadCrumb, ThreadStateMark, useSummaryOpen, useSummaryShortcut, type RepeatHandle } from '../threads/Summary';
 import { ThreadMenu, type ThreadPlace } from '../threads/ThreadMenu';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
-import { useChatMentions } from '../team/ChatAgents';
+import { ChatAgentsContext, useChatMentions } from '../team/ChatAgents';
 import { useThreadMentions } from './ThreadMentions';
 import { AGENT_SCHEME } from '../team/agent-mentions';
 import { defaultModelFor, engineModelLabel } from '../models';
 import { defaultEffortFor, effortChoicesFor, effortShown } from '../effort';
 import { ENGINES } from '../../../shared/engines.mjs';
 import { lookAgainAfter } from '../picture-looks-again';
+import { focusAtEnd } from '../focus-at-end';
 
 // A relative product path is an artifact, however the worker wrote it:
 // images render inline, other files become links, and .html demos embed
@@ -724,6 +725,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
 }) {
   // A TASK GIVEN TO A PERSON has no agent on it, so nothing says one is not running.
   const teamCtx = useContext(TeamContext);
+  const chatAgents = useContext(ChatAgentsContext);
   const heldByPerson = teamHeld(item, teamCtx);
   // Whatever the pane is leading with, not the ask alone: on a row the user wrote,
   // the ask is the one field a worker cannot answer in (format.ts says why).
@@ -1063,7 +1065,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const [askPeek, setAskPeek] = useState(false);
   useEffect(() => { setAskPeek(false); }, [item.id]);
   const onAskEnter = (el: HTMLElement) => {
-    setAskPeek(askIsClipped(ask, askAll, el.querySelector('span')));
+    setAskPeek(!!ask && askIsClipped(ask, askAll, el.querySelector('span')));
   };
 
   const product = item.product;
@@ -1335,7 +1337,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const offered = (item[optSource] ?? '').trim();
   // The sentence the options answer, drawn as the strip's heading below, and
   // the whole of it for the card that opens when the heading cannot hold it.
-  const ask = useMemo(() => askLine(item), [item.result, item.note, item.body, item.title]);
+  const ask = useMemo(() => askHeading(item), [item.result, item.note, item.body, item.title]);
   const askAll = useMemo(() => askFull(item), [item.result, item.note, item.body, item.title]);
 
   // WHAT A MESSAGE LOOKS LIKE ONCE THE PANE HAS TAKEN ITS SHARE. The thread
@@ -1781,10 +1783,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
                 onResize: resizeThread,
                 // A REPLY IN A THREAD is an answer on this conversation like any
                 // other, so it reaches the same inboxes and syncs the same way;
-                // it only names the message it answers.
-                onSend: (uid, text) => api.answer({ product: item.product, id: item.id, answer: text, inReplyTo: uid })
-                  .then(() => true, () => { onNotice('That reply did not send. Try again.'); return false; }),
+                // it only names the message it answers. An agent it mentions
+                // starts first, as from the chat's own box.
+                onSend: (uid, text) => (chatAgents?.start ? chatAgents.start(item, text) : Promise.resolve(text))
+                  .then((answer) => api.answer({ product: item.product, id: item.id, answer, inReplyTo: uid }).then(() => answer))
+                  .catch(() => { onNotice('That reply did not send. Try again.'); return false; }),
                 fresh: freshThreads,
+                people: talkNames ?? [],
               } : undefined}
             />
           )}
@@ -2488,7 +2493,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     const { dropped } = saveDraftAttachments(item, attachments);
     setTooBig(dropped.length);
   }, [attachments, item.product, item.id]);
-  useEffect(() => { ref.current?.focus(); }, []);
+  useEffect(() => { focusAtEnd(ref.current); }, []);
   // AND IT FOLLOWS THE ROW, not just the first row this box was opened on.
   // `useState(item.answerMode)` is an initial value and React keeps the old one
   // when a mounted composer is handed a different item, so navigating between

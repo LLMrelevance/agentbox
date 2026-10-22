@@ -39,15 +39,15 @@ export function RoomsSettings({ me, fullName, card, roomName, now, save, goInvis
     <Group id="rooms-card" label="Your card" bare>
       <div className="rm-prev"><div className="set-plate" style={{ flex: 1, minWidth: 0 }}>
         <Row label="What you are working on" desc={working ? undefined : 'Off, it reads Private thread. Your team still sees your shared threads on its board.'}>
-          <Switch label="What you are working on" on={working} onChange={(v) => save({ show_working: v ? 'team' : 'none' })} />
+          <Switch label="What you are working on" on={working} onChange={(v) => save({ show_working: v ? 'everyone' : 'none' })} />
         </Row>
-        {working && <Row label="Show it to people outside your team" desc={me.show_working === 'everyone' ? 'On, everyone in your rooms sees the name.' : 'Off, they see Private thread.'}>
+        {working && <Row label="Show it to people outside your team" desc={me.show_working === 'everyone' ? 'On, everyone in your rooms sees the name and your activity.' : 'Off, they see Private thread and no activity.'}>
           <Switch label="Show it to people outside your team" on={me.show_working === 'everyone'} onChange={(v) => save({ show_working: v ? 'everyone' : 'team' })} />
         </Row>}
         <Row label="How many agents are running"><Switch label="How many agents are running" on={me.show_agents} onChange={(v) => save({ show_agents: v })} /></Row>
         <Row label="Your level"><Switch label="Your level" on={me.show_level} onChange={(v) => save({ show_level: v })} /></Row>
         <Row label="Your status"><Switch label="Your status" on={me.show_status} onChange={(v) => save({ show_status: v })} /></Row>
-        <Row label="Your activity on your page" desc={me.show_activity === false ? 'Off, teammates see only your progress.' : undefined}>
+        <Row label="Your activity on your page" desc={me.show_activity === false ? 'Off, people see only your progress.' : undefined}>
           <Switch label="Your activity on your page" on={me.show_activity !== false} onChange={(v) => save({ show_activity: v })} />
         </Row>
       </div>

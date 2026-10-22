@@ -439,7 +439,12 @@ Rooms paragraph in this work.
 - A room can be a board (w-49cd37092c). The header's View button, the one the
   Inbox has, switches a room between Grid and Board, and B does the same. The
   board holds you and the teammates whose Activity you may open, and its People
-  line narrows it. With Rooms on, the Inbox shows only your own threads: its
+  line narrows it. It draws each thread as a face beside the person's name over
+  the title, with no project and no card, and leaves Later off until the View
+  menu's Show line turns it on. Titles are one line, cut with an ellipsis. The
+  grid's people stay over it as a row of tiles in the Grid's lines, eight to a
+  row at most: a face, a first name and agents working, never what anyone is
+  on. Clicking a tile narrows the board. With Rooms on, the Inbox shows only your own threads: its
   People line and the faces on its button are gone, and the pick it kept comes
   back if Rooms is turned off.
 - A person's page (w-88e1e23325). The second tab is "Today's activity", the
@@ -449,3 +454,14 @@ Rooms paragraph in this work.
   page has your bio, with Add a bio and Edit. Message there opens the chat full
   page on Messages, and Back returns to the page. The rooms they are in open
   when clicked.
+- After an hour with a second person in the founder's room (2026-10-22,
+  `20261022000100_rooms_show_everyone.sql`): `show_working` defaults to
+  `everyone`, and cards on the old default moved. While `everyone` and
+  `show_activity` hold, a Mac puts up to 36 lines of what is waiting, running
+  and done today on its presence row (`activity`), only threads the whole team
+  may read, and a room-mate outside the team's page draws those lines on its board. The
+  board still holds only people whose thread cards reach you. `room_names(r)`
+  gives every member's name and face and nothing else, so a message keeps its
+  author's name while they are invisible, and a member with no card is on the
+  wall as "Not on Rooms yet". My own card counts this Mac's running agents. A
+  group chat nobody has written in is listed only for whoever started it.

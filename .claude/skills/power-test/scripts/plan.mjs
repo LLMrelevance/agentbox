@@ -124,6 +124,11 @@ export function worldAt(events, elapsed) {
   return world;
 }
 
+/** Whether to try again to bring back a copy whose restart failed: once a minute, and only while the clock runs. */
+export function restartAgain({ down, now, deadline, everyMs = 60_000 }) {
+  return !!down && now < deadline && now - down.tried >= everyMs;
+}
+
 /**
  * Whether another round starts. The clock owns the test, not the tester: a
  * tester that decides it is done after two minutes gets another round. What
