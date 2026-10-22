@@ -65,6 +65,7 @@ import { docsFolderFor, docsToSend, tarDocs, layDocs } from './docs.mjs';
 import { troubleCause, limitResetMoment } from '../../shared/spawn-trouble.mjs';
 import { HAND_BACK } from '../../shared/cloud-hand-back.mjs';
 import { sentLine } from '../../shared/cloud-start.mjs';
+import { referencedFiles } from '../../shared/referenced-files.mjs';
 import { serveApprovals } from '../approval-prompt-core.mjs';
 import { cacheKey, folderKey, sendOnce, pickBase, bundlePast, refsAt, sendConversation, sentRecordPath } from './reuse.mjs';
 
@@ -385,22 +386,49 @@ const inside = (p, root) => p === root || p.startsWith(root + path.sep);
 // and a link inside the root pointing out of it are both refused.
 // With no `cwd` (a run whose folder is the documents folder, which travels only
 // in part), a file inside it is sent like any other.
-export function filesNamedIn(text, { cwd, roots }) {
+//
+// Given `docs`, a picture named only by its short link, `![…](attachments/x.png)`,
+// is sent too: the documents folder travels without its attachments (./docs.mjs),
+// and the app writes every pasted picture there.
+export function filesNamedIn(text, { cwd, roots, docs = null }) {
   const realRoots = roots.map(realOrNull).filter(Boolean);
   const realCwd = cwd ? realOrNull(cwd) || cwd : null;
   const found = new Set();
-  for (const m of String(text || '').matchAll(/(\/(?:[^\s"'`<>()\[\]{},;\\]|\\ )+)/g)) {
-    const named = m[1].replace(/[.:]+$/, '');
+  const take = (named) => {
     const real = realOrNull(named);
-    if (!real) continue;
-    if (realCwd && inside(real, realCwd)) continue;
-    if (!realRoots.some((r) => inside(real, r))) continue;
+    if (!real) return;
+    if (realCwd && inside(real, realCwd)) return;
+    if (!realRoots.some((r) => inside(real, r))) return;
     try {
       const st = fs.statSync(real);
       if (st.isFile() && st.size <= MAX_ATTACHMENT) found.add(named);
     } catch { /* not a file */ }
+  };
+  for (const m of String(text || '').matchAll(/(\/(?:[^\s"'`<>()\[\]{},;\\]|\\ )+)/g)) take(m[1].replace(/[.:]+$/, ''));
+  const pasted = docs && path.isAbsolute(docs) ? realOrNull(path.join(docs, 'attachments')) : null;
+  if (pasted) {
+    for (const rel of referencedFiles(...stringsIn(text), { dir: docs })) {
+      if (!rel.startsWith('attachments/')) continue;
+      const named = path.join(docs, rel);
+      const real = realOrNull(named);
+      if (real && inside(real, pasted)) take(named);
+    }
   }
   return [...found];
+}
+
+// The strings of a stream-json line, unescaped: in the raw line a path after a
+// line break reads as `\nattachments/…`.
+function stringsIn(text) {
+  let msg;
+  try { msg = JSON.parse(text); } catch { return [String(text || '')]; }
+  const out = [];
+  const walk = (v) => {
+    if (typeof v === 'string') out.push(v);
+    else if (v && typeof v === 'object') for (const x of Object.values(v)) walk(x);
+  };
+  walk(msg);
+  return out;
 }
 
 // COPYFILE_DISABLE: a Mac's tar can add a `._name` beside a file with
@@ -543,7 +571,7 @@ export async function cloudRun({
     while ((i = stdinBuf.indexOf('\n')) >= 0) {
       let line = stdinBuf.slice(0, i + 1);
       stdinBuf = stdinBuf.slice(i + 1);
-      const named = filesNamedIn(line, { cwd: plain ? null : cwd, roots });
+      const named = filesNamedIn(line, { cwd: plain ? null : cwd, roots, docs: env.AGENTBOX_DOCS });
       if (codex) {
         const c = codexLineForTheCloud(line, { stubPath, codexHome, keep: mcpConfig.mcpServers });
         line = c.line;
