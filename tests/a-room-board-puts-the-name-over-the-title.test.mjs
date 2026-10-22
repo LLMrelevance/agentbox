@@ -4,8 +4,12 @@
 // the face beside two lines, the first name small above the title. The board
 // before it put the title first and the face and name after it on the same
 // line, so the name took width from the title and most titles were cut. Now
-// the title has all the width beside the face, wraps once before it is cut,
-// and the whole of it shows on hover.
+// the title has all the width beside the face and the whole of it shows on
+// hover.
+//
+// Round eleven: titles wrapped once before they were cut, and on the built
+// board at 1728 one of Theo's ran to a second line while the rest sat on one.
+// Asked for every title on one line, cut with an ellipsis.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import React from 'react';
@@ -51,9 +55,11 @@ describe('a line on the room’s board', () => {
 describe('how much of a title shows', () => {
   const rooms = readFileSync(new URL('../renderer/src/team/rooms/rooms.css', import.meta.url), 'utf8');
   const title = rooms.match(/\.rm-brow \.t \{([^}]*)\}/)?.[1] ?? '';
-  it('wraps once, then is cut', () => {
-    expect(title).toMatch(/-webkit-line-clamp: 2/);
-    expect(title).not.toMatch(/white-space: nowrap/);
+  it('one line, cut with an ellipsis, never a second', () => {
+    expect(title).toMatch(/white-space: nowrap/);
+    expect(title).toMatch(/text-overflow: ellipsis/);
+    expect(title).toMatch(/overflow: hidden/);
+    expect(title).not.toMatch(/line-clamp/);
   });
   it('a name is one line, whatever its length', () => {
     expect(rooms.match(/\.rm-brow \.who \{([^}]*)\}/)?.[1] ?? '').toMatch(/white-space: nowrap/);
