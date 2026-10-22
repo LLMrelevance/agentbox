@@ -201,6 +201,8 @@ export function createTeamService({
       apply: phone.apply,
       liveOf: (slug, id) => phone.live?.(slug, id) ?? null,
       approvalsOf: () => phone.approvals?.() ?? [],
+      readSettings: phone.readSettings ?? null,
+      version: phone.version ?? '',
       // One file per person: what this Mac sent up for one account is not
       // what the next one to sign in here has.
       stateFile: phone.stateFile.replace(/(\.json)?$/, `.${owner}.json`),

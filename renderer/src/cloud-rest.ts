@@ -177,9 +177,17 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
     async update(table: string, query: string, patch: Record<string, unknown>) {
       return (await call(`/rest/v1/${table}?${query}`, { method: 'PATCH', keepalive: true, headers: { prefer: 'return=representation' }, body: JSON.stringify(patch) })) ?? [];
     },
-    async insert(table: string, row: Record<string, unknown>) {
-      const out = await call(`/rest/v1/${table}`, { method: 'POST', headers: { prefer: 'return=representation' }, body: JSON.stringify(row) });
+    /** A row, or with `onConflict` the row already there left as it is. */
+    async insert(table: string, row: Record<string, unknown>, onConflict?: string) {
+      const q = onConflict ? `?on_conflict=${encodeURIComponent(onConflict)}` : '';
+      const out = await call(`/rest/v1/${table}${q}`, { method: 'POST', headers: { prefer: `return=representation${onConflict ? ',resolution=ignore-duplicates' : ''}` }, body: JSON.stringify(row) });
       return Array.isArray(out) ? out[0] : out;
+    },
+    async remove(table: string, query: string) {
+      return (await call(`/rest/v1/${table}?${query}`, { method: 'DELETE', headers: { prefer: 'return=representation' } })) ?? [];
+    },
+    async rpc(name: string, args: Record<string, unknown> = {}) {
+      return call(`/rest/v1/rpc/${name}`, { method: 'POST', body: JSON.stringify(args) });
     },
     /**
      * A command for her computer, named here so that the same command sent
