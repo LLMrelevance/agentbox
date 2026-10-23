@@ -66,12 +66,14 @@ describe('the live account cannot be missed', () => {
     expect(row.slice(row.indexOf('set-row-label'), row.indexOf('set-badge'))).not.toContain('</div>');
   });
 
-  // AND NOTHING IS MARKED WHEN SHE HAS NOT PICKED, because until she does every
-  // account really does run. Marking one at random would be the card telling
-  // her something about her own machine that is not true.
-  it('marks nothing until she has picked one', () => {
-    expect(card).toContain('const picked = accounts.some((a) => a.chosen);');
-    expect(card).toContain('const live = picked ? a.chosen : false;');
+  // AND ONE ACCOUNT IS ALWAYS MARKED (w-dac993a554). Nothing was marked until
+  // somebody picked, because until then every account really did take a share
+  // of the work. One account runs it now -- the one picked, or the primary
+  // login -- and main answers which (`readSettings`), so the card says it
+  // rather than leaving a person to guess which plan is being spent.
+  it('marks the one account that is in use', () => {
+    expect(card).toContain('const live = a.chosen;');
+    expect(card).not.toContain('accounts.some((a) => a.chosen)');
   });
 });
 
@@ -163,9 +165,11 @@ describe('picking an account moves the work onto it', () => {
 
   const sup = (config) => new Supervisor({ storeRoot: '/tmp', home: os.homedir(), ...config }, emptyStore, '/tmp');
 
-  it('runs on every account while she has picked none, as it always has', () => {
+  // THE PRIMARY LOGIN WHILE SHE HAS PICKED NONE (w-dac993a554). This read
+  // "runs on every account", which is the rotation the app stopped doing.
+  it('runs on the primary login while she has picked none', () => {
     const s = sup({ codexProfiles: ['default', '~/.codex-work'] });
-    expect(s._profilesFor('codex')).toEqual(['default', '~/.codex-work']);
+    expect(s._profilesFor('codex')).toEqual(['default']);
   });
 
   // THE ASK THIS WHOLE ROW CAME FROM.

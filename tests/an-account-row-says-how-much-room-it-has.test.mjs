@@ -55,8 +55,10 @@ describe('a login in the cloud', () => {
     expect(cloudAccountState(a({ state: 'broken' }))).toMatch(/cloud menu/);
   });
 
-  it('the first row says when threads go there and on which accounts', () => {
-    expect(cloudPlaceLine({ mode: 'full' }, 2)).toBe('Threads start here when this computer is full, on these accounts in turn.');
+  // AND NEVER "on these accounts in turn" (w-dac993a554): the cloud runs on one
+  // account however many are signed in.
+  it('the first row says when threads go there and on which account', () => {
+    expect(cloudPlaceLine({ mode: 'full' }, 2)).toBe('Threads start here when this computer is full, on the account in use.');
     expect(cloudPlaceLine({ mode: 'all' }, 1)).toBe('Threads start here first, on this account.');
   });
 

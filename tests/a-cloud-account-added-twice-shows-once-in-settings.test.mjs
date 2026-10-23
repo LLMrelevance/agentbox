@@ -22,7 +22,7 @@ describe('the cloud card in Settings', () => {
     ] };
     const tiles = cloudPlaceAccounts(cloud, 'claude', now);
     expect(tiles.map((t) => t.key)).toEqual(['a1', 'a3']);
-    expect(cloudPlaceLine(cloud, tiles.length)).toBe('Threads start here first, on these accounts in turn.');
+    expect(cloudPlaceLine(cloud, tiles.length)).toBe('Threads start here first, on the account in use.');
   });
 
   it('must NOT drop a different account, or one that is merely not ready', () => {

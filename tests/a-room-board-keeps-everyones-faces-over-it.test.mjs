@@ -108,7 +108,7 @@ describe('wired into the room', () => {
   const hook = readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../renderer/src/team/rooms/rooms.css', import.meta.url), 'utf8');
   it('the board opens on the faces, narrowed the way the menu narrows it', () => {
-    expect(hook).toMatch(/<BoardFaces people=\{onBoardPeople\} picked=\{onBoardPicked\} onPick=\{pickForBoard\} \/>\{renderBoard\(onBoardPicked, \{ later \}\)\}/);
+    expect(hook).toMatch(/<BoardFaces people=\{open!\.wall\} picked=\{onBoardPicked\} onPick=\{pickForBoard\} \/>\{renderBoard\(/);
   });
   it('a face left out is dimmed, not hidden', () => {
     expect(css).toMatch(/\.rm-bface\.off \{[^}]*opacity: \.?\d/);

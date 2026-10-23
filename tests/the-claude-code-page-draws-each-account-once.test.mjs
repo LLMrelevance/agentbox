@@ -42,22 +42,26 @@ describe('the Claude Code page', () => {
 });
 
 describe('the cloud row’s sentence', () => {
-  it('the reported case:on first, on both accounts', () => {
-    expect(cloudRunsLine('all', ['a@example.test', 'b@example.test'], 2)).toBe('Threads start there first, on both accounts in turn.');
+  // ONE ACCOUNT, HOWEVER MANY ARE SIGNED IN THERE (w-dac993a554). This listed
+  // every cloud login and ended "in turn", which is what `pickCloudLogin` did
+  // until the cloud stopped rotating. It takes one account now and waits for
+  // it, so the sentence names that one.
+  it('the reported case: on first, on the account it runs on', () => {
+    expect(cloudRunsLine('all', 'a@example.test')).toBe('Threads start there first, on a@example.test.');
   });
 
   it('when this computer is full, and off', () => {
-    expect(cloudRunsLine('full', ['a@example.test', 'b@example.test'], 2)).toBe('Threads start there when this computer is full, on both accounts in turn.');
-    expect(cloudRunsLine('mac', ['a@example.test', 'b@example.test'], 2)).toBe('Every thread runs on this computer.');
+    expect(cloudRunsLine('full', 'a@example.test')).toBe('Threads start there when this computer is full, on a@example.test.');
+    expect(cloudRunsLine('mac', 'a@example.test')).toBe('Every thread runs on this computer.');
   });
 
-  it('one account is named, never counted', () => {
-    expect(cloudRunsLine('all', ['a@example.test'], 1)).toBe('Threads start there first, on a@example.test.');
-    expect(cloudRunsLine('all', ['a@example.test'], 3)).toBe('Threads start there first, on a@example.test.');
+  it('says it without a name when the cloud has not said which account it is', () => {
+    expect(cloudRunsLine('all', null)).toBe('Threads start there first, on your cloud account.');
   });
 
-  it('must NOT say both, or all, when the cloud holds only some of the accounts', () => {
-    expect(cloudRunsLine('all', ['a@example.test', 'b@example.test'], 3)).toBe('Threads start there first, on a@example.test and b@example.test in turn.');
-    expect(cloudRunsLine('all', ['a', 'b', 'c'], 3)).toBe('Threads start there first, on all 3 accounts in turn.');
+  it('must NOT name a second account, however many are signed in there', () => {
+    const said = cloudRunsLine('all', 'a@example.test');
+    expect(said).not.toContain('in turn');
+    expect(said).not.toContain('b@example.test');
   });
 });

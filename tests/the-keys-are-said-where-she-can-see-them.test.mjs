@@ -22,7 +22,7 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { rowKeys } from '../renderer/src/list-rules';
+import { rowKeys, replyKeyWorksIn } from '../renderer/src/list-rules';
 import { HINTS, capsFor } from '../renderer/src/hint-plate';
 import { DONE } from '../renderer/src/done-word';
 
@@ -70,11 +70,14 @@ describe('the row prints the keys it really has', () => {
     ]);
   });
 
-  it('never offers reply outside the inbox, because R is inbox-only', () => {
-    expect(listSwitch).toMatch(/case 'r': case 'R':.*view === 'inbox'/);
-    for (const view of ['snoozed', 'progress', 'done']) {
-      expect(rowKeys(view).some((k) => k.key === 'R')).toBe(false);
+  // R works in In progress and Later too since w-4465054f04; the rows there
+  // need not print it, but no row may print it where it does nothing.
+  it('never offers reply on a row where R does nothing', () => {
+    expect(listSwitch).toMatch(/case 'r': case 'R':.*replyKeyWorksIn\(view\)/);
+    for (const view of ['inbox', 'snoozed', 'progress', 'done']) {
+      if (rowKeys(view).some((k) => k.key === 'R')) expect(replyKeyWorksIn(view)).toBe(true);
     }
+    expect(rowKeys('done').some((k) => k.key === 'R')).toBe(false);
   });
 
   it('changes E’s word in Scheduled, where it wakes instead of closing', () => {
@@ -122,7 +125,7 @@ describe('the hint is drawn on the row the keys act on', () => {
     expect(app).toMatch(/const pointed: WorkItem \| undefined =/);
     expect(app).toMatch(/case 'Enter': if \(!multiSel\.size && pointed\)/);
     expect(app).toMatch(/else if \(pointed && view === 'inbox'\) markDone\(pointed\)/);
-    expect(app).toMatch(/case 'r': case 'R': if \(!multiSel\.size && pointed && view === 'inbox'\)/);
+    expect(app).toMatch(/case 'r': case 'R': if \(!multiSel\.size && pointed && replyKeyWorksIn\(view\)\)/);
     expect(app).toMatch(/else if \(pointed && \(view === 'inbox' \|\| view === 'snoozed' \|\| view === 'progress'\)\) openSnooze\(pointed\)/);
   });
 

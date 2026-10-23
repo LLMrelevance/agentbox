@@ -106,7 +106,9 @@ describe('the Rooms page', () => {
   });
 });
 
-describe('no room is a tab', () => {
+// The pinned tabs and the tab per open room stay gone. Since 2026-10-22 one
+// room you pick sits after Done (tests/one-room-sits-in-the-threads-tabs-and-you-pick-which).
+describe('no pinned room tabs', () => {
   const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
   const hook = fs.readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
   it('the tab bar is given no room tabs', () => {
@@ -122,8 +124,9 @@ describe('no room is a tab', () => {
     expect(items).not.toContain('Pin as a tab');
     expect(hook).not.toMatch(/call\('pin'/);
   });
+  // Out of the room in the Threads tab it goes back to Threads (tests/the-room-tab-opens-its-room-under-the-threads-tabs).
   it('stepping out of a room or Find rooms goes back to the Rooms page, and out of a group chat does not', () => {
     expect(hook).toMatch(/if \(finding\) \{ setFinding\(false\); setListing\(true\); return; \}/);
-    expect(hook).toMatch(/setOpenId\(null\); setFull\(false\); setPanelId\(null\); setListing\(open\?\.kind !== 'group'\);/);
+    expect(hook).toMatch(/setOpenId\(null\); setFull\(false\); setPanelId\(null\); setListing\(open\?\.kind !== 'group'( && !inTab)?\);/);
   });
 });

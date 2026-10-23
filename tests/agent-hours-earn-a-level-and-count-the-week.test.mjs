@@ -131,6 +131,13 @@ describe('reading a run back from its trace log', () => {
     expect(r).toMatchObject({ key: `w-abc:${start}`, start, at: at('2026-10-20T16:30:00.000Z'), seconds: 1800, item: 'w-abc', product: 'p' });
   });
 
+  // A run the person stopped says so after the time (shared/dead-run-trace.mjs).
+  it('a run stopped on request still ends at its footer', () => {
+    const text = '# x\n# w-abc · spawned …\n\n# exited (143) 2026-10-20T16:30:00.000Z · stopped on request\n';
+    const r = runFromTrace({ name, text, mtimeMs: start + 99_999_999, item: 'w-abc', product: 'p' });
+    expect(r).toMatchObject({ seconds: 1800, failed: true });
+  });
+
   it('no footer (the app crashed): the file’s last write is the end', () => {
     const r = runFromTrace({ name, text: '# x\n# w-abc · spawned …\n', mtimeMs: start + 600_000, item: 'w-abc', product: 'p' });
     expect(r.seconds).toBe(600);

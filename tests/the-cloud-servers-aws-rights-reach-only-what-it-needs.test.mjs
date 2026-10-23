@@ -30,27 +30,29 @@ describe('the links\' signer', () => {
     expect(JSON.stringify(p)).not.toContain('ledger');
   });
 
-  // So a link to a missing object answers 404, not 403, and the Mac can tell
-  // "not there" from "refused".
-  it('may list only runs and sign-ins', () => {
+  // So a link to a missing run file answers 404, not 403, and the Mac can
+  // tell "not there" from "refused". Sign-ins are not listed since 2026-10-22
+  // (tests/the-signers-key-works-only-inside-a-link-and-any-other-use-raises-an-alarm).
+  it('may list only runs', () => {
     const list = signerPolicy(where).Statement.find((s) => [].concat(s.Action).includes('s3:ListBucket'));
     expect(list.Resource).toBe('arn:aws:s3:::agentbox-cloud-x');
-    expect(list.Condition.StringLike['s3:prefix'].sort()).toEqual(['logins/*', 'runs/*']);
+    expect(list.Condition.StringLike['s3:prefix']).toEqual(['runs/*']);
   });
 });
 
 describe('the signer\'s key', () => {
+  const now = 10_000;
   it('the one in use is kept and any other is deleted', () => {
-    expect(signerKeyPlan({ inUse: 'K2', keys: [{ id: 'K1', made: 1 }, { id: 'K2', made: 2 }] })).toEqual({ keep: 'K2', remove: ['K1'], make: false });
+    expect(signerKeyPlan({ inUse: 'K2', keys: [{ id: 'K1', made: 1 }, { id: 'K2', made: 2 }], now })).toEqual({ keep: 'K2', retire: null, remove: ['K1'], make: false });
   });
 
   it('with none in use, the extras go and a new one is made, so a third run never asks for a third key', () => {
-    expect(signerKeyPlan({ inUse: null, keys: [{ id: 'K1', made: 1 }, { id: 'K2', made: 2 }] })).toEqual({ keep: null, remove: ['K1', 'K2'], make: true });
-    expect(signerKeyPlan({ inUse: null, keys: [] })).toEqual({ keep: null, remove: [], make: true });
+    expect(signerKeyPlan({ inUse: null, keys: [{ id: 'K1', made: 1 }, { id: 'K2', made: 2 }], now })).toEqual({ keep: null, retire: null, remove: ['K1', 'K2'], make: true });
+    expect(signerKeyPlan({ inUse: null, keys: [], now })).toEqual({ keep: null, retire: null, remove: [], make: true });
   });
 
   it('a key named in use that IAM no longer has is replaced', () => {
-    expect(signerKeyPlan({ inUse: 'K9', keys: [{ id: 'K1', made: 1 }] })).toEqual({ keep: null, remove: ['K1'], make: true });
+    expect(signerKeyPlan({ inUse: 'K9', keys: [{ id: 'K1', made: 1 }], now })).toEqual({ keep: null, retire: null, remove: ['K1'], make: true });
   });
 });
 

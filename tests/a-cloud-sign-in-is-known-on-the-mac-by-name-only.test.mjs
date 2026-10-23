@@ -144,15 +144,17 @@ describe('the note the Mac keeps', () => {
   });
 });
 
-// The accounts are hers to choose (2026-10-14), so runs are spread over them.
+// The accounts are hers to choose (2026-10-14). Runs used to be spread over
+// them; one account carries them now (w-dac993a554).
 describe('the cloud accounts she added', () => {
-  it('spread runs over every account of the engine that may run, least used first', () => {
+  it('send every run of an engine to its first account, and nothing to the second', () => {
     recordCloudLogin('claude', 'acct-a', { id: 'A', savedAt: 1 }, { home });
     recordCloudLogin('claude', 'acct-b', { id: 'B', savedAt: 2 }, { home });
     recordCloudLogin('codex', 'acct-c', { id: 'C', savedAt: 3, expiresAt: Date.now() + 200 * H }, { home });
     const picks = [1, 2, 3, 4].map((i) => pickCloudLogin('claude', { home, now: 1_000 + i }).key);
-    expect(picks).toEqual(['acct-a', 'acct-b', 'acct-a', 'acct-b']);
+    expect(picks).toEqual(['acct-a', 'acct-a', 'acct-a', 'acct-a']);
     expect(pickCloudLogin('codex', { home }).key).toBe('acct-c');
+    // A login that has stopped working is not an account; the next one is.
     markCloudLogin('claude', 'acct-a', 'A', { broken: 'refused' }, { home });
     expect(pickCloudLogin('claude', { home, now: 9_000 }).key).toBe('acct-b');
     expect(listCloudLogins('claude', { home }).map((r) => r.key)).toEqual(['acct-a', 'acct-b']);
@@ -422,18 +424,31 @@ describe('the Codex login a Claude run carries', () => {
     expect(reads.some((k) => k.startsWith('logins/'))).toBe(false);
   });
 
-  it('is carried by a Claude run only, and only when a Codex login is ready', () => {
-    const ready = (engine) => (engine === 'codex' ? { id: 'C1' } : { id: 'L1' });
-    expect(loginsCarriedBy('claude', { pick: ready })).toEqual([{ engine: 'codex', id: 'C1', key: loginObjectKey('codex', 'C1') }]);
-    expect(loginsCarriedBy('codex', { pick: ready })).toEqual([]);
-    expect(loginsCarriedBy('claude', { pick: () => null })).toEqual([]);
+  const carried = (engine, opts = {}) => loginsCarriedBy(engine, { home, ...opts });
+  const C = (id) => [{ engine: 'codex', id, key: loginObjectKey('codex', id) }];
+
+  it('is carried by a Claude run only, and only when there is a Codex login', () => {
+    expect(carried('claude')).toEqual([]);
+    recordCloudLogin('codex', 'mine', { id: 'C1', expiresAt: Date.now() + 200 * H }, { home });
+    expect(carried('claude')).toEqual(C('C1'));
+    expect(carried('codex')).toEqual([]);
   });
 
-  it('is picked the way a Codex run picks one: not while it waits on a renewal', () => {
-    recordCloudLogin('codex', 'old', { id: 'C-old', expiresAt: Date.now() + 2 * H }, { home });
-    expect(loginsCarriedBy('claude', { pick: (e) => pickCloudLogin(e, { home }) })).toEqual([]);
-    recordCloudLogin('codex', 'fresh', { id: 'C-new', expiresAt: Date.now() + 200 * H }, { home });
-    expect(loginsCarriedBy('claude', { pick: (e) => pickCloudLogin(e, { home }) })).toEqual([{ engine: 'codex', id: 'C-new', key: loginObjectKey('codex', 'C-new') }]);
+  // The one Codex account a Codex run would use (w-dac993a554): not while it
+  // waits on a renewal, and never a second account in its place.
+  it('is the account a Codex run would use, once it can run', () => {
+    recordCloudLogin('codex', 'mine', { id: 'C-old', savedAt: 1_000, expiresAt: Date.now() + 2 * H }, { home });
+    recordCloudLogin('codex', 'other', { id: 'C-other', savedAt: 2_000, expiresAt: Date.now() + 200 * H }, { home });
+    expect(carried('claude')).toEqual([]);
+    recordCloudLogin('codex', 'mine', { id: 'C-new', savedAt: 1_000, expiresAt: Date.now() + 200 * H }, { home });
+    expect(carried('claude')).toEqual(C('C-new'));
+  });
+
+  it('keeps to the accounts a run is limited to', () => {
+    recordCloudLogin('codex', 'mine', { id: 'C1', savedAt: 1_000, expiresAt: Date.now() + 200 * H }, { home });
+    recordCloudLogin('codex', 'test', { id: 'C2', savedAt: 2_000, expiresAt: Date.now() + 200 * H }, { home });
+    expect(carried('claude', { only: ['test'] })).toEqual(C('C2'));
+    expect(carried('claude', { only: ['nobody'] })).toEqual([]);
   });
 });
 

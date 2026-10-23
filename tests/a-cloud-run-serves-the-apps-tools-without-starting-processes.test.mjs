@@ -104,6 +104,20 @@ describe('the store', () => {
   });
 });
 
+// One process serves every run, so a bare claim must take the row of the run
+// that asked, not of whichever run set ZERO_ITEM last
+// (tests/a-worker-that-claims-without-an-id-gets-its-own-thread).
+it('a bare claim on each connection asks for that run\'s own row', async () => {
+  const env = { STORE_ACCOUNT_ID: ACCOUNT, AGENTBOX_HOME: path.join(tmp, 'store') };
+  const a = servedHere({ command: '/nowhere/mcp/agentbox-mcp.sh', env: { ...env, ZERO_ITEM: 'w-run-a' } }, env, 'r-c6');
+  const b = servedHere({ command: '/nowhere/mcp/agentbox-mcp.sh', env: { ...env, ZERO_ITEM: 'w-run-b' } }, env, 'r-c7');
+  const claim = { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'claim_work_item', arguments: {} } };
+  const [[, , outA], [, , outB]] = await Promise.all([talk(a, [hello, list, claim]), talk(b, [hello, list, claim])]);
+  expect(JSON.stringify(outA.result)).toContain('w-run-a');
+  expect(JSON.stringify(outB.result)).toContain('w-run-b');
+  for (const p of [a, b]) { const closed = new Promise((r) => p.on('close', r)); p.stdin.end(); await closed; }
+});
+
 describe('any other server', () => {
   it('is started as configured', () => {
     expect(servedHere({ command: '/usr/local/bin/some-mcp' }, {}, 'r-c3')).toBe(null);

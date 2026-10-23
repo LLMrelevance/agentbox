@@ -146,10 +146,16 @@ describe('a Codex account still being added', () => {
     expect([1, 2, 3, 4].map(() => sup._pickProfile('codex'))).toEqual(['default', 'default', 'default', 'default']);
   });
 
-  it('takes its turn once its sign-in lands', () => {
+  // AND IT TAKES NO TURN WHEN ITS SIGN-IN LANDS (w-dac993a554): work runs on
+  // one account, so a login just added is somewhere to switch to rather than a
+  // second share of the threads. Picked, it is the account.
+  it('is somewhere to switch to once its sign-in lands, not a second share', () => {
     const { halfAdded, signedIn } = twoAccounts({ secondSignedIn: true });
-    const sup = build({ extra: { codexHome: signedIn, codexProfiles: ['default', halfAdded] } });
-    expect(new Set([1, 2].map(() => sup._pickProfile('codex')))).toEqual(new Set(['default', halfAdded]));
+    const extra = { codexHome: signedIn, codexProfiles: ['default', halfAdded] };
+    const sup = build({ extra });
+    expect([1, 2].map(() => sup._pickProfile('codex'))).toEqual(['default', 'default']);
+    const picked = build({ extra: { ...extra, activeAccount: { codex: halfAdded } } });
+    expect(picked._pickProfile('codex')).toBe(halfAdded);
   });
 
   it('is still tried when no account has a sign-in, so a signed-out Mac says so', () => {
