@@ -28,6 +28,8 @@ import { shownToPeople } from '../../../shared/thread-cards.mjs';
 import { FleetContext } from '../fleet';
 import { factsFor, saysOnCard, statusCell, type StatusCell } from '../status-word';
 import { shownPriority } from '../../../shared/rank.mjs';
+import { CloudPlanPick } from '../components/CloudPlanPick';
+import { pickPlan, pickedPlan } from '../cloud-plan-pick';
 import { api } from '../api';
 import { CLOUD_KEY, CLOUD_WHEN_ON, cloudButtonCount, cloudFootLine, cloudIsOn, cloudMonthLine, countedAccounts, type CloudMode, type CloudStatus } from '../cloud-menu';
 import { menuSetupLine, SETUP } from '../cloud-setup';
@@ -283,8 +285,12 @@ function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus;
       <span className="th-cloud-invite-ic"><CloudIcon /></span>
       <div className="th-cloud-invite-head">{SETUP.inviteHead}</div>
       <p className="th-cloud-invite-line">{SETUP.inviteLine}</p>
-      <button type="button" className="th-cloud-invite-go" onClick={goSetUp}>{SETUP.inviteGo}</button>
-      <span className="th-cloud-invite-note">{SETUP.inviteNote}</span>
+      {/* Not signed in yet: the plan first, then the account, then Stripe. */}
+      {!cloud.setUp
+        ? <><div className="th-cloud-invite-plans"><CloudPlanPick start={pickedPlan() ?? 'pro'} go={(plan) => { pickPlan(plan); goSetUp(); }} /></div>
+          <span className="th-cloud-invite-note">{SETUP.invitePlanNote}</span></>
+        : <><button type="button" className="th-cloud-invite-go" onClick={goSetUp}>{SETUP.inviteGo}</button>
+          <span className="th-cloud-invite-note">{SETUP.inviteNote}</span></>}
     </div>}
     {open && !nobodyReady && <div className="th-pop th-cloud-pop" role="dialog" aria-label="Where threads run">
       {setup && <div className="th-cloud-banner">
