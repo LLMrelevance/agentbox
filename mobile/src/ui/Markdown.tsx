@@ -22,6 +22,8 @@ export interface MessageFiles {
   folder?(src: string): { title: string; pictures: string[]; total: number } | null;
   /** The link a film or a sound plays from, or null when the phone does not have it. */
   media?(src: string): string | null;
+  /** A picture's width and height as its computer listed them, so its box has its shape before it arrives. */
+  shape?(src: string): { w: number; h: number } | null;
 }
 
 // The thread's reading type (`.focus-body .markdown`): 16px on 25.6px; a
@@ -97,15 +99,16 @@ function Picture({ src, alt }: { src: string; alt: string }) {
   const { files, pictures } = useContext(Draw);
   const own = WEB.test(src) || /^data:/i.test(src);
   const uri = own ? src : files ? files.picture(src) : null;
-  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const known = own ? null : files?.shape?.(src) ?? null;
+  const [size, setSize] = useState<{ w: number; h: number } | null>(known);
   const [broken, setBroken] = useState(false);
   useEffect(() => {
-    setSize(null); setBroken(false);
-    if (!uri) return;
+    setSize(known); setBroken(false);
+    if (!uri || known) return;
     let live = true;
     Image.getSize(uri, (w, h) => { if (live && w && h) setSize({ w, h }); }, () => { if (live) setBroken(true); });
     return () => { live = false; };
-  }, [uri]);
+  }, [uri, known?.w, known?.h]);
   if (uri === null || broken) {
     return (
       <View style={{ alignSelf: 'flex-start', borderWidth: 1, borderStyle: 'dashed', borderColor: color.line, paddingVertical: 2, paddingHorizontal: 8 }}>
@@ -113,11 +116,11 @@ function Picture({ src, alt }: { src: string; alt: string }) {
       </View>
     );
   }
-  // Holds the picture's place while it is looked for, as the site's 4:3 box does.
-  if (uri === undefined || !size) return <View style={{ width: '100%', aspectRatio: 4 / 3, backgroundColor: RAISED }} />;
+  // Holds the picture's place while it is looked for: at its own shape when its computer listed one, else the site's 4:3 box.
+  if (uri === undefined || !size) return <View style={size ? { width: '100%', maxWidth: size.w, aspectRatio: size.w / size.h, backgroundColor: RAISED } : { width: '100%', aspectRatio: 4 / 3, backgroundColor: RAISED }} />;
   const drawn = (
-    <Image source={{ uri }} accessibilityLabel={alt} resizeMode="contain"
-      style={{ width: '100%', maxWidth: size.w, aspectRatio: size.w / size.h, borderWidth: 1, borderColor: color.line }} />
+    <Image source={{ uri }} accessibilityLabel={alt} resizeMode="contain" onError={() => setBroken(true)}
+      style={{ width: '100%', maxWidth: size.w, aspectRatio: size.w / size.h, borderWidth: 1, borderColor: color.line, backgroundColor: RAISED }} />
   );
   if (/^data:/i.test(src)) return drawn;
   return <Pressable accessibilityRole="imagebutton" accessibilityLabel={alt || src} onPress={() => open(src, files, pictures)}>{drawn}</Pressable>;
