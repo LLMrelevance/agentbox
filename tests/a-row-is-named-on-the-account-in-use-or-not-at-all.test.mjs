@@ -1,4 +1,14 @@
-// A ROW IS NAMED ON AN ACCOUNT THAT HAS ROOM.
+// A ROW IS NAMED ON THE ACCOUNT IN USE, OR NOT AT ALL.
+//
+// WHAT CHANGED ON w-dac993a554, and it is the first thing to read here: the
+// namer used to WALK a person's Claude logins until one had room, and that is
+// the account rotation the whole app stopped doing. It asks the account in use,
+// once, and a row it cannot name keeps its own title. The fallback onto Codex
+// stays: that is another vendor's plan the same person pays for, not a second
+// Claude subscription standing in for the first.
+//
+// What follows is the incident the namer was built out of, which is still why
+// every other rule in this file exists.
 //
 // What broke, reported 2026-10-07: the list went back to long first sentences
 // cut off with an ellipsis where it used to show short written names. "Previously
@@ -126,24 +136,20 @@ beforeEach(() => {
 afterAll(() => { for (const d of dirs) { try { rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } } });
 
 describe('the account a name is asked on', () => {
-  it('names the row on the second account when the first is at its weekly limit', async () => {
+  // THE ACCOUNT IN USE, AND NEVER THE OTHER ONE (w-dac993a554). The prompt here
+  // carries the row's own text, and the walk put it in front of whichever of a
+  // person's subscriptions had room left. A name is worth nothing like that
+  // much: the row keeps its own title, which is what every row had before the
+  // namer existed.
+  it('keeps the row its own title rather than asking the other account', async () => {
     fake.replies = { default: LIMIT, [SECOND]: [0, 'Talking head script quality\n'] };
     const { sup, named } = build();
     await sup.nameTheRows([row()]);
-    expect(named).toEqual([{ id: 'w-dictated', label: 'Talking head script quality' }]);
-    expect(fake.spawns.map((s) => s.account)).toEqual(['default', SECOND]);
+    expect(named).toEqual([]);
+    expect(fake.spawns.map((s) => s.account)).toEqual(['default']);
   });
 
-  it('asks a resting account last, so a name costs one call', async () => {
-    fake.replies = { default: LIMIT, [SECOND]: [0, 'Talking head script quality\n'] };
-    const { sup, named } = build();
-    sup._profileCooldown = { default: Date.now() + 60 * 60_000 };
-    await sup.nameTheRows([row()]);
-    expect(named).toHaveLength(1);
-    expect(fake.spawns.map((s) => s.account)).toEqual([SECOND]);
-  });
-
-  it('stays on the first account when it answers', async () => {
+  it('stays on that account when it answers', async () => {
     fake.replies = { default: [0, 'Talking head script quality\n'], [SECOND]: [0, 'Wrong account\n'] };
     const { sup, named } = build();
     await sup.nameTheRows([row()]);
@@ -151,12 +157,33 @@ describe('the account a name is asked on', () => {
     expect(fake.spawns.map((s) => s.account)).toEqual(['default']);
   });
 
-  it('asks each account once and writes nothing when every one is at its limit', async () => {
+  // It is still asked once while that account rests, because there is nowhere
+  // else to ask and a name is one short call.
+  it('asks it once even while it is resting', async () => {
+    fake.replies = { default: [0, 'Talking head script quality\n'], [SECOND]: [0, 'Wrong account\n'] };
+    const { sup, named } = build();
+    sup._profileCooldown = { default: Date.now() + 60 * 60_000 };
+    await sup.nameTheRows([row()]);
+    expect(named).toHaveLength(1);
+    expect(fake.spawns.map((s) => s.account)).toEqual(['default']);
+  });
+
+  it('asks once and writes nothing when that account is at its limit', async () => {
     fake.replies = { default: LIMIT, [SECOND]: LIMIT };
     const { sup, named } = build();
     await sup.nameTheRows([row()]);
     expect(named).toEqual([]);
-    expect(fake.spawns.map((s) => s.account)).toEqual(['default', SECOND]);
+    expect(fake.spawns.map((s) => s.account)).toEqual(['default']);
+  });
+
+  // The account somebody picked is the account this is asked on, which is the
+  // one way a second login is ever reached.
+  it('follows the account picked in Settings', async () => {
+    fake.replies = { default: [0, 'Wrong account\n'], [SECOND]: [0, 'Talking head script quality\n'] };
+    const { sup, named } = build({ extra: { activeAccount: { claude: SECOND } } });
+    await sup.nameTheRows([row()]);
+    expect(named).toEqual([{ id: 'w-dictated', label: 'Talking head script quality' }]);
+    expect(fake.spawns.map((s) => s.account)).toEqual([SECOND]);
   });
 
   it('never hands the naming call an API key from the app', async () => {
@@ -204,21 +231,23 @@ describe('a row that cannot be named', () => {
 });
 
 describe('on Codex', () => {
-  it('names the row on the second Codex login when the first is at its limit', async () => {
+  // The same rule on the second engine: one Codex login is asked, and the
+  // other is not reached for when it is at its limit.
+  it('keeps the row its own title rather than asking the second Codex login', async () => {
     fake.replies = { [`codex:${CODEX_ONE}`]: LIMIT, [`codex:${CODEX_TWO}`]: [0, 'Talking head script quality\n'] };
     const { sup, named } = build({ extra: CODEX_ONLY });
     await sup.nameTheRows([row()]);
-    expect(named).toEqual([{ id: 'w-dictated', label: 'Talking head script quality' }]);
-    expect(fake.spawns.map((s) => s.account)).toEqual([`codex:${CODEX_ONE}`, `codex:${CODEX_TWO}`]);
+    expect(named).toEqual([]);
+    expect(fake.spawns.map((s) => s.account)).toEqual([`codex:${CODEX_ONE}`]);
   });
 
-  it('asks a resting Codex login last', async () => {
-    fake.replies = { [`codex:${CODEX_ONE}`]: LIMIT, [`codex:${CODEX_TWO}`]: [0, 'Talking head script quality\n'] };
+  it('asks the Codex login in use once even while it is resting', async () => {
+    fake.replies = { [`codex:${CODEX_ONE}`]: [0, 'Talking head script quality\n'], [`codex:${CODEX_TWO}`]: [0, 'Wrong account\n'] };
     const { sup, named } = build({ extra: CODEX_ONLY });
     sup._profileCooldown = { 'codex:default': Date.now() + 60 * 60_000 };
     await sup.nameTheRows([row()]);
     expect(named).toHaveLength(1);
-    expect(fake.spawns.map((s) => s.account)).toEqual([`codex:${CODEX_TWO}`]);
+    expect(fake.spawns.map((s) => s.account)).toEqual([`codex:${CODEX_ONE}`]);
   });
 
   it('never calls a Claude Code that is not on the Mac', async () => {
@@ -226,7 +255,7 @@ describe('on Codex', () => {
     const { sup } = build({ extra: CODEX_ONLY });
     await sup.nameTheRows([row()]);
     expect(fake.spawns.every((s) => s.args[0] === 'exec')).toBe(true);
-    expect(fake.spawns).toHaveLength(2);
+    expect(fake.spawns).toHaveLength(1);
   });
 
   it('never hands the Codex call an OpenAI key from the app', async () => {
@@ -245,12 +274,15 @@ describe('on Codex', () => {
 });
 
 describe('a Mac with both', () => {
-  it('names on Codex when every Claude account is at its limit', async () => {
+  // THE FALLBACK THAT STAYS, and it is a different thing from the one that
+  // went: Codex is another vendor whose plan this person also pays for, not a
+  // second Claude subscription standing in for the first.
+  it('names on Codex when the Claude account is at its limit', async () => {
     fake.replies = { default: LIMIT, [SECOND]: LIMIT, [`codex:${CODEX_ONE}`]: [0, 'Talking head script quality\n'] };
     const { sup, named } = build({ extra: BOTH });
     await sup.nameTheRows([row()]);
     expect(named).toEqual([{ id: 'w-dictated', label: 'Talking head script quality' }]);
-    expect(fake.spawns.map((s) => s.account)).toEqual(['default', SECOND, `codex:${CODEX_ONE}`]);
+    expect(fake.spawns.map((s) => s.account)).toEqual(['default', `codex:${CODEX_ONE}`]);
   });
 
   it('does not touch Codex while a Claude account answers', async () => {
@@ -265,17 +297,26 @@ describe('a Mac with both', () => {
     const { sup, named } = build({ extra: { ...BOTH, engineChoice: undefined } });
     await sup.nameTheRows([row()]);
     expect(named).toEqual([]);
-    expect(fake.spawns.map((s) => s.account)).toEqual(['default', SECOND]);
+    expect(fake.spawns.map((s) => s.account)).toEqual(['default']);
   });
 });
 
 describe('the message sorter', () => {
-  it('sorts on the second account when the first is at its weekly limit', async () => {
-    fake.replies = { default: LIMIT, [SECOND]: [0, 'high\n'] };
+  it('sorts on the account in use, which is the only one it asks', async () => {
+    fake.replies = { default: [0, 'high\n'], [SECOND]: [0, 'low\n'] };
     const { sup } = build();
     const level = await sup._askPriority({ text: 'The site is down for every customer', ts: 1 });
     expect(level).toBe('high');
-    expect(fake.spawns.map((s) => s.account)).toEqual(['default', SECOND]);
+    expect(fake.spawns.map((s) => s.account)).toEqual(['default']);
+  });
+
+  // THE CASE THAT MUST NOT MATCH: with that account at its limit the message
+  // goes unsorted, rather than being read by the other subscription.
+  it('leaves a message unsorted rather than asking the other account', async () => {
+    fake.replies = { default: LIMIT, [SECOND]: [0, 'high\n'] };
+    const { sup } = build();
+    expect(await sup._askPriority({ text: 'The site is down for every customer', ts: 1 })).toBe('');
+    expect(fake.spawns.map((s) => s.account)).toEqual(['default']);
   });
 });
 
@@ -356,19 +397,19 @@ describe('a row in a project tied to one account', () => {
   // ignored, and the walk is exactly the walk at the top of this file. Without
   // this, signing out of the tied account would stop every row in that project
   // being named, with nothing on any screen saying so.
-  it('walks every account again once the tied login is gone', async () => {
-    fake.replies = { default: LIMIT, [SECOND]: [0, 'Talking head script quality\n'] };
+  it('is asked on the account in use once the tied login is gone', async () => {
+    fake.replies = { default: [0, 'Talking head script quality\n'], [SECOND]: [0, 'Wrong account\n'] };
     const { sup, named } = build({ extra: { projectAccounts: { shop: '/nonexistent-accounts/removed' } } });
     await sup.nameTheRows([row()]);
     expect(named).toHaveLength(1);
-    expect(fake.spawns.map((s) => s.account)).toEqual(['default', SECOND]);
+    expect(fake.spawns.map((s) => s.account)).toEqual(['default']);
   });
 
   it('leaves a project nobody has tied exactly as it was', async () => {
-    fake.replies = { default: LIMIT, [SECOND]: [0, 'Talking head script quality\n'] };
+    fake.replies = { default: [0, 'Talking head script quality\n'], [SECOND]: [0, 'Wrong account\n'] };
     const { sup, named } = build({ extra: { projectAccounts: { somewhere_else: SECOND } } });
     await sup.nameTheRows([row()]);
     expect(named).toHaveLength(1);
-    expect(fake.spawns.map((s) => s.account)).toEqual(['default', SECOND]);
+    expect(fake.spawns.map((s) => s.account)).toEqual(['default']);
   });
 });

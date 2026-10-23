@@ -765,16 +765,14 @@ export class Supervisor {
    * two logins with room sat idle. */
   liftBrakeForHer() {
     this._spawnCooldownUntil = 0;
-    // EVERY ACCOUNT IS JUDGED AGAINST THE SAME BENCH. Reading the live map
-    // would make the answer depend on which key came first, so the account
-    // lifted earliest in the loop would look like somewhere the work could go.
-    const benched = { ...(this._profileCooldown ?? {}) };
-    for (const account of Object.keys(this._profileCooldown ?? {})) {
-      const cause = this._profileTrouble?.[account]?.cause;
-      const notHersToMend = needsHerHands(cause) || cause === 'at-limit';
-      if (notHersToMend && this._anotherAccountCanRun(account, benched)) continue;
-      this._profileCooldown[account] = 0;
-    }
+    // EVERY BENCH GOES, INCLUDING A LIMIT'S (w-dac993a554). It used to keep a
+    // bench when another account could have taken the work, which is the only
+    // reason the distinction existed; work runs on one account now, so the
+    // question has one answer. What her hand buys is ONE try on that account:
+    // still capped, the next run dies in seconds and benches it to the reset
+    // again. That try is the guard against a reset hour we read wrong, which
+    // would otherwise park the fleet with every screen reading normal.
+    for (const account of Object.keys(this._profileCooldown ?? {})) this._profileCooldown[account] = 0;
   }
 
   /**
@@ -836,22 +834,6 @@ export class Supervisor {
   /** Whether one Codex login has a sign-in on disk at all. Only the file's time is read. */
   _codexSignedIn(profile) {
     return signInStamp(this._signInFilesFor(`codex:${profile}`)) > 0;
-  }
-
-  // Whether some OTHER login on this account's engine could run once her hand
-  // has lifted what time alone would lift: one that is neither waiting on a
-  // person nor sitting out a limit of its own.
-  _anotherAccountCanRun(account, benched = this._profileCooldown) {
-    const engine = String(account).startsWith('codex:') ? 'codex' : DEFAULT_ENGINE;
-    const now = Date.now();
-    return this._profilesFor(engine)
-      .map((p) => this._accountKey(engine, p))
-      .some((key) => {
-        if (key === account) return false;
-        const cause = this._profileTrouble?.[key]?.cause;
-        if (needsHerHands(cause)) return false;
-        return !(cause === 'at-limit' && (benched?.[key] ?? 0) > now);
-      });
   }
 
   _kill(session, signal) {
@@ -1563,47 +1545,50 @@ export class Supervisor {
   }
 
   /*
-   * AN ACCOUNT ONLY A PERSON CAN MEND HOLDS NO CHAT.
+   * A CHAT ON AN ACCOUNT NOTHING RUNS ON ANY MORE HOLDS NOBODY.
    *
    * A row is a chat, and a chat lives on one account: `_rowSessions` records
    * which, and every reply the user writes goes back there, because a transcript
-   * sits under one profile's home and under no other.
+   * sits under one profile's home and under no other. Chats remembered on an
+   * account whose organization had Claude Code switched off died again and
+   * again, each death about twenty seconds after a reply on the row, while
+   * another subscription worked throughout.
    *
-   * It was. Chats remembered on an account whose organization had Claude Code
-   * switched off died again and again, each death about twenty seconds after a
-   * reply on the row, while another subscription worked throughout. Some of
-   * those spawns went out INSIDE the thirty-minute
-   * quarantine this file had already put that account in: `_recoverPending`'s
-   * sweep checks the quarantine and the reply path never did.
+   * TWO HALVES. An account that comes back ON ITS OWN keeps its chat -- a run
+   * the network cut off, a plain cooldown, and a usage limit are all worth
+   * waiting out. Only an account waiting on a PERSON loses it, because that
+   * wait has no end anybody can see and every reply dies on it in seconds.
    *
-   * TWO HALVES, AND THE SECOND ONE IS WHY THIS IS NOT SIMPLY `_profileResting`.
-   * An account that comes back ON ITS OWN keeps its chat — a limit that resets,
-   * a run the network cut off, a plain cooldown are all worth waiting out, and
-   * the wake sweep makes that same judgment in the same words. Only an account
-   * waiting on a PERSON loses it, because that wait has no end we can see.
+   * AND THERE IS ONLY ONE PLACE TO MOVE IT TO: the account work goes to
+   * (`_theOneAccount`). A chat already sitting there is kept whatever is wrong
+   * with it, because dropping it would lose the thread and buy nothing.
    *
-   * And it never fires when there is nowhere better to go: with no healthy
-   * account left, dropping the chat would lose the thread and buy nothing.
-   * Losing a chat costs one fresh brief, which is what every row got before
-   * chats existed, so the worst case of this guard is the old normal.
+   * A USAGE LIMIT USED TO COUNT HERE (w-dac993a554), so a chat on a capped
+   * login was moved to a login with room. That is the app rotating accounts to
+   * get past a usage limit, which is what Anthropic's Usage Policy means by
+   * circumventing a guardrail. A limit is waited out now and the row says the
+   * hour it resets.
    *
-   * A USAGE LIMIT IS NOW A THIRD HALF, and a PER-ENGINE one (w-ca48e69535).
-   * "Worth waiting out" was written about a five-hour limit. A Codex login
-   * that hits a WEEKLY one can be days from resetting, and a reply sat on it
-   * while the other login was at 0%. A user who has switched accounts expects
-   * the work to run on the new one. So an account resting on its
-   * limit gives the chat up too, when another account on the SAME engine can
-   * run. This used to read `_healthyProfiles` and an unkeyed trouble entry,
-   * both Claude-only, so it could never fire for a Codex row at all. */
+   * A CHAT ON ANOTHER OF THIS PERSON'S LOGINS IS LEFT ALONE while that login
+   * can still run: it is there because they imported a conversation of their
+   * own, and resuming it where it lives is the only way it can be resumed at
+   * all (`profileHoldingSession`). But a chat on a login that is benched or
+   * broken AND is not the account in use is given up, because nothing is going
+   * to ask that login for anything again -- which is the case somebody makes
+   * on purpose by picking their other plan in Settings after upgrading it.
+   *
+   * A TIED PROJECT NEVER ASKS THIS: all three callers check the tie first
+   * (`_profileFitsProject`), because a tie is the narrower statement. */
   _profileCannotHoldAChat(profile, engine = DEFAULT_ENGINE) {
     const word = profile || 'default';
     const key = this._accountKey(engine, word);
-    const elsewhere = this._liveProfilesFor(engine)
-      .filter((p) => (p || 'default') !== word && !this._profileTrouble?.[this._accountKey(engine, p)]);
-    if (!elsewhere.length) return false;
-    const cause = this._profileTrouble?.[key]?.cause;
-    if (needsHerHands(cause)) return true;
-    return cause === 'at-limit' && this._profileResting(key);
+    const here = (this._profilesFor(engine)[0] ?? 'default') || 'default';
+    // Nowhere better to go, either because the chat is already on the one
+    // account or because that account is waiting on a person too. Giving the
+    // chat up would lose the thread and buy nothing.
+    if (here === word) return false;
+    if (needsHerHands(this._profileTrouble?.[this._accountKey(engine, here)]?.cause)) return false;
+    return needsHerHands(this._profileTrouble?.[key]?.cause) || this._profileResting(key);
   }
 
   // Put the session that was doing this work back on it, and say whether it
@@ -2944,10 +2929,11 @@ export class Supervisor {
    */
   _onlyWeSpokeForAnAccount(item) {
     const seen = this._fruitless[`${item.product}:${item.id}`];
-    // A plan without the model counts only when another login has it, which
-    // is when `noteExitForBackoff` names the account (w-f1c00e679d).
-    const planWithout = seen?.saidWhy === 'model-not-on-plan' && !!seen.account;
-    if (!seen?.saidTs || !(needsHerHands(seen.saidWhy) || seen.saidWhy === 'at-limit' || planWithout)) return false;
+    // A plan without the model used to count here, because another login's
+    // plan might have had it and the row was about to be moved there. Nothing
+    // moves (w-dac993a554), so that row waits for a person to pick another
+    // model and this says nothing about it.
+    if (!seen?.saidTs || !(needsHerHands(seen.saidWhy) || seen.saidWhy === 'at-limit')) return false;
     return (item.wrote?.result?.ts ?? 0) <= seen.saidTs;
   }
 
@@ -2955,14 +2941,16 @@ export class Supervisor {
     const seen = this._fruitless[`${item.product}:${item.id}`];
     const runs = this._emptyRuns(item);
     if (!runs) return 0;
-    // Rested because its ACCOUNT refused it: awake as soon as the account is.
+    // Rested because its ACCOUNT refused it: awake as soon as the account is,
+    // and not one minute before. A second login with room used to wake it here
+    // and the work moved there; it waits for its own account now
+    // (w-dac993a554).
     if (seen?.account && !this._profileResting(seen.account)) return 0;
-    // OR AS SOON AS ANOTHER LOGIN CAN TAKE IT. One login out of usage is not
-    // the task's fault and says nothing about the others: with a second login
-    // free, the task slept its 15-minute rest while its row promised the reset
-    // hours away (tests/a-task-moves-to-a-free-login-when-its-login-runs-out).
-    // Only fresh work rests here, so a run on another login loses nothing.
-    if (seen?.account && this._anotherLoginIsFree(item, seen.account)) return 0;
+    // OR AS SOON AS THAT IS NOT THE ACCOUNT ANY MORE. Somebody upgrading a plan
+    // and picking it in Settings is a person's own hand, not the app reaching
+    // for a second subscription: the row is not going back to the account it
+    // died on, so waiting out that account's limit would be waiting for nothing.
+    if (seen?.account && this._accountMovedOn(item, seen.account)) return 0;
     // AN URGENT ROW NEVER CLIMBS THE LADDER. Urgent outranks High, and is
     // even meant to INTERRUPT High and below, so it must never end up waiting
     // behind them.
@@ -3123,16 +3111,14 @@ export class Supervisor {
       // both halves in the same order the cause was, so it is always the text
       // that actually named the limit that names the hour too.
       const resetsAt = cause === 'at-limit' ? (limitResetsAt(raw) ?? limitResetsAt(errorResult)) : null;
-      // WHICH LOGIN THIS RUN WAS SPENDING, and which one can take the task
-      // now. With two subscriptions the sentence named neither, so nothing on
-      // the thread said which was spent (power-test-2, issue 20).
+      // WHICH LOGIN THIS RUN WAS SPENDING, so the sentence can name it. With
+      // two subscriptions it named neither (power-test-2, issue 20). There is
+      // no second half to this any more: nothing takes the task to another
+      // login (w-dac993a554), so the sentence names what was spent and when it
+      // is back, and never where the work went instead.
       const spent = session.accountFault?.account ?? this._accountKey(session?.engine, session?.profile);
-      const free = cause === 'at-limit' && spent ? this._anotherLoginFree(item, spent) : null;
-      const elsewhere = session.accountFault?.cause === 'model-not-on-plan'
-        || (cause === 'at-limit' && !!session.accountFault?.account
-          && this._anotherLoginIsFree(item, session.accountFault.account));
-      // NO LOGIN HERE HAS THE MODEL: say whether a paid plan ending is why.
-      const planEnded = cause === 'model-not-on-plan' && !elsewhere && engineOf(session?.engine) === 'codex'
+      // THE ACCOUNT HAS NOT GOT THE MODEL: say whether a paid plan ending is why.
+      const planEnded = cause === 'model-not-on-plan' && engineOf(session?.engine) === 'codex'
         ? codexPlanEnded(this._codexProfileHome(session.profile))
         : null;
       const worked = !!session.usedATool;
@@ -3148,13 +3134,7 @@ export class Supervisor {
         runs,
         resetsAt,
         worked,
-        // A LIMIT ON ONE LOGIN IS NOT A WAIT WHEN ANOTHER HAS ROOM. The row
-        // was promising a reset hours away while `restingUntil` was already
-        // waking it for the free login, so the sentence and the fleet said
-        // different things about the same task (w-4338a63da6).
-        elsewhere,
         account: cause === 'at-limit' ? this._accountNameFor(session?.engine, spent) : null,
-        instead: free ? this._accountNameFor(session?.engine, free) : null,
         model: session.model || item.model || null,
         planEnded,
         gaveUp,
@@ -3695,17 +3675,14 @@ export class Supervisor {
   }
 
   /* ----------------------- auth profiles (subscriptions) ------------------ */
-  // A user may hold more than one Claude subscription; workers round-robin
-  // across them (CLAUDE_CONFIG_DIR per spawn), which roughly doubles throughput
-  // with two. A profile whose spawns keep dying instantly (expired plan, broken
-  // login) quarantines itself for 30 minutes, and the fleet behaves as if only
-  // the healthy subscriptions exist; a resubscribe simply starts working again.
-  // THE CONFIGURED ONES FIRST, THEN WHATEVER IS SIGNED IN ON THE DISK. It used
-  // to be only the config key, and an account someone logged into themselves
-  // could therefore sit unused while the fleet starved on one that was at its
-  // limit (main/account-discovery.mjs has what that costs). One copy of the
-  // rule, there, so the fleet and the Agents page can never disagree about
-  // which accounts exist.
+  // EVERY CLAUDE LOGIN ON THIS COMPUTER, which is not the same question as
+  // where work goes: `_profilesFor` answers that, and it answers with one.
+  // This list is what the Accounts page draws and what a project's tie is
+  // checked against. A profile whose spawns keep dying instantly (expired
+  // plan, broken login) quarantines itself for 30 minutes.
+  // THE CONFIGURED ONES FIRST, THEN WHATEVER IS SIGNED IN ON THE DISK. One
+  // copy of that rule, in main/account-discovery.mjs, so the fleet and the
+  // Agents page can never disagree about which accounts exist.
   _profiles() {
     return effectiveProfiles(this.config.authProfiles, { home: this.config.home });
   }
@@ -3766,33 +3743,45 @@ export class Supervisor {
   }
 
   _profilesFor(engine) {
-    const all = harnessFor(engineOf(engine)).profiles(this);
-    return this._narrowToChosen(engine, all);
+    return this._theOneAccount(engine, this._allProfilesFor(engine));
   }
 
   /**
-   * THE ONE ACCOUNT SHE PICKED, WHEN SHE HAS PICKED ONE.
-   *
-   * Every account signed in on the Mac used to run, round-robin, and that is
-   * still what a workspace she has never touched does. Adding a login widened
-   * the pool; it never moved the work off the one she wanted to leave.
-   *
-   * So a chosen account narrows the pool to itself. The capacity that rides on
-   * the pool's length narrows with it, which is correct and is the point: she
-   * asked for her work to run on one subscription, and a number that still
-   * counted two would be promising slots on an account nothing is allowed to
-   * start on.
-   *
-   * IT IS IGNORED THE MOMENT IT STOPS NAMING SOMETHING REAL. A setting left
-   * over from a login she has since removed would otherwise empty the pool and
-   * quietly stop the fleet, which is the worst failure available here: the app
-   * looks fine and starts nothing. An unknown name falls back to every account,
-   * which is exactly what this machine did before she picked.
+   * EVERY LOGIN OF THIS ENGINE ON THE COMPUTER, which is a different question
+   * from which one the work runs on (`_profilesFor`, one account since
+   * w-dac993a554). Naming an account is about the logins a person HAS: with
+   * two of them, "at its usage limit on work@example.com" is the fact they
+   * asked for, and asking the pool would have said there was only ever one.
    */
-  _narrowToChosen(engine, all) {
+  _allProfilesFor(engine) {
+    return harnessFor(engineOf(engine)).profiles(this);
+  }
+
+  /**
+   * THE ONE ACCOUNT WORK RUNS ON, AND IT IS ALWAYS ONE (w-dac993a554).
+   *
+   * Every login signed in on the computer used to take a share of the work by
+   * round-robin, so adding a second subscription roughly doubled what the app
+   * would spend. Anthropic's own pages say the limits it was spending assume
+   * "ordinary, individual usage of Claude Code and the Agent SDK", and their
+   * Usage Policy forbids several accounts used to "circumvent product
+   * guardrails". An app that spreads one person's work over two subscriptions
+   * is doing exactly that, whatever it is called, so it does not.
+   *
+   * The account is the one picked, and the primary login when nobody has
+   * picked. A person who genuinely holds two plans -- their own and an
+   * employer's -- still chooses between them here, and still ties a single
+   * project to the other one (`_projectProfile`, which beats this).
+   *
+   * A PICK THAT NAMES NOTHING REAL IS THE PRIMARY LOGIN, not every account.
+   * A setting left over from a login since removed must neither empty the pool
+   * (which stops the fleet with every screen reading normal) nor widen it back
+   * to the rotation this removed.
+   */
+  _theOneAccount(engine, all) {
     const chosen = this.config.activeAccount?.[engineOf(engine)];
-    if (typeof chosen !== 'string' || !chosen) return all;
-    return all.includes(chosen) ? [chosen] : all;
+    if (typeof chosen === 'string' && chosen && all.includes(chosen)) return [chosen];
+    return all.length ? [all[0]] : all;
   }
 
   /**
@@ -3809,7 +3798,7 @@ export class Supervisor {
    * reads null and rotates exactly as it did.
    *
    * IT IS IGNORED THE MOMENT IT STOPS NAMING A LOGIN THAT IS ON THIS MAC,
-   * for the reason `_narrowToChosen` gives about `activeAccount` a few lines
+   * for the reason `_theOneAccount` gives about `activeAccount` a few lines
    * down: a pin left over from an account since removed would otherwise hand
    * every worker a CLAUDE_CONFIG_DIR pointing at a folder with no login in it,
    * and the project would fail in silence while the app looked fine. A pin
@@ -3867,33 +3856,32 @@ export class Supervisor {
     return this._liveProfilesFor(DEFAULT_ENGINE);
   }
 
-  // ROUND-ROBIN WITHIN ONE ENGINE. The cursor is per engine because the pools
-  // are: one shared counter would have a Codex spawn advance the rotation
-  // across the Claude subscriptions, so a run of Codex tasks could leave
-  // one of them doing all the Claude work.
+  // WHERE A SPAWN GOES: the one account for its engine (`_theOneAccount`), and
+  // nothing here chooses between accounts any more. It is still a method and
+  // not a field read, because the two things that can make the answer not be
+  // that account are both real: a login still being signed in, and a Codex
+  // plan without the model asked for.
   _pickProfile(engine = DEFAULT_ENGINE, { model = null } = {}) {
     const which = engineOf(engine);
     // SOMEWHERE HAS TO BE TRIED. `_liveProfilesFor` is allowed to answer
     // nothing now, which is the honest answer to "what could run" and no answer
     // at all to "where does this one go". A continuation bypasses the slot
     // check by design (her answer outranks the cap), so this is reachable with
-    // every account resting, and a pick of `undefined` there would hand a spawn
+    // the account resting, and a pick of `undefined` there would hand a spawn
     // a CLAUDE_CONFIG_DIR of undefined rather than her default login.
     const live = this._liveProfilesFor(which);
     // A CODEX ACCOUNT STILL BEING ADDED IS NOT WHERE WORK GOES. Add account
-    // lists the new home before its sign-in finishes, and the round-robin
-    // handed it the very first thread while the signed-in one sat idle.
+    // lists the new home before its sign-in finishes, and a thread handed to
+    // it dies on arrival.
     const signedIn = live.filter(p => harnessFor(which).signedIn(this, p));
     let pool = signedIn.length ? signedIn : live.length ? live : ['default'];
     // AND NOT A LOGIN WHOSE PLAN LACKS THE MODEL (w-f1c00e679d). A weekend's
-    // sprint on gpt-6.1-sol was handed to a free-plan Codex login twice, died
-    // in two seconds both times, and the Pro login sat idle all weekend. When
-    // no login has it, the rotation stands and `codexModelRefusal` says why.
+    // sprint on gpt-6.1-sol was handed to a free-plan Codex login twice and
+    // died in two seconds both times. When the account does not have it, the
+    // pick stands and `codexModelRefusal` says why.
     const able = pool.filter((p) => !this._planLacksModel(which, p, model));
     if (able.length) pool = able;
-    this._rr = this._rr ?? {};
-    this._rr[which] = ((this._rr[which] ?? 0) + 1) % pool.length;
-    return pool[this._rr[which]];
+    return pool[0];
   }
 
   /**
@@ -3911,15 +3899,6 @@ export class Supervisor {
     if (this._modelRefused?.[this._accountKey('codex', profile)]?.includes(word)) return true;
     const known = codexKnownSlugs({ home: this._codexProfileHome(profile) });
     return known.size > 0 && !known.has(word);
-  }
-
-  // Another Codex login the pick could take that has the model: the same pool
-  // `_pickProfile` draws from, less the one that refused.
-  _codexLoginWithModel(model, except) {
-    const live = this._liveProfilesFor('codex');
-    const signedIn = live.filter((p) => this._codexSignedIn(p));
-    return (signedIn.length ? signedIn : live).some((p) => this._accountKey('codex', p) !== except
-      && !this._planLacksModel('codex', p, model));
   }
 
   /**
@@ -3950,7 +3929,7 @@ export class Supervisor {
    */
   _accountNameFor(engine, key) {
     const which = engineOf(engine);
-    const profiles = this._profilesFor(which);
+    const profiles = this._allProfilesFor(which);
     if (profiles.length < 2) return null;
     const profile = profiles.find((p) => this._accountKey(which, p) === key);
     if (!profile) return null;
@@ -3961,18 +3940,6 @@ export class Supervisor {
     return accountName({ email, engine: which, index: profiles.indexOf(profile), total: profiles.length });
   }
 
-  /**
-   * THE LOGIN THAT COULD TAKE THIS TASK NOW, on the task's own engine: not
-   * resting, carrying no trouble, and not the one that just failed. Its key, or
-   * null. `_anotherLoginIsFree` is this question asked as a yes or no.
-   */
-  _anotherLoginFree(item, account) {
-    const engine = this._engineFor(item);
-    const free = this._liveProfilesFor(engine)
-      .map((p) => this._accountKey(engine, p))
-      .find((key) => key !== account && !this._profileTrouble?.[key]);
-    return free ?? null;
-  }
 
   // ACCOUNTS THAT CAN ACTUALLY RUN SOMETHING RIGHT NOW, and unlike
   // _liveProfiles this one is allowed to come back empty.
@@ -3987,12 +3954,18 @@ export class Supervisor {
   // brake and the sentence above her list -- because both are about having
   // nowhere left to run, and Claude Code is what every row falls back to.
   /**
-   * WHETHER A LOGIN OTHER THAN `account`, ON THE TASK'S OWN ENGINE, COULD RUN IT
-   * NOW: not resting, and carrying no trouble of its own (signed out, blocked).
-   * A free Claude login says nothing about a Codex task, and the other way round.
+   * WHETHER THE ACCOUNT A ROW DIED ON IS NO LONGER THE ACCOUNT ITS ENGINE USES,
+   * which only happens because somebody picked a different one in Settings.
+   *
+   * A CLOUD ACCOUNT IS NOT ASKED. `noteExitForBackoff` files a cloud run's
+   * limit under `cloud:<engine>`, which names no login on this computer, so
+   * comparing it with one would read every cloud limit as "moved on" and wake
+   * the row straight back into the limit it is waiting out.
    */
-  _anotherLoginIsFree(item, account) {
-    return !!this._anotherLoginFree(item, account);
+  _accountMovedOn(item, account) {
+    if (typeof account !== 'string' || account.startsWith('cloud:')) return false;
+    const engine = this._engineFor(item);
+    return this._accountKey(engine, this._profilesFor(engine)[0] ?? 'default') !== account;
   }
 
   _healthyProfiles() {
@@ -5290,9 +5263,9 @@ export class Supervisor {
   /**
    * HOW MANY SESSIONS ONE ACCOUNT IS ALREADY CARRYING. `_loadFor` above is the
    * same count for a whole engine, and a tied project needs the narrower one:
-   * the engine's cap is the per-account number times the live accounts, so with
-   * two logins a project tied to one of them would be let through at twice its
-   * account's share and spend one subscription's rate limit on both halves.
+   * the engine's cap is for the machine, and a project tied to its own login
+   * would otherwise be let through at the whole machine's number and spend one
+   * subscription's rate limit on all of it.
    *
    * A ROW STILL BEING PREPARED COUNTS, the way it does in `_loadFor`, but only
    * when its own project is tied to this same account: that is the one case
@@ -5609,8 +5582,9 @@ export class Supervisor {
     // THE LOGIN'S PLAN DOES NOT INCLUDE THE MODEL (w-f1c00e679d). Nothing is
     // wrong with the login, which still runs every other model, so it is not
     // struck, benched or filed as trouble. The model is struck off it instead,
-    // and when another login has the model the death is the account's, not the
-    // row's: the row wakes at once and the pick takes it there.
+    // and the row is asked for another model: it used to be moved to a second
+    // Codex login whose plan had it, which is the account rotation w-dac993a554
+    // took out.
     const planRefused = refusedBy === 'model-not-on-plan' || troubleCause(lastFailure) === 'model-not-on-plan';
     if (planRefused && engine === 'codex') {
       const account = this._accountKey(engine, session.profile);
@@ -5620,7 +5594,6 @@ export class Supervisor {
         this._modelRefused = this._modelRefused ?? {};
         const struck = this._modelRefused[account] ?? [];
         if (!struck.includes(model)) this._modelRefused[account] = [...struck, model];
-        if (this._codexLoginWithModel(model, account)) session.accountFault = { cause: 'model-not-on-plan', account };
       }
       this._saveState();
       return;
@@ -7693,24 +7666,18 @@ export class Supervisor {
    *
    * IT IS ANSWERED HERE FOR THE REASON `engineFacts` IS. Which engine a row runs
    * on needs the capability gate, and which ACCOUNT it runs on needs
-   * `_narrowToChosen`, the rule that one account picked in Settings is the only
-   * one the fleet uses. A corner that worked either out for itself could name
-   * the subscription this app is deliberately not spending, which is the one
+   * `_theOneAccount`. A corner that worked either out for itself could name the
+   * subscription this app is deliberately not spending, which is the one
    * mistake this line must never make: somebody reads it to find out whether any
    * account of theirs got connected at all.
-   *
-   * THE FIRST OF THE POOL, which is the account the next spawn goes to on a Mac
-   * with nothing picked (`_pickProfile` round-robins from there). Two accounts
-   * of the same plan read the same either way; two different plans and a chosen
-   * account make this exact, which is the case somebody would ask about.
    */
   runsOnAccount(engine = this._engineFor(null)) {
     const home = this.config.home;
     if (engine === 'codex') {
-      const pool = this._narrowToChosen('codex', this._codexProfiles());
+      const pool = this._theOneAccount('codex', this._codexProfiles());
       return runsOn({ engine, home, codexHome: this._codexProfileHome(pool[0] ?? 'default') });
     }
-    const pool = this._narrowToChosen('claude', this._profiles());
+    const pool = this._theOneAccount('claude', this._profiles());
     return runsOn({ engine: 'claude', home, claudeProfile: pool[0] ?? 'default' });
   }
 
@@ -7722,7 +7689,7 @@ export class Supervisor {
    * CLAUDE_CONFIG_DIR or an API key never decides which login answers.
    */
   usageAccount() {
-    const pool = this._narrowToChosen('claude', this._profiles());
+    const pool = this._theOneAccount('claude', this._profiles());
     const profile = pool[0] ?? 'default';
     const env = this._workerEnv('claude');
     return { profile, env: profile === 'default' ? env : { ...env, CLAUDE_CONFIG_DIR: profile } };
@@ -8285,9 +8252,10 @@ export class Supervisor {
     const asked = from === 'workspace'
       ? `every Codex agent here is set to run on "${word}"`
       : `this row asks to run on "${word}"`;
-    // ANOTHER LOGIN KNOWS IT: then the word is fine and this login's plan is
-    // what lacks it, which is a different fix (another model, or another
-    // login) and a different cause for `troubleCause` (w-f1c00e679d).
+    // ANOTHER LOGIN ON THIS COMPUTER KNOWS IT: then the word is fine and this
+    // account's plan is what lacks it, which is a different sentence and a
+    // different cause for `troubleCause` (w-f1c00e679d). The fix is another
+    // model either way; nothing moves the run to the other account.
     const elsewhere = this._codexProfiles().some((p) => {
       const other = this._codexProfileHome(p);
       return other !== home && codexKnownSlugs({ home: other }).has(word);

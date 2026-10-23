@@ -181,6 +181,6 @@ describe('every picture tells the viewer what it opens and where it was clicked'
 
   it('the click hands over the picture that was pressed, all the way to the viewer', () => {
     expect(focus).toMatch(/onClick=\{\(e\) => onOpen\(path, e\.currentTarget\)\}/);
-    expect(focus).toMatch(/if \(opensAsPicture\(href\)\) \{ openPicture\(href, from\); return; \}/);
+    expect(focus).toMatch(/if \(goes === 'picture'\) \{ openPicture\(href, from\); return; \}/);
   });
 });

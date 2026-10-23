@@ -81,6 +81,19 @@ export function readCloudKey(env = process.env, home = os.homedir()) {
   try { return fs.readFileSync(cloudKeyPath(env, home), 'utf8').trim() || null; } catch { return null; }
 }
 
+/**
+ * The server said this key is not known (it went unused, or another Mac
+ * signed this one out): this Mac is signed out of the cloud, as if by its own
+ * hand, so nothing keeps sending threads there with it. A key a newer sign-in
+ * put in its place is left alone.
+ */
+export function forgetCloudKey(key, env = process.env, home = os.homedir()) {
+  if (!key || readCloudKey(env, home) !== key) return false;
+  fs.rmSync(cloudKeyPath(env, home), { force: true });
+  if (typeof readCloudConfig(env, home)?.gateway === 'string') fs.rmSync(cloudConfigPath(env, home), { force: true });
+  return true;
+}
+
 export function writeCloudKey(key, env = process.env, home = os.homedir()) {
   const file = cloudKeyPath(env, home);
   fs.mkdirSync(path.dirname(file), { recursive: true });

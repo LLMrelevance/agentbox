@@ -79,6 +79,7 @@
    gap is the board's own, so it is still there at the end of a scroll. */
 .rm-main.board { overflow: auto; padding-right: 0; }
 .rm-main.board > .rm-notice { margin-right: 24px; }
+.rm-main.board > .rm-empty { margin: 4px 24px 24px 0; }
 /* The grid's people over the board as one row of tiles in the Grid's lines.
    The right margin is the board's own gap, so the row ends where the board does. */
 .rm-bfaces { display: grid; grid-template-columns: repeat(var(--per-row, 8), minmax(0, 1fr)); margin: 2px 24px 22px 0; border-top: 1px solid var(--rm-line); border-left: 1px solid var(--rm-line); }
@@ -110,7 +111,12 @@
 .rm-viewnote { font-size: 12px; color: var(--text-faint); }
 
 /* the chat */
-.rm-chat { width: 360px; flex: none; border-left: 1px solid var(--rm-line); display: flex; flex-direction: column; min-height: 0; position: relative; }
+/* The max keeps BOARD_LEAST (room-rules) for the board when the window narrows. */
+.rm-chat { width: var(--rm-chat-w, 41%); min-width: 300px; max-width: min(720px, calc(100% - 620px)); flex: none; border-left: 1px solid var(--rm-line); display: flex; flex-direction: column; min-height: 0; position: relative; }
+.rm-chat-grip { position: absolute; left: -4px; top: 0; bottom: 0; width: 7px; z-index: 6; cursor: col-resize; }
+.rm-chat-grip::after { content: ''; position: absolute; left: 3px; top: 0; bottom: 0; width: 1px; background: transparent; transition: background .12s; }
+.rm-chat-grip:hover::after, .rm-chat.dragging .rm-chat-grip::after { background: var(--accent); }
+.rm-chat.dragging, .rm-chat.dragging * { user-select: none; }
 .rm-chat-head { display: flex; align-items: center; gap: 8px; padding: 0 12px 0 14px; height: 40px; flex: none; border-bottom: 1px solid var(--rm-line); }
 .rm-switch { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; margin-left: -8px; font: inherit; font-size: 13.5px; color: var(--text); background: none; border: 0; min-width: 0; }
 .rm-switch > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -192,6 +198,19 @@
 .rm-menu .rule { height: 1px; background: var(--rm-line); margin: 3px 5px; }
 .rm-menu .head { padding: 8px 9px 6px; }
 .rm-menu.members .row { height: 36px; }
+/* The room in the Threads tab bar (RoomTab.tsx). */
+.tm-tab.rm-tab { display: inline-flex; align-items: center; gap: 4px; }
+/* Lit, the line runs under the name and count only, not under the hidden arrow. */
+.tm-tab.rm-tab.on { border-bottom-color: transparent; }
+.rm-tab .rm-tabname { position: relative; align-self: stretch; display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; cursor: pointer; }
+.rm-tab.on .rm-tabname::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--accent); }
+.rm-tab .rm-tabname svg { width: 13px; height: 13px; }
+.rm-tab .rm-tabname b { font-weight: 400; color: var(--text-faint); margin-left: 2px; }
+.rm-tab .rm-tabpick { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; background: none; color: var(--text-faint); cursor: pointer; opacity: 0; }
+.rm-tab:hover .rm-tabpick, .rm-tab .rm-tabpick.open, .rm-tab .rm-tabpick:focus-visible { opacity: 1; }
+.rm-tab .rm-tabpick:hover, .rm-tab .rm-tabpick.open { color: var(--text); background: var(--wash-strong); }
+.rm-tabmenu { min-width: 220px; }
+.rm-tabmenu .row .n { font: 11px var(--mono); color: var(--text-faint); }
 .rm-menu.members { max-height: 420px; overflow-y: auto; }
 
 /* hover card */

@@ -54,6 +54,16 @@ export function bucketObjects({ region, bucket, client = new S3Client({ region, 
       } while (token);
       return keys;
     },
+    async sizes(prefix, { max = Infinity } = {}) {
+      const items = [];
+      let token;
+      do {
+        const page = await client.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ...(token ? { ContinuationToken: token } : {}) }));
+        for (const o of page.Contents || []) items.push({ key: o.Key, size: o.Size, at: o.LastModified?.getTime?.() ?? 0 });
+        token = page.IsTruncated ? page.NextContinuationToken : null;
+      } while (token && items.length < max);
+      return { items: items.slice(0, max), truncated: !!token || items.length > max };
+    },
   };
 }
 
