@@ -25,7 +25,7 @@ const RELAY_BYTES = 4 * 1024 * 1024;
 
 const isLogin = (key) => String(key).startsWith('logins/');
 
-export function managedClients({ url, key, timeoutMs = CALL_MS, fileTimeoutMs = FILE_MS }) {
+export function managedClients({ url, key, timeoutMs = CALL_MS, fileTimeoutMs = FILE_MS, onSignedOut = () => {} }) {
   const base = String(url).replace(/\/+$/, '');
 
   async function call(method, path, body) {
@@ -37,6 +37,7 @@ export function managedClients({ url, key, timeoutMs = CALL_MS, fileTimeoutMs = 
     const res = await fetch(`${base}${path}`, { ...init, signal: AbortSignal.timeout(timeoutMs) });
     const out = await res.json().catch(() => ({}));
     if (!res.ok) {
+      if (res.status === 401) { try { onSignedOut(); } catch { /* the refusal below says it all the same */ } }
       throw Object.assign(new Error(`the cloud server said ${res.status}: ${out.message || out.error || 'no reason'}`), {
         status: res.status, error: out.error, said: out.message, signedOut: res.status === 401,
       });

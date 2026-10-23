@@ -47,6 +47,10 @@ const STORAGE_DELETES_AT_ONCE = 500;
 // A link that writes is noted on the person's record only when it outlives
 // the note, and the note runs this far past it: one write an hour at most.
 const LINK_NOTE_MS = 60 * 60_000;
+// A cloud key unused this long is refused. Its use is noted at most once a
+// day, so a relay polling through a long run never ends its own key.
+const KEY_IDLE_MS = 30 * 24 * 60 * 60_000;
+const KEY_USE_NOTE_MS = 24 * 60 * 60_000;
 // Only these save a sign-in; a run given a link that writes one could keep it.
 const SAVES_A_SIGNIN = new Set(['signin', 'renew']);
 
@@ -372,10 +376,18 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     if (body.acceptedTerms !== termsVersion) throw termsRefusal();
     await accept(person);
     const key = `abk_${crypto.randomBytes(32).toString('base64url')}`;
-    await objects.put(deviceKey(key), JSON.stringify({ person, name: String(body.name || '').slice(0, 80), at: now() }), { ifNoneMatch: '*' });
+    const at = now();
+    await objects.put(deviceKey(key), JSON.stringify({ person, name: String(body.name || '').slice(0, 80), at }), { ifNoneMatch: '*' });
+    if (body.signOutOthers === true) await signOutOthers(person, key, at);
     log(`a cloud key for ${person}`);
     return { key };
   }
+
+  // Every key of this person made before `at` is refused, but `keep`.
+  const signOutOthers = (person, keep, at = now()) => update(person, (rec) => {
+    rec.keysBefore = at;
+    if (keep) rec.keptKey = sha256(keep); else delete rec.keptKey;
+  });
 
   const accept = (person) => update(person, (rec) => { rec.terms = { version: termsVersion, at: now() }; });
 
@@ -383,9 +395,22 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     const key = bearer(headers);
     const found = key?.startsWith('abk_') ? await objects.get(deviceKey(key)) : null;
     if (!found) throw new Refusal(401, 'signed-out', 'this cloud key is not known; sign in again');
-    const { person } = JSON.parse(found.body);
+    const device = JSON.parse(found.body);
+    const { person } = device;
+    const t = now();
+    const usedAt = device.usedAt ?? device.at;
+    const ended = async (message) => {
+      await objects.del(deviceKey(key)).catch(() => {});
+      return new Refusal(401, 'signed-out', message);
+    };
+    if (!(t - usedAt <= KEY_IDLE_MS)) throw await ended('this cloud key went unused for 30 days; sign in again');
     const rec = await recOf(person);
     if (rec.disabled) throw new Refusal(403, 'disabled', 'this account cannot use the cloud');
+    if (rec.keysBefore && device.at < rec.keysBefore && rec.keptKey !== sha256(key)) throw await ended('this Mac was signed out of the cloud from another Mac; sign in again');
+    if (t - usedAt >= KEY_USE_NOTE_MS) {
+      // Lost to a call that noted it first is as good as noted.
+      await objects.put(deviceKey(key), JSON.stringify({ ...device, usedAt: t }), { ifMatch: found.etag }).catch((err) => { if (!err?.conflict) log(`could not note a cloud key's use: ${err?.message || err}`); });
+    }
     return { person, key, rec };
   }
 
@@ -459,7 +484,11 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
       if (method === 'GET' && path === '/v1/terms') return { status: 200, body: { terms: termsVersion } };
       const { person, key, rec } = await personOf(headers);
       const route = `${method} ${path}`;
-      if (route === 'DELETE /v1/devices') { await objects.del(deviceKey(key)); return { status: 200, body: { ok: true } }; }
+      if (route === 'DELETE /v1/devices') {
+        if (data.others === true) await signOutOthers(person, key);
+        else await objects.del(deviceKey(key));
+        return { status: 200, body: { ok: true } };
+      }
       if (route === 'POST /v1/terms') {
         if (data.acceptedTerms !== termsVersion) throw termsRefusal();
         await accept(person);
@@ -581,6 +610,8 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
       });
     } else if (what === 'enable') {
       await update(person, (rec) => { delete rec.disabled; });
+    } else if (what === 'sign-out') {
+      await signOutOthers(person, null);
     } else {
       throw new Error(`no such thing to do: ${what}`);
     }
