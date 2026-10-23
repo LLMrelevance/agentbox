@@ -52,12 +52,12 @@ export function teamConfigOnThisMac(home = os.homedir()) {
 // points at another file from a checkout only, and is first because that is
 // what the tests run on.
 //
-// AN INSTALLED BUILD IS ALWAYS THE SINGLE-PERSON APP (2026-10-06). The first
-// download from agentbox.ac opened on the team's sign-in page, because the Mac
-// it ran on kept a team key. The founder: "users are no longer using the
-// multiplayer version so this should never be visible." The team version still
-// runs from a checkout (npm run app). See
-// tests/the-installed-app-is-the-single-person-app.test.mjs.
+// AN INSTALLED BUILD SIGNS IN ONLY TO THE CLOUD BAKED INTO IT at release
+// (`bakedTeam` in its package.json), never to a key on the Mac: the first
+// download opened on a team's sign-in page because its Mac kept one
+// (tests/the-installed-app-is-the-single-person-app). The sign-in is for the
+// phone; the team version shows only with Alpha features › Multiplayer on
+// (tests/multiplayer-is-an-alpha-feature-in-the-installed-app).
 // AND SO IS ⌘K's NEW-USER WINDOW (w-9f6975906c, 2026-10-05). It runs from her
 // checkout, which holds a team key, so it opened on the same sign-in page:
 // "when i run this command i got the login screen again ... this was the
@@ -66,7 +66,7 @@ export function teamConfigOnThisMac(home = os.homedir()) {
 // a power tester in her room. It loads that file and no other, so the ⌘K
 // window, which is handed none, stays the single-person app.
 export function loadCloudConfig(appDir, { packaged = isPackagedElectron(), home = os.homedir(), env = process.env } = {}) {
-  if (packaged) return null;
+  if (packaged) return bakedTeam(appDir);
   if (runningAsAFreshUser(env) && !env.AGENTBOX_TEAM_CONFIG) return null;
   const tries = runningAsAFreshUser(env) ? [env.AGENTBOX_TEAM_CONFIG] : [
     env.AGENTBOX_TEAM_CONFIG,
@@ -88,6 +88,15 @@ export function loadCloudConfig(appDir, { packaged = isPackagedElectron(), home 
   return found;
 }
 
+function bakedTeam(appDir) {
+  try {
+    const b = JSON.parse(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')).bakedTeam;
+    if (typeof b?.url !== 'string' || typeof b.anonKey !== 'string') return null;
+    const site = typeof b.phoneSite === 'string' && /^https:\/\/[^\s/]+(\/\S*)?$/.test(b.phoneSite) ? { phoneSite: b.phoneSite } : {};
+    return { url: b.url, anonKey: b.anonKey, ...site };
+  } catch { return null; }
+}
+
 function fileStorage(file, { encrypt, decrypt }) {
   const read = () => {
     try {
@@ -106,7 +115,8 @@ function fileStorage(file, { encrypt, decrypt }) {
   return {
     getItem: (key) => read()[key] ?? null,
     setItem: (key, value) => { const d = read(); d[key] = value; write(d); },
-    removeItem: (key) => { const d = read(); delete d[key]; write(d); },
+    // Nothing to remove writes nothing, so a Mac never signed in never asks the keychain.
+    removeItem: (key) => { const d = read(); if (!(key in d)) return; delete d[key]; write(d); },
   };
 }
 

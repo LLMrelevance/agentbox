@@ -5,8 +5,9 @@
 // through the site's own doors (renderer/src/phone-send.ts) and signs her
 // files' links the site's way (renderer/src/phone-links.ts).
 import Constants from 'expo-constants';
+import { router } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { cloudClient, type CloudClient } from '../../../renderer/src/cloud-rest';
 import { macSeenOf, phoneSlug, phoneStatusLine, phoneView, readCommands, readThreads, splitSlug, type PhoneRows } from '../../../renderer/src/phone-rows';
 import { phoneSender } from '../../../renderer/src/phone-send';
@@ -17,17 +18,21 @@ import { toastParts } from '../../../renderer/src/toast-parts';
 import type { Saved } from '../lib/attach';
 import type { Picked } from '../platform/pick';
 import { planFor, runSteps, type PressedItem, type Press } from '../lib/actions';
+import { needsNotice, NOTICE_KEY, readNotice, type Notice } from '../lib/ai-notice';
 import { withDeadline } from '../lib/deadline';
 import { keptStore } from '../lib/kept';
 import { previewCloud } from '../lib/preview';
+import { ALERTS_KEY, leaveAddress, readAlerts, takeAddressBack, type KeptAlerts } from '../lib/push-device';
 import { phoneTabs } from '../lib/tabs';
+import { alertToken, alertTokenIfAllowed, setIconCount } from '../platform/alerts';
 import { persist } from '../platform/persist';
 
-export type Cloud = Pick<CloudClient, 'session' | 'signedIn' | 'generation' | 'select' | 'insertCommand' | 'update' | 'putFile' | 'signFiles' | 'signInWithPassword' | 'signInWithIdToken' | 'signUp' | 'googleUrl' | 'finishGoogle' | 'signOut' | 'insert' | 'remove' | 'rpc'>;
+export type Cloud = Pick<CloudClient, 'session' | 'signedIn' | 'generation' | 'select' | 'insertCommand' | 'update' | 'putFile' | 'signFiles' | 'signInWithPassword' | 'signInWithIdToken' | 'signUp' | 'googleUrl' | 'finishGoogle' | 'signOut' | 'insert' | 'remove' | 'rpc' | 'listFiles' | 'removeFiles' | 'upsert'>;
 
 const EMPTY: PhoneRows = { projects: [], threads: [], commands: [] };
 const EVERY_MS = 5000;
 const PREVIEW = process.env.EXPO_PUBLIC_PREVIEW === '1';
+const APP_VERSION = Constants.expoConfig?.version ?? null;
 
 export interface Toast { key: number; line: string; undo: (() => Promise<void>) | null; goes?: { product: string; id: string } }
 
@@ -123,8 +128,75 @@ function useCloudState() {
    * answered (the made row, for a new thread); throws what went wrong.
    * `undone` runs after its Undo has worked, to put the words back.
    */
+  // The yes before your words go to Claude Code or Codex (lib/ai-notice.ts).
+  const [notice, setNotice] = useState<Notice>(null);
+  const [noticeRead, setNoticeRead] = useState(false);
+  // This phone's alert address while alerts are on (lib/push-device.ts).
+  const [alerts, setAlerts] = useState<KeptAlerts>(null);
+  const alertsNow = useRef<KeptAlerts>(null);
+  useEffect(() => {
+    persist.read().then((kept) => {
+      setNotice(readNotice(kept[NOTICE_KEY]));
+      alertsNow.current = readAlerts(kept[ALERTS_KEY]);
+      setAlerts(alertsNow.current);
+    }).catch(() => {}).finally(() => setNoticeRead(true));
+  }, []);
+  const agreed = !!notice && 'agreed' in notice;
+  const answerNotice = useCallback((yes: boolean) => {
+    const v = yes ? { agreed: Date.now() } : { declined: Date.now() };
+    setNotice(v);
+    void persist.write(NOTICE_KEY, JSON.stringify(v));
+  }, []);
+
+  const keepAlerts = useCallback((kept: KeptAlerts) => {
+    alertsNow.current = kept;
+    setAlerts(kept);
+    void (kept ? persist.write(ALERTS_KEY, JSON.stringify(kept)) : persist.write(ALERTS_KEY, null)).catch(() => {});
+  }, []);
+  const turnOnAlerts = useCallback(async () => {
+    if (!cloud?.signedIn()) throw new Error('Sign in first.');
+    const token = await alertToken();
+    await leaveAddress(cloud, { token, platform: Platform.OS, appVersion: APP_VERSION, now: Date.now() });
+    keepAlerts({ token, at: Date.now() });
+  }, [cloud, keepAlerts]);
+  const turnOffAlerts = useCallback(async () => {
+    const token = alertsNow.current?.token;
+    keepAlerts(null);
+    if (token && cloud?.signedIn()) await takeAddressBack(cloud, token);
+  }, [cloud, keepAlerts]);
+  // Renewed whenever the app opens, so the row says this phone is still here.
+  const alertsOn = !!alerts;
+  useEffect(() => {
+    if (!cloud || !signedIn || !alertsOn) return;
+    const forget = async () => {
+      const token = alertsNow.current?.token;
+      keepAlerts(null);
+      if (token) await takeAddressBack(cloud, token).catch(() => {});
+    };
+    const renew = async () => {
+      const was = alertsNow.current;
+      if (!was || !cloud.signedIn() || Date.now() - was.at < 60_000) return;
+      try {
+        const token = await alertTokenIfAllowed();
+        if (!token) return forget();
+        await leaveAddress(cloud, { token, platform: Platform.OS, appVersion: APP_VERSION, now: Date.now() });
+        if (token !== was.token) await takeAddressBack(cloud, was.token).catch(() => {});
+        keepAlerts({ token, at: Date.now() });
+      } catch { /* tried again the next time the app opens */ }
+    };
+    void renew();
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') void renew(); });
+    return () => sub.remove();
+  }, [cloud, signedIn, alertsOn, keepAlerts]);
+  // The icon counts what needs you; an alert sets it while the app is shut.
+  useEffect(() => { if (signedIn && !read.first) setIconCount(tabs.inbox.length); }, [signedIn, read.first, tabs.inbox.length]);
+
   const send = useCallback(async (press: Press, item: PressedItem | null, opts: { undone?: () => void } = {}) => {
     if (!sender) return null;
+    if (needsNotice(press.kind) && !agreed) {
+      router.push('/ai-notice');
+      throw new Error('Not sent yet. Your agent needs your yes first.');
+    }
     const plan = planFor(press, item, Date.now());
     if (!plan) return null;
     const made = await runSteps(sender, plan.steps);
@@ -141,7 +213,7 @@ function useCloudState() {
     }
     setNow(Date.now());
     return made;
-  }, [sender, say]);
+  }, [sender, say, agreed]);
 
   // Files go to your own storage, in the folder of the computer the project is
   // on, as the phone site sends them; the message then links them.
@@ -163,17 +235,27 @@ function useCloudState() {
   }, [cloud]);
 
   const signOut = useCallback(() => {
-    cloud?.signOut();
+    const c = cloud;
+    const token = alertsNow.current?.token;
+    keepAlerts(null);
+    setIconCount(0);
+    // Taken back while still signed in as you; a sign-in made meanwhile is never signed out.
+    if (c && token && c.signedIn()) {
+      const asked = c.generation();
+      void takeAddressBack(c, token).catch(() => {}).finally(() => { if (c.generation() === asked) c.signOut(); });
+    } else c?.signOut();
     cache.current.clear();
     links.current.clear();
     setRows(EMPTY);
     setToast(null);
     setSignedIn(false);
-  }, [cloud, setRows]);
+  }, [cloud, setRows, keepAlerts]);
 
   return {
     cloud, opened, signedIn, rows, view, tabs, status, loading: read.first, now, refresh, send, attach, fileOf, toast, say,
     dismissToast: () => setToast(null), signedInWith, signOut, preview: PREVIEW,
+    notice, noticeRead, agreed, answerNotice, withdrawNotice: () => answerNotice(false),
+    alerts, turnOnAlerts, turnOffAlerts,
     // The one map of her files' links, filled in place; `signedAt` moves when it does.
     links: links.current, signedAt,
   };

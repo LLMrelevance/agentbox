@@ -1,28 +1,23 @@
-// THE GROUPS TAB HOLDS THE GROUP OPEN LAST (w-dcaa2c122e, 2026-10-23).
+// GROUPS OPENS THE GROUP OPEN LAST (w-dcaa2c122e, 2026-10-23).
 //
 // The tab after Done held one room you picked by hand, and every other room or
 // chat opened as a page of its own from the sidebar's Messages and Rooms rows.
-// Asked for: call the tab Groups and have it show "the most recent group you
-// had selected", with every group, and every chat, one click away from it.
+// Asked for: call it Groups and have it show "the most recent group you had
+// selected", with every group, and every chat, one click away from it.
 // Measured on the drawn tab before: the room's name and its headcount, a
-// picker of rooms only, and No room tab. Now it says Groups with the count of
-// groups that have something unread, its arrow lists every group and chat,
-// and any group, from anywhere, opens in it. How it behaves as a tab is in
-// tests/the-room-tab-opens-its-room-under-the-threads-tabs.
+// picker of rooms only, and No room tab. Groups now opens the group open last,
+// and any group, from anywhere, opens as the Groups page. Since the same day
+// Groups is a row in the page-name menu rather than a tab
+// (tests/with-groups-the-page-name-is-a-menu-and-there-is-no-sidebar).
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
-import React, { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { groupInTab } from '../renderer/src/team/rooms/room-rules.ts';
-import { GroupsTab } from '../renderer/src/team/rooms/RoomTab.tsx';
-globalThis.React = React;
 
 const hook = fs.readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
 const room = (id, kind = 'room', pinned = false) => ({ id, kind, pinned });
 const rooms = [room('general'), room('team', 'room', true), room('chat-maya', 'group')];
-const tab = (props) => renderToStaticMarkup(createElement(GroupsTab, { count: 0, open: false, onOpen: () => {}, onMenu: () => {}, ...props }));
 
-describe('which group the tab opens', () => {
+describe('which group Groups opens', () => {
   it('the one open last', () => {
     expect(groupInTab(rooms, 'chat-maya')?.id).toBe('chat-maya');
   });
@@ -38,21 +33,8 @@ describe('which group the tab opens', () => {
   });
 });
 
-describe('the tab', () => {
-  it('says Groups, after a rule', () => {
-    expect(tab({})).toMatch(/class="rm-sep".*>Groups</);
-  });
-  it('counts groups with something unread, and says nothing when none has', () => {
-    expect(tab({ count: 3 })).toContain('Groups<b>3</b>');
-    expect(tab({ count: 0 })).not.toContain('<b>');
-  });
-  it('is there whenever Groups is on, with or without a group', () => {
-    expect(hook).toMatch(/const roomTab: ReactNode = live\s*\? <GroupsTab/);
-  });
-});
-
-describe('every group opens in the tab', () => {
-  it('and the tab then holds it', () => {
+describe('every group opens as the Groups page', () => {
+  it('which then holds it', () => {
     expect(hook).toMatch(/const openRoom = \(id: string\) => \{[^}]*setOpenId\(id\);[^}]*setLastId\(id\); writeRoomTab\(id\);/);
   });
   it('a mention, a chat started from someone’s page, a group joined or started all go through it', () => {

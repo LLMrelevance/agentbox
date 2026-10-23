@@ -46,14 +46,14 @@ describe('saving the switches', () => {
   };
 
   it('both are off until someone turns them on', () => {
-    expect(alphaFeatures({})).toEqual({ neo: false, rooms: false });
+    expect(alphaFeatures({}, { packaged: true })).toEqual({ neo: false, rooms: false, multiplayer: false });
   });
 
   it('Rooms on is written to the config file and read back', () => {
     const w = world();
     setWorkspaceSetting(w, { key: 'alphaRooms', value: true });
     expect(JSON.parse(fs.readFileSync(path.join(w.dir, 'zero.config.json'), 'utf8')).alphaRooms).toBe(true);
-    expect(alphaFeatures(w.config)).toEqual({ neo: false, rooms: true });
+    expect(alphaFeatures(w.config, { packaged: true })).toEqual({ neo: false, rooms: true, multiplayer: false });
     setWorkspaceSetting(w, { key: 'alphaRooms', value: false });
     expect(alphaFeatures(w.config).rooms).toBe(false);
     fs.rmSync(w.dir, { recursive: true, force: true });
@@ -63,14 +63,14 @@ describe('saving the switches', () => {
     const w = world();
     setWorkspaceSetting(w, { key: 'alphaRooms', value: true });
     setWorkspaceSetting(w, { key: 'alphaNeo', value: true });
-    expect(alphaFeatures(w.config)).toEqual({ neo: true, rooms: true });
+    expect(alphaFeatures(w.config, { packaged: true })).toEqual({ neo: true, rooms: true, multiplayer: false });
     fs.rmSync(w.dir, { recursive: true, force: true });
   });
 });
 
 describe('where the app reads them', () => {
   it('the snapshot carries the switches, so the renderer can gate Rooms', () => {
-    expect(read('main/ipc.mjs')).toMatch(/alpha:\s*alphaFeatures\(config\)/);
+    expect(read('main/ipc.mjs')).toMatch(/const alpha = alphaFeatures\(config\);[\s\S]{0,600}\n\s+alpha,\n/);
   });
   it('Settings reads them back', () => {
     expect(read('main/settings.mjs')).toMatch(/alpha:\s*alphaFeatures\(config\)/);

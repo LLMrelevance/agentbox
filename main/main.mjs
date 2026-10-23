@@ -55,7 +55,7 @@ import { hotWindowVerdict, storeHasWork } from './dev-window.mjs';
 import { writeHeldThenReload } from './write-before-reload.mjs';
 import { IS_SHE_TYPING_IN_THE_PAGE, theAppKeepsThisInput, theAppKeepsThisLetterInAPage } from '../shared/artifact-keys.mjs';
 import { NAME, Name, WAS } from '../shared/product-name.mjs';
-import { JOIN_SCHEME, tokenFromLink } from '../shared/room-links.mjs';
+import { JOIN_SCHEME, ourLink, tokenFromLink } from '../shared/room-links.mjs';
 import { getMic } from './neo/mic.mjs';
 
 // HOW LONG TO WAIT AFTER THE LID OPENS, and the wait is for the network rather
@@ -250,14 +250,18 @@ let window = null;
 // Held until the window takes it ('zero:take-join'); a window that is up is
 // told to come and take it, and one still starting takes it as it mounts.
 let pendingJoin = tokenFromLink(process.argv.find((a) => a.startsWith(`${JOIN_SCHEME}://`)) ?? '');
+function showWindow() {
+  if (!window || window.isDestroyed()) return;
+  if (window.isMinimized()) window.restore();
+  window.focus();
+}
 function openJoinLink(url) {
   const token = tokenFromLink(url);
   if (!token) return;
   pendingJoin = token;
   if (window && !window.isDestroyed()) {
     window.webContents.send('zero:join-room');
-    if (window.isMinimized()) window.restore();
-    window.focus();
+    showWindow();
   }
 }
 // Set by ⌘R and read once by the renderer as it comes back up, so a reload can
@@ -424,13 +428,14 @@ async function createWindow() {
   const cloudConfig = loadCloudConfig(appDir, { packaged: app.isPackaged });
   let phoneApply = null;
   let phoneSettings = null;
+  // Every installed build has a cloud now, so the keychain is asked only once
+  // a sign-in is read or kept, not at launch.
   const team = cloudConfig ? createTeamService({
     session: supabaseSession({
       cloudConfig,
       sessionFile: path.join(config.storeRoot, '.team-session'),
-      ...(safeStorage.isEncryptionAvailable()
-        ? { encrypt: (text) => safeStorage.encryptString(text), decrypt: (buf) => safeStorage.decryptString(buf) }
-        : { encrypt: null, decrypt: null }),
+      encrypt: (text) => (safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(text) : Buffer.from(text, 'utf8')),
+      decrypt: (buf) => (safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8')),
       packaged: app.isPackaged,
       openExternal: (url) => shell.openExternal(url),
     }),
@@ -460,6 +465,8 @@ async function createWindow() {
       device: () => phoneDevice(userDir, config.storeRoot),
       // Where her phone reads it, once the site is up (cloud/team.config.json).
       site: typeof cloudConfig.phoneSite === 'string' ? cloudConfig.phoneSite : null,
+      // No alert on her phone while she is at this Mac (main/phone-alerts.mjs).
+      idleMs: () => powerMonitor.getSystemIdleTime() * 1000,
     },
     // ROOMS, while switched on in Alpha features (docs/team/ROOMS-PLAN.md).
     rooms: roomsSetup({ config, store, supervisor, userDir }),
@@ -977,7 +984,7 @@ async function createWindow() {
   // a locked screen all read the same from in there). The renderer says what
   // arrived; main/notify.mjs decides. tell me when I am in another app, never
   // while I am in Agentbox.
-  installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage });
+  installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage, onArrivals: (list, needsYou) => team?.phoneArrivals(list, needsYou) });
   // THE CORNER TAG (w-dafae58a23): what is ready for her, floating over
   // whatever app she is in. Its page is built beside the app's own, and comes
   // from the dev server only when the app's own page does.
@@ -1198,7 +1205,8 @@ if (!app.requestSingleInstanceLock()) {
     const link = argv.find((a) => String(a).startsWith(`${JOIN_SCHEME}://`));
     if (link) openJoinLink(link);
   });
-  app.on('open-url', (e, url) => { e.preventDefault(); openJoinLink(url); });
+  // Stripe's last page links back on the app's scheme, which only needs the window.
+  app.on('open-url', (e, url) => { e.preventDefault(); if (ourLink(url)) showWindow(); openJoinLink(url); });
   app.whenReady().then(() => {
     // A from-source Linux launch keeps the launcher command installed. The
     // entry runs that command; this only refreshes where it points. A packaged

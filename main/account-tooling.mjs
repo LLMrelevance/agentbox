@@ -242,10 +242,14 @@ export function nameForOrganization(org, identities) {
  * its organization is the one email here in it, and none when two people here
  * share it.
  */
-export function profileForCloudLogin({ org, email }, identities) {
-  if (!org) return null;
-  const who = email || nameForOrganization(org, identities);
-  return who ? identities.find((id) => id?.organizationUuid === org && id.email === who)?.profile ?? null : null;
+export function profileForCloudLogin(login, identities) {
+  return identities.find((id) => isCloudLoginOf(login, id, identities))?.profile ?? null;
+}
+
+/** Whether a cloud login is the same subscription as one login here, by `profileForCloudLogin`'s rule. */
+export function isCloudLoginOf({ org, email }, identity, identities) {
+  if (!org || !identity?.email || identity.organizationUuid !== org) return false;
+  return (email || nameForOrganization(org, identities)) === identity.email;
 }
 
 /**
