@@ -2163,6 +2163,10 @@ export default function App() {
     //
     // Same score as the inbox and as the supervisor, so the top of this list is
     // what the fleet takes next. Recency only breaks a tie now.
+    //
+    // THE TAB DRAWS IT NEWEST SENT FIRST since w-21b638d821 (`order` in
+    // threads/page-rules.ts): a queued row is told by its Status cell, and
+    // what you just sent is on top.
   ].sort(byRunningOrder(score)),
   [items, agentList, agentMode, scope, pendingIds, dueAt, hiddenAt, score, now, team, teamProgress, liveIds, shippingIds]);
 
@@ -2527,7 +2531,7 @@ export default function App() {
     [withOthers, cards, view, picked, team?.me, inboxDisplay, snap?.products, now],
   );
   const mixedRows = useMemo(
-    () => (withOthers ? mergeRows(displayedBox, theirRows, view === 'done' ? 'done' : inboxDisplay.sort, { order: projectOrder, products: snap?.products ?? [] }) : null),
+    () => (withOthers ? mergeRows(displayedBox, theirRows, view === 'done' ? 'done' : view === 'progress' ? 'updated' : inboxDisplay.sort, { order: projectOrder, products: snap?.products ?? [] }) : null),
     [withOthers, displayedBox, theirRows, inboxDisplay.sort, view, projectOrder, snap?.products],
   );
   // A teammate's thread opens as their card, over the page, and Back returns here.
@@ -6725,10 +6729,11 @@ export default function App() {
                   // tab that holds them (w-fda2165ec6).
                   onEnd={search === null && olderMore !== false && view === 'done' ? loadOlder : undefined}
                   // DRAG A THREAD TO WHERE IT BELONGS (w-6e5b532a95), wherever
-                  // the list is in your running order: Sort by Priority, on the
-                  // three tabs still ahead of you, your own threads alone.
+                  // the list is in your running order: Sort by Priority, on
+                  // Needs you and Later, your own threads alone. In progress
+                  // runs by when you sent (w-21b638d821).
                   onReorder={search === null && !run && !withOthers && inboxDisplay.sort === 'priority'
-                    && (view === 'inbox' || view === 'progress' || view === 'snoozed') ? reorderThread : undefined}
+                    && (view === 'inbox' || view === 'snoozed') ? reorderThread : undefined}
                   items={list}
                   // Results are grouped and stamped like the inbox, whatever
                   // tab she opened search from. Scheduled would otherwise label
