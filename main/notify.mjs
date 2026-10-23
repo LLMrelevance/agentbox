@@ -171,11 +171,12 @@ export function createNotifier({ window, Notification, powerMonitor, icon = null
   };
 }
 
-// `onArrivals` hears every arrival too, for the phone's alerts
-// (main/phone-link.mjs), which make their own call about speaking.
+// `onArrivals` hears every arrival too, with the inbox they arrived in, for
+// the phone's alerts (main/phone-alerts.mjs), which make their own call.
+const needsYouOf = (payload) => (Array.isArray(payload.needsYou) ? payload.needsYou : []);
 export function installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage, onArrivals = () => {} }) {
   if (Notification.isSupported && !Notification.isSupported()) {
-    ipcMain.handle('zero:notify', (_e, payload = {}) => { try { onArrivals(Array.isArray(payload.arrivals) ? payload.arrivals : []); } catch {} });
+    ipcMain.handle('zero:notify', (_e, payload = {}) => { try { onArrivals(Array.isArray(payload.arrivals) ? payload.arrivals : [], needsYouOf(payload)); } catch {} });
     return { add() {}, seen() {} };
   }
   // app.getAppPath() is the repo from source and the asar inside the bundle
@@ -191,7 +192,7 @@ export function installNotifier({ app, window, Notification, powerMonitor, ipcMa
   try { powerMonitor.on('unlock-screen', () => { if (window.isFocused()) notifier.seen(); }); } catch {}
   ipcMain.handle('zero:notify', (_e, payload = {}) => {
     const arrivals = Array.isArray(payload.arrivals) ? payload.arrivals : [];
-    try { onArrivals(arrivals); } catch {}
+    try { onArrivals(arrivals, needsYouOf(payload)); } catch {}
     notifier.add(arrivals);
   });
   return notifier;

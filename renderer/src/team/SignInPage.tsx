@@ -33,15 +33,18 @@ type Mode = 'sign-in' | 'sign-up' | 'check-email';
 // turned down new screens for the cloud: "We already have a sign-in page
 // built that's pretty darn decent." With purpose cloud the same page signs in
 // through main/cloud/account.mjs, says one line about the terms, and can be
-// left: the cloud is something chosen, not a gate over the app.
+// left: the cloud is something chosen, not a gate over the app. With purpose
+// phone it is the team sign-in, opened from Settings › Phone and closable the
+// same way, for a build whose team version is off.
 const TERMS_URL = 'https://agentbox.ac/terms';
 const PRIVACY_URL = 'https://agentbox.ac/privacy';
 
 export function SignInPage({ signedOut = false, error: startError = null, waitingUrl = null, purpose = 'team', onClose, onSignedIn }: {
   signedOut?: boolean; error?: string | null; waitingUrl?: string | null;
-  purpose?: 'team' | 'cloud'; onClose?: () => void; onSignedIn?: () => void;
+  purpose?: 'team' | 'cloud' | 'phone'; onClose?: () => void; onSignedIn?: () => void;
 }) {
   const cloud = purpose === 'cloud';
+  const closable = cloud || purpose === 'phone';
   const [mode, setMode] = useState<Mode>('sign-in');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -56,15 +59,15 @@ export function SignInPage({ signedOut = false, error: startError = null, waitin
     setBusy('google'); setError(null); setCopied(false);
     const out = cloud ? await api.cloudAccountSignIn({ method: 'google' }) : await api.teamSignIn();
     setBusy(null);
-    if (out.ok) { if (cloud) onSignedIn?.(); return; }
+    if (out.ok) { if (closable) onSignedIn?.(); return; }
     if (!/cancelled/i.test(out.error ?? '')) setError(out.error ?? 'Google sign-in did not finish.');
   };
   useEffect(() => {
-    if (!cloud || !onClose) return undefined;
+    if (!closable || !onClose) return undefined;
     const on = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onClose(); };
     window.addEventListener('keydown', on);
     return () => window.removeEventListener('keydown', on);
-  }, [cloud, onClose, busy]);
+  }, [closable, onClose, busy]);
   // A reload while the browser is out still finds the sign-in waiting.
   const waiting = busy === 'google' || !!waitingUrl;
   const copy = async () => {
@@ -108,7 +111,7 @@ export function SignInPage({ signedOut = false, error: startError = null, waitin
     setBusy(null);
     if (!out.ok) { setError(out.error ?? 'That did not work. Try again.'); return; }
     if (out.confirm) { setMode('check-email'); return; }
-    if (cloud) onSignedIn?.();
+    if (closable) onSignedIn?.();
   };
 
   const heading = mode === 'sign-up' ? 'Create your account'
@@ -116,6 +119,7 @@ export function SignInPage({ signedOut = false, error: startError = null, waitin
       : signedOut ? 'You are signed out' : `Sign in to ${Name}`;
   const lede = mode === 'check-email' ? `We sent a link to ${email}. Follow it to confirm your address, then sign in here.`
     : cloud ? 'Then your agents run in the cloud.'
+      : purpose === 'phone' ? 'Then your phone can read and reply to your threads, even with this computer closed.'
       : mode === 'sign-up' ? 'Your teammates will see this name beside your threads and messages.'
       : signedOut ? 'Sign in again to get back to your inbox and your team.'
         // On the phone with the Mac shut: what signing in here gets her.
@@ -171,7 +175,7 @@ export function SignInPage({ signedOut = false, error: startError = null, waitin
           <p className="si-terms">Continuing accepts the <a href={TERMS_URL} onClick={(e) => { e.preventDefault(); window.open(TERMS_URL, '_blank'); }}>Terms</a> and the <a href={PRIVACY_URL} onClick={(e) => { e.preventDefault(); window.open(PRIVACY_URL, '_blank'); }}>Privacy policy</a>.</p>
         )}
       </div>
-      {cloud && onClose && (
+      {closable && onClose && (
         <button type="button" className="back-esc fr-back si-back" aria-label="Back" title="Back" onClick={onClose}>
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M10 3.5L5.5 8l4.5 4.5" /></svg>
         </button>

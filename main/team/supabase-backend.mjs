@@ -317,6 +317,20 @@ export function supabaseBackend(client) {
       const rows = must(await client.from('phone_settings').select('owner,device,name,settings,updated_at').order('updated_at', { ascending: false }), 'reading your computer\'s settings');
       return (rows ?? []).filter((r) => r.owner === me).map((r) => ({ owner: r.owner, device: r.device, name: r.name, settings: r.settings, updatedAt: Date.parse(r.updated_at) }));
     },
+    // The phones her alerts go to (20261025000000_push_devices.sql). The phone writes its own row; this is for tests.
+    async putPushDevice({ token, platform, appVersion = null }) {
+      await myId();
+      must(await client.from('push_devices').upsert({ token, platform, app_version: appVersion, updated_at: new Date().toISOString() }, { onConflict: 'owner,token' }), 'turning on alerts');
+    },
+    async pushDevices(owner) {
+      const me = await myId();
+      const rows = must(await client.from('push_devices').select('owner,token,platform,app_version,updated_at').eq('owner', owner ?? me), 'reading the phones to alert');
+      return (rows ?? []).map((r) => ({ owner: r.owner, token: r.token, platform: r.platform, appVersion: r.app_version ?? null, updatedAt: Date.parse(r.updated_at) }));
+    },
+    async dropPushDevice(token, owner) {
+      const me = await myId();
+      must(await client.from('push_devices').delete().eq('owner', owner ?? me).eq('token', token), 'forgetting a phone');
+    },
     async addPhoneCommand({ device, project = null, item = null, kind, payload = {} }) {
       await myId();
       const row = must(await client.from('phone_commands').insert({ device, project, item, kind, payload }).select(COMMAND_COLUMNS).single(), 'sending that to your computer');

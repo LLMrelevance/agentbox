@@ -429,3 +429,90 @@
 .rm-full .rm-cm .tx { font-size: 14.5px; line-height: 22px; }
 .rm-full .rm-compose { margin: 8px 28px 24px; max-width: 704px; }
 .rm-full .rm-picker { left: 28px; right: auto; width: 320px; }
+
+/* GROUPS: under the Groups tab, the row of every group, the chat filling the page, the people down the right. */
+.gr-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.gr-body { flex: 1; min-height: 0; display: flex; }
+.gr-chat { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.gr-chat .rm-full .rm-chat-list { max-width: none; padding-left: var(--text-x, 32px); padding-right: 32px; }
+.gr-chat .rm-full .rm-compose { max-width: none; margin-left: var(--text-x, 32px); margin-right: 32px; }
+.gr-chat .rm-full .rm-chat-err { margin-left: var(--text-x, 32px); }
+.rm-full.hang .rm-cm { padding-left: 44px; }
+.rm-full.hang .rm-cm .h { gap: 8px; }
+.rm-full.hang .rm-cm .h > .rm-pic:first-child { position: absolute; left: 0; top: 9px; }
+
+/* Named groups wear a # and a border; the chats made from them wear faces and none, after a rule. */
+.gr-bar { flex: none; display: flex; align-items: center; gap: 8px; min-width: 0; height: 56px; box-sizing: border-box; padding: 0 20px 0 var(--text-x, 32px); border-bottom: 1px solid var(--rm-line); }
+.gr-chip { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; box-sizing: border-box; border: 1px solid var(--line-strong); background: none; font: inherit; font-size: 13px; color: var(--text-dim); cursor: default; }
+.gr-chip:hover { color: var(--text); }
+.gr-chip.named { padding: 0 12px 0 10px; color: var(--text); }
+.gr-chip.named.on { border-color: var(--text-dim); background: var(--wash); }
+.gr-hash { display: inline-flex; margin-right: -2px; color: var(--text-faint); }
+.gr-sep { flex: none; width: 1px; height: 20px; margin: 0 6px 0 8px; background: var(--line-strong); }
+/* Even on both sides of every chat, so the space between two is always the same; picked is a fill, never a box. */
+.gr-chats { display: flex; align-items: center; min-width: 0; }
+.gr-chip.chat { padding: 0 10px; border-color: transparent; }
+.gr-chip.chat:hover { background: var(--wash); }
+.gr-chip.chat.on { background: var(--wash-strong); color: var(--text); }
+.gr-chip.unread { color: var(--text); }
+.gr-face { position: relative; display: inline-flex; flex: none; }
+.gr-dot { position: absolute; right: -3px; top: -3px; z-index: 2; width: 6px; height: 6px; background: var(--accent); outline: 2px solid var(--skin-solid, var(--surface)); }
+.gr-chip.more { gap: 4px; padding: 0 8px 0 10px; border-color: transparent; color: var(--text-faint); }
+.gr-chip.more svg { color: var(--text-faint); }
+.gr-chip.more:hover, .gr-chip.more.on { background: var(--wash); color: var(--text); }
+.gr-chip.more.unread::after { content: ''; width: 6px; height: 6px; margin-left: 2px; background: var(--accent); }
+.gr-morewrap { position: relative; flex: none; display: flex; }
+.gr-faces { display: flex; flex: none; }
+.gr-faces > .rm-pic + .rm-pic { margin-left: -6px; outline: 2px solid var(--skin-solid, var(--surface)); }
+
+/* Every group, behind More and the Groups tab's arrow: Groups, then Direct messages. */
+.gr-menu { width: 360px; box-sizing: border-box; padding: 4px; max-height: 70vh; overflow-y: auto; }
+.gr-menu .head { padding: 8px 10px 6px; }
+.gr-menu .head.gr-sec { margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--rm-line); }
+.gr-drop { position: absolute; left: 0; top: calc(100% + 6px); z-index: 40; }
+.gr-list { display: flex; flex-direction: column; }
+.gr-row { display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; height: 52px; padding: 0 10px; border: 0; background: none; font: inherit; text-align: left; color: inherit; cursor: default; }
+.gr-row:hover, .gr-row.on { background: var(--wash-strong); }
+.gr-w { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.gr-nm { font-size: 13.5px; line-height: 18px; color: var(--text); }
+.gr-last { font-size: 12.5px; line-height: 16px; color: var(--text-faint); }
+.gr-m { flex: none; align-self: stretch; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 6px; }
+.gr-m em { font: normal 10.5px var(--mono); color: var(--text-faint); }
+.gr-tile { display: inline-flex; align-items: center; justify-content: center; flex: none; box-sizing: border-box; border: 1px solid var(--line-strong); color: var(--text-dim); }
+.gr-two { position: relative; flex: none; display: inline-block; }
+.gr-two > .rm-pic { position: absolute; }
+.gr-two > .rm-pic:first-child { left: 0; top: 0; }
+.gr-two > .rm-pic:last-child { right: 0; bottom: 0; z-index: 1; outline: 2px solid var(--pop, var(--surface)); }
+
+/* Who is in the group: face, name and level, what they are on, their agents. */
+.gr-side { width: 368px; flex: none; min-height: 0; overflow-y: auto; box-sizing: border-box; display: flex; flex-direction: column; padding: 16px 24px 24px; border-left: 1px solid var(--rm-line); }
+.gr-ph { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-height: 20px; margin-bottom: 8px; }
+.gr-pt { font-size: 13.5px; color: var(--text); }
+.gr-pn { font-size: 12.5px; color: var(--text-faint); white-space: nowrap; }
+.gr-prow { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; column-gap: 12px; align-items: center; width: calc(100% + 48px); box-sizing: border-box; margin: 0 -24px; padding: 10px 24px; border: 0; background: none; font: inherit; text-align: left; color: inherit; cursor: default; }
+.gr-prow:hover { background: var(--wash); }
+.gr-pw { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.gr-l1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 13.5px; line-height: 18px; color: var(--text); }
+.gr-lv { flex: none; font: 11.5px var(--mono); color: var(--text-faint); }
+.gr-l2 { font-size: 12.5px; line-height: 17px; color: var(--text-dim); }
+.gr-l2.idle { color: var(--text-faint); }
+.gr-ag { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 16px; color: var(--text-dim); white-space: nowrap; }
+.gr-ag .live-mark { width: 11px; height: 11px; gap: 1px; color: var(--text); }
+.gr-pmore { margin-top: 8px; font-size: 12.5px; color: var(--text-faint); }
+
+/* The group's options, in the top bar beside New thread. */
+.gr-opts { position: relative; display: inline-flex; }
+.gr-optmenu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; min-width: 230px; padding: 4px; display: flex; flex-direction: column; gap: 1px; }
+.gr-optmenu .row { display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; height: 32px; padding: 0 9px; border: 0; background: none; font: inherit; font-size: 13px; text-align: left; color: var(--text-dim); white-space: nowrap; cursor: default; }
+.gr-optmenu .row:hover { background: var(--wash-strong); color: var(--text); }
+.gr-optmenu .row svg { flex: none; color: var(--text-faint); }
+.gr-optmenu .row .k { margin-left: auto; font: 11px var(--mono); color: var(--text-faint); }
+.gr-optmenu .rule { height: 1px; margin: 3px 5px; background: var(--rm-line); }
+
+.gr-none { padding: 48px var(--text-x, 32px); }
+.gr-none-acts { display: flex; gap: 8px; margin-top: 16px; }
+
+/* The page's tabs in the top bar, where its title was; Groups on the same baseline as the tabs before it. */
+.tabs-top { flex: 1; display: flex; align-items: center; min-width: 0; height: 100%; margin-right: 12px; }
+.tabs-top .th-bar { flex: 1; padding: 0; min-height: 0; }
+.tabs-top .rm-tab .rm-tabname { align-self: auto; align-items: baseline; line-height: 30px; top: .5px; }

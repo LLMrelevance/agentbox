@@ -31,6 +31,7 @@ import {
 } from '../shared/codex-import.mjs';
 import { buildClaimLine, buildReleaseLine } from '../shared/work-items.mjs';
 import { isEffortWord } from '../shared/effort-levels.mjs';
+import { shippedNote } from '../shared/shipped-note.mjs';
 import { machineryPath, removeMachinery } from './store/home.mjs';
 import {
   answerMode as readAnswerMode, answerModes, clearAnswerMode as clearAnswerModeFile, setAnswerMode,
@@ -408,8 +409,7 @@ export class Store {
   shipped(slug, id, { sha, labels }) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
-    const note = sha ? `Shipped to main as ${sha}.` : 'Shipped to main.';
-    return workItemsDisk.updateWorkItem(dir, id, { labels, note }, { source: 'system' });
+    return workItemsDisk.updateWorkItem(dir, id, { labels, note: shippedNote(sha) }, { source: 'system' });
   }
 
   shipFailed(slug, id, { note, labels }) {
