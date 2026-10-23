@@ -37,6 +37,22 @@ const STOP_TRIES = 12;
 // function's own 90 s, so no late answer or late stop can reach a new run.
 const RETIRED_MS = 60 * 60_000;
 const SWEEP_AT_ONCE = 8;
+// What one person's runs/ may hold. At it, no new link writes; past twice it,
+// which only links handed out before the cap was reached can make, the newest
+// objects are deleted. Worst case about $9 a month of S3 per person.
+export const STORAGE_BYTES = 200 * 2 ** 30;
+const STORAGE_EVERY_MS = 15 * 60_000;
+const STORAGE_LIST_MAX = 100_000;
+const STORAGE_DELETES_AT_ONCE = 500;
+// A link that writes is noted on the person's record only when it outlives
+// the note, and the note runs this far past it: one write an hour at most.
+const LINK_NOTE_MS = 60 * 60_000;
+// A cloud key unused this long is refused. Its use is noted at most once a
+// day, so a relay polling through a long run never ends its own key.
+const KEY_IDLE_MS = 30 * 24 * 60 * 60_000;
+const KEY_USE_NOTE_MS = 24 * 60 * 60_000;
+// Only these save a sign-in; a run given a link that writes one could keep it.
+const SAVES_A_SIGNIN = new Set(['signin', 'renew']);
 
 const month = (t) => new Date(t).toISOString().slice(0, 7);
 const monthStart = (t) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); };
@@ -47,6 +63,7 @@ function secondsByMonth(from, to) {
   for (let a = from; a < to; a = nextMonth(a)) out.push([month(a), Math.round((Math.min(to, nextMonth(a)) - a) / 1000)]);
   return out;
 }
+const gib = (bytes) => Math.round((bytes / 2 ** 30) * 10) / 10;
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const bearer = (headers = {}) => /^Bearer (\S+)$/.exec(headers.authorization || headers.Authorization || '')?.[1] ?? null;
 const ceilingOf = (s) => (s.kind === 'run' ? RUN_CEILING_MS : SIGNIN_CEILING_MS);
@@ -82,15 +99,21 @@ export function memoryObjects() {
       if (ifNoneMatch === '*' && cur) throw conflict();
       if (ifMatch && cur?.etag !== ifMatch) throw conflict();
       n += 1;
-      store.set(k, { body: String(body), etag: `e${n}` });
+      store.set(k, { body: String(body), etag: `e${n}`, at: n });
     },
     async del(k) { store.delete(k); },
     async list(prefix) { await null; return [...store.keys()].filter((k) => k.startsWith(prefix)); },
+    // `at` orders writes; S3's is the time it was written.
+    async sizes(prefix, { max = Infinity } = {}) {
+      await null;
+      const all = [...store].filter(([k]) => k.startsWith(prefix)).sort(([a], [b]) => (a < b ? -1 : 1));
+      return { items: all.slice(0, max).map(([key, v]) => ({ key, size: Buffer.byteLength(v.body), at: v.at })), truncated: all.length > max };
+    },
     dump: () => new Map([...store].map(([k, v]) => [k, v.body])),
   };
 }
 
-export function createGateway({ agentcore, links, removeObject, objects, whoIs, stripe = null, now = Date.now, plans = PLANS, termsVersion = TERMS_VERSION, log = () => {} }) {
+export function createGateway({ agentcore, links, removeObject, objects, whoIs, stripe = null, now = Date.now, plans = PLANS, termsVersion = TERMS_VERSION, storageBytes = STORAGE_BYTES, log = () => {} }) {
   const termsRefusal = () => new Refusal(403, 'terms', `accept the terms of ${termsVersion} first`, { terms: termsVersion });
   const personKey = (person) => `ledger/people/${person}.json`;
   const deviceKey = (key) => `ledger/devices/${sha256(key)}.json`;
@@ -260,7 +283,10 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     const sent = { ...payload };
     if (sent.login && typeof sent.login === 'object') sent.login = { ...sent.login, url: await loginLink(person, sent.login.url, 'get') };
     if ('loginUrl' in sent) sent.loginUrl = await loginLink(person, sent.loginUrl, 'get');
-    if ('saveUrl' in sent) sent.saveUrl = await loginLink(person, sent.saveUrl, 'put');
+    if ('saveUrl' in sent) {
+      if (!SAVES_A_SIGNIN.has(sent.action)) throw bad('a sign-in is saved only by a sign-in');
+      sent.saveUrl = await loginLink(person, sent.saveUrl, 'put');
+    }
     const kind = Object.hasOwn(STARTS, sent.action) ? STARTS[sent.action] : null;
     if (kind && (typeof sent.runId !== 'string' || !RUN_ID.test(sent.runId))) throw bad('a run\'s id is plain letters, digits, dots and dashes');
     let nonce;
@@ -318,13 +344,19 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     return { ok: true };
   }
 
-  async function link(person, { op, key, seconds }) {
+  async function link(person, rec, { op, key, seconds }) {
     if (!['get', 'put', 'head'].includes(op)) throw bad('op is get, put or head');
     const scoped = scopedKey(person, key);
     if (!scoped) throw bad('a key is a run\'s or a sign-in\'s, inside your own space');
     // A sign-in is written only by the sandbox, on a link the server makes.
     if (op !== 'head' && key.startsWith('logins/')) throw new Refusal(403, 'not-yours-to-touch', 'a sign-in is never read or written from a Mac');
     const s = Math.min(LINK_MAX_SECONDS, Math.max(60, Number(seconds) || LINK_MAX_SECONDS));
+    if (op === 'put') {
+      if (!planOf(rec).agents) throw new Refusal(403, 'plan', 'Choose a cloud plan to run agents there.');
+      if (rec.storage?.full) throw new Refusal(403, 'storage', `Your cloud storage is full (${gib(storageBytes)} GB). It empties as runs older than a week are deleted.`);
+      const until = now() + s * 1000;
+      if (!(rec.linksUntil >= until)) await update(person, (r) => { r.linksUntil = Math.max(r.linksUntil || 0, until + LINK_NOTE_MS); });
+    }
     return { url: await links[op](scoped, s) };
   }
 
@@ -344,10 +376,18 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     if (body.acceptedTerms !== termsVersion) throw termsRefusal();
     await accept(person);
     const key = `abk_${crypto.randomBytes(32).toString('base64url')}`;
-    await objects.put(deviceKey(key), JSON.stringify({ person, name: String(body.name || '').slice(0, 80), at: now() }), { ifNoneMatch: '*' });
+    const at = now();
+    await objects.put(deviceKey(key), JSON.stringify({ person, name: String(body.name || '').slice(0, 80), at }), { ifNoneMatch: '*' });
+    if (body.signOutOthers === true) await signOutOthers(person, key, at);
     log(`a cloud key for ${person}`);
     return { key };
   }
+
+  // Every key of this person made before `at` is refused, but `keep`.
+  const signOutOthers = (person, keep, at = now()) => update(person, (rec) => {
+    rec.keysBefore = at;
+    if (keep) rec.keptKey = sha256(keep); else delete rec.keptKey;
+  });
 
   const accept = (person) => update(person, (rec) => { rec.terms = { version: termsVersion, at: now() }; });
 
@@ -355,9 +395,23 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     const key = bearer(headers);
     const found = key?.startsWith('abk_') ? await objects.get(deviceKey(key)) : null;
     if (!found) throw new Refusal(401, 'signed-out', 'this cloud key is not known; sign in again');
-    const { person } = JSON.parse(found.body);
-    if ((await recOf(person)).disabled) throw new Refusal(403, 'disabled', 'this account cannot use the cloud');
-    return { person, key };
+    const device = JSON.parse(found.body);
+    const { person } = device;
+    const t = now();
+    const usedAt = device.usedAt ?? device.at;
+    const ended = async (message) => {
+      await objects.del(deviceKey(key)).catch(() => {});
+      return new Refusal(401, 'signed-out', message);
+    };
+    if (!(t - usedAt <= KEY_IDLE_MS)) throw await ended('this cloud key went unused for 30 days; sign in again');
+    const rec = await recOf(person);
+    if (rec.disabled) throw new Refusal(403, 'disabled', 'this account cannot use the cloud');
+    if (rec.keysBefore && device.at < rec.keysBefore && rec.keptKey !== sha256(key)) throw await ended('this Mac was signed out of the cloud from another Mac; sign in again');
+    if (t - usedAt >= KEY_USE_NOTE_MS) {
+      // Lost to a call that noted it first is as good as noted.
+      await objects.put(deviceKey(key), JSON.stringify({ ...device, usedAt: t }), { ifMatch: found.etag }).catch((err) => { if (!err?.conflict) log(`could not note a cloud key's use: ${err?.message || err}`); });
+    }
+    return { person, key, rec };
   }
 
   // BILLING. Stripe's page takes the card; its webhook sets the plan.
@@ -428,9 +482,13 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
       if (method === 'POST' && path === '/v1/devices') return { status: 200, body: await newDevice(headers, data) };
       // Asked before anyone has signed in, so the app shows what they accept.
       if (method === 'GET' && path === '/v1/terms') return { status: 200, body: { terms: termsVersion } };
-      const { person, key } = await personOf(headers);
+      const { person, key, rec } = await personOf(headers);
       const route = `${method} ${path}`;
-      if (route === 'DELETE /v1/devices') { await objects.del(deviceKey(key)); return { status: 200, body: { ok: true } }; }
+      if (route === 'DELETE /v1/devices') {
+        if (data.others === true) await signOutOthers(person, key);
+        else await objects.del(deviceKey(key));
+        return { status: 200, body: { ok: true } };
+      }
       if (route === 'POST /v1/terms') {
         if (data.acceptedTerms !== termsVersion) throw termsRefusal();
         await accept(person);
@@ -439,7 +497,7 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
       if (route === 'GET /v1/me') return { status: 200, body: await update(person, (rec, ctx) => { settle(rec, ctx, now()); return summary(rec, now()); }) };
       if (route === 'POST /v1/invoke') return { status: 200, body: await invoke(person, data) };
       if (route === 'POST /v1/stop') return { status: 200, body: await stop(person, data) };
-      if (route === 'POST /v1/link') return { status: 200, body: await link(person, data) };
+      if (route === 'POST /v1/link') return { status: 200, body: await link(person, rec, data) };
       if (route === 'POST /v1/delete') return { status: 200, body: await remove(person, data) };
       if (route === 'POST /v1/checkout') return { status: 200, body: await checkout(person, data, headers) };
       if (route === 'POST /v1/billing') return { status: 200, body: await billing(person, headers) };
@@ -494,6 +552,29 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     return rec;
   }
 
+  // Whoever may have written since the last look (a link that writes was
+  // live after it), or is full, is looked at again every STORAGE_EVERY_MS.
+  async function weighStorage(person, t, rec) {
+    const last = rec.storage?.at || 0;
+    if (t - last < STORAGE_EVERY_MS || !((rec.linksUntil || 0) > last || rec.storage?.full)) return;
+    const { items, truncated } = await objects.sizes(`runs/u-${person}/`, { max: STORAGE_LIST_MAX });
+    let bytes = items.reduce((sum, o) => sum + o.size, 0);
+    if (bytes > 2 * storageBytes) {
+      const newest = [...items].sort((x, y) => (y.at > x.at ? 1 : y.at < x.at ? -1 : 0));
+      const gone = [];
+      for (const o of newest) {
+        if (bytes <= 2 * storageBytes || gone.length >= STORAGE_DELETES_AT_ONCE) break;
+        gone.push(o);
+        bytes -= o.size;
+      }
+      for (let i = 0; i < gone.length; i += 16) await Promise.all(gone.slice(i, i + 16).map((o) => objects.del(o.key)));
+      log(`${person} held over twice the ${gib(storageBytes)} GB cap in runs/; deleted the newest ${gone.length}`);
+    }
+    const full = truncated || bytes >= storageBytes;
+    if (full && !rec.storage?.full) log(`${person}'s cloud storage is full (${gib(bytes)} GB${truncated ? `, over ${STORAGE_LIST_MAX} objects` : ''}); no new links that write`);
+    await update(person, (r) => { r.storage = { at: t, bytes, full }; });
+  }
+
   // One person who cannot be swept is said and passed; the rest still are.
   async function sweep() {
     const t = now();
@@ -502,7 +583,8 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     for (let i = 0; i < people.length; i += SWEEP_AT_ONCE) {
       await Promise.all(people.slice(i, i + SWEEP_AT_ONCE).map(async (person) => {
         try {
-          await sweepOne(person, t, await recOf(person));
+          const rec = await sweepOne(person, t, await recOf(person));
+          await weighStorage(person, t, rec);
           swept += 1;
         } catch (err) {
           log(`could not sweep ${person}: ${err?.message || err}`);
@@ -528,6 +610,8 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
       });
     } else if (what === 'enable') {
       await update(person, (rec) => { delete rec.disabled; });
+    } else if (what === 'sign-out') {
+      await signOutOthers(person, null);
     } else {
       throw new Error(`no such thing to do: ${what}`);
     }

@@ -85,6 +85,6 @@ describe('what must not change', () => {
   });
 
   it('R on the list still opens the thread with its box', () => {
-    expect(onTheList).toContain("case 'r': case 'R': if (!multiSel.size && pointed && view === 'inbox') { e.preventDefault(); setFocused(pointed); markSeen(pointed); setModal('reply'); } break;");
+    expect(onTheList).toContain("case 'r': case 'R': if (!multiSel.size && pointed && replyKeyWorksIn(view)) { e.preventDefault(); setFocused(pointed); markSeen(pointed); setModal('reply'); } break;");
   });
 });

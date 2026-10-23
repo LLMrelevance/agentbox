@@ -78,7 +78,10 @@ describe('a limit already charged to the Mac by a cloud run', () => {
 });
 
 describe('the cloud account that hit it', () => {
-  it('sits out until the hour, and runs go to the other one', () => {
+  // IT SITS OUT UNTIL THE HOUR AND NOTHING TAKES ITS PLACE (w-dac993a554).
+  // Runs used to go to the next cloud account, which is one person's work
+  // moved onto a second subscription to get past a usage limit.
+  it('sits out until the hour, and the cloud runs nothing until then', () => {
     const home = tmp();
     recordCloudLogin('claude', 'a', { id: 'id-a', savedAt: 1 }, { home });
     recordCloudLogin('claude', 'b', { id: 'id-b', savedAt: 2 }, { home });
@@ -88,8 +91,9 @@ describe('the cloud account that hit it', () => {
     expect(cloudLoginState(a)).toBe('limited');
     expect(mayRunOn('limited')).toBe(false);
     expect(cloudLoginState(a, { now: until + 1 })).toBe('ready');
-    expect(pickCloudLogin('claude', { home }).id).toBe('id-b');
-    expect(pickCloudLogin('claude', { home }).id).toBe('id-b');
+    expect(pickCloudLogin('claude', { home })).toBe(null);
+    // And it is back on its own the moment the hour passes.
+    expect(pickCloudLogin('claude', { home, now: until + 1 }).id).toBe('id-a');
   });
 });
 

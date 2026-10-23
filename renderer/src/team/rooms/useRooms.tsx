@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '../../api';
 import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
 import { RoomsPage, useOutside, type RoomMenuAction } from './RoomsPage';
-import { boardPeople, boardPicked, cardName, chatPeople, peopleCount, readBoardLater, readBoardPicks, readRoomTab, tabRoom, whereChatOpens, withMe, writeBoardLater, writeBoardPicks, writeRoomTab } from './room-rules';
+import { boardPeople, boardPicked, cardName, chatPeople, mentionRows, peopleCount, readBoardLater, readBoardPicks, readRoomTab, tabRoom, whereChatOpens, withMe, writeBoardLater, writeBoardPicks, writeRoomTab, type MentionRow } from './room-rules';
 import { BoardFaces, RoomViewButton } from './RoomView';
 import { RoomTab, RoomTabMenu } from './RoomTab';
 import { landed, sameMessages } from './room-chat-rules';
@@ -479,7 +479,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     goInvisible={(minutes) => { void call('goInvisible', minutes); }}
     comeBack={() => { void call('comeBack'); }} /> : live ? <RoomsNotReady error={rooms?.error ?? null} /> : undefined;
 
-  const mentions: RoomMention[] = live ? rooms!.mentions : [];
+  // Needs you counts these rows too, so a run of messages counts once.
+  const mentions: MentionRow[] = live ? mentionRows(rooms!.mentions) : [];
   const faces = new Map(all.flatMap((r) => r.wall.map((c) => [c.id, c.avatarUrl] as const)));
   const openMention = (m: RoomMention) => openRoom(m.roomId);
 

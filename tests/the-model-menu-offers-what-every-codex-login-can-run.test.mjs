@@ -11,10 +11,15 @@
 // menu said so.
 //
 // Two gaps are held here. The menu read only the main login's list, although
-// `_pickProfile` already sends a task to whichever login's plan has its model,
-// so a paid second login's models never appeared beside a free main one. And
-// only the main login's catalog was refreshed, so a second login's list was as
-// old as the last time Codex happened to run on it.
+// `_pickProfile` then sent a task to whichever login's plan had its model, so
+// a paid second login's models never appeared beside a free main one. And only
+// the main login's catalog was refreshed, so a second login's list was as old
+// as the last time Codex happened to run on it.
+//
+// SINCE w-dac993a554 THE WORK RUNS ON ONE LOGIN, so the menu offers that
+// login's models: `codexModelsAcross` still merges the homes it is handed, and
+// `_codexOfferHomes` now hands it one. The merging is what the cases below
+// test; which homes reach it is the last two.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -84,12 +89,17 @@ describe('the models offered are every signed-in login\'s, not just the main one
     expect(codexModelsAcross([main]).map((m) => m.id)).toEqual(PAID);
   });
 
-  it('the homes offered are the signed-in logins, main first, and not one still being added', () => {
+  // THE LOGIN THE WORK RUNS ON, WHICH IS ONE (w-dac993a554). This expected
+  // every signed-in login's models, which was right while `_pickProfile` sent
+  // a task to whichever login's plan had its model. Nothing rotates now, so a
+  // menu offering a second login's models would offer what the account in use
+  // cannot run, and the task would die saying the model is not on the plan.
+  it('the homes offered are the login the work runs on, and not one still being added', () => {
     const main = home('main', { slugs: FREE, plan: 'free' });
     const second = home('second', { slugs: PAID, plan: 'pro' });
     const adding = home('adding', { slugs: PAID, signedIn: false });
     const s = bare({ codexHome: main, codexProfiles: ['default', second, adding] });
-    expect(s._codexOfferHomes()).toEqual([main, second]);
+    expect(s._codexOfferHomes()).toEqual([main]);
   });
 
   it('an account she chose narrows the offer to that login', () => {

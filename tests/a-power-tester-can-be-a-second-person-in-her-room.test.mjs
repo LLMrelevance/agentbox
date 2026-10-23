@@ -25,6 +25,15 @@ describe('the tester in a room', () => {
     expect(p).toMatch(/reads it live/);
     expect(p).toMatch(/say hello/i);
   });
+  // w-4465054f04: "make sure this person is in a room so I can see how
+  // everything works and that they're not in the invisible state". The prompt
+  // used to send the tester invisible for a while as part of trying the room.
+  it('stays visible all day, and comes back if it finds itself invisible', () => {
+    const p = testerPrompt({ ...base, room: 'Astral' });
+    expect(p).not.toMatch(/going invisible for a little while/);
+    expect(p).toMatch(/stay visible/i);
+    expect(p).toMatch(/Come back/);
+  });
   it('without a room, hears nothing about one', () => {
     expect(testerPrompt(base)).not.toMatch(/YOUR ROOM/);
   });

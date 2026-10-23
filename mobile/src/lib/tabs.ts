@@ -9,7 +9,7 @@
 import {
   belongsInInbox, belongsInProgress, hiddenUntil, isProposal, notStarted, rowTitle, stillAsksYou, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd,
 } from '../../../renderer/src/list-rules';
-import { boardColumns, DEFAULT_DISPLAY, keeps, sorted, updatedWords, type Display } from '../../../renderer/src/threads/page-rules';
+import { boardColumns, DEFAULT_DISPLAY, keeps, sentAt, sorted, updatedWords, type Display } from '../../../renderer/src/threads/page-rules';
 import { searchThreads } from '../../../renderer/src/threads/search';
 import { parseQuery, splitHits } from '../../../renderer/src/search';
 import { stamp } from '../../../renderer/src/format';
@@ -81,7 +81,7 @@ export function phoneTabs(view: View, now = Date.now()): Record<TabId, Row[]> {
   const order = view.products.map((p: { slug: string }) => p.slug);
   const row = (i: any): Row => ({
     key: `${i.product}/${i.id}`, id: i.id, product: i.product, title: rowTitle(i), projectName: names.get(i.product) ?? '',
-    when: updatedWords(i.status === 'done' ? i.wrote?.status?.ts ?? i.updatedAt : i.updatedAt, now), running: live.has(i.id), cloud: inCloud.has(i.id),
+    when: updatedWords(i.status === 'done' ? i.wrote?.status?.ts ?? i.updatedAt : sentAt(i), now), running: live.has(i.id), cloud: inCloud.has(i.id),
     held: notStarted(i), toApprove: toApproveWords(toApprove.get(`${i.product}/${i.id}`)), item: i,
   });
   const drawn = (list: any[], tab: TabId) => sorted(list, DEFAULT_DISPLAY.inbox, tab, order).map(row);

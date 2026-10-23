@@ -277,11 +277,11 @@ function packedRepo() {
   return repo;
 }
 
-async function runWith(login, { env = {}, argv = [path.join(bin, 'claude'), 'run'] } = {}) {
+async function runWith(login, { env = {}, argv = [path.join(bin, 'claude'), 'run'], also } = {}) {
   const repo = packedRepo();
   const out = await sandbox.handle({
     action: 'start', runId: 'r-1', cwd: repo, branch: 'agentbox/w-1', bundleUrl: `${base}/in.bundle`,
-    argv, env, login,
+    argv, env, login, ...(also ? { also } : {}),
     results: { bundleUrl: `${base}/out.bundle`, changesUrl: `${base}/changes.bundle`, eventsUrl: `${base}/events.jsonl`, doneUrl: `${base}/done.json`, bring: [] },
   });
   expect(out.ok, JSON.stringify(out)).toBe(true);
@@ -353,6 +353,59 @@ describe('a run on a login kept in the cloud', () => {
 
 // Codex's review of the code, 2026-10-14: the findings each case below
 // guards are named in its title.
+// A CLAUDE RUN CAN ASK CODEX, AS IT CAN ON THE MAC (2026-10-23). A Claude
+// thread in the cloud told to get Codex's opinion found Codex signed out,
+// with a Codex account connected, because each run was handed only its own
+// engine's login. Now a Claude run also carries the Codex one.
+describe('a Claude run that carries the Codex login', () => {
+  const codexAt = () => path.join(tmp, 'vm', process.env.HOME || '/root', '.codex', 'auth.json');
+  const codexLogin = (hours) => {
+    const exp = Math.floor(Date.now() / 1000) + hours * 3600;
+    const access = jwt(exp, { codex: 'carried' });
+    files.set('/codex-login', Buffer.from(JSON.stringify({ engine: 'codex', auth: { tokens: { id_token: jwt(exp), access_token: access, refresh_token: 'rt-real-refresh-token-0042' }, last_refresh: '2026-10-01T00:00:00Z' } })));
+    return access;
+  };
+  const claudeLogin = () => files.set('/login', Buffer.from(JSON.stringify({ engine: 'claude', token: TOKEN })));
+  const also = [{ engine: 'codex', id: 'C1', url: '' }];
+  const carry = () => [{ ...also[0], url: `${base}/codex-login` }];
+
+  it('finds Codex signed in where `codex` looks, on a copy that cannot renew, and never prints it', async () => {
+    makeSandbox();
+    claudeLogin();
+    const access = codexLogin(100);
+    const events = await runWith({ engine: 'claude', id: 'L1', url: `${base}/login` }, { also: carry() });
+    const placed = JSON.parse(fs.readFileSync(codexAt(), 'utf8'));
+    expect(placed.tokens.access_token).toBe(access);
+    expect(placed.tokens.refresh_token).toBe(CODEX_REFRESH_PLACEHOLDER);
+    expect(Date.now() - Date.parse(placed.last_refresh)).toBeLessThan(60_000);
+    expect(stdoutOf(events)).not.toBe('');
+    expect(JSON.stringify(events)).not.toContain(access);
+    expect(JSON.stringify(events)).not.toContain('rt-real-refresh');
+  });
+
+  it.each([
+    ['is gone', () => {}],
+    ['is nearly spent', () => codexLogin(0.25)],
+  ])('still starts the Claude run when the Codex login %s, with Codex signed out', async (_, setUp) => {
+    makeSandbox();
+    claudeLogin();
+    setUp();
+    const events = await runWith({ engine: 'claude', id: 'L1', url: `${base}/login` }, { also: carry() });
+    expect(fs.existsSync(codexAt())).toBe(false);
+    expect(stdoutOf(events)).not.toBe('');
+    expect(events.some((e) => e.kind === 'login')).toBe(false);
+  });
+
+  it('is refused for anything but a Codex login carried by a Claude run', async () => {
+    makeSandbox();
+    const start = (extra) => sandbox.handle({ action: 'start', runId: 'r-x', cwd: tmp, branch: 'b', argv: ['true'], ...extra });
+    const refused = { ok: false, error: 'bad-start', message: expect.stringMatching(/Codex login/) };
+    expect(await start({ login: { engine: 'claude', url: `${base}/login` }, also: [{ engine: 'claude', url: `${base}/login` }] })).toMatchObject(refused);
+    expect(await start({ login: { engine: 'codex', url: `${base}/login` }, also: carry() })).toMatchObject(refused);
+    expect(await start({ login: { engine: 'claude', url: `${base}/login` }, also: [{ engine: 'codex' }] })).toMatchObject(refused);
+  });
+});
+
 describe('what the review found', () => {
   it('does not send a Codex code read before its last letter arrived (finding 9)', async () => {
     makeSandbox({ mode: 'codex-split' });

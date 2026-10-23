@@ -78,13 +78,19 @@ describe('with Everything on', () => {
     expect(sup._whereToRun({ item, product: { ...product, repoPath: null }, cwd, engine: 'claude' })).toBe('local');
   });
 
-  it('a Codex reply, which resumes on this Mac, never waits for the cloud (Codex\'s review of the diff, finding 5)', () => {
+  // Since w-4465054f04 only a thread this Mac's app-server has open stays here;
+  // any other Codex reply goes up with its rollout and waits like any run.
+  it('a Codex reply to a thread this Mac has open never waits for the cloud (Codex\'s review of the diff, finding 5)', () => {
     const { sup } = make({ runnable: false });
     sup.engineChoices = () => [{ id: 'claude' }, { id: 'codex' }];
     sup.rowSessionFor = () => ({ sessionId: 'thread-1' });
-    expect(sup._waitsForCloud({ id: 'w-next', product: 'p', answer: 'yes' }, 'codex')).toBe(false);
+    const reply = { id: 'w-next', product: 'p', answer: 'yes' };
+    sup._codexServers = new Map([['/codex-home', { client: { isClosed: () => false }, home: '/codex-home', loaded: new Set(['thread-1']) }]]);
+    expect(sup._waitsForCloud(reply, 'codex')).toBe(false);
+    sup._codexServers.get('/codex-home').loaded.clear();
+    expect(sup._waitsForCloud(reply, 'codex')).toBe(true);
     sup.rowSessionFor = () => null;
-    expect(sup._waitsForCloud({ id: 'w-next', product: 'p', answer: 'yes' }, 'codex')).toBe(true);
+    expect(sup._waitsForCloud(reply, 'codex')).toBe(true);
   });
 
   it('an engine with no cloud sign-in at all runs here, as before', () => {

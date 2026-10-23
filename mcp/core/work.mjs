@@ -96,6 +96,9 @@ export function createItem(product, fields = {}, { source = 'agent', from = [] }
   const p = resolveProduct(product);
   const sources = [...from, fields.parent].filter(Boolean).map((id) => { try { return locate(id).item; } catch { return null; } });
   const kept = fields.visibility ? {} : privacyFrom(sources);
+  // A row filed under a thread runs as that thread does, or it falls to the default engine.
+  const parent = fields.parent ? sources.at(-1) : null;
+  for (const f of ['engine', 'model', 'effort']) if (fields[f] == null && parent?.[f]) kept[f] = parent[f];
   const item = createWorkItem(p.dir, saidPlainly({ ...fields, ...kept }, source), { source });
   return { ...item, product: p.id, productName: p.name };
 }

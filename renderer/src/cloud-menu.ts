@@ -140,9 +140,19 @@ export const cloudIsOn = (status: OnOff) => !!status && status.mode !== 'mac';
 export const countedAccounts = (accounts: CloudAccount[]) => accounts.filter((a) => a.state !== 'duplicate');
 
 /**
+ * THE ONE ACCOUNT THE CLOUD RUNS ON, which is `pickCloudLogin`'s rule read
+ * from the screen's copy of the accounts (main/cloud/logins.mjs): the oldest
+ * login of that engine that is still an account at all. A login that stopped
+ * working is passed over; one at its usage limit is still the account, and the
+ * cloud waits for it.
+ */
+export const cloudAccountInUse = (accounts: CloudAccount[], engine: 'claude' | 'codex') =>
+  countedAccounts(accounts ?? []).find((a) => a.engine === engine && a.state !== 'broken') ?? null;
+
+/**
  * THE MENU'S LAST LINE: what runs in the cloud, or, while the cloud is on and
- * every Claude account there is at its usage limit, that and when the first
- * comes back (2026-10-16: "our cloud must be broken", when it was out of usage).
+ * the account it runs on is at its usage limit, that and when it comes back
+ * (2026-10-16: "our cloud must be broken", when it was out of usage).
  */
 const clock = (t: number) => new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(' ', '').toLowerCase();
 
@@ -153,11 +163,14 @@ export function cloudFootLine(cloud: CloudStatus, now = Date.now()): string {
   }
   const gap = cloud.versionGap;
   if (gap?.blocks) return `${rebuildLine(gap)}. ${gap.engine === 'codex' ? 'Codex' : 'Claude'} threads run on this Mac until then.`;
-  const claude = countedAccounts(cloud.accounts || []).filter((a) => a.engine === 'claude');
-  const back = claude.map((a) => (a.limitedUntil && a.limitedUntil > now ? a.limitedUntil : null));
-  if (cloudIsOn(cloud) && claude.length && back.every(Boolean)) {
-    const at = clock(Math.min(...(back as number[])));
-    return `Your cloud accounts are at their usage limit until ${at}. ${cloud.mode === 'all' ? 'Threads wait for the cloud' : 'Threads run on this Mac'} until then.`;
+  // ONE ACCOUNT RUNS IN THE CLOUD (w-dac993a554). This used to wait until
+  // EVERY account was at its limit, which was right while runs rotated over
+  // all of them and is silence now: the cloud starts nothing the moment the
+  // account in use is out, however many others are signed in.
+  const inUse = cloudAccountInUse(cloud.accounts || [], 'claude');
+  const until = inUse?.limitedUntil && inUse.limitedUntil > now ? inUse.limitedUntil : null;
+  if (cloudIsOn(cloud) && until) {
+    return `Your cloud account is at its usage limit until ${clock(until)}. ${cloud.mode === 'all' ? 'Threads wait for the cloud' : 'Threads run on this Mac'} until then.`;
   }
   if (gap) return rebuildLine(gap);
   return cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now';
