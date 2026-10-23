@@ -792,12 +792,36 @@
 .g6-chips { align-items: center; }
 .g6-chips .c.named { padding: 0 12px 0 10px; color: var(--text); }
 .g6-chips .c.named .g6-hash { margin-right: -2px; }
-.g6-chips .c.chat { padding: 0 10px 0 6px; border-color: transparent; }
-.g6-chips .c.chat:hover { background: var(--wash); }
-.g6-chips .c.chat.on { border-color: var(--line-strong); background: var(--wash); }
-.g6-chips .c.more { border-color: transparent; color: var(--text-faint); }
+/* Chats sit close together, read like names, and wear their unread dot on the face. */
+.g6-chats { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.g6-chips .c.chat { gap: 6px; padding: 0 8px 0 6px; border-color: transparent; color: var(--text-dim); }
+.g6-chips .c.chat:hover { background: var(--wash); color: var(--text); }
+.g6-chips .c.chat.on { border-color: var(--line-strong); background: var(--wash); color: var(--text); }
+.g6-chips .c.unread { color: var(--text); }
+.g6-fw { position: relative; display: inline-flex; flex: none; }
+.g6-dot { position: absolute; right: -3px; top: -3px; z-index: 2; width: 6px; height: 6px; background: var(--accent); outline: 2px solid var(--skin-solid, var(--surface)); }
+.g6-chips .c.more { gap: 4px; padding: 0 6px 0 8px; border-color: transparent; color: var(--text-faint); }
+.g6-chips .c.more svg { color: var(--text-faint); }
 .g6-chips .c.more:hover, .g6-chips .c.more.on { background: var(--wash); color: var(--text); }
-.g6-sep { flex: none; width: 1px; height: 20px; margin: 0 4px; background: var(--line-strong); }
+.g6-chips .c.more.unread::after { content: ''; width: 6px; height: 6px; margin-left: 2px; background: var(--accent); }
+.g6-sep { flex: none; width: 1px; height: 20px; margin: 0 6px; background: var(--line-strong); }
+.g9-wrap { position: relative; display: inline-flex; }
+/* No sidebar: the window is the page, your face ends the top bar. */
+.app.workspace-layout.no-sidebar { --workspace-left: 22px; }
+.g9-acct { position: relative; display: inline-flex; margin-left: 12px; }
+.g9-me { display: flex; padding: 2px; border: 1px solid transparent; background: none; cursor: default; }
+.g9-me:hover, .g9-me.open { border-color: var(--line-strong); }
+.g9-acct .g9-menu { min-width: 260px; }
+.g9-who { height: auto !important; padding: 8px 9px !important; }
+.g9-who span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.g9-who b { font-weight: 400; color: var(--text); }
+.g9-who small { font-size: 12px; color: var(--text-faint); }
+.g9-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; min-width: 230px; padding: 4px; display: flex; flex-direction: column; gap: 1px; }
+.g9-menu .row { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 9px; font: inherit; font-size: 13px; color: var(--text-dim); white-space: nowrap; background: none; border: 0; text-align: left; width: 100%; box-sizing: border-box; cursor: default; }
+.g9-menu .row:hover { background: var(--wash-strong); color: var(--text); }
+.g9-menu .row svg { color: var(--text-faint); flex: none; }
+.g9-menu .row .k { margin-left: auto; font: 11px var(--mono); color: var(--text-faint); }
+.g9-menu .rule { height: 1px; background: var(--rm-line); margin: 3px 5px; }
 
 /* The people beside a group's chat (PeoplePanel) */
 .g8-people { display: flex; flex-direction: column; }

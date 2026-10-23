@@ -3,8 +3,10 @@
 // three entries. Drawn as the full list and as the row of chips over a group.
 import type { Conversation } from './MessagesPage';
 import { RoomFace } from './RoomFace';
+import { useEffect, useRef, useState } from 'react';
 import { clockOf } from './room-rules';
 import { I } from './icons';
+import { SlidersIcon } from '../../threads/Pages';
 
 export type GroupChoice = {
   id: string;
@@ -70,6 +72,40 @@ export function GroupMark({ g, size = 20, row = false }: { g: GroupChoice; size?
     {g.faces.slice(0, 2).map((f, i) => <RoomFace key={i} name={f.name} url={f.url} size={small} />)}
   </span>;
 }
+
+export type GroupMenuAction = 'board' | 'invite' | 'members' | 'mute' | 'unmute' | 'leave';
+
+/** The group's own button in the top bar, where the Inbox keeps its filters: everything else a group does. */
+export function GroupMenuButton({ named, members, muted, canLeave, onPick }: {
+  named: boolean; members: number; muted: boolean; canLeave: boolean;
+  onPick: (a: GroupMenuAction, at: DOMRect) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const down = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
+    document.addEventListener('mousedown', down);
+    window.addEventListener('keydown', key, true);
+    return () => { document.removeEventListener('mousedown', down); window.removeEventListener('keydown', key, true); };
+  }, [open]);
+  const row = (a: GroupMenuAction, icon: JSX.Element, label: string, k?: number) =>
+    <button type="button" className="row" onClick={() => { setOpen(false); onPick(a, ref.current!.getBoundingClientRect()); }}>{icon}<span>{label}</span>{k != null && <span className="k">{k}</span>}</button>;
+  return <span ref={ref} className="g9-wrap">
+    <button type="button" className={`th-disp${open ? ' open' : ''}`} aria-label="Group options" title="Group options" onClick={() => setOpen((o) => !o)}><SlidersIcon /></button>
+    {open && <div className="rm-pop g9-menu" role="menu">
+      {row('board', BOARD, 'Everyone\'s threads')}
+      {named && row('invite', I.invite(), 'Invite people')}
+      {row('members', I.people(), 'Members', members)}
+      <div className="rule" />
+      {muted ? row('unmute', I.bell(), 'Unmute') : row('mute', I.bell(), 'Mute')}
+      {canLeave && row('leave', I.out(), named ? 'Leave group' : 'Leave chat')}
+    </div>}
+  </span>;
+}
+
+const BOARD = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v11h-4z" /></svg>;
 
 /** Groups, then direct messages, each newest first, with the last thing said in each. */
 export function GroupMenuList({ groups, current, onPick }: { groups: GroupChoice[]; current: string | null; onPick: (id: string) => void }) {

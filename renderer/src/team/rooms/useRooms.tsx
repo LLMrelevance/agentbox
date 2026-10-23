@@ -22,7 +22,7 @@ import { RoomsNotReady, RoomsSettings } from './RoomsSettings';
 import { GroupPage, NowLines, TitleFaces, groupEvents, readGroupLook, readWovenLook } from './GroupPage';
 import { DigestCard, GroupBar, GroupLayout, HeaderPill, PAGE_LOOKS, drawnCheers, type PageLook } from './GroupLayouts';
 import { Reactions } from '../ChatActions';
-import { groupChoices as toGroupChoices } from './GroupList';
+import { GroupMenuButton, groupChoices as toGroupChoices } from './GroupList';
 
 type Dialog =
   | { kind: 'invite'; roomId: string }
@@ -340,6 +340,16 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const viewButton: ReactNode = onRoom && renderBoard
     ? <RoomViewButton people={open!.wall} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} later={later} onLater={setLater} />
     : null;
+  // On a group's chat the top bar's small button holds what the group does.
+  const groupButton: ReactNode = chatPage && tabStyle && open && pane === 'wall'
+    ? <GroupMenuButton named={open.kind !== 'group'} members={open.members} muted={open.muted} canLeave={!open.teamId}
+      onPick={(a, at) => {
+        if (a === 'board') setBoardOn(true);
+        else if (a === 'invite') setDialog({ kind: 'invite', roomId: open.id });
+        else if (a === 'members') setMembers({ roomId: open.id, at });
+        else void menu(open.id, a, at);
+      }} />
+    : null;
   if (listing && live && rooms) {
     heading = {
       title: <h1 className="workspace-title">Groups</h1>,
@@ -381,8 +391,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     </>;
     const tabbedPage = !!tabStyle;
     heading = !tabStyle ? { title: backTitle(name), right: <div className="th-right">{actions}</div> }
-      : inTab ? null : { title: <h1 className="workspace-title">Groups</h1>, right: null };
-    const bar = tabbedPage ? <GroupBar style={tabStyle!} groups={groupChoices} current={open.id} members={open.members} onPick={(id) => openRoom(id)}>{actions}</GroupBar> : undefined;
+      : inTab ? null : { title: <h1 className="workspace-title">Groups</h1> };
+    const bar = tabbedPage ? <GroupBar style={tabStyle!} groups={groupChoices} current={open.id} members={open.members} onPick={(id) => openRoom(id)} /> : undefined;
     page = PAGE_LOOKS.includes(look)
       ? <GroupLayout key={open.id} room={open} look={look as PageLook} chat={chat} past={day.past} now={day.now} who={who} meId={meId} top={bar}
         open={dayOpen} onToggle={() => setDayOpen(!dayOpen)} onPerson={(id) => setPane(`person:${id}`)} />
@@ -477,8 +487,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     live, openId: open ? openId : listing && live ? 'rooms' : finding && live ? 'find' : noChats && live ? 'messages' : null, openMessages, open: (id: string) => openRoom(id), close, leave, find, nav, page, dialogs, roomTab, inTab: inTab && !!open, tabRoomId: tabbed?.id ?? null, openTab, join, invisible, settingsPane,
     mentions, openMention, faces, messagesShell, full, heading,
     dialogOpen: !!dialog || !!members || !!switcher,
-    /** The header's View button over a room, and B. Null anywhere else in rooms. */
-    viewButton,
+    /** The header's View button over a room, and B; on a group's chat, its options. Null anywhere else in rooms. */
+    viewButton: viewButton ?? groupButton,
     /** The room a teammate's card was opened over, for its Back. */
     roomName: open && !full && open.kind !== 'group' ? open.name : null,
   };

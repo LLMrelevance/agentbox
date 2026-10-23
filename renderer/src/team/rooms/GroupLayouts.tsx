@@ -75,8 +75,12 @@ export function GroupBar({ style, groups, current, members, onPick, children }: 
   const here = groups.find((g) => g.id === current);
   const { shown, hidden } = chipsShown(groups, current);
   const unseen = groups.filter((g) => g.unread && g.id !== current && !shown.includes(g)).length;
-  const chip = (g: GroupChoice) => <button type="button" key={g.id} className={`c${g.faces.length ? ' chat' : ' named'}${g.id === current ? ' on' : ''}`} onClick={() => onPick(g.id)}>
-    {g.faces.length > 0 ? <GroupMark g={g} size={20} row /> : <span className="g6-hash">{I.hash(13)}</span>}<span>{g.name}</span>{g.unread && g.id !== current && <span className="rm-unread" />}</button>;
+  const lit = (g: GroupChoice) => g.unread && g.id !== current;
+  const chip = (g: GroupChoice) => g.faces.length
+    ? <button type="button" key={g.id} className={`c chat${g.id === current ? ' on' : ''}${lit(g) ? ' unread' : ''}`} onClick={() => onPick(g.id)}>
+      <span className="g6-fw"><GroupMark g={g} size={20} row />{lit(g) && <span className="g6-dot" aria-label="Unread" />}</span><span>{g.name}</span></button>
+    : <button type="button" key={g.id} className={`c named${g.id === current ? ' on' : ''}${lit(g) ? ' unread' : ''}`} onClick={() => onPick(g.id)}>
+      <span className="g6-hash">{I.hash(13)}</span><span>{g.name}</span>{lit(g) && <span className="rm-unread" aria-label="Unread" />}</button>;
   const named = shown.filter((g) => !g.faces.length);
   const chats = shown.filter((g) => g.faces.length);
   return <div className={`g6-bar ${style}`}>
@@ -84,12 +88,13 @@ export function GroupBar({ style, groups, current, members, onPick, children }: 
       ? <div className="g6-chips">
         {named.map(chip)}
         {named.length > 0 && chats.length > 0 && <span className="g6-sep" aria-hidden="true" />}
-        {chats.map(chip)}
-        {hidden > 0 && <span className="g6-morewrap">
-          <button type="button" className={`c more${more ? ' on' : ''}`} onClick={() => setMore(!more)}>{hidden} more{unseen > 0 && <span className="rm-unread" />}</button>
-          {more && <div className="rm-pop g7-menu g7-drop"><GroupMenuList groups={groups} current={current} onPick={(id) => { setMore(false); onPick(id); }}
- /></div>}
-        </span>}
+        <span className="g6-chats">
+          {chats.map(chip)}
+          {hidden > 0 && <span className="g6-morewrap">
+            <button type="button" className={`c more${more ? ' on' : ''}${unseen > 0 ? ' unread' : ''}`} onClick={() => setMore(!more)}>More{I.down()}</button>
+            {more && <div className="rm-pop g7-menu g7-drop"><GroupMenuList groups={groups} current={current} onPick={(id) => { setMore(false); onPick(id); }} /></div>}
+          </span>}
+        </span>
       </div>
       : <span className="g6-morewrap">
         <button type="button" className={`g6-name${more ? ' on' : ''}`} onClick={() => setMore(!more)}>
