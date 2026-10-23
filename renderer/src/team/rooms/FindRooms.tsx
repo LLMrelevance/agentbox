@@ -31,13 +31,13 @@ export function FindRooms({ load, onJoin, onOpen, onLink }: {
         <button type="button" className={`tm-tab${order === 'popular' ? ' on' : ''}`} onClick={() => setOrder('popular')}>Popular</button>
         <button type="button" className={`tm-tab${order === 'new' ? ' on' : ''}`} onClick={() => setOrder('new')}>New</button>
       </div>
-      <label className="rm-search">{I.search()}<input value={query} placeholder="Search rooms, or paste an invite link" aria-label="Search rooms"
+      <label className="rm-search">{I.search()}<input value={query} placeholder="Search groups, or paste an invite link" aria-label="Search groups"
         onChange={(e) => typed(e.target.value)} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Escape') (e.target as HTMLInputElement).blur(); }} /></label>
     </div>
     {error && <div className="rm-err" role="alert">{error}</div>}
-    <div className="rm-froom head"><span className="rm-label">Room</span><span className="rm-label">Here now</span><span className="rm-label" style={{ textAlign: 'right' }}>Members</span><span /></div>
-    {rooms === null && <div className="rm-froom"><span className="rm-priv">Finding rooms…</span></div>}
-    {rooms !== null && !shown.length && <div className="rm-froom"><span className="rm-priv">{q ? `No room called “${query.trim()}”.` : 'No rooms are open to everyone yet.'}</span></div>}
+    <div className="rm-froom head"><span className="rm-label">Group</span><span className="rm-label">Here now</span><span className="rm-label" style={{ textAlign: 'right' }}>Members</span><span /></div>
+    {rooms === null && <div className="rm-froom"><span className="rm-priv">Finding groups…</span></div>}
+    {rooms !== null && !shown.length && <div className="rm-froom"><span className="rm-priv">{q ? `No group called “${query.trim()}”.` : 'No groups are open to everyone yet.'}</span></div>}
     {shown.map((r) => <div key={r.id} className="rm-froom">
       <div><span className="rm-nm">{I.hash()}{r.name}</span></div>
       <div className="here">{r.faces.slice(0, 4).map((f, i) => <RoomFace key={i} name={f.name} url={f.avatar} size={22} />)}<em>{r.hereNow} here now</em></div>

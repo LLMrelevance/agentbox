@@ -48,7 +48,7 @@ export function RoomPage({ room, rooms, cards, ranks, me, now, pane, link, chat,
   </div>;
   if (person) {
     return <div className="rm-split"><div className="rm-main wide">
-      <ProfilePage card={person} room={room} rooms={rooms} cards={cards} rank={ranks[person.id]}
+      <ProfilePage key={person.id} card={person} room={room} rooms={rooms} cards={cards} rank={ranks[person.id]}
         onRanks={() => onPane('ranks')} onMessage={onMessage ? () => onMessage([person.id]) : undefined}
         onRoom={onRoom} onSaveBio={onSaveBio} renderBoard={renderBoard} />
     </div></div>;

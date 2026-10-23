@@ -36,7 +36,7 @@ describe('the dots on a room on the Rooms page', () => {
     expect(rows(room({ markedUnread: true }))[0]).toBe('Mark as read');
   });
 
-  // Show in the Threads tab since 2026-10-22 (tests/one-room-sits-in-the-threads-tabs-and-you-pick-which).
+  // Show in the Threads tab since 2026-10-22.
   it('keep everything they offered before but the pin', () => {
     expect(rows(room())).toEqual(['Mark as unread', 'Invite people', 'Members', 'Ranks this week', 'Show in the Threads tab', 'Mute room']);
   });

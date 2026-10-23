@@ -8,14 +8,18 @@
 //
 // Measured by drawing the sidebar through useRooms with two rooms and a group:
 // it drew the Rooms header, both rooms and New room, and the tab bar drew a
-// tab per pinned room plus the one open. Now the sidebar has one Rooms row
-// under Messages, the Rooms page lists the rooms (never a group chat, which is
-// Messages'), and no room is ever a tab.
+// tab per pinned room plus the one open. Then the sidebar had one Rooms row
+// under Messages, and the Rooms page listed the rooms.
+//
+// Since Groups (w-dcaa2c122e, 2026-10-23) the Rooms page is not drawn: every
+// group and chat is in the Groups tab (tests/the-groups-tab-holds-the-group-open-last)
+// and the sidebar has no rooms row (tests/the-narrow-sidebar-draws-no-rooms).
+// The page's component is still in the tree, so what it draws is still held
+// here, and no room ever becomes a pinned tab again.
 import fs from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect } from 'vitest';
-import { useRooms } from '../renderer/src/team/rooms/useRooms.tsx';
 import { RoomsPage, RoomMenu, menuLeft } from '../renderer/src/team/rooms/RoomsPage.tsx';
 import * as rules from '../renderer/src/team/rooms/room-rules.ts';
 
@@ -28,33 +32,6 @@ const state = (rooms, messages = {}) => ({ on: true, ready: true, rooms, message
 const msg = (roomId, by, body, at) => ({ id: `${roomId}-${at}`, roomId, by, body, inReplyTo: null, mentions: [], at });
 
 const noop = () => {};
-function Nav({ rooms, collapsed }) {
-  return useRooms({ rooms, on: true, meId: 'me', myName: 'Ada', hasTeam: true, now: 0, toast: noop, onOpenDirect: noop, onTeamMessage: noop, onLeavePage: noop }).nav(collapsed);
-}
-const nav = (rooms, collapsed) => renderToStaticMarkup(createElement(Nav, { rooms: state(rooms), collapsed }));
-const rows = [room('design'), room('launch'), room('group-chat', { kind: 'group', name: 'Maya, Theo' })];
-
-describe('the sidebar', () => {
-  for (const collapsed of [false, true]) {
-    describe(collapsed ? 'narrow' : 'wide', () => {
-      const html = nav(rows, collapsed);
-      it('has a Rooms row under Messages', () => {
-        expect(html).toContain('aria-label="Messages"');
-        expect(html).toContain('aria-label="Rooms"');
-        expect(html.indexOf('aria-label="Messages"')).toBeLessThan(html.indexOf('aria-label="Rooms"'));
-      });
-      it('lists no room, and has no fold header or New room row', () => {
-        expect(html).not.toContain('>design<');
-        expect(html).not.toContain('>launch<');
-        expect(html).not.toContain('rm-sec');
-        expect(html).not.toContain('New room');
-      });
-    });
-  }
-  it('still puts a room with unread messages on the Messages count', () => {
-    expect(nav([room('design', { unread: 2 })], false)).toMatch(/class="workspace-tab[^"]*has-count[^"]*"[^>]*aria-label="Messages"/);
-  });
-});
 
 describe('the Rooms page', () => {
   const now = 10 * 60_000;
@@ -106,8 +83,8 @@ describe('the Rooms page', () => {
   });
 });
 
-// The pinned tabs and the tab per open room stay gone. Since 2026-10-22 one
-// room you pick sits after Done (tests/one-room-sits-in-the-threads-tabs-and-you-pick-which).
+// The pinned tabs and the tab per open room stay gone; the one tab after Done
+// is Groups (tests/the-room-tab-opens-its-room-under-the-threads-tabs).
 describe('no pinned room tabs', () => {
   const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
   const hook = fs.readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
@@ -123,10 +100,5 @@ describe('no pinned room tabs', () => {
       .matchAll(/<span>([^<]+)<\/span>/g)].map((m) => m[1]);
     expect(items).not.toContain('Pin as a tab');
     expect(hook).not.toMatch(/call\('pin'/);
-  });
-  // Out of the room in the Threads tab it goes back to Threads (tests/the-room-tab-opens-its-room-under-the-threads-tabs).
-  it('stepping out of a room or Find rooms goes back to the Rooms page, and out of a group chat does not', () => {
-    expect(hook).toMatch(/if \(finding\) \{ setFinding\(false\); setListing\(true\); return; \}/);
-    expect(hook).toMatch(/setOpenId\(null\); setFull\(false\); setPanelId\(null\); setListing\(open\?\.kind !== 'group'( && !inTab)?\);/);
   });
 });
