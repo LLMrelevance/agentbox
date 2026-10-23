@@ -203,10 +203,10 @@ function fixtureAccountUsage(): AccountUsageReading[] {
   // &fablefull: the first login has room in its session and week and none left on Fable.
   const firstLimits = params.has('fablefull')
     ? [limit('session', 30, '5:09pm', at(17, 9)), limit('week', 60, '11:59am', week, 'all models'), limit('week', 100, '11:59am', week, 'Fable')]
-    : [limit('session', twoLogins ? 100 : 42, '5:09pm', at(17, 9)), limit('week', 15, '11:59am', week, 'all models')];
+    : [limit('session', twoLogins ? 100 : 42, '5:09pm', at(17, 9)), limit('week', 15, '11:59am', week, 'all models'), limit('week', 24, '11:59am', week, 'Fable')];
   return [
     { profile: first.profile, ...failed, limits: firstLimits },
-    { profile: second.profile, at: now - 60_000, limits: [limit('session', 5, '8pm', at(20)), limit('week', 9, '4pm', week, 'all models')] },
+    { profile: second.profile, at: now - 60_000, limits: [limit('session', 5, '8pm', at(20)), limit('week', 9, '4pm', week, 'all models'), limit('week', 6, '4pm', week, 'Fable')] },
   ];
 }
 

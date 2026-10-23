@@ -30,8 +30,8 @@ export function resetWords(l: UsageLimit, now = Date.now()): string | null {
 }
 
 /**
- * The two numbers every account shows: this session and this week (all models), each with when it starts over.
- *  A model's own week joins them only while it is full, since then it is the limit the account is at.
+ * The numbers every account shows: this session, this week (all models), and each model's own week
+ *  where Claude Code reports one ("Fable"), each with when it starts over.
  */
 export function meterPair(limits: UsageLimit[] | undefined | null, now = Date.now()): Meter[] {
   const all = limits ?? [];
@@ -39,11 +39,11 @@ export function meterPair(limits: UsageLimit[] | undefined | null, now = Date.no
   const week = all.find((l) => l.span === 'week' && (!l.qualifier || /all/i.test(l.qualifier))) ?? all.find((l) => l.span === 'week');
   // A number read in a window that has since reset belongs to the old window.
   const percent = (l: UsageLimit) => (l.resetsAt && l.resetsAt <= now ? 0 : Math.round(l.percent));
-  const fullModels = all.filter((l) => l.span === 'week' && l !== week && l.qualifier && Number.isFinite(l.percent) && percent(l) >= 100);
+  const models = all.filter((l) => l.span === 'week' && l !== week && l.qualifier && Number.isFinite(l.percent));
   return [
     ...(session && Number.isFinite(session.percent) ? [{ key: 'session', word: 'Session', percent: percent(session), resets: resetWords(session, now) }] : []),
     ...(week && Number.isFinite(week.percent) ? [{ key: 'week', word: 'Week', percent: percent(week), resets: resetWords(week, now) }] : []),
-    ...fullModels.map((l) => ({ key: `week:${l.qualifier}`, word: l.qualifier!, percent: percent(l), resets: resetWords(l, now) })),
+    ...models.map((l) => ({ key: `week:${l.qualifier}`, word: l.qualifier!, percent: percent(l), resets: resetWords(l, now) })),
   ];
 }
 

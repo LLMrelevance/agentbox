@@ -8,8 +8,11 @@
 // for that account was there (session 100%, back at 5:09pm; week 15%) and
 // the tile drew none of it. Asked for: "It should just show 100% of whatever".
 //
-// A model-only weekly limit ("This week, Fable") can be the full one while
-// Session and Week have room, so a full one is drawn as a meter of its own.
+// And the tile drew no Fable meter at all, though Claude Code reports "Current
+// week (Fable)" beside the all-models week, and it can be the full one while
+// Session and Week have room. Asked for the same day: "we don't show fable
+// usage which is key for claude code". It is now a third meter on every tile
+// whose reading has it.
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -64,17 +67,31 @@ describe('an account at its limit', () => {
   });
 });
 
-describe('a model-only weekly limit', () => {
-  it('a full one is drawn after Session and Week, under its model’s name', () => {
-    expect(meterPair([session(10), week(60), week(100, { qualifier: 'Fable', name: 'This week, Fable' })], NOW).map((m) => `${m.word} ${m.percent}`))
-      .toEqual(['Session 10', 'Week 60', 'Fable 100']);
+describe('the Fable week', () => {
+  const fable = (percent, extra = {}) => week(percent, { qualifier: 'Fable', name: 'This week, Fable', ...extra });
+  const words = (limits) => meterPair(limits, NOW).map((m) => `${m.word} ${m.percent}`);
+
+  it('the reported case: drawn after Session and Week with room left, and when it resets', () => {
+    expect(meterPair([session(10), week(60), fable(22)], NOW).map((m) => `${m.word} ${m.percent} ${m.resets}`))
+      .toEqual(['Session 10 5:09pm', 'Week 60 Thu Oct 29, 4pm', 'Fable 22 Thu Oct 29, 4pm']);
   });
 
-  it('must NOT be drawn while it has room, at 99%', () => {
-    expect(meterPair([session(10), week(60), week(99, { qualifier: 'Fable' })], NOW).map((m) => m.word)).toEqual(['Session', 'Week']);
+  it('drawn at 0% and at 100%, the ends either side', () => {
+    expect(words([session(10), week(60), fable(0)])).toEqual(['Session 10', 'Week 60', 'Fable 0']);
+    expect(meters(draw(tile(account({ limits: [session(30), week(60), fable(100)] }))))).toEqual([
+      'Session 30% 5:09pm', 'Week 60% Thu Oct 29, 4pm', 'Fable 100% Thu Oct 29, 4pm (full)',
+    ]);
   });
 
-  it('must NOT be drawn from a window that has already reset', () => {
-    expect(meterPair([session(10), week(60), week(100, { qualifier: 'Fable', resetsAt: at(15) })], NOW).map((m) => m.word)).toEqual(['Session', 'Week']);
+  it('reads 0% once its window has reset, like the other two', () => {
+    expect(words([session(10), week(60), fable(100, { resetsAt: at(15) })])).toEqual(['Session 10', 'Week 60', 'Fable 0']);
+  });
+
+  it('must NOT be drawn when the reading has no Fable week, as a cloud reading does not', () => {
+    expect(words([session(10), week(60)])).toEqual(['Session 10', 'Week 60']);
+  });
+
+  it('must NOT draw the all-models week a second time', () => {
+    expect(words([session(10), fable(22), week(60)])).toEqual(['Session 10', 'Week 60', 'Fable 22']);
   });
 });

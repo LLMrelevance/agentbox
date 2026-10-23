@@ -444,7 +444,7 @@ export type PlaceAccount = {
   meters?: boolean;
 };
 
-/** SESSION AND WEEK, the same two meters for every account, each ending with when it resets. */
+/** SESSION, WEEK AND FABLE, the same meters for every account, each ending with when it resets. */
 export function MiniMeters({ limits, now = Date.now() }: { limits?: UsageLimit[] | null; now?: number }) {
   const meters = meterPair(limits, now);
   if (!meters.length) return <div className="acct-meters-none">No usage reading yet</div>;
