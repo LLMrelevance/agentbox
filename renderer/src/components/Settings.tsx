@@ -36,7 +36,8 @@ import { NeoSettings } from '../neo/NeoSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
 import { accountLabel, cloudAccountInUse, cloudToggleTarget, countedAccounts, type CloudStatus } from '../cloud-menu';
-import { planCards, usageLine, usedPercent, type PaidPlan } from '../cloud-upgrade';
+import { type PaidPlan } from '../cloud-upgrade';
+import { CloudPlanCards } from './CloudPlanCards';
 import type { CloudPlan } from '../types';
 import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
 import { accountReadingFor, accountsOnce, type HereLogin, type OneAccount } from '../accounts-once';
@@ -883,7 +884,14 @@ function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: (
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
   const read = async () => { const p = await api.cloudAccountPlan(); setPlan(p); return p; };
   useEffect(() => { void read(); }, [signedIn]);
-  // Back from Stripe's page: the plan changes once its webhook lands.
+  // Back from Stripe's page in the browser, the plan is read again.
+  useEffect(() => {
+    if (!signedIn) return undefined;
+    const back = () => { void read(); };
+    window.addEventListener('focus', back);
+    return () => window.removeEventListener('focus', back);
+  }, [signedIn]);
+  // The plan changes once Stripe's webhook lands.
   useEffect(() => {
     if (!waitingFor) return;
     const was = waitingFor;
@@ -891,48 +899,37 @@ function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: (
     const t = setInterval(async () => {
       n += 1;
       const p = await read();
-      if (p.plan !== was || n > 60) { setWaitingFor(null); clearInterval(t); }
+      if (p.plan !== was || n > 60) { setWaitingFor(null); setChosen(null); clearInterval(t); }
     }, 5000);
     return () => clearInterval(t);
   }, [waitingFor]);
+  const [opening, setOpening] = useState<PaidPlan | null>(null);
+  const [chosen, setChosen] = useState<PaidPlan | null>(null);
   const choose = async (id: PaidPlan) => {
     if (!signedIn) { onSignIn(); return; }
-    setSaid(null);
+    setSaid(null); setOpening(id);
     const out = await api.cloudAccountPay(id);
+    setOpening(null);
     if (!out.ok) { setSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
+    setChosen(id);
     setWaitingFor(plan?.plan ?? 'none');
   };
   const billing = async () => {
     const out = await api.cloudAccountBilling();
-    if (!out.ok) setSaid(out.message || 'Stripe could not be opened. Try again.');
+    if (!out.ok) { setSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
+    void read();
   };
-  const cards = planCards(plan);
   const paying = !!plan?.plan && plan.plan !== 'none';
   return (
     <Page title="Cloud" lede="Every thread needs a slot to run in. Your computer has a few. The cloud adds more.">
-      <div className="set-group cloud-plans" data-find="cloud-plans">
-        {cards.map((c) => (
-          <div key={c.id} className={`cloud-plan${c.current ? ' mine' : ''}`}>
-            <div className="cloud-plan-head"><span>{c.name}</span>{c.current && <span className="cloud-plan-mine">Your plan</span>}</div>
-            <div className="cloud-plan-price">{c.price}<span> a month</span></div>
-            <div className="cloud-plan-slots">{c.slots}</div>
-            <div className="cloud-plan-where">running in the cloud</div>
-            {c.current && plan ? (
-              <div className="cloud-plan-use">
-                <span>{usageLine(plan)}</span>
-                <span className="cloud-plan-bar"><i style={{ width: `${usedPercent(plan)}%` }} /></span>
-              </div>
-            ) : c.button && <button type="button" className="set-ghost cloud-plan-go" onClick={() => void choose(c.id)}>{c.button}</button>}
-          </div>
-        ))}
-      </div>
+      <CloudPlanCards plan={plan} opening={opening} waiting={waitingFor ? chosen : null} onChoose={(id) => void choose(id)} />
       {said && <p className="cloud-plans-say">{said}</p>}
-      {waitingFor && <p className="cloud-plans-say">Finish on Stripe's page in your browser. This page changes when it's done.</p>}
+      {waitingFor && <p className="cloud-plans-say">Finish paying in your browser. Your plan shows here once you’ve paid.</p>}
       <Group id="cloud-counts" label="How the cloud counts" bare>
         <ul className="cloud-counts">
           <li>Each slot runs one agent in the cloud, on top of the ones your computer runs.</li>
           <li>Time counts only while an agent is working. Waiting for your reply is free.</li>
-          <li>Pro has 400 hours a month, Plus 1,200 and Max 3,000. Past them, threads wait for your computer until the month turns.</li>
+          <li>Past a plan's hours, threads wait for your computer until the month turns.</li>
         </ul>
       </Group>
       {paying && (

@@ -54,7 +54,7 @@ import { hotWindowVerdict, storeHasWork } from './dev-window.mjs';
 import { writeHeldThenReload } from './write-before-reload.mjs';
 import { IS_SHE_TYPING_IN_THE_PAGE, theAppKeepsThisInput, theAppKeepsThisLetterInAPage } from '../shared/artifact-keys.mjs';
 import { NAME, Name, WAS } from '../shared/product-name.mjs';
-import { JOIN_SCHEME, tokenFromLink } from '../shared/room-links.mjs';
+import { JOIN_SCHEME, ourLink, tokenFromLink } from '../shared/room-links.mjs';
 import { getMic } from './neo/mic.mjs';
 
 // HOW LONG TO WAIT AFTER THE LID OPENS, and the wait is for the network rather
@@ -249,14 +249,18 @@ let window = null;
 // Held until the window takes it ('zero:take-join'); a window that is up is
 // told to come and take it, and one still starting takes it as it mounts.
 let pendingJoin = tokenFromLink(process.argv.find((a) => a.startsWith(`${JOIN_SCHEME}://`)) ?? '');
+function showWindow() {
+  if (!window || window.isDestroyed()) return;
+  if (window.isMinimized()) window.restore();
+  window.focus();
+}
 function openJoinLink(url) {
   const token = tokenFromLink(url);
   if (!token) return;
   pendingJoin = token;
   if (window && !window.isDestroyed()) {
     window.webContents.send('zero:join-room');
-    if (window.isMinimized()) window.restore();
-    window.focus();
+    showWindow();
   }
 }
 // Set by ⌘R and read once by the renderer as it comes back up, so a reload can
@@ -1199,7 +1203,8 @@ if (!app.requestSingleInstanceLock()) {
     const link = argv.find((a) => String(a).startsWith(`${JOIN_SCHEME}://`));
     if (link) openJoinLink(link);
   });
-  app.on('open-url', (e, url) => { e.preventDefault(); openJoinLink(url); });
+  // Stripe's last page links back on the app's scheme, which only needs the window.
+  app.on('open-url', (e, url) => { e.preventDefault(); if (ourLink(url)) showWindow(); openJoinLink(url); });
   app.whenReady().then(() => {
     // A from-source Linux launch keeps the launcher command installed. The
     // entry runs that command; this only refreshes where it points. A packaged

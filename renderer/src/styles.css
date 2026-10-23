@@ -6600,6 +6600,10 @@ a.set-ghost { text-decoration: none; display: inline-block; }
   font: inherit; color: var(--text); transition: background .6s ease;
 }
 .cs-row + .cs-row { box-shadow: inset 0 1px 0 var(--line); }
+/* Paying first: Settings' three plan cards, side by side, on the setup screen. */
+.cs-plans { width: 760px; max-width: calc(100vw - 96px); }
+.cs-plans .cloud-plans { margin-top: 8px; }
+.cs-pay-err { margin: 14px 0 0; font-size: 13px; color: var(--text); }
 .cs-row.fresh { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .cs-row-mark { display: flex; align-items: center; justify-content: center; color: var(--text); }
 .cs-row-name { font-size: 14.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -9145,12 +9149,14 @@ body.neo-on.neo-orb-away .ts-panel .ts-foot { opacity: 1; }
 .set-group.cloud-plans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 36px; }
 .cloud-plan { display: flex; flex-direction: column; align-items: flex-start; padding: 18px 18px 18px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: color-mix(in srgb, var(--text) 3%, transparent); min-height: 196px; }
 .cloud-plan.mine { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.cloud-plan.waiting { border-color: color-mix(in srgb, var(--accent) 60%, var(--line-strong)); }
 .cloud-plan-head { display: flex; justify-content: space-between; width: 100%; font: 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--text-faint); }
 .cloud-plan-mine { color: var(--accent); }
 .cloud-plan-price { margin-top: 12px; font-size: 28px; letter-spacing: -0.02em; color: var(--text); }
 .cloud-plan-price span { font-size: 13px; letter-spacing: 0; color: var(--text-faint); }
 .cloud-plan-slots { margin-top: 18px; font-size: 17px; color: var(--text); }
 .cloud-plan-where { margin-top: 2px; font-size: 13px; color: var(--text-faint); }
+.cloud-plan-hours { margin: 2px 0 18px; font-size: 13px; color: var(--text-faint); }
 .cloud-plan-go { margin-top: auto; }
 .cloud-plan-use { margin-top: auto; width: 100%; font-size: 12.5px; color: var(--text-dim); }
 .cloud-plan-bar { display: block; height: 2px; margin-top: 8px; background: var(--line); }

@@ -428,7 +428,9 @@ export const api = {
             // &cloudmissing leaves the work login out of the cloud, so it is only on this computer
             // (&cloudmissing=a1 the other one). &cloudstopped has the work login's cloud sign-in stop working.
           ].filter((a) => !(params.has('cloudmissing') && a.key === (params.get('cloudmissing') || 'a2')))
-            .map((a) => (params.has('cloudstopped') && a.key === 'a2' ? { ...a, ready: false, state: 'broken' as const } : a)),
+            .map((a) => (params.has('cloudstopped') && a.key === 'a2' ? { ...a, ready: false, state: 'broken' as const } : a))
+            // Marked as the app marks it (Supervisor#_cloudAccounts): the first of each engine that still works.
+            .map((a, _, all) => ({ ...a, inUse: all.find((b) => b.engine === a.engine && b.state !== 'broken') === a })),
           // &cloudsigning has a Claude sign-in waiting on its code, as Add to cloud leaves one.
           signIns: params.has('cloudsigning')
             ? [{ engine: 'claude' as const, key: 'acct-new', state: 'needs-code' as const, url: 'https://claude.ai/oauth/authorize', code: null, message: null, attempt: 'signin-1' }]
@@ -1320,7 +1322,7 @@ export const api = {
   },
 
   /** Signing in to Agentbox Cloud itself, on the app's sign-in page: Google, email, or a new account. */
-  async cloudAccountSignIn(p: { method: 'google' | 'email' | 'sign-up'; email?: string; password?: string; name?: string }): Promise<{ ok: boolean; confirm?: boolean; error?: string; cancelled?: boolean }> {
+  async cloudAccountSignIn(p: { method: 'google' | 'email' | 'sign-up' | 'agree'; email?: string; password?: string; name?: string; acceptTerms?: boolean }): Promise<{ ok: boolean; confirm?: boolean; needsTerms?: boolean; error?: string; cancelled?: boolean }> {
     const zero = window.zero as any;
     if (!zero?.cloudAccountSignIn) return { ok: false, error: RESTART_NOTE };
     return zero.cloudAccountSignIn(p);

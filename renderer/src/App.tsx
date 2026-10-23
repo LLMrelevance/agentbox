@@ -7620,6 +7620,7 @@ export default function App() {
       {cloudSetupOpen && snap.cloud?.setUp && (
         <CloudSetup
           cloud={snap.cloud}
+          plan={cloudPlan}
           signInAs={cloudSignInAs}
           onMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
           onClose={() => { setCloudSetupOpen(false); setCloudSignInAs(null); }}

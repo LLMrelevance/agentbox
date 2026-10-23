@@ -170,6 +170,13 @@ export function cloudAccountsFrom(env = process.env) {
   return list.length ? list : null;
 }
 
+// The cloud account that is this Mac's own account, which the app hands each
+// cloud run it starts (Supervisor#_cloudAccountEnv).
+export const CLOUD_ACCOUNT_ENV = { claude: 'AGENTBOX_CLOUD_CLAUDE_ACCOUNT', codex: 'AGENTBOX_CLOUD_CODEX_ACCOUNT' };
+export function cloudAccountFrom(env = process.env, engine = 'claude') {
+  return String(env?.[CLOUD_ACCOUNT_ENV[engine]] ?? '').trim() || null;
+}
+
 // THE ACCOUNT A CLOUD RUN USES, AND IT IS ONE ACCOUNT (w-dac993a554).
 //
 // It used to be whichever of this engine's accounts was used least recently,
@@ -178,35 +185,54 @@ export function cloudAccountsFrom(env = process.env) {
 // subscriptions to get past their limits, which is what the Mac stopped doing
 // in `Supervisor#_theOneAccount` and what the cloud stops doing here.
 //
-// The first account signed in is the account. A later one is still signed in
-// and still reachable -- it is what somebody switches TO when the first stops
-// working -- but a usage limit is not a reason to reach for it: `mayRunOn`
-// turns a limited account down, and with no account left the cloud runs
-// nothing and the menu says until when (renderer/src/cloud-menu.ts).
+// The account is the one this Mac runs on (`prefer`), when it is signed in to
+// the cloud, so picking an account in Settings moves the cloud too; otherwise
+// the first one signed in. A usage limit is never a reason to reach for
+// another: `mayRunOn` turns a limited account down, and the cloud runs nothing
+// and the menu says until when (renderer/src/cloud-menu.ts).
 //
 // `only` (emails or keys) narrows it for a copy of the app under test, which
 // shares this list with the person's own app.
-export function pickCloudLogin(engine, { home = os.homedir(), now = Date.now(), only = null } = {}) {
+function accountInUse(all, engine, { now, only, prefer }) {
+  const dup = duplicatesIn(Object.values(all).filter((r) => r?.engine === engine));
+  const named = (r) => !only || [r.email, r.key ?? r.dir].some((n) => n && only.includes(String(n).toLowerCase()));
+  // A login that was never finished or has stopped working is not an account
+  // at all. A Codex login due a renewal is the account and simply cannot run
+  // yet; `Supervisor#_renewCloudLogins` mends that on its own clock.
+  const accounts = Object.entries(all)
+    .filter(([, r]) => r?.engine === engine && !dup.has(r.key ?? r.dir) && named(r))
+    .filter(([, r]) => !['none', 'broken'].includes(cloudLoginState(r, { now })))
+    .sort(([, a], [, b]) => (a.savedAt || 0) - (b.savedAt || 0));
+  return (prefer && accounts.find(([, r]) => (r.key ?? r.dir) === prefer)) || accounts[0] || null;
+}
+
+/** The account a run would take now, whether or not it can run. Null with none. */
+export function cloudLoginInUse(engine, { home = os.homedir(), now = Date.now(), only = null, prefer = null } = {}) {
+  const hit = accountInUse(readCloudLogins({ home }), engine, { now, only, prefer });
+  return hit ? { ...hit[1], key: hit[1].key ?? hit[1].dir } : null;
+}
+
+export function pickCloudLogin(engine, { home = os.homedir(), now = Date.now(), only = null, prefer = null } = {}) {
   return withLock(home, () => {
     const all = readCloudLogins({ home });
-    const dup = duplicatesIn(Object.values(all).filter((r) => r?.engine === engine));
-    const named = (r) => !only || [r.email, r.key ?? r.dir].some((n) => n && only.includes(String(n).toLowerCase()));
-    const live = Object.entries(all)
-      .filter(([, r]) => r?.engine === engine && !dup.has(r.key ?? r.dir) && named(r))
-      .sort(([, a], [, b]) => (a.savedAt || 0) - (b.savedAt || 0));
-    // A LIMIT ON THE ACCOUNT IS A WAIT; a login that was never finished or has
-    // stopped working is not an account at all, so those are passed over and
-    // the next one is the account. A Codex login due a renewal is the account
-    // and simply cannot run yet; `Supervisor#_renewCloudLogins` is what mends
-    // that, on its own clock.
-    const first = live.find(([, r]) => !['none', 'broken'].includes(cloudLoginState(r, { now })));
-    const ready = first && mayRunOn(cloudLoginState(first[1], { now })) ? [first] : [];
-    if (!ready.length) return null;
-    const [k, r] = ready[0];
+    const hit = accountInUse(all, engine, { now, only, prefer });
+    if (!hit || !mayRunOn(cloudLoginState(hit[1], { now }))) return null;
+    const [k, r] = hit;
     all[k] = { ...r, lastUsedAt: now };
     writeCloudLogins(all, { home });
     return { ...all[k], key: r.key ?? r.dir };
   });
+}
+
+const clock = (t) => new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(/\s/g, '').toLowerCase();
+
+/** Why a run found no account to take, as its thread will quote it. */
+export function noCloudAccountSentence(engine, inUse, { now = Date.now() } = {}) {
+  const name = engine === 'codex' ? 'Codex' : 'Claude';
+  const state = inUse ? cloudLoginState(inUse, { now }) : 'none';
+  if (state === 'limited') return `the ${name} account the cloud runs on is at its usage limit until ${clock(inUse.limitedUntil)}`;
+  if (state === 'renew') return `the ${name} account the cloud runs on is renewing its sign-in`;
+  return `no ${name} account is signed in for the cloud yet (the cloud button)`;
 }
 
 // An account she took out of the cloud. Its object goes too, and every older
