@@ -197,7 +197,7 @@ const bareOption = (option: string) => option.replace(/\s*\(recommended\)\s*/i, 
 // The option that IS the decision to ship: "Ship it", "Let it ship as built",
 // "Not now, just ship this", "Merge it". Leading words only: "re-ship", "before
 // anything ships" and "ship that too" are about some other work.
-const SHIPS = /^(?:(?:yes|no|not now|not yet|ok(?:ay)?)\s*[,:;—–-]?\s+)?(?:just\s+)?(?:ship\b|merge (?:it|this)\b|let (?:it|this|them|the\b[^,.;:]*?)\s+(?:ship|land)\b)/i;
+const SHIPS = /^(?:(?:yes|no|not now|not yet|ok(?:ay)?)\s*[,:;\p{Pd}]?\s+)?(?:just\s+)?(?:ship\b|merge (?:it|this)\b|let (?:it|this|them|the\b[^,.;:]*?)\s+(?:ship|land)\b)/iu;
 const asksToShip = (option: string) => SHIPS.test(bareOption(option).replace(/^[*_\s]+/, ''));
 
 // THE OPTION THAT IS MEANINGLESS WITHOUT YOUR WORDS (w-c9da359466).

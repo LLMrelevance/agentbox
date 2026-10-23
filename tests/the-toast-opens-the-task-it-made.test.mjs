@@ -76,7 +76,7 @@ describe('the toast after an answer carries the same way in', () => {
     expect(app).toMatch(/goes\?: \{ product: string; id: string \},[\s\S]{0,300}?undid\?: UndidSpec\[\],[\s\S]{0,300}?holdMs: number = UNDO_GRACE_MS,\s*\) => \{/);
     // Even when `stay` keeps her on the row (w-5513afd09a): the cap is held
     // back while that row is open, not by dropping the destination.
-    expect(app).toContain('showToast(`${toast} · press Z to undo`, goes);');
+    expect(app).toContain('showToast(`${toast} · press Z to undo`, goes && { ...goes, sent: true });');
   });
 
   it('a typed reply hands it the row it answered', () => {
