@@ -5054,17 +5054,20 @@ export class Supervisor {
   // A cloud run: a stand-in for it on the shared host (main/cloud/host.mjs)
   // where perl can run one, otherwise a relay process of its own. Either way
   // one process here, with the run's input, output, signals and exit code.
+  // IN A PROCESS GROUP OF ITS OWN: a terminal's Control-C goes to the app's
+  // whole group, and a relay takes SIGINT as Stop, so the run was cancelled
+  // before the app's quit could leave it going. It hears only the app.
   _spawnCloudRelay(args, { cwd, env, stdio = ['pipe', 'pipe', 'pipe'] }) {
     const shim = unpacked(path.join(this.appDir, 'scripts', 'cloud-shim.pl'));
     const sock = this._cloudHostAvailable() ? this._cloudHost() : null;
     if (sock) {
       const { ELECTRON_RUN_AS_NODE: _node, ...plain } = env;
-      const child = spawn(PERL, [shim, sock, ...args], { cwd, env: plain, stdio });
+      const child = spawn(PERL, [shim, sock, ...args], { cwd, env: plain, stdio, detached: true });
       // No host answered: the next run looks for one afresh.
       child.on('exit', (code) => { if (code === 75 && this._cloudHostProc?.exitCode !== null) this._cloudHostProc = null; });
       return child;
     }
-    return spawn(process.execPath, [this._cloudRunPath(), ...args], { cwd, env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, stdio });
+    return spawn(process.execPath, [this._cloudRunPath(), ...args], { cwd, env: { ...env, ELECTRON_RUN_AS_NODE: '1' }, stdio, detached: true });
   }
 
   // The host's socket, starting the host if none of this app's is running. It
