@@ -15,6 +15,7 @@ import { fixtureFolders } from './fixtures';
 import { NAME, Name } from '../../shared/product-name.mjs';
 import { checkProjectFolder } from '../../shared/project-folder-check.mjs';
 import { USAGE_UNREADABLE } from '../../shared/usage.mjs';
+import { accountSentence } from '../../shared/spawn-trouble.mjs';
 import { MOVE_SAY } from '../../shared/where-it-runs-from.mjs';
 // THE SECOND FRONT DOOR, AND IT HAS TO BE BUILT BEFORE THE LINE BELOW RUNS.
 // `useFixtures` reads `window.zero` once, at module load, and on the desktop
@@ -182,6 +183,10 @@ if (twoLogins) {
   fixtureSettingsState.workspace.permission = 'auto';
   fixtureSettingsState.workspace.cloudPermission = (params.get('cloudperm') as PermissionMode | 'same' | null) || 'bypassPermissions';
   fixtureSettingsState.workspace.cloudCodexMode = (params.get('cloudcodexmode') as CodexModeId | 'same' | null) || 'full-access';
+  // &account=at-limit: the full first login also carries main's at-limit trouble, as it does once a run on it hits the limit.
+  if (accountTrouble === 'at-limit' && first) {
+    first.trouble = { cause: 'at-limit', since: Date.now(), note: accountSentence('at-limit') };
+  }
 }
 
 function fixtureAccountUsage(): AccountUsageReading[] {
@@ -195,9 +200,13 @@ function fixtureAccountUsage(): AccountUsageReading[] {
   const week = now + 6 * 86_400_000;
   // &usagefail: the first login's last refresh failed, so it keeps a reading two hours old.
   const failed = params.has('usagefail') ? { at: now - 2 * 3_600_000, error: USAGE_UNREADABLE } : { at: now - 60_000 };
+  // &fablefull: the first login has room in its session and week and none left on Fable.
+  const firstLimits = params.has('fablefull')
+    ? [limit('session', 30, '5:09pm', at(17, 9)), limit('week', 60, '11:59am', week, 'all models'), limit('week', 100, '11:59am', week, 'Fable')]
+    : [limit('session', twoLogins ? 100 : 42, '5:09pm', at(17, 9)), limit('week', 15, '11:59am', week, 'all models'), limit('week', 24, '11:59am', week, 'Fable')];
   return [
-    { profile: first.profile, ...failed, limits: [limit('session', twoLogins ? 100 : 42, '5:09pm', at(17, 9)), limit('week', 15, '11:59am', week, 'all models')] },
-    { profile: second.profile, at: now - 60_000, limits: [limit('session', 5, '8pm', at(20)), limit('week', 9, '4pm', week, 'all models')] },
+    { profile: first.profile, ...failed, limits: firstLimits },
+    { profile: second.profile, at: now - 60_000, limits: [limit('session', 5, '8pm', at(20)), limit('week', 9, '4pm', week, 'all models'), limit('week', 6, '4pm', week, 'Fable')] },
   ];
 }
 
@@ -419,7 +428,9 @@ export const api = {
             // &cloudmissing leaves the work login out of the cloud, so it is only on this computer
             // (&cloudmissing=a1 the other one). &cloudstopped has the work login's cloud sign-in stop working.
           ].filter((a) => !(params.has('cloudmissing') && a.key === (params.get('cloudmissing') || 'a2')))
-            .map((a) => (params.has('cloudstopped') && a.key === 'a2' ? { ...a, ready: false, state: 'broken' as const } : a)),
+            .map((a) => (params.has('cloudstopped') && a.key === 'a2' ? { ...a, ready: false, state: 'broken' as const } : a))
+            // Marked as the app marks it (Supervisor#_cloudAccounts): the first of each engine that still works.
+            .map((a, _, all) => ({ ...a, inUse: all.find((b) => b.engine === a.engine && b.state !== 'broken') === a })),
           // &cloudsigning has a Claude sign-in waiting on its code, as Add to cloud leaves one.
           signIns: params.has('cloudsigning')
             ? [{ engine: 'claude' as const, key: 'acct-new', state: 'needs-code' as const, url: 'https://claude.ai/oauth/authorize', code: null, message: null, attempt: 'signin-1' }]
@@ -1311,7 +1322,7 @@ export const api = {
   },
 
   /** Signing in to Agentbox Cloud itself, on the app's sign-in page: Google, email, or a new account. */
-  async cloudAccountSignIn(p: { method: 'google' | 'email' | 'sign-up'; email?: string; password?: string; name?: string }): Promise<{ ok: boolean; confirm?: boolean; error?: string; cancelled?: boolean }> {
+  async cloudAccountSignIn(p: { method: 'google' | 'email' | 'sign-up' | 'agree'; email?: string; password?: string; name?: string; acceptTerms?: boolean }): Promise<{ ok: boolean; confirm?: boolean; needsTerms?: boolean; error?: string; cancelled?: boolean }> {
     const zero = window.zero as any;
     if (!zero?.cloudAccountSignIn) return { ok: false, error: RESTART_NOTE };
     return zero.cloudAccountSignIn(p);

@@ -19,6 +19,10 @@ import { Cap } from './Onboarding';
 import { NAME } from '../../../shared/product-name.mjs';
 import { accountLabel, engineWord, pageToOpen, type CloudAccount, type CloudMode, type CloudSignIn, type CloudStatus } from '../cloud-menu';
 import { SETUP, WHERE_ROWS, activeSignIn, addingRows, doneAsksWhere, mayFinish, signInView } from '../cloud-setup';
+import { CloudPlanCards } from './CloudPlanCards';
+import { setupStep } from '../cloud-setup-step';
+import type { PaidPlan } from '../cloud-upgrade';
+import type { CloudPlan } from '../types';
 
 const Plus = () => <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>;
 const Chevron = () => <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" /></svg>;
@@ -78,14 +82,45 @@ function SignIn({ s, existing, as = null }: { s: CloudSignIn; existing: boolean;
   </div>;
 }
 
-export function CloudSetup({ cloud, onMode, onClose, signInAs = null }: {
+export function CloudSetup({ cloud, onMode, onClose, signInAs = null, plan = null }: {
   cloud: CloudStatus;
   onMode: (mode: CloudMode) => void;
   onClose: () => void;
   /** The account a Claude sign-in started from Settings is for. */
   signInAs?: string | null;
+  /** Agentbox Cloud's plan as last read; unpaid, the screen asks for it first. */
+  plan?: CloudPlan | null;
 }) {
   const accounts = cloud.accounts || [];
+  // PAY FIRST (../cloud-setup-step.ts): no account is asked for until the
+  // plan is paid. Checkout opens in the browser, and the plan lands with
+  // Stripe's notice to the cloud server, so it is read again every few
+  // seconds for ten minutes and whenever the window comes back to the front.
+  const [planNow, setPlanNow] = useState<CloudPlan | null>(plan);
+  useEffect(() => { if (plan) setPlanNow(plan); }, [plan?.plan]);
+  const step = setupStep({ managed: cloud.managed, plan: planNow });
+  const [opening, setOpening] = useState<PaidPlan | null>(null);
+  const [waiting, setWaiting] = useState<PaidPlan | null>(null);
+  const [payErr, setPayErr] = useState<string | null>(null);
+  const pay = async (id: PaidPlan) => {
+    setPayErr(null); setOpening(id);
+    const out = await api.cloudAccountPay(id);
+    setOpening(null);
+    if (!out.ok) { setPayErr(out.message || 'Stripe could not be opened. Try again.'); return; }
+    setWaiting(id);
+  };
+  useEffect(() => {
+    if (!cloud.managed) return undefined;
+    let on = true;
+    const read = () => api.cloudAccountPlan().then((p) => { if (on) setPlanNow(p); }, () => {});
+    void read();
+    const until = Date.now() + 10 * 60_000;
+    const t: ReturnType<typeof setInterval> | null = step === 'pay' && waiting
+      ? setInterval(() => { if (Date.now() > until) clearInterval(t!); else void read(); }, 3000)
+      : null;
+    if (step === 'pay') window.addEventListener('focus', read);
+    return () => { on = false; if (t) clearInterval(t); window.removeEventListener('focus', read); };
+  }, [cloud.managed, step, waiting]);
   // Her part of a sign-in, on screen; the cloud's part goes on behind her
   // accounts, where how it ended is shown (cloud-setup.ts, activeSignIn).
   const shown = activeSignIn(cloud);
@@ -130,6 +165,15 @@ export function CloudSetup({ cloud, onMode, onClose, signInAs = null }: {
   let body: JSX.Element;
   if (shown) {
     body = <SignIn s={shown} existing={accounts.some((a) => a.key === shown.key)} as={shown.engine === 'claude' ? signInAs : null} />;
+  } else if (step === 'loading') {
+    body = <div className="fr-stack fr-stack-folders" />;
+  } else if (step === 'pay') {
+    body = <div className="fr-stack fr-stack-folders">
+      <h1 className="fr-page">{SETUP.payHead}</h1>
+      <p className="fr-lede">{waiting ? <><Busy />{SETUP.payWaitLede}</> : SETUP.payLede}</p>
+      <div className="cs-plans"><CloudPlanCards plan={planNow} opening={opening} waiting={waiting} onChoose={(id) => void pay(id)} /></div>
+      {payErr && <p className="cs-pay-err" role="alert">{payErr}</p>}
+    </div>;
   } else if (where) {
     body = <div className="fr-stack fr-stack-folders">
       <h1 className="fr-page">{SETUP.doneHead}</h1>

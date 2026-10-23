@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cloudLoginState, listCloudLogins, markCloudLogin, pickCloudLogin, recordCloudLogin } from '../main/cloud/logins.mjs';
+import { cloudLoginInUse, cloudLoginState, listCloudLogins, markCloudLogin, pickCloudLogin, recordCloudLogin } from '../main/cloud/logins.mjs';
 import { cloudAccountInUse, cloudFootLine } from '../renderer/src/cloud-menu';
 import { cloudPlaceAccounts } from '../renderer/src/components/Settings';
 
@@ -30,6 +30,7 @@ const onScreen = (engine = 'claude') => listCloudLogins(engine, { home }).map((r
   engine, key: r.key, name: r.email ?? null, plan: null, state: cloudLoginState(r, { now }),
   ready: cloudLoginState(r, { now }) === 'ready', savedAt: r.savedAt ?? null,
   limitedUntil: r.limitedUntil ?? null, limits: null, readAt: null, duplicateOf: r.duplicateOf ?? null,
+  inUse: r.key === cloudLoginInUse(engine, { home, now })?.key,
 }));
 
 const cloud = (accounts, running = 0, mode = 'full') => ({

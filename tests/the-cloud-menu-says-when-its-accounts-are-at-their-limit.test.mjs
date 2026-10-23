@@ -16,7 +16,9 @@ import { cloudFootLine } from '../renderer/src/cloud-menu';
 
 const at = (h, m) => { const d = new Date(2026, 9, 16, h, m, 0, 0); return d.getTime(); };
 const now = at(20, 13);
-const acct = (key, limitedUntil = null) => ({ engine: 'claude', key, name: null, ready: !limitedUntil, state: limitedUntil ? 'limited' : 'ready', limitedUntil });
+// The app marks the one the cloud runs on (Supervisor#_cloudAccounts): here
+// the first, as no account on this Mac is one of them.
+const acct = (key, limitedUntil = null) => ({ engine: 'claude', key, name: null, ready: !limitedUntil, state: limitedUntil ? 'limited' : 'ready', limitedUntil, inUse: key === 'a' });
 const cloud = (accounts, running = 0, mode = 'all') => ({ setUp: true, mode, whenOn: 'all', running, accounts, signIns: [], month: { runs: 0, agentHours: 0 } });
 
 describe('the last line of the cloud menu', () => {
@@ -51,5 +53,6 @@ describe('the last line of the cloud menu', () => {
   it('is what the menu draws, and the app hands the screen each account\'s limit', () => {
     expect(fs.readFileSync(new URL('../renderer/src/threads/Pages.tsx', import.meta.url), 'utf8')).toMatch(/<span>\{cloudFootLine\(cloud\)\}<\/span>/);
     expect(fs.readFileSync(new URL('../main/supervisor.mjs', import.meta.url), 'utf8')).toMatch(/limitedUntil: r\.limitedUntil \?\? null/);
+    expect(fs.readFileSync(new URL('../main/supervisor.mjs', import.meta.url), 'utf8')).toMatch(/inUse: r\.key === inUse/);
   });
 });

@@ -16,6 +16,8 @@ export type HereLogin = {
   signedIn: boolean;
   /** Why it cannot be used, in main's words, or null. */
   trouble: string | null;
+  /** The trouble is only that it is at its limit, which its meters can say better. */
+  atLimit?: boolean;
   /** The folder, needed only to print the command that signs it back in. */
   dir: string | null;
 };
