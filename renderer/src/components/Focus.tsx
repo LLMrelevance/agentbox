@@ -564,7 +564,7 @@ export function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null, pageAsk = null, onAsked, onShown }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null, pageAsk = null, onAsked, onShown, aboveDock }: {
   previewSample?: string;
   /** The repeating task this thread is a run of, drawn in its summary. */
   repeat?: RepeatHandle | null;
@@ -575,6 +575,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   onAsked?: () => void;
   /** What this page draws that ⌘K offers rows for. */
   onShown?: (shown: { key: string; change: boolean; summary: 'open' | 'closed' | null }) => void;
+  /** Drawn right above the reply box: where a reply that moved her here went (./SentLine). */
+  aboveDock?: ReactNode;
   /**
    * A MESSAGE FROM A PERSON IS NOT WORK UNTIL SHE SAYS SO. The one line under
    *  the latest message on a message thread calls this to make it a task for
@@ -2004,6 +2006,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         so the folded box and the open composer cannot drift into two stops. */}
     <div className="focus-dock">
       <div className="focus-dock-inner">
+        {aboveDock}
         <div className="dock-card">
           {/* A TASK A TEAMMATE GAVE YOU: to an agent, keep it, or hand it back.
               Unless they wrote options of their own, which are the better

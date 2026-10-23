@@ -170,7 +170,8 @@ import { SignInPage } from './team/SignInPage';
 import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, flipView, isDirect, nextTab, pageDisplay, pageFor, peopleInConversation, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
 import { inboxEveryone, mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
 import { boardStops, listStops, stepFromPlace, stepStop, stopKey, type Stop } from './threads/walk-rules';
-import { opensTheToast, toastOpens, toastParts, type ToastGoes } from './toast-parts';
+import { opensTheToast, saysWhereItWent, toastOpens, toastParts, type ToastGoes } from './toast-parts';
+import { SentLine } from './components/SentLine';
 
 type Modal = null | 'compose' | 'filter' | 'palette' | 'reply' | 'snooze' | 'standing';
 
@@ -3782,7 +3783,7 @@ export default function App() {
     // to name nothing when `stay` was set, so the moment she left the thread
     // the toast had no O. The cap stays off while the row is the one open
     // (toastOpens), which is the "needs no way in" this used to say.
-    showToast(`${toast} · press Z to undo`, goes);
+    showToast(`${toast} · press Z to undo`, goes && { ...goes, sent: true });
     const afterTheLast = async () => { await flushed; await run(); };
     const write = async () => {
       try {
@@ -5621,6 +5622,24 @@ export default function App() {
     setSelected(at >= 0 ? at : 0);
   }, [shownInbox, view, onBoard, list, focused, markSeen]);
 
+  // A SEND THAT MOVED HER ON IS SAID ABOVE THE REPLY BOX of the thread it moved
+  // her to (./components/SentLine), and stays there until she leaves that
+  // thread: no six-second clock. A newer note takes its place as usual.
+  const sentLineShown = !!toast && saysWhereItWent(toast, focused ? { product: focused.product, id: focused.id } : null);
+  const lineOn = useRef<{ at: string; toast: typeof toast } | null>(null);
+  useEffect(() => {
+    const at = focused ? `${focused.product}:${focused.id}` : null;
+    if (sentLineShown && at) {
+      if (toastTimer.current) { clearTimeout(toastTimer.current); toastTimer.current = null; }
+      lineOn.current = { at, toast };
+      return;
+    }
+    const was = lineOn.current;
+    if (!was) return;
+    lineOn.current = null;
+    if (toast === was.toast && was.at !== at) setToast(null);
+  }, [sentLineShown, focused, toast]);
+
   /* -------------------------------- render -------------------------------- */
   // (Hooks live ABOVE the boot return: below it, React counts them
   // differently between the boot render and the first real one, #310.)
@@ -5632,6 +5651,18 @@ export default function App() {
      same condition the task header and the terminal socket already use, named
      once so the corner cannot disagree with them about which screen this is. */
   const taskOpen = workspaceNavigation && !!focused && !settingsOpen;
+  const sentTo = sentLineShown && toast?.goes
+    ? [...inbox, ...progress, ...snoozed, ...done].find((i) => i.id === toast.goes!.id && i.product === toast.goes!.product)
+    : undefined;
+  const whereItWent = sentLineShown && toast?.goes ? (
+    <SentLine
+      key={toastShown.current}
+      title={sentTo ? sentTo.label || sentTo.title : 'the thread you left'}
+      undoes={toastParts(toast.text).undo}
+      onBack={() => openToastRow(toast.goes!)}
+      onUndo={() => { setToast(null); void undo(); }}
+    />
+  ) : null;
   const artifactView = artifactPlacement(artifactMode, artifactWidth);
   const [artifactHeader, setArtifactHeader] = useState<HTMLDivElement | null>(null);
   const readingWidth = 'balanced';
@@ -6621,6 +6652,7 @@ export default function App() {
                   pageAsk={threadAsk?.key === keyOf(focused) ? threadAsk : null}
                   onAsked={() => setThreadAsk(null)}
                   onShown={setOpenShows}
+                  aboveDock={whereItWent}
                   onReveal={() => revealAgent(focused)}
                   // Remind me later and stop this task are neither of the two
                   // ways a task ends, and the card beside the bar names exactly
@@ -7801,6 +7833,10 @@ export default function App() {
           and the sentence ("Started in Agentbox Team") the quiet one under it,
           picked out of fourteen drawings over four rounds. */}
       {toast && (() => {
+        // Said above the reply box instead, or about to be: the frame between
+        // leaving the answered thread and opening the next one.
+        if (sentLineShown) return null;
+        if (toast.goes?.sent && advanceRef.current && !focused) return null;
         const { line, undo: undoes } = toastParts(toast.text);
         const about: { label?: string; title: string } | undefined = !toast.goes
           ? undefined
