@@ -107,7 +107,7 @@ import { WorkspaceNavigation } from './components/WorkspaceNavigation';
 import { useRooms } from './team/rooms/useRooms';
 import { RoomBoard } from './team/rooms/RoomBoard';
 import { directConversations } from './team/rooms/conversations';
-import { isPresenceCard, roomMateCards, roomMatesById } from './team/rooms/room-rules';
+import { isPresenceCard, roomMateCards, roomMatesById, tabOrder as roomTabOrder } from './team/rooms/room-rules';
 import { MARK_UNREAD, SAY } from './team/chat-events';
 import { MentionRows } from './team/rooms/MentionRows';
 import { FeedbackCard } from './components/FeedbackCard';
@@ -5143,7 +5143,7 @@ export default function App() {
       if (e.key === 'Tab') {
         const onTheTabs = !inInput && !modal && !focused && !focusedRepeat && !inFullScreen
           && !settingsOpen && !teamShown && !openCard && !roomsUi.dialogOpen
-          && search === null && inboxDisplay.view === 'list' && !roomShown;
+          && search === null && inboxDisplay.view === 'list' && (!roomShown || roomsUi.inTab);
         if (!onTheTabs) return;
         // Built, not left alone: the browser's own focus walk would otherwise
         // paint a ring on whatever it landed on behind the rotation.
@@ -5151,7 +5151,14 @@ export default function App() {
         setHoveredId(null);
         (document.activeElement as HTMLElement | null)?.blur?.();
         setMultiSel(new Set());
-        setView(nextTab(stateTabOrder, view, e.shiftKey) as View);
+        // The room tab after Done is a tab too.
+        if (roomsUi.tabRoomId) {
+          const order = roomTabOrder(stateTabOrder, roomsUi.tabRoomId);
+          const next = nextTab(order, roomShown ? 'room' : view, e.shiftKey);
+          if (next === 'room') { roomsUi.openTab(); setSelected(0); return; }
+          roomsUi.leave();
+          setView(next as View);
+        } else setView(nextTab(stateTabOrder, view, e.shiftKey) as View);
         setSelected(0);
         return;
       }
@@ -5984,7 +5991,7 @@ export default function App() {
            offering the move. Null on every copy that can. */
         move={announcesMove(snap?.update, { walking, closed: '' }) ? { place: snap?.update?.place ?? null, error: snap?.update?.moveError ?? null } : null}
         onMove={() => { void api.updateMove(); }}
-        page={settingsOpen ? 'settings' : null} roomOpen={roomShown || directOnMessages} rooms={roomsUi.nav(workspaceCollapsed, directOnMessages)} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
+        page={settingsOpen ? 'settings' : null} roomOpen={(roomShown && !roomsUi.inTab) || directOnMessages} rooms={roomsUi.nav(workspaceCollapsed, directOnMessages)} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onSignOut={() => { void api.teamSignOut().then(() => refresh()); }}
@@ -6680,7 +6687,7 @@ export default function App() {
                     lit={needsYouLit(inbox, needsLookedAt)}
                     onView={(next) => { roomsUi.leave(); setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                     onSearch={openSearch}
-                    after={roomsUi.roomTab}
+                    after={roomsUi.roomTab} dim={roomShown}
                   />
                 )}
                 {roomShown ? roomsUi.page : <>

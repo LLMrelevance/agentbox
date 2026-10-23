@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { boardPeople, boardPicked, readBoardPicks, writeBoardPicks } from '../renderer/src/team/rooms/room-rules.ts';
+import { boardPeople, boardPicked, readBoardPicks, writeBoardPicks, CHAT_SHARE } from '../renderer/src/team/rooms/room-rules.ts';
 import { inboxEveryone } from '../renderer/src/threads/people-rules.ts';
 import { HeaderActions, DisplayMenu } from '../renderer/src/threads/Pages.tsx';
 import { RoomViewButton } from '../renderer/src/team/rooms/RoomView.tsx';
@@ -135,15 +135,21 @@ describe('the Inbox with Rooms on', () => {
 // the room's board one line a thread (RoomBoard.tsx), and round five asked for
 // it on one screen, scrolling only when the screen is really small. Measured on
 // the built app at 1440 by 900 with the chat open: the board has 780px, and
-// columns of 200 needed 890.
+// columns of 200 needed 890. Since 2026-10-23 the chat is 41% of the room until
+// dragged (tests/the-room-chat-widens-by-dragging-its-edge): the room is 1172px
+// at 1440, the board's left padding 32, so the board has 660 beside it.
 describe('the room’s board keeps its column width', () => {
   const rooms = readFileSync(new URL('../renderer/src/team/rooms/rooms.css', import.meta.url), 'utf8');
   const rule = rooms.match(/\.rm-board \{([^}]*)\}/)?.[1] ?? '';
   const least = Number(rule.match(/grid-template-columns: repeat\(var\(--cols, 3\), minmax\((\d+)px, 1fr\)\)/)?.[1]);
   const gap = Number(rule.match(/gap: 0 (\d+)px/)?.[1]);
   const right = Number(rule.match(/padding-right: (\d+)px/)?.[1]);
-  it('fits all four columns beside the chat in a 1440 window, Later shown', () => {
-    expect(4 * least + 3 * gap + right).toBeLessThanOrEqual(780);
+  const beside = (chat) => 1172 - chat - 32;
+  it('fits its three columns beside the chat in a 1440 window', () => {
+    expect(3 * least + 2 * gap + right).toBeLessThanOrEqual(beside(Math.round(1172 * CHAT_SHARE)));
+  });
+  it('fits all four, Later shown, once the chat is dragged to its narrowest', () => {
+    expect(4 * least + 3 * gap + right).toBeLessThanOrEqual(beside(300));
   });
   it('never squeezes a column below a readable line', () => {
     expect(least).toBeGreaterThanOrEqual(160);

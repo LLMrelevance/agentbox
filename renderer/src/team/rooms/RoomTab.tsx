@@ -5,12 +5,15 @@ import { I } from './icons';
 import { useOutside } from './RoomsPage';
 import { peopleCount } from './room-rules';
 
-export function RoomTab({ room, count, open, onOpen, onMenu }: {
-  room: Room; count: number; open: boolean; onOpen: () => void; onMenu: (at: DOMRect) => void;
+export function RoomTab({ room, count, on = false, open, onOpen, onMenu }: {
+  room: Room; count: number;
+  /** Its room is open under the Threads tabs. */
+  on?: boolean;
+  open: boolean; onOpen: () => void; onMenu: (at: DOMRect) => void;
 }) {
   return <>
     <span className="rm-sep" aria-hidden="true" />
-    <span className="tm-tab rm-tab">
+    <span className={`tm-tab rm-tab${on ? ' on' : ''}`}>
       <button type="button" className="rm-tabname" data-hint="state-tab" onClick={onOpen}>{I.hash()}{room.name}<b>{count}</b></button>
       <button type="button" className={`rm-tabpick${open ? ' open' : ''}`} aria-label="Pick the room in this tab" title="Pick the room in this tab"
         onClick={(e) => onMenu((e.currentTarget.parentElement ?? e.currentTarget).getBoundingClientRect())}>{I.down()}</button>
