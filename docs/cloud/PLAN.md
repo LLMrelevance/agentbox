@@ -39,10 +39,12 @@ with their own subscription, and forbid a developer to "collect, store, or
 intermediate Claude.ai credentials or session tokens — sign-in to a Claude
 account must complete through Anthropic's own flow". Copying the Mac's
 login into the cloud, which the first build did, is the forbidden half.
-OpenAI allows hosted ChatGPT logins only through Sign in with ChatGPT
-(applied for 2026-10-14; "early Q4"). The founder chose: one sign-in per
-account, done inside the cloud through each vendor's own sign-in, kept
-between runs.
+OpenAI's partner program for hosted ChatGPT logins is Sign in with ChatGPT
+(applied for 2026-10-14; "early Q4"). It is NOT a gate: cloud Codex is open
+to everyone now (the owner's call, 2026-10-22: approval may take a long time,
+and tools like Conductor already host Codex on people's own ChatGPT logins).
+The founder chose: one sign-in per account, done inside the cloud through
+each vendor's own sign-in, kept between runs.
 
 - **Signing in.** From the cloud menu, per account. The Mac starts a sign-in
   session in a sandbox (`{action:'signin', engine, saveUrl}`); the sandbox
@@ -123,7 +125,7 @@ between runs.
   `codex exec` would not change what OpenAI's terms say about hosted
   ChatGPT logins (Codex's review, finding 2: Sign in with ChatGPT supports
   app-server itself), and it would cost live approvals and mid-turn replies.
-  Until the partnership, cloud Codex is the founder's own use only.
+  Cloud Codex is for everyone, with or without the partnership (2026-10-22).
 - **What goes.** The keychain token (`readClaudeToken`/`saveClaudeToken`),
   the Mac-side `setup-token` driver (main/cloud/signin-flow.mjs),
   scripts/cloud-signin.mjs, and the Mac's `auth.json` copy
@@ -526,7 +528,8 @@ approved:
    refunds and acceptable use, and an accept step a person passes before
    their first cloud key. Anthropic's Commercial Terms accepted, and their
    sales asked about keeping each person's `setup-token` between runs.
-   Codex stays the owner's own until OpenAI approves Sign in with ChatGPT.
+   Codex is open to everyone from the release; OpenAI's Sign in with ChatGPT
+   approval is not waited for (the owner's call, 2026-10-22).
 3. **Accounts.** The app's own sign-in page (Google, or an email and a
    password), not new screens (the owner's call, 2026-10-20). The Google
    consent screen published (name and email only, so no Google review),
