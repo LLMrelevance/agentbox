@@ -5,8 +5,9 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '../../api';
 import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
 import { RoomsPage, useOutside, type RoomMenuAction } from './RoomsPage';
-import { boardPeople, boardPicked, cardName, chatPeople, readBoardLater, readBoardPicks, readRoomView, whereChatOpens, withMe, writeBoardLater, writeBoardPicks, writeRoomView, type RoomView } from './room-rules';
+import { boardPeople, boardPicked, cardName, chatPeople, peopleCount, readBoardLater, readBoardPicks, readRoomTab, tabRoom, whereChatOpens, withMe, writeBoardLater, writeBoardPicks, writeRoomTab } from './room-rules';
 import { BoardFaces, RoomViewButton } from './RoomView';
+import { RoomTab, RoomTabMenu } from './RoomTab';
 import { landed, sameMessages } from './room-chat-rules';
 import { RoomPage, type RoomPane } from './RoomPage';
 import { RoomChat } from './RoomChat';
@@ -19,7 +20,7 @@ import { InviteDialog, JoinDialog, MembersMenu, StartRoomDialog, type Preview, t
 import { joinLink, tokenFromLink } from '../../../../shared/room-links.mjs';
 import { RoomsNotReady, RoomsSettings } from './RoomsSettings';
 import { GroupPage, NowLines, TitleFaces, groupEvents, readGroupLook, readWovenLook } from './GroupPage';
-import { DigestCard, GroupLayout, HeaderPill, PAGE_LOOKS, drawnCheers, type PageLook } from './GroupLayouts';
+import { DigestCard, GroupBar, GroupLayout, HeaderPill, PAGE_LOOKS, drawnCheers, type PageLook } from './GroupLayouts';
 import { Reactions } from '../ChatActions';
 
 type Dialog =
@@ -58,9 +59,14 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const [full, setFull] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [switcher, setSwitcher] = useState<DOMRect | null>(null);
-  const [view, setViewRaw] = useState<RoomView>(() => readRoomView());
   const [boardPicks, setBoardPicks] = useState<Record<string, string[]>>(() => readBoardPicks());
   const [later, setLaterRaw] = useState(() => readBoardLater());
+  const [tabChoice, setTabChoice] = useState<string | null>(() => readRoomTab());
+  const [tabMenu, setTabMenu] = useState<DOMRect | null>(null);
+  // THE GROUPS TAB (round 5): the Threads tab after Done is "Groups" and holds
+  // whichever group was open last; `groups.tab` says how you switch groups in it.
+  const [tabStyle] = useState<'picker' | 'chips' | null>(() => { try { const v = localStorage.getItem('groups.tab'); return v === 'picker' || v === 'chips' ? v : null; } catch { return null; } });
+  const [inTab, setInTab] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [members, setMembers] = useState<{ roomId: string; at: DOMRect } | null>(null);
   const [links, setLinks] = useState<Record<string, string>>({});
@@ -111,7 +117,11 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     try { await navigator.clipboard.writeText(joinLink(token)); toast('Link copied'); } catch { toast(joinLink(token)); }
   };
 
-  const openRoom = (id: string, { asFull = false } = {}) => { onLeavePage(); setListing(false); setFinding(false); setNoChats(false); setOpenId(id); setPane('wall'); setPanelId(null); setFull(asFull); setCameFrom(null); };
+  // From the room tab a room opens under the Threads tabs; any other way, as its own page.
+  const openRoom = (id: string, { asFull = false, inTab: tab = false } = {}) => {
+    onLeavePage(); setListing(false); setFinding(false); setNoChats(false); setOpenId(id); setPane('wall'); setPanelId(null); setFull(asFull); setCameFrom(null);
+    if (tabStyle) { setTabChoice(id); writeRoomTab(id); setInTab(true); } else setInTab(tab);
+  };
   const openRooms = () => { onLeavePage(); setOpenId(null); setFull(false); setPanelId(null); setFinding(false); setNoChats(false); setCameFrom(null); setListing(true); };
   // A room and Find rooms both sit inside the Rooms page, so stepping out of either lands there.
   const close = () => {
@@ -121,10 +131,10 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     if (noChats) { setNoChats(false); return; }
     if (cameFrom) { openRoom(cameFrom.roomId); setPane(cameFrom.pane); return; }
     if (pane !== 'wall') { setPane('wall'); return; }
-    setOpenId(null); setFull(false); setPanelId(null); setListing(true);
+    setOpenId(null); setFull(false); setPanelId(null); setListing(!inTab); setInTab(false);
   };
   // Somewhere else was picked: no room, no Rooms page, no Find rooms, no messages page.
-  const leave = () => { setOpenId(null); setFull(false); setPanelId(null); setListing(false); setFinding(false); setNoChats(false); setCameFrom(null); };
+  const leave = () => { setOpenId(null); setFull(false); setPanelId(null); setListing(false); setFinding(false); setNoChats(false); setCameFrom(null); setInTab(false); };
   const find = () => { onLeavePage(); setOpenId(null); setFull(false); setListing(false); setNoChats(false); setFinding(true); setCameFrom(null); };
   const loadListed = useCallback(async () => { const res = await call<ListedRoom[]>('listed'); return res.ok ? res.value ?? [] : null; }, [call]);
   const inviteId = dialog?.kind === 'invite' ? dialog.roomId : null;
@@ -144,10 +154,18 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     toast(res.ok ? 'Marked unread' : res.error ?? 'Not marked unread');
   };
 
+  const pickTab = (choice: string) => {
+    setTabChoice(choice); writeRoomTab(choice); setTabMenu(null);
+    // Picked while the tab's room is open: the tab now holds the new one, or none.
+    if (inTab) { if (choice === 'none') leave(); else openRoom(choice, { inTab: true }); }
+  };
+  const tabbed = !live ? null : (tabStyle && all.find((r) => r.id === tabChoice)) || tabRoom(list, tabChoice);
+
   const menu = async (id: string, action: RoomMenuAction, at: DOMRect) => {
     const r = all.find((x) => x.id === id);
     if (!r) return;
     if (action === 'read' || action === 'unread') { await readOrUnread(r, action); return; }
+    if (action === 'tab') pickTab(id);
     if (action === 'invite') setDialog({ kind: 'invite', roomId: id });
     if (action === 'members') setMembers({ roomId: id, at });
     if (action === 'ranks') { openRoom(id); setPane('ranks'); }
@@ -264,10 +282,11 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     onLeavePage(); setOpenId(null); setListing(false); setFinding(false); setNoChats(true);
   };
   const unreadChats = conversations.filter((c) => c.unread).length;
+  const groupChoices = live ? sortConversations(roomConversations(rooms)).map((c) => ({ id: c.id, name: c.name, unread: c.unread })) : [];
 
   // One row: every group, and the count of groups with something unread.
-  const groupsLit = listing || finding || noChats || !!open;
-  const nav = (collapsed: boolean, messagesLit = false): ReactNode => live ? <nav className="workspace-tabs rm-msgnav" aria-label="Groups">
+  const groupsLit = listing || finding || noChats || (!!open && !inTab);
+  const nav = (collapsed: boolean, messagesLit = false): ReactNode => live && !tabStyle ? <nav className="workspace-tabs rm-msgnav" aria-label="Groups">
     <button type="button" className={`workspace-tab${groupsLit || messagesLit ? ' active' : ''}${unreadChats ? ' has-count' : ''}`}
       aria-label="Groups" title={collapsed ? 'Groups' : undefined} onClick={openRooms}>
       {I.groupNav()}<span>Groups</span>{unreadChats > 0 && <small className="workspace-running" aria-label={`${unreadChats} unread`}>{unreadChats}</small>}
@@ -296,12 +315,13 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     <button type="button" className="rm-backt" title="Back (esc)" onClick={close}>{I.back()}<span>{title}</span></button></h1>;
   let heading: { title: ReactNode; right?: ReactNode } | null = null;
   let page: ReactNode = null;
-  // THE ROOM AS A BOARD: the Inbox's board, for the people here whose threads
-  // reach me. Only on the room itself, never over a person, the ranks or a chat.
+  // THE ROOM IS ITS BOARD, for the people here whose threads reach me. Only on
+  // the room itself, never over a person, the ranks or a chat.
   const onRoom = !!open && !!rooms && !full && open.kind !== 'group' && pane === 'wall' && !finding && !noChats;
+  // The tiles and the pick are everyone in the room; the board draws only those whose threads may reach me.
   const onBoardPeople = onRoom ? boardPeople(open!.wall) : [];
-  const onBoardPicked = onRoom ? boardPicked(boardPicks[open!.id], onBoardPeople) : [];
-  const setView = (next: RoomView) => { setViewRaw(next); writeRoomView(next); };
+  const onBoardIds = new Set(onBoardPeople.map((c) => c.id));
+  const onBoardPicked = onRoom ? boardPicked(boardPicks[open!.id], open!.wall) : [];
   const pickForBoard = (ids: string[]) => {
     if (!open) return;
     const next = { ...boardPicks, [open.id]: ids };
@@ -309,11 +329,11 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     writeBoardPicks(next);
   };
   const setLater = (shown: boolean) => { setLaterRaw(shown); writeBoardLater(shown); };
-  const board = onRoom && view === 'board' && renderBoard
-    ? <><BoardFaces people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} />{renderBoard(onBoardPicked, { later })}</>
+  const board = onRoom && renderBoard
+    ? <><BoardFaces people={open!.wall} picked={onBoardPicked} onPick={pickForBoard} />{renderBoard(onBoardPicked.filter((id) => onBoardIds.has(id)), { later })}</>
     : null;
   const viewButton: ReactNode = onRoom && renderBoard
-    ? <RoomViewButton view={view} onView={setView} people={onBoardPeople} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} later={later} onLater={setLater} />
+    ? <RoomViewButton people={open!.wall} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} later={later} onLater={setLater} />
     : null;
   if (listing && live && rooms) {
     heading = {
@@ -321,7 +341,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       right: <div className="th-right"><button type="button" className="th-new" onClick={() => setDialog({ kind: 'start' })}>{I.plus()}New group</button></div>,
     };
     page = <RoomsPage state={rooms} invisible={invisibleUntil > now} now={now} onOpen={(id) => openRoom(id)} onFind={find}
-      onMenu={(id, a, at) => void menu(id, a, at)} groups />;
+      onMenu={(id, a, at) => void menu(id, a, at)} tabbedId={tabbed?.id ?? null} groups />;
   } else if (noChats && live) {
     heading = { title: backTitle('Messages'), right: null };
     page = <MessagesPage list={[]} onKey={null} now={now} onPick={pick} onAction={(c, a) => void act(c, a)}>
@@ -348,17 +368,17 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     const chat = <RoomChat room={open} messages={rooms.messages[open.id] ?? []} people={people} meId={meId} now={now} full head={<></>}
       events={woven?.past} foot={woven && <NowLines room={open} lines={woven.now} />} lead={lead}
       onSend={send(open.id)} onRead={read(open)} {...chatCalls(open)} />;
-    heading = {
-      title: backTitle(name),
-      right: <div className="th-right">
-        {look === 'title' && <TitleFaces room={open} onPerson={(id) => setPane(`person:${id}`)} />}
-        {(look === 'drawer' || look === 'drawer2') && <HeaderPill past={day.past} now={day.now} who={who} open={dayOpen} onToggle={() => setDayOpen(!dayOpen)} />}
-        {PAGE_LOOKS.includes(look) && renderBoard && <button type="button" className="th-new" onClick={() => { setBoardOn(true); setView('board'); }}>Board</button>}
-        {open.kind !== 'group' && <button type="button" className="th-new" onClick={() => setDialog({ kind: 'invite', roomId: open.id })}>{I.invite(15)}Invite</button>}
-      </div>,
-    };
+    const actions = <>
+      {look === 'title' && <TitleFaces room={open} onPerson={(id) => setPane(`person:${id}`)} />}
+      {(look === 'drawer' || look === 'drawer2') && <HeaderPill past={day.past} now={day.now} who={who} open={dayOpen} onToggle={() => setDayOpen(!dayOpen)} />}
+      {PAGE_LOOKS.includes(look) && renderBoard && <button type="button" className="th-new" onClick={() => setBoardOn(true)}>Board</button>}
+      {open.kind !== 'group' && <button type="button" className="th-new" onClick={() => setDialog({ kind: 'invite', roomId: open.id })}>{I.invite(15)}Invite</button>}
+    </>;
+    const tabbedPage = inTab && !!tabStyle;
+    heading = tabbedPage ? null : { title: backTitle(name), right: <div className="th-right">{actions}</div> };
+    const bar = tabbedPage ? <GroupBar style={tabStyle!} groups={groupChoices} current={open.id} members={open.members} onPick={(id) => openRoom(id)}>{actions}</GroupBar> : undefined;
     page = PAGE_LOOKS.includes(look)
-      ? <GroupLayout room={open} look={look as PageLook} chat={chat} past={day.past} now={day.now} who={who} meId={meId}
+      ? <GroupLayout key={open.id} room={open} look={look as PageLook} chat={chat} past={day.past} now={day.now} who={who} meId={meId} top={bar}
         open={dayOpen} onToggle={() => setDayOpen(!dayOpen)} onPerson={(id) => setPane(`person:${id}`)} />
       : <GroupPage room={open} look={look} chat={chat} messages={rooms.messages[open.id] ?? []} onPerson={(id) => setPane(`person:${id}`)} />;
   } else if (open && rooms) {
@@ -367,7 +387,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       heading = { title: backTitle(open.kind === 'group' ? 'Messages' : open.name), right: null };
       page = <MessagesPage list={conversations} onKey={`room:${r.id}`} now={now} onPick={pick} onAction={(c, a) => void act(c, a)}>{chatPanel(r, true)}</MessagesPage>;
     } else {
-      heading = { title: backTitle(open.name) };
+      heading = inTab && pane === 'wall' ? null : { title: backTitle(open.name) };
       page = <RoomPage room={open} rooms={list} cards={teamCards} ranks={rooms.ranks ?? {}} me={rooms.me} now={now}
         pane={pane} link={links[open.id] ?? null} onPane={setPane} chat={chatPanel(chatRoom ?? open, false)} board={board} renderBoard={renderPersonBoard}
         picked={picked} onPick={(ids) => setPicked(new Set(ids))} onMessage={(ids) => void message(ids, open)}
@@ -391,7 +411,15 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
 
   const inviteRoom = dialog?.kind === 'invite' ? all.find((r) => r.id === dialog.roomId) : null;
   const membersRoom = members ? all.find((r) => r.id === members.roomId) : null;
+  const openTab = () => { if (tabbed) openRoom(tabbed.id, { inTab: true }); };
+  const roomTab: ReactNode = tabbed
+    ? tabStyle
+      ? <RoomTab room={tabbed} label="Groups" count={unreadChats} on={inTab && !!open} open={!!tabMenu} onOpen={openTab} onMenu={(at) => setTabMenu(tabMenu ? null : at)} />
+      : <RoomTab room={tabbed} count={peopleCount(tabbed, invisibleUntil > now)} on={inTab && openId === tabbed.id} open={!!tabMenu} onOpen={openTab} onMenu={(at) => setTabMenu(tabMenu ? null : at)} />
+    : null;
   const dialogs: ReactNode = <>
+    {tabMenu && live && <RoomTabMenu rooms={list} current={tabbed?.id ?? null} invisible={invisibleUntil > now} at={tabMenu} onClose={() => setTabMenu(null)}
+      groups={tabStyle ? groupChoices : undefined} onPick={tabStyle ? (id) => { setTabMenu(null); openRoom(id); } : pickTab} />}
     {inviteRoom && <InviteDialog room={inviteRoom} link={links[inviteRoom.id] ?? null} now={now} onClose={() => setDialog(null)} loadSent={loadSent}
       onCopy={() => void copyLink(inviteRoom.id)}
       onEmail={async (email) => { const res = await call('invite', inviteRoom.id, email); return res.ok ? null : res.error ?? 'Not sent'; }} />}
@@ -440,11 +468,11 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const openMention = (m: RoomMention) => openRoom(m.roomId);
 
   return {
-    live, openId: open ? openId : listing && live ? 'rooms' : finding && live ? 'find' : noChats && live ? 'messages' : null, openMessages, open: (id: string) => openRoom(id), close, leave, find, nav, page, dialogs, join, invisible, settingsPane,
+    live, openId: open ? openId : listing && live ? 'rooms' : finding && live ? 'find' : noChats && live ? 'messages' : null, openMessages, open: (id: string) => openRoom(id), close, leave, find, nav, page, dialogs, roomTab, inTab: inTab && !!open, tabRoomId: tabbed?.id ?? null, openTab, join, invisible, settingsPane,
     mentions, openMention, faces, messagesShell, full, heading,
     dialogOpen: !!dialog || !!members || !!switcher,
     /** The header's View button over a room, and B. Null anywhere else in rooms. */
-    viewButton, flipView: viewButton ? () => setView(view === 'board' ? 'grid' : 'board') : null,
+    viewButton,
     /** The room a teammate's card was opened over, for its Back. */
     roomName: open && !full && open.kind !== 'group' ? open.name : null,
   };

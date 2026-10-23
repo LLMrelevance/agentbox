@@ -34,6 +34,13 @@ Your level comes from agent hours. Ranks are weekly. You can go invisible.
   under the list. Pointing at a row shows dots for the room menu (Mark as read
   or unread, Invite people, Members, Ranks this week, Mute, Leave). A room opens
   as a page with a back arrow to the Rooms page, and Threads keeps its four tabs.
+  Since 2026-10-22 (w-49cd37092c) one room sits after Done: the first pinned or
+  first room until you pick, with an arrow that opens "Room in this tab" (each
+  room, and No room tab). A room's menu has Show in the Threads tab.
+- The chat beside a room is 41% of it (480px at 1440) until you drag its left
+  edge, from 300 to 720, always leaving the board its three columns; the width
+  is kept and a double-click puts it back (2026-10-23). The faces over the board
+  go to even rows when eight no longer fit.
 - Invite: on the room row, in the room menu, and in the chat panel header. The
   invite dialog is the plain one (who is here, invite link, email).
 - Names show as "First L." by default; a person can turn on their full name.
@@ -436,12 +443,12 @@ Rooms paragraph in this work.
   built: rooms have no description line in Find rooms, a team room has no
   Leave in its menu (you leave by leaving the team), and Start a room offers
   Find a room to join, since the plus beside Rooms became New room.
-- A room can be a board (w-49cd37092c). The header's View button, the one the
-  Inbox has, switches a room between Grid and Board, and B does the same. The
-  board holds you and the teammates whose Activity you may open, and its People
-  line narrows it. It draws each thread as a face beside the person's name over
-  the title, with no project and no card, and leaves Later off until the View
-  menu's Show line turns it on. Titles are one line, cut with an ellipsis. The
+- A room is its board (w-49cd37092c); there is no Grid or Board to pick. The
+  header's filters button, the one the Inbox has, holds the board's Show and
+  People lines. The board holds you and the teammates whose Activity you may
+  open, and its People line narrows it. It draws each thread as a face beside the person's name over
+  the title, with no project and no card, and leaves Later off until the
+  filters menu's Show line turns it on. Titles are one line, cut with an ellipsis. The
   grid's people stay over it as a row of tiles in the Grid's lines, eight to a
   row at most: a face, a first name and agents working, never what anyone is
   on. Clicking a tile narrows the board. With Rooms on, the Inbox shows only your own threads: its

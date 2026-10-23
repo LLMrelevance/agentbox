@@ -10,10 +10,12 @@ import { roomConversations } from './conversations';
 import { updatedWords } from '../../threads/page-rules';
 import './rooms.css';
 
-export type RoomMenuAction = 'read' | 'unread' | 'invite' | 'members' | 'ranks' | 'mute' | 'unmute' | 'leave';
+export type RoomMenuAction = 'read' | 'unread' | 'invite' | 'members' | 'ranks' | 'tab' | 'mute' | 'unmute' | 'leave';
 
-export function RoomsPage({ state, invisible, now, onOpen, onFind, onMenu, groups = false }: {
+export function RoomsPage({ state, invisible, now, onOpen, onFind, onMenu, tabbedId = null, groups = false }: {
   state: RoomsState; invisible: boolean; now: number;
+  /** The room in the Threads tab. */
+  tabbedId?: string | null;
   onOpen: (id: string) => void; onFind: () => void;
   onMenu: (id: string, action: RoomMenuAction, anchor: DOMRect) => void;
   /** Every group, chats with a few people among them, newest first. */
@@ -56,12 +58,16 @@ export function RoomsPage({ state, invisible, now, onOpen, onFind, onMenu, group
     {menu && (() => {
       const r = rooms.find((x) => x.id === menu.id);
       if (!r) return null;
-      return <RoomMenu room={r} at={menu.at} onClose={() => setMenu(null)} onPick={(a) => { setMenu(null); onMenu(r.id, a, menu.at); }} />;
+      return <RoomMenu room={r} at={menu.at} tabbed={r.id === tabbedId} onClose={() => setMenu(null)} onPick={(a) => { setMenu(null); onMenu(r.id, a, menu.at); }} />;
     })()}
   </div>;
 }
 
-export function RoomMenu({ room, at, onPick, onClose }: { room: Room; at: DOMRect; onPick: (a: RoomMenuAction) => void; onClose: () => void }) {
+export function RoomMenu({ room, at, onPick, onClose, tabbed = false }: {
+  room: Room; at: DOMRect; onPick: (a: RoomMenuAction) => void; onClose: () => void;
+  /** It is the room in the Threads tab already. */
+  tabbed?: boolean;
+}) {
   const ref = useOutside(onClose);
   const row = (a: RoomMenuAction, icon: JSX.Element, label: string, k?: string | number) =>
     <button type="button" className="row" onClick={() => onPick(a)}>{icon}<span>{label}</span>{k != null && <span className="k">{k}</span>}</button>;
@@ -72,6 +78,7 @@ export function RoomMenu({ room, at, onPick, onClose }: { room: Room; at: DOMRec
     {room.kind !== 'group' && row('invite', I.invite(), 'Invite people')}
     {row('members', I.people(), 'Members', room.members)}
     {row('ranks', I.trophy(), 'Ranks this week')}
+    {room.kind !== 'group' && !tabbed && row('tab', I.hash(), 'Show in the Threads tab')}
     <div className="rule" />
     {room.muted ? row('unmute', I.bell(), 'Unmute room') : row('mute', I.bell(), 'Mute room')}
     {!room.teamId && row('leave', I.out(), 'Leave room')}

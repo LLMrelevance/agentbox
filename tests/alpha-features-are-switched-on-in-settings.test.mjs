@@ -8,12 +8,13 @@
 //
 // Measured here: the gate, the saved setting, what Settings reads back, the
 // snapshot field the renderer gates Rooms on, and the page in the menu. Off is
-// the default for both, and the old file still turns Neo on.
+// the default for both. The old file once still turned Neo on with the switch
+// off; tests/neo-stays-off-once-its-switch-is-off has why it no longer does.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { neoEnabled, FLAG } from '../main/neo/gate.mjs';
+import { neoEnabled } from '../main/neo/gate.mjs';
 import { setWorkspaceSetting, alphaFeatures } from '../main/settings.mjs';
 import { SETTINGS_PAGES, searchSettings } from '../renderer/src/settings-search.ts';
 
@@ -24,9 +25,9 @@ describe('the Neo gate', () => {
   it('is on when the switch is on, with no file', () => {
     expect(neoEnabled({ userData: '/data', platform: 'darwin', exists: noFile, config: { alphaNeo: true } })).toBe(true);
   });
-  it('the old file still turns it on with the switch off', () => {
-    const at = (p) => p === path.join('/data', FLAG);
-    expect(neoEnabled({ userData: '/data', platform: 'darwin', exists: at, config: { alphaNeo: false } })).toBe(true);
+  it('the old file no longer turns it on with the switch off', () => {
+    const at = (p) => p === path.join('/data', 'neo-alpha');
+    expect(neoEnabled({ userData: '/data', platform: 'darwin', exists: at, config: { alphaNeo: false } })).toBe(false);
   });
   it('is off with neither, and off on Linux whatever the switch says', () => {
     expect(neoEnabled({ userData: '/data', platform: 'darwin', exists: noFile, config: {} })).toBe(false);

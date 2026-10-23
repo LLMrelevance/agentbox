@@ -64,10 +64,27 @@ export function DigestCard({ room, past, now, who, cheers, open, onToggle }: {
   </div>;
 }
 
-export function GroupLayout({ room, look, chat, past, now, who, onPerson, open, onToggle, meId }: {
+/** Under the Groups tab: the group open now, or every group to pick from, and its buttons. */
+export function GroupBar({ style, groups, current, members, onPick, children }: {
+  style: 'picker' | 'chips'; groups: { id: string; name: string; unread: boolean }[]; current: string; members: number;
+  onPick: (id: string) => void; children?: ReactNode;
+}) {
+  const here = groups.find((g) => g.id === current);
+  return <div className={`g6-bar ${style}`}>
+    {style === 'chips'
+      ? <div className="g6-chips">{groups.map((g) => <button type="button" key={g.id} className={`c${g.id === current ? ' on' : ''}`} onClick={() => onPick(g.id)}>
+        <span>{g.name}</span>{g.unread && g.id !== current && <span className="rm-unread" />}</button>)}</div>
+      : <div className="g6-name"><span className="nm">{here?.name}</span><span className="sub">{members} people</span></div>}
+    <div className="g6-acts">{children}</div>
+  </div>;
+}
+
+export function GroupLayout({ room, look, chat, past, now, who, onPerson, open, onToggle, meId, top }: {
   room: Room; look: PageLook;
   /** The group's chat, full page with no header of its own. */
   chat: ReactNode;
+  /** Over the chat and its sidebar, under the Groups tab. */
+  top?: ReactNode;
   past: GroupEvent[]; now: GroupEvent[]; who: Who; meId: string | null;
   onPerson: (id: string) => void;
   /** The day, opened from the top bar or the band. */
@@ -76,10 +93,12 @@ export function GroupLayout({ room, look, chat, past, now, who, onPerson, open, 
   const ids = room.wall.map((c) => c.id);
   const cheers = (e: GroupEvent) => <Reactions on={{ '🎉': drawnCheers(e, ids) }} me={meId} onReact={() => {}} />;
   const done = past.filter((e) => e.kind === 'finished').length;
-  const [shown] = useState(() => inGroupOrder(room.wall));
+  const shown = inGroupOrder(room.wall);
   // Whose day the sidebar shows: the busiest teammate first, or everyone.
   const [picked, setPicked] = useState<string | null>(() => look === 'feedpick' ? null : shown.find((c) => !c.me && c.agents)?.id ?? shown[0]?.id ?? null);
-  const day = (side: ReactNode) => <div className="gp g5"><div className="gp-chat">{chat}</div>{side}</div>;
+  const day = (side: ReactNode) => top
+    ? <div className="gp g5 col">{top}<div className="g5-row"><div className="gp-chat">{chat}</div>{side}</div></div>
+    : <div className="gp g5"><div className="gp-chat">{chat}</div>{side}</div>;
   if (look === 'drawer2') return day(open && <aside className="g5-side"><DayLine room={room} past={past} now={now} />
     {shown.map((c) => <PersonDay key={c.id} card={c} past={past} ids={ids} />)}</aside>);
   if (look === 'pulse2') return day(<aside className="g5-side"><DayLine room={room} past={past} now={now} /><DayFeed past={past} who={who} ids={ids} /></aside>);

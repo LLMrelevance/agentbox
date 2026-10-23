@@ -94,10 +94,62 @@ export function previewRows(now = Date.now()): PhoneRows {
   };
 }
 
+/** Settings as a Mac sends them (shared/phone-settings.mjs phoneSettingsOf). */
+export function previewSettings(now = Date.now()) {
+  return {
+    device: DEV, name: 'Studio', updated_at: new Date(now - MIN).toISOString(),
+    settings: {
+      v: 1, version: '0.9.4',
+      workspace: {
+        cornerTag: true, diagnostics: true, adhdMode: true, alpha: { neo: false, rooms: true }, outsideAgents: 'waiting',
+        permission: 'auto', codexMode: 'auto', engines: ['claude', 'codex'], claude: { found: true }, codex: { found: true },
+        agentsAuto: true, sessionsAtOnce: 4, agentsTotal: 6, agentsAutoTotal: 6, agentsNudge: 0, slotsMax: 12, slotsSuggested: 6, running: 3,
+        memoryGate: { on: true, slots: null, slotsAuto: 2, slotsMax: 8, now: 'Memory is fine. Nothing heavy running.' },
+        leftovers: { on: false, now: null },
+        accounts: [
+          { id: 'default', email: 'you@example.com', chosen: false, state: 'live', note: null, plan: 'Max 20x', running: 2 },
+          { id: '.claude-work', email: 'you@work.example', chosen: false, state: 'limited', note: 'Out of usage until 6:19pm.', plan: 'Max 5x', running: 1 },
+        ],
+        codexAccounts: [{ id: 'default', email: 'you@example.com', name: 'You', plan: 'Plus', signedIn: true, chosen: false }],
+      },
+      projects: [
+        { slug: 'agentbox', name: 'Agentbox', onPhone: true, autonomous: true, permission: 'workspace', codexMode: 'workspace', account: 'any', running: 2 },
+        { slug: 'film', name: 'Launch film', onPhone: true, autonomous: false, permission: 'plan', codexMode: 'workspace', account: 'any', running: 1 },
+        { slug: 'site', name: 'Website', onPhone: true, autonomous: false, permission: 'workspace', codexMode: 'workspace', account: 'any', running: 0 },
+      ],
+    },
+  };
+}
+
+const PREVIEW_TEAM = {
+  team: { id: 't-preview', name: 'Astral' },
+  members: [{ person_id: 'preview', role: 'owner' }, { person_id: 'p-2', role: 'member' }, { person_id: 'p-3', role: 'member' }],
+  people: [{ id: 'preview', email: 'you@example.com', name: 'You' }, { id: 'p-2', email: 'sam@example.com', name: 'Sam Rivera' }, { id: 'p-3', email: 'kai@example.com', name: 'Kai Ito' }],
+  invites: [{ email: 'lee@example.com' }],
+};
+
 /** A stand-in for the sign-in client (renderer/src/cloud-rest.ts), signed in. */
 export function previewCloud(now = () => Date.now()) {
   const rows = previewRows(now());
+  const settings = previewSettings(now());
+  const team = { ...PREVIEW_TEAM, members: [...PREVIEW_TEAM.members], invites: [...PREVIEW_TEAM.invites] };
   let signedIn = true;
+  // The Mac takes a change a moment later and sends its settings again.
+  const takeSetting = (c: PhoneRows['commands'][number]) => setTimeout(() => {
+    const { scope, key, value, product } = c.payload ?? {};
+    const w: any = settings.settings.workspace;
+    if (scope === 'project') Object.assign(settings.settings.projects.find((p) => p.slug === product) ?? {}, { [key]: value });
+    else if (key === 'alphaNeo' || key === 'alphaRooms') w.alpha[key === 'alphaNeo' ? 'neo' : 'rooms'] = value;
+    else if (key === 'memoryGate') w.memoryGate.on = value;
+    else if (key === 'memoryGateSlots') w.memoryGate.slots = value;
+    else if (key === 'cleanupLeftovers') w.leftovers.on = value;
+    else if (key === 'sessionsAtOnce') Object.assign(w, { sessionsAtOnce: value, agentsAuto: false });
+    else if (key === 'activeAccount') (value.engine === 'codex' ? w.codexAccounts : w.accounts).forEach((a: any) => { a.chosen = a.id === value.account; });
+    else if (key === 'phoneProjects') settings.settings.projects.forEach((p) => { p.onPhone = value.all && !value.except.includes(p.slug); });
+    else if (key !== 'agentsFeltSlow') w[key] = value;
+    Object.assign(c, { taken_at: new Date(now()).toISOString(), outcome: 'done' });
+    settings.updated_at = new Date(now()).toISOString();
+  }, 1500);
   const session = () => (signedIn ? { access_token: 'preview', refresh_token: 'preview', expires_at: now() + 3600_000, user: { id: 'preview', email: 'you@example.com' } } : null);
   return {
     session,
@@ -107,8 +159,24 @@ export function previewCloud(now = () => Date.now()) {
       if (table === 'phone_projects') return rows.projects;
       if (table === 'phone_threads') return rows.threads;
       if (table === 'phone_commands') return /taken_at=is\.null/.test(query) ? rows.commands.filter((c) => !c.taken_at) : rows.commands.filter((c) => c.taken_at);
+      if (table === 'phone_settings') return [structuredClone(settings)];
+      if (table === 'team_members') return /person_id=eq/.test(query) ? [{ team_id: team.team.id }] : team.members;
+      if (table === 'teams') return [team.team];
+      if (table === 'people') return team.people.filter((p) => team.members.some((m) => m.person_id === p.id));
+      if (table === 'team_invites') return team.invites;
       return [];
     },
+    async insert(table: string, row: Record<string, any>) {
+      if (table === 'team_invites' && !team.invites.some((i) => i.email === row.email)) team.invites.push({ email: row.email });
+      return row;
+    },
+    async remove(table: string, query: string) {
+      const eq = (k: string) => decodeURIComponent(new RegExp(`${k}=eq\\.([^&]+)`).exec(query)?.[1] ?? '');
+      if (table === 'team_invites') team.invites = team.invites.filter((i) => i.email !== eq('email'));
+      if (table === 'team_members') { const gone = team.members.filter((m) => m.person_id === eq('person_id')); team.members = team.members.filter((m) => m.person_id !== eq('person_id')); return gone; }
+      return [];
+    },
+    async rpc() { return []; },
     async update(_table: string, query: string, patch: Record<string, unknown>) {
       const id = decodeURIComponent(/id=eq\.([^&]+)/.exec(query)?.[1] ?? '');
       const at = rows.commands.findIndex((c) => c.id === id && !c.taken_at && !c.claimed_at);
@@ -122,6 +190,7 @@ export function previewCloud(now = () => Date.now()) {
     async insertCommand(row: Record<string, any>) {
       const made = { id: `c-${rows.commands.length + 1}`, payload: {}, item: null, ...row, created_at: new Date(now()).toISOString(), claimed_at: null, taken_at: null, outcome: null } as PhoneRows['commands'][number];
       rows.commands.push(made);
+      if (made.kind === 'setting') takeSetting(made);
       return made;
     },
     async signInWithPassword() { signedIn = true; return session()!; },

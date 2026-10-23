@@ -49,7 +49,7 @@ export function createNeo({
   rememberImpl = composeMemory,
   config = null,
 }) {
-  const on = neoEnabled({ userData, platform, config });
+  const on = neoEnabled({ platform, config });
   ipcMain.handle('neo:enabled', () => on);
   if (!on) return { enabled: false };
 
@@ -228,6 +228,9 @@ export function createNeo({
   }
 
   async function wake(source) {
+    // Saving the switch changes this same config, so off stops taps before
+    // the restart that takes the rest of Neo away.
+    if (!live && !neoEnabled({ platform, config })) { log(`wake ${source} ignored, switched off`); return; }
     log(`wake ${source}${live ? ' (asleep now)' : ''}`);
     if (live) { askSleep('tapped'); return; }
     if (starting) return;
