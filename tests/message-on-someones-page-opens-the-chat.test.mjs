@@ -6,25 +6,39 @@
 // draws no panel, so nothing changed on screen. Measured on the built app: the
 // click made the chat and the page stayed exactly as it was.
 //
-// Now the chat goes beside the room only where that panel is drawn (the wall,
-// its board, the ranks), and anywhere else it opens full page on Messages,
-// with Back coming back to the page it was opened from.
+// Since Groups (w-dcaa2c122e, 2026-10-23) there is no panel beside a group and
+// no Messages page: the chat opens in the Groups tab, as every group does, and
+// a teammate's opens as their direct record.
 import { describe, it, expect } from 'vitest';
-import { whereChatOpens } from '../renderer/src/team/rooms/room-rules.ts';
+import fs from 'node:fs';
+import React, { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ProfilePage } from '../renderer/src/team/rooms/RoomPerson.tsx';
+import * as rules from '../renderer/src/team/rooms/room-rules.ts';
+globalThis.React = React;
 
-const room = { id: 'r1', kind: 'room' };
+const hook = fs.readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
+const message = hook.slice(hook.indexOf('const message = async'), hook.indexOf('// A SEND TRIED AGAIN'));
+const card = (id, o = {}) => ({ id, me: false, name: id, avatarUrl: null, headline: null, bio: null, agents: 0, level: 3, hoursTotal: 1, hoursWeek: 1, hoursToday: 0, streak: 1, byMonth: [], teammate: false, showActivity: true, status: null, workingOn: null, workingPrivate: false, ...o });
+const page = (c, onMessage) => {
+  const room = { id: 'r1', name: 'Northwind', wall: [c] };
+  return renderToStaticMarkup(createElement(ProfilePage, { card: c, room, rooms: [room], cards: [], rank: 1, onRanks: () => {}, onMessage }));
+};
 
-describe('where a chat opens', () => {
-  it('from a person’s page, full page, and Back comes back to that page', () => {
-    expect(whereChatOpens({ open: room, full: false, pane: 'person:maya' })).toEqual({ beside: false, back: { roomId: 'r1', pane: 'person:maya' } });
+describe('Message on someone’s page', () => {
+  it('is there for someone else, and not on my own page', () => {
+    expect(page(card('alex'), () => {})).toContain('Message</button>');
+    expect(page(card('sam', { me: true }), () => {})).not.toContain('Message</button>');
   });
-  it('from the wall and the ranks, beside the room as before', () => {
-    expect(whereChatOpens({ open: room, full: false, pane: 'wall' })).toEqual({ beside: true });
-    expect(whereChatOpens({ open: room, full: false, pane: 'ranks' })).toEqual({ beside: true });
+  it('opens the chat in the Groups tab, the same chat each time for the same people', () => {
+    expect(message).toMatch(/const group = all\.find\(\(r\) => r\.kind === 'group'/);
+    expect(message).toMatch(/openRoom\(id\);\s*\};\s*$/);
   });
-  it('from a chat already full page, or a group, full page with nowhere to come back to', () => {
-    expect(whereChatOpens({ open: room, full: true, pane: 'wall' })).toEqual({ beside: false, back: null });
-    expect(whereChatOpens({ open: { id: 'g1', kind: 'group' }, full: false, pane: 'wall' })).toEqual({ beside: false, back: null });
-    expect(whereChatOpens({ open: null, full: false, pane: 'wall' })).toEqual({ beside: false, back: null });
+  it('opens a teammate’s direct record instead', () => {
+    expect(message).toContain('if (people.every((id) => cards.get(id)?.teammate)) { onTeamMessage(people); return; }');
+  });
+  it('never puts the chat beside a group, or on a Messages page', () => {
+    expect(message).not.toMatch(/setPanelId|setFull|setCameFrom/);
+    expect(rules.whereChatOpens).toBeUndefined();
   });
 });

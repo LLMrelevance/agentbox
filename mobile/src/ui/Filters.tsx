@@ -95,8 +95,9 @@ export function ViewMenu({ display, onDisplay, products, items, shown, total, ta
         </Line>
         <Line label="Sort by">
           <Choice label="Priority" on={display.sort === 'priority'} onPress={() => set({ sort: 'priority' })} />
-          <Choice label="Updated" on={display.sort === 'updated'} onPress={() => set({ sort: 'updated' })} />
+          <Choice label="Sent" on={display.sort === 'updated'} onPress={() => set({ sort: 'updated' })} />
           {tab === 'done' && <T style={{ fontSize: 13, lineHeight: 34, color: color.faint }}>Done runs newest first</T>}
+          {tab === 'progress' && <T style={{ fontSize: 13, lineHeight: 34, color: color.faint }}>In progress runs newest sent first</T>}
         </Line>
         <Rule />
         <Line label="Priority">
@@ -114,7 +115,7 @@ export function ViewMenu({ display, onDisplay, products, items, shown, total, ta
             )}
           </Line>
         )}
-        <Line label="Updated">
+        <Line label="Sent">
           {WINDOWS.map(([w, label]) => <Choice key={w} label={label} on={display.updated === w} onPress={() => set({ updated: w })} />)}
         </Line>
         <Rule />

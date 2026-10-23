@@ -21,6 +21,9 @@ import readline from 'node:readline';
 
 const home = process.env.CODEX_HOME || '.';
 const log = (line) => { try { fs.appendFileSync(path.join(home, 'fake.log'), `${line}\n`); } catch {} };
+// The app's one-line naming call (`codex exec`) is not an app-server, so it is
+// not counted as one.
+if (process.argv[2] === 'exec') { log('exec'); process.exit(1); }
 let auth = '';
 try { auth = fs.readFileSync(path.join(home, 'auth.json'), 'utf8'); } catch {}
 const signedIn = auth.includes('"signed-in"');

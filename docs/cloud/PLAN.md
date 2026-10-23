@@ -99,6 +99,12 @@ each vendor's own sign-in, kept between runs.
     token and does not try to renew on age (a renewal would rotate the login
     under every other run). A copy whose access token has under 30 minutes
     left is refused before anything starts.
+  - A Claude run also carries the person's Codex login when one is ready
+    (`also: [{engine: 'codex', id, url}]`, 2026-10-23), written the same way
+    into the agent's `~/.codex`, so the agent can call `codex` there as it can
+    on the Mac. It never stops a run: a missing or nearly spent one leaves
+    Codex signed out. A Codex run carries nothing more, because Claude's token
+    lasts a year and Codex's cannot renew itself here.
   A run never writes its login back. Whatever the run prints, on stdout,
   stderr, the tool bridge, or in the transcripts that come home, has the
   login's text replaced by `[cloud sign-in]`, a tail that could be the start

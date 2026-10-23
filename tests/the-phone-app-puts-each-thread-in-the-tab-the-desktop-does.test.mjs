@@ -110,8 +110,9 @@ describe('the order', () => {
 });
 
 describe('a row', () => {
-  it('carries its title, its project and when it last moved, in the desktop\'s words', () => {
-    const t = tabsOf(rows([{ id: 'w-1', title: 'Plan the phone app', status: 'blocked', result: '?', updatedAt: NOW - 6 * 60_000, wrote: { body: her(NOW - 9e6), result: agent(NOW - 6 * 60_000) } }]));
+  // When you last wrote, not when the agent did, since w-21b638d821.
+  it('carries its title, its project and when you last wrote on it, in the desktop\'s words', () => {
+    const t = tabsOf(rows([{ id: 'w-1', title: 'Plan the phone app', status: 'blocked', result: '?', updatedAt: NOW - 60_000, wrote: { body: her(NOW - 6 * 60_000), result: agent(NOW - 60_000) } }]));
     expect(t.inbox[0]).toMatchObject({ id: 'w-1', product: phoneSlug(DEV, 'alpha'), title: 'Plan the phone app', projectName: 'Alpha', when: '6 min ago' });
   });
 });

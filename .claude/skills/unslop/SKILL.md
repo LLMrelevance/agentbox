@@ -189,6 +189,38 @@ grates.
   "the subscription you already pay for" is "an existing Claude Code
   subscription", which also says which subscription.
 
+## Every heading has to survive being read on its own
+
+Headings get read in a different order from the text under them, by somebody
+skimming, by a search result, and by a model summarising the page. So the test
+is to put every heading in a list, with nothing around it, and read it cold.
+
+"Five surfaces, four of them graphical" failed that test in October 2026. It
+sat above the section that explains what a surface is, so it is clear in place
+and meaningless out of it. Her words were "incoherent if reading on my own,
+it's weirdly phrased and means nothing".
+
+Three shapes fail, and all three read fine in place:
+
+- **A word the page invents and defines just below it.** "Five surfaces, four
+  of them graphical", "The four shapes the third-party ones come in". Use the
+  words a stranger already has: "Anthropic ships Claude Code for the desktop,
+  the browser, two editors and the terminal".
+- **A pronoun with no referent, because what it points at is above it.** "The
+  CLI answers it too", "Where Anthropic's own answer stops", "Six of the
+  twenty-one are not what a roundup implies". Name the thing: "Six of the
+  twenty-one are dead, renamed or have gone quiet".
+- **A heading naming things its own section does not.** "Emdash and Nimbalyst
+  for the board" sat over a paragraph naming Agentbox, claudecodeui and Orca.
+  Read the first paragraph before writing the heading over it, and again
+  after editing either one.
+
+A plainer and longer heading beats a clever short one every time. Eleven words
+that a newcomer understands are worth more than four that need the paragraph
+underneath. Headings are also the one place where repeating a noun is right,
+because the reader may have arrived at that heading from a search result and
+seen none of the others.
+
 ## Punctuation and formatting
 
 - **No em dashes.** Use a full stop or a comma.

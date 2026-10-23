@@ -746,6 +746,7 @@ export default function App() {
   //
   // It still starts up on a machine that has never been told otherwise.
   const [panelUp, setPanelUp] = useState(() => localStorage.getItem('powerup.sidebar.collapsed') !== 'true');
+  const [topTabs, setTopTabs] = useState<HTMLDivElement | null>(null);
   // WHAT THE SIDEBAR WAS BEFORE A DOCUMENT TOOK THE WHOLE WINDOW, and null
   // whenever nothing has. The effect that fills it in sits further down beside
   // the artifact's own state; it is declared here because the line below has to
@@ -2164,6 +2165,10 @@ export default function App() {
     //
     // Same score as the inbox and as the supervisor, so the top of this list is
     // what the fleet takes next. Recency only breaks a tie now.
+    //
+    // THE TAB DRAWS IT NEWEST SENT FIRST since w-21b638d821 (`order` in
+    // threads/page-rules.ts): a queued row is told by its Status cell, and
+    // what you just sent is on top.
   ].sort(byRunningOrder(score)),
   [items, agentList, agentMode, scope, pendingIds, dueAt, hiddenAt, score, now, team, teamProgress, liveIds, shippingIds]);
 
@@ -2528,7 +2533,7 @@ export default function App() {
     [withOthers, cards, view, picked, team?.me, inboxDisplay, snap?.products, now],
   );
   const mixedRows = useMemo(
-    () => (withOthers ? mergeRows(displayedBox, theirRows, view === 'done' ? 'done' : inboxDisplay.sort, { order: projectOrder, products: snap?.products ?? [] }) : null),
+    () => (withOthers ? mergeRows(displayedBox, theirRows, view === 'done' ? 'done' : view === 'progress' ? 'updated' : inboxDisplay.sort, { order: projectOrder, products: snap?.products ?? [] }) : null),
     [withOthers, displayedBox, theirRows, inboxDisplay.sort, view, projectOrder, snap?.products],
   );
   // A teammate's thread opens as their card, over the page, and Back returns here.
@@ -3507,11 +3512,6 @@ export default function App() {
     myName: snap?.team?.rooms?.me?.display_name ?? '', fullName: snap?.team?.me?.name ?? '', hasTeam: !!snap?.team?.team, teamCards: snap?.team?.cards ?? [], now: Date.now(), toast: showToast,
     directs,
     onOpenDirect: (id) => { const item = items.find((i) => i.id === id); if (item) { setTeamOpen(false); setSettingsOpen(false); setFocused(item); markSeen(item); } },
-    onDirectRead: (id, read) => {
-      const item = items.find((i) => i.id === id);
-      if (!item) return;
-      if (read) markSeen(item); else { markUnseen(item); showToast('Marked unread'); }
-    },
     onLeavePage: () => { setFocused(null); setFocusedRepeat(null); setTeamOpen(false); closeSearch(); },
     // Teammates: the conversation you already have, or the new thread card addressed to them.
     onTeamMessage: (ids) => {
@@ -3531,8 +3531,6 @@ export default function App() {
       onOpenItem={(item) => { setFocused(item); markSeen(item); }} />,
   });
   const roomShown = !!roomsUi.openId && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
-  // A conversation with people, open full page, sits on the messages page.
-  const directOnMessages = roomsUi.live && !!focused && !settingsOpen && isDirect(snap?.products.find((p) => p.slug === focused.product));
 
   // C TURNS THE CLOUD ON OR OFF, from anywhere a key reaches (2026-10-16), and
   // a note says which. Through a ref so the key handlers read the cloud as it
@@ -5153,8 +5151,8 @@ export default function App() {
         (document.activeElement as HTMLElement | null)?.blur?.();
         setMultiSel(new Set());
         // The room tab after Done is a tab too.
-        if (roomsUi.tabRoomId) {
-          const order = roomTabOrder(stateTabOrder, roomsUi.tabRoomId);
+        if (roomsUi.groupsTab) {
+          const order = roomTabOrder(stateTabOrder, roomsUi.groupsTab);
           const next = nextTab(order, roomShown ? 'room' : view, e.shiftKey);
           if (next === 'room') { roomsUi.openTab(); setSelected(0); return; }
           roomsUi.leave();
@@ -5980,6 +5978,10 @@ export default function App() {
   // `modal === 'reply'` and nothing else; the rule that reads it sits beside
   // `.toast` in the stylesheet and says why it moves to the top rather than
   // merely further up.
+  // With Groups the page holds threads and groups, so its tabs take the top
+  // bar where the title "Threads" was.
+  const tabsInTop = roomsUi.live && workspaceNavigation && !focused && !settingsOpen && !teamShown && search === null && (!roomShown || roomsUi.inTab);
+
   return (
     <TeamContext.Provider value={team}>
     <ChatAgentsContext.Provider value={chatAgents}>
@@ -6022,7 +6024,7 @@ export default function App() {
            offering the move. Null on every copy that can. */
         move={announcesMove(snap?.update, { walking, closed: '' }) ? { place: snap?.update?.place ?? null, error: snap?.update?.moveError ?? null } : null}
         onMove={() => { void api.updateMove(); }}
-        page={settingsOpen ? 'settings' : null} roomOpen={(roomShown && !roomsUi.inTab) || directOnMessages} rooms={roomsUi.nav(workspaceCollapsed, directOnMessages)} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
+        page={settingsOpen ? 'settings' : null} inboxLabel={roomsUi.live ? 'Inbox' : undefined} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onSignOut={() => { void api.teamSignOut().then(() => refresh()); }}
@@ -6117,7 +6119,7 @@ export default function App() {
               <CrossIcon />
             </button>
           </nav>
-        ) : workspaceNavigation ? (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : (teamShown ? <h1 className="workspace-title">{openCard ? 'Threads' : 'Team'}</h1> : roomShown && roomsUi.heading ? roomsUi.heading.title : <h1 className="workspace-title">Threads</h1>)) : (
+        ) : workspaceNavigation ? (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : (teamShown ? <h1 className="workspace-title">{openCard ? 'Threads' : 'Team'}</h1> : tabsInTop ? <div className="tabs-top" ref={setTopTabs} /> : roomShown && roomsUi.heading ? roomsUi.heading.title : <h1 className="workspace-title">Threads</h1>)) : (
         <nav
           className="tabs"
           /* NO HINT ON THIS NAV. This older strip is the layout without the
@@ -6513,7 +6515,7 @@ export default function App() {
                 />
               ) : focused ? (
                 <TicketItems.Provider value={items}>
-                {roomsUi.messagesShell(isDirect(snap.products.find((p) => p.slug === focused.product)) ? focused.id : null, <Focus
+                <Focus
                   // A run of a repeating task carries its rule into the
                   // summary: what every run is told, and Stop repeating.
                   repeat={focusedRule ? {
@@ -6683,7 +6685,7 @@ export default function App() {
                     silent: snap.supervisor.silent?.[focused.id] ?? null,
                   }}
                   stoppable={!walking && stoppableNow(focused)}
-                />)}
+                />
                 </TicketItems.Provider>
               ) : (
                 <>
@@ -6720,6 +6722,7 @@ export default function App() {
                     onView={(next) => { roomsUi.leave(); setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                     onSearch={openSearch}
                     after={roomsUi.roomTab} dim={roomShown}
+                    into={tabsInTop ? topTabs : null}
                   />
                 )}
                 {roomShown ? roomsUi.page : <>
@@ -6757,10 +6760,11 @@ export default function App() {
                   // tab that holds them (w-fda2165ec6).
                   onEnd={search === null && olderMore !== false && view === 'done' ? loadOlder : undefined}
                   // DRAG A THREAD TO WHERE IT BELONGS (w-6e5b532a95), wherever
-                  // the list is in your running order: Sort by Priority, on the
-                  // three tabs still ahead of you, your own threads alone.
+                  // the list is in your running order: Sort by Priority, on
+                  // Needs you and Later, your own threads alone. In progress
+                  // runs by when you sent (w-21b638d821).
                   onReorder={search === null && !run && !withOthers && inboxDisplay.sort === 'priority'
-                    && (view === 'inbox' || view === 'progress' || view === 'snoozed') ? reorderThread : undefined}
+                    && (view === 'inbox' || view === 'snoozed') ? reorderThread : undefined}
                   items={list}
                   // Results are grouped and stamped like the inbox, whatever
                   // tab she opened search from. Scheduled would otherwise label

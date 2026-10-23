@@ -43,7 +43,7 @@ import { readDoc, writeDoc } from './doc-file.mjs';
 import { readChange } from './code-change.mjs';
 import { findFile, readCodeFile, writeCodeFile } from './code-file.mjs';
 import { readNote, writeNote } from './rail-note.mjs';
-import { addClaudeAccount, addCodexAccount, alphaFeatures, cornerTagTurnedOff, countsTurnedOff, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, recheckClaude, recheckCodex, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
+import { addClaudeAccount, addCodexAccount, alphaFeatures, cornerTagTurnedOff, countsTurnedOff, lookAgainFor, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
 import { ICON_KINDS, clearProjectIcon, setProjectIcon, setProjectName } from './project-identity.mjs';
 import { ClaudeUsage } from './claude-usage.mjs';
 import { AccountUsage } from './account-usage.mjs';
@@ -382,8 +382,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   void taskTerminals.ready().then(lookAtTerminals);
   setInterval(lookAtTerminals,60_000).unref?.();
   const agentUpdates=new AgentUpdates({
-    installation:async engine=>{if(engine==='claude')recheckClaude(config);else recheckCodex(config);return installedAgent(engine,config);},
-    refresh:async engine=>{if(engine==='claude')recheckClaude(config);else recheckCodex(config);await refreshAgentModels(engine,config,supervisor._codexOfferHomes());if(engine==='codex')for(const profile of supervisor._codexProfiles())supervisor._releaseIdleCodex(profile);},
+    installation:async engine=>{await lookAgainFor(engine,config);return installedAgent(engine,config);},
+    refresh:async engine=>{await lookAgainFor(engine,config);await refreshAgentModels(engine,config,supervisor._codexOfferHomes());if(engine==='codex')for(const profile of supervisor._codexProfiles())supervisor._releaseIdleCodex(profile);},
   });
   ipcMain.handle('zero:agent-update',async(event,{engine,action}={})=>{
     if(event.senderFrame?.parent||(event.sender&&event.sender!==window.webContents))throw Error('Updates are only available in the main app window.');
@@ -1510,9 +1510,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // it. Every handler answers `{ ok, error }` rather than throwing across the
   // bridge, because the one thing this screen must never do is leave her
   // believing a setting took when it did not.
-  ipcMain.handle('zero:settings-read', () => {
+  ipcMain.handle('zero:settings-read', (_e, how) => {
     try {
-      return { ok: true, ...readSettings({ config, supervisor, store }) };
+      return { ok: true, ...readSettings({ config, supervisor, store }, { search: how?.search !== false }) };
     } catch (err) {
       return { ok: false, error: String(err.message) };
     }
@@ -1520,12 +1520,12 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
 
   // CHECK AGAIN, from the last card of the walk. The card will not open the
   // inbox on a Mac with no Claude Code on it, so the way through it is to
-  // install Claude Code and press this. It throws the remembered shell answer
-  // away first, because a button that says it looked again and reads a thirty
-  // second old memory is the same broken promise as a key that does nothing.
-  ipcMain.handle('zero:claude-recheck', () => {
+  // install Claude Code and press this. It waits for a fresh shell answer,
+  // asked off the window's thread, because a button that says it looked again
+  // and reads an old memory is the same broken promise as a key that does nothing.
+  ipcMain.handle('zero:claude-recheck', async () => {
     try {
-      return { ok: true, workspace: recheckClaude(config) };
+      return { ok: true, workspace: await lookAgainFor('claude', config) };
     } catch (err) {
       return { ok: false, error: String(err.message) };
     }
@@ -1536,9 +1536,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // search finds lands on `config.codexBin`, which is the fact `engineChoices`
   // reads, so a press that finds Codex is also what makes the Coding agent row
   // appear -- without the restart a main-process fact usually costs.
-  ipcMain.handle('zero:codex-recheck', () => {
+  ipcMain.handle('zero:codex-recheck', async () => {
     try {
-      return { ok: true, workspace: recheckCodex(config) };
+      return { ok: true, workspace: await lookAgainFor('codex', config) };
     } catch (err) {
       return { ok: false, error: String(err.message) };
     }
@@ -1598,8 +1598,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   const engineSetup = createEngineSetup({
     find: (engine) => {
       const finders = {
-        claude: () => { const s = recheckClaude(config); return { found: s.claudeFound, path: s.claudeBin }; },
-        codex: () => { const s = recheckCodex(config); return { found: s.found, path: s.bin }; },
+        claude: async () => { const s = await lookAgainFor('claude', config); return { found: s.claudeFound, path: s.claudeBin }; },
+        codex: async () => { const s = await lookAgainFor('codex', config); return { found: s.found, path: s.bin }; },
       };
       return finders[engine]?.() ?? { found: false, path: null };
     },

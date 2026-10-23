@@ -137,12 +137,12 @@ const startOfDay = (now: number) => { const t = new Date(now); t.setHours(0, 0, 
  *  A MESSAGE TO YOU PASSES THE PROJECT FILTER (w-5a432fb112): `direct` names
  *  the conversation projects, which no chip offers, so any lit chip hid every
  *  message. "Messages to me ARE my tasks." */
-export function keeps(item: Pick<WorkItem, 'priority' | 'product' | 'updatedAt'> & { wrote?: WorkItem['wrote'] }, d: Display, now: number, seen?: Seen | null, direct?: ReadonlySet<string>): boolean {
+export function keeps(item: Pick<WorkItem, 'priority' | 'product' | 'updatedAt'> & Pick<Ranked, 'wrote' | 'createdAt' | 'start'>, d: Display, now: number, seen?: Seen | null, direct?: ReadonlySet<string>): boolean {
   if (!keepsPrivacy(seen, d.privacy)) return false;
   if (d.priorities.length && !d.priorities.includes(priorityIdOf(shownPriority(item, !!direct?.has(item.product))))) return false;
   if (d.projects.length && item.product && !d.projects.includes(item.product) && !direct?.has(item.product)) return false;
-  if (d.updated === 'today' && !(item.updatedAt >= startOfDay(now))) return false;
-  if (d.updated === 'week' && !(item.updatedAt >= now - 7 * 86_400_000)) return false;
+  if (d.updated === 'today' && !(sentAt(item) >= startOfDay(now))) return false;
+  if (d.updated === 'week' && !(sentAt(item) >= now - 7 * 86_400_000)) return false;
   return true;
 }
 
@@ -172,9 +172,26 @@ export const rankScore = (r: Ranked, projectOrder: string[] = [], direct?: Reado
   placedScore(r.place, placeScore(projectOrder, r.product ?? '', direct) + priorityValueOf(priorityIdOf(shownPriority(r, !!direct?.has(r.product ?? '')))));
 export const byPriority = (projectOrder: string[] = [], direct?: ReadonlySet<string>) => (a: Ranked, b: Ranked) =>
   rankScore(b, projectOrder, direct) - rankScore(a, projectOrder, direct) || b.updatedAt - a.updatedAt;
-const byUpdated = (a: Ranked, b: Ranked) => b.updatedAt - a.updatedAt;
 /** `product` is the project's slug, which is what the running order holds. */
-export type Ranked = { priority?: number | null; updatedAt: number; status?: string; wrote?: WorkItem['wrote']; product?: string | null; place?: number; pinned?: boolean };
+export type Ranked = { priority?: number | null; updatedAt: number; createdAt?: number; start?: string; status?: string; wrote?: WorkItem['wrote']; product?: string | null; place?: number; pinned?: boolean };
+
+/**
+ * WHEN A PERSON LAST WROTE ON THE THREAD (w-21b638d821): the newest of the
+ * opening message, a reply (a picked option and an approval are replies), and
+ * starting it from Later. An agent's write never moves it, because the Status
+ * column already says what the agent is doing. A thread no person has written
+ * on reads when it was made; a row with no record of who wrote what, a
+ * teammate's card, reads when it last changed.
+ */
+export function sentAt(r: Ranked): number {
+  if (!r.wrote) return r.updatedAt;
+  const by = (field: string) => {
+    const w = r.wrote?.[field];
+    return w && w.source !== 'agent' ? w.ts : 0;
+  };
+  return Math.max(by('body'), by('answer'), r.start === 'now' ? by('start') : 0) || r.createdAt || r.updatedAt;
+}
+const bySent = (a: Ranked, b: Ranked) => sentAt(b) - sentAt(a);
 
 /**
  * WHEN A THREAD WAS FINISHED: the moment its status was written as done, which
@@ -190,7 +207,13 @@ const byFinished = (a: Ranked, b: Ranked) => finishedAt(b) - finishedAt(a);
 // THE DONE TAB IS A HISTORY, NOT A QUEUE (w-c61f5bf497). Under Sort by Priority
 // it was a wall of Urgent rows in no order a reader could follow, and nothing
 // in it is waiting on a priority any more. So Done always runs newest finished
-// first, and every other tab keeps the Display's sort.
+// first.
+//
+// AND IN PROGRESS RUNS NEWEST SENT FIRST (w-21b638d821). It is where you go to
+// find what you just sent, and in the fleet's order that was often halfway
+// down. Nothing in it waits on you, so it reads by when you last wrote.
+// `running` is its column on the board. Needs you and Later keep the Display's
+// sort.
 type Cmp = (a: Ranked, b: Ranked) => number;
 //
 // A PINNED THREAD COMES FIRST (w-20323283e6), in every tab but Done and under
@@ -201,12 +224,13 @@ const pinnedOpen = (r: Ranked) => (r.pinned && r.status !== 'done' ? 1 : 0);
 const pinnedFirst = (then: Cmp): Cmp => (a, b) => pinnedOpen(b) - pinnedOpen(a) || then(a, b);
 export const order = (d: Pick<Display, 'sort'>, tab?: string, projectOrder: string[] = [], direct?: ReadonlySet<string>): Cmp => {
   if (tab === 'done') return byFinished;
-  return pinnedFirst(d.sort === 'updated' ? byUpdated : byPriority(projectOrder, direct));
+  if (tab === 'progress' || tab === 'running') return pinnedFirst(bySent);
+  return pinnedFirst(d.sort === 'updated' ? bySent : byPriority(projectOrder, direct));
 };
 
-/** The time column's heading: on Done it is when each thread was finished, and
- *  on Later when it comes back. */
-export const timeHeading = (tab?: string) => (tab === 'done' ? 'Done' : tab === 'snoozed' ? 'Back' : 'Updated');
+/** The time column's heading: on Done it is when each thread was finished, on
+ *  Later when it comes back, and everywhere else when you last wrote (`sentAt`). */
+export const timeHeading = (tab?: string) => (tab === 'done' ? 'Done' : tab === 'snoozed' ? 'Back' : 'Sent');
 
 /**
  * WHEN A THREAD IN LATER COMES BACK, for the column that used to say how long
@@ -249,7 +273,7 @@ export function sorted<T extends Ranked & { product?: string }>(rows: T[], d: Di
 
 /** The same order, for the board's cards, which carry a level and a project
  *  slug. A card of yours is timed by its thread, so Done reads when it finished. */
-const timed = (e: BoardEntry): Ranked => ({ ...e, product: e.projectSlug, ...(e.item ? { status: e.item.status, wrote: e.item.wrote, place: e.item.place, pinned: e.item.pinned } : {}) });
+const timed = (e: BoardEntry): Ranked => ({ ...e, product: e.projectSlug, ...(e.item ? { status: e.item.status, wrote: e.item.wrote, createdAt: e.item.createdAt, start: e.item.start, place: e.item.place, pinned: e.item.pinned } : {}) });
 export function sortedEntries(entries: BoardEntry[], d: Display, column?: string, projectOrder: string[] = [], direct?: ReadonlySet<string>): BoardEntry[] {
   const by = order(d, column, projectOrder, direct);
   return entries.slice().sort((a, b) => by(timed(a), timed(b)));
@@ -737,8 +761,9 @@ export function teamKeeps(e: BoardEntry, { person, projectName }: { person: stri
   if (person && e.ownerId !== person) return false;
   if (projectName && e.project !== projectName) return false;
   if (d.priorities.length && !d.priorities.includes(priorityIdOf(e.priority))) return false;
-  if (d.updated === 'today' && !(e.updatedAt >= startOfDay(now))) return false;
-  if (d.updated === 'week' && !(e.updatedAt >= now - 7 * 86_400_000)) return false;
+  const at = e.item ? sentAt(e.item) : e.updatedAt;
+  if (d.updated === 'today' && !(at >= startOfDay(now))) return false;
+  if (d.updated === 'week' && !(at >= now - 7 * 86_400_000)) return false;
   return true;
 }
 
