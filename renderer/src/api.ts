@@ -1311,7 +1311,7 @@ export const api = {
   },
 
   /** Signing in to Agentbox Cloud itself, on the app's sign-in page: Google, email, or a new account. */
-  async cloudAccountSignIn(p: { method: 'google' | 'email' | 'sign-up'; email?: string; password?: string; name?: string }): Promise<{ ok: boolean; confirm?: boolean; error?: string; cancelled?: boolean }> {
+  async cloudAccountSignIn(p: { method: 'google' | 'email' | 'sign-up' | 'agree'; email?: string; password?: string; name?: string; acceptTerms?: boolean }): Promise<{ ok: boolean; confirm?: boolean; needsTerms?: boolean; error?: string; cancelled?: boolean }> {
     const zero = window.zero as any;
     if (!zero?.cloudAccountSignIn) return { ok: false, error: RESTART_NOTE };
     return zero.cloudAccountSignIn(p);

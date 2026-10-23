@@ -372,9 +372,14 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     const who = token ? await Promise.resolve(whoIs(token)).catch(() => null) : null;
     if (!who || !PERSON.test(who.id || '')) throw new Refusal(401, 'signed-out', 'sign in again');
     const person = who.id.toLowerCase();
-    if ((await recOf(person)).disabled) throw new Refusal(403, 'disabled', 'this account cannot use the cloud');
-    if (body.acceptedTerms !== termsVersion) throw termsRefusal();
-    await accept(person);
+    const rec = await recOf(person);
+    if (rec.disabled) throw new Refusal(403, 'disabled', 'this account cannot use the cloud');
+    // A sign-in sends no agreement: it may make a key only for someone who
+    // already agreed to these terms. Only the page that shows them agrees.
+    if (body.acceptedTerms == null) {
+      if (rec.terms?.version !== termsVersion) throw termsRefusal();
+    } else if (body.acceptedTerms !== termsVersion) throw termsRefusal();
+    else await accept(person);
     const key = `abk_${crypto.randomBytes(32).toString('base64url')}`;
     const at = now();
     await objects.put(deviceKey(key), JSON.stringify({ person, name: String(body.name || '').slice(0, 80), at }), { ifNoneMatch: '*' });

@@ -1690,11 +1690,11 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     }
     return cloudAccount;
   };
-  ipcMain.handle('zero:cloud-account-sign-in', async (_e, { method, email, password, name } = {}) => {
+  ipcMain.handle('zero:cloud-account-sign-in', async (_e, { method, email, password, name, acceptTerms } = {}) => {
     const acct = await cloudAccountSessionNow();
     if (!acct) return { ok: false, error: 'This copy of the app has no cloud to sign in to.' };
     const { cloudSignIn } = await import('./cloud/account.mjs');
-    const out = await cloudSignIn({ config: acct.value, session: acct.session, method, email, password, name, home: supervisor.config.home || os.homedir() });
+    const out = await cloudSignIn({ config: acct.value, session: acct.session, method, email, password, name, acceptTerms: acceptTerms === true, home: supervisor.config.home || os.homedir() });
     if (method === 'google') { try { if (window?.isMinimized?.()) window.restore(); window?.show?.(); } catch { /* no window to raise */ } }
     push();
     return out;
