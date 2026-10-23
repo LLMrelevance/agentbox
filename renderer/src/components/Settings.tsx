@@ -36,7 +36,8 @@ import { NeoSettings } from '../neo/NeoSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
 import { accountLabel, cloudAccountInUse, cloudToggleTarget, countedAccounts, type CloudStatus } from '../cloud-menu';
-import { planCards, usageLine, usedPercent, type PaidPlan } from '../cloud-upgrade';
+import { type PaidPlan } from '../cloud-upgrade';
+import { CloudPlanCards } from './CloudPlanCards';
 import type { CloudPlan } from '../types';
 import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
 import { accountReadingFor, accountsOnce, type HereLogin, type OneAccount } from '../accounts-once';
@@ -888,44 +889,31 @@ function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: (
     }, 5000);
     return () => clearInterval(t);
   }, [waitingFor]);
+  const [opening, setOpening] = useState<PaidPlan | null>(null);
   const choose = async (id: PaidPlan) => {
     if (!signedIn) { onSignIn(); return; }
-    setSaid(null);
+    setSaid(null); setOpening(id);
     const out = await api.cloudAccountPay(id);
+    setOpening(null);
     if (!out.ok) { setSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
-    setWaitingFor(plan?.plan ?? 'none');
+    if (out.finished !== 'cancelled' && out.finished !== 'closed') setWaitingFor(plan?.plan ?? 'none');
   };
   const billing = async () => {
     const out = await api.cloudAccountBilling();
-    if (!out.ok) setSaid(out.message || 'Stripe could not be opened. Try again.');
+    if (!out.ok) { setSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
+    void read();
   };
-  const cards = planCards(plan);
   const paying = !!plan?.plan && plan.plan !== 'none';
   return (
     <Page title="Cloud" lede="Every thread needs a slot to run in. Your computer has a few. The cloud adds more.">
-      <div className="set-group cloud-plans" data-find="cloud-plans">
-        {cards.map((c) => (
-          <div key={c.id} className={`cloud-plan${c.current ? ' mine' : ''}`}>
-            <div className="cloud-plan-head"><span>{c.name}</span>{c.current && <span className="cloud-plan-mine">Your plan</span>}</div>
-            <div className="cloud-plan-price">{c.price}<span> a month</span></div>
-            <div className="cloud-plan-slots">{c.slots}</div>
-            <div className="cloud-plan-where">running in the cloud</div>
-            {c.current && plan ? (
-              <div className="cloud-plan-use">
-                <span>{usageLine(plan)}</span>
-                <span className="cloud-plan-bar"><i style={{ width: `${usedPercent(plan)}%` }} /></span>
-              </div>
-            ) : c.button && <button type="button" className="set-ghost cloud-plan-go" onClick={() => void choose(c.id)}>{c.button}</button>}
-          </div>
-        ))}
-      </div>
+      <CloudPlanCards plan={plan} opening={opening} onChoose={(id) => void choose(id)} />
       {said && <p className="cloud-plans-say">{said}</p>}
-      {waitingFor && <p className="cloud-plans-say">Finish on Stripe's page in your browser. This page changes when it's done.</p>}
+      {waitingFor && <p className="cloud-plans-say">Your plan shows here as soon as Stripe confirms it.</p>}
       <Group id="cloud-counts" label="How the cloud counts" bare>
         <ul className="cloud-counts">
           <li>Each slot runs one agent in the cloud, on top of the ones your computer runs.</li>
           <li>Time counts only while an agent is working. Waiting for your reply is free.</li>
-          <li>Pro has 400 hours a month, Plus 1,200 and Max 3,000. Past them, threads wait for your computer until the month turns.</li>
+          <li>Past a plan's hours, threads wait for your computer until the month turns.</li>
         </ul>
       </Group>
       {paying && (

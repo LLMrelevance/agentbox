@@ -1707,12 +1707,21 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     push();
     return out;
   });
-  // PAYING FOR A CLOUD PLAN: Stripe's own pages, in the browser.
-  const cloudCall = async (name, args = {}) => {
+  // PAYING FOR A CLOUD PLAN: Stripe's own pages, in a sheet on this window
+  // (main/cloud/stripe-window.mjs), or the browser when there is no window.
+  const cloudCall = async (name, args = {}, { sheet = false } = {}) => {
     try {
       const account = await import('./cloud/account.mjs');
-      const { shell } = await import('electron');
-      return await account[name]({ ...args, openExternal: (u) => shell.openExternal(u), home: supervisor.config.home || os.homedir() });
+      const { shell, BrowserWindow } = await import('electron');
+      const home = supervisor.config.home || os.homedir();
+      let open = (u) => shell.openExternal(u);
+      if (sheet && window && !window.isDestroyed?.()) {
+        const { openStripeSheet } = await import('./cloud/stripe-window.mjs');
+        const { readCloudConfig } = await import('./cloud/config.mjs');
+        const gateway = readCloudConfig(process.env, home)?.gateway;
+        if (gateway) open = (u) => openStripeSheet({ BrowserWindow, shell, parent: window, url: u, gateway, log: (l) => console.log(l) });
+      }
+      return await account[name]({ ...args, openExternal: open, home });
     } catch (err) {
       return { ok: false, error: 'unreachable', message: `The cloud did not answer: ${err?.message || err}` };
     }
@@ -1722,8 +1731,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     supervisor.cloudPlanSeen?.(plan);
     return plan;
   });
-  ipcMain.handle('zero:cloud-account-pay', (_e, { plan } = {}) => cloudCall('payForCloud', { plan }));
-  ipcMain.handle('zero:cloud-account-billing', () => cloudCall('openCloudBilling'));
+  ipcMain.handle('zero:cloud-account-pay', (_e, { plan } = {}) => cloudCall('payForCloud', { plan }, { sheet: true }));
+  ipcMain.handle('zero:cloud-account-billing', () => cloudCall('openCloudBilling', {}, { sheet: true }));
 
   // THE CLOUD SETUP'S SIGN-IN for one account, made in the cloud
   // (main/cloud/logins.mjs). The Mac relays the link and the code only.

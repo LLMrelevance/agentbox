@@ -75,6 +75,15 @@ describe('paying', () => {
     expect(stripe.asked).toEqual([['checkout', 'plus']]);
   });
 
+  // The sheet on the app's window (main/cloud/stripe-window.mjs) answers how it
+  // ended; tests/stripe-opens-in-a-sheet-over-the-app has where it may go.
+  it('in a sheet, says whether it was paid or cancelled once the sheet closes', async () => {
+    await start();
+    await signIn();
+    expect(await payForCloud({ plan: 'plus', openExternal: async () => 'paid', env, home })).toEqual({ ok: true, where: 'checkout', finished: 'paid' });
+    expect(await payForCloud({ plan: 'plus', openExternal: async () => 'cancelled', env, home })).toEqual({ ok: true, where: 'checkout', finished: 'cancelled' });
+  });
+
   it('someone already paying is sent to their billing page', async () => {
     const gw = await start();
     await signIn();
