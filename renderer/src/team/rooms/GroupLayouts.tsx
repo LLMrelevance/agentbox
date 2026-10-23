@@ -102,14 +102,17 @@ export function GroupLayout({ room, look, chat, past, now, who, onPerson, open, 
   if (look === 'drawer2') return day(open && <aside className="g5-side"><DayLine room={room} past={past} now={now} />
     {shown.map((c) => <PersonDay key={c.id} card={c} past={past} ids={ids} />)}</aside>);
   if (look === 'pulse2') return day(<aside className="g5-side"><DayLine room={room} past={past} now={now} /><DayFeed past={past} who={who} ids={ids} /></aside>);
+  // People with work today, the busiest first: the faces worth picking.
+  const busy = shown.filter((c) => c.agents || past.some((e) => e.by === c.id));
   if (look === 'one') {
     const card = shown.find((c) => c.id === picked) ?? shown[0];
-    return day(<aside className="g5-side"><FacePicker cards={shown} picked={card?.id ?? null} onPick={(id) => setPicked(id)} />
-      {card && <PersonDay card={card} past={past} ids={ids} big limit={8} />}
-      <div className="g5-foot"><DayLine room={room} past={past} now={now} /></div></aside>);
+    return day(<aside className="g5-side"><DayLine room={room} past={past} now={now} />
+      <FacePicker cards={shown} picked={card?.id ?? null} onPick={(id) => setPicked(id)} />
+      {card && <PersonDay card={card} past={past} ids={ids} big limit={8} />}</aside>);
   }
   if (look === 'stack') return day(<aside className="g5-side"><DayLine room={room} past={past} now={now} /><PeopleStack room={room} past={past} ids={ids} /></aside>);
-  if (look === 'feedpick') return day(<aside className="g5-side"><FacePicker cards={shown} picked={picked} onPick={setPicked} all />
+  if (look === 'feedpick') return day(<aside className="g5-side"><DayLine room={room} past={past} now={now} />
+    <FacePicker cards={busy} picked={picked} onPick={setPicked} all />
     <DayFeed past={past} who={who} ids={ids} only={picked} /></aside>);
   if (look === 'rail') {
     return <div className="gp gl-rail"><div className="gp-chat">{chat}</div>

@@ -20,11 +20,22 @@ function fixtureSnapshot() {
   return JSON.parse(fs.readFileSync(out, 'utf8'));
 }
 
-export function world(now = Date.now()) {
+/** Photos for some of the made-up people, from `dir/<person id>.jpg`. The repository carries none. */
+export function facesIn(dir) {
+  const out = {};
+  if (!dir || !fs.existsSync(dir)) return out;
+  for (const f of fs.readdirSync(dir)) {
+    const m = /^(p-[a-z]+)\.(jpe?g|png)$/.exec(f);
+    if (m) out[m[1]] = `data:image/${m[2] === 'png' ? 'png' : 'jpeg'};base64,${fs.readFileSync(path.join(dir, f)).toString('base64')}`;
+  }
+  return out;
+}
+
+export function world(now = Date.now(), faces = {}) {
   const min = 60_000;
   const hr = 60 * min;
   const card = (id, name, extra = {}) => ({
-    id, me: false, name, avatarUrl: null, headline: null, bio: null,
+    id, me: false, name, avatarUrl: faces[id] ?? null, headline: null, bio: null,
     agents: 0, level: 12, hoursTotal: 80, hoursWeek: 9, hoursToday: 1.5, streak: 4,
     byMonth: [], teammate: false, showActivity: true, activity: null, status: null,
     workingOn: null, workingPrivate: false, ...extra,
@@ -51,7 +62,7 @@ export function world(now = Date.now()) {
     id, name, kind: 'room', teamId: null, listed: false, inviteOnly: false, role: 'member',
     members: wall.length, createdAt: now - 30 * 24 * hr, pinned: false, muted: false, unread: 0, readAt: now - hr,
     markedUnread: false, lastAt: now - 10 * min, agents: wall.reduce((n, c) => n + (c.agents ?? 0), 0), wall,
-    people: wall.map((c) => ({ id: c.id, name: c.name, avatarUrl: null })), ...extra,
+    people: wall.map((c) => ({ id: c.id, name: c.name, avatarUrl: c.avatarUrl })), ...extra,
   });
   const rooms = [
     room('r-team', 'Northwind', team, { teamId: 't-1', pinned: true, unread: 2 }),
@@ -86,11 +97,11 @@ export function world(now = Date.now()) {
     ],
   };
   const profile = {
-    person_id: 'p-me', display_name: 'Sam R.', avatar_url: null, headline: null, bio: null,
+    person_id: 'p-me', display_name: 'Sam R.', avatar_url: faces['p-me'] ?? null, headline: null, bio: null,
     show_working: 'everyone', show_agents: true, show_level: true, show_status: true, show_activity: true,
     invisible_until: null, status_text: null, status_until: null,
   };
-  const people = team.map((c) => ({ id: c.id, email: `${c.id.slice(2)}@example.com`, name: c.name, avatarUrl: null, role: c.me ? 'owner' : 'member' }));
+  const people = team.map((c) => ({ id: c.id, email: `${c.id.slice(2)}@example.com`, name: c.name, avatarUrl: c.avatarUrl, role: c.me ? 'owner' : 'member' }));
   // `startedAt` is the fixture's own: a real thread card carries no start time yet.
   const tc = (personId, threadId, title, state, project, ago, startedAgo = ago + 40 * min) => ({
     personId, threadId, visible: true, title, project, state, priority: null, problem: null, progress: null, solution: null,
@@ -124,7 +135,7 @@ export function world(now = Date.now()) {
  *  The page's clock is held at `at`, an afternoon, so "today" means the same thing in every picture. */
 export async function openStage({ dist, width = 1512, height = 945, theme = 'dark', init = {}, at = Date.parse('2026-10-22T17:40:00') }) {
   const { chromium } = require('playwright');
-  const snap = { ...fixtureSnapshot(), approvals: [], ...world(at) };
+  const snap = { ...fixtureSnapshot(), approvals: [], ...world(at, facesIn(process.env.GROUPS_FACES)) };
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     let file = path.join(dist, decodeURIComponent(url.pathname));

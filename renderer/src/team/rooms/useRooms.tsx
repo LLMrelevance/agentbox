@@ -365,7 +365,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     const ids = open.wall.map((c) => c.id);
     const lead = look === 'digest' ? <DigestCard room={open} past={day.past} now={day.now} who={who} open={dayOpen} onToggle={() => setDayOpen(!dayOpen)}
       cheers={(e) => <Reactions on={{ '🎉': drawnCheers(e, ids) }} me={meId} onReact={() => {}} />} /> : undefined;
-    const chat = <RoomChat room={open} messages={rooms.messages[open.id] ?? []} people={people} meId={meId} now={now} full head={<></>}
+    const chat = <RoomChat room={open} messages={rooms.messages[open.id] ?? []} people={people} meId={meId} now={now} full head={<></>} hang={PAGE_LOOKS.includes(look)}
       events={woven?.past} foot={woven && <NowLines room={open} lines={woven.now} />} lead={lead}
       onSend={send(open.id)} onRead={read(open)} {...chatCalls(open)} />;
     const actions = <>

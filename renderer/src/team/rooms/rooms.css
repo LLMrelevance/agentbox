@@ -661,7 +661,7 @@
 .gl-people { margin: 0 -20px; }
 .gl-feed { display: flex; flex-direction: column; gap: 10px; }
 .gl-feed .gp-cheer { margin: 0; }
-.gl-pill { display: inline-flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px 0 8px; border: 1px solid var(--line-strong); background: none; font: inherit; font-size: 13px; color: var(--text-dim); cursor: default; }
+.gl-pill { display: inline-flex; align-items: center; gap: 10px; height: 32px; box-sizing: border-box; padding: 0 12px 0 6px; border: 1px solid var(--line-strong); background: none; font: inherit; font-size: 13px; color: var(--text-dim); cursor: default; }
 .gl-pill .fs { display: flex; }
 .gl-pill .fs .rm-pic + .rm-pic { margin-left: -4px; outline: 2px solid var(--skin-solid, var(--surface)); }
 .gl-pill b { font-weight: 400; color: var(--text); }
@@ -693,62 +693,73 @@
 .gl-digest .r .chat-chips { margin: 0; flex: none; }
 
 /* ROUND 5 (GroupDay.tsx): the day beside the chat, quieter, on the page's own ground */
-.g5-side { width: 368px; flex: none; min-height: 0; overflow-y: auto; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px; padding: 22px 24px 24px; border-left: 1px solid var(--rm-line); }
-.g5-dayline { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.g5-dayline .t { font-size: 13.5px; color: var(--text); }
-.g5-dayline .n { font-size: 12.5px; color: var(--text-faint); white-space: nowrap; }
-.g5-foot { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--rm-line); }
-.g5-person .hd { display: flex; align-items: center; gap: 10px; }
-.g5-person .nm { font-size: 13.5px; color: var(--text); }
-.g5-person.big .nm { font-size: 15px; }
-.g5-person .c { margin-left: auto; font-size: 12px; color: var(--text-faint); }
-.g5-person .body { display: flex; flex-direction: column; gap: 6px; margin: 7px 0 0 34px; }
-.g5-person.big .body { margin: 12px 0 0 42px; gap: 8px; }
-.g5-person .now { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 19px; color: var(--text); }
-.g5-person .now .live-mark { flex: none; width: 11px; height: 11px; gap: 1px; margin-top: 4px; color: var(--text-dim); }
-.g5-person .idle { font-size: 13px; line-height: 19px; color: var(--text-faint); }
-.g5-person .done, .g5-item .done { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 19px; color: var(--text-dim); }
-.g5-person .done .t, .g5-item .done .t { flex: 1; min-width: 0; }
-.g5-ck { flex: none; margin-top: 4px; color: var(--text-faint); }
-.g5-cheer { flex: none; font-size: 11.5px; line-height: 19px; color: var(--text-faint); white-space: nowrap; }
-.g5-person .more { margin-left: 20px; font-size: 12.5px; color: var(--text-faint); }
-.g5-feed { display: flex; flex-direction: column; gap: 22px; }
-.g5-item .hd { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-faint); }
-.g5-item .hd b { font-weight: 400; color: var(--text-dim); }
-.g5-item .hd em { margin-left: auto; flex: none; font: normal 10.5px var(--mono); }
-.g5-item .hd .fs { display: flex; flex: none; }
-.g5-item .hd .fs .rm-pic + .rm-pic { margin-left: -4px; outline: 2px solid var(--skin-solid, var(--surface)); }
-.g5-item .done { margin: 6px 0 0 28px; color: var(--text); }
-.g5-item .done + .done { margin-top: 3px; }
-.g5-faces { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.g5-faces button { display: flex; align-items: center; padding: 2px; border: 1px solid transparent; background: none; font: inherit; cursor: default; }
+/* One scale: 4, 8, 12, 16, 24. The sidebar's text starts 24 in from its line,
+   and its first line sits level with the chat's first day label. */
+.g5-side { width: 368px; flex: none; min-height: 0; overflow-y: auto; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px; padding: 16px 24px 24px; border-left: 1px solid var(--rm-line); }
+.g5-dayline { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-height: 20px; }
+.g5-dt { font-size: 13.5px; color: var(--text); }
+.g5-dn { font-size: 12.5px; color: var(--text-faint); white-space: nowrap; }
+.g5-line { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 20px; color: var(--text-dim); }
+.g5-line > .g5-t { flex: 1; min-width: 0; }
+.g5-line > .g5-ck, .g5-line > .live-mark { flex: none; width: 12px; height: 12px; margin-top: 4px; }
+.g5-line > .live-mark { gap: 1px; color: var(--text-dim); }
+.g5-ck { color: var(--text-faint); }
+.g5-now { color: var(--text); }
+.g5-idle { color: var(--text-faint); }
+.g5-cheer { flex: none; font-size: 12px; line-height: 20px; color: var(--text-faint); white-space: nowrap; }
+.g5-person { display: flex; flex-direction: column; gap: 12px; }
+.g5-phd { display: flex; align-items: center; gap: 12px; min-height: 24px; }
+.g5-nm { font-size: 13.5px; line-height: 18px; color: var(--text); }
+.g5-person.big .g5-nm { font-size: 15px; line-height: 20px; }
+.g5-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.g5-ag { font-size: 12.5px; line-height: 16px; color: var(--text-faint); }
+.g5-c { margin-left: auto; flex: none; font-size: 12px; color: var(--text-faint); }
+/* The list starts under the name: face width plus the gap. */
+.g5-pbody { display: flex; flex-direction: column; gap: 8px; padding-left: 36px; }
+.g5-person.big .g5-pbody { padding-left: 48px; }
+.g5-more { padding-left: 20px; font-size: 12.5px; color: var(--text-faint); }
+.g5-feed { display: flex; flex-direction: column; gap: 24px; }
+.g5-item { display: flex; flex-direction: column; gap: 8px; }
+.g5-ihd { display: flex; align-items: center; gap: 8px; min-height: 20px; font-size: 12.5px; color: var(--text-faint); }
+.g5-iw { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.g5-ihd b { font-weight: 400; color: var(--text-dim); }
+.g5-ihd em { margin-left: auto; padding-left: 12px; flex: none; font: normal 10.5px var(--mono); }
+.g5-fs { display: flex; flex: none; gap: 2px; }
+.g5-item > .g5-done { padding-left: 28px; color: var(--text); }
+.g5-item > .g5-done + .g5-done { margin-top: -4px; }
+.g5-faces { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
+.g5-faces button { display: flex; align-items: center; justify-content: center; height: 32px; min-width: 32px; padding: 1px; box-sizing: border-box; border: 1px solid transparent; background: none; font: inherit; cursor: default; }
 .g5-faces button:hover { border-color: var(--line-strong); }
 .g5-faces button.on { border-color: var(--text-dim); }
-.g5-faces .all { height: 34px; padding: 0 10px; font-size: 12.5px; color: var(--text-dim); }
-.g5-faces .all.on { color: var(--text); }
-.g5-stack { display: flex; flex-direction: column; margin: -6px -24px 0; }
-.g5-srow { display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; padding: 10px 24px; border: 0; background: none; font: inherit; text-align: left; color: inherit; cursor: default; }
+.g5-faces .g5-all { padding: 0 12px; margin-right: 4px; font-size: 12.5px; color: var(--text-dim); border-color: var(--line); }
+.g5-faces .g5-all.on { color: var(--text); border-color: var(--text-dim); }
+.g5-over { margin-left: 6px; font-size: 12.5px; color: var(--text-faint); }
+.g5-stack { display: flex; flex-direction: column; margin: -8px -24px 0; }
+.g5-srow { display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; padding: 10px 24px; border: 0; background: none; font: inherit; text-align: left; color: inherit; cursor: default; }
 .g5-srow:hover { background: var(--wash); }
-.g5-srow .w { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.g5-srow .nm { font-size: 13.5px; color: var(--text); }
-.g5-srow .on { font-size: 12.5px; color: var(--text-faint); }
-.g5-srow .on.live { color: var(--text-dim); }
-.g5-srow .c { flex: none; font-size: 12px; color: var(--text-faint); }
-.g5-srow.open { display: block; padding: 14px 24px 16px; }
+.g5-sw { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.g5-on { font-size: 12.5px; line-height: 16px; color: var(--text-faint); }
+.g5-on.live { color: var(--text-dim); }
+.g5-srow.open { display: block; padding: 12px 24px 16px; }
 .g5-srow.open:hover { background: none; }
-.g5-person .who { display: flex; flex-direction: column; gap: 2px; }
-.g5-person .who .ag { font-size: 12.5px; color: var(--text-faint); }
 .g5-empty { font-size: 13px; color: var(--text-faint); }
 
 /* the Groups tab: the group bar over the chat and its sidebar */
 .gp.col { flex-direction: column; }
 .g5-row { flex: 1; min-height: 0; display: flex; }
-.g6-bar { flex: none; display: flex; align-items: center; gap: 16px; min-height: 56px; box-sizing: border-box; padding: 10px 20px 10px var(--text-x, 32px); border-bottom: 1px solid var(--rm-line); }
+.g6-bar { flex: none; display: flex; align-items: center; gap: 16px; height: 56px; box-sizing: border-box; padding: 0 20px 0 var(--text-x, 32px); border-bottom: 1px solid var(--rm-line); }
 .g6-name { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .g6-name .nm { font-size: 15px; color: var(--text); }
 .g6-name .sub { font-size: 12.5px; color: var(--text-faint); }
-.g6-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
-.g6-chips .c { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 1px solid var(--line-strong); background: none; font: inherit; font-size: 13px; color: var(--text-dim); cursor: default; }
+.g6-chips { display: flex; flex-wrap: nowrap; gap: 8px; min-width: 0; overflow: hidden; }
+.g6-chips .c { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; box-sizing: border-box; border: 1px solid var(--line-strong); background: none; font: inherit; font-size: 13px; color: var(--text-dim); cursor: default; }
 .g6-chips .c:hover { color: var(--text); }
 .g6-chips .c.on { border-color: var(--text-dim); background: var(--wash); color: var(--text); }
 .g6-acts { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+/* A chat that is the page: the full width of its column, faces hung beside the words. */
+.g5 .rm-full .rm-chat-list { max-width: none; padding-right: 32px; }
+.g5 .rm-full .rm-compose { max-width: none; margin-right: 32px; }
+.rm-full.hang .rm-cm { padding-left: 44px; }
+.rm-full.hang .rm-cm .h > .rm-pic:first-child { position: absolute; left: 0; top: 9px; }
+.rm-full.hang .rm-cm .h { gap: 8px; }

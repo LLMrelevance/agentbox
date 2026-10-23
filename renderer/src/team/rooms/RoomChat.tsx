@@ -47,7 +47,9 @@ export type RoomChatCalls = {
   onNotice?: (text: string) => void;
 };
 
-export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand, onSwitch, switchOpen, full = false, head, events, foot, lead, woven, ...calls }: {
+export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand, onSwitch, switchOpen, full = false, head, events, foot, lead, woven, hang = false, ...calls }: {
+  /** Faces hung beside the words at 32, as a chat that is the whole page draws them. */
+  hang?: boolean;
   room: Room; messages: RoomMessage[]; people: ChatPerson[]; meId: string | null; now: number;
   onInvite?: () => void; onExpand?: () => void;
   onSwitch?: (anchor: DOMRect) => void; switchOpen?: boolean;
@@ -179,7 +181,7 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
       me={meId && m.by !== meId && m.mentions.includes(meId) ? myNames : NOBODY} />
   );
 
-  return <div className={full ? 'rm-full' : 'rm-chat'} style={full || width == null ? undefined : { '--rm-chat-w': `${width}px` } as CSSProperties}>
+  return <div className={full ? `rm-full${hang ? ' hang' : ''}` : 'rm-chat'} style={full || width == null ? undefined : { '--rm-chat-w': `${width}px` } as CSSProperties}>
     {!full && <div className="rm-chat-grip" role="separator" aria-orientation="vertical" aria-label="Drag to widen the chat"
       title="Drag to widen. Double-click to reset." onPointerDown={drag} onDoubleClick={() => { setWidth(null); writeChatWidth(null); }} />}
     {head ?? <div className="rm-chat-head">
@@ -224,7 +226,7 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
           {m.id === newAt && <div className="rm-new" role="separator"><span>New</span></div>}
           <div className={`rm-cm${headed ? '' : ' cont'}${root && i === 0 ? ' root' : ''}`}>
             {headed && <div className="h">
-              <RoomFace name={p?.name ?? '?'} url={p?.avatarUrl} size={16} />
+              <RoomFace name={p?.name ?? '?'} url={p?.avatarUrl} size={hang ? 32 : 16} />
               <span>{nameOf(m.by)}</span><em>{clockOf(m.at)}</em>
               {m.editedAt && !m.deleted && <em className="rm-edited">edited</em>}
             </div>}
