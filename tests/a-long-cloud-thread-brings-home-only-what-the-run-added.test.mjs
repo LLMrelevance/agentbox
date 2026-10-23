@@ -25,7 +25,7 @@ import { PassThrough } from 'node:stream';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createSandbox } from '../cloud/sandbox/server.mjs';
-import { cloudRun, transcriptFolderName, layTails } from '../main/cloud/run.mjs';
+import { cloudRun, transcriptFolderName, layTails, CLOUD_NOTE } from '../main/cloud/run.mjs';
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const FAKE_CLAUDE = here('./fixtures/cloud/fake-claude.mjs');
@@ -147,6 +147,9 @@ const rollout = () => path.join(codexHome(), 'sessions', '2026', '10', '21', `ro
 const inTheCloud = (p) => path.join(tmp, 'vm', p);
 const freshMachine = () => fs.rmSync(path.join(tmp, 'vm'), { recursive: true, force: true });
 const lineFor = (message) => `${JSON.stringify({ type: 'user', text: message })}\n`;
+// A resumed run reads the cloud note at the top of its message
+// (tests/a-cloud-reply-to-a-conversation-begun-on-the-mac-is-told-it-is-in-the-cloud).
+const resumedLineFor = (message) => lineFor(`${CLOUD_NOTE}\n\n${message}`);
 
 // A conversation of `bytes`, in lines that do not compress to nothing.
 function writeConversation(file, bytes) {
@@ -214,7 +217,7 @@ describe('a reply on a long Claude Code conversation', () => {
 
     const first = launch({ message: 'first reply' });
     expect(await first.done, first.err()).toBe(0);
-    const afterFirst = Buffer.concat([before, Buffer.from(lineFor('first reply'))]);
+    const afterFirst = Buffer.concat([before, Buffer.from(resumedLineFor('first reply'))]);
     expect(fs.readFileSync(inTheCloud(transcript())).equals(afterFirst)).toBe(true);
     expect(broughtHome()).toHaveLength(1);
     expect(broughtHome()[0].size).toBeLessThan(64 * 1024);
@@ -227,9 +230,9 @@ describe('a reply on a long Claude Code conversation', () => {
     const second = launch({ message: 'second reply' });
     expect(await second.done, second.err()).toBe(0);
     expect(conversationPuts()).toHaveLength(0);
-    expect(joins.at(-1).size).toBe(Buffer.byteLength(lineFor('first reply')));
+    expect(joins.at(-1).size).toBe(Buffer.byteLength(resumedLineFor('first reply')));
     expect(broughtHome()[0].size).toBeLessThan(64 * 1024);
-    const afterSecond = Buffer.concat([afterFirst, Buffer.from(lineFor('second reply'))]);
+    const afterSecond = Buffer.concat([afterFirst, Buffer.from(resumedLineFor('second reply'))]);
     expect(fs.readFileSync(transcript()).equals(afterSecond)).toBe(true);
     expect(leftovers()).toEqual([]);
   });
@@ -246,7 +249,7 @@ describe('a reply on a long Claude Code conversation', () => {
     const run = launch({ message: 'a reply', via: oldImage });
     expect(await run.done, run.err()).toBe(0);
     expect(broughtHome()[0].size).toBeGreaterThan(MB);
-    expect(fs.readFileSync(transcript()).equals(Buffer.concat([before, Buffer.from(lineFor('a reply'))]))).toBe(true);
+    expect(fs.readFileSync(transcript()).equals(Buffer.concat([before, Buffer.from(resumedLineFor('a reply'))]))).toBe(true);
     expect(leftovers()).toEqual([]);
   });
 
@@ -284,7 +287,7 @@ describe('a reply on a long Claude Code conversation', () => {
     });
     expect(await run.done, run.err()).toBe(0);
     expect(changed).not.toBe(null);
-    expect(fs.readFileSync(transcript()).equals(Buffer.concat([changed, Buffer.from(lineFor('a reply'))]))).toBe(true);
+    expect(fs.readFileSync(transcript()).equals(Buffer.concat([changed, Buffer.from(resumedLineFor('a reply'))]))).toBe(true);
     expect(run.err()).toMatch(/changed on this Mac/);
     expect(leftovers()).toEqual([]);
   });
@@ -306,7 +309,7 @@ describe('a reply on a long Claude Code conversation', () => {
     expect(await run.done, run.err()).toBe(0);
     expect(deleted).toBe(true);
     expect(broughtHome()[0].size).toBeLessThan(64 * 1024);
-    expect(fs.readFileSync(transcript()).equals(Buffer.concat([before, Buffer.from(lineFor('a reply'))]))).toBe(true);
+    expect(fs.readFileSync(transcript()).equals(Buffer.concat([before, Buffer.from(resumedLineFor('a reply'))]))).toBe(true);
     expect(run.err()).toMatch(/gone from this Mac/);
     expect(leftovers()).toEqual([]);
   });

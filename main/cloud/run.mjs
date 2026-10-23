@@ -83,7 +83,7 @@ export const CLOUD_NOTE = [
   '',
   `Only this task's own branch comes back to their computer. A commit, merge or reset on main or any other branch stays in this sandbox and is thrown away with it, so a merge done here has not happened. When the request includes merging into main, or changing any branch but this task's, do the rest of the work and commit it on this branch, then end your turn with the one line \`${HAND_BACK} merging into main\` (as below): the app merges on their computer.`,
   '',
-  `If this request needs something only their computer has (one of those files, a key, one of their apps, a private repository this machine cannot reach), stop at once. Do not work around it, do not write to the work item, do not give the person commands to run, and do not offer to move the thread: the app moves it. End your turn with one line and nothing else: ${HAND_BACK} followed by what was missing. That line replaces your usual final answer and its options. The app then runs the same request again on their computer, where all of it is. A program you can install is not a reason to stop. Otherwise work as usual, and never write that line.`,
+  `If this request needs something only their computer has (one of those files, a key, one of their apps, a private repository this machine cannot reach), stop at once. Do not work around it, do not write to the work item, do not give the person commands to run, and do not offer to move the thread: the app moves it. End your turn with one line and nothing else: ${HAND_BACK} followed by what was missing. A person who asks to have this thread moved to their computer is answered with this line as well. That line replaces your usual final answer and its options. The app then runs the same request again on their computer, where all of it is. A program you can install is not a reason to stop. Otherwise work as usual, and never write that line.`,
 ].join('\n');
 
 // The same, for a project with no repository, whose agent works in the
@@ -105,6 +105,18 @@ export function argvForTheCloud(argv, { plain = false } = {}) {
   const out = [...argv];
   out[i + 1] = `${argv[i + 1]}\n\n${note}`;
   return out;
+}
+
+// Claude Code keeps a conversation's system text from its first turn, so a
+// conversation begun on the Mac never reads the note on a cloud turn's command
+// line: a resumed run is told at the top of its first message instead.
+export function claudeLineForTheCloud(line, { note }) {
+  let msg;
+  try { msg = JSON.parse(line); } catch { return line; }
+  if (msg?.type !== 'user' || msg.message?.role !== 'user') return line;
+  const said = msg.message.content;
+  const content = Array.isArray(said) ? [{ type: 'text', text: note }, ...said] : `${note}\n\n${said ?? ''}`;
+  return JSON.stringify({ ...msg, message: { ...msg.message, content } }) + (line.endsWith('\n') ? '\n' : '');
 }
 
 // How long a cloud account whose limit named no hour sits out.
@@ -567,6 +579,7 @@ export async function cloudRun({
   // chunks is never broken.
   const inDecoder = new StringDecoder('utf8');
   let stdinBuf = '';
+  let untold = !codex && !!argValue(argv, '--resume');
   if (!joining) stdin.on('data', (d) => {
     stdinBuf += typeof d === 'string' ? d : inDecoder.write(d);
     let i;
@@ -579,6 +592,10 @@ export async function cloudRun({
         line = c.line;
         if (c.conversation) conversations.add(c.conversation);
         named.push(...c.files.filter((f) => !named.includes(f)));
+      } else if (untold) {
+        const was = line;
+        line = claudeLineForTheCloud(line, { note: plain ? PLAIN_CLOUD_NOTE : CLOUD_NOTE });
+        untold = line === was;
       }
       if (named.length) enqueue({ action: 'files', paths: named });
       enqueue({ action: 'stdin', data: Buffer.from(line).toString('base64') });
