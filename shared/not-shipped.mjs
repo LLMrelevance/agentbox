@@ -5,6 +5,8 @@
 // from the writers. The agent's last message was written before either, and
 // usually says the work is shipping, so these notes are what has to be shown.
 
+import { isShippedNote } from './shipped-note.mjs';
+
 export const SHIP_FAILED = 'It did not ship, and it went back to its agent: ';
 export const KEPT_ASIDE = "This thread's cloud run finished, but its work was not laid into the task folder: ";
 // The sweep's note when it reopens a thread that was closed without being asked.
@@ -32,6 +34,22 @@ export function notShipped(item) {
     return { why: branch ? `the cloud run's work is set aside on ${branch}` : "the cloud run's work is set aside", branch, reopened };
   }
   return null;
+}
+
+/**
+ * `{ sha }` while the app's own latest note says it shipped the work and
+ * nobody has written on the thread since. An agent saying it shipped does
+ * not count: only the app ships.
+ */
+export function shippedAs(item) {
+  if (!isShippedNote(item?.note) || item?.wrote?.note?.source !== 'system') return null;
+  if (at(item, 'result') > at(item, 'note') || at(item, 'answer') > at(item, 'note')) return null;
+  return { sha: / as ([0-9a-f]{7,40})\./.exec(item.note)?.[1] ?? null };
+}
+
+/** A closed thread whose close was told its work never reached main. */
+export function closedUnshipped(item) {
+  return item?.status === 'done' && typeof item?.note === 'string' && item.note.startsWith(CLOSED_ANYWAY);
 }
 
 /** The row's line: "Not shipped. <why>". */

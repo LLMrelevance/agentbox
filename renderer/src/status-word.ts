@@ -11,7 +11,7 @@
 import { liveLine, shortWord, type LiveFacts } from './live-line';
 import { STATE_WORD, stateWordOf } from './threads/summary-rules';
 import { threadState } from '../../shared/thread-cards.mjs';
-import { notShippedLine } from '../../shared/not-shipped.mjs';
+import { closedUnshipped, notShippedLine, shippedAs } from '../../shared/not-shipped.mjs';
 import type { ThreadStateWord, WorkItem } from './types';
 import type { Fleet } from './fleet';
 
@@ -53,8 +53,16 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
   // `agent` on the words about an agent, and off the four state words.
   const says = (word: string, mark: StatusMark, agent: boolean, title?: string): StatusCell => ({ word, mark, agent, live: false, cloud: false, title });
   const plain = (word: string, mark: StatusMark) => says(word, mark, false);
+  // Said over "Waiting" and "Done", which do not tell a shipped thread from
+  // one that never shipped (shared/not-shipped.mjs).
+  const ship = shippedAs(item);
+  const shipped = ship ? says('Shipped', 'done', false, ship.sha ? `Shipped to main as ${ship.sha}` : 'Shipped to main') : null;
 
-  if (state === 'done') return plain(stateWordOf(item, state), 'done');
+  if (state === 'done') {
+    if (shipped) return shipped;
+    if (closedUnshipped(item)) return says('Not shipped', 'done', false, 'Closed without its work reaching main');
+    return plain(stateWordOf(item, state), 'done');
+  }
   // The bar over the conversation owns the whole story of a dead worker; the
   // row says the one word, because a row that says nothing reads as a row
   // nothing has happened on.
@@ -87,6 +95,7 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
   if (live) {
     return says(shortWord(live.state), WAITING_ITS_TURN.has(live.state) ? 'queued' : 'held', true, live.line);
   }
+  if (state === 'waiting' && shipped) return shipped;
   return plain(stateWordOf(item, state), state === 'waiting' ? 'need' : 'queued');
 }
 
