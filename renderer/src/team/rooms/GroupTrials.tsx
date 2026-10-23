@@ -2,8 +2,8 @@
 // team's day beside or inside a group, and where the Inbox's tabs go. Each is
 // a localStorage switch while one is picked: `groups.big`, `groups.feed`,
 // `groups.top`.
-import { useState, type ReactNode } from 'react';
-import type { Room, RoomCard, ThreadCard } from '../../types';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import type { Person, Room, RoomCard, ThreadCard } from '../../types';
 import { LiveMark } from '../../components/LiveMark';
 import { RoomFace } from './RoomFace';
 import { cardName, clockOf } from './room-rules';
@@ -11,12 +11,17 @@ import { GroupMark, type GroupChoice } from './GroupList';
 import { I } from './icons';
 
 export type FeedLook = 'below' | 'tabs' | 'person' | 'digest' | 'ticker';
-export type TopLook = 'doors-chips' | 'doors-title' | 'sidebar' | 'switch';
+export type TopLook = 'doors-chips' | 'doors-title' | 'sidebar' | 'switch' | 'titles' | 'nosidebar-below' | 'nosidebar-inline';
+const TOPS: string[] = ['doors-chips', 'doors-title', 'sidebar', 'switch', 'titles', 'nosidebar-below', 'nosidebar-inline'];
+/** The top bar's Inbox and Groups words stand in for the sidebar's rows. */
+export const switchTop = (t: TopLook | null) => t === 'switch' || t === 'nosidebar-below' || t === 'nosidebar-inline';
+export const noSidebar = (t: TopLook | null) => t === 'nosidebar-below' || t === 'nosidebar-inline';
 const read = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 export const trial = () => ({
   big: read('groups.big') === '1',
   feed: (['below', 'tabs', 'person', 'digest', 'ticker'] as string[]).includes(read('groups.feed') ?? '') ? read('groups.feed') as FeedLook : null,
-  top: (['doors-chips', 'doors-title', 'sidebar', 'switch'] as string[]).includes(read('groups.top') ?? '') ? read('groups.top') as TopLook : null,
+  top: TOPS.includes(read('groups.top') ?? '') ? read('groups.top') as TopLook : null,
+  inset: read('groups.inset') === '1',
 });
 
 export type Done = { id: string; by: string; title: string; at: number };
@@ -133,4 +138,23 @@ export function TopSwitch({ on, inboxCount, groupsCount, onInbox, onGroups }: { 
 export function GroupTitle({ g }: { g: GroupChoice | undefined }) {
   if (!g) return null;
   return <h1 className="workspace-title gt-title">{g.faces.length ? <GroupMark g={g} size={22} row /> : <span className="gt-sh">{I.hash(16)}</span>}<span>{g.name}</span></h1>;
+}
+
+/** With no sidebar: your face at the right end of the top bar, holding what the sidebar's foot held. */
+export function TopMe({ me, onSettings, onFeedback }: { me: Person; onSettings: () => void; onFeedback: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const down = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', down);
+    return () => document.removeEventListener('mousedown', down);
+  }, [open]);
+  return <span ref={ref} className="gt-acct">
+    <button type="button" className={`gt-me${open ? ' open' : ''}`} aria-label="Your account" onClick={() => setOpen(!open)}><RoomFace name={me.name || me.email} url={me.avatarUrl} size={28} /></button>
+    {open && <div className="rm-pop gr-optmenu" role="menu">
+      <button type="button" className="row" onClick={() => { setOpen(false); onSettings(); }}><span>Settings</span></button>
+      <button type="button" className="row" onClick={() => { setOpen(false); onFeedback(); }}><span>Feedback</span></button>
+    </div>}
+  </span>;
 }

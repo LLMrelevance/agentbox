@@ -243,6 +243,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   // `right` undefined keeps the bar's own buttons; null clears them.
   let heading: { title: ReactNode; right?: ReactNode } | null = null;
   let page: ReactNode = null;
+  let trialChips: ReactNode = null;
   const onChat = !!open && !!rooms && pane === 'wall' && !boardOn && !finding;
   // Everyone's threads: the board of the people here whose threads reach me. Never for a chat with people.
   const onRoom = !!open && !!rooms && open.kind !== 'group' && pane === 'wall' && boardOn && !finding;
@@ -282,13 +283,15 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       under={t.feed === 'person' ? (c) => finishedLine(c, done) : undefined} after={t.feed === 'below' ? <TodayBelow room={open} done={done} now={now} /> : undefined} />;
     const bar = <GroupBar groups={groupList} current={`room:${open.id}`} onPick={pickGroup} />;
     page = <GroupPage key={open.id} big={t.big}
-      bar={t.top === 'doors-chips' || t.top === 'sidebar' ? null : bar}
+      bar={t.top === 'doors-chips' || t.top === 'sidebar' || t.top === 'titles' || t.top === 'nosidebar-inline' ? null : bar}
       chat={<RoomChat room={open} messages={rooms.messages[open.id] ?? []} people={withMe(chatPeople(open, meId), meInChat)} meId={meId} now={now}
         full hang head={<></>} onSend={send(open.id)} onRead={read(open)} {...chatCalls(open)}
         inserts={t.feed === 'digest' ? digests(open, done, now) : undefined} aboveBox={t.feed === 'ticker' ? <Ticker room={open} done={done} now={now} /> : undefined} />}
       people={t.feed === 'tabs' ? <SideTabs people={people} today={<FeedList room={open} done={done} now={now} limit={12} />} count={done.length} /> : people()} />;
     if (t.top === 'doors-chips') heading = { title: <div className="gt-topchips">{bar}</div> };
-    if (t.top === 'doors-title' || t.top === 'switch') heading = { title: <h1 className="workspace-title">Groups</h1> };
+    if (t.top === 'doors-title' || t.top === 'switch' || t.top === 'nosidebar-below' || t.top === 'nosidebar-inline') heading = { title: <h1 className="workspace-title">Groups</h1> };
+    if (t.top === 'titles') heading = { title: <div className="gt-titled"><h1 className="workspace-title">Groups</h1><div className="gt-topchips">{bar}</div></div> };
+    trialChips = <div className="gt-topchips">{bar}</div>;
     if (t.top === 'sidebar') heading = { title: <GroupTitle g={groupList.find((g) => g.key === `room:${open.id}`)} /> };
   } else if (open && rooms) {
     heading = { title: backTitle(nameOf(open)) };
@@ -365,7 +368,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     viewButton,
     /** Trial (round 11): where the Inbox's tabs and the groups go. */
     trialTop: live ? t.top : null,
-    trialNav: !live ? null : t.top === 'doors-chips' || t.top === 'doors-title'
+    trialChips,
+    trialNav: !live ? null : t.top === 'doors-chips' || t.top === 'doors-title' || t.top === 'titles'
       ? <GroupsDoor lit={(!!open || empty) && !finding} count={unreadChats} onOpen={openTab} />
       : t.top === 'sidebar' ? <GroupsInSidebar groups={groupList} current={open && !finding ? `room:${open.id}` : null} onPick={pickGroup} /> : null,
     unreadChats,
