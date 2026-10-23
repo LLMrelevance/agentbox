@@ -329,7 +329,7 @@ describe('the card is drawn on every Mac', () => {
     expect(open.engineChoiceOpened()).toBe(true);
     expect(shut.engineChoices()).toHaveLength(1);
     expect(open.engineChoices()).toHaveLength(1);
-    expect(read('main/settings.mjs')).toContain('...codexState(config)');
+    expect(read('main/settings.mjs')).toContain('...codexState(config, {}, { search })');
   });
 
   // The renderer reads main's fields rather than deriving its own.
