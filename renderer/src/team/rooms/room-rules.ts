@@ -81,6 +81,22 @@ export function writeRoomTab(choice: string, store: Store = local()) {
   try { store?.setItem(TAB_KEY, choice); } catch { /* not kept */ }
 }
 
+const CHAT_KEY = 'rooms.chat.width';
+export const CHAT_WIDTH = 360;
+/** Three board columns of 170 with their gaps and padding; rooms.css's max-width says the same. */
+export const BOARD_LEAST = 620;
+
+/** How wide the chat beside a room may be, given the room's width with board and chat together. */
+export function chatWidth(want: number, space: number): number {
+  return Math.round(Math.max(300, Math.min(want, 720, space - BOARD_LEAST)));
+}
+export function readChatWidth(store: Store = local()): number {
+  try { const n = Number(store?.getItem(CHAT_KEY)); return n > 0 ? n : CHAT_WIDTH; } catch { return CHAT_WIDTH; }
+}
+export function writeChatWidth(width: number, store: Store = local()) {
+  try { store?.setItem(CHAT_KEY, String(Math.round(width))); } catch { /* not kept */ }
+}
+
 /** What Tab walks: the state tabs, then the room tab when there is one. */
 export function tabOrder<T extends string>(stateTabs: readonly T[], tabRoomId: string | null): (T | 'room')[] {
   return tabRoomId ? [...stateTabs, 'room'] : [...stateTabs];
@@ -114,6 +130,11 @@ export function facePick(picked: readonly string[], all: readonly string[], id: 
 /** Tiles to a row over the board: eight at most, and even rows past that. */
 export function tilesPerRow(n: number, most = 8): number {
   return Math.ceil(n / Math.ceil(n / most));
+}
+
+/** How many face tiles fit across a width: "Not running" and its padding take 93px, and the tile's line 1. */
+export function tilesAcross(width: number): number {
+  return Math.max(1, Math.min(8, Math.floor(width / 94)));
 }
 
 /** Each room's pick, by room id. */

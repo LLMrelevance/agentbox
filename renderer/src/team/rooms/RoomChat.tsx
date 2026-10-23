@@ -6,7 +6,7 @@
 // Every message carries what a direct chat's does: reactions, the bar on
 // pointing with its more menu (edit, copy, mark unread, delete), an edited
 // mark, and voice notes and files. The box is the direct chat's too.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Room, RoomMessage } from '../../types';
@@ -24,7 +24,7 @@ import { collectFiles, isImageName, type PendingAttachment } from '../../attachm
 import { pictureUrl } from '../../picture';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
-import { cardName, clockOf, mentionsIn } from './room-rules';
+import { CHAT_WIDTH, cardName, chatWidth, clockOf, mentionsIn, readChatWidth, writeChatWidth } from './room-rules';
 import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, quickOnBar, roomReader, storedName, wordsLeftAfterSend } from './room-chat-rules';
 
 export type ChatPerson = { id: string; name: string; avatarUrl: string | null; me: boolean };
@@ -56,6 +56,23 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
   const [thread, setThread] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [width, setWidth] = useState(readChatWidth);
+  // The pointer is captured, so a fast drag that leaves the edge keeps going.
+  const drag = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const chat = e.currentTarget.parentElement;
+    const space = chat?.parentElement?.clientWidth;
+    if (e.button !== 0 || !chat || !space) return;
+    e.preventDefault();
+    const grip = e.currentTarget, from = e.clientX, start = chat.getBoundingClientRect().width;
+    let last = start;
+    grip.setPointerCapture(e.pointerId); chat.classList.add('dragging');
+    const move = (m: PointerEvent) => { last = chatWidth(start + from - m.clientX, space); setWidth(last); };
+    const up = () => {
+      chat.classList.remove('dragging'); writeChatWidth(last);
+      grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up);
+    };
+    grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
+  };
   const byId = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
   const roots = drawnRoots(messages);
   const replies = useMemo(() => {
@@ -120,7 +137,9 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
       me={meId && m.by !== meId && m.mentions.includes(meId) ? myNames : NOBODY} />
   );
 
-  return <div className={full ? 'rm-full' : 'rm-chat'}>
+  return <div className={full ? 'rm-full' : 'rm-chat'} style={full ? undefined : { '--rm-chat-w': `${width}px` } as CSSProperties}>
+    {!full && <div className="rm-chat-grip" role="separator" aria-orientation="vertical" aria-label="Drag to widen the chat"
+      title="Drag to widen. Double-click to reset." onPointerDown={drag} onDoubleClick={() => { setWidth(CHAT_WIDTH); writeChatWidth(CHAT_WIDTH); }} />}
     {head ?? <div className="rm-chat-head">
       {root
         ? <><button type="button" className="rm-switch" onClick={() => setThread(null)}>{I.back()}<span>Thread</span></button>
