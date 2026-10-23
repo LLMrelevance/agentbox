@@ -20,7 +20,7 @@ import { joinLink, tokenFromLink } from '../../../../shared/room-links.mjs';
 import { RoomsNotReady, RoomsSettings } from './RoomsSettings';
 import { GroupPage, PeoplePanel } from './GroupPage';
 import { GroupBar, GroupMenuButton, groupChoices, type GroupMenuAction } from './GroupList';
-import { DigestCard, FeedList, GroupTitle, GroupsDoor, GroupsInSidebar, SideTabs, Ticker, TodayBelow, finishedLine, finishedToday, trial, type Done } from './GroupTrials';
+import { DigestCard, FeedList, GroupTitle, GroupsDoor, GroupsInSidebar, SideTabs, Ticker, TodayBelow, finishedLine, finishedToday, oneLine, switchTop, trial, type Done } from './GroupTrials';
 
 type Dialog =
   | { kind: 'invite'; roomId: string }
@@ -283,13 +283,13 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       under={t.feed === 'person' ? (c) => finishedLine(c, done) : undefined} after={t.feed === 'below' ? <TodayBelow room={open} done={done} now={now} /> : undefined} />;
     const bar = <GroupBar groups={groupList} current={`room:${open.id}`} onPick={pickGroup} />;
     page = <GroupPage key={open.id} big={t.big}
-      bar={t.top === 'doors-chips' || t.top === 'sidebar' || t.top === 'titles' || t.top === 'nosidebar-inline' ? null : bar}
+      bar={t.top === 'doors-chips' || t.top === 'sidebar' || t.top === 'titles' || oneLine(t.top) ? null : bar}
       chat={<RoomChat room={open} messages={rooms.messages[open.id] ?? []} people={withMe(chatPeople(open, meId), meInChat)} meId={meId} now={now}
         full hang head={<></>} onSend={send(open.id)} onRead={read(open)} {...chatCalls(open)}
         inserts={t.feed === 'digest' ? digests(open, done, now) : undefined} aboveBox={t.feed === 'ticker' ? <Ticker room={open} done={done} now={now} /> : undefined} />}
       people={t.feed === 'tabs' ? <SideTabs people={people} today={<FeedList room={open} done={done} now={now} limit={12} />} count={done.length} /> : people()} />;
     if (t.top === 'doors-chips') heading = { title: <div className="gt-topchips">{bar}</div> };
-    if (t.top === 'doors-title' || t.top === 'switch' || t.top === 'nosidebar-below' || t.top === 'nosidebar-inline') heading = { title: <h1 className="workspace-title">Groups</h1> };
+    if (t.top === 'doors-title' || t.top === 'stacked' || switchTop(t.top)) heading = { title: <h1 className="workspace-title">Groups</h1> };
     if (t.top === 'titles') heading = { title: <div className="gt-titled"><h1 className="workspace-title">Groups</h1><div className="gt-topchips">{bar}</div></div> };
     trialChips = <div className="gt-topchips">{bar}</div>;
     if (t.top === 'sidebar') heading = { title: <GroupTitle g={groupList.find((g) => g.key === `room:${open.id}`)} /> };
@@ -369,7 +369,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     /** Trial (round 11): where the Inbox's tabs and the groups go. */
     trialTop: live ? t.top : null,
     trialChips,
-    trialNav: !live ? null : t.top === 'doors-chips' || t.top === 'doors-title' || t.top === 'titles'
+    trialNav: !live ? null : t.top === 'doors-chips' || t.top === 'doors-title' || t.top === 'titles' || t.top === 'stacked'
       ? <GroupsDoor lit={(!!open || empty) && !finding} count={unreadChats} onOpen={openTab} />
       : t.top === 'sidebar' ? <GroupsInSidebar groups={groupList} current={open && !finding ? `room:${open.id}` : null} onPick={pickGroup} /> : null,
     unreadChats,

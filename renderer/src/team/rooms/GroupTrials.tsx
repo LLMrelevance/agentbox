@@ -11,11 +11,17 @@ import { GroupMark, type GroupChoice } from './GroupList';
 import { I } from './icons';
 
 export type FeedLook = 'below' | 'tabs' | 'person' | 'digest' | 'ticker';
-export type TopLook = 'doors-chips' | 'doors-title' | 'sidebar' | 'switch' | 'titles' | 'nosidebar-below' | 'nosidebar-inline';
-const TOPS: string[] = ['doors-chips', 'doors-title', 'sidebar', 'switch', 'titles', 'nosidebar-below', 'nosidebar-inline'];
-/** The top bar's Inbox and Groups words stand in for the sidebar's rows. */
-export const switchTop = (t: TopLook | null) => t === 'switch' || t === 'nosidebar-below' || t === 'nosidebar-inline';
-export const noSidebar = (t: TopLook | null) => t === 'nosidebar-below' || t === 'nosidebar-inline';
+export type NsLook = 'ns-toggle' | 'ns-menu' | 'ns-filter' | 'ns-quiet' | 'ns-rows';
+export type TopLook = 'doors-chips' | 'doors-title' | 'sidebar' | 'switch' | 'titles' | 'stacked' | 'nosidebar-below' | 'nosidebar-inline' | NsLook;
+const TOPS: string[] = ['doors-chips', 'doors-title', 'sidebar', 'switch', 'titles', 'stacked', 'nosidebar-below', 'nosidebar-inline', 'ns-toggle', 'ns-menu', 'ns-filter', 'ns-quiet', 'ns-rows'];
+const ns = (t: TopLook | null) => !!t && t.startsWith('ns-');
+/** The top bar's Inbox and Groups stand in for the sidebar's rows. */
+export const switchTop = (t: TopLook | null) => t === 'switch' || t === 'nosidebar-below' || t === 'nosidebar-inline' || ns(t);
+export const noSidebar = (t: TopLook | null) => t === 'nosidebar-below' || t === 'nosidebar-inline' || ns(t);
+/** Everything on the top bar's one line: the switch, then the tabs or the groups. */
+export const oneLine = (t: TopLook | null) => t === 'nosidebar-inline' || ns(t);
+/** How the four tabs are drawn beside the switch. */
+export const statesClass = (t: TopLook | null) => (t === 'ns-filter' ? ' gt-states-menu' : t === 'ns-quiet' ? ' gt-states-quiet' : '');
 const read = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 export const trial = () => ({
   big: read('groups.big') === '1',
@@ -157,4 +163,25 @@ export function TopMe({ me, onSettings, onFeedback }: { me: Person; onSettings: 
       <button type="button" className="row" onClick={() => { setOpen(false); onFeedback(); }}><span>Feedback</span></button>
     </div>}
   </span>;
+}
+
+const Chevron = () => <svg className="gt-chev" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>;
+
+/** Inbox and Groups, drawn by each one-line experiment in its own way. */
+export function TopNav({ top, on, inboxCount, groupsCount, onInbox, onGroups }: {
+  top: TopLook | null; on: 'inbox' | 'groups'; inboxCount: number; groupsCount: number; onInbox: () => void; onGroups: () => void;
+}) {
+  const n = (k: number) => (k > 0 ? <b>{k}</b> : null);
+  if (top === 'ns-toggle') return <div className="gt-seg" role="tablist">
+    <button type="button" className={on === 'inbox' ? 'on' : ''} onClick={onInbox}>Inbox{n(inboxCount)}</button>
+    <button type="button" className={on === 'groups' ? 'on' : ''} onClick={onGroups}>Groups{n(groupsCount)}</button>
+  </div>;
+  if (top === 'ns-menu') return <button type="button" className="gt-titlemenu" onClick={on === 'inbox' ? onGroups : onInbox}>
+    <span>{on === 'inbox' ? 'Inbox' : 'Groups'}</span><Chevron />
+  </button>;
+  if (top === 'ns-rows') return <nav className="gt-navrow">
+    <button type="button" className={on === 'inbox' ? 'on' : ''} onClick={onInbox}>{I.inboxNav()}<span>Inbox</span>{n(inboxCount)}</button>
+    <button type="button" className={on === 'groups' ? 'on' : ''} onClick={onGroups}>{I.groupNav()}<span>Groups</span>{n(groupsCount)}</button>
+  </nav>;
+  return <TopSwitch on={on} inboxCount={inboxCount} groupsCount={groupsCount} onInbox={onInbox} onGroups={onGroups} />;
 }
