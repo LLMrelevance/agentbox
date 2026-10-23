@@ -28,10 +28,14 @@ describe('which clicks open the floating view', () => {
   });
 
   it('is asked before the pane in the thread', () => {
+    const rule = fs.readFileSync(new URL('../renderer/src/link-click.ts', import.meta.url), 'utf8');
+    const goes = rule.slice(rule.indexOf('export function whereALinkGoes'));
+    expect(goes.indexOf('opensAsPicture(href)')).toBeGreaterThan(-1);
+    expect(goes.indexOf('opensAsPicture(href)')).toBeLessThan(goes.indexOf('opensInPane(href)'));
     const focus = fs.readFileSync(new URL('../renderer/src/components/Focus.tsx', import.meta.url), 'utf8');
     const open = focus.slice(focus.indexOf('const openHref'));
-    expect(open.indexOf('opensAsPicture(href)')).toBeGreaterThan(-1);
-    expect(open.indexOf('opensAsPicture(href)')).toBeLessThan(open.indexOf('onOpenDoc(href)'));
+    expect(open.indexOf("goes === 'picture'")).toBeGreaterThan(-1);
+    expect(open.indexOf("goes === 'picture'")).toBeLessThan(open.indexOf('onOpenDoc?.(href)'));
   });
 });
 
