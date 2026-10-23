@@ -447,6 +447,9 @@ export async function cloudRun({
   // itself is never read here (docs/cloud/PLAN.md, "Sign-ins live in the
   // cloud").
   login = null,
+  // Other sign-ins the run carries, in the same shape (./run-cli.mjs
+  // `loginsCarriedBy`). The sandbox places them if it can and starts anyway.
+  also = [],
   // Told when the sandbox says the login was missing, refused or ran out.
   onLoginTrouble = () => {},
   // Told the moment the account's limit resets, when a run ends on it.
@@ -770,6 +773,7 @@ export async function cloudRun({
   const bundleUrl = pack.bundle ? await storage.getUrl(key('in.bundle')) : undefined;
   const base = pack.base ? { url: await storage.getUrl(pack.base.key), sha: pack.base.sha } : null;
   const loginUrl = await storage.getUrl(login.key, LOGIN_LINK_SECONDS);
+  const carried = await Promise.all(also.map(async (l) => ({ engine: l.engine, id: l.id, url: await storage.getUrl(l.key, LOGIN_LINK_SECONDS) })));
   const started = await retry(() => transport.invoke(sessionId, {
     action: 'start', runId, cwd, branch, bundleUrl,
     ...(plain ? { plain: true } : {}),
@@ -780,6 +784,7 @@ export async function cloudRun({
     ...(docsDir ? { docs: docsDir } : {}),
     ...(home.length ? { homeFiles: home } : {}),
     login: { engine: login.engine, id: login.id, url: loginUrl },
+    ...(carried.length ? { also: carried } : {}),
     results,
     // A conversation comes home as only what the run added (`layTails`). An
     // image that does not know this ignores it and sends it whole.

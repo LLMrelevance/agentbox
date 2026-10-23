@@ -35,6 +35,7 @@ import {
   CODEX_RENEW_BEFORE_MS, CODEX_RUN_NEEDS_MS,
 } from '../main/cloud/logins.mjs';
 import { cloudRun, LOGIN_TROUBLE } from '../main/cloud/run.mjs';
+import { loginsCarriedBy } from '../main/cloud/run-cli.mjs';
 
 const FAKE = fileURLToPath(new URL('./fixtures/cloud/fake-vendor-cli.mjs', import.meta.url));
 const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8' }).trim();
@@ -387,6 +388,52 @@ describe('what the review found', () => {
     const code = await cloudRun({ importOnly: true, argv: [], env: process.env, cwd: mac, transport, storage, onLoginTrouble: (t) => trouble.push(t), stdin, stdout: new PassThrough(), stderr: new PassThrough(), watchParent: false, homeDir: home, resultsWaitMs: 2000 });
     expect(code).toBe(0);
     expect(trouble).toEqual([{ state: 'refused', id: 'L-old' }]);
+  });
+});
+
+// A Claude run carries the Codex login too, so the agent can ask Codex in the
+// cloud as it can on the Mac (2026-10-23); by name, like its own.
+describe('the Codex login a Claude run carries', () => {
+  it('goes by its link, and the Mac never reads it', async () => {
+    makeSandbox();
+    const mac = path.join(tmp, 'mac', 'repo');
+    fs.mkdirSync(mac, { recursive: true });
+    git(mac, 'init', '-q', '-b', 'main');
+    git(mac, 'config', 'user.email', 'dev@example.com');
+    git(mac, 'config', 'user.name', 'Dev');
+    fs.writeFileSync(path.join(mac, 'a.txt'), 'one\n');
+    git(mac, 'add', '.');
+    git(mac, 'commit', '-q', '-m', 'first');
+    git(mac, 'checkout', '-q', '-b', 'agentbox/w-1');
+    objects.set(loginObjectKey('codex', 'C9'), Buffer.from('{}'));
+    const sent = [];
+    const stdin = new PassThrough(); stdin.end();
+    await cloudRun({
+      argv: ['-p'], env: { ...process.env, ZERO_ITEM: 'w-1', CLAUDE_CONFIG_DIR: path.join(tmp, 'mac', 'claude-home') },
+      cwd: mac, storage,
+      transport: { ...transport, invoke: (sid, p) => { sent.push(p); return sandbox.handle(p); } },
+      login: { engine: 'claude', id: 'gone', key: loginObjectKey('claude', 'gone') },
+      also: [{ engine: 'codex', id: 'C9', key: loginObjectKey('codex', 'C9') }],
+      stdin, stdout: new PassThrough(), stderr: new PassThrough(), remoteCommand: path.join(bin, 'claude'),
+      pollWaitMs: 50, resultsWaitMs: 5000, watchParent: false, homeDir: home,
+    });
+    const start = sent.find((p) => p.action === 'start');
+    expect(start.also).toEqual([{ engine: 'codex', id: 'C9', url: await storage.getUrl(loginObjectKey('codex', 'C9')) }]);
+    expect(reads.some((k) => k.startsWith('logins/'))).toBe(false);
+  });
+
+  it('is carried by a Claude run only, and only when a Codex login is ready', () => {
+    const ready = (engine) => (engine === 'codex' ? { id: 'C1' } : { id: 'L1' });
+    expect(loginsCarriedBy('claude', { pick: ready })).toEqual([{ engine: 'codex', id: 'C1', key: loginObjectKey('codex', 'C1') }]);
+    expect(loginsCarriedBy('codex', { pick: ready })).toEqual([]);
+    expect(loginsCarriedBy('claude', { pick: () => null })).toEqual([]);
+  });
+
+  it('is picked the way a Codex run picks one: not while it waits on a renewal', () => {
+    recordCloudLogin('codex', 'old', { id: 'C-old', expiresAt: Date.now() + 2 * H }, { home });
+    expect(loginsCarriedBy('claude', { pick: (e) => pickCloudLogin(e, { home }) })).toEqual([]);
+    recordCloudLogin('codex', 'fresh', { id: 'C-new', expiresAt: Date.now() + 200 * H }, { home });
+    expect(loginsCarriedBy('claude', { pick: (e) => pickCloudLogin(e, { home }) })).toEqual([{ engine: 'codex', id: 'C-new', key: loginObjectKey('codex', 'C-new') }]);
   });
 });
 
