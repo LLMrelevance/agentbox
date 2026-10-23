@@ -3,6 +3,7 @@
 // a localStorage switch while one is picked: `groups.big`, `groups.feed`,
 // `groups.top`.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { SettingsIcon } from '../../components/SettingsIcon';
 import type { Person, Room, RoomCard, ThreadCard } from '../../types';
 import { LiveMark } from '../../components/LiveMark';
 import { RoomFace } from './RoomFace';
@@ -31,6 +32,8 @@ export const trial = () => ({
   top: TOPS.includes(read('groups.top') ?? '') ? read('groups.top') as TopLook : null,
   inset: read('groups.inset') === '1',
   threadNav: read('groups.threadNav') === '1',
+  summaryLeft: read('groups.summaryLeft') === '1',
+  noFaces: read('groups.noFaces') === '1',
 });
 
 export type Done = { id: string; by: string; title: string; at: number };
@@ -150,7 +153,7 @@ export function GroupTitle({ g }: { g: GroupChoice | undefined }) {
 }
 
 /** With no sidebar: your face at the right end of the top bar, holding what the sidebar's foot held. */
-export function TopMe({ me, onSettings, onFeedback }: { me: Person; onSettings: () => void; onFeedback: () => void }) {
+export function TopMe({ me, onSettings, onFeedback, onSignOut }: { me: Person; onSettings: () => void; onFeedback: () => void; onSignOut?: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -159,16 +162,21 @@ export function TopMe({ me, onSettings, onFeedback }: { me: Person; onSettings: 
     document.addEventListener('mousedown', down);
     return () => document.removeEventListener('mousedown', down);
   }, [open]);
+  const go = (fn?: () => void) => () => { setOpen(false); fn?.(); };
   return <span ref={ref} className="gt-acct">
     <button type="button" className={`gt-me${open ? ' open' : ''}`} aria-label="Your account" onClick={() => setOpen(!open)}><RoomFace name={me.name || me.email} url={me.avatarUrl} size={28} /></button>
-    {open && <div className="rm-pop gr-optmenu gt-acctmenu" role="menu">
-      <div className="gt-who"><RoomFace name={me.name || me.email} url={me.avatarUrl} size={32} /><span><b>{me.name || me.email}</b><small>{me.email}</small></span></div>
-      <div className="rule" />
-      <button type="button" className="row" onClick={() => { setOpen(false); onSettings(); }}><span>Settings</span></button>
-      <button type="button" className="row" onClick={() => { setOpen(false); onFeedback(); }}><span>Feedback</span></button>
+    {open && <div className="gt2-menu gt2-acct" role="menu">
+      <div className="gt2-who"><RoomFace name={me.name || me.email} url={me.avatarUrl} size={32} /><span><b>{me.name || me.email}</b><small>{me.email}</small></span></div>
+      <div className="gt2-rule" />
+      <button type="button" className="gt2-row" onClick={go(onSettings)}><span className="gt2-ic"><SettingsIcon /></span><span>Settings</span></button>
+      <button type="button" className="gt2-row" onClick={go(onFeedback)}><span className="gt2-ic">{SEND}</span><span>Feedback</span></button>
+      <div className="gt2-rule" />
+      <button type="button" className="gt2-row" onClick={go(onSignOut)}><span className="gt2-ic">{I.out()}</span><span>Log out</span></button>
     </div>}
   </span>;
 }
+
+const SEND = <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><g transform="translate(12 12) scale(.8) translate(-12 -12)"><path d="M2.5 11.5 21.5 3l-5 18-5-6.5z" /><path d="M11.5 14.5 21.5 3" /><path d="m11.5 14.5-1.2 6 3-3.6" /></g></svg>;
 
 const Chevron = () => <svg className="gt-chev" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>;
 
@@ -191,12 +199,13 @@ export function TopNav({ top, on, inboxCount, groupsCount, onInbox, onGroups, gr
   return <TopSwitch on={on} inboxCount={inboxCount} groupsCount={groupsCount} onInbox={onInbox} onGroups={onGroups} />;
 }
 
-/** The page's name as a menu: Inbox and Groups, and with `groups.menuRich` every group under them. */
+/** The page's name as a menu: Inbox, Groups, and every group under Groups, which folds and stays as you left it. */
 function TitleMenu({ on, inboxCount, groupsCount, onInbox, onGroups, groups, onPick }: {
   on: 'inbox' | 'groups'; inboxCount: number; groupsCount: number; onInbox: () => void; onGroups: () => void;
   groups: GroupChoice[]; onPick?: (key: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [list, setList] = useState(() => read('groups.menuList') !== '0');
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -204,25 +213,26 @@ function TitleMenu({ on, inboxCount, groupsCount, onInbox, onGroups, groups, onP
     document.addEventListener('mousedown', down);
     return () => document.removeEventListener('mousedown', down);
   }, [open]);
-  const rich = read('groups.menuRich') === '1';
-  const row = (key: 'inbox' | 'groups', label: string, n: number, icon: JSX.Element, go: () => void) =>
-    <button type="button" className={`gt-mrow${on === key ? ' on' : ''}`} onClick={() => { setOpen(false); go(); }}>
-      {icon}<span>{label}</span>{n > 0 && <b>{n}</b>}{on === key && <span className="gt-mcheck">{I.check()}</span>}</button>;
+  const fold = () => { const next = !list; setList(next); try { localStorage.setItem('groups.menuList', next ? '1' : '0'); } catch { /* kept for this window only */ } };
   const named = groups.filter((g) => !g.faces.length).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
   const chats = groups.filter((g) => g.faces.length).slice(0, 5);
+  const n = (k: number) => (k > 0 ? <span className="gt2-n">{k}</span> : null);
   return <span ref={ref} className="gt-tmwrap">
-    <button type="button" className={`gt-titlemenu${open ? ' open' : ''}`} onClick={() => setOpen(!open)}>
+    <button type="button" className={`gt-titlemenu${open ? ' open' : ''}`} aria-expanded={open} onClick={() => setOpen(!open)}>
       <span>{on === 'inbox' ? 'Inbox' : 'Groups'}</span><Chevron />
     </button>
-    {open && <div className={`rm-pop gt-tmenu${rich ? ' rich' : ''}`} role="menu">
-      {row('inbox', 'Inbox', inboxCount, I.inboxNav(), onInbox)}
-      {row('groups', 'Groups', groupsCount, I.groupNav(), onGroups)}
-      {rich && <>
-        <div className="rule" />
-        {[...named, ...chats].map((g) => <button type="button" key={g.key} className="gt-mrow sub" onClick={() => { setOpen(false); onPick?.(g.key); }}>
-          {g.faces.length ? <span className="gt-sic"><GroupMark g={g} size={18} /></span> : <span className="gt-sic gt-sh">{I.hash(13)}</span>}
-          <span className="rm-one">{g.name}</span>{g.unread && <span className="gt-sdot" />}</button>)}
-      </>}
+    {open && <div className="gt2-menu gt2-nav" role="menu">
+      <button type="button" className={`gt2-row${on === 'inbox' ? ' on' : ''}`} onClick={() => { setOpen(false); onInbox(); }}>
+        <span className="gt2-ic">{I.inboxNav()}</span><span>Inbox</span>{n(inboxCount)}</button>
+      <div className={`gt2-row gt2-split${on === 'groups' ? ' on' : ''}`}>
+        <button type="button" className="gt2-main" onClick={() => { setOpen(false); onGroups(); }}><span className="gt2-ic">{I.groupNav()}</span><span>Groups</span>{n(groupsCount)}</button>
+        <button type="button" className={`gt2-fold${list ? ' open' : ''}`} aria-label={list ? 'Hide every group' : 'Show every group'} title={list ? 'Hide every group' : 'Show every group'} onClick={fold}><Chevron /></button>
+      </div>
+      {list && <div className="gt2-sub">
+        {[...named, ...chats].map((g) => <button type="button" key={g.key} className={`gt2-row gt2-subrow${g.unread ? ' unread' : ''}`} onClick={() => { setOpen(false); onPick?.(g.key); }}>
+          {g.faces.length ? <span className="gt2-ic"><GroupMark g={g} size={16} /></span> : <span className="gt2-ic gt2-hash">{I.hash(13)}</span>}
+          <span className="rm-one">{g.name}</span>{g.unread && <span className="gt2-dot" aria-label="Unread" />}</button>)}
+      </div>}
     </div>}
   </span>;
 }

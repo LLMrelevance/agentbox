@@ -259,7 +259,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   };
   const setLater = (shown: boolean) => { setLaterRaw(shown); writeBoardLater(shown); };
   const board = onRoom && renderBoard
-    ? <><BoardFaces people={open!.wall} picked={onBoardPicked} onPick={pickForBoard} />{renderBoard(onBoardPicked.filter((id) => onBoardIds.has(id)), { later })}</>
+    ? <>{!t.noFaces && <BoardFaces people={open!.wall} picked={onBoardPicked} onPick={pickForBoard} />}{renderBoard(onBoardPicked.filter((id) => onBoardIds.has(id)), { later })}</>
     : null;
   const viewButton: ReactNode = onRoom && renderBoard
     ? <RoomViewButton people={open!.wall} picked={onBoardPicked} onPick={pickForBoard} unseen={open!.wall.length - onBoardPeople.length} later={later} onLater={setLater} />
