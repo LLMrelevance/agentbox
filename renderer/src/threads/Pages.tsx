@@ -415,7 +415,7 @@ export function StateTabs({ view, counts, onView, needs, onSearch, lit = false, 
   lit?: boolean;
   /** After Done: the room tab (team/rooms/RoomTab.tsx); `dim` while its room is open. */
   after?: ReactNode; dim?: boolean;
-  /** Drawn here instead of in place: the top bar, where the page's title was (w-dcaa2c122e). */
+  /** Drawn here instead of in place: the top bar, where the page's title was. */
   into?: HTMLElement | null;
 }) {
   const row = <StateTabsRow view={view} counts={counts} onView={onView} needs={needs} onSearch={onSearch} lit={lit} after={after} dim={dim} />;

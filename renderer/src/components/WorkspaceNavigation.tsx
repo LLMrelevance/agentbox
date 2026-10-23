@@ -41,14 +41,11 @@ import type { Invisible } from '../team/rooms/GoInvisible';
  *  deselected tab that is --text-faint at 400, exactly the word Inbox beside it;
  *  on the active one it is --text at 500. There is one rule rather than two.
  */
-export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearch: _onSearch, onCompose: _onCompose, inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, onAccount, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove, rooms = null, invisible = null, roomOpen = false, inboxLabel = 'Threads' }: {
-  /** The first row's name: Threads, or Inbox while one page holds threads and groups (w-dcaa2c122e). */
+export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearch: _onSearch, onCompose: _onCompose, inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, onAccount, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove, invisible = null, inboxLabel = 'Threads' }: {
+  /** The first row's name: Threads, or Inbox while its page holds groups too. */
   inboxLabel?: string;
-  /** A room is open, which lights its row rather than Threads. */
-  roomOpen?: boolean;
-  // ROOMS (alpha): the Messages and Rooms rows under Threads (team/rooms/useRooms.tsx),
-  // and going invisible from your account menu.
-  rooms?: ReactNode; invisible?: Invisible | null;
+  // ROOMS (alpha): going invisible from your account menu.
+  invisible?: Invisible | null;
   // A NEW VERSION WAITING (SidebarUpdate.tsx). Null when there is none.
   // `version` is what its × closes, until a newer one arrives.
   update?: { installing: boolean; version?: string | null; changes?: string[]; behind?: number | null; error?: string | null } | null; onUpdate?: () => void;
@@ -99,7 +96,7 @@ export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearc
   // ONE PAGE OF YOUR THREADS (approved 2026-10-01). In progress, Scheduled and
   // Closed are tabs on the Inbox now, not places in the sidebar, so the Inbox
   // tab is lit on every one of them.
-  const inboxLit = !page && !roomOpen && (['inbox', 'progress', 'snoozed', 'done'] as string[]).includes(view);
+  const inboxLit = !page && (['inbox', 'progress', 'snoozed', 'done'] as string[]).includes(view);
   const me = team?.signedIn ? team.me : null;
   const teamName = team?.team?.name ?? Name;
   // A team wears its initial. With no team the corner names the app itself, so
@@ -154,7 +151,6 @@ export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearc
           faces at the end of the Inbox's tab bar pick whose threads are on
           it. `onTeam` is still the sign-in link at the foot. */}
     </nav>
-    {rooms}
     <div className="workspace-bottom">
       {/* The card sits above the foot list; with the sidebar shut it is a
           row inside it (SidebarUpdate.tsx). */}

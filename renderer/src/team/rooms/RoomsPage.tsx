@@ -12,30 +12,25 @@ import './rooms.css';
 
 export type RoomMenuAction = 'read' | 'unread' | 'invite' | 'members' | 'ranks' | 'tab' | 'mute' | 'unmute' | 'leave';
 
-export function RoomsPage({ state, invisible, now, onOpen, onFind, onMenu, tabbedId = null, groups = false }: {
+export function RoomsPage({ state, invisible, now, onOpen, onFind, onMenu, tabbedId = null }: {
   state: RoomsState; invisible: boolean; now: number;
   /** The room in the Threads tab. */
   tabbedId?: string | null;
   onOpen: (id: string) => void; onFind: () => void;
   onMenu: (id: string, action: RoomMenuAction, anchor: DOMRect) => void;
-  /** Every group, chats with a few people among them, newest first. */
-  groups?: boolean;
 }) {
   const [menu, setMenu] = useState<{ id: string; at: DOMRect } | null>(null);
+  const rooms = state.rooms.filter((r) => r.kind !== 'group');
   const said = new Map(roomConversations(state).map((c) => [c.id, c]));
-  const rooms = groups
-    ? state.rooms.filter((r) => said.has(r.id)).sort((a, b) => (said.get(b.id)?.at ?? 0) - (said.get(a.id)?.at ?? 0))
-    : state.rooms.filter((r) => r.kind !== 'group');
-  const word = groups ? 'groups' : 'rooms';
   const find = <div role="button" tabIndex={0} className="row rm-rfind" onClick={onFind} onKeyDown={(e) => { if (e.key === 'Enter') onFind(); }}>
-    <span className="mark" aria-hidden="true" /><div className="row-main rm-rnm">{I.search()}<span>Find {word} to join</span></div>
+    <span className="mark" aria-hidden="true" /><div className="row-main rm-rnm">{I.search()}<span>Find rooms to join</span></div>
   </div>;
   // Before the first read, "none" would be the one thing not true.
   if (!state.ready) return <div className="list th-table rm-rooms" />;
-  if (!rooms.length) return <div className="list th-table rm-rooms"><div className="th-empty">You are not in any {word} yet.</div>{find}</div>;
-  return <div className={`list th-table rm-rooms${groups ? ' gp-list' : ''}`}>
+  if (!rooms.length) return <div className="list th-table rm-rooms"><div className="th-empty">You are not in any rooms yet.</div>{find}</div>;
+  return <div className="list th-table rm-rooms">
     <div className="row th-head"><span className="mark" aria-hidden="true" /><div className="row-main th-grid rm-rgrid">
-      <div>{groups ? 'Group' : 'Room'}</div><div>People</div><div>Working</div><div>Last message</div><div className="num">Updated</div>
+      <div>Room</div><div>People</div><div>Working</div><div>Last message</div><div className="num">Updated</div>
     </div></div>
     {rooms.map((r) => {
       const c = said.get(r.id);
@@ -44,7 +39,7 @@ export function RoomsPage({ state, invisible, now, onOpen, onFind, onMenu, tabbe
         onClick={() => onOpen(r.id)} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(r.id); }}
         onContextMenu={(e) => { e.preventDefault(); setMenu({ id: r.id, at: new DOMRect(e.clientX, e.clientY, 0, 0) }); }}>
         <span className="mark" aria-hidden="true" /><div className="row-main th-grid rm-rgrid">
-          <div className={`th-cell-title rm-rnm${r.muted ? ' muted' : ''}`}>{!groups && I.hash(14)}<span>{groups ? c?.name ?? r.name : r.name}</span></div>
+          <div className={`th-cell-title rm-rnm${r.muted ? ' muted' : ''}`}>{I.hash(14)}<span>{r.name}</span></div>
           <div className="rm-rpp"><span className="fs">{r.wall.slice(0, 4).map((p) => <RoomFace key={p.id} name={p.name} url={p.avatarUrl} size={20} />)}</span><span className="n">{peopleCount(r, invisible)}</span></div>
           <div className="th-cell-state">{agentsWords(r.agents)}</div>
           <div className="th-cell-title rm-rlast">{c?.last ?? ''}</div>

@@ -25,8 +25,6 @@ import { pictureUrl } from '../../picture';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
 import { cardName, chatWidth, clockOf, mentionsIn, readChatWidth, writeChatWidth } from './room-rules';
-import { BUSY, BurstRow, CheerBurst, CheerCard, DigestRow, HeaderCount, LiveLane, NowLines, RiderLine, TALK_ONLY, TOP_LOOKS, TallyStrip, TopProgress, WITH_TICKER, WorkLine, WorkTick, WorkTicker, foldBursts, type Burst, type GroupEvent, type TopLook, type WovenLook } from './GroupPage';
-import { LiveMark } from '../../components/LiveMark';
 import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, quickOnBar, roomReader, storedName, wordsLeftAfterSend } from './room-chat-rules';
 
 export type ChatPerson = { id: string; name: string; avatarUrl: string | null; me: boolean };
@@ -47,22 +45,14 @@ export type RoomChatCalls = {
   onNotice?: (text: string) => void;
 };
 
-export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand, onSwitch, switchOpen, full = false, head, events, foot, lead, woven, hang = false, ...calls }: {
-  /** Faces hung beside the words at 32, as a chat that is the whole page draws them. */
-  hang?: boolean;
+export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand, onSwitch, switchOpen, full = false, head, hang = false, ...calls }: {
   room: Room; messages: RoomMessage[]; people: ChatPerson[]; meId: string | null; now: number;
   onInvite?: () => void; onExpand?: () => void;
   onSwitch?: (anchor: DOMRect) => void; switchOpen?: boolean;
   /** Drawn on the messages page, at full width, with its own header. */
   full?: boolean; head?: ReactNode;
-  /** Work done in the group, drawn between the messages by time. */
-  events?: GroupEvent[];
-  /** Drawn after the newest message, above the box. */
-  foot?: ReactNode;
-  /** Drawn before the first message. */
-  lead?: ReactNode;
-  /** What everyone did today, and how it is woven in. */
-  woven?: { look: WovenLook; past: GroupEvent[]; now: GroupEvent[] };
+  /** Faces at 32, hung beside the words, as a chat that is the whole page draws them. */
+  hang?: boolean;
 } & RoomChatCalls) {
   const { onSend, onRead, onReact, onEdit, onDelete, onMarkUnread, onNotice } = calls;
   const [thread, setThread] = useState<string | null>(null);
@@ -136,39 +126,7 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
   const who = (id: string | null) => (id ? byId.get(id) : undefined);
   const nameOf = (id: string | null) => { const p = who(id); return p ? cardName(p) : 'Someone'; };
   const listRef = useStick([room.id, thread, shown.length]);
-  const look = woven?.look ?? (events?.length ? 'quiet' : null);
-  const work = woven?.past ?? events ?? [];
-  // Finishes alone enter the stream in `finishes`; starts stay on the ticker.
-  const streamWork = look === 'finishes' ? work.filter((e) => e.kind === 'finished') : work;
-  const inStream = !root && streamWork.length > 0 && !!look && !TALK_ONLY.includes(look);
-  const merged: (RoomMessage | GroupEvent)[] = inStream ? [...shown, ...streamWork].sort((a, b) => a.at - b.at) : shown;
-  const fold = look === 'bursts' ? 2 : look === 'digest' ? 1 : look === 'finishes' ? BUSY + 1 : 0;
-  const stream: (RoomMessage | GroupEvent | Burst)[] = inStream && fold ? foldBursts(merged, fold) : merged;
-  const slots = chatLayout(stream.map((m) => ({ at: m.at, by: 'body' in m ? m.by ?? '' : m.id })), now);
-  const dense = look === 'twitch';
-  const lastBurst = [...stream].reverse().find((x) => 'burst' in x)?.id ?? null;
-  const [openBurst, setOpenBurst] = useState<string | null>(null);
-  const burstOpen = (id: string) => (openBurst !== null ? openBurst === id : look === 'bursts' && lastBurst === id);
-  const [peek, setPeek] = useState(false);
-  // In `riders`, work hangs under its author's latest message before it.
-  const riders = useMemo(() => {
-    const out = new Map<string, GroupEvent[]>();
-    if (look !== 'riders' || root) return out;
-    for (const e of work) {
-      const said = roots.filter((m) => m.by === e.by && m.at <= e.at).at(-1);
-      if (said) out.set(said.id, [...(out.get(said.id) ?? []), e]);
-    }
-    return out;
-  }, [look, root, work, roots]);
-  // Cheers on finished work are drawn from the people here; nothing stores them yet.
-  const cheersFor = (ev: GroupEvent) => {
-    const others = people.filter((p) => p.id !== ev.by).map((p) => p.id);
-    const n = [...ev.id].reduce((s, c) => s + c.charCodeAt(0), 0);
-    const out: Record<string, string[]> = { '🎉': others.slice(0, 1 + (n % Math.max(1, others.length))) };
-    if (n % 3 === 0) out['🙌'] = others.slice(-1);
-    return out;
-  };
-  const whoOf = (id: string | null) => who(id);
+  const slots = chatLayout(shown.map((m) => ({ at: m.at, by: m.by ?? '' })), now);
   const myNames = useMemo(() => {
     const name = people.find((p) => p.me)?.name;
     if (!name) return [];
@@ -195,32 +153,16 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
             : <>{I.hash(15)}<span>{room.name}</span></>}
           {onSwitch && I.down()}
         </button>}
-      {!root && look === 'top-header' && <HeaderCount past={work} open={peek} onToggle={() => setPeek(!peek)} />}
       {!root && onInvite && room.kind !== 'group' && <button type="button" className="ic" title={`Invite people to ${room.name}`} aria-label={`Invite people to ${room.name}`} onClick={onInvite}>{I.invite(14)}</button>}
       {onExpand && <button type="button" className="ic" title="Open full page" aria-label="Open full page" onClick={onExpand}>{I.expand()}</button>}
     </div>}
-    {look === 'lane' && !root && <LiveLane past={work} now={woven?.now ?? []} who={whoOf} agents={room.agents} />}
-    {look === 'tally' && !root && <TallyStrip past={work} now={woven?.now ?? []} who={whoOf} />}
-    {look && (TOP_LOOKS as string[]).includes(look) && !root && woven && <TopProgress look={look as TopLook} past={work} now={woven.now} who={whoOf} at={now}
-      open={peek} onToggle={() => setPeek(!peek)} cheers={(e) => <Reactions on={{ '🎉': cheersFor(e)['🎉'] }} me={meId} onReact={() => {}} />} />}
-    <div className={`rm-chat-list${dense ? ' gp-tw' : ''}`} ref={listRef}>
-      {!root && lead}
-      {stream.map((m, i) => {
+    <div className="rm-chat-list" ref={listRef}>
+      {shown.map((m, i) => {
         const slot = slots[i];
-        if (!('body' in m)) {
-          const day = slot.day && <div className="rm-day"><span className="rm-label">{slot.day}</span></div>;
-          const toggle = () => setOpenBurst(burstOpen(m.id) ? '' : m.id);
-          if ('burst' in m && look === 'finishes') return <div key={m.id}>{day}<CheerBurst burst={m} who={whoOf} cheers={<Reactions on={cheersFor(m.burst[0])} me={meId} onReact={() => {}} />} /></div>;
-          if ('burst' in m && look === 'digest') return <div key={m.id}>{day}<DigestRow burst={m} who={whoOf} open={burstOpen(m.id)} onToggle={toggle} /></div>;
-          if ('burst' in m) return <div key={m.id}>{day}<BurstRow burst={m} who={whoOf} open={burstOpen(m.id)} onToggle={toggle} /></div>;
-          if (look === 'twitch') return <div key={m.id}>{day}<WorkTick ev={m} who={whoOf} /></div>;
-          if ((look === 'cheer' || look === 'finishes') && m.kind === 'finished') return <div key={m.id}>{day}<CheerCard ev={m} who={whoOf} project={look === 'cheer'} cheers={<Reactions on={cheersFor(m)} me={meId} onReact={() => {}} />} /></div>;
-          return <div key={m.id}>{day}<WorkLine ev={m} who={whoOf} wrap={!full} /></div>;
-        }
         const mine = m.by === meId;
         const reps = !root ? replies.get(m.id) ?? [] : [];
         const p = who(m.by);
-        const headed = dense || slot.head || (root && i === 0) || m.id === newAt;
+        const headed = slot.head || (root && i === 0) || m.id === newAt;
         return <div key={m.id}>
           {slot.day && <div className="rm-day"><span className="rm-label">{slot.day}</span></div>}
           {m.id === newAt && <div className="rm-new" role="separator"><span>New</span></div>}
@@ -243,7 +185,6 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
                 ? <div className="tx rm-gone">This message was deleted.</div>
                 : <div className="tx">{body(m)}</div>}
             {!headed && m.editedAt && !m.deleted && editing !== m.id && <em className="rm-edited">edited</em>}
-            {riders.has(m.id) && <RiderLine evs={riders.get(m.id)!} />}
             {!m.deleted && onReact && <Reactions on={m.reactions} me={meId} onReact={(emoji, off) => onReact(m.id, emoji, !off)} />}
             {reps.length > 0 && <button type="button" className="rep" onClick={() => setThread(m.id)}>
               {[...new Set(reps.map((r) => r.by))].slice(0, 3).map((id) => <RoomFace key={id ?? 'x'} name={who(id)?.name ?? '?'} url={who(id)?.avatarUrl} size={13} />)}
@@ -265,14 +206,7 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
           </div>
         </div>;
       })}
-      {!root && (foot ?? (look === 'quiet' && woven && <NowLines room={room} lines={woven.now} />))}
     </div>
-    {look && WITH_TICKER.includes(look) && woven && !root && (look === 'peek'
-      ? <WorkTicker past={work} now={woven.now} who={whoOf} at={now} open={peek} onOpen={() => setPeek(!peek)}>
-        <div className="gp-peek-h"><span className="rm-label">Today</span><span className="rm-ag"><LiveMark /><b>{room.agents}</b>&nbsp;agents working</span></div>
-        <div className="gp-peek-ls">{[...work].reverse().slice(0, 9).map((e) => <WorkTick key={e.id} ev={e} who={whoOf} />)}</div>
-      </WorkTicker>
-      : <WorkTicker past={work} now={woven.now} who={whoOf} at={now} />)}
     <Composer key={`${room.id}:${thread ?? ''}`} roomId={room.id} threadId={thread} people={others}
       placeholder={root ? `Reply to ${nameOf(root.by)}` : `Message ${room.kind === 'group' ? others.map((p) => p.name.split(' ')[0]).join(', ') || room.name : room.name}`}
       onPutFile={calls.onPutFile} onNotice={onNotice}
