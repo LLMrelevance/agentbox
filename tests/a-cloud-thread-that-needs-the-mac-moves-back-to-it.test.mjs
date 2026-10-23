@@ -85,13 +85,13 @@ describe('a cloud run that ends on the marked line', () => {
     expect(sup.settleDelivery({ id: 'w-a', product: 'p' }, 'please do it', session, null)).toBe('interrupted');
   });
 
+  // What it is told, and that only a run here is told it, is in
+  // tests/a-cloud-run-is-never-told-it-is-on-the-computer.
   it('tells the agent on the Mac why it is there, once', () => {
     const { sup } = make(tmp());
     sup._noteCloudHandBack({ id: 'w-a', product: 'p' }, ended());
-    const first = sup.replyBrief({ id: 'w-a', answer: 'please do it' });
-    expect(first).toMatch(/moved from the cloud to this computer/);
-    expect(first).toContain('please do it');
-    expect(sup.replyBrief({ id: 'w-a', answer: 'next' })).not.toMatch(/moved from the cloud/);
+    expect(sup._toldItMoved({ id: 'w-a' }, 'local')).toBe(true);
+    expect(sup._toldItMoved({ id: 'w-a' }, 'local')).toBe(false);
   });
 
   it('on this Mac, or with an ordinary answer, changes nothing', () => {

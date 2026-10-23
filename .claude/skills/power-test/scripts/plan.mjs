@@ -86,10 +86,11 @@ export const LOGIN_NAMES = ['default', '.claude-second', '.claude-third', '.clau
  * freeze, a Control-C. The tester is never told; a person learns of these from
  * the app, and whether the app says so is the test.
  */
-export function chaosPlan(level, totalMs, { real = false, logins = 2, codex = true } = {}) {
+export function chaosPlan(level, totalMs, { real = false, cloud = false, logins = 2, codex = true } = {}) {
   if (!CHAOS.includes(level)) throw new Error(`chaos is one of ${CHAOS.join(', ')}`);
   if (level === 'none') return [];
   const at = (f) => Math.round(totalMs * f);
+  if (cloud) return cloudDay(level, totalMs, at);
   const names = LOGIN_NAMES.slice(0, Math.max(1, logins));
   const share = { light: 0.01, normal: 0.02, heavy: 0.05 }[level];
   const events = [];
@@ -109,6 +110,35 @@ export function chaosPlan(level, totalMs, { real = false, logins = 2, codex = tr
   }
   if (level === 'heavy') events.push({ kind: 'crash', at: at(0.85), says: 'The app was stopped with Control-C mid-run, its agents with it, and opened again.' });
   return events.sort((a, b) => a.at - b.at);
+}
+
+// How long the cloud waits without a word from the Mac before it calls the
+// Mac away (main/cloud/run.mjs OFFLINE_AFTER_MS). A sleep shorter than this
+// never reaches the cloud's away path.
+export const CLOUD_AWAY_MS = 90_000;
+
+/**
+ * The cloud's day (--cloud): what a laptop does to runs that live elsewhere.
+ * A sleep stops the whole Mac, the cloud relay included (`whole`), for longer
+ * than the cloud waits before calling it away; `closed` quits the app and
+ * leaves it shut for minutes, as at lunch, before it opens again.
+ */
+function cloudDay(level, totalMs, at) {
+  const clamp = (ms, lo, hi) => Math.min(hi, Math.max(lo, Math.round(ms)));
+  const sleep = (f, ms) => ({ kind: 'sleep', at: at(f), ms, whole: true, says: `The Mac slept for ${Math.round(ms / 60_000 * 10) / 10} min, the app and its cloud relay with it, and woke.` });
+  const longSleep = clamp(totalMs * 0.03, 2 * 60_000, 6 * 60_000);
+  if (level === 'light') return [{ kind: 'restart', at: at(0.3), says: 'The app quit and opened again, as an update or a restart does.' }, sleep(0.6, longSleep)];
+  const shut = clamp(totalMs * 0.06, 3 * 60_000, 15 * 60_000);
+  const events = [
+    { kind: 'restart', at: at(0.12), says: 'The app quit and opened again, as an update or a restart does.' },
+    sleep(0.25, longSleep),
+    { kind: 'closed', at: at(0.38), ms: shut, says: `The app was quit and left shut for ${Math.round(shut / 60_000)} min, then opened again.` },
+    { kind: 'crash', at: at(0.52), says: 'The app was stopped with Control-C mid-run, its agents with it, and opened again.' },
+    { kind: 'restart', at: at(0.66), says: 'The app quit and opened again, as an update or a restart does.' },
+    sleep(0.8, 2 * 60_000),
+  ];
+  if (level === 'heavy') events.push({ kind: 'crash', at: at(0.9), says: 'The app was stopped with Control-C mid-run, its agents with it, and opened again.' });
+  return events;
 }
 
 /** The stand-ins' world at one moment: every window open then, merged; `out` is the union. */
@@ -252,7 +282,7 @@ TODAY'S TEST
 ${focus ? `The team shipped a change and asked you to lean on it today: ${focus}` : 'Nothing in particular: use it the way you always do.'}
 
 ${room ? `YOUR ROOM
-You are signed in to a real team, and you are in the ${room} room, under Rooms in the sidebar. The person who asked for this test is in the room with you and reads it live, so it is like sharing an office: say hello when you start, tell them now and then what you are working on and how it is going, ask them when you are stuck or something in the app confused you, and answer when they write to you. Use the room the way you would with a coworker, not as a report. Look at their card, open their page, try what a room offers (a thread, a mention with @, going invisible for a little while), and log anything about Rooms in your diary like anything else.
+You are signed in to a real team, and you are in the ${room} room, under Rooms in the sidebar. The person who asked for this test is in the room with you and reads it live, so it is like sharing an office: say hello when you start, tell them now and then what you are working on and how it is going, ask them when you are stuck or something in the app confused you, and answer when they write to you. Use the room the way you would with a coworker, not as a report. Look at their card, open their page, try what a room offers (a thread, a mention with @), and log anything about Rooms in your diary like anything else. Stay visible all day: they want to see you and what you are working on. Never go invisible, and if the menu under your name says you are, choose Come back.
 
 ` : ''}YOUR DIARY
 You keep a diary while you work, and the person who asked you to test reads all of it.

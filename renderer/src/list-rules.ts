@@ -517,6 +517,15 @@ export const REST_HEADING = 'Everything else';
 // does nothing, so a per-row hint would name the wrong target.
 export type RowKey = { key: string; word: string };
 
+/**
+ * Where R on a row opens its reply box: the tabs L works on. The app moves to
+ * In progress after a send, and an R that did nothing there left the words
+ * typed next to run as shortcuts.
+ */
+export function replyKeyWorksIn(view: string): boolean {
+  return view === 'inbox' || view === 'progress' || view === 'snoozed';
+}
+
 export function rowKeys(view: string, batch = false): RowKey[] {
   if (batch) return [];
   // The E word is DONE.short, the same word the button, the palette and the tab

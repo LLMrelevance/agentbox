@@ -81,7 +81,7 @@ import { approvalReads } from './approval-card';
 // there is anything to confirm the card has closed.
 import { sentLine, sendingLine } from './compose-says';
 import { wearJustMade, type JustMade } from './just-made';
-import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply, workMoving } from './list-rules';
+import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, replyKeyWorksIn, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply, workMoving } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
 import { opensATextField, takesTheListBack } from './keys';
 import { modelCommands } from './thread-model-commands';
@@ -107,7 +107,7 @@ import { WorkspaceNavigation } from './components/WorkspaceNavigation';
 import { useRooms } from './team/rooms/useRooms';
 import { RoomBoard } from './team/rooms/RoomBoard';
 import { directConversations } from './team/rooms/conversations';
-import { isPresenceCard, roomMateCards, roomMatesById } from './team/rooms/room-rules';
+import { isPresenceCard, roomMateCards, roomMatesById, tabOrder as roomTabOrder } from './team/rooms/room-rules';
 import { MARK_UNREAD, SAY } from './team/chat-events';
 import { MentionRows } from './team/rooms/MentionRows';
 import { FeedbackCard } from './components/FeedbackCard';
@@ -3207,19 +3207,6 @@ export default function App() {
     if (inInbox >= 0) inboxPlace.current = { id: focused.id, index: inInbox };
   }, [focused, stops, shownInbox]);
 
-  // WHAT A CONVERSATION NEEDS TO BRING AN AGENT IN AND TO DRAW ITS ANSWER
-  // (w-7b9cb8636a, team/ChatAgents.tsx): the projects it can be sent to, the
-  // model lists, and the tasks themselves, read off this snapshot.
-  const chatAgents = useMemo<ChatAgentsValue>(() => ({
-    projects: chatProjects(snap?.products ?? [], snap?.supervisor.productOrder ?? [], snap?.supervisor.hiddenProducts ?? []),
-    codexModels,
-    codexDefault: codexModelDefault,
-    find: (product, id) => items.find((i) => i.id === id && i.product === product),
-    stateOf: stateOfMine,
-    filed: (task) => threadsMade(items, task),
-    open: (task) => { setFocused(task); markSeen(task); },
-  }), [snap?.products, snap?.supervisor.productOrder, snap?.supervisor.hiddenProducts, codexModels, codexModelDefault, items, stateOfMine, markSeen]);
-
   // THE AGENTS A MESSAGE MENTIONS START WHEN THE MESSAGE LANDS, after the undo
   // window, so a Z inside it leaves nothing behind. Each becomes a task in its
   // project, briefed with the ask and the conversation so far, and the message
@@ -3251,6 +3238,22 @@ export default function App() {
     }
     return out;
   }, [snap?.products, team]);
+
+  // WHAT A CONVERSATION NEEDS TO BRING AN AGENT IN AND TO DRAW ITS ANSWER
+  // (w-7b9cb8636a, team/ChatAgents.tsx): the projects it can be sent to, the
+  // model lists, and the tasks themselves, read off this snapshot. `start` is
+  // for a reply in a thread, which is written at once rather than after the
+  // undo window the chat's own reply waits out.
+  const chatAgents = useMemo<ChatAgentsValue>(() => ({
+    projects: chatProjects(snap?.products ?? [], snap?.supervisor.productOrder ?? [], snap?.supervisor.hiddenProducts ?? []),
+    codexModels,
+    codexDefault: codexModelDefault,
+    find: (product, id) => items.find((i) => i.id === id && i.product === product),
+    stateOf: stateOfMine,
+    filed: (task) => threadsMade(items, task),
+    open: (task) => { setFocused(task); markSeen(task); },
+    start: startChatAgents,
+  }), [snap?.products, snap?.supervisor.productOrder, snap?.supervisor.hiddenProducts, codexModels, codexModelDefault, items, stateOfMine, markSeen, startChatAgents]);
 
   // AN URGENT ROW THAT ARRIVES WHILE SHE IS READING TAKES THE SCREEN.
   //
@@ -3519,7 +3522,7 @@ export default function App() {
     },
     // A teammate's card opens over the room, and Back comes back to it.
     renderBoard: (people, { later }) => <RoomBoard items={items} products={snap?.products ?? []} display={DEFAULT_DISPLAY.team} now={now} stateOf={stateOfMine} projectOrder={projectOrder}
-      cards={cards} picked={people} onOpenCard={openTeammateCard} columnOrder={columnOrder} later={later}
+      cards={[...cards, ...roomMateCards(snap?.team?.rooms?.rooms ?? [])]} picked={people} onOpenCard={(c) => { if (!isPresenceCard(c)) openTeammateCard(c); }} columnOrder={columnOrder} later={later}
       onOpenItem={(item) => { setFocused(item); markSeen(item); }} />,
     // A room-mate outside the team has no thread cards; their presence lines stand in, and open nothing.
     renderPersonBoard: (people) => <InboxBoard items={items} products={snap?.products ?? []} display={DEFAULT_DISPLAY.team} now={now} stateOf={stateOfMine} projectOrder={projectOrder}
@@ -5103,11 +5106,10 @@ export default function App() {
       // A ROOM OWNS THE KEYBOARD WHILE IT IS OPEN, as Settings does: the list
       // behind it is not on the screen. Escape goes back to the threads and
       // Tab walks on along the tabs. N goes on to the room's branch below the
-      // guard, because it opens a text field. B flips grid and board, as on the Inbox.
-      if (roomShown && e.key !== 'Tab' && e.key !== 'n' && e.key !== 'N') {
+      // guard, because it opens a text field, and \ to the sidebar key.
+      if (roomShown && e.key !== 'Tab' && e.key !== 'n' && e.key !== 'N' && e.key !== '\\') {
         if (roomsUi.dialogOpen || modal || inInput || e.metaKey || e.ctrlKey || e.altKey) return;
         if (e.key === 'Escape') { e.preventDefault(); roomsUi.close(); }
-        if ((e.key === 'b' || e.key === 'B') && roomsUi.flipView) { e.preventDefault(); roomsUi.flipView(); }
         return;
       }
       // ⌘J SHOWS AND HIDES THIS TASK'S TERMINAL.It is the chord VS Code,
@@ -5141,7 +5143,7 @@ export default function App() {
       if (e.key === 'Tab') {
         const onTheTabs = !inInput && !modal && !focused && !focusedRepeat && !inFullScreen
           && !settingsOpen && !teamShown && !openCard && !roomsUi.dialogOpen
-          && search === null && inboxDisplay.view === 'list' && !roomShown;
+          && search === null && inboxDisplay.view === 'list' && (!roomShown || roomsUi.inTab);
         if (!onTheTabs) return;
         // Built, not left alone: the browser's own focus walk would otherwise
         // paint a ring on whatever it landed on behind the rotation.
@@ -5149,7 +5151,14 @@ export default function App() {
         setHoveredId(null);
         (document.activeElement as HTMLElement | null)?.blur?.();
         setMultiSel(new Set());
-        setView(nextTab(stateTabOrder, view, e.shiftKey) as View);
+        // The room tab after Done is a tab too.
+        if (roomsUi.tabRoomId) {
+          const order = roomTabOrder(stateTabOrder, roomsUi.tabRoomId);
+          const next = nextTab(order, roomShown ? 'room' : view, e.shiftKey);
+          if (next === 'room') { roomsUi.openTab(); setSelected(0); return; }
+          roomsUi.leave();
+          setView(next as View);
+        } else setView(nextTab(stateTabOrder, view, e.shiftKey) as View);
         setSelected(0);
         return;
       }
@@ -5414,7 +5423,7 @@ export default function App() {
           else if (multiSel.size) batchDone(multiSel);
           else if (pointed && view === 'inbox') markDone(pointed);
           break;
-        case 'r': case 'R': if (!multiSel.size && pointed && view === 'inbox') { e.preventDefault(); setFocused(pointed); markSeen(pointed); setModal('reply'); } break;
+        case 'r': case 'R': if (!multiSel.size && pointed && replyKeyWorksIn(view)) { e.preventDefault(); setFocused(pointed); markSeen(pointed); setModal('reply'); } break;
         // 1 AND 2 ANSWER A CODEX CONVERSATION'S ROW WITHOUT OPENING IT, and I
         // brings a declined one back from Closed. Only on those rows: on every
         // other row they stay dead, as they were. They were Y and N until
@@ -5982,7 +5991,7 @@ export default function App() {
            offering the move. Null on every copy that can. */
         move={announcesMove(snap?.update, { walking, closed: '' }) ? { place: snap?.update?.place ?? null, error: snap?.update?.moveError ?? null } : null}
         onMove={() => { void api.updateMove(); }}
-        page={settingsOpen ? 'settings' : null} roomOpen={roomShown || directOnMessages} rooms={roomsUi.nav(workspaceCollapsed, directOnMessages)} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
+        page={settingsOpen ? 'settings' : null} roomOpen={(roomShown && !roomsUi.inTab) || directOnMessages} rooms={roomsUi.nav(workspaceCollapsed, directOnMessages)} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onSignOut={() => { void api.teamSignOut().then(() => refresh()); }}
@@ -6678,6 +6687,7 @@ export default function App() {
                     lit={needsYouLit(inbox, needsLookedAt)}
                     onView={(next) => { roomsUi.leave(); setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                     onSearch={openSearch}
+                    after={roomsUi.roomTab} dim={roomShown}
                   />
                 )}
                 {roomShown ? roomsUi.page : <>

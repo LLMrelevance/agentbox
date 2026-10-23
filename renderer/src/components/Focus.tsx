@@ -10,7 +10,7 @@ import { TicketItems, TicketLink, TicketNavigation } from './TicketReference';
 import { Mention, MentionIcon } from './Mention';
 import { folderTitle, mentionKind, mentionLabel, mentionName, type MentionKind } from '../mentions';
 import { TaskTerminal } from './TaskTerminal';
-import { isLocalPreview } from '../artifact-layout';
+import { whereALinkGoes, type LinkClick } from '../link-click';
 import { watchCommandCatalog } from '../command-catalog';
 import { providerCommand } from '../../../shared/provider-commands.mjs';
 // Focus mode: the whole interruption, rendered to be decidable in seconds.
@@ -72,8 +72,6 @@ import { pictureRoots } from '../message-folders';
 import { changePathFor } from '../code-artifact';
 import { fileCount, figuresFrom, figuresLabel, signed, type ChangeFigures } from '../change-figures';
 import { embeddedDocuments, isBookkeeping } from '../message-artifacts';
-import { opensInPane } from '../doc-pane';
-import { opensAsPicture } from '../picture-view';
 import { PictureView, picturesFor, type Picture } from './PictureView';
 import { watchScrollGutter } from '../scroll-gutter';
 import { CODE_PATH, artifactUrlTransform, isMediaPath, productPath, remarkArtifactPaths } from '../remark-artifact-paths';
@@ -120,7 +118,7 @@ import {
 import { SummaryPanel, SummaryRail, ThreadCrumb, ThreadStateMark, useSummaryOpen, useSummaryShortcut, type RepeatHandle } from '../threads/Summary';
 import { ThreadMenu, type ThreadPlace } from '../threads/ThreadMenu';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
-import { useChatMentions } from '../team/ChatAgents';
+import { ChatAgentsContext, useChatMentions } from '../team/ChatAgents';
 import { useThreadMentions } from './ThreadMentions';
 import { AGENT_SCHEME } from '../team/agent-mentions';
 import { defaultModelFor, engineModelLabel } from '../models';
@@ -461,7 +459,7 @@ const MessagePlace = createContext<{ roots: string[]; drawsPictures: boolean }>(
 // It is drawn as a quiet mention (Mention.tsx): the kind's icon and the name,
 // with the full path in the hover title rather than orange in the sentence.
 function ArtifactLink({ kind, product, src, fallback, onOpen, children }: {
-  kind: MentionKind; product: string; src?: string; fallback?: string; onOpen: () => void; children: ReactNode;
+  kind: MentionKind; product: string; src?: string; fallback?: string; onOpen: (click: LinkClick) => void; children: ReactNode;
 }) {
   const [href, setHref] = useState(fallback);
   useEffect(() => {
@@ -471,7 +469,7 @@ function ArtifactLink({ kind, product, src, fallback, onOpen, children }: {
       .then((r: { ok: boolean; opened?: string }) => { if (r?.ok && r.opened) setHref(`file://${r.opened}`); })
       .catch(() => {});
   }, [product, src]);
-  return <Mention kind={kind} href={href} title={src} onClick={(e) => { e.preventDefault(); onOpen(); }}>{children}</Mention>;
+  return <Mention kind={kind} href={href} title={src} onClick={(e) => { e.preventDefault(); onOpen(e); }}>{children}</Mention>;
 }
 
 // What a link's own words become. A path or an address the worker wrote out
@@ -725,6 +723,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
 }) {
   // A TASK GIVEN TO A PERSON has no agent on it, so nothing says one is not running.
   const teamCtx = useContext(TeamContext);
+  const chatAgents = useContext(ChatAgentsContext);
   const heldByPerson = teamHeld(item, teamCtx);
   // Whatever the pane is leading with, not the ask alone: on a row the user wrote,
   // the ask is the one field a worker cannot answer in (format.ts says why).
@@ -1145,21 +1144,14 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     // wrong file, which is worse.
     //
     // A miss now SAYS SO.
-    const openHref = (href?: string, from?: HTMLElement) => {
+    const openHref = (href?: string, from?: HTMLElement, click?: LinkClick) => {
       if (!href) return;
       const { onOpenDoc, onNotice, openPicture } = markdownActions.current;
-      // A picture opens large over the thread; the pane squeezed it to half the window.
-      if (opensAsPicture(href)) { openPicture(href, from); return; }
-      // A PAGE OR A MARKDOWN FILE OPENS IN THE PANE.Everything else still goes
-      // to the app that owns it, because Preview draws a png better than we
-      // ever will.
-      //
-      // AND SO DOES AN ORDINARY WEB LINK, since 2026-10-15. It used to be
-      // excluded here by hand (`!/^https?:/.test(href)`), so every https
-      // address left the app for the browser and the thread went out of sight.
-      // `docKind` now answers `website` for one, so the question is the same
-      // question for a file and for a page: does the pane draw this.
-      if (onOpenDoc && (opensInPane(href) || isLocalPreview(href))) { onOpenDoc(href); return; }
+      // A picture opens large over the thread, a page or a web address opens
+      // in the pane, and a ⌘-click sends any of them out (../link-click.ts).
+      const goes = whereALinkGoes(href, click, { pane: !!onOpenDoc });
+      if (goes === 'picture') { openPicture(href, from); return; }
+      if (goes === 'pane') { onOpenDoc?.(href); return; }
       const api = (window as any).zero;
       if (!api?.openArtifact) { window.open(resolveSrc(href), '_blank'); return; }
       const source = sourceReference(href);
@@ -1210,7 +1202,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         if (href && isMediaPath(href)) {
           return <ArtifactMedia key={href} src={href} label={textOf(children) ?? undefined} roots={roots} onOpen={openHref} />;
         }
-        return <ArtifactLink kind={mentionKind(href ?? '')} product={product} src={href} fallback={resolveSrc(href)} onOpen={() => openHref(href)}>{href ? linkLabel(href, children) : children}</ArtifactLink>;
+        return <ArtifactLink kind={mentionKind(href ?? '')} product={product} src={href} fallback={resolveSrc(href)} onOpen={(click) => openHref(href, undefined, click)}>{href ? linkLabel(href, children) : children}</ArtifactLink>;
       },
       img: ({ src, alt }: { src?: string; alt?: string }) => {
         const { roots } = useContext(MessagePlace);
@@ -1221,7 +1213,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         const value = String(children ?? '');
         if (!className && ticketReference(value)) return <code>{children}</code>;
         const source = !className && sourceReference(value);
-        if (source) return <ArtifactLink kind="code" product={product} src={source} fallback={resolveSrc(source)} onOpen={() => openHref(source)}>{mentionName(value)}</ArtifactLink>;
+        if (source) return <ArtifactLink kind="code" product={product} src={source} fallback={resolveSrc(source)} onOpen={(click) => openHref(source, undefined, click)}>{mentionName(value)}</ArtifactLink>;
         // Written out in full into this product's folder counts as the short
         // path it names, the same rule a full path in a sentence follows.
         const shown = value.trim();
@@ -1233,7 +1225,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
           if (isMediaPath(path)) {
             return <ArtifactMedia key={path} src={path} label={shown} roots={roots} onOpen={openHref} />;
           }
-          return <ArtifactLink kind={mentionKind(path)} product={product} src={path} fallback={resolveSrc(path)} onOpen={() => openHref(path)}>{mentionName(path)}</ArtifactLink>;
+          return <ArtifactLink kind={mentionKind(path)} product={product} src={path} fallback={resolveSrc(path)} onOpen={(click) => openHref(path, undefined, click)}>{mentionName(path)}</ArtifactLink>;
         }
         return <code className={className}>{children}</code>;
       },
@@ -1782,10 +1774,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
                 onResize: resizeThread,
                 // A REPLY IN A THREAD is an answer on this conversation like any
                 // other, so it reaches the same inboxes and syncs the same way;
-                // it only names the message it answers.
-                onSend: (uid, text) => api.answer({ product: item.product, id: item.id, answer: text, inReplyTo: uid })
-                  .then(() => true, () => { onNotice('That reply did not send. Try again.'); return false; }),
+                // it only names the message it answers. An agent it mentions
+                // starts first, as from the chat's own box.
+                onSend: (uid, text) => (chatAgents?.start ? chatAgents.start(item, text) : Promise.resolve(text))
+                  .then((answer) => api.answer({ product: item.product, id: item.id, answer, inReplyTo: uid }).then(() => answer))
+                  .catch(() => { onNotice('That reply did not send. Try again.'); return false; }),
                 fresh: freshThreads,
+                people: talkNames ?? [],
               } : undefined}
             />
           )}

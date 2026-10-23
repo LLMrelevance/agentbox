@@ -8,6 +8,8 @@
 // the conversation. Long text is cut, and only the latest lines go. Browser-
 // safe: no node imports.
 
+import { checkSetting } from './phone-settings.mjs';
+
 // How much of one thread goes up. The latest of a thread is what she reads on
 // a phone; the whole of it stays on the Mac. `bytes` is measured in UTF-8, as
 // the database measures it (Codex's review of step 1, finding 9).
@@ -226,7 +228,8 @@ export function snapshotKey(snapshot) {
 // WHAT HER PHONE MAY ASK HER MAC TO DO, and nothing else. A command that is not
 // one of these, or names a project she did not put on her phone, or a thread
 // that is not in it, is refused and says why.
-export const PHONE_COMMANDS = ['reply', 'new', 'snooze', 'close', 'stop', 'run-now', 'send-now', 'reopen', 'schedule', 'approve'];
+// A `setting` belongs to the computer, not a project (shared/phone-settings.mjs).
+export const PHONE_COMMANDS = ['reply', 'new', 'snooze', 'close', 'stop', 'run-now', 'send-now', 'reopen', 'schedule', 'approve', 'setting'];
 
 // A PERMISSION CARD AS HER PHONE DRAWS IT: what the agent asks to do, with the
 // secrets in it hidden as a thread's words are, and the fingerprint of the card
@@ -269,6 +272,7 @@ export function phoneChoices(kind, p) {
 }
 export function checkCommand(cmd, { projects, hasItem }) {
   if (!cmd || !PHONE_COMMANDS.includes(cmd.kind)) return 'not something the phone may do';
+  if (cmd.kind === 'setting') return cmd.project != null || cmd.item != null ? 'a setting names no project or thread' : checkSetting(cmd.payload);
   if (!projects.includes(cmd.project)) return 'that project is not on your phone';
   const p = cmd.payload || {};
   if (cmd.kind === 'new') {

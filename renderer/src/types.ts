@@ -873,7 +873,7 @@ export interface Snapshot {
    * WHETHER THIS MAC WAS ALREADY SIGNED INTO A CODING AGENT, AND WHICH
    *  (w-e217e577e5, 2026-10-07), for the one line the walk says about it.
    *  Answered whole by `Supervisor#runsOnAccount`, for the reason `engines` is:
-   *  which account the fleet spends is `_narrowToChosen`'s rule, pinned to that
+   *  which account the fleet spends is `_theOneAccount`'s rule, pinned to that
    *  file. Null, or absent on an older payload, on a Mac where nothing readable
    *  is signed in, and then nothing is said. The words are shared/runs-on.mjs.
    *
@@ -994,9 +994,10 @@ export interface ProjectSettings {
   /** This project's own Codex mode, or 'workspace' when it has no opinion. */
   codexMode: CodexModeId | 'workspace';
   /**
-   * The one Claude account this project's agents run on, or 'any' when it runs
-   * on whichever has room. Never a login that has since been signed out: the
-   * supervisor answers 'any' for a tie it can no longer honour.
+   * The one Claude account this project's agents run on, or 'any' when it has
+   * no tie of its own and runs on the account in use. Never a login that has
+   * since been signed out: the supervisor answers 'any' for a tie it can no
+   * longer honour.
    */
   account?: string;
   // The user's rules for this project, as they sit on disk. Empty means the file does

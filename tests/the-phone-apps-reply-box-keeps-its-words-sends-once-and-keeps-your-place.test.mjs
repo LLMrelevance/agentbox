@@ -103,7 +103,7 @@ describe('signed out', () => {
     expect(screenGate({ opened: true, signedIn: true })).toBe('show');
   });
   it('the thread, the new thread and Settings all ask it', () => {
-    for (const file of ['mobile/src/app/thread/[product]/[id].tsx', 'mobile/src/app/new.tsx', 'mobile/src/app/settings.tsx']) {
+    for (const file of ['mobile/src/app/thread/[product]/[id].tsx', 'mobile/src/app/new.tsx', 'mobile/src/app/settings/_layout.tsx']) {
       const text = fs.readFileSync(file, 'utf8');
       expect(text, file).toMatch(/screenGate\(/);
       expect(text, file).toMatch(/<Redirect href="\/sign-in" \/>/);

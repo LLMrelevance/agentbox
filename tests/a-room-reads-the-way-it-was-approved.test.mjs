@@ -184,14 +184,14 @@ describe('getting to a room, and keys on it', () => {
   const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
   const rooms = fs.readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
   it('opening a room leaves whatever covered it: a thread, a direct chat, the Team page, search', () => {
-    expect(rooms).toMatch(/const openRoom = \(id: string, \{ asFull = false \} = \{\}\) => \{ onLeavePage\(\);/);
+    expect(rooms).toMatch(/const openRoom = \(id: string, \{ asFull = false(, inTab: tab = false)? \} = \{\}\) => \{ onLeavePage\(\);/);
     expect(app).toMatch(/onLeavePage: \(\) => \{ setFocused\(null\); setFocusedRepeat\(null\); setTeamOpen\(false\); closeSearch\(\); \}/);
     expect(rooms).not.toMatch(/onLeaveDirect/);
   });
   // Below the guard that swallows a key opening a text field, so the N is
   // not typed into the box it opens (tests/shortcuts-swallow-their-key).
   it('N starts a new thread from a room, as it does everywhere else', () => {
-    expect(app).toMatch(/if \(roomShown && e\.key !== 'Tab' && e\.key !== 'n' && e\.key !== 'N'\) \{/);
+    expect(app).toMatch(/if \(roomShown && e\.key !== 'Tab' && e\.key !== 'n' && e\.key !== 'N'( && e\.key !== '\\\\')?\) \{/);
     const branch = app.indexOf("if ((e.key === 'n' || e.key === 'N') && !roomsUi.dialogOpen) setModal('compose');");
     expect(branch).toBeGreaterThan(app.indexOf('if (opensATextField(e.key)) e.preventDefault();'));
   });

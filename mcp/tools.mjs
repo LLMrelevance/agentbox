@@ -17,6 +17,7 @@ import { listProducts, getProduct, createProduct, updateProduct } from './core/p
 import { listDocuments, readDocument, writeDocument } from './core/documents.mjs';
 import { listSkills, fetchSkill, fetchReference } from './core/skills.mjs';
 import { listWorkItems, updateItem, createClaimRegistry } from './core/work.mjs';
+import { readStandingInstruction, setStandingInstruction } from './core/repeats.mjs';
 import { listProductChats, readProductChat } from './core/chat.mjs';
 import { lookAtPage } from './core/page.mjs';
 import { WORK_ITEM_STATUSES } from '../shared/work-items.mjs';
@@ -33,6 +34,7 @@ import { Name, possessive } from '../shared/product-name.mjs';
 const CAPABILITIES = [
   'products', 'documents (read and write, any path in the product)',
   'personas and transcripts (they are documents)', 'skills', 'work items', 'past chats (read only)',
+  'the standing instruction behind a repeating task, on a thread that is one of its runs',
   'looking at a page running on this machine (look_at_page, local addresses only)',
 ];
 const MISSING = [
@@ -50,7 +52,8 @@ const guard = (fn) => async (args) => {
   try { return await fn(args ?? {}); } catch (err) { return { ...text(`error: ${err?.message ?? err}`), isError: true }; }
 };
 
-export function buildTools({ holder } = {}) {
+// `ownItem` is the row this server's session was started for, if any.
+export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } = {}) {
   const account = resolveAccount();
   const claims = createClaimRegistry({ holder: holder ?? `mcp-${process.pid}` });
 
@@ -177,7 +180,7 @@ export function buildTools({ holder } = {}) {
     },
     {
       name: 'claim_work_item',
-      description: 'Take exclusive ownership of a work item before starting it. Pass an id for a specific one, or a filter to pull the next available item (highest priority, then oldest) from any product. Returns claimed false with the current holder if someone else has it, which is an ordinary outcome: ask for the next one instead. The claim is kept alive automatically for as long as this session runs and is released if it dies, so there is nothing to renew and nothing to clean up. If an earlier session on this row lost its claim mid-write, that write comes back with the claim, in `pending`: it never reached the row or the founder, so read it and carry what is still true into your own note or result.',
+      description: 'Take exclusive ownership of a work item before starting it. Pass an id for a specific one, or a filter to pull the next available item (highest priority, then oldest) from any product. With neither, a session started for a work item claims that item. Returns claimed false with the current holder if someone else has it, which is an ordinary outcome: ask for the next one instead. The claim is kept alive automatically for as long as this session runs and is released if it dies, so there is nothing to renew and nothing to clean up. If an earlier session on this row lost its claim mid-write, that write comes back with the claim, in `pending`: it never reached the row or the founder, so read it and carry what is still true into your own note or result.',
       schema: {
         product: z.string().optional(),
         id: z.string().optional(),
@@ -187,7 +190,11 @@ export function buildTools({ holder } = {}) {
           product: z.string().optional(),
         }).optional(),
       },
-      run: async ({ product, id, filter }) => json(await claims.claim({ product, id, filter: filter ?? (id ? null : {}) })),
+      // A bare call from a session started for a row means that row, not the oldest open one anywhere.
+      run: async ({ product, id, filter }) => {
+        if (!id && !filter && ownItem) return json(await claims.claim({ id: ownItem }));
+        return json(await claims.claim({ product, id, filter: filter ?? (id ? null : {}) }));
+      },
     },
     {
       name: 'update_work_item',
@@ -215,6 +222,25 @@ export function buildTools({ holder } = {}) {
       description: 'Hand an item back unfinished so another session can take it. Worth doing when you find it is not what you thought, or belongs to work you are not equipped for; otherwise it stays held until this session ends.',
       schema: { id: z.string() },
       run: ({ id }) => json(claims.release(id)),
+    },
+
+    /* --------------------------- repeating tasks --------------------------- */
+    // The rule itself, for the session standing on one of its runs. A run that
+    // edits its own body edits a copy, and a memory note is kept per task
+    // folder while every run gets a new one, so neither reaches tomorrow.
+    {
+      name: 'read_repeating_task',
+      description: 'The standing instruction behind this run, if this thread is one run of a repeating task: the words every run after this one is briefed with, plus the schedule and when it next runs. Read it before changing it; set_repeating_task replaces the whole instruction.',
+      schema: {},
+      run: () => json(readStandingInstruction()),
+    },
+    {
+      name: 'set_repeating_task',
+      description: 'Change the standing instruction behind this run, so the next run and every one after it is briefed with the new words. This is what to use when the person tells you, on a run, how the task should go from now on ("if there is nothing new, don\'t bother me") — they should not have to go and edit it themselves, and a memory note will not do it, because every run gets a new task folder. Send the WHOLE instruction, not the part you are adding: read_repeating_task first, then send it back with their change in it. Only the words are yours: the hour, the day and which coding agent runs it stay on their own screen, and it only works on a thread that is a run of a repeating task.',
+      schema: {
+        instruction: z.string().describe('the whole standing instruction, as the person would have typed it'),
+      },
+      run: ({ instruction }) => json(setStandingInstruction({ instruction })),
     },
 
     /* -------------------------------- chats -------------------------------- */
