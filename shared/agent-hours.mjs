@@ -127,7 +127,7 @@ export function runFromTrace({ name, text = '', mtimeMs, item, product }) {
   const m = /^(\d{12,14})\.log$/.exec(String(name ?? ''));
   if (!m) return null;
   const start = Number(m[1]);
-  const footer = /# exited \((-?\d+|null)\) (\S+)\s*$/m.exec(String(text));
+  const footer = /# exited \((-?\d+|null)\) (\S+)(?: · [^\n]*)?\s*$/m.exec(String(text));
   const end = footer ? Date.parse(footer[2]) : Number(mtimeMs);
   if (!Number.isFinite(end) || end <= start) return null;
   const seconds = Math.round((end - start) / 1000);
