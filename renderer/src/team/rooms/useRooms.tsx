@@ -352,7 +352,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       title: backTitle(name),
       right: <div className="th-right">
         {look === 'title' && <TitleFaces room={open} onPerson={(id) => setPane(`person:${id}`)} />}
-        {look === 'drawer' && <HeaderPill past={day.past} now={day.now} who={who} open={dayOpen} onToggle={() => setDayOpen(!dayOpen)} />}
+        {(look === 'drawer' || look === 'drawer2') && <HeaderPill past={day.past} now={day.now} who={who} open={dayOpen} onToggle={() => setDayOpen(!dayOpen)} />}
         {PAGE_LOOKS.includes(look) && renderBoard && <button type="button" className="th-new" onClick={() => { setBoardOn(true); setView('board'); }}>Board</button>}
         {open.kind !== 'group' && <button type="button" className="th-new" onClick={() => setDialog({ kind: 'invite', roomId: open.id })}>{I.invite(15)}Invite</button>}
       </div>,

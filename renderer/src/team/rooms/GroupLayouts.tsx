@@ -6,21 +6,17 @@ import type { Room } from '../../types';
 import { LiveMark } from '../../components/LiveMark';
 import { Reactions } from '../ChatActions';
 import { RoomFace } from './RoomFace';
-import { CheerBurst, CheerCard, DayList, PersonRow, WorkMark, inGroupOrder, type GroupEvent } from './GroupPage';
+import { CheerBurst, CheerCard, DayList, PersonRow, WorkMark, drawnCheers, inGroupOrder, type GroupEvent } from './GroupPage';
+import { DayFeed, DayLine, FacePicker, PeopleStack, PersonDay } from './GroupDay';
 import { cardName } from './room-rules';
 
-export type PageLook = 'rail' | 'pulse' | 'drawer' | 'band' | 'digest';
-export const PAGE_LOOKS: string[] = ['rail', 'pulse', 'drawer', 'band', 'digest'];
+export type PageLook = 'rail' | 'pulse' | 'drawer' | 'band' | 'digest' | 'drawer2' | 'pulse2' | 'one' | 'stack' | 'feedpick';
+export const PAGE_LOOKS: string[] = ['rail', 'pulse', 'drawer', 'band', 'digest', 'drawer2', 'pulse2', 'one', 'stack', 'feedpick'];
 
 type Who = (id: string | null) => { name: string; avatarUrl: string | null; me: boolean } | undefined;
 const first = (who: Who, id: string) => { const p = who(id); return p ? cardName(p).split(' ')[0] : 'Someone'; };
 
-/** Cheers on finished work, drawn from the people here; nothing stores them yet. */
-export function drawnCheers(ev: GroupEvent, ids: string[]): string[] {
-  const others = ids.filter((id) => id !== ev.by);
-  const n = [...ev.id].reduce((s, c) => s + c.charCodeAt(0), 0);
-  return others.slice(0, 1 + (n % Math.max(1, others.length)));
-}
+export { drawnCheers };
 
 function Today({ done, working, compact = false }: { done: number; working: number; compact?: boolean }) {
   return <div className={`gl-big${compact ? ' compact' : ''}`}>
@@ -81,6 +77,21 @@ export function GroupLayout({ room, look, chat, past, now, who, onPerson, open, 
   const cheers = (e: GroupEvent) => <Reactions on={{ '🎉': drawnCheers(e, ids) }} me={meId} onReact={() => {}} />;
   const done = past.filter((e) => e.kind === 'finished').length;
   const [shown] = useState(() => inGroupOrder(room.wall));
+  // Whose day the sidebar shows: the busiest teammate first, or everyone.
+  const [picked, setPicked] = useState<string | null>(() => look === 'feedpick' ? null : shown.find((c) => !c.me && c.agents)?.id ?? shown[0]?.id ?? null);
+  const day = (side: ReactNode) => <div className="gp g5"><div className="gp-chat">{chat}</div>{side}</div>;
+  if (look === 'drawer2') return day(open && <aside className="g5-side"><DayLine room={room} past={past} now={now} />
+    {shown.map((c) => <PersonDay key={c.id} card={c} past={past} ids={ids} />)}</aside>);
+  if (look === 'pulse2') return day(<aside className="g5-side"><DayLine room={room} past={past} now={now} /><DayFeed past={past} who={who} ids={ids} /></aside>);
+  if (look === 'one') {
+    const card = shown.find((c) => c.id === picked) ?? shown[0];
+    return day(<aside className="g5-side"><FacePicker cards={shown} picked={card?.id ?? null} onPick={(id) => setPicked(id)} />
+      {card && <PersonDay card={card} past={past} ids={ids} big limit={8} />}
+      <div className="g5-foot"><DayLine room={room} past={past} now={now} /></div></aside>);
+  }
+  if (look === 'stack') return day(<aside className="g5-side"><DayLine room={room} past={past} now={now} /><PeopleStack room={room} past={past} ids={ids} /></aside>);
+  if (look === 'feedpick') return day(<aside className="g5-side"><FacePicker cards={shown} picked={picked} onPick={setPicked} all />
+    <DayFeed past={past} who={who} ids={ids} only={picked} /></aside>);
   if (look === 'rail') {
     return <div className="gp gl-rail"><div className="gp-chat">{chat}</div>
       <aside className="gl-side">

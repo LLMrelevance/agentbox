@@ -10,7 +10,7 @@ import { openStage } from './lib/groups-stage.mjs';
 const [dist, out, only] = process.argv.slice(2);
 fs.mkdirSync(out, { recursive: true });
 const looks = only ? only.split(',') : ['rail', 'pulse', 'drawer', 'band', 'digest'];
-const opener = { drawer: '.gl-pill', band: '.gl-band .more', digest: '.gl-digest .more' };
+const opener = { drawer: '.gl-pill', drawer2: '.gl-pill', band: '.gl-band .more', digest: '.gl-digest .more', one: '.g5-faces .f >> nth=2', feedpick: '.g5-faces .f >> nth=2' };
 
 for (const look of looks) {
   const app = await openStage({ dist: path.resolve(dist), init: { 'groups.look': look } });

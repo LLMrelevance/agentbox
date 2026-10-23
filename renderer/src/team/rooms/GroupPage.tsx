@@ -6,8 +6,15 @@ import { LiveMark } from '../../components/LiveMark';
 import { RoomFace } from './RoomFace';
 import { agentsWords, cardName, clockOf } from './room-rules';
 
-export type GroupLook = 'beside' | 'above' | 'woven' | 'wall' | 'title' | 'rail' | 'pulse' | 'drawer' | 'band' | 'digest';
-export const GROUP_LOOKS: GroupLook[] = ['beside', 'above', 'woven', 'wall', 'title', 'rail', 'pulse', 'drawer', 'band', 'digest'];
+export type GroupLook = 'beside' | 'above' | 'woven' | 'wall' | 'title' | 'rail' | 'pulse' | 'drawer' | 'band' | 'digest' | 'drawer2' | 'pulse2' | 'one' | 'stack' | 'feedpick';
+export const GROUP_LOOKS: GroupLook[] = ['beside', 'above', 'woven', 'wall', 'title', 'rail', 'pulse', 'drawer', 'band', 'digest', 'drawer2', 'pulse2', 'one', 'stack', 'feedpick'];
+
+/** Cheers on finished work, drawn from the people here; nothing stores them yet. */
+export function drawnCheers(ev: { id: string; by: string }, ids: string[]): string[] {
+  const others = ids.filter((id) => id !== ev.by);
+  const n = [...ev.id].reduce((s, c) => s + c.charCodeAt(0), 0);
+  return others.slice(0, 1 + (n % Math.max(1, others.length)));
+}
 
 /** Unset, a group is the room page as shipped: the wall or board, and the chat beside it. */
 export function readGroupLook(): GroupLook | null {
