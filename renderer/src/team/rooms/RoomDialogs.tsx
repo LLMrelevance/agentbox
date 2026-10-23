@@ -77,7 +77,7 @@ type Who = 'link' | 'invite' | 'everyone';
 
 export function StartRoomDialog({ canList, onStart, onClose, onFind }: {
   canList: boolean; onStart: (o: { name: string; who: Who }) => Promise<string | null>; onClose: () => void;
-  /** Find a room to join instead. */
+  /** Find a group to join instead. */
   onFind?: () => void;
 }) {
   const [name, setName] = useState('');
@@ -94,24 +94,24 @@ export function StartRoomDialog({ canList, onStart, onClose, onFind }: {
   const opt = (id: Who, title: string, say: string, disabled = false) =>
     <button type="button" className={`rm-opt${who === id ? ' on' : ''}`} disabled={disabled} onClick={() => setWho(id)} role="radio" aria-checked={who === id}>
       <span className="bx" /><div><b>{title}</b><span>{say}</span></div></button>;
-  return <Dialog onClose={onClose} label="Start a room">
-    <div className="sec"><div className="t">Start a room{close(onClose)}</div></div>
+  return <Dialog onClose={onClose} label="Start a group">
+    <div className="sec"><div className="t">Start a group{close(onClose)}</div></div>
     <div className="sec">
       <span className="rm-label">Name</span>
-      <div className="rm-field"><input className="rm-input" autoFocus maxLength={40} value={name} aria-label="Room name" placeholder="Weekend builds"
+      <div className="rm-field"><input className="rm-input" autoFocus maxLength={40} value={name} aria-label="Group name" placeholder="Weekend builds"
         onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') void start(); if (e.key === 'Escape') onClose(); }} /></div>
       <span className="rm-label" style={{ marginTop: 8 }}>Who can join</span>
       <div role="radiogroup" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {opt('link', 'Anyone with the link', 'Share it with friends. It is not listed anywhere.')}
         {opt('invite', 'Only people you invite', 'By email, one at a time.')}
-        {opt('everyone', `Anyone on ${Name}`, canList ? 'Listed in Find rooms, like General.' : 'Needs a team while Rooms is in alpha.', !canList)}
+        {opt('everyone', `Anyone on ${Name}`, canList ? 'Listed in Find groups, like General.' : 'Needs a team while Groups is in alpha.', !canList)}
       </div>
       {error && <span className="rm-err" role="alert">{error}</span>}
     </div>
     <div className="sec"><div className="rm-acts">
-      {onFind && <button type="button" className="rm-btn" style={{ marginRight: 'auto' }} onClick={onFind}>{I.search()}Find a room to join</button>}
+      {onFind && <button type="button" className="rm-btn" style={{ marginRight: 'auto' }} onClick={onFind}>{I.search()}Find a group to join</button>}
       <button type="button" className="rm-btn" onClick={onClose}>Cancel</button>
-      <button type="button" className="rm-btn go" disabled={!name.trim() || busy} onClick={() => void start()}>Start room</button>
+      <button type="button" className="rm-btn go" disabled={!name.trim() || busy} onClick={() => void start()}>Start group</button>
     </div></div>
   </Dialog>;
 }
@@ -127,7 +127,7 @@ export function JoinDialog({ preview, myName, onJoin, onClose }: {
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  return <Dialog onClose={onClose} label="Join a room">
+  return <Dialog onClose={onClose} label="Join a group">
     {!preview
       ? <div className="sec"><div className="t">That invite link does not work any more{close(onClose)}</div>
         <span className="rm-note">Ask whoever sent it for a new one.</span></div>

@@ -52,7 +52,8 @@ const guard = (fn) => async (args) => {
   try { return await fn(args ?? {}); } catch (err) { return { ...text(`error: ${err?.message ?? err}`), isError: true }; }
 };
 
-export function buildTools({ holder } = {}) {
+// `ownItem` is the row this server's session was started for, if any.
+export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } = {}) {
   const account = resolveAccount();
   const claims = createClaimRegistry({ holder: holder ?? `mcp-${process.pid}` });
 
@@ -179,7 +180,7 @@ export function buildTools({ holder } = {}) {
     },
     {
       name: 'claim_work_item',
-      description: 'Take exclusive ownership of a work item before starting it. Pass an id for a specific one, or a filter to pull the next available item (highest priority, then oldest) from any product. Returns claimed false with the current holder if someone else has it, which is an ordinary outcome: ask for the next one instead. The claim is kept alive automatically for as long as this session runs and is released if it dies, so there is nothing to renew and nothing to clean up. If an earlier session on this row lost its claim mid-write, that write comes back with the claim, in `pending`: it never reached the row or the founder, so read it and carry what is still true into your own note or result.',
+      description: 'Take exclusive ownership of a work item before starting it. Pass an id for a specific one, or a filter to pull the next available item (highest priority, then oldest) from any product. With neither, a session started for a work item claims that item. Returns claimed false with the current holder if someone else has it, which is an ordinary outcome: ask for the next one instead. The claim is kept alive automatically for as long as this session runs and is released if it dies, so there is nothing to renew and nothing to clean up. If an earlier session on this row lost its claim mid-write, that write comes back with the claim, in `pending`: it never reached the row or the founder, so read it and carry what is still true into your own note or result.',
       schema: {
         product: z.string().optional(),
         id: z.string().optional(),
@@ -189,7 +190,11 @@ export function buildTools({ holder } = {}) {
           product: z.string().optional(),
         }).optional(),
       },
-      run: async ({ product, id, filter }) => json(await claims.claim({ product, id, filter: filter ?? (id ? null : {}) })),
+      // A bare call from a session started for a row means that row, not the oldest open one anywhere.
+      run: async ({ product, id, filter }) => {
+        if (!id && !filter && ownItem) return json(await claims.claim({ id: ownItem }));
+        return json(await claims.claim({ product, id, filter: filter ?? (id ? null : {}) }));
+      },
     },
     {
       name: 'update_work_item',

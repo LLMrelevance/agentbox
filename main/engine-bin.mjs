@@ -18,7 +18,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 
 /** Every package manager's default bin directory, in order, shared by all engines. */
 export function sharedBinDirs(home = os.homedir()) {
@@ -226,19 +226,40 @@ const PROGRAM_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
  * add themselves to PATH only in `.zprofile` and `.zshrc`.
  */
 export function askShell({ env = process.env, exists = fs.existsSync, run = defaultRun, bin = 'claude' } = {}) {
+  const asking = shellQuestion({ env, exists, bin });
+  for (let step = asking.next(); ; ) {
+    if (step.done) return step.value;
+    let reply;
+    try { reply = { out: run(...step.value) }; } catch (err) { reply = { err }; }
+    step = asking.next(reply);
+  }
+}
+
+/** `askShell` without holding the window: each probe is awaited. */
+export async function askShellLater({ env = process.env, exists = fs.existsSync, run = shellRunnerLater(process.env), bin = 'claude' } = {}) {
+  const asking = shellQuestion({ env, exists, bin });
+  for (let step = asking.next(); ; ) {
+    if (step.done) return step.value;
+    let reply;
+    try { reply = { out: await run(...step.value) }; } catch (err) { reply = { err }; }
+    step = asking.next(reply);
+  }
+}
+
+// The probes and what their replies mean, written once for both askers: it
+// yields each probe to run and is handed back `{ out }` or `{ err }`.
+function* shellQuestion({ env, exists, bin }) {
   if (typeof bin !== 'string' || !PROGRAM_NAME.test(bin)) {
     throw new Error(`askShell looks up a program name, and ${JSON.stringify(bin)} is not one`);
   }
   let said = false;
   let inconclusive = false;
   for (const [shell, flags, timeout] of shellProbes(env)) {
-    let out = '';
-    try {
-      out = run(shell, [flags, `command -v ${bin}`], timeout);
-    } catch (e) {
+    const { out, err } = yield [shell, [flags, `command -v ${bin}`], timeout];
+    if (err) {
       // A non-zero exit means not on PATH. A shell that would not start or
       // timed out has told us nothing, and must not count as "not installed".
-      if (exitedSayingNo(e)) said = true; else inconclusive = true;
+      if (exitedSayingNo(err)) said = true; else inconclusive = true;
       continue;
     }
     const line = String(out).split('\n').map((s) => s.trim()).filter(Boolean).pop();
@@ -307,6 +328,33 @@ export function shellRunner(env = process.env) {
 
 function defaultRun(shell, args, timeout = 4000) {
   return shellRunner(process.env)(shell, args, timeout);
+}
+
+/**
+ * `shellRunner` as a promise, so the window keeps running while the shell
+ * starts. Its errors are reshaped into what execFileSync throws, which is what
+ * `exitedSayingNo` reads: a timeout carries ETIMEDOUT, a plain non-zero exit a
+ * numeric `status`.
+ */
+export function shellRunnerLater(env = process.env) {
+  return (shell, [flags, command], timeout = 4000) => new Promise((resolve, reject) => {
+    const child = execFile(shell, [flags, `echo ${REACHED}; ${command}`], {
+      encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024, env,
+    }, (err, stdout) => {
+      if (!err) {
+        const answer = afterReached(stdout);
+        return answer === null ? reject(notReached()) : resolve(answer);
+      }
+      if (typeof err.code === 'number' && !err.signal) {
+        if (afterReached(stdout) === null) return reject(notReached());
+        return reject(Object.assign(err, { status: err.code, code: undefined }));
+      }
+      if (err.killed && err.code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') err.code = 'ETIMEDOUT';
+      reject(err);
+    });
+    // The 'ignore' the waiting runner gives stdin: nothing will ever be typed.
+    child.stdin?.end();
+  });
 }
 
 // A lookup that returns a bare path or null (the old shape) counts as answered.
@@ -428,31 +476,70 @@ export function findEngine(key, {
   };
 }
 
-// Only the shell answer is cached, per engine, for thirty seconds. The path
-// checks are cheap stat calls, and caching them would keep saying "not found"
-// after someone installs. The shell is up to three subprocesses, and settings
-// reloads on every write.
+// Only the shell answer is held, per engine. The path checks are cheap stat
+// calls, and holding them would keep saying "not found" after someone
+// installs. The shell is up to three subprocesses and blocks the window while
+// it runs, so it is waited for only when nothing is held: at launch, and after
+// Check again. An answer older than thirty seconds is still handed back at
+// once, and the shell is asked again in the background for the next read.
 
 const SHELL_TTL = 30_000;
 const held = new Map();
+const asking = new Map();
 
-export function resolveEngine(key, configured = null, { now = Date.now(), shellLookup = null, ...where } = {}) {
+export function resolveEngine(key, configured = null, { now = Date.now(), shellLookup = null, shellLookupLater = null, ...where } = {}) {
   const spec = engineFor(key);
-  const lookup = shellLookup ?? (() => askShell({ bin: spec.bin }));
   const remembered = () => {
     const last = held.get(key);
+    if (!last) {
+      const answer = (shellLookup ?? (() => askShell({ bin: spec.bin })))();
+      held.set(key, { answer, at: now });
+      return answer;
+    }
     // `age >= 0` too, because `warmShellAnswers` stamps real clock time and a
     // caller with a synthetic `now` would otherwise read it as fresh forever.
-    const age = now - (last?.at ?? 0);
-    if (last && age >= 0 && age < SHELL_TTL) return last.answer;
-    const answer = lookup();
-    held.set(key, { answer, at: now });
-    return answer;
+    const age = now - last.at;
+    const later = shellLookupLater ?? (() => askShellLater({ bin: spec.bin }));
+    if (!(age >= 0 && age < SHELL_TTL)) askAgain(key, later, now);
+    // A path held from an earlier answer may have been uninstalled since.
+    const gone = typeof last.answer?.path === 'string' && !(where.exists ?? fs.existsSync)(last.answer.path);
+    if (gone) { askAgain(key, later, now); return { path: null, answered: false }; }
+    return last.answer;
   };
   return findEngine(key, { ...where, configured, shellLookup: remembered });
+}
+
+/**
+ * Ask the shell again off the window's thread and settle once the answer is
+ * held, for a caller that promised a fresh look (Check again, setup, the
+ * update check). Never rejects.
+ */
+export function lookAgain(key, { now = Date.now(), shellLookupLater = null } = {}) {
+  const spec = engineFor(key);
+  return askAgain(key, shellLookupLater ?? (() => askShellLater({ bin: spec.bin })), now);
+}
+
+function askAgain(key, lookup, now) {
+  if (asking.has(key)) return asking.get(key);
+  const turn = new Promise((resolve) => resolve(lookup())).then(
+    (answer) => {
+      if (asking.get(key) !== turn) return;
+      // A shell that timed out under load says nothing, and must not replace
+      // an answer that did say something.
+      const said = shellSaid(answer);
+      const had = held.get(key);
+      if (said.path || said.answered || !had) held.set(key, { answer, at: now });
+      else held.set(key, { ...had, at: now });
+    },
+    () => { /* the held answer stands, and the next read asks again */ },
+  ).finally(() => { if (asking.get(key) === turn) asking.delete(key); });
+  asking.set(key, turn);
+  return turn;
 }
 
 export function forgetEngine(key) {
   engineFor(key); // throws for an undeclared engine
   held.delete(key);
+  // An answer already on its way was asked for before this, so it is dropped.
+  asking.delete(key);
 }

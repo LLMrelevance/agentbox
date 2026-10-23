@@ -8,13 +8,15 @@
 // It does four things and nothing else (Codex's review, finding 13): it reads,
 // and it leaves a reply, a new thread, a snooze or a close for her Mac. Each
 // shows "Waiting for your Mac" until her Mac takes it. Every other door of the
-// app answers as a door that is not here.
+// app answers as a door that is not here, except feedback, which goes straight
+// to the feedback function because it is not her Mac's to do.
 //
 // The page has it only when the site's build put the cloud's public address
 // in the page (`<meta name="agentbox-cloud">`, scripts/build-phone-site.mjs).
 // The desktop window and the Mac's own phone page never have that.
 
 import { REQUEST_CHANNELS, PUSH_CHANNELS, DESKTOP_ONLY } from '../../shared/bridge-map.mjs';
+import { feedbackPayload, sendFeedback } from '../../shared/feedback.mjs';
 import { cloudClient, type CloudClient, type CloudConfig } from './cloud-rest';
 import { installPhoneScreen } from './phone-screen';
 import { atMostEvery } from './phone-polls';
@@ -58,7 +60,14 @@ export function readCloudConfig(doc: Document = document): CloudConfig | null {
   } catch { return null; }
 }
 
+// The same server function the Mac's card posts to (main/feedback.mjs), on the
+// cloud this site was built for, which is also the one origin its page may reach.
+export const feedbackAddressOn = (cfg: CloudConfig) => new URL('/functions/v1/feedback', cfg.url).href;
 
+type FeedbackFiles = { name: string; type: string; data: string }[];
+export function sendPhoneFeedback(cfg: CloudConfig, { text, files }: { text: string; files: FeedbackFiles }, fetchImpl: (url: string, init: RequestInit) => Promise<{ ok: boolean }> = (u, i) => fetch(u, i)) {
+  return sendFeedback({ url: feedbackAddressOn(cfg), payload: feedbackPayload({ text, files, app: { version: '', os: 'phone website' } }), fetchImpl });
+}
 
 const SUPERVISOR = { paused: false, pausedProducts: [], running: [], stalled: [], queued: [], scheduled: [], productOrder: [], hiddenProducts: [], personalProducts: [], capacity: 0 };
 const EMPTY_ROWS: PhoneRows = { projects: [], threads: [], commands: [] };
@@ -220,6 +229,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     codeChange: async () => ({ ok: false }),
     // What a press leaves for her Mac, the same doors the phone app sends through (phone-send.ts).
     ...sender,
+    sendFeedback: (p: { text: string; files: FeedbackFiles }) => sendPhoneFeedback(cfg, p),
     badge: async () => null,
     notify: async () => null,
     track: async () => null,

@@ -221,6 +221,30 @@ describe('laying documents in', () => {
     expect(fs.readFileSync(path.join(docs, 'plans/plan.md'), 'utf8')).toBe('new plan');
   });
 
+  // WHAT BROKE (2026-10-23): main went red on Linux on the end-to-end test in
+  // this file, with notes.md still saying 'notes before' and the run's own
+  // edit left beside it as notes (cloud).md. Date.now() counts whole
+  // milliseconds and a filesystem's mtime does not, so a document saved 0.7 ms
+  // BEFORE the run left read as newer than the moment it left, and a file
+  // nobody had touched was taken for a change made here.
+  it('writes over a file saved in the same millisecond the run left, and never over one saved after', async () => {
+    const note = path.join(docs, 'notes.md');
+    const sentAt = Date.now();
+    // A number is seconds here, which is how an mtime inside a millisecond is set.
+    fs.utimesSync(note, (sentAt + 0.7) / 1000, (sentAt + 0.7) / 1000);
+    expect(fs.statSync(note).mtimeMs).toBeGreaterThan(sentAt);
+    const out = await layDocs({ tgz: await archive({ 'notes.md': 'from the run' }), dir: docs, sentAt, laid: {}, sent: ['notes.md'] });
+    expect(out.beside).toEqual([]);
+    expect(fs.readFileSync(note, 'utf8')).toBe('from the run');
+
+    // And the case that must not match: saved here after the run left, which
+    // is a whole millisecond later and a real change, so it stands.
+    fs.writeFileSync(note, 'saved here after the run left');
+    const later = await layDocs({ tgz: await archive({ 'notes.md': 'from the run again' }), dir: docs, sentAt, laid: {}, sent: ['notes.md'] });
+    expect(later.beside).toEqual(['notes (cloud).md']);
+    expect(fs.readFileSync(note, 'utf8')).toBe('saved here after the run left');
+  });
+
   it('lays a version it already laid only once, even when it comes again', async () => {
     const laid = {};
     const sentAt = Date.now() - 1000;

@@ -342,6 +342,13 @@
   :root:root:root .toast .toast-clock { left: 14px; right: 14px; }
   :root:root:root .app.composing .toast { top: calc(env(safe-area-inset-top, 0px) + var(--phone-top, 56px) + 8px); }
 
+  /* WHERE A REPLY WENT stands in the reply box's own flow, right above the
+     input, rather than over the page under the top bar. Back and Undo are
+     words to tap: a phone has no O or Z. */
+  :root:root:root .sent-line { margin: 0 0 8px; padding: 0 4px 0 14px; min-height: 40px; font-size: 13.5px; }
+  :root:root:root .sent-line kbd { display: none; }
+  :root:root:root .sent-line-key { height: 40px; padding: 0 10px; color: var(--text-dim); }
+
   /* The setup bar: its sentence over its buttons, not squeezed beside them. */
   :root:root:root .ps-bar { flex-wrap: wrap; gap: 10px; padding: 12px 16px; }
   :root:root:root .ps-bar-say { flex: 1 0 100%; }

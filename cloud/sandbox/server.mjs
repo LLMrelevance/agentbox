@@ -618,6 +618,7 @@ export function createSandbox({
       }
       fs.rmSync(bundle, { force: true });
       if (r.spec.login) await placeLogin(r);
+      if (r.spec.also) await placeCodexToo(r);
       // What the documents folder held before the agent started, so only what
       // it writes there goes home (`sendDocs`).
       if (r.spec.docs) r.docsSeen = scanDocs(r.spec.docs);
@@ -797,11 +798,35 @@ export function createSandbox({
       throw new Error('the Codex sign-in needs renewing before a run');
     }
     r.loginExpiresAt = exp;
-    // On the access token alone, and fresh, so Codex never tries to renew.
-    const copy = { ...login.auth, tokens: { ...tokens, refresh_token: CODEX_REFRESH_PLACEHOLDER }, last_refresh: new Date().toISOString() };
-    fs.mkdirSync(at(home), { recursive: true });
-    fs.writeFileSync(path.join(at(home), 'auth.json'), JSON.stringify(copy, null, 2), { mode: 0o600 });
-    r.secrets = [tokens.access_token, tokens.id_token, tokens.refresh_token].filter((s) => typeof s === 'string' && s.length >= 16);
+    r.secrets = writeCodexLogin(at(home), login.auth);
+  }
+
+  // On the access token alone, and fresh, so Codex never tries to renew.
+  // Answers with the tokens, which are what a run may never print.
+  function writeCodexLogin(dir, auth) {
+    const tokens = auth.tokens;
+    const copy = { ...auth, tokens: { ...tokens, refresh_token: CODEX_REFRESH_PLACEHOLDER }, last_refresh: new Date().toISOString() };
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'auth.json'), JSON.stringify(copy, null, 2), { mode: 0o600 });
+    return [tokens.access_token, tokens.id_token, tokens.refresh_token].filter((s) => typeof s === 'string' && s.length >= 16);
+  }
+
+  // THEIR CODEX, IN A CLAUDE RUN, so the agent can ask Codex here the way it
+  // can on their Mac: placed where `codex` looks by default. Never a reason to
+  // stop the run; without it Codex is simply signed out.
+  async function placeCodexToo(r) {
+    for (const extra of r.spec.also || []) {
+      try {
+        const res = await fetchImpl(extra.url, { signal: AbortSignal.timeout(30_000) });
+        const login = res.ok ? JSON.parse(Buffer.from(await res.arrayBuffer()).toString('utf8')) : null;
+        const tokens = login?.engine === 'codex' ? login.auth?.tokens : null;
+        const exp = tokens?.access_token ? jwtExpiryMs(tokens.access_token) : null;
+        if (!exp || exp - Date.now() < CODEX_MIN_LEFT_MS) { log(`run ${String(r.spec.runId || '').slice(-8)}: no Codex sign-in ready to carry`); continue; }
+        const dir = at(path.join(runAs?.home || process.env.HOME || '/root', '.codex'));
+        r.secrets = [...(r.secrets || []), ...writeCodexLogin(dir, login.auth)];
+        if (runAs) await sh('chown', ['-R', `${runAs.uid}:${runAs.gid}`, dir], '/').catch(() => {});
+      } catch { /* Codex stays signed out in this run */ }
+    }
   }
 
   const shape = (text) => String(text || '').replace(/[A-Za-z0-9_\-+/=]{16,}/g, '<long>').replace(/\s+/g, ' ').trim().slice(-600);
@@ -1596,6 +1621,8 @@ function invalidSignin(action, req) {
 
 function invalidStart(req) {
   if (req.login && (!req.login.url || !['claude', 'codex'].includes(req.login.engine))) return 'a login needs its engine and its link';
+  if (req.also != null && (!Array.isArray(req.also) || req.also.some((l) => l?.engine !== 'codex' || typeof l.url !== 'string' || !l.url))) return 'also is a list of Codex logins, each by its link';
+  if (req.also?.length && req.login?.engine !== 'claude') return 'only a Claude run carries a Codex login too';
   if (!req.runId || typeof req.runId !== 'string') return 'runId is required';
   if (!req.cwd || !path.isAbsolute(req.cwd)) return 'cwd must be an absolute path';
   if (req.plain != null && req.plain !== true) return 'plain is true or absent';

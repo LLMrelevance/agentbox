@@ -183,7 +183,11 @@ export async function layDocs({ tgz, dir, sentAt = 0, laid = {}, sent = null }) 
           continue;
         }
         const mine = laid[rel]?.stamp === stampOf(here);
-        const untouched = mine || (here.mtimeMs <= sentAt && (!took || took.has(rel)));
+        // Whole milliseconds on both sides: `sentAt` is a Date.now() and counts
+        // them, an mtime does not, so a file saved 0.7 ms before the run left
+        // read as newer than it and the run's own edit went beside a file
+        // nobody had touched.
+        const untouched = mine || (Math.floor(here.mtimeMs) <= sentAt && (!took || took.has(rel)));
         if (!untouched) {
           target = besideName(target);
           out.beside.push(path.relative(root, target));

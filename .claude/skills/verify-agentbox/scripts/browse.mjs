@@ -67,7 +67,11 @@ const LOOK = `(() => {
     const kind = el.tagName.toLowerCase() + (el.getAttribute('role') ? '[' + el.getAttribute('role') + ']' : '');
     return (i + 1) + '. ' + kind + ' "' + words + '"' + (document.activeElement === el ? '  <- cursor here' : '');
   });
-  const text = document.body.innerText.replace(/\\n{3,}/g, '\\n\\n').slice(0, 2500);
+  // A thread's newest messages are at its foot, so a long screen keeps its end as well as its start.
+  const all = document.body.innerText.replace(/\\n{3,}/g, '\\n\\n');
+  const max = 6000;
+  const text = all.length <= max ? all
+    : all.slice(0, 2000) + '\\n[' + (all.length - max) + ' characters in the middle left out]\\n' + all.slice(-(max - 2000));
   return 'SCREEN TEXT:\\n' + text + '\\n\\nTHINGS TO PRESS (' + list.length + '):\\n' + list.join('\\n');
 })()`;
 

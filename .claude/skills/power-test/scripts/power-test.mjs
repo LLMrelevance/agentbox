@@ -6,6 +6,8 @@
 //     --hours 2 | --minutes 45                         how long (default 1 hour)
 //     --focus "what the team shipped"                  what the testers lean on
 //     --real                                           the Claude Code and Codex this computer has, on their plans (billed)
+//     --cloud                                          every thread in this Mac's cloud (implies --real); the Mac sleeps and shuts under the runs
+//     --cloud-accounts a@x.com,b@y.com                 the cloud accounts the copies may spend, of those signed in (default all)
 //     --chaos none|light|normal|heavy                  what goes wrong around them (default normal)
 //     --round-minutes 20                               one tester session, before it is started again with its diary
 //     --model <alias>                                  the testers' model
@@ -36,7 +38,7 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readPeople, pickPeople, chaosPlan, worldAt, nextRound, restartAgain, roundOutcome, coverage, testerPrompt, projectNamedIn } from './plan.mjs';
-import { createWatcher, freeMemoryMb, readAllLines, keepEvidence } from './watch.mjs';
+import { createWatcher, freeMemoryMb, readAllLines, keepEvidence, sleepTargets } from './watch.mjs';
 import { writeReport } from './report.mjs';
 import { readDiary } from './diary.mjs';
 
@@ -64,7 +66,10 @@ try { people = pickPeople(opt('who', 'random:2'), readPeople(path.join(here, '..
 const totalMs = ((Number(opt('hours', 0)) * 60) + Number(opt('minutes', 0))) * MIN || 60 * MIN;
 const roundMs = Math.max(2, Number(opt('round-minutes', 20))) * MIN;
 const chaos = opt('chaos', 'normal');
-const real = flag('real');
+const cloud = flag('cloud');
+const real = flag('real') || cloud;
+const cloudAccounts = opt('cloud-accounts');
+if (cloudAccounts && !cloud) stop('--cloud-accounts narrows the cloud\'s accounts: add --cloud.');
 const focus = opt('focus');
 const model = opt('model');
 const inherit = opt('tester-login') === 'inherit';
@@ -75,7 +80,8 @@ if (team && people.length !== 1) stop('--team signs one account in, so it runs o
 if (room && !team) stop('--room needs --team: a copy with no team is in no room.');
 try { chaosPlan(chaos, totalMs); } catch (err) { stop(err.message); }
 
-const need = people.length * (real ? 2500 : 1200) + 1000;
+// A cloud run holds a stand-in of a few megabytes here, not an agent.
+const need = people.length * (real && !cloud ? 2500 : 1200) + 1000;
 const free = freeMemoryMb();
 if (free < need) stop(`${people.length} ${people.length === 1 ? 'person needs' : 'people need'} about ${(need / 1024).toFixed(1)} GB free and this computer has ${(free / 1024).toFixed(1)} GB. Run fewer with --who.`);
 const claude = findClaudeBin({});
@@ -99,7 +105,10 @@ function run(cmd, argv, { env = process.env, timeoutMs = 10 * MIN, cwd = REPO } 
     child.on('exit', (code) => { clearTimeout(timer); resolve({ code, out }); });
   });
 }
-const live = (name, ...verb) => run(node, [LIVE, ...verb], { env: { ...process.env, VERIFY_INSTANCE: name }, timeoutMs: 15 * MIN });
+const live = (name, ...verb) => {
+  const shut = verb.indexOf('--shut-for');
+  return run(node, [LIVE, ...verb], { env: { ...process.env, VERIFY_INSTANCE: name }, timeoutMs: 15 * MIN + (shut >= 0 ? Number(verb[shut + 1]) * 1000 : 0) });
+};
 
 /** `app` and `diary` in the person's folder: the tester's two commands, each knowing which copy and diary it is for. */
 function layCommands(dir, name) {
@@ -119,7 +128,7 @@ const testerArgs = (prompt, dir) => [
 
 const root = path.join(RUNS, `${new Date().toISOString().replace(/[:.]/g, '-')}-power`);
 fs.mkdirSync(root, { recursive: true });
-say(`power test: ${people.map((p) => p.name).join(', ')} for ${Math.round(totalMs / MIN)} min on ${real ? 'the real Claude Code and Codex' : 'stand-ins'}, chaos ${chaos}.`);
+say(`power test: ${people.map((p) => p.name).join(', ')} for ${Math.round(totalMs / MIN)} min on ${cloud ? 'the real Claude Code and Codex in this Mac\'s cloud' : real ? 'the real Claude Code and Codex' : 'stand-ins'}, chaos ${chaos}.`);
 say(`evidence: ${root}  (progress.json there says how it is going)`);
 
 if (!external) {
@@ -178,7 +187,7 @@ for (const person of people) {
   fs.mkdirSync(dir, { recursive: true });
   const shape = real ? [] : ['--logins', String(person.logins), ...(person.codex ? [] : ['--no-codex'])];
   say(`${person.name}: starting a copy of the app shaped like their setup`);
-  const up = await live(name, 'up', ...(real ? ['--real'] : []), ...shape, '--projects', person.projects.join(','), ...(team ? ['--team', team] : []));
+  const up = await live(name, 'up', ...(real ? ['--real'] : []), ...(cloud ? ['--cloud'] : []), ...(cloudAccounts ? ['--cloud-accounts', cloudAccounts] : []), ...shape, '--projects', person.projects.join(','), ...(team ? ['--team', team] : []));
   fs.writeFileSync(path.join(dir, 'up.log'), up.out);
   const stateFile = path.join(instanceDir(name), 'instance.json');
   const state = readJson(stateFile);
@@ -194,13 +203,20 @@ const deadline = startedAt + totalMs;
 let stopping = false;
 const testers = new Set();
 const frozen = new Set();
+// A whole Mac asleep: single processes, the cloud relay among them, not one group.
+const frozenPids = new Set();
 const progress = {};
 const writeProgress = () => fs.writeFileSync(path.join(root, 'progress.json'), `${JSON.stringify({ startedAt, endsAt: deadline, people: progress }, null, 1)}\n`);
 const killGroup = (child) => {
   try { process.kill(-child.pid, 'SIGTERM'); } catch { /* gone */ }
   setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } }, 10_000).unref();
 };
-const wake = () => { for (const pid of frozen) { try { process.kill(-pid, 'SIGCONT'); } catch { /* gone */ } } frozen.clear(); };
+const wake = () => {
+  for (const pid of frozen) { try { process.kill(-pid, 'SIGCONT'); } catch { /* gone */ } }
+  for (const pid of frozenPids) { try { process.kill(pid, 'SIGCONT'); } catch { /* gone */ } }
+  frozen.clear();
+  frozenPids.clear();
+};
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
     if (stopping) process.exit(130);
@@ -250,7 +266,7 @@ async function runPerson({ person, name, dir, stateFile, seeded, failed, cmds })
   progress[person.slug] = { round: 0, stopped: result.stopped };
   if (failed) return result;
   const state = () => readJson(stateFile);
-  const events = chaosPlan(chaos, totalMs, { real, logins: person.logins, codex: person.codex });
+  const events = chaosPlan(chaos, totalMs, { real, cloud, logins: person.logins, codex: person.codex });
   const fired = new Set();
   let quietUntil = 0;
   let busy = false;
@@ -286,15 +302,21 @@ async function runPerson({ person, name, dir, stateFile, seeded, failed, cmds })
         const says = e.until && e.kind !== 'agents' ? `${e.says} (for ${lasts >= MIN ? `${Math.round(lasts / MIN)} min` : `${Math.round(lasts / 1000)} s`})` : e.says;
         fs.appendFileSync(path.join(dir, 'timeline.jsonl'), `${JSON.stringify({ at: now, kind: e.kind, says })}\n`);
         say(`${person.name}'s app: ${says}`);
-        if (e.kind === 'restart' || e.kind === 'crash') {
-          quietUntil = now + 2 * MIN;
-          const r = await live(name, 'restart', ...(e.kind === 'crash' ? ['--ctrl-c'] : []));
+        if (e.kind === 'restart' || e.kind === 'crash' || e.kind === 'closed') {
+          quietUntil = now + (e.kind === 'closed' ? e.ms : 0) + 2 * MIN;
+          const r = await live(name, 'restart', ...(e.kind === 'crash' ? ['--ctrl-c'] : []), ...(e.kind === 'closed' ? ['--shut-for', String(Math.round(e.ms / 1000))] : []));
           if (r.code !== 0) {
             fs.appendFileSync(path.join(dir, 'timeline.jsonl'), `${JSON.stringify({ at: Date.now(), kind: 'restart-failed', says: `The app did not come back: ${r.out.trim().split('\n').pop()}` })}\n`);
             down = { since: now, tried: Date.now() };
           }
         }
-        if (e.kind === 'sleep') {
+        if (e.kind === 'sleep' && e.whole) {
+          const pids = sleepTargets(state());
+          quietUntil = now + e.ms + MIN;
+          for (const pid of pids) { try { process.kill(pid, 'SIGSTOP'); frozenPids.add(pid); } catch { /* gone */ } }
+          fs.appendFileSync(path.join(dir, 'timeline.jsonl'), `${JSON.stringify({ at: now, kind: 'sleep-stopped', says: `${pids.length} processes stopped` })}\n`);
+          setTimeout(() => { for (const pid of pids) { try { process.kill(pid, 'SIGCONT'); } catch { /* gone */ } frozenPids.delete(pid); } }, e.ms);
+        } else if (e.kind === 'sleep') {
           const pid = state().pid;
           quietUntil = now + e.ms + MIN;
           try { process.kill(-pid, 'SIGSTOP'); frozen.add(pid); } catch { /* gone */ }
