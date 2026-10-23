@@ -53,9 +53,15 @@ export function cloudAccountState(a: CloudAccount, now = Date.now()): string {
   return 'Ready';
 }
 
-/** The cloud card's first line: when threads go there, and which logins they use. */
+/**
+ * The cloud card's first line: when threads go there, and on which account.
+ *
+ * ONE ACCOUNT, HOWEVER MANY ARE SIGNED IN. This read "on these accounts in
+ * turn" until w-dac993a554; `pickCloudLogin` takes one and the rest are there
+ * to switch to.
+ */
 export function cloudPlaceLine(cloud: Pick<CloudStatus, 'mode'>, accounts: number): string {
   if (cloud.mode === 'mac') return 'Off, so every thread runs on this computer. Press C to turn it on.';
   const when = cloud.mode === 'all' ? 'Threads start here first' : 'Threads start here when this computer is full';
-  return `${when}, on ${accounts > 1 ? 'these accounts in turn' : 'this account'}.`;
+  return `${when}, on ${accounts > 1 ? 'the account in use' : 'this account'}.`;
 }

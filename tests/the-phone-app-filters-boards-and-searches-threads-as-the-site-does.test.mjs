@@ -60,7 +60,8 @@ describe('a row says what the site\'s row says after its title', () => {
 });
 
 describe('View and filters', () => {
-  const two = rows([asks('w-u', { priority: 9 }), asks('w-l', { priority: 1, project: 'beta' }), asks('w-old', { priority: 9, updatedAt: NOW - 10 * 24 * HOUR })]);
+  const tenDays = NOW - 10 * 24 * HOUR;
+  const two = rows([asks('w-u', { priority: 9 }), asks('w-l', { priority: 1, project: 'beta' }), asks('w-old', { priority: 9, createdAt: tenDays, updatedAt: tenDays, wrote: { body: her(tenDays) } })]);
 
   it('keeps everything with no filter on, and counts it all', () => {
     const s = shown(two, DEFAULT_DISPLAY.inbox);
@@ -81,13 +82,13 @@ describe('View and filters', () => {
     expect(ids(s.rows.inbox)).toEqual(['w-l']);
   });
 
-  it('Updated this week drops a thread from ten days ago', () => {
+  it('Sent this week drops a thread you wrote ten days ago', () => {
     const s = shown(two, { ...DEFAULT_DISPLAY.inbox, updated: 'week' });
     expect(ids(s.rows.inbox)).not.toContain('w-old');
   });
 
-  it('Sort by Updated puts the newest first, whatever its priority', () => {
-    const r = rows([asks('w-a', { priority: 9, updatedAt: NOW - 5 * HOUR }), asks('w-b', { priority: 1, updatedAt: NOW - HOUR })]);
+  it('Sort by Sent puts the one you wrote to last first, whatever its priority', () => {
+    const r = rows([asks('w-a', { priority: 9, wrote: { body: her(NOW - 5 * HOUR) } }), asks('w-b', { priority: 1, wrote: { body: her(NOW - HOUR) } })]);
     expect(ids(shown(r, { ...DEFAULT_DISPLAY.inbox, sort: 'updated' }).rows.inbox)).toEqual(['w-b', 'w-a']);
     expect(ids(shown(r, DEFAULT_DISPLAY.inbox).rows.inbox)).toEqual(['w-a', 'w-b']);
   });

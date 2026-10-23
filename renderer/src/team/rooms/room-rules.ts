@@ -1,6 +1,6 @@
 // The rules the room screens draw by (w-3d0fa23ffb), kept apart from the
 // drawing so they can be tested. tests/a-room-reads-the-way-it-was-approved.
-import type { Person, Room, RoomCard, ThreadCard } from '../../types';
+import type { Person, Room, RoomCard, RoomMention, ThreadCard } from '../../types';
 
 /** A chat just started goes beside the room where that panel is drawn; a
  *  person's page has none, so from there it opens full page, and Back returns. */
@@ -292,4 +292,19 @@ export const peopleCount = (room: { members: number }, invisible: boolean) => Ma
 /** My card leaves the wall while I am invisible; the chat still needs my name and face. */
 export function withMe<T extends { me: boolean }>(people: readonly T[], me: T | null): T[] {
   return !me || people.some((p) => p.me) ? [...people] : [...people, me];
+}
+
+export type MentionRow = RoomMention & { count: number };
+
+/** One Needs you row per person per room, with how many they sent and the
+ *  newest one's time: every row of one room opens the same chat, and a read
+ *  clears them together. */
+export function mentionRows(mentions: readonly RoomMention[]): MentionRow[] {
+  const rows = new Map<string, MentionRow>();
+  for (const m of mentions) {
+    const id = `room-mention:${m.roomId}:${m.by ?? ''}`;
+    const had = rows.get(id);
+    rows.set(id, { ...(!had || m.at > had.at ? m : had), id, count: (had?.count ?? 0) + 1 });
+  }
+  return [...rows.values()].sort((a, b) => b.at - a.at);
 }

@@ -10,7 +10,8 @@
 //
 // An account is named by the rule the Settings page already uses, which is now
 // shared (shared/account-names.mjs): the email the vendor gave, else a counted
-// name.
+// name. Only the login that was spent is named: w-dac993a554 took away the
+// move to a second account, so there is no "which one answered next".
 //
 // THE CASE THAT MUST NOT MATCH is a Mac with one login, where naming it tells
 // nobody anything. There the sentence is word for word what it was.
@@ -42,11 +43,17 @@ describe('what one account is called', () => {
 describe('the sentence on a thread whose login ran out', () => {
   const limit = (extra) => deadRunSentence({ engineWord: 'Claude Code', cause: 'at-limit', ...extra });
 
-  it('names the account it ran out on, and the one it moves to', () => {
-    expect(limit({ account: 'alex@work.com', elsewhere: true, instead: 'alex@home.com' })).toBe(
+  // AND NEVER THE ONE IT MOVES TO (w-dac993a554). This sentence used to end
+  // "Agentbox runs it again on alex@home.com, which has room": nothing moves
+  // the task to a second subscription now, so the limit is named and waited
+  // out on the account that hit it.
+  it('names the account it ran out on, and offers no other', () => {
+    const said = limit({ account: 'alex@work.com', resetsAt: '6pm' });
+    expect(said).toBe(
       'Claude Code is at its usage limit on alex@work.com, so nothing has been done on this task.'
-      + ' Agentbox runs it again on alex@home.com, which has room.',
+      + ' It starts again on its own at 6pm.',
     );
+    expect(said).not.toContain('which has room');
   });
 
   it('names the account it ran out on while it waits for the reset', () => {
@@ -68,9 +75,9 @@ describe('the sentence on a thread whose login ran out', () => {
     expect(limit({ resetsAt: '6pm' })).toBe(
       'Claude Code is at its usage limit, so nothing has been done on this task. It starts again on its own at 6pm.',
     );
-    expect(limit({ elsewhere: true })).toBe(
+    expect(limit({})).toBe(
       'Claude Code is at its usage limit, so nothing has been done on this task.'
-      + ' Agentbox runs it again on another account that has room.',
+      + ' It starts again on its own when the limit resets.',
     );
   });
 
@@ -112,8 +119,12 @@ describe('the supervisor names its own logins', () => {
   it('names a login by its email where there are two', () => {
     signedIn(path.join(root, '.claude'), 'work@example.com');
     signedIn(path.join(root, '.claude-second'), 'home@example.com');
-    const profiles = sup._profilesFor('claude');
+    // EVERY LOGIN, NOT THE ONE THE WORK RUNS ON (w-dac993a554): `_profilesFor`
+    // answers the pool, which is one account, and naming is about what a
+    // person has signed in.
+    const profiles = sup._allProfilesFor('claude');
     expect(profiles.length).toBe(2);
+    expect(sup._profilesFor('claude').length).toBe(1);
     const named = profiles.map((p) => sup._accountNameFor('claude', sup._accountKey('claude', p)));
     expect(named).toContain('work@example.com');
     expect(named).toContain('home@example.com');
@@ -127,7 +138,7 @@ describe('the supervisor names its own logins', () => {
 
   // THE WHOLE THING, through the method that really writes it: a run that died
   // at its limit on one login while the other had room.
-  it('writes both names onto the thread when a run dies at its limit', () => {
+  it('writes the name of the login it ran out on when a run dies at its limit', () => {
     signedIn(path.join(root, '.claude'), 'work@example.com');
     const second = path.join(root, '.claude-second');
     signedIn(second, 'home@example.com');
@@ -145,6 +156,9 @@ describe('the supervisor names its own logins', () => {
       result: null,
     });
     expect(written[0].result).toContain('usage limit on home@example.com');
-    expect(written[0].result).toContain('runs it again on work@example.com, which has room');
+    // AND SAYS NOTHING OF THE OTHER LOGIN (w-dac993a554): it read "runs it
+    // again on work@example.com, which has room", which is the move that is gone.
+    expect(written[0].result).not.toContain('work@example.com');
+    expect(written[0].result).not.toContain('which has room');
   });
 });

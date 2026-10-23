@@ -35,7 +35,9 @@ export const COPY = {
   chatgpt: 'ChatGPT',
   chatgptPlans: 'A paid ChatGPT plan',
   both: 'Both',
-  bothPlans: 'Agents use whichever has room left',
+  // NOT "whichever has room left", which was the walk's first word on the
+  // subject of usage limits and read as a way around them (w-dac993a554).
+  bothPlans: 'A paid plan with each',
   /*
    * THE ANSWER FOR SOMEBODY WHO ALREADY HAS ONE (w-ce8c1a9275). The search asks
    * their own login shell first and then looks in sixteen places, which between

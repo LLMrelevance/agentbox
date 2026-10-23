@@ -18,7 +18,9 @@ import { signingIn, type CloudAccount, type CloudSignIn, type CloudStatus } from
 export const SETUP = {
   screenLabel: 'Set up the cloud',
   homeHead: 'Run your agents in the cloud',
-  homeLede: 'Add the accounts it should use. Add more any time.',
+  // NOT "Add more any time" (w-dac993a554): the cloud runs on one account, so
+  // inviting a second one was the screen asking for something it will not use.
+  homeLede: 'Add the account it should use.',
   addClaude: 'Add Claude account',
   addCodex: 'Add Codex account',
   addOne: 'Add account',
@@ -44,7 +46,7 @@ export const SETUP = {
   inviteHead: 'Run your agents in the cloud',
   inviteLine: 'They keep working with your laptop closed, and as many run at once as you need.',
   inviteGo: 'Set up the cloud',
-  inviteNote: 'About a minute per account',
+  inviteNote: 'About a minute to set up',
   menuBroken: 'A cloud account needs to sign in again.',
   menuFix: 'Fix',
   menuAccounts: (n: number) => (n === 0 ? 'None yet' : n === 1 ? '1 account' : `${n} accounts`),

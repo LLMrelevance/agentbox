@@ -143,15 +143,17 @@ describe('the note the Mac keeps', () => {
   });
 });
 
-// The accounts are hers to choose (2026-10-14), so runs are spread over them.
+// The accounts are hers to choose (2026-10-14). Runs used to be spread over
+// them; one account carries them now (w-dac993a554).
 describe('the cloud accounts she added', () => {
-  it('spread runs over every account of the engine that may run, least used first', () => {
+  it('send every run of an engine to its first account, and nothing to the second', () => {
     recordCloudLogin('claude', 'acct-a', { id: 'A', savedAt: 1 }, { home });
     recordCloudLogin('claude', 'acct-b', { id: 'B', savedAt: 2 }, { home });
     recordCloudLogin('codex', 'acct-c', { id: 'C', savedAt: 3, expiresAt: Date.now() + 200 * H }, { home });
     const picks = [1, 2, 3, 4].map((i) => pickCloudLogin('claude', { home, now: 1_000 + i }).key);
-    expect(picks).toEqual(['acct-a', 'acct-b', 'acct-a', 'acct-b']);
+    expect(picks).toEqual(['acct-a', 'acct-a', 'acct-a', 'acct-a']);
     expect(pickCloudLogin('codex', { home }).key).toBe('acct-c');
+    // A login that has stopped working is not an account; the next one is.
     markCloudLogin('claude', 'acct-a', 'A', { broken: 'refused' }, { home });
     expect(pickCloudLogin('claude', { home, now: 9_000 }).key).toBe('acct-b');
     expect(listCloudLogins('claude', { home }).map((r) => r.key)).toEqual(['acct-a', 'acct-b']);
