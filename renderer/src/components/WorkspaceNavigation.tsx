@@ -41,7 +41,9 @@ import type { Invisible } from '../team/rooms/GoInvisible';
  *  deselected tab that is --text-faint at 400, exactly the word Inbox beside it;
  *  on the active one it is --text at 500. There is one rule rather than two.
  */
-export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearch: _onSearch, onCompose: _onCompose, inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, onAccount, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove, rooms = null, invisible = null, roomOpen = false }: {
+export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearch: _onSearch, onCompose: _onCompose, inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, onAccount, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove, rooms = null, invisible = null, roomOpen = false, inboxLabel = 'Threads' }: {
+  /** The first row's name: Threads, or Inbox while one page holds threads and groups (w-dcaa2c122e). */
+  inboxLabel?: string;
   /** A room is open, which lights its row rather than Threads. */
   roomOpen?: boolean;
   // ROOMS (alpha): the Messages and Rooms rows under Threads (team/rooms/useRooms.tsx),
@@ -146,7 +148,7 @@ export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearc
       </>}
     </div>
     <nav className="workspace-tabs" aria-label="Threads">
-      <button data-tab="inbox" className={`workspace-tab${inboxLit ? ' active' : ''}${waiting > 0 ? ' has-count' : ''}`} aria-label="Threads" aria-current={inboxLit ? 'page' : undefined} title={waiting > 0 ? `Threads · ${waitingDescription}` : collapsed ? 'Threads' : undefined} onClick={() => onView('inbox')}><SidebarIcon view="inbox" /><span>Threads</span>{waiting > 0 && <small className="workspace-running" aria-label={waitingDescription}>{waiting}</small>}</button>
+      <button data-tab="inbox" className={`workspace-tab${inboxLit ? ' active' : ''}${waiting > 0 ? ' has-count' : ''}`} aria-label={inboxLabel} aria-current={inboxLit ? 'page' : undefined} title={waiting > 0 ? `${inboxLabel} · ${waitingDescription}` : collapsed ? inboxLabel : undefined} onClick={() => onView('inbox')}><SidebarIcon view="inbox" /><span>{inboxLabel}</span>{waiting > 0 && <small className="workspace-running" aria-label={waitingDescription}>{waiting}</small>}</button>
       {/* THERE IS NO TEAM TAB (w-05ff3d1438, 2026-10-01). The Team page and
           the Inbox were one question on two pages, so they are one page: the
           faces at the end of the Inbox's tab bar pick whose threads are on

@@ -748,6 +748,11 @@ export default function App() {
   const [panelUp, setPanelUp] = useState(() => localStorage.getItem('powerup.sidebar.collapsed') !== 'true');
   // A window with no sidebar, while it is explored (w-dcaa2c122e).
   const [noSidebar] = useState(() => localStorage.getItem('groups.noSidebar') === '1');
+  // The tabs in the top bar, with or without the rule before Groups, and one door to the page.
+  const [tabsUp] = useState(() => localStorage.getItem('groups.tabsUp') === '1');
+  const [tabsDivider] = useState(() => localStorage.getItem('groups.tabsDivider') !== '0');
+  const [oneDoor] = useState(() => localStorage.getItem('groups.oneDoor') === '1');
+  const [topTabs, setTopTabs] = useState<HTMLDivElement | null>(null);
   // WHAT THE SIDEBAR WAS BEFORE A DOCUMENT TOOK THE WHOLE WINDOW, and null
   // whenever nothing has. The effect that fills it in sits further down beside
   // the artifact's own state; it is declared here because the line below has to
@@ -5952,6 +5957,9 @@ export default function App() {
   // `modal === 'reply'` and nothing else; the rule that reads it sits beside
   // `.toast` in the stylesheet and says why it moves to the top rather than
   // merely further up.
+  // The page's tabs in the top bar in place of its title (w-dcaa2c122e).
+  const tabsInTop = tabsUp && workspaceNavigation && !focused && !settingsOpen && !teamShown && search === null && (!roomShown || roomsUi.inTab);
+
   return (
     <TeamContext.Provider value={team}>
     <ChatAgentsContext.Provider value={chatAgents}>
@@ -5994,7 +6002,7 @@ export default function App() {
            offering the move. Null on every copy that can. */
         move={announcesMove(snap?.update, { walking, closed: '' }) ? { place: snap?.update?.place ?? null, error: snap?.update?.moveError ?? null } : null}
         onMove={() => { void api.updateMove(); }}
-        page={settingsOpen ? 'settings' : null} roomOpen={(roomShown && !roomsUi.inTab) || directOnMessages} rooms={roomsUi.nav(workspaceCollapsed, directOnMessages)} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
+        page={settingsOpen ? 'settings' : null} roomOpen={(roomShown && !roomsUi.inTab) || directOnMessages} rooms={oneDoor ? null : roomsUi.nav(workspaceCollapsed, directOnMessages)} inboxLabel={oneDoor ? 'Inbox' : undefined} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onSignOut={() => { void api.teamSignOut().then(() => refresh()); }}
@@ -6089,7 +6097,7 @@ export default function App() {
               <CrossIcon />
             </button>
           </nav>
-        ) : workspaceNavigation ? (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : (teamShown ? <h1 className="workspace-title">{openCard ? 'Threads' : 'Team'}</h1> : roomShown && roomsUi.heading ? roomsUi.heading.title : <h1 className="workspace-title">Threads</h1>)) : (
+        ) : workspaceNavigation ? (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : (teamShown ? <h1 className="workspace-title">{openCard ? 'Threads' : 'Team'}</h1> : tabsInTop ? <div className={`g10-top${tabsDivider ? '' : ' no-rule'}`} ref={setTopTabs} /> : roomShown && roomsUi.heading ? roomsUi.heading.title : <h1 className="workspace-title">Threads</h1>)) : (
         <nav
           className="tabs"
           /* NO HINT ON THIS NAV. This older strip is the layout without the
@@ -6696,6 +6704,7 @@ export default function App() {
                     onView={(next) => { roomsUi.leave(); setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                     onSearch={openSearch}
                     after={roomsUi.roomTab} dim={roomShown}
+                    into={tabsInTop ? topTabs : null}
                   />
                 )}
                 {roomShown ? roomsUi.page : <>

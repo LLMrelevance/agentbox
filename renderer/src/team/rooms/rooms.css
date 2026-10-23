@@ -793,18 +793,25 @@
 .g6-chips .c.named { padding: 0 12px 0 10px; color: var(--text); }
 .g6-chips .c.named .g6-hash { margin-right: -2px; }
 /* Chats sit close together, read like names, and wear their unread dot on the face. */
-.g6-chats { display: flex; align-items: center; gap: 2px; min-width: 0; }
-.g6-chips .c.chat { gap: 6px; padding: 0 8px 0 6px; border-color: transparent; color: var(--text-dim); }
+/* Even on both sides of every chat, so the space between two chats is always the same; picked is a fill, never a box. */
+.g6-chats { display: flex; align-items: center; gap: 0; min-width: 0; }
+.g6-chips .c.chat { gap: 8px; padding: 0 10px; border-color: transparent; color: var(--text-dim); }
 .g6-chips .c.chat:hover { background: var(--wash); color: var(--text); }
-.g6-chips .c.chat.on { border-color: var(--line-strong); background: var(--wash); color: var(--text); }
+.g6-chips .c.chat.on { border-color: transparent; background: var(--wash-strong); color: var(--text); }
 .g6-chips .c.unread { color: var(--text); }
 .g6-fw { position: relative; display: inline-flex; flex: none; }
 .g6-dot { position: absolute; right: -3px; top: -3px; z-index: 2; width: 6px; height: 6px; background: var(--accent); outline: 2px solid var(--skin-solid, var(--surface)); }
-.g6-chips .c.more { gap: 4px; padding: 0 6px 0 8px; border-color: transparent; color: var(--text-faint); }
+.g6-chips .c.more { gap: 4px; padding: 0 8px 0 10px; border-color: transparent; color: var(--text-faint); }
 .g6-chips .c.more svg { color: var(--text-faint); }
 .g6-chips .c.more:hover, .g6-chips .c.more.on { background: var(--wash); color: var(--text); }
 .g6-chips .c.more.unread::after { content: ''; width: 6px; height: 6px; margin-left: 2px; background: var(--accent); }
-.g6-sep { flex: none; width: 1px; height: 20px; margin: 0 6px; background: var(--line-strong); }
+.g6-sep { flex: none; width: 1px; height: 20px; margin: 0 6px 0 8px; background: var(--line-strong); }
+/* The page's tabs in the top bar, where its title was. */
+.g10-top { flex: 1; display: flex; align-items: center; min-width: 0; height: 100%; margin-right: 12px; }
+.g10-top .th-bar { flex: 1; padding: 0; min-height: 0; }
+.g10-top.no-rule .rm-sep { display: none; }
+/* Groups sits on the same baseline as the tabs before it. */
+.g10-top .rm-tab .rm-tabname { align-self: auto; align-items: baseline; line-height: 30px; top: .5px; }
 .g9-wrap { position: relative; display: inline-flex; }
 /* No sidebar: the window is the page, your face ends the top bar. */
 .app.workspace-layout.no-sidebar { --workspace-left: 22px; }
