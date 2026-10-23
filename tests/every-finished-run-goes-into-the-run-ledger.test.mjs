@@ -221,7 +221,7 @@ describe('whose cloud runs count', () => {
     process.env[key] = home;
     try {
       const store = { listProducts: () => [], readItem: () => null };
-      const setup = roomsSetup({ config: { storeRoot: home, alphaRooms: true }, store, supervisor: { sessions: new Map() }, userDir: home, log: () => {} });
+      const setup = roomsSetup({ config: { storeRoot: home, alphaRooms: true }, store, supervisor: { runsGoing: () => [] }, userDir: home, log: () => {} });
       const { summary } = setup.presenceFacts();
       expect(summary.total).toBeCloseTo(1);
     } finally {
