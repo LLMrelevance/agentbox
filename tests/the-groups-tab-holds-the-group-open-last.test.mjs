@@ -7,18 +7,17 @@
 // Measured on the drawn tab before: the room's name and its headcount, a
 // picker of rooms only, and No room tab. Now it says Groups with the count of
 // groups that have something unread, its arrow lists every group and chat,
-// and any group, from anywhere, opens in it.
+// and any group, from anywhere, opens in it. How it behaves as a tab is in
+// tests/the-room-tab-opens-its-room-under-the-threads-tabs.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { groupInTab, tabOrder } from '../renderer/src/team/rooms/room-rules.ts';
+import { groupInTab } from '../renderer/src/team/rooms/room-rules.ts';
 import { GroupsTab } from '../renderer/src/team/rooms/RoomTab.tsx';
-import { nextTab } from '../renderer/src/threads/page-rules.ts';
 globalThis.React = React;
 
 const hook = fs.readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
-const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
 const room = (id, kind = 'room', pinned = false) => ({ id, kind, pinned });
 const rooms = [room('general'), room('team', 'room', true), room('chat-maya', 'group')];
 const tab = (props) => renderToStaticMarkup(createElement(GroupsTab, { count: 0, open: false, onOpen: () => {}, onMenu: () => {}, ...props }));
@@ -47,29 +46,8 @@ describe('the tab', () => {
     expect(tab({ count: 3 })).toContain('Groups<b>3</b>');
     expect(tab({ count: 0 })).not.toContain('<b>');
   });
-  it('lights while a group is open in it', () => {
-    expect(tab({ on: true })).toMatch(/class="tm-tab rm-tab on"/);
-    expect(tab({ on: false })).toMatch(/class="tm-tab rm-tab"/);
-  });
   it('is there whenever Groups is on, with or without a group', () => {
     expect(hook).toMatch(/const roomTab: ReactNode = live\s*\? <GroupsTab/);
-  });
-});
-
-describe('Tab walks onto it', () => {
-  const STATE = ['inbox', 'progress', 'snoozed', 'done'];
-  it('after Done, and round to Needs you', () => {
-    const order = tabOrder(STATE, true);
-    expect(nextTab(order, 'done')).toBe('room');
-    expect(nextTab(order, 'room')).toBe('inbox');
-    expect(nextTab(order, 'inbox', true)).toBe('room');
-  });
-  it('not when Groups is off', () => {
-    expect(tabOrder(STATE, false)).toEqual(STATE);
-  });
-  it('the app walks that order', () => {
-    expect(app).toMatch(/if \(roomsUi\.groupsTab\) \{\s*const order = roomTabOrder\(stateTabOrder, roomsUi\.groupsTab\);/);
-    expect(app).toMatch(/if \(next === 'room'\) \{ roomsUi\.openTab\(\); setSelected\(0\); return; \}/);
   });
 });
 
@@ -84,9 +62,6 @@ describe('every group opens in the tab', () => {
   });
   it('a teammate’s direct record opens in its own view, over the group', () => {
     expect(hook).toMatch(/if \(key\.startsWith\('direct:'\)\) onOpenDirect\(key\.slice\('direct:'\.length\)\);/);
-  });
-  it('with no heading of its own, so the tabs stay over it', () => {
-    expect(hook).toMatch(/\} else if \(open && rooms && onChat\) \{\s*page = <GroupPage/);
   });
 });
 
