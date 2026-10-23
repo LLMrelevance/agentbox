@@ -2482,14 +2482,7 @@ export class Supervisor {
   // the row may have been rewritten since, because a later session or the
   // founder herself may have changed the title and the body underneath it.
   replyBrief(item, { product = null } = {}) {
-    const moved = this._handedBack?.delete(item?.id) ? [
-      'This thread has just moved from the cloud to this computer, because the',
-      'request below needed something the cloud machine did not have. This',
-      'computer has the files, programs and keys. Do the request here, from the start.',
-      '',
-    ] : [];
     const parts = [
-      ...moved,
       'The founder has replied on the work item you were just working on. This is',
       'that same session: everything you read and wrote is still here, so do not go',
       'back over the files or the item to catch up.',
@@ -3658,6 +3651,7 @@ export class Supervisor {
       changed ||= was !== (this.threadOnMac[id] === true);
       // The person's choice either way replaces a move the app made.
       if (keep !== undefined && id in (this.movedToMac ?? {})) { delete this.movedToMac[id]; changed = true; }
+      if (keep === null || keep === false) this._handedBack?.delete(id);
       const session = this.sessions.get(id);
       if (keep === true && session?.cloud) {
         this._kill(session);
@@ -3693,7 +3687,15 @@ export class Supervisor {
   _spendMoveToMac(item, session) {
     if (!item?.id || !(item.id in (this.movedToMac ?? {})) || session?.cloud || session?.exitFailed !== false) return;
     delete this.movedToMac[item.id];
+    this._handedBack?.delete(item.id);
     this._saveState();
+  }
+
+  // WHY IT IS HERE is told once, to the run that carries a handed-back request
+  // on this Mac, whatever brief that run gets. A run in the cloud is never told
+  // it is on the computer.
+  _toldItMoved(item, where) {
+    return where === 'local' && !!this._handedBack?.delete(item?.id);
   }
 
   // The snapshot's items with each one's place, pin and keep-on-this-Mac on
@@ -6881,7 +6883,7 @@ export class Supervisor {
   // it did. It is here for the two resume paths only: a session belongs to the
   // harness that wrote it, and a thread id handed to the wrong CLI dies on
   // arrival with "No conversation found with session ID".
-  spawnPlan(item, product, { continuation = false, resumeSessionId = null, engine = DEFAULT_ENGINE, shipFailure = null } = {}) {
+  spawnPlan(item, product, { continuation = false, resumeSessionId = null, engine = DEFAULT_ENGINE, shipFailure = null, movedHere = false } = {}) {
     // A ROW'S OWN CHAT. Her reply on a row goes back to the session that wrote
     // what she is replying to. Four guards, and each one falls back to the old
     // behaviour rather than to anything worse:
@@ -6979,6 +6981,16 @@ export class Supervisor {
     // shutting down, which it must not reuse.
     const leftoverNote = this.leftoverBriefNote(item);
     if (leftoverNote) prompt = `${prompt}\n\n${leftoverNote}`;
+    // A request the cloud handed back (`_toldItMoved`).
+    if (movedHere) {
+      prompt = [
+        'This thread has just moved from the cloud to this computer, because the',
+        'request below needed something the cloud machine did not have. This',
+        'computer has the files, programs and keys. Do the request here, from the start.',
+        '',
+        prompt,
+      ].join('\n');
+    }
     // A project may override what its own sessions may do. Absent (the normal
     // case) means the workspace default, which is why this is a lookup with no
     // entry rather than a copy of the default written onto every project: a
@@ -8796,7 +8808,7 @@ export class Supervisor {
       return;
     }
 
-    const plan = this.spawnPlan(item, product, { continuation, resumeSessionId, engine, shipFailure });
+    const plan = this.spawnPlan(item, product, { continuation, resumeSessionId, engine, shipFailure, movedHere: this._toldItMoved(item, where) });
     const { args } = plan;
     // Waiting its turn for the cloud, unless it runs here anyway: a command, or
     // a Codex thread this Mac holds (below), when there is room (Codex's
