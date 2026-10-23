@@ -18,6 +18,10 @@
 //   - a sweep every 5 minutes
 //   - a notice from the budget the spike made (`agentcore-sandboxes`) that
 //     pauses new runs when the month's spend passes it
+//   - a trail of the account's management events and of reads and writes of
+//     sign-ins, into its own bucket and log group, and alarms, emailed to
+//     `--alarm-email <address>` or to whoever the budget already emails, when
+//     the signer's key is used outside a link or someone fills their storage
 // and prints the function URL. Paying is on once scripts/stripe-setup.mjs has
 // stored Stripe's secret; run this again after it.
 
@@ -34,6 +38,7 @@ const NAMES = {
   fn: 'agentbox-gateway', role: 'agentbox-gateway-role', signer: 'agentbox-gateway-signer', notice: 'agentbox-gateway-done',
   sweep: 'agentbox-gateway-sweep', topic: 'agentbox-gateway-budget', budget: 'agentcore-sandboxes',
   stripe: 'agentbox-gateway-stripe',
+  trail: 'agentbox-gateway-trail', trailRole: 'agentbox-gateway-trail-logs', trailLogs: '/agentbox/cloudtrail', alarms: 'agentbox-gateway-alarm',
 };
 export const STRIPE_SECRET_NAME = NAMES.stripe;
 export const GATEWAY_FUNCTION = NAMES.fn;
@@ -67,23 +72,103 @@ export function rolePolicy({ bucket, runtimeArn, region, account, signerSecretAr
 }
 
 /**
- * What the signer's links may do: runs and sign-ins, never the ledger. It
- * may list them too, so a link to a missing object answers 404, not 403.
+ * What the signer's links may do: runs and sign-ins, never the ledger, and
+ * only inside a link, so the key used any other way is refused. It may list
+ * runs, so a link to a missing run file answers 404, not 403; never sign-ins,
+ * whose every reader takes a 403 as "not there" (main/cloud/logins.mjs).
  */
 export function signerPolicy({ bucket }) {
+  const inALink = { 's3:authType': 'REST-QUERY-STRING' };
   return {
     Version: '2012-10-17',
     Statement: [
-      { Effect: 'Allow', Action: ['s3:GetObject', 's3:PutObject'], Resource: ['runs/*', 'logins/*'].map((p) => `arn:aws:s3:::${bucket}/${p}`) },
-      { Effect: 'Allow', Action: ['s3:ListBucket'], Resource: `arn:aws:s3:::${bucket}`, Condition: { StringLike: { 's3:prefix': ['runs/*', 'logins/*'] } } },
+      { Effect: 'Allow', Action: ['s3:GetObject', 's3:PutObject'], Resource: ['runs/*', 'logins/*'].map((p) => `arn:aws:s3:::${bucket}/${p}`), Condition: { StringEquals: inALink } },
+      { Effect: 'Allow', Action: ['s3:ListBucket'], Resource: `arn:aws:s3:::${bucket}`, Condition: { StringEquals: inALink, StringLike: { 's3:prefix': ['runs/*'] } } },
     ],
   };
 }
 
-/** Which of the signer's keys to keep: the one in use, if IAM still has it. */
-export function signerKeyPlan({ inUse, keys }) {
-  const keep = keys.some((k) => k.id === inUse) ? inUse : null;
-  return { keep, remove: keys.filter((k) => k.id !== keep).map((k) => k.id), make: !keep };
+export const SIGNER_KEY_DAYS = 90;
+// A link lasts at most 12 hours (cloud/gateway/gateway.mjs), so a retired key
+// signed nothing still usable after this.
+const RETIRED_KEY_MS = 13 * 60 * 60_000;
+
+/**
+ * Which of the signer's keys to keep, make, retire and delete. The one in use
+ * is kept until it is SIGNER_KEY_DAYS old; then a new one is made and the old
+ * one retired, kept until its links have expired (`previous`, from the secret).
+ */
+export function signerKeyPlan({ inUse, keys, previous = null, now = Date.now() }) {
+  const current = keys.find((k) => k.id === inUse) || null;
+  const waiting = previous && previous.id !== inUse && keys.some((k) => k.id === previous.id) && now - previous.at <= RETIRED_KEY_MS ? previous.id : null;
+  // IAM holds two keys at most: an old one with a retired one waiting goes next time.
+  const retire = current && now - current.made >= SIGNER_KEY_DAYS * 24 * 60 * 60_000 && !waiting ? current.id : null;
+  const keep = current && !retire ? current.id : null;
+  return { keep, retire, remove: keys.map((k) => k.id).filter((id) => id !== keep && id !== retire && id !== waiting), make: !keep };
+}
+
+// THE ALARM. The signer only signs links, so its key never makes an AWS call
+// itself: any management call by it, or any use of it outside a link, is
+// someone else holding it. Reads and writes of sign-ins are the only data
+// events recorded, as they are what a stolen key is for and few.
+
+/** The trail's selectors: every management event, and S3 objects under logins/. */
+export function trailSelectors({ bucket }) {
+  return [
+    { Name: 'management', FieldSelectors: [{ Field: 'eventCategory', Equals: ['Management'] }] },
+    { Name: 'sign-ins', FieldSelectors: [
+      { Field: 'eventCategory', Equals: ['Data'] },
+      { Field: 'resources.type', Equals: ['AWS::S3::Object'] },
+      { Field: 'resources.ARN', StartsWith: [`arn:aws:s3:::${bucket}/logins/`] },
+    ] },
+  ];
+}
+
+/** The signer's key used other than to sign a link: as CloudWatch's filter, and as the same rule here. */
+export function signerMisuse(signerArn) {
+  const any = [['eventCategory', 'Management'], ['additionalEventData.AuthenticationMethod', 'AuthHeader']];
+  const at = (event, field) => field.split('.').reduce((o, k) => o?.[k], event);
+  return {
+    pattern: `{ ($.userIdentity.arn = "${signerArn}") && (${any.map(([f, v]) => `($.${f} = "${v}")`).join(' || ')}) }`,
+    matches: (event) => at(event, 'userIdentity.arn') === signerArn && any.some(([f, v]) => at(event, f) === v),
+  };
+}
+
+export function trailBucketPolicy({ trailBucket, trailArn, account }) {
+  const from = { Service: 'cloudtrail.amazonaws.com' };
+  return {
+    Version: '2012-10-17',
+    Statement: [
+      { Effect: 'Allow', Principal: from, Action: 's3:GetBucketAcl', Resource: `arn:aws:s3:::${trailBucket}`, Condition: { StringEquals: { 'aws:SourceArn': trailArn } } },
+      { Effect: 'Allow', Principal: from, Action: 's3:PutObject', Resource: `arn:aws:s3:::${trailBucket}/AWSLogs/${account}/*`, Condition: { StringEquals: { 's3:x-amz-acl': 'bucket-owner-full-control', 'aws:SourceArn': trailArn } } },
+    ],
+  };
+}
+
+/** What the trail's role may do: write to its own log group. */
+export function trailLogsPolicy({ region, account, logGroup }) {
+  return {
+    Version: '2012-10-17',
+    Statement: [{ Effect: 'Allow', Action: ['logs:CreateLogStream', 'logs:PutLogEvents'], Resource: `arn:aws:logs:${region}:${account}:log-group:${logGroup}:log-stream:*` }],
+  };
+}
+
+/** The alarms, each a metric filter on a log group and an alarm on its count. */
+export function gatewayAlarms({ topicArn, signerArn }) {
+  const one = { threshold: 1, periodSeconds: 300, missing: 'notBreaching', actions: [topicArn] };
+  return [
+    { name: `${NAMES.fn}-signer-misused`, logGroup: NAMES.trailLogs, metric: 'SignerKeyOutsideALink', pattern: signerMisuse(signerArn).pattern, ...one },
+    // The words cloud/gateway/gateway.mjs logs when someone reaches their cap.
+    { name: `${NAMES.fn}-storage-cap`, logGroup: `/aws/lambda/${NAMES.fn}`, metric: 'StorageCapReached', pattern: '?"cloud storage is full" ?"over twice the"', ...one },
+  ];
+}
+
+/** Where the alarms are emailed: the address given, or the one the budget already emails. */
+export function alarmEmail({ argv, subscribers }) {
+  const i = argv.indexOf('--alarm-email');
+  const given = i >= 0 ? argv[i + 1] : null;
+  if (given && !given.startsWith('--')) return given;
+  return (subscribers || []).find((x) => x.SubscriptionType === 'EMAIL')?.Address ?? null;
 }
 
 /** The bucket's notices with ours added, every other one kept. */
@@ -152,11 +237,13 @@ async function main() {
   const stored = aws(['secretsmanager', 'get-secret-value', '--secret-id', NAMES.signer], { allowFail: true });
   const inUse = stored ? JSON.parse(stored.SecretString) : null;
   const keys = aws(['iam', 'list-access-keys', '--user-name', NAMES.signer]).AccessKeyMetadata.map((k) => ({ id: k.AccessKeyId, made: Date.parse(k.CreateDate) }));
-  const plan = signerKeyPlan({ inUse: inUse?.id || null, keys });
+  const plan = signerKeyPlan({ inUse: inUse?.id || null, keys, previous: inUse?.previous || null });
   for (const id of plan.remove) aws(['iam', 'delete-access-key', '--user-name', NAMES.signer, '--access-key-id', id], { json: false });
   if (plan.make) {
+    if (plan.retire) say(`replacing the signer's key, ${SIGNER_KEY_DAYS} days old; the old one goes at a run 13 hours from now or later`);
     const k = aws(['iam', 'create-access-key', '--user-name', NAMES.signer]).AccessKey;
-    const value = JSON.stringify({ id: k.AccessKeyId, secret: k.SecretAccessKey });
+    const previous = plan.retire ? { id: plan.retire, at: Date.now() } : undefined;
+    const value = JSON.stringify({ id: k.AccessKeyId, secret: k.SecretAccessKey, ...(previous ? { previous } : {}) });
     if (stored) aws(['secretsmanager', 'put-secret-value', '--secret-id', NAMES.signer, '--secret-string', value]);
     else aws(['secretsmanager', 'create-secret', '--name', NAMES.signer, '--secret-string', value]);
   }
@@ -226,6 +313,47 @@ async function main() {
   const subscribers = aws(['budgets', 'describe-subscribers-for-notification', ...budget, '--notification', at100], { allowFail: true })?.Subscribers;
   if (!subscribers) aws(['budgets', 'create-notification', ...budget, '--notification', at100, '--subscribers', `SubscriptionType=SNS,Address=${topic}`], { json: false });
   else if (!subscribers.some((s) => s.Address === topic)) aws(['budgets', 'create-subscriber', ...budget, '--notification', at100, '--subscriber', `SubscriptionType=SNS,Address=${topic}`], { json: false });
+
+  // The trail, its bucket and log group, and the alarms on them.
+  const signerArn = aws(['iam', 'get-user', '--user-name', NAMES.signer]).User.Arn;
+  const trailArn = `arn:aws:cloudtrail:${region}:${account}:trail/${NAMES.trail}`;
+  const trailBucket = `${NAMES.trail}-${account}-${region}`;
+  if (aws(['s3api', 'head-bucket', '--bucket', trailBucket], { json: false, allowFail: true }) === null) {
+    say(`making bucket ${trailBucket}`);
+    aws(['s3api', 'create-bucket', '--bucket', trailBucket, ...(region === 'us-east-1' ? [] : ['--create-bucket-configuration', `LocationConstraint=${region}`])]);
+  }
+  aws(['s3api', 'put-public-access-block', '--bucket', trailBucket, '--public-access-block-configuration', 'BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true'], { json: false });
+  aws(['s3api', 'put-bucket-policy', '--bucket', trailBucket, '--policy', JSON.stringify(trailBucketPolicy({ trailBucket, trailArn, account }))], { json: false });
+  aws(['s3api', 'put-bucket-lifecycle-configuration', '--bucket', trailBucket, '--lifecycle-configuration', JSON.stringify({ Rules: [{ ID: 'trail-expire', Status: 'Enabled', Filter: { Prefix: '' }, Expiration: { Days: 90 } }] })], { json: false });
+  aws(['logs', 'create-log-group', '--log-group-name', NAMES.trailLogs], { json: false, allowFail: true });
+  aws(['logs', 'put-retention-policy', '--log-group-name', NAMES.trailLogs, '--retention-in-days', '30'], { json: false });
+  const trailTrust = JSON.stringify({ Version: '2012-10-17', Statement: [{ Effect: 'Allow', Principal: { Service: 'cloudtrail.amazonaws.com' }, Action: 'sts:AssumeRole' }] });
+  let trailRole = aws(['iam', 'get-role', '--role-name', NAMES.trailRole], { allowFail: true })?.Role;
+  if (!trailRole) { say(`making role ${NAMES.trailRole}`); trailRole = aws(['iam', 'create-role', '--role-name', NAMES.trailRole, '--assume-role-policy-document', trailTrust]).Role; }
+  aws(['iam', 'put-role-policy', '--role-name', NAMES.trailRole, '--policy-name', `${NAMES.trailRole}-policy`, '--policy-document', JSON.stringify(trailLogsPolicy({ region, account, logGroup: NAMES.trailLogs }))], { json: false });
+  const trailSettings = ['--name', NAMES.trail, '--s3-bucket-name', trailBucket, '--is-multi-region-trail', '--include-global-service-events', '--cloud-watch-logs-log-group-arn', `arn:aws:logs:${region}:${account}:log-group:${NAMES.trailLogs}:*`, '--cloud-watch-logs-role-arn', trailRole.Arn];
+  const hasTrail = aws(['cloudtrail', 'describe-trails', '--trail-name-list', NAMES.trail]).trailList?.length > 0;
+  // A role made a moment ago is not usable by CloudTrail yet: retry.
+  for (let i = 1; ; i += 1) {
+    try { aws(['cloudtrail', hasTrail ? 'update-trail' : 'create-trail', ...trailSettings]); break; } catch (err) {
+      if (i >= 12 || !/role|assume|InvalidCloudWatchLogs/i.test(err.message)) throw err;
+      say(`waiting for the trail's role (${i}/12)`); await sleep(5000);
+    }
+  }
+  aws(['cloudtrail', 'put-event-selectors', '--trail-name', NAMES.trail, '--advanced-event-selectors', JSON.stringify(trailSelectors({ bucket }))]);
+  aws(['cloudtrail', 'start-logging', '--name', NAMES.trail], { json: false });
+  const alarmTopic = aws(['sns', 'create-topic', '--name', NAMES.alarms]).TopicArn;
+  const email = alarmEmail({ argv: process.argv, subscribers });
+  if (!email) say('no address for the alarms: run again with --alarm-email <address>');
+  else if (!aws(['sns', 'list-subscriptions-by-topic', '--topic-arn', alarmTopic]).Subscriptions.some((x) => x.Protocol === 'email' && x.Endpoint === email)) {
+    aws(['sns', 'subscribe', '--topic-arn', alarmTopic, '--protocol', 'email', '--notification-endpoint', email]);
+    say('the alarms email an address that must confirm first: open the message AWS just sent it');
+  }
+  aws(['logs', 'create-log-group', '--log-group-name', `/aws/lambda/${NAMES.fn}`], { json: false, allowFail: true });
+  for (const a of gatewayAlarms({ topicArn: alarmTopic, signerArn })) {
+    aws(['logs', 'put-metric-filter', '--log-group-name', a.logGroup, '--filter-name', a.name, '--filter-pattern', a.pattern, '--metric-transformations', JSON.stringify([{ metricName: a.metric, metricNamespace: 'Agentbox', metricValue: '1' }])], { json: false });
+    aws(['cloudwatch', 'put-metric-alarm', '--alarm-name', a.name, '--namespace', 'Agentbox', '--metric-name', a.metric, '--statistic', 'Sum', '--period', String(a.periodSeconds), '--evaluation-periods', '1', '--threshold', String(a.threshold), '--comparison-operator', 'GreaterThanOrEqualToThreshold', '--treat-missing-data', a.missing, '--alarm-actions', ...a.actions], { json: false });
+  }
 
   say('ready');
   console.log(urlConfig.FunctionUrl);
