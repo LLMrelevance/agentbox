@@ -11,7 +11,9 @@
 // right went unseen. What was asked for: keep today's line, give it "the little
 // X in the corner combined with a slightly different background", and let it go
 // by itself. So the line keeps its place in the page and gains the toast grey,
-// a close, and an 8-second ring around the close that stops under the pointer.
+// a close, and a ring around the close that stops under the pointer. The ring
+// ran 8 seconds first; watching the film of it, that "gives too much time", so
+// it is 5.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -55,10 +57,10 @@ describe('it says it is a toast', () => {
 });
 
 describe('it leaves on its own', () => {
-  it('after eight seconds, counted by the ring around the close', () => {
-    expect(SENT_LINE_MS).toBe(8000);
+  it('after five seconds, counted by the ring around the close', () => {
+    expect(SENT_LINE_MS).toBe(5000);
     const html = draw();
-    expect(html).toMatch(/class="sent-line-ring-left"[^>]*animation-duration:8000ms/);
+    expect(html).toMatch(/class="sent-line-ring-left"[^>]*animation-duration:5000ms/);
     expect(line).toMatch(/className="sent-line-ring-left"[^>]*onAnimationEnd=\{onClose\}/);
   });
 

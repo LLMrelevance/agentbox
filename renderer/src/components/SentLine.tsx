@@ -4,7 +4,7 @@
 //
 // The ring around the close is the line's clock: its animation ending is what
 // closes the line, so the CSS pausing it under the pointer pauses the close.
-export const SENT_LINE_MS = 8000;
+export const SENT_LINE_MS = 5000;
 
 export function SentLine({ title, undoes, onBack, onUndo, onClose }: {
   title: string;
