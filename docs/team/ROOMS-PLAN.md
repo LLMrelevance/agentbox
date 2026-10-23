@@ -37,6 +37,10 @@ Your level comes from agent hours. Ranks are weekly. You can go invisible.
   Since 2026-10-22 (w-49cd37092c) one room sits after Done: the first pinned or
   first room until you pick, with an arrow that opens "Room in this tab" (each
   room, and No room tab). A room's menu has Show in the Threads tab.
+- The chat beside a room is 41% of it (480px at 1440) until you drag its left
+  edge, from 300 to 720, always leaving the board its three columns; the width
+  is kept and a double-click puts it back (2026-10-23). The faces over the board
+  go to even rows when eight no longer fit.
 - Invite: on the room row, in the room menu, and in the chat panel header. The
   invite dialog is the plain one (who is here, invite link, email).
 - Names show as "First L." by default; a person can turn on their full name.
@@ -275,7 +279,9 @@ team sync loop upserts it when its hash changes (at most every 5s):
   written into my store. It shows at the top of Needs you until my
   `room_reads.read_at` for that room passes its time, which any of my Macs can
   move. It does not go through `belongsInInbox`, never appears in Done or
-  Later, and adds to the Needs you count through its own function.
+  Later, and adds to the Needs you count through its own function. Needs you
+  draws one row per person per room: one message reads as itself, several as
+  "sent you 4 messages".
 - Unread on a room row: messages after my read time, shown as "9+" at most.
   Mentions always count, also in a muted room; other messages do not count in a
   muted room. Mute is local, per person.

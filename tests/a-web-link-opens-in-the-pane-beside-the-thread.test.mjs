@@ -23,6 +23,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { isWebsiteAddress, canFrameAWebsite, WEBSITE_PARTITION } from '../shared/websites.mjs';
 import { addressParts } from '../renderer/src/components/BrowserChrome.tsx';
 import { docKind, opensInPane } from '../renderer/src/doc-pane.ts';
+import { whereALinkGoes } from '../renderer/src/link-click.ts';
 import { WebsitePane } from '../renderer/src/components/WebsitePane.tsx';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -141,11 +142,13 @@ describe('the browser the pane draws it in', () => {
 
 describe('the thread hands a web link to the pane', () => {
   it('no longer refuses an http address at the door', () => {
-    const focus = read('renderer/src/components/Focus.tsx');
+    const rule = read('renderer/src/link-click.ts');
     // The old test was `!/^https?:/.test(href) && opensInPane(href)`: every
     // web address was excluded before the kind was ever asked for.
-    expect(focus).not.toMatch(/!\/\^https\?:\/\.test\(href\) && opensInPane/);
-    expect(focus).toMatch(/opensInPane\(href\) \|\| isLocalPreview\(href\)/);
+    expect(rule).not.toMatch(/!\/\^https\?:\/\.test\(href\) && opensInPane/);
+    expect(rule).toMatch(/opensInPane\(href\) \|\| isLocalPreview\(href\)/);
+    expect(whereALinkGoes('https://en.wikipedia.org/wiki/Kestrel')).toBe('pane');
+    expect(read('renderer/src/components/Focus.tsx')).toContain('whereALinkGoes(href, click');
   });
 
   it('still hands a pdf and a source file to the app that owns them', () => {

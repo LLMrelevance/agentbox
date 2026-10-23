@@ -1,4 +1,16 @@
-// A CODEX TASK RUNS ON THE ACCOUNT WHOSE PLAN HAS ITS MODEL.
+// A CODEX TASK SAYS SO WHEN ITS MODEL IS NOT ON THE PLAN, AND ASKS FOR ANOTHER.
+//
+// WHAT CHANGED ON w-dac993a554. This used to be "a Codex task runs on the
+// account whose plan has its model": work rotated across a person's Codex
+// logins, so the model check picked the login whose plan carried the model and
+// a refusal moved the task to one that did. Nothing rotates now, because
+// spreading one person's work over several subscriptions is what Anthropic's
+// Usage Policy means by circumventing a guardrail and OpenAI's terms refuse in
+// the same breath as rate limits. The task stays on the account in use, the
+// model is struck off that account, and the row asks for another model.
+//
+// Everything the model check does still matters, and the incident below is
+// still why it exists.
 //
 // What broke (w-f1c00e679d, measured 2026-10-11 on the Mac it happened on): a
 // weekend testing sprint was set to GPT-6.1-Sol on Codex, with 1d 17h of the
@@ -15,11 +27,12 @@
 // on the same free login, with the same result. The whole weekend's usage went
 // unused.
 //
-// Four things are asserted: the pick skips a login whose own list lacks the
-// model; a refusal Codex makes anyway (a stale list) moves the task to a login
-// that has it, at once, without benching the login for every other model; the
-// check before the thread reads the list of the login that will actually run;
-// and the words on her row say what happened and what to do.
+// Four things are asserted: the pick stays on the account in use whatever the
+// model, and reads that login's own list rather than the main one; a refusal
+// Codex makes anyway (a stale list) strikes the model off that login without
+// benching it for every other model; the check before the thread reads the list
+// of the login that will actually run; and the words on her row say what
+// happened and what to do.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -88,30 +101,32 @@ function picks(s, model, n = 10) {
 }
 
 describe('the pick', () => {
-  it('sends a model only one plan has to that plan, every time', () => {
-    expect(picks(bare(), 'gpt-6.1-sol')).toEqual(['default']);
+  it('stays on the account in use, whatever the model asks for', () => {
+    for (const model of ['gpt-6.1-sol', 'gpt-6-luna', 'gpt-9-imaginary', null, '']) {
+      expect(picks(bare(), model)).toEqual(['default']);
+    }
   });
 
-  it('still uses both logins for a model both plans have', () => {
-    expect(picks(bare(), 'gpt-6-luna')).toEqual(['default', FREE].sort());
+  // THE CASE THAT MUST NOT MATCH: the account picked in Settings is the account
+  // asked, even for a model its plan has not got. The check before the thread
+  // then says why in words (below), rather than the task quietly going
+  // somewhere else.
+  it('stays on the account picked even when the other plan has the model', () => {
+    expect(picks(bare({ activeAccount: { codex: FREE } }), 'gpt-6.1-sol')).toEqual([FREE]);
   });
 
-  it('still uses both logins when the task names no model', () => {
-    expect(picks(bare(), null)).toEqual(['default', FREE].sort());
-    expect(picks(bare(), '')).toEqual(['default', FREE].sort());
+  it('still reads each login s own list rather than the main one', () => {
+    const s = bare();
+    expect(s._planLacksModel('codex', FREE, 'gpt-6.1-sol')).toBe(true);
+    expect(s._planLacksModel('codex', 'default', 'gpt-6.1-sol')).toBe(false);
+    expect(s._planLacksModel('codex', FREE, 'gpt-6-luna')).toBe(false);
   });
 
-  // A login with no list on disk cannot be judged, and a guess would take
-  // work away from a login that might well have the model.
+  // A login with no list on disk cannot be judged, and a guess would be the
+  // app inventing a fact about somebody's plan.
   it('does not judge a login whose list it cannot read', () => {
     const unread = home('unread', null);
-    expect(picks(bare({ codexProfiles: ['default', unread] }), 'gpt-6.1-sol')).toEqual(['default', unread].sort());
-  });
-
-  // Nowhere has it: somewhere still has to be tried, and the check before the
-  // thread says why in words (below), rather than the pick answering nothing.
-  it('falls back to the ordinary rotation when no login has the model', () => {
-    expect(picks(bare(), 'gpt-9-imaginary')).toEqual(['default', FREE].sort());
+    expect(bare()._planLacksModel('codex', unread, 'gpt-6.1-sol')).toBe(false);
   });
 
   // Claude Code keeps no per-login list to read, so nothing is ruled out.
@@ -142,13 +157,16 @@ describe('a refusal Codex makes anyway', () => {
     return home('stale-free', PRO_MODELS);
   }
 
-  it('moves that model off the login that refused it, and keeps the login for others', () => {
+  it('strikes that model off the login that refused it, and keeps the login for others', () => {
     const stale = staleFree();
-    const s = bare({ codexProfiles: ['default', stale] });
-    expect(picks(s, 'gpt-6.1-sol')).toEqual(['default', stale].sort());
+    const s = bare({ codexProfiles: ['default', stale], activeAccount: { codex: stale } });
+    expect(s._planLacksModel('codex', stale, 'gpt-6.1-sol')).toBe(false);
     s.noteExitForBackoff(refusedOn(stale));
-    expect(picks(s, 'gpt-6.1-sol')).toEqual(['default']);
-    expect(picks(s, 'gpt-6-luna')).toEqual(['default', stale].sort());
+    expect(s._planLacksModel('codex', stale, 'gpt-6.1-sol')).toBe(true);
+    expect(s._planLacksModel('codex', stale, 'gpt-6-luna')).toBe(false);
+    // And it is still the account in use: the strike is about a model, not
+    // about where work goes.
+    expect(picks(s, 'gpt-6-luna')).toEqual([stale]);
   });
 
   it('files no trouble and no strike against the login', () => {
@@ -159,21 +177,17 @@ describe('a refusal Codex makes anyway', () => {
     expect(s._profileCooldown[`codex:${stale}`] ?? 0).toBe(0);
   });
 
-  it('is the account\'s fault, not the row\'s, when another login has the model', () => {
-    const stale = staleFree();
-    const s = bare({ codexProfiles: ['default', stale] });
-    const session = refusedOn(stale);
-    s.noteExitForBackoff(session);
-    expect(session.accountFault).toEqual({ cause: 'model-not-on-plan', account: `codex:${stale}` });
-  });
-
-  // Nowhere else to go: an instant retry would be a loop, so the row rests
-  // and her row asks her to pick another model.
-  it('is the row\'s to wait on when no login has the model', () => {
-    const s = bare({ codexProfiles: ['default'], codexHome: FREE });
-    const session = refusedOn('default');
-    s.noteExitForBackoff(session);
-    expect(session.accountFault).toBeUndefined();
+  // IT IS THE ROW'S TO ANSWER, NEVER THE OTHER ACCOUNT'S (w-dac993a554). This
+  // used to be filed as the account's fault whenever a second Codex login's
+  // plan had the model, which is what started the move. An instant retry
+  // somewhere else would be the rotation; the row asks for another model.
+  it('is the row s to answer, with a second login signed in or without one', () => {
+    for (const codexProfiles of [['default', staleFree()], ['default']]) {
+      const s = bare({ codexProfiles });
+      const session = refusedOn('default');
+      s.noteExitForBackoff(session);
+      expect(session.accountFault).toBeUndefined();
+    }
   });
 
   it('does not touch her claude books', () => {
@@ -214,14 +228,10 @@ describe('the words on her row', () => {
     expect(deadRunCause(line)).toBe('model-not-on-plan');
   });
 
-  it('says it is moving when another login has the model', () => {
-    expect(deadRunSentence({ engineWord: 'Codex', cause: 'model-not-on-plan', elsewhere: true })).toMatch(/runs it again on a Codex account whose plan has it/);
-  });
-
-  it('asks for another model when none does', () => {
-    const line = deadRunSentence({ engineWord: 'Codex', cause: 'model-not-on-plan', elsewhere: false });
+  it('asks for another model, and offers no account to sign into', () => {
+    const line = deadRunSentence({ engineWord: 'Codex', cause: 'model-not-on-plan' });
     expect(line).toMatch(/Pick another model/);
-    expect(line).not.toMatch(/keeps trying/);
+    expect(line).not.toMatch(/keeps trying|sign in a Codex account|another account/);
   });
 
   it('is counted above the list as hers to fix, in a few words', () => {
@@ -231,13 +241,20 @@ describe('the words on her row', () => {
     expect(shortNext(row)).toBe('need another model');
   });
 
-  // The row comes back to the queue after our own sentence, but only when
-  // there is a login to take it to.
-  it('lets the row run again when another login has the model', () => {
+  // AND THE ROW WAITS FOR HER, not for a tick. It used to come back to the
+  // queue on its own when another login's plan had the model, which was the
+  // first half of the move; a row whose model its plan has not got needs a
+  // person to pick another one, so nothing here brings it back.
+  it('leaves the row waiting rather than queueing it again', () => {
     const s = bare();
-    s._fruitless = { 'p:w-1': { runs: 1, saidTs: 5, saidWhy: 'model-not-on-plan', account: `codex:${FREE}` } };
-    expect(s._onlyWeSpokeForAnAccount({ product: 'p', id: 'w-1', wrote: { result: { ts: 5, source: 'agent' } } })).toBe(true);
-    s._fruitless['p:w-1'].account = undefined;
-    expect(s._onlyWeSpokeForAnAccount({ product: 'p', id: 'w-1', wrote: { result: { ts: 5, source: 'agent' } } })).toBe(false);
+    const asked = { product: 'p', id: 'w-1', wrote: { result: { ts: 5, source: 'agent' } } };
+    for (const account of [`codex:${FREE}`, undefined]) {
+      s._fruitless = { 'p:w-1': { runs: 1, saidTs: 5, saidWhy: 'model-not-on-plan', account } };
+      expect(s._onlyWeSpokeForAnAccount(asked)).toBe(false);
+    }
+    // THE CASE THAT MUST NOT MATCH: a limit still brings the row back, because
+    // the account it is waiting on comes back on its own.
+    s._fruitless = { 'p:w-1': { runs: 1, saidTs: 5, saidWhy: 'at-limit', account: 'codex:default' } };
+    expect(s._onlyWeSpokeForAnAccount(asked)).toBe(true);
   });
 });

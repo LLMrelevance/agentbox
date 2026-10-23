@@ -35,7 +35,7 @@ import { InstructionSettings, sizeLabel } from './InstructionSettings';
 import { NeoSettings } from '../neo/NeoSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
-import { accountLabel, cloudToggleTarget, countedAccounts, type CloudStatus } from '../cloud-menu';
+import { accountLabel, cloudAccountInUse, cloudToggleTarget, countedAccounts, type CloudStatus } from '../cloud-menu';
 import { planCards, usageLine, usedPercent, type PaidPlan } from '../cloud-upgrade';
 import type { CloudPlan } from '../types';
 import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
@@ -360,10 +360,10 @@ export function usageCheckedAt(at: number | null | undefined, now: number): stri
 /**
  * THE ACCOUNTS, one row each.
  *
- *  NOTHING IS MARKED WHEN SHE HAS NOT PICKED, and then every account really
- *  does run. Marking one at random would be the page telling her something
- *  about her own machine that is not true. Once she has picked, the live one
- *  says In use beside the address, in words, and every other one offers itself.
+ *  ONE OF THEM IS IN USE AND IT SAYS SO (w-dac993a554). Nothing used to be
+ *  marked until somebody picked, because until then every account took a share
+ *  of the work; one account runs it now, so one row always carries In use and
+ *  the others offer themselves.
  *
  *  A TROUBLED ACCOUNT IS NOT SOMETHING TO PICK, IT IS SOMETHING TO FIX. It says
  *  what is wrong in main's own words and carries the command that puts it
@@ -374,7 +374,6 @@ export function AccountRows({ agent, onChoose, onAdd }: {
   onAdd: (agent: Agent) => void;
 }) {
   const accounts = agent.accounts;
-  const picked = accounts.some((a) => a.chosen);
   return (
     <>
       {accounts.map((a) => <Fragment key={a.profile}>{accountRow(a)}</Fragment>)}
@@ -388,7 +387,7 @@ export function AccountRows({ agent, onChoose, onAdd }: {
   );
 
   function accountRow(a: CardAccount) {
-        const live = picked ? a.chosen : false;
+        const live = a.chosen;
         const label = a.email ?? 'Not signed in';
         if (a.trouble) {
           return (
@@ -410,7 +409,7 @@ export function AccountRows({ agent, onChoose, onAdd }: {
             {!live && accounts.length > 1 && (
               <div className="set-row-ctl">
                 <button type="button" className="set-ghost" onClick={() => onChoose(agent.engine, a.profile)}>
-                  {picked ? 'Use this one' : 'Use only this one'}
+                  Use this one
                 </button>
               </div>
             )}
@@ -527,16 +526,25 @@ export function Place({ id, name, state = null, line = null, action, warn, accou
   );
 }
 
-/** The cloud's own logins, as a place card reads them. */
+/**
+ * The cloud's own logins, as a place card reads them. IT NAMES THE ONE IT RUNS
+ * ON AND CALLS THE REST SIGNED IN (w-dac993a554): every tile said "Ready",
+ * which was true while runs rotated over all of them and is a promise of work
+ * that will never start there now that one account runs.
+ */
 export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex', now: number): PlaceAccount[] {
   const all = cloud.accounts ?? [];
+  const inUse = cloudAccountInUse(all, engine);
   // A login of an account already added is the same account, and the cloud never runs on it.
   return countedAccounts(all).filter((a) => a.engine === engine).map((a) => {
+    const live = a.key === inUse?.key;
     const state = cloudAccountState(a, now);
     const read = !!a.limits?.length;
     // A full meter already says when it is back, so beside one the state is said short.
-    const about = read && state.startsWith('At its limit') ? 'At its limit' : state;
-    return { key: a.key, name: accountLabel(a, all), plan: a.plan ?? null, about: [about], limits: a.limits ?? null, meters: read, checkedAt: read ? a.readAt : null };
+    const about = read && state.startsWith('At its limit') ? 'At its limit'
+      : !live && state === 'Ready' ? 'Signed in'
+      : state;
+    return { key: a.key, name: accountLabel(a, all), plan: a.plan ?? null, about: [about], inUse: live, limits: a.limits ?? null, meters: read, checkedAt: read ? a.readAt : null };
   });
 }
 
@@ -546,8 +554,8 @@ export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex
  *  place the account works. The cloud cannot borrow this computer's login, so
  *  an account missing there, or whose sign-in there stopped, offers the sign-in.
  */
-export function accountTile(a: OneAccount, { picked, many, onUse, cloud = false, onCloudSignIn }: {
-  picked: boolean; many: boolean; now: number; onUse: (profile: string) => void;
+export function accountTile(a: OneAccount, { many, onUse, cloud = false, onCloudSignIn }: {
+  many: boolean; now: number; onUse: (profile: string) => void;
   cloud?: boolean;
   onCloudSignIn?: (key: string | null, email: string | null) => void;
 }): PlaceAccount {
@@ -562,23 +570,30 @@ export function accountTile(a: OneAccount, { picked, many, onUse, cloud = false,
     about: signingIn ? ['Finish signing in to use it'] : [],
     places,
     cloudAct: !cloud || signingIn ? null : broken ? signIn('Sign in to cloud again', c!.key) : h && !c ? signIn('Add to cloud', null) : null,
-    inUse: !!(picked && h?.chosen),
+    // ONE ACCOUNT IS IN USE AND IT SAYS SO (w-dac993a554). This asked `picked`
+    // as well, because until somebody picked, every account took a share of
+    // the work and none of them was the one; the supervisor answers `chosen`
+    // now, so the tile with it is the account and the others offer the switch.
+    inUse: !!h?.chosen,
     limits: a.limits, checkedAt: a.checkedAt, usageError: a.usageError,
-    use: h?.signedIn && !(picked && h.chosen) && many ? { word: picked ? 'Switch' : 'Use only this one', onUse: () => onUse(h.profile) } : null,
+    use: h?.signedIn && !h.chosen && many ? { word: 'Switch', onUse: () => onUse(h.profile) } : null,
     trouble: h?.trouble ?? null,
     cmd: h?.trouble && h.dir ? `CLAUDE_CONFIG_DIR=${h.dir} claude` : null,
     meters: !!(h || a.limits?.length),
   };
 }
 
-/** The cloud row's sentence: when threads go there, and on which accounts. */
-export function cloudRunsLine(mode: CloudStatus['mode'], names: string[], accounts: number): string {
+/**
+ * The cloud row's sentence: when threads go there, and on which account.
+ *
+ * ONE ACCOUNT, HOWEVER MANY ARE SIGNED IN THERE (w-dac993a554). This listed
+ * them and ended "in turn", which is what `pickCloudLogin` used to do; it takes
+ * one account now and waits for it, so the sentence names that one.
+ */
+export function cloudRunsLine(mode: CloudStatus['mode'], inUse: string | null): string {
   if (mode === 'mac') return 'Every thread runs on this computer.';
   const when = mode === 'all' ? 'Threads start there first' : 'Threads start there when this computer is full';
-  const on = names.length === 1 ? `on ${names[0]}`
-    : names.length === accounts ? `on ${accounts === 2 ? 'both' : `all ${accounts}`} accounts in turn`
-      : `on ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} in turn`;
-  return `${when}, ${on}.`;
+  return `${when}, on ${inUse ?? 'your cloud account'}.`;
 }
 
 /*
@@ -1769,13 +1784,14 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   const enginePage = (engine: 'claude' | 'codex') => {
     if (!w) return null;
     const agent = agentStory(w, usageReadings, engine);
-    const picked = agent.accounts.some((a) => a.chosen);
     const cloudHere = cloud?.setUp && (cloud.accounts ?? []).some((a) => a.engine === engine) ? cloud : null;
     const cloudLogins = cloudHere ? countedAccounts(cloudHere.accounts ?? []).filter((a) => a.engine === engine) : [];
+    // The one the cloud runs on, by `pickCloudLogin`'s rule (cloud-menu.ts).
+    const cloudInUse = cloudHere ? cloudAccountInUse(cloudHere.accounts ?? [], engine) : null;
     // Each login's own reading, never another's, and the cloud's when it is the same subscription and newer.
     const tiles = accountsOnce({ here: agent.accounts, cloud: cloudLogins, readings: accountReadings, current: agent.reading })
       .map((a) => accountTile(a, {
-        picked, many: agent.accounts.length > 1, now,
+        many: agent.accounts.length > 1, now,
         onUse: (profile) => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile } })),
         cloud: !!cloud?.setUp, onCloudSignIn,
       }));
@@ -1827,13 +1843,16 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                   /* TWO FOLDERS, ONE SUBSCRIPTION, SAID ABOVE THE ROWS
                      (w-f2a5c9894e). Main's sentence, about the pair. */
                   warn={w.accountsNote}
+                  /* WHY A SECOND ACCOUNT BUYS NO MORE AGENTS, said only where
+                     somebody can see two of their own (w-dac993a554). */
+                  line={tiles.length > 1 ? 'Your agents run on one account at a time.' : null}
                   accounts={tiles}
                   now={now}
                   onAdd={() => void addAccount(agent)}
                 />
                 {cloudHere && (
                   <Group id="cloud-accounts" label="Cloud">
-                    <Row label="Use the cloud" desc={cloudRunsLine(cloudHere.mode, cloudLogins.map((a) => accountLabel(a, cloudLogins)), tiles.length)}>
+                    <Row label="Use the cloud" desc={cloudRunsLine(cloudHere.mode, cloudInUse ? accountLabel(cloudInUse, cloudLogins) : null)}>
                       <Switch
                         on={cloudHere.mode !== 'mac'}
                         label="Use the cloud"
@@ -2442,7 +2461,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                     title="The Claude account this project's agents run on."
                     value={current.account ?? 'any'}
                     options={[
-                      { value: 'any', label: 'Any account' },
+                      /* 'any' IS THE ABSENCE OF A TIE, not a rotation: it read
+                         "Any account" while there was one (w-dac993a554). */
+                      { value: 'any', label: 'The account in use' },
                       ...(w?.accounts ?? []).map((a) => ({ value: a.profile, label: a.email ? `${a.email} (${a.label})` : a.label })),
                     ]}
                     onChange={(v) => setProject(current.slug, 'account', v)}

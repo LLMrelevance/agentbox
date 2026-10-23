@@ -26,7 +26,7 @@ const limit = (span, percent) => ({ span, qualifier: span === 'week' ? 'all mode
 const draw = (accounts) => renderToStaticMarkup(React.createElement(PlaceTiles, { accounts }));
 const here = (extra = {}) => ({ profile: 'default', email: 'one@example.test', plan: 'Max 20x', chosen: false, signedIn: true, trouble: null, dir: null, ...extra });
 const account = (extra = {}) => ({ key: 'default', name: 'one@example.test', plan: 'Max 20x', here: here(), cloud: null, limits: [limit('session', 5), limit('week', 9)], checkedAt: null, usageError: null, ...extra });
-const acts = (extra = {}) => ({ picked: true, many: true, now: Date.now(), onUse: vi.fn(), ...extra });
+const acts = (extra = {}) => ({ many: true, now: Date.now(), onUse: vi.fn(), ...extra });
 
 describe('a tile on this computer', () => {
   it('the reported case: the account not in use has a Switch button, the one in use says IN USE by its address', () => {
@@ -52,15 +52,22 @@ describe('a tile on this computer', () => {
     expect(html).not.toContain('acct-switch');
   });
 
-  it('with none picked, every account runs, so nothing says IN USE and each offers to be the only one', () => {
-    const html = draw([accountTile(account(), acts({ picked: false }))]);
+  // ONE ACCOUNT IS ALWAYS THE ONE IN USE (w-dac993a554). This read "with none
+  // picked, every account runs, so nothing says IN USE and each offers to be
+  // the only one", which was the rotation: until somebody picked, the work was
+  // shared over every login. The supervisor answers which account runs now, so
+  // a tile is either in use or offers the switch, and none of them offers to
+  // be the only one.
+  it('offers the switch on the account not in use, and never to be the only one', () => {
+    const html = draw([accountTile(account(), acts())]);
     expect(html).not.toContain('In use');
-    expect(html).toContain('>Use only this one</button>');
+    expect(html).not.toContain('Use only this one');
+    expect(html).toContain('>Switch</button>');
   });
 
   it('must NOT offer a switch when there is nothing to switch to', () => {
     expect(accountTile(account({ here: here({ chosen: true }) }), acts({ many: false })).use).toBeNull();
-    expect(accountTile(account(), acts({ picked: false, many: false })).use).toBeNull();
+    expect(accountTile(account(), acts({ many: false })).use).toBeNull();
   });
 });
 
@@ -83,7 +90,7 @@ describe('the line under the name', () => {
 });
 
 describe('a Codex login in the cloud, still drawn as its own place', () => {
-  it('has the plan and state on one line, and no switch: the cloud takes its accounts in turn', () => {
+  it('has the plan and state on one line, and no switch: the cloud account is not changed from a tile', () => {
     const [a] = cloudPlaceAccounts({ mode: 'all', accounts: [{ engine: 'codex', key: 'c', name: 'one@example.test', plan: 'Plus', ready: true, state: 'ready', limits: [limit('session', 5)] }] }, 'codex', Date.now());
     const html = draw([a]);
     expect(html).toContain('<div class="acct-tile-about"><span>Plus · Ready</span></div>');
