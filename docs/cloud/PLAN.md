@@ -614,9 +614,16 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
 - **The Mac.** `cloud.json` holding `gateway` (an address) instead of a
   bucket and runtime makes this Mac a managed one. Her own setup is
   unchanged.
-- **Still open before strangers.** Presigned writes with no size cap (bounded by the 7-day expiry of
-  `runs/`), an alarm on unexpected use of the signer's key, and cloud keys
-  that never expire (turning a person off covers abuse, not a lost Mac).
+- **Closed before strangers (2026-10-22).** A link that writes needs a plan,
+  and only a sign-in or a renewal may save a sign-in. While someone holds such
+  a link the sweep weighs their `runs/`: at 200 GiB no new one, past 400 GiB
+  the newest objects go. A cloud key unused for 30 days is refused; a person
+  can end their other Macs' keys, and the owner every key of a person
+  (`cloud-gateway-admin.mjs sign-out`). The signer's key works only inside a
+  link, cannot list sign-ins, and is replaced every 90 days; a trail emails an
+  alarm on any other use of it, or when someone reaches the storage cap.
+  Still open: no button to sign out other Macs yet, and a reused link's
+  request and download costs are bounded only by a plan and the budget.
 
 ## Known limits
 
