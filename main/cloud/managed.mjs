@@ -38,7 +38,7 @@ export function managedClients({ url, key, timeoutMs = CALL_MS, fileTimeoutMs = 
     const out = await res.json().catch(() => ({}));
     if (!res.ok) {
       throw Object.assign(new Error(`the cloud server said ${res.status}: ${out.message || out.error || 'no reason'}`), {
-        status: res.status, error: out.error, signedOut: res.status === 401,
+        status: res.status, error: out.error, said: out.message, signedOut: res.status === 401,
       });
     }
     return out;
