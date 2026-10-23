@@ -183,6 +183,11 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
       const out = await call(`/rest/v1/${table}${q}`, { method: 'POST', headers: { prefer: `return=representation${onConflict ? ',resolution=ignore-duplicates' : ''}` }, body: JSON.stringify(row) });
       return Array.isArray(out) ? out[0] : out;
     },
+    /** A row, or the row already there with the same key brought up to date. */
+    async upsert(table: string, row: Record<string, unknown>, onConflict: string) {
+      const out = await call(`/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`, { method: 'POST', headers: { prefer: 'return=representation,resolution=merge-duplicates' }, body: JSON.stringify(row) });
+      return Array.isArray(out) ? out[0] : out;
+    },
     async remove(table: string, query: string) {
       return (await call(`/rest/v1/${table}?${query}`, { method: 'DELETE', headers: { prefer: 'return=representation' } })) ?? [];
     },

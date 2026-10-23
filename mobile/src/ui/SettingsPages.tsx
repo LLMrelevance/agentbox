@@ -12,7 +12,7 @@ import { MODE_ORDER, MODE_SENTENCE, MODE_WORDS } from '../../../renderer/src/mod
 import { NAME } from '../../../shared/product-name.mjs';
 import { deleteAccount } from '../../../renderer/src/phone-account';
 import { withDeadline } from '../lib/deadline';
-import { alertsHere, alertToken, sendTestAlert } from '../platform/alerts';
+import { alertsHere, sendTestAlert } from '../platform/alerts';
 import { useCloud } from '../state/cloud';
 import { useSettings, type SettingsState } from '../state/settings';
 import { Tick } from './icons';
@@ -118,7 +118,8 @@ function PhoneProjects() {
 }
 
 function AlertRows() {
-  const [token, setToken] = useState<string | null>(null);
+  const c = useCloud();
+  const token = c.alerts?.token ?? null;
   const [said, setSaid] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const attempt = (fn: () => Promise<void>) => async () => {
@@ -126,10 +127,10 @@ function AlertRows() {
     try { await fn(); } catch (err) { setSaid(String((err as Error)?.message ?? err)); } finally { setBusy(false); }
   };
   if (!alertsHere) return <Row first label="Alerts on this phone" desc="Alerts need the app on your phone." />;
-  if (!token) return <Row first label="Alerts on this phone" desc={said ?? 'A thread that needs you arrives on the lock screen.'} control={<Button title="Turn on" disabled={busy} onPress={attempt(async () => setToken(await alertToken()))} />} />;
+  if (!token) return <Row first label="Alerts on this phone" desc={said ?? 'A thread that needs you arrives on the lock screen.'} control={<Button title="Turn on" disabled={busy} onPress={attempt(() => c.turnOnAlerts())} />} />;
   return (
     <>
-      <Row first label="Alerts on this phone" desc="On. A thread that needs you arrives on the lock screen." />
+      <Row first label="Alerts on this phone" desc="On. A thread that needs you arrives here while you are away from your computer." control={<Button title="Turn off" disabled={busy} onPress={attempt(() => c.turnOffAlerts())} />} />
       <Row label="Send a test alert" desc={said ?? 'Lock your phone after sending to see it arrive.'} control={<Button title="Send" disabled={busy} onPress={attempt(async () => { await sendTestAlert(token, withDeadline(fetch)); setSaid('Sent. Lock your phone to see it arrive.'); })} />} />
     </>
   );

@@ -1,7 +1,7 @@
-// Alerts on the lock screen (docs/mobile/PLAN.md, phase 1 proves one arrives).
-// The sender in the cloud is phase 3; until then the phone asks Expo's push
-// service to send it one test alert, which proves the whole road from a
-// server to the lock screen.
+// Alerts on the lock screen. Your computer sends them (main/phone-alerts.mjs)
+// to the token this phone leaves online (lib/push-device.ts); a test alert
+// is sent from the phone itself, which proves the road from Expo's push
+// service to the lock screen.
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
@@ -24,6 +24,18 @@ export async function alertToken(): Promise<string> {
   const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
   if (!projectId) throw new Error('This build has no Expo project, so it cannot get alerts.');
   return (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+}
+
+/** The token while alerts are still allowed, without asking; null once they were turned off in Settings. */
+export async function alertTokenIfAllowed(): Promise<string | null> {
+  if (!Device.isDevice) return null;
+  if ((await Notifications.getPermissionsAsync()).status !== 'granted') return null;
+  return alertToken();
+}
+
+export function setIconCount(n: number) {
+  if (Platform.OS === 'web') return;
+  Notifications.setBadgeCountAsync(n).catch(() => { /* the icon keeps its last count */ });
 }
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;

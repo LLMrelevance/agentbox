@@ -683,6 +683,9 @@ export default function App() {
   // THE CLOUD'S OWN SETUP SCREEN, opened from the cloud menu's Set up, or by
   // choosing to run in the cloud before it is set up (components/CloudSetup).
   const [cloudSetupOpen, setCloudSetupOpen] = useState(false);
+  // Settings › Phone's own sign-in, for a build whose team version is off.
+  const [phoneSignInOpen, setPhoneSignInOpen] = useState(false);
+  useEffect(() => { if (snap?.team?.signedIn) setPhoneSignInOpen(false); }, [snap?.team?.signedIn]);
   // The account a cloud sign-in started from Settings is for, so its page can say whom to sign in as.
   const [cloudSignInAs, setCloudSignInAs] = useState<string | null>(null);
   const floatingRef = useRef<OpenOverTheApp>(NOTHING_OVER_THE_APP);
@@ -3059,12 +3062,14 @@ export default function App() {
         title: String((a.input as any)?.description ?? (a.input as any)?.command ?? a.tool ?? 'a command'),
         // The thread that is asking, which heads the phone's alert.
         thread: (() => { const of = a.item ? snap.items.find((i) => i.id === a.item) : null; return of ? rowTitle(of) : null; })(),
+        item: a.item ?? null,
         product: a.product,
         productName: snap.products.find((p) => p.slug === a.product)?.name ?? a.product,
         kind: 'approval',
       })),
     ];
-    if (arrivals.length) window.zero?.notify?.(arrivals);
+    // With the inbox they arrived in, which the phone's alert counts on its icon.
+    if (arrivals.length) window.zero?.notify?.(arrivals, inbox.filter((i) => i.product).map((i) => ({ id: i.id, product: i.product as string })));
   }, [snap, inbox, runningRows]);
 
   // The corner tag's "Turn off…" lands on the switch that turns it off.
@@ -7300,6 +7305,7 @@ export default function App() {
           // HER PHONE WITH THE MAC SHUT: the projects she puts on it, on the
           // Phone page, only while she is signed in.
           phoneCloud={snap?.team?.signedIn ? { site: snap.team.phoneSite ?? null, siteQr: snap.team.phoneSiteQr ?? null } : undefined}
+          onPhoneSignIn={snap?.team && !snap.team.signedIn ? () => setPhoneSignInOpen(true) : undefined}
           account={snap?.team?.signedIn && snap.team.me ? { email: snap.team.me.email, team: snap.team.team?.name ?? null, onSignOut: () => { void api.teamSignOut().then(() => refresh()); } } : undefined}
           // THE VERSION AND THE CHECK FOR A NEWER ONE (w-39d6c237f7), off the
           // same snapshot field the sidebar card and ⌘K read.
@@ -7569,6 +7575,9 @@ export default function App() {
       {/* Offered and nobody signed in yet: the app's own sign-in page first.
           Signing in sets the cloud up, and the same open state then shows
           the setup's accounts. */}
+      {phoneSignInOpen && snap?.team && !snap.team.signedIn && (
+        <SignInPage purpose="phone" waitingUrl={snap.team.signingIn?.url ?? null} onClose={() => setPhoneSignInOpen(false)} onSignedIn={() => setPhoneSignInOpen(false)} />
+      )}
       {cloudSetupOpen && !snap.cloud?.setUp && snap.cloud?.offered && (
         <SignInPage purpose="cloud" onClose={() => setCloudSetupOpen(false)} onSignedIn={() => setCloudSetupOpen(true)} />
       )}

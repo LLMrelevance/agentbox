@@ -6,10 +6,11 @@ import { File, Paths } from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
 import { AppState, Platform } from 'react-native';
 import { NOTICE_KEY } from '../lib/ai-notice';
+import { ALERTS_KEY } from '../lib/push-device';
 import { syncStore } from '../lib/drafts';
 import type { Persist } from '../lib/kept';
 
-const KEYS = ['agentbox-cloud-session', 'agentbox-cloud-verifier', NOTICE_KEY];
+const KEYS = ['agentbox-cloud-session', 'agentbox-cloud-verifier', ALERTS_KEY, NOTICE_KEY];
 
 export const persist: Persist = Platform.OS === 'web'
   ? {

@@ -201,7 +201,7 @@ export const PUSH_CHANNELS = {
 // and the handler on the far side reads an object, so the key each value goes
 // under is part of the contract and belongs here beside the channel.
 export const WRAPPED_ARGS = {
-  notify: ['arrivals'],
+  notify: ['arrivals', 'needsYou'],
   track: ['name'],
   instructionWrite: ['id', 'text'],
   instructionVersion: ['id', 'at'],

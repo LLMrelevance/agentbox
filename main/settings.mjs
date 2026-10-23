@@ -35,6 +35,7 @@ import { codexAccount, codexFreePlan, codexLoginCommand, makeCodexHome } from '.
 import { codexDefaultModel, codexModelsAcross } from './codex-models.mjs';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
 import { CLOUD_SAME, CLOUD_CLAUDE_DEFAULT, CLOUD_CODEX_DEFAULT } from './cloud-permission.mjs';
+import { isPackagedElectron } from './team/session.mjs';
 import { claudeModels } from './claude-models.mjs';
 import { forgetCodexBin, INSTALL_URL as CODEX_INSTALL_URL } from './codex-bin.mjs';
 
@@ -443,9 +444,14 @@ export function searchForEngineBin(config, engine) {
 }
 
 // THE ALPHA FEATURES SWITCHES (w-3d0fa23ffb). Off unless someone turned them
-// on in Settings; only a real `true` counts.
-export function alphaFeatures(config) {
-  return { neo: config?.alphaNeo === true, rooms: config?.alphaRooms === true };
+// on in Settings; only a real `true` counts. Multiplayer, the team version, is
+// the exception in a checkout, where it was always on.
+export function alphaFeatures(config, { packaged = isPackagedElectron() } = {}) {
+  return {
+    neo: config?.alphaNeo === true,
+    rooms: config?.alphaRooms === true,
+    multiplayer: packaged ? config?.alphaMultiplayer === true : config?.alphaMultiplayer !== false,
+  };
 }
 
 export function readSettings({ config, supervisor, store }) {
@@ -1272,6 +1278,10 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
       break;
     case 'alphaRooms':
       saveConfig(config, { alphaRooms: !!value });
+      supervisor.onChange?.();
+      break;
+    case 'alphaMultiplayer':
+      saveConfig(config, { alphaMultiplayer: !!value });
       supervisor.onChange?.();
       break;
     // THE CORNER TAG (w-dafae58a23). Turning it back on also ends any hide, so

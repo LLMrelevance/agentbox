@@ -3,8 +3,8 @@
 // The cloud's public address and key come from the same file the phone site
 // reads (scripts/phone-site-config.mjs), or from the environment on Expo's
 // build machines, which see only what git tracks. Neither is committed. The
-// bundle id is permanent once a build uses it, so it is the owner's to choose
-// and comes from the environment too.
+// bundle id is permanent once a build uses it; the environment can name another
+// for a copy of the app built elsewhere.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,12 +24,13 @@ function cloudConfig(): { url: string; anonKey: string; phoneSite: string | null
   return null;
 }
 
-const bundleId = process.env.MOBILE_BUNDLE_ID;
-const projectId = process.env.EAS_PROJECT_ID;
+const bundleId = process.env.MOBILE_BUNDLE_ID || 'now.astral.agentbox';
+const projectId = process.env.EAS_PROJECT_ID || '2b129901-faac-4b8d-8709-9a08cf6778f5';
 
 const config: ExpoConfig = {
   name: NAME,
   slug: nameSlug,
+  owner: process.env.EAS_OWNER || 'agentbox-app',
   scheme: nameSlug,
   version: '0.1.0',
   orientation: 'portrait',
@@ -39,13 +40,13 @@ const config: ExpoConfig = {
   ios: {
     // iPhone only; it still runs in an iPad's iPhone mode, where reviewers sometimes test.
     supportsTablet: false,
-    ...(bundleId ? { bundleIdentifier: bundleId } : {}),
+    bundleIdentifier: bundleId,
     usesAppleSignIn: true,
     // HTTPS through the system is exempt from export rules.
     config: { usesNonExemptEncryption: false },
   },
   // Android's own icon shapes wait for its phase (docs/mobile/PLAN.md).
-  android: { ...(bundleId ? { package: bundleId } : {}) },
+  android: { package: bundleId },
   web: { favicon: './assets/favicon.png' },
   plugins: [
     'expo-router',
@@ -59,7 +60,7 @@ const config: ExpoConfig = {
   experiments: { typedRoutes: false },
   extra: {
     cloud: cloudConfig(),
-    ...(projectId ? { eas: { projectId } } : {}),
+    eas: { projectId },
   },
 };
 
