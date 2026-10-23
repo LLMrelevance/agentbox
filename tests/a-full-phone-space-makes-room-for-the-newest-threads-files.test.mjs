@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { createPhoneUploads } from '../main/phone-uploads.mjs';
+import { createPhoneUploads, UPLOAD_LIMITS } from '../main/phone-uploads.mjs';
 
 const T = Date.UTC(2026, 9, 22, 18, 0);
 const MIN = 60_000;
@@ -128,6 +128,27 @@ describe('what never happens', () => {
     expect(u.dropped).toEqual([]);
   });
 
+  // Codex's review of the first cut (2026-10-22): it took the old files off
+  // before the new one was up, so a refused upload left the phone with neither.
+  it('takes nothing off the phone when the new file does not go up', async () => {
+    put('old.png', 4); put('new.png', 4);
+    const u = uploader({ totalBytes: 6 });
+    u.list('w-old', 'old.png', T - 3000 * MIN);
+    await u.up.kick();
+    u.tick(6 * MIN);
+    let clock = T + 12 * MIN;
+    const refusing = createPhoneUploads({
+      backend: { async putPhoneFile() { throw new Error('offline'); }, async dropPhoneFiles({ names }) { u.dropped.push(...names); } },
+      owner: 'o', device: 'a1b2c3d4e5f6', state: u.state, save() {}, home, now: () => clock, log: () => {},
+      limits: { fileBytes: 1e9, threadBytes: 1e9, totalBytes: 6, files: 60, days: 7 },
+    });
+    clock += 6 * MIN;
+    refusing.manifest('w-new', snap('w-new', 'new.png', T), { dir: docs, updatedAt: T, base: '1' });
+    await refusing.kick();
+    expect(u.dropped).toEqual([]);
+    expect(Object.keys(u.state.uploaded)).toHaveLength(1);
+  });
+
   it('says once that the space is full, not on every pass', async () => {
     put('big-new.png', 8); put('later.png', 4);
     const u = uploader({ totalBytes: 10 });
@@ -139,5 +160,18 @@ describe('what never happens', () => {
       await u.up.kick();
     }
     expect(u.lines.filter((l) => /full/.test(l))).toHaveLength(1);
+  });
+});
+
+// THE ROOM ITSELF. 900 MiB was sized for Supabase's free plan (1 GB); the
+// account is on Pro, 100 GB shared across the organization's projects
+// (supabase.com/pricing, read 2026-10-22). Codex's review suggested 10 GB a
+// Mac: enough for a week of this Mac's work many times over (943.7 MB), and a
+// tenth of the plan, so other projects and a second Mac keep their room.
+describe('how much room a Mac takes', () => {
+  it('is 10 GB, well inside the plan the account is on', () => {
+    expect(UPLOAD_LIMITS.totalBytes).toBe(10 * 1024 ** 3);
+    expect(UPLOAD_LIMITS.totalBytes).toBeLessThan(100e9 / 5);
+    expect(UPLOAD_LIMITS.fileBytes).toBe(25 * 1024 * 1024);
   });
 });

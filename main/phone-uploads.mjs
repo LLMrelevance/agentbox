@@ -18,8 +18,9 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { hideSecrets } from '../shared/phone-snapshot.mjs';
 
-// Under the database plan's smallest storage (1 GB), with room.
-export const UPLOAD_LIMITS = { fileBytes: 25 * 1024 * 1024, threadBytes: 100 * 1024 * 1024, totalBytes: 900 * 1024 * 1024, files: 60, days: 7 };
+// A tenth of the Pro plan's 100 GB, which the organization's projects share;
+// past it the oldest threads' files make way (`trimBelow`).
+export const UPLOAD_LIMITS = { fileBytes: 25 * 1024 * 1024, threadBytes: 100 * 1024 * 1024, totalBytes: 10 * 1024 ** 3, files: 60, days: 7 };
 const KEEP_UNNAMED_MS = 3 * 24 * 3600_000;
 const LOOK_AGAIN_MS = 5 * 60_000;
 // After a refused upload (no bucket yet, offline, signed out of storage) the
@@ -292,10 +293,11 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
   };
   // THE NEWEST WORK GOES FIRST WHEN THE SPACE IS FULL: the oldest threads'
   // files leave to make room, and never those of a thread as new as this one.
-  async function makeRoom(bytes, rank) {
-    const over = total() + bytes - limits.totalBytes;
-    if (over <= 0) return true;
-    if (!roomFor(bytes, rank)) return false;
+  // Only after the new file is up, so a refused upload takes nothing away; the
+  // space runs over by that one file until then.
+  async function trimBelow(rank) {
+    const over = total() - limits.totalBytes;
+    if (over <= 0) return;
     const drop = [];
     let freed = 0;
     for (const [n, u] of olderThan(rank)) {
@@ -303,12 +305,12 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
       drop.push(n);
       freed += u.bytes || 0;
     }
+    if (!drop.length) return;
     await backend.dropPhoneFiles({ owner, device, names: drop });
     for (const n of drop) delete state.uploaded[n];
     save();
     for (const m of memo.values()) m.at = -Infinity;
     madeRoom += drop.length;
-    return true;
   }
   const full = () => {
     if (!saidFull) log('phone: the space for files is full');
@@ -413,13 +415,13 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
         const name = `${crypto.createHash('sha256').update(read.data).digest('hex')}${path.extname(file).toLowerCase()}`;
         names.set(file, { size: read.st.size, mtimeMs: read.st.mtimeMs, name });
         if (!state.uploaded[name]) {
-          if (!alive()) return;
-          if (!(await makeRoom(read.data.length, job.rank))) { full(); continue; }
+          if (!roomFor(read.data.length, job.rank)) { full(); continue; }
           if (!alive()) return;
           await backend.putPhoneFile({ owner, device, name, data: read.data, type: typeOf(file) });
           state.uploaded[name] = { bytes: read.data.length, named: now(), rank: job.rank };
           saidFull = false;
           save();
+          await trimBelow(job.rank);
         } else state.uploaded[name].rank = Math.max(state.uploaded[name].rank ?? 0, job.rank);
         // The threads that name it look again at what they list.
         for (const sk of job.threads) { const m = memo.get(sk); if (m) m.at = -Infinity; }
