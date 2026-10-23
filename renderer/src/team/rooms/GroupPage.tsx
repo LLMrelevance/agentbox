@@ -6,8 +6,8 @@ import { LiveMark } from '../../components/LiveMark';
 import { RoomFace } from './RoomFace';
 import { agentsWords, cardName, clockOf } from './room-rules';
 
-export type GroupLook = 'beside' | 'above' | 'woven' | 'wall' | 'title';
-export const GROUP_LOOKS: GroupLook[] = ['beside', 'above', 'woven', 'wall', 'title'];
+export type GroupLook = 'beside' | 'above' | 'woven' | 'wall' | 'title' | 'rail' | 'pulse' | 'drawer' | 'band' | 'digest';
+export const GROUP_LOOKS: GroupLook[] = ['beside', 'above', 'woven', 'wall', 'title', 'rail', 'pulse', 'drawer', 'band', 'digest'];
 
 /** Unset, a group is the room page as shipped: the wall or board, and the chat beside it. */
 export function readGroupLook(): GroupLook | null {
@@ -32,7 +32,7 @@ function Agents({ n, small = false }: { n: number | null; small?: boolean }) {
 }
 
 /** One person down the side: face, name, what they are on, their agents. */
-function PersonRow({ card, onOpen }: { card: RoomCard; onOpen?: () => void }) {
+export function PersonRow({ card, onOpen }: { card: RoomCard; onOpen?: () => void }) {
   return <button type="button" className={`gp-person${card.agents ? '' : ' idle'}`} onClick={onOpen}>
     <RoomFace name={card.name} url={card.avatarUrl} size={32} />
     <span className="txt">

@@ -626,3 +626,49 @@
 .gp-ticker em { flex: none; font: normal 10.5px var(--mono); }
 .gp-ticker .fs { display: flex; flex: none; margin-left: 2px; }
 .gp-ticker .fs .rm-pic + .rm-pic { margin-left: -3px; outline: 2px solid var(--skin-solid, var(--surface)); }
+
+/* ROUND 4 (GroupLayouts.tsx): the chat is the page; the team's day is beside it, over it, behind a button or inside it */
+.gl-wide .rm-full .rm-chat-list { max-width: 880px; }
+.gl-wide .rm-full .rm-compose { max-width: 824px; }
+.gl-big { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 12px; row-gap: 6px; align-items: baseline; }
+.gl-big > b { grid-row: span 2; font: 300 40px/40px var(--mono); letter-spacing: -.03em; color: var(--text); font-variant-numeric: tabular-nums; }
+.gl-big .l { font-size: 13.5px; color: var(--text); align-self: end; }
+.gl-big .w { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-faint); align-self: start; }
+.gl-big .w em { font-style: normal; color: var(--text-dim); }
+.gl-big .w .live-mark { width: 11px; height: 11px; gap: 1px; color: var(--text-dim); }
+.gl-big.compact > b { font-size: 30px; line-height: 30px; }
+.gl-side { width: 300px; flex: none; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; padding: 22px 20px 20px; border-left: 1px solid var(--rm-line); }
+.gl-side.wide { width: 380px; }
+.gl-people { margin: 0 -20px; }
+.gl-feed { display: flex; flex-direction: column; gap: 10px; }
+.gl-feed .gp-cheer { margin: 0; }
+.gl-pill { display: inline-flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px 0 8px; border: 1px solid var(--line-strong); background: none; font: inherit; font-size: 13px; color: var(--text-dim); cursor: default; }
+.gl-pill .fs { display: flex; }
+.gl-pill .fs .rm-pic + .rm-pic { margin-left: -4px; outline: 2px solid var(--skin-solid, var(--surface)); }
+.gl-pill b { font-weight: 400; color: var(--text); }
+.gl-pill:hover, .gl-pill.on { background: var(--wash-strong); color: var(--text); }
+.gl-drawer { position: relative; }
+.gl-drawer-panel { position: absolute; top: 0; right: 0; bottom: 0; z-index: 30; width: 380px; box-sizing: border-box; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 22px 20px; background: var(--pop); border-left: 1px solid var(--line-strong); box-shadow: var(--shadow-lg); }
+.gl-bandpage { flex-direction: column; }
+.gl-band { flex: none; display: grid; grid-template-columns: 200px minmax(0, 1.4fr) minmax(0, 1fr); column-gap: 40px; align-items: center; padding: 20px 20px 20px var(--text-x, 32px); border-bottom: 1px solid var(--rm-line); }
+.gl-band .ppl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }
+.gl-band .p { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 0; border: 0; background: none; font: inherit; text-align: left; color: var(--text); cursor: default; }
+.gl-band .p .nm { display: flex; flex-direction: column; min-width: 0; font-size: 13px; line-height: 17px; }
+.gl-band .p .on { font-size: 12px; color: var(--text-faint); }
+.gl-band .p.on .on { color: var(--text-dim); }
+.gl-band .news { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.gl-band .news .gp-newest { padding: 0; }
+.gl-band .more, .gl-digest .more { align-self: flex-start; padding: 0; border: 0; background: none; font: inherit; font-size: 12.5px; color: var(--text-faint); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); cursor: default; }
+.gl-band .more:hover, .gl-digest .more:hover { color: var(--text); }
+.gl-bandday { flex: none; max-height: 40%; overflow-y: auto; padding: 4px 20px 14px var(--text-x, 32px); border-bottom: 1px solid var(--rm-line); }
+.gl-digest { margin: 2px 0 10px; padding: 14px 18px 12px; border: 1px solid var(--line-strong); background: var(--wash); display: flex; flex-direction: column; gap: 10px; }
+.gl-digest .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.gl-digest .top .t { font-size: 14px; color: var(--text); }
+.gl-digest .who { display: flex; gap: 12px; }
+.gl-digest .who .p { display: inline-flex; align-items: center; gap: 5px; font: 11.5px var(--mono); color: var(--text-dim); }
+.gl-digest .who .p b { font-weight: 400; }
+.gl-digest .ls { display: flex; flex-direction: column; gap: 2px; }
+.gl-digest .r { display: flex; align-items: center; gap: 8px; min-height: 26px; font-size: 13.5px; color: var(--text); }
+.gl-digest .r b { flex: none; font-weight: 400; color: var(--text-dim); }
+.gl-digest .r .t { min-width: 0; flex: 1; }
+.gl-digest .r .chat-chips { margin: 0; flex: none; }

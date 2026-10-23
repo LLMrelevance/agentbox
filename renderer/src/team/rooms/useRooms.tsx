@@ -19,6 +19,8 @@ import { InviteDialog, JoinDialog, MembersMenu, StartRoomDialog, type Preview, t
 import { joinLink, tokenFromLink } from '../../../../shared/room-links.mjs';
 import { RoomsNotReady, RoomsSettings } from './RoomsSettings';
 import { GroupPage, NowLines, TitleFaces, groupEvents, readGroupLook, readWovenLook } from './GroupPage';
+import { DigestCard, GroupLayout, HeaderPill, PAGE_LOOKS, drawnCheers, type PageLook } from './GroupLayouts';
+import { Reactions } from '../ChatActions';
 
 type Dialog =
   | { kind: 'invite'; roomId: string }
@@ -70,6 +72,9 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const [cameFrom, setCameFrom] = useState<{ roomId: string; pane: RoomPane } | null>(null);
   const [look] = useState(readGroupLook);
   const [woven] = useState(readWovenLook);
+  // The board a chat-first group keeps one press away, and the day it opens.
+  const [boardOn, setBoardOn] = useState(false);
+  const [dayOpen, setDayOpen] = useState(() => { try { return localStorage.getItem('groups.dayOpen') === '1'; } catch { return false; } });
   const open = openId ? all.find((r) => r.id === openId) ?? null : null;
   const invisibleUntil = Date.parse(rooms?.me?.invisible_until ?? '');
   const chatRoom = (panelId ? all.find((r) => r.id === panelId) : null) ?? open;
@@ -110,6 +115,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const openRooms = () => { onLeavePage(); setOpenId(null); setFull(false); setPanelId(null); setFinding(false); setNoChats(false); setCameFrom(null); setListing(true); };
   // A room and Find rooms both sit inside the Rooms page, so stepping out of either lands there.
   const close = () => {
+    if (boardOn) { setBoardOn(false); return; }
     if (listing) { setListing(false); return; }
     if (finding) { setFinding(false); setListing(true); return; }
     if (noChats) { setNoChats(false); return; }
@@ -329,22 +335,32 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     };
     page = <div className="rm-split"><div className="rm-main wide"><FindRooms load={loadListed} onOpen={(id) => openRoom(id)} onLink={(t) => void join(t)}
       onJoin={async (id) => { const res = await call<string>('joinListed', id); return res.ok ? null : res.error ?? 'Could not join'; }} /></div></div>;
-  } else if (open && rooms && pane === 'wall' && look) {
+  } else if (open && rooms && pane === 'wall' && look && !boardOn) {
     const others = open.wall.filter((c) => !c.me);
     const name = open.kind === 'group' ? others.map((c) => c.name).join(', ') || open.name : open.name;
     const people = withMe(chatPeople(open, meId), meInChat);
     const woven = look === 'woven' ? groupEvents(open, teamCards, now) : null;
+    const day = groupEvents(open, teamCards, now);
+    const who = (id: string | null) => { const p = people.find((x) => x.id === id); return p ? { name: p.name, avatarUrl: p.avatarUrl, me: p.me } : undefined; };
+    const ids = open.wall.map((c) => c.id);
+    const lead = look === 'digest' ? <DigestCard room={open} past={day.past} now={day.now} who={who} open={dayOpen} onToggle={() => setDayOpen(!dayOpen)}
+      cheers={(e) => <Reactions on={{ '🎉': drawnCheers(e, ids) }} me={meId} onReact={() => {}} />} /> : undefined;
     const chat = <RoomChat room={open} messages={rooms.messages[open.id] ?? []} people={people} meId={meId} now={now} full head={<></>}
-      events={woven?.past} foot={woven && <NowLines room={open} lines={woven.now} />}
+      events={woven?.past} foot={woven && <NowLines room={open} lines={woven.now} />} lead={lead}
       onSend={send(open.id)} onRead={read(open)} {...chatCalls(open)} />;
     heading = {
       title: backTitle(name),
       right: <div className="th-right">
         {look === 'title' && <TitleFaces room={open} onPerson={(id) => setPane(`person:${id}`)} />}
+        {look === 'drawer' && <HeaderPill past={day.past} now={day.now} who={who} open={dayOpen} onToggle={() => setDayOpen(!dayOpen)} />}
+        {PAGE_LOOKS.includes(look) && renderBoard && <button type="button" className="th-new" onClick={() => { setBoardOn(true); setView('board'); }}>Board</button>}
         {open.kind !== 'group' && <button type="button" className="th-new" onClick={() => setDialog({ kind: 'invite', roomId: open.id })}>{I.invite(15)}Invite</button>}
       </div>,
     };
-    page = <GroupPage room={open} look={look} chat={chat} messages={rooms.messages[open.id] ?? []} onPerson={(id) => setPane(`person:${id}`)} />;
+    page = PAGE_LOOKS.includes(look)
+      ? <GroupLayout room={open} look={look as PageLook} chat={chat} past={day.past} now={day.now} who={who} meId={meId}
+        open={dayOpen} onToggle={() => setDayOpen(!dayOpen)} onPerson={(id) => setPane(`person:${id}`)} />
+      : <GroupPage room={open} look={look} chat={chat} messages={rooms.messages[open.id] ?? []} onPerson={(id) => setPane(`person:${id}`)} />;
   } else if (open && rooms) {
     if (full) {
       const r = chatRoom ?? open;

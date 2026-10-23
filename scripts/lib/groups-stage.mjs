@@ -120,10 +120,11 @@ export function world(now = Date.now()) {
   };
 }
 
-/** Serve `dist` and open it; `init` is put in localStorage before the app runs. */
-export async function openStage({ dist, width = 1512, height = 945, theme = 'dark', init = {} }) {
+/** Serve `dist` and open it; `init` is put in localStorage before the app runs.
+ *  The page's clock is held at `at`, an afternoon, so "today" means the same thing in every picture. */
+export async function openStage({ dist, width = 1512, height = 945, theme = 'dark', init = {}, at = Date.parse('2026-10-22T17:40:00') }) {
   const { chromium } = require('playwright');
-  const snap = { ...fixtureSnapshot(), approvals: [], ...world() };
+  const snap = { ...fixtureSnapshot(), approvals: [], ...world(at) };
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     let file = path.join(dist, decodeURIComponent(url.pathname));
@@ -161,6 +162,7 @@ export async function openStage({ dist, width = 1512, height = 945, theme = 'dar
     window.addEventListener('error', (e) => window.__ERRS__.push(String(e.message)));
     window.addEventListener('unhandledrejection', (e) => window.__ERRS__.push('rejection: ' + String(e.reason?.message ?? e.reason)));
   }, { snap, theme, init });
+  await ctx.clock.setFixedTime(at);
   const page = await ctx.newPage();
   await page.goto(origin);
   await page.waitForTimeout(1500);

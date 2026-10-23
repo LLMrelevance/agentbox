@@ -47,7 +47,7 @@ export type RoomChatCalls = {
   onNotice?: (text: string) => void;
 };
 
-export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand, onSwitch, switchOpen, full = false, head, events, foot, woven, ...calls }: {
+export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand, onSwitch, switchOpen, full = false, head, events, foot, lead, woven, ...calls }: {
   room: Room; messages: RoomMessage[]; people: ChatPerson[]; meId: string | null; now: number;
   onInvite?: () => void; onExpand?: () => void;
   onSwitch?: (anchor: DOMRect) => void; switchOpen?: boolean;
@@ -57,6 +57,8 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
   events?: GroupEvent[];
   /** Drawn after the newest message, above the box. */
   foot?: ReactNode;
+  /** Drawn before the first message. */
+  lead?: ReactNode;
   /** What everyone did today, and how it is woven in. */
   woven?: { look: WovenLook; past: GroupEvent[]; now: GroupEvent[] };
 } & RoomChatCalls) {
@@ -181,6 +183,7 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
     {look && (TOP_LOOKS as string[]).includes(look) && !root && woven && <TopProgress look={look as TopLook} past={work} now={woven.now} who={whoOf} at={now}
       open={peek} onToggle={() => setPeek(!peek)} cheers={(e) => <Reactions on={{ '🎉': cheersFor(e)['🎉'] }} me={meId} onReact={() => {}} />} />}
     <div className={`rm-chat-list${dense ? ' gp-tw' : ''}`} ref={listRef}>
+      {!root && lead}
       {stream.map((m, i) => {
         const slot = slots[i];
         if (!('body' in m)) {
