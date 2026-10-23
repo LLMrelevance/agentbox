@@ -678,3 +678,11 @@
 .gt-sumleft .ts-panel { right: auto; left: 0; border-left: 0; border-right: 1px solid var(--line); }
 .gt-sumleft.gt-inset .ts-panel { padding-left: 44px; }
 .gt-sumleft .focus-pane { --ts-panel-w: 368px; }
+/* Round 16: every count and dot in the menu ends on one right edge. A thread's
+   top line keeps the Inbox's height and corners, so nothing moves on the way in;
+   a trail on its own puts its arrow on the summary's left edge. */
+.gt2-n { min-width: 14px; text-align: right; }
+.gt2-all { color: var(--text-faint); }
+.gt-noside.gt-inset.workspace-task > .topbar { height: 64px; min-height: 64px; flex-basis: 64px; padding-left: 36px; }
+.gt-noside.gt-inset.workspace-task > .topbar:has(.gt-threadnav) { padding-left: 44px; }
+.gt-noside.gt-inset.workspace-task > .topbar > .topbar-right { right: 28px; }

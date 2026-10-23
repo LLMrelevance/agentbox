@@ -199,13 +199,15 @@ export function TopNav({ top, on, inboxCount, groupsCount, onInbox, onGroups, gr
   return <TopSwitch on={on} inboxCount={inboxCount} groupsCount={groupsCount} onInbox={onInbox} onGroups={onGroups} />;
 }
 
-/** The page's name as a menu: Inbox, Groups, and every group under Groups, which folds and stays as you left it. */
+/** Past this many, the menu's groups end in All groups. */
+const GROUPS_IN_MENU = 10;
+
+/** The page's name as a menu: Inbox, Groups, and the groups under Groups. */
 function TitleMenu({ on, inboxCount, groupsCount, onInbox, onGroups, groups, onPick }: {
   on: 'inbox' | 'groups'; inboxCount: number; groupsCount: number; onInbox: () => void; onGroups: () => void;
   groups: GroupChoice[]; onPick?: (key: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [list, setList] = useState(() => read('groups.menuList') !== '0');
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -213,10 +215,11 @@ function TitleMenu({ on, inboxCount, groupsCount, onInbox, onGroups, groups, onP
     document.addEventListener('mousedown', down);
     return () => document.removeEventListener('mousedown', down);
   }, [open]);
-  const fold = () => { const next = !list; setList(next); try { localStorage.setItem('groups.menuList', next ? '1' : '0'); } catch { /* kept for this window only */ } };
   const named = groups.filter((g) => !g.faces.length).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
-  const chats = groups.filter((g) => g.faces.length).slice(0, 5);
-  const n = (k: number) => (k > 0 ? <span className="gt2-n">{k}</span> : null);
+  const chats = groups.filter((g) => g.faces.length);
+  const shown = [...named, ...chats].slice(0, GROUPS_IN_MENU);
+  const counts = read('groups.menuCounts') !== '0';
+  const n = (k: number) => (counts && k > 0 ? <span className="gt2-n">{k}</span> : null);
   return <span ref={ref} className="gt-tmwrap">
     <button type="button" className={`gt-titlemenu${open ? ' open' : ''}`} aria-expanded={open} onClick={() => setOpen(!open)}>
       <span>{on === 'inbox' ? 'Inbox' : 'Groups'}</span><Chevron />
@@ -224,15 +227,15 @@ function TitleMenu({ on, inboxCount, groupsCount, onInbox, onGroups, groups, onP
     {open && <div className="gt2-menu gt2-nav" role="menu">
       <button type="button" className={`gt2-row${on === 'inbox' ? ' on' : ''}`} onClick={() => { setOpen(false); onInbox(); }}>
         <span className="gt2-ic">{I.inboxNav()}</span><span>Inbox</span>{n(inboxCount)}</button>
-      <div className={`gt2-row gt2-split${on === 'groups' ? ' on' : ''}`}>
-        <button type="button" className="gt2-main" onClick={() => { setOpen(false); onGroups(); }}><span className="gt2-ic">{I.groupNav()}</span><span>Groups</span>{n(groupsCount)}</button>
-        <button type="button" className={`gt2-fold${list ? ' open' : ''}`} aria-label={list ? 'Hide every group' : 'Show every group'} title={list ? 'Hide every group' : 'Show every group'} onClick={fold}><Chevron /></button>
-      </div>
-      {list && <div className="gt2-sub">
-        {[...named, ...chats].map((g) => <button type="button" key={g.key} className={`gt2-row gt2-subrow${g.unread ? ' unread' : ''}`} onClick={() => { setOpen(false); onPick?.(g.key); }}>
+      <button type="button" className={`gt2-row${on === 'groups' ? ' on' : ''}`} onClick={() => { setOpen(false); onGroups(); }}>
+        <span className="gt2-ic">{I.groupNav()}</span><span>Groups</span>{n(groupsCount)}</button>
+      <div className="gt2-sub">
+        {shown.map((g) => <button type="button" key={g.key} className={`gt2-row gt2-subrow${g.unread ? ' unread' : ''}`} onClick={() => { setOpen(false); onPick?.(g.key); }}>
           {g.faces.length ? <span className="gt2-ic"><GroupMark g={g} size={16} /></span> : <span className="gt2-ic gt2-hash">{I.hash(13)}</span>}
           <span className="rm-one">{g.name}</span>{g.unread && <span className="gt2-dot" aria-label="Unread" />}</button>)}
-      </div>}
+        {named.length + chats.length > shown.length && <button type="button" className="gt2-row gt2-subrow gt2-all" onClick={() => { setOpen(false); onGroups(); }}>
+          <span className="gt2-ic" /><span>All groups</span>{n(named.length + chats.length)}</button>}
+      </div>
     </div>}
   </span>;
 }

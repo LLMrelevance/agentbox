@@ -167,10 +167,11 @@ export function world(now = Date.now(), faces = {}) {
 
 /** Serve `dist` and open it; `init` is put in localStorage before the app runs.
  *  The page's clock is held at `at`, an afternoon, so "today" means the same thing in every picture. */
-export async function openStage({ dist, width = 1512, height = 945, theme = 'dark', init = {}, at = Date.parse('2026-10-22T17:40:00') }) {
+export async function openStage({ dist, width = 1512, height = 945, theme = 'dark', init = {}, at = Date.parse('2026-10-22T17:40:00'), tweak }) {
   const { chromium } = require('playwright');
   const base = fixtureSnapshot();
   const made = world(at, facesIn(process.env.GROUPS_FACES));
+  tweak?.(made, at);
   const snap = { ...base, approvals: [], ...made, products: [...base.products, ...(made.products ?? [])], items: [...base.items, ...(made.items ?? [])] };
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
@@ -181,7 +182,7 @@ export async function openStage({ dist, width = 1512, height = 945, theme = 'dar
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ executablePath: process.env.GROUPS_CHROME || undefined });
   const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, colorScheme: theme });
   await ctx.addInitScript(({ snap, theme, init }) => {
     window.__SNAP__ = snap;
