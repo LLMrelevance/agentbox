@@ -165,17 +165,42 @@ export function listCloudLogins(engine, { home = os.homedir() } = {}) {
     .sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0));
 }
 
-// THE ACCOUNT A CLOUD RUN USES: of this engine's accounts that may run, the
-// one used least recently, so runs spread over every account she added. Its
-// use is written down in the same step, so two runs starting together take
-// two accounts when there are two.
-export function pickCloudLogin(engine, { home = os.homedir(), now = Date.now() } = {}) {
+export function cloudAccountsFrom(env = process.env) {
+  const list = String(env.AGENTBOX_CLOUD_ACCOUNTS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return list.length ? list : null;
+}
+
+// THE ACCOUNT A CLOUD RUN USES, AND IT IS ONE ACCOUNT (w-dac993a554).
+//
+// It used to be whichever of this engine's accounts was used least recently,
+// so runs spread over every account added and a limit on one simply moved the
+// work to the next. That is one person's work shared over several
+// subscriptions to get past their limits, which is what the Mac stopped doing
+// in `Supervisor#_theOneAccount` and what the cloud stops doing here.
+//
+// The first account signed in is the account. A later one is still signed in
+// and still reachable -- it is what somebody switches TO when the first stops
+// working -- but a usage limit is not a reason to reach for it: `mayRunOn`
+// turns a limited account down, and with no account left the cloud runs
+// nothing and the menu says until when (renderer/src/cloud-menu.ts).
+//
+// `only` (emails or keys) narrows it for a copy of the app under test, which
+// shares this list with the person's own app.
+export function pickCloudLogin(engine, { home = os.homedir(), now = Date.now(), only = null } = {}) {
   return withLock(home, () => {
     const all = readCloudLogins({ home });
     const dup = duplicatesIn(Object.values(all).filter((r) => r?.engine === engine));
-    const ready = Object.entries(all)
-      .filter(([, r]) => r?.engine === engine && !dup.has(r.key ?? r.dir) && mayRunOn(cloudLoginState(r, { now })))
-      .sort(([, a], [, b]) => (a.lastUsedAt || 0) - (b.lastUsedAt || 0));
+    const named = (r) => !only || [r.email, r.key ?? r.dir].some((n) => n && only.includes(String(n).toLowerCase()));
+    const live = Object.entries(all)
+      .filter(([, r]) => r?.engine === engine && !dup.has(r.key ?? r.dir) && named(r))
+      .sort(([, a], [, b]) => (a.savedAt || 0) - (b.savedAt || 0));
+    // A LIMIT ON THE ACCOUNT IS A WAIT; a login that was never finished or has
+    // stopped working is not an account at all, so those are passed over and
+    // the next one is the account. A Codex login due a renewal is the account
+    // and simply cannot run yet; `Supervisor#_renewCloudLogins` is what mends
+    // that, on its own clock.
+    const first = live.find(([, r]) => !['none', 'broken'].includes(cloudLoginState(r, { now })));
+    const ready = first && mayRunOn(cloudLoginState(first[1], { now })) ? [first] : [];
     if (!ready.length) return null;
     const [k, r] = ready[0];
     all[k] = { ...r, lastUsedAt: now };

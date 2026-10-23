@@ -15,9 +15,14 @@
 //    `liftBrakeForHer`, which runs on every reply, Resume and reopened row,
 //    zeroed that bench. Measured in the state file: ~/.claude-3 carried
 //    at-limit with a resetsAt of 2026-10-17T07:10Z and a cooldown of 0. A
-//    cooldown of 0 is a live login, so `_pickProfile` handed it the next spawn
-//    and `_profileCannotHoldAChat` kept the chat on it, with two astral.now
-//    logins idle. Her hand resets a sign-in; it does not reset a usage limit.
+//    cooldown of 0 is a live login, so the very next spawn went straight back
+//    to the capped account.
+//
+//    HALF OF THAT FIX WAS REVERSED BY w-dac993a554, which stopped the app
+//    reaching for a second subscription when one runs out of usage: the bench
+//    still holds until the hour the limit named, and her own hand still buys
+//    the row one try on the capped account, but nothing moves anywhere else
+//    and nothing on the row offers another account.
 //
 // 3. THE HOUR. Claude Code printed "resets 12:10am (UTC)" and the zone was
 //    thrown away: `limitResetMoment` read 12:10am as a local clock time, so on
@@ -152,7 +157,7 @@ describe('a limit shows on the login that hit it', () => {
   });
 });
 
-/* ================== 2. the task moves to a login with room ================ */
+/* ============ 2. the task waits on its own account for the reset ========= */
 
 const SECOND = '/Users/her/.claude-second';
 
@@ -175,7 +180,7 @@ const hitTheLimit = (s, profile = 'default') => s.noteExitForBackoff({
   result: LIMIT, resultIsError: true, tail: [],
 });
 
-describe('a task leaves a login that has hit its limit', () => {
+describe('a task waits out a login that has hit its limit', () => {
   it('benches the capped login until its reset', () => {
     const s = bare();
     hitTheLimit(s);
@@ -183,34 +188,33 @@ describe('a task leaves a login that has hit its limit', () => {
     expect(s._profileResting('default')).toBe(true);
   });
 
-  // THE ONE THAT WAS WRONG. Every reply, Resume and reopened row calls this,
-  // and it threw the bench away, so the next spawn went straight back.
-  it('keeps the bench when she replies, because her hand does not reset a limit', () => {
+  // A REPLY DOES NOT SEND THE WORK TO THE OTHER LOGIN (w-dac993a554). The
+  // account that hit the limit is still the account; what her hand buys is one
+  // try on it, which is the reason the lift exists at all -- a reset hour we
+  // read wrong must never be able to park her fleet for good.
+  it('still runs on the capped account after she replies, not on the other login', () => {
     const s = bare();
     hitTheLimit(s);
     s.liftBrakeForHer();
+    expect(s._pickProfile('claude')).toBe('default');
+    expect(s._profileCannotHoldAChat('default', 'claude')).toBe(false);
+  });
+
+  it('lifts the bench for her, with one login or two', () => {
+    for (const profiles of [['default'], ['default', SECOND]]) {
+      const s = bare({ authProfiles: profiles });
+      hitTheLimit(s);
+      s.liftBrakeForHer();
+      expect(s._profileResting('default')).toBe(false);
+    }
+  });
+
+  // THE CASE THAT MUST NOT MATCH: nothing but her hand lifts it, so a tick
+  // that merely passes leaves the bench exactly where the limit put it.
+  it('leaves the bench alone when nobody has touched the row', () => {
+    const s = bare();
+    hitTheLimit(s);
     expect(s._profileResting('default')).toBe(true);
-    expect(s._pickProfile('claude')).toBe(SECOND);
-    expect(s._profileCannotHoldAChat('default', 'claude')).toBe(true);
-  });
-
-  // THE CASE THAT MUST NOT MATCH, and it is the reason the lift exists: with
-  // nowhere else to go, her hand still buys the row one try.
-  it('lifts it when the capped login is the only one', () => {
-    const s = bare({ authProfiles: ['default'] });
-    hitTheLimit(s);
-    s.liftBrakeForHer();
-    expect(s._profileResting('default')).toBe(false);
-  });
-
-  // The boundary on the other side: a second login that is itself capped is
-  // not somewhere with room, so the first one is lifted as it always was.
-  it('lifts it when every login is capped', () => {
-    const s = bare();
-    hitTheLimit(s);
-    hitTheLimit(s, SECOND);
-    s.liftBrakeForHer();
-    expect(s._profileResting('default')).toBe(false);
   });
 
   // A signed-out login is unchanged by any of this: her hand IS what mends it.
@@ -238,32 +242,26 @@ describe('the row says where the work went', () => {
     return wrote;
   };
 
-  // AND WHICH LOGIN EACH ONE IS (w-e1a42f6b21). With two subscriptions the
-  // sentence named neither, so nothing said which was spent or which took the
-  // task. These two have no readable email in this world, so they are named
-  // the way the Settings page names a login the vendor would not name.
-  it('tells her it is moving, and which login it is moving to', () => {
-    const said = whatTheRowReads(bare());
-    expect(said).toContain('usage limit on Claude account 1');
-    expect(said).toContain('runs it again on Claude account 2, which has room');
+  // THE HOUR, AND NEVER A SECOND ACCOUNT (w-dac993a554). This row read
+  // "Agentbox runs it again on another account that has room" whenever a
+  // second login was signed in, which is the rotation that is gone. Naming
+  // the login that WAS spent stays (w-e1a42f6b21): with two subscriptions the
+  // sentence named neither, so nothing said whose usage had gone.
+  it('tells her the hour, with one login or two, and offers no other account', () => {
+    for (const profiles of [['default'], ['default', SECOND]]) {
+      const said = whatTheRowReads(bare({ authProfiles: profiles }));
+      expect(said).toContain('starts again on its own at');
+      expect(said).not.toContain('another account');
+      expect(said).not.toContain('which has room');
+    }
   });
 
-  // THE CASE THAT MUST NOT MATCH: one login, so the hour really is the answer.
-  it('tells her the hour when that login is the only one', () => {
-    const said = whatTheRowReads(bare({ authProfiles: ['default'] }));
-    expect(said).toContain('starts again on its own at');
-    expect(said).not.toContain('another account');
+  it('names the login that hit the limit, where there is more than one', () => {
+    expect(whatTheRowReads(bare())).toContain('usage limit on Claude account 1');
   });
 
-  it('promises another account rather than an hour when one has room', () => {
-    const said = deadRunSentence({ engineWord: 'Claude Code', cause: 'at-limit', resetsAt: '12:10am', elsewhere: true });
-    expect(said).toContain('another account');
-    expect(said).not.toContain('12:10am');
-  });
-
-  // THE CASE THAT MUST NOT MATCH: with nowhere else to go, the hour is the
-  // only thing worth saying and it is still said.
-  it('names the hour when there is nowhere else to go', () => {
+  // Said in `deadRunSentence`'s own words, which is where the sentence is made.
+  it('names the hour in the sentence itself', () => {
     const said = deadRunSentence({ engineWord: 'Claude Code', cause: 'at-limit', resetsAt: '5:10pm' });
     expect(said).toContain('starts again on its own at 5:10pm');
   });

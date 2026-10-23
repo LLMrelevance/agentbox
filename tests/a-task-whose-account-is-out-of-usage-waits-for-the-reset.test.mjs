@@ -1,17 +1,22 @@
-// A TASK WHOSE ACCOUNT IS OUT OF USAGE CARRIES ON UNDER ONE THAT IS NOT.
+// A TASK WHOSE ACCOUNT IS OUT OF USAGE WAITS FOR THE RESET, AND IS TOLD WHEN.
 //
-// w-ca48e69535. The shape: one Codex login hits its weekly limit. The user
-// switches Agentbox to a second Codex login with room left, and replies on
-// the row. Every reply goes back to the capped login, works for about two
-// minutes and then fails with the line below, and the row sits still. Three
-// things were wrong, and each has an assertion here:
+// Two threads, and the second one reversed the first. w-ca48e69535 found that
+// a Codex login's weekly limit was read as a thirty-minute one, so a capped
+// account was handed the next run again and again; it fixed that by reading
+// the day Codex names AND by moving the work to a login with room.
+//
+// w-dac993a554 took the moving out. Spreading one person's work over two
+// subscriptions to get past a usage limit is what Anthropic's Usage Policy
+// means by circumventing a guardrail, and their Claude Code page says the
+// limits being spent "assume ordinary, individual usage". So the first two
+// faults stay fixed and the third is now the rule:
 //
 //   1. A run that hits the limit after two minutes is not a "fast exit", so the
 //      account was never marked, and the normal branch CLEARED its trouble.
 //   2. Codex names a day, not an hour, so even a marked account would have come
 //      back every thirty minutes for days.
-//   3. The rule that moves a chat off a broken account only read Claude's
-//      books, and waited out every usage limit however long it was.
+//   3. The account is benched until the hour it named, nothing else is reached
+//      for, and the chat stays where it is.
 import { describe, it, expect } from 'vitest';
 import { Supervisor } from '../main/supervisor.mjs';
 import { limitResetMoment, troubleCause } from '../shared/spawn-trouble.mjs';
@@ -74,12 +79,15 @@ describe('a run that hits the limit late marks its account', () => {
     expect(s._profileCooldown.default ?? 0).toBe(0);
   });
 
-  it('keeps the capped login out of new work', () => {
+  // THE CAPPED LOGIN IS STILL THE ACCOUNT, and nothing runs on it until the
+  // reset: the second login is not reached for (w-dac993a554).
+  it('keeps new work out of the capped login rather than moving it', () => {
     const s = bare();
     s.noteExitForBackoff(cappedAfterTwoMinutes());
+    expect(s._liveProfilesFor('codex')).toEqual([]);
     const picked = new Set();
     for (let i = 0; i < 10; i += 1) picked.add(s._pickProfile('codex'));
-    expect([...picked]).toEqual([SECOND]);
+    expect([...picked]).toEqual([FIRST]);
   });
 
   // The branch this reuses must not swallow ordinary work: a long run that
@@ -92,23 +100,23 @@ describe('a run that hits the limit late marks its account', () => {
   });
 });
 
-describe('the chat moves to an account that can run it', () => {
-  it('lets go of a capped codex login when another one can run', () => {
+describe('the chat stays on the account that is out of usage', () => {
+  it('keeps a capped codex chat where it is, second login or no second login', () => {
     const s = bare();
     s.noteExitForBackoff(cappedAfterTwoMinutes());
-    expect(s._profileCannotHoldAChat(FIRST, 'codex')).toBe(true);
+    expect(s._profileCannotHoldAChat(FIRST, 'codex')).toBe(false);
+  });
+
+  // HER OWN HAND IS STILL HER OWN HAND. Picking the other account in Settings
+  // is a person choosing between two plans they hold, not the app reaching for
+  // one, so a chat left on the account nothing runs on now does move.
+  it('moves a chat off an account she has switched away from', () => {
+    const s = bare({ activeAccount: { codex: SECOND } });
+    s.noteExitForBackoff(cappedAfterTwoMinutes());
+    expect(s._pickProfile('codex')).toBe(SECOND);
     expect(s._profileCannotHoldAChat(SECOND, 'codex')).toBe(false);
   });
 
-  it('follows the account she picked', () => {
-    const s = bare({ activeAccount: { codex: SECOND } });
-    s.noteExitForBackoff(cappedAfterTwoMinutes());
-    expect(s._profileCannotHoldAChat(FIRST, 'codex')).toBe(true);
-    expect(s._pickProfile('codex')).toBe(SECOND);
-  });
-
-  // Nowhere better to go: dropping the chat would lose the thread and buy
-  // nothing, so it waits for the reset as it always did.
   it('keeps the chat when the capped login is the only one', () => {
     const s = bare({ codexProfiles: [FIRST] });
     s.noteExitForBackoff(cappedAfterTwoMinutes());
@@ -122,26 +130,27 @@ describe('the chat moves to an account that can run it', () => {
     expect(s._profileCannotHoldAChat(FIRST, 'codex')).toBe(false);
   });
 
-  // WHERE HER REPLY GOES. `rowSessionFor` answering null is the fresh brief on
-  // the picked account, carrying the row's own thread. That is the path a
-  // hand-moved history takes, and it is the one known to work.
-  it('sends her reply to a fresh session instead of the capped login', () => {
-    const s = bare({ activeAccount: { codex: SECOND } });
+  // WHERE HER REPLY GOES: back to the same session on the same account, which
+  // is where the transcript is. It waits for the reset rather than being
+  // briefed fresh somewhere else.
+  it('sends her reply back to the same session on the capped login', () => {
+    const s = bare();
     s._rowSessions = { 'w-1': { sessionId: 't-1', product: 'p', profile: FIRST, engine: 'codex' } };
     s._engineFor = () => 'codex';
     s.transcriptFile = () => '/somewhere/rollout.jsonl';
     const item = { id: 'w-1', product: 'p' };
     expect(s.rowSessionFor(item)).not.toBeNull();
     s.noteExitForBackoff(cappedAfterTwoMinutes());
-    expect(s.rowSessionFor(item)).toBeNull();
+    expect(s.rowSessionFor(item)).not.toBeNull();
   });
 
-  // The same rule on Claude Code, so a second Claude subscription helps the
-  // same way. A codex cap must not move a claude chat.
-  it('works the same way for claude, and the engines stay apart', () => {
+  // THE CASE THAT MUST NOT MATCH: a Codex cap is not a fact about Claude Code,
+  // and the engines stay apart however this is answered.
+  it('leaves the other engine alone', () => {
     const s = bare({ authProfiles: ['default', '/Users/her/.claude-second'] });
     s.noteExitForBackoff({ engine: 'claude', profile: 'default', startedAt: Date.now() - 300_000, result: "You've hit your limit · resets 6pm", resultIsError: true, tail: [] });
-    expect(s._profileCannotHoldAChat('default', 'claude')).toBe(true);
-    expect(s._profileCannotHoldAChat('default', 'codex')).toBe(false);
+    expect(s._profileTrouble.default?.cause).toBe('at-limit');
+    expect(s._profileTrouble['codex:default']).toBeUndefined();
+    expect(s._profileCannotHoldAChat('default', 'claude')).toBe(false);
   });
 });

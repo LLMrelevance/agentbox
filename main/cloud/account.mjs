@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { cloudConfigPath, readCloudConfig, readCloudKey, writeCloudKey, cloudKeyPath, cloudAccountConfig } from './config.mjs';
+import { cloudConfigPath, readCloudConfig, readCloudKey, writeCloudKey, cloudKeyPath, cloudAccountConfig, forgetCloudKey } from './config.mjs';
 import { withDeadline, plainAuthError } from '../team/session.mjs';
 import { signInWithGoogle, cancelGoogleSignIn } from '../team/sign-in.mjs';
 import { Name } from '../../shared/product-name.mjs';
@@ -121,7 +121,17 @@ export async function cloudPlan({ env = process.env, home = os.homedir() } = {})
   const at = signedIn(env, home);
   if (!at) return { signedIn: false };
   const me = await ask(at.gateway, '/v1/me', { key: at.key });
+  if (me.status === 401) forgetCloudKey(at.key, env, home);
   return me.status === 200 ? { signedIn: true, ...me.body } : { signedIn: me.status !== 401, error: me.body.error || 'refused', message: me.body.message };
+}
+
+/** End every other Mac's cloud key, for a Mac that was lost; this one stays signed in. */
+export async function signOutOtherMacs({ env = process.env, home = os.homedir() } = {}) {
+  const at = signedIn(env, home);
+  if (!at) return { ok: false, error: 'signed-out', message: `Sign in to ${Name} Cloud first.` };
+  const out = await ask(at.gateway, '/v1/devices', { method: 'DELETE', key: at.key, body: { others: true } });
+  if (out.status === 401) forgetCloudKey(at.key, env, home);
+  return out.status === 200 ? { ok: true } : { ok: false, error: out.body.error || 'refused', message: out.body.message || `the cloud said ${out.status}` };
 }
 
 // Only Stripe's own two pages are opened: whatever else a server answers stays shut.
