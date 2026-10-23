@@ -22,6 +22,13 @@ describe('what a cloud run is told about branches', () => {
     expect(CLOUD_NOTE.split('\n\n').at(-1)).toMatch(/^If this request needs something only their computer has/);
   });
 
+  // A cloud run asked about the project's branches listed two; the computer
+  // had three, because only this branch and main go up.
+  it('says the project\'s other branches are not there', () => {
+    const hasNot = CLOUD_NOTE.split('\n\n').find((p) => p.startsWith('It does not have:'));
+    expect(hasNot).toMatch(/other branches[^.;]*only this task's branch and main/i);
+  });
+
   it('a project with no repository is told nothing about branches', () => {
     expect(PLAIN_CLOUD_NOTE).not.toMatch(/branch/i);
   });
