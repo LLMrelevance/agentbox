@@ -166,6 +166,11 @@ describe('the Status cell', () => {
     expect(cell.why).toEqual({ head: 'Running locally', body: 'Its cloud run needed your AWS sign-in, which only this computer has.' });
   });
 
+  it('says a run handed back to merge into main in plain words, not as something it needed', () => {
+    const cell = statusCell(row, facts({ session: session(), whyNotCloud: { at: 'mac', why: 'handed-back', detail: 'merging into main' } }));
+    expect(cell.why.body).toBe('Merging into main happens on this computer.');
+  });
+
   it('says plain Working for a cloud run and for a local run with nothing to explain', () => {
     expect(statusCell(row, facts({ session: session({ where: 'cloud' }) })).word).toBe('Working');
     const plain = statusCell(row, facts({ session: session() }));

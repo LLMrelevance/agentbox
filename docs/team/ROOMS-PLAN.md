@@ -279,7 +279,9 @@ team sync loop upserts it when its hash changes (at most every 5s):
   written into my store. It shows at the top of Needs you until my
   `room_reads.read_at` for that room passes its time, which any of my Macs can
   move. It does not go through `belongsInInbox`, never appears in Done or
-  Later, and adds to the Needs you count through its own function.
+  Later, and adds to the Needs you count through its own function. Needs you
+  draws one row per person per room: one message reads as itself, several as
+  "sent you 4 messages".
 - Unread on a room row: messages after my read time, shown as "9+" at most.
   Mentions always count, also in a muted room; other messages do not count in a
   muted room. Mute is local, per person.

@@ -47,13 +47,18 @@ describe('two cloud accounts with one organization', () => {
     expect(cloudLoginState(byKey.a)).toBe('ready');
   });
 
+  // One account carries the cloud's runs (w-dac993a554), so the duplicate is
+  // read by its being passed over for the account it duplicates.
   it('is never picked for a run', () => {
     const home = tmp();
     three(home);
     markCloudLogin('claude', 'a', 'A', { org: 'org-1' }, { home });
     markCloudLogin('claude', 'b', 'B', { org: 'org-1' }, { home });
     const picked = new Set([1, 2, 3, 4, 5, 6].map(() => pickCloudLogin('claude', { home }).key));
-    expect([...picked].sort()).toEqual(['a', 'c']);
+    expect([...picked].sort()).toEqual(['a']);
+    // And with that account gone it is still the duplicate that is skipped.
+    markCloudLogin('claude', 'a', 'A', { broken: 'refused' }, { home });
+    expect(pickCloudLogin('claude', { home }).key).toBe('c');
   });
 
   it('an account whose organization is not known yet is not called a duplicate', () => {

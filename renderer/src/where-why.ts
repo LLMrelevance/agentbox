@@ -13,9 +13,12 @@ const engineName = (e: unknown) => ENGINE[String(e)] ?? 'this agent';
 function local(why: string, detail: WhyNotCloud['detail']): string {
   switch (why) {
     case 'kept': return 'You chose to keep this thread on this computer.';
-    case 'handed-back': return detail ? `Its cloud run needed ${detail}, which only this computer has.` : 'Its cloud run needed something only this computer has.';
+    case 'handed-back':
+      // The cloud brief's own words for a run that has to merge (main/cloud/run.mjs).
+      if (/^merging into main\b/i.test(String(detail ?? ''))) return 'Merging into main happens on this computer.';
+      return detail ? `Its cloud run needed ${detail}, which only this computer has.` : 'Its cloud run needed something only this computer has.';
     case 'cloud-refused': return 'The cloud couldn’t start it, so it runs here instead.';
-    case 'codex-reply': return 'Codex carries on a thread where it started, on this computer.';
+    case 'codex-reply': return 'Codex on this computer has this thread open, so its reply runs here.';
     case 'project': return 'The cloud doesn’t run threads from this project.';
     case 'folder': return 'It works in a folder that stays on this computer.';
     case 'no-account': return `No ${engineName(detail)} account is signed in to the cloud.`;

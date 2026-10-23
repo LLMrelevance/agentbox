@@ -39,10 +39,12 @@ with their own subscription, and forbid a developer to "collect, store, or
 intermediate Claude.ai credentials or session tokens — sign-in to a Claude
 account must complete through Anthropic's own flow". Copying the Mac's
 login into the cloud, which the first build did, is the forbidden half.
-OpenAI allows hosted ChatGPT logins only through Sign in with ChatGPT
-(applied for 2026-10-14; "early Q4"). The founder chose: one sign-in per
-account, done inside the cloud through each vendor's own sign-in, kept
-between runs.
+OpenAI's partner program for hosted ChatGPT logins is Sign in with ChatGPT
+(applied for 2026-10-14; "early Q4"). It is NOT a gate: cloud Codex is open
+to everyone now (the owner's call, 2026-10-22: approval may take a long time,
+and tools like Conductor already host Codex on people's own ChatGPT logins).
+The founder chose: one sign-in per account, done inside the cloud through
+each vendor's own sign-in, kept between runs.
 
 - **Signing in.** From the cloud menu, per account. The Mac starts a sign-in
   session in a sandbox (`{action:'signin', engine, saveUrl}`); the sandbox
@@ -97,6 +99,12 @@ between runs.
     token and does not try to renew on age (a renewal would rotate the login
     under every other run). A copy whose access token has under 30 minutes
     left is refused before anything starts.
+  - A Claude run also carries the person's Codex login when one is ready
+    (`also: [{engine: 'codex', id, url}]`, 2026-10-23), written the same way
+    into the agent's `~/.codex`, so the agent can call `codex` there as it can
+    on the Mac. It never stops a run: a missing or nearly spent one leaves
+    Codex signed out. A Codex run carries nothing more, because Claude's token
+    lasts a year and Codex's cannot renew itself here.
   A run never writes its login back. Whatever the run prints, on stdout,
   stderr, the tool bridge, or in the transcripts that come home, has the
   login's text replaced by `[cloud sign-in]`, a tail that could be the start
@@ -123,7 +131,7 @@ between runs.
   `codex exec` would not change what OpenAI's terms say about hosted
   ChatGPT logins (Codex's review, finding 2: Sign in with ChatGPT supports
   app-server itself), and it would cost live approvals and mid-turn replies.
-  Until the partnership, cloud Codex is the founder's own use only.
+  Cloud Codex is for everyone, with or without the partnership (2026-10-22).
 - **What goes.** The keychain token (`readClaudeToken`/`saveClaudeToken`),
   the Mac-side `setup-token` driver (main/cloud/signin-flow.mjs),
   scripts/cloud-signin.mjs, and the Mac's `auth.json` copy
@@ -526,7 +534,8 @@ approved:
    refunds and acceptable use, and an accept step a person passes before
    their first cloud key. Anthropic's Commercial Terms accepted, and their
    sales asked about keeping each person's `setup-token` between runs.
-   Codex stays the owner's own until OpenAI approves Sign in with ChatGPT.
+   Codex is open to everyone from the release; OpenAI's Sign in with ChatGPT
+   approval is not waited for (the owner's call, 2026-10-22).
 3. **Accounts.** The app's own sign-in page (Google, or an email and a
    password), not new screens (the owner's call, 2026-10-20). The Google
    consent screen published (name and email only, so no Google review),
@@ -611,9 +620,16 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
 - **The Mac.** `cloud.json` holding `gateway` (an address) instead of a
   bucket and runtime makes this Mac a managed one. Her own setup is
   unchanged.
-- **Still open before strangers.** Presigned writes with no size cap (bounded by the 7-day expiry of
-  `runs/`), an alarm on unexpected use of the signer's key, and cloud keys
-  that never expire (turning a person off covers abuse, not a lost Mac).
+- **Closed before strangers (2026-10-22).** A link that writes needs a plan,
+  and only a sign-in or a renewal may save a sign-in. While someone holds such
+  a link the sweep weighs their `runs/`: at 200 GiB no new one, past 400 GiB
+  the newest objects go. A cloud key unused for 30 days is refused; a person
+  can end their other Macs' keys, and the owner every key of a person
+  (`cloud-gateway-admin.mjs sign-out`). The signer's key works only inside a
+  link, cannot list sign-ins, and is replaced every 90 days; a trail emails an
+  alarm on any other use of it, or when someone reaches the storage cap.
+  Still open: no button to sign out other Macs yet, and a reused link's
+  request and download costs are bounded only by a plan and the budget.
 
 ## Known limits
 

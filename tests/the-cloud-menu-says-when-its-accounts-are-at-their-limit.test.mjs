@@ -7,8 +7,9 @@
 // free login on this Mac, five at a time, and fourteen waited. The menu said
 // only "Nothing running in the cloud now".
 //
-// Now the menu's last line says the accounts are at their limit and when they
-// come back, while every one of them is; otherwise it says what runs there.
+// Now the menu's last line says the account is at its limit and when it comes
+// back; otherwise it says what runs there. It asked for every account to be
+// out until w-dac993a554, when the cloud stopped rotating.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import { cloudFootLine } from '../renderer/src/cloud-menu';
@@ -19,14 +20,27 @@ const acct = (key, limitedUntil = null) => ({ engine: 'claude', key, name: null,
 const cloud = (accounts, running = 0, mode = 'all') => ({ setUp: true, mode, whenOn: 'all', running, accounts, signIns: [], month: { runs: 0, agentHours: 0 } });
 
 describe('the last line of the cloud menu', () => {
-  it('says every account is at its limit, and when the first comes back', () => {
+  // SAID IN THE SINGULAR, HOWEVER MANY ARE SIGNED IN (w-dac993a554): the cloud
+  // runs on one account, so "your cloud accounts" was the menu promising a
+  // rotation the cloud does not do.
+  it('says the account is at its limit, and when the first comes back', () => {
     const line = cloudFootLine(cloud([acct('a', at(22, 10)), acct('b', at(22, 40))]), now);
-    expect(line).toBe('Your cloud accounts are at their usage limit until 10:10pm. Threads wait for the cloud until then.');
+    expect(line).toBe('Your cloud account is at its usage limit until 10:10pm. Threads wait for the cloud until then.');
   });
 
-  it('says what runs there while any account can still run', () => {
-    expect(cloudFootLine(cloud([acct('a', at(22, 10)), acct('b')], 2), now)).toBe('2 running in the cloud now');
+  // THE ACCOUNT IT RUNS ON, NOT ANY ACCOUNT (w-dac993a554). This read "while
+  // any account can still run", which was the rotation: a second signed-in
+  // login kept the cloud going. The cloud takes the first account and waits
+  // for it, so a limit on that one is the whole story and the next login's
+  // room is not an answer.
+  it('says what runs there while the account it runs on can still run', () => {
+    expect(cloudFootLine(cloud([acct('a'), acct('b', at(22, 40))], 2), now)).toBe('2 running in the cloud now');
     expect(cloudFootLine(cloud([acct('a')]), now)).toBe('Nothing running in the cloud now');
+  });
+
+  it('says the limit of the account it runs on, with a free login behind it', () => {
+    expect(cloudFootLine(cloud([acct('a', at(22, 10)), acct('b')], 2), now))
+      .toBe('Your cloud account is at its usage limit until 10:10pm. Threads wait for the cloud until then.');
   });
 
   it('forgets a limit that has passed, and says nothing of limits with the cloud off', () => {

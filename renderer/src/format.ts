@@ -177,10 +177,12 @@ export function offerIsLive(item: HasFields & { answer?: string }): boolean {
 // THE OPTION THAT CLOSES THE TASK (w-1df18b337a). Once a run has shipped, the
 // one honest next move is often to close the row, and agents are told to offer
 // exactly "Close this task". A pick is a reply, and a reply on a finished row
-// starts a run, so this is caught and done the way E does it instead. Only the
-// whole option: "Ship it, then close the task" is still a reply.
+// starts a run, so this is caught and done the way E does it instead. The words
+// alone or with a reason after them: "Ship it, then close the task" and "Close
+// this task, then file the follow-up" are still replies.
+const CLOSES = /^close (?:this|the) (?:task|thread)(?:$|\s*[,:;\p{Pd}](?!\s*(?:then|and|also)\b)|\s+(?:since|because|as|now that)\b)/iu;
 export function closesTheTask(option: string): boolean {
-  return /^close (this|the) (task|thread)$/i.test(bareOption(option));
+  return CLOSES.test(bareOption(option));
 }
 
 const bareOption = (option: string) => option.replace(/\s*\(recommended\)\s*/i, '').trim().replace(/[.!]+$/, '');

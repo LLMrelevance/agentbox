@@ -162,19 +162,22 @@ describe('her own hand lifts what time alone would lift', () => {
     two.stop?.();
   });
 
-  // AND A HEALTHY LOGIN STILL HOLDS THE CAPPED ONE DOWN, which is the fault
-  // this came from: a reply used to throw the bench away and send the next
-  // spawn straight back to the login that had run out.
-  it('a capped login keeps its bench while a healthy login can take the work', () => {
+  // A SECOND LOGIN NO LONGER HOLDS THE CAPPED ONE DOWN (w-dac993a554). It did
+  // while work rotated across a person's subscriptions, because then the other
+  // login really was where the next spawn would go. Work runs on one account
+  // now: the capped account is still the account, so her hand buys one try on
+  // it, and the one try is the guard against a reset hour read wrong.
+  it('lifts a capped login for her whether or not a second one is signed in', () => {
     const two = new Supervisor(
       { home: ONE_ACCOUNT_HOME, storeRoot: root, maxConcurrentSessions: 3, authProfiles: ['default', '/second'] },
       { listItems: () => [], listProducts: () => [] },
       '/nonexistent-app',
     );
     two.noteExitForBackoff(deadOnArrival(HER_LIMIT, 'default'));
-    two.liftBrakeForHer();
     expect(two._profileResting('default')).toBe(true);
-    expect(two._profileResting('/second')).toBe(false);
+    two.liftBrakeForHer();
+    expect(two._profileResting('default')).toBe(false);
+    expect(two._pickProfile('claude')).toBe('default');
     two.stop?.();
   });
 

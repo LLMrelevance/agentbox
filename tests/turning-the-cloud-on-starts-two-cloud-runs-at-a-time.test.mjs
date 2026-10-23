@@ -115,8 +115,9 @@ describe('cloud runs starting', () => {
   // Codex's review: the wait came before the spawn knew a run was one that
   // goes to this Mac anyway, so a typed command or a Codex reply waited too.
   describe('at the spawn, while waiting its turn', () => {
-    const spawnWith = (plan) => {
+    const spawnWith = (plan, heldHere = []) => {
       const sup = make();
+      sup._codexServers = new Map([['/codex-home', { client: { isClosed: () => false }, loaded: new Set(heldHere) }]]);
       const root = sup.config.storeRoot;
       const product = { slug: 'p', dir: root, repoPath: root };
       sup.store.listProducts = () => [product];
@@ -134,8 +135,10 @@ describe('cloud runs starting', () => {
       sup.spawnWorker({ id: 'w-x', product: 'p', title: 't', status: 'open', answer: 'go on' }, { engine: 'codex', profile: 'default', continuation: true });
       return sup.sessions.get('w-x') ?? null;
     };
-    it('a Codex reply starts here', () => {
-      const s = spawnWith({ resumeId: 'r-1' });
+    // Only one this Mac's app-server has open since 2026-10-22
+    // (tests/a-reply-to-a-codex-cloud-thread-runs-in-the-cloud).
+    it('a Codex reply to a thread this Mac holds starts here', () => {
+      const s = spawnWith({ resumeId: 'r-1' }, ['r-1']);
       expect(s).toBeTruthy();
       expect(s.cloud).toBe(false);
     });

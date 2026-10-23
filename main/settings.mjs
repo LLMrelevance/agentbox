@@ -19,6 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { codexChoiceToOpen, saveConfig } from './config.mjs';
 import { forgetClaudeBin, INSTALL_URL } from './claude-bin.mjs';
+import { lookAgain } from './engine-bin.mjs';
 import { AGENT_MODES } from '../shared/agents.mjs';
 import { analyticsKey, diagnosticsOn } from './analytics.mjs';
 import { CLAUDE_PERMISSION_MODES } from '../shared/work-items.mjs';
@@ -251,10 +252,31 @@ export function setModelArg(base, model) {
 
 const lineCount = (text) => (text.trim() ? text.trim().split('\n').length : 0);
 
+// What launch found, or the last Check again, in the finder's own shape. For a
+// read nobody is looking at: the search starts a login shell on the window's
+// thread, and the phone reads settings every minute.
+function knownEngine(config, engine) {
+  if (engine === 'claude') {
+    return {
+      path: config.claudeBin ?? null,
+      found: !!config.claudeFound,
+      certain: config.claudeCertain !== false,
+      from: config.claudeBinConfigured ? 'settings' : (config.claudeFrom ?? null),
+    };
+  }
+  // recheckCodex moves codexBin and not codexFound, so the path is the answer.
+  return {
+    path: config.codexBin ?? null,
+    found: !!config.codexBin,
+    certain: config.codexCertain !== false,
+    from: config.codexBinConfigured ? 'settings' : (config.codexFrom ?? null),
+  };
+}
+
 // Claude Code: the path, whether it is really there, and where to get it when
 // it is not. One reader, here, so the screen and the config cannot disagree.
-export function claudeState(config) {
-  const found = harnessFor('claude').discover(config.claudeBinConfigured ?? null);
+export function claudeState(config, { search = true } = {}) {
+  const found = search ? harnessFor('claude').discover(config.claudeBinConfigured ?? null) : knownEngine(config, 'claude');
   return {
     claudeBin: found.path ?? config.claudeBin,
     claudeFound: found.found,
@@ -278,6 +300,20 @@ export function claudeState(config) {
 // `forgetClaudeBin` exists for.
 export function recheckClaude(config) {
   forgetClaudeBin();
+  return takeClaude(config);
+}
+
+/**
+ * Check again without holding the window: the shell is asked in the background
+ * and this settles once its answer is on the config. For every caller that can
+ * wait (the buttons, setup, the update check).
+ */
+export async function lookAgainFor(engine, config) {
+  await lookAgain(engine);
+  return engine === 'claude' ? takeClaude(config) : takeCodex(config);
+}
+
+function takeClaude(config) {
   const state = claudeState(config);
   // The config carries the path everything else spawns from, so a search that
   // has just found Claude Code updates it rather than leaving the rest of the
@@ -286,7 +322,10 @@ export function recheckClaude(config) {
   // And whether it is here at all, which is what decides that a Mac with only
   // Codex runs on Codex (`Supervisor#_enginesFound`). Only a certain answer
   // moves it, so an unsure search never takes Claude Code away from anybody.
-  if (state.claudeFound || state.claudeCertain) config.claudeFound = state.claudeFound;
+  if (state.claudeFound || state.claudeCertain) {
+    config.claudeFound = state.claudeFound;
+    config.claudeCertain = state.claudeCertain;
+  }
   return state;
 }
 
@@ -320,8 +359,8 @@ export function recheckClaude(config) {
  * checked by uninstalling Codex from the machine running the suite is a card
  * whose unsure state is not checked. Nothing in the app passes it.
  */
-export function codexState(config, where = {}) {
-  const found = harnessFor('codex').discover(config.codexBinConfigured ?? null, where);
+export function codexState(config, where = {}, { search = true } = {}) {
+  const found = search ? harnessFor('codex').discover(config.codexBinConfigured ?? null, where) : knownEngine(config, 'codex');
   return {
     // Empty rather than a path when there is nothing there, which is the same
     // asymmetry `config.codexBin` already keeps (main/config.mjs): a configured
@@ -339,8 +378,8 @@ export function codexState(config, where = {}) {
 }
 
 /** `codexState` under the names the walk's last card reads beside Claude's. */
-export function codexFoundState(config, where = {}) {
-  const state = codexState(config, where);
+export function codexFoundState(config, where = {}, how = {}) {
+  const state = codexState(config, where, how);
   return { codexFound: state.found, codexCertain: state.certain, codexInstallUrl: state.url };
 }
 
@@ -352,8 +391,13 @@ export function codexFoundState(config, where = {}) {
  *  without a restart. */
 export function recheckCodex(config) {
   forgetCodexBin();
+  return takeCodex(config);
+}
+
+function takeCodex(config) {
   const state = codexState(config);
   config.codexBin = state.found ? state.bin : null;
+  config.codexCertain = state.certain;
   // Found while the app is open, by this button or the plan setup: the choice
   // opens now, as it would have at the next launch (main/config.mjs).
   const opened = codexChoiceToOpen(config, state.found);
@@ -448,7 +492,8 @@ export function alphaFeatures(config) {
   return { neo: config?.alphaNeo === true, rooms: config?.alphaRooms === true };
 }
 
-export function readSettings({ config, supervisor, store }) {
+// `search: false` is for a read on a timer (`knownEngine`).
+export function readSettings({ config, supervisor, store }, { search = true } = {}) {
   const products = store.listProducts();
   const status = supervisor.status();
   const sessions = [...supervisor.sessions.values()];
@@ -502,9 +547,13 @@ export function readSettings({ config, supervisor, store }) {
       profile,
       email: identity?.email ?? null,
       accountUuid: identity?.accountUuid ?? null,
-      // WHICH ONE RUNS, when she has picked one. False on every row while she
-      // has not, and then every account runs as it always has.
-      chosen: (config.activeAccount?.claude ?? null) === profile,
+      // WHICH ONE RUNS, AND ONE OF THEM ALWAYS DOES (w-dac993a554). This was
+      // false on every row until somebody picked, because until then every
+      // account really did take a share of the work. One account runs it now,
+      // so the supervisor is asked which rather than the config file: with
+      // nothing picked that is the primary login, and the page says so instead
+      // of leaving a person to guess which of their two plans is being spent.
+      chosen: (supervisor._profilesFor?.('claude') ?? [])[0] === profile,
       // The default profile is whatever ~/.claude holds; anything else is a
       // second logged-in home directory, and its path is the only name it has.
       label: profile === 'default' ? 'default' : path.basename(profile),
@@ -632,7 +681,7 @@ export function readSettings({ config, supervisor, store }) {
       // comes back with ONE entry and this screen draws exactly what it drew
       // before. A page that derived its own list would offer her a choice the
       // supervisor is about to refuse.
-      ...engineSettings(supervisor, config),
+      ...engineSettings(supervisor, config, { search }),
       permission: permissionMode(workspaceArgs),
       permissionArgs: workspaceArgs,
       cloudPermission: config.cloudPermission ?? CLOUD_CLAUDE_DEFAULT,
@@ -677,11 +726,11 @@ export function readSettings({ config, supervisor, store }) {
       // Looked up again on every read of this screen, not taken from boot.
       // Someone who reads "install it, then open this screen again" and does
       // exactly that has to see it turn found, without restarting the app.
-      ...claudeState(config),
+      ...claudeState(config, { search }),
       // AND WHETHER CODEX IS, because the app needs one of the two and not
       // both: the last card of the walk only shuts the inbox when neither is
       // here (renderer/src/App.tsx).
-      ...codexFoundState(config),
+      ...codexFoundState(config, {}, { search }),
       // AND WHAT THIS MAC'S CLAUDE CODE CALLS ITS MODELS.
       //
       // In the same trip, and for the same reason the line above is looked up
@@ -733,7 +782,7 @@ function engineTroubleFor(supervisor, engine) {
   return trouble ? engineTroubleNote(trouble.cause) : null;
 }
 
-function engineSettings(supervisor, config) {
+function engineSettings(supervisor, config, { search = true } = {}) {
   const choices = supervisor.engineChoices();
   const engine = supervisor.engineFacts().workspace;
   // WHETHER THIS MAC HAS ASKED TO HEAR ABOUT CODEX AT ALL, which is a different
@@ -758,7 +807,7 @@ function engineSettings(supervisor, config) {
   // links the install, which is the question that person had.
   const codexIsHome = engine === 'codex';
   const codex = {
-    ...codexState(config),
+    ...codexState(config, {}, { search }),
     trouble: engineTroubleFor(supervisor, 'codex'),
     account: codexAccount(supervisor._codexHome()),
     // EVERY CODEX LOGIN ON THE MAC, NOT JUST THE FIRST. The supervisor has
@@ -903,7 +952,9 @@ export function setProjectSetting({ config, supervisor, store }, { product, key,
  * not signed in.
  */
 function codexAccountRows(supervisor) {
-  const chosen = supervisor.config.activeAccount?.codex ?? null;
+  // THE ONE THAT RUNS, the same way the Claude rows answer it: the supervisor's
+  // own pick, which is the chosen account or the primary login (w-dac993a554).
+  const chosen = supervisor._profilesFor?.('codex')?.[0] ?? null;
   return supervisor._codexProfiles().map((profile) => {
     const home = supervisor._codexProfileHome(profile);
     const id = codexAccount(home);
@@ -915,8 +966,7 @@ function codexAccountRows(supervisor) {
       planNamed: id?.planNamed ?? false,
       accountId: id?.accountId ?? null,
       signedIn: !!id,
-      // WHICH ONE RUNS. Null when she has never picked, and then every account
-      // runs and the card says so rather than marking one at random.
+      // WHICH ONE RUNS, and one of them always does (`chosen` above).
       chosen: chosen === profile,
     };
   });
@@ -1282,10 +1332,9 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
     // in one object keyed by engine is what stops a Codex pick being read as a
     // Claude one, which is the collision `_accountKey` exists to prevent.
     //
-    // NULL CLEARS IT, and clearing means every account runs again, which is what
-    // this machine did before she ever picked. `Supervisor#_narrowToChosen` also
-    // ignores a name that no longer exists, so a login she removes cannot wedge
-    // the fleet.
+    // NULL CLEARS IT, and clearing means the primary login runs the work again.
+    // `Supervisor#_theOneAccount` also ignores a name that no longer exists, so
+    // a login she removes cannot wedge the fleet.
     case 'activeAccount': {
       const engineId = value?.engine;
       if (!isEngine(engineId)) throw new Error(`unknown coding agent: ${engineId}`);

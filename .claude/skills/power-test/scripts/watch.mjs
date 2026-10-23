@@ -95,14 +95,39 @@ export function instanceProcesses(state, table = processTable()) {
   if (app) walk(app.pid);
   const browser = table.filter((p) => p.command.includes(path.join(state.instance, 'chrome-profile')));
   // The app starts every Claude Code worker, and the stand-in, with these; however Claude Code was installed.
-  const isWorker = (c) => /\s-p\s/.test(c) && /--permission-prompt-tool/.test(c);
+  // A cloud run's stand-in carries the same arguments to the relay, so it is told apart first.
+  const isWorker = (c) => /\s-p\s/.test(c) && /--permission-prompt-tool/.test(c) && !isCloudRun(c);
   return {
     appKb: app?.rss ?? 0,
     childKb: tree.reduce((n, p) => n + p.rss, 0),
     browserKb: browser.reduce((n, p) => n + p.rss, 0),
     workers: tree.filter((p) => isWorker(p.command)).length,
+    cloudRuns: tree.filter((p) => isCloudRun(p.command)).length,
     processes: tree.length,
   };
+}
+
+const isCloudRun = (c) => /scripts\/cloud-shim\.pl\s|main\/cloud\/run-cli\.mjs\s/.test(c);
+
+/**
+ * What a sleeping Mac stops: the copy, everything it started, everything that
+ * names its folder, and, for a copy on the cloud, the relay and stand-ins on
+ * its own temp folder. Never the tester's browser or anything of another app.
+ */
+export function sleepTargets(state, table = processTable()) {
+  const kids = new Map();
+  for (const p of table) kids.set(p.ppid, [...(kids.get(p.ppid) ?? []), p]);
+  const browser = new Set(table.filter((p) => p.command.includes(path.join(state.instance, 'chrome-profile'))).map((p) => p.pid));
+  const pids = new Set();
+  const take = (pid) => {
+    if (browser.has(pid) || pid === process.pid || pids.has(pid)) return;
+    pids.add(pid);
+    for (const k of kids.get(pid) ?? []) take(k.pid);
+  };
+  if (table.some((p) => p.pid === state.pid)) take(state.pid);
+  const names = (c, dir) => !!dir && new RegExp(`${dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=/|\\s|$)`).test(c);
+  for (const p of table) if (names(p.command, state.instance) || names(p.command, state.cloudTmp)) take(p.pid);
+  return [...pids];
 }
 
 /** Whether a run's session log carries a result its engine did not mark ERROR (main/codex.mjs, harnesses/claude-stream.mjs). */
@@ -233,7 +258,7 @@ export function createWatcher({ state, out, seeded = new Set(), afterMs, quiet =
       if (screenError) found('no-screen', { kind: 'no-screen', severity: 'broken', title: 'The app\'s address stopped answering', detail: screenError }, now);
       else if (screenMs > 5000) found('slow-screen', { kind: 'slow-screen', severity: 'slow', title: 'The app took over 5 seconds to send its screen', detail: `${screenMs} ms` }, now);
     }
-    const sample = { at: now, going: going.length, workers: procs.workers, processes: procs.processes, appKb: procs.appKb, childKb: procs.childKb, browserKb: procs.browserKb, screenMs, screenError, freeMb: freeMemoryMb(), quiet: quiet(now) };
+    const sample = { at: now, going: going.length, workers: procs.workers, cloudRuns: procs.cloudRuns, processes: procs.processes, appKb: procs.appKb, childKb: procs.childKb, browserKb: procs.browserKb, screenMs, screenError, freeMb: freeMemoryMb(), quiet: quiet(now) };
     fs.appendFileSync(path.join(out, 'watch.jsonl'), `${JSON.stringify(sample)}\n`);
     return sample;
   }

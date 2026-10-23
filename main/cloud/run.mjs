@@ -79,9 +79,11 @@ export const CLOUD_NOTE = [
   '',
   'Install whatever else the work needs: you have sudo (`sudo apt-get update && sudo apt-get install -y <package>`, `pip install --user`, `npm install`). When you install a program the project will need again, add the same lines to `.agentbox/cloud-setup.sh` in the task folder and commit it: that script runs before every cloud run of this project, and its output from this run is in /tmp/agentbox-cloud-setup.log.',
   '',
-  'It does not have: any other file from their computer (other threads\' design folders, large media, files under the home folder); files an earlier turn left outside git (node_modules, gitignored folders such as scripts/scratch, /tmp); API keys, key files or tokens kept on their computer; their computer\'s apps (Xcode, a simulator, their browser and its sign-ins). Run `npm ci --ignore-scripts` before anything that needs node_modules. Open files are capped at 1024 here (the cloud fixes that ceiling), so a test runner that watches the whole project (`vitest related`, `npm run test:changed`) fails with EMFILE: run the test files you changed and the ones that import them by name with `npx vitest run <files>`.',
+  'It does not have: the project\'s other branches (only this task\'s branch and main came up); any other file from their computer (other threads\' design folders, large media, files under the home folder); files an earlier turn left outside git (node_modules, gitignored folders such as scripts/scratch, /tmp); API keys, key files or tokens kept on their computer; their computer\'s apps (Xcode, a simulator, their browser and its sign-ins). Run `npm ci --ignore-scripts` before anything that needs node_modules. Open files are capped at 1024 here (the cloud fixes that ceiling), so a test runner that watches the whole project (`vitest related`, `npm run test:changed`) fails with EMFILE: run the test files you changed and the ones that import them by name with `npx vitest run <files>`.',
   '',
-  `If this request needs something only their computer has (one of those files, a key, one of their apps, a private repository this machine cannot reach), stop at once. Do not work around it, do not write to the work item, do not give the person commands to run, and do not offer to move the thread: the app moves it. End your turn with one line and nothing else: ${HAND_BACK} followed by what was missing, in a few words they would use (your AWS sign-in, the iOS simulator), since the app shows those words to them. That line replaces your usual final answer and its options. The app then runs the same request again on their computer, where all of it is. A program you can install is not a reason to stop. Otherwise work as usual, and never write that line.`,
+  `Only this task's own branch comes back to their computer. A commit, merge or reset on main or any other branch stays in this sandbox and is thrown away with it, so a merge done here has not happened. When the request includes merging into main, or changing any branch but this task's, do the rest of the work and commit it on this branch, then end your turn with the one line \`${HAND_BACK} merging into main\` (as below): the app merges on their computer.`,
+  '',
+  `If this request needs something only their computer has (one of those files, a key, one of their apps, a private repository this machine cannot reach), stop at once. Do not work around it, do not write to the work item, do not give the person commands to run, and do not offer to move the thread: the app moves it. End your turn with one line and nothing else: ${HAND_BACK} followed by what was missing, in a few words they would use (your AWS sign-in, the iOS simulator), since the app shows those words to them. A person who asks to have this thread moved to their computer is answered with this line as well. That line replaces your usual final answer and its options. The app then runs the same request again on their computer, where all of it is. A program you can install is not a reason to stop. Otherwise work as usual, and never write that line.`,
 ].join('\n');
 
 // The same, for a project with no repository, whose agent works in the
@@ -103,6 +105,18 @@ export function argvForTheCloud(argv, { plain = false } = {}) {
   const out = [...argv];
   out[i + 1] = `${argv[i + 1]}\n\n${note}`;
   return out;
+}
+
+// Claude Code keeps a conversation's system text from its first turn, so a
+// conversation begun on the Mac never reads the note on a cloud turn's command
+// line: a resumed run is told at the top of its first message instead.
+export function claudeLineForTheCloud(line, { note }) {
+  let msg;
+  try { msg = JSON.parse(line); } catch { return line; }
+  if (msg?.type !== 'user' || msg.message?.role !== 'user') return line;
+  const said = msg.message.content;
+  const content = Array.isArray(said) ? [{ type: 'text', text: note }, ...said] : `${note}\n\n${said ?? ''}`;
+  return JSON.stringify({ ...msg, message: { ...msg.message, content } }) + (line.endsWith('\n') ? '\n' : '');
 }
 
 // How long a cloud account whose limit named no hour sits out.
@@ -129,7 +143,7 @@ export const KEEP_ON_MAC = 78;
 // agent running, paused, terms not accepted): not a failure of the thread or
 // the cloud, so the thread runs on this Mac meanwhile (Supervisor#_noteCloudNoRoom).
 export const CLOUD_NO_ROOM = 79;
-const NO_ROOM = new Set(['plan', 'hours', 'agents', 'paused', 'terms']);
+const NO_ROOM = new Set(['plan', 'hours', 'agents', 'paused', 'terms', 'storage']);
 /** A refused start that is about room, as its exit and what it says; else null. */
 export function refusedForRoom(answer) {
   if (!answer || answer.ok !== false || !NO_ROOM.has(answer.error)) return null;
@@ -447,6 +461,9 @@ export async function cloudRun({
   // itself is never read here (docs/cloud/PLAN.md, "Sign-ins live in the
   // cloud").
   login = null,
+  // Other sign-ins the run carries, in the same shape (./run-cli.mjs
+  // `loginsCarriedBy`). The sandbox places them if it can and starts anyway.
+  also = [],
   // Told when the sandbox says the login was missing, refused or ran out.
   onLoginTrouble = () => {},
   // Told the moment the account's limit resets, when a run ends on it.
@@ -535,7 +552,11 @@ export async function cloudRun({
     if (st.runId === earlier.runId && (st.state === 'preparing' || st.state === 'running')) { joining = earlier; joinedAt = st; offlineOn = !!earlier.offline; }
   }
   if (earlier && !joining) {
-    const back = await bringHome(earlier, { recovering: true });
+    // One the app left going that ended while it was away still has its
+    // answer to give, from where the app stopped reading.
+    const leftGoing = importOnly && (LEFT_RUNNING.has(earlier.state) || orphaned);
+    const passOn = (e) => (e.kind === 'stdout' ? write(stdout, Buffer.from(e.data, 'base64')) : undefined);
+    const back = await bringHome(earlier, { recovering: true, ...(leftGoing ? { cursor: earlier.cursor ?? 0, replay: passOn } : {}) });
     if (!back.ok) { say(`an earlier cloud run in this folder could not be brought back yet (${back.why}); not starting another`); return IMPORT_FAILED; }
   }
   if (importOnly && !joining) return 0;
@@ -565,6 +586,7 @@ export async function cloudRun({
   // chunks is never broken.
   const inDecoder = new StringDecoder('utf8');
   let stdinBuf = '';
+  let untold = !codex && !!argValue(argv, '--resume');
   if (!joining) stdin.on('data', (d) => {
     stdinBuf += typeof d === 'string' ? d : inDecoder.write(d);
     let i;
@@ -573,10 +595,14 @@ export async function cloudRun({
       stdinBuf = stdinBuf.slice(i + 1);
       const named = filesNamedIn(line, { cwd: plain ? null : cwd, roots, docs: env.AGENTBOX_DOCS });
       if (codex) {
-        const c = codexLineForTheCloud(line, { stubPath, codexHome, keep: mcpConfig.mcpServers });
+        const c = codexLineForTheCloud(line, { stubPath, codexHome, keep: mcpConfig.mcpServers, note: plain ? PLAIN_CLOUD_NOTE : CLOUD_NOTE });
         line = c.line;
         if (c.conversation) conversations.add(c.conversation);
         named.push(...c.files.filter((f) => !named.includes(f)));
+      } else if (untold) {
+        const was = line;
+        line = claudeLineForTheCloud(line, { note: plain ? PLAIN_CLOUD_NOTE : CLOUD_NOTE });
+        untold = line === was;
       }
       if (named.length) enqueue({ action: 'files', paths: named });
       enqueue({ action: 'stdin', data: Buffer.from(line).toString('base64') });
@@ -737,7 +763,17 @@ export async function cloudRun({
   }
   const system = argValue(argv, '--append-system-prompt') || '';
   for (const f of filesNamedIn(system, { cwd: plain ? null : cwd, roots })) sending.push(sendFile(f));
-  const [pack, files, home] = await Promise.all([packed, Promise.all(sending), Promise.all(homeFiles)]);
+  let pack; let files; let home;
+  try {
+    [pack, files, home] = await Promise.all([packed, Promise.all(sending), Promise.all(homeFiles)]);
+  } catch (err) {
+    // The cloud server refuses a link that writes for the same reasons it
+    // refuses a start, and before anything has gone up.
+    const noRoom = refusedForRoom({ ok: false, error: err?.error, message: err?.said });
+    if (!noRoom) throw err;
+    say(noRoom.line);
+    return noRoom.code;
+  }
   const packedAt = Date.now();
   sentFiles = new Set(files.map((f) => f.path));
 
@@ -770,6 +806,7 @@ export async function cloudRun({
   const bundleUrl = pack.bundle ? await storage.getUrl(key('in.bundle')) : undefined;
   const base = pack.base ? { url: await storage.getUrl(pack.base.key), sha: pack.base.sha } : null;
   const loginUrl = await storage.getUrl(login.key, LOGIN_LINK_SECONDS);
+  const carried = await Promise.all(also.map(async (l) => ({ engine: l.engine, id: l.id, url: await storage.getUrl(l.key, LOGIN_LINK_SECONDS) })));
   const started = await retry(() => transport.invoke(sessionId, {
     action: 'start', runId, cwd, branch, bundleUrl,
     ...(plain ? { plain: true } : {}),
@@ -780,6 +817,7 @@ export async function cloudRun({
     ...(docsDir ? { docs: docsDir } : {}),
     ...(home.length ? { homeFiles: home } : {}),
     login: { engine: login.engine, id: login.id, url: loginUrl },
+    ...(carried.length ? { also: carried } : {}),
     results,
     // A conversation comes home as only what the run added (`layTails`). An
     // image that does not know this ignores it and sends it whole.
@@ -1492,7 +1530,9 @@ export async function cloudRun({
 // one file Codex will need to find that thread: its rollout, sent up first
 // (`conversation`, sent as a Claude Code transcript is).
 // Any other line, or one that is not JSON, passes exactly as it came.
-export function codexLineForTheCloud(line, { stubPath = STUB, codexHome, keep, findRollout = codexTranscriptFile }) {
+// `note` is what the run is told about the cloud, which Claude Code gets on its
+// command line (`argvForTheCloud`) and Codex only here.
+export function codexLineForTheCloud(line, { stubPath = STUB, codexHome, keep, findRollout = codexTranscriptFile, note = null }) {
   let msg;
   try { msg = JSON.parse(line); } catch { return { line, files: [] }; }
   // A picture rides in a turn as `localImage` with a path on this Mac; the
@@ -1526,6 +1566,10 @@ export function codexLineForTheCloud(line, { stubPath = STUB, codexHome, keep, f
   // task's folder and a Codex sign-in that cannot renew, and is thrown away
   // after the run. A read-only run stays read-only; approvals are untouched.
   if (msg.params && msg.params.sandbox === 'workspace-write') msg.params.sandbox = 'danger-full-access';
+  if (note && msg.params) {
+    const mine = msg.params.developerInstructions;
+    msg.params.developerInstructions = mine ? `${mine}\n\n${note}` : note;
+  }
   let conversation = null;
   if (msg.method === 'thread/resume' && msg.params?.threadId) {
     conversation = findRollout(msg.params.threadId, { home: codexHome });
@@ -1684,7 +1728,9 @@ export function servedHere(cfg, env, holder) {
     // own, and a person id this run has none of is taken away.
     const want = { AGENTBOX_PERSON_ID: env.AGENTBOX_PERSON_ID, ...cfg.env };
     for (const [k, v] of Object.entries(want)) { if (v == null) delete process.env[k]; else process.env[k] = v; }
-    return channel(async (io) => (await import('../../mcp/stdio.mjs')).serveStore({ ...io, holder: `mcp-cloud-${holder}` }));
+    // Named here: runs share this process, so its own ZERO_ITEM is whichever run set it last.
+    const ownItem = cfg.env?.ZERO_ITEM || env.ZERO_ITEM || null;
+    return channel(async (io) => (await import('../../mcp/stdio.mjs')).serveStore({ ...io, holder: `mcp-cloud-${holder}`, ownItem }));
   }
   return null;
 }
