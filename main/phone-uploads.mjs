@@ -262,7 +262,7 @@ export function pageParts(page, { docs, repo, budget = { bytes: PAGES_READ_MAX }
  * the background; `sweep()` deletes what nothing has named for days.
  */
 export function createPhoneUploads({ backend, owner, device, alive = () => true, state, save, home, now = Date.now, limits = UPLOAD_LIMITS, log = () => {} }) {
-  state.uploaded ??= {}; // name -> { bytes, named: last moment a thread named it }
+  state.uploaded ??= {}; // name -> { bytes, named: last moment a thread named it, rank: newest thread naming it }
   // What each file on this Mac is called online, learnt by the upload (off
   // the window's thread, a piece at a time) and good while it is unchanged.
   const names = new Map(); // file -> { size, mtimeMs, name }
@@ -270,12 +270,50 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
   const memo = new Map(); // thread -> { base, at, sig, out }
   let running = null;
   let restUntil = 0;
+  let saidFull = false;
+  let madeRoom = 0;
+  // A file on record from before ranks were kept reads as oldest, so nothing is
+  // taken until every thread has looked again and said how new its files are.
+  const startedAt = now();
 
   const known = (file, st) => {
     const was = names.get(file);
     return was && was.size === st.size && was.mtimeMs === st.mtimeMs ? was.name : null;
   };
   const total = () => Object.values(state.uploaded).reduce((n, u) => n + (u.bytes || 0), 0);
+  const olderThan = (rank) => Object.entries(state.uploaded)
+    .filter(([, u]) => (u.rank ?? 0) < rank)
+    .sort((a, b) => (a[1].rank ?? 0) - (b[1].rank ?? 0) || (a[1].named ?? 0) - (b[1].named ?? 0));
+  const roomFor = (bytes, rank) => {
+    const over = total() + bytes - limits.totalBytes;
+    if (over <= 0) return true;
+    if (now() - startedAt < LOOK_AGAIN_MS) return false;
+    return olderThan(rank).reduce((n, [, u]) => n + (u.bytes || 0), 0) >= over;
+  };
+  // THE NEWEST WORK GOES FIRST WHEN THE SPACE IS FULL: the oldest threads'
+  // files leave to make room, and never those of a thread as new as this one.
+  async function makeRoom(bytes, rank) {
+    const over = total() + bytes - limits.totalBytes;
+    if (over <= 0) return true;
+    if (!roomFor(bytes, rank)) return false;
+    const drop = [];
+    let freed = 0;
+    for (const [n, u] of olderThan(rank)) {
+      if (freed >= over) break;
+      drop.push(n);
+      freed += u.bytes || 0;
+    }
+    await backend.dropPhoneFiles({ owner, device, names: drop });
+    for (const n of drop) delete state.uploaded[n];
+    save();
+    for (const m of memo.values()) m.at = -Infinity;
+    madeRoom += drop.length;
+    return true;
+  }
+  const full = () => {
+    if (!saidFull) log('phone: the space for files is full');
+    saidFull = true;
+  };
 
   /**
    * What thread `sk`'s copy (`made()`, built only when needed) lists:
@@ -315,6 +353,7 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
         if (name && state.uploaded[name]) {
           files[key] = { n: name, s: st.size };
           state.uploaded[name].named = now();
+          state.uploaded[name].rank = Math.max(state.uploaded[name].rank ?? 0, rank);
         } else {
           const job = queue.get(file) ?? { bytes: st.size, rank, roots: [where.docs, where.repo].filter(Boolean), threads: new Set() };
           job.rank = Math.max(job.rank, rank);
@@ -366,18 +405,22 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
       const [file, job] = [...queue].sort((a, b) => b[1].rank - a[1].rank)[0];
       queue.delete(file);
       try {
+        const was = names.get(file);
+        if (!(was && state.uploaded[was.name]) && !roomFor(job.bytes, job.rank)) { full(); continue; }
         // A file gone or changed since it was named is skipped; only a refused upload rests the uploader.
         const read = await readChecked(file, job.roots).catch(() => null);
         if (!read) continue;
         const name = `${crypto.createHash('sha256').update(read.data).digest('hex')}${path.extname(file).toLowerCase()}`;
         names.set(file, { size: read.st.size, mtimeMs: read.st.mtimeMs, name });
         if (!state.uploaded[name]) {
-          if (total() + read.data.length > limits.totalBytes) { log('phone: the space for files is full'); continue; }
+          if (!alive()) return;
+          if (!(await makeRoom(read.data.length, job.rank))) { full(); continue; }
           if (!alive()) return;
           await backend.putPhoneFile({ owner, device, name, data: read.data, type: typeOf(file) });
-          state.uploaded[name] = { bytes: read.data.length, named: now() };
+          state.uploaded[name] = { bytes: read.data.length, named: now(), rank: job.rank };
+          saidFull = false;
           save();
-        }
+        } else state.uploaded[name].rank = Math.max(state.uploaded[name].rank ?? 0, job.rank);
         // The threads that name it look again at what they list.
         for (const sk of job.threads) { const m = memo.get(sk); if (m) m.at = -Infinity; }
       } catch (err) {
@@ -392,7 +435,13 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
     manifest,
     /** Upload what is queued, in the background; the run already going if there is one. */
     kick() {
-      if (!running && queue.size && now() >= restUntil) running = pump().finally(() => { running = null; });
+      if (!running && queue.size && now() >= restUntil) {
+        running = pump().finally(() => {
+          running = null;
+          if (madeRoom) log(`phone: took ${madeRoom} older file${madeRoom === 1 ? '' : 's'} off your phone to make room for newer ones`);
+          madeRoom = 0;
+        });
+      }
       return running ?? Promise.resolve();
     },
     pending: () => queue.size,
