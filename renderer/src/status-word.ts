@@ -13,6 +13,7 @@ import { STATE_WORD, stateWordOf } from './threads/summary-rules';
 import { threadState } from '../../shared/thread-cards.mjs';
 import type { ThreadStateWord, WorkItem } from './types';
 import type { Fleet } from './fleet';
+import { whyWords, type WhyCard } from './where-why';
 
 /** The mark's shape. The accent ring is the one worth a look: nothing is going
  *  to start that thread until something changes. */
@@ -34,6 +35,8 @@ export interface StatusCell {
   cloud: boolean;
   /** The whole sentence, for the hover, where there is more to say. */
   title?: string;
+  /** Why it is not in the cloud, for the card under the word (./where-why.ts). */
+  why?: WhyCard;
 }
 
 export interface StatusFacts extends LiveFacts {
@@ -61,8 +64,16 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
   if (state === 'scheduled') return plain(stateWordOf(item, state), 'sched');
 
   const live = liveLine(item, { ...facts, stalled: false });
+  const away = facts.whyNotCloud ?? null;
+  const why = away ? whyWords(away) : undefined;
+  const titled = (line: string) => (why ? `${why.head}. ${why.body}` : line);
   if (live?.state === 'working') {
-    return { word: shortWord('working'), mark: 'working', agent: true, live: true, cloud: facts.session?.where === 'cloud', title: live.line };
+    const cloud = facts.session?.where === 'cloud';
+    const local = !cloud && away?.at === 'mac';
+    return {
+      word: local ? 'Working locally' : shortWord('working'), mark: 'working', agent: true, live: true, cloud,
+      title: local ? titled(live.line) : live.line, ...(local ? { why } : {}),
+    };
   }
   // "NOTHING RUNNING" IS A CLAIM ABOUT THE WHOLE FLEET, and so is an agent
   // being on it outside this window, which says none of ours is. Both are only
@@ -81,7 +92,9 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
     return { word: shortWord('elsewhere'), mark: 'working', agent: true, live: true, cloud: !!item.claim?.holder?.startsWith('mcp-cloud-'), title: live.line };
   }
   if (live) {
-    return says(shortWord(live.state), WAITING_ITS_TURN.has(live.state) ? 'queued' : 'held', true, live.line);
+    const waiting = WAITING_ITS_TURN.has(live.state) && live.state !== 'shipping' && (away?.at === 'wait-cloud' || away?.at === 'wait-mac');
+    const cell = says(shortWord(live.state), WAITING_ITS_TURN.has(live.state) ? 'queued' : 'held', true, waiting ? titled(live.line) : live.line);
+    return waiting ? { ...cell, why } : cell;
   }
   return plain(stateWordOf(item, state), state === 'waiting' ? 'need' : 'queued');
 }
@@ -109,6 +122,7 @@ export function factsFor(fleet: Fleet, id: string): LiveFacts {
     stalled: !!fleet.stalled?.includes(id),
     silent: fleet.silent?.[id] ?? null,
     paused: !!fleet.paused,
+    whyNotCloud: fleet.whyNotCloud?.[id] ?? null,
   };
 }
 

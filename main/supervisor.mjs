@@ -40,7 +40,7 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, takeCloudNews } from './cloud/marker.mjs';
-import { handsBack } from '../shared/cloud-hand-back.mjs';
+import { handBackWhat, handsBack } from '../shared/cloud-hand-back.mjs';
 import { CLOUD_SENT, readSent } from '../shared/cloud-start.mjs';
 import { readCloudConfig, cloudAccountConfig, OLD_TOKEN_SERVICE, imageCaps } from './cloud/config.mjs';
 import { cloudVersionGaps } from '../shared/cloud-versions.mjs';
@@ -3643,7 +3643,7 @@ export class Supervisor {
       else if (keep === null || keep === false) delete this.threadOnMac[id];
       changed ||= was !== (this.threadOnMac[id] === true);
       // The person's choice either way replaces a move the app made.
-      if (keep !== undefined && id in (this.movedToMac ?? {})) { delete this.movedToMac[id]; changed = true; }
+      if (keep !== undefined && id in (this.movedToMac ?? {})) { delete this.movedToMac[id]; delete this._movedWhy?.[id]; changed = true; }
       const session = this.sessions.get(id);
       if (keep === true && session?.cloud) {
         this._kill(session);
@@ -3663,6 +3663,7 @@ export class Supervisor {
     session.handedBack = true;
     this._handedBack ??= new Set();
     this._handedBack.add(item.id);
+    (this._movedWhy ??= {})[item.id] = { why: 'handed-back', detail: handBackWhat(session.result) };
     this._moveToMac(item.id);
     return true;
   }
@@ -3679,6 +3680,7 @@ export class Supervisor {
   _spendMoveToMac(item, session) {
     if (!item?.id || !(item.id in (this.movedToMac ?? {})) || session?.cloud || session?.exitFailed !== false) return;
     delete this.movedToMac[item.id];
+    delete this._movedWhy?.[item.id];
     this._saveState();
   }
 
@@ -4882,6 +4884,7 @@ export class Supervisor {
     session.handedBack = true;
     this._handedBack ??= new Set();
     this._handedBack.add(item.id);
+    (this._movedWhy ??= {})[item.id] = { why: 'cloud-refused' };
     this._moveToMac(item.id);
     return true;
   }
@@ -5023,6 +5026,47 @@ export class Supervisor {
     if (!localFull && this._localSlotFor(engine)) return 'local';
     if (cloudOk()) return 'cloud';
     return continuation ? 'local' : null;
+  }
+
+  // Read at most every five seconds: the snapshot asks on every request.
+  _cloudSetUp(now = Date.now()) {
+    if (this._cloudSetUpAt === undefined || now - this._cloudSetUpAt > 5_000) {
+      this._cloudSetUpWas = !!readCloudConfig(process.env, this.config.home);
+      this._cloudSetUpAt = now;
+    }
+    return this._cloudSetUpWas;
+  }
+
+  // WHY A THREAD RUNS LOCALLY, for its Status cell's card (renderer/src/where-why.ts):
+  // the first of `_whereToRun`'s reasons that holds, or null with no cloud
+  // here at all. `cwd` is absent for a thread still queued, which has no folder yet.
+  // Asked after a local worker has started, so it never throws.
+  _whyLocal(at) {
+    try { return this._firstReasonHere(at); } catch { return { why: 'other' }; }
+  }
+
+  _firstReasonHere({ item, product, cwd = null, engine, remoteOnly = false }) {
+    if (!this._cloudSetUp()) return null;
+    if (!this._cloudFirst()) return { why: 'started-before' };
+    if (item?.id && this.threadOnMac?.[item.id] === true) return { why: 'kept' };
+    if (item?.id && item.id in (this.movedToMac ?? {})) return this._movedWhy?.[item.id] ?? { why: 'handed-back', detail: null };
+    if (this._mustRunHere(item, engine)) return { why: 'codex-reply' };
+    if (!this._cloudTakesProject(product)) return { why: 'project' };
+    if (cwd !== null && !this._mayRunInCloud(item, product, cwd, { remoteOnly })) return { why: 'folder' };
+    if (!this._cloudSignedInAtAll(engine)) return { why: 'no-account', detail: engineOf(engine) };
+    if (this._cloudResting()) return { why: 'cloud-failing' };
+    const noRoom = this._cloudNoRoomNow();
+    if (noRoom) return { why: 'cloud-no-room', detail: noRoom.error };
+    if (this._cloudVersionGaps().some((g) => g.engine === engineOf(engine) && g.blocks)) return { why: 'version', detail: engineOf(engine) };
+    return { why: 'other' };
+  }
+
+  // Why a thread `_waitsForCloud` has no cloud slot yet, the way `_cloudSlotFor` asks.
+  _whyWaitingForCloud(engine) {
+    if (this._cloudStarting() >= CLOUD_STARTING_AT_ONCE) return { why: 'two-at-a-time' };
+    if (this._cloudLoad() >= this._maxCloud()) return { why: 'cloud-full', detail: this._maxCloud() };
+    if (!this._cloudReady(engine)) return { why: 'accounts-limited' };
+    return { why: 'cloud-busy' };
   }
 
   _cloudRunPath() {
@@ -5944,6 +5988,31 @@ export class Supervisor {
       atLimit = this._waitingOnLimit(allThreads()
         .filter((i) => mayRunHere(i, productBySlug.get(i.product), me)));
     } catch {}
+    // WHY A THREAD IS NOT IN THE CLOUD, while the cloud takes Everything
+    // (w-de59f3ff12): the Status cell says "Working locally" or "Queued" and
+    // its card says why. Under "when this Mac is full" running here is the
+    // rule, so nothing is said.
+    const whyNotCloud = {};
+    try {
+      if (this._cloudFirst() && this._cloudSetUp()) {
+        for (const s of this.sessions.values()) {
+          if (!s.cloud && !s.command && s.whyLocal) whyNotCloud[s.itemId] = { at: 'mac', ...s.whyLocal };
+        }
+        const byId = new Map(allThreads().map((i) => [i.id, i]));
+        const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
+        for (const id of queued) {
+          const item = byId.get(id);
+          if (!item) continue;
+          const engine = this._engineFor(item);
+          if (this._waitsForCloud(item, engine)) {
+            whyNotCloud[id] = { at: 'wait-cloud', ...this._whyWaitingForCloud(engine) };
+            continue;
+          }
+          const why = this._whyLocal({ item, product: productBySlug.get(item.product), engine });
+          if (why && why.why !== 'other') whyNotCloud[id] = { at: 'wait-mac', ...why };
+        }
+      }
+    } catch {}
     // ROWS THE SHIP QUEUE STILL OWES A SHIP (w-0c1ba766eb). Waiting on the
     // app and not on a person, so the window keeps them in In progress until
     // they have shipped or gone back to their agent.
@@ -5961,6 +6030,7 @@ export class Supervisor {
       // above, for the same reason: "Queued" over a Codex task while Codex
       // had no slot until the reset (found by the pre-deploy breaker).
       atLimit,
+      whyNotCloud,
       running: [
         ...this.sessions.values(),
         // A cloud run the app left going, followed home (`_followComingHome`).
@@ -8779,11 +8849,15 @@ export class Supervisor {
 
     const plan = this.spawnPlan(item, product, { continuation, resumeSessionId, engine, shipFailure });
     const { args } = plan;
+    // Why it runs locally, where a branch below says so rather than `_whyLocal`.
+    let whyLocal = null;
     // Waiting its turn for the cloud, unless it runs here anyway: a command, or
     // a Codex resume (below), when there is room (Codex's review, 2026-10-16).
     if (where === 'cloud-wait') {
-      if ((plan.command || (engine === 'codex' && plan.resumeId)) && mayRunHereInstead()) where = 'local';
-      else {
+      if ((plan.command || (engine === 'codex' && plan.resumeId)) && mayRunHereInstead()) {
+        where = 'local';
+        if (!plan.command) whyLocal = { why: 'codex-reply' };
+      } else {
         if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
         return;
       }
@@ -8797,8 +8871,10 @@ export class Supervisor {
     // never been loaded here, so its replies run here and load the rollout
     // that came home. A resume with no room here waits for room here.
     if (where === 'cloud' && engine === 'codex' && plan.resumeId) {
-      if (mayRunHereInstead()) where = 'local';
-      else {
+      if (mayRunHereInstead()) {
+        where = 'local';
+        whyLocal = { why: 'codex-reply' };
+      } else {
         if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
         return;
       }
@@ -8844,8 +8920,10 @@ export class Supervisor {
         console.warn(`zero: the ${engine} account ${profile} cannot sign in in the cloud right now, so its threads run here only`);
       }
       // With Everything, a thread waits for a cloud account to come back rather than load this Mac.
-      if (!(this._cloudFirst() && this._cloudSignedInAtAll(engine)) && mayRunHereInstead()) where = 'local';
-      else {
+      if (!(this._cloudFirst() && this._cloudSignedInAtAll(engine)) && mayRunHereInstead()) {
+        where = 'local';
+        whyLocal = { why: 'no-account', detail: engineOf(engine) };
+      } else {
         this.removeSpawnFiles({ spawnFiles });
         if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
         return;
@@ -8903,6 +8981,7 @@ export class Supervisor {
       // Mac's slots (`_loadFor`), shown on the thread, remembered for a
       // restart (`_liveSessions`).
       cloud: where === 'cloud',
+      whyLocal: where === 'cloud' || plan.command ? null : whyLocal ?? this._whyLocal({ item, product, cwd, engine, remoteOnly }),
     };
     this._noteRunCarrying(item, session, { continuation });
     if (session.cloud) this._rememberCloudStart(item, session, { continuation });

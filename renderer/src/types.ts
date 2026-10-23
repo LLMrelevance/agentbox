@@ -357,6 +357,14 @@ export interface RoomsState {
 
 export type RoomsResult<T = unknown> = { ok: true; value: T; rooms: RoomsState } | { ok: false; error: string; rooms?: RoomsState };
 
+/** Why a thread is not in the cloud: running locally, or waiting for the cloud or for this computer.
+ *  `why` is one of main/supervisor.mjs `_whyLocal`'s or `_whyWaitingForCloud`'s answers. */
+export interface WhyNotCloud {
+  at: 'mac' | 'wait-cloud' | 'wait-mac';
+  why: string;
+  detail?: string | number | null;
+}
+
 export interface RunningSession {
   itemId: string;
   product: string;
@@ -508,6 +516,8 @@ export interface SupervisorStatus {
   queued?: string[];
   // Sessions this app holds open between Remote Control turns, which `running` leaves out.
   remoteHeld?: string[];
+  // With the cloud on Everything, why a thread runs locally or waits (Supervisor#status).
+  whyNotCloud?: Record<string, WhyNotCloud>;
   // Rows nothing can start because their tool is signed out, id -> the tool's
   // name. Said instead of "queued", which would promise an agent that cannot come.
   signInNeeded?: Record<string, string>;
