@@ -40,6 +40,7 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { cloudWorkPending, takeCloudNews } from './cloud/marker.mjs';
+import { CLOSED_UNSHIPPED, closedBeforeItShipped } from '../shared/not-shipped.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
 import { CLOUD_SENT, readSent } from '../shared/cloud-start.mjs';
 import { readCloudConfig, cloudAccountConfig, OLD_TOKEN_SERVICE, imageCaps } from './cloud/config.mjs';
@@ -428,7 +429,9 @@ export class Supervisor {
       // WHEN THE LIVE WORK STARTED, so that a reply to a thread already waiting
       // does not hold its ship for as long as the new session runs. A cloud run
       // that has not come home answers null: nobody can say, and that waits.
-      liveSince: (item) => (this._cloudWorkOutstanding(item) ? null : this.sessions.get(item.id)?.startedAt ?? null),
+      // Not a second import while the thread's own relay is live: two racing
+      // to lay in one run set its work aside as "changed on this Mac".
+      liveSince: (item) => (this._cloudWorkOutstanding(item, { bring: !this.sessions.has(item.id) }) ? null : this.sessions.get(item.id)?.startedAt ?? null),
       handBack: (item, reply) => {
         const fresh = this.store.readItem?.(item.product, item.id) ?? item;
         this.spawnWorker(fresh, { continuation: true, shipFailure: reply });
@@ -2212,6 +2215,17 @@ export class Supervisor {
     })().catch((error) => console.warn('zero: could not put the finished folders away:', error.message));
   }
 
+  // A CLOSED THREAD WHOSE WORK NEVER REACHED MAIN COMES BACK, ONCE
+  // (shared/not-shipped.mjs). The note it comes back with is what stops a
+  // second time, and a close after being asked writes one that ends it.
+  bringBackWhatNeverShipped(items) {
+    for (const item of items ?? []) {
+      if (!closedBeforeItShipped(item)) continue;
+      try { this.store.closedBeforeItShipped?.(item.product, item.id, `${CLOSED_UNSHIPPED}${item.note}`); }
+      catch (e) { console.warn(`zero: could not bring back ${item.id}, closed before it shipped:`, e.message); }
+    }
+  }
+
   /** This product first, then anything else registering the same checkout. */
   _productsSharing(product) {
     let all = [];
@@ -2249,6 +2263,8 @@ export class Supervisor {
         if (item) break;
       }
       if (item && item.status !== 'done') continue;
+      // A closed row still ships (main/ship-queue.mjs), from this folder.
+      if (item && this.shipQueue?.owes(item, this._productsSharing(product))) continue;
       // AND NEVER A ROW SOMEBODY IS STILL HOLDING, which is the rule the bug
       // report asked for: whatever cleans folders up must not remove one whose
       // row is claimed by a live session. The session map above is only
@@ -5090,7 +5106,7 @@ export class Supervisor {
   }
 
   // A FOLDER'S CLOUD WORK IS STILL ON ITS WAY BACK: ask for it, and say so.
-  _cloudWorkOutstanding(item) {
+  _cloudWorkOutstanding(item, { bring = true } = {}) {
     let folder = null;
     try {
       const product = this.store.listProducts().find((p) => p.slug === item.product);
@@ -5098,7 +5114,7 @@ export class Supervisor {
       folder = taskFolderPath(this.productFolder(product), item.id);
     } catch { return false; }
     if (!cloudWorkPending(folder)) return false;
-    this._bringCloudHome(folder);
+    if (bring) this._bringCloudHome(folder);
     return true;
   }
 
@@ -6407,6 +6423,7 @@ export class Supervisor {
     // is exactly when no session exit is coming to do this.
     this.parkOnATimer(now);
     const items = this.store.listItems(now);
+    this.bringBackWhatNeverShipped(items);
     // A task its agent marked ready goes out, one at a time, beside the tick.
     try { this.shipQueue.tick(items, this.store.listProducts()); } catch (e) { console.warn('zero: the ship queue:', e.message); }
 

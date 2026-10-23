@@ -59,6 +59,7 @@ import { spawn } from 'node:child_process';
 import { run } from './exec.mjs';
 import { readMarker, writeMarker, clearMarker, addCloudNews, commonGitDirOf } from './marker.mjs';
 import { Name, nameSlug } from '../../shared/product-name.mjs';
+import { KEPT_ASIDE } from '../../shared/not-shipped.mjs';
 import { codexTranscriptFile } from '../codex-session.mjs';
 import { appendCloudUsage } from './usage.mjs';
 import { docsFolderFor, docsToSend, tarDocs, layDocs } from './docs.mjs';
@@ -550,6 +551,12 @@ export async function cloudRun({
     const st = await retry(() => transport.invoke(earlier.sessionId, { action: 'status', runId: earlier.runId }), { what: 'reach the run the app left going', forever: false });
     if (!st) { say('the cloud could not be reached; the run the app left going is tried again later'); return IMPORT_FAILED; }
     if (st.runId === earlier.runId && (st.state === 'preparing' || st.state === 'running')) { joining = earlier; joinedAt = st; offlineOn = !!earlier.offline; }
+  }
+  // A run whose own relay is alive is that relay's to bring home. Two laying
+  // it in at once each see the other's work as a change made on this Mac.
+  if (importOnly && !joining && earlier?.pid && earlier.pid !== selfPid && alive(earlier.pid)) {
+    say('this cloud run is already being brought home by its own process');
+    return IMPORT_FAILED;
   }
   if (earlier && !joining) {
     // One the app left going that ended while it was away still has its
@@ -1482,7 +1489,7 @@ export async function cloudRun({
       if (await has(ref) && (nothingNew || await gitOk(cwd, ['merge-base', '--is-ancestor', ref, branch]))) await gitOk(cwd, ['update-ref', '-d', ref]);
     }
     if (branch) {
-      const note = `This thread's cloud run finished, but its work was not laid into the task folder: ${why}. Nothing is lost. The folder is as this Mac left it, and the run's version is on the branch ${branch}. Reply to have the agent bring the two together; it will not ship until then.`;
+      const note = `${KEPT_ASIDE}${why}. Nothing is lost. The folder is as this Mac left it, and the run's version is on the branch ${branch}. Reply to have the agent bring the two together; it will not ship until then.`;
       say(note);
       addCloudNews(cwd, { runId: rec.runId, item, product, branch, note });
     }

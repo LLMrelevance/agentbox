@@ -11,6 +11,7 @@
 import { liveLine, shortWord, type LiveFacts } from './live-line';
 import { STATE_WORD, stateWordOf } from './threads/summary-rules';
 import { threadState } from '../../shared/thread-cards.mjs';
+import { notShippedLine } from '../../shared/not-shipped.mjs';
 import type { ThreadStateWord, WorkItem } from './types';
 import type { Fleet } from './fleet';
 
@@ -64,6 +65,9 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
   if (live?.state === 'working') {
     return { word: shortWord('working'), mark: 'working', agent: true, live: true, cloud: facts.session?.where === 'cloud', title: live.line };
   }
+  // Over "Waiting": the agent's last word, written before, says it ships.
+  const unshipped = notShippedLine(item);
+  if (unshipped) return says('Not shipped', 'need', false, unshipped);
   // "NOTHING RUNNING" IS A CLAIM ABOUT THE WHOLE FLEET, and so is an agent
   // being on it outside this window, which says none of ours is. Both are only
   // said where the fleet has really been read: a surface drawn without it (a
