@@ -258,9 +258,20 @@ export interface RoomCard {
   teammate: boolean;
   /** They let teammates see their activity on their page. */
   showActivity: boolean;
+  /** What is waiting, running and done today, off their presence, when they show it to everyone in their rooms; else null. */
+  activity?: RoomActivity[] | null;
+  /** In the room without a card: they have not turned Rooms on. */
+  away?: boolean;
   status: string | null;
   workingOn: string | null;
   workingPrivate: boolean;
+}
+
+export interface RoomActivity {
+  title: string;
+  project: string | null;
+  state: 'waiting' | 'running' | 'done';
+  at: number;
 }
 
 export interface RoomMessage {
@@ -300,6 +311,8 @@ export interface Room {
   lastAt: number;
   agents: number;
   wall: RoomCard[];
+  /** Everyone in the room by name, invisible or not on Rooms yet; null on a cloud that cannot say, where the wall names them. */
+  people?: { id: string; name: string; avatarUrl: string | null }[] | null;
 }
 
 export interface RoomProfile {
@@ -493,6 +506,8 @@ export interface SupervisorStatus {
   // Items a tick will spawn as soon as a slot frees: waiting their turn, not
   // forgotten. The row says "queued" so the two are never confused.
   queued?: string[];
+  // Sessions this app holds open between Remote Control turns, which `running` leaves out.
+  remoteHeld?: string[];
   // Rows nothing can start because their tool is signed out, id -> the tool's
   // name. Said instead of "queued", which would promise an agent that cannot come.
   signInNeeded?: Record<string, string>;
@@ -1066,6 +1081,8 @@ export interface WorkspaceSettings {
    *  See main/codex-models.mjs. */
   codexModels?: Array<{ id: string; label: string; levels?: string[]; defaultLevel?: string | null }>;
   codexModelDefault?: string | null;
+  /** Set when every Codex login offered is on ChatGPT's free plan; `endedAt` is when the latest paid plan ended. */
+  codexFreePlan?: { endedAt: number | null } | null;
   /**
    * What CLAUDE CODE calls its models on THIS Mac, read off the installed
    * binary rather than off the table committed when Agentbox was built, so a
@@ -1367,7 +1384,8 @@ declare global {
       pathForFile(file: File): string | null;
       /** Pasted bytes to disk, so the draft carries a path. */
       // Bytes for a paste, a path for a drag. One or the other, never neither.
-      stageAttachment(p: { name: string; dataBase64?: string; srcPath?: string }): Promise<{ path: string }>;
+      // `name` comes back when a TIFF or HEIC was turned into a PNG or JPEG.
+      stageAttachment(p: { name: string; dataBase64?: string; srcPath?: string }): Promise<{ path: string; name?: string }>;
       onChanged(fn: () => void): () => void;
       approve?(p: { id: string; allow: boolean; note?: string }): Promise<{ ok: boolean }>;
       // Fired for the button AND for the Cmd+Y/Cmd+N chord that main catches

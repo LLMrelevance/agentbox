@@ -286,7 +286,7 @@ export function bylineFacts(
 /** The fact beside the state word, when there is one it does not already say. */
 function besideTheState(f: BylineFacts): string | null {
   if (f.state === 'working') return f.stateWord && f.stateWord !== 'Working' ? f.stateWord.replace(/ Working$/, '') : null;
-  if (f.state === 'idle') return null;
+  if (f.state === 'idle' || f.state === 'elsewhere') return null;
   return f.stateWord;
 }
 

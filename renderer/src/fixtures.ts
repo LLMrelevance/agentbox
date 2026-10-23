@@ -846,7 +846,7 @@ export const fixtureSettings = {
     agentsRunning: true,
     sessionsAtOnce: 3,
     memoryGate: { on: false, slots: null, slotsAuto: 2, slotsMax: 12, now: null },
-    leftovers: { on: false, now: 'Right now finished agents have left 40 programs running; turning this on stops them, two hours from then.' },
+    leftovers: { on: false, now: 'Right now finished agents have left 40 programs running; turning this on stops them when you close their tasks.' },
     // COPIES OF A PROJECT NOBODY'S TASK OWNS (main/settings.mjs,
     // `strayFolderSettings`). A fixture because the row is absent whenever there
     // are none, which is most of the time and all of a fresh install: without

@@ -31,8 +31,8 @@ import { NAME, Name } from '../shared/product-name.mjs';
 import { autoSlots } from './memory-gate.mjs';
 import { accountIdentity, claudeLoginCommand, duplicateAccountNote, linkAccountTooling, makeClaudeHome } from './account-tooling.mjs';
 import { isEngine } from '../shared/engines.mjs';
-import { codexAccount, codexLoginCommand, makeCodexHome } from './codex-account.mjs';
-import { codexDefaultModel, codexModels } from './codex-models.mjs';
+import { codexAccount, codexFreePlan, codexLoginCommand, makeCodexHome } from './codex-account.mjs';
+import { codexDefaultModel, codexModelsAcross } from './codex-models.mjs';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
 import { CLOUD_SAME, CLOUD_CLAUDE_DEFAULT, CLOUD_CODEX_DEFAULT } from './cloud-permission.mjs';
 import { claudeModels } from './claude-models.mjs';
@@ -773,6 +773,7 @@ function engineSettings(supervisor, config) {
     return { engine, engineChoices: choices, codex, codexModels: [], codexModelDefault: null, codexModel: null };
   }
   const home = supervisor._codexHome();
+  const offered = supervisor._codexOfferHomes();
   return {
     engine,
     engineChoices: choices,
@@ -781,9 +782,12 @@ function engineSettings(supervisor, config) {
     // strip in the model drawer draws the picked model's list, so they travel
     // beside the name rather than as a list of their own that could disagree
     // with it.
-    codexModels: codexModels({ home }).map((m) => ({
+    codexModels: codexModelsAcross(offered).map((m) => ({
       id: m.id, label: m.label, levels: m.levels.map((l) => l.id), defaultLevel: m.defaultLevel,
     })),
+    // Set when every login offered is on ChatGPT's free plan, so the menu can
+    // say why Codex lists so few models.
+    codexFreePlan: codexFreePlan(offered),
     // What her own `codex` in a terminal runs, so the card's word and her
     // terminal cannot disagree. Null is a real answer and the card says
     // "Codex's own" for it rather than guessing (renderer/src/models.ts).
@@ -1056,22 +1060,26 @@ export function leftoverSettings({ config, supervisor }) {
   // Codex, 2026-10-05).
   if (!on) {
     if (total && stoppable) {
-      now = `Right now finished agents have left ${total} program${total === 1 ? '' : 's'} running; turning this on stops ${stoppable === total ? (total === 1 ? 'it' : 'them') : `${stoppable} of them`}, two hours from then.`;
+      now = `Right now finished agents have left ${total} program${total === 1 ? '' : 's'} running; turning this on stops ${stoppable === total ? (total === 1 ? 'it' : 'them') : `${stoppable} of them`} when you close their tasks.`;
     }
     return { on, now };
   }
   {
     if (!total) now = 'Nothing left running by finished agents.';
     else {
-      const next = list.filter((l) => l.programs && l.stopsAt).map((l) => l.stopsAt).sort((a, b) => a - b)[0];
+      const timed = list.filter((l) => l.programs && l.stopsAt);
+      const next = timed.map((l) => l.stopsAt).sort((a, b) => a - b)[0];
+      const soon = timed.reduce((n, l) => n + l.programs, 0);
+      const open = stoppable - soon;
       const when = (ms) => {
         const m = Math.max(1, Math.round((ms - Date.now()) / 60_000));
         return m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} m` : ''}` : `${m} m`;
       };
-      now = `Finished agents have left ${total} program${total === 1 ? '' : 's'} running.`;
-      if (stoppable) now += ` ${stoppable} ${next && next > Date.now() ? `stop in ${when(next)}` : 'are stopping'}`;
-      if (kept) now += `${stoppable ? ';' : ''} ${kept} ${kept === 1 ? 'is' : 'are'} kept`;
-      now += '.';
+      const parts = [];
+      if (soon) parts.push(`${soon} ${next > Date.now() ? `stop${soon === 1 ? 's' : ''} in ${when(next)}` : `${soon === 1 ? 'is' : 'are'} stopping`}`);
+      if (open) parts.push(`${open} stop${open === 1 ? 's' : ''} when you close ${open === 1 ? 'its task' : 'their tasks'}`);
+      if (kept) parts.push(`${kept} ${kept === 1 ? 'is' : 'are'} kept`);
+      now = `Finished agents have left ${total} program${total === 1 ? '' : 's'} running. ${parts.join('; ')}.`;
       const survivors = s?.survivors?.length ?? 0;
       if (survivors) now += ` ${survivors} did not stop when asked.`;
     }
@@ -1252,7 +1260,8 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
     case 'adhdMode':
       saveConfig(config, { adhdMode: !!value });
       break;
-    // Neo reads its switch once, at start; Rooms is read on every snapshot.
+    // Neo starts only if its switch was on at launch, and stops waking the
+    // moment it goes off; Rooms is read on every snapshot.
     case 'alphaNeo':
       saveConfig(config, { alphaNeo: !!value });
       break;

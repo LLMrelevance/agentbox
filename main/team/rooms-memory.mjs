@@ -14,8 +14,8 @@ const ATTACHMENT = /\]\(attachments\/([A-Za-z0-9][A-Za-z0-9_.-]{0,159})\)/g;
 // an emoji is one character, not the two halves JavaScript's length sees.
 const fitsAMessage = (text) => { const n = [...String(text).trim()].length; return n >= 1 && n <= 4000; };
 
-const PROFILE_DEFAULTS = { display_name: '', avatar_url: null, headline: null, bio: null, show_working: 'team', show_agents: true, show_level: true, show_status: true, show_activity: true, invisible_until: null, status_text: null, status_until: null };
-const PRESENCE_DEFAULTS = { gone: false, agents_running: 0, working_on: null, working_private: false, working_at: null, hours_total: 0, hours_week: 0, week_start: null, hours_today: 0, day: null, streak_days: 0, active_days: [], hours_by_month: [] };
+const PROFILE_DEFAULTS = { display_name: '', avatar_url: null, headline: null, bio: null, show_working: 'everyone', show_agents: true, show_level: true, show_status: true, show_activity: true, invisible_until: null, status_text: null, status_until: null };
+const PRESENCE_DEFAULTS = { gone: false, agents_running: 0, working_on: null, working_private: false, working_at: null, hours_total: 0, hours_week: 0, week_start: null, hours_today: 0, day: null, streak_days: 0, active_days: [], hours_by_month: [], activity: [] };
 
 function state(cloud) {
   cloud.rooms ??= new Map();
@@ -142,6 +142,16 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
       return inRoom(r) ? [...peopleOf(r)] : [];
     },
 
+    async roomNames(r) {
+      if (!inRoom(r)) return [];
+      const s = state(cloud);
+      return [...peopleOf(r)].map((p) => {
+        const card = s.roomProfiles.get(p);
+        const person = cloud.people?.get(p);
+        return { person_id: p, name: card?.display_name || person?.name || '', avatar_url: card?.avatar_url ?? person?.avatarUrl ?? null, has_card: !!card };
+      });
+    },
+
     async roomProfiles(ids) {
       const s = state(cloud);
       return (ids ?? []).map((p) => s.roomProfiles.get(p))
@@ -179,6 +189,7 @@ export function roomsMemory(cloud, personId, { confirmedEmail, refuse }) {
       const row = { ...PRESENCE_DEFAULTS, ...(s.roomPresence.get(key) ?? {}), ...pick(fields, PRESENCE_FIELDS), person_id: personId, device, updated_at: iso(now()) };
       if (row.working_on != null && String(row.working_on).length > 64) refuse('a thread name that long');
       if ((row.active_days ?? []).length > 60) refuse('that many days');
+      if (!Array.isArray(row.activity) || row.activity.length > 36) refuse('that much activity');
       s.roomPresence.set(key, row);
       emit({ kind: 'presence' });
     },

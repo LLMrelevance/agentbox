@@ -54,6 +54,7 @@ import crypto from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { spawn } from 'node:child_process';
 import { run } from './exec.mjs';
 import { readMarker, writeMarker, clearMarker, addCloudNews, commonGitDirOf } from './marker.mjs';
@@ -64,6 +65,7 @@ import { docsFolderFor, docsToSend, tarDocs, layDocs } from './docs.mjs';
 import { troubleCause, limitResetMoment } from '../../shared/spawn-trouble.mjs';
 import { HAND_BACK } from '../../shared/cloud-hand-back.mjs';
 import { sentLine } from '../../shared/cloud-start.mjs';
+import { referencedFiles } from '../../shared/referenced-files.mjs';
 import { serveApprovals } from '../approval-prompt-core.mjs';
 import { cacheKey, folderKey, sendOnce, pickBase, bundlePast, refsAt, sendConversation, sentRecordPath } from './reuse.mjs';
 
@@ -180,6 +182,104 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // same rule.
 export function transcriptFolderName(cwd) { return cwd.replace(/[^a-zA-Z0-9]/g, '-'); }
 
+// What the cloud sends home of a conversation it was given: only what the run
+// added, listed in this file (the same name in cloud/sandbox/server.mjs).
+const TAILS = '.agentbox-tails.json';
+
+/**
+ * Each tail the cloud sent into `dir`, added to the file it continues. A file
+ * that still starts as it was sent becomes the cloud's copy exactly, as when
+ * the whole file came home; one that changed here keeps its start and gains
+ * the run's lines after it, once: an import that is tried again untars the
+ * same tail, and a changed file that already ends with it is left alone. A
+ * file gone from here starts again from the copy this Mac sent (`sentCopy`);
+ * without that copy the tail stays beside it rather than pose as the whole.
+ */
+export async function layTails(dir, say = () => {}, { sentCopy = async () => false } = {}) {
+  const list = path.join(dir, TAILS);
+  let tails;
+  try { tails = JSON.parse(fs.readFileSync(list, 'utf8')); } catch { return; }
+  for (const t of Array.isArray(tails) ? tails : []) {
+    const tail = plainFileIn(dir, t?.tail);
+    if (!tail) continue;
+    const file = plainFileIn(dir, t.file, { mayBeMissing: true });
+    if (file && Number.isSafeInteger(t.from) && t.from >= 0 && typeof t.sha256 === 'string' && await layTail(file, tail, t, say, sentCopy) === 'kept') continue;
+    fs.rmSync(tail, { force: true });
+  }
+  fs.rmSync(list, { force: true });
+}
+
+async function layTail(file, tail, t, say, sentCopy) {
+  const adds = fs.statSync(tail).size;
+  const size = fs.statSync(file, { throwIfNoEntry: false })?.size ?? -1;
+  const name = path.basename(file);
+  // Replaced in one rename, so a laying cut off part way leaves the old file.
+  const next = `${file}.agentbox-laying`;
+  try {
+    if (size >= t.from && await sha256OfStart(file, t.from) === t.sha256) {
+      fs.copyFileSync(file, next, fs.constants.COPYFILE_FICLONE);
+      fs.truncateSync(next, t.from);
+    } else if (size < 0) {
+      const back = await sentCopy(t, next).catch(() => false) && fs.statSync(next).size === t.from && await sha256OfStart(next, t.from) === t.sha256;
+      if (!back) {
+        say(`${name} was gone from this Mac while its run was in the cloud; the run's new lines are kept beside it in ${path.basename(tail)}`);
+        return 'kept';
+      }
+      say(`${name} was gone from this Mac while its run was in the cloud; it is laid again from the copy sent with the run`);
+    } else if (size >= adds && await endsWith(file, size, tail, adds)) {
+      return;
+    } else {
+      fs.copyFileSync(file, next, fs.constants.COPYFILE_FICLONE);
+      say(`${name} changed on this Mac while its run was in the cloud; the run's new lines are added after it`);
+    }
+    await pipeline(fs.createReadStream(tail), fs.createWriteStream(next, { flags: 'a' }));
+    fs.renameSync(next, file);
+  } finally {
+    fs.rmSync(next, { force: true });
+  }
+}
+
+// `rel` inside `dir` as a plain file, reached through no link; or, when it may
+// be missing, where one would go.
+function plainFileIn(dir, rel, { mayBeMissing = false } = {}) {
+  if (typeof rel !== 'string' || !rel) return null;
+  const p = path.resolve(dir, rel);
+  try {
+    const parent = fs.realpathSync(path.dirname(p));
+    const inside = path.relative(fs.realpathSync(dir), path.join(parent, path.basename(p)));
+    if (!inside || inside === '..' || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) return null;
+    const st = fs.lstatSync(p, { throwIfNoEntry: false });
+    if (!st) return mayBeMissing ? p : null;
+    return st.isFile() ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+async function sha256OfStart(file, bytes) {
+  const h = crypto.createHash('sha256');
+  if (bytes > 0) for await (const chunk of fs.createReadStream(file, { start: 0, end: bytes - 1 })) h.update(chunk);
+  return h.digest('hex');
+}
+
+async function endsWith(file, size, tail, bytes) {
+  const [a, b] = await Promise.all([fs.promises.open(file, 'r'), fs.promises.open(tail, 'r')]);
+  try {
+    const x = Buffer.alloc(Math.min(4 * 1024 * 1024, bytes));
+    const y = Buffer.alloc(x.length);
+    for (let at = 0; at < bytes; at += x.length) {
+      const n = Math.min(x.length, bytes - at);
+      await a.read(x, 0, n, size - bytes + at);
+      await b.read(y, 0, n, at);
+      if (!x.subarray(0, n).equals(y.subarray(0, n))) return false;
+    }
+    return true;
+  } finally {
+    await a.close();
+    await b.close();
+  }
+}
+
 // THE PROJECT'S SAVED MEMORIES on this Mac, for a task folder that is a
 // linked worktree: Claude Code keeps them under the main checkout's folder
 // name. In the cloud the task folder is a repository of its own, so Claude
@@ -286,22 +386,49 @@ const inside = (p, root) => p === root || p.startsWith(root + path.sep);
 // and a link inside the root pointing out of it are both refused.
 // With no `cwd` (a run whose folder is the documents folder, which travels only
 // in part), a file inside it is sent like any other.
-export function filesNamedIn(text, { cwd, roots }) {
+//
+// Given `docs`, a picture named only by its short link, `![…](attachments/x.png)`,
+// is sent too: the documents folder travels without its attachments (./docs.mjs),
+// and the app writes every pasted picture there.
+export function filesNamedIn(text, { cwd, roots, docs = null }) {
   const realRoots = roots.map(realOrNull).filter(Boolean);
   const realCwd = cwd ? realOrNull(cwd) || cwd : null;
   const found = new Set();
-  for (const m of String(text || '').matchAll(/(\/(?:[^\s"'`<>()\[\]{},;\\]|\\ )+)/g)) {
-    const named = m[1].replace(/[.:]+$/, '');
+  const take = (named) => {
     const real = realOrNull(named);
-    if (!real) continue;
-    if (realCwd && inside(real, realCwd)) continue;
-    if (!realRoots.some((r) => inside(real, r))) continue;
+    if (!real) return;
+    if (realCwd && inside(real, realCwd)) return;
+    if (!realRoots.some((r) => inside(real, r))) return;
     try {
       const st = fs.statSync(real);
       if (st.isFile() && st.size <= MAX_ATTACHMENT) found.add(named);
     } catch { /* not a file */ }
+  };
+  for (const m of String(text || '').matchAll(/(\/(?:[^\s"'`<>()\[\]{},;\\]|\\ )+)/g)) take(m[1].replace(/[.:]+$/, ''));
+  const pasted = docs && path.isAbsolute(docs) ? realOrNull(path.join(docs, 'attachments')) : null;
+  if (pasted) {
+    for (const rel of referencedFiles(...stringsIn(text), { dir: docs })) {
+      if (!rel.startsWith('attachments/')) continue;
+      const named = path.join(docs, rel);
+      const real = realOrNull(named);
+      if (real && inside(real, pasted)) take(named);
+    }
   }
   return [...found];
+}
+
+// The strings of a stream-json line, unescaped: in the raw line a path after a
+// line break reads as `\nattachments/…`.
+function stringsIn(text) {
+  let msg;
+  try { msg = JSON.parse(text); } catch { return [String(text || '')]; }
+  const out = [];
+  const walk = (v) => {
+    if (typeof v === 'string') out.push(v);
+    else if (v && typeof v === 'object') for (const x of Object.values(v)) walk(x);
+  };
+  walk(msg);
+  return out;
 }
 
 // COPYFILE_DISABLE: a Mac's tar can add a `._name` beside a file with
@@ -415,6 +542,8 @@ export async function cloudRun({
   if (!joining && (!login || login.engine !== engine)) { say(`this ${engine === 'codex' ? 'Codex' : 'Claude'} account has not signed in for the cloud`); return LOGIN_TROUBLE; }
 
   let runId; let sessionId; let marker; let docs; let sentFiles; let sendFile;
+  // Files that are a conversation, sent joined to the copy the bucket has.
+  const conversations = new Set();
   let mcpConfig = { mcpServers: {} };
   let serverEnv = env;
   let startCursor = 0; let startN = 0; let stdinClosed = false; let startConns = {};
@@ -442,10 +571,11 @@ export async function cloudRun({
     while ((i = stdinBuf.indexOf('\n')) >= 0) {
       let line = stdinBuf.slice(0, i + 1);
       stdinBuf = stdinBuf.slice(i + 1);
-      const named = filesNamedIn(line, { cwd: plain ? null : cwd, roots });
+      const named = filesNamedIn(line, { cwd: plain ? null : cwd, roots, docs: env.AGENTBOX_DOCS });
       if (codex) {
         const c = codexLineForTheCloud(line, { stubPath, codexHome, keep: mcpConfig.mcpServers });
         line = c.line;
+        if (c.conversation) conversations.add(c.conversation);
         named.push(...c.files.filter((f) => !named.includes(f)));
       }
       if (named.length) enqueue({ action: 'files', paths: named });
@@ -541,6 +671,10 @@ export async function cloudRun({
   const sending = [];
   let fileCount = 0;
   sendFile = async (localPath, remotePath = localPath, body = null, untar = null) => {
+    if (!body && conversations.has(localPath)) {
+      const { key: k } = await sendConversation(storage, localPath, { record: sentRecordPath(here) });
+      return { path: remotePath, url: await storage.getUrl(k) };
+    }
     fileCount += 1;
     const k = key(`files/${fileCount}`);
     await storage.put(k, body ?? fs.readFileSync(localPath));
@@ -563,10 +697,7 @@ export async function cloudRun({
   if (resumeId) {
     const t = path.join(projectsDir, `${resumeId}.jsonl`);
     if (!fs.existsSync(t)) say(`no transcript for ${resumeId} on this Mac; the cloud run starts without it`);
-    else {
-      sending.push(sendConversation(storage, t, { record: sentRecordPath(here) })
-        .then(async ({ key: k }) => ({ path: t, url: await storage.getUrl(k) })));
-    }
+    else { conversations.add(t); sending.push(sendFile(t)); }
   }
   // Her saved memories for this project, where Claude Code in the cloud looks.
   const saved = codex ? null : plain ? folderWithFiles(path.join(projectsDir, 'memory')) : memoryFolderFor(cwd, configDir);
@@ -650,6 +781,9 @@ export async function cloudRun({
     ...(home.length ? { homeFiles: home } : {}),
     login: { engine: login.engine, id: login.id, url: loginUrl },
     results,
+    // A conversation comes home as only what the run added (`layTails`). An
+    // image that does not know this ignores it and sends it whole.
+    tails: true,
     // The run carries on while this Mac sleeps: a tool call is told it could
     // not reach the app, and a Claude Code turn that has ended has its input
     // closed there. A Codex turn ends only with the Mac, as before.
@@ -1268,9 +1402,15 @@ export async function cloudRun({
   }
 
   async function layConversations(conversations) {
+    // The conversation as this Mac sent it, for one gone from here.
+    const sentCopy = async (t, into) => {
+      const had = JSON.parse(fs.readFileSync(sentRecordPath(here), 'utf8'));
+      return had?.sha === t.sha256 && had.size === t.from && fetchToFile(storage, had.key, into);
+    };
     for (const c of conversations) {
       fs.mkdirSync(c.dir, { recursive: true });
       await run('tar', ['-xzf', c.file, '-C', c.dir]);
+      await layTails(c.dir, say, { sentCopy });
     }
   }
 
@@ -1349,7 +1489,8 @@ export async function cloudRun({
 // command (the store; her own come switched off, `{ enabled: false }`, and
 // pass untouched) is swapped for the sandbox's stub, and the original is kept
 // in `keep` to run here when the stub calls. A `thread/resume` also names the
-// one file Codex will need to find that thread: its rollout, sent up first.
+// one file Codex will need to find that thread: its rollout, sent up first
+// (`conversation`, sent as a Claude Code transcript is).
 // Any other line, or one that is not JSON, passes exactly as it came.
 export function codexLineForTheCloud(line, { stubPath = STUB, codexHome, keep, findRollout = codexTranscriptFile }) {
   let msg;
@@ -1385,11 +1526,12 @@ export function codexLineForTheCloud(line, { stubPath = STUB, codexHome, keep, f
   // task's folder and a Codex sign-in that cannot renew, and is thrown away
   // after the run. A read-only run stays read-only; approvals are untouched.
   if (msg.params && msg.params.sandbox === 'workspace-write') msg.params.sandbox = 'danger-full-access';
+  let conversation = null;
   if (msg.method === 'thread/resume' && msg.params?.threadId) {
-    const rollout = findRollout(msg.params.threadId, { home: codexHome });
-    if (rollout) files.push(rollout);
+    conversation = findRollout(msg.params.threadId, { home: codexHome });
+    if (conversation) files.push(conversation);
   }
-  return { line: JSON.stringify(msg) + (line.endsWith('\n') ? '\n' : ''), files };
+  return { line: JSON.stringify(msg) + (line.endsWith('\n') ? '\n' : ''), files, ...(conversation ? { conversation } : {}) };
 }
 
 // THE PART OF HER CODEX CONFIG A CLOUD RUN TAKES: the top-level model, effort

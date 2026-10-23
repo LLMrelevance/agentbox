@@ -14,7 +14,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { recordCloudLogin } from '../main/cloud/logins.mjs';
 import { Supervisor } from '../main/supervisor.mjs';
-import { PlaceTiles, cloudPlaceAccounts } from '../renderer/src/components/Settings';
+import { PlaceTiles, accountTile } from '../renderer/src/components/Settings';
+import { accountsOnce } from '../renderer/src/accounts-once.ts';
 
 let home;
 beforeEach(() => { home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-plan-'))); });
@@ -31,8 +32,9 @@ describe('a Claude login in the cloud', () => {
     recordCloudLogin('claude', 'acct-1', { id: 'id-1', org: 'org-w', limits: [{ span: 'session', percent: 49, resetsAt: null }] }, { home });
     const [one] = supervisor(['default'])._cloudAccounts();
     expect(one).toMatchObject({ name: 'work@example.test', plan: 'Max 20x' });
-    const tiles = cloudPlaceAccounts({ mode: 'all', accounts: [one] }, 'claude', Date.now());
-    expect(renderToStaticMarkup(React.createElement(PlaceTiles, { accounts: tiles }))).toContain('<span class="acct-tile-plan">Max 20x</span>');
+    // Drawn as an account signed in only there, so the plan can only have come from the cloud's login.
+    const tiles = accountsOnce({ here: [], cloud: [one] }).map((a) => accountTile(a, { picked: false, many: false, now: Date.now(), onUse: () => {}, cloud: true }));
+    expect(renderToStaticMarkup(React.createElement(PlaceTiles, { accounts: tiles }))).toContain('<div class="acct-tile-about"><span>Max 20x</span><span class="acct-place">');
   });
 
   it('each login takes its own folder’s plan', () => {
@@ -50,7 +52,7 @@ describe('a Claude login in the cloud', () => {
     recordCloudLogin('claude', 'acct-1', { id: 'id-1', org: 'org-elsewhere' }, { home });
     const [one] = supervisor(['default'])._cloudAccounts();
     expect(one.plan).toBeNull();
-    const tiles = cloudPlaceAccounts({ mode: 'all', accounts: [one] }, 'claude', Date.now());
-    expect(renderToStaticMarkup(React.createElement(PlaceTiles, { accounts: tiles }))).not.toContain('acct-tile-plan');
+    const tiles = accountsOnce({ here: [], cloud: [one] }).map((a) => accountTile(a, { picked: false, many: false, now: Date.now(), onUse: () => {}, cloud: true }));
+    expect(renderToStaticMarkup(React.createElement(PlaceTiles, { accounts: tiles }))).toContain('<div class="acct-tile-about"><span class="acct-place">');
   });
 });

@@ -46,9 +46,6 @@ export interface StatusFacts extends LiveFacts {
 // they wear different marks.
 const WAITING_ITS_TURN = new Set(['queued', 'next', 'shipping']);
 
-/** A worker holds the thread's claim and it is not one of this window's runs. */
-const heldElsewhere = (item: WorkItem) => item.status === 'claimed' && !!item.claim && !item.claimExpired;
-
 export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell {
   const now = facts.now ?? Date.now();
   const state = facts.state ?? (threadState(item, now) as ThreadStateWord);
@@ -67,14 +64,21 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
   if (live?.state === 'working') {
     return { word: shortWord('working'), mark: 'working', agent: true, live: true, cloud: facts.session?.where === 'cloud', title: live.line };
   }
-  // "NOTHING RUNNING" IS A CLAIM ABOUT THE WHOLE FLEET, so it is only said
-  // where the fleet has really been read: a surface drawn without it (a card
-  // in a test, a thread opened before the first snapshot) knows nothing, and a
-  // row saying nothing is happening on the strength of knowing nothing is the
-  // confident wrong sentence this vocabulary exists to prevent. A claim
-  // somebody else holds is the same: the worker on it is not ours to see.
-  if (live?.state === 'idle' && (!Array.isArray(facts.queued) || heldElsewhere(item))) {
+  // "NOTHING RUNNING" IS A CLAIM ABOUT THE WHOLE FLEET, and so is an agent
+  // being on it outside this window, which says none of ours is. Both are only
+  // said where the fleet has really been read: a surface drawn without it (a
+  // card in a test, a thread opened before the first snapshot) knows nothing,
+  // and a row saying nothing is happening on the strength of knowing nothing is
+  // the confident wrong sentence this vocabulary exists to prevent. Nothing
+  // running over our own session, open between Remote Control turns, is wrong
+  // the same way.
+  const fleetUnread = !Array.isArray(facts.queued);
+  if ((live?.state === 'idle' && (fleetUnread || facts.remoteHeld)) || (live?.state === 'elsewhere' && fleetUnread)) {
     return plain(stateWordOf(item, state), 'queued');
+  }
+  // Drawn as one of ours is: the cloud when a cloud run holds it, the half-dot otherwise.
+  if (live?.state === 'elsewhere') {
+    return { word: shortWord('elsewhere'), mark: 'working', agent: true, live: true, cloud: !!item.claim?.holder?.startsWith('mcp-cloud-'), title: live.line };
   }
   if (live) {
     return says(shortWord(live.state), WAITING_ITS_TURN.has(live.state) ? 'queued' : 'held', true, live.line);
@@ -97,6 +101,7 @@ export function factsFor(fleet: Fleet, id: string): LiveFacts {
   return {
     session: fleet.sessions?.get(id) ?? null,
     queued: fleet.queued,
+    remoteHeld: !!fleet.remoteHeld?.includes(id),
     runNow: fleet.runNow,
     signInNeeded: fleet.signInNeeded,
     atLimit: fleet.atLimit,

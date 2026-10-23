@@ -21,7 +21,8 @@ import { createEngineSetup } from './engine-setup.mjs';
 // process can hand over its own, and the same 78 channels then answer a
 // browser over http without one line of this file being written twice.
 import {terminalSenderAllowed} from './terminal-access.mjs';
-import {TaskTerminals,terminalPlace} from './task-terminals.mjs';
+import {TaskTerminals,terminalPlace,terminalEnv} from './task-terminals.mjs';
+import {TerminalHosts,taskClosed} from './terminal-hosts.mjs';
 import {SETTINGS_TERMINAL} from '../shared/settings-terminal.mjs';
 import {AgentUpdates,installedAgent} from './agent-updates.mjs';
 import {refreshAgentModels} from './refresh-agent-models.mjs';
@@ -66,6 +67,7 @@ import { EVENT_NAMES } from '../shared/analytics-events.mjs';
 import { Name } from '../shared/product-name.mjs';
 import { handedOnByReply } from '../shared/team-rules.mjs';
 import { saveAttachments } from './save-attachments.mjs';
+import { stageAttachment } from './stage-attachment.mjs';
 
 // WHAT A WORKER IS TOLD WHEN HER DECISION COULD NOT BE RECORDED.
 const SPOOL_REFUSED = `${Name} could not record the founder's decision, so nothing was allowed. Finish what your grants cover and file the rest as a review.`;
@@ -363,12 +365,25 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     if(product===SETTINGS_TERMINAL.product&&id===SETTINGS_TERMINAL.id){
       return pendingLogin ?? config.home ?? os.homedir();
     }
+    return taskPlace(product,id);
+  }});
+  const taskPlace=(product,id)=>{
     const agent=id.startsWith('agent:')?liveAgents().find(a=>'agent:'+a.pid===id && (a.product??'')===product):null;
     return terminalPlace({store,supervisor,product,id,agent});
-  }});
+  };
+  /*
+   * A TASK'S TERMINAL LIVES AS LONG AS THE TASK IS OPEN, in a process that
+     outlives the app (main/terminal-host.mjs). The sign-in terminal on
+     Settings belongs to no task and stays in the app. */
+  const taskTerminals=new TerminalHosts({local:terminals,logFile:path.join(supervisor.userDir,'terminal-host.log'),log:line=>console.warn(`zero: ${line}`)});
+  // A task's folder is not deleted while its terminal is open (supervisor.mjs, `_folderInUse`).
+  supervisor.terminalOpen=itemId=>taskTerminals.hasTerminal(itemId);
+  const lookAtTerminals=()=>taskTerminals.endClosed(taskClosed(store)).catch(e=>console.warn('zero: terminals:',e.message));
+  void taskTerminals.ready().then(lookAtTerminals);
+  setInterval(lookAtTerminals,60_000).unref?.();
   const agentUpdates=new AgentUpdates({
     installation:async engine=>{if(engine==='claude')recheckClaude(config);else recheckCodex(config);return installedAgent(engine,config);},
-    refresh:async engine=>{if(engine==='claude')recheckClaude(config);else recheckCodex(config);await refreshAgentModels(engine,config,supervisor._codexHome());if(engine==='codex')for(const profile of supervisor._codexProfiles())supervisor._releaseIdleCodex(profile);},
+    refresh:async engine=>{if(engine==='claude')recheckClaude(config);else recheckCodex(config);await refreshAgentModels(engine,config,supervisor._codexOfferHomes());if(engine==='codex')for(const profile of supervisor._codexProfiles())supervisor._releaseIdleCodex(profile);},
   });
   ipcMain.handle('zero:agent-update',async(event,{engine,action}={})=>{
     if(event.senderFrame?.parent||(event.sender&&event.sender!==window.webContents))throw Error('Updates are only available in the main app window.');
@@ -377,7 +392,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     if(action==='recheck')return agentUpdates.check(engine,true);
     if(action==='start')return agentUpdates.start(engine);
     if(action==='status')return agentUpdates.status(engine);
-    if(action==='refresh'){await refreshAgentModels(engine,config,supervisor._codexHome());return true;}
+    if(action==='refresh'){await refreshAgentModels(engine,config,supervisor._codexOfferHomes());return true;}
     throw Error('Unknown update action.');
   });
   let terminalQuitPending=false,terminalQuitReady=false;
@@ -386,18 +401,26 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     event.preventDefault();
     if(!terminalQuitPending){terminalQuitPending=true;void Promise.all([terminals.shutdown(),agentUpdates.shutdown()]).finally(()=>{terminalQuitReady=true;app.quit();});}
   });
-  ipcMain.handle('zero:terminal',(_event,payload={})=>{
+  ipcMain.handle('zero:terminal',async(_event,payload={})=>{
     if(_event.senderFrame?.parent || (_event.sender && _event.sender!==window.webContents)) throw Error('Terminal is only available in the main app window.');
     const {product,id,action,data,cols,rows,offset,wait}=payload;
     if(typeof product!=='string'||typeof id!=='string'||!id||id.length>300)throw Error('Invalid task.');
     const key=JSON.stringify({product,id});
     if(product==='@agent-update')return agentUpdates.terminal(id,payload);
-    switch(action){
+    if(product===SETTINGS_TERMINAL.product&&id===SETTINGS_TERMINAL.id)switch(action){
       case 'open':return terminals.open(key);
       case 'read':return terminals.read(key,offset,wait);
       case 'write':terminals.write(key,data);return true;
       case 'resize':terminals.resize(key,cols,rows);return true;
       case 'close':terminals.close(key);return true;
+      default:throw Error('Unknown terminal action.');
+    }
+    switch(action){
+      case 'open':return taskTerminals.open(key,{...taskPlace(product,id),env:terminalEnv()});
+      case 'read':return taskTerminals.read(key,offset,wait);
+      case 'write':await taskTerminals.write(key,data);return true;
+      case 'resize':await taskTerminals.resize(key,cols,rows);return true;
+      case 'close':await taskTerminals.close(key);return true;
       default:throw Error('Unknown terminal action.');
     }
   });
@@ -1901,32 +1924,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // costs nothing at send time because `zero:save-attachments` above already
   // copies from `srcPath`. Bytes are copied on disk rather than carried through
   // this bridge as base64, which a file picked off disk should never need.
-  ipcMain.handle('zero:stage-attachment', async (_e, { name, dataBase64, srcPath }) => {
-    const fs = await import('node:fs');
-    const dir = path.join(config.accountRoot, '.staging');
-    fs.mkdirSync(dir, { recursive: true });
-    // Sweep on the way in rather than on a timer: an abandoned paste is only
-    // ever discovered by the next one, and a week is longer than any draft she
-    // has ever left open. Failure to sweep must never fail the paste.
-    try {
-      const week = Date.now() - 7 * 24 * 60 * 60 * 1000;
-      for (const f of fs.readdirSync(dir)) {
-        const p = path.join(dir, f);
-        try { if (fs.statSync(p).mtimeMs < week) fs.unlinkSync(p); } catch { /* leave it */ }
-      }
-    } catch { /* a sweep that cannot run is not a paste that failed */ }
-    const safe = String(name ?? 'pasted.png').replace(/[^\w.-]+/g, '-').slice(0, 80);
-    const abs = path.join(dir, `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}-${safe}`);
-    // A path is a drag, bytes are a paste. Already inside the folder we serve
-    // from is left alone: copying it would only make a second file to sweep.
-    if (typeof srcPath === 'string' && srcPath) {
-      if (path.resolve(srcPath) === path.resolve(path.join(dir, path.basename(srcPath)))) return { path: srcPath };
-      fs.copyFileSync(srcPath, abs);
-      return { path: abs };
-    }
-    fs.writeFileSync(abs, Buffer.from(String(dataBase64 ?? ''), 'base64'));
-    return { path: abs };
-  });
+  ipcMain.handle('zero:stage-attachment', async (_e, file) => stageAttachment(path.join(config.accountRoot, '.staging'), file));
 
   // Unstick ONE stalled item: forget its answer's delivery mark and tick, so
   // a fresh worker picks the answer up now.

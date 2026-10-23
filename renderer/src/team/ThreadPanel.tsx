@@ -17,12 +17,17 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState, type Keyboard
 import { Face, TeamContext } from './people';
 import { ChatFold } from './ChatFold';
 import { MessageActions, Reactions } from './ChatActions';
+import { DeleteMessage, MessageEditor } from './MessageMore';
+import { messageMore, withEmbeds, wordsOf } from './message-more';
+import { AgentAnswers, useChatMentions } from './ChatAgents';
+import { useThreadMentions } from '../components/ThreadMentions';
+import { withQuote } from './chat-quote';
 import { clock } from '../thread-history';
 import { THREAD_WIDTH, threadLine } from './chat-threads';
 import { holdTheEdge } from './hold-the-edge';
 import { FormatBar } from './FormatBar';
 import { forgetVoiceDraft, markVoiceSent, sendTurnedBack, type VoiceControl } from './useVoiceRecorder';
-import { RichReply } from './RichReply';
+import { RichReply, type RichBox } from './RichReply';
 import { AttachRow } from '../components/AttachRow';
 import { collectFiles, persistAttachments, type PendingAttachment } from '../attachments';
 import type { AgentTurn } from '../types';
@@ -34,9 +39,13 @@ const useBeforePaint = typeof window === 'undefined' ? useEffect : useLayoutEffe
 /** How far one arrow press moves the edge, for a keyboard. */
 const NUDGE = 24;
 
-export function ThreadPanel({ product, parent, replies, md, width, reactions, onReact, onSend, onClose, onResize }: {
+export function ThreadPanel({ product, id, people, parent, replies, md, width, reactions, onReact, onEdit, onMarkUnread, onCopied, onHandToAgent, onSend, onClose, onResize }: {
   /** The conversation's project, where a picture sent here is saved. */
   product: string;
+  /** The conversation, which the @ menu remembers an agent's last project under. */
+  id?: string;
+  /** First names of the people in the conversation, offered by the @ menu. */
+  people?: string[];
   /** The message the thread hangs off. */
   parent: AgentTurn;
   /** Its replies, oldest first. */
@@ -46,7 +55,13 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
   width: number;
   reactions?: Record<string, Record<string, string[]>>;
   onReact?: (uid: string, emoji: string, off: boolean) => void;
-  /** Send a reply in this thread; false (or a rejection) when it did not go. */
+  // The rest of what the chat's own messages offer (../components/Thread.tsx).
+  onEdit?: (uid: string, change: { text: string } | { gone: true }) => void;
+  onMarkUnread?: (at: number) => void;
+  onCopied?: () => void;
+  onHandToAgent?: () => void;
+  /** Send a reply in this thread; false (or a rejection) when it did not go,
+   *  or the words as written when starting a mentioned agent changed them. */
   onSend: (text: string) => unknown;
   onClose: () => void;
   /** The width the left edge was dragged to; the caller holds it in its limits. */
@@ -77,8 +92,19 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
   useEffect(() => {
     setSending((was) => was.filter((s) => !replies.some((r) => (r.by ?? me) === me && r.at >= s.at - 5_000 && (r.text ?? '').trim() === s.text.trim())));
   }, [replies, me]);
+  // The message being edited in place, by uid, and the one asking to be deleted.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   // A new thread starts empty, with the box ready.
-  useEffect(() => { setDraft(''); setAttachments([]); setSending([]); box.current?.focus(); }, [parent.uid]);
+  useEffect(() => { setDraft(''); setAttachments([]); setSending([]); setEditing(null); setDeleting(null); box.current?.focus(); }, [parent.uid]);
+
+  // THE CHAT BOX'S @ AND # MENUS (Focus.tsx, DockComposer), counting in the
+  // words as shown and editing through the editor so formatting round a
+  // mention stays.
+  const [plain, setPlain] = useState('');
+  const setPlainText = (next: string) => (box.current as unknown as RichBox | null)?.rich.setPlain(next);
+  const chat = useChatMentions({ on: !!people?.length, where: { product, id: id ?? '' }, people: people ?? [], input: box, text: plain, setText: setPlainText });
+  const named = useThreadMentions({ text: plain, setText: setPlainText, input: box, here: id, rise: true });
 
   // THE PANE MAKES ROOM FOR AS LONG AS THE PANEL IS DRAWN, and no longer. Set
   // from here rather than by whoever opened it, so a thread whose message has
@@ -127,6 +153,8 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
     }
     const words = draft.trim();
     if (!words && !files.length) return;
+    // An agent with no project does not go out; the line under the box says why.
+    if (chat.block) { setNotice(chat.block); return; }
     const putBack = (why: string) => {
       setDraft(words);
       setAttachments(files);
@@ -143,18 +171,35 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
     }
     const text = [words, linked].filter(Boolean).join('\n\n');
     if (!text) return;
+    const said = named.encode(chat.encode(text));
     markVoiceSent(voiceKey, files.map((a) => a.draftId));
     const at = Date.now();
-    setSending((was) => [...was, { at, text }]);
-    const ok = await Promise.resolve(onSend(text)).then((r) => r !== false, () => false);
-    if (ok) return;
+    setSending((was) => [...was, { at, text: said }]);
+    const went = await Promise.resolve(onSend(said)).then((r) => r, () => false);
+    if (went !== false) {
+      // Starting an agent writes its task into the words, and the copy on
+      // screen has to match the one written or it never leaves.
+      if (typeof went === 'string' && went !== said) setSending((was) => was.map((s) => (s.at === at ? { ...s, text: went } : s)));
+      return;
+    }
     setSending((was) => was.filter((s) => s.at !== at));
     await sendTurnedBack(voiceKey, files.map((a) => a.draftId));
     putBack('the reply could not be saved.');
   };
   const ready = !!draft.trim() || attachments.length > 0 || recording;
+  const yours = (e: AgentTurn) => !!me && (e.by ?? me) === me;
+  // Reply quotes into this box: a reply to a reply would be a thread in a thread.
+  const quote = (e: AgentTurn) => { setDraft((was) => withQuote(was, wordsOf(e.text ?? ''))); box.current?.focus(); };
   // True when the key was taken, so the editor does not also act on it.
   const onKey = (e: globalThis.KeyboardEvent) => {
+    // An open @ or # menu takes Enter as a pick, as in the chat's own box.
+    const k = e as unknown as KeyboardEvent<HTMLTextAreaElement>;
+    if (chat.keyDown(k) || named.keyDown(k)) return true;
+    // ↑ in an empty box edits your newest message here, as it does in the chat.
+    if (e.key === 'ArrowUp' && onEdit && !plain.trim() && !attachments.length) {
+      const last = [...replies].reverse().concat(parent).find((r) => r.uid && !r.deleted && yours(r));
+      if (last?.uid) { e.preventDefault(); setEditing(last.uid); return true; }
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); return true; }
     // Escape leaves the thread, and goes no further: the page behind it would
     // otherwise take the same key as "leave this conversation". Not while a
@@ -183,26 +228,54 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
     if (e.key === 'ArrowRight') { e.preventDefault(); onResize(width - NUDGE); }
   };
 
+  // EACH MESSAGE CARRIES WHAT A CHAT MESSAGE CARRIES (w-2b2832bc6d), less the
+  // three quick emoji, which a panel this narrow has no room for.
   const said = (e: AgentTurn, pending = false, newest = false) => {
     const by = e.by ?? me;
-    const mine = !!me && by === me;
+    const mine = yours(e);
     const person = by ? team?.byId.get(by) ?? null : null;
+    const uid = e.uid;
     return (
-      <div key={`${e.uid ?? 'p'}-${e.at}`} className="thread-block is-msg">
+      <div key={`${uid ?? 'p'}-${e.at}`} className="thread-block is-msg">
         <div className={`msg chat-msg${pending ? ' sending' : ''}`}>
           <div className="chat-gutter"><Face person={person} me={mine} size="lg" /></div>
           <div className="msg-head">
             <span className="msg-who">{mine ? 'You' : person?.name ?? 'A teammate'}</span>
             <span className="msg-when">{clock(e.at)}</span>
+            {e.edited && <span className="msg-edited" title="Edited">edited</span>}
           </div>
-          <ChatFold lines newest={newest}>{md(e.text ?? '')}</ChatFold>
-          {e.uid && (
-            <Reactions on={reactions?.[e.uid]} me={me} onReact={(emoji, off) => onReact?.(e.uid!, emoji, off)} />
+          {uid && editing === uid && onEdit
+            ? <MessageEditor text={wordsOf(e.text ?? '')}
+              onSave={(text) => { setEditing(null); onEdit(uid, { text: withEmbeds(e.text ?? '', text) }); }}
+              onCancel={() => setEditing(null)}
+              onEmpty={() => { setEditing(null); setDeleting(uid); }} />
+            : e.deleted
+              ? <div className="msg-body msg-deleted">{e.text}</div>
+              : <ChatFold lines newest={newest}>{md(e.text ?? '')}</ChatFold>}
+          {uid && (
+            <Reactions on={reactions?.[uid]} me={me} onReact={(emoji, off) => onReact?.(uid, emoji, off)} />
           )}
-          {e.uid && onReact && (
-            <MessageActions onReact={(emoji) => onReact(e.uid!, emoji, (reactions?.[e.uid!]?.[emoji] ?? []).includes(me ?? ''))} />
+          {uid && onReact && !e.deleted && editing !== uid && (
+            <MessageActions
+              quick={false}
+              onReact={(emoji) => onReact(uid, emoji, (reactions?.[uid]?.[emoji] ?? []).includes(me ?? ''))}
+              onQuote={() => quote(e)}
+              onHandToAgent={onHandToAgent}
+              more={messageMore({
+                mine,
+                text: e.text ?? '',
+                onEdit: onEdit ? () => setEditing(uid) : undefined,
+                onDelete: onEdit ? () => setDeleting(uid) : undefined,
+                onMarkUnread: onMarkUnread ? () => onMarkUnread(e.at) : undefined,
+                onCopied,
+              })}
+            />
+          )}
+          {uid && deleting === uid && onEdit && (
+            <DeleteMessage onClose={() => setDeleting(null)} onDelete={() => onEdit(uid, { gone: true })} />
           )}
         </div>
+        <AgentAnswers text={e.text ?? ''} md={md} newest={newest} />
       </div>
     );
   };
@@ -258,6 +331,9 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
               attached under the words, then the chat's formatting bar on the
               left of a footer and Send at its right, which is the chat's reply
               box and Slack's thread box both. */}
+          {chat.menu}
+          {chat.card}
+          {named.menu}
           {/* THE SAME EDITOR AS THE CHAT'S OWN BOX (w-0d55a2b160): ⌘B bolds,
               pasted rich text keeps its bold. Return sends here, as it did. */}
           <RichReply
@@ -265,16 +341,25 @@ export function ThreadPanel({ product, parent, replies, md, width, reactions, on
             boxRef={box}
             value={draft}
             onChange={setDraft}
+            onPlain={setPlain}
             placeholder="Reply in thread…"
             label="Reply in thread"
+            mentions={[
+              ...chat.mentions.map((m) => ({ start: m.start, end: m.end, loose: !m.project })),
+              ...named.mentions.map((m) => ({ start: m.start, end: m.end, loose: false })),
+            ]}
             onKeyDown={onKey}
             onFiles={async (files) => {
               const got = await collectFiles(files);
               if (got.length) setAttachments((a) => [...a, ...got]);
             }}
+            onCaret={(b) => { chat.track(b as unknown as HTMLTextAreaElement); named.track(b as unknown as HTMLTextAreaElement); }}
+            onClick={(b) => chat.click(b as unknown as HTMLTextAreaElement)}
           />
           <AttachRow attachments={attachments} onRemove={(i) => { forgetVoiceDraft(attachments[i]?.draftId); setAttachments((x) => x.filter((_, j) => j !== i)); }} />
-          {notice && <div className="compose-note" role="alert">{notice}</div>}
+          {notice
+            ? <div className="compose-note" role="alert">{notice}</div>
+            : chat.block && <div className="compose-note">{chat.block}</div>}
           <input
             ref={filePicker}
             type="file"

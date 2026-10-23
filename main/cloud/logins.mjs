@@ -26,6 +26,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { wayBack, listenForWayBack } from './browser-return.mjs';
 
 // A Codex access token lasts 240 hours. One with under 3 days left is
 // renewed; one with under 9 hours (an 8-hour run and its homecoming) does not
@@ -259,42 +260,85 @@ async function session({ transport, start, onEvent = () => {}, pollWaitMs = 20_0
 // THE CLOUD MENU'S SIGN-IN for one account. What the menu draws comes from
 // `status()`: 'starting', then for Claude 'needs-code' with the link to open
 // (the person pastes Claude's code into `code()`), for Codex 'waiting' with
-// the link and the one-time code to type on OpenAI's page; then 'checking',
-// and 'saved' or 'failed' with a sentence. A Codex sign-in made with a
-// different ChatGPT account than the one this Mac's folder holds is refused.
+// the link (the browser comes back to this computer, browser-return.mjs), or,
+// from a cloud image older than that, the link and a one-time code to type on
+// OpenAI's page; then 'checking', and 'saved' or 'failed' with a sentence. A
+// Codex sign-in made with a different ChatGPT account than the one this Mac's
+// folder holds is refused.
 // HOW LONG THE CLOUD MAY CHECK A SIGN-IN AFTER HER PART IS DONE before this
 // Mac stops waiting and says so (2026-10-15: she sat on "Adding…" for over a
 // minute). The cloud gives up on a code Claude does not take at once, and on
 // one it never answers in a minute (cloud/sandbox/server.mjs); this is the
 // backstop for a cloud that never says, past its own two-minute check.
 export const CHECK_MS = 150_000;
+// The cloud hands the browser's return to Codex and follows its redirect,
+// each with its own deadline (90 and 30 seconds); past both, it is not coming.
+const RETURN_MS = 125_000;
+
+function within(ms, promise) {
+  let timer;
+  const late = new Promise((_, no) => { timer = setTimeout(() => no(new Error('no answer')), ms); });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
 
 export function startCloudSignIn({ transport, storage, engine, dir, home = os.homedir(), expectEmail = null, onChange = () => {}, onSaved = () => {}, pollWaitMs, checkMs = CHECK_MS }) {
   const id = crypto.randomUUID();
   const runId = `signin-${id}`;
+  const sessionId = `agentbox-signin-${engine}-${runId}`;
   // `attempt` tells one sign-in from the next, which can show the same link.
   let status = { state: 'starting', url: null, code: null, message: null, attempt: runId };
   let cancelled = false;
   let gaveUp = false;
   let checkTimer = null;
+  let back = null;
+  const letBackGo = () => { back?.close(); back = null; };
+  const giveUp = (message) => {
+    if (gaveUp || status.state === 'saved' || status.state === 'failed') return;
+    gaveUp = true;
+    cancelled = true;
+    letBackGo();
+    status = { ...status, state: 'failed', message };
+    onChange(status);
+    transport.invoke(sessionId, { action: 'signal', runId, signal: 'SIGTERM' }).catch(() => {});
+  };
   const set = (patch) => {
     status = { ...status, ...patch };
     // The check's clock starts when her part ends, and stops when it ends.
     if (status.state === 'checking' && !checkTimer) {
       checkTimer = setTimeout(() => {
-        if (status.state !== 'checking') return;
-        gaveUp = true;
-        cancelled = true;
-        status = { ...status, state: 'failed', message: `${engine === 'codex' ? 'Codex' : 'Claude'} didn’t finish signing in. Try again.` };
-        onChange(status);
-        transport.invoke(`agentbox-signin-${engine}-${runId}`, { action: 'signal', runId, signal: 'SIGTERM' }).catch(() => {});
+        if (status.state === 'checking') giveUp(`${engine === 'codex' ? 'Codex' : 'Claude'} didn’t finish signing in. Try again.`);
       }, checkMs);
       checkTimer.unref?.();
-    } else if (status.state !== 'checking' && checkTimer && ['saved', 'failed', 'needs-code'].includes(status.state)) {
+    } else if (status.state !== 'checking' && checkTimer) {
       clearTimeout(checkTimer);
       checkTimer = null;
     }
     onChange(status);
+  };
+
+  // The browser's return, passed to the cloud. Once taken the port goes, so
+  // another Codex account can be added while this one is checked; one not
+  // taken, short of OpenAI refusing it, leaves the sign-in waiting.
+  const handOn = async (query) => {
+    if (status.state !== 'waiting') return false;
+    set({ state: 'checking', message: null });
+    let out = null;
+    try { out = await within(RETURN_MS, transport.invoke(sessionId, { action: 'signin-callback', runId, query })); } catch { /* not delivered */ }
+    if (out?.ok) letBackGo();
+    else if (out?.error !== 'refused' && status.state === 'checking') set({ state: 'waiting' });
+    return !!out?.ok;
+  };
+  // The way back is open before the page is shown, so it is there first.
+  const openWayBack = async (url) => {
+    const at = wayBack(url);
+    if (!at) return giveUp('Codex’s sign-in link had no way back. Try again.');
+    try {
+      back = await listenForWayBack({ ...at, onReturn: handOn });
+    } catch {
+      return giveUp('Another Codex sign-in is open on this computer. Close it, then try again.');
+    }
+    if (cancelled || status.state !== 'starting') return letBackGo();
+    set({ state: 'waiting', url, code: null });
   };
 
   const done = (async () => {
@@ -303,13 +347,14 @@ export function startCloudSignIn({ transport, storage, engine, dir, home = os.ho
       transport,
       pollWaitMs,
       isCancelled: () => cancelled,
-      start: { action: 'signin', runId, engine, saveUrl },
+      start: { action: 'signin', runId, engine, saveUrl, ...(engine === 'codex' ? { flow: 'browser' } : {}) },
       onEvent: (e) => {
         if (e.state === 'needs-code') set({ state: 'needs-code', url: e.url });
+        else if (e.state === 'waiting' && engine === 'codex' && !e.code) void openWayBack(e.url);
         else if (e.state === 'waiting') set({ state: 'waiting', url: e.url, code: e.code });
         else if (e.state === 'checking') set({ state: 'checking' });
       },
-    });
+    }).finally(letBackGo);
     // Given up on here already: that sentence stands.
     if (gaveUp) return status;
     if (end.state !== 'saved') {
@@ -326,6 +371,7 @@ export function startCloudSignIn({ transport, storage, engine, dir, home = os.ho
     try { onSaved(); } catch { /* the menu redraws anyway */ }
     return status;
   })().catch((err) => {
+    letBackGo();
     set({ state: 'failed', message: `That did not work (${err.message}). Try again.` });
     return status;
   });
@@ -339,7 +385,7 @@ export function startCloudSignIn({ transport, storage, engine, dir, home = os.ho
       set({ state: 'checking', message: null });
       let ok = false;
       try {
-        const out = await transport.invoke(`agentbox-signin-${engine}-${runId}`, { action: 'signin-code', runId, code: c });
+        const out = await transport.invoke(sessionId, { action: 'signin-code', runId, code: c });
         ok = !!out?.ok;
       } catch { /* not delivered */ }
       // A code that did not reach the sign-in can be pasted again (finding 7).
@@ -348,7 +394,8 @@ export function startCloudSignIn({ transport, storage, engine, dir, home = os.ho
     },
     async cancel() {
       cancelled = true;
-      try { await transport.invoke(`agentbox-signin-${engine}-${runId}`, { action: 'signal', runId, signal: 'SIGTERM' }); } catch { /* gone */ }
+      letBackGo();
+      try { await transport.invoke(sessionId, { action: 'signal', runId, signal: 'SIGTERM' }); } catch { /* gone */ }
     },
   };
 }
@@ -411,8 +458,8 @@ export function cloudLimits(read) {
 
 // WHOSE ONE CLAUDE LOGIN IS, AND HOW MUCH OF IT IS LEFT: a sandbox session
 // that makes one tiny reply on it and reads the reply's headers. Kept on the
-// login's note only while that login is still the current one. Returns
-// 'read' or 'failed'.
+// login's note only while that login is still the current one. A failed look
+// keeps the last reading and notes why beside it. Returns 'read' or 'failed'.
 export async function lookAtCloudLogin({ transport, storage, key, home = os.homedir(), now = Date.now(), pollWaitMs }) {
   const rec = cloudLoginFor('claude', key, { home });
   if (!rec?.id || rec.broken) return 'failed';
@@ -421,7 +468,10 @@ export async function lookAtCloudLogin({ transport, storage, key, home = os.home
     pollWaitMs,
     start: { action: 'look', runId: `look-${crypto.randomUUID()}`, engine: 'claude', loginUrl: await storage.getUrl(loginObjectKey('claude', rec.id), LINK_SECONDS) },
   });
-  if (end.state !== 'saved') return 'failed';
+  if (end.state !== 'saved') {
+    markCloudLogin('claude', key, rec.id, { lookFailedAt: now, lookError: end.message ?? null }, { home });
+    return 'failed';
+  }
   markCloudLogin('claude', key, rec.id, { org: end.org ?? null, limits: end.limits ?? [], readAt: now }, { home });
   return 'read';
 }

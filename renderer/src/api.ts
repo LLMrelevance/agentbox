@@ -44,7 +44,7 @@ async function teamCall(fn: () => Promise<TeamCallResult>): Promise<TeamCallResu
 // it runs.
 const search = typeof location === 'undefined' ? '' : location.search;
 const params = new URLSearchParams(search);
-const modelUpdateFixture=updateFixture(params.get('modelUpdates')==='fail');
+const modelUpdateFixture=updateFixture(params.get('modelUpdates')==='fail',['claude','codex'].includes(params.get('modelUpdates')??'')?params.get('modelUpdates'):null);
 const useFixtures = params.has('fixtures') || typeof window === 'undefined' || !window.zero;
 const emptyFixtures = params.get('fixtures') === 'empty';
 // ?working=3 puts three running agents into ?fixtures=empty. The empty
@@ -118,6 +118,20 @@ const fixtureSettingsState: any = structuredClone(fixtureSettings);
 // she runs, which leaves the object exactly as ./fixtures wrote it.
 const engineSettings = fixtureEngineSettings(engineFixtures);
 if (engineSettings) Object.assign(fixtureSettingsState.workspace, structuredClone(engineSettings));
+// &codexPlan=free is a Mac whose Codex logins are all on ChatGPT's free plan,
+// the paid one having ended Oct 18 2026: the three models that plan lists
+// (w-62f14f8b3e).
+if (params.get('codexPlan') === 'free') {
+  Object.assign(fixtureSettingsState.workspace, {
+    codexModels: [
+      { id: 'gpt-6-luna', label: 'GPT-6-Luna', levels: ['low', 'medium', 'high', 'xhigh'], defaultLevel: 'medium' },
+      { id: 'gpt-5.6-terra', label: 'GPT-5.6-Terra', levels: ['low', 'medium', 'high', 'xhigh'], defaultLevel: 'medium' },
+      { id: 'gpt-5.6-luna', label: 'GPT-5.6-Luna', levels: ['low', 'medium', 'high', 'xhigh'], defaultLevel: 'medium' },
+    ],
+    codexModelDefault: 'gpt-6-luna',
+    codexFreePlan: { endedAt: Date.parse('2026-10-18T19:00:00Z') },
+  });
+}
 // &memory=held draws the Running page the way it read when memory ran out on
 // 2026-10-11 (w-ec27ff1a51): six running, memory tight, commands waiting, and
 // new agents held. &memory=fine is the same page with memory back to normal.
@@ -197,7 +211,7 @@ function fixtureWrite(scope: 'project' | 'workspace', p: any): Settings {
     } else if (p.key === 'memoryGate' && w.memoryGate) {
       w.memoryGate = { ...w.memoryGate, on: !!p.value, now: p.value ? 'Memory is fine. Nothing heavy running.' : null };
     } else if (p.key === 'cleanupLeftovers' && w.leftovers) {
-      w.leftovers = { on: !!p.value, now: p.value ? 'Finished agents have left 6 programs running. 4 stop in 1 h 40 m; 2 are kept.' : null };
+      w.leftovers = { on: !!p.value, now: p.value ? 'Finished agents have left 6 programs running. 4 stop when you close their tasks; 2 are kept.' : null };
     } else if (p.key === 'memoryGateSlots' && w.memoryGate) {
       w.memoryGate = { ...w.memoryGate, slots: p.value === null ? null : Math.max(1, Math.min(w.memoryGate.slotsMax, Number(p.value) || 1)) };
     } else if (p.key === 'activeAccount') {
@@ -370,11 +384,13 @@ export const api = {
         const read = params.has('cloudread');
         base.cloud = {
           // &cloudmode=mac draws the same accounts with the cloud turned off.
-          setUp: true, mode: params.get('cloudmode') === 'mac' ? 'mac' : 'full', whenOn: 'full', running: 0,
+          setUp: true, mode: params.get('cloudmode') === 'mac' ? 'mac' : params.get('cloudmode') === 'all' ? 'all' : 'full', whenOn: 'full', running: 0,
           month: { runs: 14, agentHours: 1.2, estimatedCost: 0.16, costPerAgentHour: 0.13 },
           accounts: [
             {
+              // Read two hours ago, as the reported screenshot's was; the same login here was read since.
               engine: 'claude', key: 'a1', name: read ? 'you@example.com' : null, plan: read ? 'Max 20x' : null, ready: false, state: 'limited' as any, limitedUntil: until.getTime(),
+              profile: read ? fixtureSettingsState.workspace.accounts[0]?.profile ?? null : null, readAt: read ? Date.now() - 2 * 3_600_000 : null,
               limits: read ? [
                 { span: 'session', qualifier: null, name: 'This session', percent: 100, resetsText: null, resetsOn: null, resetsAt: until.getTime(), zone: null },
                 { span: 'week', qualifier: 'all models', name: 'This week', percent: 31, resetsText: null, resetsOn: null, resetsAt: on(2, 11, 59), zone: null },
@@ -382,6 +398,7 @@ export const api = {
             },
             {
               engine: 'claude', key: 'a2', name: read ? 'work@example.com' : null, plan: read ? 'Max 20x' : null, ready: true, state: 'ready',
+              profile: read ? fixtureSettingsState.workspace.accounts[1]?.profile ?? null : null, readAt: read ? Date.now() - 3 * 60_000 : null,
               limits: read ? [
                 { span: 'session', qualifier: null, name: 'This session', percent: 12, resetsText: null, resetsOn: null, resetsAt: on(0, 20), zone: null },
                 { span: 'week', qualifier: 'all models', name: 'This week', percent: 9, resetsText: null, resetsOn: null, resetsAt: on(2, 16), zone: null },
@@ -389,8 +406,24 @@ export const api = {
             },
             // &cloudcodex adds a Codex login in the cloud, so the Codex page draws its cloud rows.
             ...(params.has('cloudcodex') ? [{ engine: 'codex' as const, key: 'c1', name: null, ready: true, state: 'ready' as const }] : []),
-          ],
-          signIns: [],
+            // &cloudonly adds a Claude login signed in nowhere here, whose last look failed.
+            // Its email is unknown: the cloud's token cannot read it, and no folder here names it.
+            ...(params.has('cloudonly') ? [{
+              engine: 'claude' as const, key: 'a3', name: null, plan: null, ready: true, state: 'ready' as const, profile: null,
+              readAt: Date.now() - 2 * 3_600_000, readError: 'The cloud could not be reached. Try again.',
+              limits: [
+                { span: 'session' as const, qualifier: null, name: 'This session', percent: 40, resetsText: null, resetsOn: null, resetsAt: on(0, 23), zone: null },
+                { span: 'week' as const, qualifier: 'all models', name: 'This week', percent: 22, resetsText: null, resetsOn: null, resetsAt: on(2, 16), zone: null },
+              ],
+            }] : []),
+            // &cloudmissing leaves the work login out of the cloud, so it is only on this computer
+            // (&cloudmissing=a1 the other one). &cloudstopped has the work login's cloud sign-in stop working.
+          ].filter((a) => !(params.has('cloudmissing') && a.key === (params.get('cloudmissing') || 'a2')))
+            .map((a) => (params.has('cloudstopped') && a.key === 'a2' ? { ...a, ready: false, state: 'broken' as const } : a)),
+          // &cloudsigning has a Claude sign-in waiting on its code, as Add to cloud leaves one.
+          signIns: params.has('cloudsigning')
+            ? [{ engine: 'claude' as const, key: 'acct-new', state: 'needs-code' as const, url: 'https://claude.ai/oauth/authorize', code: null, message: null, attempt: 'signin-1' }]
+            : [],
         } as typeof base.cloud;
       } else if (cloud === 'new') {
         // &cloud=new draws Agentbox Cloud offered with nobody signed in: the

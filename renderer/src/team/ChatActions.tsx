@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { EMOJI_GROUPS, findEmoji } from './emoji-list';
-import { chipPressed, quickRow, readRecent, rememberEmoji } from './recent-emoji';
+import { chipPressed, onArrival, quickRow, readRecent, rememberEmoji } from './recent-emoji';
 import { searchKey } from './picker-keys';
 import { MoreMenu, type MoreItem } from './MessageMore';
 import './chat.css';
@@ -25,6 +25,9 @@ const QUICK = 3;
 // + at the end of them (w-45cbac227a): "like in Slack ... hit Plus and then
 // see a more complete list".
 export const CHAT_EMOJI = ['👍', '🙏', '👀', '✅', '🎉', '❤️', '😄', '🤔'];
+
+/** The bar's emoji: your three latest, newest first, filled from the usual ones. */
+export const latestQuick = (store?: Parameters<typeof readRecent>[0]) => quickRow(readRecent(store), CHAT_EMOJI, QUICK);
 
 // The whole list's size, and how far it keeps from the window's edges.
 const EVERY_W = 320;
@@ -242,9 +245,10 @@ export function Reactions({ on, me, onReact }: {
 }
 
 /**
- * THE BAR THAT APPEARS WHEN YOU POINT AT A MESSAGE: three quick reactions, your
- * most recent first, then react, reply, hand it to an agent, and the more
- * menu (./MessageMore.tsx) for editing, copying, marking unread and deleting.
+ * THE BAR THAT APPEARS WHEN YOU POINT AT A MESSAGE: three quick reactions where
+ * the chat is wide, your most recent first, then react, reply, hand it to an
+ * agent, and the more menu (./MessageMore.tsx) for editing, copying, marking
+ * unread and deleting.
  *
  * It is absolutely positioned over the message's top edge rather than laid out
  * in the flow, so a message does not change height when the pointer crosses it.
@@ -252,10 +256,13 @@ export function Reactions({ on, me, onReact }: {
  * it and a bar that vanished the moment the pointer moved into its own menu
  * would be unusable.
  */
-export function MessageActions({ onReact, onQuote, replyLabel = 'Reply', onHandToAgent, more }: {
+export function MessageActions({ onReact, quick: withQuick = true, onQuote, replyLabel = 'Reply', onHandToAgent, more }: {
   onReact: (emoji: string) => void;
-  // Absent inside a thread's panel, where the reply box is right there and a
-  // reply to a reply would be a thread inside a thread (w-920461cbe6).
+  // False in a thread or a narrow panel, where three emoji crowd the bar over
+  // the message; React still opens them, recent ones first.
+  quick?: boolean;
+  // In a thread's panel this quotes into the thread's own box: a reply to a
+  // reply would be a thread inside a thread (w-920461cbe6).
   onQuote?: () => void;
   // "Reply in thread" where Reply opens the message's thread rather than
   // quoting it.
@@ -268,9 +275,15 @@ export function MessageActions({ onReact, onQuote, replyLabel = 'Reply', onHandT
 }) {
   const [picking, setPicking] = useState(false);
   const [menu, setMenu] = useState<DOMRect | null>(null);
-  const [quick] = useState(() => quickRow(readRecent(), CHAT_EMOJI, QUICK));
+  const bar = useRef<HTMLDivElement>(null);
+  const [recentRow, setRecentRow] = useState(latestQuick);
+  useEffect(() => {
+    const message = bar.current?.parentElement;
+    return message ? onArrival(message, () => setRecentRow(latestQuick())) : undefined;
+  }, []);
+  const quick = withQuick ? recentRow : [];
   return (
-    <div className={`chat-acts${picking || menu ? ' open' : ''}`}>
+    <div className={`chat-acts${picking || menu ? ' open' : ''}`} ref={bar}>
       {picking && <EmojiPick onPick={(emoji) => { setPicking(false); onReact(emoji); }} onClose={() => setPicking(false)} />}
       {quick.map((emoji) => (
         <button key={emoji} type="button" className="chat-quick" title={`React with ${emoji}`} aria-label={`React with ${emoji}`}

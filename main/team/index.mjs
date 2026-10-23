@@ -54,7 +54,20 @@ export function createTeamService({
   const kept = () => (local ??= fileSyncState(stateFile, fs));
 
   const set = (patch) => { state = { ...state, ...patch }; onChange(); };
-  const rooms = roomsSetup ? createRooms({ backend: () => backend, me: () => state.me, team: () => state, now, log, onChange, ...roomsSetup }) : null;
+  // My own thread cards, for the activity my rooms see: the threads my team
+  // may read. Read off the store at most once a minute, not every pass.
+  let roomCards = { at: -Infinity, cards: [] };
+  const myCards = () => {
+    if (now() - roomCards.at < 60_000) return roomCards.cards;
+    let cards = [];
+    try { cards = cardsFor({ products: products(), readItems: (p) => disk.readWorkItems(p.dir), since: state.me ? kept().getSince(state.me.id) : null, now: now() }); } catch (err) { log(`rooms: activity: ${err.message}`); }
+    roomCards = { at: now(), cards };
+    return cards;
+  };
+  const rooms = roomsSetup ? createRooms({
+    backend: () => backend, me: () => state.me, team: () => state, now, log, onChange, ...roomsSetup,
+    presenceFacts: () => ({ ...(roomsSetup.presenceFacts?.() ?? {}), cards: myCards() }),
+  }) : null;
   if (site) QRCode.toString(site, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }).then((qr) => { siteQr = qr; set({ phoneSiteQr: qr }); }).catch(() => {});
 
   function products() {
@@ -201,6 +214,8 @@ export function createTeamService({
       apply: phone.apply,
       liveOf: (slug, id) => phone.live?.(slug, id) ?? null,
       approvalsOf: () => phone.approvals?.() ?? [],
+      readSettings: phone.readSettings ?? null,
+      version: phone.version ?? '',
       // One file per person: what this Mac sent up for one account is not
       // what the next one to sign in here has.
       stateFile: phone.stateFile.replace(/(\.json)?$/, `.${owner}.json`),

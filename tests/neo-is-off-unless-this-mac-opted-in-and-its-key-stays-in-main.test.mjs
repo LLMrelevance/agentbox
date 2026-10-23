@@ -1,6 +1,6 @@
-// Neo is an alpha for one person (w-e85fd9144f): it ships in everyone's app
-// and must start for nobody who has not put the `neo-alpha` file in their
-// app data folder by hand. And it pays OpenAI with a key from the Keychain,
+// Neo is an alpha (w-e85fd9144f): it ships in everyone's app and must start
+// for nobody who has not turned on its switch in Alpha features (before
+// w-09835f4874, a hand-made `neo-alpha` file). And it pays OpenAI with a key from the Keychain,
 // which must never reach process.env (every worker inherits that, and workers
 // run on the person's subscription, never a key), a page, or an error message.
 // Measured by reading the gate and the session request with fakes for the
@@ -8,7 +8,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { neoEnabled, FLAG } from '../main/neo/gate.mjs';
+import { neoEnabled } from '../main/neo/gate.mjs';
 import { readKey, startLive } from '../main/neo/live.mjs';
 import { createNeo } from '../main/neo/index.mjs';
 
@@ -16,16 +16,11 @@ const KEY = 'sk-test-not-a-real-key-0123456789';
 const OFFER = 'v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n';
 
 describe('the alpha gate', () => {
-  it('is on only on a Mac whose data folder has the flag file', () => {
-    const at = (p) => p === path.join('/data', FLAG);
-    expect(neoEnabled({ userData: '/data', platform: 'darwin', exists: at })).toBe(true);
-    expect(neoEnabled({ userData: '/data', platform: 'darwin', exists: () => false })).toBe(false);
-    expect(neoEnabled({ userData: '/data', platform: 'linux', exists: at })).toBe(false);
-    expect(neoEnabled({ userData: '', platform: 'darwin', exists: () => true })).toBe(false);
-  });
-
-  it('a flag of another name does not turn it on', () => {
-    expect(neoEnabled({ userData: '/data', platform: 'darwin', exists: (p) => p.endsWith('neo') })).toBe(false);
+  it('is on only on a Mac whose switch is on', () => {
+    expect(neoEnabled({ platform: 'darwin', config: { alphaNeo: true } })).toBe(true);
+    expect(neoEnabled({ platform: 'darwin', config: { alphaNeo: false } })).toBe(false);
+    expect(neoEnabled({ platform: 'darwin', config: {} })).toBe(false);
+    expect(neoEnabled({ platform: 'linux', config: { alphaNeo: true } })).toBe(false);
   });
 
   it('with the gate off, the app gets only the "is it on" answer and nothing else starts', () => {
@@ -36,7 +31,7 @@ describe('the alpha gate', () => {
     expect(handled).toEqual(['neo:enabled']);
   });
 
-  it('nothing in the app creates the flag', () => {
+  it('nothing in the app turns the switch on but the switch', () => {
     const roots = ['main', 'renderer/src', 'shared', 'scripts'];
     const offenders = [];
     const walk = (d) => {
@@ -46,12 +41,12 @@ describe('the alpha gate', () => {
         if (!/\.(m?js|cjs|ts|tsx)$/.test(e.name)) continue;
         const text = fs.readFileSync(p, 'utf8');
         for (const line of text.split('\n')) {
-          if (/neo-alpha|\bFLAG\b/.test(line) && /writeFile|appendFile|openSync|copyFile|\btouch\b/.test(line)) offenders.push(`${p}: ${line.trim()}`);
+          if (/alphaNeo\s*:/.test(line) && /saveConfig/.test(line)) offenders.push(`${p}: ${line.trim()}`);
         }
       }
     };
     for (const r of roots) walk(r);
-    expect(offenders).toEqual([]);
+    expect(offenders).toEqual([`${path.join('main', 'settings.mjs')}: saveConfig(config, { alphaNeo: !!value });`]);
   });
 });
 
