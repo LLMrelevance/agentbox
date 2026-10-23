@@ -25,6 +25,19 @@ export function dropAwsSignIns(env = process.env) {
   }
 }
 
+/**
+ * The other sign-ins a run carries besides its own, so the agent can call the
+ * other tool there the way it can on their Mac. A Claude run carries the Codex
+ * account a Codex run would use, when it is ready; a Codex run carries nothing,
+ * because Claude's token is long-lived and Codex's is not. Named only, like the
+ * run's own.
+ */
+export function loginsCarriedBy(engine, { only = null, home } = {}) {
+  if (engine !== 'claude') return [];
+  const codex = pickCloudLogin('codex', { only, ...(home ? { home } : {}) });
+  return codex ? [{ engine: 'codex', id: codex.id, key: loginObjectKey('codex', codex.id) }] : [];
+}
+
 // One client pair per account and cloud key, shared by every run in a process.
 const clients = new Map();
 function clientsFor(config) {
@@ -58,6 +71,7 @@ export async function cloudRunFromArgs({ args, env, cwd, stdin, stdout, stderr, 
     importOnly,
     engine,
     login: rec ? { engine, id: rec.id, key: loginObjectKey(engine, rec.id) } : null,
+    also: rec ? loginsCarriedBy(engine, { only: cloudAccountsFrom(env) }) : [],
     // A missing or refused login is marked so the menu asks for a new sign-in;
     // an expired Codex one is left for the supervisor to renew.
     onLoginTrouble: ({ state, id }) => {
