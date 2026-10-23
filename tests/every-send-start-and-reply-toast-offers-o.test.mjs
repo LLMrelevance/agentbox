@@ -79,7 +79,7 @@ describe('O is offered unless you are already looking at it', () => {
 describe('every send, start and reply names where it went', () => {
   it('a reply that keeps you on the thread still names it', () => {
     const body = handler('deferCommit');
-    expect(body).toContain('showToast(`${toast} · press Z to undo`, goes);');
+    expect(body).toContain('showToast(`${toast} · press Z to undo`, goes && { ...goes, sent: true });');
     expect(body).not.toContain('stay ? undefined : goes');
   });
 
