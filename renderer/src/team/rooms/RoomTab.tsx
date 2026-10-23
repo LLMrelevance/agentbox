@@ -4,6 +4,7 @@ import type { Room } from '../../types';
 import { I } from './icons';
 import { useOutside } from './RoomsPage';
 import { peopleCount } from './room-rules';
+import { GroupMenuList, type GroupChoice } from './GroupList';
 
 export function RoomTab({ room, count, on = false, open, onOpen, onMenu, label }: {
   room: Room; count: number;
@@ -27,16 +28,13 @@ export function RoomTabMenu({ rooms, current, invisible, at, onPick, onClose, gr
   rooms: Room[]; current: string | null; invisible: boolean; at: Pick<DOMRect, 'left' | 'right' | 'bottom'>;
   onPick: (choice: string) => void; onClose: () => void;
   /** Every group by the name it is called, newest first, for the Groups tab. */
-  groups?: { id: string; name: string; unread: boolean }[];
+  groups?: GroupChoice[];
 }) {
   const ref = useOutside(onClose);
   // Hangs from the start of the tab, as long as it stays inside the window.
   const left = Math.max(8, Math.min(at.left, (typeof window === 'undefined' ? Infinity : window.innerWidth) - 228));
-  if (groups) return <div ref={ref} className="rm-menu rm-pop rm-tabmenu" role="menu" style={{ left, top: at.bottom + 6 }}>
-    <div className="head rm-label">Your groups</div>
-    {groups.map((g) => <button type="button" key={g.id} className={`row${g.id === current ? ' on' : ''}`} onClick={() => onPick(g.id)}>
-      <span>{g.name}</span>{g.unread && g.id !== current && <span className="rm-unread" />}{g.id === current && <span className="k">{I.check()}</span>}
-    </button>)}
+  if (groups) return <div ref={ref} className="rm-menu rm-pop rm-tabmenu g7-menu" role="menu" style={{ left: Math.max(8, Math.min(left, window.innerWidth - 372)), top: at.bottom + 6 }}>
+    <GroupMenuList groups={groups} current={current} onPick={onPick} head={<div className="head rm-label">All groups</div>} />
   </div>;
   return <div ref={ref} className="rm-menu rm-pop rm-tabmenu" role="menu" style={{ left, top: at.bottom + 6 }}>
     <div className="head rm-label">Room in this tab</div>

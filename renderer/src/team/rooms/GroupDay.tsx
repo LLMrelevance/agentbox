@@ -8,6 +8,7 @@ import { LiveMark } from '../../components/LiveMark';
 import { RoomFace } from './RoomFace';
 import { drawnCheers, inGroupOrder, type GroupEvent } from './GroupPage';
 import { cardName, clockOf } from './room-rules';
+import { todayWords } from './GroupList';
 
 type Who = (id: string | null) => { name: string; avatarUrl: string | null; me: boolean } | undefined;
 const firstOf = (who: Who, id: string) => { const p = who(id); return p ? cardName(p).split(' ')[0] : 'Someone'; };
@@ -20,7 +21,10 @@ function Cheer({ n }: { n: number }) {
 /** "Today in Northwind · 6 finished, 3 working": the day's count, said quietly. */
 export function DayLine({ room, past, now }: { room: Room; past: GroupEvent[]; now: GroupEvent[] }) {
   const done = past.filter((e) => e.kind === 'finished').length;
-  return <div className="g5-dayline"><span className="g5-dt">Today in {room.name}</span>
+  const words = room.kind === 'group'
+    ? todayWords({ name: room.name, faces: room.wall.filter((c) => !c.me).map((c) => ({ name: c.name, url: c.avatarUrl })) }, room.name)
+    : `Today in ${room.name}`;
+  return <div className="g5-dayline"><span className="g5-dt">{words}</span>
     <span className="g5-dn">{done} finished, {now.length} working</span></div>;
 }
 

@@ -8,6 +8,7 @@ import { Reactions } from '../ChatActions';
 import { RoomFace } from './RoomFace';
 import { CheerBurst, CheerCard, DayList, PersonRow, WorkMark, drawnCheers, inGroupOrder, type GroupEvent } from './GroupPage';
 import { DayFeed, DayLine, FacePicker, PeopleStack, PersonDay } from './GroupDay';
+import { GroupMark, GroupMenuList, chipsShown, type GroupChoice } from './GroupList';
 import { cardName } from './room-rules';
 
 export type PageLook = 'rail' | 'pulse' | 'drawer' | 'band' | 'digest' | 'drawer2' | 'pulse2' | 'one' | 'stack' | 'feedpick';
@@ -66,15 +67,25 @@ export function DigestCard({ room, past, now, who, cheers, open, onToggle }: {
 
 /** Under the Groups tab: the group open now, or every group to pick from, and its buttons. */
 export function GroupBar({ style, groups, current, members, onPick, children }: {
-  style: 'picker' | 'chips'; groups: { id: string; name: string; unread: boolean }[]; current: string; members: number;
+  style: 'picker' | 'chips'; groups: GroupChoice[]; current: string; members: number;
   onPick: (id: string) => void; children?: ReactNode;
 }) {
+  const [more, setMore] = useState(false);
   const here = groups.find((g) => g.id === current);
+  const { shown, hidden } = chipsShown(groups, current);
+  const unseen = groups.filter((g) => g.unread && g.id !== current && !shown.includes(g)).length;
   return <div className={`g6-bar ${style}`}>
     {style === 'chips'
-      ? <div className="g6-chips">{groups.map((g) => <button type="button" key={g.id} className={`c${g.id === current ? ' on' : ''}`} onClick={() => onPick(g.id)}>
-        <span>{g.name}</span>{g.unread && g.id !== current && <span className="rm-unread" />}</button>)}</div>
-      : <div className="g6-name"><span className="nm">{here?.name}</span><span className="sub">{members} people</span></div>}
+      ? <div className="g6-chips">
+        {shown.map((g) => <button type="button" key={g.id} className={`c${g.faces.length ? ' faced' : ''}${g.id === current ? ' on' : ''}`} onClick={() => onPick(g.id)}>
+          {g.faces.length > 0 && <GroupMark g={g} size={20} row />}<span>{g.name}</span>{g.unread && g.id !== current && <span className="rm-unread" />}</button>)}
+        {hidden > 0 && <span className="g6-morewrap">
+          <button type="button" className={`c more${more ? ' on' : ''}`} onClick={() => setMore(!more)}>{hidden} more{unseen > 0 && <span className="rm-unread" />}</button>
+          {more && <div className="rm-pop g7-menu g7-drop"><GroupMenuList groups={groups} current={current} onPick={(id) => { setMore(false); onPick(id); }}
+            head={<div className="head rm-label">All groups</div>} /></div>}
+        </span>}
+      </div>
+      : <div className="g6-name">{here && here.faces.length > 0 && <GroupMark g={here} size={24} row />}<span className="nm">{here?.name}</span><span className="sub">{members} people</span></div>}
     <div className="g6-acts">{children}</div>
   </div>;
 }

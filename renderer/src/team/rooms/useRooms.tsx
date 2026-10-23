@@ -22,6 +22,7 @@ import { RoomsNotReady, RoomsSettings } from './RoomsSettings';
 import { GroupPage, NowLines, TitleFaces, groupEvents, readGroupLook, readWovenLook } from './GroupPage';
 import { DigestCard, GroupBar, GroupLayout, HeaderPill, PAGE_LOOKS, drawnCheers, type PageLook } from './GroupLayouts';
 import { Reactions } from '../ChatActions';
+import { groupChoices as toGroupChoices } from './GroupList';
 
 type Dialog =
   | { kind: 'invite'; roomId: string }
@@ -282,7 +283,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     onLeavePage(); setOpenId(null); setListing(false); setFinding(false); setNoChats(true);
   };
   const unreadChats = conversations.filter((c) => c.unread).length;
-  const groupChoices = live ? sortConversations(roomConversations(rooms)).map((c) => ({ id: c.id, name: c.name, unread: c.unread })) : [];
+  const groupChoices = live ? toGroupChoices(roomConversations(rooms), new Set(all.filter((r) => r.teamId || r.pinned).map((r) => r.id))) : [];
 
   // One row: every group, and the count of groups with something unread.
   const groupsLit = listing || finding || noChats || (!!open && !inTab);
@@ -317,7 +318,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   let page: ReactNode = null;
   // THE ROOM IS ITS BOARD, for the people here whose threads reach me. Only on
   // the room itself, never over a person, the ranks or a chat.
-  const onRoom = !!open && !!rooms && !full && open.kind !== 'group' && pane === 'wall' && !finding && !noChats;
+  const chatPage = !!look && PAGE_LOOKS.includes(look) && !boardOn;
+  const onRoom = !!open && !!rooms && !full && open.kind !== 'group' && pane === 'wall' && !finding && !noChats && !chatPage;
   // The tiles and the pick are everyone in the room; the board draws only those whose threads may reach me.
   const onBoardPeople = onRoom ? boardPeople(open!.wall) : [];
   const onBoardIds = new Set(onBoardPeople.map((c) => c.id));

@@ -69,6 +69,11 @@ export function world(now = Date.now(), faces = {}) {
     room('r-general', 'General', general, { listed: true, members: 214 }),
     room('r-founders', 'Founders who ship', [me, jonah, kai, omar], { role: 'owner' }),
     { ...room('r-g1', 'Jonah W.', [me, jonah], { unread: 1 }), kind: 'group', role: 'owner' },
+    // A chat with one person, then the same person and another: two chats.
+    { ...room('r-g2', 'Maya C.', [me, maya]), kind: 'group', role: 'owner' },
+    { ...room('r-g3', 'Maya C., Priya N.', [me, maya, priya], { unread: 1 }), kind: 'group', role: 'owner' },
+    { ...room('r-g4', 'Kai M., Omar H.', [me, kai, omar]), kind: 'group', role: 'member' },
+    { ...room('r-g5', 'Theo P.', [me, theo]), kind: 'group', role: 'member' },
   ];
   const messages = {
     'r-team': [
@@ -94,6 +99,22 @@ export function world(now = Date.now(), faces = {}) {
       msg('d1', 'r-g1', 'p-jonah', 'Can I borrow your eval prompt for the pricing model?', 2 * hr),
       msg('d2', 'r-g1', 'p-me', 'Sure, sending it over.', 1.9 * hr),
       msg('d3', 'r-g1', 'p-jonah', 'Thanks. It caught two regressions already.', 15 * min),
+    ],
+    'r-g2': [
+      msg('e1', 'r-g2', 'p-me', 'Can you look at the refund copy before you log off?', 70 * min),
+      msg('e2', 'r-g2', 'p-maya', 'Yes, after the webhook lands. Twenty minutes.', 62 * min),
+    ],
+    'r-g3': [
+      msg('h1', 'r-g3', 'p-me', 'Pulling you both in. Billing launch on Monday, who owns the email?', 48 * min),
+      msg('h2', 'r-g3', 'p-maya', 'I can draft it. Priya, can you check the legal line?', 41 * min),
+      msg('h3', 'r-g3', 'p-priya', 'Yes, back from interviews at 3.', 20 * min),
+    ],
+    'r-g4': [
+      msg('k1', 'r-g4', 'p-kai', 'Want to compare cloud bills? Ours tripled.', 3 * hr),
+      msg('k2', 'r-g4', 'p-omar', 'Same. Long evals mostly.', 2.6 * hr),
+    ],
+    'r-g5': [
+      msg('t1', 'r-g5', 'p-theo', 'Lock-screen reply works on my phone. Want a build?', 26 * hr),
     ],
   };
   const profile = {
