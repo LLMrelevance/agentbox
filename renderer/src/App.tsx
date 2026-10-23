@@ -81,7 +81,7 @@ import { approvalReads } from './approval-card';
 // there is anything to confirm the card has closed.
 import { sentLine, sendingLine } from './compose-says';
 import { wearJustMade, type JustMade } from './just-made';
-import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply, workMoving } from './list-rules';
+import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, replyKeyWorksIn, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply, workMoving } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
 import { opensATextField, takesTheListBack } from './keys';
 import { modelCommands } from './thread-model-commands';
@@ -5409,7 +5409,7 @@ export default function App() {
           else if (multiSel.size) batchDone(multiSel);
           else if (pointed && view === 'inbox') markDone(pointed);
           break;
-        case 'r': case 'R': if (!multiSel.size && pointed && view === 'inbox') { e.preventDefault(); setFocused(pointed); markSeen(pointed); setModal('reply'); } break;
+        case 'r': case 'R': if (!multiSel.size && pointed && replyKeyWorksIn(view)) { e.preventDefault(); setFocused(pointed); markSeen(pointed); setModal('reply'); } break;
         // 1 AND 2 ANSWER A CODEX CONVERSATION'S ROW WITHOUT OPENING IT, and I
         // brings a declined one back from Closed. Only on those rows: on every
         // other row they stay dead, as they were. They were Y and N until
