@@ -3034,10 +3034,9 @@ export default function App() {
     prevInboxIds.current = ids;
     window.zero?.badge?.(inbox.length);
 
-    // THE CORNER TAG (w-dafae58a23) says the same thing as the inbox, from
-    // over whatever app she is in: everything in Needs you, newest first, and
-    // how many are working. Working agents are only a count, because
-    // twenty running is ordinary and only what is ready is worth a line.
+    // THE CORNER TAG (w-dafae58a23) gets everything in Needs you with the
+    // moment each started waiting, and how many are working; it shows only
+    // what started after you last left the app (main/corner-tag.mjs).
     const productName = (slug: string) => snap.products.find((p) => p.slug === slug)?.name ?? slug;
     window.zero?.cornerTag?.({
       ready: [
@@ -3047,7 +3046,7 @@ export default function App() {
           says: i.status === 'blocked' ? 'needs you' : 'is ready for you',
           since: i.wrote?.status?.ts ?? i.updatedAt,
         })),
-        ...(snap.approvals ?? []).map((a) => ({ id: a.id, title: productName(a.product ?? ''), says: 'needs a yes', open: null })),
+        ...(snap.approvals ?? []).map((a) => ({ id: a.id, title: productName(a.product ?? ''), says: 'needs a yes', since: a.at, open: null })),
       ],
       working: runningRows.length,
     });

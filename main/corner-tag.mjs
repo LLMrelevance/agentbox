@@ -37,7 +37,7 @@
 // is, so it hands over what is ready and how many are working on
 // `zero:corner-tag`; shared/corner-tag.mjs puts it newest first.
 
-import { cardPlacement, cornerPlace, heightFromDrag, EDGE_SLACK, hiddenUntil, keepCorner, readyNow, restingSpot, spotFor, tagScaleOn, tagShows, tagZoom, zoomFor, zoomStep, GRIPS, HIDE_CHOICES } from '../shared/corner-tag.mjs';
+import { cardPlacement, cornerPlace, heightFromDrag, EDGE_SLACK, hiddenUntil, keepCorner, newSince, readyNow, restingSpot, spotFor, tagScaleOn, tagShows, tagZoom, zoomFor, zoomStep, GRIPS, HIDE_CHOICES } from '../shared/corner-tag.mjs';
 
 // How long the pointer may be off both the tag and its list before the list
 // shuts: long enough to cross the gap between them, short enough to feel like
@@ -52,6 +52,10 @@ export const DRAG_FROM_PX = 6;
 const FRAME_MS = 16;
 // A press whose release never came is let go after this long.
 const PRESS_GIVES_UP_MS = 60_000;
+// How often the Mac's glass is asked whether it went light or dark, while the
+// tray is on screen and only then. Drag the tray from a white page onto a dark
+// one and the ink follows within this.
+export const TONE_EVERY_MS = 500;
 
 const HIDE_LABELS = { '5m': 'Hide for 5 minutes', '30m': 'Hide for 30 minutes', today: 'Hide for the rest of today' };
 const CHANNELS = [
@@ -63,6 +67,9 @@ const CHANNELS = [
 export function createCornerTag({
   BrowserWindow, screen, ipcMain, Menu, powerMonitor, config, saveConfig, mainWindow, load, preload,
   count = () => {}, now = () => Date.now(), setTimer = setTimeout, clearTimer = clearTimeout, mac = process.platform === 'darwin',
+  // The Mac's own Liquid Glass (main/liquid-glass.mjs), or null, and then the
+  // page draws a glass of its own.
+  glass = null,
 }) {
   const wins = { tag: null, card: null };
   const loaded = { tag: false, card: false };
@@ -86,8 +93,14 @@ export function createCornerTag({
   // leave and come back rather than opening under it.
   let settling = false;
   let gone = false;
+  // The last time the app's window was in front. Only what started waiting
+  // after it is counted (w-93b3a1a796).
+  let lookedAt = Number(config.cornerTagLookedAt) || 0;
+  // Anything handed over without the moment it started waiting is dated from
+  // when this file first saw it, rather than counted new forever.
+  const firstSeen = new Map();
 
-  const fresh = () => readyNow(ready, now());
+  const fresh = () => readyNow(newSince(ready, lookedAt), now());
   const areas = () => screen.getAllDisplays().map((d) => d.workArea);
   const areaOf = (r) => screen.getDisplayMatching({ x: Math.round(r.x), y: Math.round(r.y), width: Math.max(1, Math.round(r.width)), height: Math.max(1, Math.round(r.height)) }).workArea;
   // THE CLEAR BAND. The tag's window is the glass plus a few points of nothing
@@ -130,12 +143,13 @@ export function createCornerTag({
   let zoom = tagZoom(config.cornerTagZoom);
   const scaleNow = () => tagScaleOn((tag ? areaOf(tag) : areas()[0] ?? { width: 0 }).width, zoom);
   const sendState = () => {
-    const s = { ready: fresh(), working, now: now(), open, scale: scaleNow() };
+    const shown = fresh();
+    const s = { ready: shown, before: Math.max(0, ready.length - shown.length), working, now: now(), open, scale: scaleNow(), glass: !!glass };
     send('tag', 'corner-tag:state', s);
     send('card', 'corner-tag:state', s);
   };
   const shouldShow = () => tagShows({
-    on: config.cornerTag, hiddenUntil: config.cornerTagHiddenUntil ?? 0, now: now(), inApp: inApp(), ready: fresh().length, working,
+    on: config.cornerTag, hiddenUntil: config.cornerTagHiddenUntil ?? 0, now: now(), inApp: inApp(), ready: fresh().length,
   });
   // The list may only appear beside a tag that is on screen and should be.
   // A click that was on its way while the tag hid must not open it alone.
@@ -181,6 +195,50 @@ export function createCornerTag({
     wins.card.setBounds(rounded(cardPlacement(glassOf(tag), cardSize, areaOf(tag)).card));
   };
 
+  /* ------------------------- the Mac's own glass ------------------------- */
+  // Where each page draws its glass, and how round, as it last said. The Mac's
+  // glass is put exactly there, and the page draws no fill of its own.
+  const shape = { tag: null, card: null };
+  // Which way the tag's glass went over what is behind it. Only the tag is
+  // read: glass the list's size follows the Mac's own dark or light setting
+  // rather than the screen, so the list is held to the tag's reading.
+  let tone = null;
+  const toneSent = { tag: null, card: null };
+  let toneTimer = null;
+  const shareTone = () => {
+    for (const part of ['tag', 'card']) {
+      if (!tone || !alive(part) || !loaded[part] || toneSent[part] === tone) continue;
+      toneSent[part] = tone;
+      send(part, 'corner-tag:tone', tone);
+    }
+  };
+  const readTone = () => {
+    if (!glass || !shape.tag || !alive('tag') || !wins.tag.isVisible()) return;
+    let read = null;
+    try { read = glass.tone(wins.tag); } catch { /* no reading, keep the last */ }
+    if ((read !== 'light' && read !== 'dark') || read === tone) return;
+    tone = read;
+    dress('card');
+    shareTone();
+  };
+  const stopTones = () => { if (toneTimer) { clearTimer(toneTimer); toneTimer = null; } };
+  const watchTones = () => {
+    if (!glass || toneTimer || gone) return;
+    const tick = () => {
+      toneTimer = null;
+      if (gone || !alive('tag') || !wins.tag.isVisible()) return;
+      readTone();
+      toneTimer = setTimer(tick, TONE_EVERY_MS);
+    };
+    toneTimer = setTimer(tick, TONE_EVERY_MS);
+  };
+  const dress = (part) => {
+    if (!glass || !shape[part] || !alive(part)) return;
+    const opts = part === 'card' && tone ? { radius: shape.card.radius, tone } : { radius: shape[part].radius };
+    try { glass.set(wins[part], shape[part].rect, opts); } catch { return; }
+    if (part === 'tag') { readTone(); watchTones(); }
+  };
+
   const make = (part) => {
     const win = new BrowserWindow({
       show: false,
@@ -219,6 +277,7 @@ export function createCornerTag({
       if (!loaded[part]) return;
       loaded[part] = false;
       hovered[part] = false;
+      toneSent[part] = null;
       if (part === 'tag') { endPress(true); if (win.isVisible()) win.hide(); }
       closeCard();
     });
@@ -239,7 +298,10 @@ export function createCornerTag({
   }
 
   const showCard = () => {
-    if (open && tagUp() && loaded.card && cardSize && alive('card') && !wins.card.isVisible()) wins.card.showInactive();
+    if (open && tagUp() && loaded.card && cardSize && alive('card') && !wins.card.isVisible()) {
+      wins.card.showInactive();
+      readTone();
+    }
   };
 
   function openCard() {
@@ -422,13 +484,18 @@ export function createCornerTag({
     // A hide comes back by itself the moment it runs out.
     if (until > now()) wake = setTimer(refresh, until - now() + 50);
     if (!shouldShow()) {
+      stopTones();
       if (alive('tag') && wins.tag.isVisible()) { wins.tag.hide(); reset(); }
       else if (open) closeCard();
       return;
     }
     if (!alive('tag')) { make('tag'); return; }
     sendState();
-    if (loaded.tag && !wins.tag.isVisible()) wins.tag.showInactive();
+    if (loaded.tag && !wins.tag.isVisible()) {
+      wins.tag.showInactive();
+      readTone();
+      watchTones();
+    }
   }
 
   const bringAppForward = () => {
@@ -464,7 +531,14 @@ export function createCornerTag({
 
   /* ------------------------------ from the app's page ---------------------- */
   ipcMain.handle('zero:corner-tag', (_e, state) => {
-    ready = Array.isArray(state?.ready) ? state.ready : [];
+    const given = Array.isArray(state?.ready) ? state.ready : [];
+    const ids = new Set(given.map((r) => r.id));
+    for (const id of firstSeen.keys()) if (!ids.has(id)) firstSeen.delete(id);
+    ready = given.map((r) => {
+      if (Number.isFinite(r.since)) return r;
+      if (!firstSeen.has(r.id)) firstSeen.set(r.id, now());
+      return { ...r, since: firstSeen.get(r.id) };
+    });
     working = Number.isFinite(state?.working) ? state.working : 0;
     refresh();
     return null;
@@ -475,6 +549,7 @@ export function createCornerTag({
     const part = partOf(p);
     loaded[part] = true;
     sendState();
+    shareTone();
     if (part === 'tag') refresh();
     else if (open) { placeCard(); showCard(); }
     return null;
@@ -483,8 +558,12 @@ export function createCornerTag({
   ipcMain.handle('corner-tag:size', (_e, p) => {
     if (!p || !(p.width > 0) || !(p.height > 0)) return null;
     const size = { width: Math.ceil(p.width), height: Math.ceil(p.height) };
+    const radius = (rect) => (Number.isFinite(p.radius) && p.radius >= 0 ? p.radius : rect.height / 2);
     if (partOf(p) === 'card') {
       cardSize = size;
+      const rect = { x: 0, y: 0, ...size };
+      shape.card = { rect, radius: radius(rect) };
+      dress('card');
       if (open) { placeCard(); showCard(); }
       return null;
     }
@@ -495,6 +574,9 @@ export function createCornerTag({
       };
       frame = inset.x;
     }
+    const rect = inset ?? { x: 0, y: 0, ...size };
+    shape.tag = { rect, radius: radius(rect) };
+    dress('tag');
     // Mid-resize the page's own measurement is the truth: it places the tag
     // from the corner she is not holding.
     if (press?.grip) { resizeTo(size); if (open) placeCard(); return null; }
@@ -630,7 +712,14 @@ export function createCornerTag({
   // After sleep the screens may have changed and a hide may have run out.
   const woke = () => { reseat(); refresh(); };
 
-  const onFocus = () => refresh();
+  // Being in the app is looking at everything it holds. The moment you leave
+  // is kept, so a restart does not count it all again.
+  const onFocus = () => { lookedAt = now(); refresh(); };
+  const onBlur = () => {
+    lookedAt = now();
+    try { saveConfig(config, { cornerTagLookedAt: lookedAt }); } catch { /* kept for this run only */ }
+    refresh();
+  };
   // The app's window is gone, and the tag goes with it. Left behind, it would
   // hold the app open with nothing behind it and nothing it could open.
   const dispose = () => {
@@ -640,6 +729,7 @@ export function createCornerTag({
     cancelClose();
     if (wake) { clearTimer(wake); wake = null; }
     if (watching) { clearTimer(watching); watching = null; }
+    stopTones();
     cancelOpen();
     for (const part of ['tag', 'card']) if (alive(part)) wins[part].destroy();
     for (const ch of CHANNELS) { try { ipcMain.removeHandler?.(ch); } catch {} }
@@ -654,7 +744,7 @@ export function createCornerTag({
 
   if (mainWindow) {
     mainWindow.on('focus', onFocus);
-    mainWindow.on('blur', onFocus);
+    mainWindow.on('blur', onBlur);
     mainWindow.on('closed', dispose);
   }
   try {
