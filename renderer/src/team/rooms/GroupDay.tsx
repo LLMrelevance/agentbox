@@ -86,6 +86,61 @@ export function FacePicker({ cards, picked, onPick, all = false, max = 7 }: { ca
   </div>;
 }
 
+function AgentsMark({ n }: { n: number | null }) {
+  if (!n) return null;
+  return <span className="g8-ag"><LiveMark /><span>{n} {n === 1 ? 'agent' : 'agents'}</span></span>;
+}
+
+const onWords = (c: RoomCard) => c.away ? 'Not on Groups yet' : c.agents ? c.workingOn ?? 'Private thread' : c.status ?? 'Not running';
+
+/** Who is in the group and who is working: face, name, level, what they are on, their agents. */
+export function PeoplePanel({ room, past, form = 'list', openFirst = false, onPerson }: {
+  room: Room; past: GroupEvent[]; form?: 'list' | 'cards';
+  /** Rows open in place, one at a time, to that person's day; the busiest teammate starts open. */
+  openFirst?: boolean;
+  onPerson: (id: string) => void;
+}) {
+  const all = inGroupOrder(room.wall);
+  // A big group lists who is working; everyone else is counted.
+  const big = room.members > 12;
+  const cards = big ? all.filter((c) => c.me || c.agents).slice(0, 10) : all;
+  const working = all.filter((c) => c.agents).length;
+  const more = room.members - cards.length;
+  const [open, setOpen] = useState<string | null>(() => openFirst ? all.find((c) => !c.me && c.agents)?.id ?? null : null);
+  const head = <div className="g8-ph"><span className="g8-pt">People</span><span className="g8-pn">{working} of {room.members} working</span></div>;
+  if (form === 'cards') return <div className="g8-people">{head}
+    <div className="g8-cards">{cards.map((c) => <button type="button" key={c.id} className="g8-card" onClick={() => onPerson(c.id)}>
+      <RoomFace name={c.name} url={c.avatarUrl} size={40} />
+      <span className="g8-l1"><span className="g8-nm rm-one">{cardName(c)}</span>{c.level != null && <span className="g8-lv">{c.level}</span>}</span>
+      <span className={`g8-l2 g8-clamp${c.agents ? '' : ' idle'}`}>{onWords(c)}</span>
+      {c.agents ? <AgentsMark n={c.agents} /> : <span className="g8-ag still"><LiveMark still /><span>Not running</span></span>}
+    </button>)}</div>
+    {more > 0 && <div className="g8-more">{more} more not working now</div>}
+  </div>;
+  return <div className="g8-people">{head}
+    {cards.map((c) => {
+      const isOpen = openFirst && open === c.id;
+      const done = isOpen ? past.filter((e) => e.by === c.id && e.kind === 'finished').reverse() : [];
+      return <div key={c.id} className={`g8-item${isOpen ? ' open' : ''}`}>
+        <button type="button" className="g8-row" onClick={() => (openFirst ? setOpen(isOpen ? null : c.id) : onPerson(c.id))}>
+          <RoomFace name={c.name} url={c.avatarUrl} size={32} />
+          <span className="g8-w">
+            <span className="g8-l1"><span className="g8-nm rm-one">{cardName(c)}</span>{c.level != null && <span className="g8-lv">{c.level}</span>}</span>
+            <span className={`g8-l2 rm-one${c.agents ? '' : ' idle'}`}>{onWords(c)}</span>
+          </span>
+          <AgentsMark n={c.agents} />
+        </button>
+        {isOpen && <div className="g8-day">
+          <span className="g8-dh">{done.length ? `Finished ${done.length} today` : 'Nothing finished yet today'}</span>
+          {done.slice(0, 4).map((e) => <span key={e.id} className="g8-dl rm-one">{e.title}</span>)}
+          <button type="button" className="g8-link" onClick={() => onPerson(c.id)}>Open {cardName(c).split(' ')[0]}'s page</button>
+        </div>}
+      </div>;
+    })}
+    {more > 0 && <div className="g8-more">{more} more not working now</div>}
+  </div>;
+}
+
 /** Everyone in one column, one person open at a time. */
 export function PeopleStack({ room, past, ids }: { room: Room; past: GroupEvent[]; ids: string[] }) {
   const cards = inGroupOrder(room.wall);

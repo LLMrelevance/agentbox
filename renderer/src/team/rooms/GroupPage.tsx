@@ -6,8 +6,8 @@ import { LiveMark } from '../../components/LiveMark';
 import { RoomFace } from './RoomFace';
 import { agentsWords, cardName, clockOf } from './room-rules';
 
-export type GroupLook = 'beside' | 'above' | 'woven' | 'wall' | 'title' | 'rail' | 'pulse' | 'drawer' | 'band' | 'digest' | 'drawer2' | 'pulse2' | 'one' | 'stack' | 'feedpick';
-export const GROUP_LOOKS: GroupLook[] = ['beside', 'above', 'woven', 'wall', 'title', 'rail', 'pulse', 'drawer', 'band', 'digest', 'drawer2', 'pulse2', 'one', 'stack', 'feedpick'];
+export type GroupLook = 'beside' | 'above' | 'woven' | 'wall' | 'title' | 'rail' | 'pulse' | 'drawer' | 'band' | 'digest' | 'drawer2' | 'pulse2' | 'one' | 'stack' | 'feedpick' | 'people' | 'people-open' | 'cards';
+export const GROUP_LOOKS: GroupLook[] = ['beside', 'above', 'woven', 'wall', 'title', 'rail', 'pulse', 'drawer', 'band', 'digest', 'drawer2', 'pulse2', 'one', 'stack', 'feedpick', 'people', 'people-open', 'cards'];
 
 /** Cheers on finished work, drawn from the people here; nothing stores them yet. */
 export function drawnCheers(ev: { id: string; by: string }, ids: string[]): string[] {

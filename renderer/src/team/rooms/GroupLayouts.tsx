@@ -7,12 +7,13 @@ import { LiveMark } from '../../components/LiveMark';
 import { Reactions } from '../ChatActions';
 import { RoomFace } from './RoomFace';
 import { CheerBurst, CheerCard, DayList, PersonRow, WorkMark, drawnCheers, inGroupOrder, type GroupEvent } from './GroupPage';
-import { DayFeed, DayLine, FacePicker, PeopleStack, PersonDay } from './GroupDay';
+import { DayFeed, DayLine, FacePicker, PeoplePanel, PeopleStack, PersonDay } from './GroupDay';
 import { GroupMark, GroupMenuList, chipsShown, type GroupChoice } from './GroupList';
 import { cardName } from './room-rules';
+import { I } from './icons';
 
-export type PageLook = 'rail' | 'pulse' | 'drawer' | 'band' | 'digest' | 'drawer2' | 'pulse2' | 'one' | 'stack' | 'feedpick';
-export const PAGE_LOOKS: string[] = ['rail', 'pulse', 'drawer', 'band', 'digest', 'drawer2', 'pulse2', 'one', 'stack', 'feedpick'];
+export type PageLook = 'rail' | 'pulse' | 'drawer' | 'band' | 'digest' | 'drawer2' | 'pulse2' | 'one' | 'stack' | 'feedpick' | 'people' | 'people-open' | 'cards';
+export const PAGE_LOOKS: string[] = ['rail', 'pulse', 'drawer', 'band', 'digest', 'drawer2', 'pulse2', 'one', 'stack', 'feedpick', 'people', 'people-open', 'cards'];
 
 type Who = (id: string | null) => { name: string; avatarUrl: string | null; me: boolean } | undefined;
 const first = (who: Who, id: string) => { const p = who(id); return p ? cardName(p).split(' ')[0] : 'Someone'; };
@@ -74,18 +75,28 @@ export function GroupBar({ style, groups, current, members, onPick, children }: 
   const here = groups.find((g) => g.id === current);
   const { shown, hidden } = chipsShown(groups, current);
   const unseen = groups.filter((g) => g.unread && g.id !== current && !shown.includes(g)).length;
+  const chip = (g: GroupChoice) => <button type="button" key={g.id} className={`c${g.faces.length ? ' chat' : ' named'}${g.id === current ? ' on' : ''}`} onClick={() => onPick(g.id)}>
+    {g.faces.length > 0 ? <GroupMark g={g} size={20} row /> : <span className="g6-hash">{I.hash(13)}</span>}<span>{g.name}</span>{g.unread && g.id !== current && <span className="rm-unread" />}</button>;
+  const named = shown.filter((g) => !g.faces.length);
+  const chats = shown.filter((g) => g.faces.length);
   return <div className={`g6-bar ${style}`}>
     {style === 'chips'
       ? <div className="g6-chips">
-        {shown.map((g) => <button type="button" key={g.id} className={`c${g.faces.length ? ' faced' : ''}${g.id === current ? ' on' : ''}`} onClick={() => onPick(g.id)}>
-          {g.faces.length > 0 && <GroupMark g={g} size={20} row />}<span>{g.name}</span>{g.unread && g.id !== current && <span className="rm-unread" />}</button>)}
+        {named.map(chip)}
+        {named.length > 0 && chats.length > 0 && <span className="g6-sep" aria-hidden="true" />}
+        {chats.map(chip)}
         {hidden > 0 && <span className="g6-morewrap">
           <button type="button" className={`c more${more ? ' on' : ''}`} onClick={() => setMore(!more)}>{hidden} more{unseen > 0 && <span className="rm-unread" />}</button>
           {more && <div className="rm-pop g7-menu g7-drop"><GroupMenuList groups={groups} current={current} onPick={(id) => { setMore(false); onPick(id); }}
-            head={<div className="head rm-label">All groups</div>} /></div>}
+ /></div>}
         </span>}
       </div>
-      : <div className="g6-name">{here && here.faces.length > 0 && <GroupMark g={here} size={24} row />}<span className="nm">{here?.name}</span><span className="sub">{members} people</span></div>}
+      : <span className="g6-morewrap">
+        <button type="button" className={`g6-name${more ? ' on' : ''}`} onClick={() => setMore(!more)}>
+          {here && (here.faces.length > 0 ? <GroupMark g={here} size={24} row /> : <span className="g6-hash">{I.hash(15)}</span>)}
+          <span className="nm">{here?.name}</span><span className="sub">{members} people</span>{I.down()}</button>
+        {more && <div className="rm-pop g7-menu g7-drop"><GroupMenuList groups={groups} current={current} onPick={(id) => { setMore(false); onPick(id); }} /></div>}
+      </span>}
     <div className="g6-acts">{children}</div>
   </div>;
 }
@@ -110,6 +121,8 @@ export function GroupLayout({ room, look, chat, past, now, who, onPerson, open, 
   const day = (side: ReactNode) => top
     ? <div className="gp g5 col">{top}<div className="g5-row"><div className="gp-chat">{chat}</div>{side}</div></div>
     : <div className="gp g5"><div className="gp-chat">{chat}</div>{side}</div>;
+  if (look === 'people' || look === 'people-open' || look === 'cards') return day(<aside className="g5-side g8-side">
+    <PeoplePanel key={room.id} room={room} past={past} form={look === 'cards' ? 'cards' : 'list'} openFirst={look === 'people-open'} onPerson={onPerson} /></aside>);
   if (look === 'drawer2') return day(open && <aside className="g5-side"><DayLine room={room} past={past} now={now} />
     {shown.map((c) => <PersonDay key={c.id} card={c} past={past} ids={ids} />)}</aside>);
   if (look === 'pulse2') return day(<aside className="g5-side"><DayLine room={room} past={past} now={now} /><DayFeed past={past} who={who} ids={ids} /></aside>);

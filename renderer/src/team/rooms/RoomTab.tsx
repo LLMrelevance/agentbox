@@ -34,7 +34,7 @@ export function RoomTabMenu({ rooms, current, invisible, at, onPick, onClose, gr
   // Hangs from the start of the tab, as long as it stays inside the window.
   const left = Math.max(8, Math.min(at.left, (typeof window === 'undefined' ? Infinity : window.innerWidth) - 228));
   if (groups) return <div ref={ref} className="rm-menu rm-pop rm-tabmenu g7-menu" role="menu" style={{ left: Math.max(8, Math.min(left, window.innerWidth - 372)), top: at.bottom + 6 }}>
-    <GroupMenuList groups={groups} current={current} onPick={onPick} head={<div className="head rm-label">All groups</div>} />
+    <GroupMenuList groups={groups} current={current} onPick={onPick} />
   </div>;
   return <div ref={ref} className="rm-menu rm-pop rm-tabmenu" role="menu" style={{ left, top: at.bottom + 6 }}>
     <div className="head rm-label">Room in this tab</div>

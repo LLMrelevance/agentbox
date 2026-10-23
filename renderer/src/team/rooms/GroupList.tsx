@@ -1,10 +1,10 @@
 // Every group you are in, each chat its own (w-dcaa2c122e): a named group, a
 // chat with one person, and a chat with that person and someone else are
 // three entries. Drawn as the full list and as the row of chips over a group.
-import type { ReactNode } from 'react';
 import type { Conversation } from './MessagesPage';
 import { RoomFace } from './RoomFace';
 import { clockOf } from './room-rules';
+import { I } from './icons';
 
 export type GroupChoice = {
   id: string;
@@ -60,9 +60,9 @@ export function chipsShown(all: readonly GroupChoice[], current: string, max = 6
   return { shown, hidden: all.length - shown.length };
 }
 
-/** A named group wears its initial; a chat wears the faces in it, side by side when small. */
+/** A named group wears a #; a chat wears the faces in it, side by side when small. */
 export function GroupMark({ g, size = 20, row = false }: { g: GroupChoice; size?: number; row?: boolean }) {
-  if (!g.faces.length) return <span className="g7-ini" style={{ width: size, height: size, lineHeight: `${size}px` }} aria-hidden="true">{g.name.slice(0, 1).toUpperCase()}</span>;
+  if (!g.faces.length) return <span className="g7-ini" style={{ width: size, height: size }} aria-hidden="true">{I.hash(Math.round(size * 0.5))}</span>;
   if (g.faces.length === 1) return <RoomFace name={g.faces[0].name} url={g.faces[0].url} size={size} />;
   if (row) return <span className="g7-row-faces">{g.faces.slice(0, 3).map((f, i) => <RoomFace key={i} name={f.name} url={f.url} size={size} />)}</span>;
   const small = Math.round(size * 0.72);
@@ -71,14 +71,19 @@ export function GroupMark({ g, size = 20, row = false }: { g: GroupChoice; size?
   </span>;
 }
 
-/** Every group and chat, newest first, with the last thing said in each. */
-export function GroupMenuList({ groups, current, onPick, head }: { groups: GroupChoice[]; current: string | null; onPick: (id: string) => void; head?: ReactNode }) {
+/** Groups, then direct messages, each newest first, with the last thing said in each. */
+export function GroupMenuList({ groups, current, onPick }: { groups: GroupChoice[]; current: string | null; onPick: (id: string) => void }) {
+  const row = (g: GroupChoice) => <button type="button" key={g.id} className={`g7-row${g.id === current ? ' on' : ''}`} onClick={() => onPick(g.id)}>
+    <GroupMark g={g} size={32} />
+    <span className="g7-w"><span className="g7-nm rm-one">{g.name}</span><span className="g7-last rm-one">{g.last}</span></span>
+    <span className="g7-m"><em>{g.at ? clockOf(g.at) : ''}</em>{g.unread && g.id !== current && <span className="rm-unread" />}</span>
+  </button>;
+  const named = groups.filter((g) => !g.faces.length);
+  const chats = groups.filter((g) => g.faces.length);
   return <div className="g7-list">
-    {head}
-    {groups.map((g) => <button type="button" key={g.id} className={`g7-row${g.id === current ? ' on' : ''}`} onClick={() => onPick(g.id)}>
-      <GroupMark g={g} size={32} />
-      <span className="g7-w"><span className="g7-nm rm-one">{g.name}</span><span className="g7-last rm-one">{g.last}</span></span>
-      <span className="g7-m"><em>{g.at ? clockOf(g.at) : ''}</em>{g.unread && g.id !== current && <span className="rm-unread" />}</span>
-    </button>)}
+    {named.length > 0 && <div className="head rm-label">Groups</div>}
+    {named.map(row)}
+    {chats.length > 0 && <div className="head rm-label g7-sec">Direct messages</div>}
+    {chats.map(row)}
   </div>;
 }

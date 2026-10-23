@@ -119,9 +119,11 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   };
 
   // From the room tab a room opens under the Threads tabs; any other way, as its own page.
-  const openRoom = (id: string, { asFull = false, inTab: tab = false } = {}) => {
+  // With the Groups tab, a group opened from inside one stays where it was, in
+  // the Threads tab or on its own page from the sidebar's Groups row.
+  const openRoom = (id: string, { asFull = false, inTab: tab }: { asFull?: boolean; inTab?: boolean } = {}) => {
     onLeavePage(); setListing(false); setFinding(false); setNoChats(false); setOpenId(id); setPane('wall'); setPanelId(null); setFull(asFull); setCameFrom(null);
-    if (tabStyle) { setTabChoice(id); writeRoomTab(id); setInTab(true); } else setInTab(tab);
+    if (tabStyle) { setTabChoice(id); writeRoomTab(id); setInTab(tab ?? inTab); } else setInTab(!!tab);
   };
   const openRooms = () => { onLeavePage(); setOpenId(null); setFull(false); setPanelId(null); setFinding(false); setNoChats(false); setCameFrom(null); setListing(true); };
   // A room and Find rooms both sit inside the Rooms page, so stepping out of either lands there.
@@ -287,9 +289,10 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
 
   // One row: every group, and the count of groups with something unread.
   const groupsLit = listing || finding || noChats || (!!open && !inTab);
-  const nav = (collapsed: boolean, messagesLit = false): ReactNode => live && !tabStyle ? <nav className="workspace-tabs rm-msgnav" aria-label="Groups">
+  const openLast = () => { const last = tabStyle && all.find((r) => r.id === tabChoice); if (last) openRoom(last.id, { inTab: false }); else openRooms(); };
+  const nav = (collapsed: boolean, messagesLit = false): ReactNode => live ? <nav className="workspace-tabs rm-msgnav" aria-label="Groups">
     <button type="button" className={`workspace-tab${groupsLit || messagesLit ? ' active' : ''}${unreadChats ? ' has-count' : ''}`}
-      aria-label="Groups" title={collapsed ? 'Groups' : undefined} onClick={openRooms}>
+      aria-label="Groups" title={collapsed ? 'Groups' : undefined} onClick={openLast}>
       {I.groupNav()}<span>Groups</span>{unreadChats > 0 && <small className="workspace-running" aria-label={`${unreadChats} unread`}>{unreadChats}</small>}
     </button>
   </nav> : null;
@@ -376,8 +379,9 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       {PAGE_LOOKS.includes(look) && renderBoard && <button type="button" className="th-new" onClick={() => setBoardOn(true)}>Board</button>}
       {open.kind !== 'group' && <button type="button" className="th-new" onClick={() => setDialog({ kind: 'invite', roomId: open.id })}>{I.invite(15)}Invite</button>}
     </>;
-    const tabbedPage = inTab && !!tabStyle;
-    heading = tabbedPage ? null : { title: backTitle(name), right: <div className="th-right">{actions}</div> };
+    const tabbedPage = !!tabStyle;
+    heading = !tabStyle ? { title: backTitle(name), right: <div className="th-right">{actions}</div> }
+      : inTab ? null : { title: <h1 className="workspace-title">Groups</h1>, right: null };
     const bar = tabbedPage ? <GroupBar style={tabStyle!} groups={groupChoices} current={open.id} members={open.members} onPick={(id) => openRoom(id)}>{actions}</GroupBar> : undefined;
     page = PAGE_LOOKS.includes(look)
       ? <GroupLayout key={open.id} room={open} look={look as PageLook} chat={chat} past={day.past} now={day.now} who={who} meId={meId} top={bar}
