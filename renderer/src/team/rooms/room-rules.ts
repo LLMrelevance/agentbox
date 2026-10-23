@@ -1,6 +1,6 @@
 // The rules the room screens draw by (w-3d0fa23ffb), kept apart from the
 // drawing so they can be tested. tests/a-room-reads-the-way-it-was-approved.
-import type { Person, Room, RoomCard, ThreadCard } from '../../types';
+import type { Person, Room, RoomCard, RoomMention, ThreadCard } from '../../types';
 
 /** A chat just started goes beside the room where that panel is drawn; a
  *  person's page has none, so from there it opens full page, and Back returns. */
@@ -10,7 +10,7 @@ export function whereChatOpens<P extends string>({ open, full, pane }: { open: {
   return pane.startsWith('person:') ? { beside: false, back: { roomId: open.id, pane } } : { beside: true };
 }
 
-type Shares = { me: boolean; teammate: boolean; showActivity: boolean; activity?: unknown[] | null };
+type Shares = { me: boolean; teammate: boolean; showActivity: boolean; activity?: unknown[] | null; away?: boolean };
 /** Whose threads reach me as the team's thread cards: my own, or a teammate's who shares them. */
 const onTheTeamBoard = (c: Shares) => c.me || (c.teammate && c.showActivity);
 /** Their page's Activity tab: off the team's cards, or off their presence for someone outside my team who shows it to their rooms. */
@@ -67,28 +67,76 @@ export function chatPeople(room: Pick<Room, 'people' | 'wall'>, meId: string | n
   return room.people.map((p) => ({ ...p, me: p.id === meId }));
 }
 
-/** A room drawn as its grid of people, or as a board of their threads. */
-export type RoomView = 'grid' | 'board';
-const VIEW_KEY = 'rooms.view';
 const PICK_KEY = 'rooms.board.people';
+const LATER_KEY = 'rooms.board.later';
+const TAB_KEY = 'rooms.tab';
 type Store = Pick<Storage, 'getItem' | 'setItem'> | null;
 const local = (): Store => (typeof localStorage === 'undefined' ? null : localStorage);
 
-export function readRoomView(store: Store = local()): RoomView {
-  try { return store?.getItem(VIEW_KEY) === 'board' ? 'board' : 'grid'; } catch { return 'grid'; }
+/** The room picked for the Threads tab bar: a room id, 'none' after No room tab, or null before any pick. */
+export function readRoomTab(store: Store = local()): string | null {
+  try { return store?.getItem(TAB_KEY) || null; } catch { return null; }
 }
-export function writeRoomView(view: RoomView, store: Store = local()) {
-  try { store?.setItem(VIEW_KEY, view); } catch { /* not kept */ }
+export function writeRoomTab(choice: string, store: Store = local()) {
+  try { store?.setItem(TAB_KEY, choice); } catch { /* not kept */ }
 }
 
-/** Who can be on a room's board: whoever's thread cards reach me. */
-export const boardPeople = <T extends Shares>(wall: readonly T[]) => wall.filter(onTheTeamBoard);
+const CHAT_KEY = 'rooms.chat.width';
+/** The chat's share of the room until it is dragged: 480 at 1440, the width that was liked. rooms.css says the same. */
+export const CHAT_SHARE = 0.41;
+/** Three board columns of 170 with their gaps and padding; rooms.css's max-width says the same. */
+export const BOARD_LEAST = 620;
+
+/** How wide the chat beside a room may be, given the room's width with board and chat together. */
+export function chatWidth(want: number, space: number): number {
+  return Math.round(Math.max(300, Math.min(want, 720, space - BOARD_LEAST)));
+}
+/** The width it was dragged to, or null for the room's share. */
+export function readChatWidth(store: Store = local()): number | null {
+  try { const n = Number(store?.getItem(CHAT_KEY)); return n > 0 ? n : null; } catch { return null; }
+}
+export function writeChatWidth(width: number | null, store: Store = local()) {
+  try { store?.setItem(CHAT_KEY, width == null ? '' : String(Math.round(width))); } catch { /* not kept */ }
+}
+
+/** What Tab walks: the state tabs, then the room tab when there is one. */
+export function tabOrder<T extends string>(stateTabs: readonly T[], tabRoomId: string | null): (T | 'room')[] {
+  return tabRoomId ? [...stateTabs, 'room'] : [...stateTabs];
+}
+
+/** The room in the Threads tab: the one picked, else the first pinned room, else the first room. Never a group chat. */
+export function tabRoom<R extends Pick<Room, 'id' | 'kind' | 'pinned'>>(rooms: readonly R[], choice: string | null): R | null {
+  if (choice === 'none') return null;
+  const own = rooms.filter((r) => r.kind !== 'group');
+  return own.find((r) => r.id === choice) ?? own.find((r) => r.pinned) ?? own[0] ?? null;
+}
+
+/** Whose threads a room's board draws: whoever's Activity I may open, and a
+ *  teammate not on Rooms yet, who has no Rooms switch but whose team cards reach me. */
+export const boardPeople = <T extends Shares>(wall: readonly T[]) => wall.filter((c) => activityShown(c) || (c.teammate && !!c.away));
 
 /** The people picked for a room's board, kept to those still on it. Nobody left means everyone. */
 export function boardPicked(saved: readonly string[] | null | undefined, people: readonly { id: string }[]): string[] {
   const ids = people.map((p) => p.id);
   const kept = (saved ?? []).filter((id) => ids.includes(id));
   return kept.length ? kept : ids;
+}
+
+/** A face over the board picked: just them from everyone, back to everyone from them alone. */
+export function facePick(picked: readonly string[], all: readonly string[], id: string): string[] {
+  if (picked.length >= all.length) return [id];
+  if (picked.length === 1 && picked[0] === id) return [...all];
+  return picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id];
+}
+
+/** Tiles to a row over the board: eight at most, and even rows past that. */
+export function tilesPerRow(n: number, most = 8): number {
+  return Math.ceil(n / Math.ceil(n / most));
+}
+
+/** How many face tiles fit across a width: "Not running" and its padding take 93px, and the tile's line 1. */
+export function tilesAcross(width: number): number {
+  return Math.max(1, Math.min(8, Math.floor(width / 94)));
 }
 
 /** Each room's pick, by room id. */
@@ -100,6 +148,14 @@ export function readBoardPicks(store: Store = local()): Record<string, string[]>
 }
 export function writeBoardPicks(picks: Record<string, string[]>, store: Store = local()) {
   try { store?.setItem(PICK_KEY, JSON.stringify(picks)); } catch { /* not kept */ }
+}
+
+/** Whether a room's board shows its Later column, which it does not until asked. */
+export function readBoardLater(store: Store = local()): boolean {
+  try { return store?.getItem(LATER_KEY) === '1'; } catch { return false; }
+}
+export function writeBoardLater(shown: boolean, store: Store = local()) {
+  try { store?.setItem(LATER_KEY, shown ? '1' : '0'); } catch { /* not kept */ }
 }
 
 /** Their place in the room by agent hours this week; ties share a place. */
@@ -236,4 +292,19 @@ export const peopleCount = (room: { members: number }, invisible: boolean) => Ma
 /** My card leaves the wall while I am invisible; the chat still needs my name and face. */
 export function withMe<T extends { me: boolean }>(people: readonly T[], me: T | null): T[] {
   return !me || people.some((p) => p.me) ? [...people] : [...people, me];
+}
+
+export type MentionRow = RoomMention & { count: number };
+
+/** One Needs you row per person per room, with how many they sent and the
+ *  newest one's time: every row of one room opens the same chat, and a read
+ *  clears them together. */
+export function mentionRows(mentions: readonly RoomMention[]): MentionRow[] {
+  const rows = new Map<string, MentionRow>();
+  for (const m of mentions) {
+    const id = `room-mention:${m.roomId}:${m.by ?? ''}`;
+    const had = rows.get(id);
+    rows.set(id, { ...(!had || m.at > had.at ? m : had), id, count: (had?.count ?? 0) + 1 });
+  }
+  return [...rows.values()].sort((a, b) => b.at - a.at);
 }

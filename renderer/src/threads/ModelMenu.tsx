@@ -10,6 +10,8 @@
 
 import type { ModelPick } from './composer-rules';
 import type { EffortChoice } from '../effort';
+import { codexFreePlan } from '../models';
+import { useAgentUpdates } from '../components/AgentUpdates';
 // The menu's own ink, wherever it is drawn: the reply box has no other reason
 // to load the card's stylesheet.
 import './thread-composer.css';
@@ -42,6 +44,34 @@ export function ModelMenu({
   onHover: (e: React.PointerEvent<HTMLElement>) => void;
 }) {
   const same = (a: ModelPick, b: ModelPick) => a.engine === b.engine && a.model === b.model;
+  // EACH COLUMN'S HEADING SAYS WHAT LIMITS ITS LIST: "Free plan" when every
+  // Codex login is on ChatGPT's free plan, and "Update" when that agent is
+  // out of date, which the old picker offered and this menu did not.
+  const { updates, start } = useAgentUpdates();
+  const free = every.codex.length > 0 ? codexFreePlan() : null;
+  const freeDate = free?.endedAt ? new Date(free.endedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : null;
+  const freeWhy = freeDate
+    ? `Your ChatGPT plan ended ${freeDate}, so Codex offers fewer models.`
+    : 'Codex offers fewer models on the ChatGPT free plan.';
+  const head = (engine: 'claude' | 'codex') => {
+    const u = updates[engine];
+    const due = u && ['available', 'running', 'failed'].includes(u.state) ? u.state : null;
+    const tag = engine === 'codex' && free;
+    if (!due && !tag) return <span className="tc-menu-head">{engineLabel(engine)}</span>;
+    return (
+      <span className="tc-menu-head tc-head-split">
+        <span>{engineLabel(engine)}</span>
+        <span className="tc-head-side">
+          {tag && <span className="tc-head-tag" title={freeWhy}>Free plan</span>}
+          {due && (
+            <button type="button" className="tc-head-link" title={`Update ${engineLabel(engine)} in the app terminal`} onClick={() => start(engine)}>
+              {due === 'running' ? 'Updating…' : due === 'failed' ? 'Retry update' : 'Update'}
+            </button>
+          )}
+        </span>
+      </span>
+    );
+  };
   // `tag` names the agent beside the model, which Recent needs and the All
   // models columns do not: there the heading over the column has said it.
   const row = (p: ModelPick, tag = false) => (
@@ -77,13 +107,13 @@ export function ModelMenu({
               Code drew an empty CLAUDE CODE heading here. */}
           {every.claude.length > 0 && (
             <div className="tc-col">
-              <span className="tc-menu-head">{engineLabel('claude')}</span>
+              {head('claude')}
               {every.claude.map((p) => row(p))}
             </div>
           )}
           {every.codex.length > 0 && (
             <div className="tc-col">
-              <span className="tc-menu-head">{engineLabel('codex')}</span>
+              {head('codex')}
               {every.codex.map((p) => row(p))}
             </div>
           )}

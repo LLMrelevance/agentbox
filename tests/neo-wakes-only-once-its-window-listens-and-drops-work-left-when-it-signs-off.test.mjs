@@ -16,7 +16,6 @@ const ORB_TOP = 240 - 24 - 150;
 
 function fakes({ onListen, getMicImpl, mic = { status: 'granted' }, userData: given, startLiveImpl, onReview, clock, decideImpl } = {}) {
   const userData = given ?? fs.mkdtempSync(path.join(os.tmpdir(), 'neo-main-'));
-  fs.writeFileSync(path.join(userData, 'neo-alpha'), '');
   const registered = [];
   const windows = {};
   const handlers = new Map();
@@ -45,7 +44,7 @@ function fakes({ onListen, getMicImpl, mic = { status: 'granted' }, userData: gi
     getMicImpl, startLiveImpl, onReview, decideImpl, ...(clock ? { now: clock } : {}), owner: { id: 'com.apple.Terminal', name: 'Terminal' },
     session: { fromPartition: () => ({ setPermissionRequestHandler() {}, setPermissionCheckHandler() {} }) },
     globalShortcut: { register: (k) => { registered.push(k); return true; }, unregister() {} },
-    mainWindow, preload: '/x', load: () => {}, userData,
+    mainWindow, preload: '/x', load: () => {}, userData, config: { alphaNeo: true },
     listen: (o) => { onListen?.(o); return { stop() {} }; }, platform: 'darwin',
   });
   const fromNeo = { sender: neoContents };

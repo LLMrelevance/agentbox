@@ -143,7 +143,7 @@ export const KEEP_ON_MAC = 78;
 // agent running, paused, terms not accepted): not a failure of the thread or
 // the cloud, so the thread runs on this Mac meanwhile (Supervisor#_noteCloudNoRoom).
 export const CLOUD_NO_ROOM = 79;
-const NO_ROOM = new Set(['plan', 'hours', 'agents', 'paused', 'terms']);
+const NO_ROOM = new Set(['plan', 'hours', 'agents', 'paused', 'terms', 'storage']);
 /** A refused start that is about room, as its exit and what it says; else null. */
 export function refusedForRoom(answer) {
   if (!answer || answer.ok !== false || !NO_ROOM.has(answer.error)) return null;
@@ -760,7 +760,17 @@ export async function cloudRun({
   }
   const system = argValue(argv, '--append-system-prompt') || '';
   for (const f of filesNamedIn(system, { cwd: plain ? null : cwd, roots })) sending.push(sendFile(f));
-  const [pack, files, home] = await Promise.all([packed, Promise.all(sending), Promise.all(homeFiles)]);
+  let pack; let files; let home;
+  try {
+    [pack, files, home] = await Promise.all([packed, Promise.all(sending), Promise.all(homeFiles)]);
+  } catch (err) {
+    // The cloud server refuses a link that writes for the same reasons it
+    // refuses a start, and before anything has gone up.
+    const noRoom = refusedForRoom({ ok: false, error: err?.error, message: err?.said });
+    if (!noRoom) throw err;
+    say(noRoom.line);
+    return noRoom.code;
+  }
   const packedAt = Date.now();
   sentFiles = new Set(files.map((f) => f.path));
 

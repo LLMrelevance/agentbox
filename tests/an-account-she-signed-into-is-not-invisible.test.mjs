@@ -246,27 +246,35 @@ describe('a login that lands while the app is running', () => {
 });
 
 // THE WIRING ITSELF, because a rule nothing calls is a rule that does not run.
-// The supervisor is what decides where a spawn goes, and until 2026-08-31 it
+// The supervisor is what knows which accounts exist, and until 2026-08-31 it
 // read the config key straight. If this goes red, the module above is still
-// perfect and a second account is still idle.
+// perfect and a second account is still invisible.
+//
+// WHAT IT IS FOR CHANGED ON w-dac993a554: an account found here is one somebody
+// can SEE and PICK, not one the fleet starts spreading work over. Work runs on
+// the account in use (`_theOneAccount`).
 describe('the fleet asks the disk, not the config file', () => {
-  it('will spawn on an account she signed into but never configured', async () => {
+  it('knows an account she signed into but never configured, and can be pointed at it', async () => {
     signedIn('.claude', 'you@example.com', PERSONAL);
     const work = signedIn('.claude-work', 'work@example.com', WORK);
 
     const { Supervisor } = await import('../main/supervisor.mjs');
     const store = fs.mkdtempSync(path.join(os.tmpdir(), 'zero-store-'));
-    const sup = new Supervisor(
-      { storeRoot: store, maxConcurrentSessions: 3, authProfiles: ['default'], home },
+    const make = (extra) => new Supervisor(
+      { storeRoot: store, maxConcurrentSessions: 3, authProfiles: ['default'], home, ...extra },
       { listItems: () => [], listProducts: () => [] },
       '/nonexistent-app',
     );
+    const sup = make();
 
     expect(sup._profiles()).toEqual(['default', work]);
-    // And it is spawnable: nothing is resting, so both accounts are in the pool
-    // the round-robin picks from.
-    expect(sup._liveProfiles()).toEqual(['default', work]);
+    // Work goes to the primary login until somebody says otherwise, and then
+    // to the one they picked -- which is the found account, really spawnable.
+    expect(sup._liveProfiles()).toEqual(['default']);
+    const picked = make({ activeAccount: { claude: work } });
+    expect(picked._liveProfiles()).toEqual([work]);
     sup.stop?.();
+    picked.stop?.();
     fs.rmSync(store, { recursive: true, force: true });
   });
 });

@@ -9,7 +9,6 @@ import { connect } from '../../.claude/skills/verify-agentbox/scripts/cdp.mjs';
 
 export async function neoBrowserSession({ boot, mainTab, wsUrl, url, userData, getKey, record, onDecision, onLine = () => {} }) {
   fs.mkdirSync(userData,{recursive:true});
-  fs.writeFileSync(path.join(userData,'neo-alpha'),'');
   const handlers = new Map(), listeners = new Map();
   let loaded, closed = false, renewals = 0;
   const send = (channel,payload) => boot.window.webContents.send(channel,payload);
@@ -38,7 +37,7 @@ export async function neoBrowserSession({ boot, mainTab, wsUrl, url, userData, g
     screen:{getCursorScreenPoint:()=>({x:0,y:0}),getDisplayNearestPoint:()=>({workArea:{x:0,y:0,width:1440,height:900}})},
     powerMonitor:{on(){}},systemPreferences:{getMediaAccessStatus:()=>'granted'},
     session:{fromPartition:()=>({setPermissionRequestHandler(){},setPermissionCheckHandler(){}})},globalShortcut:{register:()=>true,unregister(){}},
-    mainWindow,preload:'unused-in-headless-test',load(){},userData,listen:()=>({stop(){}}),platform:'darwin',
+    mainWindow,preload:'unused-in-headless-test',load(){},userData,config:{alphaNeo:true},listen:()=>({stop(){}}),platform:'darwin',
     startLiveImpl:(o)=>startLive({...o,getKey}),
     decideImpl:async(o)=>{onDecision();const r=await decide({...o,getKey});record({decision:r});return r;},composeImpl:(o)=>composeReply({...o,getKey}),
   });

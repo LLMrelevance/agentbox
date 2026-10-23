@@ -100,13 +100,20 @@ const planCache = new Map();
 
 export function readPlan(profile, { home = os.homedir(), file = null } = {}) {
   const at = file ?? planFile(profile, home);
-  // Keyed on the file's mtime, as accountIdentity is: the cloud tiles ask on every snapshot.
-  let mtime = null;
-  try { mtime = fs.statSync(at).mtimeMs; } catch { /* read below says none */ }
+  // Keyed on the file's mtime AND its size, as accountIdentity is keyed on the
+  // mtime alone: the cloud tiles ask on every snapshot.
+  //
+  // THE SIZE IS THERE BECAUSE AN MTIME CAN STAND STILL (w-dac993a554). Two
+  // writes inside one tick of the filesystem's clock carry the same mtime, and
+  // the cache then served the first one's plan for ever. A subscription
+  // renewed in that window read as ended until the file was written again, so
+  // `Supervisor#_forgetRenewedSubscriptions` never let the account back in.
+  let stat = null;
+  try { stat = fs.statSync(at); } catch { /* read below says none */ }
   const hit = planCache.get(at);
-  if (mtime != null && hit?.mtime === mtime) return hit.plan;
+  if (stat && hit?.mtime === stat.mtimeMs && hit?.size === stat.size) return hit.plan;
   const plan = readPlanNow(at);
-  if (mtime != null) planCache.set(at, { mtime, plan });
+  if (stat) planCache.set(at, { mtime: stat.mtimeMs, size: stat.size, plan });
   return plan;
 }
 

@@ -206,7 +206,9 @@ describe('the words on her row', () => {
   it('asks for another model when no plan ended to blame', () => {
     const { sup, store } = withStore(home('never'));
     sup.sayTheRunDied({ id: 'w-1', product: 'p' }, refused(HER_REFUSAL));
-    expect(store.written[0].result).toBe("Codex could not use this task's model on that account's plan, so nothing has been done. Pick another model for this task, or sign in a Codex account whose plan has it.");
+    // AND NOT "or sign in a Codex account whose plan has it" (w-dac993a554):
+    // another account is not an answer this app offers any more.
+    expect(store.written[0].result).toBe("Codex could not use this task's model on that account's plan, so nothing has been done. Pick another model for this task.");
   });
 
   it('asks for another thinking level when the level is the refusal', () => {

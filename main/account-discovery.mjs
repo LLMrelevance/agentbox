@@ -1,17 +1,18 @@
-// THE ACCOUNTS AGENTBOX RUNS ON ARE THE ONES ON THE DISK, not the ones somebody
-// remembered to type into a config file.
+// THE ACCOUNTS AGENTBOX KNOWS ABOUT ARE THE ONES ON THE DISK, not the ones
+// somebody remembered to type into a config file.
 //
-// Picture someone with two subscriptions: a second account signed in through
-// its own CLAUDE_CONFIG_DIR, and a first one that has hit its WEEKLY limit.
-// The fleet stops for days, with a rested account on the same disk the whole
-// time. The register of accounts was the
-// hand-written `authProfiles` key in zero.config.json, which nothing in the app
-// writes and nothing in the app checks against reality, so an account set up
-// the ordinary way (a new CLAUDE_CONFIG_DIR, a /login) was invisible BY
-// CONSTRUCTION. There was no symptom: the page drew two healthy rows and every
-// word on them was true.
+// The register of accounts was the hand-written `authProfiles` key in
+// zero.config.json, which nothing in the app writes and nothing in the app
+// checks against reality, so an account set up the ordinary way (a new
+// CLAUDE_CONFIG_DIR, a /login) was invisible BY CONSTRUCTION: it could not be
+// seen on the Accounts page and could not be picked.
 // tests/an-account-she-signed-into-is-not-invisible.test.mjs has the folders,
 // the ids and the CLI's own sentence.
+//
+// KNOWING ABOUT AN ACCOUNT IS NOT SENDING WORK TO IT (w-dac993a554). This list
+// is what the Accounts page draws and what somebody picks from; the work goes
+// to one account, `Supervisor#_theOneAccount`. A second subscription found here
+// sits idle until it is picked or a project is tied to it.
 //
 // THE RULE, and it is four lines because each one was a way to get this wrong:
 //
@@ -19,10 +20,10 @@
 //     that holds a login is an account.
 //   - IT ONLY COUNTS IF ITS SUBSCRIPTION IS NEW. Two folders holding one
 //     account is a real setup (~/.claude and ~/.claude-second both signed in
-//     as the same person), and counting it twice sends two thirds of every
-//     spawn round to an account that is already at its limit. The test is on
-//     `accountUuid`, the id Claude Code stores for the subscription itself,
-//     never on the email, because one email can hold more than one subscription.
+//     as the same person), and counting it twice draws one subscription as two
+//     rows to choose between. The test is on `accountUuid`, the id Claude Code
+//     stores for the subscription itself, never on the email, because one
+//     email can hold more than one subscription.
 //   - NOTHING THE USER CONFIGURED IS REORDERED, and nothing is dropped except
 //     a home-directory folder that fails the two rules above and below: one
 //     with no login, or a second one holding a subscription already listed.
@@ -100,8 +101,9 @@ export function discoverProfiles({ home = os.homedir() } = {}) {
     out.push({ dir, email: id.email, accountUuid: id.accountUuid });
   }
   // The default login leads, because it is the one every other account is a
-  // second of, and the rest keep the disk's alphabetical order so the fleet's
-  // round-robin does not reshuffle itself between ticks.
+  // second of and the one work runs on until somebody picks another
+  // (`_theOneAccount` takes the first of this list). The rest keep the disk's
+  // alphabetical order, so the order does not change between ticks.
   return out.sort((a, b) => (a.dir === dflt ? -1 : b.dir === dflt ? 1 : 0));
 }
 

@@ -12,7 +12,7 @@
 import path from 'node:path';
 import { cloudRun, IMPORT_FAILED, LOGIN_TROUBLE } from './run.mjs';
 import { cloudClients } from './clients.mjs';
-import { readCloudConfig, imageCaps, noteImageCaps } from './config.mjs';
+import { readCloudConfig, readCloudKey, imageCaps, noteImageCaps } from './config.mjs';
 import { pickCloudLogin, markCloudLogin, loginObjectKey, cloudAccountsFrom } from './logins.mjs';
 
 // SIGNED AS THE CLOUD RUNS' OWN USER AND NOBODY ELSE. AWS's libraries read
@@ -25,10 +25,10 @@ export function dropAwsSignIns(env = process.env) {
   }
 }
 
-// One client pair per account, shared by every run in a process.
+// One client pair per account and cloud key, shared by every run in a process.
 const clients = new Map();
 function clientsFor(config) {
-  const k = JSON.stringify(config);
+  const k = JSON.stringify([config, typeof config.gateway === 'string' ? readCloudKey() : null]);
   if (!clients.has(k)) clients.set(k, cloudClients(config).catch((err) => { clients.delete(k); throw err; }));
   return clients.get(k);
 }

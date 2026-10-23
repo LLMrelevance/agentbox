@@ -9,7 +9,9 @@
 // is the only way: changing the shared list would change the person's own app.
 //
 // AGENTBOX_CLOUD_ACCOUNTS (emails, comma-separated) narrows the pick for a
-// run that carries it; without it the pick is what it always was.
+// run that carries it; without it the pick is what it always was. Since
+// w-dac993a554 that is the first account of the engine signed in, so the
+// narrowing is still what lets a copy run on any other.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -20,7 +22,7 @@ import { cloudAccountKeys } from '../.claude/skills/verify-agentbox/scripts/live
 let home;
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-only-'));
-  // b was used longest ago, so a pick with no narrowing takes it first.
+  // a was signed in first, so a pick with no narrowing takes it every time.
   recordCloudLogin('claude', 'acct-a', { id: 'A', email: 'fresh@example.com' }, { home });
   recordCloudLogin('claude', 'acct-b', { id: 'B', email: 'work@example.com' }, { home });
   recordCloudLogin('codex', 'acct-c', { id: 'C', email: 'fresh@example.com' }, { home });
@@ -30,9 +32,9 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
 describe('narrowing the cloud accounts a run may use', () => {
-  it('takes only a named account, even when another was used longer ago', () => {
+  it('takes only a named account, even when another was signed in first', () => {
     for (const now of [3000, 4000, 5000]) {
-      expect(pickCloudLogin('claude', { home, now, only: ['fresh@example.com'] }).email).toBe('fresh@example.com');
+      expect(pickCloudLogin('claude', { home, now, only: ['work@example.com'] }).email).toBe('work@example.com');
     }
   });
 
@@ -56,10 +58,8 @@ describe('narrowing the cloud accounts a run may use', () => {
     expect(pickCloudLogin('claude', { home, now: 3000, only: ['acct-d'] }).key).toBe('acct-d');
   });
 
-  it('without a list, still takes the one used least recently, as before', () => {
-    const a = pickCloudLogin('claude', { home, now: 3000 });
-    const b = pickCloudLogin('claude', { home, now: 4000 });
-    expect(new Set([a.email, b.email])).toEqual(new Set(['fresh@example.com', 'work@example.com']));
+  it('without a list, takes the first account signed in, as every cloud run does', () => {
+    for (const now of [3000, 4000]) expect(pickCloudLogin('claude', { home, now }).email).toBe('fresh@example.com');
   });
 });
 

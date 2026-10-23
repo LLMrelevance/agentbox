@@ -87,12 +87,10 @@ describe('the sentence and the queue say the same thing', () => {
     'level-not-offered', 'network', 'too-old', 'api-key', 'codex-config', 'open-elsewhere', 'unknown'];
   const PROMISE = /again on its own|picks straight up|runs it again|keeps trying|keep failing/;
   for (const cause of CAUSES) {
-    for (const elsewhere of [false, true]) {
-      it(`${cause}${elsewhere ? ', another login free' : ''}`, () => {
-        const sentence = deadRunSentence({ engineWord: 'Codex', cause, elsewhere });
-        expect(deadRunPromisesARetry({ cause, elsewhere })).toBe(PROMISE.test(sentence));
-      });
-    }
+    it(cause, () => {
+      const sentence = deadRunSentence({ engineWord: 'Codex', cause });
+      expect(deadRunPromisesARetry({ cause })).toBe(PROMISE.test(sentence));
+    });
   }
   it('a reply the app stopped carrying promises nothing', () => {
     expect(deadRunSentence({ engineWord: 'Codex', cause: 'unknown', gaveUp: true })).not.toMatch(PROMISE);

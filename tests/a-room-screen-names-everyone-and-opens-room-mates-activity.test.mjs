@@ -33,8 +33,10 @@ describe('whose Activity tab opens', () => {
     expect(activityShown(card('teo', { teammate: true }))).toBe(true);
     expect(activityShown(card('teo', { teammate: true, showActivity: false }))).toBe(false);
   });
-  it("the room's board still holds only people whose thread cards reach me", () => {
-    expect(boardPeople([card('maya', { activity: [] }), card('teo', { teammate: true }), card('me', { me: true })]).map((c) => c.id)).toEqual(['teo', 'me']);
+  // Since 2026-10-22 the room is its board, and it shows room-mates' presence lines too
+  // (tests/a-room-board-shows-everyone-in-the-room).
+  it("the room's board holds whoever's Activity I may open", () => {
+    expect(boardPeople([card('maya', { activity: [] }), card('teo', { teammate: true }), card('me', { me: true })]).map((c) => c.id)).toEqual(['maya', 'teo', 'me']);
   });
 });
 

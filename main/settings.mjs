@@ -31,8 +31,8 @@ import { NAME, Name } from '../shared/product-name.mjs';
 import { autoSlots } from './memory-gate.mjs';
 import { accountIdentity, claudeLoginCommand, duplicateAccountNote, linkAccountTooling, makeClaudeHome } from './account-tooling.mjs';
 import { isEngine } from '../shared/engines.mjs';
-import { codexAccount, codexLoginCommand, makeCodexHome } from './codex-account.mjs';
-import { codexDefaultModel, codexModels } from './codex-models.mjs';
+import { codexAccount, codexFreePlan, codexLoginCommand, makeCodexHome } from './codex-account.mjs';
+import { codexDefaultModel, codexModelsAcross } from './codex-models.mjs';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
 import { CLOUD_SAME, CLOUD_CLAUDE_DEFAULT, CLOUD_CODEX_DEFAULT } from './cloud-permission.mjs';
 import { claudeModels } from './claude-models.mjs';
@@ -502,9 +502,13 @@ export function readSettings({ config, supervisor, store }) {
       profile,
       email: identity?.email ?? null,
       accountUuid: identity?.accountUuid ?? null,
-      // WHICH ONE RUNS, when she has picked one. False on every row while she
-      // has not, and then every account runs as it always has.
-      chosen: (config.activeAccount?.claude ?? null) === profile,
+      // WHICH ONE RUNS, AND ONE OF THEM ALWAYS DOES (w-dac993a554). This was
+      // false on every row until somebody picked, because until then every
+      // account really did take a share of the work. One account runs it now,
+      // so the supervisor is asked which rather than the config file: with
+      // nothing picked that is the primary login, and the page says so instead
+      // of leaving a person to guess which of their two plans is being spent.
+      chosen: (supervisor._profilesFor?.('claude') ?? [])[0] === profile,
       // The default profile is whatever ~/.claude holds; anything else is a
       // second logged-in home directory, and its path is the only name it has.
       label: profile === 'default' ? 'default' : path.basename(profile),
@@ -773,6 +777,7 @@ function engineSettings(supervisor, config) {
     return { engine, engineChoices: choices, codex, codexModels: [], codexModelDefault: null, codexModel: null };
   }
   const home = supervisor._codexHome();
+  const offered = supervisor._codexOfferHomes();
   return {
     engine,
     engineChoices: choices,
@@ -781,9 +786,12 @@ function engineSettings(supervisor, config) {
     // strip in the model drawer draws the picked model's list, so they travel
     // beside the name rather than as a list of their own that could disagree
     // with it.
-    codexModels: codexModels({ home }).map((m) => ({
+    codexModels: codexModelsAcross(offered).map((m) => ({
       id: m.id, label: m.label, levels: m.levels.map((l) => l.id), defaultLevel: m.defaultLevel,
     })),
+    // Set when every login offered is on ChatGPT's free plan, so the menu can
+    // say why Codex lists so few models.
+    codexFreePlan: codexFreePlan(offered),
     // What her own `codex` in a terminal runs, so the card's word and her
     // terminal cannot disagree. Null is a real answer and the card says
     // "Codex's own" for it rather than guessing (renderer/src/models.ts).
@@ -899,7 +907,9 @@ export function setProjectSetting({ config, supervisor, store }, { product, key,
  * not signed in.
  */
 function codexAccountRows(supervisor) {
-  const chosen = supervisor.config.activeAccount?.codex ?? null;
+  // THE ONE THAT RUNS, the same way the Claude rows answer it: the supervisor's
+  // own pick, which is the chosen account or the primary login (w-dac993a554).
+  const chosen = supervisor._profilesFor?.('codex')?.[0] ?? null;
   return supervisor._codexProfiles().map((profile) => {
     const home = supervisor._codexProfileHome(profile);
     const id = codexAccount(home);
@@ -911,8 +921,7 @@ function codexAccountRows(supervisor) {
       planNamed: id?.planNamed ?? false,
       accountId: id?.accountId ?? null,
       signedIn: !!id,
-      // WHICH ONE RUNS. Null when she has never picked, and then every account
-      // runs and the card says so rather than marking one at random.
+      // WHICH ONE RUNS, and one of them always does (`chosen` above).
       chosen: chosen === profile,
     };
   });
@@ -1256,7 +1265,8 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
     case 'adhdMode':
       saveConfig(config, { adhdMode: !!value });
       break;
-    // Neo reads its switch once, at start; Rooms is read on every snapshot.
+    // Neo starts only if its switch was on at launch, and stops waking the
+    // moment it goes off; Rooms is read on every snapshot.
     case 'alphaNeo':
       saveConfig(config, { alphaNeo: !!value });
       break;
@@ -1277,10 +1287,9 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
     // in one object keyed by engine is what stops a Codex pick being read as a
     // Claude one, which is the collision `_accountKey` exists to prevent.
     //
-    // NULL CLEARS IT, and clearing means every account runs again, which is what
-    // this machine did before she ever picked. `Supervisor#_narrowToChosen` also
-    // ignores a name that no longer exists, so a login she removes cannot wedge
-    // the fleet.
+    // NULL CLEARS IT, and clearing means the primary login runs the work again.
+    // `Supervisor#_theOneAccount` also ignores a name that no longer exists, so
+    // a login she removes cannot wedge the fleet.
     case 'activeAccount': {
       const engineId = value?.engine;
       if (!isEngine(engineId)) throw new Error(`unknown coding agent: ${engineId}`);

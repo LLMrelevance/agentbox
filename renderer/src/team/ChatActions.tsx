@@ -261,8 +261,8 @@ export function MessageActions({ onReact, quick: withQuick = true, onQuote, repl
   // False in a thread or a narrow panel, where three emoji crowd the bar over
   // the message; React still opens them, recent ones first.
   quick?: boolean;
-  // Absent inside a thread's panel, where the reply box is right there and a
-  // reply to a reply would be a thread inside a thread (w-920461cbe6).
+  // In a thread's panel this quotes into the thread's own box: a reply to a
+  // reply would be a thread inside a thread (w-920461cbe6).
   onQuote?: () => void;
   // "Reply in thread" where Reply opens the message's thread rather than
   // quoting it.
