@@ -5626,8 +5626,9 @@ export default function App() {
   }, [shownInbox, view, onBoard, list, focused, markSeen]);
 
   // A SEND THAT MOVED HER ON IS SAID ABOVE THE REPLY BOX of the thread it moved
-  // her to (./components/SentLine), and stays there until she leaves that
-  // thread: no six-second clock. A newer note takes its place as usual.
+  // her to (./components/SentLine). The line keeps its own clock, which stops
+  // under the pointer, so the six-second one is cleared; leaving the thread or a
+  // newer note also takes it down.
   const sentLineShown = !!toast && saysWhereItWent(toast, focused ? { product: focused.product, id: focused.id } : null);
   const lineOn = useRef<{ at: string; toast: typeof toast } | null>(null);
   useEffect(() => {
@@ -5664,6 +5665,7 @@ export default function App() {
       undoes={toastParts(toast.text).undo}
       onBack={() => openToastRow(toast.goes!)}
       onUndo={() => { setToast(null); void undo(); }}
+      onClose={() => setToast(null)}
     />
   ) : null;
   const artifactView = artifactPlacement(artifactMode, artifactWidth);

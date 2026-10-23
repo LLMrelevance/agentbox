@@ -87,7 +87,7 @@ describe('where it is drawn', () => {
     expect(app).toMatch(/advanceRef\.current && !focused/);
   });
 
-  it('until you leave the thread it is on, rather than for six seconds', () => {
+  it('on its own clock rather than the six-second one, and gone when you leave the thread', () => {
     expect(app).toMatch(/clearTimeout\(toastTimer\.current\)/);
     expect(app).toMatch(/lineOn\.current/);
   });
