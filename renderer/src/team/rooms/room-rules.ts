@@ -82,7 +82,8 @@ export function writeRoomTab(choice: string, store: Store = local()) {
 }
 
 const CHAT_KEY = 'rooms.chat.width';
-export const CHAT_WIDTH = 360;
+/** The chat's share of the room until it is dragged: 480 at 1440, the width that was liked. rooms.css says the same. */
+export const CHAT_SHARE = 0.41;
 /** Three board columns of 170 with their gaps and padding; rooms.css's max-width says the same. */
 export const BOARD_LEAST = 620;
 
@@ -90,11 +91,12 @@ export const BOARD_LEAST = 620;
 export function chatWidth(want: number, space: number): number {
   return Math.round(Math.max(300, Math.min(want, 720, space - BOARD_LEAST)));
 }
-export function readChatWidth(store: Store = local()): number {
-  try { const n = Number(store?.getItem(CHAT_KEY)); return n > 0 ? n : CHAT_WIDTH; } catch { return CHAT_WIDTH; }
+/** The width it was dragged to, or null for the room's share. */
+export function readChatWidth(store: Store = local()): number | null {
+  try { const n = Number(store?.getItem(CHAT_KEY)); return n > 0 ? n : null; } catch { return null; }
 }
-export function writeChatWidth(width: number, store: Store = local()) {
-  try { store?.setItem(CHAT_KEY, String(Math.round(width))); } catch { /* not kept */ }
+export function writeChatWidth(width: number | null, store: Store = local()) {
+  try { store?.setItem(CHAT_KEY, width == null ? '' : String(Math.round(width))); } catch { /* not kept */ }
 }
 
 /** What Tab walks: the state tabs, then the room tab when there is one. */

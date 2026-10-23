@@ -10,11 +10,17 @@
 // that leave the board its three columns, and the width is kept. Measured on
 // the built app at 1440 by 900: the lit tab's line was 137px under a name and
 // count 115px wide.
+//
+// Shown the chat dragged to 480: "I actually kind of like the spacing when it's
+// more even. We have more of the chat so maybe by default make the spacing
+// closer to this." That picture was 1440 wide, where 480 is 41% of the room,
+// so the chat starts at 41% of the room on any screen (a fixed 480 left a 1728
+// screen's board twice the chat's width), and a double-click goes back there.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { chatWidth, readChatWidth, writeChatWidth, CHAT_WIDTH, BOARD_LEAST, tilesAcross, tilesPerRow } from '../renderer/src/team/rooms/room-rules.ts';
+import { chatWidth, readChatWidth, writeChatWidth, CHAT_SHARE, BOARD_LEAST, tilesAcross, tilesPerRow } from '../renderer/src/team/rooms/room-rules.ts';
 import { RoomChat } from '../renderer/src/team/rooms/RoomChat.tsx';
 globalThis.React = React;
 
@@ -31,20 +37,27 @@ describe('the room tab’s line', () => {
 });
 
 describe('how wide the chat may be', () => {
-  it('360 until it is dragged', () => {
-    expect(CHAT_WIDTH).toBe(360);
-    expect(readChatWidth(memory())).toBe(360);
-    expect(readChatWidth(null)).toBe(360);
+  it('41% of the room until it is dragged, which is the 480 that was liked at 1440', () => {
+    expect(readChatWidth(memory())).toBeNull();
+    expect(readChatWidth(null)).toBeNull();
+    expect(css).toMatch(new RegExp(`\\.rm-chat \\{ width: var\\(--rm-chat-w, ${CHAT_SHARE * 100}%\\);`));
+    expect(Math.round(1172 * CHAT_SHARE)).toBe(481);
+  });
+  it('back to 41% when the width is cleared', () => {
+    const store = memory();
+    writeChatWidth(540, store);
+    writeChatWidth(null, store);
+    expect(readChatWidth(store)).toBeNull();
   });
   it('what it was dragged to, kept', () => {
     const store = memory();
-    writeChatWidth(480, store);
-    expect(readChatWidth(store)).toBe(480);
+    writeChatWidth(540, store);
+    expect(readChatWidth(store)).toBe(540);
   });
-  it('360 for anything it cannot read', () => {
+  it('41% for anything it cannot read', () => {
     const store = memory();
     store.setItem('rooms.chat.width', 'wide');
-    expect(readChatWidth(store)).toBe(360);
+    expect(readChatWidth(store)).toBeNull();
   });
   // The second number is the room's width, board and chat together: 1140 in a
   // 1440 window with the sidebar open.
@@ -67,8 +80,8 @@ describe('how wide the chat may be', () => {
   it('300 in a room too narrow for both, and the board scrolls', () => {
     expect(chatWidth(2000, 800)).toBe(300);
   });
-  it('a window made smaller narrows a chat left wide', () => {
-    expect(css).toMatch(/\.rm-chat \{[^}]*min-width: 300px; max-width: calc\(100% - 620px\);/);
+  it('a window made smaller narrows a chat left wide, and 41% of a big screen stops at 720', () => {
+    expect(css).toMatch(/\.rm-chat \{[^}]*min-width: 300px; max-width: min\(720px, calc\(100% - 620px\)\);/);
   });
 });
 
@@ -103,9 +116,20 @@ describe('the chat beside a room', () => {
   it('has an edge to drag', () => {
     expect(html).toMatch(/class="rm-chat-grip" role="separator" aria-orientation="vertical" aria-label="Drag to widen the chat"/);
   });
+  it('takes the room’s share until dragged', () => {
+    expect(html).toMatch(/class="rm-chat">/);
+  });
   it('is as wide as it was left', () => {
-    expect(html).toMatch(/class="rm-chat" style="--rm-chat-w:360px"/);
-    expect(css).toMatch(/\.rm-chat \{ width: var\(--rm-chat-w, 360px\);/);
+    globalThis.localStorage = memory();
+    localStorage.setItem('rooms.chat.width', '540');
+    try {
+      const left = renderToStaticMarkup(createElement(RoomChat, { room, messages: [], people: [], meId: 'sam', now: 0, onSend: async () => null }));
+      expect(left).toMatch(/class="rm-chat" style="--rm-chat-w:540px"/);
+    } finally { delete globalThis.localStorage; }
+  });
+  it('a double-click on the edge clears the width', () => {
+    const chat = fs.readFileSync(new URL('../renderer/src/team/rooms/RoomChat.tsx', import.meta.url), 'utf8');
+    expect(chat).toMatch(/onDoubleClick=\{\(\) => \{ setWidth\(null\); writeChatWidth\(null\); \}\}/);
   });
   it('the edge sits on the chat’s line and shows the drag cursor', () => {
     expect(css).toMatch(/\.rm-chat-grip \{[^}]*cursor: col-resize/);

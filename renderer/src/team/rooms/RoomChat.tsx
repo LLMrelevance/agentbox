@@ -24,7 +24,7 @@ import { collectFiles, isImageName, type PendingAttachment } from '../../attachm
 import { pictureUrl } from '../../picture';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
-import { CHAT_WIDTH, cardName, chatWidth, clockOf, mentionsIn, readChatWidth, writeChatWidth } from './room-rules';
+import { cardName, chatWidth, clockOf, mentionsIn, readChatWidth, writeChatWidth } from './room-rules';
 import { drawnRoots, holdsRead, mentionMarkdown, myNewest, newLineAt, quickOnBar, roomReader, storedName, wordsLeftAfterSend } from './room-chat-rules';
 
 export type ChatPerson = { id: string; name: string; avatarUrl: string | null; me: boolean };
@@ -68,7 +68,7 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
     grip.setPointerCapture(e.pointerId); chat.classList.add('dragging');
     const move = (m: PointerEvent) => { last = chatWidth(start + from - m.clientX, space); setWidth(last); };
     const up = () => {
-      chat.classList.remove('dragging'); writeChatWidth(last);
+      chat.classList.remove('dragging'); if (last !== start) writeChatWidth(last);
       grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up);
     };
     grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
@@ -137,9 +137,9 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
       me={meId && m.by !== meId && m.mentions.includes(meId) ? myNames : NOBODY} />
   );
 
-  return <div className={full ? 'rm-full' : 'rm-chat'} style={full ? undefined : { '--rm-chat-w': `${width}px` } as CSSProperties}>
+  return <div className={full ? 'rm-full' : 'rm-chat'} style={full || width == null ? undefined : { '--rm-chat-w': `${width}px` } as CSSProperties}>
     {!full && <div className="rm-chat-grip" role="separator" aria-orientation="vertical" aria-label="Drag to widen the chat"
-      title="Drag to widen. Double-click to reset." onPointerDown={drag} onDoubleClick={() => { setWidth(CHAT_WIDTH); writeChatWidth(CHAT_WIDTH); }} />}
+      title="Drag to widen. Double-click to reset." onPointerDown={drag} onDoubleClick={() => { setWidth(null); writeChatWidth(null); }} />}
     {head ?? <div className="rm-chat-head">
       {root
         ? <><button type="button" className="rm-switch" onClick={() => setThread(null)}>{I.back()}<span>Thread</span></button>
