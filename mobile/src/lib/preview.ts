@@ -177,6 +177,8 @@ export function previewCloud(now = () => Date.now()) {
       return [];
     },
     async rpc() { return []; },
+    async listFiles() { return []; },
+    async removeFiles() {},
     async update(_table: string, query: string, patch: Record<string, unknown>) {
       const id = decodeURIComponent(/id=eq\.([^&]+)/.exec(query)?.[1] ?? '');
       const at = rows.commands.findIndex((c) => c.id === id && !c.taken_at && !c.claimed_at);

@@ -5,6 +5,7 @@
 // through the site's own doors (renderer/src/phone-send.ts) and signs her
 // files' links the site's way (renderer/src/phone-links.ts).
 import Constants from 'expo-constants';
+import { router } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AppState } from 'react-native';
 import { cloudClient, type CloudClient } from '../../../renderer/src/cloud-rest';
@@ -17,13 +18,14 @@ import { toastParts } from '../../../renderer/src/toast-parts';
 import type { Saved } from '../lib/attach';
 import type { Picked } from '../platform/pick';
 import { planFor, runSteps, type PressedItem, type Press } from '../lib/actions';
+import { needsNotice, NOTICE_KEY, readNotice, type Notice } from '../lib/ai-notice';
 import { withDeadline } from '../lib/deadline';
 import { keptStore } from '../lib/kept';
 import { previewCloud } from '../lib/preview';
 import { phoneTabs } from '../lib/tabs';
 import { persist } from '../platform/persist';
 
-export type Cloud = Pick<CloudClient, 'session' | 'signedIn' | 'generation' | 'select' | 'insertCommand' | 'update' | 'putFile' | 'signFiles' | 'signInWithPassword' | 'signInWithIdToken' | 'signUp' | 'googleUrl' | 'finishGoogle' | 'signOut' | 'insert' | 'remove' | 'rpc'>;
+export type Cloud = Pick<CloudClient, 'session' | 'signedIn' | 'generation' | 'select' | 'insertCommand' | 'update' | 'putFile' | 'signFiles' | 'signInWithPassword' | 'signInWithIdToken' | 'signUp' | 'googleUrl' | 'finishGoogle' | 'signOut' | 'insert' | 'remove' | 'rpc' | 'listFiles' | 'removeFiles'>;
 
 const EMPTY: PhoneRows = { projects: [], threads: [], commands: [] };
 const EVERY_MS = 5000;
@@ -123,8 +125,25 @@ function useCloudState() {
    * answered (the made row, for a new thread); throws what went wrong.
    * `undone` runs after its Undo has worked, to put the words back.
    */
+  // The yes before your words go to Claude Code or Codex (lib/ai-notice.ts).
+  const [notice, setNotice] = useState<Notice>(null);
+  const [noticeRead, setNoticeRead] = useState(false);
+  useEffect(() => {
+    persist.read().then((kept) => setNotice(readNotice(kept[NOTICE_KEY]))).catch(() => {}).finally(() => setNoticeRead(true));
+  }, []);
+  const agreed = !!notice && 'agreed' in notice;
+  const answerNotice = useCallback((yes: boolean) => {
+    const v = yes ? { agreed: Date.now() } : { declined: Date.now() };
+    setNotice(v);
+    void persist.write(NOTICE_KEY, JSON.stringify(v));
+  }, []);
+
   const send = useCallback(async (press: Press, item: PressedItem | null, opts: { undone?: () => void } = {}) => {
     if (!sender) return null;
+    if (needsNotice(press.kind) && !agreed) {
+      router.push('/ai-notice');
+      throw new Error('Not sent yet. Your agent needs your yes first.');
+    }
     const plan = planFor(press, item, Date.now());
     if (!plan) return null;
     const made = await runSteps(sender, plan.steps);
@@ -141,7 +160,7 @@ function useCloudState() {
     }
     setNow(Date.now());
     return made;
-  }, [sender, say]);
+  }, [sender, say, agreed]);
 
   // Files go to your own storage, in the folder of the computer the project is
   // on, as the phone site sends them; the message then links them.
@@ -174,6 +193,7 @@ function useCloudState() {
   return {
     cloud, opened, signedIn, rows, view, tabs, status, loading: read.first, now, refresh, send, attach, fileOf, toast, say,
     dismissToast: () => setToast(null), signedInWith, signOut, preview: PREVIEW,
+    notice, noticeRead, agreed, answerNotice, withdrawNotice: () => answerNotice(false),
     // The one map of her files' links, filled in place; `signedAt` moves when it does.
     links: links.current, signedAt,
   };

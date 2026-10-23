@@ -221,6 +221,14 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
       }
     },
     /** Links to her own files in a private bucket, each good for `seconds`: path -> address. */
+    /** One page of what is under `prefix`: a folder comes back with no id. */
+    async listFiles(bucket: string, prefix: string, limit = 1000, offset = 0): Promise<{ name: string; id: string | null }[]> {
+      const out = await call(`/storage/v1/object/list/${bucket}`, { method: 'POST', body: JSON.stringify({ prefix, limit, offset, sortBy: { column: 'name', order: 'asc' } }) });
+      return Array.isArray(out) ? out : [];
+    },
+    async removeFiles(bucket: string, paths: string[]) {
+      await call(`/storage/v1/object/${bucket}`, { method: 'DELETE', body: JSON.stringify({ prefixes: paths }) });
+    },
     async signFiles(bucket: string, paths: string[], seconds = 3600): Promise<Map<string, string>> {
       const out = await call(`/storage/v1/object/sign/${bucket}`, { method: 'POST', body: JSON.stringify({ expiresIn: seconds, paths }) });
       const links = new Map<string, string>();
