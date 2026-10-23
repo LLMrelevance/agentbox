@@ -2,18 +2,21 @@
 // Each is only its plates; app/settings/[page].tsx puts it on a page.
 // A row that belongs to the computer reads its copy and sends a change to it
 // (state/settings.tsx); the account and the alerts belong to this phone.
+import Constants from 'expo-constants';
 import { router } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { useState, type ComponentType } from 'react';
 import { View } from 'react-native';
 import { CODEX_MODES, CODEX_MODE_ORDER } from '../../../renderer/src/codex-modes';
 import { MODE_ORDER, MODE_SENTENCE, MODE_WORDS } from '../../../renderer/src/modes';
 import { NAME } from '../../../shared/product-name.mjs';
+import { deleteAccount } from '../../../renderer/src/phone-account';
 import { withDeadline } from '../lib/deadline';
-import { alertsHere, alertToken, sendTestAlert } from '../platform/alerts';
+import { alertsHere, sendTestAlert } from '../platform/alerts';
 import { useCloud } from '../state/cloud';
 import { useSettings, type SettingsState } from '../state/settings';
 import { Tick } from './icons';
-import { Sheet, SheetHead, SheetRow, SheetSep } from './parts';
+import { Sheet, SheetHead, SheetRow, SheetSep, T } from './parts';
 import { Aside, Button, Chip, Choice, Group, NavRow, Row, Stepper, Switch } from './SettingsParts';
 import { TeamPage } from './TeamPage';
 import { color } from './theme';
@@ -39,11 +42,38 @@ function General() {
   const c = useCloud();
   const s = useSettings();
   const w = s.settings?.workspace;
+  const [deleting, setDeleting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  const agreedAt = c.notice && 'agreed' in c.notice ? new Date(c.notice.agreed).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : null;
+  const site = Constants.expoConfig?.extra?.cloud?.phoneSite?.replace(/\/+$/, '');
+  const remove = async () => {
+    setBusy(true); setSaid(null);
+    try { await deleteAccount(c.cloud!); c.signOut(); router.replace('/sign-in'); } catch (err) { setSaid(String((err as Error)?.message ?? err)); setDeleting(false); } finally { setBusy(false); }
+  };
   return (
     <>
       <Group label="Account">
         <Row first label={`Signed in as ${c.cloud?.session()?.user.email ?? ''}`} control={<Button title="Sign out" onPress={() => { c.signOut(); router.replace('/sign-in'); }} />} />
+        <Row label="Delete account" desc={said ?? 'Your account and everything you put online, here and in shared projects.'} control={<Button title="Delete" disabled={busy} onPress={() => setDeleting(true)} />} />
       </Group>
+      <Group label="Claude Code and Codex">
+        <Row first label="Send your messages to your agents"
+          desc={agreedAt ? `On since ${agreedAt}. What you write goes through your computer to Claude Code, by Anthropic, or Codex, by OpenAI, on your own account.` : 'Off. Replies and new threads wait until you turn this on.'}
+          control={agreedAt ? <Button title="Turn off" onPress={() => c.withdrawNotice()} /> : <Button title="Turn on" onPress={() => router.push('/ai-notice')} />} />
+      </Group>
+      {site ? (
+        <Group label="About">
+          <NavRow first label="Privacy policy" onPress={() => void WebBrowser.openBrowserAsync(`${site}/privacy`)} />
+          <NavRow label="Terms" onPress={() => void WebBrowser.openBrowserAsync(`${site}/terms`)} />
+        </Group>
+      ) : null}
+      <Sheet open={deleting} close={() => setDeleting(false)}>
+        <SheetHead>Delete your account?</SheetHead>
+        <T style={{ fontSize: 14, lineHeight: 21, color: color.dim, paddingHorizontal: 14, paddingBottom: 12 }}>Your threads stay on your computer. Everything you put online goes for good: the copies of your threads, your files, your settings, and what you wrote in shared projects.</T>
+        <SheetRow label={busy ? 'Deleting…' : 'Delete my account'} onPress={() => { if (!busy) void remove(); }} />
+        <SheetRow label="Keep my account" onPress={() => setDeleting(false)} />
+      </Sheet>
       {w ? (
         <>
           <Group label={`What ${NAME} sends`}>
@@ -88,7 +118,8 @@ function PhoneProjects() {
 }
 
 function AlertRows() {
-  const [token, setToken] = useState<string | null>(null);
+  const c = useCloud();
+  const token = c.alerts?.token ?? null;
   const [said, setSaid] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const attempt = (fn: () => Promise<void>) => async () => {
@@ -96,10 +127,10 @@ function AlertRows() {
     try { await fn(); } catch (err) { setSaid(String((err as Error)?.message ?? err)); } finally { setBusy(false); }
   };
   if (!alertsHere) return <Row first label="Alerts on this phone" desc="Alerts need the app on your phone." />;
-  if (!token) return <Row first label="Alerts on this phone" desc={said ?? 'A thread that needs you arrives on the lock screen.'} control={<Button title="Turn on" disabled={busy} onPress={attempt(async () => setToken(await alertToken()))} />} />;
+  if (!token) return <Row first label="Alerts on this phone" desc={said ?? 'A thread that needs you arrives on the lock screen.'} control={<Button title="Turn on" disabled={busy} onPress={attempt(() => c.turnOnAlerts())} />} />;
   return (
     <>
-      <Row first label="Alerts on this phone" desc="On. A thread that needs you arrives on the lock screen." />
+      <Row first label="Alerts on this phone" desc="On. A thread that needs you arrives here while you are away from your computer." control={<Button title="Turn off" disabled={busy} onPress={attempt(() => c.turnOffAlerts())} />} />
       <Row label="Send a test alert" desc={said ?? 'Lock your phone after sending to see it arrive.'} control={<Button title="Send" disabled={busy} onPress={attempt(async () => { await sendTestAlert(token, withDeadline(fetch)); setSaid('Sent. Lock your phone to see it arrive.'); })} />} />
     </>
   );

@@ -11,7 +11,7 @@
 // stand-in too, since the stand-in is the Mac's folder under a home of its own.
 import { DOC_SCHEMES, IMG_SCHEMES } from '../../shared/schemes.mjs';
 
-export interface FileEntry { n?: string; s: number; big?: boolean }
+export interface FileEntry { n?: string; s: number; big?: boolean; w?: number; h?: number }
 export interface Place { device: string; dir: string; repo: string; files: Map<string, FileEntry>; folders: Map<string, string[]> }
 export const BUCKET = 'phone-files';
 

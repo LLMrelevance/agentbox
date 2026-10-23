@@ -6,6 +6,7 @@
 // are in ./page-rules.ts; the look is ./pages.css, ported from the drawings
 // she approved.
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useRowDrag } from './row-drag';
 import type { Person, Product, ThreadCard, ThreadStateWord, View, WorkItem } from '../types';
 import { priorityIdOf, priorityLabelOf, PRIORITIES, type PriorityId } from '../priority';
@@ -406,7 +407,7 @@ export const INBOX_TABS: { view: TabView; label: string }[] = [
 const COUNTED: TabView[] = ['inbox', 'progress', 'snoozed'];
 
 /** `needs` renames the first tab (Waiting, once a teammate is on the page). */
-export function StateTabs({ view, counts, onView, needs, onSearch, lit = false, after, dim = false }: {
+export function StateTabs({ view, counts, onView, needs, onSearch, lit = false, after, dim = false, into = null }: {
   view: TabView; counts: Partial<Record<TabView, number>>; onView: (v: TabView) => void; needs?: string;
   /** Draws Search at the row's right end (w-3c51d02de5). */
   onSearch?: () => void;
@@ -414,6 +415,16 @@ export function StateTabs({ view, counts, onView, needs, onSearch, lit = false, 
   lit?: boolean;
   /** After Done: the room tab (team/rooms/RoomTab.tsx); `dim` while its room is open. */
   after?: ReactNode; dim?: boolean;
+  /** Drawn here instead of in place: the top bar, where the page's title was. */
+  into?: HTMLElement | null;
+}) {
+  const row = <StateTabsRow view={view} counts={counts} onView={onView} needs={needs} onSearch={onSearch} lit={lit} after={after} dim={dim} />;
+  return into ? createPortal(row, into) : row;
+}
+
+function StateTabsRow({ view, counts, onView, needs, onSearch, lit = false, after, dim = false }: {
+  view: TabView; counts: Partial<Record<TabView, number>>; onView: (v: TabView) => void; needs?: string;
+  onSearch?: () => void; lit?: boolean; after?: ReactNode; dim?: boolean;
 }) {
   return <div className="th-bar"><div className="tm-tabs">
     {/* Every tab wears the Tab plate (hint-plate.ts, 'state-tab'). */}

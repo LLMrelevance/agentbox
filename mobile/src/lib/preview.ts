@@ -150,6 +150,7 @@ export function previewCloud(now = () => Date.now()) {
     Object.assign(c, { taken_at: new Date(now()).toISOString(), outcome: 'done' });
     settings.updated_at = new Date(now()).toISOString();
   }, 1500);
+  const devices = new Map<string, Record<string, any>>();
   const session = () => (signedIn ? { access_token: 'preview', refresh_token: 'preview', expires_at: now() + 3600_000, user: { id: 'preview', email: 'you@example.com' } } : null);
   return {
     session,
@@ -170,13 +171,20 @@ export function previewCloud(now = () => Date.now()) {
       if (table === 'team_invites' && !team.invites.some((i) => i.email === row.email)) team.invites.push({ email: row.email });
       return row;
     },
+    async upsert(table: string, row: Record<string, any>) {
+      if (table === 'push_devices') devices.set(row.token, row);
+      return row;
+    },
     async remove(table: string, query: string) {
       const eq = (k: string) => decodeURIComponent(new RegExp(`${k}=eq\\.([^&]+)`).exec(query)?.[1] ?? '');
+      if (table === 'push_devices') devices.delete(eq('token'));
       if (table === 'team_invites') team.invites = team.invites.filter((i) => i.email !== eq('email'));
       if (table === 'team_members') { const gone = team.members.filter((m) => m.person_id === eq('person_id')); team.members = team.members.filter((m) => m.person_id !== eq('person_id')); return gone; }
       return [];
     },
     async rpc() { return []; },
+    async listFiles() { return []; },
+    async removeFiles() {},
     async update(_table: string, query: string, patch: Record<string, unknown>) {
       const id = decodeURIComponent(/id=eq\.([^&]+)/.exec(query)?.[1] ?? '');
       const at = rows.commands.findIndex((c) => c.id === id && !c.taken_at && !c.claimed_at);

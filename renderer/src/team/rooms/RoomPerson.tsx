@@ -1,6 +1,6 @@
 // Pointing at someone, and their page (round 23): level, rank in the room,
-// days in a row; Progress (agent hours since they started) and, for a
-// teammate, Activity (their threads on the Inbox's board).
+// days in a row; Today's activity (their threads on the Inbox's board), for
+// whoever shares it, and Progress (agent hours since they started).
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Room, RoomCard, ThreadCard } from '../../types';
 import { I } from './icons';
@@ -41,7 +41,7 @@ export function ProfilePage({ card, room, rooms, cards, rank, onMessage, onRanks
   renderBoard?: (people: string[]) => ReactNode;
 }) {
   const activity = activityShown(card) && renderBoard ? count(activityCards(card, cards)) : null;
-  const [tab, setTab] = useState<'progress' | 'activity'>('progress');
+  const [tab, setTab] = useState<'progress' | 'activity'>('activity');
   const shared = rooms.filter((r) => r.wall.some((c) => c.id === card.id));
   const firstMonth = card.byMonth.find((m) => m.hours > 0)?.month ?? null;
   return <div className="rm-prof">
@@ -63,8 +63,8 @@ export function ProfilePage({ card, room, rooms, cards, rank, onMessage, onRanks
       </div>
     </div>
     <div className="rm-ptabs"><div className="tm-tabs">
-      <button type="button" className={`tm-tab${tab === 'progress' ? ' on' : ''}`} onClick={() => setTab('progress')}>Progress</button>
       {activity && <button type="button" className={`tm-tab${tab === 'activity' ? ' on' : ''}`} onClick={() => setTab('activity')}>Today’s activity{activity.count > 0 && <b>{activity.count}</b>}</button>}
+      <button type="button" className={`tm-tab${tab === 'progress' || !activity ? ' on' : ''}`} onClick={() => setTab('progress')}>Progress</button>
     </div></div>
     {tab === 'progress' || !activity || !renderBoard
       ? <div className="rm-pgrid">
@@ -73,7 +73,7 @@ export function ProfilePage({ card, room, rooms, cards, rank, onMessage, onRanks
           <HoursChart byMonth={card.byMonth} total={card.hoursTotal} />
         </div>
         <div className="rm-pcol">
-          {shared.length > 0 && <div className="blk"><span className="rm-label">Rooms</span>{shared.map((r) => onRoom
+          {shared.length > 0 && <div className="blk"><span className="rm-label">Groups</span>{shared.map((r) => onRoom
             ? <button type="button" key={r.id} className="line" onClick={() => onRoom(r.id)}>{I.hash()}{r.name}</button>
             : <span key={r.id} className="line">{I.hash()}{r.name}</span>)}</div>}
         </div>

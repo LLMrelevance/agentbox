@@ -170,7 +170,8 @@ import { SignInPage } from './team/SignInPage';
 import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, flipView, isDirect, nextTab, pageDisplay, pageFor, peopleInConversation, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
 import { inboxEveryone, mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
 import { boardStops, listStops, stepFromPlace, stepStop, stopKey, type Stop } from './threads/walk-rules';
-import { opensTheToast, toastOpens, toastParts, type ToastGoes } from './toast-parts';
+import { opensTheToast, saysWhereItWent, toastOpens, toastParts, type ToastGoes } from './toast-parts';
+import { SentLine } from './components/SentLine';
 
 type Modal = null | 'compose' | 'filter' | 'palette' | 'reply' | 'snooze' | 'standing';
 
@@ -683,6 +684,9 @@ export default function App() {
   // THE CLOUD'S OWN SETUP SCREEN, opened from the cloud menu's Set up, or by
   // choosing to run in the cloud before it is set up (components/CloudSetup).
   const [cloudSetupOpen, setCloudSetupOpen] = useState(false);
+  // Settings › Phone's own sign-in, for a build whose team version is off.
+  const [phoneSignInOpen, setPhoneSignInOpen] = useState(false);
+  useEffect(() => { if (snap?.team?.signedIn) setPhoneSignInOpen(false); }, [snap?.team?.signedIn]);
   // The account a cloud sign-in started from Settings is for, so its page can say whom to sign in as.
   const [cloudSignInAs, setCloudSignInAs] = useState<string | null>(null);
   const floatingRef = useRef<OpenOverTheApp>(NOTHING_OVER_THE_APP);
@@ -745,6 +749,7 @@ export default function App() {
   //
   // It still starts up on a machine that has never been told otherwise.
   const [panelUp, setPanelUp] = useState(() => localStorage.getItem('powerup.sidebar.collapsed') !== 'true');
+  const [topTabs, setTopTabs] = useState<HTMLDivElement | null>(null);
   // WHAT THE SIDEBAR WAS BEFORE A DOCUMENT TOOK THE WHOLE WINDOW, and null
   // whenever nothing has. The effect that fills it in sits further down beside
   // the artifact's own state; it is declared here because the line below has to
@@ -3063,12 +3068,14 @@ export default function App() {
         title: String((a.input as any)?.description ?? (a.input as any)?.command ?? a.tool ?? 'a command'),
         // The thread that is asking, which heads the phone's alert.
         thread: (() => { const of = a.item ? snap.items.find((i) => i.id === a.item) : null; return of ? rowTitle(of) : null; })(),
+        item: a.item ?? null,
         product: a.product,
         productName: snap.products.find((p) => p.slug === a.product)?.name ?? a.product,
         kind: 'approval',
       })),
     ];
-    if (arrivals.length) window.zero?.notify?.(arrivals);
+    // With the inbox they arrived in, which the phone's alert counts on its icon.
+    if (arrivals.length) window.zero?.notify?.(arrivals, inbox.filter((i) => i.product).map((i) => ({ id: i.id, product: i.product as string })));
   }, [snap, inbox, runningRows]);
 
   // The corner tag's "Turn off…" lands on the switch that turns it off.
@@ -3510,11 +3517,6 @@ export default function App() {
     myName: snap?.team?.rooms?.me?.display_name ?? '', fullName: snap?.team?.me?.name ?? '', hasTeam: !!snap?.team?.team, teamCards: snap?.team?.cards ?? [], now: Date.now(), toast: showToast,
     directs,
     onOpenDirect: (id) => { const item = items.find((i) => i.id === id); if (item) { setTeamOpen(false); setSettingsOpen(false); setFocused(item); markSeen(item); } },
-    onDirectRead: (id, read) => {
-      const item = items.find((i) => i.id === id);
-      if (!item) return;
-      if (read) markSeen(item); else { markUnseen(item); showToast('Marked unread'); }
-    },
     onLeavePage: () => { setFocused(null); setFocusedRepeat(null); setTeamOpen(false); closeSearch(); },
     // Teammates: the conversation you already have, or the new thread card addressed to them.
     onTeamMessage: (ids) => {
@@ -3534,8 +3536,6 @@ export default function App() {
       onOpenItem={(item) => { setFocused(item); markSeen(item); }} />,
   });
   const roomShown = !!roomsUi.openId && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
-  // A conversation with people, open full page, sits on the messages page.
-  const directOnMessages = roomsUi.live && !!focused && !settingsOpen && isDirect(snap?.products.find((p) => p.slug === focused.product));
 
   // C TURNS THE CLOUD ON OR OFF, from anywhere a key reaches (2026-10-16), and
   // a note says which. Through a ref so the key handlers read the cloud as it
@@ -3786,7 +3786,7 @@ export default function App() {
     // to name nothing when `stay` was set, so the moment she left the thread
     // the toast had no O. The cap stays off while the row is the one open
     // (toastOpens), which is the "needs no way in" this used to say.
-    showToast(`${toast} · press Z to undo`, goes);
+    showToast(`${toast} · press Z to undo`, goes && { ...goes, sent: true });
     const afterTheLast = async () => { await flushed; await run(); };
     const write = async () => {
       try {
@@ -5156,8 +5156,8 @@ export default function App() {
         (document.activeElement as HTMLElement | null)?.blur?.();
         setMultiSel(new Set());
         // The room tab after Done is a tab too.
-        if (roomsUi.tabRoomId) {
-          const order = roomTabOrder(stateTabOrder, roomsUi.tabRoomId);
+        if (roomsUi.groupsTab) {
+          const order = roomTabOrder(stateTabOrder, roomsUi.groupsTab);
           const next = nextTab(order, roomShown ? 'room' : view, e.shiftKey);
           if (next === 'room') { roomsUi.openTab(); setSelected(0); return; }
           roomsUi.leave();
@@ -5625,6 +5625,24 @@ export default function App() {
     setSelected(at >= 0 ? at : 0);
   }, [shownInbox, view, onBoard, list, focused, markSeen]);
 
+  // A SEND THAT MOVED HER ON IS SAID ABOVE THE REPLY BOX of the thread it moved
+  // her to (./components/SentLine), and stays there until she leaves that
+  // thread: no six-second clock. A newer note takes its place as usual.
+  const sentLineShown = !!toast && saysWhereItWent(toast, focused ? { product: focused.product, id: focused.id } : null);
+  const lineOn = useRef<{ at: string; toast: typeof toast } | null>(null);
+  useEffect(() => {
+    const at = focused ? `${focused.product}:${focused.id}` : null;
+    if (sentLineShown && at) {
+      if (toastTimer.current) { clearTimeout(toastTimer.current); toastTimer.current = null; }
+      lineOn.current = { at, toast };
+      return;
+    }
+    const was = lineOn.current;
+    if (!was) return;
+    lineOn.current = null;
+    if (toast === was.toast && was.at !== at) setToast(null);
+  }, [sentLineShown, focused, toast]);
+
   /* -------------------------------- render -------------------------------- */
   // (Hooks live ABOVE the boot return: below it, React counts them
   // differently between the boot render and the first real one, #310.)
@@ -5636,6 +5654,18 @@ export default function App() {
      same condition the task header and the terminal socket already use, named
      once so the corner cannot disagree with them about which screen this is. */
   const taskOpen = workspaceNavigation && !!focused && !settingsOpen;
+  const sentTo = sentLineShown && toast?.goes
+    ? [...inbox, ...progress, ...snoozed, ...done].find((i) => i.id === toast.goes!.id && i.product === toast.goes!.product)
+    : undefined;
+  const whereItWent = sentLineShown && toast?.goes ? (
+    <SentLine
+      key={toastShown.current}
+      title={sentTo ? sentTo.label || sentTo.title : 'the thread you left'}
+      undoes={toastParts(toast.text).undo}
+      onBack={() => openToastRow(toast.goes!)}
+      onUndo={() => { setToast(null); void undo(); }}
+    />
+  ) : null;
   const artifactView = artifactPlacement(artifactMode, artifactWidth);
   const [artifactHeader, setArtifactHeader] = useState<HTMLDivElement | null>(null);
   const readingWidth = 'balanced';
@@ -5953,6 +5983,10 @@ export default function App() {
   // `modal === 'reply'` and nothing else; the rule that reads it sits beside
   // `.toast` in the stylesheet and says why it moves to the top rather than
   // merely further up.
+  // With Groups the page holds threads and groups, so its tabs take the top
+  // bar where the title "Threads" was.
+  const tabsInTop = roomsUi.live && workspaceNavigation && !focused && !settingsOpen && !teamShown && search === null && (!roomShown || roomsUi.inTab);
+
   return (
     <TeamContext.Provider value={team}>
     <ChatAgentsContext.Provider value={chatAgents}>
@@ -5995,7 +6029,7 @@ export default function App() {
            offering the move. Null on every copy that can. */
         move={announcesMove(snap?.update, { walking, closed: '' }) ? { place: snap?.update?.place ?? null, error: snap?.update?.moveError ?? null } : null}
         onMove={() => { void api.updateMove(); }}
-        page={settingsOpen ? 'settings' : null} roomOpen={(roomShown && !roomsUi.inTab) || directOnMessages} rooms={roomsUi.nav(workspaceCollapsed, directOnMessages)} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
+        page={settingsOpen ? 'settings' : null} inboxLabel={roomsUi.live ? 'Inbox' : undefined} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onSignOut={() => { void api.teamSignOut().then(() => refresh()); }}
@@ -6090,7 +6124,7 @@ export default function App() {
               <CrossIcon />
             </button>
           </nav>
-        ) : workspaceNavigation ? (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : (teamShown ? <h1 className="workspace-title">{openCard ? 'Threads' : 'Team'}</h1> : roomShown && roomsUi.heading ? roomsUi.heading.title : <h1 className="workspace-title">Threads</h1>)) : (
+        ) : workspaceNavigation ? (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : (teamShown ? <h1 className="workspace-title">{openCard ? 'Threads' : 'Team'}</h1> : tabsInTop ? <div className="tabs-top" ref={setTopTabs} /> : roomShown && roomsUi.heading ? roomsUi.heading.title : <h1 className="workspace-title">Threads</h1>)) : (
         <nav
           className="tabs"
           /* NO HINT ON THIS NAV. This older strip is the layout without the
@@ -6486,7 +6520,7 @@ export default function App() {
                 />
               ) : focused ? (
                 <TicketItems.Provider value={items}>
-                {roomsUi.messagesShell(isDirect(snap.products.find((p) => p.slug === focused.product)) ? focused.id : null, <Focus
+                <Focus
                   // A run of a repeating task carries its rule into the
                   // summary: what every run is told, and Stop repeating.
                   repeat={focusedRule ? {
@@ -6625,6 +6659,7 @@ export default function App() {
                   pageAsk={threadAsk?.key === keyOf(focused) ? threadAsk : null}
                   onAsked={() => setThreadAsk(null)}
                   onShown={setOpenShows}
+                  aboveDock={whereItWent}
                   onReveal={() => revealAgent(focused)}
                   // Remind me later and stop this task are neither of the two
                   // ways a task ends, and the card beside the bar names exactly
@@ -6655,7 +6690,7 @@ export default function App() {
                     silent: snap.supervisor.silent?.[focused.id] ?? null,
                   }}
                   stoppable={!walking && stoppableNow(focused)}
-                />)}
+                />
                 </TicketItems.Provider>
               ) : (
                 <>
@@ -6692,6 +6727,7 @@ export default function App() {
                     onView={(next) => { roomsUi.leave(); setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                     onSearch={openSearch}
                     after={roomsUi.roomTab} dim={roomShown}
+                    into={tabsInTop ? topTabs : null}
                   />
                 )}
                 {roomShown ? roomsUi.page : <>
@@ -7305,6 +7341,7 @@ export default function App() {
           // HER PHONE WITH THE MAC SHUT: the projects she puts on it, on the
           // Phone page, only while she is signed in.
           phoneCloud={snap?.team?.signedIn ? { site: snap.team.phoneSite ?? null, siteQr: snap.team.phoneSiteQr ?? null } : undefined}
+          onPhoneSignIn={snap?.team && !snap.team.signedIn ? () => setPhoneSignInOpen(true) : undefined}
           account={snap?.team?.signedIn && snap.team.me ? { email: snap.team.me.email, team: snap.team.team?.name ?? null, onSignOut: () => { void api.teamSignOut().then(() => refresh()); } } : undefined}
           // THE VERSION AND THE CHECK FOR A NEWER ONE (w-39d6c237f7), off the
           // same snapshot field the sidebar card and ⌘K read.
@@ -7574,6 +7611,9 @@ export default function App() {
       {/* Offered and nobody signed in yet: the app's own sign-in page first.
           Signing in sets the cloud up, and the same open state then shows
           the setup's accounts. */}
+      {phoneSignInOpen && snap?.team && !snap.team.signedIn && (
+        <SignInPage purpose="phone" waitingUrl={snap.team.signingIn?.url ?? null} onClose={() => setPhoneSignInOpen(false)} onSignedIn={() => setPhoneSignInOpen(false)} />
+      )}
       {cloudSetupOpen && !snap.cloud?.setUp && snap.cloud?.offered && (
         <SignInPage purpose="cloud" onClose={() => setCloudSetupOpen(false)} onSignedIn={() => setCloudSetupOpen(true)} />
       )}
@@ -7807,6 +7847,10 @@ export default function App() {
           and the sentence ("Started in Agentbox Team") the quiet one under it,
           picked out of fourteen drawings over four rounds. */}
       {toast && (() => {
+        // Said above the reply box instead, or about to be: the frame between
+        // leaving the answered thread and opening the next one.
+        if (sentLineShown) return null;
+        if (toast.goes?.sent && advanceRef.current && !focused) return null;
         const { line, undo: undoes } = toastParts(toast.text);
         const about: { label?: string; title: string } | undefined = !toast.goes
           ? undefined

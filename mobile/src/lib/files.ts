@@ -55,6 +55,13 @@ export function pictureLink(places: Places, links: Links, product: string, src: 
   return at.ok ? at.link : at.waiting ? undefined : null;
 }
 
+/** A picture's width and height as its computer listed them, or null. */
+export function pictureShapeOf(places: Places, product: string, src: string): { w: number; h: number } | null {
+  const e = findFile(places, product, src)?.entry;
+  const ok = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0;
+  return e && ok(e.w) && ok(e.h) ? { w: e.w, h: e.h } : null;
+}
+
 /** Can the phone play this film or sound. */
 export const playable = (places: Places, links: Links, product: string, src: string) => fileOnPhone(places, links, product, src).ok;
 

@@ -37,6 +37,7 @@ import os from 'node:os';
 import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, hideSecrets, bytesOf, phoneChoices, phoneApproval, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
 import { phoneSettingsOf, settingRoute } from '../shared/phone-settings.mjs';
 import { createPhoneUploads, UPLOAD_LIMITS } from './phone-uploads.mjs';
+import { createPhoneAlerts } from './phone-alerts.mjs';
 import { saveAttachments } from './save-attachments.mjs';
 
 // A file her phone sent with a reply or a new thread: put in her storage, in
@@ -92,6 +93,10 @@ export function createPhoneInbox({
   version = '',
   // This computer as her phone names it.
   name = os.hostname().replace(/\.local$/i, ''),
+  // How long since she last touched this Mac; none sends no alerts (main/phone-alerts.mjs).
+  idleMs = null,
+  // How an alert reaches Expo; a test stands in for it.
+  sendPush,
 }) {
   const state = readState(stateFile);
   const save = () => writeState(stateFile, state);
@@ -114,6 +119,7 @@ export function createPhoneInbox({
   const still = () => { if (!alive()) throw new SignedOut('signed out'); };
   // The files threads name, when this cloud can hold them (main/phone-uploads.mjs).
   const uploads = backend.putPhoneFile ? createPhoneUploads({ backend, owner, device, alive, state, save, home, now, log }) : null;
+  const alerts = idleMs && backend.pushDevices ? createPhoneAlerts({ backend, owner, device, state, save, now, log, idleMs, send: sendPush, still }) : null;
   let swept = 0;
   const homeWritten = (p) => (p && home && (p === home || p.startsWith(`${home}/`)) ? `~${p.slice(home.length)}` : p ?? null);
 
@@ -204,7 +210,7 @@ export function createPhoneInbox({
       if (gone.length) {
         still();
         await backend.dropPhoneThreads(device, p.slug, gone.map((k) => k.slice(p.slug.length + 1)), owner);
-        for (const k of gone) { delete state.sent[k]; delete state.failed[k]; built.delete(k); }
+        for (const k of gone) { delete state.sent[k]; delete state.failed[k]; delete state.alerted[k]; built.delete(k); }
         save();
       }
     }
@@ -384,15 +390,37 @@ export function createPhoneInbox({
     return { taken, changedSettings };
   }
 
+  // A thread's row when its copy is on the phone, each project read once a pass.
+  let alertTrouble = null;
+  const carriedNow = () => {
+    const rowsOf = new Map();
+    return (slug, id) => {
+      if (!state.sent[`${slug}:${id}`]) return null;
+      if (!rowsOf.has(slug)) rowsOf.set(slug, new Map(listItems(slug).map((i) => [i.id, i])));
+      return rowsOf.get(slug).get(id) ?? null;
+    };
+  };
+
   return {
     device,
     /** The uploads going on behind the passes; a test waits on them. */
     filesSettled: () => uploads?.kick() ?? Promise.resolve(),
+    /** What the desktop's banner was told arrived (main/notify.mjs), and the inbox then: [{ id, product }]. */
+    arrivals: (list, needsYou) => alerts?.arrived(list, needsYou),
     async syncOnce() {
       try {
         const { taken, changedSettings } = await takeCommands();
         const sent = await publish();
         await publishSettings(changedSettings);
+        if (alerts) {
+          if (taken) alerts.phoneUsed();
+          try { await alerts.pass(carriedNow()); alertTrouble = null; } catch (err) {
+            if (err instanceof SignedOut) throw err;
+            const line = `phone: could not alert: ${err?.message ?? err}`;
+            if (line !== alertTrouble) log(line);
+            alertTrouble = line;
+          }
+        }
         if (taken || sent) log(`phone: took ${taken}, sent ${sent}`);
         return { taken, sent };
       } catch (err) {
@@ -464,9 +492,9 @@ function readState(file) {
     const s = JSON.parse(fs.readFileSync(file, 'utf8'));
     const made = {};
     for (const [k, v] of Object.entries(s.made || {})) made[k] = typeof v === 'string' ? { id: v, at: Date.now() } : v;
-    return { device: typeof s.device === 'string' && /^[0-9a-f]{12}$/.test(s.device) ? s.device : null, forDevice: s.forDevice ?? null, sent: s.sent || {}, failed: s.failed || {}, done: s.done || {}, doing: s.doing || {}, made, uploaded: s.uploaded && typeof s.uploaded === 'object' ? s.uploaded : {} };
+    return { device: typeof s.device === 'string' && /^[0-9a-f]{12}$/.test(s.device) ? s.device : null, forDevice: s.forDevice ?? null, sent: s.sent || {}, failed: s.failed || {}, done: s.done || {}, doing: s.doing || {}, made, uploaded: s.uploaded && typeof s.uploaded === 'object' ? s.uploaded : {}, alerted: s.alerted && typeof s.alerted === 'object' ? s.alerted : {} };
   } catch {
-    return { device: null, forDevice: null, sent: {}, failed: {}, done: {}, doing: {}, made: {}, uploaded: {} };
+    return { device: null, forDevice: null, sent: {}, failed: {}, done: {}, doing: {}, made: {}, uploaded: {}, alerted: {} };
   }
 }
 

@@ -31,6 +31,21 @@ function alive(pid) {
 // A socket's path has to fit in 104 bytes on macOS, so not under its long tmpdir.
 const shortDir = () => fs.mkdtempSync(path.join(fs.existsSync('/tmp') ? '/tmp' : os.tmpdir(), 'th-'));
 
+// The folders the real shell and host were living in. Killing the host closes
+// the pty, so the shell takes its SIGHUP a moment later and writes
+// .zsh_history into HOME, which is one of these folders: a file landing
+// between the walk and the rmdir of a single rmSync is ENOTEMPTY. maxRetries
+// cannot help, because it retries the rmdir and not the sweep of children. A
+// folder left behind in tmp is not a failure, so this gives up quietly.
+async function removeWhereAShellLived(dir, ms = 5000) {
+  const end = Date.now() + ms;
+  for (;;) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); return; } catch { /* still dying */ }
+    if (Date.now() > end) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
 describe('with a real shell and a real host process', () => {
   it('a server started in a task terminal is still running, its output still there, after the app restarts', async () => {
     const dir = shortDir();
@@ -62,8 +77,8 @@ describe('with a real shell and a real host process', () => {
     } finally {
       if (hostPid) try { process.kill(hostPid, 'SIGTERM'); } catch { /* gone */ }
       if (serverPid) try { process.kill(serverPid, 'SIGKILL'); } catch { /* gone */ }
-      fs.rmSync(dir, { recursive: true, force: true });
-      fs.rmSync(work, { recursive: true, force: true });
+      await removeWhereAShellLived(dir);
+      await removeWhereAShellLived(work);
     }
   }, 20000);
 });

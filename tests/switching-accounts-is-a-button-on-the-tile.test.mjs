@@ -91,7 +91,7 @@ describe('the line under the name', () => {
 
 describe('a Codex login in the cloud, still drawn as its own place', () => {
   it('has the plan and state on one line, and no switch: the cloud account is not changed from a tile', () => {
-    const [a] = cloudPlaceAccounts({ mode: 'all', accounts: [{ engine: 'codex', key: 'c', name: 'one@example.test', plan: 'Plus', ready: true, state: 'ready', limits: [limit('session', 5)] }] }, 'codex', Date.now());
+    const [a] = cloudPlaceAccounts({ mode: 'all', accounts: [{ engine: 'codex', key: 'c', name: 'one@example.test', plan: 'Plus', ready: true, state: 'ready', limits: [limit('session', 5)], inUse: true }] }, 'codex', Date.now());
     const html = draw([a]);
     expect(html).toContain('<div class="acct-tile-about"><span>Plus · Ready</span></div>');
     expect(html).not.toContain('acct-switch');

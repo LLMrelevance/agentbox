@@ -1,18 +1,18 @@
-// A film or a sound in the phone's own player, as Safari draws `<video controls>`
-// for the phone site; nothing on the page runs but the player.
-import { useMemo } from 'react';
+// A film or a sound in the phone's own player (expo-video): its own controls,
+// its own spinner while it loads, and full screen. The browser preview draws
+// the page's own <video> (Player.web.tsx).
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { View, type ViewStyle } from 'react-native';
-import { WebView } from 'react-native-webview';
-import { attr } from './PageFrame';
+
+// The player's own control bar needs this much to be pressable; a sound has nothing else to show.
+const SOUND_HEIGHT = 64;
 
 export function Player({ link, film, style }: { link: string; film: boolean; style?: ViewStyle }) {
-  const tag = film ? 'video' : 'audio';
-  // One source for as long as the link holds, so a redraw never starts the film again.
-  const source = useMemo(() => ({ html: `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;height:100%;background:transparent}${tag}{display:block;width:100%;height:100%;object-fit:contain}</style><${tag} controls playsinline preload="metadata" src="${attr(link)}"></${tag}>` }), [tag, link]);
+  const player = useVideoPlayer(link);
   return (
-    <View style={[{ overflow: 'hidden' }, style]}>
-      <WebView source={source} originWhitelist={['*']} javaScriptEnabled={false} scrollEnabled={false}
-        allowsInlineMediaPlayback allowsFullscreenVideo style={{ flex: 1, backgroundColor: 'transparent' }} />
+    <View style={[{ overflow: 'hidden' }, style, film ? null : { height: SOUND_HEIGHT }]}>
+      <VideoView player={player} nativeControls contentFit="contain" fullscreenOptions={{ enable: true }} allowsPictureInPicture={false}
+        style={{ flex: 1 }} />
     </View>
   );
 }

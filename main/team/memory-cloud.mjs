@@ -334,6 +334,20 @@ export function memoryBackend(cloud, personId) {
     async phoneSettings() {
       return [...(cloud.phoneSettings?.values() ?? [])].filter((s) => s.owner === personId).map((s) => ({ ...s }));
     },
+    // The phones her alerts go to (20261025000000_push_devices.sql), hers alone.
+    async putPushDevice({ token, platform, appVersion = null }) {
+      if (!/^ExponentPushToken\[[A-Za-z0-9_-]{10,200}\]$/.test(String(token))) refuse('a phone address that is not Expo\'s');
+      if (!['ios', 'android'].includes(platform)) refuse(`a ${platform} phone`);
+      (cloud.pushDevices ??= new Map()).set(`${personId}:${token}`, { owner: personId, token, platform, appVersion, updatedAt: cloud.now() });
+    },
+    async pushDevices(owner) {
+      if (owner && owner !== personId) return [];
+      return [...(cloud.pushDevices?.values() ?? [])].filter((d) => d.owner === personId).map((d) => ({ ...d }));
+    },
+    async dropPushDevice(token, owner) {
+      if (owner && owner !== personId) return;
+      cloud.pushDevices?.delete(`${personId}:${token}`);
+    },
     // What her phone does: a command, as herself, for one computer, not yet taken.
     async addPhoneCommand({ device, project = null, item = null, kind, payload = {} }) {
       if (!/^[0-9a-f]{12}$/.test(String(device))) refuse('a command for no computer');
