@@ -80,18 +80,6 @@
 .rm-main.board { overflow: auto; padding-right: 0; }
 .rm-main.board > .rm-notice { margin-right: 24px; }
 .rm-main.board > .rm-empty { margin: 4px 24px 24px 0; }
-/* The grid's people over the board as one row of tiles in the Grid's lines.
-   The right margin is the board's own gap, so the row ends where the board does. */
-.rm-bfaces { display: grid; grid-template-columns: repeat(var(--per-row, 8), minmax(0, 1fr)); margin: 2px 24px 22px 0; border-top: 1px solid var(--rm-line); border-left: 1px solid var(--rm-line); }
-.rm-bface { display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 16px 4px 14px; border: 0; border-right: 1px solid var(--rm-line); border-bottom: 1px solid var(--rm-line); background: none; font: inherit; color: var(--text); cursor: pointer; }
-.rm-bface .n { margin-top: 11px; max-width: 100%; font-size: 13px; line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rm-bface .ag { display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; max-width: 100%; font: 9.5px/14px var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--text-faint); white-space: nowrap; }
-.rm-bface .ag b { font-weight: 400; color: var(--text-dim); }
-.rm-bface .ag .live-mark { flex: none; width: 10px; height: 10px; gap: 1px; color: var(--text); }
-.rm-bface:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
-.rm-bface[aria-pressed="true"] { background: color-mix(in srgb, var(--text) 5%, transparent); }
-.rm-bface.off { opacity: .4; }
-.rm-bface.off:hover { opacity: .7; }
 .rm-board { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(170px, 1fr)); gap: 0 18px; padding-right: 24px; width: fit-content; min-width: 100%; box-sizing: border-box; align-items: start; }
 .rm-board .th-col-h { height: 32px; }
 .rm-board .th-col-h .live-mark { width: 12px; height: 12px; gap: 1.5px; margin-right: 9px; color: var(--text); }
@@ -198,19 +186,6 @@
 .rm-menu .rule { height: 1px; background: var(--rm-line); margin: 3px 5px; }
 .rm-menu .head { padding: 8px 9px 6px; }
 .rm-menu.members .row { height: 36px; }
-/* The room in the Threads tab bar (RoomTab.tsx). */
-.tm-tab.rm-tab { display: inline-flex; align-items: center; gap: 4px; }
-/* Lit, the line runs under the name and count only, not under the hidden arrow. */
-.tm-tab.rm-tab.on { border-bottom-color: transparent; }
-.rm-tab .rm-tabname { position: relative; align-self: stretch; display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; cursor: pointer; }
-.rm-tab.on .rm-tabname::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: var(--accent); }
-.rm-tab .rm-tabname svg { width: 13px; height: 13px; }
-.rm-tab .rm-tabname b { font-weight: 400; color: var(--text-faint); margin-left: 2px; }
-.rm-tab .rm-tabpick { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; background: none; color: var(--text-faint); cursor: pointer; opacity: 0; }
-.rm-tab:hover .rm-tabpick, .rm-tab .rm-tabpick.open, .rm-tab .rm-tabpick:focus-visible { opacity: 1; }
-.rm-tab .rm-tabpick:hover, .rm-tab .rm-tabpick.open { color: var(--text); background: var(--wash-strong); }
-.rm-tabmenu { min-width: 220px; }
-.rm-tabmenu .row .n { font: 11px var(--mono); color: var(--text-faint); }
 .rm-menu.members { max-height: 420px; overflow-y: auto; }
 
 /* hover card */
@@ -512,165 +487,79 @@
 .gr-none { padding: 48px var(--text-x, 32px); }
 .gr-none-acts { display: flex; gap: 8px; margin-top: 16px; }
 
-/* The page's tabs in the top bar, where its title was; Groups on the same baseline as the tabs before it. */
+/* The page's tabs in the top bar, after the page's name. */
 .tabs-top { flex: 1; display: flex; align-items: center; min-width: 0; height: 100%; margin-right: 12px; }
 .tabs-top .th-bar { flex: 1; padding: 0; min-height: 0; }
-.tabs-top .rm-tab .rm-tabname { align-self: auto; align-items: baseline; line-height: 30px; top: .5px; }
 
-/* ROUND 11 TRIALS (GroupTrials.tsx), not for shipping. */
-.gr-big .rm-full .rm-cm .h { font-size: 15px; }
-.gr-big .rm-full .rm-cm .tx { font-size: 16px; line-height: 25px; }
-.gr-big .rm-full.hang .rm-cm .h > .rm-pic:first-child { top: 10px; }
-.gr-big .rm-compose-input { font-size: 15px; line-height: 22px; }
-.gr-big .gr-pt, .gr-big .gr-l1 { font-size: 14.5px; line-height: 19px; }
-.gr-big .gr-l2 { font-size: 13.5px; line-height: 18px; }
-.gr-big .gr-pn, .gr-big .gr-ag { font-size: 13px; }
-.gr-big .gr-bar .gr-chip { font-size: 14px; }
-.gt-today { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--rm-line); }
-.gt-feed { display: flex; flex-direction: column; gap: 16px; }
-.gt-item { display: grid; grid-template-columns: 32px minmax(0, 1fr); column-gap: 12px; align-items: start; }
-.gt-item > .rm-pic { justify-self: center; }
-.gt-iw { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.gt-who { display: flex; align-items: baseline; gap: 4px; font-size: 12.5px; line-height: 18px; color: var(--text-faint); }
-.gt-who b { font-weight: 400; color: var(--text-dim); }
-.gt-who em { margin-left: auto; font: normal 10.5px var(--mono); color: var(--text-faint); }
-.gt-t { font-size: 13.5px; line-height: 19px; color: var(--text); }
-.gr-big .gt-t { font-size: 14px; line-height: 20px; }
-.gt-none { font-size: 13px; color: var(--text-faint); }
-.gt-tabs { margin: -6px 0 14px; }
-.gt-l3 { grid-column: 2 / -1; display: flex; align-items: center; gap: 4px; min-width: 0; margin-top: 2px; font-size: 12.5px; line-height: 17px; color: var(--text-faint); }
-.gt-l3 .gt-ck { flex: none; }
-.gt-l3 em { font-style: normal; flex: none; }
-.gt-digest { margin: 12px 0 16px 44px; max-width: 620px; padding: 12px 16px 12px 14px; border: 1px solid var(--rm-line); }
-.gt-dh { display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--text-dim); }
-.gt-fs { display: flex; flex: none; }
-.gt-fs > .rm-pic + .rm-pic { margin-left: -5px; outline: 2px solid var(--skin-solid, var(--surface)); }
-.gt-dl { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-.gt-dr { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; line-height: 20px; color: var(--text); }
-.gt-dr .gt-ck { flex: none; color: var(--text-faint); }
-.gt-dr em { margin-left: auto; padding-left: 12px; flex: none; font-style: normal; font-size: 12.5px; color: var(--text-faint); }
-.gt-more { margin-top: 8px; padding: 0; border: 0; background: none; font: inherit; font-size: 12.5px; color: var(--text-faint); cursor: default; }
-.gt-more:hover { color: var(--text); }
-.gt-ticker { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 4px 32px 0 var(--text-x, 32px); font-size: 13px; line-height: 20px; color: var(--text-dim); }
-.gt-ticker .gt-ck { flex: none; color: var(--text-faint); }
-.gt-ticker b { font-weight: 400; color: var(--text); }
-.gt-ticker em { flex: none; font: normal 10.5px var(--mono); color: var(--text-faint); }
-.gt-tk-r { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none; padding-left: 16px; font-size: 12.5px; color: var(--text-faint); }
-.gt-tk-r .live-mark { width: 11px; height: 11px; gap: 1px; }
-.gt-dot { width: 3px; height: 3px; background: var(--text-faint); }
-.gt-door { margin-top: 3px; }
-.gt-side-groups { margin-top: 18px; }
-.gt-slabel { padding: 10px 12px 4px; font: 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
-.gt-srow { display: flex; align-items: center; gap: 10px; }
-.gt-sic { display: inline-flex; align-items: center; justify-content: center; width: 20px; flex: none; }
-.gt-sh { color: var(--text-faint); }
-.gt-srow.unread { color: var(--text); }
-.gt-sdot { margin-left: auto; width: 6px; height: 6px; flex: none; background: var(--accent); }
+/* A group's chat a size up from a thread's list (w-dcaa2c122e, round 11). */
+.gr-page .rm-full .rm-cm .h { font-size: 15px; }
+.gr-page .rm-full .rm-cm .tx { font-size: 16px; line-height: 25px; }
+.gr-page .rm-full.hang .rm-cm .h > .rm-pic:first-child { top: 10px; }
+.gr-page .rm-compose-input { font-size: 15px; line-height: 22px; }
+.gr-page .gr-pt, .gr-page .gr-l1 { font-size: 14.5px; line-height: 19px; }
+.gr-page .gr-l2 { font-size: 13.5px; line-height: 18px; }
+.gr-page .gr-pn, .gr-page .gr-ag { font-size: 13px; }
+
+/* WITH GROUPS ON THERE IS NO SIDEBAR (PageMenu.tsx). The top bar holds the
+   team's mark, the page's name as a menu, a rule, then the Inbox's tabs, a
+   group's chips or a thread's trail; your face ends it. */
 .gt-topchips { flex: 1; min-width: 0; display: flex; align-items: center; height: 100%; margin-right: 12px; }
 .gt-topchips .gr-bar { flex: 1; height: auto; padding: 0; border-bottom: 0; }
-.gt-switch { display: flex; align-items: center; gap: 28px; height: 100%; }
-.gt-switch button { display: inline-flex; align-items: baseline; gap: 8px; padding: 0; border: 0; background: none; font: inherit; font-size: 17px; letter-spacing: -.03em; color: var(--text-faint); cursor: default; }
-.gt-switch button.on { color: var(--text); }
-.gt-switch button:hover { color: var(--text); }
-.gt-switch b { font: 400 11px var(--mono); letter-spacing: 0; color: var(--text-faint); }
-.gt-title { display: flex; align-items: center; gap: 10px; }
-.workspace-collapsed .gt-slabel { display: none; }
-.workspace-collapsed .workspace-navigation .gt-srow > .gt-sic { display: inline-flex; }
-.workspace-collapsed .gt-side-groups { margin-top: 12px; }
-/* Round 12 trials: more room on the left, the page's name in the top bar, no sidebar. */
+/* More room on the left than the sidebar's layout gave: 44 points to the text (round 13). */
+.app.workspace-layout.gt-noside { --workspace-left: 22px; }
 .gt-inset .list, .gt-inset .list-pane { --gutter: 20px; --text-x: 44px; --row-r: 32px; }
 .gt-inset.workspace-layout > .topbar { padding-left: 44px; padding-right: 28px; }
+.gt-inset .th-table .row.unread::before { left: 25px; }
+.gt-noside .gr-page { --text-x: 44px; }
 .gt-titled { flex: 1; min-width: 0; display: flex; align-items: center; gap: 28px; height: 100%; }
-.gt-titled > .workspace-title { flex: none; }
 .gt-titled > .tabs-top { margin-right: 12px; }
 .gt-titled .gt-topchips { margin-right: 12px; }
 .gt-titled > .th-mark { flex: none; margin-right: -8px; }
 .gt-vsep { flex: none; width: 1px; height: 20px; margin: 0 -8px; background: var(--line-strong); }
-.app.workspace-layout.gt-noside { --workspace-left: 22px; }
-.gt-acct { position: relative; display: inline-flex; margin-left: 12px; }
-.gt-me { display: flex; padding: 2px; border: 1px solid transparent; background: none; cursor: default; }
-.gt-me:hover, .gt-me.open { border-color: var(--line-strong); }
-.gt-inset .th-table .row.unread::before { left: 25px; }
-/* Round 13 trials: one line with no sidebar, Inbox and Groups drawn unlike the four tabs. */
-.gt-seg { display: flex; flex: none; height: 32px; border: 1px solid var(--line-strong); }
-.gt-seg button { display: inline-flex; align-items: center; gap: 8px; padding: 0 14px; border: 0; background: none; font: inherit; font-size: 13.5px; color: var(--text-dim); cursor: default; }
-.gt-seg button + button { border-left: 1px solid var(--line-strong); }
-.gt-seg button.on { background: var(--wash-strong); color: var(--text); }
-.gt-seg b, .gt-navrow b, .gt-titlemenu b { font: 400 11px var(--mono); color: var(--text-faint); }
+.gt-tmwrap { position: relative; display: inline-flex; flex: none; }
 .gt-titlemenu { display: inline-flex; align-items: center; gap: 8px; flex: none; padding: 0; border: 0; background: none; font: inherit; font-size: 17px; letter-spacing: -.03em; color: var(--text); cursor: default; }
 .gt-titlemenu .gt-chev { color: var(--text-faint); margin-top: 2px; }
-.gt-navrow { display: flex; align-items: center; gap: 4px; flex: none; }
-.gt-navrow button { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px 0 10px; border: 0; background: none; font: inherit; font-size: 13.5px; color: var(--text-dim); cursor: default; }
-.gt-navrow button.on { background: var(--wash-strong); color: var(--text); }
-.gt-navrow .workspace-nav-icon { width: 18px; height: 18px; }
-.gt-states-quiet .tm-tabs { gap: 4px; }
-.gt-states-quiet .tm-tab { height: 30px; padding: 0 10px; border-bottom: 0; font: 13.5px/30px 'Geist', 'Avenir Next', -apple-system, sans-serif; letter-spacing: 0; text-transform: none; color: var(--text-dim); align-items: center; }
-.gt-states-quiet .tm-tab b { padding: 0; font: 11px var(--mono); color: var(--text-faint); }
-.gt-states-quiet .tm-tab.on { background: var(--wash); color: var(--text); }
-.gt-states-menu .tm-tab:not(.on), .gt-states-menu .rm-sep { display: none; }
-.gt-states-menu .tm-tab.on { height: 32px; padding: 0 12px; border: 1px solid var(--line-strong); font: 13.5px/30px 'Geist', 'Avenir Next', -apple-system, sans-serif; letter-spacing: 0; text-transform: none; color: var(--text); align-items: center; }
-.gt-states-menu .tm-tab.on b { padding: 0; font: 11px var(--mono); color: var(--text-faint); }
-.gt-states-menu .tm-tab.on::after { content: ''; width: 6px; height: 6px; margin: -3px 0 0 4px; border-right: 1.5px solid var(--text-faint); border-bottom: 1.5px solid var(--text-faint); transform: rotate(45deg); }
-.gt-inset .gr-page { --text-x: 32px; }
-/* Round 14: the page-name menu. */
-.gt-tmwrap { position: relative; display: inline-flex; flex: none; }
 .gt-titlemenu.open .gt-chev, .gt-titlemenu:hover .gt-chev { color: var(--text); }
-.gt-tmenu { position: absolute; left: -10px; top: calc(100% + 12px); z-index: 60; width: 240px; padding: 4px; display: flex; flex-direction: column; gap: 1px; }
-.gt-tmenu.rich { width: 260px; }
-.gt-tmenu .rule { height: 1px; margin: 4px 6px; background: var(--rm-line); }
-.gt-mrow { display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; height: 36px; padding: 0 10px; border: 0; background: none; font: inherit; font-size: 14px; text-align: left; color: var(--text-dim); cursor: default; }
-.gt-mrow:hover { background: var(--wash-strong); color: var(--text); }
-.gt-mrow.on { color: var(--text); }
-.gt-mrow .workspace-nav-icon { width: 18px; height: 18px; flex: none; }
-.gt-mrow b { font: 400 11px var(--mono); color: var(--text-faint); }
-.gt-mcheck { margin-left: auto; display: inline-flex; color: var(--text-dim); }
-.gt-mrow.sub { height: 32px; font-size: 13.5px; }
-.gt-mrow.sub .gt-sdot { margin-left: auto; }
-.gt-noside.gt-inset .gr-page { --text-x: 44px; }
-.gr-optlabel { padding: 8px 9px 4px; font: 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
-.gr-optmenu .row.gr-optpick { padding-left: 9px; }
-.gr-optmenu .row.gr-optpick.on { color: var(--text); }
-.gt-digestrow .gt-fs { margin-right: 4px; }
-.gt-threadnav .workspace-task-header { flex: 1; min-width: 0; }
-.gt-digestrow .gt-fs { display: inline-flex; vertical-align: -5px; margin-right: 8px; }
-.workspace-layout.gt-noside > .topbar:has(.gt-threadnav) { height: 64px; min-height: 64px; flex-basis: 64px; padding-left: 44px; }
 .gt-threadnav { align-items: center; }
+.gt-threadnav .workspace-task-header { flex: 1; min-width: 0; }
 .gt-crumb { display: flex; align-items: center; gap: 10px; min-width: 0; font: 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
 .gt-crumb-back { display: inline-flex; padding: 4px; margin-left: -4px; border: 0; background: none; color: var(--text-faint); cursor: default; }
 .gt-crumb-back:hover { color: var(--text); }
 .gt-crumb-part { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
 .gt-crumb-part.last { color: var(--text-dim); }
-.gt-acctmenu { min-width: 260px; }
-.gt-who { display: flex; align-items: center; gap: 10px; padding: 8px 9px; }
-.gt-who span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.gt-who b { font-weight: 400; font-size: 13.5px; color: var(--text); }
-.gt-who small { font-size: 12px; color: var(--text-faint); }
-/* Round 15: the page-name menu in the app's own menu style, the account menu, the summary on the left. */
+/* The menu under the page's name, its left edge under the team's mark. The
+   groups start in Inbox's own column: indented, they read as a second menu. */
 .gt2-menu { position: absolute; z-index: 60; padding: 5px; border: 1px solid var(--line); background: var(--pop); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 1px; font-size: 13px; }
-.gt2-nav { left: -40px; top: calc(100% + 26px); width: 264px; }
-.gt2-acct { right: 0; top: calc(100% + 16px); width: 260px; }
-.gt2-row { display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; height: 32px; padding: 0 10px; border: 0; background: none; font: inherit; text-align: left; color: var(--text-dim); cursor: default; }
+.gt2-nav { left: -40px; top: calc(100% + 26px); width: 264px; max-height: calc(100vh - 140px); overflow-y: auto; }
+.gt2-row { display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; height: 32px; flex: none; padding: 0 10px; border: 0; background: none; font: inherit; text-align: left; color: var(--text-dim); cursor: default; }
 .gt2-row:hover, .gt2-row.on { background: var(--wash); color: var(--text); }
 .gt2-ic { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex: none; color: var(--text-faint); }
 .gt2-ic svg { width: 16px; height: 16px; }
 .gt2-row:hover .gt2-ic, .gt2-row.on .gt2-ic { color: var(--text-dim); }
-.gt2-n { margin-left: auto; font: 11px var(--mono); color: var(--text-faint); }
-.gt2-split { padding: 0; gap: 0; }
-.gt2-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; height: 100%; padding: 0 6px 0 10px; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: default; }
-.gt2-fold { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 100%; flex: none; border: 0; background: none; color: var(--text-faint); cursor: default; }
-.gt2-fold:hover { color: var(--text); }
-.gt2-fold .gt-chev { transform: rotate(-90deg); transition: transform .12s ease; }
-.gt2-fold.open .gt-chev { transform: none; }
-.gt2-sub { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 2px 26px; }
+.gt2-sub { display: flex; flex-direction: column; gap: 1px; padding: 2px 0; }
 .gt2-subrow { height: 30px; }
 .gt2-hash { color: var(--text-faint); }
 .gt2-subrow.unread { color: var(--text); }
 .gt2-dot { margin-left: auto; width: 5px; height: 5px; flex: none; background: var(--accent); }
-.gt2-rule { height: 1px; margin: 4px 6px; background: var(--line); }
-.gt2-who { display: flex; align-items: center; gap: 10px; padding: 8px 10px; }
-.gt2-who span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.gt2-who b { font-weight: 400; font-size: 13.5px; color: var(--text); }
-.gt2-who small { font-size: 12px; color: var(--text-faint); }
+.gt2-all { color: var(--text-faint); }
+
+/* Your face, ending the top bar, opens the sidebar's account menu downward. */
+.gt-acct { position: relative; display: inline-flex; margin-left: 12px; }
+.gt-me { display: flex; padding: 2px; border: 1px solid transparent; background: none; cursor: default; }
+.gt-me:hover, .gt-me.open { border-color: var(--line-strong); }
+.gt-acct .th-acct-menu, .gt-acct .th-me-pop, .gt-acct .rm-ipop { position: absolute; left: auto; right: 0; bottom: auto; top: calc(100% + 16px); }
+.gt-acct .th-acct-menu { width: 260px; }
+.gt-acct .th-acct-menu button { display: flex; align-items: center; width: 100%; gap: 10px; padding: 7px 9px; border: 0; background: none; font: inherit; font-size: 13px; color: var(--text-dim); text-align: left; cursor: default; }
+.gt-acct .th-acct-menu button:hover, .gt-acct .th-acct-menu button:focus-visible { background: var(--wash-strong); color: var(--text); outline: none; }
+.gt-acct .th-acct-menu .th-acct-row.said { align-items: flex-start; }
+.gt-acct .th-acct-menu .th-acct-who { gap: 9px; padding: 8px 9px 9px; }
+/* Drawn as New thread is, a button beside it. */
+.gt-notice { display: inline-flex; }
+.gt-notice .sb-update-row { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 13px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: none; font: inherit; font-size: 13.5px; color: var(--text-dim); cursor: default; }
+.gt-notice .sb-update-row:hover { color: var(--text); background: var(--wash); }
+.gt-notice svg { width: 16px; height: 16px; }
+
+/* A thread's summary on the left, where the sidebar was, read first (round 15). */
 .gt-sumleft .focus-pane[data-summary="open"] > .focus-scroll,
 .gt-sumleft .focus-pane[data-summary="open"] > .focus-dock,
 .gt-sumleft .focus-pane[data-summary="open"] > .keep-line,
@@ -678,11 +567,6 @@
 .gt-sumleft .ts-panel { right: auto; left: 0; border-left: 0; border-right: 1px solid var(--line); }
 .gt-sumleft.gt-inset .ts-panel { padding-left: 44px; }
 .gt-sumleft .focus-pane { --ts-panel-w: 368px; }
-/* Round 16: every count and dot in the menu ends on one right edge. A thread's
-   top line keeps the Inbox's height and corners, so nothing moves on the way in;
-   a trail on its own puts its arrow on the summary's left edge. */
-.gt2-n { min-width: 14px; text-align: right; }
-.gt2-all { color: var(--text-faint); }
-.gt-noside.gt-inset.workspace-task > .topbar { height: 64px; min-height: 64px; flex-basis: 64px; padding-left: 36px; }
-.gt-noside.gt-inset.workspace-task > .topbar:has(.gt-threadnav) { padding-left: 44px; }
-.gt-noside.gt-inset.workspace-task > .topbar > .topbar-right { right: 28px; }
+/* A thread's top line keeps the Inbox's height and corners, so nothing moves on the way in. */
+.workspace-layout.gt-noside.workspace-task > .topbar { height: 64px; min-height: 64px; flex-basis: 64px; padding-left: 44px; }
+.workspace-layout.gt-noside.workspace-task > .topbar > .topbar-right { right: 28px; }

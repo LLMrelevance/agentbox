@@ -1,5 +1,5 @@
-// A group under the Groups tab: the row of every group over it, its chat
-// filling the page, and down the right who is in it and what they are working on.
+// A group as the Groups page: its chat filling the page, and down the right
+// who is in it and what they are working on.
 import type { ReactNode } from 'react';
 import type { Room, RoomCard } from '../../types';
 import { LiveMark } from '../../components/LiveMark';
@@ -24,12 +24,10 @@ export function peopleShown(room: Pick<Room, 'members' | 'wall'>): { cards: Room
 
 const onWords = (c: RoomCard) => c.away ? 'Not on Groups yet' : c.agents ? c.workingOn ?? 'Private thread' : c.status ?? 'Not running';
 
-export function PeoplePanel({ room, onPerson, head, under, after }: { room: Room; onPerson: (id: string) => void;
-  /** Trial (round 11): a header in place of People, a line under each person, and something after the list. */
-  head?: ReactNode; under?: (c: RoomCard) => ReactNode; after?: ReactNode }) {
+export function PeoplePanel({ room, onPerson }: { room: Room; onPerson: (id: string) => void }) {
   const { cards, working, more } = peopleShown(room);
   return <aside className="gr-side">
-    {head ?? <div className="gr-ph"><span className="gr-pt">People</span><span className="gr-pn">{working} of {room.members} working</span></div>}
+    <div className="gr-ph"><span className="gr-pt">People</span><span className="gr-pn">{working} of {room.members} working</span></div>
     {cards.map((c) => <button type="button" key={c.id} className="gr-prow" title={`Open ${cardName(c)}'s page`} onClick={() => onPerson(c.id)}>
       <RoomFace name={c.name} url={c.avatarUrl} size={32} />
       <span className="gr-pw">
@@ -37,13 +35,12 @@ export function PeoplePanel({ room, onPerson, head, under, after }: { room: Room
         <span className={`gr-l2 rm-one${c.agents ? '' : ' idle'}`}>{onWords(c)}</span>
       </span>
       {c.agents ? <span className="gr-ag"><LiveMark /><span>{c.agents} {c.agents === 1 ? 'agent' : 'agents'}</span></span> : null}
-      {under?.(c)}
     </button>)}
     {more > 0 && <div className="gr-pmore">{more} more not working now</div>}
-    {after}
   </aside>;
 }
 
-export function GroupPage({ bar, chat, people, big = false }: { bar: ReactNode; chat: ReactNode; people: ReactNode; big?: boolean }) {
-  return <div className={`gr-page${big ? ' gr-big' : ''}`}>{bar}<div className="gr-body"><div className="gr-chat">{chat}</div>{people}</div></div>;
+/** The chat and who is in it. The row of groups sits in the top bar, after the page's name. */
+export function GroupPage({ chat, people }: { chat: ReactNode; people: ReactNode }) {
+  return <div className="gr-page"><div className="gr-body"><div className="gr-chat">{chat}</div>{people}</div></div>;
 }

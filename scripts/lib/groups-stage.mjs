@@ -167,7 +167,7 @@ export function world(now = Date.now(), faces = {}) {
 
 /** Serve `dist` and open it; `init` is put in localStorage before the app runs.
  *  The page's clock is held at `at`, an afternoon, so "today" means the same thing in every picture. */
-export async function openStage({ dist, width = 1512, height = 945, theme = 'dark', init = {}, at = Date.parse('2026-10-22T17:40:00'), tweak }) {
+export async function openStage({ dist, width = 1512, height = 945, theme = 'dark', init = {}, at = Date.parse('2026-10-22T17:40:00'), tweak, door = null }) {
   const { chromium } = require('playwright');
   const base = fixtureSnapshot();
   const made = world(at, facesIn(process.env.GROUPS_FACES));
@@ -184,8 +184,10 @@ export async function openStage({ dist, width = 1512, height = 945, theme = 'dar
   const origin = `http://127.0.0.1:${server.address().port}`;
   const browser = await chromium.launch({ executablePath: process.env.GROUPS_CHROME || undefined });
   const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, colorScheme: theme });
-  await ctx.addInitScript(({ snap, theme, init }) => {
+  await ctx.addInitScript(({ snap, theme, init, door }) => {
     window.__SNAP__ = snap;
+    // The phone door marks the page as the app's phone build does.
+    if (door) document.documentElement.dataset.door = door;
     window.__ERRS__ = [];
     for (const [k, v] of Object.entries(init)) localStorage.setItem(k, v);
     localStorage.setItem('zero.theme', theme);
@@ -213,7 +215,7 @@ export async function openStage({ dist, width = 1512, height = 945, theme = 'dar
     });
     window.addEventListener('error', (e) => window.__ERRS__.push(String(e.message)));
     window.addEventListener('unhandledrejection', (e) => window.__ERRS__.push('rejection: ' + String(e.reason?.message ?? e.reason)));
-  }, { snap, theme, init });
+  }, { snap, theme, init, door });
   await ctx.clock.setFixedTime(at);
   const page = await ctx.newPage();
   await page.goto(origin);
