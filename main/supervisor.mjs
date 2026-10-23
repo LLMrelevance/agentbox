@@ -5881,6 +5881,14 @@ export class Supervisor {
      Pausing the whole fleet is still a switch in Settings and a row in
      ⌘K, and stopping one task is still S on the row. */
 
+  /** Every run going: the sessions, and the cloud runs a restart picked back up. One list, so In progress and Groups count the same runs. */
+  runsGoing() {
+    return [
+      ...this.sessions.values(),
+      ...[...(this._comingHome?.values() ?? [])].filter((v) => !this.sessions.has(v.itemId)),
+    ].filter((s) => !s.remoteIdle);
+  }
+
   /** What the phone is told of the agent running on one thread: since, where, its current steps. Null when none is. */
   liveFor(product, itemId) {
     const s = this.sessions.get(itemId);
@@ -6013,11 +6021,7 @@ export class Supervisor {
       // above, for the same reason: "Queued" over a Codex task while Codex
       // had no slot until the reset (found by the pre-deploy breaker).
       atLimit,
-      running: [
-        ...this.sessions.values(),
-        // A cloud run the app left going, followed home (`_followComingHome`).
-        ...[...(this._comingHome?.values() ?? [])].filter((v) => !this.sessions.has(v.itemId)),
-      ].filter(s => !s.remoteIdle).map((s) => ({
+      running: this.runsGoing().map((s) => ({
         itemId: s.itemId,
         product: s.product,
         startedAt: s.startedAt,
