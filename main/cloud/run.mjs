@@ -549,7 +549,11 @@ export async function cloudRun({
     if (st.runId === earlier.runId && (st.state === 'preparing' || st.state === 'running')) { joining = earlier; joinedAt = st; offlineOn = !!earlier.offline; }
   }
   if (earlier && !joining) {
-    const back = await bringHome(earlier, { recovering: true });
+    // One the app left going that ended while it was away still has its
+    // answer to give, from where the app stopped reading.
+    const leftGoing = importOnly && (LEFT_RUNNING.has(earlier.state) || orphaned);
+    const passOn = (e) => (e.kind === 'stdout' ? write(stdout, Buffer.from(e.data, 'base64')) : undefined);
+    const back = await bringHome(earlier, { recovering: true, ...(leftGoing ? { cursor: earlier.cursor ?? 0, replay: passOn } : {}) });
     if (!back.ok) { say(`an earlier cloud run in this folder could not be brought back yet (${back.why}); not starting another`); return IMPORT_FAILED; }
   }
   if (importOnly && !joining) return 0;

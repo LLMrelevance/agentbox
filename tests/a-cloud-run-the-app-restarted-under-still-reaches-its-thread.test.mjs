@@ -183,6 +183,36 @@ describe('a run the app left going when it restarted', () => {
   });
 });
 
+// A RUN THAT ENDED WHILE THE APP WAS SHUT (w-4465054f04). Its marker is gone
+// once its work is laid in, a moment before its process has passed on its
+// answer and ended. In the cloud power test a fresh run of the same request
+// started 2 s after the marker went, and the answer the first run wrote was
+// never shown.
+describe('a thread whose run is still being brought home', () => {
+  const where = () => sup._whereToRun({ item: store.readItem('team', row.id), product: store.listProducts().find((p) => p.slug === 'team'), cwd: folder, engine: 'claude' });
+
+  it('does not start again until that process has ended', () => {
+    sup._bringCloudHome(folder);
+    expect(where()).toBe(null);
+    relays[0].emit('exit', 0, null);
+    expect(where()).not.toBe(null);
+  });
+
+  it('starts as usual when nothing is being brought home', () => {
+    expect(where()).not.toBe(null);
+  });
+
+  it('gets the answer that run passes on before anything starts again', async () => {
+    sup._bringCloudHome(folder);
+    relays[0].stdout.write(result('Health check test added; it fails with 503 when the database is down.'));
+    await tick();
+    expect(where()).toBe(null);
+    relays[0].emit('exit', 0, null);
+    await tick();
+    expect(store.readItem('team', row.id).result).toBe('Health check test added; it fails with 503 when the database is down.');
+  });
+});
+
 describe('bringing home a folder no thread is waiting on', () => {
   it('reads its output so it never blocks, and shows nothing and writes nothing', async () => {
     delete sup._liveSessions[row.id];

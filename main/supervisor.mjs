@@ -5033,6 +5033,7 @@ export class Supervisor {
       this._bringCloudHome(place);
       return null;
     }
+    if (cwd && this._stillComingHome(place)) return null;
     // "EVERYTHING" (`cloudRuns: 'all'`): the cloud first, this Mac only for
     // what cannot go there or when the cloud is at its cap. Chosen by her for
     // signing off with everything still working (docs/cloud/PLAN.md).
@@ -5188,6 +5189,13 @@ export class Supervisor {
     child.stderr?.on('data', (d) => console.warn(String(d).trim()));
     child.on('error', () => { forget(); rec.child = null; rec.at = Date.now(); follow?.end(null); });
     child.once('exit', (code) => { forget(); rec.child = null; rec.at = Date.now(); follow?.end(code); this._sayCloudNews(folder); this.wake?.(); });
+  }
+
+  // A run's marker goes once its work is laid in, before its process has
+  // passed on its last words and ended (`_followComingHome`).
+  _stillComingHome(place) {
+    const key = typeof place === 'object' && place ? place.file || place.folder : place;
+    return !!this._homecomings?.get(key)?.child;
   }
 
   // The thread whose cloud run lives in this folder, off the record its

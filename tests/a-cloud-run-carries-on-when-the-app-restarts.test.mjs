@@ -291,6 +291,28 @@ describe('when the app quits with a run in the cloud', () => {
     expect(after.filter((l) => before.has(l))).toEqual([]);
   });
 
+  // THE ANSWER OF A RUN THAT ENDED WHILE THE APP WAS SHUT (w-4465054f04): in
+  // the cloud power test two runs finished during an 11-minute quit and their
+  // commits came home on reopen, but what they said did not, so their threads
+  // had no answer and the app ran each request again in the cloud to get one.
+  it('passes on what a run that ended while the app was shut said after the app went', async () => {
+    const run = launch('LATE please', { offlineAfterMs: 300 });
+    await untilRunning();
+    await sleep(400);
+    run.signals.emit('SIGHUP');
+    await run.done;
+    const before = new Set(run.out().split('\n').filter(Boolean));
+    for (let i = 0; i < 100 && (await transport.invoke('x', { action: 'status' })).state === 'running'; i += 1) await sleep(100);
+    expect((await transport.invoke('x', { action: 'status' })).state).not.toBe('running');
+    const home = bringHome();
+    expect(await home.done, home.err()).toBe(0);
+    const after = home.out().split('\n').filter(Boolean);
+    expect(after.map((l) => JSON.parse(l)).find((e) => e.type === 'result')).toMatchObject({ is_error: false });
+    expect(after.filter((l) => before.has(l))).toEqual([]);
+    expect(git(mac, 'log', '-1', '--format=%s')).toBe('From the cloud');
+    expect(readMarker(mac)).toBe(null);
+  });
+
   // Once the thread shows it as running, its Stop has to stop it. A SIGTERM
   // or a SIGHUP is still the app going, which leaves it going.
   it('stops a joined run on SIGINT, which is how the app says Stop to one', async () => {
