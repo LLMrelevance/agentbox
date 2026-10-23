@@ -142,7 +142,18 @@ export function world(now = Date.now(), faces = {}) {
     tc('p-me', 'w-d1', 'Groups: one place to talk and see work', 'running', 'Northwind', 4 * min, 1.1 * hr),
     tc('p-me', 'w-d2', 'Rooms board keeps its faces', 'done', 'Northwind', 1.5 * hr),
   ];
+  // A teammate's direct record: the conversation the team version already had, which opens in its own view.
+  const products = [{ slug: 'direct-priya', dir: '/fixtures/direct-priya', name: 'Direct', oneLiner: '', repoPath: null,
+    team: { projectId: 'tp-priya', teamId: 't-1', direct: true, people: ['p-priya'], sharedBy: 'p-me' } }];
+  const items = [{
+    id: 'w-dm1', product: 'direct-priya', productName: 'Direct', status: 'open', kind: 'directive', labels: [], priority: 2, epoch: 1, claim: null,
+    title: 'Legal line for the billing email', body: 'Can you check the legal line on the billing email before Monday?',
+    answer: 'Yes, back from interviews at 3. Send it over and I will read it then.', people: ['p-me', 'p-priya'], createdBy: 'p-me',
+    createdAt: now - 70 * min, updatedAt: now - 22 * min,
+    wrote: { body: { ts: now - 70 * min, by: 'p-me' }, answer: { ts: now - 22 * min, by: 'p-priya' } },
+  }];
   return {
+    products, items,
     alpha: { neo: false, rooms: true },
     team: {
       configured: true, started: true, since: now - 40 * 24 * hr, signedIn: true, signingIn: null,
@@ -156,7 +167,9 @@ export function world(now = Date.now(), faces = {}) {
  *  The page's clock is held at `at`, an afternoon, so "today" means the same thing in every picture. */
 export async function openStage({ dist, width = 1512, height = 945, theme = 'dark', init = {}, at = Date.parse('2026-10-22T17:40:00') }) {
   const { chromium } = require('playwright');
-  const snap = { ...fixtureSnapshot(), approvals: [], ...world(at, facesIn(process.env.GROUPS_FACES)) };
+  const base = fixtureSnapshot();
+  const made = world(at, facesIn(process.env.GROUPS_FACES));
+  const snap = { ...base, approvals: [], ...made, products: [...base.products, ...(made.products ?? [])], items: [...base.items, ...(made.items ?? [])] };
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     let file = path.join(dist, decodeURIComponent(url.pathname));

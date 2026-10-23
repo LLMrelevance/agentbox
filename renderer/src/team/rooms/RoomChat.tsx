@@ -45,7 +45,7 @@ export type RoomChatCalls = {
   onNotice?: (text: string) => void;
 };
 
-export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand, onSwitch, switchOpen, full = false, head, hang = false, ...calls }: {
+export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand, onSwitch, switchOpen, full = false, head, hang = false, inserts = [], aboveBox, ...calls }: {
   room: Room; messages: RoomMessage[]; people: ChatPerson[]; meId: string | null; now: number;
   onInvite?: () => void; onExpand?: () => void;
   onSwitch?: (anchor: DOMRect) => void; switchOpen?: boolean;
@@ -53,6 +53,8 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
   full?: boolean; head?: ReactNode;
   /** Faces at 32, hung beside the words, as a chat that is the whole page draws them. */
   hang?: boolean;
+  /** Trial (w-dcaa2c122e round 11): cards placed among the messages by time, and a line over the box. */
+  inserts?: { at: number; key: string; node: ReactNode }[]; aboveBox?: ReactNode;
 } & RoomChatCalls) {
   const { onSend, onRead, onReact, onEdit, onDelete, onMarkUnread, onNotice } = calls;
   const [thread, setThread] = useState<string | null>(null);
@@ -163,7 +165,9 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
         const reps = !root ? replies.get(m.id) ?? [] : [];
         const p = who(m.by);
         const headed = slot.head || (root && i === 0) || m.id === newAt;
+        const before = root ? [] : inserts.filter((x) => x.at <= m.at && (i === 0 || x.at > shown[i - 1].at));
         return <div key={m.id}>
+          {before.map((x) => <div key={x.key}>{x.node}</div>)}
           {slot.day && <div className="rm-day"><span className="rm-label">{slot.day}</span></div>}
           {m.id === newAt && <div className="rm-new" role="separator"><span>New</span></div>}
           <div className={`rm-cm${headed ? '' : ' cont'}${root && i === 0 ? ' root' : ''}`}>
@@ -206,7 +210,9 @@ export function RoomChat({ room, messages, people, meId, now, onInvite, onExpand
           </div>
         </div>;
       })}
+      {!root && inserts.filter((x) => !shown.length || x.at > shown[shown.length - 1].at).map((x) => <div key={x.key}>{x.node}</div>)}
     </div>
+    {!root && aboveBox}
     <Composer key={`${room.id}:${thread ?? ''}`} roomId={room.id} threadId={thread} people={others}
       placeholder={root ? `Reply to ${nameOf(root.by)}` : `Message ${room.kind === 'group' ? others.map((p) => p.name.split(' ')[0]).join(', ') || room.name : room.name}`}
       onPutFile={calls.onPutFile} onNotice={onNotice}

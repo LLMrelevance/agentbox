@@ -20,6 +20,7 @@ import { joinLink, tokenFromLink } from '../../../../shared/room-links.mjs';
 import { RoomsNotReady, RoomsSettings } from './RoomsSettings';
 import { GroupPage, PeoplePanel } from './GroupPage';
 import { GroupBar, GroupMenuButton, groupChoices, type GroupMenuAction } from './GroupList';
+import { DigestCard, FeedList, GroupTitle, GroupsDoor, GroupsInSidebar, SideTabs, Ticker, TodayBelow, finishedLine, finishedToday, trial, type Done } from './GroupTrials';
 
 type Dialog =
   | { kind: 'invite'; roomId: string }
@@ -65,6 +66,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const [members, setMembers] = useState<{ roomId: string; at: DOMRect } | null>(null);
   const [links, setLinks] = useState<Record<string, string>>({});
   const [finding, setFinding] = useState(false);
+  const [t] = useState(trial);
   // The Groups tab with no group to open.
   const [empty, setEmpty] = useState(false);
   const open = openId ? all.find((r) => r.id === openId) ?? null : null;
@@ -275,11 +277,19 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       <div className="gr-none-acts"><button type="button" className="rm-btn go" onClick={() => setDialog({ kind: 'start' })}>{I.plus()}New group</button>
         <button type="button" className="rm-btn" onClick={find}>{I.search()}Find groups to join</button></div></div>;
   } else if (open && rooms && onChat) {
-    page = <GroupPage key={open.id}
-      bar={<GroupBar groups={groupList} current={`room:${open.id}`} onPick={pickGroup} />}
+    const done = finishedToday(open, teamCards, now);
+    const people = (head?: ReactNode) => <PeoplePanel room={open} onPerson={(id) => setPane(`person:${id}`)} head={head}
+      under={t.feed === 'person' ? (c) => finishedLine(c, done) : undefined} after={t.feed === 'below' ? <TodayBelow room={open} done={done} now={now} /> : undefined} />;
+    const bar = <GroupBar groups={groupList} current={`room:${open.id}`} onPick={pickGroup} />;
+    page = <GroupPage key={open.id} big={t.big}
+      bar={t.top === 'doors-chips' || t.top === 'sidebar' ? null : bar}
       chat={<RoomChat room={open} messages={rooms.messages[open.id] ?? []} people={withMe(chatPeople(open, meId), meInChat)} meId={meId} now={now}
-        full hang head={<></>} onSend={send(open.id)} onRead={read(open)} {...chatCalls(open)} />}
-      people={<PeoplePanel room={open} onPerson={(id) => setPane(`person:${id}`)} />} />;
+        full hang head={<></>} onSend={send(open.id)} onRead={read(open)} {...chatCalls(open)}
+        inserts={t.feed === 'digest' ? digests(open, done, now) : undefined} aboveBox={t.feed === 'ticker' ? <Ticker room={open} done={done} now={now} /> : undefined} />}
+      people={t.feed === 'tabs' ? <SideTabs people={people} today={<FeedList room={open} done={done} now={now} limit={12} />} count={done.length} /> : people()} />;
+    if (t.top === 'doors-chips') heading = { title: <div className="gt-topchips">{bar}</div> };
+    if (t.top === 'doors-title' || t.top === 'switch') heading = { title: <h1 className="workspace-title">Groups</h1> };
+    if (t.top === 'sidebar') heading = { title: <GroupTitle g={groupList.find((g) => g.key === `room:${open.id}`)} /> };
   } else if (open && rooms) {
     heading = { title: backTitle(nameOf(open)) };
     page = <RoomPage room={open} rooms={list} cards={teamCards} ranks={rooms.ranks ?? {}} me={rooms.me} now={now}
@@ -290,8 +300,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       onComeBack={() => void call('comeBack')} onCopyLink={() => void copyLink(open.id)} />;
   }
 
-  const inTab = live && !finding && (onChat || (empty && !open));
-  const roomTab: ReactNode = live
+  const inTab = live && !finding && !t.top && (onChat || (empty && !open));
+  const roomTab: ReactNode = live && !t.top
     ? <GroupsTab count={unreadChats} on={inTab} open={!!tabMenu} onOpen={openTab} onMenu={(at) => setTabMenu(tabMenu ? null : at)} />
     : null;
   const inviteRoom = dialog?.kind === 'invite' ? all.find((r) => r.id === dialog.roomId) : null;
@@ -353,7 +363,26 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     dialogOpen: !!dialog || !!members,
     /** The header's View button over everyone's threads, and B; on a group's chat, its options. Null anywhere else. */
     viewButton,
+    /** Trial (round 11): where the Inbox's tabs and the groups go. */
+    trialTop: live ? t.top : null,
+    trialNav: !live ? null : t.top === 'doors-chips' || t.top === 'doors-title'
+      ? <GroupsDoor lit={(!!open || empty) && !finding} count={unreadChats} onOpen={openTab} />
+      : t.top === 'sidebar' ? <GroupsInSidebar groups={groupList} current={open && !finding ? `room:${open.id}` : null} onPick={pickGroup} /> : null,
+    unreadChats,
     /** The group a teammate's card was opened over, for its Back. */
     roomName: open ? nameOf(open) : null,
   };
+}
+
+/** Trial (round 11): finished work in two-hour windows, each one card placed where its window ends. */
+function digests(room: Room, done: Done[], now: number): { at: number; key: string; node: ReactNode }[] {
+  const windows = new Map<number, Done[]>();
+  for (const d of done) {
+    const start = new Date(d.at); start.setMinutes(0, 0, 0); start.setHours(start.getHours() - (start.getHours() % 2));
+    windows.set(start.getTime(), [...(windows.get(start.getTime()) ?? []), d]);
+  }
+  return [...windows.entries()].sort((a, b) => a[0] - b[0]).map(([since, list]) => ({
+    at: Math.min(since + 2 * 3_600_000, now), key: `digest:${since}`,
+    node: <DigestCard room={room} done={list} now={now} since={since} />,
+  }));
 }
