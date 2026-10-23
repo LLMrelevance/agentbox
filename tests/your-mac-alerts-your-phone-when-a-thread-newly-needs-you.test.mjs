@@ -9,9 +9,11 @@
 // same rules: nothing while you have used this Mac in the last five minutes,
 // once per stretch away and once more for a permission card
 // (shared/notify-rules.mjs), several close together folded into one. Each
-// thread is alerted once per state, a token Expo calls dead is dropped, and
-// no words of a thread are in what Expo is handed. Measured here with the
-// in-memory cloud and a stand-in for Expo.
+// thread is alerted once per state and a token Expo calls dead is dropped.
+// An alert is headed by the thread's title, as asked on 2026-10-13 and again
+// on 2026-10-23 ("I want titles back for notifs"), with the desktop's sentence
+// under it (shared/notify-rules.mjs phoneBanner), and carries nothing else of
+// the thread. Measured here with the in-memory cloud and a stand-in for Expo.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -81,7 +83,7 @@ describe('a thread that newly needs you', () => {
     expect(t.world.pushed).toHaveLength(1);
     const sent = t.messages();
     expect(sent.map((m) => m.to).sort()).toEqual([TOKEN, OTHER].sort());
-    expect(sent[0]).toMatchObject({ title: 'Agentbox', body: 'A thread needs you.', sound: 'default', badge: 1 });
+    expect(sent[0]).toMatchObject({ title: `${SECRET} w-1`, body: 'An agent is ready', sound: 'default', badge: 1 });
     // What the phone's alert handler reads (mobile/src/app/_layout.tsx) to open the thread.
     expect(sent[0].data).toEqual({ product: phoneSlug(t.inbox.device, 'alpha'), id: 'w-1' });
     await t.pass();
@@ -98,7 +100,7 @@ describe('a thread that newly needs you', () => {
     t.arrive([t.item('w-2'), t.item('w-3')], [{ id: 'w-1', product: 'alpha' }, { id: 'w-2', product: 'alpha' }, { id: 'w-3', product: 'alpha' }]);
     await t.pass();
     expect(t.world.pushed).toHaveLength(1);
-    expect(t.messages()[0]).toMatchObject({ body: '3 threads need you.', badge: 3 });
+    expect(t.messages()[0]).toMatchObject({ title: `${SECRET} w-3`, body: 'Agents are ready', badge: 3 });
     // Several threads open the app on its inbox, not on one of them.
     expect(t.messages()[0].data).toEqual({});
   });
@@ -211,16 +213,29 @@ describe('once for the whole time you are away', () => {
 });
 
 describe('what Expo is handed', () => {
-  it('carries no words of a thread or a project', async () => {
+  it('heads a permission card with the thread that asks, and what it asks to run under it', async () => {
+    const t = setup();
+    await t.ready;
+    t.arrive([{ id: 'ap-1', title: 'npm test', thread: `${SECRET} w-2`, item: 'w-2', product: 'alpha', productName: 'Alpha', kind: 'approval' }]);
+    await t.pass();
+    expect(t.messages()[0]).toMatchObject({ title: `${SECRET} w-2`, body: 'Waiting on you: npm test' });
+  });
+
+  it('names a thread whose arrival came without a title by its copy on the phone', async () => {
+    const t = setup();
+    await t.ready;
+    t.arrive([{ id: 'w-1', product: 'alpha', kind: 'item' }]);
+    await t.pass();
+    expect(t.messages()[0].title).toBe(`${SECRET} w-1`);
+  });
+
+  it('carries the title and nothing else of the thread or its project', async () => {
     const t = setup();
     await t.ready;
     t.arrive([t.item('w-1')]);
     await t.pass();
-    t.world.idle = 0; await t.pass(); t.world.idle = 10 * 60_000;
-    t.arrive([{ id: 'ap-1', title: 'cat ~/.ssh/id_rsa', thread: SECRET, item: 'w-2', product: 'alpha', productName: 'Alpha', kind: 'approval' }]);
-    await t.pass();
     const said = JSON.stringify(t.messages());
-    for (const words of ['Rename', 'Acme', 'confidential', 'private note', 'id_rsa', 'Alpha']) expect(said).not.toContain(words);
+    for (const words of ['confidential', 'private note', 'Alpha']) expect(said).not.toContain(words);
   });
 
   it('drops a phone Expo says is gone, and keeps the rest', async () => {
@@ -318,7 +333,7 @@ describe('how the window\'s arrivals reach Expo', () => {
       await service.syncNow();
       expect(posted.map((p) => p.url)).toEqual([EXPO_PUSH]);
       const device = (await memoryBackend(cloud, me).phoneProjects())[0].device;
-      expect(posted[0].body).toEqual([expect.objectContaining({ to: TOKEN, body: 'A thread needs you.', badge: 1, data: { product: phoneSlug(device, 'alpha'), id: a.id } })]);
+      expect(posted[0].body).toEqual([expect.objectContaining({ to: TOKEN, title: SECRET, body: 'An agent is ready', badge: 1, data: { product: phoneSlug(device, 'alpha'), id: a.id } })]);
     } finally {
       await service.signOut();
       fs.rmSync(dir, { recursive: true, force: true });

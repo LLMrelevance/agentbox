@@ -8,10 +8,9 @@
 // server-side sender in docs/mobile/PLAN.md, which alerts with every Mac
 // shut, is a later phase.
 //
-// Expo is handed no words of a thread: its push FAQ says staff debugging the
-// service may see what passes through it.
-import { atTheComputer, shouldSpeak } from '../shared/notify-rules.mjs';
-import { NAME } from '../shared/product-name.mjs';
+// The words are the phone banner's (phoneBanner): the thread's title in bold,
+// asked for on 2026-10-13 and again on 2026-10-23, and nothing else of it.
+import { atTheComputer, shouldSpeak, phoneBanner } from '../shared/notify-rules.mjs';
 
 export const EXPO_PUSH = 'https://exp.host/--/api/v2/push/send';
 // Arrivals this close together are one alert.
@@ -22,7 +21,6 @@ const ALERTED_KEPT_MS = 30 * 24 * 3600_000;
 // renderer/src/phone-rows.ts phoneSlug, which the phone opens a thread by.
 const phoneSlugOf = (device, project) => `${project}@${device}`;
 const stampOf = (item) => `${item.status ?? ''}:${item.wrote?.status?.ts ?? item.updatedAt ?? ''}`;
-export const alertWords = (n) => (n > 1 ? `${n} threads need you.` : 'A thread needs you.');
 
 /** One request for every phone; Expo answers a ticket for each, in order. */
 export async function sendToExpo(messages, { fetchImpl = fetch, url = EXPO_PUSH, deadlineMs = DEADLINE_MS } = {}) {
@@ -61,7 +59,7 @@ export function createPhoneAlerts({ backend, owner, device, state, save, now, lo
       const item = ask ? a.item : a.id;
       if (typeof item !== 'string') continue;
       if (!queued.size) firstAt = now();
-      queued.set(ask ? `ask:${a.id}` : `${a.product}:${a.id}`, { ask, product: a.product, item });
+      queued.set(ask ? `ask:${a.id}` : `${a.product}:${a.id}`, { ask, product: a.product, item, title: a.title, thread: a.thread });
     }
   }
 
@@ -74,7 +72,7 @@ export function createPhoneAlerts({ backend, owner, device, state, save, now, lo
       const row = carried(q.product, q.item);
       if (!row) continue;
       const stamp = q.ask ? 'asked' : stampOf(row);
-      if (state.alerted[key]?.stamp !== stamp) fresh.push({ key, stamp, ...q });
+      if (state.alerted[key]?.stamp !== stamp) fresh.push({ key, stamp, ...q, named: row.title });
     }
     queued.clear();
     if (!fresh.length || !shouldSpeak({ spoke, spokeAsk, waiting: fresh.map((f) => ({ kind: f.ask ? 'approval' : 'item' })) })) return;
@@ -86,7 +84,10 @@ export function createPhoneAlerts({ backend, owner, device, state, save, now, lo
     const [product, item] = threads[0].split('\0');
     const badge = new Set(needsYou.filter((r) => carried(r.product, r.id)).map((r) => `${r.product}\0${r.id}`)).size;
     const data = threads.length === 1 ? { product: phoneSlugOf(device, product), id: item } : {};
-    const messages = phones.map((p) => ({ to: p.token, title: NAME, body: alertWords(threads.length), sound: 'default', badge, priority: 'high', channelId: 'default', data }));
+    const say = phoneBanner(fresh.map((f) => (f.ask
+      ? { kind: 'approval', title: f.title, thread: f.thread || f.named }
+      : { kind: 'item', title: f.title || f.named })));
+    const messages = phones.map((p) => ({ to: p.token, title: say.title, body: say.body, sound: 'default', badge, priority: 'high', channelId: 'default', data }));
     still();
     let tickets;
     try { tickets = await send(messages); } catch (err) { once('send', `phone: could not send an alert: ${err?.message ?? err}`); return; }
