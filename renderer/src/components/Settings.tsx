@@ -321,6 +321,7 @@ function agentStory(w: WorkspaceSettings, readings: Usage[], engine: 'claude' | 
       chosen: !!a.chosen,
       signedIn: !!a.email,
       trouble: a.trouble?.note ?? null,
+      atLimit: a.trouble?.cause === 'at-limit',
       dir: a.dir ?? null,
     })),
   };
@@ -499,7 +500,7 @@ export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: Pl
               {a.cmd && <div className="acct-tile-cmd"><CopyCmd cmd={a.cmd} /></div>}
             </>
           ) : a.meters !== false && <>
-            {(!a.usageError || a.limits?.length) && <MiniMeters limits={a.limits} />}
+            {(!a.usageError || a.limits?.length) && <MiniMeters limits={a.limits} now={now} />}
             {a.usageError && <div className="acct-tile-trouble" role="status">{a.usageError}</div>}
           </>}
           {!!a.checkedAt && (a.usageError || now - a.checkedAt >= OWN_TIME_AFTER_MS) && <div className="acct-reading-time">{usageCheckedAt(a.checkedAt, now)}</div>}
@@ -554,7 +555,7 @@ export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex
  *  place the account works. The cloud cannot borrow this computer's login, so
  *  an account missing there, or whose sign-in there stopped, offers the sign-in.
  */
-export function accountTile(a: OneAccount, { many, onUse, cloud = false, onCloudSignIn }: {
+export function accountTile(a: OneAccount, { many, now, onUse, cloud = false, onCloudSignIn }: {
   many: boolean; now: number; onUse: (profile: string) => void;
   cloud?: boolean;
   onCloudSignIn?: (key: string | null, email: string | null) => void;
@@ -565,9 +566,13 @@ export function accountTile(a: OneAccount, { many, onUse, cloud = false, onCloud
   const signingIn = !!h && !h.signedIn;
   const places: Where[] = !cloud || signingIn ? [] : [...(h ? ['here' as const] : []), ...(c && !broken ? ['cloud' as const] : [])];
   const signIn = (word: string, key: string | null) => (onCloudSignIn ? { word, onUse: () => onCloudSignIn(key, h?.email ?? c?.name ?? null) } : null);
+  // At its limit, the meters say which limit it is and when it resets.
+  const limited = !!h?.trouble && !!h.atLimit && !!a.limits?.length;
+  const trouble = limited ? null : h?.trouble ?? null;
   return {
     key: a.key, name: a.name, plan: a.plan,
-    about: signingIn ? ['Finish signing in to use it'] : [],
+    about: signingIn ? ['Finish signing in to use it']
+      : limited && !meterPair(a.limits, now).some((m) => m.percent >= 100) ? ['At its limit'] : [],
     places,
     cloudAct: !cloud || signingIn ? null : broken ? signIn('Sign in to cloud again', c!.key) : h && !c ? signIn('Add to cloud', null) : null,
     // ONE ACCOUNT IS IN USE AND IT SAYS SO (w-dac993a554). This asked `picked`
@@ -577,8 +582,8 @@ export function accountTile(a: OneAccount, { many, onUse, cloud = false, onCloud
     inUse: !!h?.chosen,
     limits: a.limits, checkedAt: a.checkedAt, usageError: a.usageError,
     use: h?.signedIn && !h.chosen && many ? { word: 'Switch', onUse: () => onUse(h.profile) } : null,
-    trouble: h?.trouble ?? null,
-    cmd: h?.trouble && h.dir ? `CLAUDE_CONFIG_DIR=${h.dir} claude` : null,
+    trouble,
+    cmd: trouble && h?.dir ? `CLAUDE_CONFIG_DIR=${h.dir} claude` : null,
     meters: !!(h || a.limits?.length),
   };
 }
