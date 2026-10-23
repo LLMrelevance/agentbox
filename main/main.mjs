@@ -25,6 +25,7 @@ import { readCodexThreadsOffThread } from './codex-threads.mjs';
 import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
 import { stallWatch } from './stall-watch.mjs';
+import { startFreezeRecorder } from './freeze-recorder.mjs';
 import { applyThrough, phoneDevice } from './phone-inbox.mjs';
 import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
@@ -54,6 +55,7 @@ import { writeHeldThenReload } from './write-before-reload.mjs';
 import { IS_SHE_TYPING_IN_THE_PAGE, theAppKeepsThisInput, theAppKeepsThisLetterInAPage } from '../shared/artifact-keys.mjs';
 import { NAME, Name, WAS } from '../shared/product-name.mjs';
 import { JOIN_SCHEME, tokenFromLink } from '../shared/room-links.mjs';
+import { getMic } from './neo/mic.mjs';
 
 // HOW LONG TO WAIT AFTER THE LID OPENS, and the wait is for the network rather
 // than for the wake. `powerMonitor`'s resume event fires while wifi is still
@@ -401,6 +403,13 @@ async function createWindow() {
   supervisor.count = (name, props) => analytics.track(name, props);
   const stalls = stallWatch();
   supervisor.stalls = stalls;
+  // AND WHICH OF OUR FUNCTIONS HELD THE THREAD, each time it froze.
+  const freezes = startFreezeRecorder({
+    dir: path.join(userDir, 'memory-log'),
+    appDir,
+    onFreeze: (f) => { stalls.noteFreeze(f); console.warn(`zero: the app froze for ${f.ms} ms in ${f.where}`); },
+  });
+  quitStep(app, 'before-quit', 'freezes.stop', () => freezes.stop());
   quitStep(app, 'before-quit', 'supervisor.killAll', () => supervisor.killAll());
   // THE TEAM. Off entirely on a build with no team cloud (the single-person
   // app). Otherwise it restores whoever was signed in, and from then on every
@@ -413,6 +422,7 @@ async function createWindow() {
   // (tests/the-installed-app-is-the-single-person-app.test.mjs).
   const cloudConfig = loadCloudConfig(appDir, { packaged: app.isPackaged });
   let phoneApply = null;
+  let phoneSettings = null;
   const team = cloudConfig ? createTeamService({
     session: supabaseSession({
       cloudConfig,
@@ -438,6 +448,9 @@ async function createWindow() {
       projects: () => config.phoneProducts ?? null,
       ready: () => !!phoneApply,
       apply: (cmd) => phoneApply(cmd),
+      // The Settings pages' model, read through the window's own handler.
+      readSettings: () => phoneSettings?.() ?? null,
+      version: app.getVersion(),
       live: (slug, id) => supervisor.liveFor(slug, id),
       // The cards waiting on her, each with the fingerprint her answer must carry back.
       approvals: () => approvals.listPending(config.storeRoot).map((r) => ({ ...r, card: approvals.cardShown(config.storeRoot, r.id) })),
@@ -760,7 +773,13 @@ async function createWindow() {
   };
   // `readClipboardText` is read only by the cloud setup, and only for a
   // Claude sign-in code (main/ipc.mjs `zero:cloud-clipboard-code`).
-  const filingHost = { ipcMain: filingIpcMain, app, dialog, readClipboardText: () => clipboard.readText() };
+  const filingHost = {
+    ipcMain: filingIpcMain, app, dialog, readClipboardText: () => clipboard.readText(),
+    // A voice note asks for the microphone on the press of its button, the way Neo does.
+    micAccess: () => (process.platform === 'darwin'
+      ? getMic({ systemPreferences, openExternal: (url) => shell.openExternal(url) })
+      : 'granted'),
+  };
   const ipc = registerIpc({
     store, supervisor, config, window, analytics, docGrants, updater,
     host: filingHost,
@@ -775,6 +794,7 @@ async function createWindow() {
   // a browser tab gets.
   answerWhatOnlyTheWindowAnswered({ handle: (channel, fn) => { if (!phoneChannels.has(channel)) phoneChannels.set(channel, fn); } });
   phoneApply = applyThrough(phoneChannels);
+  phoneSettings = () => phoneChannels.get('zero:settings-read')?.({ sender: null }) ?? null;
   updater.start();
   // A task the app just shipped moved main: look now rather than in half an
   // hour, so the restart is offered while she still remembers the task.
@@ -971,9 +991,8 @@ async function createWindow() {
       else tagWindow.loadFile(builtTag, { search: `part=${part}` });
     },
   });
-  // NEO, the voice alpha (w-e85fd9144f). Nothing at all unless this Mac's
-  // user data folder holds a `neo-alpha` file (main/neo/gate.mjs), so it is
-  // in the code for everyone and on for one person.
+  // NEO, the voice alpha (w-e85fd9144f). Nothing at all unless its switch in
+  // Alpha features is on (main/neo/gate.mjs).
   createNeo({
     app, BrowserWindow, ipcMain, screen: electronScreen, powerMonitor, systemPreferences, session, globalShortcut, shell,
     mainWindow: window, userData: app.getPath('userData'), config,

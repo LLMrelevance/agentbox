@@ -242,15 +242,22 @@ describe('the row says where the work went', () => {
     return wrote;
   };
 
-  // THE HOUR, AND NEVER AN ACCOUNT (w-dac993a554). This row used to read
+  // THE HOUR, AND NEVER A SECOND ACCOUNT (w-dac993a554). This row read
   // "Agentbox runs it again on another account that has room" whenever a
-  // second login was signed in.
-  it('tells her the hour, with one login or two', () => {
+  // second login was signed in, which is the rotation that is gone. Naming
+  // the login that WAS spent stays (w-e1a42f6b21): with two subscriptions the
+  // sentence named neither, so nothing said whose usage had gone.
+  it('tells her the hour, with one login or two, and offers no other account', () => {
     for (const profiles of [['default'], ['default', SECOND]]) {
       const said = whatTheRowReads(bare({ authProfiles: profiles }));
       expect(said).toContain('starts again on its own at');
       expect(said).not.toContain('another account');
+      expect(said).not.toContain('which has room');
     }
+  });
+
+  it('names the login that hit the limit, where there is more than one', () => {
+    expect(whatTheRowReads(bare())).toContain('usage limit on Claude account 1');
   });
 
   // Said in `deadRunSentence`'s own words, which is where the sentence is made.

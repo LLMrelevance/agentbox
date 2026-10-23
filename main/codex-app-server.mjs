@@ -639,7 +639,7 @@ export function createCodexAppServer({
 
     /** Both ids: a turn is not identified by either one alone. */
     interruptTurn: (threadId, turnId) => send('turn/interrupt', { threadId, turnId }),
-    steerTurn: (threadId, expectedTurnId, text) => send('turn/steer', {threadId, expectedTurnId, input:[{type:'text',text}]}),
+    steerTurn: (threadId, expectedTurnId, text, pictures = []) => send('turn/steer', {threadId, expectedTurnId, input:[{type:'text',text}, ...pictures.map((p) => ({type:'localImage', path:p}))]}),
 
     watch,
     unwatch: (threadId) => threads.delete(threadId),

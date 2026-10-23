@@ -93,7 +93,7 @@ describe('switched on', () => {
 
   it('makes my card as First L., puts me in my team’s room and pins it', async () => {
     const s = w.maya.rooms.state();
-    expect(s.me).toMatchObject({ display_name: 'Maya C.', show_working: 'team' });
+    expect(s.me).toMatchObject({ display_name: 'Maya C.', show_working: 'everyone' });
     expect(s.rooms).toHaveLength(1);
     expect(s.rooms[0]).toMatchObject({ name: 'Northwind', pinned: true, muted: false, unread: 0 });
   });

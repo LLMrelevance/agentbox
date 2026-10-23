@@ -40,6 +40,7 @@ import type { LedgerLine } from '../thread-history';
 import type { TraceSession } from '../notes';
 import type { AgentTurn, RunningSession, WorkItem } from '../types';
 import { ActLine, Thread, ThreadWaiting, answerTurn } from './Thread';
+import { askMarkUnread, say } from '../team/chat-events';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 
 // THE BACKSTOP, NOT THE HEARTBEAT.
@@ -79,6 +80,8 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
     onSend: (uid: string, text: string) => unknown;
     /** New replies waiting on you, by thread (`whatWaits`). */
     fresh?: Record<string, number>;
+    /** First names of the people in the conversation, for the panel's @ menu. */
+    people?: string[];
   };
   item: WorkItem;
   // THE THREADS THIS ONE FILED, EACH ON THE TURN THAT FILED IT (w-2e13752a85).
@@ -338,6 +341,14 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
       )
   );
 
+  // What can be done to a message, in the chat and in its thread alike.
+  const editMessage = (uid: string, change: { text: string } | { gone: true }) => {
+    void api.teamEdit({ product: item.product, id: item.id, on: uid, ...change })
+      .then((r) => { if (!r?.ok) say(r?.error ?? 'That change did not save.'); });
+  };
+  const markUnread = () => { askMarkUnread({ product: item.product, id: item.id }); };
+  const copied = () => say('Copied');
+
   return (
     <>
       <Thread
@@ -370,6 +381,9 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
           onReact: chips.react,
           onQuote,
           onHandToAgent,
+          onEdit: editMessage,
+          onMarkUnread: markUnread,
+          onCopied: copied,
           ...(thread ? { replies: built.replies, openThread: thread.open, onOpenThread: thread.onOpen, freshThreads: thread.fresh } : {}),
         } : {})}
       />
@@ -377,12 +391,18 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
       {chat && thread && openParent && thread.host && createPortal(
         <ThreadPanel
           product={item.product}
+          id={item.id}
+          people={thread.people}
           parent={openParent}
           replies={built.replies[openParent.uid!] ?? []}
           md={(text) => md(clean(text))}
           width={thread.width}
           reactions={chips.reactions}
           onReact={chips.react}
+          onEdit={editMessage}
+          onMarkUnread={markUnread}
+          onCopied={copied}
+          onHandToAgent={onHandToAgent}
           onSend={(text) => thread.onSend(openParent.uid!, text)}
           onClose={thread.onClose}
           onResize={thread.onResize}

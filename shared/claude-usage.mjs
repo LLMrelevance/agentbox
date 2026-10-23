@@ -22,7 +22,7 @@
 // timezone stamp it prints, and the refusal to count down from a stamp computed
 // somewhere else. What belongs to a LIMIT, any limit, is next door.
 
-import { instantIn, localZone, resetDay, sessionLimit, untilReset, wallIn } from './usage.mjs';
+import { instantIn, localZone, resetDay, sessionLimit, toMinute, untilReset, wallIn } from './usage.mjs';
 
 /** One limit, as the CLI reported it. */
 // { span, qualifier, name, percent, resetsAt|null, resetsText, resetsOn, zone }
@@ -187,7 +187,7 @@ export function readUsageReport(value, now = Date.now()) {
 // The words the text report used to carry, in this machine's zone, so the
 // panel keeps saying "Resets 6:19pm" and not a countdown (limitRows, shared/usage.mjs).
 function clockWords(at, now) {
-  const d = new Date(at);
+  const d = new Date(toMinute(at));
   const h = d.getHours();
   const m = d.getMinutes();
   const resetsText = `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''}${h < 12 ? 'am' : 'pm'}`;

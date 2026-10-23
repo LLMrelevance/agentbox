@@ -258,9 +258,20 @@ export interface RoomCard {
   teammate: boolean;
   /** They let teammates see their activity on their page. */
   showActivity: boolean;
+  /** What is waiting, running and done today, off their presence, when they show it to everyone in their rooms; else null. */
+  activity?: RoomActivity[] | null;
+  /** In the room without a card: they have not turned Rooms on. */
+  away?: boolean;
   status: string | null;
   workingOn: string | null;
   workingPrivate: boolean;
+}
+
+export interface RoomActivity {
+  title: string;
+  project: string | null;
+  state: 'waiting' | 'running' | 'done';
+  at: number;
 }
 
 export interface RoomMessage {
@@ -271,6 +282,12 @@ export interface RoomMessage {
   inReplyTo: string | null;
   mentions: string[];
   at: number;
+  /** When its author last edited it. */
+  editedAt?: number | null;
+  /** Taken back by its author; the body is empty. */
+  deleted?: boolean;
+  /** emoji -> the people on it, oldest first. */
+  reactions?: Record<string, string[]>;
 }
 
 export interface Room {
@@ -287,9 +304,15 @@ export interface Room {
   pinned: boolean;
   muted: boolean;
   unread: number;
+  /** Where I have read to, ms; 0 when I never have. */
+  readAt?: number;
+  /** I marked it unread, and have not read it since. */
+  markedUnread?: boolean;
   lastAt: number;
   agents: number;
   wall: RoomCard[];
+  /** Everyone in the room by name, invisible or not on Rooms yet; null on a cloud that cannot say, where the wall names them. */
+  people?: { id: string; name: string; avatarUrl: string | null }[] | null;
 }
 
 export interface RoomProfile {
@@ -483,6 +506,8 @@ export interface SupervisorStatus {
   // Items a tick will spawn as soon as a slot frees: waiting their turn, not
   // forgotten. The row says "queued" so the two are never confused.
   queued?: string[];
+  // Sessions this app holds open between Remote Control turns, which `running` leaves out.
+  remoteHeld?: string[];
   // Rows nothing can start because their tool is signed out, id -> the tool's
   // name. Said instead of "queued", which would promise an agent that cannot come.
   signInNeeded?: Record<string, string>;
@@ -645,6 +670,10 @@ export interface AgentTurn {
   // A REPLY IN A THREAD: the uid of the message it answers (w-920461cbe6).
   // In a chat, `itemThread` lifts these out of the stream into `replies`.
   inReplyTo?: string;
+  /** When its author last edited it (shared/message-edits.mjs). */
+  edited?: number;
+  /** Deleted by its author, drawn only because replies hang off it. */
+  deleted?: boolean;
   // A CONTINUATION OF THE BLOCK ABOVE, not a new message. Shape B puts the
   // work between the messages, so a reply that stopped for a tool is drawn as
   // two blocks with the thing it ran between them. They are still one reply:
@@ -1053,6 +1082,8 @@ export interface WorkspaceSettings {
    *  See main/codex-models.mjs. */
   codexModels?: Array<{ id: string; label: string; levels?: string[]; defaultLevel?: string | null }>;
   codexModelDefault?: string | null;
+  /** Set when every Codex login offered is on ChatGPT's free plan; `endedAt` is when the latest paid plan ended. */
+  codexFreePlan?: { endedAt: number | null } | null;
   /**
    * What CLAUDE CODE calls its models on THIS Mac, read off the installed
    * binary rather than off the table committed when Agentbox was built, so a
@@ -1280,6 +1311,8 @@ declare global {
       teamSync(): Promise<TeamCallResult>;
       teamRoute(p: { product: string; id: string; route: 'agent' | 'me' | 'back' }): Promise<TeamCallResult>;
       teamReact(p: { product: string; id: string; on: string; emoji: string; off?: boolean }): Promise<TeamCallResult>;
+      teamEdit(p: { product: string; id: string; on: string; text?: string; gone?: boolean }): Promise<TeamCallResult>;
+      micAccess?(): Promise<'granted' | 'settings'>;
       teamMessage(p: { to: string | string[]; body: string; priority?: number; files?: TeamMessageFile[] }): Promise<TeamCallResult>;
       rooms?(p: { op: string; args?: unknown[] }): Promise<RoomsResult>;
       threadEdit(p: { product: string; id: string; patch: ThreadEditPatch }): Promise<{ ok: boolean; error?: string }>;
@@ -1352,7 +1385,8 @@ declare global {
       pathForFile(file: File): string | null;
       /** Pasted bytes to disk, so the draft carries a path. */
       // Bytes for a paste, a path for a drag. One or the other, never neither.
-      stageAttachment(p: { name: string; dataBase64?: string; srcPath?: string }): Promise<{ path: string }>;
+      // `name` comes back when a TIFF or HEIC was turned into a PNG or JPEG.
+      stageAttachment(p: { name: string; dataBase64?: string; srcPath?: string }): Promise<{ path: string; name?: string }>;
       onChanged(fn: () => void): () => void;
       approve?(p: { id: string; allow: boolean; note?: string }): Promise<{ ok: boolean }>;
       // Fired for the button AND for the Cmd+Y/Cmd+N chord that main catches

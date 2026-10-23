@@ -23,6 +23,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import net from 'node:net';
 import { PassThrough } from 'node:stream';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -218,25 +219,51 @@ describe('the cloud menu\'s sign-in', () => {
     expect(JSON.stringify(s.status())).not.toContain('sk-ant');
   });
 
-  it('shows Codex\'s link and one-time code, and refuses a sign-in with another ChatGPT account', async () => {
+  // The cloud and the Mac are one machine here, so the cloud's Codex and the
+  // Mac's listener cannot share a port: the Mac is shown one of its own, and
+  // the "browser" comes back there with the code the stand-in takes.
+  async function viaBrowser({ saved = (e) => e } = {}) {
+    const free = net.createServer();
+    await new Promise((r) => free.listen(0, '127.0.0.1', r));
+    const macPort = free.address().port;
+    await new Promise((r) => free.close(r));
+    let state = null;
+    const t = { ...transport, invoke: async (sid, p) => {
+      const out = await sandbox.handle(p);
+      for (const e of out.events || []) {
+        if (e.kind === 'signin' && e.state === 'waiting' && e.url) {
+          const u = new URL(e.url);
+          state = u.searchParams.get('state');
+          u.searchParams.set('redirect_uri', `http://127.0.0.1:${macPort}/auth/callback`);
+          e.url = u.toString();
+        }
+        if (e.kind === 'signin' && e.state === 'saved') saved(e);
+      }
+      return out;
+    } };
+    const signIn = async (s) => {
+      await until(() => s.status().state === 'waiting' && state, 'the link');
+      await fetch(`http://127.0.0.1:${macPort}/auth/callback?code=good-code&state=${state}`, { signal: AbortSignal.timeout(10_000) });
+    };
+    return { transport: t, signIn };
+  }
+
+  it('signs Codex in through the browser, and refuses a sign-in with another ChatGPT account', async () => {
     makeSandbox();
-    // The stand-in's id token carries no email, so a check against one fails
-    // only when the cloud says a different one: make it say one.
-    const s = startCloudSignIn({ transport, storage, engine: 'codex', dir: '/Users/x/.codex', home, pollWaitMs: 50 });
-    await until(() => s.status().state === 'waiting' || s.status().state === 'saved', 'the code');
+    const one = await viaBrowser();
+    const s = startCloudSignIn({ transport: one.transport, storage, engine: 'codex', dir: '/Users/x/.codex', home, pollWaitMs: 50 });
+    await one.signIn(s);
     const end = await s.done;
     expect(end.state).toBe('saved');
     expect(cloudLoginFor('codex', '/Users/x/.codex', { home }).expiresAt).toBeGreaterThan(Date.now() + 200 * H);
 
     // Another account: the sandbox reports an email that is not this folder's.
-    const lying = { ...transport, invoke: async (sid, p) => {
-      const out = await sandbox.handle(p);
-      if (p.action === 'events') for (const e of out.events || []) if (e.kind === 'signin' && e.state === 'saved') e.email = 'someone-else@example.com';
-      return out;
-    } };
+    // The stand-in's id token carries no email, so make it say one.
     await sandbox.close();
     makeSandbox();
-    const other = startCloudSignIn({ transport: lying, storage, engine: 'codex', dir: '/Users/y/.codex', home, expectEmail: 'me@example.com', pollWaitMs: 50 });
+    const lying = await viaBrowser({ saved: (e) => { e.email = 'someone-else@example.com'; } });
+    const other = startCloudSignIn({ transport: lying.transport, storage, engine: 'codex', dir: '/Users/y/.codex', home, expectEmail: 'me@example.com', pollWaitMs: 50 });
+    await lying.signIn(other);
     const refused = await other.done;
     expect(refused.state).toBe('failed');
     expect(refused.message).toMatch(/someone-else@example\.com.*me@example\.com/);

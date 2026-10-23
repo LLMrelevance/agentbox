@@ -28,6 +28,11 @@ export function writePicked(picked: string[], store: Pick<Storage, 'setItem'> | 
   try { store?.setItem(KEY, JSON.stringify(picked)); } catch { /* private mode */ }
 }
 
+/** Whose threads the Inbox can show. With Rooms on, other people's work is seen in a room, so the Inbox is yours alone. */
+export function inboxEveryone<T extends { id: string }>(everyone: T[], me: string | null, roomsOn: boolean): T[] {
+  return roomsOn ? everyone.filter((p) => p.id === me) : everyone;
+}
+
 /** Only people still on the team, and never nobody: you, when nothing is left. */
 export function normalizePicked(picked: string[] | null, me: string | null, known: string[]): string[] {
   const kept = (picked ?? []).filter((id) => known.includes(id));

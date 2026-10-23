@@ -200,6 +200,20 @@ for (const [where, makeWorld, enabled] of worlds) {
       expect((await w.maya.phoneThreads()).filter((t) => t.project === project)).toEqual([]);
     });
 
+    // HER COMPUTER'S SETTINGS FOR HER PHONE (20261023000000_phone_settings.sql).
+    it('keeps a computer\'s settings to their owner, and a setting command to no project', async () => {
+      const device = 'a1b2c3d4e5f6';
+      await w.maya.putPhoneSettings({ device, name: 'Studio Mac', settings: { v: 1, workspace: { adhdMode: true } } });
+      await w.maya.putPhoneSettings({ device, name: 'Studio Mac', settings: { v: 1, workspace: { adhdMode: false } } });
+      expect((await w.maya.phoneSettings()).map((s) => [s.device, s.name, s.settings.workspace.adhdMode])).toEqual([[device, 'Studio Mac', false]]);
+      expect(await w.theo.phoneSettings()).toEqual([]);
+      await expect(w.theo.putPhoneSettings({ owner: w.maya.personId, device, name: 'x', settings: {} })).rejects.toThrow();
+      const cmd = await w.maya.addPhoneCommand({ device, kind: 'setting', payload: { scope: 'workspace', key: 'adhdMode', value: true } });
+      expect([cmd.project, cmd.item]).toEqual([null, null]);
+      await expect(w.maya.addPhoneCommand({ device, project: 'alpha', kind: 'setting', payload: {} })).rejects.toThrow();
+      await w.maya.markPhoneCommand(cmd.id, 'done');
+    });
+
     // A STATUS LINE YOU WRITE YOURSELF (w-0b54ee983f).
     it('carries a status line to the team and clears it again', async () => {
       const until = Date.now() + 2 * 86_400_000;

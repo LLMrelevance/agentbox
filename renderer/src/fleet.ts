@@ -13,6 +13,8 @@ export interface Fleet {
   sessions?: Map<string, RunningSession>;
   /** `supervisor.queued`: a tick spawns these as soon as a slot frees. */
   queued?: string[];
+  /** `supervisor.remoteHeld`: sessions of ours open between Remote Control turns. */
+  remoteHeld?: string[];
   /** `supervisor.runNow`: the queued ones pushed to the front. */
   runNow?: string[];
   /** `supervisor.signInNeeded`: the tool each held thread is signed out of. */
@@ -30,3 +32,9 @@ export interface Fleet {
 }
 
 export const FleetContext = createContext<Fleet>({});
+
+/** The queue as a row should read it: an answer held for its undo is already on its way to an agent. */
+export function queuedWithHeld(queued: string[] | undefined, held: string | null): string[] | undefined {
+  if (!held || !queued || queued.includes(held)) return queued;
+  return [...queued, held];
+}

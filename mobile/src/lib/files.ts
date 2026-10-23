@@ -8,7 +8,7 @@ import { fileOf, findFile, findFolder, type Place } from '../../../renderer/src/
 import { fileOnPhone, phonePage, type Links } from '../../../renderer/src/phone-links';
 import { embeddedDocuments, isBookkeeping } from '../../../renderer/src/message-artifacts';
 import { referencedFiles } from '../../../renderer/src/referenced-files';
-import { typedParts } from '../../../renderer/src/typed-message';
+import { threadWords, typedParts } from '../../../renderer/src/typed-message';
 
 type Places = Map<string, Place>;
 
@@ -59,7 +59,7 @@ export function pictureLink(places: Places, links: Links, product: string, src: 
 export const playable = (places: Places, links: Links, product: string, src: string) => fileOnPhone(places, links, product, src).ok;
 
 /** A message you sent, as you typed it, without the lines the app wrote for its files. */
-export const typedWords = (text: string) => typedParts(text).flatMap((p) => ('text' in p ? [p.text] : [])).join('\n\n');
+export const typedWords = (text: string) => typedParts(text).flatMap((p) => ('text' in p ? [threadWords(p.text)] : [])).join('\n\n');
 
 /** The lines the app wrote into a message you sent, one for each file. */
 export const sentEmbeds = (text: string) => typedParts(text).flatMap((p) => ('embed' in p ? [p.embed] : []));

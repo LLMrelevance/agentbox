@@ -1,7 +1,7 @@
 // A NEO PAGE IN SETTINGS (w-6a1c405642), and the alpha it is gated behind.
 //
-// Neo is on for one Mac: a file in the app's data folder turns it on and
-// nothing in the app ever writes that file (main/neo/gate.mjs). A page about
+// Neo is on only where its switch in Alpha features is on, and only on a Mac
+// (main/neo/gate.mjs). A page about
 // Neo on everybody else's Mac is a row that opens an empty screen and a
 // search result that lands nowhere, so the gate has to reach the menu, the
 // search and the pane alike. This file pins all three, and the words somebody
@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SETTINGS_PAGES, searchSettings } from '../renderer/src/settings-search';
+import { neoEnabled } from '../main/neo/gate.mjs';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
@@ -48,10 +49,10 @@ describe('the menu', () => {
 
   /* "This should only be visible to me because no one else should have
      access to Neo" (2026-10-17). The page rides the gate the rest of Neo
-     rides: a Mac, a file nothing in the app writes, and a door that answers
+     rides: a Mac, a switch only its owner turns on, and a door that answers
      no anywhere else. Nothing about the page relaxes any of that. */
   it('is behind the gate the rest of Neo is behind, and so is what it reads', () => {
-    expect(read('main/neo/gate.mjs')).toMatch(/platform !== 'darwin'/);
+    expect(neoEnabled({ platform: 'linux', config: { alphaNeo: true } })).toBe(false);
     expect(read('preload.cjs')).toMatch(/neoEnabled: \(\) => ipcRenderer\.invoke\('neo:enabled'\)\.catch\(\(\) => false\)/);
     // A browser tab and a phone are told no on both doors, not left to 404.
     const serve = read('main/serve.mjs');

@@ -35,7 +35,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { readPeople, pickPeople, chaosPlan, worldAt, nextRound, roundOutcome, coverage, testerPrompt, projectNamedIn } from './plan.mjs';
+import { readPeople, pickPeople, chaosPlan, worldAt, nextRound, restartAgain, roundOutcome, coverage, testerPrompt, projectNamedIn } from './plan.mjs';
 import { createWatcher, freeMemoryMb, readAllLines, keepEvidence } from './watch.mjs';
 import { writeReport } from './report.mjs';
 import { readDiary } from './diary.mjs';
@@ -254,6 +254,7 @@ async function runPerson({ person, name, dir, stateFile, seeded, failed, cmds })
   const fired = new Set();
   let quietUntil = 0;
   let busy = false;
+  let down = null;
   let worldText = null;
   const watcher = createWatcher({ state: state(), out: dir, seeded, afterMs: (real ? 30 : 10) * MIN, quiet: (now) => now < quietUntil, readState: state });
 
@@ -263,6 +264,17 @@ async function runPerson({ person, name, dir, stateFile, seeded, failed, cmds })
     try {
       const now = Date.now();
       const elapsed = now - startedAt;
+      if (restartAgain({ down, now, deadline })) {
+        down.tried = now;
+        quietUntil = now + 2 * MIN;
+        const r = await live(name, 'restart');
+        if (r.code === 0) {
+          const mins = Math.max(1, Math.round((Date.now() - down.since) / MIN));
+          fs.appendFileSync(path.join(dir, 'timeline.jsonl'), `${JSON.stringify({ at: Date.now(), kind: 'restart-recovered', says: `The app came back after ${mins} min down.` })}\n`);
+          say(`${person.name}'s app: came back after ${mins} min down`);
+          down = null;
+        }
+      }
       if (!real) {
         const text = JSON.stringify(worldAt(events, elapsed));
         if (text !== worldText) { fs.writeFileSync(path.join(state().instance, 'world.json'), text); worldText = text; }
@@ -277,7 +289,10 @@ async function runPerson({ person, name, dir, stateFile, seeded, failed, cmds })
         if (e.kind === 'restart' || e.kind === 'crash') {
           quietUntil = now + 2 * MIN;
           const r = await live(name, 'restart', ...(e.kind === 'crash' ? ['--ctrl-c'] : []));
-          if (r.code !== 0) fs.appendFileSync(path.join(dir, 'timeline.jsonl'), `${JSON.stringify({ at: Date.now(), kind: 'restart-failed', says: `The app did not come back: ${r.out.trim().split('\n').pop()}` })}\n`);
+          if (r.code !== 0) {
+            fs.appendFileSync(path.join(dir, 'timeline.jsonl'), `${JSON.stringify({ at: Date.now(), kind: 'restart-failed', says: `The app did not come back: ${r.out.trim().split('\n').pop()}` })}\n`);
+            down = { since: now, tried: Date.now() };
+          }
         }
         if (e.kind === 'sleep') {
           const pid = state().pid;

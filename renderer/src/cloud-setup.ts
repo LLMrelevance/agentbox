@@ -33,7 +33,7 @@ export const SETUP = {
   sameAccount: 'The same Claude account as one above, so it adds nothing. Remove it and add a different one.',
   again: 'Sign in again',
   done: 'Done',
-  signInHead: (engine: CloudSignIn['engine']) => (engine === 'codex' ? 'Sign in to Codex' : 'Sign in to Claude'),
+  signInHead: (engine: CloudSignIn['engine'], as?: string | null) => (as ? `Sign in to ${as}` : engine === 'codex' ? 'Sign in to Codex' : 'Sign in to Claude'),
   openAgain: 'Open the page again',
   tryAgain: 'Try again',
   back: 'Back',
@@ -105,6 +105,7 @@ export function signInView(s: CloudSignIn): { lead: string; busy: boolean; paste
   const claude = s.engine === 'claude';
   if (s.state === 'starting') return { lead: claude ? 'Opening Claude’s sign-in…' : 'Opening OpenAI’s sign-in…', busy: true, paste: false, codeToType: null };
   if (s.state === 'needs-code') return { lead: 'Approve on Claude’s page, then copy the code it shows.', busy: false, paste: true, codeToType: null };
+  if (s.state === 'waiting' && !s.code) return { lead: 'Sign in with ChatGPT in your browser.', busy: true, paste: false, codeToType: null };
   if (s.state === 'waiting') return { lead: 'Enter this code on OpenAI’s page.', busy: true, paste: false, codeToType: s.code };
   if (s.state === 'checking') return { lead: 'Checking…', busy: true, paste: false, codeToType: null };
   if (s.state === 'failed') return { lead: s.message || 'That didn’t work.', busy: false, paste: false, codeToType: null };

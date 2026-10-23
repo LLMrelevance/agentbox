@@ -35,6 +35,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, hideSecrets, bytesOf, phoneChoices, phoneApproval, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
+import { phoneSettingsOf, settingRoute } from '../shared/phone-settings.mjs';
 import { createPhoneUploads, UPLOAD_LIMITS } from './phone-uploads.mjs';
 import { saveAttachments } from './save-attachments.mjs';
 
@@ -59,6 +60,8 @@ const RETRY_MS = [60_000, 5 * 60_000, 30 * 60_000, 3600_000];
 const STEP_EVERY_MS = 30_000;
 const STILL_RUNNING_MS = 2 * 60_000;
 const SWEEP_EVERY_MS = 3600_000;
+// Reading the settings parses Codex's model cache (199KB) on a Mac with both agents.
+const SETTINGS_EVERY_MS = 60_000;
 
 export class SignedOut extends Error {}
 
@@ -84,6 +87,11 @@ export function createPhoneInbox({
   liveOf = () => null,
   // The permission cards waiting on her, each with the fingerprint of the card as drawn: [{ ...request, card }].
   approvalsOf = () => [],
+  // async () -> the window's settings model (main/settings.mjs readSettings); none sends no settings.
+  readSettings = null,
+  version = '',
+  // This computer as her phone names it.
+  name = os.hostname().replace(/\.local$/i, ''),
 }) {
   const state = readState(stateFile);
   const save = () => writeState(stateFile, state);
@@ -215,6 +223,36 @@ export function createPhoneInbox({
     return sent;
   }
 
+  // THIS COMPUTER'S SETTINGS FOR HER PHONE'S SETTINGS PAGES. A failure waits
+  // for the next read, a minute on, and is said once until it changes.
+  const settings = { readAt: -Infinity, sentAt: -Infinity, key: null, trouble: null };
+  const computer = String(name || 'This computer').slice(0, 200);
+  const troubled = (what, err) => {
+    const line = `phone: could not ${what} your settings: ${err?.message ?? err}`;
+    if (settings.trouble !== line) log(line);
+    settings.trouble = line;
+  };
+  async function publishSettings(soon) {
+    if (!readSettings || !backend.putPhoneSettings) return false;
+    if (!soon && now() - settings.readAt < SETTINGS_EVERY_MS) return false;
+    settings.readAt = now();
+    let carried = null;
+    try { carried = phoneSettingsOf(await readSettings(), { version }); } catch (err) { troubled('read', err); return false; }
+    if (!carried) return false;
+    const key = JSON.stringify(carried);
+    if (key === settings.key && now() - settings.sentAt < HEARTBEAT_MS) return false;
+    still();
+    try {
+      await backend.putPhoneSettings({ owner, device, name: computer, settings: carried });
+    } catch (err) {
+      if (err instanceof SignedOut) throw err;
+      troubled('send', err);
+      return false;
+    }
+    Object.assign(settings, { key, sentAt: now(), trouble: null });
+    return true;
+  }
+
   // In one go when it can; one at a time when the cloud refuses the lot, so
   // a thread it will not take never holds up the others (finding 9). A copy
   // that fails is NOT counted as sent: it is tried again, later each time
@@ -285,6 +323,7 @@ export function createPhoneInbox({
     still();
     const waiting = (await backend.waitingPhoneCommands(device)).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
     let taken = 0;
+    let changedSettings = false;
     for (const cmd of waiting) {
       still();
       let outcome = state.done[cmd.id];
@@ -321,6 +360,7 @@ export function createPhoneInbox({
               try {
                 const out = await apply(ready);
                 if (cmd.kind === 'new' && typeof out?.id === 'string') state.made[madeHere(cmd.id)] = { id: out.id, at: now() };
+                if (cmd.kind === 'setting') changedSettings = true;
                 outcome = 'done';
               } catch (err) {
                 outcome = `refused: ${String(err?.message || err).slice(0, 200)}`;
@@ -341,7 +381,7 @@ export function createPhoneInbox({
       save();
       taken += 1;
     }
-    return taken;
+    return { taken, changedSettings };
   }
 
   return {
@@ -350,8 +390,9 @@ export function createPhoneInbox({
     filesSettled: () => uploads?.kick() ?? Promise.resolve(),
     async syncOnce() {
       try {
-        const taken = await takeCommands();
+        const { taken, changedSettings } = await takeCommands();
         const sent = await publish();
+        await publishSettings(changedSettings);
         if (taken || sent) log(`phone: took ${taken}, sent ${sent}`);
         return { taken, sent };
       } catch (err) {
@@ -400,8 +441,14 @@ const ROUTES = {
   new: (c) => ['zero:compose', { product: c.project, title: c.payload.title ?? '', body: c.payload.body ?? '', fromPhone: c.id, ...phoneChoices('new', c.payload) }],
 };
 export function applyThrough(channels) {
+  const routeOf = async (cmd) => {
+    if (cmd.kind !== 'setting') return ROUTES[cmd.kind]?.(cmd) ?? [];
+    const read = channels.get('zero:settings-read');
+    if (!read) return [];
+    return settingRoute(cmd.payload, await read({ sender: null }));
+  };
   return async (cmd) => {
-    const [channel, args, then] = ROUTES[cmd.kind]?.({ ...cmd, payload: cmd.payload || {} }) ?? [];
+    const [channel, args, then] = await routeOf({ ...cmd, payload: cmd.payload || {} });
     const fn = channel && channels.get(channel);
     if (!fn) throw new Error('this computer cannot do that yet');
     const out = await fn({ sender: null }, args);

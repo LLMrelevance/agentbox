@@ -31,7 +31,7 @@ import { AttachSheet, Attached } from '../../../ui/Attach';
 import { SentFiles, ThreadFiles, useMessageFiles } from '../../../ui/Files';
 import { Back, Clip, More, Panel } from '../../../ui/icons';
 import { Markdown, type MessageFiles } from '../../../ui/Markdown';
-import { IconButton, Pickable, PriorityBars, RunningMark, T, TopBar, Wall } from '../../../ui/parts';
+import { footRoom, IconButton, Pickable, PriorityBars, RunningMark, T, TopBar, Wall } from '../../../ui/parts';
 import { ModelSheet, ModeSheet, PrioritySheet, barsFor } from '../../../ui/Pickers';
 import { ThreadMenu } from '../../../ui/ThreadMenu';
 import { ActLine, FiledList, FocusActions, LiveLine, OptionsCard, RunLine, WorkLine } from '../../../ui/ThreadParts';
@@ -126,7 +126,7 @@ function Dock({ thread, offers, busy, setBusy, stop, setError }: {
     failed: (m) => setError(`Not sent: ${m}`),
   };
   const [send] = useState(() => replySender(() => deps.current!, (sent) => { if (sent) { setPicked({}); setOpen(false); } }));
-  const foot = Math.max(8, inset.bottom - 14);
+  const foot = footRoom(inset);
   const card = { borderWidth: 1, backgroundColor: color.fill };
   return (
     <View style={{ paddingHorizontal: 12, paddingBottom: 16 + foot, paddingTop: 8 }}>

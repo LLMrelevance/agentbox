@@ -125,12 +125,26 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
       return signIn('/auth/v1/token?grant_type=id_token', { provider, id_token: idToken, ...(nonce ? { nonce } : {}) });
     },
     // A new account may have to confirm its email first; then there is no
-    // session yet, and the page says to look for the email.
-    async signUp(name: string, email: string, password: string): Promise<{ confirm: boolean }> {
+    // session yet, and the page says to look for the email. Without `returnTo`
+    // the email's link goes to the database's own default, which is the
+    // desktop's listener on the Mac and nowhere on a phone.
+    async signUp(name: string, email: string, password: string, returnTo?: string): Promise<{ confirm: boolean }> {
       const mine = ++gen;
-      const body = await call('/auth/v1/signup', { method: 'POST', auth: false, body: JSON.stringify({ email, password, data: { full_name: name } }) });
+      const path = returnTo ? `/auth/v1/signup?redirect_to=${encodeURIComponent(returnTo)}` : '/auth/v1/signup';
+      const body = await call(path, { method: 'POST', auth: false, body: JSON.stringify({ email, password, data: { full_name: name } }) });
       if (body?.access_token) { took(body, mine); return { confirm: false }; }
       return { confirm: true };
+    },
+    // An email's link comes back with its sign-in after `#`, or why it failed.
+    // Only the renewal token is taken from it: the database answers that with
+    // a whole sign-in, so nothing in an address is trusted on its own word.
+    async finishEmailLink(hash: string): Promise<CloudSession | null> {
+      const got = new URLSearchParams(hash.replace(/^#/, ''));
+      const failed = got.get('error_description') || got.get('error');
+      if (failed) throw new Error(failed);
+      const refresh = got.get('refresh_token');
+      if (!refresh || !got.get('access_token')) return null;
+      return signIn('/auth/v1/token?grant_type=refresh_token', { refresh_token: refresh });
     },
     // GOOGLE, THROUGH THE DATABASE'S OWN SIGN-IN PAGE, with a one-time proof
     // (PKCE) so the code that comes back is no use to anybody else. It comes
@@ -163,9 +177,17 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
     async update(table: string, query: string, patch: Record<string, unknown>) {
       return (await call(`/rest/v1/${table}?${query}`, { method: 'PATCH', keepalive: true, headers: { prefer: 'return=representation' }, body: JSON.stringify(patch) })) ?? [];
     },
-    async insert(table: string, row: Record<string, unknown>) {
-      const out = await call(`/rest/v1/${table}`, { method: 'POST', headers: { prefer: 'return=representation' }, body: JSON.stringify(row) });
+    /** A row, or with `onConflict` the row already there left as it is. */
+    async insert(table: string, row: Record<string, unknown>, onConflict?: string) {
+      const q = onConflict ? `?on_conflict=${encodeURIComponent(onConflict)}` : '';
+      const out = await call(`/rest/v1/${table}${q}`, { method: 'POST', headers: { prefer: `return=representation${onConflict ? ',resolution=ignore-duplicates' : ''}` }, body: JSON.stringify(row) });
       return Array.isArray(out) ? out[0] : out;
+    },
+    async remove(table: string, query: string) {
+      return (await call(`/rest/v1/${table}?${query}`, { method: 'DELETE', headers: { prefer: 'return=representation' } })) ?? [];
+    },
+    async rpc(name: string, args: Record<string, unknown> = {}) {
+      return call(`/rest/v1/rpc/${name}`, { method: 'POST', body: JSON.stringify(args) });
     },
     /**
      * A command for her computer, named here so that the same command sent

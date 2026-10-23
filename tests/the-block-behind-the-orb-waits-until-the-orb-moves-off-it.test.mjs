@@ -71,7 +71,6 @@ describe('the rule the app draws it by', () => {
 const AREA = { x: 0, y: 0, width: 1920, height: 1080 };
 
 function fakes({ userData = fs.mkdtempSync(path.join(os.tmpdir(), 'neo-cover-')) } = {}) {
-  fs.writeFileSync(path.join(userData, 'neo-alpha'), '');
   const handlers = new Map();
   const listeners = new Map();
   const ipcMain = { handle: (ch, fn) => handlers.set(ch, fn), on: (ch, fn) => listeners.set(ch, fn) };
@@ -106,7 +105,7 @@ function fakes({ userData = fs.mkdtempSync(path.join(os.tmpdir(), 'neo-cover-'))
     owner: { id: 'x', name: 'Terminal' },
     session: { fromPartition: () => ({ setPermissionRequestHandler() {}, setPermissionCheckHandler() {} }) },
     globalShortcut: { register: () => true, unregister() {} },
-    mainWindow, preload: '/x', load: () => {}, userData,
+    mainWindow, preload: '/x', load: () => {}, userData, config: { alphaNeo: true },
     listen: () => ({ stop() {} }), platform: 'darwin',
   });
   const from = { sender: neoContents };

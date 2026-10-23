@@ -194,9 +194,6 @@ reviewers sometimes test there.
   `tests/**/*.test.mjs` (vitest.config.mjs) and the push hook only picks out
   that shape (scripts/lib/tests-the-push-runs.mjs). GitHub's workflow also
   installs `mobile/` and type-checks it.
-- `scripts/lib/risk-tier.mjs` learns `mobile/`: screens are "look", and
-  sign-in, account deletion and anything that publishes a build are "risky".
-  Its visual rules cover only `renderer/` today.
 - EAS credentials never enter git; the public check already refuses
   certificates and keys.
 - EAS build profiles: `development` (a development build on the owner's phone,
@@ -243,7 +240,9 @@ email or by a public link.
 5. **A week of daily use.** Fixes go out through EAS Update.
 6. **The public App Store** waits on three things outside this plan: accounts
    for anyone (w-6633e825a7, step 3), the privacy and terms pages
-   (w-7a670f07bb; today they say nothing is hosted), and an installed desktop
+   (w-7a670f07bb; today they say nothing is hosted, and they must also name
+   the copy of each computer's settings the phone reads, which carries no
+   paths and no instructions, shared/phone-settings.mjs), and an installed desktop
    app that can sign in to the cloud (`loadCloudConfig` in
    main/team/session.mjs answers null when packaged). Without them, a stranger
    who downloads the app has nothing to connect it to.

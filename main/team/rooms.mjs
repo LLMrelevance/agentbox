@@ -6,23 +6,32 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { wallCards, myPresence, displayNameOf, withoutHidden } from '../../shared/room-cards.mjs';
 import { GENERAL_ROOM } from './rooms-memory.mjs';
+import { ROOM_FILE_NAME, FILE_EXISTS } from './rooms-shape.mjs';
 
 const MESSAGES_HELD = 200;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+// Played voice notes and opened attachments, so a second play is not a second
+// download; bounded by count and by size, since one file can be 10 MB.
+const FILES_HELD = 40;
+const FILE_CHARS_HELD = 64_000_000;
 const HEARTBEAT_MS = 5 * 60_000;
 const SETTLE_MS = 400;
 
-// Pins, mutes and the first-room pin are this Mac's, kept per person.
+// Pins, mutes, rooms marked unread and the first-room pin are this Mac's,
+// kept per person.
 export function roomPrefsFile(storeRoot) {
   return path.join(storeRoot, '.rooms.json');
 }
 
+const PREFS = { pinned: [], muted: [], markedUnread: [], autoPinned: false };
+
 function prefsStore(file) {
   const read = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) ?? {}; } catch { return {}; } };
   return {
-    get: (who) => ({ pinned: [], muted: [], autoPinned: false, ...(read()[who] ?? {}) }),
+    get: (who) => ({ ...PREFS, ...(read()[who] ?? {}) }),
     set: (who, patch) => {
       const all = read();
-      all[who] = { pinned: [], muted: [], autoPinned: false, ...(all[who] ?? {}), ...patch };
+      all[who] = { ...PREFS, ...(all[who] ?? {}), ...patch };
       try { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(all, null, 2)); } catch { /* a pin that is not kept is not worth failing over */ }
       return all[who];
     },
@@ -30,6 +39,24 @@ function prefsStore(file) {
 }
 
 const EMPTY = { on: false, ready: false, rooms: [], messages: {}, me: null, ranks: {}, invites: [], mentions: [], error: null };
+
+const reactionKey = (x) => `${x.messageId}\n${x.by}\n${x.emoji}`;
+
+// Only reactions that are on, in the order they were made. Built from Maps so
+// an emoji spelled "__proto__" is an ordinary key.
+function withReactions(held, rows) {
+  const on = [...(rows?.values() ?? [])].filter((x) => x.on).sort((a, b) => a.at - b.at);
+  const byMessage = new Map();
+  for (const x of on) {
+    const emojis = byMessage.get(x.messageId) ?? new Map();
+    emojis.set(x.emoji, [...(emojis.get(x.emoji) ?? []), x.by]);
+    byMessage.set(x.messageId, emojis);
+  }
+  return held.map((m) => ({ ...m, reactions: m.deleted ? {} : Object.fromEntries(byMessage.get(m.id) ?? []) }));
+}
+
+// Padding taken off, so a file of exactly 10 MB is not refused.
+const bytesOf = (b64) => Math.floor((b64.length * 3) / 4) - (b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0);
 
 export function createRooms({
   backend, // () => the signed-in backend, or null
@@ -47,10 +74,13 @@ export function createRooms({
   const prefs = prefsStore(prefsFile);
   let state = { ...EMPTY };
   let people = new Map(); // roomId -> [personId]
+  let names = new Map(); // roomId -> room_names rows, or null on a cloud without them
   let profiles = new Map(); // personId -> row
   let presence = []; // rows
   let messages = new Map(); // roomId -> [message], oldest first
   let reads = new Map(); // roomId -> ms
+  let reactions = new Map(); // roomId -> Map(reactionKey -> reaction), off ones too
+  let files = new Map(); // `${roomId}/${name}` -> base64, oldest first
   let mentioned = []; // my newest mentions, which may be older than the messages held
   let unsubscribe = null;
   let started = null; // the backend rooms were started on
@@ -72,33 +102,45 @@ export function createRooms({
     const p = prefs.get(who);
     const pinned = new Set(p.pinned);
     const muted = new Set(p.muted);
+    const marked = new Set(p.markedUnread);
     const at = now();
     const mentions = [];
     const mine = ownWork();
+    const shown = new Map();
     const rooms = (state.rawRooms ?? []).map((r) => {
       const held = messages.get(r.id) ?? [];
+      shown.set(r.id, withReactions(held, reactions.get(r.id)));
       const readAt = reads.get(r.id) ?? 0;
-      const unreadMsgs = held.filter((m) => m.at > readAt && m.by !== who);
-      const pool = new Map([...mentioned.filter((m) => m.roomId === r.id && m.at > readAt && m.by !== who), ...unreadMsgs].map((m) => [m.id, m]));
+      const unreadMsgs = held.filter((m) => m.at > readAt && m.by !== who && !m.deleted);
+      const called = names.get(r.id) ?? null;
+      // Everyone in the room by name, invisible or with no card, for the chat.
+      const everyone = called?.map((n) => ({ id: n.person_id, name: n.has_card ? n.name : displayNameOf(n.name), avatarUrl: n.avatar_url ?? null })) ?? null;
+      const nameOf = (id) => profiles.get(id)?.display_name || everyone?.find((p) => p.id === id)?.name || '';
+      const pool = new Map([...mentioned.filter((m) => m.roomId === r.id && m.at > readAt && m.by !== who && !m.deleted), ...unreadMsgs].map((m) => [m.id, m]));
       for (const m of pool.values()) {
-        if (m.mentions.includes(who)) mentions.push({ id: `room-mention:${m.id}`, messageId: m.id, roomId: r.id, roomName: r.name, by: m.by, byName: profiles.get(m.by)?.display_name || '', body: m.body, at: m.at });
+        if (m.mentions.includes(who)) mentions.push({ id: `room-mention:${m.id}`, messageId: m.id, roomId: r.id, roomName: r.name, by: m.by, byName: nameOf(m.by), body: m.body, at: m.at });
       }
-      const wall = wallCards({ members: people.get(r.id) ?? [], profiles: [...profiles.values()], presence, teammates, teamCards: t.cards ?? [], meId: who, now: at, mine });
+      const wall = wallCards({ members: people.get(r.id) ?? [], profiles: [...profiles.values()], presence, teammates, teamCards: t.cards ?? [], meId: who, now: at, mine, names: called });
       return {
         ...r,
         pinned: pinned.has(r.id),
         muted: muted.has(r.id),
-        unread: unreadMsgs.length,
+        readAt,
+        markedUnread: marked.has(r.id),
+        // A room marked unread reads as unread until it is read, even with
+        // nothing new from anyone else in it.
+        unread: Math.max(unreadMsgs.length, marked.has(r.id) ? 1 : 0),
         lastAt: held.at(-1)?.at ?? r.createdAt,
         agents: wall.reduce((n, c) => n + (c.agents ?? 0), 0),
         wall,
+        people: everyone,
       };
     });
     state = {
       ...state,
       on: true,
       rooms,
-      messages: Object.fromEntries(rooms.map((r) => [r.id, messages.get(r.id) ?? []])),
+      messages: Object.fromEntries(rooms.map((r) => [r.id, shown.get(r.id)])),
       mentions: mentions.sort((a, b) => b.at - a.at),
     };
   }
@@ -110,9 +152,9 @@ export function createRooms({
     let f = {};
     try { f = presenceFacts() ?? {}; } catch { return null; }
     const lead = [...(f.running ?? [])].sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
-    if (!lead) return { workingOn: null };
+    if (!lead) return { workingOn: null, agents: 0 };
     const item = (f.items ?? []).find((i) => i.id === lead.itemId);
-    return { workingOn: (String(item?.label ?? '').trim() || String(item?.title ?? '')).slice(0, 64) || null };
+    return { workingOn: (String(item?.label ?? '').trim() || String(item?.title ?? '')).slice(0, 64) || null, agents: f.running.length };
   }
   const local = () => { gen += 1; };
 
@@ -135,7 +177,12 @@ export function createRooms({
     try {
       const rooms = await b.myRooms();
       const ids = new Map();
-      await Promise.all(rooms.map(async (r) => ids.set(r.id, await b.roomPeople(r.id))));
+      const named = new Map();
+      await Promise.all(rooms.map(async (r) => {
+        const [who, called] = await Promise.all([b.roomPeople(r.id), b.roomNames ? b.roomNames(r.id).catch(() => null) : null]);
+        ids.set(r.id, who);
+        named.set(r.id, called);
+      }));
       const everyone = [...new Set([meId(), ...[...ids.values()].flat()])].filter(Boolean);
       const [profileRows, presenceRows, readRows, mine, invites, ranks, mentionRows] = await Promise.all([
         b.roomProfiles(everyone), b.roomPresence(everyone), b.roomReads(), b.myRoomProfile(),
@@ -143,13 +190,20 @@ export function createRooms({
         b.roomMentions({ limit: 50 }).catch(() => []),
       ]);
       const held = new Map();
-      await Promise.all(rooms.map(async (r) => held.set(r.id, merge(messages.get(r.id), await b.roomMessages(r.id, { limit: MESSAGES_HELD })))));
+      const reacted = new Map();
+      await Promise.all(rooms.map(async (r) => {
+        const [fresh, rows] = await Promise.all([b.roomMessages(r.id, { limit: MESSAGES_HELD }), b.roomReactions(r.id)]);
+        held.set(r.id, merge(messages.get(r.id), fresh));
+        reacted.set(r.id, new Map(rows.map((x) => [reactionKey(x), x])));
+      }));
       if (backend() !== b || started !== b) return;
       if (g !== gen) { again = true; return; }
       people = ids;
+      names = named;
       profiles = new Map(profileRows.map((row) => [row.person_id, row]));
       presence = presenceRows;
       messages = held;
+      reactions = reacted;
       reads = new Map(readRows.map((r) => [r.roomId, r.readAt]));
       mentioned = mentionRows;
       autoPin(rooms);
@@ -182,16 +236,48 @@ export function createRooms({
     settle?.unref?.();
   }
 
+  // An edit or a delete of a message not held is left for when it is read.
+  function holdMessage(m) {
+    const held = messages.get(m.roomId) ?? [];
+    if ((m.editedAt == null && !m.deleted) || held.some((x) => x.id === m.id)) messages.set(m.roomId, merge(held, [m]));
+    mentioned = mentioned.map((x) => (x.id === m.id ? m : x));
+    if (m.deleted) dropReactions(m.roomId, m.id);
+  }
+
+  function holdReaction(x) {
+    const held = reactions.get(x.roomId) ?? new Map();
+    held.set(reactionKey(x), x);
+    reactions.set(x.roomId, held);
+  }
+
+  function dropReactions(roomId, messageId) {
+    const held = reactions.get(roomId);
+    if (held) for (const [k, x] of held) if (x.messageId === messageId) held.delete(k);
+  }
+
   function hear(e) {
-    if (e.kind === 'message') {
-      const m = e.message;
-      if (!messages.has(m.roomId)) { later(); return; }
+    if (e.kind === 'message' || e.kind === 'reaction') {
+      const roomId = e.kind === 'message' ? e.message.roomId : e.reaction.roomId;
+      if (!messages.has(roomId)) { later(); return; }
       local();
-      messages.set(m.roomId, merge(messages.get(m.roomId), [m]));
+      if (e.kind === 'message') holdMessage(e.message);
+      else holdReaction(e.reaction);
       changed();
       return;
     }
     later();
+  }
+
+  function keepFile(key, data) {
+    files.delete(key);
+    files.set(key, data);
+    let total = 0;
+    for (const d of files.values()) total += d.length;
+    for (const [k, d] of files) {
+      if (files.size <= FILES_HELD && total <= FILE_CHARS_HELD) break;
+      files.delete(k);
+      total -= d.length;
+    }
   }
 
   // What this Mac sends, when it differs from what it last sent, and every
@@ -200,8 +286,8 @@ export function createRooms({
     const b = backend();
     if (!b || !started) return false;
     const facts = presenceFacts() ?? {};
-    const showWorking = state.me?.show_working ?? 'team';
-    const row = withoutHidden(myPresence({ ...facts, now: now(), showWorking }), state.me);
+    const showWorking = state.me?.show_working ?? 'everyone';
+    const row = withoutHidden(myPresence({ ...facts, now: now(), showWorking, showActivity: state.me?.show_activity !== false }), state.me);
     const key = JSON.stringify(row);
     if (!force && key === lastSent && now() - lastSentAt < HEARTBEAT_MS) return false;
     await b.putPresence(device(), { ...row, gone: false });
@@ -216,7 +302,8 @@ export function createRooms({
     // The cloud keeps an address of up to 500 characters, not a picture's bytes.
     const face = me()?.avatarUrl ?? null;
     const avatar = typeof face === 'string' && /^https?:\/\//.test(face) && face.length <= 500 ? face : null;
-    return b.saveRoomProfile({ display_name: displayNameOf(me()?.name ?? '') || 'Someone', avatar_url: avatar });
+    // Said here as well as in the cloud's default, for a cloud from before it changed.
+    return b.saveRoomProfile({ display_name: displayNameOf(me()?.name ?? '') || 'Someone', avatar_url: avatar, show_working: 'everyone' });
   }
 
   // Tried on every pass until it works: a cloud without the rooms tables yet,
@@ -259,9 +346,10 @@ export function createRooms({
     started = null;
     setUp = false;
     lastSent = null;
-    people = new Map(); profiles = new Map(); presence = []; messages = new Map(); reads = new Map(); mentioned = [];
+    people = new Map(); names = new Map(); profiles = new Map(); presence = []; messages = new Map(); reads = new Map(); mentioned = [];
+    reactions = new Map(); files = new Map();
     state = { ...EMPTY, on: !!enabled() };
-    if (b) await b.putPresence(device(), { gone: true, agents_running: 0, working_on: null, working_private: false }).catch(() => {});
+    if (b) await b.putPresence(device(), { gone: true, agents_running: 0, working_on: null, working_private: false, activity: [] }).catch(() => {});
     onChange();
   }
 
@@ -321,12 +409,90 @@ export function createRooms({
 
     async markRead(roomId) {
       const b = need();
+      const who = meId();
+      const p = prefs.get(who);
+      const marked = p.markedUnread.includes(roomId);
       const last = (messages.get(roomId) ?? []).at(-1)?.at;
-      if (!last || (reads.get(roomId) ?? 0) >= last) return;
+      const behind = !!last && (reads.get(roomId) ?? 0) < last;
+      if (!behind && !marked) return;
       local();
-      reads.set(roomId, last);
+      if (marked) prefs.set(who, { markedUnread: p.markedUnread.filter((x) => x !== roomId) });
+      if (behind) reads.set(roomId, last);
       changed();
-      await b.markRoomRead(roomId, last);
+      if (behind) await b.markRoomRead(roomId, last);
+    },
+
+    // `at` is the time of the first message that should read as unread.
+    async markUnread(roomId, at) {
+      const b = need();
+      const from = Number(at);
+      if (!Number.isFinite(from) || from <= 0) throw new Error('Pick the message to mark unread from.');
+      const who = meId();
+      const p = prefs.get(who);
+      local();
+      reads.set(roomId, from - 1);
+      prefs.set(who, { markedUnread: [...new Set([...p.markedUnread, roomId])] });
+      changed();
+      await b.markRoomUnread(roomId, from - 1);
+    },
+
+    async react(roomId, messageId, emoji, on = true) {
+      const b = need();
+      await b.reactRoomMessage(messageId, emoji, !!on);
+      const key = reactionKey({ messageId, by: meId(), emoji });
+      if (!on && !reactions.get(roomId)?.has(key)) return;
+      local();
+      holdReaction({ messageId, roomId, by: meId(), emoji, on: !!on, at: now() });
+      changed();
+    },
+
+    async edit(roomId, messageId, body, { mentions = [] } = {}) {
+      const b = need();
+      const m = await b.editRoomMessage(messageId, { body: String(body ?? '').trim(), mentions });
+      local();
+      holdMessage({ ...m, roomId });
+      changed();
+      return m;
+    },
+
+    async deleteMessage(roomId, messageId) {
+      const b = need();
+      await b.deleteRoomMessage(messageId);
+      const was = messages.get(roomId)?.find((m) => m.id === messageId);
+      local();
+      if (was) holdMessage({ ...was, body: '', mentions: [], deleted: true });
+      mentioned = mentioned.filter((m) => m.id !== messageId);
+      dropReactions(roomId, messageId);
+      changed();
+    },
+
+    async putFile(roomId, { name, dataBase64 } = {}) {
+      const b = need();
+      const n = String(name ?? '');
+      if (!ROOM_FILE_NAME.test(n)) throw new Error(`A room cannot keep a file named “${n}”: a name starts with a letter or number and has only letters, numbers, dots, dashes and underscores, up to 160.`);
+      const data = String(dataBase64 ?? '');
+      if (bytesOf(data) > MAX_FILE_BYTES) throw new Error('That file is over 10 MB, the most a room takes.');
+      try {
+        await b.putRoomFile(roomId, n, data);
+        keepFile(`${roomId}/${n}`, data);
+      } catch (err) {
+        if (err?.code !== FILE_EXISTS) throw err;
+      }
+      return n;
+    },
+
+    async file(roomId, name) {
+      const b = need();
+      const key = `${roomId}/${name}`;
+      if (files.has(key)) {
+        const data = files.get(key);
+        keepFile(key, data);
+        return data;
+      }
+      if (!ROOM_FILE_NAME.test(String(name ?? ''))) return null;
+      const data = await b.roomFile(roomId, String(name));
+      if (data != null) keepFile(key, data);
+      return data;
     },
 
     async older(roomId) {
@@ -351,8 +517,10 @@ export function createRooms({
       const saved = await b.saveRoomProfile(patch);
       local();
       state = { ...state, me: saved };
+      // My own card is built from `profiles`, which otherwise waits for the next read.
+      if (saved?.person_id && profiles.has(saved.person_id)) profiles.set(saved.person_id, saved);
       changed();
-      if (['show_working', 'show_agents', 'show_level'].some((k) => k in patch)) await publish({ force: true }).catch(() => {});
+      if (['show_working', 'show_agents', 'show_level', 'show_activity'].some((k) => k in patch)) await publish({ force: true }).catch(() => {});
       if ('show_status' in patch) await syncStatus().catch(() => {});
       return saved;
     },
@@ -387,7 +555,7 @@ export function createRooms({
     leave: async (roomId) => {
       await need().leaveRoom(roomId);
       const p = prefs.get(meId());
-      prefs.set(meId(), { pinned: p.pinned.filter((x) => x !== roomId), muted: p.muted.filter((x) => x !== roomId) });
+      prefs.set(meId(), { pinned: p.pinned.filter((x) => x !== roomId), muted: p.muted.filter((x) => x !== roomId), markedUnread: p.markedUnread.filter((x) => x !== roomId) });
       await refresh();
     },
     remove: (roomId, personId) => after(need().removeRoomMember(roomId, personId)),

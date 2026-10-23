@@ -28,6 +28,7 @@ function sumPresence(rows, now) {
   let agents = 0, total = 0, week = 0, today = 0;
   const days = new Set();
   const months = new Map();
+  const activity = [];
   let lead = null;
   for (const r of rows) {
     if (r.gone) continue;
@@ -39,13 +40,21 @@ function sumPresence(rows, now) {
       if (typeof m?.month === 'string') months.set(m.month, (months.get(m.month) ?? 0) + num(m.hours));
     }
     const fresh = now - ms(r.updated_at) < PRESENCE_STALE_MS;
+    if (fresh && Array.isArray(r.activity)) activity.push(...r.activity.filter((a) => a && typeof a.title === 'string' && STATES.includes(a.state)));
     if (!fresh || !(num(r.agents_running) > 0)) continue;
     agents += num(r.agents_running);
     if (!lead || (ms(r.working_at) || 0) > (ms(lead.working_at) || 0)) lead = r;
   }
   const byMonth = [...months].sort(([a], [b]) => a.localeCompare(b)).map(([month, hours]) => ({ month, hours }));
-  return { agents, total, week, today, streak: streakOf([...days], now), byMonth, lead };
+  return { agents, total, week, today, streak: streakOf([...days], now), byMonth, lead, activity };
 }
+
+// Activity reaches people outside my team only on the switch that names my
+// work to them, and only while my activity is on.
+const sharesActivity = (p) => p.show_working === 'everyone' && p.show_activity !== false;
+const STATES = ['waiting', 'running', 'done'];
+export const ACTIVITY_MAX = 36;
+const EACH = ACTIVITY_MAX / STATES.length;
 
 function workingOf({ profile, lead, teammate, cards }) {
   const none = { workingOn: null, workingPrivate: false };
@@ -65,7 +74,9 @@ function workingOf({ profile, lead, teammate, cards }) {
 // Invisible people are already hidden from others by the cloud; my own
 // profile still reaches me, so I leave my own wall too. `mine` is what this
 // Mac knows I am working on, which my own card shows whatever others see.
-export function wallCards({ members = [], profiles = [], presence = [], teammates = [], teamCards = [], meId = null, now = Date.now(), mine = null }) {
+// `names` is the cloud's room_names for this room, or null on a cloud without
+// it: a member with no card at all is on the wall, named, as not on Rooms yet.
+export function wallCards({ members = [], profiles = [], presence = [], teammates = [], teamCards = [], meId = null, now = Date.now(), mine = null, names = null }) {
   const inRoom = new Set(members);
   const mates = new Set(teammates);
   const out = [];
@@ -82,7 +93,8 @@ export function wallCards({ members = [], profiles = [], presence = [], teammate
       avatarUrl: p.avatar_url ?? null,
       headline: p.headline ?? null,
       bio: p.bio ?? null,
-      agents: p.show_agents === false ? null : s.agents,
+      // My own count is this Mac's, not the cloud's last word on it.
+      agents: p.show_agents === false ? null : id === meId && Number.isFinite(mine?.agents) ? mine.agents : s.agents,
       level: p.show_level === false ? null : levelFor(s.total),
       hoursTotal: s.total,
       hoursWeek: s.week,
@@ -91,9 +103,18 @@ export function wallCards({ members = [], profiles = [], presence = [], teammate
       byMonth: s.byMonth,
       teammate: mates.has(id) && id !== meId,
       showActivity: p.show_activity !== false,
+      activity: sharesActivity(p) ? s.activity : null,
       status: p.show_status !== false && p.status_text && !(ms(p.status_until) <= now) ? p.status_text : null,
       ...(id === meId && mine ? { workingOn: mine.workingOn ?? null, workingPrivate: false }
         : workingOf({ profile: p, lead: s.lead, teammate: mates.has(id) && id !== meId, cards })),
+    });
+  }
+  for (const n of names ?? []) {
+    if (n.has_card || !inRoom.has(n.person_id) || n.person_id === meId) continue;
+    out.push({
+      id: n.person_id, me: false, away: true, name: displayNameOf(n.name), avatarUrl: n.avatar_url ?? null, headline: null, bio: null,
+      agents: null, level: null, hoursTotal: 0, hoursWeek: 0, hoursToday: 0, streak: 0, byMonth: [],
+      teammate: mates.has(n.person_id), showActivity: false, activity: null, status: null, workingOn: null, workingPrivate: false,
     });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
@@ -106,7 +127,9 @@ const shortName = (item) => (String(item?.label ?? '').trim() || String(item?.ti
 // A thread is named only when its project and its own word leave it to the
 // whole team, and only when I let everyone see it: realtime sends whole rows,
 // so a name on the row reaches everyone in my rooms.
-export function myPresence({ running = [], items = [], products = [], summary, now = Date.now(), showWorking = 'team' }) {
+// `cards` are this Mac's own thread cards (shared/thread-cards.mjs cardsFor):
+// the threads my team may read, which are the ones my activity may name.
+export function myPresence({ running = [], items = [], products = [], cards = [], summary, now = Date.now(), showWorking = 'everyone', showActivity = true }) {
   const lead = [...running].sort((a, b) => num(b.startedAt) - num(a.startedAt))[0];
   let working_on = null;
   let working_private = false;
@@ -130,7 +153,16 @@ export function myPresence({ running = [], items = [], products = [], summary, n
     streak_days: summary?.streak ?? 0,
     active_days: summary?.activeDays ?? [],
     hours_by_month: summary?.byMonth ?? [],
+    activity: sharesActivity({ show_working: showWorking, show_activity: showActivity }) ? activityOf(cards, now) : [],
   };
+}
+
+function activityOf(cards, now) {
+  const today = new Date(now); today.setHours(0, 0, 0, 0);
+  const open = cards.filter((c) => c && !c.people?.length && c.title && STATES.includes(c.state) && (c.state !== 'done' || num(c.updatedAt) >= today.getTime()));
+  return STATES.flatMap((state) => open.filter((c) => c.state === state)
+    .sort((a, b) => num(b.updatedAt) - num(a.updatedAt)).slice(0, EACH)
+    .map((c) => ({ title: String(c.title).slice(0, WORKING_ON_MAX), project: c.project ? String(c.project).slice(0, 40) : null, state, at: num(c.updatedAt) })));
 }
 
 const round2 = (v) => Math.round(num(v) * 100) / 100;

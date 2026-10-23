@@ -9,7 +9,7 @@ Everything in it is the target; this file says how to build it and in what order
 ## What it is, in one paragraph
 
 A room is a place where people who work with agents can see each other working.
-It is a tab after Done on the Threads page: a wall of cards, one per person
+It is a page of its own, reached from the Rooms page: a wall of cards, one per person
 (face, name, level, the short name of what they are working on, how many agents
 are running), with the room's chat beside it. Your team is a room. You can be in
 other rooms too, including public ones like General, and invite friends by link.
@@ -25,14 +25,22 @@ Your level comes from agent hours. Ranks are weekly. You can go invisible.
 - The chat panel: faces in the name line, no header above messages beyond the
   room switcher. Chats run top-down everywhere: a short chat starts at the top;
   once it is full the newest message sits just above the box you type in.
-- Sidebar: a Rooms section that folds (arrow right when folded, down when open),
-  one row per room, and a "New room" row at the end of the list. No plus in the
-  header. Pointing at a room shows a pin where its count was and dots that open
-  the room menu (Invite people, Members, Ranks this week, Pin or Unpin, Mute,
-  Leave).
-- Room tabs: rooms are pinned as tabs after Done. Your first room is pinned for
-  you. A room you open but have not pinned sits at the end of the tabs while you
-  are in it. No dropdown on a tab.
+- Sidebar and tabs, replaced 2026-10-21 (w-a0429b3d5e): the folding Rooms list,
+  its New room row, pins, and room tabs after Done all went, because a tab that
+  came and went and a busy sidebar made rooms confusing. The sidebar has one
+  Rooms row under Messages. It opens the Rooms page, which lists the rooms you
+  are in the way the threads table lists threads (people, agents working, last
+  message, an unread dot) with New room in the top bar and Find rooms to join
+  under the list. Pointing at a row shows dots for the room menu (Mark as read
+  or unread, Invite people, Members, Ranks this week, Mute, Leave). A room opens
+  as a page with a back arrow to the Rooms page, and Threads keeps its four tabs.
+  Since 2026-10-22 (w-49cd37092c) one room sits after Done: the first pinned or
+  first room until you pick, with an arrow that opens "Room in this tab" (each
+  room, and No room tab). A room's menu has Show in the Threads tab.
+- The chat beside a room is 41% of it (480px at 1440) until you drag its left
+  edge, from 300 to 720, always leaving the board its three columns; the width
+  is kept and a double-click puts it back (2026-10-23). The faces over the board
+  go to even rows when eight no longer fit.
 - Invite: on the room row, in the room menu, and in the chat panel header. The
   invite dialog is the plain one (who is here, invite link, email).
 - Names show as "First L." by default; a person can turn on their full name.
@@ -102,11 +110,18 @@ Tables (every foreign key named, with what happens on delete):
   rooms on delete cascade, by_person references people on delete set null,
   body text (1..4000), in_reply_to uuid null references room_messages on delete
   set null, mentions uuid[] default '{}', created_at default now() (forced by
-  trigger). No edit or delete in the alpha.
+  trigger). Since 20261022000000_room_messages_do_more.sql: edited_at and
+  deleted_at, set only by `edit_room_message` and `delete_room_message`, which
+  only the author may call. A deleted message keeps its row with an empty body.
+- `room_reactions` (message, person, emoji) with an on flag, written only by
+  `react_room_message`; turning one off is an update, because realtime sends
+  no deletes. `room_files` (room, plain name) holds base64 files up to 10 MiB,
+  voice notes among them; a message links one as `[name](attachments/name)`.
 - `room_reads`: (room_id references rooms on delete cascade, person_id
-  references people on delete cascade) pk, read_at. Written only through
+  references people on delete cascade) pk, read_at. Written through
   `mark_room_read(room, at)`, which keeps the later of the two times, so two
-  Macs never move it backwards.
+  Macs never move it backwards, and `mark_room_unread(room, at)`, which is a
+  person choosing to move their own read point back.
 
 Seeded idempotently by the migration: one team room per existing team
 (`on conflict do nothing`), a trigger that makes it for every new team, and
@@ -221,10 +236,12 @@ There is no run history today (only PostHog counts and per-run trace logs).
   Monday, today), active dates, streak, monthly series, and the level.
   Persisted on my presence row only because other people cannot compute them:
   they read my numbers, never my ledger.
-- Level (quick early, slow late, 99 at 5,000 hours):
-  `level(h) = min(99, 1 + floor(98 * cbrt(h / 5000)))`. 12h is 14, 100h is
-  27, 500h is 46, 1,240h is 62. A person's level comes from the sum of their
-  Macs' hours.
+- Level (quick early, each level slower than the last, 99 at 10,000 hours,
+  no ceiling): up to 99, `level(h) = 1 + floor(98 * (h / 10000) ^ 0.4)`; past
+  99 each level costs 5% more hours than the one before. 1h is 3, 12h is 7,
+  100h is 16, 1,945h is 51, 10,000h is 99. At about 65 agent hours a day
+  that is the middle after a month, 99 after five, and about 125 after a
+  year. A person's level comes from the sum of their Macs' hours.
 - Streak across Macs: the union of each Mac's `active_days`, counted back from
   today (or yesterday, if today has no run yet).
 
@@ -262,12 +279,15 @@ team sync loop upserts it when its hash changes (at most every 5s):
   written into my store. It shows at the top of Needs you until my
   `room_reads.read_at` for that room passes its time, which any of my Macs can
   move. It does not go through `belongsInInbox`, never appears in Done or
-  Later, and adds to the Needs you count through its own function.
+  Later, and adds to the Needs you count through its own function. Needs you
+  draws one row per person per room: one message reads as itself, several as
+  "sent you 4 messages".
 - Unread on a room row: messages after my read time, shown as "9+" at most.
   Mentions always count, also in a muted room; other messages do not count in a
   muted room. Mute is local, per person.
-- Opening a room's chat (panel visible) marks it read up to the newest message
-  shown.
+- Staying on a room's chat (panel visible) for two seconds with the window in
+  front marks it read up to the newest message shown. Passing through it does
+  not, so a mention is not cleared on the way past.
 
 ## The messages page
 
@@ -283,18 +303,14 @@ team sync loop upserts it when its hash changes (at most every 5s):
 
 ## UI, where it goes
 
-- Sidebar: `components/WorkspaceNavigation.tsx` gains a `RoomsSection` (new
-  file `renderer/src/rooms/RoomsSection.tsx`): fold arrow, rows, hover pin and
-  dots, the room menu, New room.
-- Tabs: `threads/Pages.tsx` `StateTabs` gains the pinned and visiting room tabs
-  after a divider. `View` widens to include `room:<id>`. The tab order cycles
-  through them.
+- Sidebar: the Messages and Rooms rows come from `team/rooms/useRooms.tsx`
+  (`nav`). The Rooms page and the room menu are `team/rooms/RoomsPage.tsx`.
+  There are no room tabs (w-a0429b3d5e).
 - Room page: `renderer/src/rooms/RoomPage.tsx` (the wall), `RoomChat.tsx` (the
   panel, the switcher, invite button, expand arrows), `PersonHover.tsx`,
   `RoomRanks.tsx`, `ProfilePage.tsx`, `InviteDialog.tsx`, `StartRoomDialog.tsx`,
   `FindRooms.tsx`, `MessagesPage.tsx`, `GoInvisible.tsx`.
 - Settings: `settings-search.ts` gains `alpha` and `rooms` pages.
-- Pins and fold state: local (`localStorage`), per person id.
 - Every new surface is checked in Dark and Light with the app's own tokens; the
   wall's grid uses `--line-strong` in Light, columns snapped to whole pixels.
 
@@ -429,3 +445,32 @@ Rooms paragraph in this work.
   built: rooms have no description line in Find rooms, a team room has no
   Leave in its menu (you leave by leaving the team), and Start a room offers
   Find a room to join, since the plus beside Rooms became New room.
+- A room is its board (w-49cd37092c); there is no Grid or Board to pick. The
+  header's filters button, the one the Inbox has, holds the board's Show and
+  People lines. The board holds you and the teammates whose Activity you may
+  open, and its People line narrows it. It draws each thread as a face beside the person's name over
+  the title, with no project and no card, and leaves Later off until the
+  filters menu's Show line turns it on. Titles are one line, cut with an ellipsis. The
+  grid's people stay over it as a row of tiles in the Grid's lines, eight to a
+  row at most: a face, a first name and agents working, never what anyone is
+  on. Clicking a tile narrows the board. With Rooms on, the Inbox shows only your own threads: its
+  People line and the faces on its button are gone, and the pick it kept comes
+  back if Rooms is turned off.
+- A person's page (w-88e1e23325). The second tab is "Today's activity", the
+  Inbox's board for that one person. Progress opens on the total ("64, agent
+  hours since July 2026", option A of five), and the chart under it shows a
+  value only where you point. The ranks say "this week" and "all time". Your own
+  page has your bio, with Add a bio and Edit. Message there opens the chat full
+  page on Messages, and Back returns to the page. The rooms they are in open
+  when clicked.
+- After an hour with a second person in the founder's room (2026-10-22,
+  `20261022000100_rooms_show_everyone.sql`): `show_working` defaults to
+  `everyone`, and cards on the old default moved. While `everyone` and
+  `show_activity` hold, a Mac puts up to 36 lines of what is waiting, running
+  and done today on its presence row (`activity`), only threads the whole team
+  may read, and a room-mate outside the team's page draws those lines on its board. The
+  board still holds only people whose thread cards reach you. `room_names(r)`
+  gives every member's name and face and nothing else, so a message keeps its
+  author's name while they are invisible, and a member with no card is on the
+  wall as "Not on Rooms yet". My own card counts this Mac's running agents. A
+  group chat nobody has written in is listed only for whoever started it.

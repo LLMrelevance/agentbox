@@ -32,11 +32,15 @@ import { herTurnEnds, herTurnStarts, threadParts } from '../her-turns';
 import { holdAtBottom } from '../thread-bottom';
 import { NOT_ANSWERING, NOT_ANSWERING_MS } from '../not-answering';
 import { onCloudPhone, onPhone } from '../phone-screen';
-import { typedParts } from '../typed-message';
+import { threadPieces, typedParts } from '../typed-message';
+import { TicketLink } from './TicketReference';
 import { clock, dayHeading } from '../thread-history';
 import { chatLayout, newestSaid } from '../team/chat-layout';
 import { ChatFold } from '../team/ChatFold';
 import { MessageActions, Reactions } from '../team/ChatActions';
+import { DeleteMessage, MessageEditor } from '../team/MessageMore';
+import { EDIT_LAST } from '../team/chat-events';
+import { messageMore, withEmbeds, wordsOf } from '../team/message-more';
 import { ThreadLine } from '../team/ThreadPanel';
 import { AgentAnswers } from '../team/ChatAgents';
 import {
@@ -55,6 +59,13 @@ type Indexed<T> = T & { i: number };
 export type ThreadNode =
   | Indexed<AgentEvent>
   | { kind: 'run'; at: number; items: Indexed<AgentWork>[]; i?: undefined };
+
+// A person's words as typed, with each thread they named drawn as the thread.
+const asTyped = (text: string): ReactNode => {
+  const pieces = threadPieces(text);
+  if (pieces.length === 1 && !('thread' in pieces[0])) return text;
+  return pieces.map((q, j) => ('thread' in q ? <TicketLink key={j} id={q.thread}>{q.text}</TicketLink> : q.text));
+};
 
 const cutIndex = (nodes: ThreadNode[], gapAfter: number) =>
   nodes.findIndex((e) => (e.kind === 'run' ? e.items[e.items.length - 1]?.i : e.i) === gapAfter);
@@ -92,7 +103,7 @@ export interface CodeInThread {
   open: (path: string) => void;
 }
 
-export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, name, nameOf, landOn, md, code, tail, chat = false, reactions, onReact, onQuote, onHandToAgent, replies, openThread = null, onOpenThread, freshThreads }: {
+export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, name, nameOf, landOn, md, code, tail, chat = false, reactions, onReact, onQuote, onHandToAgent, replies, openThread = null, onOpenThread, freshThreads, onEdit, onMarkUnread, onCopied }: {
   // CUT THE AGENT'S CURRENT STEP so a message of hers that is waiting on it is
   // answered now (w-f37a34def6). Absent where nothing can be cut.
   onSendNow?: () => unknown;
@@ -164,7 +175,28 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
   // How many replies in each thread are waiting on you, by its message's uid
   // (`whatWaits`, shared/team-rules.mjs). Absent or 0 reads as before.
   freshThreads?: Record<string, number>;
+  /** New words for one of your messages, or `gone` to delete it. Absent where messages cannot be changed. */
+  onEdit?: (uid: string, change: { text: string } | { gone: true }) => void;
+  /** Mark the conversation unread from this message on. */
+  onMarkUnread?: (at: number) => void;
+  /** A message's words were copied. */
+  onCopied?: () => void;
 }) {
+  // THE MESSAGE BEING EDITED, by uid, and the one asking to be deleted.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  useEffect(() => { setEditing(null); setDeleting(null); }, [landOn]);
+  // ↑ in an empty reply box edits your newest message (the reply box asks).
+  useEffect(() => {
+    if (!chat || !onEdit) return undefined;
+    const last = () => {
+      const mine = [...events].reverse().find((e) => e.kind !== 'work' && e.kind !== 'run' && e.uid && !e.pending && !e.deleted
+        && e.who === 'you' && (!(e as { by?: string }).by || (e as { by?: string }).by === team?.me));
+      if (mine && 'uid' in mine && mine.uid) setEditing(mine.uid);
+    };
+    window.addEventListener(EDIT_LAST, last);
+    return () => window.removeEventListener(EDIT_LAST, last);
+  });
   // Which work lines are open, and how far. Kept per conversation, not globally.
   const [open, setOpen] = useState<Map<number, number>>(new Map());
   // Which folded RUNS she has opened, by the index of their first line. Runs
@@ -373,9 +405,18 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
                   <div className="msg-head">
                     <span className="msg-who">{teammateOf(e)?.name ?? (e.who === 'you' ? 'You' : name)}</span>
                     {headFacts(e, clock(e.at))}
+                    {e.edited && <span className="msg-edited" title="Edited">edited</span>}
                   </div>
                 )}
-                <ChatFold lines={e.who === 'you'} newest={n === newest}>{md(e.text ?? '')}</ChatFold>
+                {e.uid && editing === e.uid && onEdit
+                  ? <MessageEditor text={wordsOf(e.text ?? '')}
+                    onSave={(text) => { setEditing(null); onEdit(e.uid!, { text: withEmbeds(e.text ?? '', text) }); }}
+                    onCancel={() => setEditing(null)}
+                    onEmpty={() => { setEditing(null); setDeleting(e.uid!); }} />
+                  : e.deleted
+                    ? <div className="msg-body msg-deleted">{e.text}</div>
+                    : <ChatFold lines={e.who === 'you'} newest={n === newest}>{md(e.text ?? '')}</ChatFold>}
+                {e.edited && !slot.head && editing !== e.uid && <span className="msg-edited chat-edited-cont">edited</span>}
                 {/* THE CHIPS, AND THE BAR WHEN YOU POINT AT IT (w-560647d4db).
                     Both hang off the message's own uid, which is the name the
                     store keeps a reaction under and the only name a message has
@@ -395,14 +436,25 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
                 {e.uid && onOpenThread && (replies?.[e.uid]?.length ?? 0) > 0 && (
                   <ThreadLine replies={replies![e.uid]} open={e.uid === openThread} onOpen={() => onOpenThread(e.uid!)} fresh={freshThreads?.[e.uid] ?? 0} />
                 )}
-                {e.uid && onReact && (
+                {e.uid && onReact && !e.deleted && editing !== e.uid && (
                   <MessageActions
                     onReact={(emoji) => onReact(e.uid!, emoji, (reactions?.[e.uid!]?.[emoji] ?? []).includes(team?.me ?? ''))}
                     {...(onOpenThread
                       ? { onQuote: () => onOpenThread(e.uid!), replyLabel: 'Reply in thread' }
                       : { onQuote: () => onQuote?.(e.text ?? '') })}
                     onHandToAgent={onHandToAgent}
+                    more={messageMore({
+                      mine: !teammateOf(e) && e.who === 'you',
+                      text: e.text ?? '',
+                      onEdit: onEdit ? () => setEditing(e.uid!) : undefined,
+                      onDelete: onEdit ? () => setDeleting(e.uid!) : undefined,
+                      onMarkUnread: onMarkUnread ? () => onMarkUnread(e.at) : undefined,
+                      onCopied,
+                    })}
                   />
+                )}
+                {deleting === e.uid && onEdit && (
+                  <DeleteMessage onClose={() => setDeleting(null)} onDelete={() => onEdit(e.uid!, { gone: true })} />
                 )}
               </div>
               {/* AN AGENT IT MENTIONED ANSWERS UNDER IT (w-7b9cb8636a). */}
@@ -444,7 +496,7 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
                 {e.who === 'you'
                   ? <div className="msg-body typed">{typedParts(e.text ?? '').map((p, k, all) => ('embed' in p
                     ? <div key={k} className="typed-embed">{md(p.embed)}</div>
-                    : all.length === 1 ? p.text : <span key={k}>{p.text}</span>))}</div>
+                    : all.length === 1 ? asTyped(p.text) : <span key={k}>{asTyped(p.text)}</span>))}</div>
                   : <div className="msg-body">{md(e.text ?? '')}</div>}
               </div>
             )}

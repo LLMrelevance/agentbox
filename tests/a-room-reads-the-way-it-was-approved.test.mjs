@@ -1,36 +1,13 @@
 // A ROOM READS THE WAY IT WAS APPROVED (w-3d0fa23ffb, 2026-10-20).
 //
-// Round 23 was approved: pinned rooms as tabs after Done, the first room pinned
-// for you, an unpinned room sitting at the end of the tabs while you are in it,
-// "N agents working" under each card, @names that land on the right person, and
-// the notice "You are invisible for N more minutes. Nobody in your rooms can
-// see you." These are the rules behind those pictures, measured on plain data.
+// Round 23 was approved: "N agents working" under each card, @names that land
+// on the right person, and the notice "You are invisible for N more minutes.
+// Nobody in your rooms can see you." These are the rules behind those
+// pictures, measured on plain data. Its room tabs after Done were replaced by
+// the Rooms page (tests/rooms-live-on-a-page-of-their-own, w-a0429b3d5e).
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
-import { roomTabs, tabWalk, weekRank, agentsWords, mentionsIn, markMentions, invisibleNotice, minutesToMidnight, initialsOf, UNTIL_TURNED_OFF_MS } from '../renderer/src/team/rooms/room-rules.ts';
-
-const room = (id, pinned) => ({ id, name: id, pinned });
-
-describe('room tabs', () => {
-  const rooms = [room('Northwind', true), room('Design', true), room('General', false)];
-  it('pinned rooms, in order', () => {
-    expect(roomTabs(rooms, null).map((t) => t.room.id)).toEqual(['Northwind', 'Design']);
-  });
-  it('an unpinned room sits at the end while it is open, and only then', () => {
-    expect(roomTabs(rooms, 'General').map((t) => [t.room.id, t.visiting])).toEqual([['Northwind', false], ['Design', false], ['General', true]]);
-    expect(roomTabs(rooms, 'Design').map((t) => t.room.id)).toEqual(['Northwind', 'Design']);
-  });
-  it('a room I am not in is never a tab', () => {
-    expect(roomTabs(rooms, 'Elsewhere').map((t) => t.room.id)).toEqual(['Northwind', 'Design']);
-  });
-  it('Tab walks the state tabs and then the rooms, and wraps', () => {
-    const tabs = roomTabs(rooms, null);
-    const states = ['inbox', 'progress', 'snoozed', 'done'];
-    expect(tabWalk(states, tabs, 'done')).toBe('room:Northwind');
-    expect(tabWalk(states, tabs, 'room:Design')).toBe('inbox');
-    expect(tabWalk(states, tabs, 'inbox', true)).toBe('room:Design');
-  });
-});
+import { weekRank, agentsWords, mentionsIn, markMentions, invisibleNotice, minutesToMidnight, initialsOf, UNTIL_TURNED_OFF_MS } from '../renderer/src/team/rooms/room-rules.ts';
 
 describe('hours, in words', () => {
   it('whole hours from ten up, one decimal below, and never a 0 for some', async () => {
@@ -172,11 +149,11 @@ describe('the rest of round 23, checked screen by screen on 2026-10-21', () => {
     expect(withMe([maya, me], { ...me, name: 'other' })).toEqual([maya, me]);
     expect(withMe([maya], null)).toEqual([maya]);
   });
-  it('while I am invisible my own room tab counts one fewer, and never below none', async () => {
-    const { tabCount } = await import('../renderer/src/team/rooms/room-rules.ts');
-    expect(tabCount({ members: 15 }, false)).toBe(15);
-    expect(tabCount({ members: 15 }, true)).toBe(14);
-    expect(tabCount({ members: 0 }, true)).toBe(0);
+  it('while I am invisible a room counts one fewer person, and never below none', async () => {
+    const { peopleCount } = await import('../renderer/src/team/rooms/room-rules.ts');
+    expect(peopleCount({ members: 15 }, false)).toBe(15);
+    expect(peopleCount({ members: 15 }, true)).toBe(14);
+    expect(peopleCount({ members: 0 }, true)).toBe(0);
   });
   // A room's chat full page, the messages page, a person's page and Find
   // rooms are pages of their own: their title is in the top bar, and the
@@ -207,14 +184,14 @@ describe('getting to a room, and keys on it', () => {
   const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
   const rooms = fs.readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
   it('opening a room leaves whatever covered it: a thread, a direct chat, the Team page, search', () => {
-    expect(rooms).toMatch(/const openRoom = \(id: string, \{ asFull = false \} = \{\}\) => \{ onLeavePage\(\);/);
+    expect(rooms).toMatch(/const openRoom = \(id: string, \{ asFull = false(, inTab: tab = false)? \} = \{\}\) => \{ onLeavePage\(\);/);
     expect(app).toMatch(/onLeavePage: \(\) => \{ setFocused\(null\); setFocusedRepeat\(null\); setTeamOpen\(false\); closeSearch\(\); \}/);
     expect(rooms).not.toMatch(/onLeaveDirect/);
   });
   // Below the guard that swallows a key opening a text field, so the N is
   // not typed into the box it opens (tests/shortcuts-swallow-their-key).
   it('N starts a new thread from a room, as it does everywhere else', () => {
-    expect(app).toMatch(/if \(roomShown && e\.key !== 'Tab' && e\.key !== 'n' && e\.key !== 'N'\) \{/);
+    expect(app).toMatch(/if \(roomShown && e\.key !== 'Tab' && e\.key !== 'n' && e\.key !== 'N'( && e\.key !== '\\\\')?\) \{/);
     const branch = app.indexOf("if ((e.key === 'n' || e.key === 'N') && !roomsUi.dialogOpen) setModal('compose');");
     expect(branch).toBeGreaterThan(app.indexOf('if (opensATextField(e.key)) e.preventDefault();'));
   });

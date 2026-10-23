@@ -119,6 +119,18 @@ export function codexModels({ home = codexHome(), read = readJson } = {}) {
 }
 
 /**
+ * The models any of these logins may be offered, once each. A task goes to a
+ * login whose plan has its model (`_pickProfile`), so a model one login has is
+ * one this Mac can run. The longest list leads because it is Codex's order for
+ * the widest plan; a model only a smaller list has follows it.
+ */
+export function codexModelsAcross(homes, { read = readJson } = {}) {
+  const lists = homes.map((home) => codexModels({ home, read })).sort((a, b) => b.length - a.length);
+  const seen = new Set();
+  return lists.flat().filter((m) => !seen.has(m.id) && seen.add(m.id));
+}
+
+/**
  * Every slug in the cache, hidden ones included: what Codex would accept if it
  * were handed the word, which is a different question from what she may pick.
  */

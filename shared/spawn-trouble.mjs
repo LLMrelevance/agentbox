@@ -62,6 +62,7 @@
 // would be this app telling her to do the one thing it refuses to do.
 import { NAME, Name } from '../shared/product-name.mjs';
 import { harnessDefinition } from './harness-definitions.mjs';
+import { instantIn, wallIn } from './usage.mjs';
 
 // A CLAUDE CODE TOO OLD FOR THE LINE AGENTBOX STARTS IT WITH. Its argument
 // parser refuses the line before a single request, in one of two shapes,
@@ -349,6 +350,39 @@ export function limitResetsAt(raw, from = Date.now()) {
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
+const CLAUDE_DAY = /resets\s+([a-z]{3})[a-z]*\.?\s+(\d{1,2})\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:\(\s*([^)]+?)\s*\))?/i;
+const UTC_ZONE = /^(?:UTC|GMT)\s*(?:([+-])(\d{1,2})(?::?(\d{2}))?)?$/i;
+
+// "UTC", "GMT+2" or a place such as "America/Los_Angeles". A zone this
+// computer cannot name, or none, is its own clock.
+function zoneOf(word) {
+  const utc = UTC_ZONE.exec(word ?? '');
+  if (utc) return { offset: (utc[1] === '-' ? -1 : 1) * (Number(utc[2] ?? 0) * 60 + Number(utc[3] ?? 0)), name: null };
+  return { offset: null, name: word && wallIn(Date.now(), word) ? word : null };
+}
+
+// The moment a dated Claude Code reset names, or null. The line has no year,
+// so it is the year in that zone at `from`, or the next one when that puts the
+// reset more than a day behind (December reading a January date).
+function claudeResetDay(raw, from) {
+  const m = CLAUDE_DAY.exec(String(raw ?? ''));
+  if (!m) return null;
+  const month = MONTHS.indexOf(m[1].toLowerCase());
+  if (month < 0) return null;
+  const day = Number(m[2]);
+  const h = (Number(m[3]) % 12) + (m[5].toLowerCase() === 'pm' ? 12 : 0);
+  const min = Number(m[4] ?? 0);
+  const zone = zoneOf(m[6]);
+  const at = (year) => zone.offset != null
+    ? Date.UTC(year, month, day, h, min) - zone.offset * 60_000
+    : instantIn(year, month, day, h, min, zone.name);
+  const year = zone.offset != null
+    ? new Date(from + zone.offset * 60_000).getUTCFullYear()
+    : (wallIn(from, zone.name)?.year ?? new Date(from).getFullYear());
+  const moment = at(year);
+  return moment < from - 86_400_000 ? at(year + 1) : moment;
+}
+
 // THE SAME HOUR AS A MOMENT, so the fleet can wait exactly until it
 // (a limit that reset at, say, 6:50pm could hold every agent until 7:03pm,
 // because the app waited a fixed thirty minutes instead of reading this line).
@@ -366,6 +400,10 @@ export function limitResetMoment(raw, from = Date.now()) {
       return new Date(Number(dated[3]), month, Number(dated[2]), h, Number(dated[5]), 0, 0).getTime();
     }
   }
+  // Claude Code names the day when the reset is not today: "resets Oct 22 at
+  // 4pm (America/Los_Angeles)".
+  const datedReset = claudeResetDay(raw, from);
+  if (datedReset != null) return datedReset;
   const clock = resetClock(raw);
   if (!clock) return null;
   if (clock.offset == null) {
@@ -724,9 +762,21 @@ function fixBeforeReplying({ cause, engineWord, resetsAt, model, planEnded }) {
 // `gaveUp` is the app having stopped carrying a reply (`settleDeliveryAndSay`).
 // Nothing restarts the thread until somebody replies or resumes it, so the
 // sentence asks for that and promises nothing of its own.
-export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, worked = false, model = null, planEnded = null, gaveUp = false } = {}) {
+// `account` is the login this run was spending, already in words
+// (shared/account-names.mjs). It is null on a Mac with one login, where naming
+// it tells nobody anything, and then every sentence here is the one it has
+// always been. There is no `instead`: nothing takes the task to another login
+// (w-dac993a554), so a limit is named and waited out.
+export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, worked = false, model = null, planEnded = null, gaveUp = false, account = null } = {}) {
   if (worked && !WORKED_OPENERS[cause]) cause = 'unknown';
-  const opener = `${engineWord} ${(worked ? WORKED_OPENERS : DEAD_RUN_OPENERS)[cause] ?? DEAD_RUN_OPENERS.unknown}`;
+  // A LIMIT IS A FACT ABOUT ONE LOGIN, so that is the one cause whose opener
+  // takes the name. The others are about the tool or the task.
+  const limitOpener = cause === 'at-limit' && account
+    ? (worked
+      ? `hit its usage limit on ${account} partway through, so this task is not finished.`
+      : `is at its usage limit on ${account}, so nothing has been done on this task.`)
+    : null;
+  const opener = `${engineWord} ${limitOpener ?? (worked ? WORKED_OPENERS : DEAD_RUN_OPENERS)[cause] ?? DEAD_RUN_OPENERS.unknown}`;
 
   const again = runs > 1 ? ` This has happened ${runs} times on this task.` : '';
 
@@ -811,6 +861,10 @@ const UNDELIVERED = 'Your reply did not reach this task.';
 // thread carrying a reply, `settleDeliveryAndSay` writes one only once it has
 // stopped carrying the reply, so that thread waits on a person
 // (`gaveUpOnTheAnswer`, renderer/src/list-rules.ts).
+const DEAD_RUN_HALVES = {
+  'at-limit': ['is at its usage limit', 'so nothing has been done on this task.'],
+};
+
 export function saysARunGotNowhere(text) {
   const s = String(text ?? '');
   if (!s.trim()) return false;
@@ -833,11 +887,19 @@ export function saysARunGotNowhere(text) {
 // So a result is asked whose it is. Null means somebody wrote a real answer
 // there and the row is not stranded; a cause means the last word on that row is
 // still the app saying nothing ran.
+//
+// A NAMED LOGIN SITS INSIDE ONE OPENER ("is at its usage limit on
+// alex@acme.com, so nothing has been done"), so that one is read back by its
+// two halves. Without this a row stopped counting as one nothing had run on
+// the moment it said which account was spent.
 export function deadRunCause(text) {
   const s = String(text ?? '');
   if (!s.trim()) return null;
   for (const [cause, opener] of Object.entries(DEAD_RUN_OPENERS)) {
     if (s.includes(opener)) return cause;
+  }
+  for (const [cause, halves] of Object.entries(DEAD_RUN_HALVES)) {
+    if (halves.every((half) => s.includes(half))) return cause;
   }
   return null;
 }

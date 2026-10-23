@@ -528,6 +528,13 @@ export class Store {
     );
   }
 
+  // NEW WORDS FOR A MESSAGE YOU SENT, OR THE MESSAGE TAKEN BACK. The fold only
+  // believes it from the message's own author (shared/message-edits.mjs).
+  editMessage(slug, id, { on, text, gone = false }) {
+    const edit = gone ? { on, gone: true } : { on, text };
+    return this.modules.workItemsDisk.updateWorkItem(this.productDir(slug), id, { edit }, { source: 'founder' });
+  }
+
   // AN EDIT TO A THREAD FROM ITS SUMMARY (approved 2026-10-01): the summary's
   // three lines and its links, who sees it, and its priority. Written as the
   // person's own words; on the summary the later write wins either way
