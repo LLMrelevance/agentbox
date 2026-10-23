@@ -19,6 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { codexChoiceToOpen, saveConfig } from './config.mjs';
 import { forgetClaudeBin, INSTALL_URL } from './claude-bin.mjs';
+import { lookAgain } from './engine-bin.mjs';
 import { AGENT_MODES } from '../shared/agents.mjs';
 import { analyticsKey, diagnosticsOn } from './analytics.mjs';
 import { CLAUDE_PERMISSION_MODES } from '../shared/work-items.mjs';
@@ -299,6 +300,20 @@ export function claudeState(config, { search = true } = {}) {
 // `forgetClaudeBin` exists for.
 export function recheckClaude(config) {
   forgetClaudeBin();
+  return takeClaude(config);
+}
+
+/**
+ * Check again without holding the window: the shell is asked in the background
+ * and this settles once its answer is on the config. For every caller that can
+ * wait (the buttons, setup, the update check).
+ */
+export async function lookAgainFor(engine, config) {
+  await lookAgain(engine);
+  return engine === 'claude' ? takeClaude(config) : takeCodex(config);
+}
+
+function takeClaude(config) {
   const state = claudeState(config);
   // The config carries the path everything else spawns from, so a search that
   // has just found Claude Code updates it rather than leaving the rest of the
@@ -307,7 +322,10 @@ export function recheckClaude(config) {
   // And whether it is here at all, which is what decides that a Mac with only
   // Codex runs on Codex (`Supervisor#_enginesFound`). Only a certain answer
   // moves it, so an unsure search never takes Claude Code away from anybody.
-  if (state.claudeFound || state.claudeCertain) config.claudeFound = state.claudeFound;
+  if (state.claudeFound || state.claudeCertain) {
+    config.claudeFound = state.claudeFound;
+    config.claudeCertain = state.claudeCertain;
+  }
   return state;
 }
 
@@ -373,8 +391,13 @@ export function codexFoundState(config, where = {}, how = {}) {
  *  without a restart. */
 export function recheckCodex(config) {
   forgetCodexBin();
+  return takeCodex(config);
+}
+
+function takeCodex(config) {
   const state = codexState(config);
   config.codexBin = state.found ? state.bin : null;
+  config.codexCertain = state.certain;
   // Found while the app is open, by this button or the plan setup: the choice
   // opens now, as it would have at the next launch (main/config.mjs).
   const opened = codexChoiceToOpen(config, state.found);

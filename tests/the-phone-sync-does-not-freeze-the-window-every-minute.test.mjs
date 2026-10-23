@@ -23,6 +23,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const shells = [];
+const later = [];
+const loginShell = (args) => Array.isArray(args) && /^-l/.test(String(args[0]));
 vi.mock('node:child_process', async (importActual) => {
   const actual = await importActual();
   return {
@@ -30,18 +32,25 @@ vi.mock('node:child_process', async (importActual) => {
     // A login shell is answered here and never started: it says it ran and
     // found nothing, so a search that asks goes through every probe.
     execFileSync: (file, args, options) => {
-      if (Array.isArray(args) && /^-l/.test(String(args[0]))) {
+      if (loginShell(args)) {
         shells.push({ file, args });
         return 'agentbox-shell-reached\n';
       }
       return actual.execFileSync(file, args, options);
     },
+    execFile: (file, args, options, callback) => {
+      if (!loginShell(args)) return actual.execFile(file, args, options, callback);
+      later.push({ file, args });
+      setImmediate(() => callback(null, 'agentbox-shell-reached\n', ''));
+      return { stdin: { end() {} } };
+    },
   };
 });
 
-const { readSettings } = await import('../main/settings.mjs');
+const { readSettings, lookAgainFor } = await import('../main/settings.mjs');
 const { forgetClaudeBin } = await import('../main/claude-bin.mjs');
 const { forgetCodexBin } = await import('../main/codex-bin.mjs');
+const { resolveEngine } = await import('../main/engine-bin.mjs');
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
@@ -77,6 +86,7 @@ const settingsOf = (config, how) => readSettings({ config, supervisor, store: { 
 
 beforeEach(() => {
   shells.length = 0;
+  later.length = 0;
   // An answer held from an earlier read would hide whether this one asks.
   forgetClaudeBin();
   forgetCodexBin();
@@ -119,10 +129,54 @@ describe("the phone's read of the settings", () => {
   });
 });
 
+// What launch leaves held: an answer for each engine, thirty seconds and more ago.
+const launched = () => {
+  resolveEngine('claude', null, { now: Date.now() - 60_000 });
+  resolveEngine('codex', null, { now: Date.now() - 60_000 });
+  shells.length = 0;
+};
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
 describe('the Settings screen a person opens', () => {
-  it('still looks again, so an engine installed since launch turns found', () => {
+  it('waits for the shell only when nothing is held, as at launch', () => {
     settingsOf(both());
     expect(shells.length).toBeGreaterThan(0);
+  });
+
+  it('once launch has an answer, looks again in the background and never waits', async () => {
+    launched();
+    settingsOf(both());
+    expect(shells).toEqual([]);
+    expect(later.length).toBeGreaterThan(0);
+    await settle();
+  });
+});
+
+describe('Check again, setup and the update check', () => {
+  it('look again without waiting on the shell, and move the config', async () => {
+    launched();
+    const config = both();
+    const claude = await lookAgainFor('claude', config);
+    const codex = await lookAgainFor('codex', config);
+    expect(shells).toEqual([]);
+    expect(shells).toEqual([]);
+    expect(later.length).toBeGreaterThan(0);
+    // Whatever this machine has on disk, the config now says what was found.
+    expect(config.codexBin).toBe(codex.found ? codex.bin : null);
+    expect(config.codexCertain).toBe(codex.certain);
+    if (claude.claudeFound) expect(config.claudeBin).toBe(claude.claudeBin);
+  });
+
+  it('are all wired to it, and nothing in the window\'s handlers forces a waiting look', () => {
+    const ipc = read('main/ipc.mjs');
+    expect(ipc).not.toMatch(/recheckClaude\(|recheckCodex\(/);
+    expect(ipc).toMatch(/installation:async engine=>\{await lookAgainFor\(engine,config\)/);
+    expect(ipc).toMatch(/refresh:async engine=>\{await lookAgainFor\(engine,config\)/);
+    expect(ipc).toMatch(/'zero:claude-recheck', async \(\) => \{[\s\S]{0,80}await lookAgainFor\('claude', config\)/);
+    expect(ipc).toMatch(/'zero:codex-recheck', async \(\) => \{[\s\S]{0,80}await lookAgainFor\('codex', config\)/);
+    expect(ipc).toMatch(/claude: async \(\) => \{ const s = await lookAgainFor\('claude', config\)/);
+    const setup = read('main/engine-setup.mjs');
+    expect(setup.match(/await find\(/g)).toHaveLength(3);
   });
 });
 
