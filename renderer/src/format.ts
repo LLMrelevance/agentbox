@@ -180,7 +180,7 @@ export function offerIsLive(item: HasFields & { answer?: string }): boolean {
 // starts a run, so this is caught and done the way E does it instead. The words
 // alone or with a reason after them: "Ship it, then close the task" and "Close
 // this task, then file the follow-up" are still replies.
-const CLOSES = /^close (?:this|the) (?:task|thread)(?:$|\s*[,:;—–-](?!\s*(?:then|and|also)\b)|\s+(?:since|because|as|now that)\b)/i;
+const CLOSES = /^close (?:this|the) (?:task|thread)(?:$|\s*[,:;\p{Pd}](?!\s*(?:then|and|also)\b)|\s+(?:since|because|as|now that)\b)/iu;
 export function closesTheTask(option: string): boolean {
   return CLOSES.test(bareOption(option));
 }
