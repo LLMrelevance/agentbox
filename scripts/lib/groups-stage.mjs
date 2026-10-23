@@ -84,6 +84,7 @@ export function world(now = Date.now(), faces = {}) {
       msg('m4', 'r-team', 'p-me', 'I am folding rooms and messages into one thing. Pictures in a bit.', 40 * min),
       msg('m5', 'r-team', 'p-priya', 'Back at 3. Can someone look at the lock-screen reply PR before then?', 25 * min),
       msg('m6', 'r-team', 'p-theo', 'On it, @Priya', 12 * min, { mentions: ['p-priya'] }),
+      msg('m7', 'r-team', 'p-maya', '@Sam can you approve the Stripe keys before 5? The webhook is waiting on them.', 6 * min, { mentions: ['p-me'] }),
     ],
     'r-general': [
       msg('g1', 'r-general', 'p-kai', 'Anyone running more than 10 agents at once on one Mac? Mine starts swapping around 8.', 5 * hr),
@@ -158,7 +159,8 @@ export function world(now = Date.now(), faces = {}) {
     team: {
       configured: true, started: true, since: now - 40 * 24 * hr, signedIn: true, signingIn: null,
       me: people[0], team: { id: 't-1', name: 'Northwind' }, invites: [], people, cards, lastSyncAt: now, error: null, sent: [],
-      rooms: { on: true, ready: true, rooms, messages, me: profile, ranks: { 'p-me': 812, 'p-maya': 233 }, invites: [], mentions: [], error: null },
+      rooms: { on: true, ready: true, rooms, messages, me: profile, ranks: { 'p-me': 812, 'p-maya': 233 }, invites: [], error: null,
+        mentions: [{ id: 'mn1', messageId: 'm7', roomId: 'r-team', roomName: 'Northwind', by: 'p-maya', byName: 'Maya Chen', body: '@Sam can you approve the Stripe keys before 5? The webhook is waiting on them.', at: now - 6 * min }] },
     },
   };
 }
@@ -191,8 +193,12 @@ export async function openStage({ dist, width = 1512, height = 945, theme = 'dar
     const known = {
       snapshot: async () => window.__SNAP__,
       rooms: async () => ({ ok: true, value: null, rooms: window.__SNAP__.team.rooms }),
+      // A thread's own conversation, out of the app's fixtures; nothing else a thread asks for answers.
+      itemHistory: async (p) => ({ ok: true, lines: window.__SNAP__.__history?.[p.id] ?? [] }),
+      sessionTrace: async (p) => ({ sessions: window.__SNAP__.__traces?.[p.id] ?? [] }),
+      compactionStatus: async () => null,
+      remoteControl: async () => null,
       repeats: async () => [],
-      sessionTrace: async () => ({ sessions: [] }),
       dashboard: async () => ({ ok: false }),
       engineSetup: async () => ({ ok: true, phase: 'ready', found: true, signedIn: true }),
     };

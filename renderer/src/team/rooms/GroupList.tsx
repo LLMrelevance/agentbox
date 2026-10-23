@@ -151,6 +151,12 @@ export function GroupOptions({ named, members, muted, canLeave, board, onPick, o
     <div className="rule" />
     {muted ? row('unmute', I.bell(), 'Unmute') : row('mute', I.bell(), 'Mute')}
     {canLeave && row('leave', I.out(), named ? 'Leave group' : 'Leave chat')}
+    {notifyTrial() && <>
+      <div className="rule" />
+      <div className="gr-optlabel">Send to my Inbox</div>
+      {[['all', 'Every message'], ['mentions', 'Only when I’m mentioned'], ['summary', 'What’s new, twice a day'], ['none', 'Nothing']].map(([k, label]) =>
+        <button type="button" key={k} className={`row gr-optpick${k === (named ? 'mentions' : 'all') ? ' on' : ''}`}><span>{label}</span>{k === (named ? 'mentions' : 'all') && <span className="k">{I.check()}</span>}</button>)}
+    </>}
     <div className="rule" />
     {row('new', I.plus(), 'New group')}
     {row('find', I.search(), 'Find groups to join')}
@@ -158,3 +164,6 @@ export function GroupOptions({ named, members, muted, canLeave, board, onPick, o
 }
 
 const BOARD = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v11h-4z" /></svg>;
+
+/** Trial (round 14): what reaches the Inbox from a group, in its options. */
+const notifyTrial = () => { try { return localStorage.getItem('groups.notify') === '1'; } catch { return false; } };

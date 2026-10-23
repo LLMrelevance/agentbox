@@ -20,7 +20,7 @@ import { joinLink, tokenFromLink } from '../../../../shared/room-links.mjs';
 import { RoomsNotReady, RoomsSettings } from './RoomsSettings';
 import { GroupPage, PeoplePanel } from './GroupPage';
 import { GroupBar, GroupMenuButton, groupChoices, type GroupMenuAction } from './GroupList';
-import { DigestCard, FeedList, GroupTitle, GroupsDoor, GroupsInSidebar, SideTabs, Ticker, TodayBelow, finishedLine, finishedToday, oneLine, switchTop, trial, type Done } from './GroupTrials';
+import { DigestCard, DigestRows, FeedList, TrialCrumb, GroupTitle, GroupsDoor, GroupsInSidebar, SideTabs, Ticker, TodayBelow, finishedLine, finishedToday, oneLine, switchTop, trial, type Done } from './GroupTrials';
 
 type Dialog =
   | { kind: 'invite'; roomId: string }
@@ -244,6 +244,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   let heading: { title: ReactNode; right?: ReactNode } | null = null;
   let page: ReactNode = null;
   let trialChips: ReactNode = null;
+  let trialCrumb: ReactNode = null;
   const onChat = !!open && !!rooms && pane === 'wall' && !boardOn && !finding;
   // Everyone's threads: the board of the people here whose threads reach me. Never for a chat with people.
   const onRoom = !!open && !!rooms && open.kind !== 'group' && pane === 'wall' && boardOn && !finding;
@@ -295,6 +296,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     if (t.top === 'sidebar') heading = { title: <GroupTitle g={groupList.find((g) => g.key === `room:${open.id}`)} /> };
   } else if (open && rooms) {
     heading = { title: backTitle(nameOf(open)) };
+    const person = pane.startsWith('person:') ? open.wall.find((c) => c.id === pane.slice(7)) : null;
+    trialCrumb = <TrialCrumb parts={[nameOf(open), person ? cardName(person) : pane === 'ranks' ? 'Hours this week' : 'Everyone’s threads']} onBack={close} />;
     page = <RoomPage room={open} rooms={list} cards={teamCards} ranks={rooms.ranks ?? {}} me={rooms.me} now={now}
       pane={pane} link={links[open.id] ?? null} onPane={setPane} chat={null} board={board} renderBoard={renderPersonBoard}
       picked={picked} onPick={(ids) => setPicked(new Set(ids))} onMessage={(ids) => void message(ids, open)}
@@ -368,7 +371,9 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     viewButton,
     /** Trial (round 11): where the Inbox's tabs and the groups go. */
     trialTop: live ? t.top : null,
-    trialChips,
+    trialChips, trialCrumb, trialGroups: groupList, trialPick: pickGroup,
+    trialDigest: live ? <DigestRows room={all.find((r) => r.id === 'r-general' || (r.listed && !r.teamId))} messages={rooms?.messages[all.find((r) => r.id === 'r-general' || (r.listed && !r.teamId))?.id ?? ''] ?? []} now={now}
+      onOpen={() => { const g = all.find((r) => r.id === 'r-general' || (r.listed && !r.teamId)); if (g) openRoom(g.id); }} /> : null,
     trialNav: !live ? null : t.top === 'doors-chips' || t.top === 'doors-title' || t.top === 'titles' || t.top === 'stacked'
       ? <GroupsDoor lit={(!!open || empty) && !finding} count={unreadChats} onOpen={openTab} />
       : t.top === 'sidebar' ? <GroupsInSidebar groups={groupList} current={open && !finding ? `room:${open.id}` : null} onPick={pickGroup} /> : null,

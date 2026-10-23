@@ -9,6 +9,8 @@ import { RoomFace } from './RoomFace';
 import { cardName, clockOf } from './room-rules';
 import { GroupMark, type GroupChoice } from './GroupList';
 import { I } from './icons';
+import { RowCells } from '../../threads/Pages';
+import type { StatusCell } from '../../status-word';
 
 export type FeedLook = 'below' | 'tabs' | 'person' | 'digest' | 'ticker';
 export type NsLook = 'ns-toggle' | 'ns-menu' | 'ns-filter' | 'ns-quiet' | 'ns-rows';
@@ -28,6 +30,7 @@ export const trial = () => ({
   feed: (['below', 'tabs', 'person', 'digest', 'ticker'] as string[]).includes(read('groups.feed') ?? '') ? read('groups.feed') as FeedLook : null,
   top: TOPS.includes(read('groups.top') ?? '') ? read('groups.top') as TopLook : null,
   inset: read('groups.inset') === '1',
+  threadNav: read('groups.threadNav') === '1',
 });
 
 export type Done = { id: string; by: string; title: string; at: number };
@@ -158,7 +161,9 @@ export function TopMe({ me, onSettings, onFeedback }: { me: Person; onSettings: 
   }, [open]);
   return <span ref={ref} className="gt-acct">
     <button type="button" className={`gt-me${open ? ' open' : ''}`} aria-label="Your account" onClick={() => setOpen(!open)}><RoomFace name={me.name || me.email} url={me.avatarUrl} size={28} /></button>
-    {open && <div className="rm-pop gr-optmenu" role="menu">
+    {open && <div className="rm-pop gr-optmenu gt-acctmenu" role="menu">
+      <div className="gt-who"><RoomFace name={me.name || me.email} url={me.avatarUrl} size={32} /><span><b>{me.name || me.email}</b><small>{me.email}</small></span></div>
+      <div className="rule" />
       <button type="button" className="row" onClick={() => { setOpen(false); onSettings(); }}><span>Settings</span></button>
       <button type="button" className="row" onClick={() => { setOpen(false); onFeedback(); }}><span>Feedback</span></button>
     </div>}
@@ -168,20 +173,85 @@ export function TopMe({ me, onSettings, onFeedback }: { me: Person; onSettings: 
 const Chevron = () => <svg className="gt-chev" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>;
 
 /** Inbox and Groups, drawn by each one-line experiment in its own way. */
-export function TopNav({ top, on, inboxCount, groupsCount, onInbox, onGroups }: {
+export function TopNav({ top, on, inboxCount, groupsCount, onInbox, onGroups, groups = [], onPick }: {
   top: TopLook | null; on: 'inbox' | 'groups'; inboxCount: number; groupsCount: number; onInbox: () => void; onGroups: () => void;
+  /** For the page-name menu that also lists every group (`groups.menuRich`). */
+  groups?: GroupChoice[]; onPick?: (key: string) => void;
 }) {
   const n = (k: number) => (k > 0 ? <b>{k}</b> : null);
   if (top === 'ns-toggle') return <div className="gt-seg" role="tablist">
     <button type="button" className={on === 'inbox' ? 'on' : ''} onClick={onInbox}>Inbox{n(inboxCount)}</button>
     <button type="button" className={on === 'groups' ? 'on' : ''} onClick={onGroups}>Groups{n(groupsCount)}</button>
   </div>;
-  if (top === 'ns-menu') return <button type="button" className="gt-titlemenu" onClick={on === 'inbox' ? onGroups : onInbox}>
-    <span>{on === 'inbox' ? 'Inbox' : 'Groups'}</span><Chevron />
-  </button>;
+  if (top === 'ns-menu') return <TitleMenu on={on} inboxCount={inboxCount} groupsCount={groupsCount} onInbox={onInbox} onGroups={onGroups} groups={groups} onPick={onPick} />;
   if (top === 'ns-rows') return <nav className="gt-navrow">
     <button type="button" className={on === 'inbox' ? 'on' : ''} onClick={onInbox}>{I.inboxNav()}<span>Inbox</span>{n(inboxCount)}</button>
     <button type="button" className={on === 'groups' ? 'on' : ''} onClick={onGroups}>{I.groupNav()}<span>Groups</span>{n(groupsCount)}</button>
   </nav>;
   return <TopSwitch on={on} inboxCount={inboxCount} groupsCount={groupsCount} onInbox={onInbox} onGroups={onGroups} />;
+}
+
+/** The page's name as a menu: Inbox and Groups, and with `groups.menuRich` every group under them. */
+function TitleMenu({ on, inboxCount, groupsCount, onInbox, onGroups, groups, onPick }: {
+  on: 'inbox' | 'groups'; inboxCount: number; groupsCount: number; onInbox: () => void; onGroups: () => void;
+  groups: GroupChoice[]; onPick?: (key: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const down = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', down);
+    return () => document.removeEventListener('mousedown', down);
+  }, [open]);
+  const rich = read('groups.menuRich') === '1';
+  const row = (key: 'inbox' | 'groups', label: string, n: number, icon: JSX.Element, go: () => void) =>
+    <button type="button" className={`gt-mrow${on === key ? ' on' : ''}`} onClick={() => { setOpen(false); go(); }}>
+      {icon}<span>{label}</span>{n > 0 && <b>{n}</b>}{on === key && <span className="gt-mcheck">{I.check()}</span>}</button>;
+  const named = groups.filter((g) => !g.faces.length).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
+  const chats = groups.filter((g) => g.faces.length).slice(0, 5);
+  return <span ref={ref} className="gt-tmwrap">
+    <button type="button" className={`gt-titlemenu${open ? ' open' : ''}`} onClick={() => setOpen(!open)}>
+      <span>{on === 'inbox' ? 'Inbox' : 'Groups'}</span><Chevron />
+    </button>
+    {open && <div className={`rm-pop gt-tmenu${rich ? ' rich' : ''}`} role="menu">
+      {row('inbox', 'Inbox', inboxCount, I.inboxNav(), onInbox)}
+      {row('groups', 'Groups', groupsCount, I.groupNav(), onGroups)}
+      {rich && <>
+        <div className="rule" />
+        {[...named, ...chats].map((g) => <button type="button" key={g.key} className="gt-mrow sub" onClick={() => { setOpen(false); onPick?.(g.key); }}>
+          {g.faces.length ? <span className="gt-sic"><GroupMark g={g} size={18} /></span> : <span className="gt-sic gt-sh">{I.hash(13)}</span>}
+          <span className="rm-one">{g.name}</span>{g.unread && <span className="gt-sdot" />}</button>)}
+      </>}
+    </div>}
+  </span>;
+}
+
+/** A quiet group's new messages as one row in Needs you, a summary rather than every message (`groups.digestRow`). */
+export function DigestRows({ room, messages, now, onOpen }: { room: Room | undefined; messages: { by: string | null; at: number }[]; now: number; onOpen: () => void }) {
+  if (!room || read('groups.digestRow') !== '1') return null;
+  const since = new Date(now); since.setHours(12, 0, 0, 0);
+  const fresh = messages.filter((m) => m.at >= since.getTime());
+  if (!fresh.length) return null;
+  const by = new Map(room.wall.map((c) => [c.id, c]));
+  const who = [...new Set(fresh.map((m) => m.by).filter(Boolean) as string[])].map((id) => by.get(id)).filter(Boolean) as RoomCard[];
+  const names = who.map((c) => first(c));
+  const said = names.length > 3 ? `${names.slice(0, 2).join(', ')} and ${names.length - 2} others` : names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+  const cell: StatusCell = { word: 'Summary', mark: 'done', agent: false, live: false, cloud: false };
+  return <div className="row rm-mention gt-digestrow" role="button" tabIndex={0} onClick={onOpen}>
+    <span className="mark" aria-hidden="true" />
+    <RowCells status={cell}
+      title={<span className="th-msg"><span className="gt-fs">{who.slice(0, 3).map((c) => <RoomFace key={c.id} name={c.name} url={c.avatarUrl} size={20} />)}</span>
+        <b className="th-msg-who">{fresh.length} new messages</b><span className="th-msg-text">since noon, from {said}</span></span>}
+      where={<span className="rm-where">{I.hash()}{room.name}</span>}
+      priority={null} updatedAt={fresh.at(-1)!.at} now={now} />
+  </div>;
+}
+
+/** Where a page under a group sits, after the page-name menu: back, the group, then the page. */
+export function TrialCrumb({ parts, onBack }: { parts: string[]; onBack: () => void }) {
+  return <span className="gt-crumb">
+    <button type="button" className="gt-crumb-back" aria-label="Back" onClick={onBack}><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m14 6-6 6 6 6" /></svg></button>
+    {parts.map((p, i) => <span key={i} className={`gt-crumb-part${i === parts.length - 1 ? ' last' : ''}`}>{i > 0 && <span className="gt-crumb-sep">/</span>}{p}</span>)}
+  </span>;
 }
