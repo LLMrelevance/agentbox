@@ -157,12 +157,11 @@ async function openStripe(route, body, openExternal, env, home) {
   const out = await ask(at.gateway, route, { method: 'POST', key: at.key, body });
   if (out.status !== 200) return { ok: false, error: out.body.error || 'refused', message: out.body.message || `the cloud said ${out.status}` };
   if (typeof out.body.url !== 'string' || !STRIPE_PAGE.test(out.body.url)) return { ok: false, error: 'not-stripe', message: 'The cloud answered with a page that is not Stripe\'s.' };
-  // The sheet answers how it ended; the browser does not.
-  const finished = await openExternal(out.body.url);
-  return { ok: true, ...(out.body.where ? { where: out.body.where } : {}), ...(typeof finished === 'string' ? { finished } : {}) };
+  await openExternal(out.body.url);
+  return { ok: true, ...(out.body.where ? { where: out.body.where } : {}) };
 }
 
-/** Stripe's checkout for a plan; the billing page for someone already paying. */
+/** Stripe's checkout for a plan, in the browser; the billing page for someone already paying. */
 export const payForCloud = ({ plan, openExternal, env = process.env, home = os.homedir() }) => openStripe('/v1/checkout', { plan }, openExternal, env, home);
 
 /** Stripe's billing page: change plan, cancel, the card, invoices. */

@@ -50,9 +50,9 @@ describe('the plan cards', () => {
   it('each with its own button to choose it', () => {
     expect(text(html)).toMatch(/Choose Pro.*Choose Plus.*Choose Max/);
   });
-  it("say which is paying on Stripe while its sheet is open, and hold the others", () => {
+  it('say which is opening Stripe, and hold the others until it opens', () => {
     const open = renderToStaticMarkup(React.createElement(CloudPlanCards, { plan: { signedIn: true, plan: 'none' }, opening: 'plus', onChoose: () => {} }));
-    expect(text(open)).toContain('Paying on Stripe…');
+    expect(text(open)).toContain('Opening Stripe…');
     expect((open.match(/disabled=""/g) || []).length).toBe(3);
   });
   it('are the same cards Settings › Cloud draws', () => {

@@ -49,7 +49,7 @@ export const SETUP = {
   inviteNote: 'About a minute to set up',
   payHead: 'Choose a plan',
   payLede: 'Pay on Stripe, then add the Claude or Codex account it runs on.',
-  paidLede: 'Paid. One moment while your plan is set up.',
+  payWaitLede: 'Finish paying in your browser. This moves on by itself once you’ve paid.',
   menuBroken: 'A cloud account needs to sign in again.',
   menuFix: 'Fix',
   menuAccounts: (n: number) => (n === 0 ? 'None yet' : n === 1 ? '1 account' : `${n} accounts`),

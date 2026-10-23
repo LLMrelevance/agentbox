@@ -877,7 +877,14 @@ function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: (
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
   const read = async () => { const p = await api.cloudAccountPlan(); setPlan(p); return p; };
   useEffect(() => { void read(); }, [signedIn]);
-  // Back from Stripe's page: the plan changes once its webhook lands.
+  // Back from Stripe's page in the browser, the plan is read again.
+  useEffect(() => {
+    if (!signedIn) return undefined;
+    const back = () => { void read(); };
+    window.addEventListener('focus', back);
+    return () => window.removeEventListener('focus', back);
+  }, [signedIn]);
+  // The plan changes once Stripe's webhook lands.
   useEffect(() => {
     if (!waitingFor) return;
     const was = waitingFor;
@@ -885,18 +892,20 @@ function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: (
     const t = setInterval(async () => {
       n += 1;
       const p = await read();
-      if (p.plan !== was || n > 60) { setWaitingFor(null); clearInterval(t); }
+      if (p.plan !== was || n > 60) { setWaitingFor(null); setChosen(null); clearInterval(t); }
     }, 5000);
     return () => clearInterval(t);
   }, [waitingFor]);
   const [opening, setOpening] = useState<PaidPlan | null>(null);
+  const [chosen, setChosen] = useState<PaidPlan | null>(null);
   const choose = async (id: PaidPlan) => {
     if (!signedIn) { onSignIn(); return; }
     setSaid(null); setOpening(id);
     const out = await api.cloudAccountPay(id);
     setOpening(null);
     if (!out.ok) { setSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
-    if (out.finished !== 'cancelled' && out.finished !== 'closed') setWaitingFor(plan?.plan ?? 'none');
+    setChosen(id);
+    setWaitingFor(plan?.plan ?? 'none');
   };
   const billing = async () => {
     const out = await api.cloudAccountBilling();
@@ -906,9 +915,9 @@ function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: (
   const paying = !!plan?.plan && plan.plan !== 'none';
   return (
     <Page title="Cloud" lede="Every thread needs a slot to run in. Your computer has a few. The cloud adds more.">
-      <CloudPlanCards plan={plan} opening={opening} onChoose={(id) => void choose(id)} />
+      <CloudPlanCards plan={plan} opening={opening} waiting={waitingFor ? chosen : null} onChoose={(id) => void choose(id)} />
       {said && <p className="cloud-plans-say">{said}</p>}
-      {waitingFor && <p className="cloud-plans-say">Your plan shows here as soon as Stripe confirms it.</p>}
+      {waitingFor && <p className="cloud-plans-say">Finish paying in your browser. Your plan shows here once you’ve paid.</p>}
       <Group id="cloud-counts" label="How the cloud counts" bare>
         <ul className="cloud-counts">
           <li>Each slot runs one agent in the cloud, on top of the ones your computer runs.</li>

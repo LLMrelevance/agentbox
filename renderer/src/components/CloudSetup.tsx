@@ -93,29 +93,34 @@ export function CloudSetup({ cloud, onMode, onClose, signInAs = null, plan = nul
 }) {
   const accounts = cloud.accounts || [];
   // PAY FIRST (../cloud-setup-step.ts): no account is asked for until the
-  // plan is paid. Stripe opens in a sheet on this window and answers when it
-  // closes; the plan then lands with Stripe's notice to the cloud server.
+  // plan is paid. Checkout opens in the browser, and the plan lands with
+  // Stripe's notice to the cloud server, so it is read again every few
+  // seconds for ten minutes and whenever the window comes back to the front.
   const [planNow, setPlanNow] = useState<CloudPlan | null>(plan);
   useEffect(() => { if (plan) setPlanNow(plan); }, [plan?.plan]);
   const step = setupStep({ managed: cloud.managed, plan: planNow });
   const [opening, setOpening] = useState<PaidPlan | null>(null);
-  const [paid, setPaid] = useState(false);
+  const [waiting, setWaiting] = useState<PaidPlan | null>(null);
   const [payErr, setPayErr] = useState<string | null>(null);
   const pay = async (id: PaidPlan) => {
     setPayErr(null); setOpening(id);
     const out = await api.cloudAccountPay(id);
     setOpening(null);
     if (!out.ok) { setPayErr(out.message || 'Stripe could not be opened. Try again.'); return; }
-    if (out.finished !== 'cancelled' && out.finished !== 'closed') setPaid(true);
+    setWaiting(id);
   };
   useEffect(() => {
     if (!cloud.managed) return undefined;
     let on = true;
     const read = () => api.cloudAccountPlan().then((p) => { if (on) setPlanNow(p); }, () => {});
     void read();
-    const t = step !== 'accounts' && paid ? setInterval(read, 3000) : null;
-    return () => { on = false; if (t) clearInterval(t); };
-  }, [cloud.managed, step, paid]);
+    const until = Date.now() + 10 * 60_000;
+    const t: ReturnType<typeof setInterval> | null = step === 'pay' && waiting
+      ? setInterval(() => { if (Date.now() > until) clearInterval(t!); else void read(); }, 3000)
+      : null;
+    if (step === 'pay') window.addEventListener('focus', read);
+    return () => { on = false; if (t) clearInterval(t); window.removeEventListener('focus', read); };
+  }, [cloud.managed, step, waiting]);
   // Her part of a sign-in, on screen; the cloud's part goes on behind her
   // accounts, where how it ended is shown (cloud-setup.ts, activeSignIn).
   const shown = activeSignIn(cloud);
@@ -165,8 +170,8 @@ export function CloudSetup({ cloud, onMode, onClose, signInAs = null, plan = nul
   } else if (step === 'pay') {
     body = <div className="fr-stack fr-stack-folders">
       <h1 className="fr-page">{SETUP.payHead}</h1>
-      <p className="fr-lede">{paid ? <><Busy />{SETUP.paidLede}</> : SETUP.payLede}</p>
-      <div className="cs-plans"><CloudPlanCards plan={planNow} opening={opening} onChoose={(id) => void pay(id)} /></div>
+      <p className="fr-lede">{waiting ? <><Busy />{SETUP.payWaitLede}</> : SETUP.payLede}</p>
+      <div className="cs-plans"><CloudPlanCards plan={planNow} opening={opening} waiting={waiting} onChoose={(id) => void pay(id)} /></div>
       {payErr && <p className="cs-pay-err" role="alert">{payErr}</p>}
     </div>;
   } else if (where) {

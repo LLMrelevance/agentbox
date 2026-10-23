@@ -1326,13 +1326,12 @@ export const api = {
       : { signedIn: true, plan: 'none', unlimited: false, agents: 0, hoursPerMonth: 0, running: 0, usedSeconds: 0 };
     return (await (window.zero as any)?.cloudAccountPlan?.()) ?? { signedIn: false };
   },
-  /** Opens Stripe in a sheet and settles when it closes: `finished` says how. */
-  async cloudAccountPay(plan: 'pro' | 'plus' | 'max'): Promise<{ ok: boolean; where?: 'checkout' | 'billing'; finished?: 'paid' | 'cancelled' | 'closed'; error?: string; message?: string }> {
+  async cloudAccountPay(plan: 'pro' | 'plus' | 'max'): Promise<{ ok: boolean; where?: 'checkout' | 'billing'; error?: string; message?: string }> {
     const zero = window.zero as any;
     if (!zero?.cloudAccountPay) return { ok: false, message: RESTART_NOTE };
     return zero.cloudAccountPay({ plan });
   },
-  async cloudAccountBilling(): Promise<{ ok: boolean; finished?: 'paid' | 'cancelled' | 'closed'; error?: string; message?: string }> {
+  async cloudAccountBilling(): Promise<{ ok: boolean; error?: string; message?: string }> {
     const zero = window.zero as any;
     if (!zero?.cloudAccountBilling) return { ok: false, message: RESTART_NOTE };
     return zero.cloudAccountBilling();

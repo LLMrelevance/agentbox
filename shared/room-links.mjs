@@ -7,6 +7,9 @@ export const JOIN_SITE = `https://${nameSlug}.ac/join/`;
 
 export const joinLink = (token) => `${JOIN_SITE}${token}`;
 
+/** Any link on the app's own scheme: a room invite, or Stripe's way back. */
+export const ourLink = (url) => typeof url === 'string' && url.startsWith(`${JOIN_SCHEME}://`);
+
 const TOKEN = /^[A-Za-z0-9_-]{16,64}$/;
 
 /** The token in a pasted link or a deep link, or the token itself; null for anything else. */
