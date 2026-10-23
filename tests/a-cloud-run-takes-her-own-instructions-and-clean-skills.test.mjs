@@ -7,9 +7,14 @@
 // skill list held two entries named `._qa-tester` and `._sketch`, the
 // AppleDouble files a Mac's tar adds beside any file with extended attributes.
 //
-// Now her instructions go up and are laid in the agent's own home in the
-// sandbox, where Claude Code reads them, and every archive is made with the
-// extras switched off.
+// Now her instructions go up, and every archive is made with the extras
+// switched off.
+//
+// Laying them in the agent's home folder was not enough (2026-10-23,
+// w-cd4f783bc8): a real cloud run again reported her CLAUDE.md as gone, with
+// the file sitting in the home folder, because the sandbox sets
+// CLAUDE_CONFIG_DIR and Claude Code reads its user CLAUDE.md from there. So
+// they are laid in that folder.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -97,7 +102,7 @@ async function run(homeDir) {
 }
 
 describe('her own instructions to Claude', () => {
-  it('reach the agent in the cloud, in its own home', async () => {
+  it('reach the agent in the cloud, in the folder Claude Code reads them from', async () => {
     const home = path.join(tmp, 'home');
     fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
     fs.writeFileSync(path.join(home, '.claude', 'CLAUDE.md'), '# Response style\nKeep it brief.\n');
