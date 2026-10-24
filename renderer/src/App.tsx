@@ -5170,6 +5170,19 @@ export default function App() {
         window.dispatchEvent(new Event('task-terminal-toggle'));
         return;
       }
+      // A walk screen holds its own focus, the way a dialog does. It is fixed
+      // over an app that is still in the document, so the browser walked Tab
+      // into the sidebar behind it and the focus ring was drawn out of sight.
+      if (e.key === 'Tab' && walkScreenRef.current) {
+        const screen = document.querySelector('.fr-screen');
+        const inside = screen ? [...screen.querySelectorAll<HTMLElement>(FOCUSABLE)]
+          .filter((el) => el.tabIndex >= 0 && !el.hasAttribute('disabled')) : [];
+        const to = tabStop(inside.length, inside.indexOf(document.activeElement as HTMLElement), e.shiftKey);
+        if (to < 0) return;
+        e.preventDefault();
+        inside[to].focus();
+        return;
+      }
       // TAB MOVES ALONG THE STATE TABS: on the threads page it cycles Needs
       // you, In progress, Later and Done. Shift-Tab goes back, and
       // both wrap.
@@ -5185,18 +5198,6 @@ export default function App() {
       // screens: the rotation ran on tabs nobody could see, blurring whatever
       // the walk's own Tab had just reached. The walk is a form.
       if (e.key === 'Tab') {
-        // A walk screen holds its own focus: it is fixed over an app still in
-        // the document, so the browser walked Tab into the sidebar behind it.
-        if (walkScreenRef.current) {
-          const screen = document.querySelector('.fr-screen');
-          const inside = screen ? [...screen.querySelectorAll<HTMLElement>(FOCUSABLE)]
-            .filter((el) => el.tabIndex >= 0 && !el.hasAttribute('disabled')) : [];
-          const to = tabStop(inside.length, inside.indexOf(document.activeElement as HTMLElement), e.shiftKey);
-          if (to < 0) return;
-          e.preventDefault();
-          inside[to].focus();
-          return;
-        }
         const onTheTabs = !inInput && !modal && !focused && !focusedRepeat && !inFullScreen
           && !settingsOpen && !teamShown && !openCard && !roomsUi.dialogOpen
           && !walkScreenRef.current

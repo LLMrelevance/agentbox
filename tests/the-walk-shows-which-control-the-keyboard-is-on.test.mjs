@@ -90,12 +90,15 @@ describe('the walk rings the control the keyboard is on', () => {
 
     it('is what the window handler moves focus with', () => {
       const app = read('renderer/src/App.tsx');
-      expect(app).toContain('tabStop(');
-      // Inside the Tab branch, above the rotation it used to fall through to.
-      const start = app.indexOf("if (e.key === 'Tab') {");
-      const branch = app.slice(start, app.indexOf('if (!onTheTabs) return;', start));
-      expect(branch).toContain('walkScreenRef.current');
-      expect(branch).toContain('tabStop(');
+      // Its own branch, ABOVE the tab rotation so the press never reaches it.
+      // It sits outside the rotation's branch rather than at the top of it so
+      // that `setHoveredId(null)` stays next to the Tab it belongs to, which
+      // the-keys-are-said-where-she-can-see-them.test.mjs measures by distance.
+      const trap = app.indexOf("if (e.key === 'Tab' && walkScreenRef.current) {");
+      const rotation = app.indexOf("if (e.key === 'Tab') {");
+      expect(trap).toBeGreaterThan(-1);
+      expect(trap).toBeLessThan(rotation);
+      expect(app.slice(trap, rotation)).toContain('tabStop(');
     });
   });
 
