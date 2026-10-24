@@ -109,7 +109,24 @@ export class Teammates {
       writeChat(this.dir(), { kind: 'act', from: id, verb: clean.paused ? 'paused' : 'resumed' }, now);
     }
     writeTeammate(this.dir(), id, clean, now);
+    // Its open runs follow it to the other agent from their next turn.
+    if ('engine' in clean && (clean.engine ?? null) !== (t.engine ?? null)) this._moveOpenRuns(id, clean.engine ?? null, now);
     return this.get(id, now);
+  }
+
+  _moveOpenRuns(id, engine, now) {
+    const { workItemsDisk } = this.store.modules;
+    let items = [];
+    try { items = this.store.listItems(now); } catch { return; }
+    for (const run of items.filter((i) => teammateIdOf(i) === id && i.status !== 'done')) {
+      const dir = this.store.productDir?.(run.product);
+      if (!dir) continue;
+      try {
+        workItemsDisk.updateWorkItem(dir, run.id, { engine: engine ?? '', model: '', effort: '' }, { source: 'system', now });
+      } catch (err) {
+        this.noteTrouble(`A run of this teammate stayed on its old agent: ${err.message}`, now);
+      }
+    }
   }
 
   remove(id, now = Date.now()) {

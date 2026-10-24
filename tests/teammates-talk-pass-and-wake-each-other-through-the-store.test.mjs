@@ -150,6 +150,22 @@ describe('teammates through the store', () => {
     expect(store.listItems().find((i) => i.id === plain.id).labels).toEqual(['y']);
   });
 
+  // The power test put Hugo on Codex while his investor thread was waiting on
+  // a reply; the reply ran on Claude, and the thread's own box said Opus.
+  it('a teammate moved to another agent takes its open runs with it, but not its finished ones', async () => {
+    const hugo = team.create({ starter: 'fundraising' });
+    team.post({ text: 'one', to: [hugo.id] });
+    await tick(Date.now());
+    const open = store.listItems().find((i) => teammateIdOf(i) === hugo.id);
+    const done = work.createWorkItem(dir, { title: 'old', labels: ['founder', `teammate:${hugo.id}`, 'hop:0'] }, { source: 'system' });
+    work.updateWorkItem(dir, done.id, { status: 'done' }, { source: 'agent' });
+    team.update(hugo.id, { engine: 'codex' });
+    expect(store.listItems().find((i) => i.id === open.id).engine).toBe('codex');
+    expect(store.listItems().find((i) => i.id === done.id).engine).toBeUndefined();
+    team.update(hugo.id, { engine: null });
+    expect(store.listItems().find((i) => i.id === open.id).engine || null).toBeNull();
+  });
+
   // A failed hand-off used to be followed by its "seen" marker all the same,
   // so your message was dropped without a word. Now it is tried again on the
   // next tick, and the failure shows on the teammates page.

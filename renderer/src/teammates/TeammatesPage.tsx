@@ -210,24 +210,43 @@ const EVERY = [
 ];
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+// Every field is kept the moment it changes, so leaving the panel any way at
+// all loses nothing. A power tester's change of project was lost to a Done
+// that had scrolled out of sight.
 function About({ t, products, engines, call, onDone }: { t: Teammate; products: Product[]; engines: { id: string; label: string }[]; call: Call; onDone: () => void }) {
   const [f, setF] = useState(() => ({
     name: t.name, role: t.role ?? '', job: t.job ?? '', goal: t.goal ?? '', counted: t.counted ?? '', asksFirst: t.asksFirst ?? '',
-    every: t.works?.every ?? 'never', at: t.works?.at ?? '09:00', on: t.works?.on ?? 1, limit: t.limit, product: t.product, engine: t.engine ?? '',
+    every: t.works?.every ?? 'never', at: t.works?.at ?? '09:00', on: t.works?.on ?? 1, limit: String(t.limit), product: t.product, engine: t.engine ?? '',
   }));
-  const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }));
-  const save = async () => {
-    const works = f.every === 'never' ? null : { every: f.every, at: f.at, ...(f.every === 'week' ? { on: Number(f.on) } : {}) };
-    const ok = await call('update', { id: t.id, patch: { name: f.name, role: f.role, job: f.job, goal: f.goal, counted: f.counted, asksFirst: f.asksFirst, works, limit: Number(f.limit) || t.limit, product: f.product, ...(engines.length > 1 ? { engine: f.engine || null } : {}) } });
-    if (ok) onDone();
+  type F = typeof f;
+  const keep = (patch: Record<string, unknown>) => { void call('update', { id: t.id, patch }); };
+  const worksOf = (x: F) => (x.every === 'never' ? null : { every: x.every, at: x.at || '09:00', ...(x.every === 'week' ? { on: Number(x.on) } : {}) });
+  // A choice is kept at once; typing is kept when the box is left.
+  const choose = (k: keyof F, v: string | number) => {
+    const next = { ...f, [k]: v };
+    setF(next);
+    if (k === 'every' || k === 'on' || k === 'at') keep({ works: worksOf(next) });
+    else if (k === 'product') keep({ product: v });
+    else if (k === 'engine') keep({ engine: v || null });
   };
-  const field = (label: string, k: keyof typeof f, long = false) => <label className="tq-f"><span className="l">{label}</span>
-    {long ? <textarea className="tq-in" rows={3} value={String(f[k])} onChange={(e) => set(k, e.target.value)} /> : <input className="tq-in" value={String(f[k])} onChange={(e) => set(k, e.target.value)} />}</label>;
+  const typed = (k: keyof F, v: string) => setF((x) => ({ ...x, [k]: v }));
+  const was: Record<string, string> = { name: t.name, role: t.role ?? '', job: t.job ?? '', goal: t.goal ?? '', counted: t.counted ?? '', asksFirst: t.asksFirst ?? '', limit: String(t.limit) };
+  const left = (k: keyof F) => {
+    const v = String(f[k]).trim();
+    if (v === (was[k] ?? '').trim()) return;
+    if (k === 'name' && !v) { typed('name', t.name); return; }
+    if (k === 'limit') { const n = Number(v); if (n > 0) keep({ limit: n }); else typed('limit', String(t.limit)); return; }
+    keep({ [k]: v });
+  };
+  const field = (label: string, k: keyof F, long = false) => <label className="tq-f"><span className="l">{label}</span>
+    {long
+      ? <textarea className="tq-in" rows={3} value={String(f[k])} onChange={(e) => typed(k, e.target.value)} onBlur={() => left(k)} />
+      : <input className="tq-in" value={String(f[k])} onChange={(e) => typed(k, e.target.value)} onBlur={() => left(k)} />}</label>;
   return <div className="tq-about">
     <div className="tq-cardhead"><span className="n">About {t.name}</span>
       <span className="tq-heads">
-        <button type="button" className="tq-edit" onClick={() => { void call('update', { id: t.id, patch: { paused: !t.paused } }); }}>{t.paused ? 'Resume' : 'Pause'}</button>
-        <button type="button" className="tq-edit" onClick={() => void save()}>Done</button>
+        <button type="button" className="tq-edit" onClick={() => keep({ paused: !t.paused })}>{t.paused ? 'Resume' : 'Pause'}</button>
+        <button type="button" className="tq-edit" onClick={onDone}>Done</button>
       </span></div>
     {field('Name', 'name')}
     {field('Role', 'role')}
@@ -236,12 +255,12 @@ function About({ t, products, engines, call, onDone }: { t: Teammate; products: 
     {field('How it counts', 'counted')}
     {field('Asks you first', 'asksFirst')}
     <label className="tq-f"><span className="l">Works on its own</span>
-      <span className="tq-row2"><select className="tq-in" value={f.every} onChange={(e) => set('every', e.target.value)}>{EVERY.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select>
-        {f.every === 'week' && <select className="tq-in" value={f.on} onChange={(e) => set('on', Number(e.target.value))}>{DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}</select>}
-        {f.every !== 'never' && <input className="tq-in tq-time" type="time" value={f.at} onChange={(e) => set('at', e.target.value)} />}</span></label>
-    <label className="tq-f"><span className="l">Project</span><select className="tq-in" value={f.product} onChange={(e) => set('product', e.target.value)}>{products.filter((p) => !p.practice).map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}</select></label>
-    {engines.length > 1 && <label className="tq-f"><span className="l">Runs on</span><select className="tq-in" value={f.engine} onChange={(e) => set('engine', e.target.value)}><option value="">Your default</option>{engines.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}</select></label>}
-    <label className="tq-f"><span className="l">Runs a week</span><input className="tq-in tq-num" type="number" min={1} max={500} value={f.limit} onChange={(e) => set('limit', e.target.value)} /><span className="s">{t.runsThisWeek} used this week</span></label>
+      <span className="tq-row2"><select className="tq-in" value={f.every} onChange={(e) => choose('every', e.target.value)}>{EVERY.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</select>
+        {f.every === 'week' && <select className="tq-in" value={f.on} onChange={(e) => choose('on', Number(e.target.value))}>{DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}</select>}
+        {f.every !== 'never' && <input className="tq-in tq-time" type="time" value={f.at} onChange={(e) => typed('at', e.target.value)} onBlur={() => { if (f.at !== (t.works?.at ?? '')) keep({ works: worksOf(f) }); }} />}</span></label>
+    <label className="tq-f"><span className="l">Project</span><select className="tq-in" value={f.product} onChange={(e) => choose('product', e.target.value)}>{products.filter((p) => !p.practice).map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}</select></label>
+    {engines.length > 1 && <label className="tq-f"><span className="l">Runs on</span><select className="tq-in" value={f.engine} onChange={(e) => choose('engine', e.target.value)}><option value="">Your default</option>{engines.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}</select></label>}
+    <label className="tq-f"><span className="l">Runs a week</span><input className="tq-in tq-num" type="number" min={1} max={500} value={f.limit} onChange={(e) => typed('limit', e.target.value)} onBlur={() => left('limit')} /><span className="s">{t.runsThisWeek} used this week</span></label>
     <div className="tq-f"><span className="l">Knows about you</span>
       {t.memory.length ? <ul>{t.memory.map((m) => <li key={m.id}>{m.text}<button type="button" className="tq-x" aria-label={`Forget ${m.text}`} title="Forget" onClick={() => { void call('forget', { id: t.id, memory: m.id }); }}>×</button></li>)}</ul> : <span className="s">Nothing yet. It keeps what you tell it from now on.</span>}
     </div>
