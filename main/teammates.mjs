@@ -4,7 +4,7 @@
 import {
   planWakes, teammateLabel, FROM_LABEL_PREFIX, HOP_LABEL_PREFIX, hopOf, teammateIdOf, YOU, mentionsIn,
   letterFor, statusOf, runLines, STARTERS, CHAT_TAIL, isWorks, DEFAULT_LIMIT, MAX_HOPS,
-  offerFrom, offerAnswer, OFFER_LABEL, OFFER_MAKE, OFFER_NOT_NOW,
+  offerFrom, offerAnswer, threadsDigest, OFFER_LABEL, OFFER_MAKE, OFFER_NOT_NOW,
 } from '../shared/teammates.mjs';
 import { ruleLabel, periodKey } from '../shared/repeats.mjs';
 import {
@@ -85,11 +85,11 @@ export class Teammates {
 
   // Someone new, from words: a draft that sets itself up by asking you in the
   // team chat. Its first run is the setup.
-  describe({ text, product, engine } = {}, now = Date.now()) {
+  describe({ text, product, engine, threads } = {}, now = Date.now()) {
     const words = String(text ?? '').trim();
     if (!words) throw new Error('Say what you need them to do.');
     const t = this.create({ name: 'New teammate', status: 'draft', job: words, product, engine }, now);
-    const m = writeChat(this.dir(), { kind: 'msg', from: YOU, to: [t.id], text: words, setup: true }, now);
+    const m = writeChat(this.dir(), { kind: 'msg', from: YOU, to: [t.id], text: words, setup: true, ...(threads?.length ? { threads } : {}) }, now);
     return { teammate: this.get(t.id, now), message: m.id };
   }
 
@@ -288,9 +288,13 @@ export class Teammates {
       if (!tap) continue;
       const dir = this.store.productDir(row.product);
       if (tap.kind === 'make') {
-        const asks = String(row.result ?? '').split('\n').filter((l) => l.startsWith('- ')).join('\n');
-        const text = tap.words ? `${tap.words}\n\nLike these asks of mine:\n${asks}` : `Someone to take on asks like these, which I keep making:\n${asks}`;
-        this.describe({ text, product: row.product }, now);
+        const listed = String(row.result ?? '').split('\n').filter((l) => l.startsWith('- '));
+        const threads = this._threadsBehind(row, listed, items, chat);
+        const asks = listed.join('\n');
+        const text = tap.words
+          ? `${tap.words}\n\nLike these asks of mine, ${threads.length} threads in all:\n${asks}`
+          : `Someone to take on asks like these, which I keep making. Learn from the ${threads.length} threads first:\n${asks}`;
+        this.describe({ text, product: row.product, threads }, now);
       }
       // Clean, so the answered offer leaves Needs you rather than waiting to be read.
       workItemsDisk.updateWorkItem(dir, row.id, {
@@ -307,11 +311,11 @@ export class Teammates {
     const body = offer.said;
     const result = [
       '**Make a teammate for these?**', '', `${offer.said} Like these:`, '', ...offer.titles.map((t) => `- ${t}`), '',
-      'A teammate would take this kind of work on. It does it on its own, on a schedule if you like, and comes to you only when it needs you. It sets itself up from these and asks you if anything is unclear.',
+      'A teammate would take this kind of work on. It does it on its own, on a schedule if you like, and comes to you only when it needs you. It reads these threads first, with everything you said in them, then asks you only what they leave open.',
       '', '## Options', `1. ${OFFER_MAKE} (recommended)`, `2. ${OFFER_NOT_NOW}`,
     ].join('\n');
     // Recorded first, so a crash after it can never offer the same job twice.
-    writeChat(this.dir(), { kind: 'act', from: YOU, verb: 'offered', ref: offer.key, text: offer.title }, now);
+    writeChat(this.dir(), { kind: 'act', from: YOU, verb: 'offered', ref: offer.key, text: offer.title, threads: offer.threads }, now);
     await lock.withProjectLock(dir, async () => {
       const made = workItemsDisk.createWorkItem(dir, {
         title: offer.title, body, kind: 'question', priority: 5, labels: [OFFER_LABEL],
@@ -320,6 +324,16 @@ export class Teammates {
       workItemsDisk.updateWorkItem(dir, made.id, { result }, { source: 'agent', now });
     });
     return offer;
+  }
+
+  // The threads an answered offer came from. An offer made before it kept
+  // them is matched back to your asks by the titles it listed.
+  _threadsBehind(row, listed, items, chat) {
+    const kept = chat.messages.find((m) => m.kind === 'act' && m.verb === 'offered' && m.text === row.title && m.threads?.length);
+    if (kept) return kept.threads;
+    const titles = new Set(listed.map((l) => l.slice(2).trim().toLowerCase()));
+    return items.filter((i) => (i.labels ?? []).includes('founder') && !teammateIdOf(i) && titles.has(String(i.label || i.title).trim().toLowerCase()))
+      .slice(0, 12).map((i) => ({ product: i.product, id: i.id, title: String(i.label || i.title).trim() }));
   }
 
   // Said on the teammates page and in the log, never only in the log.
@@ -403,6 +417,11 @@ export class Teammates {
       return `[${when}] ${from}${to}: ${String(m.text ?? '').replace(/\s+/g, ' ').slice(0, 600)}`;
     };
     const hop = hopOf(item);
+    const from = t.status === 'draft' ? chat.messages.find((m) => m.kind === 'msg' && m.setup && (m.to ?? []).includes(id) && m.threads?.length)?.threads : null;
+    // From the history kept per ledger change, not readThread: that reads the
+    // whole ledger once per thread, up to twelve times in one brief.
+    const said = (product, thread) => this.store.modules.workItemsCore.threadOf(this.store.readHistory?.(product, thread, { max: 2000 }) ?? [], thread);
+    const digest = from ? threadsDigest(from, said) : '';
     return [
       `# You are ${t.name}${t.role ? `, the ${t.role}` : ''}: a teammate`,
       '',
@@ -423,9 +442,11 @@ export class Teammates {
       '## The team chat, newest last',
       ...(tail.length ? tail.map(line) : ['(nothing yet)']),
       '',
+      ...(digest ? ['## The threads you come from', 'You were made from these threads, where the person asked for this kind of work: what they asked, what the agent did, and every reply they gave.', '', digest, ''] : []),
       '## Answering what woke you',
       ...(t.status === 'draft' ? [
         'You are a new teammate, still being set up. The opening message is what the person asked for, and anything they have answered since is in the team chat above. Set yourself up, then stop:',
+        digest ? '0. First read every thread under "The threads you come from" above for how the person wants this work done: what they asked for, what they corrected, what they liked and turned down, and what they decided. Keep each lasting lesson with team_remember, one per call, in their words. Write your job, goal and what needs their yes from what the threads show, not from guesses, and in step 2 ask only what the threads leave open.' : null,
         '1. Pick a person\'s first name that no teammate has (like Ada or Felix, never a word for the job) and a plain role (two or three words). Draft your job, goal, how you count the goal, when you work and what you ask the person first, and if they said which agent should run you, runsOn. Save the draft with team_setup, without ready.',
         '2. Always ask before you start, even when the opening seems clear: the person does not want a teammate that guesses. Ask what you would otherwise assume, at least when you should work on your own and what you should do first, and anything else you guessed, such as what needs their yes. One team_post per question, at most four, each with two to four short answers in `options`, your best guess first. Then finish this run quietly. Their answers wake you again with the chat in your brief.',
         '3. When they have answered, save what they said with team_setup and ready true, post one or two sentences saying what you will do first, and finish quietly. team_setup refuses ready until they have written to you.',

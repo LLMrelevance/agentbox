@@ -2,7 +2,7 @@
 // with a dot when it is waiting on you. With the sidebar wide, its name and
 // what it is on. The first row opens the team chat.
 import type { Teammate } from '../types';
-import { idleLine } from './chat-lines';
+import { idleLine, roleLabel } from './chat-lines';
 import './teammates.css';
 
 export function TeammateMark({ t, size = 'sm', waiting = false }: { t: Pick<Teammate, 'letter' | 'name'> | null; size?: 'sm' | 'hd' | 'pic' | 'big'; waiting?: boolean }) {
@@ -29,11 +29,12 @@ export function TeammatesRail({ team, open, onOpen }: {
     <button type="button" className={`workspace-tab tq-team${open === 'team' ? ' active' : ''}`} aria-label="Teammates" title="Teammates" onClick={() => onOpen('team')}>
       {TEAM_ICON}<span>Teammates</span>
     </button>
-    {team.map((t) => (
-      <button key={t.id} type="button" className={`workspace-tab tq-row${open === t.id ? ' active' : ''}`} aria-label={t.name} title={t.name} onClick={() => onOpen(t.id)}>
+    {team.map((t) => {
+      const role = roleLabel(t.role);
+      return <button key={t.id} type="button" className={`workspace-tab tq-row${open === t.id ? ' active' : ''}`} aria-label={t.name} title={role ? `${t.name}, ${role}` : t.name} onClick={() => onOpen(t.id)}>
         <TeammateMark t={t} waiting={t.waiting.length > 0 || !!t.asking || !!t.question || !!t.held} />
-        <span className="tq-two"><b>{t.name}</b><small>{nowLine(t)}</small></span>
-      </button>
-    ))}
+        <span className="tq-two"><span className="tq-name"><b>{t.name}</b>{role && <i className="tq-role">{role}</i>}</span><small>{nowLine(t)}</small></span>
+      </button>;
+    })}
   </nav>;
 }

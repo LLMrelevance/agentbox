@@ -540,11 +540,41 @@ export function offerFrom({ items = [], offered = new Set(), now = Date.now() } 
       key, product, count: group.length,
       // The same words asked again are one line, not five.
       titles: [...new Map(group.map((i) => [String(i.label || i.title).trim().toLowerCase(), String(i.label || i.title).trim()])).values()].slice(0, 5),
+      threads: group.slice(0, OFFER_THREADS).map((i) => ({ product: i.product, id: i.id, title: String(i.label || i.title).trim() })),
       title: `Want a teammate for things like “${clip(lead.label || lead.title, 60)}”?`,
       said: `You've asked for this ${group.length} times this month.`,
     };
   }
   return null;
+}
+
+const OFFER_THREADS = 12;
+
+/**
+ * What was said in the threads a teammate is made from, for its setup brief:
+ * your words whole, the agent's cut short, the app's notes left out, all of
+ * it inside `cap` characters. `read(product, id)` gives a thread's turns
+ * ({ source, field, text }, oldest first).
+ */
+export function threadsDigest(threads, read, { cap = 40_000 } = {}) {
+  if (!threads?.length) return '';
+  const per = Math.floor(cap / threads.length);
+  const cut = (text, most) => (text.length > most ? `${text.slice(0, most).trimEnd()}…` : text);
+  const one = (t, agentMost, youMost) => {
+    let turns = [];
+    try { turns = read(t.product, t.id) ?? []; } catch { turns = []; }
+    const said = turns.filter((x) => x.source === 'founder' || x.source === 'agent').map((x) => (x.source === 'founder'
+      ? `You: ${cut(x.text.trim(), youMost)}`
+      : `Agent: ${cut(x.text.trim().replace(/\s*\n\s*/g, ' '), agentMost)}`));
+    return [`### ${t.title} (${t.product}/${t.id})`, ...(said.length ? said : ['(nothing could be read from this thread)'])].join('\n');
+  };
+  return threads.map((t) => {
+    for (const [agentMost, youMost] of [[1200, 4000], [300, 1500], [120, 600]]) {
+      const text = one(t, agentMost, youMost);
+      if (text.length <= per) return text;
+    }
+    return cut(one(t, 120, 600), per - 1);
+  }).join('\n\n').slice(0, cap);
 }
 
 /** What a tap on the offer meant: 'make', 'dismiss', or your own words to make one from. */

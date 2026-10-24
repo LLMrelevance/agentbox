@@ -132,3 +132,9 @@ export function idleLine(t: Pick<Teammate, 'works'>, now = Date.now()): string {
   const sameDay = new Date(now).toDateString() === when.toDateString();
   return `Idle until ${sameDay ? '' : `${when.toLocaleDateString('en-US', { weekday: 'short' })} `}${clock}`;
 }
+
+// Roles are written by the teammate itself, often all lower case.
+export function roleLabel(role: string | null | undefined): string {
+  const r = (role ?? '').trim();
+  return r ? r[0].toUpperCase() + r.slice(1) : '';
+}

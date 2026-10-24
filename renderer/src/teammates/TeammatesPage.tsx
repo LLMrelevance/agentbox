@@ -8,7 +8,7 @@ import type { Product, RunningSession, Teammate, TeammatesView, TeamChatLine, Te
 import { api } from '../api';
 import { MAX_HOPS, STARTERS, type Starter } from '../../../shared/teammates.mjs';
 import { rememberedProject } from '../compose-project';
-import { answerTo, chatEntries, clockOf, dayOf, heldFor, heldTitle, idleLine, longMessage, nameOf, workingLine, type ChatEntry } from './chat-lines';
+import { answerTo, chatEntries, clockOf, dayOf, heldFor, heldTitle, idleLine, longMessage, nameOf, roleLabel, workingLine, type ChatEntry } from './chat-lines';
 import { TeammateMark } from './TeammatesRail';
 import './teammates.css';
 
@@ -33,7 +33,7 @@ const NO_SESSIONS: ReadonlyMap<string, RunningSession> = new Map();
 export function TeammatesTitle({ view, open }: { view: TeammatesView | null; open: string }) {
   const t = view?.list.find((x) => x.id === open) ?? null;
   if (!t) return <h1 className="workspace-title">Teammates</h1>;
-  return <h1 className="workspace-title tq-title"><TeammateMark t={t} size="hd" /><span>{t.name}</span>{t.role && <span className="tq-role">{t.role}</span>}</h1>;
+  return <h1 className="workspace-title tq-title"><TeammateMark t={t} size="hd" /><span>{t.name}</span>{t.role && <span className="tq-role">{roleLabel(t.role)}</span>}</h1>;
 }
 
 export function TeammatesPage({ view, open, products, engines, onTab, onOpenTeammate, onOpenThread, onChanged, me, sessions = NO_SESSIONS }: {
@@ -390,7 +390,7 @@ function Roster({ team, products, engines, call, error, onOpen }: { team: Teamma
   return <div className="tp-body">
     <div className="tp-head"><span>Teammate</span><span>Now</span><span>Goal</span><span className="num">Runs this week</span></div>
     {team.map((t) => <button key={t.id} type="button" className="tp-row" onClick={() => onOpen(t.id)}>
-      <span className="who"><TeammateMark t={t} size="hd" waiting={t.waiting.length > 0 || !!t.asking || !!t.question || !!t.held} /><span>{t.name}</span><i className="r">{t.role}</i></span>
+      <span className="who"><TeammateMark t={t} size="hd" waiting={t.waiting.length > 0 || !!t.asking || !!t.question || !!t.held} /><span>{t.name}</span><i className="r">{roleLabel(t.role)}</i></span>
       <span className="now">{t.waiting.length || t.asking || t.question || t.held ? <span className="need">Waiting on you</span> : <>{t.running && ICON.dots}{t.status === 'draft' ? 'Setting up' : t.now ?? (t.paused ? 'Paused' : idleLine(t))}</>}</span>
       <span className="goal">{t.goal ?? ''}</span>
       <span className="num">{t.runsThisWeek} of {t.limit}</span>
