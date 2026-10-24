@@ -19,6 +19,7 @@ import { bootHeadless, createServer, newToken, picturesTheAppOwns } from '../mai
 import { appHome } from '../main/store/home.mjs';
 import { learnShellDataDirs } from '../main/shell-path.mjs';
 import { startFreezeRecorder } from '../main/freeze-recorder.mjs';
+import { watchNewChatsFor } from '../main/new-chats-watch.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.dirname(here);
@@ -76,6 +77,7 @@ startFreezeRecorder({
 // ZERO_NO_SUPERVISOR: the desktop already honors this (main/main.mjs). This
 // entry is the same inbox, so a launch that asks for no agents must not start
 // them here either.
+let newChatsWatch = null;
 if (!process.env.ZERO_NO_SUPERVISOR) {
   // Whoever was signed in to the team last time is signed in again.
   booted.team?.start().then(() => booted.supervisor.wake?.()).catch((err) => console.warn(`team: ${err.message}`));
@@ -83,6 +85,8 @@ if (!process.env.ZERO_NO_SUPERVISOR) {
   // tab only moved work when something woke the supervisor: a queued thread sat
   // queued and a scheduled one never fired (found 2026-10-01 on a test copy).
   booted.supervisor.start();
+  // The chats setup's "Keep bringing in new chats" tick asks for.
+  newChatsWatch = watchNewChatsFor({ store: booted.store, config: booted.config, supervisor: booted.supervisor });
 }
 const token = newToken();
 const server = createServer({
@@ -116,6 +120,7 @@ server.on('error', (err) => {
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
     console.log('\n  Stopping.');
+    newChatsWatch?.stop();
     booted.host.app.quit();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();

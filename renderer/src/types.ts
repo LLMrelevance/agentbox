@@ -1162,6 +1162,8 @@ export interface WorkspaceSettings {
   // Whether the ADHD mode rules ride under "How agents write to you". Off
   // unless she turned it on (w-5737fe67cf).
   adhdMode?: boolean;
+  // New Claude Code and Codex chats come in on their own (w-62228098e6).
+  importNew?: boolean;
   // Settings, Alpha features (w-3d0fa23ffb).
   alpha?: { neo: boolean; rooms: boolean; multiplayer?: boolean };
   // The corner tag over other apps (w-dafae58a23). On unless she turned it off.

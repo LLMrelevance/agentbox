@@ -17,7 +17,7 @@
 
 import os from 'node:os';
 import { appSessionFolders } from './agent-homes.mjs';
-import { RECENT_DAYS, readSessionThreads } from './agent-sessions.mjs';
+import { RECENT_DAYS, readProjectChats, readSessionThreads } from './agent-sessions.mjs';
 import { readCodexThreads } from './codex-threads.mjs';
 
 export const OLDER_DAYS = 90;
@@ -37,6 +37,21 @@ export async function readImportableThreads({ config = null, supervisor = null, 
   const recent = await read(RECENT_DAYS);
   if (recent.length) return recent;
   return (await read(OLDER_DAYS, OLDER_MOST)).slice(0, OLDER_MOST);
+}
+
+/** What the watch that brings new chats in reads (main/new-chats-watch.mjs):
+ *  Claude Code chats in the projects' own folders since `since`, and the last
+ *  `days` of Codex. */
+export async function readRecentThreads({
+  config = null, supervisor = null, env = process.env, home = os.homedir(), now = Date.now(),
+  days = 1, since = 0, folders = [], readCodex = readCodexThreads,
+} = {}) {
+  const { dirs, codexDirs } = appSessionFolders({ config, supervisor, env, home });
+  let claude = [];
+  let codex = [];
+  try { claude = readProjectChats({ home, dirs, folders, since }); } catch { claude = []; }
+  try { ({ threads: codex } = await readCodex({ home, codexDirs, now, days })); } catch { codex = []; }
+  return [...claude, ...codex];
 }
 
 /* ------------------------ AND THE ONE THE SEARCH USES ---------------------- */
@@ -70,7 +85,7 @@ export async function readSearchableThreads({
   let codex = [];
   let reached = 0;
   try {
-    ({ threads: claude, reached } = readSessionThreads({ home, dirs, now, days, max, budgetMs }));
+    ({ threads: claude, reached } = readSessionThreads({ home, dirs, now, days, max, budgetMs, ends: false }));
   } catch { claude = []; }
   // Codex keeps its names in an index of its own (main/codex-threads.mjs), so
   // its side costs no transcript reads and never gives up early. Only the

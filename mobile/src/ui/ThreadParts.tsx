@@ -243,7 +243,8 @@ export function OptionsCard({ ask, options, busy, pick, keep, dir, files }: {
   return (
     <View style={{ marginTop: 22, borderWidth: 1, borderColor: color.line }}>
       <View style={{ paddingTop: 11, paddingHorizontal: 16, paddingBottom: 7 }}>
-        <T style={{ fontSize: 12.5, lineHeight: 17.5, fontFamily: font.semibold }}>{ask || 'Their options · pick or write your own'}</T>
+        {/* The same fallback the desktop draws (renderer/src/components/OptionsOffer.tsx). */}
+        <T style={{ fontSize: 12.5, lineHeight: 17.5, fontFamily: font.semibold }}>{ask || 'Pick one, or write your own answer'}</T>
       </View>
       {options.map((o) => row(String(o.n), () => pick(o), (
         <View style={{ borderWidth: 1, borderColor: color.lineStrong, paddingHorizontal: 6, height: 19, justifyContent: 'center', alignSelf: 'flex-start', marginTop: 1 }}>

@@ -17,10 +17,13 @@ closed." So:
   the thread and sends the alert.
 - The computer, waking, joins the run or brings it home
   (main/cloud/run.mjs `joining`), with her reply on the row.
-- Not yet: new threads, attachments and permission cards with the computer
-  shut (they wait for it); Codex threads; a Mac on its owner's own AWS
-  rather than the managed cloud. It needs a cloud plan: setup and payment
-  happen on the computer, never in the phone app (the founder, 2026-10-24).
+- New threads, files from the phone, Codex threads and permission cards also
+  carry on with the computer shut. A Claude Code run's approvals server is
+  held by the cloud machine; a Codex run asks on its output, so the server
+  cards each approval and refuses the rest in the computer's own words.
+- Not yet: a Mac on its owner's own AWS rather than the managed cloud. It
+  needs a cloud plan: setup and payment happen on the computer, never in the
+  phone app (the founder, 2026-10-24).
 
 2026-10-19, step 1 filled out (an audit of the phone against the desktop): every
 file a thread names opens on the phone and any file goes from it; what she

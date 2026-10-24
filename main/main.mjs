@@ -21,6 +21,7 @@ import { Store } from './store.mjs';
 import { storeRootEnv } from './store/home.mjs';
 import { Supervisor } from './supervisor.mjs';
 import { startCodexWatch } from './codex-watch.mjs';
+import { watchNewChatsFor } from './new-chats-watch.mjs';
 import { readCodexThreadsOffThread } from './codex-threads.mjs';
 import { appSessionFolders } from './agent-homes.mjs';
 import { registerIpc } from './ipc.mjs';
@@ -499,6 +500,10 @@ async function createWindow() {
     readThreads: (opts) => readCodexThreadsOffThread({ ...opts, codexDirs: appSessionFolders({ config, supervisor }).codexDirs }),
   });
   quitStep(app, 'before-quit', 'codexWatch.stop', () => codexWatch.stop());
+  // New chats from Claude Code and Codex, once asked for on setup's last
+  // screen or in Settings. The watch checks the switch every pass.
+  const newChatsWatch = watchNewChatsFor({ store, config, supervisor });
+  quitStep(app, 'before-quit', 'newChatsWatch.stop', () => newChatsWatch.stop());
   // Whatever is still queued goes with the app rather than dying in memory,
   // and the quit WAITS for it (main/quit-sequence.mjs). It did not: the
   // process went as soon as this returned, so the last batch was a POST that

@@ -6888,9 +6888,12 @@ button.cs-row:hover .cs-row-go { color: var(--text); }
 /* IN THE STRIP UNDER THE SIDEBAR SINCE 2026-10-06. It was 38 tall from 14 up,
    which reached into the sidebar, and once the sidebar's foot was tightened to
    end at Settings the word sat on top of Settings. The strip under the sidebar
-   is 22 tall and holds nothing else. */
+   is 22 tall and holds nothing else.
+   AND OFF THE WINDOW'S EDGE SINCE 2026-10-24, where at bottom 0 it sat with
+   its descenders 4px off the bottom. 10 is the walk's own FLOOR, what
+   everything else it draws is held off an edge by (./onboarding.ts). */
 .fr-out {
-  position: fixed; left: 16px; bottom: 0px; height: 22px; z-index: 302;
+  position: fixed; left: 16px; bottom: 10px; height: 22px; z-index: 302;
   display: inline-flex; align-items: center;
   border: 0; background: none; padding: 0 6px;
   font: inherit; font-size: 12px; color: var(--text);
@@ -7746,8 +7749,12 @@ button.cs-row:hover .cs-row-go { color: var(--text); }
 .fr-landed {
   position: fixed; inset: 0; z-index: 302; pointer-events: none;
 }
+/* OVER THE BURST, NOT UNDER IT. `.fr-burst` carries a z-index and is drawn
+   first; these words carried none, so forty falling pieces were painted across
+   a 34px headline. */
 .fr-landed-say {
   position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%);
+  z-index: 303;
   width: min(560px, calc(100vw - 96px));
   text-align: center;
   animation: fr-landed-say 14s ease forwards;
@@ -8227,6 +8234,14 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left;
 }
 .ia-line-meta { flex: none; font-size: 12px; color: var(--text-faint); white-space: nowrap; }
+/* Setup's last screen: a waiting chat carries its question on a second line. */
+.ia-line-row.has-ask { align-items: flex-start; }
+.ia-ask {
+  display: block; margin-top: 3px; font-size: 13px; line-height: 1.45; color: var(--text-faint);
+  white-space: normal; overflow-wrap: anywhere;
+}
+.ia-done-note { margin: 14px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--text-faint); }
+.ia-keep { margin-top: 14px; border-top: 1px solid var(--line); }
 .ia-foot.ia-foot-one { justify-content: flex-start; gap: 10px; padding-top: 18px; }
 /* As drawn: the press is the one filled thing on the card, on the left, and a
    kept line wears the same fill in its tick. */

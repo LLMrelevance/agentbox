@@ -89,6 +89,15 @@ function desktopEntry({ icon }) {
 
 const skipped = (why) => ({ changed: false, file: null, command: null, why });
 
+// A linked worktree (a task folder) has a `.git` FILE pointing at the primary
+// checkout; a primary checkout has a `.git` DIRECTORY. We never follow a task
+// folder onto the launcher, so a worker's `npm install` cannot make the next
+// launch run its unreviewed branch as the full app. No subprocess: the kind of
+// `.git` is the whole answer.
+function isLinkedWorktree(dir) {
+  try { return fs.lstatSync(path.join(dir, '.git')).isFile(); } catch { return false; }
+}
+
 /**
  * Install the launcher command and the XDG desktop entry that runs it.
  *  Returns { changed, file, command, why }. Both paths are null when nothing is
@@ -107,6 +116,7 @@ export function installLinuxLauncher({
     // `why` is for a Linux machine that should have had a launcher and did not.
     // A Mac is not a machine with a missing launcher, so it has nothing to say.
     if (platform !== 'linux') return skipped(null);
+    if (isLinkedWorktree(appDir)) return skipped('this folder is a git worktree, and only the main checkout goes on the launcher');
     const cli = electronCli === undefined
       ? bundledElectronCli()
       : (fs.existsSync(electronCli) ? electronCli : null);
