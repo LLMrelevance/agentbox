@@ -2,9 +2,9 @@
 //
 // Messages and Rooms were two places for one idea, and a chat with Maya and a
 // chat with Maya and Priya sat in different lists from the room they came
-// from. Asked for: "say I send a message to Margarette, then another to
-// Margarette and Amy, I need to be able to access those chats separately",
-// and named groups told apart from the chats made from them with a #.
+// from. Asked for: a chat with one teammate and a chat with that teammate and
+// another, each reachable on its own, and named groups told apart from the
+// chats made from them with a #.
 // Measured on the drawn list: before, the Messages page listed chats and the
 // Rooms page rooms. Now one list holds the named groups and every chat.
 //
