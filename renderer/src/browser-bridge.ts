@@ -120,13 +120,17 @@ export function installBrowserBridge(): boolean {
     // The keyboard, the colour Safari paints round the page, and the
     // home-screen swipe back (phone-screen.ts).
     installPhoneScreen();
-    // Pictures and design pages, from this computer under the file key, which
-    // reads files and nothing else (main/serve.mjs fileKey).
-    fetch('/file-key', { headers: { [TOKEN_HEADER]: token } })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((said) => { if (said?.key) installPhoneFiles(said.key); })
-      .catch(() => { /* pictures stay blank; everything else still works */ });
   }
+
+  // PICTURES, IN EVERY TAB AND NOT ONLY ON A PHONE (w-326fb83c0e). The window
+  // asks for them on the app's own scheme, which only Electron answers, so in
+  // the browser copy every local picture in a thread drew as missing. They come
+  // from this computer under the file key, which reads files and nothing else
+  // (main/serve.mjs fileKey).
+  fetch('/file-key', { headers: { [TOKEN_HEADER]: token } })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((said) => { if (said?.key) installPhoneFiles(said.key); })
+    .catch(() => { /* pictures stay blank; everything else still works */ });
 
   const ask = async (channel: string, payload?: unknown) => {
     const res = await fetch(`/api/${encodeURIComponent(channel)}`, {

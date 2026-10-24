@@ -83,7 +83,8 @@ import { sentLine, sendingLine } from './compose-says';
 import { wearJustMade, type JustMade } from './just-made';
 import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, replyKeyWorksIn, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply, workMoving } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
-import { opensATextField, takesTheListBack } from './keys';
+import { focusTheReplyBox } from './focus-at-end';
+import { keyWhileABoxIsOpen, opensATextField, takesTheListBack } from './keys';
 import { modelCommands } from './thread-model-commands';
 import { MOVE_KEYWORDS, whyItCannotMove } from '../../shared/move-thread.mjs';
 import { sidebarFits, useRoomyToggle, useWindowWidth } from './room';
@@ -5214,8 +5215,11 @@ export default function App() {
       // underneath one.
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (modal || inInput) {
-        if (e.key === 'Escape' && !inInput) setModal(null);
-        return;
+        // Typing owns the keyboard and a modal owns its screen, except for the
+        // reply box with the caret out of it (renderer/src/keys.ts).
+        const gate = keyWhileABoxIsOpen({ modal, inInput, key: e.key });
+        if (gate === 'close-the-modal') { setModal(null); return; }
+        if (gate === 'swallow') return;
       }
       // Everything above has returned for modals and for typing, so a shortcut
       // that opens a text field swallows its own keystroke HERE, once, ahead of
@@ -5353,7 +5357,9 @@ export default function App() {
         // E archives, unconditionally. It must never approve on her behalf.
         else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); markDone(focused); }
         // The page stays open: full screen draws the box under it.
-        else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setModal('reply'); }
+        // An open box focuses itself only when it opens, so R on one already
+        // there has to put the caret back (focus-at-end.ts).
+        else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setModal('reply'); if (modal === 'reply') focusTheReplyBox(); }
         // N MEANS THE SAME THING ON BOTH SCREENS. The + in the top bar is on
         // this screen too and its tooltip says "New task (N)", so the key is
         // already advertised here.
@@ -6045,19 +6051,6 @@ export default function App() {
           the sidebar for the single-player launch (w-1b574413db, 2026-10-04).
           `onInvite` is still handed in, for the account menu. */}
       {workspaceNavigation && <WorkspaceNavigation
-        /* WHAT IS LEFT OF YOUR LIMIT, in the slot the approved sidebar foot
-           keeps for it. Quiet text rather than a meter, because the sidebar is
-           on every screen, and nothing at all until a figure has been read.
-           Pinned by tests/what-is-left-of-your-limit-is-drawn-somewhere. */
-        usage={<UsagePill
-          usage={snap?.usage ?? null}
-          now={now}
-          sidebar
-          engineWord={engineWordFor({
-            engineChoice: (snap?.engines?.choices?.length ?? 1) > 1,
-            engine: snap?.usage?.engine ?? null,
-          })}
-        />}
         update={announcesUpdate(snap?.update, { walking, closed: '' }) ? { installing: !!snap?.update?.installing, version: snap?.update?.newVersion, changes: snap?.update?.changes, behind: snap?.update?.behind, error: snap?.update?.error } : null}
         onUpdate={() => { void api.updateInstall(); }}
         /* AND THE COPY THAT CANNOT UPDATE ITSELF FROM WHERE IT IS
@@ -6065,6 +6058,18 @@ export default function App() {
            offering the move. Null on every copy that can. */
         move={announcesMove(snap?.update, { walking, closed: '' }) ? { place: snap?.update?.place ?? null, error: snap?.update?.moveError ?? null } : null}
         onMove={() => { void api.updateMove(); }}
+        /* WHAT IS LEFT OF YOUR LIMIT, in the slot the foot has held for it
+           since 2026-10-01 and nothing ever filled. Drawn unconditionally:
+           UsagePill is nothing at all until a reading lands. */
+        usage={<UsagePill
+          usage={snap.usage ?? null}
+          now={now}
+          sidebar
+          engineWord={engineWordFor({
+            engineChoice: (snap.engines?.choices?.length ?? 1) > 1,
+            engine: snap.usage?.engine ?? null,
+          })}
+        />}
         page={settingsOpen ? 'settings' : null} inboxLabel={roomsUi.live ? 'Inbox' : undefined} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
@@ -6269,9 +6274,10 @@ export default function App() {
               one change made on top of it. Do not put them back the other way
               round.
            */}
-          {/* WHAT IS LEFT OF THE LIMIT IS IN THE SIDEBAR'S FOOT, not here. A
-              pill in this corner was gated on there being no sidebar, and
-              `workspaceNavigationShown` is now always true. */}
+          {/* WHAT IS LEFT OF YOUR LIMIT IS NOT IN THIS CORNER ANY MORE: it is in
+              the sidebar's own slot, where it was approved (w-326fb83c0e). With
+              Groups on there is no sidebar and no reading, because a bare bar
+              between the search icon and New thread reads as a stray line. */}
           {/* AND THE SOCKET A THREAD'S OWN CONTROLS ARE TELEPORTED INTO: the
               thread's menu, which holds the code, the terminal and Done
               (w-e731ca9376, 2026-10-01). They are drawn by
@@ -7298,6 +7304,11 @@ export default function App() {
         onNewThread={() => setModal('compose')}
         onStanding={() => setModal('standing')}
         onSettings={() => { setModal(null); setSettingsPane(null); setSettingsOpen(true); }}
+        onUsage={() => { setModal(null); setTeamOpen(false); setSettingsPane('claude'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
+        roomsOn={roomsUi.live}
+        groups={roomsUi.groups}
+        onGroups={() => { setModal(null); roomsUi.openTab(); }}
+        onPickGroup={(key) => { setModal(null); roomsUi.pickGroup(key); }}
         onShortcuts={() => { setModal(null); setSettingsPane('shortcuts'); setSettingsOpen(true); }}
         onOpenProjects={() => { setModal(null); setTeamOpen(false); setSettingsPane('projects'); setSettingsOpen(true); }}
         onClose={() => setModal(null)}
