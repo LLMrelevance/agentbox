@@ -370,6 +370,8 @@ export interface Teammate {
   paused: boolean; status: 'draft' | 'active'; memory: TeammateMemory[]; createdAt: number; starter?: string | null;
   /** Its run is waiting for you to allow or deny a command (drawn from `approvals`, not the store). */
   asking?: boolean;
+  /** It asked you something in the team chat and has not heard back (chat-lines `asksYou`). */
+  question?: boolean;
   waiting: TeammateRef[]; now: string | null; running: { id: string; product: string } | null;
   queued: number; done: TeammateRef[]; runsThisWeek: number;
 }

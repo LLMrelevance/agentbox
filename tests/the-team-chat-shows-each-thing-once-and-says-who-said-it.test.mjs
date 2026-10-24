@@ -4,7 +4,7 @@
 // Hugo's; and on Ada's page a message to Ada and Hugo said only "to Hugo".
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
-import { chatEntries, involves } from '../renderer/src/teammates/chat-lines.ts';
+import { asksYou, chatEntries, involves } from '../renderer/src/teammates/chat-lines.ts';
 
 const ADA = 't-aaaaaaaaaa';
 const HUGO = 't-hhhhhhhhhh';
@@ -39,6 +39,18 @@ describe('the team chat', () => {
     expect(involves(msg('m', HUGO, [], 'x', 1), ADA)).toBe(false);
     expect(involves({ id: 'p', kind: 'pass', from: HUGO, to: ADA, title: 't', ts: 1 }, ADA)).toBe(true);
     expect(involves(run('w', 'picked', 1), ADA)).toBe(true);
+  });
+
+  // A new teammate asks its setup questions in the chat and stops; without
+  // this nothing said it was waiting on you unless you opened its page.
+  it('a question with answers to tap waits on you until you write to that teammate', () => {
+    const ask = { ...msg('m-q', ADA, [], 'Which project?', 10), options: ['Product', 'Website'] };
+    expect(asksYou({ list: [], runs: [], chat: [ask] }, ADA)).toBe(true);
+    expect(asksYou({ list: [], runs: [], chat: [ask, msg('m-a', 'you', [ADA], 'Product', 11)] }, ADA)).toBe(false);
+    // Your words to someone else, or before the question, do not answer it.
+    expect(asksYou({ list: [], runs: [], chat: [msg('m-0', 'you', [ADA], 'hi', 9), ask, msg('m-h', 'you', [HUGO], 'x', 12)] }, ADA)).toBe(true);
+    // Plain talk with no answers to tap is not a question waiting on you.
+    expect(asksYou({ list: [], runs: [], chat: [msg('m-p', ADA, [], 'Done for today.', 10)] }, ADA)).toBe(false);
   });
 
   it('signs a message after an activity line, and names every person it went to', () => {

@@ -56,3 +56,14 @@ export function dayOf(ts: number, now = Date.now()): string {
 export function clockOf(ts: number): string {
   return new Date(ts).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).toLowerCase().replace(/\s/g, '');
 }
+
+// A teammate that asked you something in the chat, with answers to tap, and
+// has not heard from you since. A new teammate's setup questions are asked
+// this way, and nothing else would say it is waiting.
+export function asksYou(view: TeammatesView | null | undefined, id: string): boolean {
+  if (!view) return false;
+  let asked = 0;
+  for (const m of view.chat) if (m.kind === 'msg' && m.from === id && m.options?.length) asked = Math.max(asked, m.ts);
+  if (!asked) return false;
+  return !view.chat.some((m) => m.kind === 'msg' && m.from === 'you' && m.ts > asked && toList(m.to).includes(id));
+}

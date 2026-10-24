@@ -37,11 +37,10 @@ export class Teammates {
     return readChat(this.dir());
   }
 
-  // A product a teammate can work in: the one asked for when it exists, else
-  // the first real project.
+  // A project a teammate can work in: the one asked for when it exists, else
+  // the first with code in it, since most of what a teammate does is code.
   _product(slug) {
     const products = this.store.listProducts().filter((p) => !p.practice && !p.personal);
-    // Unnamed, the first with code in it: most of what a teammate does is code.
     return products.find((p) => p.slug === slug)?.slug ?? products.find((p) => p.repoPath)?.slug ?? products[0]?.slug ?? null;
   }
 

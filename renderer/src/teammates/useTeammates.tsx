@@ -5,6 +5,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import type { Product, TeammatesView } from '../types';
 import { TeammatesPage, TeammatesTitle } from './TeammatesPage';
 import { TeammatesRail } from './TeammatesRail';
+import { asksYou } from './chat-lines';
 
 /** 'team' is the team chat, 'roster' the Teammates tab, anything else a teammate's id. */
 export type TeammatesOpen = string | null;
@@ -24,9 +25,16 @@ export function useTeammates({ view: stored, asking = [], products, engines, me,
   const [open, setOpen] = useState<TeammatesOpen>(null);
   const askingKey = asking.filter(Boolean).sort().join(' ');
   const view = useMemo(() => {
-    if (!stored || !askingKey) return stored;
-    const ids = new Set(askingKey.split(' '));
-    return { ...stored, list: stored.list.map((t) => (t.running && ids.has(t.running.id) ? { ...t, asking: true, now: 'Asking you to allow a command' } : t)) };
+    if (!stored) return stored;
+    const ids = new Set(askingKey ? askingKey.split(' ') : []);
+    return {
+      ...stored,
+      list: stored.list.map((t) => {
+        if (t.running && ids.has(t.running.id)) return { ...t, asking: true, now: 'Asking you to allow a command' };
+        if (asksYou(stored, t.id)) return { ...t, question: true, now: 'Has a question for you' };
+        return t;
+      }),
+    };
   }, [stored, askingKey]);
   const live = !!view;
   const go = (which: string) => { onEnter(); setOpen(which); };

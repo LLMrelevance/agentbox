@@ -191,7 +191,8 @@ function SidePanel({ t, products, engines, call, onOpenThread }: { t: Teammate; 
   return <aside className="gr-side tq-side">
     {t.status === 'draft' && <div className="tq-sec"><div className="tq-sh">Setting up</div><div className="tq-sv dim">Answer its questions in the chat. It starts once its job is clear.</div></div>}
     <div className="tq-sec"><div className="tq-sh">Goal<button type="button" className="tq-edit" onClick={() => setEditing(true)}>Edit</button></div><div className="tq-sv">{t.goal ?? <span className="dim">No goal yet</span>}</div></div>
-    {(t.waiting.length > 0 || t.asking) && <div className="tq-sec"><div className="tq-sh">Waiting on you</div>
+    {(t.waiting.length > 0 || t.asking || t.question) && <div className="tq-sec"><div className="tq-sh">Waiting on you</div>
+      {t.question && <div className="tq-li need">Its question in the chat</div>}
       {t.asking && t.running && <button type="button" className="tq-li need" onClick={() => onOpenThread(t.running!.product, t.running!.id)}>Allow or deny a command</button>}
       {t.waiting.map((w) => <button key={w.id} type="button" className="tq-li need" onClick={() => onOpenThread(w.product, w.id)}>{w.title}</button>)}</div>}
     <div className="tq-sec"><div className="tq-sh">Now{t.paused && <button type="button" className="tq-edit" onClick={() => { void call('update', { id: t.id, patch: { paused: false } }); }}>Resume</button>}</div>
@@ -345,8 +346,8 @@ function Roster({ team, products, call, error, onOpen }: { team: Teammate[]; pro
   return <div className="tp-body">
     <div className="tp-head"><span>Teammate</span><span>Now</span><span>Goal</span><span className="num">Runs this week</span></div>
     {team.map((t) => <button key={t.id} type="button" className="tp-row" onClick={() => onOpen(t.id)}>
-      <span className="who"><TeammateMark t={t} size="hd" waiting={t.waiting.length > 0 || !!t.asking} /><span>{t.name}</span><i className="r">{t.role}</i></span>
-      <span className="now">{t.waiting.length || t.asking ? <span className="need">Waiting on you</span> : <>{t.running && ICON.dots}{t.status === 'draft' ? 'Setting up' : t.paused ? 'Paused' : t.now ?? 'Free'}</>}</span>
+      <span className="who"><TeammateMark t={t} size="hd" waiting={t.waiting.length > 0 || !!t.asking || !!t.question} /><span>{t.name}</span><i className="r">{t.role}</i></span>
+      <span className="now">{t.waiting.length || t.asking || t.question ? <span className="need">Waiting on you</span> : <>{t.running && ICON.dots}{t.status === 'draft' ? 'Setting up' : t.paused ? 'Paused' : t.now ?? 'Free'}</>}</span>
       <span className="goal">{t.goal ?? ''}</span>
       <span className="num">{t.runsThisWeek} of {t.limit}</span>
     </button>)}
