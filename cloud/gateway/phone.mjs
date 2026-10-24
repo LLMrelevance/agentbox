@@ -31,6 +31,9 @@ import { askId, approvalAnswerLine } from '../../shared/cloud-kit.mjs';
 import { phoneApproval } from '../../shared/phone-snapshot.mjs';
 import { cardDigest } from '../../shared/approval-card.mjs';
 import { PHONE_FILES_MAX, PHONE_FILE_MAX_BYTES, phoneFilesIn, phoneAttachmentRel, linkPhoneFiles } from '../../shared/phone-files.mjs';
+import { isOurSlug } from '../../shared/product-name.mjs';
+import { codexApprovalCard, fileChangeCard, isMcpToolCall, elicitationServer, REMEMBERED_CHANGES } from '../../main/codex-approvals.mjs';
+import { yesTo, refusalTo } from '../../main/codex-app-server.mjs';
 
 export const PHONE_TRIES = 3;
 // A start the cloud refused is tried again no sooner than this.
@@ -234,7 +237,7 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
   // The run's new output, read without counting as the computer, and every
   // turn it finished since the last look.
   async function relay(rec) {
-    if (rec.codex) await codexNextTurn(rec);
+    if (rec.codex) { await payCodex(rec); await codexNextTurn(rec); }
     for (let p = 0; p < PAGES_PER_SWEEP; p += 1) {
       let page;
       try { page = await input(rec.owner, rec.sessionId, { action: 'events', runId: rec.runId, since: rec.cursor, peek: true, maxBytes: PAGE_BYTES }); } catch (err) {
@@ -250,6 +253,7 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
       rec.partial = lines.pop();
       if (rec.partial.length > PARTIAL_MAX) rec.partial = '';
       rec.cursor += page.events.length;
+      if (rec.codex) { await noteCodexAsks(rec, lines); await payCodex(rec); }
       const results = rec.codex ? codexReadLines(lines, rec.codex.read) : resultsInLines(lines);
       await save(rec);
       for (const r of results) await relayTurn(rec, answerText(r));
@@ -276,29 +280,101 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
     return row.snapshot;
   }
 
+  async function putCard(rec, id, ask) {
+    ask.card = cardDigest({ id, at: ask.at, product: rec.project, item: rec.item, tool: ask.tool, input: ask.input });
+    rec.asks[id] = ask;
+    await save(rec);
+    const was = await withCards(rec, (cards) => [...cards.filter((c) => c.id !== id), phoneApproval({ id, at: ask.at, tool: ask.tool, input: ask.input }, ask.card)]);
+    const title = was?.item?.title ?? '';
+    await alert(rec, title, phoneBanner([{ kind: 'approval', title: whatItWants(ask), thread: title }]));
+  }
+
+  async function cardGone(rec, id) {
+    const ask = rec.asks?.[id];
+    if (!ask || ask.done) return;
+    ask.done = true;
+    await save(rec);
+    await withCards(rec, (cards) => cards.filter((c) => c.id !== id));
+  }
+
   async function noteAsks(rec, events) {
     rec.asks ??= {};
     for (const e of events) {
       if (e?.kind === 'ask' && e.tool === 'approval_prompt') {
         const id = askId(rec.runId, e.conn, e.id);
         if (rec.asks[id]) continue;
-        const tool = String(e.input?.tool_name ?? 'unknown');
         const input = e.input?.input && typeof e.input.input === 'object' ? e.input.input : {};
-        const ask = { conn: e.conn, callId: e.id, at: now(), tool, input };
-        ask.card = cardDigest({ id, at: ask.at, product: rec.project, item: rec.item, tool, input });
-        rec.asks[id] = ask;
-        await save(rec);
-        const was = await withCards(rec, (cards) => [...cards.filter((c) => c.id !== id), phoneApproval({ id, at: ask.at, tool, input }, ask.card)]);
-        const title = was?.item?.title ?? '';
-        await alert(rec, title, phoneBanner([{ kind: 'approval', title: whatItWants(ask), thread: title }]));
+        await putCard(rec, id, { conn: e.conn, callId: e.id, at: now(), tool: String(e.input?.tool_name ?? 'unknown'), input });
       } else if (e?.kind === 'ask-answered') {
-        const id = askId(rec.runId, e.conn, e.id);
-        const ask = rec.asks[id];
-        if (!ask || ask.done) continue;
-        ask.done = true;
-        await save(rec);
-        await withCards(rec, (cards) => cards.filter((c) => c.id !== id));
+        await cardGone(rec, askId(rec.runId, e.conn, e.id));
       }
+    }
+  }
+
+  // A CODEX RUN ASKS ITS CLIENT, on its output, so with the computer shut the
+  // server is that client: each approval goes on the phone as the computer's
+  // Codex client cards it, and a request no card can answer is refused at once
+  // in that client's words, since one left unanswered holds the turn until
+  // the run's ceiling.
+  const CODEX_CONN = 'codex';
+  const codexLine = (id, body) => Buffer.from(`${JSON.stringify({ jsonrpc: '2.0', id, ...body })}\n`).toString('base64');
+
+  async function noteCodexAsks(rec, lines) {
+    const c = rec.codex;
+    c.changes ??= {};
+    c.owed ??= [];
+    rec.asks ??= {};
+    for (const raw of lines) {
+      if (!raw || !raw.includes('"method"')) continue;
+      let msg;
+      try { msg = JSON.parse(raw); } catch { continue; }
+      if (!msg || typeof msg.method !== 'string') continue;
+      const p = msg.params ?? {};
+      if (msg.id === undefined || msg.id === null) {
+        if (msg.method === 'item/started' && p.item?.type === 'fileChange' && typeof p.item.id === 'string') {
+          const card = fileChangeCard(p.item);
+          if (card) c.changes[p.item.id] = card;
+          const ids = Object.keys(c.changes);
+          for (const old of ids.slice(0, Math.max(0, ids.length - REMEMBERED_CHANGES))) delete c.changes[old];
+        } else if (msg.method === 'item/completed' && typeof p.item?.id === 'string') {
+          delete c.changes[p.item.id];
+        } else if (msg.method === 'serverRequest/resolved') {
+          await cardGone(rec, askId(rec.runId, CODEX_CONN, p.requestId));
+        } else if (msg.method === 'turn/completed' || msg.method === 'turn/failed') {
+          // Codex settles a turn's open requests when the turn ends.
+          for (const [id, ask] of Object.entries(rec.asks)) if (ask.codex) await cardGone(rec, id);
+        }
+        continue;
+      }
+      const id = askId(rec.runId, CODEX_CONN, msg.id);
+      if (rec.asks[id]) continue;
+      // The store's own tools go ahead without a card, as on the computer.
+      if (msg.method === 'mcpServer/elicitation/request' && isMcpToolCall(p) && isOurSlug(elicitationServer(p))) {
+        c.owed.push({ id: msg.id, body: yesTo(msg.method) });
+        continue;
+      }
+      const card = yesTo(msg.method) ? codexApprovalCard(msg.method, p, new Map(Object.entries(c.changes))) : null;
+      if (!card) {
+        once(`codex-refused:${msg.method}`, `phone: a Codex run's ${msg.method} has no card to put on the phone, so it was refused`);
+        c.owed.push({ id: msg.id, body: refusalTo(msg.method) });
+        continue;
+      }
+      await putCard(rec, id, { codex: msg.method, callId: msg.id, at: now(), tool: card.tool, input: card.input });
+    }
+  }
+
+  // What is owed a Codex run's requests, in order; one that cannot be sent is tried again next minute.
+  async function payCodex(rec) {
+    const owed = rec.codex?.owed ?? [];
+    while (owed.length) {
+      const n = rec.sent + 1;
+      if (!(await send(rec, { action: 'stdin', n, data: codexLine(owed[0].id, owed[0].body) }))) {
+        once(`owed:${rec.runId}`, `phone: could not answer a Codex request in cloud run ${rec.runId}; tried again next minute`);
+        return;
+      }
+      rec.sent = n;
+      owed.shift();
+      await save(rec);
     }
   }
 
@@ -311,8 +387,10 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
     if (p.card !== ask.card) return db.taken(cmd.id, 'That card changed before your answer reached it, so nothing was allowed.', iso(now()));
     if (!(await db.claim(cmd.id, cloudClaim(rec.runId), iso(now())))) return null;
     const n = rec.sent + 1;
-    const line = approvalAnswerLine(ask.callId, { allow: p.allow === true, note: typeof p.note === 'string' ? p.note : null, input: ask.input });
-    if (!(await send(rec, { action: 'mcp', n, conn: ask.conn, line }))) {
+    const said = ask.codex
+      ? { action: 'stdin', n, data: codexLine(ask.callId, p.allow === true ? yesTo(ask.codex) : refusalTo(ask.codex)) }
+      : { action: 'mcp', n, conn: ask.conn, line: approvalAnswerLine(ask.callId, { allow: p.allow === true, note: typeof p.note === 'string' ? p.note : null, input: ask.input }) };
+    if (!(await send(rec, said))) {
       try { await db.giveBack(cmd.id, cloudClaim(rec.runId)); } catch (err) { log(`phone: could not give back the claim on ${cmd.id}: ${err?.message || err}`); }
       once(`card:${rec.runId}`, `phone: an answer to a card could not reach cloud run ${rec.runId}; tried again next minute`);
       return null;

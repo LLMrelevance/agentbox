@@ -1078,6 +1078,14 @@ export class Supervisor {
       if (blockers.some((b) => !b || b.status !== 'done')) continue;
       const cleared = Math.max(...blockers.map((b) => b.wrote?.status?.ts ?? 0));
       if (cleared <= (item.wrote?.blockedBy?.ts ?? 0) || cleared <= this._waitsSince) continue;
+      // A wait somebody else wrote is theirs to show, not a reason to start a
+      // run on this Mac. blockedBy is a teammate-settable shared field but is
+      // not in mayRunHere's STARTS_A_RUN list, so a teammate could point your
+      // blocked row at one of your running rows and make your Mac spawn on it
+      // when that finished. A wait with no writer (your own agent, solo) still
+      // resumes.
+      const waitBy = item.wrote?.blockedBy?.by;
+      if (waitBy && waitBy !== me) continue;
       const key = `${item.product}:${item.id}:${cleared}`;
       if (this._resumedWaits.has(key)) continue;
       if (!mayRunHere(item, productBySlug.get(item.product), me)) continue;
@@ -6602,9 +6610,19 @@ export class Supervisor {
    * and deliberately not on `_isContinuation`.
    */
   _isFreshWork(item, now = Date.now(), autonomous = new Set(this.config.autonomousProducts ?? [])) {
+    // A worker can put the 'founder' label on any row through the store MCP
+    // (create_work_item/update_work_item take a free labels array), and nothing
+    // else here checked who wrote it, so a forged label auto-spawned a run she
+    // never asked for. Every MCP write is source 'agent' and the fold refuses to
+    // let an agent line overwrite a founder-held label, so a label we KNOW an
+    // agent authored is the forged one and nothing else. A label with no
+    // recorded author (a legacy row from before `wrote` tracking) keeps its old
+    // treatment rather than being newly refused.
+    const founderInitiated = (item.labels ?? []).includes('founder')
+      && item.wrote?.labels?.source !== 'agent';
     return !(item.labels ?? []).includes(FIRST_RUN_LABEL)
       && item.status === 'open' && item.kind !== 'question' && item.kind !== 'review'
-      && ((item.labels ?? []).includes('founder') || autonomous.has(item.product)) && !item.answer
+      && (founderInitiated || autonomous.has(item.product)) && !item.answer
       // A ROW THAT ALREADY HOLDS AN ANSWER FOR HER IS NOT FRESH WORK. This is
       // the same rule as the paragraph above, read from the other end: a
       // proposal waits for her, and a finished answer sitting on an open row

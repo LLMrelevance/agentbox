@@ -1189,6 +1189,11 @@ export default function App() {
   // rectangle to hang off.
   useEffect(() => {
     if (!run) return;
+    // THE LOOK AROUND OPENS ON NEEDS YOU. These two drove nothing, so a
+    // tutorial taken a second time opened its first card on whatever tab the
+    // app was left on: measured on Later, over one scheduled row, while the
+    // badge beside it read NEEDS YOU 4.
+    if (run.step === 'tour' || run.step === 'tabs') { setFocused(null); setModal(null); setView('inbox'); setSelected(0); }
     // BEAT FOUR IS THE REAL, EMPTY INBOX.
     if (run.step === 'make') { setFocused(null); setModal(null); setView('inbox'); }
     // BOTH BEATS THE CARD IS OPEN FOR, not just the send. Somebody who quits
@@ -3857,7 +3862,7 @@ export default function App() {
       pushUndo({ label: `Back in your inbox: ${agent.name}`, undoes: `put ${agent.name} back in your inbox`, brings: item, run: async () => {
         await api.closeAgent({ key, through: 0 });
       } });
-    }, `Closed: ${agent.name}`);
+    }, `${DONE.verb}: ${agent.name}`);
   }, [deferCommit, pushUndo]);
 
   // AND CLOSING THE ROW THAT SAYS NOTHING IS RUNNING IS THE SAME KIND OF MOVE:
@@ -3871,7 +3876,7 @@ export default function App() {
     await deferCommit(item, async () => {
       setTroubleClosedAt(since);
       pushUndo({ label: 'Back in your inbox: what is not running', undoes: 'put the stopped tasks back in your inbox', run: async () => { setTroubleClosedAt(was); } });
-    }, 'Closed: what is not running');
+    }, `${DONE.verb}: what is not running`);
   }, [deferCommit, setTroubleClosedAt, troubleClosed, pushUndo]);
 
   // `stay` keeps the pane where it is, for the same reason `resolve` has one
@@ -3930,7 +3935,7 @@ export default function App() {
     await deferCommit(item, async () => {
       await api.answer({ product: item.product, id: item.id, status: 'done', ...(unshippedOk ? { closeUnshipped: true } : {}) });
       pushUndo({ label: `Reopened: ${clipToSentence(item.title, TOAST_TITLE)}`, undoes: `reopen “${clipToSentence(item.title, TOAST_TITLE)}”`, brings: item, undid, run: async () => { await api.answer({ product: item.product, id: item.id, status: 'open' }); } });
-    }, `Closed: ${clipToSentence(item.title, TOAST_TITLE)}`, undefined, stay, undefined, undid);
+    }, `${DONE.verb}: ${clipToSentence(item.title, TOAST_TITLE)}`, undefined, stay, undefined, undid);
   }, [deferCommit, closeAgentRow, closeTroubleRow, snap?.supervisor.spawnTrouble?.since, run, showToast, pushUndo, nudgeOnStopped, waitingFiled, focused, markSeen]);
 
   const resolve = useCallback(async (item: WorkItem, { stay }: { stay?: boolean } = {}) => {
@@ -4518,7 +4523,10 @@ export default function App() {
         // undone into her inbox instead of back into Done.
         await api.answer({ product: item.product, id: item.id, ...withdrawReply(item.status) });
       } });
-    }, `Option ${option.n} → ${item.productName}`, undefined, !movesOn(item), { product: item.product, id: item.id }, undid);
+      // "Sent", because the arrow says where the answer went and nothing said
+      // what happened to it: "Option 1 → Practice" was read off the QA box as
+      // meaning nothing.
+    }, `Option ${option.n} sent → ${item.productName}`, undefined, !movesOn(item), { product: item.product, id: item.id }, undid);
   }, [deferCommit, pushUndo, markDone, markSeen, movesOn]);
 
   /* ------------------------ the task she just wrote ------------------------ */
@@ -4766,8 +4774,8 @@ export default function App() {
       }
     } });
     showToast(kept.length
-      ? `Closed: ${targets.length} items. Still open: ${kept.length}, work never reached main`
-      : `Closed: ${targets.length} items`);
+      ? `${DONE.verb}: ${targets.length} items. Still open: ${kept.length}, work never reached main`
+      : `${DONE.verb}: ${targets.length} items`);
     setMultiSel(new Set(kept.map((i) => i.id)));
     await refresh();
   }, [selectable, refresh, showToast, run, nudgeOnStopped]);
@@ -5179,6 +5187,12 @@ export default function App() {
       if (roomShown && e.key !== 'Tab' && e.key !== 'n' && e.key !== 'N' && e.key !== '\\') {
         if (roomsUi.dialogOpen || modal || inInput || e.metaKey || e.ctrlKey || e.altKey) return;
         if (e.key === 'Escape') { e.preventDefault(); roomsUi.close(); }
+        if ((e.key === 'g' || e.key === 'G') && roomsUi.findGroup) { e.preventDefault(); roomsUi.findGroup(); }
+        return;
+      }
+      // G FINDS A GROUP from any page, as ⌘K finds a command.
+      if ((e.key === 'g' || e.key === 'G') && roomsUi.findGroup && !roomsUi.dialogOpen && !modal && !inInput && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault(); roomsUi.findGroup();
         return;
       }
       // ⌘J SHOWS AND HIDES THIS TASK'S TERMINAL.It is the chord VS Code,
@@ -6151,7 +6165,7 @@ export default function App() {
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onSignOut={() => { void api.teamSignOut().then(() => refresh()); }}
         onTeam={() => { setSettingsOpen(false); setSettingsPane(null); closeSearch(); setFocused(null); setOpenCard(null); setTeamOpen(true); }} onSettings={() => { setTeamOpen(false); setSettingsPane(null); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }} inboxCount={inbox.length + roomsUi.mentions.length} scheduledCount={scheduledCount} view={view} collapsed={sideFolded} onToggle={toggleWorkspace} onSearch={openSearch} onCompose={() => setModal('compose')} onView={openView}
-        rail={narrowSidebar} onHover={setRailOpen} groups={narrowSidebar ? roomsUi.sidebarGroups(roomShown || directOpen, directOpen ? focused!.id : null) : undefined} onGroupsPage={roomShown || directOpen} />}
+        rail={narrowSidebar} onHover={setRailOpen} groups={narrowSidebar ? roomsUi.sidebarGroups(roomShown || directOpen) : undefined} onGroupsPage={roomShown || directOpen} />}
       {/* THE REACH (w-5dcff78971). The corner is transparent and it is the
           only part of our own document lying over the file, so a pointer
           brought up there wakes the marks that a pointer moving across the
@@ -7192,17 +7206,17 @@ export default function App() {
             const moves = readMoves(sel, seenAt, unreadSince);
             return [
               ...(view !== 'snoozed'
-                ? [{ id: 'done', label: `Close (${n} selected)`, keyHint: 'E', run: () => { setModal(null); batchDone(multiSel); } }]
+                ? [{ id: 'done', label: `${DONE.verb} (${n} selected)`, keyHint: 'E', run: () => { setModal(null); batchDone(multiSel); } }]
                 : []),
               { id: 'snooze', label: `Later (${n} selected)`, keywords: LATER_KEYWORDS, keyHint: 'L', run: () => openSnooze(sel) },
               ...(sel.some((i) => returnAt(i) > Date.now())
                 ? [{ id: 'unsnooze', label: `Back to Inbox (${n} selected)`, run: () => unsnooze(sel) }]
                 : []),
               ...(moves.read
-                ? [{ id: 'read', label: `Mark Read (${n} selected)`, run: () => { sel.forEach(markSeen); setMultiSel(new Set()); setModal(null); } }]
+                ? [{ id: 'read', label: `Mark read (${n} selected)`, run: () => { sel.forEach(markSeen); setMultiSel(new Set()); setModal(null); } }]
                 : []),
               ...(moves.unread
-                ? [{ id: 'unread', label: `Mark Unread (${n} selected)`, run: () => { sel.forEach(markUnseen); setMultiSel(new Set()); setModal(null); } }]
+                ? [{ id: 'unread', label: `Mark unread (${n} selected)`, run: () => { sel.forEach(markUnseen); setMultiSel(new Set()); setModal(null); } }]
                 : []),
               // Resume only what she ticked. Some of what stops is work she
               // has moved past, and all-or-nothing made her choose between
@@ -7218,7 +7232,7 @@ export default function App() {
               // stop her having to make correctly at speed.
               ...(sel.filter((i) => !working(i)).length
                 ? [{ id: 'resume',
-                     label: `Resume Agents (${sel.filter((i) => !working(i)).length} of ${n} selected)`,
+                     label: `Resume agents (${sel.filter((i) => !working(i)).length} of ${n} selected)`,
                      run: () => { setModal(null); putAgentBackOn(sel.filter((i) => !working(i))); } }]
                 : []),
               ...priorityCommands(sel, directSlugs).map((c) => ({
@@ -7236,15 +7250,15 @@ export default function App() {
           const moveRefusal = whyItCannotMove(target as never, { live: liveIds.has(target.id) });
           return [
             ...(focused
-              ? [{id:'remote-control',label:'Remote Control',keywords:'phone mobile continue claude rc',run:()=>{setModal(null);window.dispatchEvent(new Event('task-remote-control-open'));}}, {id:'open-terminal',label:'Open Terminal',keywords:'shell command console',run:()=>{setModal(null);window.dispatchEvent(new Event('task-terminal-open'));}}]
+              ? [{id:'remote-control',label:'Remote control',keywords:'phone mobile continue claude rc',run:()=>{setModal(null);window.dispatchEvent(new Event('task-remote-control-open'));}}, {id:'open-terminal',label:'Open terminal',keywords:'shell command console',run:()=>{setModal(null);window.dispatchEvent(new Event('task-terminal-open'));}}]
               : []),
             // Approve lives here by NAME only, for everything resolve
             // covers; no key drives it. E is archive, never approval.
             ...(!target.agent && !target.answer && (target.kind === 'review' || (target.kind === 'question' && recommended)
               || (target.status === 'open' && target.kind !== 'question' && !(target.labels ?? []).includes('founder')))
               ? [{ id: 'approve',
-                  label: target.kind === 'question' ? 'Approve Recommended'
-                    : target.kind === 'review' ? 'Approve (Proceed as Proposed)' : 'Approve (Run It)',
+                  label: target.kind === 'question' ? 'Approve recommended'
+                    : target.kind === 'review' ? 'Approve (proceed as proposed)' : 'Approve (run it)',
                   run: () => { setModal(null); resolve(target); } }]
               : []),
             // RUN NOW, by the same rule as the three-dot menu (run-now.ts).
@@ -7255,7 +7269,8 @@ export default function App() {
               runNow: snap.supervisor.runNow,
               inProgress: belongsInProgress(target, { deferredUntil: dueAt(target), now, live: liveIds.has(target.id), stopped: stalledIds.has(target.id) }),
             }, () => { setModal(null); void runNow(target); }),
-            { id: 'done', label: target.agent ? DONE.verb : `${DONE.verb} Task`, keyHint: 'E', run: () => { setModal(null); markDone(target); } },
+            // "Mark done" is what the thread's own menu calls this (threads/ThreadMenu).
+            { id: 'done', label: target.agent ? DONE.verb : `Mark ${DONE.verb.toLowerCase()}`, keyHint: 'E', run: () => { setModal(null); markDone(target); } },
             { id: 'reply', label: 'Reply', keyHint: 'R', run: () => { open(); setModal('reply'); } },
             // Carry on with this row. Offered on ANY status a worker is not
             // already on, because the row that needed it most was `done`:
@@ -7265,18 +7280,18 @@ export default function App() {
             // excluded, and the stop above is what it gets instead.
             ...(!target.agent && !working(target) && !stoppableNow(target)
               ? [{ id: 'resume-any',
-                   label: target.status === 'done' ? 'Resume This Agent (Reopen and Carry On)' : 'Resume This Agent',
+                   label: target.status === 'done' ? 'Resume this agent (reopen and carry on)' : 'Resume this agent',
                    run: () => { setModal(null); putAgentBackOn([target]); } }]
               : []),
             // No Decline here, by design. Close This Task above
             // is the one way to say no.
             isUnread(target, seenAt, unreadSince)
-              ? { id: 'read', label: 'Mark Read', run: () => { markSeen(target); setModal(null); } }
-              : { id: 'unread', label: 'Mark Unread', run: () => { markUnseen(target); setModal(null); } },
+              ? { id: 'read', label: 'Mark read', run: () => { markSeen(target); setModal(null); } }
+              : { id: 'unread', label: 'Mark unread', run: () => { markUnseen(target); setModal(null); } },
             ...(returnAt(target) > Date.now()
               ? [{
                   id: 'unsnooze',
-                  label: parkedByAgent(target, now) ? 'Let It Run Now' : 'Back to Inbox',
+                  label: parkedByAgent(target, now) ? 'Let it run now' : 'Back to Inbox',
                   keyHint: 'E',
                   run: () => unsnooze(target),
                 }]
@@ -7358,10 +7373,10 @@ export default function App() {
                    run: () => { setModal(null); stopAgent(target); } }]
               : []),
             ...(target.status === 'blocked'
-              ? [{ id: 'send-back', label: 'Send Back to Agent', run: () => { setModal(null); sendBack(target); } }]
+              ? [{ id: 'send-back', label: 'Send back to agent', run: () => { setModal(null); sendBack(target); } }]
               : []),
             ...(snap.supervisor.stalled?.includes(target.id)
-              ? [{ id: 'redeliver', label: 'Restart the Agent (It Stopped)', run: () => { setModal(null); redeliver(target); } }]
+              ? [{ id: 'redeliver', label: 'Restart the agent (it stopped)', run: () => { setModal(null); redeliver(target); } }]
               : []),
             ...(!focused ? [{ id: 'open', label: 'Open', keyHint: '↵', run: () => { setModal(null); open(); } }] : []),
             // ⌘K is the ONLY keyboard route to a level now: the ⌘1..4 chord

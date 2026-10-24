@@ -496,21 +496,62 @@
 .workspace-layout.gt-inset[data-artifact-layout="beside"] .focus-dock { padding-left: 44px; }
 .workspace-layout.gt-inset.workspace-task > .topbar > .topbar-right { right: 28px; }
 
-/* WITH GROUPS ON THE SIDEBAR STAYS NARROW (GroupsSidebar.tsx), and while
-   pointed at it widens over the page rather than pushing it; the groups under
-   Groups show only while it is wide. */
-/* Settings keeps its own wide list of panes, so it keeps its own edge. */
-.app.workspace-layout.gt-rail:not(.workspace-settings) { --workspace-left: calc(44px + 38px); }
-.gt-rail-open .workspace-navigation.gt-rail-nav { z-index: 40; }
-.gt-rail-open .workspace-navigation.gt-rail-nav::before { content: ''; position: absolute; z-index: -1; inset: -12px -10px -10px -10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--pop); box-shadow: var(--shadow-card); }
-.workspace-collapsed .gt-rail-nav .th-team-name { display: none; }
+/* WITH GROUPS ON THE SIDEBAR STAYS NARROW (GroupsSidebar.tsx). Pointed at, it
+   opens to the full sidebar and moves the page over until the pointer leaves,
+   will sit. The four things that read the width are eased, not the width
+   itself: every element inherits it, so easing it restyled the whole page
+   each frame. Settings' own list does not slide. */
+.app.workspace-layout.gt-rail, .gt-rail.workspace-layout::before, .gt-rail > .panel-marks, .gt-rail .workspace-navigation.gt-rail-nav {
+  transition-property: padding-left, left, width; transition-duration: .2s; transition-timing-function: cubic-bezier(.4, 0, .2, 1); }
+.app.workspace-layout.gt-rail.gt-rail-open, .gt-rail-open.workspace-layout::before, .gt-rail-open > .panel-marks, .gt-rail-open .workspace-navigation.gt-rail-nav {
+  transition-duration: .24s; transition-timing-function: cubic-bezier(.22, .61, .36, 1); }
+.app.workspace-layout.gt-rail.workspace-settings, .gt-rail.workspace-settings::before, .gt-rail.workspace-settings > .panel-marks { transition: none; }
+.gt-rail-nav button, .gt-rail-nav .th-team { overflow: hidden; }
+.gt-rail-nav button > span:not(.tm-av), .gt-rail-nav .th-team-name, .gt-rail-nav.workspace-navigation .workspace-running { display: block; white-space: nowrap; opacity: 1; transition: opacity .14s .08s; }
+.workspace-collapsed .gt-rail-nav.workspace-navigation button > span:not(.tm-av), .workspace-collapsed .gt-rail-nav .th-team-name, .workspace-collapsed .gt-rail-nav.workspace-navigation .workspace-running { display: block; opacity: 0; transition: opacity .06s; }
+.gt-rail-nav .workspace-tab.has-count { position: relative; }
+.gt-rail-nav.workspace-navigation .workspace-tab.has-count::after { content: ''; position: absolute; top: 8px; left: 25px; right: auto; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: 0; transition: opacity .1s; }
+.workspace-collapsed .gt-rail-nav.workspace-navigation .workspace-tab.has-count::after { opacity: 1; }
+/* Your face keeps one size and one place, narrow or wide. */
+.gt-rail-nav.workspace-navigation .th-me { padding-left: 4px; gap: 7px; }
+.gt-rail-nav.workspace-navigation .th-me .th-me-btn { width: calc(100% + 4px); margin-left: -4px; padding: 0 8px; gap: 9px; }
+.gt-rail-nav.workspace-navigation .th-me .tm-av { width: 22px; height: 22px; line-height: 20px; font-size: 9px; }
+@media (prefers-reduced-motion: reduce) {
+  .app.workspace-layout.gt-rail, .gt-rail.workspace-layout::before, .gt-rail > .panel-marks, .gt-rail .workspace-navigation.gt-rail-nav, .gt-rail-nav button > span:not(.tm-av), .gt-rail-nav .th-team-name, .gt-rail-nav .workspace-running, .gt-rail-nav .workspace-tab.has-count::after { transition: none !important; }
+}
 .gt-rail-groups { margin-top: 3px; }
-.gt-rail-list { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; }
-.workspace-navigation .gt-rail-row { position: relative; height: 32px; }
-.gt-rail-ic { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex: none; font-style: normal; color: var(--text-faint); }
-.gt-rail-ic svg { width: 14px; height: 14px; }
-.gt-rail-row.unread { color: var(--text); }
-.gt-rail-dot { margin-left: auto; width: 5px; height: 5px; flex: none; background: var(--accent); }
-.workspace-collapsed .gt-rail-quiet .gt-rail-list { display: none; }
-.gt-gtitle { display: inline-flex; align-items: center; gap: 10px; }
 .gt-hh { display: inline-flex; color: var(--text-faint); }
+
+/* THE GROUPS PAGE (GroupsColumn.tsx): every group down its left, 20 points
+   in, the open one's chat beside them on the 44-point edge. Its top bar is cut
+   on the column's line, Groups over the list and the group's name over its chat. */
+.gc-list { width: 300px; flex: none; min-height: 0; overflow-y: auto; padding: 8px 0 12px; border-right: 1px solid var(--rm-line); }
+.gc-row { display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 12px; align-items: center; width: 100%; padding: 9px 16px 9px 20px; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: default; }
+.gc-row:hover { background: var(--wash); }
+.gc-row.on { background: var(--wash-strong); }
+.gc-w { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.gc-1, .gc-2 { display: flex; gap: 8px; min-width: 0; }
+.gc-1 > .rm-one, .gc-2 > .rm-one { flex: 1; min-width: 0; }
+.gc-1 { align-items: baseline; font-size: 14px; line-height: 19px; color: var(--text); }
+:root .gc-row.unread .gc-1 > .rm-one { font-weight: 530; }
+.gc-t { flex: none; font-size: 12px; color: var(--text-faint); }
+.gc-2 { align-items: center; font-size: 13px; line-height: 17px; color: var(--text-faint); }
+.gc-row.unread .gc-2 { color: var(--text-dim); }
+/* Something new: a dot at the end of the line under the time, not in a gutter of its own. */
+.gc-dot { flex: none; width: 6px; height: 6px; background: var(--accent); }
+.gc-head { flex: 1; min-width: 0; align-self: stretch; display: flex; margin-left: -44px; }
+.gc-head-col { width: 300px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 16px 0 20px; border-right: 1px solid var(--rm-line); }
+.gc-col-title { flex: 1; min-width: 0; color: var(--text-dim); }
+.gc-find { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border: 1px solid var(--line); background: none; font: inherit; font-size: 12px; color: var(--text-faint); cursor: default; }
+.gc-find kbd { font: 11px var(--mono); }
+.gc-find:hover { background: var(--wash); color: var(--text); }
+/* Clear of New thread and the group's options at the bar's right end. */
+.gc-head-group { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 0 250px 0 44px; }
+.modal.palette.gc-finder { width: 600px; max-width: calc(100vw - 80px); }
+/* Nine whole rows before it scrolls, fewer in a short window so the box stays on screen. */
+.gc-flist.palette-list { max-height: min(calc(9 * 60px + 12px), 55vh); }
+.palette-item.gc-frow { justify-content: flex-start; align-items: center; gap: 12px; height: 60px; padding: 0 18px; }
+.gc-fw { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.gc-f1 { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; line-height: 19px; color: var(--text); }
+.gc-f2 { font-size: 12.5px; line-height: 17px; color: var(--text-faint); }
+.gc-fm { flex: none; font-size: 12px; color: var(--text-faint); }
