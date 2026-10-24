@@ -22,7 +22,7 @@
 // cannot change the code that ships it. With no `ship.json`, nothing here does
 // anything at all.
 
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Name } from '../shared/product-name.mjs';
@@ -238,13 +238,32 @@ export function failureNote(output) {
   return `${SHIP_FAILED}${said.slice(0, 300)}`;
 }
 
+/**
+ * The base checkout's hooks, read off the task folder's shared git dir. The
+ * ship runs with cwd = the task folder, whose core.hooksPath may be the
+ * relative 'scripts/hooks' resolving to the branch's own, worker-edited copy.
+ * Pinning the base copy here is what keeps the gate the branch cannot change.
+ */
+function baseHooksPath(cwd) {
+  try {
+    const common = execFileSync('git', ['-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return common ? path.resolve(common, '..', 'scripts', 'hooks') : null;
+  } catch { return null; }
+}
+
 export function runScript(script, cwd, { timeout = SHIP_MS, env = process.env } = {}) {
   const node = env.npm_node_execpath && fs.existsSync(env.npm_node_execpath) ? env.npm_node_execpath : 'node';
+  const hooks = baseHooksPath(cwd);
+  const baseGate = hooks
+    ? { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: hooks }
+    : {};
   return new Promise((resolve) => {
     let out = '';
     let child;
     try {
-      child = spawn(node, [script], { cwd, env: { ...env, GIT_TERMINAL_PROMPT: '0' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(node, [script], { cwd, env: { ...env, GIT_TERMINAL_PROMPT: '0', ...baseGate }, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) {
       resolve({ code: 1, out: String(e?.message ?? e) });
       return;
