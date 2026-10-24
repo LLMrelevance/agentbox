@@ -84,7 +84,7 @@ export function createRooms({
   let mentioned = []; // my newest mentions, which may be older than the messages held
   let unsubscribe = null;
   let started = null; // the backend rooms were started on
-  let setUp = false; // my profile made, General joined if I have nowhere else, realtime on
+  let setUp = false; // my profile made, Coworking joined if I have nowhere else, realtime on
   let lastSent = null;
   let lastSentAt = 0;
   let refreshing = null;
@@ -313,9 +313,9 @@ export function createRooms({
     try {
       const mine = await ensureProfile(b);
       state = { ...state, me: mine };
-      // Someone with no team and no room starts in General, pinned.
+      // Someone with no team and no room starts in Coworking, pinned.
       const rooms = await b.myRooms();
-      if (!rooms.length && !(team()?.team)) await b.joinListedRoom(GENERAL_ROOM).catch((err) => log(`rooms: General: ${err.message}`));
+      if (!rooms.length && !(team()?.team)) await b.joinListedRoom(GENERAL_ROOM).catch((err) => log(`rooms: Coworking: ${err.message}`));
       unsubscribe ??= b.subscribeRooms(hear);
       setUp = true;
       state = { ...state, error: null };
