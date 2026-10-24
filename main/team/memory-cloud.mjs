@@ -43,6 +43,18 @@ export function signUpMemory(cloud, { id = crypto.randomUUID(), email, name, ava
   return id;
 }
 
+// WHAT THE CLOUD SERVER DOES WITH THE SERVICE ROLE (cloud/gateway/phone.mjs):
+// claims a command nobody has for the run it starts, as the database lets one
+// claim win. Here so a test can be the server.
+export function claimForTheCloud(cloud, id, runId) {
+  const c = (cloud.phoneCommands ?? []).find((x) => x.id === id);
+  if (!c || c.takenAt || c.claimedAt) return false;
+  c.claimedAt = new Date(cloud.now()).toISOString();
+  c.claimedBy = `cloud:${runId}`;
+  cloud.events.emit('phone', 1);
+  return true;
+}
+
 export function memoryBackend(cloud, personId) {
   const myTeams = () => cloud.members.filter((m) => m.personId === personId).map((m) => m.teamId)
     .sort((a, b) => (cloud.teams.get(a)?.made ?? 0) - (cloud.teams.get(b)?.made ?? 0));
@@ -275,9 +287,11 @@ export function memoryBackend(cloud, personId) {
     // Each write may name who it is for; a write for somebody other than
     // whoever this backend is signed in as is refused, as the database's
     // `owner = auth.uid()` refuses it.
-    async putPhoneProject({ owner, device, project, name }) {
+    async putPhoneProject({ owner, device, project, name, cloud: carriesOn }) {
       if (owner && owner !== personId) refuse('write to somebody else\'s phone');
-      (cloud.phoneProjects ??= new Map()).set(`${personId}:${device}:${project}`, { owner: personId, device, project, name, updatedAt: cloud.now() });
+      const k = `${personId}:${device}:${project}`;
+      const was = cloud.phoneProjects?.get(k);
+      (cloud.phoneProjects ??= new Map()).set(k, { owner: personId, device, project, name, cloud: carriesOn === undefined ? was?.cloud ?? false : !!carriesOn, updatedAt: cloud.now() });
     },
     async dropPhoneProject(device, project, owner) {
       if (owner && owner !== personId) return;
@@ -353,7 +367,7 @@ export function memoryBackend(cloud, personId) {
       if (!/^[0-9a-f]{12}$/.test(String(device))) refuse('a command for no computer');
       if (!PHONE_COMMANDS.includes(kind)) refuse(`a ${kind} command`);
       if ((kind === 'setting') !== (project == null) || (kind === 'setting' && item != null)) refuse(`a ${kind} command for ${project == null ? 'no project' : 'a project'}`);
-      const row = { id: crypto.randomUUID(), owner: personId, device, project, item, kind, payload, createdAt: new Date(cloud.now()).toISOString(), claimedAt: null, takenAt: null, outcome: null };
+      const row = { id: crypto.randomUUID(), owner: personId, device, project, item, kind, payload, createdAt: new Date(cloud.now()).toISOString(), claimedAt: null, claimedBy: null, takenAt: null, outcome: null };
       (cloud.phoneCommands ??= []).push(row);
       cloud.events.emit('phone', 1);
       return { ...row };
@@ -364,6 +378,9 @@ export function memoryBackend(cloud, personId) {
     async phoneCommands() {
       return (cloud.phoneCommands ?? []).filter((c) => c.owner === personId).map((c) => ({ ...c }));
     },
+    async cloudPhoneCommands(device, since) {
+      return (cloud.phoneCommands ?? []).filter((c) => c.owner === personId && c.device === device && c.claimedBy && c.createdAt >= since).map((c) => ({ ...c }));
+    },
     // THE COMPUTER CLAIMS ONE BEFORE IT DOES IT; the phone takes one back only
     // while nobody has. Exactly one of the two wins, as in the database.
     // 'claimed' is a claim made now, 'ours' one made before (this computer,
@@ -372,6 +389,7 @@ export function memoryBackend(cloud, personId) {
       if (owner && owner !== personId) return 'gone';
       const c = (cloud.phoneCommands ?? []).find((x) => x.id === id && x.owner === personId);
       if (!c || c.takenAt) return 'gone';
+      if (c.claimedBy) return 'cloud';
       if (c.claimedAt) return 'ours';
       c.claimedAt = new Date(cloud.now()).toISOString();
       return 'claimed';

@@ -89,14 +89,26 @@ const HANDLED = {
   ],
 
   // --- answering an agent ---
-  'R': [[focused, "e.key === 'r' || e.key === 'R') { e.preventDefault(); setModal('reply'); }"], [list, "case 'r': case 'R':"]],
+  'R': [[focused, "e.key === 'r' || e.key === 'R') { e.preventDefault(); setModal('reply');"], [list, "case 'r': case 'R':"]],
   // The send chord lives in the two boxes she types in, not on the window.
   '⌘↵': [
     [compose, "if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') send();"],
     [focus, "if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') send();"],
   ],
-  '1': [[focused, "/^[1-9]$/.test(e.key)) { e.preventDefault(); pickOption(focused, Number(e.key)); }"]],
-  '9': [[focused, "/^[1-9]$/.test(e.key)) { e.preventDefault(); pickOption(focused, Number(e.key)); }"]],
+  // The number picks AND sends, except in the 800ms after the app itself put a
+  // new thread in front of you, where it is held and says so rather than
+  // answering a thread you have not read (renderer/src/pick-settles.ts, F-31).
+  // Both halves are checked: the page promises this key works, and the hold is
+  // the one case where the press does something other than send.
+  '1': [
+    [focused, "/^[1-9]$/.test(e.key)) {"],
+    [focused, 'else pickOption(focused, Number(e.key));'],
+    [focused, 'if (!pickLandsHere(arrived.current, keyOf(focused), Date.now())) showToast(AIMED_AT_THE_THREAD_YOU_LEFT);'],
+  ],
+  '9': [
+    [focused, "/^[1-9]$/.test(e.key)) {"],
+    [focused, 'else pickOption(focused, Number(e.key));'],
+  ],
   // The arrows walk the options, and Enter sends the one showing.
   '⌘Y': [
     [mainProc, "if (key !== 'y' && key !== 'n') return;"],
@@ -414,7 +426,7 @@ describe('the page stays a page and not a wall', () => {
     }
     if (/\bterminals?\b/.test(prose)) {
       expect(read('renderer/src/components/TaskTerminal.tsx')).toContain('<strong>Terminal</strong>');
-      expect(app).toContain("label:'Open Terminal'");
+      expect(app).toContain("label:'Open terminal'");
     }
   });
 

@@ -1098,6 +1098,14 @@ body {
   line-height: 1;
   font-weight: 400;
 }
+/* The same button on a keyboard with no ⌘, where the key is a word. Four
+   letters at 18px overrun a 34px button, so the word is set at the size the
+   app's other key words take. */
+.cmd-glyph.cmd-word {
+  font-size: 11px;
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+}
 
 /* P2, the tab head). Smaller than a corner button because it is standing among
    words now, not among icons, and pulled 11px back into the row's own 26px gap.
@@ -4205,6 +4213,21 @@ img.app-mark { opacity: 1; border-radius: 0; }
 */
 .app.composing .toast { bottom: auto; top: 74px; }
 
+/* AND OUT OF THE APPROVAL CARD'S WAY. The card is in that corner too and the
+   toast is drawn above it, so a toast lay across Allow and Deny at the moment
+   somebody is reaching for one. SIDEWAYS AND NOT UP, unlike the composer's: the
+   card's width is fixed (`.approvals`, 440px at right 22) and only its height
+   grows with the command it quotes, so beside it is a place that is always
+   clear -- and the top of the window is where New thread is, which the composer
+   covers up with its own card and this would not. 22 + 440 + 18 of air. */
+.app.asking .toast { right: 480px; }
+
+/* Unless there is no room beside it, and then up, where there is always room:
+   480 and 360 of toast need 840 to the right of the sidebar. */
+@media (max-width: 920px) {
+  .app.asking .toast { right: 30px; bottom: auto; top: 74px; }
+}
+
 /* THE ONE THAT OPENS THE TASK IT IS ABOUT: the whole card is the target, so
    it is a `<button>`, and only the pointer and the focus ring are added. */
 .toast-goes { cursor: pointer; }
@@ -4997,13 +5020,10 @@ img.app-mark { opacity: 1; border-radius: 0; }
   line-height: 1.55; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-/* NO HORIZONTAL PADDING, DELIBERATELY. A 24px gutter was tried here as a floor
-   for the narrow window and measured out inert: the nav is a fixed 236px, so
-   the pane is always the window minus 237, and the window's own minWidth of 980
-   (main/main.mjs) already leaves 744px for a 620px column. The gutter changed
-   the left gap at 980 from 62px to 62px. A rule that does nothing is worse than
-   no rule, because the next reader believes its comment. */
-.set-pane { flex: 1; min-width: 0; overflow-y: auto; background: var(--bg); position: relative; }
+/* The gutter only bites under a 920 window: the nav is a fixed 236px and the
+   column 620, and the window goes down to 720 (main/main.mjs), where the pane
+   is 483 and the words would otherwise touch the nav. */
+.set-pane { flex: 1; min-width: 0; overflow-y: auto; background: var(--bg); position: relative; padding: 0 32px; }
 /* The screen is the ground here and nothing inside it paints a second one, or
    the photograph would show in the nav column and stop at the pane's edge. */
 :root[data-skin] .set-pane { background: transparent; }
@@ -6042,6 +6062,21 @@ a.set-ghost { text-decoration: none; display: inline-block; }
   background-size: cover, cover, cover;
   background-blend-mode: normal, multiply, normal;
 }
+/* The walk is the one place that wears a focus ring. The app draws none
+   anywhere (see `*:focus` above): its grammar is J, K and Tab for the tabs, and
+   the browser's ring answers a traversal it does not use. Setup is not that app
+   yet. It is a form, Tab is the only way round it without a mouse, and nothing
+   on screen said where you were. One rule for every screen the walk draws, so a
+   screen that gains a button gains the ring with it. */
+.fr-screen :is(button, [role="option"], input, textarea, a):focus-visible,
+.fr-stay-scrim button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 3px;
+}
+/* A row in the folder card is full width, so its ring goes just inside the row
+   rather than over the rows either side of it. */
+.fr-screen .fr-folder:focus-visible { outline-offset: -2px; }
+
 .fr-brand {
   position: fixed; left: 64px; top: 44px; z-index: 302;
   display: flex; align-items: center; gap: 11px;
@@ -6547,7 +6582,10 @@ a.set-ghost { text-decoration: none; display: inline-block; }
 .fr-folder-other { margin-top: 4px; }
 .fr-folder-other .fr-folder-name { grid-column: 2 / 5; color: var(--text-dim); }
 .fr-folder-other.lit .fr-folder-name { color: var(--text); }
-.fr-folders-label + .fr-folder-other, .fr-folder + .fr-folder-other { box-shadow: inset 0 1px 0 var(--line); border-radius: 0 0 var(--radius) var(--radius); }
+/* One rule under the plans, however many ways out sit below it: a hairline
+   between two rows of the same group separates nothing. */
+.fr-folders-label + .fr-folder-other, .fr-folder:not(.fr-folder-other) + .fr-folder-other { box-shadow: inset 0 1px 0 var(--line); border-radius: 0 0 var(--radius) var(--radius); }
+.fr-folder-other + .fr-folder-other { margin-top: 0; }
 /* --- WHICH PLAN, AND SETTING IT UP (w-9f6975906c, picked 2026-10-05) -------
    The plan rows are folder rows with a letter where the folder glyph sits. The
    setup card is three steps on the same glass; the step underway is lit the way
@@ -6582,11 +6620,20 @@ a.set-ghost { text-decoration: none; display: inline-block; }
   text-decoration: underline dotted var(--line-strong); text-underline-offset: 3px;
 }
 .ps-link:hover { color: var(--text-dim); }
+/* What is happening, in sentences rather than the tool's own stdout. The link
+   is the one part of it still worth monospace. */
 .ps-log {
   width: 620px; max-width: calc(100vw - 96px); max-height: 220px; overflow: hidden; margin: 14px 0 0;
-  padding: 12px 14px; font: 12px/1.55 var(--mono); color: var(--text-dim); white-space: pre-wrap;
+  padding: 12px 14px; font-size: 13px; line-height: 1.6; color: var(--text-dim); text-align: left;
   background: var(--film-strong); border: 1px solid var(--line); border-radius: var(--radius);
 }
+.ps-log p { margin: 0; }
+.ps-log p + p { margin-top: 5px; }
+.ps-log-link {
+  display: block; margin-top: 9px; font: 12px/1.5 var(--mono); color: var(--text-faint);
+  word-break: break-all; text-decoration: none;
+}
+.ps-log-link:hover { color: var(--text-dim); text-decoration: underline; }
 /* The fallback bar on the inbox, the only setup surface outside the walk. */
 .ps-bar {
   display: flex; align-items: center; gap: 14px; padding: 12px 18px;
@@ -6841,9 +6888,12 @@ button.cs-row:hover .cs-row-go { color: var(--text); }
 /* IN THE STRIP UNDER THE SIDEBAR SINCE 2026-10-06. It was 38 tall from 14 up,
    which reached into the sidebar, and once the sidebar's foot was tightened to
    end at Settings the word sat on top of Settings. The strip under the sidebar
-   is 22 tall and holds nothing else. */
+   is 22 tall and holds nothing else.
+   AND OFF THE WINDOW'S EDGE SINCE 2026-10-24, where at bottom 0 it sat with
+   its descenders 4px off the bottom. 10 is the walk's own FLOOR, what
+   everything else it draws is held off an edge by (./onboarding.ts). */
 .fr-out {
-  position: fixed; left: 16px; bottom: 0px; height: 22px; z-index: 302;
+  position: fixed; left: 16px; bottom: 10px; height: 22px; z-index: 302;
   display: inline-flex; align-items: center;
   border: 0; background: none; padding: 0 6px;
   font: inherit; font-size: 12px; color: var(--text);
@@ -7699,8 +7749,12 @@ button.cs-row:hover .cs-row-go { color: var(--text); }
 .fr-landed {
   position: fixed; inset: 0; z-index: 302; pointer-events: none;
 }
+/* OVER THE BURST, NOT UNDER IT. `.fr-burst` carries a z-index and is drawn
+   first; these words carried none, so forty falling pieces were painted across
+   a 34px headline. */
 .fr-landed-say {
   position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%);
+  z-index: 303;
   width: min(560px, calc(100vw - 96px));
   text-align: center;
   animation: fr-landed-say 14s ease forwards;

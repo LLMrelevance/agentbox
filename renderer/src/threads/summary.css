@@ -23,6 +23,9 @@
 .ts-st-held { border: 1.5px solid var(--accent); }
 .ts-st.live { animation: th-breathe 1.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .ts-st.live { animation: none; } }
+/* The list's cloud (pages.css .th-st-cloud), 14px wide, so the word starts where it does after a dot. */
+.ts-value .th-st-cloud { margin-right: 7px; }
+.ts-lead .th-st-cloud { margin-right: 6px; }
 .ts-st-sched { border: 1.5px dashed var(--text-faint); }
 .ts-st-done { background: var(--text-faint); }
 
@@ -90,8 +93,18 @@
 .focus-pane[data-summary="rail"] > .focus-scroll,
 .focus-pane[data-summary="rail"] > .focus-dock,
 .focus-pane[data-summary="rail"] > .keep-line,
-.focus-pane[data-summary="rail"] > .task-terminal { margin-right: var(--ts-rail-w); }
-.focus-pane[data-summary="rail"] { --keep-inset: max(32px, calc((100% - var(--ts-rail-w) - var(--read-w)) / 2 + 32px)); }
+.focus-pane[data-summary="rail"] > .task-terminal,
+.focus-pane[data-summary="over"] > .focus-scroll,
+.focus-pane[data-summary="over"] > .focus-dock,
+.focus-pane[data-summary="over"] > .keep-line,
+.focus-pane[data-summary="over"] > .task-terminal { margin-right: var(--ts-rail-w); }
+.focus-pane[data-summary="rail"],
+.focus-pane[data-summary="over"] { --keep-inset: max(32px, calc((100% - var(--ts-rail-w) - var(--read-w)) / 2 + 32px)); }
+/* OPENED WITHOUT ROOM, the panel lies over the conversation, which stays as
+   wide as it was under the rail, and the words under it dim. */
+.focus-pane[data-summary="over"] .ts-panel { background: var(--skin-solid, var(--bg)); z-index: 4; box-shadow: 0 18px 48px rgba(0, 0, 0, .45); }
+.ts-scrim { position: absolute; inset: 0; z-index: 3; background: rgba(0, 0, 0, .32); cursor: default; }
+:root[data-theme="light"] .ts-scrim { background: rgba(0, 0, 0, .12); }
 /* One button the height of the pane. Its marks stand in a column from the top,
    the panel's icon first; the strip washes under the pointer like the
    panel's own fields, and has no pressed look because it is never pressed:

@@ -286,8 +286,14 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     },
   });
 
-  ipcMain.handle('zero:refresh-usage', async event => {
+  ipcMain.handle('zero:refresh-usage', async (event, { engine = DEFAULT_ENGINE } = {}) => {
     if (event.senderFrame?.parent || (event.sender && event.sender !== window.webContents)) throw Error('Usage refresh is only available in the main app window.');
+    // Codex is asked of this computer and not of OpenAI; main/codex-usage.mjs
+    // says why there is no explicit read.
+    if (engine !== DEFAULT_ENGINE) {
+      const reading = supervisor.refreshCodexUsage();
+      return reading ? { ok: true, reading: { engine, ...reading } } : { ok: false, error: 'Codex has reported no usage on this computer yet.' };
+    }
     const result = await usage.refreshNow();
     return result.reading ? { ...result, reading: { engine: DEFAULT_ENGINE, ...result.reading } } : result;
   });
@@ -1175,7 +1181,10 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // is the sentence, which the screens show as it stands.
   ipcMain.handle('zero:choose-folder', async (_e, { startIn } = {}) => {
     const r = await dialog.showOpenDialog(window, {
-      title: 'Where is its code?',
+      // The title is what the screen behind it asks. On Linux the chooser
+      // draws one, and it was still asking "Where is its code?", the heading
+      // that screen gave up in w-ec62ab6b38.
+      title: 'Pick a project folder',
       buttonLabel: 'Use this folder',
       properties: ['openDirectory', 'createDirectory'],
       ...(startIn ? { defaultPath: startIn } : {}),

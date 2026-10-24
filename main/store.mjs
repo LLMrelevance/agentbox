@@ -118,6 +118,9 @@ export class Store {
         name: project.name || entry.name,
         oneLiner: project.oneLiner || '',
         repoPath: project.repoPath || null,
+        // What puts an unplaced project under the ones already there rather
+        // than alphabetically among them (renderer/src/project-priority.ts).
+        createdAt: Number.isFinite(Date.parse(project.createdAt)) ? Date.parse(project.createdAt) : null,
         // THE MARK SHE CHOSE FOR THIS PROJECT, already a url the window can
         // draw, or null on every project that has never been given one, which is
         // what makes the rail draw its burst instead (main/project-identity.mjs).
@@ -558,20 +561,20 @@ export class Store {
     return this.modules.workItemsDisk.updateWorkItem(this.productDir(slug), id, allowed, { source: 'founder' });
   }
 
-  composeItem(slug, { title, body, kind = 'directive', priority = 0, labels, runAt, start, engine, model, effort, assignee, due, people, visibility, visibleTo, fromPhone }) {
+  composeItem(slug, { id = null, title, body, kind = 'directive', priority = 0, labels, runAt, start, engine, model, effort, assignee, due, people, visibility, visibleTo, fromPhone }) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
     // The 'founder' label is the human-in-the-loop marker: only items the
     // founder composed (or explicitly approved) execute; agent-filed items
     // are proposals until then.
     const allLabels = [...new Set(['founder', ...(labels ?? [])])];
-    const created = workItemsDisk.createWorkItem(
-      dir,
-      // The phone command that asked for it, on the very line that makes the
-      // row, so no row it made is ever without it (Codex's fourth review).
-      { title, kind, priority, labels: allLabels, ...(fromPhone ? { fromPhone: String(fromPhone) } : {}) },
-      { source: 'system' }
-    );
+    // The phone command that asked for it, on the very line that makes the
+    // row, so no row it made is ever without it (Codex's fourth review).
+    const first = { title, kind, priority, labels: allLabels, ...(fromPhone ? { fromPhone: String(fromPhone) } : {}) };
+    // A thread the cloud started from the phone keeps the id it ran under there.
+    const created = id
+      ? workItemsDisk.createWorkItemIfAbsent(dir, id, first, { source: 'system' }).item
+      : workItemsDisk.createWorkItem(dir, first, { source: 'system' });
     // The founder's words carry founder authority; the lifecycle does not.
     // A runAt sent with the compose is "send later": the item exists now and
     // starts then, which is why it rides in with her content rather than after.
@@ -1060,9 +1063,11 @@ export class Store {
    * its order, which is how `walkRows` knows which one is which.
    *
    *  The column is the app's own reading of the row, so each is written in the
-   *  shape that reads that way and nothing marks it: a finished one has a
-   *  result, a working one is her ask with a run and no result yet, and the
-   *  scheduled one is her ask with a time in the future, set as hers. */
+   *  shape that reads that way and nothing marks it: a working one is the ask
+   *  with a run and no result yet, and a scheduled one is the ask with a time
+   *  in the future, set as hers. None of them carries a result, because a
+   *  result is what puts a row back in the inbox and nothing here may land
+   *  there (shared/first-run-practice.mjs). */
   stagePracticeBackdrop(slug, { now = Date.now(), label = 'first-run' } = {}) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
@@ -1082,12 +1087,6 @@ export class Store {
       if (row.state !== 'scheduled') {
         this.appendPracticeRun(slug, created.id, at.hers);
         this.writePracticeTrace(slug, created.id, row.trace, at.hers + 1_000);
-      }
-      if (row.state === 'needs') {
-        workItemsDisk.updateWorkItem(
-          dir, created.id, { result: row.result },
-          { source: 'agent', now: at.hers + 1_000 + row.trace.length * 9_000 + 1_000 },
-        );
       }
       ids.push(created.id);
     }

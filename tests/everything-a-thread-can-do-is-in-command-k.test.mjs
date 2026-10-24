@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { matchesQuery } from '../renderer/src/palette-rows.ts';
-import { threadCommands, titled } from '../renderer/src/thread-commands.ts';
+import { threadCommands } from '../renderer/src/thread-commands.ts';
 import { PLACE_ROW, threadMenuRows } from '../renderer/src/threads/ThreadMenu.tsx';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -29,7 +29,7 @@ describe('who sees it', () => {
   it('typing "priva" over a shared thread finds the row that makes it private', () => {
     const found = type('priva', shared);
     expect(ids(found)).toEqual(['see-private']);
-    expect(found[0].label).toBe('Make Private');
+    expect(found[0].label).toBe('Make private');
     expect(found[0].does).toEqual({ act: 'see', to: 'private', already: false });
   });
 
@@ -75,10 +75,10 @@ describe('what the three-dot menu does', () => {
   it('pins and unpins, in the menu’s words', () => {
     const pin = threadCommands({ pinned: false });
     expect(ids(type('pin', pin))).toEqual(['pin']);
-    expect(pin[0].label).toBe(titled(threadMenuRows({ change: false, terminal: null, finish: false, pin: 'unpinned' })[0].label));
+    expect(pin[0].label).toBe(threadMenuRows({ change: false, terminal: null, finish: false, pin: 'unpinned' })[0].label);
     expect(pin[0].does).toEqual({ act: 'pin', pin: true });
     const unpin = threadCommands({ pinned: true });
-    expect(unpin[0].label).toBe('Unpin Thread');
+    expect(unpin[0].label).toBe('Unpin thread');
     expect(unpin[0].does).toEqual({ act: 'pin', pin: false });
     expect(threadCommands({ pinned: null })).toEqual([]);
   });
@@ -86,7 +86,7 @@ describe('what the three-dot menu does', () => {
   it('moves it between the cloud and this computer, in the menu’s words', () => {
     for (const place of ['cloud', 'here', 'kept']) {
       const [row] = threadCommands({ place });
-      expect(row.label.toLowerCase()).toBe(PLACE_ROW[place].label.toLowerCase());
+      expect(row.label).toBe(PLACE_ROW[place].label);
       expect(row.does).toEqual({ act: 'place', keep: place !== 'kept' });
       expect(matchesQuery('cloud', row), place).toBe(true);
     }
@@ -96,7 +96,7 @@ describe('what the three-dot menu does', () => {
   it('opens the code a run changed, only on an open thread that has one', () => {
     const rows = threadCommands({ open: { change: true, summary: null } });
     for (const q of ['code', 'diff', 'changes']) expect(ids(type(q, rows)), q).toEqual(['code']);
-    expect(rows[0].label).toBe('View Code Changes');
+    expect(rows[0].label).toBe('View code changes');
     expect(ids(threadCommands({ open: { change: false, summary: null } }))).toEqual([]);
     expect(ids(threadCommands({ open: null }))).toEqual([]);
   });
@@ -105,8 +105,8 @@ describe('what the three-dot menu does', () => {
 describe('what the summary panel does', () => {
   it('shows and hides the summary, with its key, and says which', () => {
     const closed = threadCommands({ open: { change: false, summary: 'closed' } });
-    expect(closed).toEqual([expect.objectContaining({ id: 'summary', label: 'Show Summary', keyHint: 'S', does: { act: 'summary' } })]);
-    expect(threadCommands({ open: { change: false, summary: 'open' } })[0].label).toBe('Hide Summary');
+    expect(closed).toEqual([expect.objectContaining({ id: 'summary', label: 'Show summary', keyHint: 'S', does: { act: 'summary' } })]);
+    expect(threadCommands({ open: { change: false, summary: 'open' } })[0].label).toBe('Hide summary');
     expect(ids(threadCommands({ open: { change: false, summary: null } }))).toEqual([]);
   });
 
@@ -120,7 +120,7 @@ describe('what the summary panel does', () => {
   it('stops a repeating task repeating', () => {
     const rows = threadCommands({ repeats: true });
     expect(ids(type('repeat', rows))).toEqual(['end-repeat']);
-    expect(rows[0].label).toBe('Stop Repeating');
+    expect(rows[0].label).toBe('Stop repeating');
     expect(threadCommands({ repeats: false })).toEqual([]);
   });
 });
@@ -138,7 +138,7 @@ describe('on a team', () => {
       { route: 'me', label: 'Do it myself' },
       { route: 'back', label: 'Hand it back to Theo' },
     ] });
-    expect(rows.map((r) => r.label)).toEqual(['Give It to an Agent', 'Do It Myself', 'Hand It Back to Theo']);
+    expect(rows.map((r) => r.label)).toEqual(['Give it to an agent', 'Do it myself', 'Hand it back to Theo']);
     expect(ids(type('myself', rows))).toEqual(['route-me']);
     expect(ids(type('back', rows))).toEqual(['route-back']);
     expect(rows[0].does).toEqual({ act: 'route', route: 'agent' });

@@ -51,12 +51,10 @@ export interface ThreadFacts {
   routes?: { route: TeamRoute; label: string }[];
 }
 
-const SMALL = new Set(['a', 'an', 'the', 'to', 'on', 'in', 'of', 'with', 'and', 'or']);
-
-/** "Run on this Mac" as ⌘K's thread rows write it: "Run on This Mac". */
-export function titled(words: string): string {
-  return words.split(' ').map((w, i) => (i > 0 && SMALL.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(' ');
-}
+// THESE ROWS ARE WRITTEN THE WAY THE MENU WRITES THEM (2026-10-24). A `titled`
+// helper here upper-cased every word on the way into ⌘K, so the menu said "Run
+// on this Mac" and ⌘K said "Run on This Mac", and the list mixed the two
+// styles. The menu's is the one kept (./threads/ThreadMenu).
 
 const SEES = 'visible visibility who sees seen';
 
@@ -71,7 +69,7 @@ export function threadCommands(f: ThreadFacts): ThreadCommand[] {
   for (const r of f.routes ?? []) {
     rows.push({
       id: `route-${r.route}`,
-      label: titled(r.label),
+      label: r.label,
       keywords: r.route === 'agent' ? 'give hand agent delegate' : r.route === 'me' ? 'myself me keep mine take' : 'hand back return decline',
       does: { act: 'route', route: r.route },
     });
@@ -81,7 +79,7 @@ export function threadCommands(f: ThreadFacts): ThreadCommand[] {
   if (f.seen) {
     rows.push({
       id: 'see-team',
-      label: 'Share with Team',
+      label: 'Share with the team',
       ...(f.seen === 'team' ? { hint: 'your team sees it now' } : {}),
       keywords: `${SEES} share shared team teammates everyone`,
       does: { act: 'see', to: 'team', already: f.seen === 'team' },
@@ -89,7 +87,7 @@ export function threadCommands(f: ThreadFacts): ThreadCommand[] {
     if (f.teammates) {
       rows.push({
         id: 'see-people',
-        label: 'Share with Chosen People…',
+        label: 'Share with chosen people…',
         ...(f.seen === 'people' && f.chosen ? { hint: `shared with ${f.chosen} now` } : {}),
         keywords: `${SEES} share shared chosen people person someone pick few`,
         does: { act: 'people' },
@@ -97,36 +95,36 @@ export function threadCommands(f: ThreadFacts): ThreadCommand[] {
     }
     rows.push({
       id: 'see-private',
-      label: 'Make Private',
+      label: 'Make private',
       ...(f.seen === 'private' ? { hint: 'only you see it now' } : {}),
       keywords: `${SEES} private privacy only me just me only you personal secret`,
       does: { act: 'see', to: 'private', already: f.seen === 'private' },
     });
   }
   if (f.pinned != null) {
-    rows.push({ id: 'pin', label: f.pinned ? 'Unpin Thread' : 'Pin Thread', keywords: 'pin pinned unpin top stick sticky', does: { act: 'pin', pin: !f.pinned } });
+    rows.push({ id: 'pin', label: f.pinned ? 'Unpin thread' : 'Pin thread', keywords: 'pin pinned unpin top stick sticky', does: { act: 'pin', pin: !f.pinned } });
   }
-  if (f.rename) rows.push({ id: 'rename', label: 'Rename Thread…', keywords: 'rename name title retitle call it', does: { act: 'rename' } });
+  if (f.rename) rows.push({ id: 'rename', label: 'Rename thread…', keywords: 'rename name title retitle call it', does: { act: 'rename' } });
   if (f.open?.summary) {
     rows.push({
       id: 'summary',
-      label: f.open.summary === 'open' ? 'Hide Summary' : 'Show Summary',
+      label: f.open.summary === 'open' ? 'Hide summary' : 'Show summary',
       keyHint: 'S',
       keywords: 'summary panel context details properties info',
       does: { act: 'summary' },
     });
   }
-  if (f.open?.change) rows.push({ id: 'code', label: 'View Code Changes', keywords: 'code changes diff files what changed', does: { act: 'code' } });
+  if (f.open?.change) rows.push({ id: 'code', label: 'View code changes', keywords: 'code changes diff files what changed', does: { act: 'code' } });
   if (f.place) {
     rows.push({
       id: 'place',
-      label: titled(PLACE_ROW[f.place].label),
+      label: PLACE_ROW[f.place].label,
       hint: PLACE_ROW[f.place].detail.charAt(0).toLowerCase() + PLACE_ROW[f.place].detail.slice(1),
       keywords: 'cloud mac computer here local where runs machine',
       does: { act: 'place', keep: f.place !== 'kept' },
     });
   }
-  if (f.repeats) rows.push({ id: 'end-repeat', label: 'Stop Repeating', keywords: 'repeat repeating recurring every daily weekly stop end cancel', does: { act: 'end-repeat' } });
-  if (f.addPeople) rows.push({ id: 'add-people', label: 'Add People…', hint: 'a new conversation with them', keywords: 'add people invite person someone group conversation', does: { act: 'add-people' } });
+  if (f.repeats) rows.push({ id: 'end-repeat', label: 'Stop repeating', keywords: 'repeat repeating recurring every daily weekly stop end cancel', does: { act: 'end-repeat' } });
+  if (f.addPeople) rows.push({ id: 'add-people', label: 'Add people…', hint: 'a new conversation with them', keywords: 'add people invite person someone group conversation', does: { act: 'add-people' } });
   return rows;
 }

@@ -190,7 +190,7 @@ describe('her switch', () => {
     // config object: saveConfig writes the file AND mutates it in place.
     config.diagnostics = false;
     expect(a.enabled).toBe(false);
-    expect(a.reason).toBe('turned off');
+    expect(a.reason).toBe('is turned off');
     expect(a.track('app_opened')).toBe(false);
     expect(a.crashTransport({ kind: 'main-uncaught', upMs: 10 })).toBe(false);
     expect(client.sent).toHaveLength(1);
