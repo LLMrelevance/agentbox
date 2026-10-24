@@ -31,6 +31,7 @@ import { createSandbox } from '../cloud/sandbox/server.mjs';
 import { cloudRun } from '../main/cloud/run.mjs';
 import { readMarker } from '../main/cloud/marker.mjs';
 import { docsToSend, tarDocs, layDocs, docsFolderFor } from '../main/cloud/docs.mjs';
+import { waitFor } from './waiting.mjs';
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const FAKE_CLAUDE = here('./fixtures/cloud/fake-claude.mjs');
@@ -237,9 +238,15 @@ describe('laying documents in', () => {
     expect(out.beside).toEqual([]);
     expect(fs.readFileSync(note, 'utf8')).toBe('from the run');
 
-    // And the case that must not match: saved here after the run left, which
-    // is a whole millisecond later and a real change, so it stands.
-    fs.writeFileSync(note, 'saved here after the run left');
+    // And the case that must not match: saved here after the run left, a real
+    // change, so it stands. The mtime a write gets comes from a clock the
+    // kernel moves a tick at a time, measured here as much as 18 ms behind the
+    // one Date.now() reads, so saving once proves nothing: it is saved until
+    // it reads as later than the run leaving.
+    await waitFor('a save here to read as later than the run leaving', () => {
+      fs.writeFileSync(note, 'saved here after the run left');
+      return Math.floor(fs.statSync(note).mtimeMs) > sentAt;
+    });
     const later = await layDocs({ tgz: await archive({ 'notes.md': 'from the run again' }), dir: docs, sentAt, laid: {}, sent: ['notes.md'] });
     expect(later.beside).toEqual(['notes (cloud).md']);
     expect(fs.readFileSync(note, 'utf8')).toBe('saved here after the run left');

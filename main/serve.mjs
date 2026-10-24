@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url';
 
 import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
-import { mediaResponse, mediaType } from './img-scheme.mjs';
+import { mediaResponse, mediaType, servable } from './img-scheme.mjs';
 import { readPictureShape } from './picture-shape.mjs';
 import { loadConfig } from './config.mjs';
 import { Store } from './store.mjs';
@@ -222,6 +222,23 @@ export async function bootHeadless({ dataDir = repoRoot, appDir = repoRoot, user
 
 /** A token in the url, because the port alone is not a door key. */
 export const newToken = () => crypto.randomBytes(24).toString('base64url');
+
+/**
+ * THE PICTURES A TAB MAY DRAW: the desktop window's own rule (`servable`,
+ * main/img-scheme.mjs) over its own roots (`imageRoots`, main/main.mjs), so a
+ * door opened for a screenshot can never hand out `zero.config.json`.
+ *
+ * Pictures only. A whole document is served under a grant the pane opens one
+ * at a time (main/doc-scheme.mjs) and this copy opens none.
+ */
+export function picturesTheAppOwns({ config, store }) {
+  return {
+    allows: (kind, file) => kind === 'img' && servable(file, [
+      config?.accountRoot,
+      ...(store?.listProducts?.() ?? []).map((p) => p.repoPath),
+    ].filter(Boolean)),
+  };
+}
 
 /**
  * THE KEY THAT ONLY READS FILES. A design page runs its own scripts and can
