@@ -383,7 +383,9 @@ export interface TeamRunLine {
   /** Your words, on an `answered` line. */
   text?: string; ts: number;
 }
-export interface TeammatesView { list: Teammate[]; chat: TeamChatLine[]; runs: TeamRunLine[]; error?: string }
+export interface TeammatesView { list: Teammate[]; chat: TeamChatLine[]; runs: TeamRunLine[]; error?: string;
+  /** Something the loop that wakes teammates could not do lately, in words. */
+  trouble?: string }
 export type TeammatesResult<T = unknown> = { ok: true; value: T } | { ok: false; error: string };
 
 export type RoomsResult<T = unknown> ={ ok: true; value: T; rooms: RoomsState } | { ok: false; error: string; rooms?: RoomsState };

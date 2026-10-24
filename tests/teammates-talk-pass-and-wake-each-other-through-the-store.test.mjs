@@ -126,6 +126,27 @@ describe('teammates through the store', () => {
     expect(() => core.teamSetup({ every: 'sometimes' })).toThrow(/every is one of/);
   });
 
+  // A failed hand-off used to be followed by its "seen" marker all the same,
+  // so your message was dropped without a word. Now it is tried again on the
+  // next tick, and the failure shows on the teammates page.
+  it('a message whose hand-off fails is tried again, and the failure is said, not swallowed', async () => {
+    const ada = team.create({ starter: 'quality' });
+    team.post({ text: 'first', to: [ada.id] });
+    await tick(Date.now());
+    const run = store.listItems().find((i) => teammateIdOf(i) === ada.id);
+    work.updateWorkItem(dir, run.id, { result: 'Which page?', status: 'open' }, { source: 'agent', now: Date.now() });
+    team.post({ text: 'The checkout page', to: [ada.id] });
+    const failing = async () => { throw new Error('the session did not answer'); };
+    await team.tick({ items: store.listItems(), now: Date.now(), deliver: failing });
+    expect(team.view(store.listItems()).trouble).toMatch(/the session did not answer/);
+    const got = [];
+    await team.tick({ items: store.listItems(), now: Date.now(), deliver: async (p, id, text) => { got.push(text); } });
+    expect(got).toEqual(['The checkout page']);
+    // And once it is through, never again.
+    await team.tick({ items: store.listItems(), now: Date.now(), deliver: async (p, id, text) => { got.push(text); } });
+    expect(got).toEqual(['The checkout page']);
+  });
+
   // The power test's founder had Company (docs, no code), Product and Website,
   // and all three starters landed on Company, the first in the list.
   it('works where you say, and unnamed, in a project with code rather than the first one listed', () => {

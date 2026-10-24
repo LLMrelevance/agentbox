@@ -12,6 +12,9 @@ import {
 
 const CHAT_FOR_SCREEN = 400;
 
+const TROUBLE_VERB = { run: 'start a run', answer: 'get your message', release: 'start its next run', seen: 'mark a message read', served: 'mark its round served' };
+const TROUBLE_SHOWN_MS = 30 * 60_000;
+
 export class Teammates {
   constructor(store) {
     this.store = store;
@@ -151,6 +154,7 @@ export class Teammates {
     }
     const mine = (items ?? []).filter((i) => teammateIdOf(i));
     return {
+      ...(this.trouble && now - this.trouble.at < TROUBLE_SHOWN_MS ? { trouble: this.trouble.text } : {}),
       list: team.map((t) => ({ ...t, ...statusOf(t, mine, now), worksLabel: isWorks(t.works) ? ruleLabel(t.works) : null })),
       chat: chat.messages.slice(-CHAT_FOR_SCREEN),
       runs: runLines(mine, team).slice(-CHAT_FOR_SCREEN),
@@ -168,7 +172,7 @@ export class Teammates {
       team = this.list(now);
       chat = this.chat();
     } catch (err) {
-      console.warn(`teammates: could not read: ${err.message}`);
+      this.noteTrouble(`Teammates could not be read: ${err.message}`, now);
       return [];
     }
     if (!team.length) return [];
@@ -177,8 +181,13 @@ export class Teammates {
     const byId = new Map(team.map((t) => [t.id, t]));
     const done = [];
     const { workItemsDisk, lock } = this.store.modules;
+    // What did not go through is not marked seen or served, so the next tick
+    // tries it again.
+    const failed = new Set();
     for (const a of actions) {
       const t = byId.get(a.teammate);
+      if (a.type === 'seen' && failed.has(a.msg)) continue;
+      if (a.type === 'served' && failed.has(`${a.teammate}@${a.key}`)) continue;
       try {
         if (a.type === 'run') {
           const product = this._product(t.product);
@@ -220,10 +229,20 @@ export class Teammates {
         }
         done.push(a);
       } catch (err) {
-        console.warn(`teammates: ${a.type} for ${a.teammate} failed: ${err.message}`);
+        if (a.msg) failed.add(a.msg);
+        if (a.trigger?.msg) failed.add(a.trigger.msg);
+        if (a.trigger?.key) failed.add(`${a.teammate}@${a.trigger.key}`);
+        this.noteTrouble(`${t?.name ?? 'A teammate'} could not ${TROUBLE_VERB[a.type] ?? 'carry on'}: ${err.message}`, now);
       }
     }
+    if (done.length && done.length === actions.length) this.trouble = null;
     return done;
+  }
+
+  // Said on the teammates page and in the log, never only in the log.
+  noteTrouble(text, now = Date.now()) {
+    console.warn(`teammates: ${text}`);
+    this.trouble = { text, at: now };
   }
 
   _sayOnce(teammateId, verb, text, now) {

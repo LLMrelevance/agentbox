@@ -7040,17 +7040,28 @@ export class Supervisor {
   // Your words to a teammate that is already on a run go into that run, the
   // way a reply typed in its thread does, live if a session is up.
   async serveTeammates(now = Date.now()) {
+    const TEAMMATE_REPLY_DEADLINE_MS = this.config.teammateReplyDeadlineMs ?? 30_000;
     const teammates = this.store.teammates;
     if (!teammates) return;
     let items;
     try {
       items = this.store.listItems(now);
     } catch (err) {
-      console.warn(`teammates: could not read the inbox: ${err.message}`);
+      teammates.noteTrouble?.(`Teammates could not read your threads: ${err.message}`, now);
       return;
     }
+    // A reply to a live run can wait on that run; the tick never waits on it
+    // for long. Past the deadline the reply keeps going on its own and the
+    // page says it has not landed yet, rather than every teammate stopping.
     const deliver = async (product, id, answer) => {
-      const out = await submitReply(this, { product, id, answer }, () => this.store.answerItem(product, id, { answer }));
+      let timer;
+      const late = new Promise((resolve) => { timer = setTimeout(() => resolve('late'), TEAMMATE_REPLY_DEADLINE_MS); });
+      const sent = submitReply(this, { product, id, answer }, () => this.store.answerItem(product, id, { answer }));
+      const out = await Promise.race([sent, late]).finally(() => clearTimeout(timer));
+      if (out === 'late') {
+        sent.catch((err) => teammates.noteTrouble(`A message to a running teammate did not land: ${err.message}`));
+        teammates.noteTrouble('A message to a running teammate is taking a while to land.', now);
+      }
       this.wake?.();
       return out;
     };
@@ -7058,7 +7069,7 @@ export class Supervisor {
       const done = await teammates.tick({ items, now, deliver });
       if (done.length) this.onChange?.();
     } catch (err) {
-      console.warn(`teammates: tick failed: ${err.message}`);
+      teammates.noteTrouble?.(`Teammates could not wake: ${err.message}`, now);
     }
   }
 

@@ -107,6 +107,7 @@ function ChatColumn({ view, team, only, me, call, onOpenThread, placeholder, err
       {rows.length ? rows : <p className="tq-empty">{only ? `Nothing yet. Say hello to ${only.name}.` : 'Nothing yet. Write to a teammate with @Name, or open one on the left.'}</p>}
     </div>
     {error && <p className="tq-error" role="alert">{error}</p>}
+    {!error && (view?.trouble || view?.error) && <p className="tq-error" role="status">{view?.trouble ?? `Teammates could not be read: ${view?.error}`}</p>}
     <Composer placeholder={placeholder} onSend={async (text) => (await call('post', { text, to: only ? [only.id] : [] })) !== false} />
   </div>;
 }
