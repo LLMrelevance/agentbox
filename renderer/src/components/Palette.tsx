@@ -176,7 +176,7 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
     })) : []),
     ...(teammates && onTeammates ? [
       { id: 'view-teammates', label: 'Teammates', hint: 'the team chat', keywords: 'teammates team chat agents standing jobs', run: () => onTeammates('team') },
-      { id: 'new-teammate', label: 'New teammate', hint: 'start one or describe your own', keywords: 'teammate agent hire add make create start describe', run: () => onTeammates('roster') },
+      { id: 'new-teammate', label: 'New teammate', hint: 'it asks you what to take on', keywords: 'teammate agent hire add make create start describe', run: () => onTeammates('new') },
       ...teammates.map((t) => ({ id: `teammate-${t.id}`, label: t.name, hint: t.role ?? 'teammate', keywords: `teammate ${t.name} ${t.role ?? ''}`, run: () => onTeammates(t.id) })),
       ...(onPauseTeammate ? teammates.map((t) => ({
         id: `teammate-pause-${t.id}`, label: `${t.paused ? 'Resume' : 'Pause'} ${t.name}`,

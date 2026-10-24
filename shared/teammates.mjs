@@ -419,12 +419,22 @@ export function statusOf(teammate, items, now = Date.now()) {
 
 // The six a new person can start from. Copy is plain and specific about what
 // each one brings you, because that is what has to jump out.
+/** What a new teammate says first, with the starters as answers to tap. */
+export const GREETING = 'Hi. What should I take off your plate? Pick one, or tell me in your own words.';
+
+/** The starters a new teammate offers: those whose job or name nobody on the team has yet. */
+export function starterAsks(team = []) {
+  return STARTERS.filter((s) => !team.some((t) => t.starter === s.starter || t.name === s.name))
+    .map((s) => ({ starter: s.starter, ask: s.ask, name: s.name, role: s.role }));
+}
+
 // Above the app's default, Medium: a teammate works with nobody watching.
 export const TEAMMATE_EFFORT = 'high';
 
 export const STARTERS = [
   {
     starter: 'quality', name: 'Ada', role: 'Quality lead',
+    ask: 'Find bugs before your users do',
     outcome: 'Finds bugs before your users do',
     sends: 'A bug, with the steps to make it happen',
     job: 'Use the project the way a new user would, every weekday morning. Try the main flows on a phone-sized window and a slow connection. File anything broken with the exact steps to make it happen, and pass fixable bugs to whoever fixes things on the team.',
@@ -435,6 +445,7 @@ export const STARTERS = [
   },
   {
     starter: 'maintainer', name: 'Felix', role: 'Maintainer',
+    ask: 'Fix what gets filed',
     outcome: 'Fixes what gets filed, and asks you before shipping',
     sends: 'A fix that is ready to ship',
     job: 'Fix the bugs your teammates pass you and keep the project healthy: one branch per fix, with a test that fails before the fix and passes after. Never ship or merge without asking the person first.',
@@ -445,6 +456,7 @@ export const STARTERS = [
   },
   {
     starter: 'video', name: 'Vera', role: 'Video marketer',
+    ask: 'Bring video ideas each week',
     outcome: 'Brings you three video ideas a week, then makes the ones you pick',
     sends: 'Three video ideas for this week',
     job: 'Every Monday, bring the person three short video ideas about the project, not only about new features. When they pick one, write the script and a shot list, and make what you can. Nothing is posted without their yes.',
@@ -455,6 +467,7 @@ export const STARTERS = [
   },
   {
     starter: 'support', name: 'June', role: 'Support lead',
+    ask: 'Answer user emails',
     outcome: 'Answers user emails, and asks you before any refund',
     sends: 'A refund or a tricky reply to approve',
     job: 'Read what users ask, draft clear answers, and keep a short list of what people get stuck on. Ask the person before any refund, promise or reply that commits them to something.',
@@ -465,6 +478,7 @@ export const STARTERS = [
   },
   {
     starter: 'growth', name: 'Rui', role: 'Growth lead',
+    ask: 'Tell me what moved signups',
     outcome: 'Tells you what moved signups, and what to try next',
     sends: 'What moved signups this week',
     job: 'Every Friday, look at what changed in signups and usage this week, explain what moved it in plain words, and suggest one thing to try next week.',
@@ -475,6 +489,7 @@ export const STARTERS = [
   },
   {
     starter: 'fundraising', name: 'Hugo', role: 'Fundraiser',
+    ask: 'Find investors who fit',
     outcome: 'Finds investors who fit, and drafts intros from you',
     sends: 'Intro emails ready for your yes',
     job: 'Build and keep a short list of investors who fit the project, with why each one fits. Draft intro emails for the person to send. Never send anything yourself.',

@@ -7,7 +7,7 @@ import { TeammatesPage, TeammatesTitle , type TeammateModels } from './Teammates
 import { TeammatesRail } from './TeammatesRail';
 import { asksYou, heldFor } from './chat-lines';
 
-/** 'team' is the team chat, 'roster' the Teammates tab, anything else a teammate's id. */
+/** 'team' is the team chat, 'roster' the Teammates tab, 'new' makes one, anything else a teammate's id. */
 export type TeammatesOpen = string | null;
 
 export function useTeammates({ view: stored, asking = [], running = [], products, engines, models, me, mePic = null, onEnter, onOpenThread, onChanged }: {
@@ -45,7 +45,7 @@ export function useTeammates({ view: stored, asking = [], running = [], products
   const sessions = useMemo(() => new Map(running.map((r) => [r.itemId, r])), [running]);
   const go = (which: string) => { onEnter(); setOpen(which); };
   const leave = () => setOpen(null);
-  const known = open === 'team' || open === 'roster' || !!view?.list.some((t) => t.id === open);
+  const known = open === 'team' || open === 'roster' || open === 'new' || !!view?.list.some((t) => t.id === open);
   const shownOpen = live && open && known ? open : null;
   const railLit = shownOpen === 'roster' ? 'team' : shownOpen;
   const page: ReactNode = shownOpen && view
@@ -59,7 +59,7 @@ export function useTeammates({ view: stored, asking = [], running = [], products
     leave,
     rail: (lit: boolean) => (live ? <TeammatesRail team={view!.list} open={lit ? railLit : null} onOpen={go} /> : null),
     title: shownOpen ? <TeammatesTitle view={view ?? null} open={shownOpen} /> : null,
-    right: shownOpen && shownOpen !== 'roster' && view?.list.length ? <div className="th-right"><button type="button" className="th-new" onClick={() => setOpen('roster')}>
+    right: shownOpen && shownOpen !== 'new' && view?.list.length ? <div className="th-right"><button type="button" className="th-new" onClick={() => go('new')}>
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New teammate</button></div> : null,
     page,
   };

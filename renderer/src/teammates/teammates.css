@@ -37,7 +37,6 @@
 .tq-lines .rm-day { margin: 10px 0 4px; }
 .tq-empty { margin: 24px 0; font-size: 14.5px; color: var(--text-faint); }
 .tq-error { margin: 6px 32px 0 32px; font-size: 13px; color: var(--accent); }
-.ob-wrap .tq-error, .tp-body .tq-error { margin: 14px 0 0; }
 
 .rm-cm.tq-m { position: relative; padding: 10px 0 4px 52px; }
 .rm-cm.tq-m.tq-cont { padding-top: 2px; }
@@ -128,38 +127,6 @@ select.tq-in { height: 32px; padding: 0 6px; }
 .tp-head .num { font-size: 10.5px; color: var(--text-faint); }
 .tp-sec { margin: 34px 0 14px; font: 400 10.5px/16px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
 
-/* The six to start from */
-.ob-wrap { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; padding: 56px 44px 48px; box-sizing: border-box; }
-.ob-wrap > * { width: min(1180px, 100%); }
-.tq-h2 { font-size: 25px; font-weight: 400; letter-spacing: -.02em; margin: 0 0 10px; color: var(--text); text-align: center; }
-.tq-lede { font-size: 15px; line-height: 1.5; color: var(--text-dim); margin: 0 0 34px; text-align: center; }
-.ob-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.ob-card { border: 1px solid var(--line); background: var(--skin-pane, transparent); padding: 22px 22px 18px; display: flex; flex-direction: column; gap: 16px; min-height: 206px; box-sizing: border-box;
-  font: inherit; color: inherit; text-align: left; cursor: default; }
-.ob-card:hover { border-color: var(--line-strong); }
-.ob-card.on { border-color: var(--text-faint); }
-.tp-body .ob-card { min-height: 0; }
-.ob-out { font-size: 19px; line-height: 1.35; letter-spacing: -.01em; color: var(--text); min-height: 2.7em; }
-.ob-line { display: flex; align-items: flex-start; gap: 9px; font-size: 13.5px; line-height: 19px; color: var(--text); padding: 9px 11px; background: var(--wash); }
-.ob-line svg { color: var(--text-faint); flex: none; margin-top: 3px; }
-.ob-line .v { color: var(--text-faint); }
-.ob-who { margin-top: auto; display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--text); width: 100%; }
-.ob-who .r { color: var(--text-faint); }
-.ob-pick { margin-left: auto; width: 18px; height: 18px; border: 1px solid var(--line-strong); display: inline-flex; align-items: center; justify-content: center; color: var(--text); flex: none; box-sizing: border-box; }
-.ob-pick.on { border-color: var(--text-dim); }
-.ob-add { margin-left: auto; height: 28px; padding: 0 14px; border: 1px solid var(--line-strong); display: inline-flex; align-items: center; font-size: 13.5px; color: var(--text); }
-.ob-card:hover .ob-add { background: var(--wash-strong); }
-.ob-foot { display: flex; align-items: center; gap: 14px; margin-top: 26px; }
-.tp-body .ob-foot { margin-top: 16px; }
-.ob-say { flex: 1; min-width: 0; height: 43px; border: 1px solid var(--line-strong); padding: 0 16px; font: inherit; font-size: 15px; color: var(--text); background: var(--skin-pane, transparent); box-sizing: border-box; outline: 0; }
-.ob-say::placeholder { color: var(--text-faint); }
-.ob-say:focus { border-color: var(--text-faint); }
-.ob-btn { height: 43px; padding: 0 18px; border: 1px solid var(--line-strong); background: none; display: inline-flex; align-items: center; font: inherit; font-size: 15px; color: var(--text); box-sizing: border-box; cursor: default; flex: none; }
-.ob-btn:disabled { color: var(--text-faint); }
-.ob-foot-start .ob-foot { margin: 0; flex: 1; }
-.ob-btn.tq-go { color: var(--text); border-color: var(--text-faint); background: var(--wash); }
-.ob-btn.tq-go:hover { background: var(--wash-strong); }
-.ob-btn.tq-go:disabled { color: var(--text-faint); border-color: var(--line-strong); background: none; }
 
 /* An inbox row a teammate sent you, led by its mark */
 .tq-from { display: inline-flex; align-items: center; gap: 7px; flex: none; color: var(--text-dim); }
@@ -170,11 +137,6 @@ select.tq-in { height: 32px; padding: 0 6px; }
    as its baseline and drops the name below the title. */
 .tq-from { margin-right: 10px; vertical-align: top; height: 20px; }
 .tq-from b { font-weight: 400; color: var(--text-dim); }
-.tq-where { display: flex; justify-content: center; margin: -18px 0 26px; }
-.tq-workin { display: inline-flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-dim); flex: none; }
-.tq-workin select.tq-in { width: auto; min-width: 150px; height: 34px; }
-.tq-roster-foot { display: flex; align-items: center; gap: 14px; margin-top: 16px; }
-.tq-roster-foot .ob-foot { flex: 1; margin-top: 0; }
 .tq-heads { display: inline-flex; gap: 16px; }
 /* With Groups on the page's text edge is 44 points in (rooms.css .gt-inset). */
 .gt-inset .tq-lines { padding-left: 44px; }
@@ -187,10 +149,8 @@ select.tq-in { height: 32px; padding: 0 6px; }
 .tq-chip:disabled:hover { background: none; }
 .tq-chip.on { background: var(--wash-strong); border-color: var(--text-faint); }
 .tq-chip.dim { color: var(--text-faint); border-color: var(--line); }
-.tq-pickers { display: inline-flex; gap: 22px; }
+.tq-where-chips { margin-top: 2px; }
 .tq-works { margin-top: 6px; font-size: 13px; }
-.tq-sec-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 34px 0 14px; }
-.tq-sec-row .tp-sec { margin: 0; }
 .tq-works.tq-link { display: block; color: var(--text-dim); font-size: 13px; }
 .tq-works.tq-link:hover { color: var(--text); }
 /* One line each: the thread behind it holds the rest. */

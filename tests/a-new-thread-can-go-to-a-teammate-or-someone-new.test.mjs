@@ -56,11 +56,14 @@ describe('someone new, made from a task', () => {
 // the project and the agent picked above them.
 describe('starting one from the Teammates page', () => {
   const page = read('renderer/src/teammates/TeammatesPage.tsx');
-  it('makes it with the project and agent picked, from every way in', () => {
-    expect(page).toMatch(/const fields = \{ \.\.\.\(shown \? \{ product: shown \} : \{\}\), \.\.\.\(engine \? \{ engine \} : \{\}\) \};/);
-    expect(page.match(/call\('create', \{ starter: s\.starter, \.\.\.where\.fields \}\)/g)).toHaveLength(2);
-    expect(page).toMatch(/call\('describe', \{ text: text\.trim\(\), \.\.\.fields \}\)/);
-    expect(page).toMatch(/<span>Runs on<\/span>/);
+  // Option B (w-4bd7b5548b) made the page a chat: a tapped starter and your
+  // own words both go through one call, in the project picked beside it. The
+  // agent it runs on is chosen in its settings, with its model and effort.
+  it('makes it in the project picked, from a tapped starter or your own words', () => {
+    expect(page).toMatch(/call\('describe', \{ \.\.\.args, greeted: true, product: where\.slug \}\)/);
+    expect(page).toMatch(/onClick=\{\(\) => \{ void make\(\{ starter: a\.starter \}\); \}\}/);
+    expect(page).toMatch(/onSend=\{\(text\) => make\(\{ text \}\)\}/);
+    expect(page).toMatch(/<span className="l">Runs on<\/span>/);
   });
   it('says when it works, and on which agent, beside its goal', () => {
     expect(page).toMatch(/`Works \$\{t\.worksLabel\}` : 'Works when someone writes to it'/);
