@@ -66,3 +66,13 @@ describe('starting one from the Teammates page', () => {
     expect(page).toMatch(/`Works \$\{t\.worksLabel\}` : 'Works when someone writes to it'/);
   });
 });
+
+// "No save button visible, so I can't tell if edits here are saved at all"
+// (third power test). Each kept change says Saved for a moment.
+describe('the About editor', () => {
+  it('says Saved after a change lands', () => {
+    const page = read('renderer/src/teammates/TeammatesPage.tsx');
+    expect(page).toMatch(/\.then\(\(ok\) => \{ if \(ok !== false\) setSaved\(true\); \}\)/);
+    expect(page).toMatch(/\{saved && <span className="tq-st" role="status">Saved<\/span>\}/);
+  });
+});

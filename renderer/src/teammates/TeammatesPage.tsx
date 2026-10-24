@@ -232,7 +232,10 @@ function About({ t, products, engines, call, onDone }: { t: Teammate; products: 
     every: t.works?.every ?? 'never', at: t.works?.at ?? '09:00', on: t.works?.on ?? 1, limit: String(t.limit), product: t.product, engine: t.engine ?? '',
   }));
   type F = typeof f;
-  const keep = (patch: Record<string, unknown>) => { void call('update', { id: t.id, patch }); };
+  // Each change says it landed, since there is no Save to press.
+  const [saved, setSaved] = useState(false);
+  useEffect(() => { if (!saved) return undefined; const timer = setTimeout(() => setSaved(false), 2000); return () => clearTimeout(timer); }, [saved]);
+  const keep = (patch: Record<string, unknown>) => { void call('update', { id: t.id, patch }).then((ok) => { if (ok !== false) setSaved(true); }); };
   const worksOf = (x: F) => (x.every === 'never' ? null : { every: x.every, at: x.at || '09:00', ...(x.every === 'week' ? { on: Number(x.on) } : {}) });
   // A choice is kept at once; typing is kept when the box is left.
   const choose = (k: keyof F, v: string | number) => {
@@ -258,6 +261,7 @@ function About({ t, products, engines, call, onDone }: { t: Teammate; products: 
   return <div className="tq-about">
     <div className="tq-cardhead"><span className="n">About {t.name}</span>
       <span className="tq-heads">
+        {saved && <span className="tq-st" role="status">Saved</span>}
         <button type="button" className="tq-edit" onClick={() => keep({ paused: !t.paused })}>{t.paused ? 'Resume' : 'Pause'}</button>
         <button type="button" className="tq-edit" onClick={onDone}>Done</button>
       </span></div>
