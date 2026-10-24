@@ -5212,7 +5212,8 @@ export default function App() {
       }
       // So does a teammates page, which has no list for J, K or E to act on.
       if (teammatesShown && e.key !== 'n' && e.key !== 'N' && e.key !== '\\') {
-        if (modal || inInput || e.metaKey || e.ctrlKey || e.altKey) return;
+        // Escape in an open dropdown closes the dropdown, not the page.
+        if (modal || inInput || target?.tagName === 'SELECT' || e.metaKey || e.ctrlKey || e.altKey) return;
         if (e.key === 'Escape') { e.preventDefault(); teammatesUi.leave(); }
         return;
       }

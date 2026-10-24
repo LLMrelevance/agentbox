@@ -168,3 +168,4 @@ select.tq-in { height: 32px; padding: 0 6px; }
 .tq-workin select.tq-in { width: auto; min-width: 150px; height: 34px; }
 .tq-roster-foot { display: flex; align-items: center; gap: 14px; margin-top: 16px; }
 .tq-roster-foot .ob-foot { flex: 1; margin-top: 0; }
+.tq-heads { display: inline-flex; gap: 16px; }

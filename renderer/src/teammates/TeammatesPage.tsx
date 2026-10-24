@@ -193,7 +193,7 @@ function SidePanel({ t, products, engines, call, onOpenThread }: { t: Teammate; 
     {(t.waiting.length > 0 || t.asking) && <div className="tq-sec"><div className="tq-sh">Waiting on you</div>
       {t.asking && t.running && <button type="button" className="tq-li need" onClick={() => onOpenThread(t.running!.product, t.running!.id)}>Allow or deny a command</button>}
       {t.waiting.map((w) => <button key={w.id} type="button" className="tq-li need" onClick={() => onOpenThread(w.product, w.id)}>{w.title}</button>)}</div>}
-    <div className="tq-sec"><div className="tq-sh">Now</div>
+    <div className="tq-sec"><div className="tq-sh">Now{t.paused && <button type="button" className="tq-edit" onClick={() => { void call('update', { id: t.id, patch: { paused: false } }); }}>Resume</button>}</div>
       <div className={`tq-li${t.running ? ' now' : ''}`}>{t.running && ICON.dots}{t.paused ? 'Paused' : t.now && t.now !== 'Waiting on you' ? t.now : t.worksLabel ? `Free until its next round, ${t.worksLabel}` : 'Free until someone writes to it'}</div>
       {t.queued > 0 && <div className="tq-li dim">{t.queued} more queued</div>}</div>
     {t.done.length > 0 && <div className="tq-sec"><div className="tq-sh">Done today<b>{t.done.length}</b></div>
@@ -223,7 +223,11 @@ function About({ t, products, engines, call, onDone }: { t: Teammate; products: 
   const field = (label: string, k: keyof typeof f, long = false) => <label className="tq-f"><span className="l">{label}</span>
     {long ? <textarea className="tq-in" rows={3} value={String(f[k])} onChange={(e) => set(k, e.target.value)} /> : <input className="tq-in" value={String(f[k])} onChange={(e) => set(k, e.target.value)} />}</label>;
   return <div className="tq-about">
-    <div className="tq-cardhead"><span className="n">About {t.name}</span><button type="button" className="tq-edit" onClick={() => void save()}>Done</button></div>
+    <div className="tq-cardhead"><span className="n">About {t.name}</span>
+      <span className="tq-heads">
+        <button type="button" className="tq-edit" onClick={() => { void call('update', { id: t.id, patch: { paused: !t.paused } }); }}>{t.paused ? 'Resume' : 'Pause'}</button>
+        <button type="button" className="tq-edit" onClick={() => void save()}>Done</button>
+      </span></div>
     {field('Name', 'name')}
     {field('Role', 'role')}
     {field('Job', 'job', true)}
@@ -240,7 +244,6 @@ function About({ t, products, engines, call, onDone }: { t: Teammate; products: 
     <div className="tq-f"><span className="l">Knows about you</span>
       {t.memory.length ? <ul>{t.memory.map((m) => <li key={m.id}>{m.text}<button type="button" className="tq-x" aria-label={`Forget ${m.text}`} title="Forget" onClick={() => { void call('forget', { id: t.id, memory: m.id }); }}>×</button></li>)}</ul> : <span className="s">Nothing yet. It keeps what you tell it from now on.</span>}
     </div>
-    <div className="tq-foot"><button type="button" className="tq-quiet" onClick={() => { void call('update', { id: t.id, patch: { paused: !t.paused } }); }}>{t.paused ? `Resume ${t.name}` : `Pause ${t.name}`}</button></div>
   </div>;
 }
 
