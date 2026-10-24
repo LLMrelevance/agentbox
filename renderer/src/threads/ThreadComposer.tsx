@@ -64,6 +64,7 @@ import {
   type Harness, type ModelPick, type SendAs, type Visibility,
 } from './composer-rules';
 import './thread-composer.css';
+import { TeammateMark } from '../teammates/TeammatesRail';
 
 /** What went out, so the caller can say so and offer the way back. */
 export interface ThreadSent {
@@ -93,8 +94,12 @@ export interface ThreadSent {
 type MenuKey = 'to' | 'model' | 'sendAs' | 'dueOn' | 'project' | 'priority' | 'visibility' | 'later';
 
 export function ThreadComposer({
-  products, items, engines, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, onReorderProjects, onNewProject,
+  products, items, engines, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, onReorderProjects, onNewProject, agentMates, onToTeammate,
 }: {
+  /** Your teammates, offered in To beside the agents, and Someone new. */
+  agentMates?: readonly { id: string; name: string; letter: string; role: string | null }[];
+  /** Hands the words to a teammate ('new' makes one from them); an error to show, or null once it is theirs. */
+  onToTeammate?: (to: string, text: string, product: string | null) => Promise<string | null>;
   products: Product[];
   items: WorkItem[];
   /** The coding agents this Mac really offers, off the snapshot. Absent means Claude Code alone. */
@@ -162,6 +167,9 @@ export function ThreadComposer({
   /* ------------------------------- who ---------------------------------- */
   const [to, setTo] = useState<string>(() => (initial?.to && others.some((p) => p.id === initial.to) ? initial.to : 'agent'));
   const person = to === 'agent' ? null : others.find((p) => p.id === to) ?? null;
+  // A teammate in To, or 'new' for Someone new: it takes the words in the team chat.
+  const [mate, setMate] = useState<string | null>(null);
+  const mateRow = mate && mate !== 'new' ? agentMates?.find((t) => t.id === mate) ?? null : null;
   // A teammate who leaves the team while the card is open takes the To with them.
   useEffect(() => { if (to !== 'agent' && !person) setTo('agent'); }, [to, person]);
   const [query, setQuery] = useState('');
@@ -189,7 +197,7 @@ export function ThreadComposer({
   // An agent has no Send As, so going back to one puts both away rather than
   // leaving a day on a card that cannot carry it.
   useEffect(() => { if (!person) { setSendAs('message'); setDue(null); } }, [person]);
-  const rows = headRows({ person: !!person, kind: sendAs });
+  const rows = mate ? [] : headRows({ person: !!person, kind: sendAs });
 
   /* ------------------------------ words --------------------------------- */
   const opened = useRef(openingComposeDraft());
@@ -563,7 +571,17 @@ export function ThreadComposer({
   // Send As decides which of the two a person gets: a task is a row in a
   // project with their name on it, a message goes on the end of the
   // conversation the two of you already have (main/team/index.mjs).
-  const send = () => (person && sendAs === 'message' ? sendMessage() : sendTask());
+  const sendToTeammate = async () => {
+    const words = text.trim();
+    if (!mate || !words || sending || !onToTeammate) return;
+    setSending(true);
+    setError(null);
+    const err = await onToTeammate(mate, words, product?.slug ?? null);
+    setSending(false);
+    if (err) setError(err);
+    else { setText(''); onClose(); }
+  };
+  const send = () => (mate ? sendToTeammate() : person && sendAs === 'message' ? sendMessage() : sendTask());
   // ⌘↵ SENDS WHEREVER THE CURSOR IS while the card is open (w-9f6975906c).
   // It used to be heard only inside the card, so once a menu or a click had
   // taken focus out of it the key did nothing: "Command+Enter in the tutorial
@@ -595,8 +613,10 @@ export function ThreadComposer({
       return;
     }
     setAdding(false);
+    setMate(null);
     setTo(id); setAlso([]); setError(null); close('text');
   };
+  const chooseMate = (id: string) => { setAdding(false); setTo('agent'); setAlso([]); setMate(id); setError(null); close('text'); };
 
   const toMenu = (
     <div className="tc-menu tc-drop tc-to-menu" role="listbox" aria-label="To" onKeyDown={menuKeys}>
@@ -605,16 +625,28 @@ export function ThreadComposer({
           task runs, so it moves the model with it (`chooseAgent`). */}
       {!adding && (agents.length
         ? agents.map((a) => (
-          <button key={a.id} type="button" data-item className={`tc-row ${!person && pick.engine === a.id ? 'on' : ''}`}
+          <button key={a.id} type="button" data-item className={`tc-row ${!person && !mate && pick.engine === a.id ? 'on' : ''}`}
             onPointerEnter={hover} onClick={() => { chooseAgent(a.id); chooseTo('agent'); }}>
             <AgentFace /><span className="tc-row-label">{a.label}</span>
           </button>
         ))
         : (
-          <button type="button" data-item className={`tc-row ${person ? '' : 'on'}`} onPointerEnter={hover} onClick={() => chooseTo('agent')}>
+          <button type="button" data-item className={`tc-row ${person || mate ? '' : 'on'}`} onPointerEnter={hover} onClick={() => chooseTo('agent')}>
             <AgentFace /><span className="tc-row-label">Agent</span>
           </button>
         ))}
+      {!adding && agentMates && onToTeammate && (<>
+        <span className="tc-sep" />
+        <span className="tc-menu-head">Teammates</span>
+        {agentMates.map((t) => (
+          <button key={t.id} type="button" data-item className={`tc-row ${mate === t.id ? 'on' : ''}`} onPointerEnter={hover} onClick={() => chooseMate(t.id)}>
+            <TeammateMark t={t} /><span className="tc-row-label">{t.name}</span>{t.role && <small className="tc-row-aside">{t.role}</small>}
+          </button>
+        ))}
+        <button type="button" data-item className={`tc-row ${mate === 'new' ? 'on' : ''}`} onPointerEnter={hover} onClick={() => chooseMate('new')}>
+          <i className="tq tq-sm tq-hash" aria-hidden="true">+</i><span className="tc-row-label">Someone new</span><small className="tc-row-aside">makes a teammate for this</small>
+        </button>
+      </>)}
       {team && others.length > 0 && (<>
         {!adding && <span className="tc-sep" />}
         <span className="tc-menu-head">People</span>
@@ -898,8 +930,8 @@ export function ThreadComposer({
             <span className="tc-anchor" ref={anchor('to')}>
               <button type="button" data-trigger className={`tc-word ${open === 'to' ? 'open' : ''}`} aria-haspopup="listbox" aria-expanded={open === 'to'}
                 onClick={() => toggle('to')} onKeyDown={triggerKeys('to')}>
-                {person ? <Face person={person} /> : <AgentFace />}
-                <span className="tc-word-text">{person ? person.name : agentWordFor(engineRows, pick.engine)}</span>
+                {mate ? (mateRow ? <TeammateMark t={mateRow} /> : <i className="tq tq-sm tq-hash" aria-hidden="true">+</i>) : person ? <Face person={person} /> : <AgentFace />}
+                <span className="tc-word-text">{mate ? mateRow?.name ?? 'Someone new' : person ? person.name : agentWordFor(engineRows, pick.engine)}</span>
               </button>
               {extra.map((p) => (
                 <span key={p.id} className="tc-also">
@@ -969,7 +1001,7 @@ export function ThreadComposer({
           onSelect={(e) => named.track(e.currentTarget)}
           onScroll={(e) => named.track(e.currentTarget)}
           onKeyDown={(e) => { named.keyDown(e); }}
-          placeholder={person ? `Message ${names}` : placeholderFor(null)}
+          placeholder={mate === 'new' ? 'What should they do? They set themselves up from it and ask what they need' : mateRow ? `What should ${mateRow.name} do?` : person ? `Message ${names}` : placeholderFor(null)}
           onPaste={async (e) => {
             const pasted = await fromPaste(e);
             if (pasted.length) { e.preventDefault(); setAttachments((a) => [...a, ...pasted]); }
@@ -1004,7 +1036,25 @@ export function ThreadComposer({
             and main/team/index.mjs saves them once it knows where. */}
         {error && <div className="tc-note tc-error" role="alert">{error}</div>}
 
-        {person && sendAs === 'message' ? (
+        {mate ? (
+          <div className="tc-bar">
+            {mate === 'new' && (
+              <span className="tc-anchor" ref={anchor('project')}>
+                <button type="button" data-trigger className={`tc-chip ${open === 'project' ? 'open' : ''}`} title={product?.name ?? 'Which project'}
+                  aria-haspopup="listbox" aria-expanded={open === 'project'} onClick={() => toggle('project')} onKeyDown={triggerKeys('project')}>
+                  {product && <Swatch slug={product.slug} />}
+                  <span className="tc-chip-name">{product?.name ?? 'No project'}</span>
+                </button>
+                {open === 'project' && projectMenu}
+              </span>
+            )}
+            <span className="tc-send solo">
+              <button type="button" className="tc-send-main" disabled={!text.trim() || sending} onClick={() => void send()} title={`Send · ${SEND}`}>
+                Send <kbd>{SEND}</kbd>
+              </button>
+            </span>
+          </div>
+        ) : person && sendAs === 'message' ? (
           <div className="tc-bar">
             {/* HOW URGENT IT IS, AND NOTHING ELSE (w-7ba439c883, approved
                 2026-10-05). The corner used to carry "Goes to Maya's inbox.",

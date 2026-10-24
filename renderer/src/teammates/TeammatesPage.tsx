@@ -281,7 +281,7 @@ function Describe({ call, onOpen, product, label = 'Make a teammate' }: { call: 
     if (made === false) return;
     setText('');
     // Its questions come in its own chat, so that is where you go.
-    const id = (made as { id?: unknown })?.id;
+    const id = (made as { teammate?: { id?: unknown } })?.teammate?.id;
     if (typeof id === 'string') onOpen(id);
   };
   return <div className="ob-foot">

@@ -306,6 +306,7 @@ export class Teammates {
         '1. Pick a short first name that no teammate has and a plain role (two or three words). Draft your job, goal, how you count the goal, when you work and what you ask the person first. Save all of it with team_setup.',
         '2. If something important is unclear, ask the person, one question per team_post, at most three, each with two or three short answers in `options`. Then finish this run quietly. Their answer wakes you again with the chat in your brief.',
         '3. When nothing is unclear, call team_setup with ready true, post one or two sentences saying what you will do first, and finish quietly.',
+        'If the opening is a piece of work rather than a description of a teammate, it is also your first job: set yourself up for work like it, and once team_setup has ready true, do it in this run and finish as any run does.',
       ] : [
         '- If the person wrote to you, the opening is their words from the team chat. Reply to them there with team_post, and do what they ask if it is part of your job.',
         '- If a teammate passed you work, do it if it is in your job, then say in the team chat what you did. If it is not yours to do, say so and whose it is.',
