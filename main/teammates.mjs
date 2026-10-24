@@ -4,6 +4,7 @@
 import {
   planWakes, teammateLabel, FROM_LABEL_PREFIX, HOP_LABEL_PREFIX, hopOf, teammateIdOf, YOU, mentionsIn,
   letterFor, statusOf, runLines, STARTERS, CHAT_TAIL, isWorks, DEFAULT_LIMIT, MAX_HOPS,
+  offerFrom, offerAnswer, OFFER_LABEL, OFFER_MAKE, OFFER_NOT_NOW,
 } from '../shared/teammates.mjs';
 import { ruleLabel, periodKey } from '../shared/repeats.mjs';
 import {
@@ -175,6 +176,11 @@ export class Teammates {
       this.noteTrouble(`Teammates could not be read: ${err.message}`, now);
       return [];
     }
+    try {
+      await this.offer({ items, chat, now });
+    } catch (err) {
+      this.noteTrouble(`The offer of a teammate failed: ${err.message}`, now);
+    }
     if (!team.length) return [];
     const mine = (items ?? []).filter((i) => teammateIdOf(i));
     const actions = planWakes({ teammates: team, chat, items: mine, now });
@@ -237,6 +243,44 @@ export class Teammates {
     }
     if (done.length && done.length === actions.length) this.trouble = null;
     return done;
+  }
+
+  // The offer of a teammate for asks you keep making: acts on a tap on an
+  // open one, then makes a new one if your threads call for it.
+  async offer({ items = [], chat = this.chat(), now = Date.now() } = {}) {
+    const { workItemsDisk, lock } = this.store.modules;
+    for (const row of items.filter((i) => (i.labels ?? []).includes(OFFER_LABEL) && i.status !== 'done')) {
+      const tap = offerAnswer(row.answer);
+      if (!tap) continue;
+      const dir = this.store.productDir(row.product);
+      if (tap.kind === 'make') {
+        const asks = String(row.body ?? '').split('\n').filter((l) => l.startsWith('- ')).join('\n');
+        const text = tap.words ? `${tap.words}\n\nLike these asks of mine:\n${asks}` : `Someone to take on asks like these, which I keep making:\n${asks}`;
+        this.describe({ text, product: row.product }, now);
+      }
+      workItemsDisk.updateWorkItem(dir, row.id, {
+        status: 'done',
+        note: tap.kind === 'make' ? 'A new teammate is setting itself up. Its questions are in the team chat.' : 'Not now. This one will not be offered again.',
+      }, { source: 'system', now });
+    }
+    const offered = new Set(chat.messages.filter((m) => m.kind === 'act' && m.verb === 'offered').map((m) => m.ref));
+    const offer = offerFrom({ items, offered, now });
+    if (!offer) return null;
+    const dir = this.store.productDir(offer.product);
+    if (!dir) return null;
+    const body = [`You've asked for this ${offer.count} times this month:`, '', ...offer.titles.map((t) => `- ${t}`)].join('\n');
+    const result = [
+      `**${offer.title}**`, '', body, '',
+      'A teammate would take this kind of work on: it does it on its own, on a schedule if you like, and comes to you only when it needs you. It asks you a few questions first.',
+      '', '## Options', `1. ${OFFER_MAKE} (recommended)`, `2. ${OFFER_NOT_NOW}`,
+    ].join('\n');
+    // Recorded first, so a crash after it can never offer the same job twice.
+    writeChat(this.dir(), { kind: 'act', from: YOU, verb: 'offered', ref: offer.key, text: offer.title }, now);
+    await lock.withProjectLock(dir, async () => {
+      const made = workItemsDisk.createWorkItem(dir, { title: offer.title, body, kind: 'question', priority: 5, labels: [OFFER_LABEL] }, { source: 'system', now });
+      workItemsDisk.updateWorkItem(dir, made.id, { result }, { source: 'agent', now });
+    });
+    return offer;
   }
 
   // Said on the teammates page and in the log, never only in the log.

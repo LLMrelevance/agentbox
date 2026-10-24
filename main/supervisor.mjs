@@ -62,7 +62,7 @@ import os from 'node:os';
 import { isUrgent, itemPriority, normalizeOrder, orderFromTiers, placedScore, productRankScore } from '../shared/rank.mjs';
 import { keysForAgents } from '../shared/shortcuts.mjs';
 import { isCleanRun, ruleIdOf } from '../shared/repeats.mjs';
-import { teammateIdOf } from '../shared/teammates.mjs';
+import { teammateIdOf, OFFER_LABEL } from '../shared/teammates.mjs';
 import { mayRunHere } from '../shared/team-rules.mjs';
 
 // WHO IS SIGNED IN, handed to the store server a worker talks through. An MCP
@@ -6591,6 +6591,8 @@ export class Supervisor {
    */
   _isContinuation(item) {
     if (!item.answer) return false;
+    // The offer of a teammate is answered by the app (main/teammates.mjs), never by an agent.
+    if ((item.labels ?? []).includes(OFFER_LABEL)) return false;
     // A withdrawn reply (Z after send in the inbox) is a cancel, not an
     // answer; spawning on it would brief a worker with "(withdrawn)".
     if (item.answer === '(withdrawn)') return false;

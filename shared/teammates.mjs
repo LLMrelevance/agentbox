@@ -450,3 +450,75 @@ export const STARTERS = [
     works: { every: 'week', on: 2, at: '09:00' },
   },
 ];
+
+// ---------------------------------------------------------------- the offer
+// When you keep asking for the same kind of thing, the app offers a teammate
+// for it: one inbox row, which no agent ever runs, answered by a tap.
+export const OFFER_LABEL = 'teammate-offer';
+export const OFFER_MAKE = 'Make a teammate for it';
+export const OFFER_NOT_NOW = 'Not now';
+const OFFER_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const OFFER_AT_LEAST = 3;
+const STOP = new Set(('the a an and or but for to of in on at by with from into onto about as is are was were be been it its this that these those '
+  + 'my our your their me we you i us can could would should will please pls just also some any all new more make do does did get got let lets '
+  + 'need want like have has had what which who how why when where there here then than them they not no yes ok okay one two three today tomorrow week').split(' '));
+
+function wordsOf(title) {
+  return new Set(String(title ?? '').toLowerCase().replace(/[’']/g, '').split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !STOP.has(w)));
+}
+
+function alike(a, b) {
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared += 1;
+  return shared >= 2 && shared / Math.min(a.size, b.size) >= 0.6;
+}
+
+// Threads you wrote yourself in the last month: not a teammate's or a repeat's
+// runs, not imported, not an offer.
+function yourAsks(items, now) {
+  return (items ?? []).filter((i) => {
+    const labels = i.labels ?? [];
+    if (!labels.includes('founder') || i.wrote?.labels?.source === 'agent') return false;
+    if (labels.some((l) => /^(teammate|repeat|hop|from):/.test(l) || l === OFFER_LABEL || l === 'thread-import' || l === 'codex-import' || l === 'codex')) return false;
+    return now - (i.createdAt ?? 0) <= OFFER_WINDOW_MS && wordsOf(i.title).size >= 2;
+  });
+}
+
+/**
+ * The offer to make now, if any: three or more of your own asks this month
+ * alike enough to be one job, under a key no offer has used. One open offer at
+ * a time, and one a day at most.
+ */
+export function offerFrom({ items = [], offered = new Set(), now = Date.now() } = {}) {
+  const open = (items ?? []).filter((i) => (i.labels ?? []).includes(OFFER_LABEL));
+  if (open.some((i) => i.status !== 'done' || now - (i.createdAt ?? 0) < 24 * 60 * 60 * 1000)) return null;
+  const asks = yourAsks(items, now).sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  const bags = new Map(asks.map((i) => [i.id, wordsOf(i.title)]));
+  for (const lead of asks) {
+    const group = asks.filter((i) => i === lead || alike(bags.get(lead.id), bags.get(i.id)));
+    if (group.length < OFFER_AT_LEAST) continue;
+    const counts = new Map();
+    for (const i of group) for (const w of bags.get(i.id)) counts.set(w, (counts.get(w) ?? 0) + 1);
+    const common = [...counts].filter(([, n]) => n >= Math.ceil(group.length / 2)).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 3).map(([w]) => w);
+    const key = common.sort().join('-');
+    if (!key || offered.has(key)) continue;
+    const byProduct = new Map();
+    for (const i of group) byProduct.set(i.product, (byProduct.get(i.product) ?? 0) + 1);
+    const product = [...byProduct].sort((a, b) => b[1] - a[1])[0]?.[0] ?? lead.product;
+    return {
+      key, product, count: group.length,
+      titles: group.slice(0, 5).map((i) => i.label || i.title),
+      title: `You've asked for things like “${clip(lead.label || lead.title, 70)}” ${group.length} times this month. Want a teammate for it?`,
+    };
+  }
+  return null;
+}
+
+/** What a tap on the offer meant: 'make', 'dismiss', or your own words to make one from. */
+export function offerAnswer(answer) {
+  const said = String(answer ?? '').trim();
+  if (!said || said === '(withdrawn)') return null;
+  if (/not now|^no\b|^2\.?$/i.test(said)) return { kind: 'dismiss' };
+  if (said.toLowerCase().includes(OFFER_MAKE.toLowerCase()) || /^1\.?$/.test(said) || /^(yes|yep|sure|ok|okay)\b/i.test(said)) return { kind: 'make' };
+  return { kind: 'make', words: said };
+}

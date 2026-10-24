@@ -8,3 +8,6 @@ export interface Starter {
   counted: string; asksFirst: string; works: { every: 'day' | 'weekday' | 'week'; at: string; on?: number } | null;
 }
 export const STARTERS: Starter[];
+export const OFFER_LABEL: 'teammate-offer';
+export const OFFER_MAKE: string;
+export const OFFER_NOT_NOW: string;
