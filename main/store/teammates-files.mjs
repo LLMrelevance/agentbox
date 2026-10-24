@@ -18,10 +18,19 @@ export function teamDir(storeRoot, accountId) {
 export const teammatesFile = (dir) => path.join(dir, 'teammates.jsonl');
 export const chatFile = (dir) => path.join(dir, 'chat.jsonl');
 
+// The screen asks for these on every refresh; a file only read again when it
+// has changed keeps a long chat from costing a parse each time.
+const READ = new Map();
+
 function readLines(file) {
   let text;
+  let key;
   try {
-    const size = fs.statSync(file).size;
+    const st = fs.statSync(file);
+    const size = st.size;
+    key = `${size}:${st.mtimeMs}`;
+    const had = READ.get(file);
+    if (had?.key === key) return had.lines.slice();
     if (size > MAX_READ) {
       const fd = fs.openSync(file, 'r');
       try {
@@ -42,7 +51,8 @@ function readLines(file) {
     if (!raw.trim()) continue;
     try { out.push(JSON.parse(raw)); } catch { /* a torn last line from a crash; the rest still reads */ }
   }
-  return out;
+  READ.set(file, { key, lines: out });
+  return out.slice();
 }
 
 function append(file, obj) {
