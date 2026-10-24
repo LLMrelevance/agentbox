@@ -149,9 +149,12 @@ export function shortWord(state: LiveState, helpers = 0): string {
   if (state === 'working' && helpers > 0) {
     return helpers === 1 ? '1 Subagent Working' : `${helpers} Subagents Working`;
   }
-  // The tab's own two words, because it is the same fact. One word ("Asking",
-  // "Held") says who is waiting on whom in neither direction.
-  if (state === 'asking') return 'Needs you';
+  // NOT THE TAB'S OWN WORDS: this read "Needs you" under a tab called Needs
+  // you, and said nothing the tab had not. Not "Blocked" either, which already
+  // means a thread waiting on another thread (`byline.ts`, "Blocked by" in the
+  // summary). "Asking" is what the agent is doing, in the present tense the
+  // rest of these words are in; the hover carries the whole sentence.
+  if (state === 'asking') return 'Asking';
   if (state === 'working') return 'Working';
   // The same word as a run of ours; the mark beside it says where.
   if (state === 'elsewhere') return 'Working';

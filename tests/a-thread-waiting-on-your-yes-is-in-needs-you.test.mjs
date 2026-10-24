@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { belongsInInbox, belongsInProgress } from '../renderer/src/list-rules.ts';
-import { liveLine } from '../renderer/src/live-line.ts';
+import { liveLine, shortWord } from '../renderer/src/live-line.ts';
 import { statusCell } from '../renderer/src/status-word.ts';
 
 const now = Date.now();
@@ -35,12 +35,35 @@ describe('a thread whose agent is waiting for your yes', () => {
     expect(belongsInProgress(working, { now, live: true })).toBe(true);
   });
 
-  it('reads Needs you rather than Working, with the still mark', () => {
+  it('reads Asking rather than Working, in the same mark every held agent wears', () => {
     const cell = statusCell(working, { session, queued: [], asking: true, inProgress: true, now });
-    expect(cell.word).toBe('Needs you');
-    expect(cell.mark).toBe('need');
+    expect(cell.word).toBe('Asking');
+    // `held`, the accent ring: nothing starts this thread until something
+    // changes, which is what Stopped, Paused, Signed out and At its limit say
+    // with the same ring. NOT `need`, the solid dot, which is drawn nowhere
+    // else in this column (`s-need` in threads/pages.css).
+    expect(cell.mark).toBe('held');
     expect(cell.live).toBe(false);
     expect(cell.title).toMatch(/until you answer/);
+  });
+
+  it('does not say the word the tab over it already says', () => {
+    // 2026-10-24, in their words: "Everything in the tab is called Needs you so
+    // it doesn't make sense for the status to also be Needs you."
+    const cell = statusCell(working, { session, queued: [], asking: true, inProgress: true, now });
+    expect(cell.word).not.toBe('Needs you');
+    expect(shortWord('asking')).not.toMatch(/needs/i);
+  });
+
+  it('wears a mark this column already draws, and never a new one', () => {
+    // The whole set of marks the Status column can draw, as pages.css styles
+    // them. A sixth would be the inconsistency this round was asked to remove.
+    const css = readFileSync(new URL('../renderer/src/threads/pages.css', import.meta.url), 'utf8');
+    const cell = statusCell(working, { session, queued: [], asking: true, inProgress: true, now });
+    expect(css).toMatch(new RegExp(`\\.th-st\\.s-${cell.mark} \\{`));
+    // And it is the one the other stopped agents wear.
+    const stopped = statusCell(working, { session, queued: [], stalled: true, inProgress: true, now });
+    expect(cell.mark).toBe(stopped.mark);
   });
 
   it('says what is waiting and what unsticks it', () => {
