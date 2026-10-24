@@ -8,11 +8,12 @@
 //
 // WHERE IT STOPS, measured on 2026-10-24 by logging every quit event of a real
 // Linux launch: `before-quit` fires, `will-quit` fires and is held for the last
-// batch of counts (flushBeforeQuit, below), the flush finishes and calls
-// `app.quit()` again, and that second call does nothing at all — no event, no
-// exit. A bare Electron app of the same version holding and re-quitting the
-// same way on the same machine quits properly, so it is something this app
-// holds, and that is still open.
+// batch of counts (flushBeforeQuit), the flush finishes and asks again, and
+// that second ask does nothing at all — no event, no exit. The whole account,
+// and which quits it ruins, is in
+// tests/a-quit-held-for-the-last-counts-still-ends-the-app, where that hold now
+// ends the process itself. This deadline is the outer one, for a screenshot run
+// that never gets as far as a quit.
 //
 // `app.quit()` only asks. It is still asked first, because that is what runs
 // the quit steps and lets the workers go, and if the quit has not happened by
