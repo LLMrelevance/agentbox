@@ -1,5 +1,8 @@
 // The room screens' icons, as drawn in round 23.
+// `d` is only ever one of the constant path strings below, never anything a
+// person or an agent wrote, so the raw markup cannot carry their words.
 const svg = (d: string, size: number, sw: number, cls?: string) => (
+  // nosemgrep: typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
   <svg className={cls} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: d }} />
 );
 
