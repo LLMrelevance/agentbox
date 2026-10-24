@@ -34,6 +34,12 @@
 export const FLUSH_DEADLINE_MS = 2000;
 
 /**
+ * How long a quit we asked for is given before the process is ended outright.
+ *  Longer than the flush above on purpose: a quit holding itself open for the
+ *  last counts is a quit that is working. */
+export const EXIT_DEADLINE_MS = 8000;
+
+/**
  * A STEP ON THE WAY OUT, which runs once and cannot throw.
  *
  *  `name` is in the warning rather than in a comment, because the one thing
@@ -95,4 +101,30 @@ export function flushBeforeQuit(app, flush, { deadlineMs = FLUSH_DEADLINE_MS, lo
       .catch((err) => { log?.warn?.(`zero: the last counts did not get out: ${err?.message ?? err}`); })
       .then(go, go);
   });
+}
+
+/**
+ * ASK TO QUIT, AND GO ANYWAY IF THE QUIT DOES NOT COME.
+ *
+ *  `app.quit()` only asks, and on Linux this app's second one does nothing at
+ *  all: the measurement is in
+ *  tests/a-screenshot-run-ends-when-it-has-taken-the-picture. It is still asked
+ *  first, because that is what runs the quit steps and lets the workers go, and
+ *  the deadline ends the process when the quit has not.
+ *
+ *  The deadline outlasts the flush above, or a quit that is working would be
+ *  cut off mid-way. The timer is unreffed: an app with nothing left to do must
+ *  not be kept alive by the thing watching it. */
+export function quitThenExit(app, { what = 'this run', deadlineMs = EXIT_DEADLINE_MS, log = console } = {}) {
+  let over = false;
+  const timer = setTimeout(() => {
+    if (over) return;
+    over = true;
+    log?.warn?.(`zero: ${what} asked the app to quit ${deadlineMs} ms ago and it is still here, so it is ending now`);
+    app.exit(0);
+  }, deadlineMs);
+  timer.unref?.();
+  app.once?.('quit', () => { over = true; clearTimeout(timer); });
+  app.quit();
+  return timer;
 }

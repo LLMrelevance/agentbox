@@ -73,8 +73,10 @@ describe('the download opens on both kinds of Mac', () => {
     // electron-builder names the output folder after the arch it packed, so
     // release/mac-arm64 became release/mac-universal on the line above. Two
     // scripts had that folder written into them and would have gone on opening
-    // a stale app, or none, without saying so.
-    for (const f of ['scripts/fresh-user.mjs', 'scripts/prove-the-new-user-opens.mjs']) {
+    // a stale app, or none, without saying so. `npm run fresh` keeps its list
+    // in scripts/fresh-user-target.mjs since 2026-10-24, where the checkout it
+    // falls back to on Linux lives too.
+    for (const f of ['scripts/fresh-user-target.mjs', 'scripts/prove-the-new-user-opens.mjs']) {
       expect(fs.readFileSync(path.join(repo, f), 'utf8')).toContain('mac-universal');
     }
   });

@@ -337,6 +337,14 @@ export function createHandler({ channels, token, listeners = new Set(), dist = p
     // NOR DOES THE PAGE ITSELF ASK: the tab takes the token out of its address
     // bar on load, so a reload asks for `/` bare, and refusing that drew
     // "Wrong or missing token" on every reload (tests/a-browser-tab-survives-a-reload).
+    //
+    // AND THE HOST HEADER IS NOT CHECKED, asked and answered 2026-10-24.
+    // Refusing a Host that is not localhost is the usual guard against a page
+    // whose own name resolves to this machine, and it cannot go here:
+    // main/phone-link.mjs serves this same handler to a phone through a relay
+    // or over Tailscale, where the Host is neither. The token is the key,
+    // whatever name the request arrives under
+    // (tests/the-doing-half-runs-with-no-electron).
     const guarded = url.pathname === '/events' || url.pathname.startsWith('/api/') || url.pathname === '/file-key';
     const given = req.headers['x-agentbox-token'] || url.searchParams.get('token');
     if (guarded && !sameKey(given, typeof token === 'function' ? token() : token)) {
