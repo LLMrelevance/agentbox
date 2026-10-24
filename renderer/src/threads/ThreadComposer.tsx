@@ -428,10 +428,12 @@ export function ThreadComposer({
   // stands down wherever one thread is the only honest reading: a message to a
   // person, files that belong to one thread, a thread named in the words (the
   // mention is one item's, not every item's), and the tutorial's own task.
-  const listed = person || attachments.length || scripted || named.encode(typed.trim()) !== typed.trim()
+  const listed = person || attachments.length || scripted || named.encode(typed.trim()) !== typed.trim() || mate
     ? [] : listedTasks(typed);
 
   const sendTask = async (when: { runAt?: number; start?: 'later'; repeat?: { every: 'day' | 'weekday' | 'week'; on?: number; at: string }; asList?: boolean } = {}) => {
+    // A teammate takes the words in the team chat rather than as a thread.
+    if (mate) { void sendToTeammate(); return; }
     if (!canSend || !product || !message) return;
     // One thread per item, or the one thread Send has always made.
     const parts = when.asList ? listed : [];
@@ -581,7 +583,7 @@ export function ThreadComposer({
     if (err) setError(err);
     else { setText(''); onClose(); }
   };
-  const send = () => (mate ? sendToTeammate() : person && sendAs === 'message' ? sendMessage() : sendTask());
+  const send = () => (person && sendAs === 'message' ? sendMessage() : sendTask());
   // ⌘↵ SENDS WHEREVER THE CURSOR IS while the card is open (w-9f6975906c).
   // It used to be heard only inside the card, so once a menu or a click had
   // taken focus out of it the key did nothing: "Command+Enter in the tutorial
@@ -1036,25 +1038,7 @@ export function ThreadComposer({
             and main/team/index.mjs saves them once it knows where. */}
         {error && <div className="tc-note tc-error" role="alert">{error}</div>}
 
-        {mate ? (
-          <div className="tc-bar">
-            {mate === 'new' && (
-              <span className="tc-anchor" ref={anchor('project')}>
-                <button type="button" data-trigger className={`tc-chip ${open === 'project' ? 'open' : ''}`} title={product?.name ?? 'Which project'}
-                  aria-haspopup="listbox" aria-expanded={open === 'project'} onClick={() => toggle('project')} onKeyDown={triggerKeys('project')}>
-                  {product && <Swatch slug={product.slug} />}
-                  <span className="tc-chip-name">{product?.name ?? 'No project'}</span>
-                </button>
-                {open === 'project' && projectMenu}
-              </span>
-            )}
-            <span className="tc-send solo">
-              <button type="button" className="tc-send-main" disabled={!text.trim() || sending} onClick={() => void send()} title={`Send · ${SEND}`}>
-                Send <kbd>{SEND}</kbd>
-              </button>
-            </span>
-          </div>
-        ) : person && sendAs === 'message' ? (
+        {person && sendAs === 'message' ? (
           <div className="tc-bar">
             {/* HOW URGENT IT IS, AND NOTHING ELSE (w-7ba439c883, approved
                 2026-10-05). The corner used to carry "Goes to Maya's inbox.",
@@ -1070,6 +1054,24 @@ export function ThreadComposer({
             <input ref={fileRef} type="file" multiple hidden onChange={async (e) => { await addFiles(e.target.files); e.target.value = ''; }} />
             <span className="tc-send solo">
               <button type="button" className="tc-send-main" disabled={!canSend} onClick={() => void send()} title={`Send · ${SEND}`}>
+                Send <kbd>{SEND}</kbd>
+              </button>
+            </span>
+          </div>
+        ) : mate ? (
+          <div className="tc-bar">
+            {mate === 'new' && (
+              <span className="tc-anchor" ref={anchor('project')}>
+                <button type="button" data-trigger className={`tc-chip ${open === 'project' ? 'open' : ''}`} title={product?.name ?? 'Which project'}
+                  aria-haspopup="listbox" aria-expanded={open === 'project'} onClick={() => toggle('project')} onKeyDown={triggerKeys('project')}>
+                  {product && <Swatch slug={product.slug} />}
+                  <span className="tc-chip-name">{product?.name ?? 'No project'}</span>
+                </button>
+                {open === 'project' && projectMenu}
+              </span>
+            )}
+            <span className="tc-send solo">
+              <button type="button" className="tc-send-main" disabled={!text.trim() || sending} onClick={() => void send()} title={`Send · ${SEND}`}>
                 Send <kbd>{SEND}</kbd>
               </button>
             </span>

@@ -20,7 +20,7 @@ describe('To in New thread', () => {
   it('lists each started teammate and Someone new, and sends to them without making a thread', () => {
     expect(card).toMatch(/<span className="tc-menu-head">Teammates<\/span>/);
     expect(card).toMatch(/Someone new/);
-    expect(card).toMatch(/const send = \(\) => \(mate \? sendToTeammate\(\) :/);
+    expect(card).toMatch(/if \(mate\) \{ void sendToTeammate\(\); return; \}/);
     // Only started ones: a teammate still being set up has no job to give work to.
     expect(app).toMatch(/agentMates=\{teammatesUi\.live \? snap\.teammates\?\.list\.filter\(\(t\) => t\.status === 'active'\) : undefined\}/);
   });
