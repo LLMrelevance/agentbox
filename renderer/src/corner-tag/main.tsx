@@ -271,6 +271,9 @@ function CardBody({ state }: { state: State }) {
   const { lines, more } = cardLines(state.ready, state.now);
   return (
     <>
+      {/* Her pick of five (w-93b3a1a796): the tray counts only these, so the
+          list says so. */}
+      {lines.length > 0 && <div className="ct-quiet ct-static ct-head">New since you left</div>}
       {lines.map((l) => (
         <button key={l.id} className="ct-line" onClick={() => bridge?.go(l.open === undefined ? l.id : l.open)}>
           <span className="ct-pip" />

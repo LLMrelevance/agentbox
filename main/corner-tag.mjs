@@ -56,6 +56,11 @@ const PRESS_GIVES_UP_MS = 60_000;
 // tray is on screen and only then. Drag the tray from a white page onto a dark
 // one and the ink follows within this.
 export const TONE_EVERY_MS = 500;
+// How often the page is asked to measure again while the tray is on screen.
+// The glass is placed from what the page last said, and once (w-93b3a1a796)
+// it was left at an old size by something that was never reproduced; this is
+// the longest that can now last.
+export const MEASURE_EVERY_MS = 2000;
 
 const HIDE_LABELS = { '5m': 'Hide for 5 minutes', '30m': 'Hide for 30 minutes', today: 'Hide for the rest of today' };
 const CHANNELS = [
@@ -224,10 +229,15 @@ export function createCornerTag({
   const stopTones = () => { if (toneTimer) { clearTimer(toneTimer); toneTimer = null; } };
   const watchTones = () => {
     if (!glass || toneTimer || gone) return;
+    let measuredAt = now();
     const tick = () => {
       toneTimer = null;
       if (gone || !alive('tag') || !wins.tag.isVisible()) return;
       readTone();
+      if (now() - measuredAt >= MEASURE_EVERY_MS) {
+        measuredAt = now();
+        send('tag', 'corner-tag:measure');
+      }
       toneTimer = setTimer(tick, TONE_EVERY_MS);
     };
     toneTimer = setTimer(tick, TONE_EVERY_MS);

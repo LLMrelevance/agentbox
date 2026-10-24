@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cornerTagRig } from './helpers/corner-tag-rig.mjs';
+import { MEASURE_EVERY_MS } from '../main/corner-tag.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const page = fs.readFileSync(path.join(root, 'renderer/src/corner-tag/main.tsx'), 'utf8');
@@ -44,6 +45,23 @@ describe('the tray measures itself again whenever it comes up', () => {
     r.hand(NEW(r.clock()));
     expect(r.win().visible).toBe(true);
     expect(measures(r.win())).toBe(first + 1);
+  });
+
+  // Whatever left the page and the glass at different sizes, it lasts no longer
+  // than this while the tray is on screen.
+  it('keeps asking every couple of seconds while the tray is up, and stops once it hides', () => {
+    const r = cornerTagRig({ at: T, glass: glass(), config: { cornerTagLookedAt: T - 1 } });
+    r.hand(NEW(T));
+    r.pageUp('tag', { width: 95, height: 69, glass: { x: 14, y: 14, width: 66, height: 40 }, radius: 8.6 });
+    const shown = measures(r.win());
+    r.advance(MEASURE_EVERY_MS * 3 + 10);
+    expect(measures(r.win())).toBe(shown + 3);
+    expect(MEASURE_EVERY_MS).toBeLessThanOrEqual(2000);
+    r.enterApp();
+    const hidden = measures(r.win());
+    r.advance(MEASURE_EVERY_MS * 3);
+    expect(measures(r.win())).toBe(hidden);
+    expect(r.timers).toHaveLength(0);
   });
 
   it('does not ask while the tray stays hidden', () => {
