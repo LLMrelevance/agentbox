@@ -2,14 +2,6 @@
 // drawing so they can be tested. tests/a-room-reads-the-way-it-was-approved.
 import type { Person, Room, RoomCard, RoomMention, ThreadCard } from '../../types';
 
-/** A chat just started goes beside the room where that panel is drawn; a
- *  person's page has none, so from there it opens full page, and Back returns. */
-export function whereChatOpens<P extends string>({ open, full, pane }: { open: { id: string; kind: string } | null; full: boolean; pane: P }):
-  { beside: true } | { beside: false; back: { roomId: string; pane: P } | null } {
-  if (!open || full || open.kind === 'group') return { beside: false, back: null };
-  return pane.startsWith('person:') ? { beside: false, back: { roomId: open.id, pane } } : { beside: true };
-}
-
 type Shares = { me: boolean; teammate: boolean; showActivity: boolean; activity?: unknown[] | null; away?: boolean };
 /** Whose threads reach me as the team's thread cards: my own, or a teammate's who shares them. */
 const onTheTeamBoard = (c: Shares) => c.me || (c.teammate && c.showActivity);
@@ -99,16 +91,16 @@ export function writeChatWidth(width: number | null, store: Store = local()) {
   try { store?.setItem(CHAT_KEY, width == null ? '' : String(Math.round(width))); } catch { /* not kept */ }
 }
 
-/** What Tab walks: the state tabs, then the room tab when there is one. */
-export function tabOrder<T extends string>(stateTabs: readonly T[], tabRoomId: string | null): (T | 'room')[] {
-  return tabRoomId ? [...stateTabs, 'room'] : [...stateTabs];
-}
-
 /** The room in the Threads tab: the one picked, else the first pinned room, else the first room. Never a group chat. */
 export function tabRoom<R extends Pick<Room, 'id' | 'kind' | 'pinned'>>(rooms: readonly R[], choice: string | null): R | null {
   if (choice === 'none') return null;
   const own = rooms.filter((r) => r.kind !== 'group');
   return own.find((r) => r.id === choice) ?? own.find((r) => r.pinned) ?? own[0] ?? null;
+}
+
+/** The group Groups opens: the one open last while you are still in it, else as tabRoom picks, else any chat. */
+export function groupInTab<R extends Pick<Room, 'id' | 'kind' | 'pinned'>>(rooms: readonly R[], last: string | null): R | null {
+  return rooms.find((r) => r.id === last) ?? tabRoom(rooms, null) ?? rooms[0] ?? null;
 }
 
 /** Whose threads a room's board draws: whoever's Activity I may open, and a
@@ -120,23 +112,6 @@ export function boardPicked(saved: readonly string[] | null | undefined, people:
   const ids = people.map((p) => p.id);
   const kept = (saved ?? []).filter((id) => ids.includes(id));
   return kept.length ? kept : ids;
-}
-
-/** A face over the board picked: just them from everyone, back to everyone from them alone. */
-export function facePick(picked: readonly string[], all: readonly string[], id: string): string[] {
-  if (picked.length >= all.length) return [id];
-  if (picked.length === 1 && picked[0] === id) return [...all];
-  return picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id];
-}
-
-/** Tiles to a row over the board: eight at most, and even rows past that. */
-export function tilesPerRow(n: number, most = 8): number {
-  return Math.ceil(n / Math.ceil(n / most));
-}
-
-/** How many face tiles fit across a width: "Not running" and its padding take 93px, and the tile's line 1. */
-export function tilesAcross(width: number): number {
-  return Math.max(1, Math.min(8, Math.floor(width / 94)));
 }
 
 /** Each room's pick, by room id. */

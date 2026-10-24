@@ -21,8 +21,7 @@ export function roomsSetup({ config, store, supervisor, userDir, log = (line) =>
     device: () => phoneDevice(userDir, config.storeRoot),
     prefsFile: roomPrefsFile(config.storeRoot),
     presenceFacts: () => {
-      const running = [...supervisor.sessions.values()].filter((s) => !s.remoteIdle)
-        .map((s) => ({ itemId: s.itemId, product: s.product, startedAt: s.startedAt }));
+      const running = supervisor.runsGoing().map((s) => ({ itemId: s.itemId, product: s.product, startedAt: s.startedAt }));
       const items = running.map((r) => { try { return store.readItem(r.product, r.itemId); } catch { return null; } }).filter(Boolean);
       let products = [];
       try { products = store.listProducts(); } catch { /* none to name */ }

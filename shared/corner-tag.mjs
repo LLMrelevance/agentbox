@@ -1,11 +1,10 @@
 // THE CORNER TAG (w-dafae58a23): the rules, and nothing that touches a window.
 //
 // You lose track of agents once you are in another app, and the ones waiting on
-// you sit idle. The answer that survived eight rounds of drawings is a small tag
-// in a corner of the screen that says "2 ready for you" when an agent has
-// something for you and "20 working" when none does. Twenty agents running is
-// ordinary, so working agents are a count and never a list: only what is ready
-// for you is worth a line.
+// you sit idle. The answer is a small tag in a corner of the screen: the
+// nine-dot mark and how many started waiting since you last had the app in
+// front. When nothing is new it is gone (w-93b3a1a796), because a tag that is
+// always there is a tag nobody reads.
 //
 // It must never become a nag. So it hides for a while and comes back on its
 // own, there is no one-click way to make it gone for good (that becomes a thing
@@ -48,13 +47,25 @@ export function hiddenUntil(choice, now) {
   return 0;
 }
 
-/** The words on the tag, or null when there is nothing to say. Short, because
- *  "22 ready for you" in the corner of a full screen was more than it needed;
- *  "waiting" was picked over "ready" and "need you". */
-export function tagSays({ ready = 0, working = 0 } = {}) {
-  if (ready > 0) return { kind: 'ready', text: `${ready} waiting` };
-  if (working > 0) return { kind: 'working', text: `${working} working` };
+/**
+ * What the tag says: the mark and how many are new, or null, in which case it
+ * is gone. A working count kept it on screen all day and made it wallpaper
+ * (w-93b3a1a796), so working agents only appear in its list. "Waiting" won
+ * over "ready" and "need you", and is what the tag says aloud.
+ */
+export function tagSays({ ready = 0 } = {}) {
+  if (ready > 0) return { kind: 'ready', text: String(ready), label: `${ready} waiting` };
   return null;
+}
+
+/**
+ * What started waiting after you last looked, which is the last time the
+ * app's window was in front. Before you have ever looked, everything counts.
+ */
+export function newSince(ready, lookedAt) {
+  const list = ready ?? [];
+  if (!(lookedAt > 0)) return [...list];
+  return list.filter((r) => Number.isFinite(r.since) && r.since > lookedAt);
 }
 
 /**
@@ -224,27 +235,21 @@ export function latticeGrid(box, dpr = 1) {
 }
 
 /**
- * What the tag counts and lists: everything waiting on you, newest first.
- * The first version put threads from weeks ago at the top of the list; the
- * second cut everything older than a day, and then a Needs you of 58 read
- * "3 waiting" in the corner (w-0961e5523b). So the count is the whole of it,
- * the same number the app shows, and only the order keeps the old ones out
- * of the way: the list shows the newest three and folds the rest into "and N
- * more". Something with no moment it became ready (an agent stopped on a
- * yes, right now) sorts as now.
+ * Newest first. Something with no moment it became ready (an agent stopped on
+ * a yes, right now) sorts as now.
  */
 export function readyNow(ready, now) {
   return [...(ready ?? [])]
     .sort((a, b) => (Number.isFinite(b.since) ? b.since : now) - (Number.isFinite(a.since) ? a.since : now));
 }
 
-/** Whether the tag is on screen right now. */
-export function tagShows({ on, hiddenUntil: until = 0, now, inApp, ready = 0, working = 0 }) {
+/** Whether the tag is on screen right now; `ready` is how many are new. */
+export function tagShows({ on, hiddenUntil: until = 0, now, inApp, ready = 0 }) {
   if (on === false) return false;
   if (until > now) return false;
   // In the app itself the inbox already says all of this, bigger.
   if (inApp) return false;
-  return !!tagSays({ ready, working });
+  return !!tagSays({ ready });
 }
 
 /** How long something has waited, in units. */

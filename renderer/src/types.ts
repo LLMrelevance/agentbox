@@ -837,7 +837,7 @@ export interface Snapshot {
   // cloud, which is the single-person app.
   team?: TeamState | null;
   /** Which alpha features are switched on (Settings, Alpha features). */
-  alpha?: { neo: boolean; rooms: boolean };
+  alpha?: { neo: boolean; rooms: boolean; multiplayer?: boolean };
   agents?: AgentSession[];
   approvals?: Approval[];
   supervisor: SupervisorStatus;
@@ -1158,7 +1158,7 @@ export interface WorkspaceSettings {
   // unless she turned it on (w-5737fe67cf).
   adhdMode?: boolean;
   // Settings, Alpha features (w-3d0fa23ffb).
-  alpha?: { neo: boolean; rooms: boolean };
+  alpha?: { neo: boolean; rooms: boolean; multiplayer?: boolean };
   // The corner tag over other apps (w-dafae58a23). On unless she turned it off.
   cornerTag?: boolean;
   outsideAgents: AgentMode;
@@ -1291,7 +1291,7 @@ declare global {
       compact(p: { product: string; id: string }): Promise<{state: string; at: number}>;
       remoteControl(p: {product: string; id: string; action?: string}): Promise<{state: string; at: number; text?: string; url?: string; mayBeActive?: boolean} | null>;
       compactionStatus(p: {product: string; id: string}): Promise<{state: string; at: number} | null>;
-      answer(p: { product: string; id: string; answer?: string; status?: string; priority?: number; permissionMode?: string | null; model?: string | null; effort?: string | null; now?: boolean; inReplyTo?: string }): Promise<WorkItem>;
+      answer(p: { product: string; id: string; answer?: string; status?: string; priority?: number; permissionMode?: string | null; model?: string | null; effort?: string | null; now?: boolean; inReplyTo?: string; closeUnshipped?: boolean }): Promise<WorkItem>;
       sendNow(p: { product: string; id: string }): Promise<{ ok: boolean; interrupted: boolean }>;
       setProductOrder(p: { order: string[] }): Promise<unknown>;
       setThreadPlaces(p: { places: Record<string, number | null> }): Promise<unknown>;
@@ -1439,8 +1439,10 @@ declare global {
         productName?: string | null;
         // An approval's thread, by its list name, which heads the phone's alert.
         thread?: string | null;
+        // An approval's thread id, which the phone's alert opens.
+        item?: string | null;
         kind: string;
-      }>): Promise<void>;
+      }>, needsYou?: Array<{ id: string; product: string }>): Promise<void>;
       // She clicked the banner: open this row.
       onOpenItem?(fn: (p: { id: string }) => void): () => void;
     };

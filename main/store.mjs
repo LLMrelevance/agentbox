@@ -31,6 +31,7 @@ import {
 } from '../shared/codex-import.mjs';
 import { buildClaimLine, buildReleaseLine } from '../shared/work-items.mjs';
 import { isEffortWord } from '../shared/effort-levels.mjs';
+import { shippedNote } from '../shared/shipped-note.mjs';
 import { machineryPath, removeMachinery } from './store/home.mjs';
 import {
   answerMode as readAnswerMode, answerModes, clearAnswerMode as clearAnswerModeFile, setAnswerMode,
@@ -408,15 +409,17 @@ export class Store {
   shipped(slug, id, { sha, labels }) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
-    const note = sha ? `Shipped to main as ${sha}.` : 'Shipped to main.';
-    return workItemsDisk.updateWorkItem(dir, id, { labels, note }, { source: 'system' });
+    return workItemsDisk.updateWorkItem(dir, id, { labels, note: shippedNote(sha) }, { source: 'system' });
   }
 
   shipFailed(slug, id, { note, labels }) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
     workItemsDisk.updateWorkItem(dir, id, { labels, note }, { source: 'system' });
-    return workItemsDisk.updateWorkItem(dir, id, { status: 'open' }, { source: 'system' });
+    // A row the person closed while it waited to ship is theirs, and only
+    // their own Reopen outranks that (see `closedBeforeItShipped` below).
+    const closed = this.readItem(slug, id)?.status === 'done';
+    return workItemsDisk.updateWorkItem(dir, id, { status: 'open' }, { source: closed ? 'founder' : 'system' });
   }
 
   releaseRunClaim(slug, id, run) {
@@ -743,6 +746,18 @@ export class Store {
     const labels = this.readItem(slug, id)?.labels ?? [];
     const kept = labels.filter((l) => l !== 'ship');
     workItemsDisk.updateWorkItem(dir, id, { note, ...(kept.length !== labels.length ? { labels: kept } : {}) }, { source: 'system' });
+    return workItemsDisk.updateWorkItem(dir, id, { status: 'blocked' }, { source: 'system' });
+  }
+
+  // A CLOSED ROW WHOSE WORK NEVER REACHED MAIN, put back in front of the
+  // person. Their close outranks the app's own writes, so it reopens the way
+  // their Reopen does (`authorityOf` records that as the app's), then waits on
+  // them so no run starts by itself.
+  closedBeforeItShipped(slug, id, note) {
+    const { workItemsDisk } = this.modules;
+    const dir = this.productDir(slug);
+    workItemsDisk.updateWorkItem(dir, id, { note }, { source: 'system' });
+    workItemsDisk.updateWorkItem(dir, id, { status: 'open' }, { source: 'founder' });
     return workItemsDisk.updateWorkItem(dir, id, { status: 'blocked' }, { source: 'system' });
   }
 

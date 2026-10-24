@@ -18,6 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { recordCloudLogin, pickCloudLogin, cloudAccountsFrom } from '../main/cloud/logins.mjs';
 import { cloudAccountKeys } from '../.claude/skills/verify-agentbox/scripts/live.mjs';
+import { loginForCloudRun } from '../main/cloud/run-cli.mjs';
 
 let home;
 beforeEach(() => {
@@ -89,7 +90,8 @@ describe('the list a run carries', () => {
   });
 
   it('is read by the cloud run from the run\'s own environment', () => {
+    expect(loginForCloudRun('claude', { AGENTBOX_CLOUD_ACCOUNTS: 'work@example.com' }, { home, now: 3000 }).rec.email).toBe('work@example.com');
     const cli = fs.readFileSync(path.join(import.meta.dirname, '..', 'main', 'cloud', 'run-cli.mjs'), 'utf8');
-    expect(cli).toMatch(/pickCloudLogin\(engine, \{ only: cloudAccountsFrom\(env\) \}\)/);
+    expect(cli).toMatch(/loginForCloudRun\(engine, env\)/);
   });
 });

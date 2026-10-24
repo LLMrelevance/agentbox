@@ -48,6 +48,7 @@ function plant(rel, body) {
 
 beforeAll(() => {
   plant('main/a-stray-binary', '\x7fELF not really, but not source either\n');
+  plant('main/a-stray-addon.node', 'not the glass\n');
   plant('scripts/lib/somebody-scratch-file.mjs', '// left behind by a design run\n');
   // The file is normally absent from a fresh checkout, and a test that only
   // passes because the file is missing is not a test. So put one there.
@@ -86,9 +87,11 @@ describe('the tarball npm would publish', () => {
   it('carries source out of main, and not whatever else is lying in it', () => {
     expect(fs.existsSync(path.join(repoRoot, 'main', 'a-stray-binary'))).toBe(true);
     expect(has((p) => p === 'main/a-stray-binary')).toBe(false);
-    // Every main/ file that does ship is source.
+    expect(has((p) => p === 'main/a-stray-addon.node')).toBe(false);
+    // Every main/ file that does ship is source, or the tray's glass that
+    // `npm pack` compiles from main/native (scripts/build-liquid-glass.mjs).
     for (const f of manifest.files.filter((f) => f.path.startsWith('main/'))) {
-      expect(f.path).toMatch(/\.mjs$/);
+      expect(f.path).toMatch(/\.mjs$|^main\/native\/[\w-]+\/build\/[\w-]+\.node$/);
     }
   });
 

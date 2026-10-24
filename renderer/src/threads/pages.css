@@ -464,7 +464,7 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 .th-cloud-pop .th-cloud-note { padding-top: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-faint); }
 .th-cloud-pop .th-cloud-use { font-size: 13px; color: var(--text); }
 .th-cloud-pop .th-cloud-warn > span:last-child { color: var(--accent); }
-.th-cloud-invite { width: 360px; padding: 26px 26px 22px; align-items: center; text-align: center; }
+.th-pop.th-cloud-invite { width: 360px; padding: 26px 26px 22px; align-items: center; text-align: center; }
 .th-cloud-invite-ic { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .th-cloud-invite-ic svg { width: 22px; height: 22px; }
 .th-cloud-invite-head { margin-top: 14px; font-size: 16px; color: var(--text); letter-spacing: -0.01em; }

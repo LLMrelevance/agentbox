@@ -24,7 +24,8 @@ function stubStripe() {
     checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test_1',
     billingUrl: 'https://billing.stripe.com/p/session/test_1',
     asked: [],
-    async checkout(a) { s.asked.push(['checkout', a.plan]); return s.checkoutUrl; },
+    returns: {},
+    async checkout(a) { s.asked.push(['checkout', a.plan]); s.returns = { success: a.successUrl, cancel: a.cancelUrl }; return s.checkoutUrl; },
     async billing(a) { s.asked.push(['billing', a.customer]); return s.billingUrl; },
     async subscription() { return s.paying; },
     signed: () => true,
@@ -73,6 +74,15 @@ describe('paying', () => {
     expect(await payForCloud({ plan: 'plus', openExternal: open, env, home })).toEqual({ ok: true, where: 'checkout' });
     expect(opened).toEqual(['https://checkout.stripe.com/c/pay/cs_test_1']);
     expect(stripe.asked).toEqual([['checkout', 'plus']]);
+  });
+
+  // Stripe's last page names the plan (tests/stripe-opens-in-the-browser-like-other-desktop-apps).
+  it('sends Stripe back to a page that knows the plan, and to one that knows it was cancelled', async () => {
+    await start();
+    await signIn();
+    await payForCloud({ plan: 'plus', openExternal: open, env, home });
+    expect(stripe.returns.success).toMatch(/^https:\/\/[^/]+\/v1\/paid\?plan=plus$/);
+    expect(stripe.returns.cancel).toMatch(/^https:\/\/[^/]+\/v1\/paid\?cancelled=1$/);
   });
 
   it('someone already paying is sent to their billing page', async () => {

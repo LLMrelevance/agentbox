@@ -11,7 +11,7 @@
 // `answerCloseAsk` does what the answer says; this is only the words.
 import type { ParsedOption } from './format';
 
-export type CloseAct = 'decide' | 'start' | 'drop';
+export type CloseAct = 'decide' | 'start' | 'drop' | 'ship' | 'close';
 export interface CloseOption extends ParsedOption { act: CloseAct }
 export interface CloseAsk { ask: string; options: CloseOption[] }
 
@@ -42,6 +42,17 @@ export function closeAsk(waiting: number): CloseAsk | null {
       { n: 1, text: 'Decide each one', recommended: true, act: 'decide' },
       { n: 2, text: `Start ${them}, then close`, recommended: false, act: 'start' },
       { n: 3, text: `Drop ${them}, then close`, recommended: false, act: 'drop' },
+    ],
+  };
+}
+
+/** For a thread whose work never reached main (shared/not-shipped.mjs). */
+export function unshippedAsk(): CloseAsk {
+  return {
+    ask: "This thread's work never reached main.",
+    options: [
+      { n: 1, text: 'Have the agent ship it', recommended: true, act: 'ship' },
+      { n: 2, text: 'Close it anyway', recommended: false, act: 'close' },
     ],
   };
 }

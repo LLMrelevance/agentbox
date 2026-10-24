@@ -214,6 +214,19 @@ for (const [where, makeWorld, enabled] of worlds) {
       await w.maya.markPhoneCommand(cmd.id, 'done');
     });
 
+    // THE PHONES HER ALERTS GO TO (20261025000000_push_devices.sql).
+    it('keeps the phones her alerts go to to their owner', async () => {
+      const token = `ExponentPushToken[${shared.replace(/-/g, '').slice(0, 22)}]`;
+      await w.maya.putPushDevice({ token, platform: 'ios', appVersion: '1.0.0' });
+      await w.maya.putPushDevice({ token, platform: 'ios', appVersion: '1.0.1' });
+      expect((await w.maya.pushDevices()).filter((d) => d.token === token).map((d) => d.appVersion)).toEqual(['1.0.1']);
+      expect(await w.theo.pushDevices()).toEqual([]);
+      await w.theo.dropPushDevice(token);
+      expect((await w.maya.pushDevices()).map((d) => d.token)).toContain(token);
+      await w.maya.dropPushDevice(token);
+      expect((await w.maya.pushDevices()).map((d) => d.token)).not.toContain(token);
+    });
+
     // A STATUS LINE YOU WRITE YOURSELF (w-0b54ee983f).
     it('carries a status line to the team and clears it again', async () => {
       const until = Date.now() + 2 * 86_400_000;

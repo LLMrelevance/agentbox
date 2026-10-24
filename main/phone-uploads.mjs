@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { hideSecrets } from '../shared/phone-snapshot.mjs';
+import { readPictureShapeSync } from './picture-shape.mjs';
 
 // A tenth of the Pro plan's 100 GB, which the organization's projects share;
 // past it the oldest threads' files make way (`trimBelow`).
@@ -281,6 +282,18 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
     const was = names.get(file);
     return was && was.size === st.size && was.mtimeMs === st.mtimeMs ? was.name : null;
   };
+  // A picture's width and height, so the phone draws its box at that shape
+  // before the picture arrives; read again only when the file changes.
+  const shapes = new Map(); // file -> { size, mtimeMs, shape }
+  const shapeOf = (file, st) => {
+    if (!PICTURE.test(file)) return null;
+    const was = shapes.get(file);
+    if (was && was.size === st.size && was.mtimeMs === st.mtimeMs) return was.shape;
+    let shape = null;
+    try { shape = readPictureShapeSync(file); } catch { /* drawn 4:3 until it arrives, as before */ }
+    shapes.set(file, { size: st.size, mtimeMs: st.mtimeMs, shape });
+    return shape;
+  };
   const total = () => Object.values(state.uploaded).reduce((n, u) => n + (u.bytes || 0), 0);
   const olderThan = (rank) => Object.entries(state.uploaded)
     .filter(([, u]) => (u.rank ?? 0) < rank)
@@ -353,7 +366,8 @@ export function createPhoneUploads({ backend, owner, device, alive = () => true,
         bytes += st.size;
         const name = known(file, st);
         if (name && state.uploaded[name]) {
-          files[key] = { n: name, s: st.size };
+          const shape = shapeOf(file, st);
+          files[key] = shape ? { n: name, s: st.size, w: shape.w, h: shape.h } : { n: name, s: st.size };
           state.uploaded[name].named = now();
           state.uploaded[name].rank = Math.max(state.uploaded[name].rank ?? 0, rank);
         } else {

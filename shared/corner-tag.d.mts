@@ -5,7 +5,8 @@
 export type HideChoice = { key: '5m' | '30m' | 'today'; label: string };
 export const HIDE_CHOICES: HideChoice[];
 
-export function tagSays(counts: { ready?: number; working?: number }): { kind: 'ready' | 'working'; text: string } | null;
+/** text is the count on the tag; label is what it says aloud ("2 waiting"). */
+export function tagSays(counts: { ready?: number }): { kind: 'ready'; text: string; label: string } | null;
 
 export type ReadyLine = { id: string; title: string; says: string; since?: number; open?: string | null };
 export function cardLines<T extends ReadyLine>(ready: T[], now: number, max?: number): {

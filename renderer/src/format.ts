@@ -1,4 +1,5 @@
 import { ruleLabel, type RepeatShape as RepeatRuleValue } from '../../shared/repeats.mjs';
+import { isShippedNote } from '../../shared/shipped-note.mjs';
 import { readMoment } from './when-words';
 // Time and grouping, Superhuman-style: terse, scannable, never a full date
 // where "3m" will do.
@@ -163,15 +164,28 @@ export function stripOptionsSection(body: string): string {
 // offer that offers nothing of its own means the offer was acted on. A body's
 // offer is an agent's standing ask, so only a finished run (a newer result)
 // spends that one; a checkpoint saying "waiting on your pick" must not.
+//
+// EXCEPT THE APP'S OWN "SHIPPED TO MAIN" NOTE (w-639fc3b3a5). A run that ships
+// writes its offer and then the ship queue writes that note, so it always comes
+// last. It answers an offer only when the offer asked whether to ship.
 export function offerIsLive(item: HasFields & { answer?: string }): boolean {
-  if (!itemOptions(item).length) return false;
+  const options = itemOptions(item);
+  if (!options.length) return false;
   const field = optionsFrom(item);
   const offered = writtenAt(item, field);
   const later: OptionsField[] = field === 'body' ? ['result'] : ['result', 'note'];
-  if (later.some((f) => f !== field && writtenAt(item, f) > offered)) return false;
+  const afterTheShip = isShippedNote(item.note) && !options.some((o) => asksToShip(o.text));
+  if (later.some((f) => f !== field && writtenAt(item, f) > offered && !(f === 'note' && afterTheShip))) return false;
   if (!item.answer || item.answer === '(withdrawn)') return true;
   const spoke = item.wrote?.answer?.ts ?? 0;
   return offered > spoke;
+}
+
+/** Option `n`, only while the strip that draws it would, so no key picks an
+ *  offer a later note has made stale. */
+export function liveOption(item: HasFields & { answer?: string }, n: number): ParsedOption | null {
+  if (!offerIsLive(item)) return null;
+  return itemOptions(item).find((o) => o.n === n) ?? null;
 }
 
 // THE OPTION THAT CLOSES THE TASK (w-1df18b337a). Once a run has shipped, the
@@ -186,6 +200,12 @@ export function closesTheTask(option: string): boolean {
 }
 
 const bareOption = (option: string) => option.replace(/\s*\(recommended\)\s*/i, '').trim().replace(/[.!]+$/, '');
+
+// The option that IS the decision to ship: "Ship it", "Let it ship as built",
+// "Not now, just ship this", "Merge it". Leading words only: "re-ship", "before
+// anything ships" and "ship that too" are about some other work.
+const SHIPS = /^(?:(?:yes|no|not now|not yet|ok(?:ay)?)\s*[,:;\p{Pd}]?\s+)?(?:just\s+)?(?:ship\b|merge (?:it|this)\b|let (?:it|this|them|the\b[^,.;:]*?)\s+(?:ship|land)\b)/iu;
+const asksToShip = (option: string) => SHIPS.test(bareOption(option).replace(/^[*_\s]+/, ''));
 
 // THE OPTION THAT IS MEANINGLESS WITHOUT YOUR WORDS (w-c9da359466).
 //

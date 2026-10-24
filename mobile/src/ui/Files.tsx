@@ -8,7 +8,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { docKind } from '../../../renderer/src/doc-pane';
 import { fileGlance, type Glance } from '../../../renderer/src/file-glance';
 import { folderTitle } from '../../../renderer/src/mentions';
-import { docOnPhone, folderPictures, openingOf, pageOnPhone, pictureLink, sentEmbeds, threadFilePaths, typedWords } from '../lib/files';
+import { docOnPhone, folderPictures, openingOf, pageOnPhone, pictureLink, pictureShapeOf, sentEmbeds, threadFilePaths, typedWords } from '../lib/files';
 import { withDeadline } from '../lib/deadline';
 import { useCloud } from '../state/cloud';
 import { Markdown, type MessageFiles } from './Markdown';
@@ -41,6 +41,7 @@ export function useMessageFiles(product: string, thread?: string): { dir: string
   const shape = `${place?.files.size ?? 0}|${place?.folders.size ?? 0}|${c.signedAt}`;
   const files = useMemo<MessageFiles>(() => ({
     picture: (src) => pictureLink(latest.current.places, latest.current.links, product, src),
+    shape: (src) => pictureShapeOf(latest.current.places, product, src),
     media: (src) => pictureLink(latest.current.places, latest.current.links, product, src) ?? null,
     folder: (src) => {
       const found = folderPictures(latest.current.places, product, src);

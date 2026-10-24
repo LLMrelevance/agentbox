@@ -291,6 +291,8 @@ team sync loop upserts it when its hash changes (at most every 5s):
 
 ## The messages page
 
+Replaced by Groups (2026-10-23, below). Kept for what it was:
+
 - When Rooms is on, every full-page chat (a direct record opened from Threads,
   a room's chat opened with the arrows, All messages) is one page: the
   conversation list on the left (rooms, groups and direct records, newest
@@ -303,9 +305,8 @@ team sync loop upserts it when its hash changes (at most every 5s):
 
 ## UI, where it goes
 
-- Sidebar: the Messages and Rooms rows come from `team/rooms/useRooms.tsx`
-  (`nav`). The Rooms page and the room menu are `team/rooms/RoomsPage.tsx`.
-  There are no room tabs (w-a0429b3d5e).
+- Sidebar: one row, Inbox, while Rooms is on; no rows for rooms or messages.
+  Everything else is the Groups tab (below).
 - Room page: `renderer/src/rooms/RoomPage.tsx` (the wall), `RoomChat.tsx` (the
   panel, the switcher, invite button, expand arrows), `PersonHover.tsx`,
   `RoomRanks.tsx`, `ProfilePage.tsx`, `InviteDialog.tsx`, `StartRoomDialog.tsx`,
@@ -474,3 +475,25 @@ Rooms paragraph in this work.
   author's name while they are invisible, and a member with no card is on the
   wall as "Not on Rooms yet". My own card counts this Mac's running agents. A
   group chat nobody has written in is listed only for whoever started it.
+
+## Groups (2026-10-23, w-dcaa2c122e)
+
+Rooms and Messages were two places for one idea. They are one, called Groups:
+
+- The Inbox's tabs move into the top bar where the title was, and after Done
+  and a rule comes Groups. It holds the group open last and counts groups with
+  something unread; its arrow lists every group (`RoomTab.tsx`).
+- A group's page (`GroupPage.tsx`): over it a row of every group, named ones
+  first with a # and a border, then a rule, then chats by first name with their
+  faces, then More (`GroupList.tsx`). Every chat is its own entry, a
+  teammate's direct record among them. The chat fills the page with faces hung
+  beside the words; down the right, People: face, name, level, what they are
+  on, their agents. A group over twelve lists only who is working.
+- A person in that list opens their page, which opens on Today's activity (their
+  threads as a board) with Progress second.
+- The group's options are one button in the top bar: Everyone's threads (the
+  board), Invite people, Members, Mute, Leave, New group, Find groups to join.
+- Any group, from anywhere (a mention, Message on someone's page, a join),
+  opens in the Groups tab. A direct record opens in its own view over it.
+- The Rooms page and the Messages page are no longer drawn; their components
+  are still in the tree.

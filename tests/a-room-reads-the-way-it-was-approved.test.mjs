@@ -4,7 +4,8 @@
 // on the right person, and the notice "You are invisible for N more minutes.
 // Nobody in your rooms can see you." These are the rules behind those
 // pictures, measured on plain data. Its room tabs after Done were replaced by
-// the Rooms page (tests/rooms-live-on-a-page-of-their-own, w-a0429b3d5e).
+// the Rooms page (w-a0429b3d5e), and that by Groups
+// (tests/groups-opens-the-group-open-last).
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import { weekRank, agentsWords, mentionsIn, markMentions, invisibleNotice, minutesToMidnight, initialsOf, UNTIL_TURNED_OFF_MS } from '../renderer/src/team/rooms/room-rules.ts';
@@ -102,7 +103,8 @@ describe('leaving a room', () => {
   it('Escape steps back one level; picking a tab or Threads leaves rooms entirely', () => {
     const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
     expect(app).toMatch(/if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); roomsUi\.close\(\); \}/);
-    expect(app.match(/onView=\{next => \{ roomsUi\.leave\(\);/g)).toHaveLength(1);
+    expect(app).toMatch(/const openView = \(next: View\) => \{ roomsUi\.leave\(\);/);
+    expect(app).toContain('onView={openView}');
     expect(app.match(/onView=\{\(next\) => \{ roomsUi\.leave\(\);/g)).toHaveLength(1);
     expect(app).not.toMatch(/onView=\{\(?next\)? => \{ roomsUi\.close\(\)/);
   });
@@ -184,7 +186,7 @@ describe('getting to a room, and keys on it', () => {
   const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
   const rooms = fs.readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
   it('opening a room leaves whatever covered it: a thread, a direct chat, the Team page, search', () => {
-    expect(rooms).toMatch(/const openRoom = \(id: string, \{ asFull = false(, inTab: tab = false)? \} = \{\}\) => \{ onLeavePage\(\);/);
+    expect(rooms).toMatch(/const openRoom = \(id: string\) => \{\s*onLeavePage\(\);/);
     expect(app).toMatch(/onLeavePage: \(\) => \{ setFocused\(null\); setFocusedRepeat\(null\); setTeamOpen\(false\); closeSearch\(\); \}/);
     expect(rooms).not.toMatch(/onLeaveDirect/);
   });
