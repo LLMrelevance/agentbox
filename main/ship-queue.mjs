@@ -22,7 +22,7 @@
 // cannot change the code that ships it. With no `ship.json`, nothing here does
 // anything at all.
 
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Name } from '../shared/product-name.mjs';
@@ -245,17 +245,17 @@ export function failureNote(output) {
  * Pinning the base copy here is what keeps the gate the branch cannot change.
  */
 function baseHooksPath(cwd) {
-  try {
-    const common = execFileSync('git', ['-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'], {
-      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    return common ? path.resolve(common, '..', 'scripts', 'hooks') : null;
-  } catch { return null; }
+  return new Promise((resolve) => {
+    execFile('git', ['-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8', timeout: 10_000 }, (err, stdout) => {
+      const common = err ? '' : String(stdout).trim();
+      resolve(common ? path.resolve(common, '..', 'scripts', 'hooks') : null);
+    });
+  });
 }
 
-export function runScript(script, cwd, { timeout = SHIP_MS, env = process.env } = {}) {
+export async function runScript(script, cwd, { timeout = SHIP_MS, env = process.env } = {}) {
   const node = env.npm_node_execpath && fs.existsSync(env.npm_node_execpath) ? env.npm_node_execpath : 'node';
-  const hooks = baseHooksPath(cwd);
+  const hooks = await baseHooksPath(cwd);
   const baseGate = hooks
     ? { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: hooks }
     : {};
