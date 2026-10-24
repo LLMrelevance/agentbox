@@ -62,6 +62,7 @@ import { readMarker, writeMarker, clearMarker, addCloudNews, commonGitDirOf } fr
 import { Name, nameSlug } from '../../shared/product-name.mjs';
 import { KEPT_ASIDE } from '../../shared/not-shipped.mjs';
 import { codexTranscriptFile } from '../codex-session.mjs';
+import { CLIENT_INFO } from '../codex-app-server.mjs';
 import { appendCloudUsage } from './usage.mjs';
 import { docsFolderFor, docsToSend, tarDocs, layDocs } from './docs.mjs';
 import { troubleCause, limitResetMoment } from '../../shared/spawn-trouble.mjs';
@@ -70,6 +71,10 @@ import { sentLine } from '../../shared/cloud-start.mjs';
 import { referencedFiles } from '../../shared/referenced-files.mjs';
 import { serveApprovals } from '../approval-prompt-core.mjs';
 import { cacheKey, folderKey, sendOnce, pickBase, bundlePast, refsAt, sendConversation, sentRecordPath } from './reuse.mjs';
+import { KIT_VERSION, checkKit, kitKey } from '../../shared/cloud-kit.mjs';
+import { NEW_ITEM_MARK } from '../../shared/cloud-kit.mjs';
+import { APPROVALS_SERVER } from '../../shared/cloud-kit.mjs';
+import { asksPermission, approvalsHandshakes } from './kit.mjs';
 
 // WHAT A CLOUD RUN IS TOLD ABOUT WHERE IT IS. Without it an agent there found
 // its film's files, ffmpeg and a key missing, and asked the person to move the
@@ -495,6 +500,49 @@ export function tarOf(dir) {
 
 /* -------------------------------- the run -------------------------------- */
 
+// What a sandbox is sent of a file: its link, not the key it was put under.
+const withoutKeys = (list) => list.map(({ key: _k, ...rest }) => rest);
+
+// A NEW THREAD'S KIT is packed in the project's checkout and named for the
+// task folder the thread will have (shared/cloud-kit.mjs fillNewThreadKit):
+// its transcripts' folder, and what was sent into the checkout's, are that
+// folder's.
+function newThreadNames(n, { cwd, startSha, files, joins, bringDirs }) {
+  const from = `${path.sep}${transcriptFolderName(cwd)}`;
+  const to = `${path.sep}${transcriptFolderName(n.cwd)}`;
+  const rename = (p) => (typeof p === 'string' ? p.split(from).join(to) : p);
+  const dirs = bringDirs.map((b) => ({ ...b, dir: rename(b.dir) }));
+  return {
+    files: files.map((f) => ({ ...f, path: rename(f.path), ...(f.untar ? { untar: rename(f.untar) } : {}) })),
+    joins: { ...joins, bringDirs: dirs },
+    made: { cwd: n.cwd, bringDirs: dirs, newThread: { mainSha: startSha, brief: n.brief, model: n.model, effort: n.effort, ...(n.defaultEngine ? { defaultEngine: n.defaultEngine } : {}) } },
+  };
+}
+
+// THE KIT, WRITTEN: what the run would have started with, by key, with the
+// reply's place in the turn's prompt and what a computer joining the run
+// needs to write its marker. A copy stays on this computer for that.
+async function writeKit({ storage, kit, say, files, home, joins, made }) {
+  const whole = {
+    v: KIT_VERSION, madeAt: Date.now(), device: kit.device, project: kit.project, item: kit.item,
+    ...made,
+    files: files.map((f) => ({ path: f.path, key: f.key, ...(f.untar ? { untar: f.untar } : {}) })),
+    homeFiles: home.map((h) => ({ rel: h.rel, key: h.key })),
+    frame: kit.frame,
+    marker: joins,
+  };
+  const problem = checkKit(whole);
+  if (problem) { say(`no kit for the phone: ${problem}`); return 1; }
+  await storage.put(kitKey(kit.device, kit.project, kit.item), JSON.stringify(whole));
+  if (kit.copy) {
+    fs.mkdirSync(path.dirname(kit.copy), { recursive: true });
+    const tmp = `${kit.copy}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(whole), { mode: 0o600 });
+    fs.renameSync(tmp, kit.copy);
+  }
+  return 0;
+}
+
 export async function cloudRun({
   argv, env = process.env, cwd,
   transport, storage,
@@ -539,6 +587,10 @@ export async function cloudRun({
   // past a base the bucket already has (./reuse.mjs).
   imageCaps = [],
   onCaps = () => {},
+  // A KIT FOR THE PHONE, not a run (shared/cloud-kit.mjs): { device, project,
+  // item, frame, copy }. The pack goes up under the thread's kit and the kit
+  // names it; nothing starts, and this folder's marker is left alone.
+  kit = null,
 }) {
   const say = (msg) => stderr.write(`agentbox cloud: ${msg}\n`);
   const begunAt = Date.now();
@@ -580,7 +632,8 @@ export async function cloudRun({
   // left going when it quit is JOINED instead, by the process the supervisor
   // starts to bring it home: it serves the run's tools again and waits for it
   // to finish, rather than stopping it.
-  const earlier = readMarker(here);
+  if (kit && readMarker(here)) { say('this thread\'s cloud work is still on its way back, so no kit for the phone yet'); return IMPORT_FAILED; }
+  const earlier = kit ? null : readMarker(here);
   let joining = null;
   let joinedAt = null;
   // A run whose relay died without a word (the shared host crashed) is left
@@ -616,7 +669,8 @@ export async function cloudRun({
   let mcpConfig = { mcpServers: {} };
   let serverEnv = env;
   let startCursor = 0; let startN = 0; let stdinClosed = false; let startConns = {};
-  const key = (name) => keyOf(runId, name);
+  const kitPrefix = kit ? kitKey(kit.device, kit.project, kit.item).replace(/\.json$/, '') : null;
+  const key = (name) => (kitPrefix ? `${kitPrefix}/${name}` : keyOf(runId, name));
   const roots = [env.AGENTBOX_HOME, env.ZERO_STORE_ROOT, env.STORE_HOME].filter(Boolean).map((r) => path.resolve(r));
   // A QUIT WHILE THE RUN IS STILL STARTING is held until it has started, and
   // then leaves it going like any other (`leave`); one whose start never
@@ -635,7 +689,7 @@ export async function cloudRun({
   const inDecoder = new StringDecoder('utf8');
   let stdinBuf = '';
   let untold = !codex && !!argValue(argv, '--resume');
-  if (!joining) stdin.on('data', (d) => {
+  if (!joining && !kit) stdin.on('data', (d) => {
     stdinBuf += typeof d === 'string' ? d : inDecoder.write(d);
     let i;
     while ((i = stdinBuf.indexOf('\n')) >= 0) {
@@ -656,7 +710,7 @@ export async function cloudRun({
       enqueue({ action: 'stdin', data: Buffer.from(line).toString('base64') });
     }
   });
-  if (!joining) stdin.on('end', () => {
+  if (!joining && !kit) stdin.on('end', () => {
     if (stdinClosed) return;
     stdinClosed = true;
     stdinBuf += inDecoder.end();
@@ -704,7 +758,20 @@ export async function cloudRun({
   const outgoing = `refs/agentbox/outgoing/${runId}`;
   let hasOutgoing = false;
   const refs = [];
-  if (!plain) {
+  if (!plain && kit?.newThread) {
+    // A NEW THREAD'S KIT: main, as a task folder is branched from it
+    // (main/task-folders.mjs baseRef), under the name of the thread to come.
+    // None of the checkout's own branch or work goes.
+    const main = (await gitOk(cwd, ['rev-parse', '--verify', '-q', 'refs/heads/main'])) ? 'refs/heads/main'
+      : (await gitOk(cwd, ['rev-parse', '--verify', '-q', 'refs/heads/master'])) ? 'refs/heads/master' : null;
+    if (!main) { say('this project has no main to start a new thread from'); return 1; }
+    startSha = (await git(cwd, ['rev-parse', main])).trim();
+    const tree = (await git(cwd, ['rev-parse', `${startSha}^{tree}`])).trim();
+    branch = `agentbox/${NEW_ITEM_MARK}`;
+    sent = { branch, head: startSha, tree, index: tree };
+    refs.push(main);
+    if (await gitOk(cwd, ['rev-parse', '--verify', '-q', 'refs/remotes/origin/main'])) refs.push('refs/remotes/origin/main');
+  } else if (!plain) {
     try {
       if (await gitOk(cwd, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])) throw new Error('a merge in it is not finished');
       sent = await folderState(cwd);
@@ -747,18 +814,18 @@ export async function cloudRun({
   sendFile = async (localPath, remotePath = localPath, body = null, untar = null) => {
     if (!body && conversations.has(localPath)) {
       const { key: k } = await sendConversation(storage, localPath, { record: sentRecordPath(here) });
-      return { path: remotePath, url: await storage.getUrl(k) };
+      return { path: remotePath, url: await storage.getUrl(k), key: k };
     }
     fileCount += 1;
     const k = key(`files/${fileCount}`);
     await storage.put(k, body ?? fs.readFileSync(localPath));
-    return { path: remotePath, url: await storage.getUrl(k), ...(untar ? { untar } : {}) };
+    return { path: remotePath, url: await storage.getUrl(k), key: k, ...(untar ? { untar } : {}) };
   };
   // A folder unchanged since an earlier run is not sent again (./reuse.mjs).
   const sendFolder = async (dir, remotePath, untar) => {
     if (!storage.exists) return sendFile(null, remotePath, await tarOf(dir), untar);
     const { key: k } = await sendOnce(storage, cacheKey(`folder-${await folderKey(dir)}.tgz`), () => tarOf(dir));
-    return { path: remotePath, url: await storage.getUrl(k), untar };
+    return { path: remotePath, url: await storage.getUrl(k), key: k, untar };
   };
   const settingsPath = argValue(argv, '--settings');
   if (settingsPath && fs.existsSync(settingsPath)) sending.push(sendFile(settingsPath, settingsPath, Buffer.from(settingsForTheCloud(fs.readFileSync(settingsPath, 'utf8')))));
@@ -818,6 +885,11 @@ export async function cloudRun({
   }
   const system = argValue(argv, '--append-system-prompt') || '';
   for (const f of filesNamedIn(system, { cwd: plain ? null : cwd, roots })) sending.push(sendFile(f));
+  const codexOpen = kit?.codex && codex ? codexKitOpen(kit.codex, { stubPath, codexHome, keep: mcpConfig.mcpServers, note: plain ? PLAIN_CLOUD_NOTE : CLOUD_NOTE }) : null;
+  if (codexOpen) {
+    for (const c of codexOpen.conversations) conversations.add(c);
+    for (const f of codexOpen.files) sending.push(sendFile(f));
+  }
   let pack; let files;
   try {
     [pack, files] = await Promise.all([packed, Promise.all(sending)]);
@@ -832,7 +904,7 @@ export async function cloudRun({
   const packedAt = Date.now();
   sentFiles = new Set(files.map((f) => f.path));
 
-  const results = await resultUrls(runId);
+  const results = kit ? null : await resultUrls(runId);
   let remote = null;
   if (!plain) try { remote = remoteForTheCloud((await git(cwd, ['remote', 'get-url', 'origin'])).trim()); } catch { /* no origin */ }
 
@@ -852,6 +924,31 @@ export async function cloudRun({
   // And what a process joining it after a restart needs to serve its tools:
   // the servers, and the worker's own variables they ran with.
   marker = { runId, sessionId, branch, startSha, sent, configDir, engine, bringDirs, docs, mcp: mcpConfig.mcpServers, toolEnv: toolVariables(env), ...(plain ? { plain: true } : {}) };
+  if (kit) {
+    signals.off('SIGHUP', early);
+    const { runId: _r, sessionId: _s, ...joins } = marker;
+    const named = kit.newThread ? newThreadNames(kit.newThread, { cwd, startSha, files, joins, bringDirs }) : null;
+    return writeKit({
+      storage, kit, say, files: named?.files ?? files, home: [], joins: named?.joins ?? joins,
+      made: {
+        cwd, engine, ...(plain ? { plain: true } : { branch }), startSha,
+        bundleKey: pack.bundle ? key('in.bundle') : null,
+        ...(pack.base ? { base: { key: pack.base.key, sha: pack.base.sha }, refs: pack.refs } : {}),
+        argv: [remoteCommand, ...(remoteCommand === 'claude' ? argvForTheCloud(argv, { plain }) : argv)], env: remoteEnv,
+        ...(hasOutgoing ? { changesRef: outgoing } : {}),
+        ...(remote ? { remote } : {}),
+        ...(docsDir ? { docs: docsDir } : {}),
+        login: { engine: login.engine, id: login.id, key: login.key },
+        bringDirs, kept: keptWhileAway,
+        // A conversation begun on the Mac is told it is in the cloud at the top of its message.
+        note: untold ? (plain ? PLAIN_CLOUD_NOTE : CLOUD_NOTE) : null,
+        // A run that asks permission has its cards held for her phone while the computer is shut.
+        ...(!codex && asksPermission(argv) ? { hold: [APPROVALS_SERVER], handshakes: { [APPROVALS_SERVER]: await approvalsHandshakes() } } : {}),
+        ...(codexOpen ? { codex: { open: codexOpen.lines, [kit.codex.start ? 'startId' : 'resumeId']: CODEX_RESUME_ID, firstTurnId: CODEX_RESUME_ID + 1, turn: kit.codex.turn } } : {}),
+        ...(named ? named.made : {}),
+      },
+    });
+  }
   writeMarker(here,{ ...marker, pid: selfPid, state: 'starting' });
 
   // 3. Start. Starting the same run twice is answered "already", so a start
@@ -866,7 +963,7 @@ export async function cloudRun({
     action: 'start', runId, cwd, branch, bundleUrl,
     ...(plain ? { plain: true } : {}),
     ...(base ? { base, refs: pack.refs } : {}),
-    argv: [remoteCommand, ...(remoteCommand === 'claude' ? argvForTheCloud(argv, { plain }) : argv)], env: remoteEnv, files,
+    argv: [remoteCommand, ...(remoteCommand === 'claude' ? argvForTheCloud(argv, { plain }) : argv)], env: remoteEnv, files: withoutKeys(files),
     changesRef: hasOutgoing ? outgoing : undefined,
     ...(remote ? { remote } : {}),
     ...(docsDir ? { docs: docsDir } : {}),
@@ -965,7 +1062,7 @@ export async function cloudRun({
           if (sentOne) { list.push(sentOne); sentFiles.add(f); } else say(`${f} could not be sent to the cloud run; it goes on without it`);
         }
         if (!list.length) { outbox.shift(); continue; }
-        msg.files = list;
+        msg.files = withoutKeys(list);
       }
       if (msg.n === undefined) { n += 1; msg.n = n; }
       const { paths: _p, onAck: _a, ...payload } = msg;
@@ -1572,6 +1669,28 @@ export async function cloudRun({
       }
     }
   }
+}
+
+// A CODEX KIT'S OPENING LINES (shared/cloud-kit.mjs): what the computer's own
+// client (main/codex-app-server.mjs) sends to open the thread, the resume
+// rewritten here as a run's is, so the store is the sandbox's stub and the
+// rollout the resume needs goes with the pack. The ids are the kit's own.
+export const CODEX_RESUME_ID = 2;
+// A new thread's kit starts its thread, as the client's `startThread` does.
+export function codexKitOpen({ resume, start }, { stubPath = STUB, codexHome, keep, note = null, findRollout = codexTranscriptFile }) {
+  const asked = start
+    ? { jsonrpc: '2.0', id: CODEX_RESUME_ID, method: 'thread/start', params: { ephemeral: false, ...start } }
+    : { jsonrpc: '2.0', id: CODEX_RESUME_ID, method: 'thread/resume', params: resume };
+  const rewritten = codexLineForTheCloud(`${JSON.stringify(asked)}\n`, { stubPath, codexHome, keep, note, findRollout });
+  return {
+    lines: [
+      JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: CLIENT_INFO } }),
+      JSON.stringify({ jsonrpc: '2.0', method: 'initialized' }),
+      rewritten.line.replace(/\n$/, ''),
+    ],
+    files: rewritten.files,
+    conversations: rewritten.conversation ? [rewritten.conversation] : [],
+  };
 }
 
 // ONE LINE FROM THE SUPERVISOR'S CODEX CLIENT, MADE READY FOR THE SANDBOX.

@@ -468,6 +468,15 @@ async function createWindow() {
       site: typeof cloudConfig.phoneSite === 'string' ? cloudConfig.phoneSite : null,
       // No alert on her phone while she is at this Mac (main/phone-alerts.mjs).
       idleMs: () => powerMonitor.getSystemIdleTime() * 1000,
+      // A reply she sends with the lid shut carries on in the cloud (shared/cloud-kit.mjs).
+      carrying: (c) => supervisor.phoneCarrying(c),
+      kitsFor: (slug) => supervisor.leavesKitsFor(slug),
+      adopt: ({ project, item, runId, replies }) => supervisor.adoptCloudRun({ product: project, itemId: item, runId, replies }),
+      cloudReplies: ({ project, item, replies }) => supervisor.cloudRunReplies({ product: project, itemId: item, replies }),
+      runHome: ({ project, item, runId }) => supervisor.cloudRunHome({ product: project, itemId: item, runId }),
+      // And a new thread she starts with the lid shut.
+      newThreadKits: (c) => supervisor.leaveNewThreadKits(c),
+      adoptNew: ({ project, item, ...rest }) => supervisor.adoptCloudNewThread({ product: project, itemId: item, ...rest }),
     },
     // ROOMS, while switched on in Alpha features (docs/team/ROOMS-PLAN.md).
     rooms: roomsSetup({ config, store, supervisor, userDir }),

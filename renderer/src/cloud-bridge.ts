@@ -25,7 +25,7 @@ import { SEND_MAX_BYTES, sendFiles, sentFileName } from './phone-sends-files';
 import { LINK_RENEW_MS, fileOnPhone, linkForFile, linkOfEntry as linkOfName, objectsToSign, phonePage, renewLinks, type Links } from './phone-links';
 import { BUCKET, cloudPlaces, findFile, findFolder, installCloudFiles, type Place } from './cloud-files';
 import {
-  LIVE_FOR_MS, NOT_HERE, macSeenOf, phoneHistory, phoneSlug, phoneStatusLine,
+  LIVE_FOR_MS, NOT_HERE, PROJECTS_SELECT, cloudCarriesOn, macSeenOf, phoneHistory, phoneSlug, phoneStatusLine,
   phoneView, readCommands, readThreads, splitSlug, type Aliases, type PhoneRows,
 } from './phone-rows';
 import { phoneSender } from './phone-send';
@@ -128,7 +128,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     const asked = client.generation();
     try {
       const [projects, threads, cmds] = await Promise.all([
-        client.select('phone_projects', 'select=device,project,name,updated_at&order=name'),
+        client.select('phone_projects', PROJECTS_SELECT),
         readThreads((table, query) => client.select(table, query), threadCache),
         commands(),
       ]);
@@ -147,7 +147,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     }
     // A run going stale changes nothing online, and still has to stop being drawn.
     const fresh = rows.threads.map((t) => !!t.snapshot?.live && Date.now() - Number(t.snapshot.live.at) < LIVE_FOR_MS);
-    const key = JSON.stringify([rows.threads.map((t) => [t.item, t.updated_at]), fresh, links.size, rows.commands.map((c) => [c.id, c.taken_at]), rows.projects, error, client.signedIn(), phoneStatusLine({ error, fetchedAt, macSeen: macSeenOf(rows.projects) })]);
+    const key = JSON.stringify([rows.threads.map((t) => [t.item, t.updated_at]), fresh, links.size, rows.commands.map((c) => [c.id, c.taken_at, c.claimed_by ?? null]), rows.projects, error, client.signedIn(), phoneStatusLine({ error, fetchedAt, macSeen: macSeenOf(rows.projects), cloud: cloudCarriesOn(rows.projects) })]);
     if (key !== last) { last = key; changed(null); }
   }
 
@@ -208,7 +208,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       aliases = view.aliases;
       return {
         products: view.products, items: view.items, phoneWaiting: view.waiting,
-        phoneStatus: client.signedIn() ? phoneStatusLine({ error, fetchedAt, macSeen: macSeenOf(rows.projects) }) : null,
+        phoneStatus: client.signedIn() ? phoneStatusLine({ error, fetchedAt, macSeen: macSeenOf(rows.projects), cloud: cloudCarriesOn(rows.projects) }) : null,
         team: team(), agents: [], approvals: view.approvals, supervisor: { ...SUPERVISOR, running: view.running, productOrder: view.products.map((p) => p.slug) },
         engines: null, runsOn: null, restartNeeded: null, cloud: null,
         config: { browserHome: '', browserPins: [], outsideAgents: 'off' },

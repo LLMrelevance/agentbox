@@ -35,9 +35,10 @@ export function threadOf(rows: PhoneRows, view: View, product: string, id: strin
   const item = view.items.find((i: any) => i.product === product && i.id === id) ?? null;
   if (!item) return null;
   const { lines } = phoneHistory(rows, product, id, view.aliases);
-  const pending = view.waiting
-    .filter((w) => w.product === product && w.id === id)
-    .map((w) => ({ at: w.at, text: w.text, ...(w.refused ? { refused: w.refused } : {}) }));
+  const mine = view.waiting.filter((w) => w.product === product && w.id === id);
+  const pending = mine.map((w) => ({ at: w.at, text: w.text, ...(w.refused ? { refused: w.refused } : {}) }));
+  // A reply Agentbox Cloud took with the computer away says so (shared/cloud-kit.mjs).
+  const inCloud = new Set(mine.filter((w) => w.cloud).map((w) => w.at));
   const session = view.running.find((r: { itemId: string; product: string }) => r.itemId === id && r.product === product) ?? null;
   const built = itemThread(lines, [], null, { whole, pending });
   // The offer's own list comes out of the text while it is drawn as buttons
@@ -45,7 +46,7 @@ export function threadOf(rows: PhoneRows, view: View, product: string, id: strin
   const live = offerIsLive(item);
   const offered = live ? String(item[optionsFrom(item)] ?? '').trim() : null;
   const clean = (text: string) => (live && text.trim() === offered ? stripOptionsSection(text) : text).replace(/^##\s*Gist\s*\n+/i, '');
-  const said = built.events.map((e) => (e.kind === 'work' ? e : { ...e, text: clean(e.text ?? '') }));
+  const said = built.events.map((e) => (e.kind === 'work' ? e : { ...e, text: clean(e.text ?? ''), ...(e.pending && !e.refused && inCloud.has(e.at) ? { cloud: true } : {}) }));
   // While a run is up the live line speaks for its newest steps (ItemThread.tsx).
   const shown = session ? withoutTrailingWork(said) : said;
 
