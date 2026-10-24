@@ -22,7 +22,7 @@ const screen = { x: 0, y: 0, width: 1920, height: 1080 };
 
 describe('the window a throwaway copy opens', () => {
   it('says whose window it is in the title', () => {
-    expect(newUserWindow({ fresh: true, name: 'Agentbox', screen }).title).toBe('Agentbox — new user');
+    expect(newUserWindow({ fresh: true, name: 'Agentbox', screen }).title).toBe('Agentbox (new user)');
   });
 
   it('stands clear of the window it was opened from', () => {
@@ -44,7 +44,7 @@ describe('the window a throwaway copy opens', () => {
 
   it('offsets nothing it cannot fit, rather than putting a window off screen', () => {
     const tight = newUserWindow({ fresh: true, name: 'Agentbox', screen: { x: 0, y: 0, width: 1440, height: 900 }, width: 1440, height: 900 });
-    expect(tight.title).toBe('Agentbox — new user');
+    expect(tight.title).toBe('Agentbox (new user)');
     expect(tight.x).toBeUndefined();
     expect(tight.y).toBeUndefined();
   });

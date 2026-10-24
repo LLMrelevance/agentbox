@@ -51,8 +51,9 @@ describe('the tray carries the Mac\'s own glass where there is one', () => {
     r.pageUp('tag', { width: 90, height: 51, glass: { x: 11, y: 11, width: 68, height: 29 }, radius: 14.5 });
     const set = glass.calls.filter((c) => c[0] === 'set' && c[1] === 'tag').at(-1);
     expect(set[2]).toEqual({ x: 11, y: 11, width: 68, height: 29 });
-    // The tag's glass is left to read the screen behind it for itself.
-    expect(set[3]).toEqual({ radius: 14.5 });
+    // The tag's glass is left to read the screen behind it for itself, and is
+    // the clear glass (the-trays-glass-is-clear-so-a-light-page-shows-through).
+    expect(set[3]).toEqual({ radius: 14.5, style: 'clear' });
   });
 
   it('tells the page the glass is the Mac\'s, so the page draws no fill of its own', () => {
