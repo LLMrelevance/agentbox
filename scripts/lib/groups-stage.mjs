@@ -84,6 +84,7 @@ export function world(now = Date.now(), faces = {}) {
       msg('m4', 'r-team', 'p-me', 'I am folding rooms and messages into one thing. Pictures in a bit.', 40 * min),
       msg('m5', 'r-team', 'p-priya', 'Back at 3. Can someone look at the lock-screen reply PR before then?', 25 * min),
       msg('m6', 'r-team', 'p-theo', 'On it, @Priya', 12 * min, { mentions: ['p-priya'] }),
+      msg('m7', 'r-team', 'p-maya', '@Sam can you approve the Stripe keys before 5? The webhook is waiting on them.', 6 * min, { mentions: ['p-me'] }),
     ],
     'r-general': [
       msg('g1', 'r-general', 'p-kai', 'Anyone running more than 10 agents at once on one Mac? Mine starts swapping around 8.', 5 * hr),
@@ -142,21 +143,36 @@ export function world(now = Date.now(), faces = {}) {
     tc('p-me', 'w-d1', 'Groups: one place to talk and see work', 'running', 'Northwind', 4 * min, 1.1 * hr),
     tc('p-me', 'w-d2', 'Rooms board keeps its faces', 'done', 'Northwind', 1.5 * hr),
   ];
+  // A teammate's direct record: the conversation the team version already had, which opens in its own view.
+  const products = [{ slug: 'direct-priya', dir: '/fixtures/direct-priya', name: 'Direct', oneLiner: '', repoPath: null,
+    team: { projectId: 'tp-priya', teamId: 't-1', direct: true, people: ['p-priya'], sharedBy: 'p-me' } }];
+  const items = [{
+    id: 'w-dm1', product: 'direct-priya', productName: 'Direct', status: 'open', kind: 'directive', labels: [], priority: 2, epoch: 1, claim: null,
+    title: 'Legal line for the billing email', body: 'Can you check the legal line on the billing email before Monday?',
+    answer: 'Yes, back from interviews at 3. Send it over and I will read it then.', people: ['p-me', 'p-priya'], createdBy: 'p-me',
+    createdAt: now - 70 * min, updatedAt: now - 22 * min,
+    wrote: { body: { ts: now - 70 * min, by: 'p-me' }, answer: { ts: now - 22 * min, by: 'p-priya' } },
+  }];
   return {
+    products, items,
     alpha: { neo: false, rooms: true },
     team: {
       configured: true, started: true, since: now - 40 * 24 * hr, signedIn: true, signingIn: null,
       me: people[0], team: { id: 't-1', name: 'Northwind' }, invites: [], people, cards, lastSyncAt: now, error: null, sent: [],
-      rooms: { on: true, ready: true, rooms, messages, me: profile, ranks: { 'p-me': 812, 'p-maya': 233 }, invites: [], mentions: [], error: null },
+      rooms: { on: true, ready: true, rooms, messages, me: profile, ranks: { 'p-me': 812, 'p-maya': 233 }, invites: [], error: null,
+        mentions: [{ id: 'mn1', messageId: 'm7', roomId: 'r-team', roomName: 'Northwind', by: 'p-maya', byName: 'Maya Chen', body: '@Sam can you approve the Stripe keys before 5? The webhook is waiting on them.', at: now - 6 * min }] },
     },
   };
 }
 
 /** Serve `dist` and open it; `init` is put in localStorage before the app runs.
  *  The page's clock is held at `at`, an afternoon, so "today" means the same thing in every picture. */
-export async function openStage({ dist, width = 1512, height = 945, theme = 'dark', init = {}, at = Date.parse('2026-10-22T17:40:00') }) {
+export async function openStage({ dist, width = 1512, height = 945, theme = 'dark', init = {}, at = Date.parse('2026-10-22T17:40:00'), tweak, door = null }) {
   const { chromium } = require('playwright');
-  const snap = { ...fixtureSnapshot(), approvals: [], ...world(at, facesIn(process.env.GROUPS_FACES)) };
+  const base = fixtureSnapshot();
+  const made = world(at, facesIn(process.env.GROUPS_FACES));
+  tweak?.(made, at);
+  const snap = { ...base, approvals: [], ...made, products: [...base.products, ...(made.products ?? [])], items: [...base.items, ...(made.items ?? [])] };
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     let file = path.join(dist, decodeURIComponent(url.pathname));
@@ -166,10 +182,12 @@ export async function openStage({ dist, width = 1512, height = 945, theme = 'dar
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ executablePath: process.env.GROUPS_CHROME || undefined });
   const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, colorScheme: theme });
-  await ctx.addInitScript(({ snap, theme, init }) => {
+  await ctx.addInitScript(({ snap, theme, init, door }) => {
     window.__SNAP__ = snap;
+    // The phone door marks the page as the app's phone build does.
+    if (door) document.documentElement.dataset.door = door;
     window.__ERRS__ = [];
     for (const [k, v] of Object.entries(init)) localStorage.setItem(k, v);
     localStorage.setItem('zero.theme', theme);
@@ -178,8 +196,12 @@ export async function openStage({ dist, width = 1512, height = 945, theme = 'dar
     const known = {
       snapshot: async () => window.__SNAP__,
       rooms: async () => ({ ok: true, value: null, rooms: window.__SNAP__.team.rooms }),
+      // A thread's own conversation, out of the app's fixtures; nothing else a thread asks for answers.
+      itemHistory: async (p) => ({ ok: true, lines: window.__SNAP__.__history?.[p.id] ?? [] }),
+      sessionTrace: async (p) => ({ sessions: window.__SNAP__.__traces?.[p.id] ?? [] }),
+      compactionStatus: async () => null,
+      remoteControl: async () => null,
       repeats: async () => [],
-      sessionTrace: async () => ({ sessions: [] }),
       dashboard: async () => ({ ok: false }),
       engineSetup: async () => ({ ok: true, phase: 'ready', found: true, signedIn: true }),
     };
@@ -193,7 +215,7 @@ export async function openStage({ dist, width = 1512, height = 945, theme = 'dar
     });
     window.addEventListener('error', (e) => window.__ERRS__.push(String(e.message)));
     window.addEventListener('unhandledrejection', (e) => window.__ERRS__.push('rejection: ' + String(e.reason?.message ?? e.reason)));
-  }, { snap, theme, init });
+  }, { snap, theme, init, door });
   await ctx.clock.setFixedTime(at);
   const page = await ctx.newPage();
   await page.goto(origin);

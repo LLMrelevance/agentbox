@@ -43,6 +43,7 @@ import { readDoc, writeDoc } from './doc-file.mjs';
 import { readChange } from './code-change.mjs';
 import { findFile, readCodeFile, writeCodeFile } from './code-file.mjs';
 import { readNote, writeNote } from './rail-note.mjs';
+import { teamForWindow } from './team/index.mjs';
 import { addClaudeAccount, addCodexAccount, alphaFeatures, cornerTagTurnedOff, countsTurnedOff, lookAgainFor, outsideAgentsMode, permissionMode, pointAtEngineBin, readSettings, searchForEngineBin, setProjectSetting, setWorkspaceSetting } from './settings.mjs';
 import { ICON_KINDS, clearProjectIcon, setProjectIcon, setProjectName } from './project-identity.mjs';
 import { ClaudeUsage } from './claude-usage.mjs';
@@ -66,6 +67,7 @@ import { machineryPath } from './store/home.mjs';
 import { EVENT_NAMES } from '../shared/analytics-events.mjs';
 import { Name } from '../shared/product-name.mjs';
 import { handedOnByReply } from '../shared/team-rules.mjs';
+import { closeRefusal, closedAnywayNote } from '../shared/not-shipped.mjs';
 import { saveAttachments } from './save-attachments.mjs';
 import { stageAttachment } from './stage-attachment.mjs';
 
@@ -462,6 +464,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     // draw -- which is what a Codex-only workflow paid every five minutes until
     // now. The Codex side never starts anything at all (main/codex-usage.mjs).
     const reading = usageFor === DEFAULT_ENGINE ? usage.read() : supervisor.codexUsage();
+    const alpha = alphaFeatures(config);
     return {
       products: store.listProducts(),
       // Each with the place she dragged it to, if she did (w-6e5b532a95).
@@ -469,9 +472,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       // THE TEAM: who is signed in, their team and its people, and the
       // title-free activity of their private work. Null on a build with no
       // team cloud, which is the single-person app.
-      team: team ? team.state() : null,
+      team: team ? teamForWindow(team.state(), alpha.multiplayer) : null,
       // Which alpha features are on (Settings, Alpha features).
-      alpha: alphaFeatures(config),
+      alpha,
       agents: liveAgents(),
       approvals: approvals.listPending(config.storeRoot),
       supervisor: running,
@@ -647,8 +650,19 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // answered at once (supervisor.sendNow).
   ipcMain.handle('zero:send-now', (_e, { product, id }) => supervisor.sendNow(product, id));
 
-  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, engine, model, effort, now, inReplyTo, fromPhone }) => {
+  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, engine, model, effort, now, inReplyTo, fromPhone, closeUnshipped }) => {
     if (isAgentRow(id)) return { ok: false };
+    // WORK THAT NEVER REACHED MAIN IS NOT CLOSED UNASKED (shared/not-shipped.mjs).
+    // The window asks first and says so with `closeUnshipped`; the phone and
+    // anything else are turned down with the reason.
+    if (status === 'done' && product && id) {
+      let row = null;
+      try { row = store.readItem(product, id); } catch { row = null; }
+      const refused = closeRefusal(row, { closeUnshipped });
+      if (refused) return refused;
+      const said = closeUnshipped ? closedAnywayNote(row) : null;
+      if (said) store.noteItem(product, id, said);
+    }
     // A level picked from ⌘K arrives here with no words, and gives way the
     // same as one picked on the summary (zero:thread-edit). A reply that
     // happens to carry its row's level does not.
@@ -776,6 +790,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // THE TEAM'S DOORS. Each answers { ok, team } or { ok: false, error } with
   // the error in words, so the window can say what went wrong where it
   // happened instead of a row silently not appearing.
+  const teamNow = () => teamForWindow(team.state(), alphaFeatures(config).multiplayer);
   const teamCall = (fn) => async (_e, arg) => {
     if (!team) return { ok: false, error: 'This build has no team cloud set up.' };
     try {
@@ -784,9 +799,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       // A call that wrote a row (a message, into its conversation) says which,
       // so the toast after it can open it with O (w-5513afd09a).
       const wrote = typeof got?.id === 'string' && typeof got?.product === 'string';
-      return { ok: true, team: team.state(), ...(wrote ? { made: { product: got.product, id: got.id } } : {}) };
+      return { ok: true, team: teamNow(), ...(wrote ? { made: { product: got.product, id: got.id } } : {}) };
     } catch (err) {
-      return { ok: false, error: String(err?.message ?? err), team: team.state() };
+      return { ok: false, error: String(err?.message ?? err), team: teamNow() };
     }
   };
   // Signing in finishes in the browser, so the app comes back to the front
@@ -806,9 +821,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     try {
       const out = await team.signUp(email, password, name);
       push();
-      return { ok: true, team: team.state(), confirm: !!out?.confirm };
+      return { ok: true, team: teamNow(), confirm: !!out?.confirm };
     } catch (err) {
-      return { ok: false, error: String(err?.message ?? err), team: team.state() };
+      return { ok: false, error: String(err?.message ?? err), team: teamNow() };
     }
   });
   ipcMain.handle('zero:team-create', teamCall(({ name }) => team.createTeam(name)));
@@ -1690,11 +1705,11 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     }
     return cloudAccount;
   };
-  ipcMain.handle('zero:cloud-account-sign-in', async (_e, { method, email, password, name } = {}) => {
+  ipcMain.handle('zero:cloud-account-sign-in', async (_e, { method, email, password, name, acceptTerms } = {}) => {
     const acct = await cloudAccountSessionNow();
     if (!acct) return { ok: false, error: 'This copy of the app has no cloud to sign in to.' };
     const { cloudSignIn } = await import('./cloud/account.mjs');
-    const out = await cloudSignIn({ config: acct.value, session: acct.session, method, email, password, name, home: supervisor.config.home || os.homedir() });
+    const out = await cloudSignIn({ config: acct.value, session: acct.session, method, email, password, name, acceptTerms: acceptTerms === true, home: supervisor.config.home || os.homedir() });
     if (method === 'google') { try { if (window?.isMinimized?.()) window.restore(); window?.show?.(); } catch { /* no window to raise */ } }
     push();
     return out;
@@ -1707,7 +1722,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     push();
     return out;
   });
-  // PAYING FOR A CLOUD PLAN: Stripe's own pages, in the browser.
+  // PAYING FOR A CLOUD PLAN: Stripe's own pages, in the browser, as other
+  // desktop apps do. An app window drew them badly and never offers Apple Pay.
   const cloudCall = async (name, args = {}) => {
     try {
       const account = await import('./cloud/account.mjs');

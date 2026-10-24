@@ -113,11 +113,6 @@ export function openGroupWords(me: Pick<RoomProfile, 'show_working' | 'show_leve
     : `${open} They see ${andList(seen)}, never your threads.`;
 }
 
-/** What Tab walks: the state tabs, then the Groups tab when there is one. */
-export function tabOrder<T extends string>(stateTabs: readonly T[], groupsTab: boolean): (T | 'room')[] {
-  return groupsTab ? [...stateTabs, 'room'] : [...stateTabs];
-}
-
 /** The room in the Threads tab: the one picked, else the first pinned room, else the first room. Never a group chat. */
 export function tabRoom<R extends Pick<Room, 'id' | 'kind' | 'pinned'>>(rooms: readonly R[], choice: string | null): R | null {
   if (choice === 'none') return null;
@@ -125,7 +120,7 @@ export function tabRoom<R extends Pick<Room, 'id' | 'kind' | 'pinned'>>(rooms: r
   return own.find((r) => r.id === choice) ?? own.find((r) => r.pinned) ?? own[0] ?? null;
 }
 
-/** The group the Groups tab opens: the one open last while you are still in it, else as tabRoom picks, else any chat. */
+/** The group Groups opens: the one open last while you are still in it, else as tabRoom picks, else any chat. */
 export function groupInTab<R extends Pick<Room, 'id' | 'kind' | 'pinned'>>(rooms: readonly R[], last: string | null): R | null {
   return rooms.find((r) => r.id === last) ?? tabRoom(rooms, null) ?? rooms[0] ?? null;
 }
@@ -139,23 +134,6 @@ export function boardPicked(saved: readonly string[] | null | undefined, people:
   const ids = people.map((p) => p.id);
   const kept = (saved ?? []).filter((id) => ids.includes(id));
   return kept.length ? kept : ids;
-}
-
-/** A face over the board picked: just them from everyone, back to everyone from them alone. */
-export function facePick(picked: readonly string[], all: readonly string[], id: string): string[] {
-  if (picked.length >= all.length) return [id];
-  if (picked.length === 1 && picked[0] === id) return [...all];
-  return picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id];
-}
-
-/** Tiles to a row over the board: eight at most, and even rows past that. */
-export function tilesPerRow(n: number, most = 8): number {
-  return Math.ceil(n / Math.ceil(n / most));
-}
-
-/** How many face tiles fit across a width: "Not running" and its padding take 93px, and the tile's line 1. */
-export function tilesAcross(width: number): number {
-  return Math.max(1, Math.min(8, Math.floor(width / 94)));
 }
 
 /** Each room's pick, by room id. */

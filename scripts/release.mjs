@@ -65,6 +65,7 @@ import { envName, readEnv } from '../shared/product-name.mjs';
 import { liveDownload, RELEASE_REPO, DOWNLOAD_ASSET } from './lib/live-download.mjs';
 import { whyNotToRelease } from './lib/ship-rules.mjs';
 import { cloudAccountConfig } from '../main/cloud/config.mjs';
+import { loadCloudConfig } from '../main/team/session.mjs';
 
 const repo = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const noSign = process.argv.includes('--no-sign');
@@ -167,6 +168,9 @@ const feedbackUrl = feedbackAddress();
 // opens the cloud to everyone who downloads this build, so do it only once
 // the server takes real money (scripts/stripe-setup.mjs --live).
 const cloud = cloudAccountConfig(repo);
+// AND THE CLOUD SETTINGS › PHONE SIGNS IN TO (main/team/session.mjs
+// loadCloudConfig): its address, public key and phone site, also public.
+const teamCloud = loadCloudConfig(repo, { packaged: false, env: {} });
 
 
 if (!noSign) {
@@ -277,6 +281,12 @@ if (cloud) {
   console.log(`→ baking Agentbox Cloud into the build (${cloud.gateway}): everyone who downloads it can sign up and pay`);
 } else {
   console.log('→ no cloud.public.json, so this build does not offer Agentbox Cloud');
+}
+if (teamCloud) {
+  for (const k of ['url', 'anonKey', 'phoneSite']) if (teamCloud[k]) args.push(`-c.extraMetadata.bakedTeam.${k}=${teamCloud[k]}`);
+  console.log(`→ baking the team cloud into the build (${teamCloud.url}): Settings › Phone can sign in, and Multiplayer is in Alpha features`);
+} else {
+  console.log('→ no team.config.json, so this build cannot sign in for the phone');
 }
 if (noSign) {
   console.log('→ packaging, unsigned');

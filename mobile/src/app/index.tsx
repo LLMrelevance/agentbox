@@ -3,7 +3,7 @@
 // age, and a new thread under the thumb. Or, picked in View and filters, the
 // board: one column a swipe.
 import { Redirect, router } from 'expo-router';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { FlatList, Pressable, RefreshControl, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { readDisplay, writeDisplay, filteredEmptyWords, type Display } from '../../../renderer/src/threads/page-rules';
@@ -143,6 +143,13 @@ function Board({ columns, foot }: { columns: ReturnType<typeof phoneBoard>; foot
 
 export default function Threads() {
   const c = useCloud();
+  // Where your messages go, asked once before the first (app/ai-notice.tsx).
+  const askedNotice = useRef(false);
+  useEffect(() => {
+    if (askedNotice.current || c.preview || !c.signedIn || !c.noticeRead || c.notice) return;
+    askedNotice.current = true;
+    router.push('/ai-notice');
+  }, [c.signedIn, c.noticeRead, c.notice, c.preview]);
   const inset = useSafeAreaInsets();
   const [tab, setTab] = useState<TabId>('inbox');
   const [pulling, setPulling] = useState(false);

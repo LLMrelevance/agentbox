@@ -118,6 +118,13 @@ reviewers sometimes test there.
 
 ## Alerts (PHONE-PLAN step 3)
 
+The first version is sent by the Mac (2026-10-23, main/phone-alerts.mjs): the
+phone leaves its token in `push_devices`, and the Mac's phone pass sends the
+desktop banner's arrivals to it through Expo, by the desktop's rules, with no
+words of a thread in it. It reaches the phone only while that Mac is on and
+signed in. Everything else in this section, `push_outbox`, the server's rule
+and the Edge Function, is still to build.
+
 - `push_devices`: owner, platform, Expo push token, app version, last seen.
   Owner-only.
 - `push_outbox`: owner, a dedupe key, the thread, created and sent times, and
@@ -326,9 +333,10 @@ made-up threads), not yet on a phone:
 - A thread: the desktop's conversation (item-thread.ts), the agent's live
   options as buttons (a pick sends "Option N: …", "Close this task" closes),
   a reply box, Later and Close. Each press leaves the phone site's command.
-- Alerts: the app asks for permission, gets its Expo push token and can send
-  itself a test alert through Expo's push service. Nothing in the cloud sends
-  alerts yet (phase 3).
+- Alerts: the app asks for permission, leaves its Expo push token in
+  `push_devices` and can send itself a test alert. The Mac sends the real
+  ones while it is on (see Alerts above); nothing in the cloud sends them yet
+  (phase 3).
 - A new thread, as the phone site's page: model, project, priority.
 - The app's icon is the phone site's icon at 1024px.
 - Every screen is drawn to the phone site's own measurements, read off the
@@ -354,15 +362,17 @@ installs `mobile/` and type-checks it.
 
 To put it on the owner's phone:
 
-1. An Expo account; `npx eas-cli init` in `mobile/`, and its project id set
-   as `EAS_PROJECT_ID`.
-2. The bundle id chosen and set as `MOBILE_BUNDLE_ID`.
-3. In the hosted account database: Apple sign-in switched on, and
-   `agentbox://signed-in` added to the allowed redirect addresses.
-4. The cloud's address and public key set as EAS environment variables
-   (`EXPO_PUBLIC_CLOUD_URL`, `EXPO_PUBLIC_CLOUD_KEY`).
-5. `npx eas-cli build --profile production --platform ios --auto-submit`,
-   which lands in TestFlight.
+1. Done 2026-10-23: the Expo project `@agentbox-app/agentbox`, bundle id
+   `now.astral.agentbox` (both in app.config.ts), and the cloud's address,
+   public key and phone site as EAS production variables.
+2. `agentbox://signed-in` is on the allowed redirect addresses. Apple sign-in
+   still has to be switched on in the hosted account database, with the
+   bundle id as its client id.
+3. `npx eas-cli build --profile production --platform ios --auto-submit` in
+   `mobile/`, signed in to Apple once, which lands in TestFlight.
+4. The desktop that phone talks to signs in from Settings › Phone; an
+   installed build carries the cloud's address for that (scripts/release.mjs
+   `bakedTeam`).
 
 ## What Codex's review changed (2026-10-20)
 
