@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('cornerTag', {
   // 'light' or 'dark': which way the Mac's own glass went over what is behind
   // it, so the ink can follow.
   onTone: listen('corner-tag:tone'),
+  // Measure again and say so: the tag has just come up.
+  onMeasure: listen('corner-tag:measure'),
   ready: (part) => ipcRenderer.invoke('corner-tag:ready', { part }),
   // glass: where the glass itself sits inside that window, and how big it is.
   // The tag's window is the glass plus a clear band, so the resize corners can
