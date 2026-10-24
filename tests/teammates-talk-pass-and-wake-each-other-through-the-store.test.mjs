@@ -126,6 +126,30 @@ describe('teammates through the store', () => {
     expect(() => core.teamSetup({ every: 'sometimes' })).toThrow(/every is one of/);
   });
 
+  // Labels replace the whole list when an agent writes them, and a run that
+  // closed with ["done", "clean"] would have stopped being its teammate's run:
+  // gone from its page, its queue and its count. Those labels are kept.
+  it('a run keeps the labels that say whose it is, whatever labels its agent writes', async () => {
+    const ada = team.create({ starter: 'quality' });
+    const felix = team.create({ starter: 'maintainer' });
+    team.post({ text: 'go', to: [ada.id] });
+    await tick(Date.now());
+    const adaRun = store.listItems().find((i) => teammateIdOf(i) === ada.id);
+    onRun(adaRun.id);
+    core.teamPass({ to: 'Felix', title: 'Fix it', details: 'steps' });
+    await tick(Date.now());
+    const felixRun = store.listItems().find((i) => teammateIdOf(i) === felix.id);
+    const { updateItem } = await import('../mcp/core/work.mjs');
+    updateItem(felixRun.id, { labels: ['clean'], status: 'done' }, { product: product.id });
+    const after = store.listItems().find((i) => i.id === felixRun.id);
+    expect(after.labels).toEqual(expect.arrayContaining(['clean', 'founder', `teammate:${felix.id}`, 'hop:1', `from:${ada.id}`]));
+    expect(isCleanRun(after)).toBe(true);
+    // A thread that is no teammate's run gets exactly the labels written.
+    const plain = work.createWorkItem(dir, { title: 'plain', labels: ['x'] }, { source: 'agent' });
+    updateItem(plain.id, { labels: ['y'] }, { product: product.id });
+    expect(store.listItems().find((i) => i.id === plain.id).labels).toEqual(['y']);
+  });
+
   // A failed hand-off used to be followed by its "seen" marker all the same,
   // so your message was dropped without a word. Now it is tried again on the
   // next tick, and the failure shows on the teammates page.

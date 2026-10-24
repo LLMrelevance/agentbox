@@ -174,9 +174,21 @@ export function privacyFrom(items) {
   return people.length ? { visibility: 'people', visibleTo: people } : { visibility: 'private' };
 }
 
+// A teammate's run is known by these labels, and labels are written whole, so
+// a run that closes with ["clean"] would stop being its teammate's run.
+const RUN_LABELS = ['teammate:', 'hop:', 'from:'];
+function keepRunLabels(had, patch) {
+  if (!Array.isArray(patch.labels)) return patch;
+  const before = had?.labels ?? [];
+  if (!before.some((l) => String(l).startsWith('teammate:'))) return patch;
+  const kept = before.filter((l) => l === 'founder' || RUN_LABELS.some((p) => String(l).startsWith(p)));
+  const missing = kept.filter((l) => !patch.labels.includes(l));
+  return missing.length ? { ...patch, labels: [...patch.labels, ...missing] } : patch;
+}
+
 export function updateItem(id, patch, { product = null, epoch = null, source = 'agent' } = {}) {
-  const { project } = locate(id, { product });
-  const item = updateWorkItem(project.dir, id, saidPlainly(patch, source), { epoch, source });
+  const { project, item: had } = locate(id, { product });
+  const item = updateWorkItem(project.dir, id, saidPlainly(keepRunLabels(had, patch), source), { epoch, source });
   return { ...item, product: project.id, productName: project.name };
 }
 
