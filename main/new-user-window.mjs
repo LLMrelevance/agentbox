@@ -12,7 +12,7 @@ export const OFFSET = 48;
 /** The window options a copy adds, given whether it is a throwaway one. */
 export function newUserWindow({ fresh, name, screen, width = 1440, height = 900 } = {}) {
   if (!fresh) return { title: name };
-  const title = `${name} — new user`;
+  const title = `${name} (new user)`;
   if (!screen) return { title };
   const centred = {
     x: Math.round(screen.x + (screen.width - width) / 2),

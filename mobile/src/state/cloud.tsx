@@ -9,7 +9,7 @@ import { router } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AppState, Platform } from 'react-native';
 import { cloudClient, type CloudClient } from '../../../renderer/src/cloud-rest';
-import { macSeenOf, phoneSlug, phoneStatusLine, phoneView, readCommands, readThreads, splitSlug, type PhoneRows } from '../../../renderer/src/phone-rows';
+import { PROJECTS_SELECT, cloudCarriesOn, macSeenOf, phoneSlug, phoneStatusLine, phoneView, readCommands, readThreads, splitSlug, type PhoneRows } from '../../../renderer/src/phone-rows';
 import { phoneSender } from '../../../renderer/src/phone-send';
 import { fileOnPhone, objectsToSign, renewLinks, type Links } from '../../../renderer/src/phone-links';
 import { BUCKET, cloudPlaces } from '../../../renderer/src/cloud-files';
@@ -73,7 +73,7 @@ function useCloudState() {
       const select = (table: string, query: string) => cloud.select(table, query);
       try {
         const [projects, threads, commands] = await Promise.all([
-          select('phone_projects', 'select=device,project,name,updated_at&order=name'),
+          select('phone_projects', PROJECTS_SELECT),
           readThreads(select, cache.current),
           readCommands(select),
         ]);
@@ -109,7 +109,7 @@ function useCloudState() {
 
   const view = useMemo(() => phoneView(rows, now), [rows, now]);
   const tabs = useMemo(() => phoneTabs(view, now), [view, now]);
-  const status = signedIn ? phoneStatusLine({ error: read.error, fetchedAt: read.fetchedAt, macSeen: macSeenOf(rows.projects) }, now) : null;
+  const status = signedIn ? phoneStatusLine({ error: read.error, fetchedAt: read.fetchedAt, macSeen: macSeenOf(rows.projects), cloud: cloudCarriesOn(rows.projects) }, now) : null;
   const aliases = useRef(view.aliases);
   aliases.current = view.aliases;
 

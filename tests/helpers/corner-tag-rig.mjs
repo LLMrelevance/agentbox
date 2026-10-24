@@ -2,7 +2,7 @@
 // app's own window gaining and losing focus, and the store of settings.
 import { createCornerTag } from '../../main/corner-tag.mjs';
 
-export function cornerTagRig({ config = {}, focused = false, at = 1_000_000_000, glass = null } = {}) {
+export function cornerTagRig({ config = {}, focused = false, at = 1_000_000_000, glass = null, told = () => [] } = {}) {
   const handlers = {};
   const timers = [];
   let timerId = 0;
@@ -55,7 +55,7 @@ export function cornerTagRig({ config = {}, focused = false, at = 1_000_000_000,
     now: () => clock,
     setTimer: (fn, ms) => { const id = ++timerId; timers.push({ id, fn, at: clock + ms }); return id; },
     clearTimer: (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); },
-    mac: true, glass,
+    mac: true, glass, told,
   });
   const call = (ch, p) => handlers[ch](null, p);
   const advance = (ms) => {

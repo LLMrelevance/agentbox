@@ -508,7 +508,8 @@ input. In order:
    Reads and claims are still "not made". Needs the cloud image rebuilt (the
    `kept` cap); an older image behaves as before.
 4. **A scheduler in the cloud, so new runs and phone replies start with the
-   Mac shut.** Not built: it needs AWS rights of its own and a deploy from a
+   Mac shut.** Built for replies on the managed cloud 2026-10-24
+   (docs/cloud/PHONE-PLAN.md, step 2); new threads still wait. The design as first written: it needs AWS rights of its own and a deploy from a
    machine signed in to her account. The shape: a small always-on service
    (Lambda on a schedule, or a long-poll worker) that reads `phone_commands`
    for devices whose Mac has not written for 15 minutes (the projects'

@@ -49,7 +49,7 @@ const PAGE_BYTES = 8 * 1024 * 1024;
 const MAX_MCP_LINE = 32 * 1024 * 1024;
 // What this server can do beyond the first version, said in a start's answer,
 // so a Mac knows rather than guesses whether its asks are honoured.
-const CAPS = ['offline', 'setup', 'kept', 'base', 'plain'];
+const CAPS = ['offline', 'setup', 'kept', 'base', 'plain', 'hold'];
 // A conversation sent home as only what the run added is listed in this file
 // (the same name in main/cloud/run.mjs).
 const TAILS = '.agentbox-tails.json';
@@ -341,7 +341,7 @@ export function createSandbox({
     if (msg?.id === undefined || typeof msg.method !== 'string') return false;
     const k = callKey(conn, msg.id);
     if (macAway(r)) {
-      const kept = r.handshakes.get(`${r.connServer.get(conn)}\u0000${msg.method}`);
+      const kept = r.handshakes.get(`${r.connServer.get(conn)}\u0000${msg.method}`) ?? r.offline.handshakes?.[r.connServer.get(conn)]?.[msg.method];
       if (HANDSHAKE.has(msg.method) && kept) {
         // Answered with what the app said before, and still sent on, so the
         // Mac's own server is opened too; its answer is dropped.
@@ -358,12 +358,30 @@ export function createSandbox({
         emit({ kind: 'mcp-kept', conn, server, line }, r);
         return true;
       }
+      if (tool && heldServer(r, server)) {
+        r.calls.set(k, { conn, msg, sock, state: 'sent' });
+        hold(r, k);
+        return false;
+      }
       answerHere(sock, msg, NOT_MADE);
       emit({ kind: 'mcp-offline', conn, id: msg.id }, r);
       return true;
     }
     r.calls.set(k, { conn, msg, sock, state: 'sent' });
     return false;
+  }
+  // A HELD SERVER (a start's `offline.hold`): its calls wait while the Mac is
+  // away instead of being refused, each said as an `ask` event, and the first
+  // answer to arrive, the cloud server's or a Mac's that joins, is the one
+  // the agent gets. The app's approvals server is held so a permission card
+  // can be answered from the phone (cloud/gateway/phone.mjs).
+  const heldServer = (r, server) => !!server && Array.isArray(r.offline?.hold) && r.offline.hold.includes(server);
+  function hold(r, k) {
+    const c = r.calls.get(k);
+    if (!c || c.held) return;
+    c.held = true;
+    c.state = 'held';
+    emit({ kind: 'ask', conn: c.conn, id: c.msg.id, server: r.connServer.get(c.conn), tool: c.msg.params?.name ?? null, input: c.msg.params?.arguments ?? null }, r);
   }
   // The Mac asks before it makes a call: one given up on here is not made.
   function claimCalls(r, calls) {
@@ -372,6 +390,7 @@ export function createSandbox({
       const c = r.calls.get(k);
       if (!c) return { conn, id, go: false };
       if (c.state === 'abandoned') { r.calls.delete(k); return { conn, id, go: false }; }
+      if (c.held) return { conn, id, go: c.state === 'held' };
       if (c.state === 'sent') c.state = 'claimed';
       return { conn, id, go: true };
     });
@@ -384,6 +403,12 @@ export function createSandbox({
     if (msg?.id === undefined || msg.method !== undefined) return false;
     const k = callKey(conn, msg.id);
     const c = r.calls.get(k);
+    // The first answer to a held call goes to the agent; a later one is dropped.
+    if (c?.held && c.state === 'held') {
+      c.state = 'answered-here';
+      emit({ kind: 'ask-answered', conn, id: msg.id }, r);
+      return false;
+    }
     r.calls.delete(k);
     if (!c) return false;
     if (HANDSHAKE.has(c.msg.method) && msg.result !== undefined) r.handshakes.set(`${r.connServer.get(conn)}\u0000${c.msg.method}`, msg.result);
@@ -449,6 +474,8 @@ export function createSandbox({
       if (!macAway(r) || DONE_STATES.has(r.state)) return;
       for (const [k, c] of r.calls) {
         if (c.state !== 'sent' && c.state !== 'claimed') continue;
+        // A held server's call waits for an answer from the phone, or the Mac's when it is back.
+        if (c.msg.method === 'tools/call' && heldServer(r, r.connServer.get(c.conn))) { hold(r, k); continue; }
         // Kept until the Mac's late answer arrives (dropped) or the connection
         // closes: answered once is answered.
         c.state = c.state === 'claimed' ? 'answered-here' : 'abandoned';
@@ -1391,8 +1418,12 @@ export function createSandbox({
         id: req.runId, spec, state: 'preparing', waiters: new Set(), pendingStdin: [], child: null,
         exitCode: null, startSha: null, inSeq: 0, cancelled: null, manifest: null,
         dir: path.join(workRoot, '.agentbox', safe(req.runId)),
-        macSeenAt: Date.now(),
-        offline: req.offline ? { afterMs: Math.max(50, Number(req.offline.afterMs) || 90_000), endTurn: req.offline.endTurn ?? null, kept: req.offline.kept ?? null } : null,
+        // A run the cloud server starts has no Mac there from its first moment.
+        macSeenAt: req.offline?.away === true ? 0 : Date.now(),
+        offline: req.offline ? {
+          afterMs: Math.max(50, Number(req.offline.afterMs) || 90_000), endTurn: req.offline.endTurn ?? null, kept: req.offline.kept ?? null,
+          hold: req.offline.hold ?? null, handshakes: req.offline.handshakes ?? null,
+        } : null,
         calls: new Map(), handshakes: new Map(), connServer: new Map(), inputClosed: null,
         turn: { line: '', atResult: false, waiting: 0, lastJobEndedAt: 0, unread: new Map(), anonymous: 0 },
       };
@@ -1407,7 +1438,8 @@ export function createSandbox({
     if (req.runId && req.runId !== run.id) return { ok: false, error: 'no-run', runId: run.id };
     const r = run;
     // Every ask is the Mac, there; a `peek` is something else reading.
-    if (!(action === 'events' && req.peek)) r.macSeenAt = Date.now();
+    // The cloud server's own input (`server`) is not the Mac being here either.
+    if (!(action === 'events' && req.peek) && req.server !== true) r.macSeenAt = Date.now();
     // A sign-in session takes its code, its browser's return and a cancel,
     // and nothing a run takes: input to it would be typed into the vendor's
     // own sign-in.
@@ -1634,6 +1666,9 @@ function invalidStart(req) {
   if (!req.plain && !req.bundleUrl && !req.base) return 'bundleUrl is required';
   if (!Array.isArray(req.argv) || !req.argv.length) return 'argv is required';
   if (req.offline != null && (typeof req.offline !== 'object' || (req.offline.endTurn != null && req.offline.endTurn !== 'claude-stream-json'))) return 'offline must be { afterMs, endTurn: "claude-stream-json" or null }';
+  if (req.offline?.hold != null && !(Array.isArray(req.offline.hold) && req.offline.hold.every((s) => typeof s === 'string'))) return 'offline.hold must be [server, ...]';
+  if (req.offline?.handshakes != null && (typeof req.offline.handshakes !== 'object' || Array.isArray(req.offline.handshakes))) return 'offline.handshakes must be { server: { method: result } }';
+  if (req.offline?.away != null && typeof req.offline.away !== 'boolean') return 'offline.away must be true or false';
   if (req.offline?.kept != null && (typeof req.offline.kept !== 'object' || Array.isArray(req.offline.kept)
     || !Object.values(req.offline.kept).every((tools) => Array.isArray(tools) && tools.every((t) => typeof t === 'string')))) return 'offline.kept must be { server: [tool, ...] }';
   for (const f of req.files || []) if (!f?.url || !path.isAbsolute(f?.path || '')) return 'every file needs an absolute path and a url';
