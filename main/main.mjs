@@ -5,7 +5,7 @@ import { app, BrowserWindow, Menu, Notification, clipboard, crashReporter, dialo
 import * as workItemsDisk from './store/work-items.mjs';
 import { createTeamService, teamStateFile } from './team/index.mjs';
 import { roomsSetup } from './team/room-setup.mjs';
-import { loadCloudConfig, supabaseSession } from './team/session.mjs';
+import { loadCloudConfig, supabaseSession, desktopSessionFile } from './team/session.mjs';
 // MY WORKSPACE IS NOT A TEAM FEATURE ANY MORE (w-f8d123be62), even though it
 // still lives in the team folder next to the sharing rules it has to obey.
 import { ensurePersonalProject } from './team/projects.mjs';
@@ -426,7 +426,7 @@ async function createWindow() {
   const team = cloudConfig ? createTeamService({
     session: supabaseSession({
       cloudConfig,
-      sessionFile: path.join(config.storeRoot, '.team-session'),
+      sessionFile: desktopSessionFile({ userDir, storeRoot: config.storeRoot }),
       ...(safeStorage.isEncryptionAvailable()
         ? { encrypt: (text) => safeStorage.encryptString(text), decrypt: (buf) => safeStorage.decryptString(buf) }
         : { encrypt: null, decrypt: null }),
