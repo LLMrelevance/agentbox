@@ -46,16 +46,8 @@ const CLOSE = 80;
 // Closing on the first mouseleave would make the panel impossible to reach.
 const LINGER_MS = 220;
 
-// ROUND 23'S TRIAL (w-dcaa2c122e): five ways to show usage in the sidebar,
-// behind localStorage `usage.look`, for a pick. `ring` and `name` draw on your
-// own row instead (account-menu.tsx), so this slot draws nothing for them.
-export type UsageLook = 'row' | 'bar' | 'line' | 'ring' | 'name';
-export function readUsageLook(): UsageLook | null {
-  try {
-    const v = localStorage.getItem('usage.look');
-    return v === 'row' || v === 'bar' || v === 'line' || v === 'ring' || v === 'name' ? v : null;
-  } catch { return null; }
-}
+// In the sidebar it is a row like Feedback and Settings: this gauge, the agent's
+// name, and the percent where Inbox shows its count (w-dcaa2c122e, picked from five).
 const GaugeIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true"><path d="M4.5 16.5a7.5 7.5 0 1 1 15 0"/><path d="m12 16.5 3.6-4.2"/></svg>;
 
 export function UsagePill({ usage, now, engineWord = null, onOpen, sidebar = false }: {
@@ -123,8 +115,7 @@ export function UsagePill({ usage, now, engineWord = null, onOpen, sidebar = fal
   // plans there is no five hour window at all, so asking for one drew an empty
   // corner on a day the weekly limit was full. `headlineLimit` says why.
   const session = headlineLimit(limits);
-  const look = sidebar ? readUsageLook() : null;
-  if (!session || look === 'ring' || look === 'name') return null;
+  if (!session) return null;
 
   const used = Math.max(0, Math.min(100, session.percent));
   const rows = limitRows(limits, now);
@@ -151,15 +142,12 @@ export function UsagePill({ usage, now, engineWord = null, onOpen, sidebar = fal
         // expanded. It is the only reading there is for somebody who cannot see
         // a bar.
         aria-label={sentence}
-        title={look ? sentence : undefined}
+        title={sidebar ? sentence : undefined}
         onClick={() => { const next = !pinned; setPinned(next); if (next) onOpen?.(); }}
         onFocus={sidebar ? undefined : enter}
         onBlur={sidebar ? undefined : leave}
       >
-        {sidebar && !look && <><span className="usage-sidebar-label">{engineWord ?? 'Usage'}</span><span className="usage-sidebar-percent">{used}% used</span></>}
-        {(look === 'row' || look === 'bar') && <><GaugeIcon /><span className="usage-row-label">{engineWord ?? 'Usage'}</span>
-          {look === 'row' ? <span className="usage-row-num">{used}%</span> : <span className="usage-meter usage-row-meter" aria-hidden="true"><i style={{ width: `${used}%` }} /></span>}</>}
-        {look === 'line' && <i className="usage-line-track" aria-hidden="true"><i style={{ width: `${used}%` }} /></i>}
+        {sidebar && <><GaugeIcon /><span className="usage-row-label">{engineWord ?? 'Usage'}</span><span className="usage-row-num">{used}%</span></>}
         {!sidebar && <span className="usage-meter" aria-hidden="true">
           <i style={{ width: `${used}%` }} />
         </span>}

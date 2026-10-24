@@ -9,7 +9,7 @@
 // all times ... better to just show the email as we had before." So the row
 // is your name and email again, and the status is one row in here, a little
 // less discoverable on purpose, because it was the lower-priority feature.
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Person } from '../types';
 import { Face } from './people';
 import { STATUS_PROMPT, StatusComposer, saying } from './status';
@@ -22,10 +22,8 @@ const SignOutIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentCo
 /** A small smiley, picked over a dot, a clock and a pencil (2026-10-04). */
 const StatusIcon = () => <svg className="th-acct-smile" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M8.8 14c.8 1.1 1.9 1.7 3.2 1.7s2.4-.6 3.2-1.7"/><path d="M9.5 10h.01M14.5 10h.01" strokeWidth="2"/></svg>;
 
-export function AccountMenu({ me, now, collapsed, onAccount, onInvite, onSettings, onSignOut, invisible = null, usage = null, usageLook = null }: {
+export function AccountMenu({ me, now, collapsed, onAccount, onInvite, onSettings, onSignOut, invisible = null }: {
   me: Person; now: number; collapsed: boolean;
-  /** Round 23's trial: usage as a frame round your face, or in your email's place. */
-  usage?: { used: number; word: string | null; sentence: string } | null; usageLook?: string | null;
   /** Rooms (alpha): going invisible, and coming back. */
   invisible?: Invisible | null;
   /** The header: your name and email, opening Settings -> Team. */
@@ -52,15 +50,11 @@ export function AccountMenu({ me, now, collapsed, onAccount, onInvite, onSetting
   }, [open]);
 
   const go = (fn?: () => void) => fn && (() => { close(); fn(); });
-  const ring = usage && usageLook === 'ring';
-  const named = usage && usageLook === 'name';
 
   return <div className="th-me-wrap" ref={wrap}>
     <button type="button" className="th-me-btn" aria-label="Your account" aria-haspopup="menu" aria-expanded={open}
-      title={usage ? usage.sentence : collapsed ? 'Your account' : undefined} onClick={() => (open ? close() : setOpen(true))}>
-      {ring ? <i className={`usage-ring${usage.used >= 80 ? ' is-close' : ''}`} style={{ '--used': `${usage.used}%` } as CSSProperties}><Face person={me} me /></i> : <Face person={me} me />}
-      <span>{me.name || me.email}{invisible?.on ? <small className="th-me-invis"><EyeOffSmall />Invisible</small>
-        : named ? <small className="usage-under-name">{usage.used}% of {usage.word ?? 'your limit'} used</small> : <small>{me.email}</small>}</span>
+      title={collapsed ? 'Your account' : undefined} onClick={() => (open ? close() : setOpen(true))}>
+      <Face person={me} me /><span>{me.name || me.email}{invisible?.on ? <small className="th-me-invis"><EyeOffSmall />Invisible</small> : <small>{me.email}</small>}</span>
     </button>
     {open && going && invisible && <GoInvisible now={now} onGo={(m) => { close(); invisible.onGo(m); }} />}
     {open && !going && (writing
