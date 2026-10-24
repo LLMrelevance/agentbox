@@ -4213,6 +4213,21 @@ img.app-mark { opacity: 1; border-radius: 0; }
 */
 .app.composing .toast { bottom: auto; top: 74px; }
 
+/* AND OUT OF THE APPROVAL CARD'S WAY. The card is in that corner too and the
+   toast is drawn above it, so a toast lay across Allow and Deny at the moment
+   somebody is reaching for one. SIDEWAYS AND NOT UP, unlike the composer's: the
+   card's width is fixed (`.approvals`, 440px at right 22) and only its height
+   grows with the command it quotes, so beside it is a place that is always
+   clear -- and the top of the window is where New thread is, which the composer
+   covers up with its own card and this would not. 22 + 440 + 18 of air. */
+.app.asking .toast { right: 480px; }
+
+/* Unless there is no room beside it, and then up, where there is always room:
+   480 and 360 of toast need 840 to the right of the sidebar. */
+@media (max-width: 920px) {
+  .app.asking .toast { right: 30px; bottom: auto; top: 74px; }
+}
+
 /* THE ONE THAT OPENS THE TASK IT IS ABOUT: the whole card is the target, so
    it is a `<button>`, and only the pointer and the focus ring are added. */
 .toast-goes { cursor: pointer; }

@@ -15,8 +15,11 @@ export function loadLiquidGlass({ mac = process.platform === 'darwin', load = cr
   const handle = (win) => win.getNativeWindowHandle();
   return {
     // tone: 'light' or 'dark' holds the glass that way; leave it out and the
-    // glass decides from what is behind it.
-    set: (win, rect, { radius, tone } = {}) => native.set(handle(win), rect, tone ? { radius, tone } : { radius }),
+    // glass decides from what is behind it. style: 'clear' for the Mac's clear
+    // glass, which lets a light page through; otherwise the regular glass.
+    set: (win, rect, { radius, tone, style } = {}) => native.set(handle(win), rect, {
+      radius, ...(tone ? { tone } : {}), ...(style ? { style } : {}),
+    }),
     clear: (win) => native.clear(handle(win)),
     tone: (win) => native.tone(handle(win)),
   };
