@@ -152,11 +152,15 @@ export function hiddenUntil(i: InboxItem, legacySnooze = 0): number {
 // (`waitsThatCanEnd`).
 export function belongsInInbox(
   i: InboxItem,
-  { deliveredThrough = 0, hiddenUntil = 0, now = Date.now(), live = false, shipping = false, waitingOn = [] as readonly string[] } = {},
+  { deliveredThrough = 0, hiddenUntil = 0, now = Date.now(), live = false, shipping = false, asking = false, waitingOn = [] as readonly string[] } = {},
 ): boolean {
   // In Later and not begun: it waits for a person, not a clock, so it is in
   // Later and nowhere else.
   if (notStarted(i)) return false;
+  // Its agent is stopped on a permission request, so it answers before the
+  // status, the schedule and the waits do: each of those is a reason the thread
+  // would be elsewhere, and none is a reason the question has gone away.
+  if (asking) return true;
   // A session is still on it, so it is In progress until it exits. Unless it is
   // still asking you something (w-fe48447cab): the one thing a session may not
   // do is take away the question it is asking (`stillAsksYou`).

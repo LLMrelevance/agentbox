@@ -61,6 +61,8 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
   if (state === 'scheduled') return plain(stateWordOf(item, state), 'sched');
 
   const live = liveLine(item, { ...facts, stalled: false });
+  // The still accent mark, not the turning one: nothing moves until you answer.
+  if (live?.state === 'asking') return says(shortWord('asking'), 'need', true, live.line);
   if (live?.state === 'working') {
     return { word: shortWord('working'), mark: 'working', agent: true, live: true, cloud: facts.session?.where === 'cloud', title: live.line };
   }
@@ -106,6 +108,7 @@ export function factsFor(fleet: Fleet, id: string): LiveFacts {
     signInNeeded: fleet.signInNeeded,
     atLimit: fleet.atLimit,
     shipping: !!fleet.shipping?.includes(id),
+    asking: !!fleet.asking?.includes(id),
     stalled: !!fleet.stalled?.includes(id),
     silent: fleet.silent?.[id] ?? null,
     paused: !!fleet.paused,

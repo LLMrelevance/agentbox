@@ -4201,6 +4201,12 @@ img.app-mark { opacity: 1; border-radius: 0; }
 */
 .app.composing .toast { bottom: auto; top: 74px; }
 
+/* AND OUT OF THE APPROVAL CARD'S WAY, FOR THE SAME REASON. The card is in that
+   corner too and the toast is drawn above it, so a toast landed across Allow
+   and Deny. To the top, not to a height measured off the card: the card grows
+   with the command it quotes. */
+.app.asking .toast { bottom: auto; top: 74px; }
+
 /* THE ONE THAT OPENS THE TASK IT IS ABOUT: the whole card is the target, so
    it is a `<button>`, and only the pointer and the focus ring are added. */
 .toast-goes { cursor: pointer; }

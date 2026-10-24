@@ -53,7 +53,9 @@ import type { RunningSession, WorkItem } from './types';
 // would be worse than the silence it replaces.
 // `next` is a queued task she pushed with Run now (w-87ff499077): still
 // waiting, but first in line, and the word changing is how the press shows.
-export type LiveState = 'working' | 'elsewhere' | 'shipping' | 'next' | 'queued' | 'signin' | 'limit' | 'paused' | 'silent' | 'idle';
+// `asking` is a worker stopped on a permission request: a live session, and
+// not working, because nothing moves until you answer it.
+export type LiveState = 'asking' | 'working' | 'elsewhere' | 'shipping' | 'next' | 'queued' | 'signin' | 'limit' | 'paused' | 'silent' | 'idle';
 
 export interface LiveLine {
   state: LiveState;
@@ -79,6 +81,9 @@ export interface LiveFacts {
   atLimit?: Record<string, { tool: string; until: number }>;
   /** The id is on `supervisor.shipping`: the app's ship queue still owes it a ship. */
   shipping?: boolean;
+  /** An approval in the spool names this thread, so its agent has stopped on a
+   *  question only you can answer (`snapshot.approvals`). */
+  asking?: boolean;
   /** `supervisor.runNow`: the queued ids she pushed with Run now. */
   runNow?: string[];
   /** `supervisor.stalled`: a worker died on it. The stalled bar owns this. */
@@ -144,6 +149,9 @@ export function shortWord(state: LiveState, helpers = 0): string {
   if (state === 'working' && helpers > 0) {
     return helpers === 1 ? '1 Subagent Working' : `${helpers} Subagents Working`;
   }
+  // The tab's own two words, because it is the same fact. One word ("Asking",
+  // "Held") says who is waiting on whom in neither direction.
+  if (state === 'asking') return 'Needs you';
   if (state === 'working') return 'Working';
   // The same word as a run of ours; the mark beside it says where.
   if (state === 'elsewhere') return 'Working';
@@ -225,6 +233,17 @@ export function liveLine(item: WorkItem, facts: LiveFacts = {}): LiveLine | null
   // Finished is finished. The result at the foot of the conversation is the
   // news, and a mark under it about agents would be an appendix to an ending.
   if (item.status === 'done') return null;
+
+  // ABOVE THE SESSION, which is what made the row read wrong: a worker waiting
+  // on an approval is a live session in every list the supervisor keeps, so
+  // "Working" won. Above `stalled` and `scheduled` too — a card with Allow and
+  // Deny on it outranks any news about the run behind it.
+  if (facts.asking) {
+    return {
+      state: 'asking',
+      line: 'The agent stopped to ask your permission. Nothing happens on this thread until you answer.',
+    };
+  }
 
   if (session) {
     const elapsed = Math.max(0, now - session.startedAt);
