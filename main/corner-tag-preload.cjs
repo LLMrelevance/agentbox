@@ -2,7 +2,7 @@
 // main/corner-tag.mjs through this, and through nothing else: it is a separate,
 // much smaller door than preload.cjs, because a window floating over every
 // other app has no business holding the whole bridge.
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 const listen = (channel) => (fn) => {
   const handler = (_e, payload) => fn(payload);
@@ -18,6 +18,10 @@ contextBridge.exposeInMainWorld('cornerTag', {
   // 'light' or 'dark': which way the Mac's own glass went over what is behind
   // it, so the ink can follow.
   onTone: listen('corner-tag:tone'),
+  // Measure again and say so: the tag has just come up.
+  onMeasure: listen('corner-tag:measure'),
+  // The zoom this page is drawn at, so it can say its size in screen points.
+  zoom: () => webFrame.getZoomFactor(),
   ready: (part) => ipcRenderer.invoke('corner-tag:ready', { part }),
   // glass: where the glass itself sits inside that window, and how big it is.
   // The tag's window is the glass plus a clear band, so the resize corners can

@@ -286,8 +286,14 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     },
   });
 
-  ipcMain.handle('zero:refresh-usage', async event => {
+  ipcMain.handle('zero:refresh-usage', async (event, { engine = DEFAULT_ENGINE } = {}) => {
     if (event.senderFrame?.parent || (event.sender && event.sender !== window.webContents)) throw Error('Usage refresh is only available in the main app window.');
+    // Codex is asked of this computer and not of OpenAI; main/codex-usage.mjs
+    // says why there is no explicit read.
+    if (engine !== DEFAULT_ENGINE) {
+      const reading = supervisor.refreshCodexUsage();
+      return reading ? { ok: true, reading: { engine, ...reading } } : { ok: false, error: 'Codex has reported no usage on this computer yet.' };
+    }
     const result = await usage.refreshNow();
     return result.reading ? { ...result, reading: { engine: DEFAULT_ENGINE, ...result.reading } } : result;
   });
@@ -1445,6 +1451,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     if (isAgentRow(id)) return { ok: false };
     const out = store.answerItem(product, id, { status: 'open' });
     supervisor.liftBrakeForHer?.();
+    supervisor.forgetDeadStarts?.({ product, id });
     supervisor.wake();
     return out;
   });
@@ -1949,6 +1956,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     const item = store.listItems().find((i) => i.product === product && i.id === id);
     if (!item?.answer || item.answer === '(withdrawn)') return { ok: false, error: 'no live answer to redeliver' };
     supervisor.liftBrakeForHer?.();
+    supervisor.forgetDeadStarts?.(item);
     supervisor.redeliverAnswer(item, item.answer);
     supervisor.tick?.().catch(() => {});
     return { ok: true };

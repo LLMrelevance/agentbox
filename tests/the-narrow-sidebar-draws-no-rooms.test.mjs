@@ -9,9 +9,10 @@
 //
 // Measured by drawing the section through useRooms with two rooms: narrow, it
 // drew the Rooms header, both rooms and New room, exactly as wide did. Since
-// Groups (w-dcaa2c122e, 2026-10-23) the sidebar has no rows for rooms at all,
-// narrow or wide, and with Groups on it is not drawn
-// (tests/with-groups-the-page-name-is-a-menu-and-there-is-no-sidebar).
+// Groups (w-dcaa2c122e, 2026-10-23) the sidebar has no rows for rooms of its
+// own. With Groups on it stays narrow, holding one Groups row, and names the
+// groups only while it is pointed at and wide
+// (tests/with-groups-the-sidebar-stays-narrow-and-widens-when-pointed-at).
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect, afterEach } from 'vitest';

@@ -76,7 +76,8 @@ function workingOf({ profile, lead, teammate, cards }) {
 // Mac knows I am working on, which my own card shows whatever others see.
 // `names` is the cloud's room_names for this room, or null on a cloud without
 // it: a member with no card at all is on the wall, named, as not on Rooms yet.
-export function wallCards({ members = [], profiles = [], presence = [], teammates = [], teamCards = [], meId = null, now = Date.now(), mine = null, names = null }) {
+// In a `listed` room, open to anyone, my own card shows me what strangers see.
+export function wallCards({ members = [], profiles = [], presence = [], teammates = [], teamCards = [], meId = null, now = Date.now(), mine = null, names = null, listed = false }) {
   const inRoom = new Set(members);
   const mates = new Set(teammates);
   const out = [];
@@ -105,7 +106,7 @@ export function wallCards({ members = [], profiles = [], presence = [], teammate
       showActivity: p.show_activity !== false,
       activity: sharesActivity(p) ? s.activity : null,
       status: p.show_status !== false && p.status_text && !(ms(p.status_until) <= now) ? p.status_text : null,
-      ...(id === meId && mine ? { workingOn: mine.workingOn ?? null, workingPrivate: false }
+      ...(id === meId && mine ? ownWorking(mine, listed && p.show_working !== 'everyone')
         : workingOf({ profile: p, lead: s.lead, teammate: mates.has(id) && id !== meId, cards })),
     });
   }
@@ -119,6 +120,10 @@ export function wallCards({ members = [], profiles = [], presence = [], teammate
   }
   return out.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }
+
+const ownWorking = (mine, hidden) => (hidden
+  ? { workingOn: null, workingPrivate: !!mine.workingOn }
+  : { workingOn: mine.workingOn ?? null, workingPrivate: false });
 
 const shortName = (item) => (String(item?.label ?? '').trim() || String(item?.title ?? '')).slice(0, WORKING_ON_MAX);
 

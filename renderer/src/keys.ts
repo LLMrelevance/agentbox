@@ -51,3 +51,25 @@ const TAKES_THE_LIST_BACK = new Set(['j', 'k', 'arrowdown', 'arrowup', 'escape',
 export function takesTheListBack(key: string): boolean {
   return TAKES_THE_LIST_BACK.has(key.toLowerCase());
 }
+
+// WHAT A KEY MEANS WHILE A BOX IS OPEN, which is not one answer but three.
+//
+// Typing owns the keyboard: a caret in any field takes every key, and a modal
+// owns its own screen. Both were one condition, and the reply dock sat inside
+// it: Escape in a box you have typed into keeps the box and takes the caret
+// out (Focus.tsx, a draft holds it open on purpose), so `modal` stayed 'reply'
+// with nothing focused and L, E and J were dead until a second Escape. The
+// click-away out of the dock found the same gate from the other side.
+//
+// The reply dock is the one box that is not a modal — it is drawn into the card
+// and has no backdrop — so with the caret elsewhere the thread under it is
+// what the keyboard is pointed at.
+export type WhileABoxIsOpen = 'close-the-modal' | 'swallow' | 'through';
+
+export function keyWhileABoxIsOpen(
+  { modal, inInput, key }: { modal: string | null; inInput: boolean; key: string },
+): WhileABoxIsOpen {
+  if (!modal && !inInput) return 'through';
+  if (key === 'Escape' && !inInput) return 'close-the-modal';
+  return modal === 'reply' && !inInput ? 'through' : 'swallow';
+}
