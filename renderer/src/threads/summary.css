@@ -23,6 +23,9 @@
 .ts-st-held { border: 1.5px solid var(--accent); }
 .ts-st.live { animation: th-breathe 1.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .ts-st.live { animation: none; } }
+/* The list's cloud (pages.css .th-st-cloud), 14px wide, so the word starts where it does after a dot. */
+.ts-value .th-st-cloud { margin-right: 7px; }
+.ts-lead .th-st-cloud { margin-right: 6px; }
 .ts-st-sched { border: 1.5px dashed var(--text-faint); }
 .ts-st-done { background: var(--text-faint); }
 
