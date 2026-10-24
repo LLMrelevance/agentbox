@@ -6,10 +6,12 @@
 // this builds with an older SDK and does nothing on a Mac that lacks it.
 //
 //   available()                    -> whether this Mac has the glass
-//   set(handle, rect, { radius, tone })
+//   set(handle, rect, { radius, tone, style })
 //                                  -> place it; rect in points from the top left.
 //                                     tone 'light' or 'dark' holds it that way;
-//                                     without one it decides for itself
+//                                     without one it decides for itself.
+//                                     style 'clear' is the clear glass, which a
+//                                     light page shows through; otherwise regular
 //   clear(handle)                  -> take it away
 //   tone(handle)                   -> 'light' or 'dark': which way the glass went
 //                                     over what is behind it, so ink can follow
@@ -24,6 +26,12 @@
 #import <AppKit/AppKit.h>
 
 static NSString *const kGlassId = @"agentbox-liquid-glass";
+
+// NSGlassEffectView's published style (macOS 26): 0 regular, 1 clear. Declared
+// here because the SDK this builds with may predate the class.
+@protocol AgentboxGlassStyle
+- (void)setStyle:(NSInteger)style;
+@end
 
 static Class GlassClass() { return NSClassFromString(@"NSGlassEffectView"); }
 
@@ -108,6 +116,8 @@ static napi_value Set(napi_env env, napi_callback_info info) {
   }
   glass.frame = frame;
   if ([glass respondsToSelector:@selector(setCornerRadius:)]) [(id)glass setCornerRadius:radius];
+  bool clear = argc > 2 && Says(env, argv[2], "style", "clear");
+  if ([glass respondsToSelector:@selector(setStyle:)]) [(id<AgentboxGlassStyle>)glass setStyle:clear ? 1 : 0];
   bool light = argc > 2 && Says(env, argv[2], "tone", "light");
   bool dark = argc > 2 && Says(env, argv[2], "tone", "dark");
   glass.appearance = light ? [NSAppearance appearanceNamed:NSAppearanceNameAqua]
