@@ -687,7 +687,8 @@ async function createWindow() {
   window = new BrowserWindow({
     width: 1440,
     height: 900,
-    minWidth: 980,
+    // Half of a 1440-point screen, so the window tiles; under 700 is the phone layout.
+    minWidth: 720,
     minHeight: 600,
     // A throwaway copy says which one it is and stands a shoulder clear;
     // your own window is centred and titled as it was.

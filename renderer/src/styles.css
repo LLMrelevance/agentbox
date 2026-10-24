@@ -5005,13 +5005,10 @@ img.app-mark { opacity: 1; border-radius: 0; }
   line-height: 1.55; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-/* NO HORIZONTAL PADDING, DELIBERATELY. A 24px gutter was tried here as a floor
-   for the narrow window and measured out inert: the nav is a fixed 236px, so
-   the pane is always the window minus 237, and the window's own minWidth of 980
-   (main/main.mjs) already leaves 744px for a 620px column. The gutter changed
-   the left gap at 980 from 62px to 62px. A rule that does nothing is worse than
-   no rule, because the next reader believes its comment. */
-.set-pane { flex: 1; min-width: 0; overflow-y: auto; background: var(--bg); position: relative; }
+/* The gutter only bites under a 920 window: the nav is a fixed 236px and the
+   column 620, and the window goes down to 720 (main/main.mjs), where the pane
+   is 483 and the words would otherwise touch the nav. */
+.set-pane { flex: 1; min-width: 0; overflow-y: auto; background: var(--bg); position: relative; padding: 0 32px; }
 /* The screen is the ground here and nothing inside it paints a second one, or
    the photograph would show in the nav column and stop at the pane's edge. */
 :root[data-skin] .set-pane { background: transparent; }
