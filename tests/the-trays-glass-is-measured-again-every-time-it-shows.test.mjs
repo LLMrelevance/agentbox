@@ -17,6 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cornerTagRig } from './helpers/corner-tag-rig.mjs';
 import { MEASURE_EVERY_MS } from '../main/corner-tag.mjs';
+import { inPoints } from '../shared/corner-tag.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const page = fs.readFileSync(path.join(root, 'renderer/src/corner-tag/main.tsx'), 'utf8');
@@ -90,6 +91,62 @@ describe('the tray measures itself again whenever it comes up', () => {
     expect(rect).not.toEqual({ x: 14, y: 14, width: 66, height: 40 });
     expect(rect.x + rect.width).toBeLessThanOrEqual(81 - rect.x);
     expect(rect.y + rect.height).toBeLessThanOrEqual(58 - rect.y);
+  });
+});
+
+// THE BOX CAME BACK AFTER THE RE-MEASURE SHIPPED (2026-10-24). Two more of her
+// pictures, with the measuring above in place, showed the glass 1.14 and 1.15
+// times the size of the tag drawn on it, top-left corners together: the page
+// was drawing itself at about 87% while it reported its size at 100%, which is
+// what a page zoom does, and no re-measure fixes a measurement that is wrong.
+// Measured in Electron on Linux: zooming the app's window does not reach a page
+// loaded after it, and a tray page set back to 100% leaves the app's own zoom
+// where it was (91.3% stayed 91.3%). So the tray's pages are held at 100%, and
+// report in screen points whatever zoom they are at.
+describe('the tray is always drawn at 100%', () => {
+  const zooms = (w) => w.zoomed ?? [];
+
+  it('puts the tag back to 100% when it comes up and each time it measures', () => {
+    const r = cornerTagRig({ at: T, glass: glass(), config: { cornerTagLookedAt: T - 1 } });
+    r.hand(NEW(T));
+    r.pageUp('tag', { width: 95, height: 69, glass: { x: 14, y: 14, width: 66, height: 40 }, radius: 8.6 });
+    const shown = zooms(r.win()).length;
+    expect(shown).toBeGreaterThanOrEqual(1);
+    expect(zooms(r.win()).every((z) => z === 1)).toBe(true);
+    r.advance(MEASURE_EVERY_MS + 10);
+    expect(zooms(r.win()).length).toBe(shown + 1);
+  });
+
+  it('puts the list back to 100% and has it measure when it opens', () => {
+    const r = cornerTagRig({ at: T, glass: glass(), config: { cornerTagLookedAt: T - 1 } });
+    r.hand(NEW(T));
+    r.pageUp('tag', { width: 95, height: 69, glass: { x: 14, y: 14, width: 66, height: 40 }, radius: 8.6 });
+    r.call('corner-tag:toggle');
+    r.pageUp('card', { width: 300, height: 120, radius: 8 });
+    expect(zooms(r.win('card'))).toContain(1);
+    expect(measures(r.win('card'))).toBeGreaterThanOrEqual(1);
+  });
+
+  it('turns what the page measures into screen points at the zoom it is drawn at', () => {
+    const at87 = inPoints({ width: 95, height: 69, glass: { x: 14, y: 14, width: 66, height: 40 }, radius: 8.6 }, 0.87);
+    expect(at87.width).toBeCloseTo(82.65);
+    expect(at87.glass).toEqual({ x: 14 * 0.87, y: 14 * 0.87, width: 66 * 0.87, height: 40 * 0.87 });
+    expect(at87.radius).toBeCloseTo(7.482);
+    const at100 = inPoints({ width: 95, height: 69, glass: { x: 14, y: 14, width: 66, height: 40 }, radius: 8.6 }, 1);
+    expect(at100).toEqual({ width: 95, height: 69, glass: { x: 14, y: 14, width: 66, height: 40 }, radius: 8.6 });
+  });
+
+  it('treats a zoom it cannot read as 100%', () => {
+    const m = { width: 95, height: 69, glass: { x: 14, y: 14, width: 66, height: 40 }, radius: 8.6 };
+    expect(inPoints(m, undefined)).toEqual(m);
+    expect(inPoints(m, 0)).toEqual(m);
+    expect(inPoints(m, NaN)).toEqual(m);
+  });
+
+  it('reads the zoom it is drawn at from the page itself', () => {
+    expect(bridge).toMatch(/zoom: \(\) => webFrame\.getZoomFactor\(\)/);
+    expect(page).toMatch(/inPoints\(/);
+    expect(page).toMatch(/bridge\.zoom\?\.\(\)/);
   });
 });
 

@@ -304,6 +304,10 @@
    either side of the slash are the 13 they were. */
 .thread-crumb > .back-esc.thread-crumb-back { position: static; flex: none; height: 28px; margin: 0; padding: 4px 8px 4px 4px; gap: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; }
 .thread-crumb > .back-esc.thread-crumb-back svg { flex: none; width: 13px; height: 13px; margin-right: 8px; }
+/* A conversation's faces and Add people, at the trail's far end (Byline.tsx ConversationAside). */
+.workspace-task-header:has(> .crumb-aside) { display: flex; align-items: center; gap: 16px; }
+.crumb-aside { margin-left: auto; display: flex; align-items: center; gap: 12px; flex: none; }
+.crumb-aside:empty { display: none; }
 .thread-crumb-from { flex: none; }
 .thread-crumb-sep { flex: none; margin: 0 7px 0 5px; }
 .thread-crumb-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-dim); }

@@ -18,8 +18,6 @@ import { SettingsIcon } from '../components/SettingsIcon';
 import { GoInvisible, GhostIcon, EyeOffSmall, type Invisible } from './rooms/GoInvisible';
 
 const InviteIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><circle cx="10" cy="8.5" r="3.5"/><path d="M3.5 20c.7-3.4 3.3-5.3 6.5-5.3 1.4 0 2.6.3 3.7.9"/><path d="M18 14v6M15 17h6"/></svg>;
-/** The sidebar's folded paper plane. */
-const FeedbackIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><g transform="translate(12 12) scale(.8) translate(-12 -12)" strokeWidth="1.5625"><path d="M2.5 11.5 21.5 3l-5 18-5-6.5z"/><path d="M11.5 14.5 21.5 3"/><path d="m11.5 14.5-1.2 6 3-3.6"/></g></svg>;
 const SignOutIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 4h4.5v16H14M10 8l-4 4 4 4M6 12h10"/></svg>;
 /** A small smiley, picked over a dot, a clock and a pencil (2026-10-04). */
 const StatusIcon = () => <svg className="th-acct-smile" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M8.8 14c.8 1.1 1.9 1.7 3.2 1.7s2.4-.6 3.2-1.7"/><path d="M9.5 10h.01M14.5 10h.01" strokeWidth="2"/></svg>;
@@ -70,11 +68,11 @@ export function AccountMenu({ me, now, collapsed, onAccount, onInvite, onSetting
 }
 
 /** What the menu holds, top to bottom: who you are, what you are up to,
- *  Invite people, Settings, Feedback where there is no sidebar to hold it, and
- *  Sign out last behind a hairline. A row whose door was not handed in is not drawn. */
-export function AccountMenuList({ me, now, onStatus, onAccount, onInvite, onSettings, onFeedback, onSignOut, onInvisible, invisibleOn = false }: {
+ *  Invite people, Settings, and Sign out last behind a hairline. A row whose
+ *  door was not handed in is not drawn. */
+export function AccountMenuList({ me, now, onStatus, onAccount, onInvite, onSettings, onSignOut, onInvisible, invisibleOn = false }: {
   me: Person; now: number; onStatus: () => void; onInvisible?: () => void; invisibleOn?: boolean;
-  onAccount?: () => void; onInvite?: () => void; onSettings?: () => void; onFeedback?: () => void; onSignOut?: () => void;
+  onAccount?: () => void; onInvite?: () => void; onSettings?: () => void; onSignOut?: () => void;
 }) {
   const said = saying(me, now);
   const held = holdsUntil(said?.until, now);
@@ -89,7 +87,6 @@ export function AccountMenuList({ me, now, onStatus, onAccount, onInvite, onSett
     {onInvisible && <button type="button" role="menuitem" className="th-acct-row" onClick={onInvisible}><GhostIcon /><span>{invisibleOn ? 'Come back' : 'Go invisible'}</span></button>}
     {onInvite && <button type="button" role="menuitem" className="th-acct-row" onClick={onInvite}><InviteIcon /><span>Invite people</span></button>}
     {onSettings && <button type="button" role="menuitem" className="th-acct-row" onClick={onSettings}><SettingsIcon /><span>Settings</span></button>}
-    {onFeedback && <button type="button" role="menuitem" className="th-acct-row" onClick={onFeedback}><FeedbackIcon /><span>Feedback</span></button>}
     {onSignOut && <>
       <span className="th-acct-rule" />
       <button type="button" role="menuitem" className="th-acct-row th-acct-signout" onClick={onSignOut}><SignOutIcon /><span>Sign out</span></button>

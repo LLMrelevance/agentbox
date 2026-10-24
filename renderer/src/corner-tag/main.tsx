@@ -14,7 +14,7 @@
 // - Off both the tag and the list for a moment, and the list shuts.
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GRIPS, Grip, HIDE_CHOICES, cardLines, cardScale, tagSays } from '../../../shared/corner-tag.mjs';
+import { GRIPS, Grip, HIDE_CHOICES, cardLines, cardScale, inPoints, tagSays } from '../../../shared/corner-tag.mjs';
 import { NAME } from '../../../shared/product-name.mjs';
 import { Lattice, Move, markMoves } from './lattice';
 import './corner-tag.css';
@@ -33,6 +33,7 @@ type Bridge = {
   onDragging: (fn: (dragging: boolean) => void) => () => void;
   onTone?: (fn: (tone: Tone) => void) => () => void;
   onMeasure?: (fn: () => void) => () => void;
+  zoom?: () => number;
   ready: (part: Part) => Promise<unknown>;
   size: (part: Part, w: number, h: number, glass?: { x: number; y: number; width: number; height: number }, radius?: number) => Promise<unknown>;
   clickable: (on: boolean) => Promise<unknown>;
@@ -132,7 +133,12 @@ function useReportSize(ref: React.RefObject<HTMLElement>, which: Part, key: unkn
       const glassEl = (el.querySelector('.ct-tag') ?? el) as HTMLElement;
       const g = glassEl.getBoundingClientRect();
       const radius = parseFloat(getComputedStyle(glassEl).borderTopLeftRadius);
-      bridge.size(which, r.width, r.height, { x: g.x - r.x, y: g.y - r.y, width: g.width, height: g.height }, Number.isFinite(radius) ? radius : undefined);
+      const m = inPoints({
+        width: r.width, height: r.height,
+        glass: { x: g.x - r.x, y: g.y - r.y, width: g.width, height: g.height },
+        radius: Number.isFinite(radius) ? radius : undefined,
+      }, bridge.zoom?.());
+      bridge.size(which, m.width, m.height, m.glass, m.radius);
     };
     report();
     const ro = new ResizeObserver(report);

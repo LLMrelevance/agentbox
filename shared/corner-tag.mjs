@@ -59,6 +59,22 @@ export function tagSays({ ready = 0 } = {}) {
 }
 
 /**
+ * A page's measurement of itself, in screen points. A page drawn at a zoom
+ * other than 100% measures in its own units, and the window and the Mac's
+ * glass are placed in points: at 87% the glass stood out past the tag
+ * (w-93b3a1a796). A zoom it cannot read counts as 100%.
+ */
+export function inPoints({ width, height, glass, radius }, zoom) {
+  const z = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  return {
+    width: width * z,
+    height: height * z,
+    glass: glass && { x: glass.x * z, y: glass.y * z, width: glass.width * z, height: glass.height * z },
+    radius: Number.isFinite(radius) ? radius * z : radius,
+  };
+}
+
+/**
  * What started waiting after you last looked, which is the last time the
  * app's window was in front. Before you have ever looked, everything counts.
  */
