@@ -64,6 +64,18 @@ export function languageFor(phone: string | undefined, offered: readonly string[
   return home(lang) ?? home('us') ?? same[0];
 }
 
+export type Engine = { engine: 'newer'; lang: string } | { engine: 'keyboard'; download: string | null };
+
+/**
+ * Apple's newer model when this phone has it in the phone's language, else the
+ * keyboard's. One the phone could have but has not downloaded is downloaded for next time.
+ */
+export function engineFor(phone: string | undefined, newer: { supported: readonly string[]; installed: readonly string[] } | null): Engine {
+  const lang = newer ? languageFor(phone, newer.supported) : undefined;
+  if (!newer || !lang) return { engine: 'keyboard', download: null };
+  return newer.installed.some((l) => l.toLowerCase() === lang.toLowerCase()) ? { engine: 'newer', lang } : { engine: 'keyboard', download: lang };
+}
+
 /** The recogniser's level, -2 to 10 with 0 and under unheard, as 0 to 1. */
 export const levelOf = (value: number) => Math.min(1, Math.max(0, value / 10));
 
