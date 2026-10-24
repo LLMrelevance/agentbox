@@ -148,6 +148,7 @@ import { withOlder } from './older-threads';
 import { NO_FILTER, filterBox, filterMenu, filterTags, isFiltering, toggleFilter, clearFilterPart, type BoxFilter as BoxFilterState, type FilterPart, type Harness } from './box-filter';
 import { BoxFilter } from './components/BoxFilter';
 import { itemPriority, moveProduct, placeScore, placedScore } from '../../shared/rank.mjs';
+import { rankProducts } from './project-priority';
 import { threadsMade, approvableFiled, doItHereWrites, answerAllWrites, RUN_IT } from './threads-made';
 import { waitingCounts } from './threads-made';
 import { closeAsk, closeAskOwnsKey, KEEP_OPEN, unshippedAsk } from './close-asks-first';
@@ -2097,19 +2098,13 @@ export default function App() {
 
 
   // Every list of products the user picks from reads in their running order.
-  // Anything she has never placed follows it, alphabetically, so a brand new
-  // product is findable instead of appearing wherever the store listed it.
-  const rankedProducts = useMemo(() => {
-    const order = snap?.supervisor.productOrder ?? [];
-    const list = snap?.products ?? [];
-    const placed = order
-      .map((slug) => list.find((p) => p.slug === slug))
-      .filter((p): p is NonNullable<typeof p> => !!p);
-    const rest = list
-      .filter((p) => !order.includes(p.slug))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    return [...placed, ...rest];
-  }, [snap?.products, snap?.supervisor.productOrder]);
+  // Anything nobody has placed follows it, oldest first, so a project made
+  // today goes to the bottom instead of wherever its name happens to sort
+  // (`rankProducts`).
+  const rankedProducts = useMemo(
+    () => rankProducts(snap?.products ?? [], snap?.supervisor.productOrder ?? []),
+    [snap?.products, snap?.supervisor.productOrder],
+  );
 
   // AND THE REMEMBERED PROJECT IS NEVER A PRACTICE ONE ONCE THE WALK IS OVER.
   // `finishRun` hands the slot back to her own project at the end, which fixes
