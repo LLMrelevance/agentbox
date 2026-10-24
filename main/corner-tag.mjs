@@ -37,7 +37,7 @@
 // is, so it hands over what is ready and how many are working on
 // `zero:corner-tag`; shared/corner-tag.mjs puts it newest first.
 
-import { cardPlacement, cornerPlace, heightFromDrag, EDGE_SLACK, hiddenUntil, keepCorner, newSince, readyNow, restingSpot, spotFor, tagScaleOn, tagShows, tagZoom, zoomFor, zoomStep, GRIPS, HIDE_CHOICES } from '../shared/corner-tag.mjs';
+import { cardPlacement, cornerPlace, heightFromDrag, EDGE_SLACK, hiddenUntil, keepCorner, newSince, notDismissed, readyNow, restingSpot, spotFor, tagScaleOn, tagShows, tagZoom, zoomFor, zoomStep, GRIPS, HIDE_CHOICES } from '../shared/corner-tag.mjs';
 
 // How long the pointer may be off both the tag and its list before the list
 // shuts: long enough to cross the gap between them, short enough to feel like
@@ -66,7 +66,7 @@ const HIDE_LABELS = { '5m': 'Hide for 5 minutes', '30m': 'Hide for 30 minutes', 
 const CHANNELS = [
   'zero:corner-tag', 'corner-tag:ready', 'corner-tag:size', 'corner-tag:hover', 'corner-tag:toggle',
   'corner-tag:press', 'corner-tag:release', 'corner-tag:go', 'corner-tag:hide', 'corner-tag:settings', 'corner-tag:menu',
-  'corner-tag:clickable', 'corner-tag:resize',
+  'corner-tag:clickable', 'corner-tag:resize', 'corner-tag:dismiss',
 ];
 
 export function createCornerTag({
@@ -75,6 +75,9 @@ export function createCornerTag({
   // The Mac's own Liquid Glass (main/liquid-glass.mjs), or null, and then the
   // page draws a glass of its own.
   glass = null,
+  // What a notification has told you about since you were last at the app,
+  // [{ id, at }] (main/notify.mjs). All of it counts as new.
+  told = () => [],
 }) {
   const wins = { tag: null, card: null };
   const loaded = { tag: false, card: false };
@@ -104,8 +107,12 @@ export function createCornerTag({
   // Anything handed over without the moment it started waiting is dated from
   // when this file first saw it, rather than counted new forever.
   const firstSeen = new Map();
+  // Threads crossed off the tray, and when (shared/corner-tag.mjs,
+  // notDismissed). Kept across a restart, forgotten once a thread leaves the list.
+  let dismissed = { ...(config.cornerTagDismissed ?? {}) };
+  const toldNow = () => { try { return told() ?? []; } catch { return []; } };
 
-  const fresh = () => readyNow(newSince(ready, lookedAt), now());
+  const fresh = () => readyNow(notDismissed(newSince(ready, lookedAt, toldNow()), dismissed), now());
   const areas = () => screen.getAllDisplays().map((d) => d.workArea);
   const areaOf = (r) => screen.getDisplayMatching({ x: Math.round(r.x), y: Math.round(r.y), width: Math.max(1, Math.round(r.width)), height: Math.max(1, Math.round(r.height)) }).workArea;
   // THE CLEAR BAND. The tag's window is the glass plus a few points of nothing
@@ -249,7 +256,11 @@ export function createCornerTag({
   };
   const dress = (part) => {
     if (!glass || !shape[part] || !alive(part)) return;
-    const opts = part === 'card' && tone ? { radius: shape.card.radius, tone } : { radius: shape[part].radius };
+    // The tag is clear glass, so a light page shows through it the way a dark
+    // one does; the regular glass frosts over light pages. The list keeps the
+    // regular glass, because it is read.
+    const opts = part === 'tag' ? { radius: shape.tag.radius, style: 'clear' }
+      : tone ? { radius: shape.card.radius, tone } : { radius: shape.card.radius };
     try { glass.set(wins[part], shape[part].rect, opts); } catch { return; }
     if (part === 'tag') { readTone(); watchTones(); }
   };
@@ -560,6 +571,11 @@ export function createCornerTag({
       return { ...r, since: firstSeen.get(r.id) };
     });
     working = Number.isFinite(state?.working) ? state.working : 0;
+    const kept = Object.fromEntries(Object.entries(dismissed).filter(([id]) => ids.has(id)));
+    if (Object.keys(kept).length !== Object.keys(dismissed).length) {
+      dismissed = kept;
+      try { saveConfig(config, { cornerTagDismissed: dismissed }); } catch { /* kept for this run only */ }
+    }
     refresh();
     return null;
   });
@@ -661,6 +677,14 @@ export function createCornerTag({
   ipcMain.handle('corner-tag:release', (_e, p) => { endPress(!!p?.cancelled); return null; });
 
   ipcMain.handle('corner-tag:go', (_e, id) => { goTo(id); return null; });
+  // The X on a line of the list: off the tray, and only the tray.
+  ipcMain.handle('corner-tag:dismiss', (_e, id) => {
+    if (typeof id !== 'string' || !fresh().some((r) => r.id === id)) return null;
+    dismissed = { ...dismissed, [id]: now() };
+    try { saveConfig(config, { cornerTagDismissed: dismissed }); } catch { /* kept for this run only */ }
+    refresh();
+    return null;
+  });
   ipcMain.handle('corner-tag:hide', (_e, choice) => { hide(choice); return null; });
   ipcMain.handle('corner-tag:settings', () => { openSettings(); return null; });
 
