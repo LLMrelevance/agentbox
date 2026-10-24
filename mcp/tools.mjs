@@ -250,7 +250,7 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
     // does, because they asked. Which comes from the run, never an argument.
     {
       name: 'team_post',
-      description: 'Say something in the team chat: as the teammate this run belongs to, or, on any other thread, for the person when they ask you to tell a teammate something. The person and every teammate read it. Naming a teammate in `to` or with @Name in the text wakes them to read it, so name someone only when they need to act. Keep it short and plain. Add up to four short `options` when asking the person something they can answer in a tap.',
+      description: 'Say something in the team chat: as the teammate this run belongs to, or, on any other thread, for the person when they ask you to tell a teammate something. The person and every teammate read it, so say "you" to the person, never "the person". Naming a teammate in `to` or with @Name in the text wakes them to read it, so name someone only when they need to act. Keep it short and plain. Add up to four short `options` when asking the person something they can answer in a tap.',
       schema: {
         text: z.string().describe('what to say, one to three sentences'),
         to: z.array(z.string()).optional().describe('names of teammates who need to act on it'),

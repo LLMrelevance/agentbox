@@ -119,9 +119,9 @@ function Message({ m, team, me, lead, only, call, onOpenThread, answered }: { m:
   return <div className={`rm-cm tq-m${lead ? '' : ' tq-cont'}`}>
     {lead && <div className="h">
       {mine ? <span className="rm-pic rm-ini tq-you" aria-hidden="true">{me.trim() ? initials(me) : YOU_GLYPH}</span> : <TeammateMark t={t} size="pic" />}
-      <span>{mine ? 'You' : t?.name ?? 'A teammate'}</span>
+      <span>{mine ? (m.via ? 'Your thread' : 'You') : t?.name ?? 'A teammate'}</span>
       {mine && to.length > 0 && <span className="tq-to">to {to.join(', ')}</span>}
-      {mine && m.via && m.viaProduct && <button type="button" className="tq-to tq-link" onClick={() => onOpenThread(m.viaProduct!, m.via!)}>from a thread</button>}
+      {mine && m.via && m.viaProduct && <button type="button" className="tq-to tq-link" onClick={() => onOpenThread(m.viaProduct!, m.via!)}>open it</button>}
       <em>{clockOf(m.ts)}</em>
     </div>}
     <div className="tx"><ReactMarkdown remarkPlugins={MD}>{m.text ?? ''}</ReactMarkdown>
@@ -201,7 +201,7 @@ function SidePanel({ t, products, engines, call, onOpenThread }: { t: Teammate; 
   return <aside className="gr-side tq-side">
     {t.status === 'draft' && <div className="tq-sec"><div className="tq-sh">Setting up</div><div className="tq-sv dim">It sets itself up from what you wrote, and asks you in the chat if anything is unclear.</div></div>}
     <div className="tq-sec"><div className="tq-sh">Goal<button type="button" className="tq-edit" onClick={() => setEditing(true)}>Edit</button></div><div className="tq-sv">{t.goal ?? <span className="dim">No goal yet</span>}</div>
-      <div className="tq-sv dim tq-works">{t.worksLabel ? `Works ${t.worksLabel}` : 'Works when someone writes to it'}{t.engine && engines.length > 1 ? `, on ${engines.find((e) => e.id === t.engine)?.label ?? t.engine}` : ''}</div></div>
+      <button type="button" className="tq-sv dim tq-works tq-link" title="Change when it works" onClick={() => setEditing(true)}>{t.worksLabel ? `Works ${t.worksLabel}` : 'Works when someone writes to it'}{t.engine && engines.length > 1 ? `, on ${engines.find((e) => e.id === t.engine)?.label ?? t.engine}` : ''}</button></div>
     {(t.waiting.length > 0 || t.asking || t.question || t.held) && <div className="tq-sec"><div className="tq-sh">Waiting on you</div>
       {t.question && <div className="tq-li need">Its question in the chat</div>}
       {t.held && <div className="tq-li need">Work it is holding for your go-ahead</div>}

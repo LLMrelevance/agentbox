@@ -68,6 +68,9 @@ describe('teammates through the store', () => {
     expect(brief).toContain('You are Ada, the Quality lead');
     expect(brief).toContain('Can you try checkout on a phone?');
     expect(brief).toContain(`"teammate:${ada.id}"`);
+    // The person reads the chat; "It's with the person for review" read as
+    // someone else (third power test).
+    expect(brief).toContain('never "the person"');
     // How to answer is the brief's, not the thread's.
     expect(brief).toMatch(/If the person wrote to you/);
     expect(runs[0].body).not.toMatch(/team_post/);

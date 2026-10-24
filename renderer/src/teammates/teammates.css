@@ -185,3 +185,5 @@ select.tq-in { height: 32px; padding: 0 6px; }
 .tq-works { margin-top: 6px; font-size: 13px; }
 .tq-sec-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 34px 0 14px; }
 .tq-sec-row .tp-sec { margin: 0; }
+.tq-works.tq-link { display: block; color: var(--text-dim); font-size: 13px; }
+.tq-works.tq-link:hover { color: var(--text); }
