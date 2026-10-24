@@ -8,7 +8,7 @@ import type { Product, Teammate, TeammatesView, TeamChatLine, TeamRunLine } from
 import { api } from '../api';
 import { STARTERS, type Starter } from '../../../shared/teammates.mjs';
 import { rememberedProject } from '../compose-project';
-import { chatEntries, clockOf, dayOf, nameOf, type ChatEntry } from './chat-lines';
+import { answerTo, chatEntries, clockOf, dayOf, nameOf, type ChatEntry } from './chat-lines';
 import { TeammateMark } from './TeammatesRail';
 import './teammates.css';
 
@@ -94,7 +94,7 @@ function ChatColumn({ view, team, only, me, call, onOpenThread, placeholder, err
     if (d !== day) { rows.push(<div key={`day-${e.id}`} className="rm-day"><span className="rm-label">{d}</span></div>); day = d; prevFrom = ''; }
     if (e.kind === 'msg') {
       const lead = e.from !== prevFrom;
-      rows.push(<Message key={e.id} m={e} team={team} me={me} lead={lead} only={only} call={call} onOpenThread={onOpenThread} />);
+      rows.push(<Message key={e.id} m={e} team={team} me={me} lead={lead} only={only} call={call} onOpenThread={onOpenThread} answered={answerTo(view, e)} />);
       prevFrom = e.from;
     } else {
       rows.push(<Activity key={e.id} e={e} team={team} only={only} call={call} onOpenThread={onOpenThread} />);
@@ -112,7 +112,7 @@ function ChatColumn({ view, team, only, me, call, onOpenThread, placeholder, err
   </div>;
 }
 
-function Message({ m, team, me, lead, only, call, onOpenThread }: { m: TeamChatLine; team: Teammate[]; me: string; lead: boolean; only: Teammate | null; call: Call; onOpenThread: (product: string, id: string) => void }) {
+function Message({ m, team, me, lead, only, call, onOpenThread, answered }: { m: TeamChatLine; team: Teammate[]; me: string; lead: boolean; only: Teammate | null; call: Call; onOpenThread: (product: string, id: string) => void; answered: string | null }) {
   const t = team.find((x) => x.id === m.from) ?? null;
   const mine = m.from === 'you';
   const to = (Array.isArray(m.to) ? m.to : []).map((x) => nameOf(x, team));
@@ -126,7 +126,8 @@ function Message({ m, team, me, lead, only, call, onOpenThread }: { m: TeamChatL
     </div>}
     <div className="tx"><ReactMarkdown remarkPlugins={MD}>{m.text ?? ''}</ReactMarkdown>
       {!mine && t && m.options?.length ? <div className="tq-chips">{m.options.map((o) => (
-        <button key={o} type="button" className="tq-chip" onClick={() => { void call('post', { text: o, to: [t.id] }); }}>{o}</button>
+        <button key={o} type="button" className={`tq-chip${answered === null ? '' : answered.trim() === o ? ' on' : ' dim'}`} disabled={answered !== null}
+          onClick={() => { void call('post', { text: o, to: [t.id] }); }}>{o}</button>
       ))}</div> : null}
     </div>
   </div>;

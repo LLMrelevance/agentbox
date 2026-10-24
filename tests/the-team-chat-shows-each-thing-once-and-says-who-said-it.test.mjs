@@ -4,7 +4,7 @@
 // Hugo's; and on Ada's page a message to Ada and Hugo said only "to Hugo".
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
-import { asksYou, chatEntries, involves } from '../renderer/src/teammates/chat-lines.ts';
+import { answerTo, asksYou, chatEntries, involves } from '../renderer/src/teammates/chat-lines.ts';
 
 const ADA = 't-aaaaaaaaaa';
 const HUGO = 't-hhhhhhhhhh';
@@ -51,6 +51,15 @@ describe('the team chat', () => {
     expect(asksYou({ list: [], runs: [], chat: [msg('m-0', 'you', [ADA], 'hi', 9), ask, msg('m-h', 'you', [HUGO], 'x', 12)] }, ADA)).toBe(true);
     // Plain talk with no answers to tap is not a question waiting on you.
     expect(asksYou({ list: [], runs: [], chat: [msg('m-p', ADA, [], 'Done for today.', 10)] }, ADA)).toBe(false);
+  });
+
+  it('a question knows your answer to it, so its choices cannot be tapped twice', () => {
+    const ask = { ...msg('m-q', ADA, [], 'Which project?', 10), options: ['Product', 'Website'] };
+    const view = (chat) => ({ list: [], runs: [], chat });
+    expect(answerTo(view([ask]), ask)).toBeNull();
+    expect(answerTo(view([ask, msg('m-a', 'you', [ADA], 'Product', 11)]), ask)).toBe('Product');
+    expect(answerTo(view([ask, msg('m-h', 'you', [HUGO], 'Product', 11)]), ask)).toBeNull();
+    expect(answerTo(view([msg('m-p', ADA, [], 'plain', 10)]), msg('m-p', ADA, [], 'plain', 10))).toBeNull();
   });
 
   it('signs a message after an activity line, and names every person it went to', () => {

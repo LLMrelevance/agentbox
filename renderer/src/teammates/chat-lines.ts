@@ -67,3 +67,11 @@ export function asksYou(view: TeammatesView | null | undefined, id: string): boo
   if (!asked) return false;
   return !view.chat.some((m) => m.kind === 'msg' && m.from === 'you' && m.ts > asked && toList(m.to).includes(id));
 }
+
+// What you said back to a teammate's question: your next words to it, or null
+// while it is still waiting on you.
+export function answerTo(view: TeammatesView | null | undefined, q: TeamChatLine): string | null {
+  if (!view || q.kind !== 'msg' || !q.options?.length) return null;
+  const next = view.chat.find((m) => m.kind === 'msg' && m.from === 'you' && m.ts > q.ts && toList(m.to).includes(q.from));
+  return next ? String(next.text ?? '') : null;
+}

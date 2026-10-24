@@ -177,3 +177,7 @@ select.tq-in { height: 32px; padding: 0 6px; }
 .gt-inset .tp-body { padding-left: 44px; }
 .tq-to.tq-link { color: var(--text-faint); font-size: 13.5px; }
 .tq-to.tq-link:hover { color: var(--text-dim); }
+.tq-chip:disabled { cursor: default; }
+.tq-chip:disabled:hover { background: none; }
+.tq-chip.on { background: var(--wash-strong); border-color: var(--text-faint); }
+.tq-chip.dim { color: var(--text-faint); border-color: var(--line); }
