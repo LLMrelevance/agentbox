@@ -8574,6 +8574,11 @@ export class Supervisor {
     return this._codexUsage().read();
   }
 
+  /** The same, read again rather than off the cache (`CodexUsage.refreshNow`). */
+  refreshCodexUsage() {
+    return this._codexUsage().refreshNow();
+  }
+
   /**
    * WHICH OF HER MCP SERVERS THIS ONE THREAD HAS TO SWITCH OFF, ASKED NOW.
    *

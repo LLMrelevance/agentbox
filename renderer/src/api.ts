@@ -488,14 +488,14 @@ export const api = {
     return window.zero!.snapshot();
   },
 
-  async refreshUsage(): Promise<{ ok: boolean; reading?: Usage; error?: string }> {
+  async refreshUsage(engine: 'claude' | 'codex' = 'claude'): Promise<{ ok: boolean; reading?: Usage; error?: string }> {
     if (useFixtures) {
       if (params.get('account') === 'unreadable') return { ok: false, error: USAGE_UNREADABLE };
-      const reading = fixtureSnapshot.usageByEngine?.find(r => r.engine === 'claude') ?? (fixtureSnapshot.usage?.engine === 'claude' ? fixtureSnapshot.usage : null);
+      const reading = fixtureSnapshot.usageByEngine?.find(r => r.engine === engine) ?? (fixtureSnapshot.usage?.engine === engine ? fixtureSnapshot.usage : null);
       return reading ? { ok: true, reading: { ...structuredClone(reading), profile: 'default', at: Date.now() } } : { ok: false, error: 'No usage reading yet.' };
     }
     if (!window.zero?.refreshUsage) return { ok: false, error: RESTART_NOTE };
-    try { return await window.zero.refreshUsage(); }
+    try { return await window.zero.refreshUsage({ engine }); }
     catch { return { ok: false, error: USAGE_UNREADABLE }; }
   },
 

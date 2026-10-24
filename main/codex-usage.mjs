@@ -107,6 +107,15 @@ export class CodexUsage {
   }
 
   /**
+   * `read()` with the log cache dropped, for a person who pressed Refresh:
+   *  inside `LOG_EVERY_MS` a press would otherwise change nothing. It asks
+   *  nobody anything, so both rules at the top of this file still hold. */
+  refreshNow() {
+    this._loggedRead = null;
+    return this.read();
+  }
+
+  /**
    * The last figure in Codex's own session log under this home, shaped exactly
    *  like a pushed one. Null on a Mac where Codex has never run. */
   _logged() {

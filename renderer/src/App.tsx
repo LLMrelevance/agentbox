@@ -147,6 +147,7 @@ import { withOlder } from './older-threads';
 import { NO_FILTER, filterBox, filterMenu, filterTags, isFiltering, toggleFilter, clearFilterPart, type BoxFilter as BoxFilterState, type FilterPart, type Harness } from './box-filter';
 import { BoxFilter } from './components/BoxFilter';
 import { itemPriority, moveProduct, placeScore, placedScore } from '../../shared/rank.mjs';
+import { rankProducts } from './project-priority';
 import { threadsMade, approvableFiled, doItHereWrites, answerAllWrites, RUN_IT } from './threads-made';
 import { waitingCounts } from './threads-made';
 import { closeAsk, closeAskOwnsKey, KEEP_OPEN } from './close-asks-first';
@@ -2092,19 +2093,13 @@ export default function App() {
 
 
   // Every list of products the user picks from reads in their running order.
-  // Anything she has never placed follows it, alphabetically, so a brand new
-  // product is findable instead of appearing wherever the store listed it.
-  const rankedProducts = useMemo(() => {
-    const order = snap?.supervisor.productOrder ?? [];
-    const list = snap?.products ?? [];
-    const placed = order
-      .map((slug) => list.find((p) => p.slug === slug))
-      .filter((p): p is NonNullable<typeof p> => !!p);
-    const rest = list
-      .filter((p) => !order.includes(p.slug))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    return [...placed, ...rest];
-  }, [snap?.products, snap?.supervisor.productOrder]);
+  // Anything nobody has placed follows it, oldest first, so a project made
+  // today goes to the bottom instead of wherever its name happens to sort
+  // (`rankProducts`).
+  const rankedProducts = useMemo(
+    () => rankProducts(snap?.products ?? [], snap?.supervisor.productOrder ?? []),
+    [snap?.products, snap?.supervisor.productOrder],
+  );
 
   // AND THE REMEMBERED PROJECT IS NEVER A PRACTICE ONE ONCE THE WALK IS OVER.
   // `finishRun` hands the slot back to her own project at the end, which fixes
@@ -6025,6 +6020,19 @@ export default function App() {
           the sidebar for the single-player launch (w-1b574413db, 2026-10-04).
           `onInvite` is still handed in, for the account menu. */}
       {workspaceNavigation && !pageMenu && <WorkspaceNavigation
+        /* WHAT IS LEFT OF YOUR LIMIT, in the slot the approved sidebar foot
+           keeps for it. Quiet text rather than a meter, because the sidebar is
+           on every screen, and nothing at all until a figure has been read.
+           Pinned by tests/what-is-left-of-your-limit-is-drawn-somewhere. */
+        usage={<UsagePill
+          usage={snap?.usage ?? null}
+          now={now}
+          sidebar
+          engineWord={engineWordFor({
+            engineChoice: (snap?.engines?.choices?.length ?? 1) > 1,
+            engine: snap?.usage?.engine ?? null,
+          })}
+        />}
         update={announcesUpdate(snap?.update, { walking, closed: '' }) ? { installing: !!snap?.update?.installing, version: snap?.update?.newVersion, changes: snap?.update?.changes, behind: snap?.update?.behind, error: snap?.update?.error } : null}
         onUpdate={() => { void api.updateInstall(); }}
         /* AND THE COPY THAT CANNOT UPDATE ITSELF FROM WHERE IT IS
@@ -6235,26 +6243,9 @@ export default function App() {
               one change made on top of it. Do not put them back the other way
               round.
            */}
-          {/* WHAT IS LEFT OF HER LIMIT, FIRST IN THE CORNER GROUP (w-86ee9da2c9).
-              It is a reading rather than a control, so it sits before the three
-              things that do something. Absent entirely until a figure has been
-              read, which on a fresh launch is a few seconds: the corner is
-              unchanged until then rather than holding a space for a number
-              nobody has.
-
-             IT NO LONGER OPENS SETTINGS (w-1b725b0e2a, 2026-09-01).
-           */}
-          {/* AND IT SAYS WHOSE LIMIT IT IS, WHERE THERE ARE TWO TO TELL APART (2026-09-05).
-             Nothing new is drawn there.
-           */}
-          {!workspaceNavigation && <UsagePill
-            usage={snap.usage ?? null}
-            now={now}
-            engineWord={engineWordFor({
-              engineChoice: (snap.engines?.choices?.length ?? 1) > 1,
-              engine: snap.usage?.engine ?? null,
-            })}
-          />}
+          {/* WHAT IS LEFT OF THE LIMIT IS IN THE SIDEBAR'S FOOT, not here. A
+              pill in this corner was gated on there being no sidebar, and
+              `workspaceNavigationShown` is now always true. */}
           {/* AND THE SOCKET A THREAD'S OWN CONTROLS ARE TELEPORTED INTO: the
               thread's menu, which holds the code, the terminal and Done
               (w-e731ca9376, 2026-10-01). They are drawn by
