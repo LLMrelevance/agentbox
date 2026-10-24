@@ -634,7 +634,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
           </div>
           <div className="ia-foot ia-foot-one">
             <button className="dock-send" disabled={busy} onClick={pressPickup}>
-              {PICKUP.go(n)} <kbd>⌘↵</kbd>
+              {PICKUP.go(n)} <kbd>{SEND}</kbd>
             </button>
             <button type="button" className="ia-not-now" onClick={walk.onSkip} disabled={busy}>{PICKUP.notNow}</button>
           </div>
