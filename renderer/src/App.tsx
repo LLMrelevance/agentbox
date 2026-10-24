@@ -110,6 +110,7 @@ import { WorkspaceNavigation } from './components/WorkspaceNavigation';
 import { useRooms } from './team/rooms/useRooms';
 import { useTeammates } from './teammates/useTeammates';
 import { TeammatesContext } from './teammates/row-lead';
+import { queuedTeammateRun } from './teammates/chat-lines';
 import { RoomBoard } from './team/rooms/RoomBoard';
 import { directConversations } from './team/rooms/conversations';
 import { isPresenceCard, roomMateCards, roomMatesById } from './team/rooms/room-rules';
@@ -2302,7 +2303,7 @@ export default function App() {
   const snoozed = useMemo(() => [
     // AND A FIFTH (w-5244c90c33): a thread waiting on another one, unless a
     // session or the ship queue has it, which is In progress.
-    ...items.filter((i) => (notStarted(i) || isProposal(i) || hiddenAt(i) > now
+    ...items.filter((i) => !queuedTeammateRun(i) && (notStarted(i) || isProposal(i) || hiddenAt(i) > now
         || (waitsInLater(i, waitingOn(i)) && !liveIds.has(i.id) && !shippingIds.has(i.id)))
       && (i.status !== 'done' || i.wrote?.status?.source !== 'founder')
       && (!scope || i.product === scope)),

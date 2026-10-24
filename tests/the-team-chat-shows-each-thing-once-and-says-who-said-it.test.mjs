@@ -4,7 +4,7 @@
 // Hugo's; and on Ada's page a message to Ada and Hugo said only "to Hugo".
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
-import { answerTo, asksYou, chatEntries, involves } from '../renderer/src/teammates/chat-lines.ts';
+import { answerTo, asksYou, chatEntries, involves, queuedTeammateRun } from '../renderer/src/teammates/chat-lines.ts';
 
 const ADA = 't-aaaaaaaaaa';
 const HUGO = 't-hhhhhhhhhh';
@@ -79,5 +79,15 @@ describe('the line under a teammate in the sidebar', async () => {
     expect(nowLine({ ...base, question: true })).toBe('Has a question for you');
     expect(nowLine({ ...base, status: 'draft' })).toBe('Setting up');
     expect(nowLine(base)).toBe('Free');
+  });
+});
+
+describe('a teammate\'s queue', () => {
+  it('is not in your Later list, where only what you put off belongs', () => {
+    expect(queuedTeammateRun({ start: 'later', labels: ['founder', 'teammate:t-aaaaaaaaaa', 'hop:1'] })).toBe(true);
+    expect(queuedTeammateRun({ start: 'later', labels: ['founder'] })).toBe(false);
+    expect(queuedTeammateRun({ start: 'now', labels: ['founder', 'teammate:t-aaaaaaaaaa'] })).toBe(false);
+    const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
+    expect(app).toMatch(/const snoozed = useMemo\(\(\) => \[[\s\S]{0,200}items\.filter\(\(i\) => !queuedTeammateRun\(i\) && /);
   });
 });

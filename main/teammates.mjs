@@ -44,6 +44,12 @@ export class Teammates {
     return products.find((p) => p.slug === slug)?.slug ?? products.find((p) => p.repoPath)?.slug ?? products[0]?.slug ?? null;
   }
 
+  // A project named on a pass, if it is one a teammate can work in.
+  _productIf(slug) {
+    if (!slug) return null;
+    return this.store.listProducts().some((p) => p.slug === slug && !p.practice && !p.personal) ? slug : null;
+  }
+
   create(fields = {}, now = Date.now()) {
     const starter = fields.starter ? STARTERS.find((s) => s.starter === fields.starter) : null;
     const base = { ...(starter ?? {}), ...fields };
@@ -212,7 +218,7 @@ export class Teammates {
       if (a.type === 'served' && failed.has(`${a.teammate}@${a.key}`)) continue;
       try {
         if (a.type === 'run') {
-          const product = this._product(t.product);
+          const product = this._productIf(a.trigger.product) ?? this._product(t.product);
           if (!product) continue;
           const dir = this.store.productDir(product);
           const hop = a.trigger.hop ?? 0;
@@ -328,11 +334,14 @@ export class Teammates {
       return { body: `Time for your ${isWorks(t.works) ? ruleLabel(t.works) : 'regular'} round.`, yours: false };
     }
     if (trigger.kind === 'pass') {
-      return { body: [`${who} passed you this in the team chat.`, '', `## ${trigger.title ?? 'Work passed on'}`, '', trigger.details ?? ''].join('\n').trim(), yours: false };
+      const by = trigger.via ? 'One of your threads' : who;
+      return { body: [`${by} passed you this in the team chat.`, '', `## ${trigger.title ?? 'Work passed on'}`, '', trigger.details ?? ''].join('\n').trim(), yours: false };
     }
     const text = String(trigger.text ?? '').trim() || '(no words)';
     // Pressing Start is not writing these words, so they are not shown as yours.
     if (trigger.opening === 'start') return { body: `Started from the Teammates page. ${text.replace(/^You have just been started\.\s*/, '')}`, yours: false };
+    // Nor is what a thread wrote for you: it says which thread spoke.
+    if (trigger.via) return { body: `One of your threads wrote this to ${t.name} for you:\n\n> ${text.split('\n').join('\n> ')}`, yours: false };
     if (trigger.from === YOU) return { body: text, yours: true };
     return { body: `${who} wrote to you in the team chat:\n\n> ${text.split('\n').join('\n> ')}`, yours: false };
   }

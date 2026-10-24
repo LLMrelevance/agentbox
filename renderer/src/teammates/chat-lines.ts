@@ -1,6 +1,7 @@
 // What the team chat draws, from the snapshot: messages, passes and the lines
 // runs leave, in time order, seen whole or through one teammate.
-import type { Teammate, TeamChatLine, TeamRunLine, TeammatesView } from '../types';
+import type { Teammate, TeamChatLine, TeamRunLine, TeammatesView, WorkItem } from '../types';
+import { teammateIdOf } from '../../../shared/teammates.mjs';
 
 export type ChatEntry = TeamChatLine | TeamRunLine;
 
@@ -74,4 +75,11 @@ export function answerTo(view: TeammatesView | null | undefined, q: TeamChatLine
   if (!view || q.kind !== 'msg' || !q.options?.length) return null;
   const next = view.chat.find((m) => m.kind === 'msg' && m.from === 'you' && m.ts > q.ts && toList(m.to).includes(q.from));
   return next ? String(next.text ?? '') : null;
+}
+
+// A teammate's run waiting its turn behind the one it is on. It is the
+// teammate's queue, shown on its page, and not something you put off: the
+// second power test found these in its Later list, "not started".
+export function queuedTeammateRun(i: Pick<WorkItem, 'labels' | 'start'>): boolean {
+  return i.start === 'later' && !!teammateIdOf(i);
 }

@@ -217,6 +217,24 @@ describe('teammates through the store', () => {
     expect(one.briefFor({ id: 'w-a', product: 'product', labels: ['founder', `teammate:${ada.id}`, 'hop:0'] })).not.toContain("person's projects");
   });
 
+  // "Work handed to Nico about the Payments API is filed under Web app."
+  it('a pass that names a project makes the run there, and one naming no real project stays home', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zero-tm-origin-'));
+    const dirs = { web: path.join(root, 'web'), api: path.join(root, 'api') };
+    for (const d of Object.values(dirs)) fs.mkdirSync(d, { recursive: true });
+    const listed = [{ slug: 'web', dir: dirs.web, name: 'Web app', repoPath: '/r/web' }, { slug: 'api', dir: dirs.api, name: 'Payments API', repoPath: '/r/api' }];
+    const all = () => listed.flatMap((p) => work.readWorkItems(p.dir).map((i) => ({ ...i, product: p.slug })));
+    const here = new Teammates({ config: { storeRoot: root, accountId: 'acct-origin' }, modules: mods, listProducts: () => listed, productDir: (slug) => dirs[slug], listItems: all });
+    const nico = here.create({ starter: 'maintainer', name: 'Nico', product: 'web' });
+    const { writeChat } = await import('../main/store/teammates-files.mjs');
+    writeChat(here.dir(), { kind: 'pass', from: 'you', to: nico.id, title: 'Cap the cursor length', details: '', product: 'api', via: 'w-x', viaProduct: 'api' }, Date.now());
+    writeChat(here.dir(), { kind: 'pass', from: 'you', to: nico.id, title: 'Somewhere gone', details: '', product: 'nope' }, Date.now() + 1);
+    await here.tick({ items: all(), now: Date.now() + 2 });
+    await here.tick({ items: all(), now: Date.now() + 3 });
+    const runs = all().filter((i) => teammateIdOf(i) === nico.id);
+    expect(Object.fromEntries(runs.map((r) => [r.title, r.product]))).toEqual({ 'Cap the cursor length': 'api', 'Somewhere gone': 'web' });
+  });
+
   it('works where you say, and unnamed, in a project with code rather than the first one listed', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zero-tm-where-'));
     const listed = [{ slug: 'company', dir: root, name: 'Company', repoPath: null }, { slug: 'product', dir: root, name: 'Product', repoPath: '/r' }, { slug: 'practice', dir: root, name: 'Practice', practice: true, repoPath: '/p' }];
@@ -237,11 +255,16 @@ describe('teammates through the store', () => {
     const passed = core.teamPass({ to: 'Ada', title: 'Signup emails land in spam', details: 'Two customers said so on the call.' });
     expect(passed.to).toBe('Ada');
     const line = team.chat().messages.find((m) => m.kind === 'pass');
-    expect(line).toMatchObject({ from: 'you', to: ada.id, via: plain.id, viaProduct: product.id });
+    // The work is done in the thread's project, not wherever Ada usually works.
+    expect(line).toMatchObject({ from: 'you', to: ada.id, via: plain.id, viaProduct: product.id, product: product.id });
     await tick(Date.now());
     const run = store.listItems().find((i) => teammateIdOf(i) === ada.id);
     expect(run.title).toBe('Signup emails land in spam');
     expect(hopOf(run)).toBe(0);
+    // Words a thread wrote for you are not shown as yours (second power test).
+    expect(run.body).toMatch(/^One of your threads passed you this/);
+    const lines = work.readLinesFrom(dir).lines.filter((l) => l.id === run.id);
+    expect(threadEvents(lines).find((e) => e.field === 'body')?.who).not.toBe('you');
     core.teamPost({ text: '@Ada the customer was on Gmail' });
     expect(team.chat().messages.at(-1)).toMatchObject({ from: 'you', to: [ada.id], via: plain.id });
     // What only a teammate has stays a teammate's.

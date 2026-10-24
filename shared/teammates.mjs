@@ -233,7 +233,8 @@ export function runTitle(trigger, teammate) {
   // Inbox rows lead with the teammate's name, so a title never repeats it.
   if (trigger.opening === 'setup') return 'Set up its job';
   if (trigger.opening === 'start') return 'Introduce itself and begin';
-  return clip(partFor(trigger.text, teammate.name) || firstLine(trigger.text) || 'A message', 120);
+  const said = partFor(trigger.text, teammate.name) || firstLine(trigger.text) || 'A message';
+  return clip(trigger.fromName ? `From ${trigger.fromName}: ${said}` : said, 120);
 }
 
 const firstLine = (text) => String(text ?? '').trim().split('\n')[0].trim();
@@ -309,9 +310,12 @@ export function planWakes({ teammates = [], chat = { messages: [], seen: new Set
           continue;
         }
       }
+      // Where it came from travels with it: the project it was passed from, and
+      // the thread that spoke for you, when one did.
+      const origin = { ...(m.product ? { product: m.product } : {}), ...(m.via ? { via: m.via, viaProduct: m.viaProduct ?? null } : {}) };
       const trigger = m.kind === 'pass'
-        ? { kind: 'pass', from: m.from, title: m.title, details: m.details, msg: m.id, hop }
-        : { kind: 'message', from: m.from, text: m.text, msg: m.id, hop, ...(fromYou && m.start ? { opening: 'start' } : fromYou && m.setup ? { opening: 'setup' } : {}) };
+        ? { kind: 'pass', from: m.from, title: m.title, details: m.details, msg: m.id, hop, ...origin }
+        : { kind: 'message', from: m.from, fromName: fromYou ? null : byId.get(m.from)?.name ?? null, text: m.text, msg: m.id, hop, ...origin, ...(fromYou && m.start ? { opening: 'start' } : fromYou && m.setup ? { opening: 'setup' } : {}) };
       const id = newRun(t, trigger, `${m.id}>${tid}`, { fromYou });
       if (id) actions.push({ type: 'seen', msg: m.id, teammate: tid, run: id });
     }

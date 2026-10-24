@@ -265,8 +265,9 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
         to: z.string().describe('the teammate\'s name'),
         title: z.string().describe('the work, in a short line'),
         details: z.string().describe('everything they need to do it'),
+        project: z.string().optional().describe('the project the work is in, when it is not the teammate\'s own (from another thread it defaults to that thread\'s)'),
       },
-      run: ({ to, title, details }) => json(teamPass({ to, title, details })),
+      run: ({ to, title, details, project }) => json(teamPass({ to, title, details, project })),
     },
     {
       name: 'team_remember',

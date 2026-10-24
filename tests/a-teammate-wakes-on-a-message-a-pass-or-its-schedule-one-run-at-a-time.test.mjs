@@ -47,6 +47,10 @@ describe('what wakes a teammate', () => {
     expect(Object.fromEntries(titles)).toEqual({ [ada.id]: 'Can you poke at the onboarding screen and file what is confusing', [felix.id]: 'Nothing urgent, just get set up' });
     // A name at the very end leaves nothing of its own, so the first line stands.
     expect(title({ id: 'm-e', kind: 'msg', from: 'you', to: [felix.id], text: 'Ship the fix today, thanks @Felix', ts: NOW })).toBe('Ship the fix today, thanks @Felix');
+    // Felix's "@Ada it's ready for your phone pass" became Ada's run title, and
+    // her sidebar line read as if she had said it (second power test).
+    expect(planWakes({ teammates: [{ ...ada, served: '2026-10-26' }, felix], chat: chat([{ id: 'm-f', kind: 'msg', from: felix.id, to: [ada.id], text: "@Ada it's ready for your phone pass", ts: NOW }]), items: [], now: NOW })
+      .find((a) => a.type === 'run').title).toBe("From Felix: It's ready for your phone pass");
     // A teammate cannot dress its own message up as your opening.
     expect(title({ id: 'm-t', kind: 'msg', from: ada.id, to: [felix.id], text: words, start: true, ts: NOW }, felix)).toBe(words);
   });
