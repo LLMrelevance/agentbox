@@ -152,14 +152,6 @@
 .workspace-bottom .workspace-footer { margin-top: 0; border-top: 1px solid var(--line); padding-top: 12px; }
 .workspace-usage:empty { display: none; }
 .workspace-usage .usage-box { width: 100%; }
-.workspace-navigation .usage-pill { display: grid; grid-template-columns: 1fr auto; width: 100%; height: auto; min-height: 50px; padding: 10px; gap: 8px; text-align: left; border-top: 1px solid var(--line); border-radius: 0; }
-.usage-sidebar-label { font-size: 11px; }
-.usage-sidebar-percent { font-size: 10px; font-variant-numeric: tabular-nums; }
-.workspace-usage .usage-pill > .usage-meter { grid-column: 1 / -1; width: 100%; height: 3px; }
-.workspace-usage .usage-panel { top: auto; bottom: calc(100% + 8px); left: 0; right: auto; }
-.workspace-collapsed .workspace-usage .usage-pill { display: flex; min-height: 36px; padding: 10px; }
-.workspace-collapsed .workspace-usage .usage-pill > .usage-meter { display: block; }
-@media(max-width:700px) { .workspace-usage .usage-pill { display: flex; min-height: 36px; padding: 10px; } .workspace-usage .usage-pill > .usage-meter { display: block !important; } }
 
 /* Blur only the backdrop image. Content and controls remain sharp. Overscan
    prevents transparent edges when the background blur is increased. */
@@ -197,14 +189,19 @@
 }
 .settings-embedded .set-pane { flex: 1; min-height: 0; background: transparent; border-radius: var(--radius); }
 .workspace-utilities button[aria-current="page"] { background: var(--wash); color: var(--text); }
-/* The reading's word lines up with Feedback and Settings above it, which is
-   their text inset and not the button's: 10 of padding, an 18 icon and 11 of
-   gap. It was 10 while the slot was never filled (w-326fb83c0e), so the one
-   row in the foot with no icon started 29 points left of the other two. */
-.workspace-navigation .usage-pill { display: flex; align-items: center; justify-content: space-between; min-height: 28px; padding: 4px 10px 4px 39px; border: 0; gap: 8px; color: var(--text-faint); }
-.workspace-usage { padding: 8px 0; }
-.usage-sidebar-percent { margin-left: auto; opacity: .65; }
-.workspace-collapsed .workspace-usage { display: none; }
+/* THE READING IS A ROW LIKE FEEDBACK AND SETTINGS (w-dcaa2c122e), picked from
+   five drawn in the app: the gauge in their icon column, the agent's name on
+   their labels' edge, the percent where Inbox shows its count, at their size.
+   It sits 2 under Settings, as they sit to each other, and narrow it keeps
+   its gauge as they keep theirs. */
+.workspace-navigation .workspace-usage { padding: 0 0 12px; margin-top: -10px; }
+.workspace-navigation .workspace-usage .usage-pill { display: flex; align-items: center; gap: 11px; width: 100%; height: 36px; min-height: 36px; padding: 0 10px; border: 0; border-radius: var(--radius); font-size: 13px; text-align: left; color: var(--text-faint); }
+.workspace-navigation .workspace-usage .usage-pill:hover { background: var(--wash); color: var(--text); }
+.workspace-navigation .usage-row-num { margin-left: auto; font-variant-numeric: tabular-nums; }
+.workspace-navigation .usage-pill.is-close .usage-row-num { color: var(--text); }
+/* Its limits open above it as wide as the sidebar, the way your account menu opens from your row. */
+.workspace-navigation .workspace-usage .usage-panel { top: auto; bottom: calc(100% + 8px); left: 0; right: 0; width: auto; border-radius: 0; }
+.workspace-navigation .usage-panel .usage-meter, .workspace-navigation .usage-panel .usage-meter > i { border-radius: 0; }
 @media(max-width:700px) { .workspace-usage { display: none; } }
 /* THE INSTRUCTIONS PAGE IS ONE PAGE (w-4cbcd888ae, 2026-10-01). Picked from
    three drawn in the real app: a heading that says who the page is for and

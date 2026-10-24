@@ -46,6 +46,10 @@ const CLOSE = 80;
 // Closing on the first mouseleave would make the panel impossible to reach.
 const LINGER_MS = 220;
 
+// In the sidebar it is a row like Feedback and Settings: this gauge, the agent's
+// name, and the percent where Inbox shows its count (w-dcaa2c122e, picked from five).
+const GaugeIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true"><path d="M4.5 16.5a7.5 7.5 0 1 1 15 0"/><path d="m12 16.5 3.6-4.2"/></svg>;
+
 export function UsagePill({ usage, now, engineWord = null, onOpen, sidebar = false }: {
   usage: Usage | null;
   sidebar?: boolean;
@@ -138,11 +142,12 @@ export function UsagePill({ usage, now, engineWord = null, onOpen, sidebar = fal
         // expanded. It is the only reading there is for somebody who cannot see
         // a bar.
         aria-label={sentence}
+        title={sidebar ? sentence : undefined}
         onClick={() => { const next = !pinned; setPinned(next); if (next) onOpen?.(); }}
         onFocus={sidebar ? undefined : enter}
         onBlur={sidebar ? undefined : leave}
       >
-        {sidebar && <><span className="usage-sidebar-label">{engineWord ?? 'Usage'}</span><span className="usage-sidebar-percent">{used}% used</span></>}
+        {sidebar && <><GaugeIcon /><span className="usage-row-label">{engineWord ?? 'Usage'}</span><span className="usage-row-num">{used}%</span></>}
         {!sidebar && <span className="usage-meter" aria-hidden="true">
           <i style={{ width: `${used}%` }} />
         </span>}

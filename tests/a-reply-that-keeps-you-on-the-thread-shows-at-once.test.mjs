@@ -13,9 +13,9 @@
 // in the screenshot on this thread: the box empty, the thread ending on the
 // agent's last answer, no sign of the word just sent.
 //
-// Pinned here: every reply that stays draws its copy at once and lets it go
-// once the ledger has it; one that moves on (the inbox walk) draws nothing,
-// because there is no thread on the screen to draw it in.
+// Pinned here: a reply that stays draws its copy at once and lets it go once
+// the ledger has it. A reply that moves on is drawn at once too now
+// (./a-reply-is-in-the-thread-the-moment-you-send-it.test.mjs).
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import { itemThread } from '../renderer/src/item-thread.ts';
@@ -24,20 +24,6 @@ const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url),
 const quiet = app.slice(app.indexOf('// A REPLY IN A CONVERSATION IS ON THE SCREEN WHEN SHE SENDS IT'), app.indexOf('/* ------------------------ answering one of her agents'));
 
 describe('the wiring', () => {
-  it('decides whether the reply stays before it decides what to draw', () => {
-    expect(quiet.indexOf('const stay = ')).toBeGreaterThan(-1);
-    expect(quiet.indexOf('const stay = ')).toBeLessThan(quiet.indexOf('setSending((q) => [...q, mine])'));
-  });
-
-  it('draws it whenever she stays, not only with a teammate', () => {
-    expect(quiet).toMatch(/if \(stay\) setSending\(\(q\) => \[\.\.\.q, mine\]\)/);
-    expect(quiet).not.toMatch(/if \(talking\) setSending\(\(q\) => \[\.\.\.q, mine\]\)/);
-  });
-
-  it('lets the drawn copy go once it has landed, on the same rule', () => {
-    expect(quiet).toMatch(/if \(stay\) setTimeout\(\(\) => setSending\(\(q\) => q\.filter\(\(s\) => s !== mine\)\), LANDED_MS\)/);
-  });
-
   it('a stay that is still a reply to an agent keeps the reply box clear and goes through the undo window', () => {
     expect(quiet.indexOf('setSending((q) => [...q, mine])')).toBeLessThan(quiet.indexOf('await deferCommit('));
   });

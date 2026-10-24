@@ -35,7 +35,7 @@ import { said, traceLines } from './terminal';
 import { handsBack } from '../../shared/cloud-hand-back.mjs';
 import { editOfLine, resolveEdits, type EditLine } from '../../shared/message-edits.mjs';
 import type { TraceSession } from './notes';
-import { threadEvents, withRuns, type LedgerLine, type ThreadEvent } from './thread-history';
+import { pickedLine, threadEvents, withRuns, type LedgerLine, type ThreadEvent } from './thread-history';
 import type { AgentEvent, AgentSaid, AgentTurn, AgentWork } from './types';
 import { liftReplies } from './team/chat-threads';
 import type { UndoMark } from './undo-marks';
@@ -664,6 +664,16 @@ export function itemThread(
   for (const mine of [...(opts.pending ?? [])].sort((a, b) => a.at - b.at)) {
     const words = said(mine.text);
     if (!words) continue;
+    // A pick is drawn as the line its written copy will be, so nothing changes
+    // on screen when the write lands.
+    const pick = pickedLine(words);
+    if (pick) {
+      const landed = placed.find((p) => !spent.has(p) && p.node.kind === 'work' && p.node.yours
+        && (p.node.at ?? 0) >= mine.at && p.node.verb === pick.said && p.node.subject === pick.words);
+      if (landed) { spent.add(landed); continue; }
+      placed.push({ node: saidLine({ at: mine.at, who: 'you', ...pick, answers: true }), run: null, answer: null, answers: true });
+      continue;
+    }
     const landed = placed.find((p) => !spent.has(p) && p.node.kind !== 'work'
       && p.node.who === 'you' && (p.node.at ?? 0) >= mine.at
       && said(p.node.text ?? '') === words);

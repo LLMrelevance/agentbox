@@ -161,7 +161,12 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
   // surfaces that sit outside the thread.
   clean: (text: string) => string;
 }) {
-  const [ledger, setLedger] = useState<{ lines: LedgerLine[]; error?: string } | null>(null);
+  // Keyed to its row: the effect below empties it only after the first paint
+  // of a new row, and without the key that frame drew the last row's messages
+  // under this one's header (w-388be0a968).
+  const rowKey = `${item.product}\n${item.id}`;
+  const [loaded, setLedger] = useState<{ key: string; lines: LedgerLine[]; error?: string } | null>(null);
+  const ledger = loaded?.key === rowKey ? loaded : null;
   const [sessions, setSessions] = useState<TraceSession[]>([]);
   // EVERY FILE THIS ROW'S RUNS CHANGED, so a line in the conversation that says
   // it edited one can become a chip into it. Empty on the great majority of
@@ -225,8 +230,8 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
     // away (../phone-polls, oneAtATime).
     const read = oneAtATime(() => Promise.allSettled([
       api.itemHistory({ product: item.product, id: item.id })
-        .then((r) => { if (live) setLedger({ lines: r?.lines ?? [], error: r?.ok ? undefined : r?.error }); })
-        .catch((err) => { if (live) setLedger({ lines: [], error: String((err as Error)?.message ?? err) }); }),
+        .then((r) => { if (live) setLedger({ key: rowKey, lines: r?.lines ?? [], error: r?.ok ? undefined : r?.error }); })
+        .catch((err) => { if (live) setLedger({ key: rowKey, lines: [], error: String((err as Error)?.message ?? err) }); }),
       api.sessionTrace({ product: item.product, id: item.id })
         .then((r) => { if (live) setSessions(r?.sessions ?? []); })
         .catch(() => { if (live) setSessions([]); }),
