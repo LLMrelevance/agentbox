@@ -510,5 +510,5 @@ the whole of General got their thread names, old ones included. Agreed:
   opened on a Mac: who can join and what they see, with Leave group and OK,
   and Hide my threads while names are on.
 - In such a group your own row shows what strangers see.
-- General is called Coworking (`20261024000000_general_is_coworking.sql`),
+- General is called Coworking (`20261026120000_general_is_coworking.sql`),
   picked from six names drawn in the app. Same id, so nobody moves.

@@ -14,7 +14,7 @@ import { GENERAL_ROOM } from '../main/team/rooms-memory.mjs';
 
 const dir = path.join(import.meta.dirname, '..', 'cloud/supabase/migrations');
 const files = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
-const RENAME = '20261024000000_general_is_coworking.sql';
+const RENAME = '20261026120000_general_is_coworking.sql';
 const sql = (names) => names.map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
 
 const STAND_IN = `
