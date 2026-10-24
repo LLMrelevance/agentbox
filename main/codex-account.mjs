@@ -203,6 +203,19 @@ export function makeCodexHome({ home = os.homedir(), mkdir = fs.mkdirSync, exist
 }
 
 /**
+ * codex-cli refuses a `CODEX_HOME` that does not exist rather than making it,
+ *  and exits 1 before anything else happens; an empty folder that exists is
+ *  fine. Every spawn here names `CODEX_HOME`, so each one goes through this
+ *  first (tests/codex-never-starts-on-a-home-that-is-not-there).
+ *
+ * @returns the home it was given, so it can be used inline at a spawn.
+ */
+export function ensureCodexHome(home, { mkdir = fs.mkdirSync } = {}) {
+  if (home) { try { mkdir(home, { recursive: true }); } catch { /* codex's own message about the folder is the better one */ } }
+  return home;
+}
+
+/**
  * The one line that signs a new account in, for the terminal to run. The home
  *  is spelled out rather than left to the shell, because `~` inside a variable
  *  assignment is not expanded by every shell the same way. */

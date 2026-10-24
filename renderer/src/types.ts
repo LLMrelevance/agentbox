@@ -117,6 +117,9 @@ export interface Product {
   name: string;
   oneLiner: string;
   repoPath: string | null;
+  /** When it was made (epoch ms), or null on one made before that was written
+   *  down. It places an unplaced project under the ones already here. */
+  createdAt?: number | null;
   // THE MARK SHE PICKED FOR THIS PROJECT, already a url this window can draw.
   // Null on a project that has never been given one, and that is what makes
   // `ProductMark` draw its burst instead. Resolved by `listProducts` against the
@@ -715,6 +718,8 @@ export interface AgentTurn {
   // AND, ON THE PHONE WITH THE MAC SHUT, WHY HER MAC DID NOT TAKE IT
   // (renderer/src/cloud-bridge.ts). Absent on every other message.
   refused?: string;
+  // Or that Agentbox Cloud took it with the computer shut (shared/cloud-kit.mjs).
+  cloud?: boolean;
   // THE ROW THE WORDS WERE SAID ON, when they came from somewhere other than here.
   //
   // The ask usually lives on the PARENT row, and the pane used to quote it in a
@@ -830,7 +835,7 @@ export interface Snapshot {
   items: WorkItem[];
   // ON THE PHONE WITH THE MAC SHUT ONLY (renderer/src/cloud-bridge.ts): her
   // replies from the phone her Mac has not taken yet, or turned down.
-  phoneWaiting?: { product: string; id: string; at: number; text: string; refused?: string }[];
+  phoneWaiting?: { product: string; id: string; at: number; text: string; refused?: string; cloud?: true }[];
   // On the hosted phone: a line saying what it shows may be out of date (cloud-bridge.ts phoneStatusLine).
   phoneStatus?: string | null;
   // The team (main/team/index.mjs). Null or absent on a build with no team
@@ -1269,7 +1274,7 @@ declare global {
   interface Window {
     zero?: {
       snapshot(): Promise<Snapshot>;
-      refreshUsage?(): Promise<{ ok: boolean; reading?: Usage; error?: string }>;
+      refreshUsage?(p?: { engine?: 'claude' | 'codex' }): Promise<{ ok: boolean; reading?: Usage; error?: string }>;
       accountUsage?(p: { refresh?: boolean }): Promise<{ readings: AccountUsageReading[] }>;
       // Whether a screen reader is running, which is what decides xterm's
       // accessibility tree. Optional: a preload from before this channel

@@ -49,6 +49,7 @@ import { MODE_ORDER, MODE_SENTENCE, MODE_WORDS, RULES_ALWAYS_APPLY } from '../mo
 import { CODEX_MODES, CODEX_MODE_ORDER } from '../codex-modes';
 import { ProductMark } from './ProductMark';
 import { SHORTCUTS } from '../shortcuts';
+import { chord, chords, sayKeys } from '../this-keyboard';
 import { capWord } from '../hint-plate';
 import { NAME, Name } from '../../../shared/product-name.mjs';
 import { SETTINGS_TERMINAL } from '../../../shared/settings-terminal.mjs';
@@ -68,9 +69,13 @@ type Pane = SettingsPageId | { project: string };
 // A path a person can read in a narrow column: the home directory as ~, and the
 // account uuid cut to the part that distinguishes it. The whole path is still
 // on the General pane and in the title attribute, so nothing is hidden.
-export function shortPath(full: string): string {
-  const home = full.match(/^\/Users\/[^/]+/)?.[0];
-  const short = home ? `~${full.slice(home.length)}` : full;
+//
+// The home is only shortened where the caller knows it (`w.homePath`): the
+// fallback knows the macOS shape alone, and guessing a Linux one would turn
+// `/home/shared/repos`, which is nobody's home, into `~/repos`.
+export function shortPath(full: string, home?: string | null): string {
+  const at = home && full.startsWith(`${home.replace(/\/+$/, '')}/`) ? home.replace(/\/+$/, '') : full.match(/^\/Users\/[^/]+/)?.[0];
+  const short = at ? `~${full.slice(at.length)}` : full;
   return short.replace(/([0-9a-f]{8})-[0-9a-f-]{20,}/i, '$1…');
 }
 
@@ -330,12 +335,22 @@ function agentStory(w: WorkspaceSettings, readings: Usage[], engine: 'claude' | 
 
 type Agent = ReturnType<typeof agentStory>;
 
+/** Whichever of two readings was taken later, either possibly absent. */
+export function newerReading(a: Usage | null, b: Usage | null): Usage | null {
+  if (!a) return b;
+  if (!b) return a;
+  return (b.at ?? 0) > (a.at ?? 0) ? b : a;
+}
+
 /**
  * THE METERS, one row each: the window's name, when it resets, and how much of
  *  it is spent. Same `usage-meter` markup the sidebar's usage corner draws. */
 function UsageRows({ reading, now, trouble = null }: { reading: Usage | null; now: number; trouble?: string | null }) {
   const rows = reading?.limits?.length ? limitRows(reading.limits, now) : [];
-  if (!rows.length) return trouble ? null : <Row label="No usage reading yet" />;
+  // Codex reports its limits as it works and the app never asks OpenAI for them
+  // (main/codex-usage.mjs), so before a run there is genuinely nothing, and
+  // "No usage reading yet" read as something broken.
+  if (!rows.length) return trouble ? null : <Row label="Codex reports what is left as it works, so there is nothing here yet" />;
   return (
     <>
       {rows.map((r) => (
@@ -960,11 +975,14 @@ const Page = ({ title, lede, children }: { title: string; lede?: string; childre
 // THE CAPS ARE ON THE LEFT AND THE SENTENCE IS BESIDE THEM. It is a REFERENCE,
 // read by scanning down a column for the key you half-remember, and a key
 // hiding at the right-hand end of a sentence cannot be scanned for.
+//
+// The list is written in the Mac's glyphs, so on Linux each is drawn as the key
+// really there and a row naming both ("⌘K or Ctrl+K") collapses to the one key.
 function KeyRow({ keys, join, what }: { keys: string[]; join?: 'or' | 'to'; what: string }) {
   return (
     <div className="set-key-row">
       <div className="set-key-caps">
-        {keys.map((k, i) => (
+        {chords(keys).map((k, i) => (
           <Fragment key={k}>
             {i > 0 && join && <span className="set-key-join">{join}</span>}
             <kbd>{k}{capWord(k) && <span className="fr-cap-word">{capWord(k)}</span>}</kbd>
@@ -1665,6 +1683,23 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   }, [load]);
   useEffect(() => { if (pane !== 'claude') return; void readAccounts(); }, [pane, readAccounts]);
 
+  // THE CODEX FIGURE, ASKED FOR AGAIN. It is held here rather than read off the
+  // snapshot because that is where the refresh answers.
+  const [codexReading, setCodexReading] = useState<Usage | null>(null);
+  const [codexRefreshing, setCodexRefreshing] = useState(false);
+  const refreshCodex = useCallback(async () => {
+    setCodexRefreshing(true);
+    try {
+      const r = await api.refreshUsage('codex');
+      // A refusal draws nothing of its own: the empty row below already says
+      // why there is nothing.
+      if (r.ok && r.reading) setCodexReading(r.reading);
+    } finally { setCodexRefreshing(false); }
+  }, []);
+  // Asked once on opening, so a figure Codex has already written down is on the
+  // screen before anybody presses anything.
+  useEffect(() => { if (pane !== 'codex') return; void refreshCodex(); }, [pane, refreshCodex]);
+
   /* THE SEARCH (w-ccadd13c46). Typing replaces the menu with what matches;
      ↑ and ↓ move through it and Enter opens one. Escape empties the box first
      and leaves Settings only once it is empty, so a search never costs the
@@ -1803,6 +1838,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
       }));
     const lastRead = Math.max(0, ...tiles.map((a) => a.checkedAt ?? 0));
     const checked = lastRead ? usageCheckedAt(lastRead, now) : '';
+    // The newer of what the snapshot carries and what Refresh just fetched.
+    const codexShown = newerReading(agent.reading, codexReading);
+    const codexChecked = codexShown?.at ? usageCheckedAt(codexShown.at, now) : '';
     // Codex still draws its cloud logins as a place of their own.
     const cloudFirst = !!cloudHere && cloudHere.mode !== 'mac';
     const cloudAccounts = cloudHere && engine === 'codex' ? cloudPlaceAccounts(cloudHere, engine, now) : [];
@@ -1830,7 +1868,22 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
         {agent.found && (
           <>
             {cloudFirst && cloudCard}
-            {engine === 'codex' && <Group id="usage" label="Usage"><UsageRows reading={agent.reading} now={now} /></Group>}
+            {engine === 'codex' && (
+              <Group
+                id="usage"
+                label="Usage"
+                /* Refresh and how old the reading is, the way Claude Code's
+                   Signed in place has them. */
+                action={(
+                  <span className="acct-place-act">
+                    {!codexRefreshing && codexChecked && <span className="acct-checked">{codexChecked}</span>}
+                    <button type="button" className="set-ghost" disabled={codexRefreshing} onClick={() => void refreshCodex()}>{codexRefreshing ? 'Refreshing…' : 'Refresh'}</button>
+                  </span>
+                )}
+              >
+                <UsageRows reading={codexShown} now={now} />
+              </Group>
+            )}
             {/* "SIGNED IN", NOT "ACCOUNTS": a heading that works at any
                 number, so one account is never shown a plural to fill. Refresh
                 heads it because it reads every account on it, here and in the
@@ -2068,6 +2121,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             <ProjectsPage
               ranked={ranked}
               details={projects}
+              home={w?.homePath ?? null}
               onSetOrder={onSetOrder}
               who={projectWho}
               onOpen={(slug) => setPane({ project: slug })}

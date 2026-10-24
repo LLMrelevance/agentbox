@@ -4,6 +4,7 @@ import {rememberCodexModels} from './codex-models.mjs';
 import {forget,claudeModels} from './claude-models.mjs';
 import {terminalEnv} from './task-terminals.mjs';
 import {codexLaunchEnv} from './codex-launch-env.mjs';
+import {ensureCodexHome} from './codex-account.mjs';
 // `homes` is every Codex login to ask, one after another. A login that cannot
 // answer keeps its last list and does not cost the others theirs; only all of
 // them failing is an error.
@@ -16,6 +17,8 @@ export async function refreshAgentModels(engine,config,homes,{open=home=>openApp
  if(list.length&&errors.length===list.length)throw errors[0];
 }
 function openAppServer(config,home){
+ // codex-cli refuses a CODEX_HOME that does not exist rather than making it.
+ ensureCodexHome(home);
  return createCodexAppServer({spawn:()=>spawn(config.codexBin,['app-server'],{cwd:config.home,env:codexLaunchEnv(config.codexBin,{...terminalEnv(),CODEX_HOME:home}),stdio:['pipe','pipe','pipe']}),requestTimeoutMs:10000});
 }
 async function refreshOne(client,home){

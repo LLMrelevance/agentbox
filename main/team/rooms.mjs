@@ -302,8 +302,8 @@ export function createRooms({
     // The cloud keeps an address of up to 500 characters, not a picture's bytes.
     const face = me()?.avatarUrl ?? null;
     const avatar = typeof face === 'string' && /^https?:\/\//.test(face) && face.length <= 500 ? face : null;
-    // Thread names reach strangers only once their owner turns that on; the
-    // cloud's own default is still everyone, so it is said here.
+    // Thread names reach strangers only once their owner turns that on. Said
+    // here as well as in the cloud's default, for a cloud from before it changed.
     return b.saveRoomProfile({ display_name: displayNameOf(me()?.name ?? '') || 'Someone', avatar_url: avatar, show_working: 'team' });
   }
 
