@@ -34,6 +34,7 @@ import { Markdown, type MessageFiles } from '../../../ui/Markdown';
 import { footRoom, IconButton, Pickable, PriorityBars, RunningMark, T, TopBar, Wall } from '../../../ui/parts';
 import { ModelSheet, ModeSheet, PrioritySheet, barsFor } from '../../../ui/Pickers';
 import { ThreadMenu } from '../../../ui/ThreadMenu';
+import { DictationProblem, Listening, ListeningPanel, ListeningStrip, MicButton, useDictation, VARIANT } from '../../../ui/Dictation';
 import { ActLine, FiledList, FocusActions, LiveLine, OptionsCard, RunLine, WorkLine } from '../../../ui/ThreadParts';
 import { color, font, size } from '../../../ui/theme';
 
@@ -126,58 +127,80 @@ function Dock({ thread, offers, busy, setBusy, stop, setError }: {
     failed: (m) => setError(`Not sent: ${m}`),
   };
   const [send] = useState(() => replySender(() => deps.current!, (sent) => { if (sent) { setPicked({}); setOpen(false); } }));
+  const talk = useDictation(draft, () => void send(picked));
+  const typing = useRef<ComponentRef<typeof TextInput>>(null);
+  // A box that only listened, and heard nothing, folds away as an empty one does on blur.
+  useEffect(() => { if (!talk.on && !talk.problem && !ready && !sheet && !typing.current?.isFocused()) setOpen(false); }, [talk.on]);
   const foot = footRoom(inset);
   const card = { borderWidth: 1, backgroundColor: color.fill };
+  const panel = talk.on && VARIANT === 'panel';
+  const listensInFoot = talk.on && VARIANT !== 'strip' && VARIANT !== 'panel';
+  const micInSlot = VARIANT === 'wave' && !ready && !offers.stop;
   return (
-    <View style={{ paddingHorizontal: 12, paddingBottom: 16 + foot, paddingTop: 8 }}>
+    <>
+    <View style={{ paddingHorizontal: 12, paddingBottom: panel ? 12 : 16 + foot, paddingTop: 8 }}>
       {!open ? (
-        <Pressable onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel="Reply"
-          style={{ ...card, borderColor: color.line, height: 43, flexDirection: 'row', alignItems: 'center' }}>
-          <T numberOfLines={1} style={{ flex: 1, fontSize: 14.5, color: folded.draft ? color.dim : color.faint, paddingHorizontal: 16 }}>{folded.text}</T>
-          {!!folded.files && <T style={{ fontSize: 12, color: color.faint, paddingRight: 12 }}>{folded.files}</T>}
-          <T style={{ fontSize: 13, color: color.dim, marginRight: 12, textDecorationLine: 'underline', textDecorationStyle: 'dotted', textDecorationColor: color.faint }}>{modelLabelOf(model)}</T>
-        </Pressable>
+        <View style={{ ...card, borderColor: color.line, height: 43, flexDirection: 'row', alignItems: 'center' }}>
+          <Pressable onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel="Reply" style={{ flex: 1, height: '100%', flexDirection: 'row', alignItems: 'center' }}>
+            <T numberOfLines={1} style={{ flex: 1, fontSize: 14.5, color: folded.draft ? color.dim : color.faint, paddingHorizontal: 16 }}>{folded.text}</T>
+            {!!folded.files && <T style={{ fontSize: 12, color: color.faint, paddingRight: 12 }}>{folded.files}</T>}
+            <T style={{ fontSize: 13, color: color.dim, marginRight: 4, textDecorationLine: 'underline', textDecorationStyle: 'dotted', textDecorationColor: color.faint }}>{modelLabelOf(model)}</T>
+          </Pressable>
+          <View style={{ marginRight: 4 }}><MicButton talk={{ ...talk, start: () => { setOpen(true); talk.start(); } }} /></View>
+        </View>
       ) : (
+        <>
+        {talk.on && VARIANT === 'strip' && <ListeningStrip talk={talk} />}
         <View style={{ ...card, borderColor: color.lineStrong }}>
-          <TextInput autoFocus multiline value={draft.text} onChangeText={draft.setText} placeholder="What should the agent do next?" placeholderTextColor={color.faint}
-            onBlur={() => { if (!ready && !sheet) setOpen(false); }}
+          <TextInput ref={typing} autoFocus={!talk.active()} multiline value={draft.text} onChangeText={draft.setText} placeholder="What should the agent do next?" placeholderTextColor={color.faint}
+            onFocus={() => { if (talk.active()) talk.stop(); }}
+            onBlur={() => { if (!ready && !sheet && !talk.active()) setOpen(false); }}
             style={[{ minHeight: 92, maxHeight: 220, paddingTop: 12, paddingHorizontal: 16, paddingBottom: 6, fontFamily: font.regular, fontSize: 15.5, lineHeight: 24, color: color.text, textAlignVertical: 'top' }, Platform.OS === 'web' && ({ outlineStyle: 'none' } as object)]} />
-          {(draft.files.length > 0 || failed || draft.dropped > 0) && (
+          {(draft.files.length > 0 || failed || draft.dropped > 0 || (!talk.on && !!talk.problem)) && (
             <View style={{ paddingHorizontal: 16, paddingBottom: 10, gap: 8 }}>
               <Attached files={draft.files} drop={(i) => draft.setFiles((f) => f.filter((_, n) => n !== i))} />
               {draft.dropped > 0 && <T style={{ fontSize: 13, color: color.dim }}>{draft.dropped === 1 ? 'One file is too big to keep. Leaving this thread loses it.' : `${draft.dropped} files are too big to keep. Leaving this thread loses them.`}</T>}
               {failed && <T style={{ fontSize: 13, color: color.dim }}>{failed}</T>}
+              <DictationProblem talk={talk} />
             </View>
           )}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, borderTopWidth: 1, borderTopColor: color.line, paddingTop: 9, paddingBottom: 10, paddingLeft: 12, paddingRight: 14 }}>
+            {listensInFoot ? (
+              <Listening talk={talk} lead={4} />
+            ) : (
+            <>
             <Pressable onPress={() => setSheet('attach')} accessibilityLabel="Attach a file or picture" accessibilityRole="button" hitSlop={4}
               style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginRight: -4 }}>
               <Clip />
             </Pressable>
+            {!micInSlot && <View style={{ marginLeft: -10, marginRight: -4 }}><MicButton talk={talk} lit={talk.on} /></View>}
             <T style={{ flex: 1, fontSize: 13, lineHeight: 21, color: color.faint }}>
               <Pickable style={{ fontSize: 13, color: color.dim }} onPress={() => setSheet('priority')}>{priorityLabelOf(shownLevel({ priority }))}</Pickable>
               {' priority. In '}
               <Pickable style={{ fontSize: 13, color: color.dim }} onPress={() => setSheet('mode')}>{MODE_WORDS[mode as keyof typeof MODE_WORDS] ?? mode}</Pickable>
               {' Mode. On '}
               {/* A no-break space, so a model's name never splits over two lines. */}
-              <Pickable style={{ fontSize: 13, color: color.dim }} onPress={() => setSheet('model')}>{modelLabelOf(model).replace(/ /g, ' ')}</Pickable>
+              <Pickable style={{ fontSize: 13, color: color.dim }} onPress={() => setSheet('model')}>{modelLabelOf(model).replace(/ /g, ' ')}</Pickable>
               {'.'}
             </T>
             {/* One slot: Stop while it is in progress and the box is empty, Send once anything is typed (Focus.tsx). */}
-            {offers.stop && !ready ? (
+            {micInSlot ? <MicButton talk={talk} /> : offers.stop && !ready && !talk.on ? (
               <Pressable onPress={stop} accessibilityRole="button" accessibilityLabel={thread.running ? 'Stop this agent' : 'Stop this task'}
                 style={({ pressed }) => ({ height: 29, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, borderWidth: 1, borderColor: color.lineStrong, backgroundColor: pressed ? color.picked : 'transparent' })}>
                 <StopMark />
                 <T style={{ fontSize: 13, fontFamily: font.medium, color: color.dim }}>Stop</T>
               </Pressable>
             ) : (
-              <Pressable disabled={busy || !ready} accessibilityRole="button" onPress={() => void send(picked)}
+              <Pressable disabled={busy || !ready} accessibilityRole="button" onPress={() => (talk.on ? talk.send() : void send(picked))}
                 style={({ pressed }) => ({ height: 29, paddingHorizontal: 16, justifyContent: 'center', borderWidth: 1, borderColor: color.lineStrong, backgroundColor: pressed ? color.picked : 'transparent', opacity: busy || !ready ? 0.5 : 1 })}>
                 <T style={{ fontSize: 13, fontFamily: font.semibold }}>{busy ? 'Sending…' : 'Send'}</T>
               </Pressable>
             )}
+            </>
+            )}
           </View>
         </View>
+        </>
       )}
       <AttachSheet open={sheet === 'attach'} close={() => setSheet(null)} add={(more) => { setFailed(null); draft.setFiles((f) => [...f, ...more]); }} fail={setFailed} />
       <PrioritySheet open={sheet === 'priority'} close={() => setSheet(null)} value={priority} pick={(v) => setPicked((p) => ({ ...p, priority: v }))} />
@@ -185,6 +208,8 @@ function Dock({ thread, offers, busy, setBusy, stop, setError }: {
       <ModelSheet open={sheet === 'model'} close={() => setSheet(null)} model={model} effort={picked.effort ?? item.effort ?? null}
         pickModel={(v) => setPicked((p) => ({ ...p, model: v }))} pickEffort={(v) => setPicked((p) => ({ ...p, effort: v }))} />
     </View>
+    {panel && <ListeningPanel talk={talk} foot={foot} />}
+    </>
   );
 }
 
