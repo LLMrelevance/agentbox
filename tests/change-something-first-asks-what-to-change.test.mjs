@@ -71,7 +71,11 @@ describe('what the pick does instead of sending', () => {
   // The key that opens a text field types itself into it otherwise: the box
   // read "2Change something first" in the built app (renderer/src/keys.ts
   // carries the first time this happened, with S).
+  // AND IT IS SWALLOWED WHETHER THE PRESS PICKS OR IS HELD. The branch now
+  // holds the key for a moment after the app moved you (pick-settles.ts,
+  // F-31), and the held press would be the one that typed itself into the box.
   it('swallows the number that opened the box', () => {
-    expect(app).toContain("else if (/^[1-9]$/.test(e.key)) { e.preventDefault(); pickOption(focused, Number(e.key)); }");
+    expect(app).toMatch(/else if \(\/\^\[1-9\]\$\/\.test\(e\.key\)\) \{\s*\n\s*e\.preventDefault\(\);/);
+    expect(app).toMatch(/else if \(\/\^\[1-9\]\$\/\.test\(e\.key\)\) \{[\s\S]{0,400}pickOption\(focused, Number\(e\.key\)\);/);
   });
 });

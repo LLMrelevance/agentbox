@@ -3,11 +3,10 @@
 // WHAT CHANGED ON w-dac993a554. This used to be "a Codex task runs on the
 // account whose plan has its model": work rotated across a person's Codex
 // logins, so the model check picked the login whose plan carried the model and
-// a refusal moved the task to one that did. Nothing rotates now, because
-// spreading one person's work over several subscriptions is what Anthropic's
-// Usage Policy means by circumventing a guardrail and OpenAI's terms refuse in
-// the same breath as rate limits. The task stays on the account in use, the
-// model is struck off that account, and the row asks for another model.
+// a refusal moved the task to one that did. Nothing rotates on its own now:
+// work runs on the account the person picked. The task stays on the account
+// in use, the model is struck off that account, and the row asks for another
+// model.
 //
 // Everything the model check does still matters, and the incident below is
 // still why it exists.

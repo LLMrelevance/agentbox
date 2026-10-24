@@ -1,6 +1,7 @@
 // THE CLOUD SERVER IN LAMBDA. One function answers every event it gets: HTTP
 // from its function URL (a Mac), S3's notice that a run's done.json landed,
-// the clock's sweep, the budget alarm, and the owner's direct admin calls.
+// the clock's sweep and its phone sweep, the budget alarm, and the owner's
+// direct admin calls.
 // scripts/cloud-gateway-setup.mjs bundles this file and deploys it.
 //
 // Links are signed with a separate IAM user's key, read from the secret
@@ -10,6 +11,8 @@
 import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { awsTransport, awsStorage } from '../../main/cloud/aws.mjs';
 import { createGateway } from './gateway.mjs';
+import { supabaseRest } from './phone.mjs';
+import { sendToExpo } from '../../main/phone-alerts.mjs';
 import { stripeClient } from './stripe.mjs';
 
 const TIMEOUT_MS = 20_000;
@@ -68,6 +71,25 @@ export function bucketObjects({ region, bucket, client = new S3Client({ region, 
 }
 
 /**
+ * A run's files and a kit, read and written through the signer's links: the
+ * function's own role never reads `runs/`.
+ */
+export function linkedFiles({ links, fetchImpl = fetch, timeoutMs = TIMEOUT_MS }) {
+  return {
+    async get(key) {
+      const res = await fetchImpl(await links.get(key, 300), { signal: AbortSignal.timeout(timeoutMs) });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`the bucket answered ${res.status} for ${key}`);
+      return res.text();
+    },
+    async put(key, body) {
+      const res = await fetchImpl(await links.put(key, 300), { method: 'PUT', body, signal: AbortSignal.timeout(timeoutMs) });
+      if (!res.ok) throw new Error(`the bucket answered ${res.status} for ${key}`);
+    },
+  };
+}
+
+/**
  * Who a database session belongs to, asked of the database itself: a Google
  * sign-in, or an email address its owner has confirmed.
  */
@@ -99,8 +121,17 @@ export async function gatewayFromEnv(env = process.env, { readSecret = (arn) => 
   const objects = bucketObjects({ region, bucket });
   // Without it the server runs and says paying is not set up.
   const billing = env.STRIPE_SECRET_ARN ? JSON.parse(await readSecret(env.STRIPE_SECRET_ARN)) : null;
+  // Without it a phone's reply waits for its computer, as before.
+  const database = env.SUPABASE_SERVICE_SECRET_ARN ? JSON.parse(await readSecret(env.SUPABASE_SERVICE_SECRET_ARN)) : null;
   return createGateway({
     ...(billing ? { stripe: stripeClient({ key: billing.key, webhookSecret: billing.webhookSecret, managedPayments: !!billing.managedPayments }) } : {}),
+    ...(database?.serviceKey ? {
+      phone: {
+        db: supabaseRest({ url: env.SUPABASE_URL, serviceKey: database.serviceKey }),
+        runFiles: linkedFiles({ links: { get: signer.getUrl, put: signer.putUrl } }),
+        sendPush: (messages) => sendToExpo(messages),
+      },
+    } : {}),
     agentcore: transport,
     links: { get: signer.getUrl, put: signer.putUrl, head: signer.headUrl },
     removeObject: (k) => objects.del(k),
@@ -129,6 +160,7 @@ export function lambdaHandler(gw) {
       }
       return { ok: true };
     }
+    if (event?.phoneSweep) return gw.phoneSweep();
     if (event?.sweep) return gw.sweep();
     if (event?.admin) return gw.admin(event.admin);
     return { ok: false, error: 'not an event this function takes' };

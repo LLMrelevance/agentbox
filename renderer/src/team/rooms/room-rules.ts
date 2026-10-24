@@ -1,6 +1,7 @@
 // The rules the room screens draw by (w-3d0fa23ffb), kept apart from the
 // drawing so they can be tested. tests/a-room-reads-the-way-it-was-approved.
-import type { Person, Room, RoomCard, RoomMention, ThreadCard } from '../../types';
+import type { Person, Room, RoomCard, RoomMention, RoomProfile, ThreadCard } from '../../types';
+import { Name } from '../../../../shared/product-name.mjs';
 
 type Shares = { me: boolean; teammate: boolean; showActivity: boolean; activity?: unknown[] | null; away?: boolean };
 /** Whose threads reach me as the team's thread cards: my own, or a teammate's who shares them. */
@@ -91,9 +92,25 @@ export function writeChatWidth(width: number | null, store: Store = local()) {
   try { store?.setItem(CHAT_KEY, width == null ? '' : String(Math.round(width))); } catch { /* not kept */ }
 }
 
-/** What Tab walks: the state tabs, then the Groups tab when there is one. */
-export function tabOrder<T extends string>(stateTabs: readonly T[], groupsTab: boolean): (T | 'room')[] {
-  return groupsTab ? [...stateTabs, 'room'] : [...stateTabs];
+const NOTICE_KEY = 'rooms.notice.seen';
+/** The open groups whose line about what strangers see has been answered on this Mac. */
+export function readNoticeSeen(store: Store = local()): string[] {
+  try { const ids = JSON.parse(store?.getItem(NOTICE_KEY) || '[]'); return Array.isArray(ids) ? ids.filter((x) => typeof x === 'string') : []; } catch { return []; }
+}
+export function writeNoticeSeen(ids: string[], store: Store = local()) {
+  try { store?.setItem(NOTICE_KEY, JSON.stringify(ids)); } catch { /* not kept */ }
+}
+/** Over a group anyone can join, until it has been answered once. */
+export const noticeShown = (room: Pick<Room, 'id' | 'listed' | 'teamId'>, seen: readonly string[]) => room.listed && !room.teamId && !seen.includes(room.id);
+
+const andList = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
+/** What strangers in an open group see of you, as your card's switches have it. */
+export function openGroupWords(me: Pick<RoomProfile, 'show_working' | 'show_level' | 'show_agents'>): string {
+  const seen = ['your name', me.show_level && 'level', me.show_agents && 'how many agents you run'].filter((x): x is string => !!x);
+  const open = `Anyone on ${Name} can join this group.`;
+  return me.show_working === 'everyone'
+    ? `${open} They see ${andList([...seen, 'the names of your threads'])}.`
+    : `${open} They see ${andList(seen)}, never your threads.`;
 }
 
 /** The room in the Threads tab: the one picked, else the first pinned room, else the first room. Never a group chat. */
@@ -103,7 +120,7 @@ export function tabRoom<R extends Pick<Room, 'id' | 'kind' | 'pinned'>>(rooms: r
   return own.find((r) => r.id === choice) ?? own.find((r) => r.pinned) ?? own[0] ?? null;
 }
 
-/** The group the Groups tab opens: the one open last while you are still in it, else as tabRoom picks, else any chat. */
+/** The group Groups opens: the one open last while you are still in it, else as tabRoom picks, else any chat. */
 export function groupInTab<R extends Pick<Room, 'id' | 'kind' | 'pinned'>>(rooms: readonly R[], last: string | null): R | null {
   return rooms.find((r) => r.id === last) ?? tabRoom(rooms, null) ?? rooms[0] ?? null;
 }
@@ -117,23 +134,6 @@ export function boardPicked(saved: readonly string[] | null | undefined, people:
   const ids = people.map((p) => p.id);
   const kept = (saved ?? []).filter((id) => ids.includes(id));
   return kept.length ? kept : ids;
-}
-
-/** A face over the board picked: just them from everyone, back to everyone from them alone. */
-export function facePick(picked: readonly string[], all: readonly string[], id: string): string[] {
-  if (picked.length >= all.length) return [id];
-  if (picked.length === 1 && picked[0] === id) return [...all];
-  return picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id];
-}
-
-/** Tiles to a row over the board: eight at most, and even rows past that. */
-export function tilesPerRow(n: number, most = 8): number {
-  return Math.ceil(n / Math.ceil(n / most));
-}
-
-/** How many face tiles fit across a width: "Not running" and its padding take 93px, and the tile's line 1. */
-export function tilesAcross(width: number): number {
-  return Math.max(1, Math.min(8, Math.floor(width / 94)));
 }
 
 /** Each room's pick, by room id. */

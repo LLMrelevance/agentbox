@@ -5,6 +5,7 @@
 // and no commands at the diff.
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
+import { chord } from '../this-keyboard';
 import {
   BATCH_ROWS, changeSummary, filesInTreeOrder, fillNext, foldsFor, firstBatch, hiddenLines, hunkView, hunkViewAt, linesSkipped, marked, rowSlices, sliceGuessPx, stepInTree, toggled, tokenize, tookLabel, treeRows, visibleRows, wordChanges,
   type Change, type ChangedFile, type Hunk,
@@ -915,7 +916,7 @@ export function CodeArtifact({ product, src, change, startAt = null, startAtFrom
             >
               <span className="code-node-name">{row.label}</span>
               {unsaved.has(row.path)
-                ? <span className="code-unsaved" title="Not saved yet. Press ⌘S.">•</span>
+                ? <span className="code-unsaved" title={`Not saved yet. Press ${chord('⌘S')}.`}>•</span>
                 : <Counts plus={row.plus} minus={row.minus} />}
             </button>
           )))}
@@ -939,7 +940,7 @@ export function CodeArtifact({ product, src, change, startAt = null, startAtFrom
               <Counts plus={file.plus} minus={file.minus} />
               {/* The word, not only a dot, because a dot alone goes unnoticed. */}
               {unsaved.has(file.path) && (
-                <span className="code-file-unsaved" title="Not saved yet. Press ⌘S.">Unsaved</span>
+                <span className="code-file-unsaved" title={`Not saved yet. Press ${chord('⌘S')}.`}>Unsaved</span>
               )}
               {/* Nothing else goes on this row. */}
             </div>

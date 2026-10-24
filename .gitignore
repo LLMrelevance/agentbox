@@ -49,6 +49,10 @@ designs/w-a863b48784/raw-hi/*.png
 # This is what stops `git add -A` committing them.
 wt/
 
+# The tray's Liquid Glass is compiled from main/native/liquid-glass by
+# scripts/build-liquid-glass.mjs on every build, for the same reason.
+main/native/*/build/
+
 # The window helper is compiled from main/window-helper.swift by
 # scripts/build-window-helper.mjs on every build. A checked-in binary is a thing
 # nobody can review and everybody has to trust.

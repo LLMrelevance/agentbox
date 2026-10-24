@@ -91,6 +91,17 @@ export function pictureShape(bytes) {
   }
 }
 
+/** The same, read off a file on disk without waiting, for a pass that lists many. */
+export function readPictureShapeSync(file) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buffer = Buffer.alloc(HEAD_BYTES);
+    return pictureShape(buffer.subarray(0, fs.readSync(fd, buffer, 0, HEAD_BYTES, 0)));
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 /** The same, read off a file on disk. */
 export async function readPictureShape(file) {
   const handle = await fs.promises.open(file, 'r');

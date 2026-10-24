@@ -42,6 +42,15 @@ export const claudeHarness = {
     return [path.join(home, '.claude.json'), ...definition.credentialFiles.map(file => path.join(dir, file))];
   },
   tooling: profile => linkAccountTooling(profile),
+  // A cloud run's command line and environment. A kit for the phone is made
+  // from the same two (Supervisor#_writeKit), so the cloud's turn is this one.
+  cloudLaunch(sup, plan, { item, profile, env }) {
+    return {
+      args: streamInputArgs(definition.run, cloudPermissionArgs(plan.args, cloudClaudeMode(sup.config.cloudPermission, plan.answerMode))),
+      env: { ...env, STORE_ACCOUNT_ID: sup.config.accountId, ...storeRootEnv(sup.config.storeRoot),
+        CLAUDE_CONFIG_DIR: sup._claudeConfigDir(profile), ZERO_PRODUCT: item.product, ZERO_ITEM: item.id, ...sup._cloudDocsEnv(item) },
+    };
+  },
   spawn(sup, plan, { cwd, item, profile, env, cloud = false }) {
     // A CLOUD RUN: THE SAME ARGUMENTS, A DIFFERENT PROGRAM (docs/cloud/PLAN.md).
     // main/cloud/run-cli.mjs runs Claude Code in the sandbox with exactly these
@@ -51,11 +60,8 @@ export const claudeHarness = {
     // because the run unpacks the transcript and tooling into exactly that
     // path. No memory-gate variables: that gate is about this Mac's memory.
     if (cloud) {
-      return sup._spawnCloudRelay(streamInputArgs(definition.run, cloudPermissionArgs(plan.args, cloudClaudeMode(sup.config.cloudPermission, plan.answerMode))), {
-        cwd,
-        env: { ...env, STORE_ACCOUNT_ID: sup.config.accountId, ...storeRootEnv(sup.config.storeRoot),
-          CLAUDE_CONFIG_DIR: sup._claudeConfigDir(profile), ZERO_PRODUCT: item.product, ZERO_ITEM: item.id, ...sup._cloudDocsEnv(item) },
-      });
+      const launch = claudeHarness.cloudLaunch(sup, plan, { item, profile, env });
+      return sup._spawnCloudRelay(launch.args, { cwd, env: launch.env });
     }
     // The binary is the one this definition names, not a field spelled out
     // here: that is the last place an engine of this family needed code.

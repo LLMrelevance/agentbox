@@ -76,7 +76,7 @@ describe('the toast after an answer carries the same way in', () => {
     expect(app).toMatch(/goes\?: \{ product: string; id: string \},[\s\S]{0,300}?undid\?: UndidSpec\[\],[\s\S]{0,300}?holdMs: number = UNDO_GRACE_MS,\s*\) => \{/);
     // Even when `stay` keeps her on the row (w-5513afd09a): the cap is held
     // back while that row is open, not by dropping the destination.
-    expect(app).toContain('showToast(`${toast} · press Z to undo`, goes);');
+    expect(app).toContain('showToast(`${toast} · press Z to undo`, goes && { ...goes, sent: true });');
   });
 
   it('a typed reply hands it the row it answered', () => {
@@ -99,7 +99,7 @@ describe('the toast after an answer carries the same way in', () => {
   it('a picked option hands it the row it picked on', () => {
     // The fourth argument is whether she stays on the thread, since 2026-10-13
     // (tests/a-reply-keeps-you-on-the-thread-unless-you-are-clearing-your-inbox).
-    expect(app).toContain('`Option ${option.n} → ${item.productName}`, undefined, !movesOn(item), { product: item.product, id: item.id }');
+    expect(app).toContain('`Option ${option.n} sent → ${item.productName}`, undefined, !movesOn(item), { product: item.product, id: item.id }');
   });
 
   // The fourth argument here is `stay`, for the same reason it is on the
@@ -112,6 +112,6 @@ describe('the toast after an answer carries the same way in', () => {
     // and there is nothing to go and watch, so those toasts stay plain.
     // The fifth argument, the way in, stays undefined; the last is only what
     // the thread says if a Z takes the close back (w-c78d1e1607).
-    expect(app).toContain('}, `Closed: ${clipToSentence(item.title, TOAST_TITLE)}`, undefined, stay, undefined, undid);');
+    expect(app).toContain('}, `${DONE.verb}: ${clipToSentence(item.title, TOAST_TITLE)}`, undefined, stay, undefined, undid);');
   });
 });

@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { nameSlug } from '../../shared/product-name.mjs';
 import { runningAsAFreshUser } from '../../shared/fresh-user-home.mjs';
 import { supabaseBackend } from './supabase-backend.mjs';
@@ -52,12 +53,12 @@ export function teamConfigOnThisMac(home = os.homedir()) {
 // points at another file from a checkout only, and is first because that is
 // what the tests run on.
 //
-// AN INSTALLED BUILD IS ALWAYS THE SINGLE-PERSON APP (2026-10-06). The first
-// download from agentbox.ac opened on the team's sign-in page, because the Mac
-// it ran on kept a team key. The founder: "users are no longer using the
-// multiplayer version so this should never be visible." The team version still
-// runs from a checkout (npm run app). See
-// tests/the-installed-app-is-the-single-person-app.test.mjs.
+// AN INSTALLED BUILD SIGNS IN ONLY TO THE CLOUD BAKED INTO IT at release
+// (`bakedTeam` in its package.json), never to a key on the Mac: the first
+// download opened on a team's sign-in page because its Mac kept one
+// (tests/the-installed-app-is-the-single-person-app). The sign-in is for the
+// phone; the team version shows only with Alpha features › Multiplayer on
+// (tests/multiplayer-is-an-alpha-feature-in-the-installed-app).
 // AND SO IS ⌘K's NEW-USER WINDOW (w-9f6975906c, 2026-10-05). It runs from her
 // checkout, which holds a team key, so it opened on the same sign-in page:
 // "when i run this command i got the login screen again ... this was the
@@ -66,7 +67,7 @@ export function teamConfigOnThisMac(home = os.homedir()) {
 // a power tester in her room. It loads that file and no other, so the ⌘K
 // window, which is handed none, stays the single-person app.
 export function loadCloudConfig(appDir, { packaged = isPackagedElectron(), home = os.homedir(), env = process.env } = {}) {
-  if (packaged) return null;
+  if (packaged) return bakedTeam(appDir);
   if (runningAsAFreshUser(env) && !env.AGENTBOX_TEAM_CONFIG) return null;
   const tries = runningAsAFreshUser(env) ? [env.AGENTBOX_TEAM_CONFIG] : [
     env.AGENTBOX_TEAM_CONFIG,
@@ -88,6 +89,15 @@ export function loadCloudConfig(appDir, { packaged = isPackagedElectron(), home 
   return found;
 }
 
+function bakedTeam(appDir) {
+  try {
+    const b = JSON.parse(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')).bakedTeam;
+    if (typeof b?.url !== 'string' || typeof b.anonKey !== 'string') return null;
+    const site = typeof b.phoneSite === 'string' && /^https:\/\/[^\s/]+(\/\S*)?$/.test(b.phoneSite) ? { phoneSite: b.phoneSite } : {};
+    return { url: b.url, anonKey: b.anonKey, ...site };
+  } catch { return null; }
+}
+
 function fileStorage(file, { encrypt, decrypt }) {
   const read = () => {
     try {
@@ -106,7 +116,8 @@ function fileStorage(file, { encrypt, decrypt }) {
   return {
     getItem: (key) => read()[key] ?? null,
     setItem: (key, value) => { const d = read(); d[key] = value; write(d); },
-    removeItem: (key) => { const d = read(); delete d[key]; write(d); },
+    // Nothing to remove writes nothing, so a Mac never signed in never asks the keychain.
+    removeItem: (key) => { const d = read(); if (!(key in d)) return; delete d[key]; write(d); },
   };
 }
 
@@ -225,21 +236,49 @@ export function plainAuthError(message) {
   return m || 'That did not work. Try again.';
 }
 
-// WHERE THE HEADLESS APP KEEPS ITS SIGN-IN: in its own data folder, readable by
-// this user only, never in the store root. The store is the folder people
-// copy, sync and hand to agents, and this file holds a refresh token in plain
-// JSON (review, 2026-10-01). One left in the store by an older copy is moved.
-export function headlessSessionFile({ userDir, storeRoot }) {
-  const file = path.join(userDir, 'team-session.json');
-  const old = path.join(storeRoot, '.team-session');
+// THE SIGN-IN NEVER LANDS IN THE STORE ROOT. The store is in every worker's
+// granted directories, and this file holds a refresh token in plain JSON, so it
+// resolves to a path OUTSIDE the store. A dir inside the store moves to a
+// per-store folder under the config home; if even that is inside the store
+// there is nowhere safe and it throws, because writing the token where a worker
+// reads it is worse than a sign-in to do again. A copy an older version left in
+// the store, under either name, is carried across.
+const isInside = (file, root) => {
+  const f = path.resolve(file);
+  const r = path.resolve(root);
+  return f === r || f.startsWith(r + path.sep);
+};
+
+function configHome({ home, env }) {
+  const given = typeof env?.XDG_CONFIG_HOME === 'string' ? env.XDG_CONFIG_HOME.trim() : '';
+  return given && path.isAbsolute(given) ? given : path.join(home, '.config');
+}
+
+function sessionFileOutsideStore({ dir, name, storeRoot, home = os.homedir(), env = process.env }) {
+  let file = path.join(dir, name);
+  if (isInside(file, storeRoot)) {
+    const tag = crypto.createHash('sha256').update(path.resolve(storeRoot)).digest('hex').slice(0, 16);
+    file = path.join(configHome({ home, env }), nameSlug, 'sessions', tag, name);
+    if (isInside(file, storeRoot)) throw new Error(`no place outside the store root for the team session: ${storeRoot}`);
+  }
+  const olds = [path.join(storeRoot, '.team-session'), path.join(storeRoot, 'team-session.json')];
   try {
-    if (!fs.existsSync(file) && fs.existsSync(old)) {
-      fs.mkdirSync(userDir, { recursive: true });
-      fs.renameSync(old, file);
+    if (!fs.existsSync(file)) {
+      for (const old of olds) {
+        if (path.resolve(old) === path.resolve(file) || !fs.existsSync(old)) continue;
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.renameSync(old, file);
+        break;
+      }
     }
     if (fs.existsSync(file)) fs.chmodSync(file, 0o600);
   } catch { /* a session that cannot be moved is a sign-in to do again */ }
   return file;
+}
+
+// The headless app keeps its sign-in as plain JSON readable by this user only.
+export function headlessSessionFile({ userDir, storeRoot, home, env }) {
+  return sessionFileOutsideStore({ dir: userDir, name: 'team-session.json', storeRoot, home, env });
 }
 
 // The same session shape over the in-memory cloud, for tests.

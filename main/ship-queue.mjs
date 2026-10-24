@@ -22,10 +22,11 @@
 // cannot change the code that ships it. With no `ship.json`, nothing here does
 // anything at all.
 
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Name } from '../shared/product-name.mjs';
+import { SHIP_FAILED } from '../shared/not-shipped.mjs';
 
 export const SHIP_LABEL = 'ship';
 const SHIP_MS = 20 * 60 * 1000;
@@ -83,11 +84,16 @@ export const withoutShipLabel = (item) => labelsOf(item).filter((l) => l !== SHI
  * marking, and with a task folder to ship from. THE WINDOW READS THIS TOO
  * (w-0c1ba766eb): a row on this list is waiting on the app, not on a person,
  * so it is In progress and not Needs you until the queue has dealt with it.
+ *
+ * A CLOSED ROW STILL SHIPS, because a close is not a cancel. The window
+ * leaves closed rows out (`waitingIds`), so one stays in Done while it ships.
  */
+export const owedAShip = (item, handled = {}) => wantsShipping(item) && !(markedAt(item) <= (handled[keyOf(item)] ?? -1));
+
 export function waitingToShip(items, products, settings, { folderFor, handled = {} }) {
   const bySlug = new Map(products.map((p) => [p.slug, p]));
   return items
-    .filter((i) => wantsShipping(i) && i.status !== 'done' && !(markedAt(i) <= (handled[keyOf(i)] ?? -1)))
+    .filter((i) => owedAShip(i, handled))
     .map((item) => {
       const product = bySlug.get(item.product);
       const script = product ? shipScriptFor(product, settings) : null;
@@ -229,16 +235,35 @@ export function failureReply(output) {
 export function failureNote(output) {
   const { died, last, ...rest } = whyItDidNotShip(output);
   const said = died ? `${DIED}. It last said: ${last ?? 'nothing at all'}` : diagnosis(rest);
-  return `It did not ship, and it went back to its agent: ${said.slice(0, 300)}`;
+  return `${SHIP_FAILED}${said.slice(0, 300)}`;
 }
 
-export function runScript(script, cwd, { timeout = SHIP_MS, env = process.env } = {}) {
+/**
+ * The base checkout's hooks, read off the task folder's shared git dir. The
+ * ship runs with cwd = the task folder, whose core.hooksPath may be the
+ * relative 'scripts/hooks' resolving to the branch's own, worker-edited copy.
+ * Pinning the base copy here is what keeps the gate the branch cannot change.
+ */
+function baseHooksPath(cwd) {
+  return new Promise((resolve) => {
+    execFile('git', ['-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8', timeout: 10_000 }, (err, stdout) => {
+      const common = err ? '' : String(stdout).trim();
+      resolve(common ? path.resolve(common, '..', 'scripts', 'hooks') : null);
+    });
+  });
+}
+
+export async function runScript(script, cwd, { timeout = SHIP_MS, env = process.env } = {}) {
   const node = env.npm_node_execpath && fs.existsSync(env.npm_node_execpath) ? env.npm_node_execpath : 'node';
+  const hooks = await baseHooksPath(cwd);
+  const baseGate = hooks
+    ? { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: hooks }
+    : {};
   return new Promise((resolve) => {
     let out = '';
     let child;
     try {
-      child = spawn(node, [script], { cwd, env: { ...env, GIT_TERMINAL_PROMPT: '0' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(node, [script], { cwd, env: { ...env, GIT_TERMINAL_PROMPT: '0', ...baseGate }, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (e) {
       resolve({ code: 1, out: String(e?.message ?? e) });
       return;
@@ -284,7 +309,15 @@ export class ShipQueue {
     const settings = readShipSettings(this.userDir);
     if (!Object.keys(settings).length) return [];
     return waitingToShip(items, products, settings, { folderFor: this.folderFor, handled: readHandled(this.userDir) })
+      .filter(({ item }) => item.status !== 'done')
       .map(({ item }) => item.id);
+  }
+
+  /** Whether this row's folder must stay for a ship still to come. */
+  owes(item, products) {
+    const settings = readShipSettings(this.userDir);
+    if (!Object.keys(settings).length) return false;
+    return waitingToShip([item], products, settings, { folderFor: this.folderFor, handled: readHandled(this.userDir) }).length > 0;
   }
 
   async ship({ item, product, script, cwd }) {

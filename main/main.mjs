@@ -34,16 +34,18 @@ import * as approvals from './approvals.mjs';
 import { recoveryToast } from '../shared/recovery.mjs';
 import { dataFolderName, isNewUserBuild } from '../shared/side-build.mjs';
 import { runningAsAFreshUser } from '../shared/fresh-user-home.mjs';
+import { newUserWindow } from './new-user-window.mjs';
 import { openFreshUser } from './fresh-user.mjs';
 import { installCrashReports, reportFromRenderer, pending as pendingCrashes, setTransport } from './crash-report.mjs';
 import { createAnalytics, createDailyCount } from './analytics.mjs';
 import { createUpdater } from './updater.mjs';
-import { quitStep, flushBeforeQuit } from './quit-sequence.mjs';
+import { quitStep, flushBeforeQuit, quitThenExit } from './quit-sequence.mjs';
 import { createPlace } from '../shared/where-it-runs-from.mjs';
 import { createSourceUpdater } from './source-updater.mjs';
 import { learnShellDataDirs, recoverShellPath } from './shell-path.mjs';
 import { installNotifier } from './notify.mjs';
 import { createCornerTag } from './corner-tag.mjs';
+import { loadLiquidGlass } from './liquid-glass.mjs';
 import { createNeo } from './neo/index.mjs';
 import { fileReview } from './neo/review.mjs';
 import { DOC_SCHEMES, DocGrants, docPath } from './doc-scheme.mjs';
@@ -55,7 +57,7 @@ import { hotWindowVerdict, storeHasWork } from './dev-window.mjs';
 import { writeHeldThenReload } from './write-before-reload.mjs';
 import { IS_SHE_TYPING_IN_THE_PAGE, theAppKeepsThisInput, theAppKeepsThisLetterInAPage } from '../shared/artifact-keys.mjs';
 import { NAME, Name, WAS } from '../shared/product-name.mjs';
-import { JOIN_SCHEME, tokenFromLink } from '../shared/room-links.mjs';
+import { JOIN_SCHEME, ourLink, tokenFromLink } from '../shared/room-links.mjs';
 import { getMic } from './neo/mic.mjs';
 
 // HOW LONG TO WAIT AFTER THE LID OPENS, and the wait is for the network rather
@@ -250,14 +252,18 @@ let window = null;
 // Held until the window takes it ('zero:take-join'); a window that is up is
 // told to come and take it, and one still starting takes it as it mounts.
 let pendingJoin = tokenFromLink(process.argv.find((a) => a.startsWith(`${JOIN_SCHEME}://`)) ?? '');
+function showWindow() {
+  if (!window || window.isDestroyed()) return;
+  if (window.isMinimized()) window.restore();
+  window.focus();
+}
 function openJoinLink(url) {
   const token = tokenFromLink(url);
   if (!token) return;
   pendingJoin = token;
   if (window && !window.isDestroyed()) {
     window.webContents.send('zero:join-room');
-    if (window.isMinimized()) window.restore();
-    window.focus();
+    showWindow();
   }
 }
 // Set by ⌘R and read once by the renderer as it comes back up, so a reload can
@@ -377,7 +383,7 @@ async function createWindow() {
     analytics.track('app_opened');
     usedToday(Date.now());
   } else {
-    console.log(`zero: diagnostics is ${analytics.reason}, nothing is sent`);
+    console.log(`zero: diagnostics ${analytics.reason}, nothing is sent`);
   }
 
   // EVERYBODY HAS SOMEWHERE TO SEND A THREAD (w-f8d123be62, approved
@@ -424,13 +430,14 @@ async function createWindow() {
   const cloudConfig = loadCloudConfig(appDir, { packaged: app.isPackaged });
   let phoneApply = null;
   let phoneSettings = null;
+  // Every installed build has a cloud now, so the keychain is asked only once
+  // a sign-in is read or kept, not at launch.
   const team = cloudConfig ? createTeamService({
     session: supabaseSession({
       cloudConfig,
       sessionFile: path.join(config.storeRoot, '.team-session'),
-      ...(safeStorage.isEncryptionAvailable()
-        ? { encrypt: (text) => safeStorage.encryptString(text), decrypt: (buf) => safeStorage.decryptString(buf) }
-        : { encrypt: null, decrypt: null }),
+      encrypt: (text) => (safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(text) : Buffer.from(text, 'utf8')),
+      decrypt: (buf) => (safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8')),
       packaged: app.isPackaged,
       openExternal: (url) => shell.openExternal(url),
     }),
@@ -460,6 +467,17 @@ async function createWindow() {
       device: () => phoneDevice(userDir, config.storeRoot),
       // Where her phone reads it, once the site is up (cloud/team.config.json).
       site: typeof cloudConfig.phoneSite === 'string' ? cloudConfig.phoneSite : null,
+      // No alert on her phone while she is at this Mac (main/phone-alerts.mjs).
+      idleMs: () => powerMonitor.getSystemIdleTime() * 1000,
+      // A reply she sends with the lid shut carries on in the cloud (shared/cloud-kit.mjs).
+      carrying: (c) => supervisor.phoneCarrying(c),
+      kitsFor: (slug) => supervisor.leavesKitsFor(slug),
+      adopt: ({ project, item, runId, replies }) => supervisor.adoptCloudRun({ product: project, itemId: item, runId, replies }),
+      cloudReplies: ({ project, item, replies }) => supervisor.cloudRunReplies({ product: project, itemId: item, replies }),
+      runHome: ({ project, item, runId }) => supervisor.cloudRunHome({ product: project, itemId: item, runId }),
+      // And a new thread she starts with the lid shut.
+      newThreadKits: (c) => supervisor.leaveNewThreadKits(c),
+      adoptNew: ({ project, item, ...rest }) => supervisor.adoptCloudNewThread({ product: project, itemId: item, ...rest }),
     },
     // ROOMS, while switched on in Alpha features (docs/team/ROOMS-PLAN.md).
     rooms: roomsSetup({ config, store, supervisor, userDir }),
@@ -683,9 +701,18 @@ async function createWindow() {
   window = new BrowserWindow({
     width: 1440,
     height: 900,
-    minWidth: 980,
+    // Half of a 1440-point screen, so the window tiles; under 700 is the phone layout.
+    minWidth: 720,
     minHeight: 600,
-    title: NAME,
+    // A throwaway copy says which one it is and stands a shoulder clear;
+    // your own window is centred and titled as it was.
+    ...newUserWindow({
+      fresh: runningAsAFreshUser(),
+      name: NAME,
+      screen: electronScreen.getPrimaryDisplay()?.workArea,
+      width: 1440,
+      height: 900,
+    }),
     backgroundColor: '#1a1a1c',
     titleBarStyle: 'hiddenInset',
     webPreferences: {
@@ -695,6 +722,11 @@ async function createWindow() {
       webviewTag: true, // the inbox-zero browser
     },
   });
+
+  // Electron hands the window's title to the page's the moment one loads, and
+  // renderer/index.html carries the app's name, so a throwaway copy went back
+  // to saying "Agentbox" as soon as it drew anything.
+  window.on('page-title-updated', (e) => e.preventDefault());
 
   // THE MENU IS A BAR INSIDE THE WINDOW on Linux and Windows. On macOS it is
   // the system menu, so it stays. The menu itself stays everywhere: the Ctrl
@@ -981,13 +1013,22 @@ async function createWindow() {
   // a locked screen all read the same from in there). The renderer says what
   // arrived; main/notify.mjs decides. tell me when I am in another app, never
   // while I am in Agentbox.
-  installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage });
+  // A banner and the tray never disagree: whatever a banner told you about
+  // while you were away is in the tray until you are back (w-93b3a1a796).
+  let cornerTag = null;
+  const notifier = installNotifier({
+    app, window, Notification, powerMonitor, ipcMain, nativeImage,
+    onArrivals: (list, needsYou) => team?.phoneArrivals(list, needsYou),
+    onChange: () => cornerTag?.refresh(),
+  });
   // THE CORNER TAG (w-dafae58a23): what is ready for her, floating over
   // whatever app she is in. Its page is built beside the app's own, and comes
   // from the dev server only when the app's own page does.
-  createCornerTag({
+  cornerTag = createCornerTag({
     BrowserWindow, screen: electronScreen, ipcMain, Menu, powerMonitor, config, saveConfig, mainWindow: window,
     preload: path.join(appDir, 'main', 'corner-tag-preload.cjs'),
+    glass: loadLiquidGlass(),
+    told: () => notifier.told(),
     count: (name, props) => analytics.track(name, props),
     // `part` is the tag itself or the list beside it, one page drawn twice.
     load: (tagWindow, part) => {
@@ -1175,7 +1216,9 @@ async function createWindow() {
       } catch (err) {
         console.error('screenshot failed:', err.message);
       }
-      app.quit();
+      // The picture is taken, so the run is over whether the quit works or
+      // not. On Linux it did not, and the shell's `timeout` ended these runs.
+      quitThenExit(app, { what: 'the screenshot run' });
     }, Number(process.env.ZERO_SCREENSHOT_DELAY_MS ?? 2500));
   }
 
@@ -1201,7 +1244,8 @@ if (!app.requestSingleInstanceLock()) {
     const link = argv.find((a) => String(a).startsWith(`${JOIN_SCHEME}://`));
     if (link) openJoinLink(link);
   });
-  app.on('open-url', (e, url) => { e.preventDefault(); openJoinLink(url); });
+  // Stripe's last page links back on the app's scheme, which only needs the window.
+  app.on('open-url', (e, url) => { e.preventDefault(); if (ourLink(url)) showWindow(); openJoinLink(url); });
   app.whenReady().then(() => {
     // A from-source Linux launch keeps the launcher command installed. The
     // entry runs that command; this only refreshes where it points. A packaged

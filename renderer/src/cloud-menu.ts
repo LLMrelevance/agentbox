@@ -53,6 +53,8 @@ export interface CloudAccount {
   profile?: string | null;
   /** Why the cloud's last look at it failed, when no look has read it since. */
   readError?: string | null;
+  /** The one the cloud runs on (Supervisor#_cloudAccounts). */
+  inUse?: boolean;
 }
 
 export interface CloudStatus {
@@ -140,14 +142,13 @@ export const cloudIsOn = (status: OnOff) => !!status && status.mode !== 'mac';
 export const countedAccounts = (accounts: CloudAccount[]) => accounts.filter((a) => a.state !== 'duplicate');
 
 /**
- * THE ONE ACCOUNT THE CLOUD RUNS ON, which is `pickCloudLogin`'s rule read
- * from the screen's copy of the accounts (main/cloud/logins.mjs): the oldest
- * login of that engine that is still an account at all. A login that stopped
- * working is passed over; one at its usage limit is still the account, and the
- * cloud waits for it.
+ * THE ONE ACCOUNT THE CLOUD RUNS ON, as the app marks it. The rule is
+ * `pickCloudLogin`'s (main/cloud/logins.mjs) and it starts from this Mac's own
+ * account, which the screen's copy of the cloud accounts cannot see. One at
+ * its usage limit is still the account, and the cloud waits for it.
  */
 export const cloudAccountInUse = (accounts: CloudAccount[], engine: 'claude' | 'codex') =>
-  countedAccounts(accounts ?? []).find((a) => a.engine === engine && a.state !== 'broken') ?? null;
+  countedAccounts(accounts ?? []).find((a) => a.engine === engine && a.inUse) ?? null;
 
 /**
  * THE MENU'S LAST LINE: what runs in the cloud, or, while the cloud is on and

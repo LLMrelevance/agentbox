@@ -28,6 +28,14 @@ import { createRooms } from './rooms.mjs';
 // page can offer that link again rather than a button that does nothing.
 const EMPTY = { configured: false, started: false, signedIn: false, signingIn: null, me: null, team: null, invites: [], sent: [], people: [], cards: [], lastSyncAt: null, error: null };
 
+// With Alpha features › Multiplayer off the window gets the sign-in the phone
+// needs and no team, so it draws the single-person app.
+export function teamForWindow(state, multiplayer) {
+  if (multiplayer || !state) return state;
+  const { rooms, ...rest } = state;
+  return { ...rest, configured: false, team: null, invites: [], sent: [], people: [], cards: [] };
+}
+
 export function createTeamService({
   session, store, disk, accountRoot, stateFile, onChange = () => {}, log = () => {}, intervalMs = 5000, startRetryMs = 1500,
   // The clock, so a test can move past the moment a status runs out.
@@ -216,6 +224,15 @@ export function createTeamService({
       approvalsOf: () => phone.approvals?.() ?? [],
       readSettings: phone.readSettings ?? null,
       version: phone.version ?? '',
+      idleMs: phone.idleMs ?? null,
+      // The lid shut: projects whose threads carry on in the cloud, and runs it started (shared/cloud-kit.mjs).
+      carrying: phone.carrying ?? null,
+      kitsFor: phone.kitsFor ?? null,
+      adopt: phone.adopt ?? null,
+      cloudReplies: phone.cloudReplies ?? null,
+      runHome: phone.runHome ?? null,
+      newThreadKits: phone.newThreadKits ?? null,
+      adoptNew: phone.adoptNew ?? null,
       // One file per person: what this Mac sent up for one account is not
       // what the next one to sign in here has.
       stateFile: phone.stateFile.replace(/(\.json)?$/, `.${owner}.json`),
@@ -268,6 +285,8 @@ export function createTeamService({
   return {
     state: () => (rooms ? { ...state, rooms: rooms.state() } : state),
     rooms,
+    /** What the desktop's banner was told arrived, for her phone's alerts (main/phone-alerts.mjs). */
+    phoneArrivals: (list, needsYou) => phoneInbox?.arrivals(list, needsYou),
 
     // THREE TRIES AT START, because one dropped request left the app signed
     // out until it was restarted (measured 2026-10-01 on a loaded Mac: the

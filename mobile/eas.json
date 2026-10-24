@@ -1,7 +1,12 @@
 {
-  "cli": { "version": ">= 16.0.0", "appVersionSource": "remote" },
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
   "build": {
-    "base": { "node": "22.14.0" },
+    "base": {
+      "node": "22.14.0"
+    },
     "development": {
       "extends": "base",
       "developmentClient": true,
@@ -10,8 +15,15 @@
     "production": {
       "extends": "base",
       "distribution": "store",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "environment": "production"
     }
   },
-  "submit": { "production": {} }
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "6826402748"
+      }
+    }
+  }
 }

@@ -37,16 +37,13 @@ import os from 'node:os';
 import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, hideSecrets, bytesOf, phoneChoices, phoneApproval, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
 import { phoneSettingsOf, settingRoute } from '../shared/phone-settings.mjs';
 import { createPhoneUploads, UPLOAD_LIMITS } from './phone-uploads.mjs';
-import { saveAttachments } from './save-attachments.mjs';
+import { createPhoneAlerts } from './phone-alerts.mjs';
+import { PHONE_FILES_MAX, phoneFilesIn, phoneFileSafeName, phoneAttachmentRel } from '../shared/phone-files.mjs';
+import { runOfClaim, cloudCard } from '../shared/cloud-kit.mjs';
 
-// A file her phone sent with a reply or a new thread: put in her storage, in
-// this computer's folder, named by what is in it (renderer/src/cloud-bridge.ts).
-const PHONE_FILE = /(!?)\[([^\]\n]*)\]\(phone-files\/([0-9a-f]{64}\.[a-z0-9]{1,8})\)/g;
-const PHONE_FILES_MAX = 10;
+// A file her phone sent with a reply or a new thread (shared/phone-files.mjs).
+export { phoneFilesIn };
 const HEARTBEAT_MS = 5 * 60_000;
-export function phoneFilesIn(text) {
-  return [...String(text ?? '').matchAll(PHONE_FILE)].map((m) => ({ link: m[0], picture: m[1] === '!', label: m[2], name: m[3] }));
-}
 class Refused extends Error {}
 
 // How long a thread started on the phone is remembered as the row it became:
@@ -60,6 +57,11 @@ const RETRY_MS = [60_000, 5 * 60_000, 30 * 60_000, 3600_000];
 const STEP_EVERY_MS = 30_000;
 const STILL_RUNNING_MS = 2 * 60_000;
 const SWEEP_EVERY_MS = 3600_000;
+// How far back a computer looks for runs the cloud started for it, and how
+// long it remembers one it made its own: past the bucket's week of results.
+const ADOPT_WITHIN_MS = 7 * 24 * 3600_000;
+const ADOPTED_KEPT_MS = 8 * 24 * 3600_000;
+const ADOPT_TRIES = 3;
 // Reading the settings parses Codex's model cache (199KB) on a Mac with both agents.
 const SETTINGS_EVERY_MS = 60_000;
 
@@ -92,6 +94,26 @@ export function createPhoneInbox({
   version = '',
   // This computer as her phone names it.
   name = os.hostname().replace(/\.local$/i, ''),
+  // How long since she last touched this Mac; none sends no alerts (main/phone-alerts.mjs).
+  idleMs = null,
+  // How an alert reaches Expo; a test stands in for it.
+  sendPush,
+  // THE PHONE WITH THE LID SHUT (shared/cloud-kit.mjs). Told which projects
+  // are on her phone each pass; asked whether this computer leaves its
+  // threads ready for the cloud (said on the project); and handed each run
+  // the cloud server started for a reply, to make it the thread's own
+  // (Supervisor#adoptCloudRun): 'adopted', 'no-kit' or 'busy'.
+  carrying = null,
+  kitsFor = null,
+  adopt = null,
+  // A reply the server fed a run after this computer took it; whether that run is home.
+  cloudReplies = null,
+  runHome = null,
+  // A NEW THREAD the cloud started from the phone with the lid shut: asked
+  // each pass to keep the projects' new-thread kits, and handed each such run
+  // to make its row and folder and join it (Supervisor#adoptCloudNewThread).
+  newThreadKits = null,
+  adoptNew = null,
 }) {
   const state = readState(stateFile);
   const save = () => writeState(stateFile, state);
@@ -114,6 +136,7 @@ export function createPhoneInbox({
   const still = () => { if (!alive()) throw new SignedOut('signed out'); };
   // The files threads name, when this cloud can hold them (main/phone-uploads.mjs).
   const uploads = backend.putPhoneFile ? createPhoneUploads({ backend, owner, device, alive, state, save, home, now, log }) : null;
+  const alerts = idleMs && backend.pushDevices ? createPhoneAlerts({ backend, owner, device, state, save, now, log, idleMs, send: sendPush, still }) : null;
   let swept = 0;
   const homeWritten = (p) => (p && home && (p === home || p.startsWith(`${home}/`)) ? `~${p.slice(home.length)}` : p ?? null);
 
@@ -153,18 +176,23 @@ export function createPhoneInbox({
   async function publish() {
     let sent = 0;
     const chosen = projects();
+    try { carrying?.({ device, slugs: chosen.map((p) => p.slug) }); } catch { /* the supervisor's trouble, not the phone's */ }
+    try { newThreadKits?.({ device, slugs: chosen.map((p) => p.slug) }); } catch { /* the supervisor's trouble, not the phone's */ }
     let asks = [];
     try { asks = approvalsOf() ?? []; } catch { /* the cards' trouble, not the phone's */ }
     const known = new Set(chosen.map((p) => p.slug));
     for (const p of chosen) {
       await breathe();
       const key = `project:${p.slug}`;
+      let cloud = false;
+      try { cloud = !!kitsFor?.(p.slug); } catch { /* says no */ }
+      const said = cloud ? `${p.name}\0cloud` : p.name;
       // Written again every few minutes unchanged: its moment is how the phone knows this Mac is still here.
-      if (state.sent[key] !== p.name || !(now() - (beats.get(key) ?? -Infinity) < HEARTBEAT_MS)) {
+      if (state.sent[key] !== said || !(now() - (beats.get(key) ?? -Infinity) < HEARTBEAT_MS)) {
         still();
-        await backend.putPhoneProject({ owner, device, project: p.slug, name: p.name });
+        await backend.putPhoneProject({ owner, device, project: p.slug, name: p.name, ...(kitsFor ? { cloud } : {}) });
         beats.set(key, now());
-        if (state.sent[key] !== p.name) { state.sent[key] = p.name; save(); }
+        if (state.sent[key] !== said) { state.sent[key] = said; save(); }
       }
       const rows = threadsWorthCarrying(listItems(p.slug), { now: now() });
       const batch = [];
@@ -204,7 +232,7 @@ export function createPhoneInbox({
       if (gone.length) {
         still();
         await backend.dropPhoneThreads(device, p.slug, gone.map((k) => k.slice(p.slug.length + 1)), owner);
-        for (const k of gone) { delete state.sent[k]; delete state.failed[k]; built.delete(k); }
+        for (const k of gone) { delete state.sent[k]; delete state.failed[k]; delete state.alerted[k]; built.delete(k); }
         save();
       }
     }
@@ -301,8 +329,12 @@ export function createPhoneInbox({
       if (!data) throw new Refused('a file from your phone did not reach this computer');
       const hash = crypto.createHash('sha256').update(data).digest('hex');
       if (data.length > UPLOAD_LIMITS.fileBytes || f.name !== `${hash}${f.name.slice(64)}`) throw new Refused('a file from your phone was not the one it was sent as');
-      const [saved] = saveAttachments(dir, [{ name: f.label.trim() || f.name, dataBase64: data.toString('base64') }]);
-      out = out.replace(f.link, () => `${f.picture ? '!' : ''}[${saved.name}](${saved.rel})`);
+      // Where the cloud server puts the same file for a turn it runs, so both link one.
+      const rel = phoneAttachmentRel(f);
+      const abs = path.join(dir, rel);
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      if (!fs.existsSync(abs) || fs.statSync(abs).size !== data.length) fs.writeFileSync(abs, data);
+      out = out.replace(f.link, () => `${f.picture ? '!' : ''}[${phoneFileSafeName(f)}](${rel})`);
       // The same file the uploader would send for the thread, already there.
       if (uploads) { state.uploaded[f.name] = { bytes: data.length, named: now() }; save(); }
     }
@@ -326,6 +358,10 @@ export function createPhoneInbox({
     let changedSettings = false;
     for (const cmd of waiting) {
       still();
+      // The cloud started this one with the lid shut; it is joined, never done again (`adoptCloudRuns`).
+      if (cmd.claimedBy) continue;
+      // Her answer to a card the cloud put on the phone is the cloud server's to give (cloud/gateway/phone.mjs).
+      if (cmd.kind === 'approve' && cloudCard(cmd.payload?.approval)) continue;
       let outcome = state.done[cmd.id];
       if (!outcome) {
         // A reply to a thread started on the phone goes to the row it became.
@@ -337,8 +373,8 @@ export function createPhoneInbox({
           // Claimed in the cloud first: after this the phone cannot take it
           // back, and if she already did, it is not done (third review, 3).
           const claim = await backend.claimPhoneCommand(cmd.id, owner);
-          const already = claim === 'gone' ? null : state.doing[cmd.id] || claim === 'ours' ? landed(resolved, item) : null;
-          if (claim === 'gone') {
+          const already = claim === 'gone' || claim === 'cloud' ? null : state.doing[cmd.id] || claim === 'ours' ? landed(resolved, item) : null;
+          if (claim === 'gone' || claim === 'cloud') {
             delete state.doing[cmd.id];
             save();
             continue;
@@ -384,17 +420,128 @@ export function createPhoneInbox({
     return { taken, changedSettings };
   }
 
+  // RUNS THE CLOUD STARTED WHILE THIS COMPUTER WAS SHUT, made the threads'
+  // own once each, with every reply the run took (a run stays open for her
+  // follow-ups, so several commands share one claim): her replies go on the
+  // row in order and the run is joined or brought home
+  // (Supervisor#adoptCloudRun). A reply the server fed it after that goes on
+  // the row too. Its commands are marked taken once it is home. A run that
+  // cannot be made its own after a few tries is said once and let go.
+  const adoptTrouble = new Set();
+  const sayOnce = (kind, line) => { if (!adoptTrouble.has(kind)) log(line); adoptTrouble.add(kind); };
+  async function adoptCloudRuns() {
+    if (!adopt || !backend.cloudPhoneCommands) return 0;
+    still();
+    const claimed = (await backend.cloudPhoneCommands(device, new Date(now() - ADOPT_WITHIN_MS).toISOString()))
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+    const runs = new Map();
+    for (const cmd of claimed) {
+      const runId = runOfClaim(cmd.claimedBy);
+      if (!runId) continue;
+      if (!runs.has(runId)) runs.set(runId, []);
+      runs.get(runId).push(cmd);
+    }
+    let n = 0;
+    for (const [runId, cmds] of runs) {
+      still();
+      const rec = state.adopted[runId] ?? { at: now(), tries: 0, placed: [], marked: [] };
+      if (rec.over) continue;
+      const first = cmds[0];
+      const project = first.project;
+      // A run the cloud started for a new thread runs under the id the phone gave it.
+      const started = first.kind === 'new' ? first : null;
+      const item = started ? madeHere(started.id) : first.item && state.made[first.item] ? state.made[first.item].id : first.item;
+      const fresh = cmds.filter((c) => c.kind === 'reply' && !rec.placed.includes(c.id));
+      const replies = [];
+      for (const c of fresh) {
+        let text = typeof c.payload?.text === 'string' ? c.payload.text : '';
+        try { text = (await withPhoneFiles({ ...c, item })).payload.text; } catch (err) { if (err instanceof SignedOut) throw err; }
+        replies.push(text);
+      }
+      if (!rec.done) {
+        let out = 'not-a-reply';
+        if (started && adoptNew) {
+          const p = started.payload ?? {};
+          const title = String(p.title ?? '').trim() || String(p.body ?? '').trim().split('\n')[0].slice(0, 200);
+          // Its files saved here where the cloud put them, so the row links them.
+          let body = String(p.body ?? '');
+          try { body = (await withPhoneFiles({ ...started, kind: 'new' })).payload.body ?? body; } catch (err) { if (err instanceof SignedOut) throw err; }
+          try { out = await adoptNew({ project, item, runId, title, body, command: started.id, replies, choices: phoneChoices('new', p) }); } catch (err) {
+            out = 'failed';
+            sayOnce(`adopt:${err?.message}`, `phone: could not take in the new thread the cloud started (${item}): ${err?.message ?? err}`);
+          }
+        } else if (item && fresh.length) {
+          try { out = await adopt({ project, item, runId, replies, commands: fresh.map((c) => c.id) }); } catch (err) {
+            out = 'failed';
+            sayOnce(`adopt:${err?.message}`, `phone: could not join the cloud's run for ${item}: ${err?.message ?? err}`);
+          }
+        }
+        if (out === 'busy') { sayOnce(`busy:${runId}`, `phone: the cloud's run for ${item} waits for other cloud work to come home first`); continue; }
+        rec.tries += 1;
+        if (out === 'failed' && rec.tries < ADOPT_TRIES) { state.adopted[runId] = rec; save(); continue; }
+        if (out === 'no-kit') sayOnce(`kit:${runId}`, `phone: no kit here for ${item}, so her reply runs on this computer`);
+        Object.assign(rec, { at: now(), done: true, home: out !== 'adopted' });
+        rec.placed.push(...fresh.map((c) => c.id));
+        n += 1;
+      } else if (fresh.length && item) {
+        try { await cloudReplies?.({ project, item, runId, replies }); } catch (err) { sayOnce(`late:${runId}`, `phone: could not put a late reply on ${item}: ${err?.message ?? err}`); }
+        rec.placed.push(...fresh.map((c) => c.id));
+      }
+      if (!rec.home) {
+        try { rec.home = !runHome || !!runHome({ project, item, runId }); } catch { rec.home = false; }
+      }
+      if (rec.home) {
+        for (const c of cmds) {
+          if (c.takenAt || rec.marked.includes(c.id)) continue;
+          try { still(); await backend.markPhoneCommand(c.id, 'done', owner); rec.marked.push(c.id); } catch (err) { if (err instanceof SignedOut) throw err; sayOnce('mark', `phone: could not mark a cloud reply taken: ${err?.message ?? err}`); }
+        }
+        if (cmds.every((c) => c.takenAt || rec.marked.includes(c.id))) rec.over = true;
+      }
+      state.adopted[runId] = rec;
+      save();
+    }
+    for (const [k, v] of Object.entries(state.adopted)) if (!(now() - (v?.at ?? 0) < ADOPTED_KEPT_MS)) delete state.adopted[k];
+    return n;
+  }
+
+  // A thread's row when its copy is on the phone, each project read once a pass.
+  let alertTrouble = null;
+  const carriedNow = () => {
+    const rowsOf = new Map();
+    return (slug, id) => {
+      if (!state.sent[`${slug}:${id}`]) return null;
+      if (!rowsOf.has(slug)) rowsOf.set(slug, new Map(listItems(slug).map((i) => [i.id, i])));
+      return rowsOf.get(slug).get(id) ?? null;
+    };
+  };
+
   return {
     device,
     /** The uploads going on behind the passes; a test waits on them. */
     filesSettled: () => uploads?.kick() ?? Promise.resolve(),
+    /** What the desktop's banner was told arrived (main/notify.mjs), and the inbox then: [{ id, product }]. */
+    arrivals: (list, needsYou) => alerts?.arrived(list, needsYou),
     async syncOnce() {
       try {
         const { taken, changedSettings } = await takeCommands();
+        let adopted = 0;
+        try { adopted = await adoptCloudRuns(); } catch (err) {
+          if (err instanceof SignedOut) throw err;
+          sayOnce(`read:${err?.message}`, `phone: could not read what the cloud took: ${err?.message ?? err}`);
+        }
         const sent = await publish();
         await publishSettings(changedSettings);
-        if (taken || sent) log(`phone: took ${taken}, sent ${sent}`);
-        return { taken, sent };
+        if (alerts) {
+          if (taken) alerts.phoneUsed();
+          try { await alerts.pass(carriedNow()); alertTrouble = null; } catch (err) {
+            if (err instanceof SignedOut) throw err;
+            const line = `phone: could not alert: ${err?.message ?? err}`;
+            if (line !== alertTrouble) log(line);
+            alertTrouble = line;
+          }
+        }
+        if (taken || sent || adopted) log(`phone: took ${taken}, sent ${sent}${adopted ? `, joined ${adopted} from the cloud` : ''}`);
+        return { taken, sent, adopted };
       } catch (err) {
         if (err instanceof SignedOut) return { taken: 0, sent: 0, stopped: true };
         throw err;
@@ -464,9 +611,9 @@ function readState(file) {
     const s = JSON.parse(fs.readFileSync(file, 'utf8'));
     const made = {};
     for (const [k, v] of Object.entries(s.made || {})) made[k] = typeof v === 'string' ? { id: v, at: Date.now() } : v;
-    return { device: typeof s.device === 'string' && /^[0-9a-f]{12}$/.test(s.device) ? s.device : null, forDevice: s.forDevice ?? null, sent: s.sent || {}, failed: s.failed || {}, done: s.done || {}, doing: s.doing || {}, made, uploaded: s.uploaded && typeof s.uploaded === 'object' ? s.uploaded : {} };
+    return { device: typeof s.device === 'string' && /^[0-9a-f]{12}$/.test(s.device) ? s.device : null, forDevice: s.forDevice ?? null, sent: s.sent || {}, failed: s.failed || {}, done: s.done || {}, doing: s.doing || {}, made, uploaded: s.uploaded && typeof s.uploaded === 'object' ? s.uploaded : {}, alerted: s.alerted && typeof s.alerted === 'object' ? s.alerted : {}, adopted: s.adopted && typeof s.adopted === 'object' ? s.adopted : {} };
   } catch {
-    return { device: null, forDevice: null, sent: {}, failed: {}, done: {}, doing: {}, made: {}, uploaded: {} };
+    return { device: null, forDevice: null, sent: {}, failed: {}, done: {}, doing: {}, made: {}, uploaded: {}, alerted: {}, adopted: {} };
   }
 }
 

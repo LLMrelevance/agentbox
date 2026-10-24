@@ -42,7 +42,7 @@ npx agentbox-app
 
 It starts on your machine and opens a tab. On Linux that open goes through `xdg-open`. Nothing is hosted: it listens only on `127.0.0.1`, and the address carries a key that is new every run. Add `--help` to see the options. `--no-open` prints the address and leaves the browser to you.
 
-From a checkout, build the screen once, then start it the same way:
+From a checkout, build the screen once, then start it the same way. The install links the checkout's own command, so `npx` runs this copy rather than looking for `agentbox` on your PATH:
 
 ```
 npm install
@@ -59,7 +59,9 @@ npm install
 npm start
 ```
 
-On Linux, `npm install` puts `agentbox` on `~/.local/bin` and adds the app to the launcher. The entry is `$XDG_DATA_HOME/applications/agentbox.desktop` (`~/.local/share/applications` when that variable is unset), and it runs `agentbox`. That command starts this checkout. Open the app from the launcher.
+On Linux, `npm install` puts `agentbox` on `~/.local/bin` and adds the app to the launcher. The entry is `$XDG_DATA_HOME/applications/agentbox.desktop` (`~/.local/share/applications` when that variable is unset), and it runs `agentbox`. That command starts this checkout, and it is written before Electron has downloaded its binary, so the first launch off the launcher does that download. Open the app from the launcher.
+
+Two of this repo's dependencies need an install script to work: `node-pty`, which is the terminal, and `esbuild`. `package.json` names them in `allowScripts`, by name rather than pinned to a version, so a dependency bump does not need re-approving. `electron-winstaller` is denied there: it is only for packing a Windows installer, which this repo does not do. npm 11 and newer print anything in neither list on every install, and `npm approve-scripts --allow-scripts-pending` lists them.
 
 `npm start` builds the app and opens it. On first run it walks you through connecting Claude Code or Codex and choosing a folder to work in.
 
@@ -333,7 +335,7 @@ or `?engines=codex` give two.
 
 To open the app as somebody who has never seen it, with its own throwaway home
 and nothing of yours inside it, press `⌘K` or `Ctrl+K` and choose "Open Agentbox as a new
-user". `npm run fresh` does the same from a terminal. `ZERO_NO_SUPERVISOR=1` applies to `npm start` and to `npx agentbox-app`.
+user". `npm run fresh` does the same from a terminal: a packaged app when there is one, this checkout through Electron when there is not, which is the way in on Linux. `ZERO_NO_SUPERVISOR=1` applies to `npm start` and to `npx agentbox-app`.
 
 The app is named in exactly one place, `shared/product-name.mjs`. Change it
 there and run `node scripts/product-name.mjs --write`, and everything else

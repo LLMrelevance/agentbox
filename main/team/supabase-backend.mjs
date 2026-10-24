@@ -21,10 +21,25 @@ function must({ data, error }, what) {
 }
 
 const COMMAND_COLUMNS = 'id,owner,device,project,item,kind,payload,created_at,claimed_at,taken_at,outcome';
-const commandOut = (r) => ({ id: r.id, owner: r.owner, device: r.device, project: r.project, item: r.item, kind: r.kind, payload: r.payload ?? {}, createdAt: r.created_at, claimedAt: r.claimed_at ?? null, takenAt: r.taken_at ?? null, outcome: r.outcome ?? null });
+// Who claimed (`cloud:<run>`, 20261026000000_phone_carries_on_in_the_cloud.sql),
+// asked for only once the database has the column, so a computer that runs
+// before the migration is applied still reads its phone.
+const CLOUD_COLUMNS = `${COMMAND_COLUMNS},claimed_by`;
+const noCloudColumn = (error) => /claimed_by|column .*cloud|cloud.* column/i.test(String(error?.message ?? ''));
+const commandOut = (r) => ({ id: r.id, owner: r.owner, device: r.device, project: r.project, item: r.item, kind: r.kind, payload: r.payload ?? {}, createdAt: r.created_at, claimedAt: r.claimed_at ?? null, claimedBy: r.claimed_by ?? null, takenAt: r.taken_at ?? null, outcome: r.outcome ?? null });
 
 export function supabaseBackend(client) {
   let personId = null;
+  // Whether the database has the cloud's columns yet; the first refusal says not.
+  let cloudColumns = true;
+  const commandsWith = async (query, base = COMMAND_COLUMNS) => {
+    if (cloudColumns) {
+      const out = await query(`${base},claimed_by`);
+      if (!out.error || !noCloudColumn(out.error)) return out;
+      cloudColumns = false;
+    }
+    return query(base);
+  };
   async function myId() {
     if (personId) return personId;
     const { data, error } = await client.auth.getUser();
@@ -248,9 +263,13 @@ export function supabaseBackend(client) {
     // Each write names who it is for, so a write begun before a sign-out
     // that lands after somebody else signed in is refused by the database
     // (`owner = auth.uid()`) rather than written into their account.
-    async putPhoneProject({ owner, device, project, name }) {
+    async putPhoneProject({ owner, device, project, name, cloud }) {
       await myId();
-      must(await client.from('phone_projects').upsert({ ...(owner ? { owner } : {}), device, project, name, updated_at: new Date().toISOString() }, { onConflict: 'owner,device,project' }), 'putting a project on your phone');
+      const row = { ...(owner ? { owner } : {}), device, project, name, updated_at: new Date().toISOString() };
+      const put = (r) => client.from('phone_projects').upsert(r, { onConflict: 'owner,device,project' });
+      let out = cloud === undefined || !cloudColumns ? await put(row) : await put({ ...row, cloud: !!cloud });
+      if (out.error && cloud !== undefined && cloudColumns && noCloudColumn(out.error)) { cloudColumns = false; out = await put(row); }
+      must(out, 'putting a project on your phone');
     },
     async dropPhoneProject(device, project, owner) {
       const me = await myId();
@@ -317,6 +336,20 @@ export function supabaseBackend(client) {
       const rows = must(await client.from('phone_settings').select('owner,device,name,settings,updated_at').order('updated_at', { ascending: false }), 'reading your computer\'s settings');
       return (rows ?? []).filter((r) => r.owner === me).map((r) => ({ owner: r.owner, device: r.device, name: r.name, settings: r.settings, updatedAt: Date.parse(r.updated_at) }));
     },
+    // The phones her alerts go to (20261025000000_push_devices.sql). The phone writes its own row; this is for tests.
+    async putPushDevice({ token, platform, appVersion = null }) {
+      await myId();
+      must(await client.from('push_devices').upsert({ token, platform, app_version: appVersion, updated_at: new Date().toISOString() }, { onConflict: 'owner,token' }), 'turning on alerts');
+    },
+    async pushDevices(owner) {
+      const me = await myId();
+      const rows = must(await client.from('push_devices').select('owner,token,platform,app_version,updated_at').eq('owner', owner ?? me), 'reading the phones to alert');
+      return (rows ?? []).map((r) => ({ owner: r.owner, token: r.token, platform: r.platform, appVersion: r.app_version ?? null, updatedAt: Date.parse(r.updated_at) }));
+    },
+    async dropPushDevice(token, owner) {
+      const me = await myId();
+      must(await client.from('push_devices').delete().eq('owner', owner ?? me).eq('token', token), 'forgetting a phone');
+    },
     async addPhoneCommand({ device, project = null, item = null, kind, payload = {} }) {
       await myId();
       const row = must(await client.from('phone_commands').insert({ device, project, item, kind, payload }).select(COMMAND_COLUMNS).single(), 'sending that to your computer');
@@ -332,10 +365,19 @@ export function supabaseBackend(client) {
       await myId();
       const out = [];
       for (let from = 0; ; from += 200) {
-        const rows = must(await client.from('phone_commands').select(COMMAND_COLUMNS).eq('device', device).is('taken_at', null).order('created_at', { ascending: true }).range(from, from + 199), 'reading what your phone sent');
+        const rows = must(await commandsWith((cols) => client.from('phone_commands').select(cols).eq('device', device).is('taken_at', null).order('created_at', { ascending: true }).range(from, from + 199)), 'reading what your phone sent');
         out.push(...(rows ?? []).map(commandOut));
         if (!rows || rows.length < 200) return out;
       }
+    },
+    // This computer's commands the cloud claimed since `since`, taken or not,
+    // so a computer waking up joins the runs it started (Supervisor#adoptCloudRun).
+    async cloudPhoneCommands(device, since) {
+      await myId();
+      if (!cloudColumns) return [];
+      const out = await client.from('phone_commands').select(CLOUD_COLUMNS).eq('device', device).not('claimed_by', 'is', null).gte('created_at', since).order('created_at', { ascending: true }).limit(200);
+      if (out.error && noCloudColumn(out.error)) { cloudColumns = false; return []; }
+      return (must(out, 'reading what the cloud took from your phone') ?? []).map(commandOut);
     },
     // THE COMPUTER CLAIMS ONE BEFORE IT DOES IT; the phone takes one back only
     // while nobody has (renderer/src/cloud-bridge.ts). The database lets one win.
@@ -344,7 +386,9 @@ export function supabaseBackend(client) {
       const who = owner ?? me;
       const won = must(await client.from('phone_commands').update({ claimed_at: new Date().toISOString() }).eq('id', id).eq('owner', who).is('taken_at', null).is('claimed_at', null).select('id'), 'starting what your phone sent');
       if (won?.length) return 'claimed';
-      const row = must(await client.from('phone_commands').select('taken_at,claimed_at').eq('id', id).eq('owner', who).maybeSingle(), 'reading what your phone sent');
+      const row = must(await commandsWith((cols) => client.from('phone_commands').select(cols).eq('id', id).eq('owner', who).maybeSingle(), 'taken_at,claimed_at'), 'reading what your phone sent');
+      // The cloud's claim is the cloud's run: never done here as if it were ours.
+      if (row?.claimed_by) return 'cloud';
       return row && !row.taken_at && row.claimed_at ? 'ours' : 'gone';
     },
     async markPhoneCommand(id, outcome, owner) {

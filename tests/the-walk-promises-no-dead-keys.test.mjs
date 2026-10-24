@@ -262,7 +262,7 @@ describe('the coaching card promises no dead key either', () => {
     // (hers: "it's actually R to reply"). The app answers R in an open thread.
     const said = [...new Set([...keys, ...tourKeys])];
     expect(said.sort()).toEqual(['1', 'N', 'E', 'L', 'B', 'R', '↵', '⌘K', '⌘↵', '⇥'].sort());
-    expect(app).toContain("else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setModal('reply'); }");
+    expect(app).toContain("else if (e.key === \'r\' || e.key === \'R\') { e.preventDefault(); setModal(\'reply\'); if (modal === \'reply\') focusTheReplyBox(); }");
   });
 
   it('B flips the inbox to the board, which is what the board beat says', () => {
@@ -314,7 +314,12 @@ describe('the coaching card promises no dead key either', () => {
     // (shared/first-run-practice.mjs) and a digit on a focused row picks AND
     // sends. If this ever became select-then-Enter the card would be promising
     // one key for a two-key move.
-    expect(app).toMatch(/\/\^\[1-9\]\$\/\.test\(e\.key\)\) \{ e\.preventDefault\(\); pickOption\(focused, Number\(e\.key\)\); \}/);
+    // IT MAY BE HELD AND IT MAY NOT BECOME TWO KEYS. The branch holds the key
+    // for 800ms after the app itself puts a new thread in front of you
+    // (renderer/src/pick-settles.ts, F-31), which the walk never does: it opens
+    // its own row. Anywhere else the press still picks AND sends.
+    expect(app).toMatch(/\/\^\[1-9\]\$\/\.test\(e\.key\)\) \{[\s\S]{0,400}pickOption\(focused, Number\(e\.key\)\);/);
+    expect(app).not.toMatch(/\/\^\[1-9\]\$\/\.test\(e\.key\)\) \{[\s\S]{0,400}setOptionSel\(/);
   });
 
   // N, which beat four says. C was its twin until it turned to the cloud

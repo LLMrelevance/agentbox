@@ -118,6 +118,13 @@ reviewers sometimes test there.
 
 ## Alerts (PHONE-PLAN step 3)
 
+The first version is sent by the Mac (2026-10-23, main/phone-alerts.mjs): the
+phone leaves its token in `push_devices`, and the Mac's phone pass sends the
+desktop banner's arrivals to it through Expo, by the desktop's rules, with no
+words of a thread in it. It reaches the phone only while that Mac is on and
+signed in. Everything else in this section, `push_outbox`, the server's rule
+and the Edge Function, is still to build.
+
 - `push_devices`: owner, platform, Expo push token, app version, last seen.
   Owner-only.
 - `push_outbox`: owner, a dedupe key, the thread, created and sent times, and
@@ -253,7 +260,7 @@ email or by a public link.
    the app config once the encryption it uses has been checked
    (`ITSAppUsesNonExemptEncryption: false` if it is HTTPS only); the review
    notes and two review accounts. Apple: "On average, 90% of submissions are
-   reviewed in less than 24 hours." Plan for one rejection round.
+   reviewed in less than 24 hours." Its current page (2026-10-23) targets 50% within 24 hours and 90% within 48. Plan for one rejection round. Expedited review is for critical fixes or an event the app is part of, not a launch date we chose.
 8. **Android.** Play Console costs $25 once. A personal account made after 13
    November 2023 must run a closed test with 12 testers for 14 days before it
    can publish; an organization account is exempt. Android teammates can use
@@ -269,13 +276,15 @@ is asleep.
 |---|---|---|
 | 5.1.1(v) deletion | The account is deleted but what the person shared stays. | Deletion takes what they wrote with it, shared or not (Sign-in and accounts). Apple tokens revoked. |
 | 1.2 user content | People message each other with no filter, report, block or contact. | A filter for objectionable text, report a message, block a person (enforced by the server, not only hidden on the phone), a contact address, and a queue of reports that somebody answers within a day. Messages going only between invited teammates is no exemption. |
-| 2.1 completeness | The reviewer signs in, replies, and nothing answers, because no Mac is paired or the stand-in is asleep. | Two review accounts (the second for People) and a stand-in computer in the cloud running the real command path: the reviewer starts a thread, replies, gets a result, opens its files and uses every control the build ships. It stays up through re-reviews, not only the expected review day. The notes explain the desktop app and that commands wait for a computer. The accounts never expire. |
+| 2.1 completeness | The reviewer signs in, replies, and nothing answers, because no Mac is paired or it is asleep. | A review account on a cloud plan whose threads have kits, so a reply is answered by Agentbox Cloud with no computer awake (docs/cloud/PHONE-PLAN.md step 2). The reviewer replies, gets a result and an alert, and opens its files. The notes explain the desktop app, that the cloud carries replies while the computer is shut, and where the AI notice and Delete account are. The account never expires and its threads are kept fresh (a kit lasts six days). Over 40% of unresolved issues are 2.1 (Apple, 2026); link a short film of the desktop pairing. |
 | 4.8 sign-in | Google sign-in with no equivalent private option. | Sign in with Apple, which meets the rule; Apple does not require it of every app. |
 | 5.1.1(i) privacy policy | No privacy policy, or one that says nothing is hosted. | w-7a670f07bb, linked in the listing and in Settings. |
 | 5.1.2(i) AI data | Personal data sent to third-party AI without explicit permission. | Before anything is sent, a screen names the provider (Claude by Anthropic, or Codex by OpenAI, on your own account) and what goes to it. An explicit Continue, recorded. Withdrawing it in Settings is checked when a command runs, queued ones included. The privacy policy names both. |
 | 4.2 minimum function | A repackaged website. | Native screens, lock-screen alerts, replies from the alert. |
-| 3.1 purchases | Selling or advertising the paid cloud. | The app sells nothing and shows no prices, upgrade prompts or links to buy. A free companion to a paid service needs no in-app purchase on those terms (3.1.3(f)). Phone access is free (decided 2026-10-14). |
-| 4.5.4 alerts | The app needing alerts to work, private text in them, or marketing. | It works with alerts off. No private text in the payload. No marketing alerts. |
+| 3.1 purchases | Selling or advertising the paid cloud. | The app sells nothing and shows no prices, upgrade prompts or links to buy; setup and payment happen on the computer (the founder, 2026-10-24: "we should never run into a situation where the app store tries to take a cut"). A test fails on purchase words in the phone app. Do not lean on 3.1.3(f) in the notes: it names VoIP, cloud storage, email and web hosting only. |
+| 4.5.4 alerts | The app needing alerts to work, or marketing. | It works with alerts off. An alert names its thread (the founder asked for titles, 2026-10-13 and 2026-10-23), and the privacy policy says so. No marketing alerts. |
+| 2.5.19 hidden features | A switch or flag that hides a feature from review (spelled out 2026-10-16). | Nothing in the phone app is behind a flag; what does not work yet is not in the build. |
+| 4.2.7 remote desktop | Read as a thin client for a computer. | The notes say it is not a screen mirror: the phone has its own screens over the person's account, and the cloud runs replies itself. |
 
 ## Costs
 
@@ -326,9 +335,10 @@ made-up threads), not yet on a phone:
 - A thread: the desktop's conversation (item-thread.ts), the agent's live
   options as buttons (a pick sends "Option N: …", "Close this task" closes),
   a reply box, Later and Close. Each press leaves the phone site's command.
-- Alerts: the app asks for permission, gets its Expo push token and can send
-  itself a test alert through Expo's push service. Nothing in the cloud sends
-  alerts yet (phase 3).
+- Alerts: the app asks for permission, leaves its Expo push token in
+  `push_devices` and can send itself a test alert. The Mac sends the real
+  ones while it is on (see Alerts above); nothing in the cloud sends them yet
+  (phase 3).
 - A new thread, as the phone site's page: model, project, priority.
 - The app's icon is the phone site's icon at 1024px.
 - Every screen is drawn to the phone site's own measurements, read off the
@@ -354,15 +364,17 @@ installs `mobile/` and type-checks it.
 
 To put it on the owner's phone:
 
-1. An Expo account; `npx eas-cli init` in `mobile/`, and its project id set
-   as `EAS_PROJECT_ID`.
-2. The bundle id chosen and set as `MOBILE_BUNDLE_ID`.
-3. In the hosted account database: Apple sign-in switched on, and
-   `agentbox://signed-in` added to the allowed redirect addresses.
-4. The cloud's address and public key set as EAS environment variables
-   (`EXPO_PUBLIC_CLOUD_URL`, `EXPO_PUBLIC_CLOUD_KEY`).
-5. `npx eas-cli build --profile production --platform ios --auto-submit`,
-   which lands in TestFlight.
+1. Done 2026-10-23: the Expo project `@agentbox-app/agentbox`, bundle id
+   `now.astral.agentbox` (both in app.config.ts), and the cloud's address,
+   public key and phone site as EAS production variables.
+2. `agentbox://signed-in` is on the allowed redirect addresses. Apple sign-in
+   still has to be switched on in the hosted account database, with the
+   bundle id as its client id.
+3. `npx eas-cli build --profile production --platform ios --auto-submit` in
+   `mobile/`, signed in to Apple once, which lands in TestFlight.
+4. The desktop that phone talks to signs in from Settings › Phone; an
+   installed build carries the cloud's address for that (scripts/release.mjs
+   `bakedTeam`).
 
 ## What Codex's review changed (2026-10-20)
 

@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url';
 
 import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
-import { mediaResponse, mediaType } from './img-scheme.mjs';
+import { mediaResponse, mediaType, servable } from './img-scheme.mjs';
 import { readPictureShape } from './picture-shape.mjs';
 import { loadConfig } from './config.mjs';
 import { Store } from './store.mjs';
@@ -224,6 +224,23 @@ export async function bootHeadless({ dataDir = repoRoot, appDir = repoRoot, user
 export const newToken = () => crypto.randomBytes(24).toString('base64url');
 
 /**
+ * THE PICTURES A TAB MAY DRAW: the desktop window's own rule (`servable`,
+ * main/img-scheme.mjs) over its own roots (`imageRoots`, main/main.mjs), so a
+ * door opened for a screenshot can never hand out `zero.config.json`.
+ *
+ * Pictures only. A whole document is served under a grant the pane opens one
+ * at a time (main/doc-scheme.mjs) and this copy opens none.
+ */
+export function picturesTheAppOwns({ config, store }) {
+  return {
+    allows: (kind, file) => kind === 'img' && servable(file, [
+      config?.accountRoot,
+      ...(store?.listProducts?.() ?? []).map((p) => p.repoPath),
+    ].filter(Boolean)),
+  };
+}
+
+/**
  * THE KEY THAT ONLY READS FILES. A design page runs its own scripts and can
  * read its own address, so the address a phone loads it from must not carry
  * the phone's key, which starts agents and approves their requests. This is
@@ -337,6 +354,14 @@ export function createHandler({ channels, token, listeners = new Set(), dist = p
     // NOR DOES THE PAGE ITSELF ASK: the tab takes the token out of its address
     // bar on load, so a reload asks for `/` bare, and refusing that drew
     // "Wrong or missing token" on every reload (tests/a-browser-tab-survives-a-reload).
+    //
+    // AND THE HOST HEADER IS NOT CHECKED, asked and answered 2026-10-24.
+    // Refusing a Host that is not localhost is the usual guard against a page
+    // whose own name resolves to this machine, and it cannot go here:
+    // main/phone-link.mjs serves this same handler to a phone through a relay
+    // or over Tailscale, where the Host is neither. The token is the key,
+    // whatever name the request arrives under
+    // (tests/the-doing-half-runs-with-no-electron).
     const guarded = url.pathname === '/events' || url.pathname.startsWith('/api/') || url.pathname === '/file-key';
     const given = req.headers['x-agentbox-token'] || url.searchParams.get('token');
     if (guarded && !sameKey(given, typeof token === 'function' ? token() : token)) {

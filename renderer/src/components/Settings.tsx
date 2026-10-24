@@ -36,7 +36,8 @@ import { NeoSettings } from '../neo/NeoSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
 import { accountLabel, cloudAccountInUse, cloudToggleTarget, countedAccounts, type CloudStatus } from '../cloud-menu';
-import { planCards, usageLine, usedPercent, type PaidPlan } from '../cloud-upgrade';
+import { type PaidPlan } from '../cloud-upgrade';
+import { CloudPlanCards } from './CloudPlanCards';
 import type { CloudPlan } from '../types';
 import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
 import { accountReadingFor, accountsOnce, type HereLogin, type OneAccount } from '../accounts-once';
@@ -48,6 +49,7 @@ import { MODE_ORDER, MODE_SENTENCE, MODE_WORDS, RULES_ALWAYS_APPLY } from '../mo
 import { CODEX_MODES, CODEX_MODE_ORDER } from '../codex-modes';
 import { ProductMark } from './ProductMark';
 import { SHORTCUTS } from '../shortcuts';
+import { chord, chords, sayKeys } from '../this-keyboard';
 import { capWord } from '../hint-plate';
 import { NAME, Name } from '../../../shared/product-name.mjs';
 import { SETTINGS_TERMINAL } from '../../../shared/settings-terminal.mjs';
@@ -67,9 +69,13 @@ type Pane = SettingsPageId | { project: string };
 // A path a person can read in a narrow column: the home directory as ~, and the
 // account uuid cut to the part that distinguishes it. The whole path is still
 // on the General pane and in the title attribute, so nothing is hidden.
-export function shortPath(full: string): string {
-  const home = full.match(/^\/Users\/[^/]+/)?.[0];
-  const short = home ? `~${full.slice(home.length)}` : full;
+//
+// The home is only shortened where the caller knows it (`w.homePath`): the
+// fallback knows the macOS shape alone, and guessing a Linux one would turn
+// `/home/shared/repos`, which is nobody's home, into `~/repos`.
+export function shortPath(full: string, home?: string | null): string {
+  const at = home && full.startsWith(`${home.replace(/\/+$/, '')}/`) ? home.replace(/\/+$/, '') : full.match(/^\/Users\/[^/]+/)?.[0];
+  const short = at ? `~${full.slice(at.length)}` : full;
   return short.replace(/([0-9a-f]{8})-[0-9a-f-]{20,}/i, '$1…');
 }
 
@@ -321,6 +327,7 @@ function agentStory(w: WorkspaceSettings, readings: Usage[], engine: 'claude' | 
       chosen: !!a.chosen,
       signedIn: !!a.email,
       trouble: a.trouble?.note ?? null,
+      atLimit: a.trouble?.cause === 'at-limit',
       dir: a.dir ?? null,
     })),
   };
@@ -328,12 +335,22 @@ function agentStory(w: WorkspaceSettings, readings: Usage[], engine: 'claude' | 
 
 type Agent = ReturnType<typeof agentStory>;
 
+/** Whichever of two readings was taken later, either possibly absent. */
+export function newerReading(a: Usage | null, b: Usage | null): Usage | null {
+  if (!a) return b;
+  if (!b) return a;
+  return (b.at ?? 0) > (a.at ?? 0) ? b : a;
+}
+
 /**
  * THE METERS, one row each: the window's name, when it resets, and how much of
  *  it is spent. Same `usage-meter` markup the sidebar's usage corner draws. */
 function UsageRows({ reading, now, trouble = null }: { reading: Usage | null; now: number; trouble?: string | null }) {
   const rows = reading?.limits?.length ? limitRows(reading.limits, now) : [];
-  if (!rows.length) return trouble ? null : <Row label="No usage reading yet" />;
+  // Codex reports its limits as it works and the app never asks OpenAI for them
+  // (main/codex-usage.mjs), so before a run there is genuinely nothing, and
+  // "No usage reading yet" read as something broken.
+  if (!rows.length) return trouble ? null : <Row label="Codex reports what is left as it works, so there is nothing here yet" />;
   return (
     <>
       {rows.map((r) => (
@@ -443,7 +460,7 @@ export type PlaceAccount = {
   meters?: boolean;
 };
 
-/** SESSION AND WEEK, the same two meters for every account, each ending with when it resets. */
+/** SESSION, WEEK AND FABLE, the same meters for every account, each ending with when it resets. */
 export function MiniMeters({ limits, now = Date.now() }: { limits?: UsageLimit[] | null; now?: number }) {
   const meters = meterPair(limits, now);
   if (!meters.length) return <div className="acct-meters-none">No usage reading yet</div>;
@@ -499,7 +516,7 @@ export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: Pl
               {a.cmd && <div className="acct-tile-cmd"><CopyCmd cmd={a.cmd} /></div>}
             </>
           ) : a.meters !== false && <>
-            {(!a.usageError || a.limits?.length) && <MiniMeters limits={a.limits} />}
+            {(!a.usageError || a.limits?.length) && <MiniMeters limits={a.limits} now={now} />}
             {a.usageError && <div className="acct-tile-trouble" role="status">{a.usageError}</div>}
           </>}
           {!!a.checkedAt && (a.usageError || now - a.checkedAt >= OWN_TIME_AFTER_MS) && <div className="acct-reading-time">{usageCheckedAt(a.checkedAt, now)}</div>}
@@ -554,7 +571,7 @@ export function cloudPlaceAccounts(cloud: CloudStatus, engine: 'claude' | 'codex
  *  place the account works. The cloud cannot borrow this computer's login, so
  *  an account missing there, or whose sign-in there stopped, offers the sign-in.
  */
-export function accountTile(a: OneAccount, { many, onUse, cloud = false, onCloudSignIn }: {
+export function accountTile(a: OneAccount, { many, now, onUse, cloud = false, onCloudSignIn }: {
   many: boolean; now: number; onUse: (profile: string) => void;
   cloud?: boolean;
   onCloudSignIn?: (key: string | null, email: string | null) => void;
@@ -565,9 +582,13 @@ export function accountTile(a: OneAccount, { many, onUse, cloud = false, onCloud
   const signingIn = !!h && !h.signedIn;
   const places: Where[] = !cloud || signingIn ? [] : [...(h ? ['here' as const] : []), ...(c && !broken ? ['cloud' as const] : [])];
   const signIn = (word: string, key: string | null) => (onCloudSignIn ? { word, onUse: () => onCloudSignIn(key, h?.email ?? c?.name ?? null) } : null);
+  // At its limit, the meters say which limit it is and when it resets.
+  const limited = !!h?.trouble && !!h.atLimit && !!a.limits?.length;
+  const trouble = limited ? null : h?.trouble ?? null;
   return {
     key: a.key, name: a.name, plan: a.plan,
-    about: signingIn ? ['Finish signing in to use it'] : [],
+    about: signingIn ? ['Finish signing in to use it']
+      : limited && !meterPair(a.limits, now).some((m) => m.percent >= 100) ? ['At its limit'] : [],
     places,
     cloudAct: !cloud || signingIn ? null : broken ? signIn('Sign in to cloud again', c!.key) : h && !c ? signIn('Add to cloud', null) : null,
     // ONE ACCOUNT IS IN USE AND IT SAYS SO (w-dac993a554). This asked `picked`
@@ -577,8 +598,8 @@ export function accountTile(a: OneAccount, { many, onUse, cloud = false, onCloud
     inUse: !!h?.chosen,
     limits: a.limits, checkedAt: a.checkedAt, usageError: a.usageError,
     use: h?.signedIn && !h.chosen && many ? { word: 'Switch', onUse: () => onUse(h.profile) } : null,
-    trouble: h?.trouble ?? null,
-    cmd: h?.trouble && h.dir ? `CLAUDE_CONFIG_DIR=${h.dir} claude` : null,
+    trouble,
+    cmd: trouble && h?.dir ? `CLAUDE_CONFIG_DIR=${h.dir} claude` : null,
     meters: !!(h || a.limits?.length),
   };
 }
@@ -844,13 +865,15 @@ function MacShutGroup({ macShut }: { macShut: MacShut }) {
   );
 }
 
-function PhonePage({ onFeedback, macShut }: { onFeedback?: () => void; macShut?: MacShut }) {
+function PhonePage({ onFeedback, macShut, onSignIn }: { onFeedback?: () => void; macShut?: MacShut; onSignIn?: () => void }) {
   const feedback = onFeedback && onPhone() ? <PhoneFeedbackGroup onFeedback={onFeedback} /> : null;
   if (!macShut) {
     return (
       <Page title="Phone">
         <Group>
-          <Row label="Sign in to use your phone" desc={`Your phone reads and replies through your ${Name} account, so it works with this computer closed. Sign in on the Team page, then come back here for the code.`} />
+          <Row label="Sign in to use your phone" desc="Then your phone can read and reply with this computer closed.">
+            {onSignIn && <button type="button" className="set-ghost" onClick={onSignIn}>Sign in</button>}
+          </Row>
         </Group>
         {feedback}
       </Page>
@@ -876,7 +899,14 @@ function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: (
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
   const read = async () => { const p = await api.cloudAccountPlan(); setPlan(p); return p; };
   useEffect(() => { void read(); }, [signedIn]);
-  // Back from Stripe's page: the plan changes once its webhook lands.
+  // Back from Stripe's page in the browser, the plan is read again.
+  useEffect(() => {
+    if (!signedIn) return undefined;
+    const back = () => { void read(); };
+    window.addEventListener('focus', back);
+    return () => window.removeEventListener('focus', back);
+  }, [signedIn]);
+  // The plan changes once Stripe's webhook lands.
   useEffect(() => {
     if (!waitingFor) return;
     const was = waitingFor;
@@ -884,48 +914,37 @@ function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: (
     const t = setInterval(async () => {
       n += 1;
       const p = await read();
-      if (p.plan !== was || n > 60) { setWaitingFor(null); clearInterval(t); }
+      if (p.plan !== was || n > 60) { setWaitingFor(null); setChosen(null); clearInterval(t); }
     }, 5000);
     return () => clearInterval(t);
   }, [waitingFor]);
+  const [opening, setOpening] = useState<PaidPlan | null>(null);
+  const [chosen, setChosen] = useState<PaidPlan | null>(null);
   const choose = async (id: PaidPlan) => {
     if (!signedIn) { onSignIn(); return; }
-    setSaid(null);
+    setSaid(null); setOpening(id);
     const out = await api.cloudAccountPay(id);
+    setOpening(null);
     if (!out.ok) { setSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
+    setChosen(id);
     setWaitingFor(plan?.plan ?? 'none');
   };
   const billing = async () => {
     const out = await api.cloudAccountBilling();
-    if (!out.ok) setSaid(out.message || 'Stripe could not be opened. Try again.');
+    if (!out.ok) { setSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
+    void read();
   };
-  const cards = planCards(plan);
   const paying = !!plan?.plan && plan.plan !== 'none';
   return (
     <Page title="Cloud" lede="Every thread needs a slot to run in. Your computer has a few. The cloud adds more.">
-      <div className="set-group cloud-plans" data-find="cloud-plans">
-        {cards.map((c) => (
-          <div key={c.id} className={`cloud-plan${c.current ? ' mine' : ''}`}>
-            <div className="cloud-plan-head"><span>{c.name}</span>{c.current && <span className="cloud-plan-mine">Your plan</span>}</div>
-            <div className="cloud-plan-price">{c.price}<span> a month</span></div>
-            <div className="cloud-plan-slots">{c.slots}</div>
-            <div className="cloud-plan-where">running in the cloud</div>
-            {c.current && plan ? (
-              <div className="cloud-plan-use">
-                <span>{usageLine(plan)}</span>
-                <span className="cloud-plan-bar"><i style={{ width: `${usedPercent(plan)}%` }} /></span>
-              </div>
-            ) : c.button && <button type="button" className="set-ghost cloud-plan-go" onClick={() => void choose(c.id)}>{c.button}</button>}
-          </div>
-        ))}
-      </div>
+      <CloudPlanCards plan={plan} opening={opening} waiting={waitingFor ? chosen : null} onChoose={(id) => void choose(id)} />
       {said && <p className="cloud-plans-say">{said}</p>}
-      {waitingFor && <p className="cloud-plans-say">Finish on Stripe's page in your browser. This page changes when it's done.</p>}
+      {waitingFor && <p className="cloud-plans-say">Finish paying in your browser. Your plan shows here once you’ve paid.</p>}
       <Group id="cloud-counts" label="How the cloud counts" bare>
         <ul className="cloud-counts">
           <li>Each slot runs one agent in the cloud, on top of the ones your computer runs.</li>
           <li>Time counts only while an agent is working. Waiting for your reply is free.</li>
-          <li>Pro has 400 hours a month, Plus 1,200 and Max 3,000. Past them, threads wait for your computer until the month turns.</li>
+          <li>Past a plan's hours, threads wait for your computer until the month turns.</li>
         </ul>
       </Group>
       {paying && (
@@ -956,11 +975,14 @@ const Page = ({ title, lede, children }: { title: string; lede?: string; childre
 // THE CAPS ARE ON THE LEFT AND THE SENTENCE IS BESIDE THEM. It is a REFERENCE,
 // read by scanning down a column for the key you half-remember, and a key
 // hiding at the right-hand end of a sentence cannot be scanned for.
+//
+// The list is written in the Mac's glyphs, so on Linux each is drawn as the key
+// really there and a row naming both ("⌘K or Ctrl+K") collapses to the one key.
 function KeyRow({ keys, join, what }: { keys: string[]; join?: 'or' | 'to'; what: string }) {
   return (
     <div className="set-key-row">
       <div className="set-key-caps">
-        {keys.map((k, i) => (
+        {chords(keys).map((k, i) => (
           <Fragment key={k}>
             {i > 0 && join && <span className="set-key-join">{join}</span>}
             <kbd>{k}{capWord(k) && <span className="fr-cap-word">{capWord(k)}</span>}</kbd>
@@ -1550,7 +1572,7 @@ function paneFrom(want: string, has: { team: boolean; neo?: boolean }): Pane {
 
 /* --------------------------------- screen --------------------------------- */
 
-export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, neoOn = false, projectShare, projectWho, account, phoneCloud, update = null, onClose, onFeedback, cloud = null, onCloudSignIn, cloudPlans = null, roomsPane }: {
+export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, neoOn = false, projectShare, projectWho, account, phoneCloud, onPhoneSignIn, update = null, onClose, onFeedback, cloud = null, onCloudSignIn, cloudPlans = null, roomsPane }: {
   /** Opens the feedback card. A phone has no Feedback button in its corner,
    *  so its own Settings page offers it (2026-10-12). */
   onFeedback?: () => void;
@@ -1605,6 +1627,8 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   /** HER PHONE WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md): present while
    *  she is signed in, with the phone site's address once there is one. */
   phoneCloud?: { site: string | null; siteQr: string | null };
+  /** Opens the sign-in the phone needs, when this build has a cloud to sign in to. */
+  onPhoneSignIn?: () => void;
   /**
    * WHETHER A NEWER AGENTBOX IS WAITING, as the whole app already reads it
    *  (the sidebar card and ⌘K read the same field). Handed in rather than
@@ -1658,6 +1682,23 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     } finally { if (refresh) setRefreshing(false); }
   }, [load]);
   useEffect(() => { if (pane !== 'claude') return; void readAccounts(); }, [pane, readAccounts]);
+
+  // THE CODEX FIGURE, ASKED FOR AGAIN. It is held here rather than read off the
+  // snapshot because that is where the refresh answers.
+  const [codexReading, setCodexReading] = useState<Usage | null>(null);
+  const [codexRefreshing, setCodexRefreshing] = useState(false);
+  const refreshCodex = useCallback(async () => {
+    setCodexRefreshing(true);
+    try {
+      const r = await api.refreshUsage('codex');
+      // A refusal draws nothing of its own: the empty row below already says
+      // why there is nothing.
+      if (r.ok && r.reading) setCodexReading(r.reading);
+    } finally { setCodexRefreshing(false); }
+  }, []);
+  // Asked once on opening, so a figure Codex has already written down is on the
+  // screen before anybody presses anything.
+  useEffect(() => { if (pane !== 'codex') return; void refreshCodex(); }, [pane, refreshCodex]);
 
   /* THE SEARCH (w-ccadd13c46). Typing replaces the menu with what matches;
      ↑ and ↓ move through it and Enter opens one. Escape empties the box first
@@ -1797,6 +1838,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
       }));
     const lastRead = Math.max(0, ...tiles.map((a) => a.checkedAt ?? 0));
     const checked = lastRead ? usageCheckedAt(lastRead, now) : '';
+    // The newer of what the snapshot carries and what Refresh just fetched.
+    const codexShown = newerReading(agent.reading, codexReading);
+    const codexChecked = codexShown?.at ? usageCheckedAt(codexShown.at, now) : '';
     // Codex still draws its cloud logins as a place of their own.
     const cloudFirst = !!cloudHere && cloudHere.mode !== 'mac';
     const cloudAccounts = cloudHere && engine === 'codex' ? cloudPlaceAccounts(cloudHere, engine, now) : [];
@@ -1824,7 +1868,22 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
         {agent.found && (
           <>
             {cloudFirst && cloudCard}
-            {engine === 'codex' && <Group id="usage" label="Usage"><UsageRows reading={agent.reading} now={now} /></Group>}
+            {engine === 'codex' && (
+              <Group
+                id="usage"
+                label="Usage"
+                /* Refresh and how old the reading is, the way Claude Code's
+                   Signed in place has them. */
+                action={(
+                  <span className="acct-place-act">
+                    {!codexRefreshing && codexChecked && <span className="acct-checked">{codexChecked}</span>}
+                    <button type="button" className="set-ghost" disabled={codexRefreshing} onClick={() => void refreshCodex()}>{codexRefreshing ? 'Refreshing…' : 'Refresh'}</button>
+                  </span>
+                )}
+              >
+                <UsageRows reading={codexShown} now={now} />
+              </Group>
+            )}
             {/* "SIGNED IN", NOT "ACCOUNTS": a heading that works at any
                 number, so one account is never shown a plural to fill. Refresh
                 heads it because it reads every account on it, here and in the
@@ -2062,6 +2121,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             <ProjectsPage
               ranked={ranked}
               details={projects}
+              home={w?.homePath ?? null}
               onSetOrder={onSetOrder}
               who={projectWho}
               onOpen={(slug) => setPane({ project: slug })}
@@ -2085,6 +2145,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
               </Row>
               <Row label="Rooms" desc="See the people you work with and their agents, with a chat beside them. Needs a team sign-in.">
                 <Switch label="Rooms" on={!!w.alpha?.rooms} onChange={(v) => setWorkspace('alphaRooms', v)} />
+              </Row>
+              <Row label="Multiplayer" desc="Share projects with your team and see their threads beside yours. Needs a sign-in.">
+                <Switch label="Multiplayer" on={!!w.alpha?.multiplayer} onChange={(v) => setWorkspace('alphaMultiplayer', v)} />
               </Row>
             </Group>
           </Page>
@@ -2396,7 +2459,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             is what a person actually presses, grouped by the moment they would
             want it; ../shortcuts.ts holds the list. Every key on it works today
             (`tests/the-shortcuts-page-lists-keys-that-work.test.mjs`). */}
-        {pane === 'phone' && <PhonePage onFeedback={onFeedback} macShut={phoneCloud ? { ...phoneCloud, all: model?.workspace?.phoneAll !== false, projects: projects.filter((p) => p.slug !== 'practice'), onChoose: (all, except) => setWorkspace('phoneProjects', { all, except }) } : undefined} />}
+        {pane === 'phone' && <PhonePage onFeedback={onFeedback} onSignIn={onPhoneSignIn} macShut={phoneCloud ? { ...phoneCloud, all: model?.workspace?.phoneAll !== false, projects: projects.filter((p) => p.slug !== 'practice'), onChoose: (all, except) => setWorkspace('phoneProjects', { all, except }) } : undefined} />}
         {pane === 'shortcuts' && (
           <div className="set-inner set-keys-page">
             <h1 className="set-title">Shortcuts</h1>

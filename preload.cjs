@@ -40,7 +40,7 @@ contextBridge.exposeInMainWorld('zero', {
   terminal: (payload) => ipcRenderer.invoke('zero:terminal', payload),
   agentUpdate: (payload) => ipcRenderer.invoke('zero:agent-update', payload),
   snapshot: () => ipcRenderer.invoke('zero:snapshot'),
-  refreshUsage: () => ipcRenderer.invoke('zero:refresh-usage'),
+  refreshUsage: (p) => ipcRenderer.invoke('zero:refresh-usage', p),
   accountUsage: (payload) => ipcRenderer.invoke('zero:account-usage', payload),
   assistiveTech: () => ipcRenderer.invoke('zero:assistiveTech'),
   olderItems: (payload) => ipcRenderer.invoke('zero:older-items', payload),
@@ -140,7 +140,7 @@ contextBridge.exposeInMainWorld('zero', {
   // What just arrived, not what to say about it. Whether she is looking at the
   // window is a fact only the main process holds, so the page reports and does
   // not decide (main/notify.mjs).
-  notify: (arrivals) => ipcRenderer.invoke('zero:notify', { arrivals }),
+  notify: (arrivals, needsYou) => ipcRenderer.invoke('zero:notify', { arrivals, needsYou }),
   stopSession: (payload) => ipcRenderer.invoke('zero:stop-session', payload),
   runNow: (payload) => ipcRenderer.invoke('zero:run-now', payload),
   reopen: (payload) => ipcRenderer.invoke('zero:reopen', payload),

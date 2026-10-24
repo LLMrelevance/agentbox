@@ -1,18 +1,15 @@
 // THE APP RUNS ON ONE ACCOUNT, AND NOTHING MOVES WORK WHEN IT RUNS OUT.
 //
-// w-dac993a554. Agentbox had grown three habits that read as multi-accounting:
-// every login signed in on the Mac took a share of the work by round-robin,
-// a task whose login hit its usage limit was moved onto a login with room,
-// and the row, the trouble lines and the setup walk all offered another
-// account as the answer to a limit. Anthropic's own pages are explicit:
-// "Advertised usage limits for Pro and Max plans assume ordinary, individual
-// usage of Claude Code and the Agent SDK" (code.claude.com/docs/en/legal-and-compliance)
-// and the Usage Policy forbids creating multiple accounts to "avoid detection,
-// circumvent product guardrails".
+// w-dac993a554. Agentbox had grown three habits nobody had chosen: every login
+// signed in on the Mac took a share of the work by round-robin, a task whose
+// login hit its usage limit was moved onto a login with room by the app on
+// its own, and the row, the trouble lines and the setup walk all offered
+// another account as the answer to a limit.
 //
 // So: one account runs the work -- the one picked, or the primary login when
 // nobody has picked -- a project may be tied to another, and a limit is waited
-// out and named. Measured here on the three mechanisms that did the rotating
+// out and named. Switching to your other plan yourself, at a limit or any
+// time, is allowed (tests/switching-to-your-other-plan-at-a-limit-is-allowed). Measured here on the three mechanisms that did the rotating
 // (`_profilesFor`, `restingUntil`, `_profileCannotHoldAChat`), on the words
 // that offered it, and on the cloud's own pick.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';

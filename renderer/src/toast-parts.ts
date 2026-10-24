@@ -5,8 +5,9 @@
 // undo  Open it". Now Z and O are drawn as keycaps, and O works.
 
 // `repeat` when it is a repeating task's rule rather than a thread: its id is a
-// rule's, so it is opened the way the Later list opens one.
-export type ToastGoes = { product: string; id: string; repeat?: boolean };
+// rule's, so it is opened the way the Later list opens one. `sent` when it is a
+// reply, an approval or a picked option going to that thread.
+export type ToastGoes = { product: string; id: string; repeat?: boolean; sent?: boolean };
 type Here = { product: string; id: string } | null;
 
 // The undo clause about a dozen callers bake onto the end of their sentence.
@@ -34,6 +35,16 @@ export function toastOpens(toast: { goes?: ToastGoes } | null, here: Here): bool
   const goes = toast?.goes;
   if (!goes) return false;
   return goes.repeat || !here || here.id !== goes.id || here.product !== goes.product;
+}
+
+/**
+ * WHETHER A SEND IS SAID ON THE LINE ABOVE THE REPLY BOX (./components/SentLine)
+ * rather than on the corner card: it moved her to another thread. Kept on the
+ * thread it went to, her words are already on screen.
+ */
+export function saysWhereItWent(toast: { goes?: ToastGoes } | null, here: Here): boolean {
+  const goes = toast?.goes;
+  return !!goes?.sent && !goes.repeat && toastOpens(toast, here) && !!here;
 }
 
 /**

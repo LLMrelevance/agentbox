@@ -508,7 +508,8 @@ input. In order:
    Reads and claims are still "not made". Needs the cloud image rebuilt (the
    `kept` cap); an older image behaves as before.
 4. **A scheduler in the cloud, so new runs and phone replies start with the
-   Mac shut.** Not built: it needs AWS rights of its own and a deploy from a
+   Mac shut.** Built for replies on the managed cloud 2026-10-24
+   (docs/cloud/PHONE-PLAN.md, step 2); new threads still wait. The design as first written: it needs AWS rights of its own and a deploy from a
    machine signed in to her account. The shape: a small always-on service
    (Lambda on a schedule, or a long-poll worker) that reads `phone_commands`
    for devices whose Mac has not written for 15 minutes (the projects'
@@ -542,7 +543,11 @@ approved:
    brand verification on our domain, the database's public address and key
    carried by public builds, signing in for the cloud kept apart from the
    team version, and the database's access rules reviewed before strangers
-   can sign up to it.
+   can sign up to it. Since 2026-10-23: Sign in and Create account are tabs,
+   Create account asks a name and alone carries the terms line, a sign-in
+   sends no agreement (the server keys someone who never agreed only after
+   "Agree and continue"), and the order is plan in the invitation, account,
+   Stripe, then the Claude or Codex account.
 4. **Plans** enforced by the server (below), with the hour limits set from
    `node scripts/cloud-usage.mjs`.
 5. **Stripe**: checkout, the page where people manage their plan, and its

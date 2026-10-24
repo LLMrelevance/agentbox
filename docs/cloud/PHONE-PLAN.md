@@ -1,6 +1,29 @@
 # The phone with the Mac closed: the plan
 
-Status: step 1 built 2026-10-14 (commits on w-1dc7ee2408), reviewed by Codex twice. Steps 2 and 3 not built.
+Status: step 1 built 2026-10-14 (commits on w-1dc7ee2408), reviewed by Codex twice. Step 2 (replies) built 2026-10-24 on w-9f9c2570e2, below. Step 3 (alerts) built 2026-10-23, sent by the computer, and by the cloud server for a turn it ran.
+
+2026-10-24, step 2 for replies. The founder, reading the phone's first screen:
+"you have your computer in your backpack and you're riding the bus.
+Everything should work from your mobile app with your computer completely
+closed." So:
+- After each turn of a Claude Code thread on the phone, a computer on the
+  managed cloud leaves a KIT in the person's storage (shared/cloud-kit.mjs,
+  main/cloud/kit.mjs): the reply run's own arguments with the reply's place
+  marked, the folder's bundle, the files a run takes, the sign-in by name.
+- The cloud server (cloud/gateway/phone.mjs), every minute, starts a reply
+  the computer has not claimed within a minute from that kit, claims the
+  command `cloud:<run id>`, and gives the claim back if the run cannot start.
+  When the run ends it writes the agent's answer into the phone's copy of
+  the thread and sends the alert.
+- The computer, waking, joins the run or brings it home
+  (main/cloud/run.mjs `joining`), with her reply on the row.
+- New threads, files from the phone, Codex threads and permission cards also
+  carry on with the computer shut. A Claude Code run's approvals server is
+  held by the cloud machine; a Codex run asks on its output, so the server
+  cards each approval and refuses the rest in the computer's own words.
+- Not yet: a Mac on its owner's own AWS rather than the managed cloud. It
+  needs a cloud plan: setup and payment happen on the computer, never in the
+  phone app (the founder, 2026-10-24).
 
 2026-10-19, step 1 filled out (an audit of the phone against the desktop): every
 file a thread names opens on the phone and any file goes from it; what she

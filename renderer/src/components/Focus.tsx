@@ -1,4 +1,5 @@
 import { RemoteControl } from './RemoteControl';
+import { SEND } from '../this-keyboard';
 import { onPhone } from '../phone-screen';
 import { pollEvery } from '../phone-polls';
 import {DirectReview} from './DirectReview';
@@ -104,7 +105,7 @@ import { BackToWhatSheWasReading } from './UrgentBar';
 import { AgentThread } from './AgentThread';
 import { Live } from './Live';
 import { SidebarIcon } from './SidebarIcon';
-import { Byline } from './Byline';
+import { Byline, ConversationAside } from './Byline';
 import { ItemThread } from './ItemThread';
 import type { PendingSaid } from '../item-thread';
 import { isTroubleRow } from '../trouble-row';
@@ -116,6 +117,7 @@ import {
   PriorityPicker, priorityIdOf, priorityValueOf, type PriorityId,
 } from './Priority';
 import { SummaryPanel, SummaryRail, ThreadCrumb, ThreadStateMark, useSummaryOpen, useSummaryShortcut, type RepeatHandle } from '../threads/Summary';
+import { summaryFits, summaryPlace } from '../room';
 import { ThreadMenu, type ThreadPlace } from '../threads/ThreadMenu';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { ChatAgentsContext, useChatMentions } from '../team/ChatAgents';
@@ -564,7 +566,7 @@ export function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null, pageAsk = null, onAsked, onShown }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null, pageAsk = null, onAsked, onShown, aboveDock }: {
   previewSample?: string;
   /** The repeating task this thread is a run of, drawn in its summary. */
   repeat?: RepeatHandle | null;
@@ -575,6 +577,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   onAsked?: () => void;
   /** What this page draws that ⌘K offers rows for. */
   onShown?: (shown: { key: string; change: boolean; summary: 'open' | 'closed' | null }) => void;
+  /** Drawn right above the reply box: where a reply that moved her here went (./SentLine). */
+  aboveDock?: ReactNode;
   /**
    * A MESSAGE FROM A PERSON IS NOT WORK UNTIL SHE SAYS SO. The one line under
    *  the latest message on a message thread calls this to make it a task for
@@ -1506,8 +1510,10 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const threadName = named ? talkFull : rowTitle(item);
   const rename = named ? undefined
     : (label: string) => api.threadEdit(item.product, item.id, { label }).then((r) => r.ok);
-  const barContent = summaryOffered && crumbFrom
-    ? <ThreadCrumb from={crumbFrom} name={threadName} onBack={onClose} onRename={rename} threadKey={`${item.product}/${item.id}`} renameAsk={pageAsk?.what === 'rename' ? pageAsk.at : 0} onAsked={onAsked} />
+  // Every thread opened from a list wears it, summary or not, document open or not.
+  const barContent = crumbFrom
+    ? <><ThreadCrumb from={crumbFrom} name={threadName} onBack={onClose} onRename={rename} threadKey={`${item.product}/${item.id}`} renameAsk={pageAsk?.what === 'rename' ? pageAsk.at : 0} onAsked={onAsked} />
+      {direct && <ConversationAside item={item} onAddPeople={onAddPeople} />}</>
     : <>{backButton}{bandLine}</>;
 
   // ANYTHING ADDED TO THIS ELEMENT RIDES BESIDE THE LITERAL, NEVER INSIDE IT.
@@ -1518,7 +1524,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // turned that guard off silently.
   return (
     <TicketNavigation.Provider value={{open: openTicket, name: ticketName}}>
-    <div className="focus-pane" ref={paneRef} data-summary={summaryShown ? 'open' : summaryOffered ? 'rail' : undefined}>
+    <div className="focus-pane" ref={paneRef} data-summary={summaryPlace({ offered: summaryOffered, shown: summaryShown, fits: summaryFits(paneWidth) })}>
     {/* THERE IS NO WAY-OUT CONTROL ON AN OPENED TASK ANY MORE.
 
         Both faults were real and both are measured on this row. With a
@@ -2004,6 +2010,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         so the folded box and the open composer cannot drift into two stops. */}
     <div className="focus-dock">
       <div className="focus-dock-inner">
+        {aboveDock}
         <div className="dock-card">
           {/* A TASK A TEAMMATE GAVE YOU: to an agent, keep it, or hand it back.
               Unless they wrote options of their own, which are the better
@@ -2101,6 +2108,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     {/* `onFinish` is the SAME ONE the three-dot menu's Mark done row takes
         (`canFinish ? onResolve : null` above), so the Status row's Done and
         that row and E are one action with one undo and one toast. */}
+    {/* Opened without room, it lies over the words, and a click on them puts it away. */}
+    {summaryShown && !summaryFits(paneWidth) && <div className="ts-scrim" aria-hidden="true" onClick={toggleSummary} />}
     {summaryShown && <SummaryPanel item={item} team={teamCtx} onFinish={canFinish ? onResolve : null} onClose={toggleSummary} repeat={repeat} peopleAsk={pageAsk?.what === 'people' ? pageAsk.at : 0} onAsked={onAsked} />}
     {summaryOffered && !summaryOpen && <SummaryRail item={item} team={teamCtx} onOpen={toggleSummary} />}
     {!direct && <TaskTerminal key={`${item.product}:${item.id}`} product={item.product} id={item.id} onOpenChange={setTerminalOpen}/>}
@@ -3238,8 +3247,8 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           className="dock-send"
           onClick={() => send()}
           disabled={!hasDraft || !!chat.block || saving}
-          title={chat.block ?? 'Send · ⌘↵'}
-        >{saving ? 'Sending…' : <>Send <kbd>⌘↵</kbd></>}</button>
+          title={chat.block ?? `Send · ${SEND}`}
+        >{saving ? 'Sending…' : <>Send <kbd>{SEND}</kbd></>}</button>
         )}
       </div>
     </>

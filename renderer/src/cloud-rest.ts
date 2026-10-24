@@ -183,6 +183,11 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
       const out = await call(`/rest/v1/${table}${q}`, { method: 'POST', headers: { prefer: `return=representation${onConflict ? ',resolution=ignore-duplicates' : ''}` }, body: JSON.stringify(row) });
       return Array.isArray(out) ? out[0] : out;
     },
+    /** A row, or the row already there with the same key brought up to date. */
+    async upsert(table: string, row: Record<string, unknown>, onConflict: string) {
+      const out = await call(`/rest/v1/${table}?on_conflict=${encodeURIComponent(onConflict)}`, { method: 'POST', headers: { prefer: 'return=representation,resolution=merge-duplicates' }, body: JSON.stringify(row) });
+      return Array.isArray(out) ? out[0] : out;
+    },
     async remove(table: string, query: string) {
       return (await call(`/rest/v1/${table}?${query}`, { method: 'DELETE', headers: { prefer: 'return=representation' } })) ?? [];
     },
@@ -221,6 +226,14 @@ export function cloudClient(cfg: CloudConfig, { storage, fetchImpl, now = () => 
       }
     },
     /** Links to her own files in a private bucket, each good for `seconds`: path -> address. */
+    /** One page of what is under `prefix`: a folder comes back with no id. */
+    async listFiles(bucket: string, prefix: string, limit = 1000, offset = 0): Promise<{ name: string; id: string | null }[]> {
+      const out = await call(`/storage/v1/object/list/${bucket}`, { method: 'POST', body: JSON.stringify({ prefix, limit, offset, sortBy: { column: 'name', order: 'asc' } }) });
+      return Array.isArray(out) ? out : [];
+    },
+    async removeFiles(bucket: string, paths: string[]) {
+      await call(`/storage/v1/object/${bucket}`, { method: 'DELETE', body: JSON.stringify({ prefixes: paths }) });
+    },
     async signFiles(bucket: string, paths: string[], seconds = 3600): Promise<Map<string, string>> {
       const out = await call(`/storage/v1/object/sign/${bucket}`, { method: 'POST', body: JSON.stringify({ expiresIn: seconds, paths }) });
       const links = new Map<string, string>();

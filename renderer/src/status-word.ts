@@ -11,8 +11,10 @@
 import { liveLine, shortWord, type LiveFacts } from './live-line';
 import { STATE_WORD, stateWordOf } from './threads/summary-rules';
 import { threadState } from '../../shared/thread-cards.mjs';
+import { closedUnshipped, notShippedLine, shippedAs } from '../../shared/not-shipped.mjs';
 import type { ThreadStateWord, WorkItem } from './types';
 import type { Fleet } from './fleet';
+import { whyWords, type WhyCard } from './where-why';
 
 /** The mark's shape. The accent ring is the one worth a look: nothing is going
  *  to start that thread until something changes. */
@@ -34,12 +36,21 @@ export interface StatusCell {
   cloud: boolean;
   /** The whole sentence, for the hover, where there is more to say. */
   title?: string;
+  /** Why it is not in the cloud, for the card under the word (./where-why.ts). */
+  why?: WhyCard;
 }
 
 export interface StatusFacts extends LiveFacts {
   /** The thread's state, where the surface drawing it already knows (the
    *  board's column). Worked out from the thread itself otherwise. */
   state?: ThreadStateWord;
+  /**
+   * WHETHER THIS ROW IS IN THE TUTORIAL'S PRACTICE PROJECT. The supervisor
+   *  refuses to spawn there at all, so the fleet's silence about one of its
+   *  rows says nothing about that row: the same rule as `fleetUnread` below.
+   *  Three In progress cards read NOTHING RUNNING under a tutorial card
+   *  saying In progress is what agents are doing. */
+  practice?: boolean;
 }
 
 // Waiting its turn resolves itself; held does not. That is the whole of why
@@ -52,8 +63,16 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
   // `agent` on the words about an agent, and off the four state words.
   const says = (word: string, mark: StatusMark, agent: boolean, title?: string): StatusCell => ({ word, mark, agent, live: false, cloud: false, title });
   const plain = (word: string, mark: StatusMark) => says(word, mark, false);
+  // Said over "Waiting" and "Done", which do not tell a shipped thread from
+  // one that never shipped (shared/not-shipped.mjs).
+  const ship = shippedAs(item);
+  const shipped = ship ? says('Shipped', 'done', false, ship.sha ? `Shipped to main as ${ship.sha}` : 'Shipped to main') : null;
 
-  if (state === 'done') return plain(stateWordOf(item, state), 'done');
+  if (state === 'done') {
+    if (shipped) return shipped;
+    if (closedUnshipped(item)) return says('Not shipped', 'done', false, 'Closed without its work reaching main');
+    return plain(stateWordOf(item, state), 'done');
+  }
   // The bar over the conversation owns the whole story of a dead worker; the
   // row says the one word, because a row that says nothing reads as a row
   // nothing has happened on.
@@ -61,9 +80,24 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
   if (state === 'scheduled') return plain(stateWordOf(item, state), 'sched');
 
   const live = liveLine(item, { ...facts, stalled: false });
+  // `asking` HAS NO BRANCH OF ITS OWN. It had one, giving it the solid `need`
+  // dot, which this column draws for no other word; the fall-through at the
+  // foot gives it the accent ring every other held agent wears, which is the
+  // mark that already means nothing starts until something changes.
+  const away = facts.whyNotCloud ?? null;
+  const why = away ? whyWords(away) : undefined;
+  const titled = (line: string) => (why ? `${why.head}. ${why.body}` : line);
   if (live?.state === 'working') {
-    return { word: shortWord('working'), mark: 'working', agent: true, live: true, cloud: facts.session?.where === 'cloud', title: live.line };
+    const cloud = facts.session?.where === 'cloud';
+    const local = !cloud && away?.at === 'mac';
+    return {
+      word: local ? 'Working locally' : shortWord('working'), mark: 'working', agent: true, live: true, cloud,
+      title: local ? titled(live.line) : live.line, ...(local ? { why } : {}),
+    };
   }
+  // Over "Waiting": the agent's last word, written before, says it ships.
+  const unshipped = notShippedLine(item);
+  if (unshipped) return says('Not shipped', 'need', false, unshipped);
   // "NOTHING RUNNING" IS A CLAIM ABOUT THE WHOLE FLEET, and so is an agent
   // being on it outside this window, which says none of ours is. Both are only
   // said where the fleet has really been read: a surface drawn without it (a
@@ -72,7 +106,7 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
   // the confident wrong sentence this vocabulary exists to prevent. Nothing
   // running over our own session, open between Remote Control turns, is wrong
   // the same way.
-  const fleetUnread = !Array.isArray(facts.queued);
+  const fleetUnread = !Array.isArray(facts.queued) || !!facts.practice;
   if ((live?.state === 'idle' && (fleetUnread || facts.remoteHeld)) || (live?.state === 'elsewhere' && fleetUnread)) {
     return plain(stateWordOf(item, state), 'queued');
   }
@@ -81,8 +115,11 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
     return { word: shortWord('elsewhere'), mark: 'working', agent: true, live: true, cloud: !!item.claim?.holder?.startsWith('mcp-cloud-'), title: live.line };
   }
   if (live) {
-    return says(shortWord(live.state), WAITING_ITS_TURN.has(live.state) ? 'queued' : 'held', true, live.line);
+    const waiting = WAITING_ITS_TURN.has(live.state) && live.state !== 'shipping' && (away?.at === 'wait-cloud' || away?.at === 'wait-mac');
+    const cell = says(shortWord(live.state), WAITING_ITS_TURN.has(live.state) ? 'queued' : 'held', true, waiting ? titled(live.line) : live.line);
+    return waiting ? { ...cell, why } : cell;
   }
+  if (state === 'waiting' && shipped) return shipped;
   return plain(stateWordOf(item, state), state === 'waiting' ? 'need' : 'queued');
 }
 
@@ -106,9 +143,11 @@ export function factsFor(fleet: Fleet, id: string): LiveFacts {
     signInNeeded: fleet.signInNeeded,
     atLimit: fleet.atLimit,
     shipping: !!fleet.shipping?.includes(id),
+    asking: !!fleet.asking?.includes(id),
     stalled: !!fleet.stalled?.includes(id),
     silent: fleet.silent?.[id] ?? null,
     paused: !!fleet.paused,
+    whyNotCloud: fleet.whyNotCloud?.[id] ?? null,
   };
 }
 

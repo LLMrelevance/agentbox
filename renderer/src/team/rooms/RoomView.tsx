@@ -1,13 +1,12 @@
 // A room's filters button, in the place the Inbox has its View and filters
 // button: whether the board shows Later, and whose threads it shows. A room is
 // always its board, so there is no view to pick.
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RoomCard } from '../../types';
 import { SlidersIcon, StateGlyph } from '../../threads/Pages';
 import { togglePicked } from '../../threads/people-rules';
-import { LiveMark } from '../../components/LiveMark';
 import { RoomFace } from './RoomFace';
-import { agentsWords, cardName, facePick, tilesAcross, tilesPerRow } from './room-rules';
+import { cardName } from './room-rules';
 
 type Props = {
   /** Who can be on the board (`boardPeople`), and who is. */
@@ -38,35 +37,6 @@ export function RoomViewButton(props: Props) {
     </button>
     {open && <RoomViewMenu {...props} />}
   </span>;
-}
-
-/** The grid's people kept over the board as a row of tiles: a face, a first name and agents working. A tile narrows the board. */
-export function BoardFaces({ people, picked, onPick }: { people: RoomCard[]; picked: string[]; onPick: (ids: string[]) => void }) {
-  const [across, setAcross] = useState(8);
-  const grid = useRef<HTMLDivElement>(null);
-  const drawn = people.length >= 2;
-  useLayoutEffect(() => {
-    const el = grid.current;
-    if (!el) return;
-    const fit = () => setAcross(tilesAcross(el.clientWidth));
-    fit();
-    const watch = new ResizeObserver(fit);
-    watch.observe(el);
-    return () => watch.disconnect();
-  }, [drawn]);
-  if (!drawn) return null;
-  const all = people.map((p) => p.id);
-  const narrowed = picked.length < people.length;
-  return <div ref={grid} className="rm-bfaces" style={{ '--per-row': tilesPerRow(people.length, across) } as CSSProperties} role="group" aria-label="Whose threads">
-    {people.map((p) => <button type="button" key={p.id} className={`rm-bface${narrowed && !picked.includes(p.id) ? ' off' : ''}`}
-      aria-pressed={narrowed && picked.includes(p.id)} title={`${p.name}, ${agentsWords(p.agents).toLowerCase()}`}
-      onClick={() => onPick(facePick(picked, all, p.id))}>
-      <RoomFace name={p.name} url={p.avatarUrl} size={52} />
-      <span className="n">{p.me ? 'You' : p.name.split(' ')[0] || 'Someone'}</span>
-      {p.away ? <span className="ag">Not on Rooms yet</span>
-        : p.agents != null && <span className="ag"><LiveMark still={!p.agents} />{p.agents ? <><b>{p.agents}</b> working</> : 'Not running'}</span>}
-    </button>)}
-  </div>;
 }
 
 export function RoomViewMenu({ people, picked, onPick, unseen, later, onLater }: Props) {

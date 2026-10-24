@@ -6,6 +6,14 @@ type Dated = Pick<WorkItem, 'id' | 'createdAt' | 'wrote'>;
 export const arrivedAt = (i: Dated): number => i.wrote?.result?.ts ?? i.createdAt ?? 0;
 
 /**
+ * When a thread in Needs you started waiting on you, for the corner tag: its
+ * latest answer or its latest status, whichever is later. Status alone is not
+ * enough, because picking a thread up writes one and answering it does not.
+ */
+export const waitingSince = (i: Partial<Pick<WorkItem, 'wrote' | 'updatedAt'>>): number =>
+  Math.max(i.wrote?.result?.ts ?? 0, i.wrote?.status?.ts ?? 0) || i.updatedAt || 0;
+
+/**
  * Unread while its latest answer is newer than when you last opened it.
  * `since` stands in for threads with no opened time, so the first launch
  * does not dot everything you already had; Mark Unread stores 0.
