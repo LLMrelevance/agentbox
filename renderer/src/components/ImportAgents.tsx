@@ -30,6 +30,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
+import { SEND, sayKeys } from '../this-keyboard';
 import { type AgentFile } from '../onboarding';
 import {
   CARD, LIST, SEARCH, SECTION, canBring, listLine, destinations, folderOfProject, countKinds, importLines, nameOfProject,
@@ -612,7 +613,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
         {read && !some && !searching && (
           <div className="ia-none">
             <p className="ia-none-where">{alreadyIn > 0 ? CARD.allIn(alreadyIn) : CARD.noneWhere(SECTION.homeFolder)}</p>
-            <p className="ia-none-later">{alreadyIn > 0 ? CARD.laterAllIn : CARD.noneLater}</p>
+            <p className="ia-none-later">{sayKeys(alreadyIn > 0 ? CARD.laterAllIn : CARD.noneLater)}</p>
             <button type="button" className="ia-look-again" onClick={lookAgain} disabled={looking}>
               {looking ? CARD.looking : CARD.lookAgain}
             </button>
@@ -637,7 +638,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
         {read && (some || searching) && (
           <div className="ia-foot ia-foot-one">
             <button className="dock-send" disabled={!ready || busy} onClick={() => bring(onScreen)}>
-              {LIST.add(onScreen.length)} <kbd>⌘↵</kbd>
+              {LIST.add(onScreen.length)} <kbd>{SEND}</kbd>
             </button>
             <button type="button" className="ia-not-now" onClick={walk ? walk.onSkip : onClose} disabled={busy}>
               {walk ? walk.skip : LIST.notNow}{!walk && <kbd>esc</kbd>}

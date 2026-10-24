@@ -33,6 +33,7 @@ import * as approvals from './approvals.mjs';
 import { recoveryToast } from '../shared/recovery.mjs';
 import { dataFolderName, isNewUserBuild } from '../shared/side-build.mjs';
 import { runningAsAFreshUser } from '../shared/fresh-user-home.mjs';
+import { newUserWindow } from './new-user-window.mjs';
 import { openFreshUser } from './fresh-user.mjs';
 import { installCrashReports, reportFromRenderer, pending as pendingCrashes, setTransport } from './crash-report.mjs';
 import { createAnalytics, createDailyCount } from './analytics.mjs';
@@ -688,7 +689,15 @@ async function createWindow() {
     height: 900,
     minWidth: 980,
     minHeight: 600,
-    title: NAME,
+    // A throwaway copy says which one it is and stands a shoulder clear;
+    // your own window is centred and titled as it was.
+    ...newUserWindow({
+      fresh: runningAsAFreshUser(),
+      name: NAME,
+      screen: electronScreen.getPrimaryDisplay()?.workArea,
+      width: 1440,
+      height: 900,
+    }),
     backgroundColor: '#1a1a1c',
     titleBarStyle: 'hiddenInset',
     webPreferences: {
@@ -698,6 +707,11 @@ async function createWindow() {
       webviewTag: true, // the inbox-zero browser
     },
   });
+
+  // Electron hands the window's title to the page's the moment one loads, and
+  // renderer/index.html carries the app's name, so a throwaway copy went back
+  // to saying "Agentbox" as soon as it drew anything.
+  window.on('page-title-updated', (e) => e.preventDefault());
 
   // THE MENU IS A BAR INSIDE THE WINDOW on Linux and Windows. On macOS it is
   // the system menu, so it stays. The menu itself stays everywhere: the Ctrl
