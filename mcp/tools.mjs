@@ -36,7 +36,7 @@ const CAPABILITIES = [
   'products', 'documents (read and write, any path in the product)',
   'personas and transcripts (they are documents)', 'skills', 'work items', 'past chats (read only)',
   'the standing instruction behind a repeating task, on a thread that is one of its runs',
-  'the team chat, passing work and remembering, on a thread that is a teammate\'s run',
+  'the team chat and passing work to a teammate, from any thread; remembering and setting up, on a thread that is a teammate\'s run',
   'looking at a page running on this machine (look_at_page, local addresses only)',
 ];
 const MISSING = [
@@ -246,11 +246,11 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
     },
 
     /* ------------------------------- teammates ------------------------------ */
-    // For a session that is one run of a teammate. Which teammate is speaking
-    // comes from the run, never from an argument.
+    // On a teammate's run, the teammate speaks; on any other thread, the person
+    // does, because they asked. Which comes from the run, never an argument.
     {
       name: 'team_post',
-      description: 'Say something in the team chat, as the teammate this run belongs to. The person and every teammate read it. Naming a teammate in `to` or with @Name in the text wakes them to read it, so name someone only when they need to act. Keep it short and plain. Add up to four short `options` when asking the person something they can answer in a tap.',
+      description: 'Say something in the team chat: as the teammate this run belongs to, or, on any other thread, for the person when they ask you to tell a teammate something. The person and every teammate read it. Naming a teammate in `to` or with @Name in the text wakes them to read it, so name someone only when they need to act. Keep it short and plain. Add up to four short `options` when asking the person something they can answer in a tap.',
       schema: {
         text: z.string().describe('what to say, one to three sentences'),
         to: z.array(z.string()).optional().describe('names of teammates who need to act on it'),
@@ -260,7 +260,7 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
     },
     {
       name: 'team_pass',
-      description: 'Hand a piece of work to another teammate whose job it is. They get it as a run of their own, with your title and details as its brief, and it shows in the team chat. Put everything they need in the details: steps, files, links, what done looks like.',
+      description: 'Hand a piece of work to a teammate whose job it is. They get it as a run of their own, with your title and details as its brief, and it shows in the team chat. On a thread that is not a teammate\'s run, use it when the person asks you to give something to one of their teammates (call team_roster first to see who is on the team). Put everything they need in the details: steps, files, links, what done looks like.',
       schema: {
         to: z.string().describe('the teammate\'s name'),
         title: z.string().describe('the work, in a short line'),
@@ -293,7 +293,7 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
     },
     {
       name: 'team_roster',
-      description: 'The team: every teammate with their role and job, and the last twenty things said in the team chat.',
+      description: 'The person\'s teammates (agents with standing jobs) with their role and job, and the last twenty things said in the team chat. Works on any thread.',
       schema: {},
       run: () => json(teamRoster()),
     },

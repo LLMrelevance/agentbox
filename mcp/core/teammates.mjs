@@ -23,20 +23,23 @@ function projectOf(itemId, product) {
   throw new Error(`no thread ${itemId} in any product`);
 }
 
-export function teammateContext({ env = process.env, now = Date.now() } = {}) {
+// `outsider` lets a thread that is no teammate's run in: it speaks for the
+// person (`me` is null), which is what they asked it to do.
+export function teammateContext({ env = process.env, now = Date.now(), outsider = false } = {}) {
   const itemId = String(env.ZERO_ITEM ?? '').trim();
   if (!itemId) throw new Error(NOT_A_TEAMMATE);
   const project = projectOf(itemId, String(env.ZERO_PRODUCT ?? '').trim() || null);
   const item = readWorkItem(project.dir, itemId, now);
   if (!item) throw new Error(`no thread ${itemId} in ${project.name}`);
   const tid = teammateIdOf(item);
-  if (!tid) throw new Error(NOT_A_TEAMMATE);
+  if (!tid && !outsider) throw new Error(NOT_A_TEAMMATE);
   const accountId = String(env.STORE_ACCOUNT_ID ?? '').trim() || resolveAccount().accountId;
   const dir = teamDir(legacyRoot(), accountId);
   const team = readTeammates(dir, now);
+  if (!tid) return { dir, me: null, team, item, hop: 0, via: { via: item.id, viaProduct: project.id } };
   const me = team.find((t) => t.id === tid);
   if (!me) throw new Error(`the teammate behind ${itemId} is no longer on the team`);
-  return { dir, me, team, item, hop: hopOf(item) };
+  return { dir, me, team, item, hop: hopOf(item), via: {} };
 }
 
 function idsFor(names, team, me) {
@@ -46,28 +49,28 @@ function idsFor(names, team, me) {
     const lower = n.toLowerCase();
     const t = team.find((x) => x.id === n || x.name.toLowerCase() === lower);
     if (!t) throw new Error(`no teammate called ${n}. The team: ${team.map((x) => x.name).join(', ')}`);
-    if (t.id !== me.id) out.push(t.id);
+    if (t.id !== me?.id) out.push(t.id);
   }
   return out;
 }
 
 export function teamPost({ text, to = [], options } = {}, ctx = {}) {
-  const { dir, me, team, hop } = teammateContext(ctx);
+  const { dir, me, team, hop, via } = teammateContext({ ...ctx, outsider: true });
   const words = String(text ?? '').trim();
   if (!words) throw new Error('nothing to post');
-  const ids = new Set([...idsFor(to, team, me), ...mentionsIn(words, team).filter((x) => x !== me.id)]);
-  const opts = Array.isArray(options) ? options.map((o) => String(o).trim()).filter(Boolean).slice(0, 4) : null;
-  const m = writeChat(dir, { kind: 'msg', from: me.id, to: [...ids], text: words.slice(0, 4000), hop, ...(opts?.length ? { options: opts } : {}) }, ctx.now);
+  const ids = new Set([...idsFor(to, team, me), ...mentionsIn(words, team).filter((x) => x !== me?.id)]);
+  const opts = me && Array.isArray(options) ? options.map((o) => String(o).trim()).filter(Boolean).slice(0, 4) : null;
+  const m = writeChat(dir, { kind: 'msg', from: me?.id ?? YOU, to: [...ids], text: words.slice(0, 4000), hop, ...via, ...(opts?.length ? { options: opts } : {}) }, ctx.now);
   return { posted: m.id, to: [...ids].map((x) => team.find((t) => t.id === x)?.name), note: ids.size ? 'The teammates named will wake to read it.' : 'Posted. Nobody was named, so nobody is woken by it.' };
 }
 
 export function teamPass({ to, title, details } = {}, ctx = {}) {
-  const { dir, me, team, hop } = teammateContext(ctx);
+  const { dir, me, team, hop, via } = teammateContext({ ...ctx, outsider: true });
   const [target] = idsFor(to, team, me);
   if (!target) throw new Error('pass work to another teammate, not to yourself');
   const what = String(title ?? '').trim();
   if (!what) throw new Error('give the work a short title');
-  const m = writeChat(dir, { kind: 'pass', from: me.id, to: target, title: what.slice(0, 200), details: String(details ?? '').slice(0, 6000), hop }, ctx.now);
+  const m = writeChat(dir, { kind: 'pass', from: me?.id ?? YOU, to: target, title: what.slice(0, 200), details: String(details ?? '').slice(0, 6000), hop, ...via }, ctx.now);
   return { passed: m.id, to: team.find((t) => t.id === target)?.name };
 }
 
@@ -114,11 +117,11 @@ export function teamSetup({ name, role, job, goal, counted, asksFirst, every, at
 }
 
 export function teamRoster(ctx = {}) {
-  const { dir, me, team } = teammateContext(ctx);
+  const { dir, me, team } = teammateContext({ ...ctx, outsider: true });
   const { messages } = readChat(dir);
   const nameOf = (id) => (id === YOU ? 'the person' : team.find((t) => t.id === id)?.name ?? 'a teammate');
   return {
-    you: me.name,
+    you: me?.name ?? null,
     team: team.map((t) => ({ name: t.name, role: t.role, job: t.job, paused: t.paused, status: t.status })),
     recent: messages.filter((m) => m.kind === 'msg' || m.kind === 'pass').slice(-20).map((m) => ({ from: nameOf(m.from), to: m.kind === 'pass' ? [nameOf(m.to)] : (m.to ?? []).map(nameOf), text: m.kind === 'pass' ? `passed: ${m.title}` : m.text, at: new Date(m.ts).toISOString() })),
   };

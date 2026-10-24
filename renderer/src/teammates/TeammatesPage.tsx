@@ -94,7 +94,7 @@ function ChatColumn({ view, team, only, me, call, onOpenThread, placeholder, err
     if (d !== day) { rows.push(<div key={`day-${e.id}`} className="rm-day"><span className="rm-label">{d}</span></div>); day = d; prevFrom = ''; }
     if (e.kind === 'msg') {
       const lead = e.from !== prevFrom;
-      rows.push(<Message key={e.id} m={e} team={team} me={me} lead={lead} only={only} call={call} />);
+      rows.push(<Message key={e.id} m={e} team={team} me={me} lead={lead} only={only} call={call} onOpenThread={onOpenThread} />);
       prevFrom = e.from;
     } else {
       rows.push(<Activity key={e.id} e={e} team={team} only={only} call={call} onOpenThread={onOpenThread} />);
@@ -112,7 +112,7 @@ function ChatColumn({ view, team, only, me, call, onOpenThread, placeholder, err
   </div>;
 }
 
-function Message({ m, team, me, lead, only, call }: { m: TeamChatLine; team: Teammate[]; me: string; lead: boolean; only: Teammate | null; call: Call }) {
+function Message({ m, team, me, lead, only, call, onOpenThread }: { m: TeamChatLine; team: Teammate[]; me: string; lead: boolean; only: Teammate | null; call: Call; onOpenThread: (product: string, id: string) => void }) {
   const t = team.find((x) => x.id === m.from) ?? null;
   const mine = m.from === 'you';
   const to = (Array.isArray(m.to) ? m.to : []).map((x) => nameOf(x, team));
@@ -121,6 +121,7 @@ function Message({ m, team, me, lead, only, call }: { m: TeamChatLine; team: Tea
       {mine ? <span className="rm-pic rm-ini tq-you" aria-hidden="true">{me.trim() ? initials(me) : YOU_GLYPH}</span> : <TeammateMark t={t} size="pic" />}
       <span>{mine ? 'You' : t?.name ?? 'A teammate'}</span>
       {mine && to.length > 0 && <span className="tq-to">to {to.join(', ')}</span>}
+      {mine && m.via && m.viaProduct && <button type="button" className="tq-to tq-link" onClick={() => onOpenThread(m.viaProduct!, m.via!)}>from a thread</button>}
       <em>{clockOf(m.ts)}</em>
     </div>}
     <div className="tx"><ReactMarkdown remarkPlugins={MD}>{m.text ?? ''}</ReactMarkdown>

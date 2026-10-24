@@ -175,3 +175,5 @@ select.tq-in { height: 32px; padding: 0 6px; }
 .gt-inset .rm-compose.tq-compose { margin-left: 44px; }
 .gt-inset .tq-error { margin-left: 44px; }
 .gt-inset .tp-body { padding-left: 44px; }
+.tq-to.tq-link { color: var(--text-faint); font-size: 13.5px; }
+.tq-to.tq-link:hover { color: var(--text-dim); }

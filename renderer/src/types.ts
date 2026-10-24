@@ -378,6 +378,8 @@ export interface Teammate {
 export interface TeamChatLine {
   id: string; kind: 'msg' | 'pass' | 'act'; from: string; to?: string[] | string; text?: string;
   title?: string; details?: string; verb?: string; ref?: string; options?: string[]; ts: number;
+  /** Said for you by one of your threads, when you asked it to. */
+  via?: string; viaProduct?: string;
 }
 export interface TeamRunLine {
   id: string; kind: 'run'; teammate: string; item: string; product: string; title: string;

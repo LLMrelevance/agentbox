@@ -213,11 +213,33 @@ describe('teammates through the store', () => {
     expect(here.create({ starter: 'support', product: 'practice' }).product).toBe('product');
   });
 
-  it('refuses: a session that is no teammate\'s run, passing to yourself, and a name nobody has', async () => {
+  // The power test asked an ordinary thread to "pass this to Ada", and it
+  // could not: the team tools were a teammate's only. A thread hands work on
+  // for the person, as the person, and says which thread it came from.
+  it('an ordinary thread can hand work to a teammate for you, and wakes it like your own words', async () => {
     const ada = team.create({ starter: 'quality' });
-    const plain = work.createWorkItem(dir, { title: 'an ordinary task', labels: ['founder'] });
+    const plain = work.createWorkItem(dir, { title: 'Customer call notes', labels: ['founder'] });
     onRun(plain.id);
-    expect(() => core.teamPost({ text: 'hi' })).toThrow(/not a teammate/);
+    expect(core.teamRoster().team.map((t) => t.name)).toEqual(['Ada']);
+    const passed = core.teamPass({ to: 'Ada', title: 'Signup emails land in spam', details: 'Two customers said so on the call.' });
+    expect(passed.to).toBe('Ada');
+    const line = team.chat().messages.find((m) => m.kind === 'pass');
+    expect(line).toMatchObject({ from: 'you', to: ada.id, via: plain.id, viaProduct: product.id });
+    await tick(Date.now());
+    const run = store.listItems().find((i) => teammateIdOf(i) === ada.id);
+    expect(run.title).toBe('Signup emails land in spam');
+    expect(hopOf(run)).toBe(0);
+    core.teamPost({ text: '@Ada the customer was on Gmail' });
+    expect(team.chat().messages.at(-1)).toMatchObject({ from: 'you', to: [ada.id], via: plain.id });
+    // What only a teammate has stays a teammate's.
+    expect(() => core.teamRemember({ text: 'x' })).toThrow(/not a teammate/);
+    expect(() => core.teamSetup({ ready: true })).toThrow(/not a teammate/);
+  });
+
+  it('refuses: a session with no thread at all, passing to yourself, and a name nobody has', async () => {
+    const ada = team.create({ starter: 'quality' });
+    delete process.env.ZERO_ITEM;
+    expect(() => core.teamPost({ text: 'hi' })).toThrow(/not a teammate|no thread/);
     team.post({ text: 'go', to: [ada.id] });
     await tick(Date.now());
     onRun(store.listItems().find((i) => teammateIdOf(i) === ada.id).id);
