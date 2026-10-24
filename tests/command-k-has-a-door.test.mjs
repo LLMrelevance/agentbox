@@ -17,6 +17,11 @@
 //
 //   THE ⌘ MARK CARRIES NO LABEL. `Commands` beside it was option A and she
 //   turned it down.
+//
+// THE MARK ITSELF IS WHICHEVER KEY THE KEYBOARD HAS (4dabd8f7, 2026-10-24): ⌘
+// where there is one, the word Ctrl where there is not. Two of the reads below
+// pinned the ⌘ as a literal and so went red on the commit that drew Ctrl; what
+// they are for is that the mark is bare, which both keyboards still are.
 
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
@@ -30,6 +35,8 @@ const css = read('renderer/src/styles.css');
 const nav = read('renderer/src/components/WorkspaceNavigation.tsx');
 
 const corner = app.slice(app.indexOf('<div className="topbar-right">'), app.indexOf('</header>'));
+/** The mark itself, in the glyphs of whichever keyboard is in front of it. */
+const THE_MARK = /<span className=\{MAC \? 'cmd-glyph' : 'cmd-glyph cmd-word'\} aria-hidden="true">\{MAC \? '⌘' : 'Ctrl'\}<\/span>/;
 const tabNav = (() => {
   const start = app.indexOf('<nav\n          className="tabs"');
   return app.slice(start, app.indexOf('</nav>', start));
@@ -77,7 +84,7 @@ describe('the corner is the three marks she named, in her order', () => {
 describe('the door to ⌘K', () => {
   it('is a bare glyph and not the word she turned down', () => {
     const btn = corner.slice(corner.indexOf('aria-label="Commands"') - 400, corner.indexOf('aria-label="Commands"') + 500);
-    expect(btn).toContain('<span className="cmd-glyph" aria-hidden="true">⌘</span>');
+    expect(btn).toMatch(THE_MARK);
     // Option A was a control reading `Commands` with ⌘K printed beside it in
     // the app's own keycap, 121 points wide. She picked the glyph over it.
     expect(btn).not.toMatch(/<kbd>/);
@@ -92,7 +99,7 @@ describe('the door to ⌘K', () => {
   it('is a bare ⌘ mark that says ⌘K when she points at it', () => {
     // The button itself never grows a label: "A bare ⌘ in the corner family, no
     // label, no keycap, no border."
-    expect(corner).toMatch(/aria-label="Commands"[\s\S]{0,300}<span className="cmd-glyph" aria-hidden="true">⌘<\/span>/);
+    expect(corner).toMatch(new RegExp(`aria-label="Commands"[\\s\\S]{0,300}${THE_MARK.source}`));
     // AND IT CARRIES A HINT AGAIN SINCE 2026-09-24. It was left out on the rule
     // that a component already showing its key gets no plate, and she reported
     // the result: "When I hover over certain buttons, like the ones shown in

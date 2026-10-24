@@ -203,7 +203,11 @@ describe('2. a key is drawn with its name when the glyph says nothing', () => {
     const cap = drawn.slice(drawn.indexOf('export function Cap('), drawn.indexOf('/** THE CARD ITSELF'));
     expect(cap).toContain('<kbd className={className}>');
     expect(cap).toContain('className="fr-cap-word"');
-    expect(cap).toContain('keyName(cap)');
+    // The word names the cap this keyboard draws, not the Mac glyph it was
+    // written as (4dabd8f7, 2026-10-24): where ⇥ is drawn as the word Tab
+    // already, naming the glyph would put "Tab" in the cap twice.
+    expect(cap).toContain('const shown = chord(cap)');
+    expect(cap).toContain('const name = keyName(shown)');
     // The card and the walk's own Next buttons both go through it, so no bare
     // <kbd> holding a glyph is left anywhere in the walk.
     expect(drawn).not.toContain('<kbd>↵</kbd>');
