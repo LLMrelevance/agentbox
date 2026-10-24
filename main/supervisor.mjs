@@ -43,11 +43,12 @@ import { cloudWorkPending, takeCloudNews, writeMarker, readMarker } from './clou
 import { cloudClients } from './cloud/clients.mjs';
 import { kitCopyPath, kitFramePath, readKitCopy, markerForCloudRun } from './cloud/kit.mjs';
 import { REPLY_MARK, replyFrame, serverJoinedKey } from '../shared/cloud-kit.mjs';
+import { CLOSED_UNSHIPPED, closedBeforeItShipped } from '../shared/not-shipped.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
 import { CLOUD_SENT, readSent } from '../shared/cloud-start.mjs';
 import { readCloudConfig, cloudAccountConfig, OLD_TOKEN_SERVICE, imageCaps } from './cloud/config.mjs';
 import { cloudVersionGaps } from '../shared/cloud-versions.mjs';
-import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
+import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin, cloudLoginInUse, cloudAccountsFrom, CLOUD_ACCOUNT_ENV } from './cloud/logins.mjs';
 import { execFileSync } from 'node:child_process';
 import { holdUntilHome } from './cloud/codex-cloud.mjs';
 import { hostSocketPath, perlRunsTheShim, HOST_ALREADY_THERE } from './cloud/host.mjs';
@@ -91,7 +92,7 @@ function whoHasIt(made) {
 }
 import { agentSpokeSince, answerSettled, answerTs, stoppedByHer } from '../shared/answers.mjs';
 import { DEFAULT_SESSIONS_AT_ONCE } from './config.mjs';
-import { accountIdentity, nameForOrganization, profileForCloudLogin, toolingLine } from './account-tooling.mjs';
+import { accountIdentity, nameForOrganization, profileForCloudLogin, isCloudLoginOf, toolingLine } from './account-tooling.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
 import { namedThreadsBlock } from '../shared/named-threads.mjs';
@@ -431,7 +432,9 @@ export class Supervisor {
       // WHEN THE LIVE WORK STARTED, so that a reply to a thread already waiting
       // does not hold its ship for as long as the new session runs. A cloud run
       // that has not come home answers null: nobody can say, and that waits.
-      liveSince: (item) => (this._cloudWorkOutstanding(item) ? null : this.sessions.get(item.id)?.startedAt ?? null),
+      // Not a second import while the thread's own relay is live: two racing
+      // to lay in one run set its work aside as "changed on this Mac".
+      liveSince: (item) => (this._cloudWorkOutstanding(item, { bring: !this.sessions.has(item.id) }) ? null : this.sessions.get(item.id)?.startedAt ?? null),
       handBack: (item, reply) => {
         const fresh = this.store.readItem?.(item.product, item.id) ?? item;
         this.spawnWorker(fresh, { continuation: true, shipFailure: reply });
@@ -786,6 +789,8 @@ export class Supervisor {
    * capped, its first run dies in seconds and benches it to its reset again.
    */
   accountChosen(engine, profile) {
+    // The cloud follows the pick (`_cloudAccountOfThisMac`), so its check is asked afresh.
+    this._cloudConfigAt = 0;
     if (!profile) return false;
     const key = this._accountKey(engine, profile);
     if (this._profileTrouble?.[key]?.cause === 'at-limit') this._clearProfileTrouble(key);
@@ -2215,6 +2220,17 @@ export class Supervisor {
     })().catch((error) => console.warn('zero: could not put the finished folders away:', error.message));
   }
 
+  // A CLOSED THREAD WHOSE WORK NEVER REACHED MAIN COMES BACK, ONCE
+  // (shared/not-shipped.mjs). The note it comes back with is what stops a
+  // second time, and a close after being asked writes one that ends it.
+  bringBackWhatNeverShipped(items) {
+    for (const item of items ?? []) {
+      if (!closedBeforeItShipped(item)) continue;
+      try { this.store.closedBeforeItShipped?.(item.product, item.id, `${CLOSED_UNSHIPPED}${item.note}`); }
+      catch (e) { console.warn(`zero: could not bring back ${item.id}, closed before it shipped:`, e.message); }
+    }
+  }
+
   /** This product first, then anything else registering the same checkout. */
   _productsSharing(product) {
     let all = [];
@@ -2252,6 +2268,8 @@ export class Supervisor {
         if (item) break;
       }
       if (item && item.status !== 'done') continue;
+      // A closed row still ships (main/ship-queue.mjs), from this folder.
+      if (item && this.shipQueue?.owes(item, this._productsSharing(product))) continue;
       // AND NEVER A ROW SOMEBODY IS STILL HOLDING, which is the rule the bug
       // report asked for: whatever cleans folders up must not remove one whose
       // row is claimed by a live session. The session map above is only
@@ -4400,12 +4418,45 @@ export class Supervisor {
     return this._cloudLoginRunnable(engineOf(engine));
   }
 
-  // Whether any cloud account of this engine may run now. Which one a run
-  // takes is decided when it starts (main/cloud/logins.mjs pickCloudLogin);
-  // it need not be the account the thread uses on this Mac.
+  // Whether the cloud account a run would take may run now, asked exactly as
+  // the run asks it (main/cloud/logins.mjs pickCloudLogin). Asking whether ANY
+  // account could run sends up threads the run then turns back.
   _cloudLoginRunnable(engine) {
     const now = Date.now();
-    return listCloudLogins(engineOf(engine), { home: this.config.home }).some((r) => mayRunOn(cloudLoginState(r, { now })));
+    const inUse = cloudLoginInUse(engineOf(engine), this._cloudAccountAsk(engine, now));
+    return !!inUse && mayRunOn(cloudLoginState(inUse, { now }));
+  }
+
+  _cloudAccountAsk(engine, now = Date.now()) {
+    return { home: this.config.home, now, only: cloudAccountsFrom(process.env), prefer: this._cloudAccountOfThisMac(engine) };
+  }
+
+  // THE CLOUD ACCOUNT THAT IS THIS MAC'S ONE ACCOUNT (`_theOneAccount`),
+  // matched by who it is rather than by folder, since one person can be signed
+  // in to two folders. Null when that account is not signed in to the cloud.
+  _cloudAccountOfThisMac(engine = DEFAULT_ENGINE) {
+    const which = engineOf(engine);
+    const profile = this._profilesFor(which)[0];
+    if (!profile) return null;
+    const logins = listCloudLogins(which, { home: this.config.home }).filter((r) => !r.duplicateOf);
+    if (which === 'codex') {
+      const email = codexAccount(this._codexProfileHome(profile))?.email?.toLowerCase();
+      return (email && logins.find((r) => r.email?.toLowerCase() === email)?.key) || null;
+    }
+    const home = this.config.home || os.homedir();
+    const here = this._profiles().map((p) => ({ ...accountIdentity(p === 'default' ? null : p, { home }), profile: p }));
+    const me = here.find((id) => id.profile === profile);
+    return logins.find((r) => isCloudLoginOf(r, me, here))?.key ?? null;
+  }
+
+  // What a cloud run is handed so it takes that account (main/cloud/run-cli.mjs).
+  _cloudAccountEnv() {
+    const out = {};
+    for (const engine of [DEFAULT_ENGINE, 'codex']) {
+      const key = this._cloudAccountOfThisMac(engine);
+      if (key) out[CLOUD_ACCOUNT_ENV[engine]] = key;
+    }
+    return out;
   }
 
   // WHAT THE CLOUD BUTTON SHOWS (renderer/src/cloud-menu.ts): whether this
@@ -4448,6 +4499,7 @@ export class Supervisor {
     const out = [];
     let here = null;
     for (const engine of [DEFAULT_ENGINE, 'codex']) {
+      const inUse = cloudLoginInUse(engine, this._cloudAccountAsk(engine, now))?.key ?? null;
       listCloudLogins(engine, { home: this.config.home }).forEach((r) => {
         const state = cloudLoginState(r, { now });
         // A Claude login in the cloud can say its organization, not its email
@@ -4464,7 +4516,7 @@ export class Supervisor {
         out.push({
           engine, key: r.key, name: name || null, plan: plans.size === 1 ? [...plans][0] : null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null,
           limitedUntil: r.limitedUntil ?? null, limits: cloudLimits(r.limits), readAt: r.readAt ?? null, duplicateOf: r.duplicateOf ?? null,
-          profile, readError: failed ? r.lookError || 'The cloud did not answer.' : null,
+          profile, readError: failed ? r.lookError || 'The cloud did not answer.' : null, inUse: r.key === inUse,
         });
       });
     }
@@ -5042,7 +5094,9 @@ export class Supervisor {
   // IN A PROCESS GROUP OF ITS OWN: a terminal's Control-C goes to the app's
   // whole group, and a relay takes SIGINT as Stop, so the run was cancelled
   // before the app's quit could leave it going. It hears only the app.
-  _spawnCloudRelay(args, { cwd, env, stdio = ['pipe', 'pipe', 'pipe'] }) {
+  _spawnCloudRelay(args, { cwd, env: given, stdio = ['pipe', 'pipe', 'pipe'] }) {
+    const { [CLOUD_ACCOUNT_ENV.claude]: _claude, [CLOUD_ACCOUNT_ENV.codex]: _codex, ...rest } = given;
+    const env = { ...rest, ...this._cloudAccountEnv() };
     const shim = unpacked(path.join(this.appDir, 'scripts', 'cloud-shim.pl'));
     const sock = this._cloudHostAvailable() ? this._cloudHost() : null;
     if (sock) {
@@ -5093,7 +5147,7 @@ export class Supervisor {
   }
 
   // A FOLDER'S CLOUD WORK IS STILL ON ITS WAY BACK: ask for it, and say so.
-  _cloudWorkOutstanding(item) {
+  _cloudWorkOutstanding(item, { bring = true } = {}) {
     let folder = null;
     try {
       const product = this.store.listProducts().find((p) => p.slug === item.product);
@@ -5101,7 +5155,7 @@ export class Supervisor {
       folder = taskFolderPath(this.productFolder(product), item.id);
     } catch { return false; }
     if (!cloudWorkPending(folder)) return false;
-    this._bringCloudHome(folder);
+    if (bring) this._bringCloudHome(folder);
     return true;
   }
 
@@ -5848,6 +5902,14 @@ export class Supervisor {
      Pausing the whole fleet is still a switch in Settings and a row in
      ⌘K, and stopping one task is still S on the row. */
 
+  /** Every run going: the sessions, and the cloud runs a restart picked back up. One list, so In progress and Groups count the same runs. */
+  runsGoing() {
+    return [
+      ...this.sessions.values(),
+      ...[...(this._comingHome?.values() ?? [])].filter((v) => !this.sessions.has(v.itemId)),
+    ].filter((s) => !s.remoteIdle);
+  }
+
   /** What the phone is told of the agent running on one thread: since, where, its current steps. Null when none is. */
   liveFor(product, itemId) {
     const s = this.sessions.get(itemId);
@@ -5980,11 +6042,7 @@ export class Supervisor {
       // above, for the same reason: "Queued" over a Codex task while Codex
       // had no slot until the reset (found by the pre-deploy breaker).
       atLimit,
-      running: [
-        ...this.sessions.values(),
-        // A cloud run the app left going, followed home (`_followComingHome`).
-        ...[...(this._comingHome?.values() ?? [])].filter((v) => !this.sessions.has(v.itemId)),
-      ].filter(s => !s.remoteIdle).map((s) => ({
+      running: this.runsGoing().map((s) => ({
         itemId: s.itemId,
         product: s.product,
         startedAt: s.startedAt,
@@ -6412,6 +6470,7 @@ export class Supervisor {
     // is exactly when no session exit is coming to do this.
     this.parkOnATimer(now);
     const items = this.store.listItems(now);
+    this.bringBackWhatNeverShipped(items);
     // A task its agent marked ready goes out, one at a time, beside the tick.
     try { this.shipQueue.tick(items, this.store.listProducts()); } catch (e) { console.warn('zero: the ship queue:', e.message); }
 

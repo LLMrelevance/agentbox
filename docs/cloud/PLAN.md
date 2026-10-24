@@ -543,7 +543,11 @@ approved:
    brand verification on our domain, the database's public address and key
    carried by public builds, signing in for the cloud kept apart from the
    team version, and the database's access rules reviewed before strangers
-   can sign up to it.
+   can sign up to it. Since 2026-10-23: Sign in and Create account are tabs,
+   Create account asks a name and alone carries the terms line, a sign-in
+   sends no agreement (the server keys someone who never agreed only after
+   "Agree and continue"), and the order is plan in the invitation, account,
+   Stripe, then the Claude or Codex account.
 4. **Plans** enforced by the server (below), with the hour limits set from
    `node scripts/cloud-usage.mjs`.
 5. **Stripe**: checkout, the page where people manage their plan, and its

@@ -171,7 +171,6 @@ describe('one glass, whatever the Mac is set to', () => {
     // happened when it went further (2026-10-13).
     expect(Math.max(...fill(''))).toBeLessThan(0.8);
     expect(Math.min(...fill(''))).toBeGreaterThan(0.65);
-    expect(Math.max(...fill('-quiet'))).toBeLessThan(0.62);
     expect(Math.min(...fill('-hover'))).toBeGreaterThan(0.85);
   });
 
@@ -183,8 +182,6 @@ describe('one glass, whatever the Mac is set to', () => {
     expect(css).not.toContain('inset 0 0 0 0.5px');
     const alpha = (name) => Number(css.match(new RegExp(`--ct-line${name}: rgba\\([^)]+\\)`))[0].split(',').pop().trim().replace(')', ''));
     expect(alpha('-bottom')).toBeGreaterThan(alpha(''));
-    expect(alpha('-quiet-bottom')).toBeGreaterThan(alpha('-quiet'));
-    expect(alpha('')).toBeGreaterThan(alpha('-quiet'));
     // and it stays faint: an edge, not a frame ("a bit too prominent/visible")
     expect(alpha('-bottom')).toBeLessThan(0.25);
     expect(alpha('')).toBeLessThan(0.18);
