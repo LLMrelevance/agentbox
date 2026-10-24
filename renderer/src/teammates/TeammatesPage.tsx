@@ -191,7 +191,7 @@ function SidePanel({ t, products, engines, call, onOpenThread }: { t: Teammate; 
   useEffect(() => { setEditing(false); }, [t.id]);
   if (editing) return <aside className="gr-side tq-side"><About t={t} products={products} engines={engines} call={call} onDone={() => setEditing(false)} /></aside>;
   return <aside className="gr-side tq-side">
-    {t.status === 'draft' && <div className="tq-sec"><div className="tq-sh">Setting up</div><div className="tq-sv dim">Answer its questions in the chat. It starts once its job is clear.</div></div>}
+    {t.status === 'draft' && <div className="tq-sec"><div className="tq-sh">Setting up</div><div className="tq-sv dim">It sets itself up from what you wrote, and asks you in the chat if anything is unclear.</div></div>}
     <div className="tq-sec"><div className="tq-sh">Goal<button type="button" className="tq-edit" onClick={() => setEditing(true)}>Edit</button></div><div className="tq-sv">{t.goal ?? <span className="dim">No goal yet</span>}</div>
       <div className="tq-sv dim tq-works">{t.worksLabel ? `Works ${t.worksLabel}` : 'Works when someone writes to it'}{t.engine && engines.length > 1 ? `, on ${engines.find((e) => e.id === t.engine)?.label ?? t.engine}` : ''}</div></div>
     {(t.waiting.length > 0 || t.asking || t.question) && <div className="tq-sec"><div className="tq-sh">Waiting on you</div>
