@@ -46,6 +46,7 @@ import { PRIORITIES, priorityLabelOf, priorityValueOf, startingPriority, type Pr
 import { composeDraftIsEmpty, dropComposeDraft, markComposeDraftSending, openingComposeDraft, readComposeDraft, restoreComposeDraft, saveComposeDraft, type ComposeDraft } from '../drafts';
 import { LAST_PRODUCT_KEY } from '../compose-project';
 import { practiceRefusal, noProjectYet } from '../compose-says';
+import { listedTasks } from '../message-split';
 import { defaultModelFor, engineModelLabel, readLastModel, writeLastModel, type ModelChoice } from '../models';
 import { defaultEffortFor, effortChoicesFor, effortPicked, effortShown, readLastEffort, writeLastEffort } from '../effort';
 import { readLastEngine, startingEngine, writeLastEngine } from '../engines';
@@ -83,6 +84,10 @@ export interface ThreadSent {
   draft?: ComposeDraft;
   /** The conversation a message went into, so its toast can open it with O. */
   made?: { product: string; id: string };
+  /** How many threads a pasted list went out as, when it was split. */
+  threads?: number;
+  /** The rest of a split list's threads, so one Z takes back all of them. */
+  alsoMade?: { product: string; id: string }[];
 }
 
 type MenuKey = 'to' | 'model' | 'sendAs' | 'dueOn' | 'project' | 'priority' | 'visibility' | 'later';
@@ -147,7 +152,7 @@ export function ThreadComposer({
    * its way, and `onFailed` is how a send that then does not stand comes back.
    * Not given (the tutorial), the card stays up until the answer as it did.
    */
-  onSending?: (p: { kind: ThreadSent['kind']; product?: string; to?: string; toMany?: string[]; runAt?: number; start?: 'later' }) => void;
+  onSending?: (p: { kind: ThreadSent['kind']; product?: string; to?: string; toMany?: string[]; runAt?: number; start?: 'later'; threads?: number }) => void;
   /** A send handed over with `onSending` that did not stand. The words are back in the draft. */
   onFailed?: (reason: string, p: { to?: string; also?: string[] }) => void;
 }) {
@@ -411,9 +416,17 @@ export function ThreadComposer({
   // is held to the task's bar, not the message's.
   const asMessage = !!person && sendAs === 'message';
   const canSend = !sending && (asMessage ? !!text.trim() || attachments.length > 0 : !!message && !!product && !refusal);
+  // A PASTED LIST, OFFERED AS ONE THREAD EACH (../message-split.ts). The offer
+  // stands down wherever one thread is the only honest reading: a message to a
+  // person, files that belong to one thread, a thread named in the words (the
+  // mention is one item's, not every item's), and the tutorial's own task.
+  const listed = person || attachments.length || scripted || named.encode(typed.trim()) !== typed.trim()
+    ? [] : listedTasks(typed);
 
-  const sendTask = async (when: { runAt?: number; start?: 'later'; repeat?: { every: 'day' | 'weekday' | 'week'; on?: number; at: string } } = {}) => {
+  const sendTask = async (when: { runAt?: number; start?: 'later'; repeat?: { every: 'day' | 'weekday' | 'week'; on?: number; at: string }; asList?: boolean } = {}) => {
     if (!canSend || !product || !message) return;
+    // One thread per item, or the one thread Send has always made.
+    const parts = when.asList ? listed : [];
     setSending(true);
     setError(null);
     setOpen(null);
@@ -426,7 +439,7 @@ export function ThreadComposer({
     // The written-down copy stays until something answers (`dropComposeDraft`).
     const taken = markComposeDraftSending();
     try { localStorage.setItem(LAST_PRODUCT_KEY, product.slug); } catch { /* the send still stands */ }
-    onSending?.({ kind: when.repeat ? 'repeat' : 'task', product: product.slug, ...(when.runAt ? { runAt: when.runAt } : {}), ...(when.start ? { start: when.start } : {}) });
+    onSending?.({ kind: when.repeat ? 'repeat' : 'task', product: product.slug, ...(when.runAt ? { runAt: when.runAt } : {}), ...(when.start ? { start: when.start } : {}), ...(parts.length > 1 ? { threads: parts.length } : {}) });
     try {
       const attached = await persistAttachments(product.slug, attachments);
       const body = [message.body, attached].filter(Boolean).join('\n\n');
@@ -450,6 +463,29 @@ export function ThreadComposer({
         dropComposeDraft(taken);
         onSent(null, { kind: 'repeat', product: product.slug, title: message.title, ruleId: rule?.id, draft: taken });
       } else {
+        // Each thread of a split carries its own line and no body: a body
+        // repeating the whole list would be three threads each briefed to do
+        // everything. Project, level, model and moment are shared.
+        const fields = {
+          product: product.slug, kind: 'directive' as const, priority,
+          ...(when.runAt ? { runAt: when.runAt } : {}),
+          ...(when.start ? { start: when.start } : {}),
+          ...harness,
+          ...(given ?? {}),
+          ...(team ? sharingFields(visibility, chosenHere) : {}),
+        };
+        if (parts.length > 1) {
+          const rows = [];
+          for (const part of parts) rows.push(await api.compose({ ...fields, title: part }));
+          dropComposeDraft(taken);
+          const first = rows.find((r) => r?.id) ?? null;
+          onSent(first, {
+            kind: 'task', product: product.slug, title: parts[0], draft: taken, threads: parts.length,
+            alsoMade: rows.filter((r) => r?.id && r !== first).map((r) => ({ product: r!.product, id: r!.id })),
+            ...(when.runAt ? { runAt: when.runAt } : {}), ...(when.start ? { start: when.start } : {}),
+          });
+          return;
+        }
         const made = await api.compose({
           product: product.slug, title: message.title, body: body || undefined, kind: 'directive', priority,
           ...(when.runAt ? { runAt: when.runAt } : {}),
@@ -948,6 +984,13 @@ export function ThreadComposer({
         <AttachRow attachments={attachments} onRemove={(i) => setAttachments((x) => x.filter((_, j) => j !== i))} />
 
         {refusal && <div className="tc-note">{refusal}</div>}
+        {/* Send is untouched: this is the other reading offered, not a mode the
+            card is now in. */}
+        {listed.length > 1 && (
+          <div className="tc-note">
+            <button type="button" onClick={() => void sendTask({ asList: true })}>Send as {listed.length} separate threads</button>
+          </div>
+        )}
         {dropped > 0 && (
           <div className="tc-note">
             {dropped === 1

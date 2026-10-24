@@ -142,7 +142,10 @@ describe('the cases that must NOT match', () => {
 describe('the window applies the same exception, ahead of its team branches', () => {
   const app = readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
   it('neither veto in App.tsx drops a row that is still asking you', () => {
-    expect(app).toMatch(/if \(liveIds\.has\(i\.id\) && !stillAsksYou\(i\)\) return false;/);
-    expect(app).toMatch(/if \(shippingIds\.has\(i\.id\) && !stillAsksYou\(i\)\) return false;/);
+    // A LATER EXCEPTION MAY BE ADDED TO EITHER LINE AND NEITHER MAY BE
+    // RELAXED, so the regex allows further `&& !...` terms and nothing else. An
+    // agent frozen on a permission request is the second of them (F-28).
+    expect(app).toMatch(/if \(liveIds\.has\(i\.id\) && !stillAsksYou\(i\)( && ![^)]+\(i\))*\) return false;/);
+    expect(app).toMatch(/if \(shippingIds\.has\(i\.id\) && !stillAsksYou\(i\)( && ![^)]+\(i\))*\) return false;/);
   });
 });
