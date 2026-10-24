@@ -89,7 +89,7 @@ describe('the corners she drags', () => {
     expect(page).toContain('bridge.size(which, r.width, r.height, { x: g.x - r.x');
     expect(page).toContain('bridge?.clickable(overUs(e))');
     expect(bridge).toContain('clickable: (on)');
-    expect(bridge).toContain('size: (part, width, height, glass)');
+    expect(bridge).toContain('size: (part, width, height, glass, radius)');
   });
 });
 

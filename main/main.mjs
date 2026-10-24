@@ -43,6 +43,7 @@ import { createSourceUpdater } from './source-updater.mjs';
 import { learnShellDataDirs, recoverShellPath } from './shell-path.mjs';
 import { installNotifier } from './notify.mjs';
 import { createCornerTag } from './corner-tag.mjs';
+import { loadLiquidGlass } from './liquid-glass.mjs';
 import { createNeo } from './neo/index.mjs';
 import { fileReview } from './neo/review.mjs';
 import { DOC_SCHEMES, DocGrants, docPath } from './doc-scheme.mjs';
@@ -990,6 +991,7 @@ async function createWindow() {
   createCornerTag({
     BrowserWindow, screen: electronScreen, ipcMain, Menu, powerMonitor, config, saveConfig, mainWindow: window,
     preload: path.join(appDir, 'main', 'corner-tag-preload.cjs'),
+    glass: loadLiquidGlass(),
     count: (name, props) => analytics.track(name, props),
     // `part` is the tag itself or the list beside it, one page drawn twice.
     load: (tagWindow, part) => {

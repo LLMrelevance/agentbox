@@ -28,7 +28,7 @@ import { List } from './components/List';
 import { isTroubleRow, troubleRow } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
 import { lookedAtNow, needsYouLit } from './needs-you';
-import { arrivedAt, isUnread, readMoves } from './unread';
+import { arrivedAt, isUnread, readMoves, waitingSince } from './unread';
 import { Focus } from './components/Focus';
 import { TicketItems } from './components/TicketReference';
 import type { PendingSaid } from './item-thread';
@@ -3041,10 +3041,9 @@ export default function App() {
     prevInboxIds.current = ids;
     window.zero?.badge?.(inbox.length);
 
-    // THE CORNER TAG (w-dafae58a23) says the same thing as the inbox, from
-    // over whatever app she is in: everything in Needs you, newest first, and
-    // how many are working. Working agents are only a count, because
-    // twenty running is ordinary and only what is ready is worth a line.
+    // THE CORNER TAG (w-dafae58a23) gets everything in Needs you with the
+    // moment each started waiting, and how many are working; it shows only
+    // what started after you last left the app (main/corner-tag.mjs).
     const productName = (slug: string) => snap.products.find((p) => p.slug === slug)?.name ?? slug;
     window.zero?.cornerTag?.({
       ready: [
@@ -3052,9 +3051,9 @@ export default function App() {
           id: i.id,
           title: rowTitle(i),
           says: i.status === 'blocked' ? 'needs you' : 'is ready for you',
-          since: i.wrote?.status?.ts ?? i.updatedAt,
+          since: waitingSince(i),
         })),
-        ...(snap.approvals ?? []).map((a) => ({ id: a.id, title: productName(a.product ?? ''), says: 'needs a yes', open: null })),
+        ...(snap.approvals ?? []).map((a) => ({ id: a.id, title: productName(a.product ?? ''), says: 'needs a yes', since: a.at, open: null })),
       ],
       working: runningRows.length,
     });
